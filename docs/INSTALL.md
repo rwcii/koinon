@@ -41,6 +41,10 @@ must run under the same OS user. Verify `codex queue --help` and `python3 --vers
 
 A DeepSeek (DSH) participant needs no Codex CLI. It needs the running harness, which
 exports `DSH_HOME`, `DSH_SESSION_ID` and `DSH_WEB_URL` to a session's shell.
+`--configure-deepseek` alone does not require Codex. Installations with a saved or
+selected Codex participant, and explicit `--thread` mode, still require it.
+The executable selection order is explicit `--codex`, a saved installation value
+that is still an executable file, then Codex on `PATH`; an invalid selected executable fails before files are written.
 
 On macOS the system `python3` is often 3.9, which is below the floor; use a 3.11+
 interpreter explicitly, for example `python3.12`.
@@ -305,7 +309,10 @@ older runtime during an upgrade.
 ## Paths and options
 
 `--prefix`, `--state-dir`, `--unit-dir`, `--codex-home`, and an absolute `--codex` path
-support customized installations. In Codex-wide mode, `--state-dir` is the root for
+support customized installations. An explicit invalid `--codex` is refused even in
+DeepSeek-only mode. To add Codex later, rerun with `--configure-codex` and a valid
+executable; `session.py ensure` and `run` refuse Codex startup without one.
+In Codex-wide mode, `--state-dir` is the root for
 all per-thread directories. Installed `install.json` records these private local paths;
 do not commit it. `--no-start` with `--configure-codex` installs files/guidance without
 registering a thread. It still edits the selected Codex instructions; use temporary
@@ -484,3 +491,31 @@ canonical path: use its original configured `--state-dir`, or stop its verified
 process through the service manager. Do not remove a socket while its owner is
 alive. If both old and new control endpoints exist, clients refuse the ambiguity;
 inspect their owners before proceeding. No inbox or memory state is reset.
+
+## Usage collection
+
+The installer copies the local usage-report CLI and adapters. It starts no collector
+and registers no hooks. See [USAGE.md](USAGE.md) for explicit source selection,
+private markers, reporting, and the explicit DeepSeek usage deferral for this release.
+
+## Delivery evidence upgrade
+
+Upgrade the bridge and notifier together. Inbox schema 3 migrates transactionally
+to 4; the notification journal migrates from 1 to 2. An interrupted migration rolls
+back. The persistent installation identity is generated once in the inbox database
+and remains with that state through reinstall and restart. It is not a thread ID.
+
+Before an authorized upgrade, stop the selected notifier and bridge and verify both
+have exited. Copy that installation's entire private state directory to a private
+backup, preserving permissions, including databases, SQLite sidecars, migration and
+activation records, cursors, bindings and targets. Do not copy only a live main
+SQLite file. Do not remove the original or reset its checkpoints. Install with the
+same prefix, state paths and selected target, then restart and verify the pair.
+
+Older binaries refuse the new schemas. To roll back, first stop and verify both new
+processes have exited, then restore the complete stopped-state backup with the old
+binaries and the same target. Never combine an older journal backup with a newer
+inbox or switch targets during rollback. Restoring a backup loses subsequent local
+records and requires an explicit decision about that loss. Keep the new state for
+recovery rather than deleting it. Installation alone does not establish native
+receipt support or close the discovery verification gate in [DELIVERY.md](DELIVERY.md).

@@ -91,7 +91,7 @@ python3 notify.py --thread YOUR_CODEX_THREAD_ID --name codex-project --repo /pat
 
 Use the exact thread ID of the session you intend to notify. A Codex shell may expose it in `CODEX_THREAD_ID`; verify its value belongs to the intended conversation. The watcher does not create a replacement conversation.
 
-Claude peers can refresh their agent listing and send to `codex-project`. The registry entry identifies itself as `codex-peer-bridge`, with kind `daemon` and status `waiting`; this describes the inbox adapter, not the model's current activity.
+Claude peers can refresh their agent listing and send to `codex-project`. The registry entry identifies itself as `codex-peer-bridge`, with kind `daemon`. It omits model activity when no verified observation exists. Local status separates adapter health from model activity.
 
 ## Read and reply
 
@@ -105,7 +105,12 @@ python3 bridge.py ack 10
 python3 bridge.py stop
 ```
 
-`inbox` returns up to ten records, with sequence number, receipt time, kernel peer PID, and the original message envelope. Paginate using the last returned sequence. `ack` deletes stored entries through the given sequence after handling them; it is a local operation and sends no peer receipt. Sending accepts `--priority now`, `next` (default), or `later`.
+`inbox` returns up to ten records, with sequence number, receipt time, kernel peer PID, and the original message envelope. Paginate using the last returned sequence. `ack` deletes stored entries through the given sequence after handling them; it is a local operation and sends no peer receipt. Sending accepts `--priority now`, `next` (default), or `later`; notification adapters preserve these values but cannot map them to provider scheduling.
+
+[Delivery evidence](docs/DELIVERY.md) records transport, stored, notified, fetched,
+and explicitly handled outcomes locally. `bridge.py delivery --seq N` inspects a
+receipt; `bridge.py handled N --outcome done|failed|refused` records an outcome.
+No wire receipt is sent, and remote senders still learn only transport completion.
 
 Each inbox record includes bridge-owned `guidance` alongside the original `frame`.
 The same guidance accompanies queued notices and managed session instructions:
@@ -217,8 +222,11 @@ Limits: 8 KiB per body, 5,000 entries, 32 MiB logical and 128 MiB physical stora
 and pages bounded by encoded bytes rather than a row count. Entry slots and bytes are both
 reserved so a withdrawal stays recordable in a full store. Retained snapshots, acknowledgements,
 idempotency keys and idle consumers each have a lifetime, and expiry returns a defined recovery
-result rather than changing a caller's meaning silently. There is no bus integration and no
-compaction in this form; entries are removed only once expired.
+result rather than changing a caller's meaning silently. Entry garbage collection currently
+removes only expired entries. Broader history pruning remains planned; semantic memory
+consolidation (summarizing related memories) is neither implemented nor specified by this
+programme. Sync snapshots contain records, not generated summaries. See the
+[memory maintenance terminology](docs/PARITY-MEMORY-DESIGN.md#memory-maintenance-terminology).
 
 Bridge and memory database operations use dedicated worker threads with bounded queues.
 Status and stop have separate admission capacity when ordinary requests fill their slots.
@@ -355,3 +363,14 @@ Local bridge and memory subscriptions carry hints only. The notifier reads durab
 state before reserving journal work and calling a provider. See the
 [subscription protocol](PROTOCOL.md#change-subscriptions) and
 [upgrade and recovery procedure](docs/NOTIFIER.md).
+
+Outstanding requirements, confirmed defects, and proposals are recorded in the
+[delivery queue](docs/DELIVERY-QUEUE.md).
+
+## Usage reports
+
+Use the local [usage-report interface](docs/USAGE.md) for explicitly selected Codex
+and Claude sessions, including before-work markers, retrospective windows, and
+combining separate agent reports. DeepSeek usage reporting
+is explicitly deferred for this release; its messaging and installation support
+are unchanged.

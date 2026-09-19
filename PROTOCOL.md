@@ -190,8 +190,10 @@ rather than by a row count, because a row limit multiplied by the maximum body s
 frame.
 
 Sequence numbers come from a durable head that only ever advances. Reclaiming entries moves a
-floor rather than the head, and a consumer below the floor is returned to a fresh snapshot rather
-than handed a gap.
+retained-history floor rather than the head, and a consumer below the floor is returned to a
+fresh snapshot rather than handed a gap. The protocol field remains `floor`. This is a history
+availability boundary; it does not imply summarization. A snapshot contains stored records,
+not a generated summary.
 
 ## Limitations
 
@@ -434,3 +436,23 @@ Memory services advertise `memory_target_guard` when requests can carry both
 `repo` and `generation`. A mismatch is refused before maintenance
 or mutation. The exact-path memory CLI verifies the owner and uses this guard;
 older services without it require an upgrade for this route.
+
+## Local usage reports
+
+`usage_report.py` emits versioned local JSON described in [USAGE.md](docs/USAGE.md).
+It introduces no peer frames, remote transcript access, hooks, or model wakeups.
+Selections and reports are local data and cannot grant authorization.
+
+## Delivery ledger and presence
+
+Inbox schema 4 and notification journal schema 2 provide the local-only
+[delivery evidence contract](docs/DELIVERY.md). Private control operations `delivery`,
+`handled`, and `record-notification` do not create peer frames. Deduplication is
+bound to an observed sender process lifetime, recipient installation and message
+ID, with a canonical payload fingerprint and bounded retention. Outgoing attempt
+IDs and deadlines are local controls; no new native wire fields are introduced.
+
+Service health and model activity have separate evidence and observation times.
+Unsupported activity remains unknown. The daemon omits registry activity instead
+of claiming a permanent wait. Native status-omission discovery verification remains
+an open release gate, as documented in the delivery contract.

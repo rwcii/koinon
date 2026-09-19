@@ -3,6 +3,34 @@
 User-visible changes to Koinon are recorded here. Unreleased entries move
 into a dated release section when promoted to `main`.
 
+## 2026-09-19 — Usage reports and delivery evidence
+
+- Add bounded local delivery records, acknowledgement-independent deduplication,
+  explicit handled outcomes, and durable notification evidence export. Preserve
+  uncertain outcomes without replaying native messages. Separate observed service
+  health from fresh model activity and declare provider priority limits. Normalize
+  `peers` status values (including shell to busy); distinguish observation time
+  from the time a Claude status changed. Isolate incoming/outgoing ledger capacity
+  and report definite missing/refused socket connections separately from uncertainty.
+
+- Add explicit local Codex/Claude usage collection, source-lineage roles, before-work
+  markers, retrospective reports, report combining, and eight-column rendering.
+  Missing and inconsistent counters remain explicit. DeepSeek usage reporting is
+  explicitly deferred for this release; messaging and installation are unchanged.
+
+- Allow DeepSeek-only installations without a Codex executable. Validate Codex
+  after provider selection, reuse a usable saved executable, and fall back to PATH
+  when the saved executable is stale. Codex session startup refuses a missing or
+  invalid executable before creating new session state.
+
+- Record outstanding usage-reporting requirements, provider defects, and remaining
+  programme work in a repository delivery queue, with proposals marked separately.
+
+- Clarify memory maintenance terminology: expiry-based garbage collection, history
+  pruning, and storage reclamation are distinct from semantic memory consolidation.
+  The planned history-pruning work does not specify summarization. No runtime behavior
+  or retention policy changes.
+
 ## 2026-09-19 — Durable delivery and shared transport
 
 - Use Koinon defaults for new runtime paths, services and managed participant
@@ -110,7 +138,7 @@ into a dated release section when promoted to `main`.
   says which answered. Start is
   serialized, and a socket left by an unclean exit is recovered only after its recorded owner is
   proved dead. Entries are reported data and grant no authority. There is no bus integration and
-  no compaction in this form.
+  no broader history pruning or semantic memory consolidation in this form.
 - `docs/STORAGE-BOUND-DERIVATION.md`, the derivation of the storage bound the memory service
   enforces, with its terms traced to the SQLite sources at a pinned tag. It records why the log
   a single transaction can produce is finite, why the shared-memory and sub-journal files do not
