@@ -3,6 +3,14 @@
 User-visible changes to Koinon are recorded here. Unreleased entries move
 into a dated release section when promoted to `main`.
 
+## Unreleased
+
+- Record the approved work-items v1 contract and its implementation design for
+  advisory writer claims, progress reporting, interruption recovery, and 30-day
+  retention of finished work and its history.
+- Record the requirement for dead-session detection and supported single-session
+  removal that preserves inbox state; design remains pending.
+
 ## 2026-09-19 — Usage reports and delivery evidence
 
 - Add bounded local delivery records, acknowledgement-independent deduplication,

@@ -240,6 +240,11 @@ storage or programming failures until restart; it is not an integrity check.
 See [the design contract](docs/PARITY-MEMORY-DESIGN.md) for the requirements this implements and
 for the capabilities that remain unverified.
 
+The approved [work-items v1 contract](docs/WORK-ITEMS-V1.md) and
+[implementation-design candidate](docs/WORK-ITEMS-IMPLEMENTATION-DESIGN.md) specify
+structured work, advisory writer claims and progress recovery. They are design documents;
+the current runtime does not yet provide work-item commands.
+
 ## Storage and multiple sessions
 
 Fresh persistent state defaults to `$XDG_STATE_HOME/koinon`, or `~/.local/state/koinon`.

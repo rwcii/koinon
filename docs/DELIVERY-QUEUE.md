@@ -212,3 +212,39 @@ Process correction: the driver's PR status report became stale after another ses
 completed the merge. Verify remote state before reporting or planning release work.
 Keep outstanding commitments in this queue rather than only in temporary files or
 ignored handoffs. Record both findings and their dispositions.
+
+## DQ-08 — Dead-session detection and removal
+
+**Source:** direct user request. **Status:** requirement recorded; design pending.
+
+Detect a supervisor whose participant session has ended, report that state in
+status and peer discovery, and provide a supported single-session removal operation
+that preserves inbox state. Document the removal procedure and its limits.
+
+Define the evidence that establishes session termination. Lack of activity, a
+missing transient process, or a disconnected SSH connection alone must not be
+presented as definitive session death. Unknown session state must remain unknown.
+
+Whether removal is explicit or automatic remains a design decision. Verify
+ownership before removal, preserve unrelated sessions and retained inbox state,
+and avoid retiring live participants. This entry records a requirement only; it
+does not authorize runtime removal, state deletion, or permission changes.
+
+## DQ-09 — Work items v1
+
+**Source:** direct user request. **Status:** behavioral contract approved;
+implementation-design candidate prepared for review. No runtime implementation is delivered.
+
+The [approved contract](WORK-ITEMS-V1.md) defines structured repository work items,
+explicit assignment acceptance, exclusive advisory writer claims, progress
+checkpoints, stale/blocked queries, and repository-scoped participant opt-in.
+Completed and withdrawn items and their history expire after 30 days; unfinished
+work remains preserved. The contract includes the bootstrap workflow and explicit exclusions. The
+[implementation design](WORK-ITEMS-IMPLEMENTATION-DESIGN.md) addresses storage
+budgets, migration, and durable change-stream integration before coding.
+The candidate includes exact [schema](WORK-ITEMS-SCHEMA.md),
+[storage-reserve](WORK-ITEMS-STORAGE.md), and
+[configuration](WORK-ITEMS-CONFIGURATION.md) specifications with isolated design probes.
+
+Reuse one lease engine for work claims and the later DQ-05 path-prefix interface.
+DQ-04 retrieval, DQ-05 history pruning, and DQ-08 session removal remain separate.
