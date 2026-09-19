@@ -233,7 +233,8 @@ does not authorize runtime removal, state deletion, or permission changes.
 ## DQ-09 — Work items v1
 
 **Source:** direct user request. **Status:** behavioral contract approved;
-implementation-design candidate prepared for review. No runtime implementation is delivered.
+design merged; migration and lease primitives staged with synthetic tests.
+No runtime work-item commands are delivered.
 
 The [approved contract](WORK-ITEMS-V1.md) defines structured repository work items,
 explicit assignment acceptance, exclusive advisory writer claims, progress
@@ -245,6 +246,8 @@ budgets, migration, and durable change-stream integration before coding.
 The candidate includes exact [schema](WORK-ITEMS-SCHEMA.md),
 [storage-reserve](WORK-ITEMS-STORAGE.md), and
 [configuration](WORK-ITEMS-CONFIGURATION.md) specifications with isolated design probes.
+The [implementation foundation](WORK-ITEMS-FOUNDATION.md) records the implemented
+primitives and the remaining integration gates before runtime activation.
 
 Reuse one lease engine for work claims and the later DQ-05 path-prefix interface.
 DQ-04 retrieval, DQ-05 history pruning, and DQ-08 session removal remain separate.

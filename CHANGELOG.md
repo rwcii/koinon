@@ -5,6 +5,10 @@ into a dated release section when promoted to `main`.
 
 ## Unreleased
 
+- Add staged schema-migration and advisory-lease primitives with synthetic rollback,
+  restart, conflict, and reservation tests. Runtime activation remains pending;
+  the memory service still uses schema 4 and exposes no work-item commands.
+
 - Record the approved work-items v1 contract and its implementation design for
   advisory writer claims, progress reporting, interruption recovery, and 30-day
   retention of finished work and its history.
