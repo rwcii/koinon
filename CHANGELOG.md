@@ -3,7 +3,7 @@
 User-visible changes to Koinon are recorded here. Unreleased entries move
 into a dated release section when promoted to `main`.
 
-## Unreleased
+## 2026-09-19 — Usage reports and delivery evidence
 
 - Add bounded local delivery records, acknowledgement-independent deduplication,
   explicit handled outcomes, and durable notification evidence export. Preserve
