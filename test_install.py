@@ -66,7 +66,7 @@ class InstallTests(unittest.TestCase):
             check = subprocess.run([sys.executable, '-I', '-c',
                 'import sys; sys.path.insert(0, sys.argv[1]); '
                 'import memory, claims, work_schema, work_storage; '
-                'assert memory.SCHEMA == 4; print(memory.__file__)', str(root/'app')],
+                'assert memory.SCHEMA == 5; print(memory.__file__)', str(root/'app')],
                 cwd=root, capture_output=True, text=True)
             self.assertEqual(check.returncode, 0, check.stderr)
             self.assertEqual(Path(check.stdout.strip()), root/'app/memory.py')
@@ -74,6 +74,32 @@ class InstallTests(unittest.TestCase):
             self.assertIn('test-thread',unit)
             self.assertIn('--codex',unit)
             self.assertFalse((root/'state').exists())
+
+    def test_runtime_reinstall_preserves_existing_checkpoint_and_inbox(self):
+        import bridge
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            state = root/'state'
+            state.mkdir(mode=0o700)
+            inbox = bridge.InboxStore(state)
+            inbox.store(12345, dict(type='user', message=dict(content='synthetic retained message')))
+            before = tuple(inbox.db.iterdump())
+            inbox.close()
+            checkpoint = state/'checkpoint.json'
+            checkpoint.write_text('{"synthetic_checkpoint":17}')
+            command = [sys.executable, 'scripts/install.py', '--thread', 'synthetic-thread',
+                       '--codex', sys.executable, '--prefix', str(root/'app'), '--state-dir', str(state),
+                       '--unit-dir', str(root/'units'), '--no-start']
+            for _ in range(2):
+                result = subprocess.run(command, capture_output=True, text=True)
+                self.assertEqual(result.returncode, 0, result.stdout+result.stderr)
+                self.assertEqual(checkpoint.read_text(), '{"synthetic_checkpoint":17}')
+                reopened = bridge.InboxStore(state)
+                try:
+                    self.assertEqual(tuple(reopened.db.iterdump()), before)
+                finally:
+                    reopened.close()
+            self.assertTrue((root/'app/docs/WORK-ITEMS-UPGRADE.md').exists())
 
     def test_memory_local_imports_are_packaged(self):
         root = Path(__file__).parent

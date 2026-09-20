@@ -1,9 +1,9 @@
-# Staged work maintenance
+# Work maintenance
 
-The schema-5 maintenance implementation is exercised on synthetic stores. Public
-startup remains schema 4: its initial maintenance check reports disabled and exits.
-No activation flag, migration at startup, participant opt-in, or work capability is
-introduced here.
+The schema-5 maintenance implementation runs after public service startup.
+Schema-3/4 stores migrate atomically before readiness; see the
+[upgrade procedure](WORK-ITEMS-UPGRADE.md). Guidance opt-in remains independent
+and no installer starts memory automatically.
 
 After the service prints readiness, a separate task immediately submits one ordinary
 database-worker job. It waits 30 seconds using the event loop's monotonic timer after
@@ -60,5 +60,5 @@ change owners, bind peers, or send model messages.
 
 The [policy and guidance slice](WORK-ITEMS-POLICY.md) now supplies explicit participant
 opt-in, and [operator capacity planning](INSTALL.md#work-item-capacity-planning) explains
-workload and recovery limits. Activation, mixed-version binding compatibility and
-upgrade procedures remain later integration work.
+workload and recovery limits. [Upgrade procedures](WORK-ITEMS-UPGRADE.md) cover
+matching runtime versions, preserved state and deliberate live deployment.

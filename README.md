@@ -240,23 +240,20 @@ storage or programming failures until restart; it is not an integrity check.
 See [the design contract](docs/PARITY-MEMORY-DESIGN.md) for the requirements this implements and
 for the capabilities that remain unverified.
 
-The approved [work-items v1 contract](docs/WORK-ITEMS-V1.md) and
-[implementation-design candidate](docs/WORK-ITEMS-IMPLEMENTATION-DESIGN.md) specify
-structured work, advisory writer claims and progress recovery. They are design documents;
-public schema-4 startup does not enable work-item commands. The
-[implementation foundation](docs/WORK-ITEMS-FOUNDATION.md) stages migration and
-lease primitives, shared transaction reservation checks, and
-[staged work commands](docs/WORK-ITEMS-COMMANDS.md), and
-[bounded maintenance](docs/WORK-ITEMS-MAINTENANCE.md) with synthetic tests;
-it does not upgrade a running store. The [staged policy query](docs/WORK-ITEMS-POLICY.md)
-adds validated configuration, preserving installer updates, and explicit work-guidance
-publication/removal with verified policy queries. Configuration does not activate work commands.
+The [work-items v1 contract](docs/WORK-ITEMS-V1.md) supports structured repository
+work, advisory writer claims, explicit progress and finished-history retention.
+The memory runtime now creates schema-5 stores and upgrades schema 3/4 at startup;
+read the [upgrade procedure](docs/WORK-ITEMS-UPGRADE.md) before replacing a running
+service. Work commands, immutable stream records, frozen snapshots and bounded
+maintenance share the existing memory store. [Explicit guidance configuration](docs/WORK-ITEMS-POLICY.md)
+selects a repository and participant; ordinary installation never enables a selection
+or starts optional memory automatically.
 
 Work-item capacity is finite: 2,048 retained events can be exhausted in roughly
 5.3 days by 16 hourly reporters, while finished history remains for 30 days. With
 16 funded claims, the ordinary database band is about 15.8 MiB; the 128 MiB total
 ceiling is not ordinary write capacity. Read the [operator capacity guidance](docs/INSTALL.md#work-item-capacity-planning)
-before adopting the staged workflow. It explains reservations, refusal and recovery,
+before adopting the workflow. It explains reservations, refusal and recovery,
 including why deleting expired rows does not necessarily restore page headroom.
 
 ## Storage and multiple sessions

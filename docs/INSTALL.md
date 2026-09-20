@@ -2,9 +2,9 @@
 
 ## Work-item capacity planning
 
-Work commands remain staged: public startup uses schema 4. Explicit work-guidance
-configuration does not activate them. Before choosing this workflow when activation
-becomes available, check that the repository's retained workload fits these finite
+Memory startup now uses schema 5. Follow the [upgrade procedure](WORK-ITEMS-UPGRADE.md)
+before replacing a running service. Explicit work guidance is a separate opt-in.
+Before choosing this workflow, check that the repository's retained workload fits these finite
 budgets. V1 supports bounded work, not indefinite sustained progress reporting.
 
 | Limit | Capacity implication |
@@ -83,8 +83,8 @@ custom state and unit paths on upgrade. Installer updates now preserve unrelated
 configuration fields under a permanent `.install.lock` with atomic publication.
 The [work-policy and guidance commands](WORK-ITEMS-POLICY.md) add explicit
 repository/participant opt-in after a normal runtime installation. They preserve
-unrelated guidance and support interrupted-publication recovery; runtime activation
-remains deferred.
+unrelated guidance and support interrupted-publication recovery. Starting memory with
+this runtime creates or migrates schema 5; follow the [upgrade procedure](WORK-ITEMS-UPGRADE.md).
 
 Installation configuration must be a regular file owned by the current user and
 not writable by group or others. An older `install.json` with mode 0664 is refused
@@ -505,7 +505,7 @@ schema 3; earlier runtimes do not maintain the acknowledgement watermark. Restor
 rollback instead of mixing runtime and metadata versions. The schema change preserves
 ordinary-reader compatibility but does not upgrade an old notifier. The new notifier
 uses subscriptions and imports the legacy checkpoint into its separate journal.
-Explicit bindings require memory schema 4; restart each optional memory service with
+Explicit bindings require memory schema 5; restart each optional memory service with
 the new runtime before binding. Activation controls store evidence only. They are
 not a substitute for [stopped-notifier recovery](NOTIFIER.md).
 
@@ -542,10 +542,11 @@ sync command with the exact service root and a stable consumer identity. The leg
 notifier does not deliver memory pointers. Binding and notification do not acknowledge
 or import memory; the consumer must run sync and acknowledge issued pages explicitly.
 
-Memory schema 3 upgrades to schema 4 in a transaction that adds a durable store UUID
-and changes the schema version together. Records, snapshots and consumer cursors
-are retained. A schema-4 store with missing or invalid identity is refused, never
-silently assigned a replacement identity. Older runtimes refuse schema 4. Preserve
+Memory schemas 3 and 4 upgrade to schema 5 in one transaction; schema 3 also receives
+a durable store UUID. Existing records, replay results, snapshots and consumer cursors
+are retained. Schema-4/5 stores with missing or invalid identity are refused, never
+silently assigned a replacement identity. Older runtimes refuse schema 5. Read the
+[coordinated runtime upgrade procedure](WORK-ITEMS-UPGRADE.md). Preserve
 consistent backups before upgrade; rollback means restoring a compatible backup,
 not changing a schema number. An inbox upgrade does not restart memory for you.
 If `memory_upgrade_required` is returned, stop that memory service and start it

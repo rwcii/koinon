@@ -237,8 +237,10 @@ design merged; migration, lease primitives, and shared transaction reservation
 enforcement, work-command/stream integration, and bounded maintenance/reclamation
 staged with synthetic tests. Configuration validation, preserving installer updates,
 and the verified [policy query and explicit guidance publication](WORK-ITEMS-POLICY.md)
-are implemented with recoverable opt-in/removal; activation remains deferred.
-Public schema-4 startup does not enable the staged commands.
+are implemented with recoverable opt-in/removal. Schema-5 startup and schema-3/4
+migration are integrated with catalog validation, record-format guards, and
+[coordinated upgrade procedures](WORK-ITEMS-UPGRADE.md). Live deployment remains an
+explicit operation for each selected service.
 
 The [approved contract](WORK-ITEMS-V1.md) defines structured repository work items,
 explicit assignment acceptance, exclusive advisory writer claims, progress

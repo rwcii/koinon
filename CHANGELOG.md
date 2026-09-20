@@ -5,6 +5,10 @@ into a dated release section when promoted to `main`.
 
 ## Unreleased
 
+- Enable schema-5 memory startup with atomic schema-3/4 migration, complete catalog
+  validation and explicit work/record-format capabilities. Preserve legacy data and
+  snapshots; document coordinated runtime upgrades and rollback boundaries.
+
 - Document finite work-item capacity, retained-history limits, funded claim reserves,
   and the distinction between reclaiming rows and recovering allocated page headroom.
 

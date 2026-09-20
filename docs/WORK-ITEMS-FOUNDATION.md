@@ -1,11 +1,11 @@
 # Work-items implementation foundation
 
-The implementation stages schema and lease primitives for the
+The implementation supplies schema and lease primitives for the
 [merged design](WORK-ITEMS-IMPLEMENTATION-DESIGN.md), with reservation enforcement
-at the shared memory transaction boundary. The installer copies the accounting
-dependencies, but `memory.SCHEMA` remains 4: no work command or schema-5 capability
-is enabled by public startup, which does not migrate existing stores to schema 5.
-Tests upgrade synthetic Stores through the staged helper to exercise accounting.
+at the shared transaction boundary. Public memory startup now creates schema 5
+and atomically upgrades schema 3/4 after catalog validation. The
+[upgrade procedure](WORK-ITEMS-UPGRADE.md) covers existing services; code installation
+does not itself restart optional memory or configure participant guidance.
 
 ## Implemented primitives
 
@@ -68,15 +68,14 @@ The saturation exercise uses representative event/replay writes; actual work-com
 completion, current-record updates and lifecycle behavior remain integration tests
 for the next slice.
 
-## Integration still required
+## Startup integration
 
-Before enabling schema 5, connect the helpers to `Store` startup and fresh creation,
-run catalog validation before write-capable configuration, then verify the schema
-format after the owner's WAL reset and before enabling work. Update all schema
-ownership/data/index sets. Preserve one atomic
-migration and the current read-only rejection behavior for foreign stores.
+Startup connects the helpers to fresh creation and schema-3/4 migration. It validates
+the complete catalog before write-capable configuration and the database schema format
+after the owner's WAL reset. Schema ownership, data-presence and index sets include work
+objects. Migration remains one transaction; foreign stores are refused before writes.
 
-The [staged command slice](WORK-ITEMS-COMMANDS.md) implements work records and
+The [command implementation](WORK-ITEMS-COMMANDS.md) implements work records and
 lifecycle transitions, target-only due reconciliation, progress-credit rearming,
 immutable stream payloads, note/FTS separation, frozen current-work snapshots,
 idempotency, and the record-format guard for both sync and acknowledgement.
@@ -89,6 +88,6 @@ finished-item reclamation, diagnostics, idle hints and shutdown drainage.
 
 The [policy and guidance slice](WORK-ITEMS-POLICY.md) adds explicit installer opt-in
 and verified policy queries; [operator capacity planning](INSTALL.md#work-item-capacity-planning)
-documents finite workload and recovery limits. Binding compatibility, activation and
-upgrade procedures remain. Run the design's full-store, bootstrap, shutdown and mixed-version
-tests and Linux/macOS CI before claiming runtime implementation acceptance.
+documents finite workload and recovery limits. [Upgrade procedures](WORK-ITEMS-UPGRADE.md)
+cover matching runtime versions and live-state preservation. Tests cover startup rollback,
+legacy snapshots, binding version mismatches and full-store end operations.

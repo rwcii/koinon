@@ -1,13 +1,14 @@
 # Koinon protocols
 
-The [staged work command interface](docs/WORK-ITEMS-COMMANDS.md) documents the
-schema-5 work-event/current-view records and mandatory format-2 sync/ack guard.
-The [staged maintenance implementation](docs/WORK-ITEMS-MAINTENANCE.md) adds
-bounded reclamation and timestamped status diagnostics. Public startup remains
-schema 4; these staged interfaces are not runtime activation. The
-[staged work-policy query](docs/WORK-ITEMS-POLICY.md) documents versioned installation
-rules, verified disabled-by-default repository/participant selection, and recoverable
-explicit work-guidance publication/removal. Configuration does not activate memory commands.
+The [work command interface](docs/WORK-ITEMS-COMMANDS.md) provides schema-5
+work records, advisory claims and immutable events. Startup creates schema 5 or
+atomically migrates schema 3/4 after validating the complete catalog. Transport remains
+protocol 1; hello/status advertise `work_items_v1` and `memory_record_format_2`.
+Every sync and ack requires integer `record_format: 2`, refused before maintenance or
+cursor mutation if missing or incompatible. New readers retain legacy snapshot shapes.
+[Maintenance](docs/WORK-ITEMS-MAINTENANCE.md) bounds reclamation and reports timestamped
+diagnostics. [Policy and guidance](docs/WORK-ITEMS-POLICY.md) remain explicit opt-in.
+Follow the [runtime upgrade procedure](docs/WORK-ITEMS-UPGRADE.md) for existing services.
 
 The peer transport below was observed in Claude Code 2.1.267 on Linux and 2.1.268 on macOS. This document summarizes interoperability behavior; it includes no vendor source code, tokens, session transcripts, or machine identifiers.
 
@@ -326,7 +327,7 @@ obsolete prior binding from unexpected missing data. The pointer frame stays bin
 
 Before binding or refresh, the bridge verifies the memory service name, protocol,
 repository, recorded owner, kernel PID, process-start marker and generation.
-Memory schema 4 is required for its durable 32-hex `store_id`. An older live memory
+Memory schema 5 is required; the durable 32-hex `store_id` is preserved from schema 4. An older live memory
 service yields `memory_upgrade_required`; restart it with the new runtime. Missing
 memory yields `memory_unavailable`; incompatible identity or unhealthy storage is
 refused. Binding refusals include `recovery:"retry"` for transient failures or

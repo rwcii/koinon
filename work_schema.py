@@ -1,4 +1,4 @@
-"""Staged work-items schema; not activated by the memory service yet.
+"""Work-items schema validated and migrated by memory startup.
 
 The caller owns the connection and transaction. No function here configures a
 connection, commits, creates a daemon, or opens a persistent database.
@@ -236,6 +236,9 @@ def validate(db, repo, legacy_statements):
         if version < VERSION and any(key in meta for key in COUNTERS):
             raise SchemaError('incompatible_store', 'legacy store has unexpected work counters')
         return version
+    except sqlite3.ProgrammingError:
+        # Programming failures are not evidence of an incompatible operator file.
+        raise
     except sqlite3.Error as exc:
         code = getattr(exc, 'sqlite_errorcode', 0) & 0xff
         if code in (sqlite3.SQLITE_BUSY, sqlite3.SQLITE_LOCKED):
@@ -250,8 +253,8 @@ def migrate(db, repo, legacy_statements):
     The caller must propagate errors out of its transaction and roll back. The
     caller must reset the WAL before BEGIN, disable cache spill, and invoke this
     helper before any other write in that transaction.
-    The runtime does not invoke this staged helper until schema-5 readers and storage
-    accounting are integrated. Revalidation here also protects synthetic callers.
+    Runtime startup invokes this after read-only source validation and configuration.
+    Revalidation here also protects independent synthetic callers.
     """
     if not db.in_transaction:
         raise RuntimeError('migration requires a caller-owned transaction')

@@ -42,6 +42,7 @@ import claims
 import work_storage
 import work_items
 import work_maintenance
+import work_schema
 
 from database_worker import DatabaseWorker, CapacityError, WorkerFailure, WorkerClosed
 from service_runtime import Admission, close_writer, drain_handlers, database_status, HANDSHAKE_TIMEOUT
@@ -50,7 +51,7 @@ import platform_support
 from peer_transport import control_exchange as transport_exchange, service_path, NoControlReply, UnsafeServiceEndpoint
 
 PROTOCOL = 1
-SCHEMA = 4
+SCHEMA = 5
 INITIALISING = object()
 VERIFY_TIMEOUT = 5
 
@@ -87,10 +88,11 @@ CREATE TABLE IF NOT EXISTS entries(
 # that differs is a different table wearing the same name, so shapes are compared too.
 SCHEMA_TABLES = frozenset(('meta', 'entries', 'idem', 'cursors', 'retired', 'snapshots',
                            'snapshot_items'))
-SCHEMA_INDEXES = frozenset(('entries_live',))
+SCHEMA_TABLES |= work_schema.TABLES
+SCHEMA_INDEXES = frozenset(('entries_live',)) | work_schema.INDEXES
 # Tables holding what a caller stored. Any row here without an identity means the file is
 # somebody's data, whether the metadata table is empty or missing altogether.
-DATA_TABLES = ('entries', 'snapshot_items', 'snapshots', 'cursors', 'retired', 'idem')
+DATA_TABLES = ('entries', 'snapshot_items', 'snapshots', 'cursors', 'retired', 'idem') + tuple(sorted(work_schema.TABLES))
 FTS_TABLE = 'search'
 FTS_TABLE_SQL = 'CREATE VIRTUAL TABLE IF NOT EXISTS search USING fts5(body, content="")'
 # The shadow tables FTS5 creates for a contentless `search`, verified against a real one
@@ -223,6 +225,8 @@ CHAINED_DATABASE_FAULTS = {
     'store_busy': None,
     'capacity': None,
     'incompatible_store': None,
+    'unsupported_runtime': None,
+    'wrong_repository': None,
     'socket_in_use': None,
 }
 
@@ -345,17 +349,50 @@ class Store:
                 with self.transaction():
                     for statement in SCHEMA_STATEMENTS:
                         self.db.execute(statement)
+                    if SCHEMA >= work_schema.VERSION:
+                        replay_columns = {row[1] for row in self.db.execute('PRAGMA table_info(idem)')}
+                        for statement in work_schema.MIGRATION_STATEMENTS:
+                            if statement.startswith('ALTER TABLE'):
+                                if statement.split()[5] in replay_columns:
+                                    continue
+                            else:
+                                statement = statement.replace('CREATE TABLE ', 'CREATE TABLE IF NOT EXISTS ', 1).replace(
+                                    'CREATE INDEX ', 'CREATE INDEX IF NOT EXISTS ', 1)
+                            self.db.execute(statement)
+                        for key in work_schema.COUNTERS:
+                            self.set_meta(key, 0)
                     for key, value in (('repo', repo), ('protocol', PROTOCOL),
                                        ('schema', SCHEMA), ('head', 0), ('floor', 0),
                                        ('store_id', uuid.uuid4().hex)):
                         self.set_meta(key, value)
                 self._initialisation = None
+            elif int(self.meta('schema')) < SCHEMA and SCHEMA >= work_schema.VERSION:
+                with self.transaction(control=True):
+                    work_schema.migrate(self.db, repo, SCHEMA_STATEMENTS)
             elif int(self.meta('schema')) == 3:
                 with self.transaction(control=True):
                     self.set_meta('store_id', uuid.uuid4().hex)
                     self.set_meta('schema', SCHEMA)
+            if SCHEMA >= work_schema.VERSION:
+                self.reset_log()
+                work_schema.validate_format(self.db)
             self.fts = False if fts is False else self._open_fts()
             self._reconcile_index()
+        except work_schema.SchemaError as exc:
+            self.db.close()
+            if exc.code == 'capacity':
+                raise MemoryError_('capacity', str(exc)) from exc
+            if exc.code == 'unsupported_sqlite':
+                raise MemoryError_('unsupported_runtime', str(exc)) from exc
+            if exc.code == 'storage_blocked':
+                raise MemoryError_('storage_blocked', str(exc)) from exc
+            if exc.code == 'store_busy':
+                raise MemoryError_('store_busy', str(exc)) from exc
+            if exc.code == 'wrong_repository':
+                raise MemoryError_('wrong_repository', str(exc)) from exc
+            if exc.code == 'incompatible_store':
+                raise MemoryError_('incompatible_store', str(exc)) from exc
+            raise RuntimeError('unhandled schema startup error code: ' + exc.code) from exc
         except sqlite3.Error as exc:
             self.db.close()
             if owned_elsewhere(exc):
@@ -697,26 +734,35 @@ class Store:
 
         # No identity, so this may only be adopted if it is exactly an unfinished start.
         expected = {}
-        for statement in SCHEMA_STATEMENTS:
-            name = statement.split('EXISTS', 1)[1].split('(', 1)[0].split()[0]
-            expected[name] = normalised_sql(statement)
+        for version in ((4, 5) if SCHEMA >= work_schema.VERSION else (4,)):
+            for kind, name, _table, sql in work_schema.expected_catalog(SCHEMA_STATEMENTS, version, False):
+                if not name.startswith('sqlite_'):
+                    expected.setdefault(name, set()).add(work_schema.sql_tokens(sql))
         fts_present = any(name == FTS_TABLE and normalised_sql(sql) == normalised_sql(FTS_TABLE_SQL)
                           for _type, name, sql in objects)
+        fts_expected = {}
+        if fts_present:
+            fts_expected = {name: work_schema.sql_tokens(sql)
+                            for _kind, name, _table, sql in work_schema.expected_catalog(
+                                SCHEMA_STATEMENTS, 4, True)
+                            if name == FTS_TABLE or name in FTS_SHADOWS}
         unknown, malformed = [], []
         for _type, name, sql in objects:
             if name == FTS_TABLE:
-                if not fts_present:
+                if not fts_present or work_schema.sql_tokens(sql) != fts_expected.get(name):
                     malformed.append(name)
                 continue
             if name in FTS_SHADOWS:
                 # Admitted only alongside the virtual table that owns them.
                 if not fts_present:
                     unknown.append(name)
+                elif work_schema.sql_tokens(sql) != fts_expected.get(name):
+                    malformed.append(name)
                 continue
             if name not in expected:
                 unknown.append(name)
                 continue
-            if normalised_sql(sql) != expected[name]:
+            if work_schema.sql_tokens(sql) not in expected[name]:
                 malformed.append(name)
         if unknown:
             raise MemoryError_(
@@ -803,13 +849,17 @@ class Store:
                                        'state directory belongs to another repository; it was left '
                                'untouched')
         for key, current in (('schema', SCHEMA), ('protocol', PROTOCOL)):
-            found = int(rows.get(key) or 0)
+            try:
+                found = int(rows.get(key) or 0)
+            except (TypeError, ValueError):
+                raise MemoryError_('incompatible_store',
+                                   'store version metadata is malformed; nothing was written') from None
             if found > current:
                 raise MemoryError_('schema_too_new',
                                    f'this store declares {key} {found}; this runtime supports '
                                    f'{current}. Upgrade the runtime rather than downgrading the '
                                    'store. Nothing was written')
-            if found < current and not (key == 'schema' and found == 3):
+            if found < current and not (key == 'schema' and found in (3, 4)):
                 raise MemoryError_('schema_too_old',
                                    f'this store declares {key} {found}; this runtime expects '
                                    f'{current} and has no migration for it. Nothing was written')
@@ -821,6 +871,8 @@ class Store:
         elif (not isinstance(store_id, str) or len(store_id) != 32
               or any(c not in '0123456789abcdef' for c in store_id)):
             raise MemoryError_('incompatible_store', 'store identity is missing or invalid; it was left untouched')
+        if SCHEMA >= work_schema.VERSION:
+            work_schema.validate(self.db, repo, SCHEMA_STATEMENTS)
 
     # --- schema helpers -------------------------------------------------------
 
@@ -1597,7 +1649,7 @@ class MemoryCommands:
             self.record_format(r)
         if op in work_items.FIELDS:
             if self.store.accounting_version() < 5:
-                raise MemoryError_('schema_too_old', 'work commands require a future schema-5 activation')
+                raise MemoryError_('schema_too_old', 'work commands require schema 5; upgrade the memory runtime')
             return work_items.WorkItems(self.store, MemoryError_).command(r, pid)
         if op not in self.READ_ONLY:
             self.store.maybe_expire()
@@ -1917,6 +1969,8 @@ class Service:
             result = await self.worker.call('command', request, pid)
         if request['op'] in ('hello', 'status'):
             result['capabilities'] = ['memory_subscription', 'memory_target_guard']
+            if result.get('schema') == work_schema.VERSION:
+                result['capabilities'].extend(['work_items_v1', 'memory_record_format_2'])
             fault = (result['database_observed_fault'] if request['op'] == 'status'
                      else self.worker.fault)
             if request['op'] == 'hello':

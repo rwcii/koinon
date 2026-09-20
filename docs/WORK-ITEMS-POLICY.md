@@ -1,9 +1,10 @@
 # Work configuration and verified guidance
 
 Work configuration is an explicit opt-in for one repository and participant. Ordinary
-installation never enables it. These commands publish conditional guidance but do not
-activate the work runtime: public memory startup still uses schema 4. A verified policy
-selection is not evidence that the memory service supports work commands.
+installation never enables it. These commands publish conditional guidance independently of service startup. Memory
+startup now uses schema 5; an already running older service still needs the
+[coordinated upgrade](WORK-ITEMS-UPGRADE.md). A verified policy selection alone is not
+evidence that a particular memory service supports work commands.
 
 First install or upgrade the runtime normally. Configuration requires an existing
 `install.json` and installed policy/guidance modules; it neither deploys runtime files

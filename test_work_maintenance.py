@@ -270,7 +270,8 @@ class MaintenanceLoopTests(unittest.IsolatedAsyncioTestCase):
 
     def service(self, staged=True):
         def factory():
-            store = memory.Store(self.root / 'memory.sqlite3', '0123456789abcdef')
+            with patch.object(memory, 'SCHEMA', 5 if staged else 4):
+                store = memory.Store(self.root / 'memory.sqlite3', '0123456789abcdef')
             if staged:
                 with store.transaction():
                     work_schema.migrate(store.db, store.repo, memory.SCHEMA_STATEMENTS)
@@ -284,6 +285,7 @@ class MaintenanceLoopTests(unittest.IsolatedAsyncioTestCase):
         self.tasks.append(task)
         return task
 
+    @patch.object(memory, 'SCHEMA', 4)
     async def test_schema4_exits_disabled_without_fault(self):
         service = self.service(False)
         await asyncio.wait_for(self.loop(service), 2)
