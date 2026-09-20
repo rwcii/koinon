@@ -5,6 +5,10 @@ into a dated release section when promoted to `main`.
 
 ## Unreleased
 
+- Preserve unknown installation fields and staged work rules across upgrades using
+  a permanent configuration lock and atomic writes. Add a read-only `work-policy`
+  query for explicit repository/participant selections; work activation remains deferred.
+
 - Add staged bounded work maintenance, atomic finished-history reclamation, and
   timestamped status diagnostics. Idle subscribers receive committed change hints;
   shutdown drains accepted jobs. Public startup remains schema 4.

@@ -3,6 +3,8 @@ from contextlib import contextmanager, ExitStack
 import fcntl
 import hashlib
 import json
+import math
+import time
 import os
 from pathlib import Path
 import stat
@@ -41,12 +43,18 @@ def identity(provider, participant):
 
 
 @contextmanager
-def file_lock(path, conflict, owner):
+def file_lock(path, conflict, owner, *, timeout=0):
     """Acquire an owned regular file without following a link or unlinking it.
 
     Opening a persistent inode is intentional: unlink-on-release could let a new
     caller lock a different inode while an older caller still holds this one.
+    Installation writers may wait up to timeout seconds; notifier ownership
+    remains nonblocking by default. The wait uses a monotonic refusal deadline,
+    not a FIFO queue or fairness guarantee.
     """
+    if type(timeout) not in (int, float) or not math.isfinite(timeout) or timeout < 0:
+        raise ValueError('lock timeout must be finite and nonnegative')
+    deadline = time.monotonic() + timeout
     fd = None
     try:
         try:
@@ -57,10 +65,15 @@ def file_lock(path, conflict, owner):
                     info.st_mode & 0o077 or info.st_nlink != 1):
                 raise OwnershipError('unsafe_lock_file', owner)
             os.set_inheritable(fd, False)
-            try:
-                fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
-            except BlockingIOError:
-                raise OwnershipError(conflict, owner) from None
+            while True:
+                try:
+                    fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+                    break
+                except BlockingIOError:
+                    remaining = deadline - time.monotonic()
+                    if remaining <= 0:
+                        raise OwnershipError(conflict, owner) from None
+                    time.sleep(min(.05, remaining))
         except OSError:
             raise OwnershipError('lock_unavailable', owner) from None
         # Do not classify exceptions from the caller's work as lock failures.

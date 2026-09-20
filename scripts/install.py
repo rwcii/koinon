@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Install a per-user bridge and optional systemd user services."""
 import argparse
+import copy
 import json
 import os
 from pathlib import Path
@@ -13,11 +14,12 @@ import sys
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 import platform_support
 import runtime_names
+import install_state
 
 MARKER = runtime_names.SERVICE_MARKER
 SERVICES = runtime_names.service_names()
 
-FILES = ('work_maintenance.py', 'work_items.py', 'work_storage.py', 'claims.py', 'work_schema.py', 'docs/DELIVERY.md', 'participant_presence.py', 'delivery_ledger.py', 'usage_report.py', 'usage_sources.py', 'usage_selection.py', 'docs/USAGE.md', 'runtime_names.py', 'participant_instructions.py', 'session_observation.py', 'durable_state.py', 'notification_delivery.py', 'notification_health.py', 'notification_journal.py', 'notification_legacy.py', 'notification_memory.py', 'notification_migration.py', 'notification_notices.py', 'notification_provider.py', 'notification_runtime.py', 'notification_source.py', 'notification_state.py', 'subscriptions.py','memory_bindings.py', 'inbox_schema.py', 'database_worker.py', 'service_runtime.py', 'participant_lock.py', 'peer_transport.py', 'peer_guidance.py', 'CHANGELOG.md', 'memory.py', 'session.py', 'codex_instructions.py', 'platform_support.py', 'dsh_delivery.py', 'scripts/install.py', 'scripts/uninstall.py', 'scripts/uninstall.sh', 'bridge.py', 'notify.py', 'README.md', 'PROTOCOL.md', 'LICENSE', 'CONTRIBUTING.md', 'AGENTS.md', 'docs/INSTALL.md', 'docs/NOTIFIER.md', 'docs/IDENTIFIER-MIGRATION.md', 'docs/PARITY-MEMORY-DESIGN.md')
+FILES = ('docs/WORK-ITEMS-POLICY.md', 'install_state.py', 'work_policy.py', 'work_maintenance.py', 'work_items.py', 'work_storage.py', 'claims.py', 'work_schema.py', 'docs/DELIVERY.md', 'participant_presence.py', 'delivery_ledger.py', 'usage_report.py', 'usage_sources.py', 'usage_selection.py', 'docs/USAGE.md', 'runtime_names.py', 'participant_instructions.py', 'session_observation.py', 'durable_state.py', 'notification_delivery.py', 'notification_health.py', 'notification_journal.py', 'notification_legacy.py', 'notification_memory.py', 'notification_migration.py', 'notification_notices.py', 'notification_provider.py', 'notification_runtime.py', 'notification_source.py', 'notification_state.py', 'subscriptions.py','memory_bindings.py', 'inbox_schema.py', 'database_worker.py', 'service_runtime.py', 'participant_lock.py', 'peer_transport.py', 'peer_guidance.py', 'CHANGELOG.md', 'memory.py', 'session.py', 'codex_instructions.py', 'platform_support.py', 'dsh_delivery.py', 'scripts/install.py', 'scripts/uninstall.py', 'scripts/uninstall.sh', 'bridge.py', 'notify.py', 'README.md', 'PROTOCOL.md', 'LICENSE', 'CONTRIBUTING.md', 'AGENTS.md', 'docs/INSTALL.md', 'docs/NOTIFIER.md', 'docs/IDENTIFIER-MIGRATION.md', 'docs/PARITY-MEMORY-DESIGN.md')
 
 
 def unit_arg(value):
@@ -193,8 +195,16 @@ def main():
     if not platform_support.SUPPORTED or sys.version_info < (3,11):
         p.error('Linux or macOS with Python 3.11+ is required')
     a.prefix = (a.prefix or runtime_names.default_prefix()).expanduser().resolve()
-    config_path = a.prefix / 'install.json'
-    previous = runtime_names.install_config(a.prefix)
+    # Refusals must not create even a prefix/lock. Recheck under the lock
+    # using fresh configuration before any publication or service changes. Legacy
+    # service-manager availability is deliberately checked in both passes.
+    install(copy.deepcopy(a), p, validate_only=True)
+    with install_state.locked(a.prefix) as configuration:
+        install(a, p, configuration)
+
+
+def install(a, p, configuration=None, validate_only=False):
+    previous = configuration.config if configuration is not None else runtime_names.install_config(a.prefix)
     a.state_dir = Path(a.state_dir or previous.get('state_root') or runtime_names.default_state_root()).expanduser().resolve()
     a.unit_dir = Path(a.unit_dir or previous.get('unit_dir') or Path.home()/'.config/systemd/user').expanduser().resolve()
     if not a.thread and not (a.configure_codex or a.configure_deepseek):
@@ -218,6 +228,8 @@ def main():
                                           os.environ.get('CODEX_HOME', str(Path.home()/'.codex')))
         a.dsh_home = a.dsh_home or Path(previous.get('dsh_home') or
                                       os.environ.get('DSH_HOME', str(Path.home()/'.dsh')))
+        if validate_only:
+            return
         os.umask(0o077)
         a.prefix.mkdir(parents=True,exist_ok=True)
         source = Path(__file__).resolve().parent.parent
@@ -233,7 +245,7 @@ def main():
         # DeepSeek session learns to register and read its inbox the same way a
         # Codex session does.
         dsh_guidance = update(a.dsh_home,a.prefix,agent='deepseek') if a.configure_deepseek else None
-        (a.prefix/'install.json').write_text(json.dumps(dict(state_root=str(a.state_dir),
+        configuration.merge(dict(state_root=str(a.state_dir),
             unit_dir=str(a.unit_dir),codex=a.codex,codex_home=str(a.codex_home.expanduser().resolve()),
             dsh_home=str(a.dsh_home.expanduser().resolve()),
             # Which managed sections this installation wrote, so uninstall removes
@@ -242,7 +254,7 @@ def main():
             dsh_url=(os.environ.get('DSH_WEB_URL', previous.get('dsh_url'))
                      if a.configure_deepseek else previous.get('dsh_url')),
             dsh_credentials=(str(a.dsh_home.expanduser().resolve()/'.credentials.yaml')
-                             if a.configure_deepseek else previous.get('dsh_credentials')))))
+                             if a.configure_deepseek else previous.get('dsh_credentials'))))
         print('Installed runtime:',a.prefix)
         print('State directory:',a.state_dir)
         if guidance is not None:
@@ -277,8 +289,12 @@ def main():
         # Fail before modifying installation if the user manager is unavailable.
         subprocess.run(['systemctl','--user','show-environment'],check=True,stdout=subprocess.DEVNULL)
         existing = active_units(a.unit_dir, selected, a.prefix)
+        if validate_only:
+            return
         if existing:
             subprocess.run(['systemctl','--user','stop',*existing],check=True)
+    if validate_only:
+        return
     os.umask(0o077)
     a.prefix.mkdir(parents=True,exist_ok=True)
     a.unit_dir.mkdir(parents=True,exist_ok=True)
@@ -303,5 +319,6 @@ if __name__ == '__main__':
     try:
         main()
     except runtime_names.NameConflict as exc:
-        print(json.dumps(dict(ok=False, code=exc.code, paths=exc.paths)))
-        raise SystemExit(platform_support.CONFIGURATION_EXIT_STATUS) from None
+        print(json.dumps(dict(ok=False, code=exc.code, paths=exc.paths, error=str(exc))))
+        raise SystemExit(75 if exc.code == 'configuration_busy' else
+                         platform_support.CONFIGURATION_EXIT_STATUS) from None

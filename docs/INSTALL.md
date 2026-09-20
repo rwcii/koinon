@@ -16,7 +16,20 @@ names present cause a refusal that names both paths. Default selection reports i
 path and reason on stderr. No state, cursor, memory store, registration or lock is
 moved or reset. Invalid configuration refuses without falling back to empty state.
 Historical explicit-thread installations without `install.json` must repeat any
-custom state and unit paths on upgrade.
+custom state and unit paths on upgrade. Installer updates now preserve unrelated
+configuration fields under a permanent `.install.lock` with atomic publication.
+The [staged work-policy query](WORK-ITEMS-POLICY.md) is read-only; work-guidance
+configuration and runtime activation are not yet available.
+
+Installation configuration must be a regular file owned by the current user and
+not writable by group or others. An older `install.json` with mode 0664 is refused
+with `invalid_install_configuration`; its contents are preserved. Verify the selected
+prefix and expected owner, then explicitly restore owner-only write access (for example,
+mode 0600 on that verified file) before retrying. The installer does not silently repair
+ownership, permissions, symlinks, or malformed configuration. Ordinary 0600/0644 files
+remain readable. Concurrent installers wait up to 30 seconds for `.install.lock`;
+`configuration_busy` with exit 75 means check the other installer and retry, never
+remove the permanent lock to force progress.
 
 Existing owned `codex-peer-*` unit names remain in use. Both old and new ownership
 markers and participant guidance sections are recognized for upgrade and removal.
