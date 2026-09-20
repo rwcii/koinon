@@ -16,15 +16,17 @@ Stage 4 implementation was squash-merged in PR #18. Its tests and review do not
 close the items below. Check the live release and deployment records before acting;
 branch completion and installed capability are different facts.
 
-Recommended order: finish the terminology correction, define the usage-report
-contract and its evidence sources, resolve the provider installation defect, then
-continue Stage 5. Keep the retrieval proposals visible for a scope decision before
-Stage 6 history pruning. Investigating a requirement does not settle its protocol.
+DQ-01, DQ-02, DQ-03 and DQ-07 were included in the promotion to `main` at
+`35a8bdd` (2026-09-19 release). Work-items v1 is integrated on `develop` through
+PR #35. These source milestones do not establish local runtime deployment.
+Next, reconcile authorized deployment and first adoption, then design DQ-08. Keep
+DQ-04 visible for a scope decision before DQ-05 history pruning. Investigating a
+requirement does not settle its protocol.
 
 ## DQ-01 — Universal per-agent usage reports
 
 **Source:** user requirement conveyed by the reviewer and explicitly requested for
-this queue by the user. **Status:** Codex/Claude implementation delivered on develop. DeepSeek usage
+this queue by the user. **Status:** Codex/Claude implementation released on `main` in the 2026-09-19 release. DeepSeek usage
 is explicitly deferred for this release by scope decision. See [the implemented contract and availability matrix](USAGE.md). DeepSeek
 messaging, delivery, and installation remain supported; the exclusion applies
 only to usage reporting.
@@ -108,8 +110,8 @@ import is not included in this release.
 
 ## DQ-02 — DeepSeek-only installation must not require Codex
 
-**Source:** recorded implementation defect (F071). **Status:** implemented on develop;
-release and runtime deployment remain separate. DeepSeek-only setup and repeat installation no longer require
+**Source:** recorded implementation defect (F071). **Status:** implemented in PR #22 and released on `main` in the
+2026-09-19 release; runtime deployment remains separate. DeepSeek-only setup and repeat installation no longer require
 Codex. Codex startup refuses a missing executable before creating new session state.
 
 The installer validates the Codex executable unconditionally before it resolves the
@@ -126,11 +128,11 @@ validate their required executable. Preserve saved paths, targets, and state.
 
 ## DQ-03 — Stage 5 presence, priority, and delivery evidence
 
-**Source:** approved programme contract. **Status:** implemented on `develop`
-(PR #24). Status-omission compatibility
+**Source:** approved programme contract. **Status:** implemented in PR #24 and released on `main` in the
+2026-09-19 release. Status-omission compatibility
 is supported by offline evidence limited to Claude 2.1.276, with independent parser
 confirmation and driver-extracted listing-filter evidence. Live discovery remains
-unverified. No release or runtime deployment is claimed. See [DELIVERY.md](DELIVERY.md).
+unverified; the source release does not establish runtime deployment. See [DELIVERY.md](DELIVERY.md).
 
 Separate fresh, evidenced model activity from service health. Unknown activity must
 remain unknown. Declare provider priority limits from measurement. Distinguish
@@ -201,7 +203,8 @@ local edits, and private handoff files. Do not infer deletion permission from a 
 
 ## DQ-07 — Terminology and reporting correction
 
-**Source:** direct user request. **Status:** documentation edits prepared for review.
+**Source:** direct user request. **Status:** documentation correction merged in PR #21 and included in the
+2026-09-19 release on `main`.
 
 Use garbage collection, history pruning, storage reclamation, retained-history floor,
 and semantic memory consolidation precisely. Snapshots contain records, not generated
@@ -257,3 +260,19 @@ primitives and the remaining integration gates before runtime activation.
 
 Reuse one lease engine for work claims and the later DQ-05 path-prefix interface.
 DQ-04 retrieval, DQ-05 history pruning, and DQ-08 session removal remain separate.
+
+## DQ-10 — Validate the memory error-code vocabulary
+
+**Source:** independent review of PR #35. **Status:** proposed consistency follow-up;
+not a known reachable work/startup failure.
+
+`MemoryError_` currently accepts any code, while `NameConflict` validates its
+configuration codes at construction. Work-schema errors also cross into memory
+through `WorkItems.command`. Consider a declared memory error-code set and explicit
+mapping at subsystem boundaries so an unknown internal code fails as a programming
+error rather than becoming a public response.
+
+Acceptance: inventory the existing public vocabulary, preserve supported responses
+and retry classifications, and test unknown-code rejection and each cross-subsystem
+mapping. Keep programming faults distinct from user-input and store refusals.
+The current reachable work/startup mappings are covered by the PR #35 tests.
