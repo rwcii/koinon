@@ -77,7 +77,8 @@ does not depend on the source checkout. Activation, observation, migration, and 
 `memory_service_artifacts.publish(prefix, python, desired)` publishes a new managed
 selection or retries the same selection. It requires an existing installation and
 artifact directory, revalidates Git identity before and under the installation lock,
-and preserves unrelated configuration. It never creates memory state or contacts a
+checks that the selected Python interpreter is an executable file, and preserves
+unrelated configuration. It never creates memory state or contacts a
 service manager. There is no public CLI for it yet; do not invoke it against live
 manager directories before the lifecycle runner and integration are complete.
 

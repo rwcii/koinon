@@ -61,6 +61,8 @@ def _read(path):
 def _expected(prefix, python, record):
     prefix = absolute_path(str(prefix))
     python = absolute_path(str(python))
+    if not python.is_file() or not os.access(python, os.X_OK):
+        raise ValueError('selected Python interpreter is not an executable file')
     _parents(prefix / 'install.json')
     key, _ = configuration.verify_selection(record)
     if record['backend'] == 'manual':

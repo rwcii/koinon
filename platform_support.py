@@ -381,6 +381,8 @@ def memory_service_artifact(prefix, python, key, selection):
             '--state-root', selection['state_root'], '--backend', selection['backend']]
     backend = selection['backend']
     if backend == 'systemd':
+        # Path validation above excludes control characters; do not accept arbitrary
+        # JSON unicode escapes as systemd command syntax.
         def argument(value):
             return json.dumps(value.replace('%', '%%').replace('$', '$$'), ensure_ascii=False)
         text = (runtime_names.SERVICE_MARKER + '# Memory service template v1\n[Unit]\nDescription=Koinon repository memory\n\n'

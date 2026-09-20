@@ -175,6 +175,25 @@ class MemoryArtifactTests(unittest.TestCase):
         self.refused(record)
         self.assertEqual(target.read_bytes(), content)
 
+    def test_missing_directory_and_nonexecutable_interpreters_refuse_before_publication(self):
+        key, record, _ = self.desired()
+        missing, directory, no_execute = (self.root / name for name in
+                                          ('missing-python', 'directory-python', 'not-executable'))
+        directory.mkdir()
+        no_execute.write_text('synthetic non-executable')
+        no_execute.chmod(0o600)
+        before = self.config_path.read_bytes()
+        for python in (missing, directory, no_execute):
+            candidate = dict(record)
+            candidate['artifact_digest'] = artifacts.digest(
+                platform_support.memory_service_artifact(self.prefix, python, key, candidate))
+            with self.subTest(python=python), self.assertRaises(runtime_names.NameConflict) as caught:
+                artifacts.publish(self.prefix, python, candidate)
+            self.assertEqual(caught.exception.code, 'invalid_install_configuration')
+            self.assertEqual(self.config_path.read_bytes(), before)
+            self.assertFalse((self.prefix / install_state.LOCK_NAME).exists())
+            self.assertFalse(Path(candidate['artifact']).exists())
+
     def test_parent_symlink_missing_and_writable_refuse_before_lock_creation(self):
         _, record, _ = self.desired()
         for mode in (0o777, 0o775):
@@ -248,6 +267,7 @@ class MemoryArtifactTests(unittest.TestCase):
                 self.assertEqual(decoded['KoinonManaged'], 'memory-service-v1')
             self.seed(record, content)
             (prefix / 'install.json').write_bytes(self.config_path.read_bytes())
+            (prefix / 'install.json').chmod(0o600)
             artifacts.verify_owned(prefix, self.python, record)
             Path(record['artifact']).write_bytes(content + b'\n')
             with self.assertRaises(runtime_names.NameConflict):
