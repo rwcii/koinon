@@ -33,6 +33,16 @@ expired item remains hidden from queries but physically intact for a bounded ret
 An inactive claim must be reclaimed before its associated finished item. Unfinished
 work is never selected for retention cleanup.
 
+Cleanup frees rows and makes pages reusable inside the file; it does not run an
+incremental vacuum or reduce `page_count`. Returning allocated pages to the filesystem
+uses the existing note-admission/reclaim path or explicit store recovery. Work-command
+admission does not itself trigger that vacuum, so ordinary work writes can still refuse
+while allocated pages exceed their ceiling, even after expired rows are gone. Counts
+falling to zero with unchanged allocated pages is expected. Maintenance does not inherit
+the whole-store note-expiry/reclamation loop. At or above the applicable control ceiling,
+reclamation has no general progress guarantee: admission may roll back deletion and
+report a fault until explicit recovery restores sufficient headroom.
+
 Status includes `work_maintenance`: `enabled`, `last_successful_sweep`, `observed_at`,
 `pending_due`, `expired_items`, `inactive_bundles`, `fault`, `fault_at`, and
 `skipped_submissions`. Counts are read-only observations, available even when writes
