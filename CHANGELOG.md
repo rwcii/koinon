@@ -5,6 +5,9 @@ into a dated release section when promoted to `main`.
 
 ## Unreleased
 
+- Name missing required work-command fields, enforce required CLI options, and
+  preserve machine-readable argument refusals and optional replay pairs.
+
 - Report session supervisors that may need an explicit restart after runtime
   replacement; preserve no-start and manual-service uncertainty without restarting them.
 

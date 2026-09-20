@@ -28,6 +28,11 @@ request fields are refused. References are inert reported strings.
 | finish | Required if_revision, claim_generation, outcome; completed requires references, withdrawn requires reason. |
 | renew | Required claim_generation and if_claim_revision; optional lease_seconds. Work revision is unchanged. |
 
+The CLI checks unconditional required options before contacting the service. These
+missing-option refusals return JSON with `ok: false`, `code: invalid_request` and exit 1;
+missing options are named explicitly. The service independently checks required
+wire fields. Conditional requirements below remain service-validated.
+
 Other mutations accept optional paired key/deadline and reported author fields.
 CLI references repeat `--reference`; start resources repeat `--path-resource` or
 `--exact-resource`. JSON resources are `[kind, key]` pairs. Claim generation is a

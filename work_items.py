@@ -3,6 +3,7 @@
 The existing Store owns the connection, transactions, stream publication and budgets.
 No filesystem access, background scheduling, or production schema activation lives here.
 """
+import argparse
 import hashlib
 import json
 import time
@@ -38,6 +39,18 @@ FIELDS = {
 }
 READS = {'work-get', 'work-list'}
 
+# Unconditional contract fields shared by CLI presence checks and wire validation.
+REQUIRED = {
+    'work-create': {'title', 'criteria', 'non_goals', 'key', 'deadline'},
+    'work-propose': {'if_revision', 'proposed_assignee'},
+    'work-edit': {'if_revision'},
+    'work-start': {'if_revision', 'checkpoint', 'next_artifact', 'progress_deadline', 'key', 'deadline'},
+    'work-update': {'if_revision', 'claim_generation', 'progress', 'checkpoint', 'next_artifact', 'progress_deadline'},
+    'work-release': {'if_revision', 'claim_generation', 'checkpoint'},
+    'work-finish': {'if_revision', 'claim_generation', 'outcome'},
+    'claim-renew': {'claim_generation', 'if_claim_revision'},
+}
+
 
 def encoded(value):
     return json.dumps(value, ensure_ascii=True, sort_keys=True,
@@ -52,10 +65,17 @@ def freshness(lifecycle, progress_deadline, active, lease_expires, now):
     return live, overdue, bool(ongoing and (not live or overdue))
 
 
+class WorkArgumentParser(argparse.ArgumentParser):
+    """Keep work-command argument refusals machine-readable before connecting."""
+    def error(self, message):
+        print(json.dumps(dict(ok=False, code='invalid_request', error=message)))
+        raise SystemExit(1)
+
+
 def cli_parsers(sub):
     """Provider-neutral CLI; server-side validation remains authoritative."""
     work = sub.add_parser('work', help='staged work commands; requires schema-5 service')
-    operations = work.add_subparsers(dest='work_op', required=True)
+    operations = work.add_subparsers(dest='work_op', required=True, parser_class=WorkArgumentParser)
     for op in FIELDS:
         if not op.startswith('work-'):
             continue
@@ -63,12 +83,15 @@ def cli_parsers(sub):
         p = operations.add_parser(name)
         if name not in ('create', 'list'):
             p.add_argument('work_id')
+        required = REQUIRED.get(op, set())
         for field in sorted(FIELDS[op] - {'work_id'}):
+            if name == 'propose' and field == 'proposed_assignee':
+                continue
             flag = '--' + field.replace('_', '-')
             if field in ('if_revision', 'claim_generation', 'revision', 'limit', 'lease_seconds', 'renew_for'):
-                p.add_argument(flag, type=int)
+                p.add_argument(flag, type=int, required=field in required)
             elif field == 'progress_deadline':
-                p.add_argument(flag, type=float)
+                p.add_argument(flag, type=float, required=field in required)
             elif field in ('stale', 'blocked'):
                 p.add_argument(flag, action='store_true', default=None)
             elif field == 'references':
@@ -77,15 +100,17 @@ def cli_parsers(sub):
                 p.add_argument('--path-resource', action='append')
                 p.add_argument('--exact-resource', action='append')
             else:
-                p.add_argument(flag)
+                p.add_argument(flag, required=field in required)
         if op not in READS:
             p.add_argument('--author', help='asserted provenance, never authority')
-            p.add_argument('--key')
-            p.add_argument('--deadline', type=float)
+            p.add_argument('--key', required='key' in required)
+            p.add_argument('--deadline', type=float, required='deadline' in required)
         if name == 'propose':
-            p.add_argument('--clear-assignee', action='store_true')
+            assignee = p.add_mutually_exclusive_group(required=True)
+            assignee.add_argument('--proposed-assignee')
+            assignee.add_argument('--clear-assignee', action='store_true')
     claim = sub.add_parser('claim')
-    renew = claim.add_subparsers(dest='claim_op', required=True).add_parser('renew')
+    renew = claim.add_subparsers(dest='claim_op', required=True, parser_class=WorkArgumentParser).add_parser('renew')
     renew.add_argument('work_id')
     renew.add_argument('--claim-generation', required=True, type=int,
                        help='durable writer generation, not service-instance generation')
@@ -224,6 +249,12 @@ class WorkItems:
         op = r.get('op')
         if op not in FIELDS or set(r) - (COMMON | FIELDS[op]):
             self.fail('invalid_request', 'unknown work operation or request fields')
+        required = REQUIRED.get(op, set())
+        if op not in READS and ('key' in r or 'deadline' in r):
+            required = required | {'key', 'deadline'}
+        missing = sorted(required - r.keys())
+        if missing:
+            self.fail('invalid_request', 'missing required fields: ' + ', '.join(missing))
         if op not in READS:
             claims.consumer_key(r.get('consumer'))
         for field in ('author', 'proposed_assignee', 'owner'):
@@ -253,7 +284,7 @@ class WorkItems:
         if any(not isinstance(r.get(k), str) or not r[k].strip() for k in required):
             self.fail('invalid_request', 'required work text is missing or empty')
         if op == 'work-edit' and not any(k in r for k in ('title', 'criteria', 'non_goals')):
-            self.fail('invalid_request', 'edit requires at least one scope field')
+            self.fail('invalid_request', 'edit requires at least one of title, criteria, non_goals')
         if op in ('work-create', 'work-edit') and any(k in r and not r[k].strip()
                 for k in ('title', 'criteria', 'non_goals')):
             self.fail('invalid_request', 'scope text must not be empty')
