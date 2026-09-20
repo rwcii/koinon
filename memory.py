@@ -38,6 +38,8 @@ import sqlite3
 import subprocess
 import time
 import uuid
+import claims
+import work_storage
 
 from database_worker import DatabaseWorker, CapacityError, WorkerFailure
 from service_runtime import Admission, close_writer, drain_handlers, database_status, HANDSHAKE_TIMEOUT
@@ -47,6 +49,7 @@ from peer_transport import control_exchange as transport_exchange, service_path,
 
 PROTOCOL = 1
 SCHEMA = 4
+INITIALISING = object()
 VERIFY_TIMEOUT = 5
 
 # One statement per element. `executescript` runs a script in autocommit mode, so these
@@ -311,6 +314,7 @@ class Store:
         self.repo, self.path = repo, path
         self.expired_at = 0.0
         self.on_change = None
+        self._initialisation = INITIALISING
         # Autocommit, with every transaction opened explicitly below. The driver starts an
         # implicit transaction only for INSERT, UPDATE, DELETE and REPLACE, so DDL ran in
         # autocommit however it was wrapped, and the schema stayed several transactions.
@@ -326,6 +330,7 @@ class Store:
             state = self.classify(repo)
             if state == 'initialised':
                 self.inspect(repo)
+                self._initialisation = None
             self.configure()
             # The schema and the metadata that identifies it are one transaction. Split
             # across two, an interruption between them left a store with tables and no
@@ -338,6 +343,7 @@ class Store:
                                        ('schema', SCHEMA), ('head', 0), ('floor', 0),
                                        ('store_id', uuid.uuid4().hex)):
                         self.set_meta(key, value)
+                self._initialisation = None
             elif int(self.meta('schema')) == 3:
                 with self.transaction(control=True):
                     self.set_meta('store_id', uuid.uuid4().hex)
@@ -465,7 +471,12 @@ class Store:
         try:
             previous = self.head() if callback is not None else None
             yield
-            self.enforce_pages(control)
+            # Read the remaining durable promises once AFTER all mutations. A
+            # funded control has already cleared its flags; subtracting its
+            # allowance again here would spend the same credit twice.
+            debt = self.work_debt()
+            self.enforce_pages(control, debt)
+            self.enforce_logical(control, debt)
             changed = callback is not None and self.head() != previous
             self.db.execute('COMMIT')
         except BaseException as exc:
@@ -525,6 +536,7 @@ class Store:
             raise MemoryError_('storage_blocked', self.blocked)
         # Only now is a write permissible.
         try:
+            pages_before = self.pages()
             self.db.execute('PRAGMA incremental_vacuum').fetchall()
             busy, log_pages, residual = self.log_state()
         except (sqlite3.Error, OSError) as exc:
@@ -533,17 +545,61 @@ class Store:
         if busy or log_pages or residual:
             self.block('recovery reclaimed pages but could not reset the log afterwards')
             raise MemoryError_('storage_blocked', self.blocked)
+        pages_after = self.verify_vacuum_pages(pages_before)
         self.blocked = None
-        return dict(recovered=True, pages=self.pages(), blocked=None)
+        return dict(recovered=True, pages=pages_after, blocked=None)
 
     @staticmethod
-    def page_cap(control):
+    def page_cap(control, debt=None):
         """The one effective page limit, so admission and enforcement cannot disagree.
 
         Both must subtract the commit-time allocation. When only enforcement did, a store
         resting between the two figures admitted every append and rolled every one back.
         """
-        return (MAX_PAGES if control else ORDINARY_MAX_PAGES) - COMMIT_SLACK
+        return ((MAX_PAGES if control else ORDINARY_MAX_PAGES) - COMMIT_SLACK
+                - (debt.pages if debt is not None else 0))
+
+    def accounting_version(self):
+        if self._initialisation is INITIALISING:
+            return 0
+        # Read durable state, not a cache: a migration in the current transaction
+        # may have changed the version. Missing/malformed metadata is an error,
+        # never permission to silently stop preserving outstanding credits.
+        version = self.meta('schema')
+        if version not in ('3', '4', '5'):
+            raise MemoryError_('incompatible_store', 'invalid accounting schema version')
+        return int(version)
+
+    def verify_vacuum_pages(self, before):
+        try:
+            after = self.pages()
+        except sqlite3.Error as exc:
+            self.block('post-vacuum page count could not be verified')
+            raise MemoryError_('storage_blocked', self.blocked) from exc
+        if after > before:
+            self.block('incremental vacuum unexpectedly increased the page count')
+            raise MemoryError_('storage_blocked', self.blocked)
+        return after
+
+    def work_debt(self):
+        if self.accounting_version() < 5:
+            return claims.Debt(0, 0)
+        return work_storage.debt(self.db)
+
+    def ceilings(self, control, debt=None):
+        debt = self.work_debt() if debt is None else debt
+        # The note reserve funds progress and note controls. If that allowance
+        # proves insufficient, roll back rather than consume promised work
+        # credits. Work controls use this same table AFTER clearing only their
+        # own credits; unrelated controls preserve all remaining obligations.
+        return dict(pages=self.page_cap(control, debt),
+                    logical=MAX_LOGICAL_BYTES - (0 if control else RESERVED_BYTES)
+                            - debt.logical_bytes,
+                    entries=MAX_ENTRIES - (0 if control else RESERVED_ENTRIES)
+                            - debt.event_slots,
+                    idem=MAX_IDEM_ROWS - debt.replay_slots,
+                    work_logical=work_storage.MAX_LOGICAL_BYTES - debt.logical_bytes,
+                    work_events=work_storage.MAX_EVENTS - debt.event_slots)
 
     def reset_log(self):
         """Return the log to zero before a write, and prove it rather than assume it.
@@ -806,7 +862,7 @@ class Store:
             return
         with self.transaction(blocking=False):
             self.set_meta('indexed_through', -1)
-        if self.pages() > self.page_cap(control=True) - REBUILD_HEADROOM:
+        if self.pages() > self.ceilings(control=True)['pages'] - REBUILD_HEADROOM:
             # Refused before it starts rather than part way through. Search stays on the
             # scan until there is room, which reclamation can create.
             return
@@ -902,6 +958,12 @@ class Store:
             '+length(cast(consumer AS BLOB))+96),0) FROM snapshots').fetchone()
         logical = (body + count * ENTRY_OVERHEAD + frozen + idem_bytes + readers
                    + retired[1] + shots[1])
+        work = {}
+        if self.accounting_version() >= 5:
+            work = work_storage.usage(self.db, lambda row: self.charge(entry=row),
+                                      lambda row: self.charge(idem=row))
+            # Stream rows and base replay charges are already counted above.
+            logical += work['work_table_bytes'] + work['work_replay_extra']
         page_size = self.db.execute('PRAGMA page_size').fetchone()[0]
         pages = self.db.execute('PRAGMA page_count').fetchone()[0]
         physical = page_size * pages
@@ -911,7 +973,7 @@ class Store:
             except OSError:
                 pass
         return dict(entries=count, logical=logical, physical=physical, idem=idem,
-                    retired=retired[0], snapshots=shots[0])
+                    retired=retired[0], snapshots=shots[0], **work)
 
     def physical(self):
         """Bytes actually allocated, including the write-ahead log."""
@@ -945,6 +1007,11 @@ class Store:
                 # The same figure usage() sums from the stored `bytes` column. A charge
                 # that differs from the measurement is not accounting, it is two opinions.
                 total += sum(values)
+            elif kind == 'work_row':
+                total += work_storage.row_charge(values)
+            elif kind == 'work_replay':
+                key, operation, result = values
+                total += self.charge(idem=(key,)) + work_storage.replay_extra((operation, result))
         return total
 
     @contextlib.contextmanager
@@ -959,36 +1026,50 @@ class Store:
         self.admit(need, slots, control)
         with self.transaction(control):
             yield
-            if need:
-                self.enforce_logical(control)
 
     @contextlib.contextmanager
     def progress(self):
-        """A transition that records progress and may never be refused for space.
+        """Record progress using the note reserve while preserving work promises.
 
-        Acknowledgements, page issuance and activity refreshes cannot be rejected on
-        capacity: a reader that cannot acknowledge can never advance, and the store would
-        become unreadable-forward precisely when it most needs draining. They draw on the
+        Acknowledgements, page issuance and activity refreshes need room to keep
+        readers advancing at ordinary capacity. They draw on the
         reserve, which ordinary appends may not consume, rather than on a margin.
+        An invariant breach still rolls back; it must never spend another work
+        item's credits to conceal insufficient progress headroom.
         """
         with self.transaction(control=True):
             yield
 
-    def enforce_logical(self, control):
+    def enforce_logical(self, control, debt=None):
         """The logical budget, checked inside the transaction like the page ceiling.
 
         Logical usage is what callers control, so it is measured after the change rather
         than projected from the request alone.
         """
-        cap = MAX_LOGICAL_BYTES if control else MAX_LOGICAL_BYTES - RESERVED_BYTES
-        logical = self.usage()['logical']
-        if logical > cap:
-            raise MemoryError_('capacity',
-                               f'this mutation would leave {logical} logical bytes stored, '
-                               f'above the {cap} byte limit; it was rolled back and stored '
-                               'data is intact')
+        caps = self.ceilings(control, debt)
+        use = self.usage()
+        for name in ('logical', 'entries', 'idem', 'work_logical'):
+            if use.get(name, 0) > caps[name]:
+                detail = (f'{name} would be {use[name]}, above the {caps[name]} limit '
+                          'after preserving work reservations; rolled back and stored data is intact')
+                if name == 'idem':
+                    raise MemoryError_('idem_capacity', detail)
+                raise MemoryError_('capacity', detail)
+        counts = use.get('work_counts', {})
+        maxima = dict(work_items=work_storage.MAX_ITEMS,
+                      work_scope_revisions=work_storage.MAX_SCOPES,
+                      claim_bundles=claims.MAX_BUNDLES,
+                      claim_resources=claims.MAX_BUNDLES * (claims.MAX_RESOURCES + 1),
+                      work_events=caps['work_events'])
+        for name, maximum in maxima.items():
+            if counts.get(name, 0) > maximum:
+                raise MemoryError_('capacity', f'{name} exceeds its {maximum} retained-row '
+                                   'limit after reservations; rolled back and stored data is intact')
+        if use.get('work_scopes_per_item', 0) > work_storage.MAX_SCOPES_PER_ITEM:
+            raise MemoryError_('capacity', 'scope history exceeds the per-item limit; '
+                               'rolled back and stored data is intact')
 
-    def enforce_pages(self, control):
+    def enforce_pages(self, control, debt=None):
         """Check pages actually allocated, inside the transaction, so a breach rolls back.
 
         Projecting growth from payload bytes is not enforcement: SQLite allocates pages
@@ -1004,7 +1085,7 @@ class Store:
         A control or progress transition may draw on the reserve; an ordinary append may
         not, which is what keeps a withdrawal possible at a full store.
         """
-        cap = self.page_cap(control)
+        cap = self.ceilings(control, debt)['pages']
         actual = self.pages()
         if actual > cap:
             raise MemoryError_('capacity',
@@ -1025,12 +1106,12 @@ class Store:
         """
         for attempt in (0, 1):
             use = self.usage()
-            entry_cap = MAX_ENTRIES if control else MAX_ENTRIES - RESERVED_ENTRIES
-            byte_cap = MAX_LOGICAL_BYTES if control else MAX_LOGICAL_BYTES - RESERVED_BYTES
+            caps = self.ceilings(control)
+            entry_cap, byte_cap = caps['entries'], caps['logical']
             # The same effective limit enforcement uses, less the room one append can
             # need. The log is not in this comparison at all; the end-of-transaction check
             # is what catches growth a projection cannot predict.
-            cap = self.page_cap(control) - (0 if control else APPEND_ALLOWANCE)
+            cap = caps['pages'] - (0 if control else APPEND_ALLOWANCE)
             pages = self.pages()
             if (use['entries'] + slots <= entry_cap and use['logical'] + need <= byte_cap
                     and pages <= cap):
@@ -1144,8 +1225,14 @@ class Store:
         # pages exactly where they were. It runs its own transaction, so the log is reset on
         # both sides of it.
         self.reset_log()
+        try:
+            pages_before = self.pages()
+        except sqlite3.Error as exc:
+            self.block('pre-vacuum page count could not be verified; vacuum was not run')
+            raise MemoryError_('storage_blocked', self.blocked) from exc
         self.db.execute('PRAGMA incremental_vacuum').fetchall()
         self.reset_log()
+        self.verify_vacuum_pages(pages_before)
         return removed
 
     def note(self, consumer, kind, body, scope='repo', scope_target=None, path=None,
@@ -1259,7 +1346,7 @@ class Store:
                     self.set_meta('indexed_through', seq)
                 if scoped:
                     held = self.db.execute('SELECT count(*) FROM idem').fetchone()[0]
-                    if held >= MAX_IDEM_ROWS:
+                    if held >= self.ceilings(control=bool(supersedes or revokes))['idem']:
                         # Refuse rather than evict. Dropping an in-window key to make
                         # room would turn a safe retry into a silent duplicate.
                         raise MemoryError_('idem_capacity',

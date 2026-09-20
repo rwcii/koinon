@@ -245,7 +245,8 @@ The approved [work-items v1 contract](docs/WORK-ITEMS-V1.md) and
 structured work, advisory writer claims and progress recovery. They are design documents;
 the current runtime does not yet provide work-item commands. The
 [implementation foundation](docs/WORK-ITEMS-FOUNDATION.md) stages migration and
-lease primitives with synthetic tests; it does not upgrade a running store.
+lease primitives and shared transaction reservation checks with synthetic tests;
+it does not upgrade a running store.
 
 ## Storage and multiple sessions
 

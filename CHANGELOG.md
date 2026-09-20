@@ -5,6 +5,10 @@ into a dated release section when promoted to `main`.
 
 ## Unreleased
 
+- Enforce remaining work reservations at the shared memory transaction boundary,
+  including progress, cleanup and index rebuilds. Add synthetic capacity/rollback
+  tests and package the accounting dependencies; public startup remains schema 4.
+
 - Add staged schema-migration and advisory-lease primitives with synthetic rollback,
   restart, conflict, and reservation tests. Runtime activation remains pending;
   the memory service still uses schema 4 and exposes no work-item commands.

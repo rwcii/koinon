@@ -1,4 +1,5 @@
 import importlib.util
+import ast
 import json
 import os
 from pathlib import Path
@@ -60,10 +61,31 @@ class InstallTests(unittest.TestCase):
                 check = subprocess.run([sys.executable, str(root/'app'/script), '--help'],
                                        cwd=root, capture_output=True, text=True)
                 self.assertEqual(check.returncode, 0, check.stderr)
+            # Isolated mode excludes cwd/PYTHONPATH and user site packages. Add
+            # only the built prefix; importing the checkout would hide omissions.
+            check = subprocess.run([sys.executable, '-I', '-c',
+                'import sys; sys.path.insert(0, sys.argv[1]); '
+                'import memory, claims, work_schema, work_storage; '
+                'assert memory.SCHEMA == 4; print(memory.__file__)', str(root/'app')],
+                cwd=root, capture_output=True, text=True)
+            self.assertEqual(check.returncode, 0, check.stderr)
+            self.assertEqual(Path(check.stdout.strip()), root/'app/memory.py')
             unit=(root/'units/koinon-notify.service').read_text()
             self.assertIn('test-thread',unit)
             self.assertIn('--codex',unit)
             self.assertFalse((root/'state').exists())
+
+    def test_memory_local_imports_are_packaged(self):
+        root = Path(__file__).parent
+        tree = ast.parse((root/'memory.py').read_text())
+        imports = set()
+        for node in tree.body:
+            if isinstance(node, ast.Import):
+                imports.update(alias.name.split('.')[0] for alias in node.names)
+            elif isinstance(node, ast.ImportFrom) and node.module:
+                imports.add(node.module.split('.')[0])
+        local = {name + '.py' for name in imports if (root/(name + '.py')).is_file()}
+        self.assertTrue(local <= set(installer.FILES), local - set(installer.FILES))
 
     def isolated_command(self, root, *mode):
         return [sys.executable, 'scripts/install.py', *mode, '--no-start',

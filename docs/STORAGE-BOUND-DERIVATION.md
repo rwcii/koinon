@@ -541,7 +541,8 @@ would be testing the build.
 
 ### Why the reserve is this size
 
-It is justified by the transitions that must never be refused, not by an index ratio:
+It is sized for bounded progress transitions, not by an index ratio; if that allowance
+proves insufficient, progress rolls back rather than consuming an outstanding work credit:
 
 | Transition | Cost | Basis |
 |---|---|---|

@@ -160,3 +160,45 @@ growth was 6 pages for overdue and 10 for terminal; the database held 4,287 page
 the controls, with zero remaining work debt. Integrity checking passed. This is one
 SQLite 3.46.1 physical-allocation experiment, not a full logical-admission, work-command,
 notification, snapshot, or cross-platform implementation test.
+
+## Accounting cost and usable capacity
+
+The shared transaction checks durable debt and all usage dimensions unconditionally.
+Work payload sizes are aggregated inside SQLite rather than loading every payload
+into Python. The aggregate still scans retained rows; its cost grows with storage.
+No declared-charge or progress shortcut bypasses this boundary.
+
+A local Linux observation used 16 funded bundles, 1,000 roughly 8 KiB work events
+with stream rows, and 922 maximum-size notes: 1,922 entries, 17,167,290 shared
+logical bytes and 9,136,600 work logical bytes. It reached 4,031 of 4,038 ordinary
+pages. Across 100 samples, full usage averaged 5.46 ms (p95 5.65 ms), and a complete
+activity refresh 5.54 ms (p95 5.72 ms). On the identical synthetic connection,
+this revision's schema-4 accounting path averaged 2.30 ms (p95 2.41 ms), so work
+accounting added about 3.24 ms. The previous revision's refresh on that connection
+averaged 0.033 ms; the combined increase was about 5.50 ms.
+
+A separate genuine schema-4 store, with no work tables and 1,922 notes (922 at the
+maximum size and 1,000 short notes), measured the cost to existing installations.
+On that same store, the previous revision averaged 0.036 ms (p95 0.039 ms) and this
+revision 2.35 ms (p95 2.45 ms): an increase of about 2.31 ms from unconditional
+boundary enforcement. The comparisons use test-only implementation substitution;
+the schema-5 comparison also changes the accounting metadata in the synthetic
+store. Neither is a supported startup path. These are local observations, not
+latency guarantees. The saturation test emits operation timings
+on CI without timing assertions, including snapshot issuance and acknowledgement.
+In the separate saturation fixture with 1,880 maximum-size notes, a seed note,
+one frozen snapshot and 16 funded bundles, a single snapshot acknowledgement took
+9.77 ms and page issuance 4.85 ms. These operations have different transaction
+counts from activity refresh and should be measured separately.
+
+The 1,922-entry workload does not measure the shared entry or logical ceiling.
+Other admitted shapes with fewer funded bundles can retain more rows and bytes,
+so their scans and progress operations can cost more. None of these measurements
+is a worst-case bound; the relation is not assumed to be exactly linear across
+payload sizes, indexes, caches or SQLite builds.
+
+With all 16 bundles funded, ordinary writes have 4,038 database pages, about
+15.8 MiB, before the append allowance and other limits apply. The 128 MiB combined
+database/WAL ceiling is not the ordinary-write capacity. Row, byte and page maxima
+are independent ceilings, not simultaneous capacity: 2,048 full-size 16 KiB work
+events alone would exceed the 12 MiB work budget.
