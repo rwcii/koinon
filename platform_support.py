@@ -407,8 +407,6 @@ def user_service_manager(operation, names=(), **options):
     managers raise OSError so existing availability probes report manual operation.
     It does not start an alternate manager or change retry/readiness behavior.
     """
-    if SERVICE_MANAGER != 'systemd':
-        raise OSError('no supported user service manager')
     names = tuple(names)
     commands = {
         'available': ['show-environment'],
@@ -423,6 +421,8 @@ def user_service_manager(operation, names=(), **options):
     }
     if operation not in commands:
         raise ValueError('unsupported user service operation')
+    if SERVICE_MANAGER != 'systemd':
+        raise OSError('no supported user service manager')
     arguments = commands[operation]
     if operation in ('start', 'stop', 'enable', 'disable'):
         arguments = [*arguments, *names]

@@ -370,3 +370,13 @@ class UserServiceManagerTests(unittest.TestCase):
                 with self.assertRaises(OSError):
                     platform_support.user_service_manager('available')
                 run.assert_not_called()
+
+
+    def test_invalid_operation_is_a_programming_error_on_every_backend(self):
+        for manager in ('systemd', None, 'launchd'):
+            with self.subTest(manager=manager), \
+                    patch.object(platform_support, 'SERVICE_MANAGER', manager), \
+                    patch.object(platform_support.subprocess, 'run') as run:
+                with self.assertRaises(ValueError):
+                    platform_support.user_service_manager('misspelled-operation')
+                run.assert_not_called()
