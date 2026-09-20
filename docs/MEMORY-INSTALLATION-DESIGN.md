@@ -39,8 +39,11 @@ services remains governed by the current upgrade runbook until DQ-12 lands.
 - `memory.serve` returns successfully when a verified service already exists.
   A managed child cannot use that result to claim that it owns the existing service.
   The managed runner must distinguish reuse from starting its own child.
-- `memory.stop_service` binds shutdown to an observed generation. A closed listener
-  is not proof of exit. Use its shutdown discipline plus managed-process exit checks.
+- `memory.stop_service` accepts an optional `expected_generation` so a supervisor
+  can bind shutdown to its captured child instead of whichever owner is current.
+  A changed or unreadable owner refuses before a request. Omitting the parameter
+  preserves existing CLI behavior. A closed listener is not proof of exit; reuse
+  the helper and independently reap the supervisor-owned child for exit proof.
 - `platform_support.SERVICE_MANAGER` currently describes systemd or no manager.
   All new backend selection and platform-specific process/service primitives belong
   there. Existing session service calls need an explicit integration audit; do not

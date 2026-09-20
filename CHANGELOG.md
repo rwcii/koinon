@@ -5,6 +5,9 @@ into a dated release section when promoted to `main`.
 
 ## Unreleased
 
+- Allow managed callers to bind memory shutdown to their captured generation,
+  refusing a replacement or unreadable owner before sending a stop request.
+
 - Route existing session, installation, and removal service-manager operations
   through platform support while preserving Linux command and failure behavior.
 
