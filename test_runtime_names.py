@@ -82,10 +82,23 @@ class RuntimeNameTests(unittest.TestCase):
 
     def test_configuration_codes_are_closed_and_every_raise_is_classified(self):
         import ast
-        tree = ast.parse(Path(names.__file__).read_text())
-        raised = {node.args[0].value for node in ast.walk(tree)
-                  if isinstance(node, ast.Call) and isinstance(node.func, ast.Name)
-                  and node.func.id == 'NameConflict'}
+        import memory_service_config
+        raised = set()
+        # Configuration refusals have two emitters; keep the declared vocabulary
+        # closed while inspecting actual raise sites in both modules.
+        for source in (names.__file__, memory_service_config.__file__):
+            tree = ast.parse(Path(source).read_text())
+            for node in ast.walk(tree):
+                if not isinstance(node, ast.Call):
+                    continue
+                local = isinstance(node.func, ast.Name) and node.func.id == 'NameConflict'
+                qualified = (isinstance(node.func, ast.Attribute)
+                             and isinstance(node.func.value, ast.Name)
+                             and node.func.value.id == 'runtime_names'
+                             and node.func.attr == 'NameConflict')
+                if local or qualified:
+                    self.assertIsInstance(node.args[0], ast.Constant)
+                    raised.add(node.args[0].value)
         self.assertEqual(raised, names.CONFIGURATION_CODES)
         with self.assertRaises(KeyError):
             names.NameConflict('unclassified-new-code', ())

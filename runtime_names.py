@@ -16,7 +16,7 @@ SERVICE_MARKERS = (SERVICE_MARKER, LEGACY_SERVICE_MARKER)
 REGISTRY_ENTRYPOINT = 'codex-peer-bridge'
 MEMORY_SERVICE = 'codex-peer-memory'
 PATH_SELECTION_CODES = frozenset(('ambiguous_default_paths', 'unsafe_default_path', 'default_path_unavailable'))
-CONFIGURATION_CODES = PATH_SELECTION_CODES | {'ambiguous_service_units', 'invalid_install_configuration', 'configuration_busy'}
+CONFIGURATION_CODES = PATH_SELECTION_CODES | {'ambiguous_service_units', 'invalid_install_configuration', 'configuration_busy', 'memory_service_limit'}
 GUIDANCE_LOCK_NAMES = {'codex': '.codex-peer-bridge.lock',
                        'deepseek': '.deepseek-peer-bridge.lock'}
 
@@ -27,7 +27,8 @@ class NameConflict(ValueError):
             raise KeyError(code)
         self.code = code
         self.paths = tuple(str(path) for path in paths)
-        advice = {'invalid_install_configuration': 'preserve and repair configuration',
+        advice = {'memory_service_limit': 'memory service registration limit reached; preserve existing selections',
+                  'invalid_install_configuration': 'preserve and repair configuration',
                   'configuration_busy': 'another installation holds the configuration lock; '
                                         'check that installer and retry; do not delete the lock'}.get(
                                             code, 'select an explicit path')
@@ -108,6 +109,9 @@ def validate_install_config(result):
     if 'work_items' in result:
         from work_policy import validate
         validate(result['work_items'])
+    if 'memory_services' in result:
+        from memory_service_config import validate
+        validate(result['memory_services'])
     return result
 
 
