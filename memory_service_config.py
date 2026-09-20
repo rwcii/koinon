@@ -1,4 +1,9 @@
-"""Staged repository memory-service selections; no publication or activation."""
+"""Staged memory selections; no publication or activation.
+
+validate() checks internal consistency only, without filesystem resolution.
+verify_selection() rechecks Git identity where filesystem access is appropriate;
+future publication must call it before admitting a saved selection to runtime use.
+"""
 import copy
 import hashlib
 from pathlib import Path
@@ -39,7 +44,7 @@ def artifact_name(key, backend):
     if backend == 'systemd':
         return f'koinon-memory-{key}.service'
     if backend == 'launchd':
-        return f'org.koinon.memory.{key}.plist'
+        return f'io.github.rwcii.koinon.memory.{key}.plist'
     if backend == 'manual':
         return None
     raise ValueError('invalid memory service backend')
@@ -114,8 +119,25 @@ def admit(current, record):
         if existing != candidate:
             raise ValueError('existing memory selection requires explicit reconciliation')
         return copy.deepcopy(current)
-    if len(current['repositories']) == MAX_SERVICES:
+    if len(current['repositories']) >= MAX_SERVICES:
         raise runtime_names.NameConflict('memory_service_limit', (candidate['common_directory'],))
     updated = copy.deepcopy(current)
     updated['repositories'][key] = candidate
     return validate(updated)
+
+
+def verify_selection(record):
+    """Revalidate selected Git identity before future publication or runtime use.
+
+    This does not verify artifact ownership, start services, or create state.
+    A structurally consistent alias is refused if Git resolves it differently.
+    """
+    if not isinstance(record, dict):
+        raise ValueError('invalid memory-service selection')
+    common = absolute_path(record.get('common_directory'))
+    key, _ = identity(common)
+    validate(dict(version=VERSION, repositories={key: record}))
+    actual_key, actual = selection(common, record['state_root'])
+    if actual_key != key or any(record[field] != value for field, value in actual.items()):
+        raise ValueError('saved memory repository no longer resolves to its selected identity')
+    return actual_key, actual

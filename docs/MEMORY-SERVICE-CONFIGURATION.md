@@ -31,9 +31,13 @@ and `repositories` (object keyed by the existing repository key). It permits at 
 | `state` | Desired publication state: `pending`, `installed`, or `removing` |
 
 Systemd artifact basenames are `koinon-memory-<key>.service`; launchd basenames are
-`org.koinon.memory.<key>.plist`. Recognizing a basename is not proof of ownership.
-All filesystem checks, rendering, backend operations, and live readiness remain later
-slices. Validation here is structural and does not follow paths or query services.
+`io.github.rwcii.koinon.memory.<key>.plist`. Recognizing a basename is not proof of ownership.
+The label uses the project's GitHub namespace. Artifact ownership checks, rendering,
+backend operations, and live readiness remain later slices. Validation is structural
+and does not follow paths or query services. The separate `verify_selection(record)`
+helper resolves Git identity again and refuses internally consistent aliases or moved
+repositories. Future publication and runtime selection must call this check; it does
+not establish artifact ownership or create a store.
 
 Managed `pending` records also require `before_digest` (null for no previous artifact,
 otherwise a SHA-256 digest) and `after_digest` equal to `artifact_digest`. Managed

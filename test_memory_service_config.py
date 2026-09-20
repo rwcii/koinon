@@ -48,6 +48,26 @@ class MemoryServiceConfigurationTests(unittest.TestCase):
             self.assertNotEqual(config.selection(bare, state)[0], expected[0])
             self.assertFalse(state.exists())
 
+    def test_filesystem_verification_refuses_consistent_alias_without_creating_state(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary).resolve()
+            repo = root / 'repo'
+            subprocess.run(['git', 'init', '-q', str(repo)], check=True)
+            common = memory.repo_common_directory(repo)
+            canonical = record(str(common))
+            canonical.update(state_root=str(root / 'state'),
+                             service_directory=str(root / 'state' / 'memory' / config.identity(common)[0]))
+            self.assertEqual(config.verify_selection(canonical)[0], memory.repo_identity(repo))
+            alias = root / 'common-alias'
+            alias.symlink_to(common, target_is_directory=True)
+            retained = record(str(alias))
+            retained.update(state_root=str(root / 'state'),
+                            service_directory=str(root / 'state' / 'memory' / config.identity(alias)[0]))
+            config.validate(inventory(retained))  # Internal consistency is not resolution.
+            with self.assertRaises(ValueError):
+                config.verify_selection(retained)
+            self.assertFalse((root / 'state').exists())
+
     def test_all_backends_and_durable_publication_states(self):
         for backend in config.BACKENDS:
             r = record(backend=backend)
