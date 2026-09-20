@@ -58,5 +58,7 @@ worker jobs before closing the store. Cancelling the loop never abandons a trans
 already accepted by the worker. Maintenance does not execute participant content,
 change owners, bind peers, or send model messages.
 
-Activation, mixed-version binding compatibility, participant opt-in and the remaining
-upgrade/capacity documentation are later integration work.
+The [policy and guidance slice](WORK-ITEMS-POLICY.md) now supplies explicit participant
+opt-in, and [operator capacity planning](INSTALL.md#work-item-capacity-planning) explains
+workload and recovery limits. Activation, mixed-version binding compatibility and
+upgrade procedures remain later integration work.
