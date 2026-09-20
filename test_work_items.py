@@ -336,10 +336,12 @@ class WorkCommandsTests(unittest.TestCase):
         p = argparse.ArgumentParser()
         work_items.cli_parsers(p.add_subparsers(dest='op'))
         args = vars(p.parse_args(['work', 'start', '0' * 32, '--path-resource', 'src',
-                                 '--exact-resource', 'artifact']))
+                                 '--exact-resource', 'artifact', '--if-revision', '1',
+                                 '--checkpoint', 'Saved', '--next-artifact', 'Patch',
+                                 '--progress-deadline', '123', '--key', 'start', '--deadline', '123']))
         self.assertEqual(work_items.cli_request(args.pop('op'), args), 'work-start')
         self.assertEqual(args['resources'], [['path', 'src'], ['exact', 'artifact']])
-        args = vars(p.parse_args(['work', 'propose', '0' * 32, '--clear-assignee']))
+        args = vars(p.parse_args(['work', 'propose', '0' * 32, '--if-revision', '1', '--clear-assignee']))
         self.assertEqual(work_items.cli_request(args.pop('op'), args), 'work-propose')
         self.assertTrue(args.pop('_clear_assignee'))
         self.assertIsNone(args['proposed_assignee'])
