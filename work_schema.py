@@ -236,6 +236,9 @@ def validate(db, repo, legacy_statements):
         if version < VERSION and any(key in meta for key in COUNTERS):
             raise SchemaError('incompatible_store', 'legacy store has unexpected work counters')
         return version
+    except sqlite3.ProgrammingError:
+        # Programming failures are not evidence of an incompatible operator file.
+        raise
     except sqlite3.Error as exc:
         code = getattr(exc, 'sqlite_errorcode', 0) & 0xff
         if code in (sqlite3.SQLITE_BUSY, sqlite3.SQLITE_LOCKED):

@@ -130,6 +130,63 @@ class ActivationTests(unittest.TestCase):
         finally:
             db.close()
 
+    def test_malformed_version_refuses_before_configuration(self):
+        old = self.legacy()
+        old.db.execute("UPDATE meta SET value='not-a-version' WHERE key='schema'")
+        old.close()
+        before = self.path.read_bytes()
+        with patch.object(memory.Store, 'configure', side_effect=AssertionError('write before validation')), \
+             self.assertRaises(memory.MemoryError_) as refused:
+            memory.Store(self.path, REPO)
+        self.assertEqual(refused.exception.code, 'incompatible_store')
+        self.assertEqual(self.path.read_bytes(), before)
+
+    def test_catalog_programming_error_is_not_mislabeled_as_incompatible_store(self):
+        old = self.legacy()
+        try:
+            with patch.object(work_schema, 'catalog', side_effect=sqlite3.ProgrammingError('synthetic defect')), \
+                 self.assertRaises(sqlite3.ProgrammingError):
+                work_schema.validate(old.db, REPO, memory.SCHEMA_STATEMENTS)
+        finally:
+            old.close()
+
+    def test_declared_legacy_version_cannot_hide_work_schema_objects(self):
+        store = memory.Store(self.path, REPO, fts=False)
+        store.set_meta('schema', 4)
+        store.close()
+        before = self.path.read_bytes()
+        with patch.object(memory.Store, 'configure', side_effect=AssertionError('write before validation')), \
+             self.assertRaises(memory.MemoryError_) as refused:
+            memory.Store(self.path, REPO)
+        self.assertEqual(refused.exception.code, 'incompatible_store')
+        self.assertEqual(self.path.read_bytes(), before)
+
+    def test_startup_schema_error_mapping_is_explicit_and_unknown_codes_are_internal(self):
+        old = self.legacy()
+        old.close()
+        with patch.object(work_schema, 'validate', side_effect=work_schema.SchemaError('capacity', 'synthetic limit')), \
+             self.assertRaises(memory.MemoryError_) as refused:
+            memory.Store(self.path, REPO)
+        self.assertEqual(refused.exception.code, 'capacity')
+        with patch.object(work_schema, 'validate', side_effect=work_schema.SchemaError('unknown-code', 'synthetic defect')), \
+             self.assertRaises(RuntimeError):
+            memory.Store(self.path, REPO)
+
+    def test_public_work_counter_exhaustion_is_capacity_and_changes_nothing(self):
+        store = memory.Store(self.path, REPO, fts=False)
+        try:
+            with store.transaction():
+                store.set_meta('work_id_counter', work_schema.MAX_COUNTER)
+            before = tuple(store.db.iterdump())
+            commands = memory.MemoryCommands(self.path.parent, REPO, store)
+            with self.assertRaises(memory.MemoryError_) as refused:
+                commands.command(dict(op='work-create', consumer='writer', key='exhausted',
+                    deadline=time.time()+600, title='Synthetic', criteria='No room', non_goals='No deployment'), 12345)
+            self.assertEqual(refused.exception.code, 'capacity')
+            self.assertEqual(tuple(store.db.iterdump()), before)
+        finally:
+            store.close()
+
     def test_old_runtime_refuses_new_store_without_writing(self):
         store = memory.Store(self.path, REPO, fts=False)
         store.close()

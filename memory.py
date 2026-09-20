@@ -380,6 +380,8 @@ class Store:
             self._reconcile_index()
         except work_schema.SchemaError as exc:
             self.db.close()
+            if exc.code == 'capacity':
+                raise MemoryError_('capacity', str(exc)) from exc
             if exc.code == 'unsupported_sqlite':
                 raise MemoryError_('unsupported_runtime', str(exc)) from exc
             if exc.code == 'storage_blocked':
@@ -390,7 +392,7 @@ class Store:
                 raise MemoryError_('wrong_repository', str(exc)) from exc
             if exc.code == 'incompatible_store':
                 raise MemoryError_('incompatible_store', str(exc)) from exc
-            raise
+            raise RuntimeError('unhandled schema startup error code: ' + exc.code) from exc
         except sqlite3.Error as exc:
             self.db.close()
             if owned_elsewhere(exc):
@@ -847,7 +849,11 @@ class Store:
                                        'state directory belongs to another repository; it was left '
                                'untouched')
         for key, current in (('schema', SCHEMA), ('protocol', PROTOCOL)):
-            found = int(rows.get(key) or 0)
+            try:
+                found = int(rows.get(key) or 0)
+            except (TypeError, ValueError):
+                raise MemoryError_('incompatible_store',
+                                   'store version metadata is malformed; nothing was written') from None
             if found > current:
                 raise MemoryError_('schema_too_new',
                                    f'this store declares {key} {found}; this runtime supports '
