@@ -84,7 +84,9 @@ Commands pair claim changes with their corresponding work events; standalone
 renewal preserves the work revision and stream head. Synthetic tests exercise
 all 16 funded end commands at ordinary saturation and legacy snapshot continuation.
 
-Then add bounded maintenance and finished-item expiry, maintenance diagnostics,
-binding compatibility, opt-in installer configuration, and user capacity/upgrade
+The [maintenance slice](WORK-ITEMS-MAINTENANCE.md) adds bounded due publication,
+finished-item reclamation, diagnostics, idle hints and shutdown drainage.
+
+Then add binding compatibility, opt-in installer configuration, and user capacity/upgrade
 documentation. Run the design's full-store, bootstrap, shutdown and mixed-version
 tests and Linux/macOS CI before claiming runtime implementation acceptance.

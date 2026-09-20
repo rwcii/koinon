@@ -182,9 +182,12 @@ advertising work support. The [storage derivation](WORK-ITEMS-STORAGE.md) makes 
 required precondition, not an assumed optimization.
 
 Bounded maintenance removes one inactive bundle and its at-most-nine resource rows
-under ordinary storage admission, with rollback on capacity refusal. Such rows count
-toward the retained-bundle cap until removal. A start cannot overwrite an inactive
-bundle merely to avoid paying deletion costs; it must first successfully reclaim it.
+using shared control headroom while preserving all remaining claim debt, with rollback
+on capacity refusal. This avoids preventing retention cleanup merely because controls
+have raised the store above the ordinary ceiling. Request-boundary start cleanup
+still uses ordinary admission. Such rows count toward the retained-bundle cap until
+removal. A start cannot overwrite an inactive bundle merely to avoid paying deletion
+costs; it must first successfully reclaim it.
 This can temporarily refuse starts, but cannot prevent a promised active claim from ending.
 
 Before a new request begins its own mutation, bounded maintenance may independently

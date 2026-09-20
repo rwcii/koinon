@@ -367,6 +367,50 @@ class WorkItems:
             self.event(item, 'lease-expired' if expired else 'progress-overdue',
                        held['consumer'], None, None, now)
 
+    def due_targets(self, now, limit):
+        return [row[0] for row in self.db.execute(
+            'SELECT w.work_id FROM work_items w JOIN claim_bundles b ON b.work_id=w.work_id '
+            'WHERE b.active=1 AND (b.expires_at<=? OR '
+            '(w.progress_deadline<=? AND b.overdue_recorded=0)) '
+            'ORDER BY b.expires_at,w.work_id LIMIT ?', (now, now, limit))]
+
+    def maintenance_counts(self, now):
+        pending = self.db.execute('SELECT count(*) FROM claim_bundles b '
+            'JOIN work_items w ON w.work_id=b.work_id WHERE b.active=1 '
+            'AND (b.expires_at<=? OR (w.progress_deadline<=? AND b.overdue_recorded=0))',
+            (now, now)).fetchone()[0]
+        expired = self.db.execute("SELECT count(*) FROM work_items WHERE lifecycle='finished' "
+                                  'AND expires_at<=?', (now,)).fetchone()[0]
+        inactive = self.engine().inactive_count()
+        return dict(pending_due=pending, expired_items=expired, inactive_bundles=inactive)
+
+    def reclaim_finished_one(self, now):
+        """Remove one entire expired item; snapshots and replay results stay intact."""
+        selected = self.db.execute("SELECT work_id FROM work_items WHERE lifecycle='finished' "
+            'AND expires_at<=? ORDER BY expires_at,work_id LIMIT 1', (now,)).fetchone()
+        if selected is None:
+            return False
+        work_id = selected[0]
+        with self.store.transaction(control=True):
+            item = self.row("SELECT * FROM work_items WHERE work_id=? AND lifecycle='finished' "
+                            'AND expires_at<=?', (work_id, now))
+            if item is None:
+                return False
+            held = self.claim(work_id)
+            if held:
+                if held['active']:
+                    self.fail('incompatible_store', 'finished work still has an active claim')
+                # Inactive resources must be reclaimed through ordinary admission.
+                return False
+            scopes = self.db.execute('SELECT count(*) FROM work_scope_revisions WHERE work_id=?',
+                                     (work_id,)).fetchone()[0]
+            if not 1 <= scopes <= work_storage.MAX_SCOPES_PER_ITEM:
+                self.fail('incompatible_store', 'expired work scope history exceeds retained bounds')
+            self.store.reclaim_work_events(work_id, item['latest_seq'])
+            self.db.execute('DELETE FROM work_scope_revisions WHERE work_id=?', (work_id,))
+            self.db.execute('DELETE FROM work_items WHERE work_id=?', (work_id,))
+        return True
+
     def command(self, request, pid=None, now=None):
         now = time.time() if now is None else now
         try:

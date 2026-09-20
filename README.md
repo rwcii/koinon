@@ -246,7 +246,8 @@ structured work, advisory writer claims and progress recovery. They are design d
 public schema-4 startup does not enable work-item commands. The
 [implementation foundation](docs/WORK-ITEMS-FOUNDATION.md) stages migration and
 lease primitives, shared transaction reservation checks, and
-[staged work commands](docs/WORK-ITEMS-COMMANDS.md) with synthetic tests;
+[staged work commands](docs/WORK-ITEMS-COMMANDS.md), and
+[bounded maintenance](docs/WORK-ITEMS-MAINTENANCE.md) with synthetic tests;
 it does not upgrade a running store.
 
 ## Storage and multiple sessions
