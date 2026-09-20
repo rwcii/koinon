@@ -21,8 +21,8 @@ DQ-01, DQ-02, DQ-03 and DQ-07 were included in the promotion to `main` at
 PR #35. These source milestones do not establish local runtime deployment.
 Runtime refresh and initial shared work-item adoption have been independently
 checked for the selected installation; this does not establish deployment elsewhere
-or completion of long-term retention tests. Prioritize complete installation
-(DQ-11) and supported upgrades (DQ-12), with DQ-08 design tracked in
+or completion of long-term retention tests. Complete installation (DQ-11) and
+supported upgrades (DQ-12) are queued; their scheduling remains open. DQ-08 design is tracked in
 [issue #38](https://github.com/rwcii/koinon/issues/38). Keep DQ-04 visible for a scope
 decision before DQ-05 history pruning. Investigating a requirement does not settle
 its protocol.
