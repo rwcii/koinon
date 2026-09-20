@@ -58,6 +58,30 @@ class PolicyTests(unittest.TestCase):
                     session.main()
                 self.assertEqual(refused.exception.code, 2)
 
+    def test_missing_install_config_is_disabled_only_for_policy(self):
+        self.assertFalse(work_policy.query(runtime_names.install_config(self.prefix), self.repo, 'codex')['enabled'])
+        with self.assertRaises(runtime_names.NameConflict) as error:
+            session.read_config(self.prefix)
+        self.assertEqual(error.exception.code, 'invalid_install_configuration')
+        self.assertEqual(error.exception.paths, (str(self.prefix/'install.json'),))
+        self.assertFalse((self.prefix/install_state.LOCK_NAME).exists())
+
+    def test_disabled_rules_do_not_require_remaining_guidance_files(self):
+        missing = str(self.root/'removed-parent'/'guidance')
+        for state in ('disabled', 'pending', 'enabled'):
+            rule = dict(self.rule, guidance_file=missing, state=state)
+            if state == 'pending':
+                rule.update(before_digest='b'*64, after_digest='c'*64)
+            config = dict(self.config, work_items=dict(version=1,rules={self.key+':codex':rule}))
+            if state == 'enabled':
+                with self.assertRaises(ValueError):
+                    work_policy.query(config, self.repo, 'codex')
+            else:
+                result = work_policy.query(config, self.repo, 'codex')
+                self.assertFalse(result['enabled'])
+                self.assertEqual(result['state'], 'disabled')
+        self.assertFalse((self.root/'removed-parent').exists())
+
     def test_all_participants_and_pending_disabled_semantics(self):
         for agent in work_policy.PARTICIPANTS:
             for state in ('enabled', 'pending', 'disabled'):
@@ -214,6 +238,61 @@ with install_state.locked(sys.argv[1]) as state:
             self.assertEqual(config['work_items'], self.config['work_items'])
             self.assertEqual(config['opaque'], self.config['opaque'])
         self.assertEqual(self.guidance.read_bytes(), b'Synthetic outside bytes\r\n')
+
+    def test_install_lock_timeout_is_retryable_and_preserves_state(self):
+        self.save()
+        before = (self.prefix/'install.json').read_bytes()
+        code = """import install_state,runpy,sys
+install_state.LOCK_TIMEOUT=.05
+sys.argv=['scripts/install.py',*sys.argv[1:]]
+runpy.run_path('scripts/install.py',run_name='__main__')
+"""
+        with install_state.locked(self.prefix):
+            inode = (self.prefix/install_state.LOCK_NAME).stat().st_ino
+            result = subprocess.run([sys.executable, '-c', code, '--configure-codex',
+                '--prefix', str(self.prefix), '--codex', sys.executable, '--no-start',
+                '--codex-home', str(self.root/'codex')], capture_output=True, text=True, timeout=5)
+        self.assertEqual(result.returncode, 75, result.stderr)
+        response = json.loads(result.stdout)
+        self.assertEqual(response['code'], 'configuration_busy')
+        self.assertIn('retry', response['error'])
+        self.assertEqual(response['paths'], [str(self.prefix/install_state.LOCK_NAME)])
+        self.assertEqual((self.prefix/install_state.LOCK_NAME).stat().st_ino, inode)
+        self.assertEqual((self.prefix/'install.json').read_bytes(), before)
+        self.assertFalse((self.root/'codex').exists())
+
+    def test_two_installers_serialize_and_keep_both_participants(self):
+        self.save()
+        code = """import contextlib,install_state,runpy,sys
+real=install_state.locked
+@contextlib.contextmanager
+def waiting(prefix):
+ print('waiting',flush=True)
+ with real(prefix) as state:
+  yield state
+install_state.locked=waiting
+sys.argv=['scripts/install.py',*sys.argv[1:]]
+runpy.run_path('scripts/install.py',run_name='__main__')
+"""
+        processes = []
+        with install_state.locked(self.prefix):
+            for mode in ('--configure-codex', '--configure-deepseek'):
+                process = subprocess.Popen([sys.executable, '-c', code, mode,
+                    '--prefix', str(self.prefix), '--no-start', '--codex', sys.executable,
+                    '--codex-home', str(self.root/'codex'), '--dsh-home', str(self.root/'deepseek')],
+                    stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+                processes.append(process)
+                self.assertEqual(process.stdout.readline().strip(), 'waiting')
+                self.assertIsNone(process.poll())
+        for process in processes:
+            out, error = process.communicate(timeout=15)
+            self.assertEqual(process.returncode, 0, error)
+        config = runtime_names.install_config(self.prefix)
+        self.assertEqual(config['participants'], ['codex', 'deepseek'])
+        self.assertEqual(config['work_items'], self.config['work_items'])
+        self.assertEqual(config['opaque'], self.config['opaque'])
+        for home in ('codex', 'deepseek'):
+            self.assertIn('BEGIN KOINON', (self.root/home/'AGENTS.md').read_text())
 
     def test_install_reloads_configuration_after_waiting_for_lock(self):
         self.save()

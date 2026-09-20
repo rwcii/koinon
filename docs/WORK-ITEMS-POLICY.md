@@ -19,7 +19,7 @@ digest and guidance file. Both pending and disabled stored rules report `state: 
 and `enabled: false`. An enabled rule returns its recorded section digest. Consumers
 must also check the repository identity and that digest against the managed section;
 this query does not parse guidance or turn configuration into permission to act.
-Malformed configuration or unsafe selected guidance paths return a configuration
+Malformed configuration or unsafe enabled guidance paths return a configuration
 error, rather than an empty selection. No policy query creates a configuration lock,
 state directory, registry entry, or guidance file.
 
@@ -30,11 +30,16 @@ have `before_digest` and `after_digest`; digests are lowercase 64-character SHA-
 hex strings, never copies of instruction content. Paths are bounded absolute paths.
 The selected guidance path must have no symlink components, an existing user-owned
 parent not writable by group or others, and a user-owned regular target if present.
+Filesystem checks apply only to enabled selections; pending/disabled rules remain
+disabled even when their old guidance path has disappeared.
 These configuration checks do not change literal peer socket addressing.
 
 All installer modes perform non-writing validation, then acquire the permanent
 user-owned `.install.lock` beside `install.json` and revalidate fresh configuration.
-The configuration lock precedes existing guidance locks. Configuration writes merge
+The configuration lock precedes existing guidance locks. A monotonic 30-second
+wait bounds contention; a live holder that does not release it produces
+`configuration_busy` with retryable exit status 75 and the lock path. Check the
+other installer and retry; never delete a held lock. Configuration writes merge
 only the selected installation fields, preserving all unknown fields and all work
 rules, and publish atomically with file and directory fsync. A refused validation
 never resets existing configuration. The lock inode is not removed or replaced.

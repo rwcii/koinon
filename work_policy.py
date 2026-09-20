@@ -78,9 +78,9 @@ def query(config, repository, participant):
     key = repository_key(common)
     selection = validate(config.get('work_items', {'version': VERSION, 'rules': {}}))
     rule = selection['rules'].get(key + ':' + participant)
-    if rule:
-        guidance_path(rule['guidance_file'])
     state = 'enabled' if rule and rule['state'] == 'enabled' else 'disabled'
+    if state == 'enabled':
+        guidance_path(rule['guidance_file'])
     return dict(version=VERSION, repo=key, common_directory=str(common), participant=participant,
                 state=state, enabled=state == 'enabled', digest=rule['digest'] if rule else None,
                 guidance_file=rule['guidance_file'] if rule else None)

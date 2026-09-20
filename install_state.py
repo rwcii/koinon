@@ -10,6 +10,7 @@ import runtime_names
 from participant_lock import file_lock, OwnershipError
 
 LOCK_NAME = '.install.lock'
+LOCK_TIMEOUT = 30
 
 
 class LockedConfiguration:
@@ -55,14 +56,17 @@ def locked(prefix):
             if (not stat.S_ISDIR(info.st_mode) or info.st_uid != os.getuid()
                     or info.st_mode & 0o022):
                 raise ValueError('unsafe installation directory')
-            fd = stack.enter_context(file_lock(path, 'configuration_in_use', None, blocking=True))
+            fd = stack.enter_context(file_lock(path, 'configuration_busy', None, timeout=LOCK_TIMEOUT))
             info, current = os.fstat(fd), path.lstat()
             if (current.st_dev, current.st_ino) != (info.st_dev, info.st_ino):
                 raise ValueError('installation lock was replaced')
             state = LockedConfiguration(prefix)
         except runtime_names.NameConflict:
             raise
-        except (OSError, ValueError, OwnershipError) as exc:
+        except OwnershipError as exc:
+            code = 'configuration_busy' if exc.code == 'configuration_busy' else 'invalid_install_configuration'
+            raise runtime_names.NameConflict(code, (path,)) from exc
+        except (OSError, ValueError) as exc:
             raise runtime_names.NameConflict('invalid_install_configuration', (path,)) from exc
         # Exceptions raised by publication are not reclassified as lock failures.
         yield state

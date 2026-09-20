@@ -16,7 +16,7 @@ SERVICE_MARKERS = (SERVICE_MARKER, LEGACY_SERVICE_MARKER)
 REGISTRY_ENTRYPOINT = 'codex-peer-bridge'
 MEMORY_SERVICE = 'codex-peer-memory'
 PATH_SELECTION_CODES = frozenset(('ambiguous_default_paths', 'unsafe_default_path', 'default_path_unavailable'))
-CONFIGURATION_CODES = PATH_SELECTION_CODES | {'ambiguous_service_units', 'invalid_install_configuration'}
+CONFIGURATION_CODES = PATH_SELECTION_CODES | {'ambiguous_service_units', 'invalid_install_configuration', 'configuration_busy'}
 GUIDANCE_LOCK_NAMES = {'codex': '.codex-peer-bridge.lock',
                        'deepseek': '.deepseek-peer-bridge.lock'}
 
@@ -27,7 +27,10 @@ class NameConflict(ValueError):
             raise KeyError(code)
         self.code = code
         self.paths = tuple(str(path) for path in paths)
-        advice = 'preserve and repair configuration' if code == 'invalid_install_configuration' else 'select an explicit path'
+        advice = {'invalid_install_configuration': 'preserve and repair configuration',
+                  'configuration_busy': 'another installation holds the configuration lock; '
+                                        'check that installer and retry; do not delete the lock'}.get(
+                                            code, 'select an explicit path')
         super().__init__(code + ': ' + advice + '; ' + ', '.join(self.paths))
 
 

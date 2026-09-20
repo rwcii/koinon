@@ -196,7 +196,8 @@ def main():
         p.error('Linux or macOS with Python 3.11+ is required')
     a.prefix = (a.prefix or runtime_names.default_prefix()).expanduser().resolve()
     # Refusals must not create even a prefix/lock. Recheck under the lock
-    # using fresh configuration before any publication or service changes.
+    # using fresh configuration before any publication or service changes. Legacy
+    # service-manager availability is deliberately checked in both passes.
     install(copy.deepcopy(a), p, validate_only=True)
     with install_state.locked(a.prefix) as configuration:
         install(a, p, configuration)
@@ -318,5 +319,6 @@ if __name__ == '__main__':
     try:
         main()
     except runtime_names.NameConflict as exc:
-        print(json.dumps(dict(ok=False, code=exc.code, paths=exc.paths)))
-        raise SystemExit(platform_support.CONFIGURATION_EXIT_STATUS) from None
+        print(json.dumps(dict(ok=False, code=exc.code, paths=exc.paths, error=str(exc))))
+        raise SystemExit(75 if exc.code == 'configuration_busy' else
+                         platform_support.CONFIGURATION_EXIT_STATUS) from None
