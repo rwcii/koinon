@@ -113,8 +113,8 @@ bundle at a time. Background maintenance uses shared control headroom while pres
 every remaining work credit; start-boundary cleanup uses ordinary admission. Requiring
 background deletion to fit the ordinary ceiling would stall retention cleanup after
 controls allocate into the reserve. Capacity refusal still rolls back the deletion
-and may refuse new starts until cleanup can fit; active claims retain their end credits. Finished-item cleanup is a separate bounded maintenance transaction
-using the shared control reserve while preserving every remaining work credit.
+and may refuse new starts until cleanup can fit; active claims retain their end credits.
+Finished-item cleanup is a separate bounded maintenance transaction using the shared control reserve while preserving every remaining work credit.
 
 An expired item stays hidden from queries even if physical cleanup is refused. Roll
 back all partial deletions and floor changes, report capacity/storage health, and

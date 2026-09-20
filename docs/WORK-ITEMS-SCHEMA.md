@@ -186,8 +186,8 @@ using shared control headroom while preserving all remaining claim debt, with ro
 on capacity refusal. This avoids preventing retention cleanup merely because controls
 have raised the store above the ordinary ceiling. Request-boundary start cleanup
 still uses ordinary admission. Such rows count toward the retained-bundle cap until
-removal. A start cannot overwrite an inactive
-bundle merely to avoid paying deletion costs; it must first successfully reclaim it.
+removal. A start cannot overwrite an inactive bundle merely to avoid paying deletion
+costs; it must first successfully reclaim it.
 This can temporarily refuse starts, but cannot prevent a promised active claim from ending.
 
 Before a new request begins its own mutation, bounded maintenance may independently
