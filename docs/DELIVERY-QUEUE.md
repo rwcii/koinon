@@ -234,8 +234,8 @@ does not authorize runtime removal, state deletion, or permission changes.
 
 **Source:** direct user request. **Status:** behavioral contract approved;
 design merged; migration, lease primitives, and shared transaction reservation
-enforcement staged with synthetic tests.
-No runtime work-item commands are delivered.
+enforcement and work-command/stream integration staged with synthetic tests.
+Public schema-4 startup does not enable the staged commands.
 
 The [approved contract](WORK-ITEMS-V1.md) defines structured repository work items,
 explicit assignment acceptance, exclusive advisory writer claims, progress

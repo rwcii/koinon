@@ -5,6 +5,10 @@ into a dated release section when promoted to `main`.
 
 ## Unreleased
 
+- Add staged work lifecycle commands, replay results and immutable stream/snapshot
+  integration, with strict reader-format guards and note isolation. Public startup
+  stays schema 4; work activation and background maintenance remain pending.
+
 - Enforce remaining work reservations at the shared memory transaction boundary,
   including progress, cleanup and index rebuilds. Add synthetic capacity/rollback
   tests and package the accounting dependencies; public startup remains schema 4.
