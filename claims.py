@@ -278,12 +278,14 @@ class LeaseEngine:
 
     def reclaim_one(self):
         before = self._transaction()
-        row = self.db.execute('SELECT generation FROM claim_bundles WHERE active=0 '
+        row = self.db.execute('SELECT generation,overdue_credit,end_credit FROM claim_bundles WHERE active=0 '
                               'ORDER BY generation LIMIT 1').fetchone()
         if row is None:
             return False
-        self.db.execute('DELETE FROM claim_resources WHERE generation=?', row)
-        self.db.execute('DELETE FROM claim_bundles WHERE generation=?', row)
+        if row[1] or row[2]:
+            raise ClaimError('incompatible_store', 'inactive bundle still has funded obligations')
+        self.db.execute('DELETE FROM claim_resources WHERE generation=?', (row[0],))
+        self.db.execute('DELETE FROM claim_bundles WHERE generation=?', (row[0],))
         # Deletion can allocate pages; it is ordinary admission, not a free control.
         self._admit(before)
         return True

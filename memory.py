@@ -41,8 +41,9 @@ import uuid
 import claims
 import work_storage
 import work_items
+import work_maintenance
 
-from database_worker import DatabaseWorker, CapacityError, WorkerFailure
+from database_worker import DatabaseWorker, CapacityError, WorkerFailure, WorkerClosed
 from service_runtime import Admission, close_writer, drain_handlers, database_status, HANDSHAKE_TIMEOUT
 from peer_transport import LIMIT, credentials, encode, private_dir
 import platform_support
@@ -1036,6 +1037,33 @@ class Store:
             self.set_meta('indexed_through', seq)
         return seq
 
+    def reclaim_work_events(self, work_id, latest_seq):
+        """Reclaim a bounded paired history inside its item-deletion transaction."""
+        if not self.db.in_transaction:
+            raise RuntimeError('work reclamation requires a caller-owned transaction')
+        count, highest = self.db.execute('SELECT count(*),max(seq) FROM work_events '
+                                         'WHERE work_id=?', (work_id,)).fetchone()
+        if not 1 <= count <= work_storage.MAX_EVENTS:
+            raise MemoryError_('incompatible_store', 'expired work event count exceeds retained bounds')
+        if highest != latest_seq:
+            raise MemoryError_('incompatible_store', 'expired work latest sequence disagrees with history')
+        invalid = self.db.execute('SELECT 1 FROM work_events w LEFT JOIN entries e ON e.seq=w.seq '
+            "WHERE w.work_id=? AND (e.seq IS NULL OR e.type<>'work-event' OR e.type IS NULL "
+            "OR e.scope<>'repo' OR e.scope IS NULL OR e.scope_target IS NULL OR e.scope_target<>w.work_id "
+            "OR e.revision IS NULL OR e.revision<>w.revision OR e.path IS NOT NULL "
+            "OR e.supersedes IS NOT NULL OR e.revokes IS NOT NULL OR e.superseded_by IS NOT NULL "
+            "OR e.revoked_by IS NOT NULL OR e.conflicts_with IS NOT NULL "
+            "OR e.body IS NULL OR e.body<>'' OR e.expires IS NOT NULL) LIMIT 1", (work_id,)).fetchone()
+        extra = self.db.execute("SELECT 1 FROM entries e WHERE e.type='work-event' "
+            'AND e.scope_target=? AND NOT EXISTS (SELECT 1 FROM work_events w '
+            'WHERE w.seq=e.seq AND w.work_id=?) LIMIT 1', (work_id, work_id)).fetchone()
+        if invalid or extra:
+            raise MemoryError_('incompatible_store', 'expired work has inconsistent stream rows')
+        self.db.execute('DELETE FROM entries WHERE seq IN '
+                        '(SELECT seq FROM work_events WHERE work_id=?)', (work_id,))
+        self.db.execute('DELETE FROM work_events WHERE work_id=?', (work_id,))
+        self.set_meta('floor', max(self.floor(), highest))
+
     def stream_rows(self, rows):
         """Batch-load immutable work payloads, never substitute today's work record."""
         entries = [self.row(row) for row in rows]
@@ -1529,9 +1557,14 @@ def stop_result(r, repo, generation):
 
 class MemoryCommands:
     """Synchronous protocol operations owned by the database thread."""
-    def __init__(self, root, repo, store, generation=None):
+    def __init__(self, root, repo, store, generation=None, maintenance_state=None):
         self.root, self.repo, self.store = Path(root), repo, store
         self.generation = generation or uuid.uuid4().hex
+        self.maintenance = work_maintenance.WorkMaintenance(
+            store, MemoryError_, maintenance_state or work_maintenance.MaintenanceState())
+
+    def maintain_work(self):
+        return self.maintenance.sweep()
 
     def close(self):
         self.store.close()
@@ -1825,7 +1858,7 @@ class MemoryCommands:
         more = truncated or (beyond and len(consumers) == len(listed))
         return dict(repo=self.repo, protocol=PROTOCOL, schema=SCHEMA, store_id=self.store.meta('store_id'), generation=self.generation,
                     head=head, floor=self.store.floor(), healthy=self.store.healthy(),
-                    fts=self.store.fts, usage=use,
+                    fts=self.store.fts, usage=use, work_maintenance=self.maintenance.observe(),
                     # A blocked store still answers status; that is the point of blocking
                     # writes rather than failing the service, and a caller needs to see it.
                     blocked=self.store.blocked, indexed=self.store.index_usable(),
@@ -1854,10 +1887,11 @@ class Service:
         self.tasks = set()
         self.closing = False
         self.admission = Admission()
+        self.maintenance_state = work_maintenance.MaintenanceState()
         def owned_store():
             store = store_factory()
             store.on_change = self.hints.notify_committed
-            return MemoryCommands(root, repo, store, self.generation)
+            return MemoryCommands(root, repo, store, self.generation, self.maintenance_state)
         self.worker = DatabaseWorker(owned_store)
 
     async def command(self, request, pid):
@@ -1873,6 +1907,7 @@ class Service:
             if result is None:
                 result = dict(repo=self.repo, protocol=PROTOCOL, schema=SCHEMA,
                               generation=self.generation, healthy=False)
+                result['work_maintenance'] = self.maintenance_state.snapshot()
             result.update(diagnostics)
         else:
             result = await self.worker.call('command', request, pid)
@@ -1940,8 +1975,28 @@ class Service:
                     self.admission.leave(slot)
                 self.tasks.discard(task)
 
+    async def maintain_work(self):
+        """One ordinary submission at a time, with monotonic waits between jobs."""
+        while not self.closing and not self.stop.is_set():
+            try:
+                result = await self.worker.call('maintain_work')
+                if not result['enabled']:
+                    return
+            except CapacityError:
+                self.maintenance_state.skipped()
+            except WorkerClosed:
+                return
+            except (MemoryError_, WorkerFailure):
+                # The worker-owned sweep recorded its fault and partial progress.
+                pass
+            try:
+                await asyncio.wait_for(self.stop.wait(), work_maintenance.INTERVAL)
+            except asyncio.TimeoutError:
+                pass
+
     async def run(self, sock):
         server = None
+        maintenance_task = None
         try:
             # Initialization completed in the worker before the socket was bound.
             status = await self.command(dict(op='status'), os.getpid())
@@ -1953,9 +2008,14 @@ class Service:
                 except (NotImplementedError, ValueError):
                     pass
             print(json.dumps(status), flush=True)
+            maintenance_task = asyncio.create_task(self.maintain_work())
             await self.stop.wait()
         finally:
             self.closing = True
+            if maintenance_task is not None:
+                maintenance_task.cancel()
+                with contextlib.suppress(asyncio.CancelledError):
+                    await maintenance_task
             self.hints.close()
             if server is not None:
                 server.close()

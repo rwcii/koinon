@@ -5,9 +5,13 @@ into a dated release section when promoted to `main`.
 
 ## Unreleased
 
+- Add staged bounded work maintenance, atomic finished-history reclamation, and
+  timestamped status diagnostics. Idle subscribers receive committed change hints;
+  shutdown drains accepted jobs. Public startup remains schema 4.
+
 - Add staged work lifecycle commands, replay results and immutable stream/snapshot
   integration, with strict reader-format guards and note isolation. Public startup
-  stays schema 4; work activation and background maintenance remain pending.
+  stays schema 4; work activation remains pending.
 
 - Enforce remaining work reservations at the shared memory transaction boundary,
   including progress, cleanup and index rebuilds. Add synthetic capacity/rollback

@@ -3,7 +3,7 @@
 This slice implements the [approved work contract](WORK-ITEMS-V1.md) on synthetic
 schema-5 stores. Public startup remains schema 4 and refuses these commands with
 `schema_too_old`. There is no supported activation flag, live migration, participant
-opt-in or background maintenance loop in this slice. The CLI parser is packaged
+opt-in. The [maintenance slice](WORK-ITEMS-MAINTENANCE.md) adds the background loop. The CLI parser is packaged
 so the interface and installed dependencies can be tested before activation.
 
 ## Interface
@@ -56,8 +56,8 @@ A start may separately reclaim that target's inactive bundle under ordinary
 admission. A later revision or ownership refusal can therefore follow a committed
 older due event; reread the item before retrying. Invalid fields and unknown targets
 do not trigger reconciliation. These are bounded target operations, not a background
-sweep. Periodic maintenance, diagnostics, shutdown integration and physical finished
-item reclamation remain the next slice.
+sweep. The [maintenance slice](WORK-ITEMS-MAINTENANCE.md) adds periodic maintenance,
+diagnostics, shutdown integration and physical finished-item reclamation.
 
 Work mutations also run the existing rate-limited note/snapshot/replay expiry after
 validation and retry lookup. That legacy expiry routine is separate from the bounded
