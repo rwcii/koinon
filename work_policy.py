@@ -13,6 +13,7 @@ DIGEST = re.compile(r'[0-9a-f]{64}')
 
 def absolute_path(value):
     if (not isinstance(value, str) or not value or '\x00' in value
+            or any(ord(char) < 32 or 127 <= ord(char) <= 159 for char in value)
             or len(value.encode('utf-8')) > 4096 or not Path(value).is_absolute()
             or '..' in Path(value).parts or str(Path(value)) != value):
         raise ValueError('expected a bounded absolute configuration path')
@@ -79,8 +80,14 @@ def query(config, repository, participant):
     selection = validate(config.get('work_items', {'version': VERSION, 'rules': {}}))
     rule = selection['rules'].get(key + ':' + participant)
     state = 'enabled' if rule and rule['state'] == 'enabled' else 'disabled'
+    reason = None
     if state == 'enabled':
-        guidance_path(rule['guidance_file'])
+        from work_guidance import verify
+        try:
+            if not verify(rule, key + ':' + participant):
+                state, reason = 'disabled', 'guidance_unverified'
+        except (OSError, ValueError):
+            state, reason = 'disabled', 'guidance_unverified'
     return dict(version=VERSION, repo=key, common_directory=str(common), participant=participant,
-                state=state, enabled=state == 'enabled', digest=rule['digest'] if rule else None,
+                state=state, enabled=state == 'enabled', reason=reason, digest=rule['digest'] if rule else None,
                 guidance_file=rule['guidance_file'] if rule else None)

@@ -5,6 +5,10 @@ into a dated release section when promoted to `main`.
 
 ## Unreleased
 
+- Add explicit repository/participant work-guidance opt-in and removal, private backups,
+  interrupted-publication recovery, and rule-aware uninstall. Policy queries verify
+  managed section digests and report edited or missing guidance as disabled.
+
 - Preserve unknown installation fields and staged work rules across upgrades using
   a permanent configuration lock and atomic writes. Add a read-only `work-policy`
   query for explicit repository/participant selections; work activation remains deferred.

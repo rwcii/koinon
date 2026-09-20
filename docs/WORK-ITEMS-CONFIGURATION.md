@@ -5,8 +5,9 @@ session. See [the approved contract](WORK-ITEMS-V1.md) and
 [implementation design](WORK-ITEMS-IMPLEMENTATION-DESIGN.md).
 
 The [staged policy implementation](WORK-ITEMS-POLICY.md) currently covers validation,
-configuration preservation and the read-only query. Publication and removal below
-remain implementation requirements for the next part.
+configuration preservation, verified read-only queries, and recoverable explicit
+publication/removal. Existing runtime installation is required; this mode does not
+deploy files or activate memory commands.
 
 ## Commands and scope
 
