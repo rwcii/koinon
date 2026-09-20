@@ -34,6 +34,13 @@ class NameConflict(ValueError):
         super().__init__(code + ': ' + advice + '; ' + ', '.join(self.paths))
 
 
+def installation_lock_error(code, path):
+    """Keep retryable contention distinct from unsafe or unreadable evidence."""
+    if code == 'configuration_busy':
+        return NameConflict('configuration_busy', (path,))
+    return NameConflict('invalid_install_configuration', (path,))
+
+
 def present(path):
     try:
         Path(path).lstat()

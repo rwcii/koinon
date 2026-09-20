@@ -64,8 +64,7 @@ def locked(prefix):
         except runtime_names.NameConflict:
             raise
         except OwnershipError as exc:
-            code = 'configuration_busy' if exc.code == 'configuration_busy' else 'invalid_install_configuration'
-            raise runtime_names.NameConflict(code, (path,)) from exc
+            raise runtime_names.installation_lock_error(exc.code, path) from exc
         except (OSError, ValueError) as exc:
             raise runtime_names.NameConflict('invalid_install_configuration', (path,)) from exc
         # Exceptions raised by publication are not reclassified as lock failures.
