@@ -58,6 +58,9 @@ def sections(text):
             opened = None
     if opened is not None:
         raise ValueError('unterminated work guidance')
+    ranges = sorted(found.values())
+    if any(left[1] > right[0] for left, right in zip(ranges, ranges[1:])):
+        raise ValueError('overlapping work guidance spans')
     # Reject a work section hidden inside a peer section that its updater owns.
     peer_ranges = instructions.spans(text).values()
     for start, end in found.values():

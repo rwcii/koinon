@@ -129,7 +129,8 @@ class GuidanceTests(unittest.TestCase):
     def test_parser_rejects_malformed_duplicate_nested_and_peer_overlap(self):
         section = guidance.render(self.prefix, self.common, self.repo_key, 'codex')
         peer = instructions.section(self.prefix)
-        samples = [section+section, section.rstrip('\n'),
+        adjacent = section + guidance.render(self.prefix, self.common, self.repo_key, 'claude').lstrip('\n')
+        samples = [section+section, adjacent, section.rstrip('\n'),
                    section.replace('<!-- END', section+'<!-- END', 1),
                    section.replace('KOINON WORK ITEMS', 'KOINON WORK ITEMS malformed', 1),
                    peer.replace('## Local peer messaging', section+'## Local peer messaging')]
@@ -276,6 +277,7 @@ class GuidanceTests(unittest.TestCase):
                     location.symlink_to(self.root, target_is_directory=True)
                 elif location.name == 'open state':
                     location.mkdir(mode=0o755)
+                    location.chmod(0o755)
                 config = dict(self.initial, state_root=str(location))
                 self.save(config)
                 with self.assertRaises(guidance.GuidanceError):
