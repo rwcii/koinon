@@ -33,7 +33,8 @@ estimates or instructions to change a store's schema.
 Sixteen writers reporting hourly reach the 2,048-event ceiling in roughly **5.3 days**,
 sooner after other mutations or reservations. Even one long-running item's history can
 exhaust capacity before any finished history is eligible for removal. Renewing a lease
-alone emits no work event; meaningful progress checkpoints do consume event capacity.
+alone emits no work event, but still consumes shared replay-record capacity; meaningful
+progress checkpoints consume event capacity as well.
 There is no early history trimming. The design's example of 60 work blocks averaging
 20 events and 4 KiB per event is 1,200 events and about 4.7 MiB of event payload: a
 sizing example, not a throughput guarantee.
