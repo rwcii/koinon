@@ -296,7 +296,8 @@ an unrelated host program; existing availability probes retain the manual fallba
 2. **Session manager abstraction:** route existing session and legacy service-manager
    operations through platform support with unchanged Linux semantics and explicit
    unavailable-manager results. Review separately from new launchd behavior.
-3. **Portable lifecycle and persistent backends:** runner ownership/readiness/stop,
+3. **Portable lifecycle and persistent backends:** staged [portable runner](MEMORY-SUPERVISOR.md),
+   runner ownership/readiness/stop,
    refusal persistence and restart classifications, Linux units, and macOS user
    LaunchAgents for both session and memory supervision. Synthetic and real isolated
    manager tests in both OS CI are required before public activation.

@@ -194,6 +194,44 @@ def process_alive(pid):
     return True
 
 
+def process_state(pid, expected_start):
+    """Observe one process incarnation without counting zombies as running.
+
+    Unreadable or malformed observations remain unknown; only an absent PID,
+    a different start marker, or an OS-reported dead state proves exit.
+    """
+    if not isinstance(expected_start, str) or not expected_start.strip():
+        return 'unknown'
+    try:
+        if LINUX:
+            fields = Path(f'/proc/{pid}/stat').read_text().rsplit(')', 1)[1].split()
+            state, marker = fields[0], fields[19]
+        else:
+            result = subprocess.run(
+                ['ps', '-o', 'state=', '-o', 'lstart=', '-p', str(pid)],
+                capture_output=True, text=True, env={**os.environ, 'TZ': 'UTC'},
+                timeout=PROCESS_QUERY_TIMEOUT)
+            if result.returncode:
+                # A failed ps invocation alone does not prove process exit.
+                try:
+                    os.kill(pid, 0)
+                except ProcessLookupError:
+                    return 'dead'
+                return 'unknown'
+            state, marker = result.stdout.strip().split(maxsplit=1)
+        if not state or not marker.strip():
+            return 'unknown'
+        if not same_process(expected_start, marker) or state[0] in ('Z', 'X'):
+            return 'dead'
+        return 'alive'
+    except FileNotFoundError:
+        if LINUX:
+            return 'dead'
+        return 'unknown'
+    except (OSError, subprocess.SubprocessError, IndexError, ValueError):
+        return 'unknown'
+
+
 def pid_domain():
     """Peer-domain identifier recorded alongside this process in the registry.
 
@@ -427,3 +465,14 @@ def user_service_manager(operation, names=(), **options):
     if operation in ('start', 'stop', 'enable', 'disable'):
         arguments = [*arguments, *names]
     return subprocess.run(['systemctl', '--user', *arguments], **options)
+
+
+def managed_service_exit(backend, status):
+    """launchd's binary restart predicate requires permanent failures to exit zero.
+
+    Original failure and refusal-record durability remain visible in runner status.
+    This mapping is required even when writing the refusal marker failed.
+    """
+    if backend == 'launchd' and status in PERMANENT_EXIT_STATUSES:
+        return 0
+    return status

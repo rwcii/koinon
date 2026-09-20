@@ -52,6 +52,35 @@ class ProcessTests(unittest.TestCase):
         with self.assertRaises(ProcessLookupError):
             platform_support.proc_start(child.pid)
 
+    def test_process_observation_distinguishes_unreaped_exit(self):
+        child = subprocess.Popen([sys.executable, '-c', 'import sys; sys.stdin.read()'],
+                                 stdin=subprocess.PIPE)
+        try:
+            marker = platform_support.proc_start(child.pid)
+            self.assertEqual(platform_support.process_state(child.pid, marker), 'alive')
+            self.assertEqual(platform_support.process_state(child.pid, 'different incarnation'), 'dead')
+            child.stdin.close()
+            deadline = time.monotonic() + 10
+            observed = 'alive'
+            while time.monotonic() < deadline:
+                observed = platform_support.process_state(child.pid, marker)
+                if observed == 'dead':
+                    break
+                time.sleep(.05)
+            # No poll/wait before this assertion: it must observe the zombie.
+            self.assertEqual(observed, 'dead')
+        finally:
+            child.wait(timeout=10)
+
+    def test_unreadable_process_observation_is_unknown(self):
+        with patch.object(platform_support, 'LINUX', True), \
+                patch.object(Path, 'read_text', side_effect=PermissionError):
+            self.assertEqual(platform_support.process_state(42, '123'), 'unknown')
+        with patch.object(platform_support, 'LINUX', True), \
+                patch.object(Path, 'read_text', return_value='malformed'):
+            self.assertEqual(platform_support.process_state(42, '123'), 'unknown')
+        self.assertEqual(platform_support.process_state(os.getpid(), None), 'unknown')
+
     def test_pid_domain_names_this_platform(self):
         if platform_support.DARWIN:
             self.assertEqual(platform_support.pid_domain(), 'darwin')

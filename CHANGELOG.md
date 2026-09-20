@@ -5,6 +5,10 @@ into a dated release section when promoted to `main`.
 
 ## Unreleased
 
+- Stage the repository memory supervisor with child readiness, generation-bound stop,
+  bounded retry, retained failure diagnostics, and explicit refusal recovery. Native
+  manager activation and installer integration remain pending.
+
 - Allow managed callers to bind memory shutdown to their captured generation,
   refusing a replacement or unreadable owner before sending a stop request.
 
