@@ -330,7 +330,14 @@ an exit code alone as permission to repeat an uncertain write. If you manage mem
 keep 75 retryable and exclude both 70 (internal software error) and 78 from automatic
 restarts. Internal errors require investigation or a code correction; they are not
 reported as incompatible user data. No memory service unit is
-created by the installer.
+created by the installer. An operator-created memory unit is not included in the
+installer's session restart report or in uninstall's owned-unit inventory. Before
+replacing or removing its runtime, stop that memory service separately and verify
+its process has exited. After a compatible upgrade, restart it explicitly and
+verify memory health and store identity. For removal, separately disable and remove
+only the operator-owned unit selected for this installation; preserve the memory
+store and unrelated services. Complete installer-managed memory supervision and
+supported upgrades are tracked as [DQ-11 and DQ-12](DELIVERY-QUEUE.md#dq-11--install-and-manage-every-runtime-component).
 
 Run one per repository, from inside that repository:
 

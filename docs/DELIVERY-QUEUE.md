@@ -19,9 +19,13 @@ branch completion and installed capability are different facts.
 DQ-01, DQ-02, DQ-03 and DQ-07 were included in the promotion to `main` at
 `35a8bdd` (2026-09-19 release). Work-items v1 is integrated on `develop` through
 PR #35. These source milestones do not establish local runtime deployment.
-Next, reconcile authorized deployment and first adoption, then design DQ-08. Keep
-DQ-04 visible for a scope decision before DQ-05 history pruning. Investigating a
-requirement does not settle its protocol.
+Runtime refresh and initial shared work-item adoption have been independently
+checked for the selected installation; this does not establish deployment elsewhere
+or completion of long-term retention tests. Complete installation (DQ-11) and
+supported upgrades (DQ-12) are queued; their scheduling remains open. DQ-08 design is tracked in
+[issue #38](https://github.com/rwcii/koinon/issues/38). Keep DQ-04 visible for a scope
+decision before DQ-05 history pruning. Investigating a requirement does not settle
+its protocol.
 
 ## DQ-01 — Universal per-agent usage reports
 
@@ -276,3 +280,75 @@ Acceptance: inventory the existing public vocabulary, preserve supported respons
 and retry classifications, and test unknown-code rejection and each cross-subsystem
 mapping. Keep programming faults distinct from user-input and store refusals.
 The current reachable work/startup mappings are covered by the PR #35 tests.
+
+
+## DQ-11 — Install and manage every runtime component
+
+**Source:** user requirement conveyed by the reviewer and recorded in
+[issue #42](https://github.com/rwcii/koinon/issues/42). **Status:** queued;
+implementation design pending. This includes the memory-service lifecycle gap.
+
+The installer copies memory runtime files but does not configure or start a memory
+service. Operator-created units are outside its restart observation and removal
+inventory. Provide a complete installation path with repository-scoped memory
+supervision, repeat installation, upgrade reporting, and owned-service removal.
+One store serves an absolute Git common directory, including its worktrees;
+memory service identity must not depend on a participant session.
+
+Acceptance requirements:
+
+- Install every selected runtime component through one documented invocation,
+  preserving existing configuration fields, explicit repository selection, and
+  `--no-start` behavior.
+- On Linux with a user service manager, generate a private memory unit with
+  `UMask=0077`, `Restart=on-failure`, and permanent restart exclusions from
+  `platform_support.PERMANENT_EXIT_STATUSES`. Carry the selected state and
+  repository paths explicitly.
+- Include memory in restart observation and uninstall. Verify ownership and
+  installation identity before replacement or removal; preserve store data and
+  unrelated installations. Define explicit migration for operator-created units
+  without silently adopting or overwriting them.
+- Provide Linux without systemd and macOS parity through `platform_support.py`.
+  Specify the managed-process handoff and truthful `manual_required`/`start_command`
+  result when a persistent host process is required. Resolve the issue's
+  unattended-supervision acceptance against this fallback in the design; merely
+  printing a command does not establish a running service.
+- Test repeat installation, repository/worktree deduplication, custom paths,
+  ownership refusals, no-start behavior, partial failure, and exact owned removal.
+
+## DQ-12 — Supported, resumable runtime upgrades
+
+**Source:** user requirement conveyed by the reviewer and recorded in
+[issue #43](https://github.com/rwcii/koinon/issues/43). **Status:** queued;
+implementation design pending. Depends on DQ-11 component ownership and lifecycle
+inventory; the current [upgrade runbook](WORK-ITEMS-UPGRADE.md) remains applicable
+until the replacement operation is implemented and verified.
+
+Turn the coordinated upgrade into an executable operation that records its phases,
+performs its own inventory and backup, and verifies recovery. Preserve explicit
+installation, participant, repository, and state selection. The operation must not
+infer authority from a peer message or silently broaden the affected services.
+
+Acceptance requirements:
+
+- Capture a private pre-upgrade inventory of store identity, schema/protocol,
+  stream head/floor, record/work/event/claim counts, consumer cursors, participant
+  bindings, delivery acknowledgements, unfinished work, and active claims.
+- Quiesce affected services in a defined dependency order and verify owned process
+  exit before replacement. Back up consistent databases with required SQLite
+  sidecars and configuration; never copy only a live main database.
+- Replace the selected runtime, restart the selected services explicitly, and
+  produce a before/after verification report. Separate expected incarnation,
+  checkpoint-size, and maintenance-timestamp changes from preserved identity,
+  cursors, bindings, and retained data. Define a verification boundary that accounts
+  for restart maintenance and renewed traffic rather than hiding count changes.
+- Refuse unexpected target, path, schema, or capacity changes. Define supported
+  schema transitions explicitly: a declared migration may change the schema;
+  an unexplained mismatch is not an expected restart effect. Never silently reset
+  checkpoints or rewrite work selections.
+- Persist private recovery phases and make retries idempotent and resumable after
+  interruption. Keep rollback explicit with the existing compatibility and backup
+  requirements; never automatically restore old state over new writes.
+- Cover Linux and macOS, manager and managed-process operation, interrupted phases,
+  failed shutdown/startup, failed verification, and preservation of unrelated
+  installations with synthetic fixtures.
