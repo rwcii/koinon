@@ -360,3 +360,41 @@ def sync_state_directory(path):
         os.fsync(fd)
     finally:
         os.close(fd)
+
+
+def memory_service_artifact(prefix, python, key, selection):
+    """Canonical staged artifact bytes; no manager selection or activation.
+
+    This exact template is the ownership grammar. Unknown directives, arguments,
+    duplicate plist keys, and alternative expansion syntax are not adopted.
+    """
+    import json
+    import plistlib
+    import memory_service_config
+    import runtime_names
+    from work_policy import absolute_path
+
+    prefix, python = absolute_path(str(prefix)), absolute_path(str(python))
+    memory_service_config.validate(dict(version=1, repositories={key: selection}))
+    argv = [str(python), str(prefix / 'memory_service.py'), 'run',
+            '--prefix', str(prefix), '--repo', selection['common_directory'],
+            '--state-root', selection['state_root'], '--backend', selection['backend']]
+    backend = selection['backend']
+    if backend == 'systemd':
+        # Path validation above excludes control characters; do not accept arbitrary
+        # JSON unicode escapes as systemd command syntax.
+        def argument(value):
+            return json.dumps(value.replace('%', '%%').replace('$', '$$'), ensure_ascii=False)
+        text = (runtime_names.SERVICE_MARKER + '# Memory service template v1\n[Unit]\nDescription=Koinon repository memory\n\n'
+                '[Service]\nType=simple\nExecStart=' + ' '.join(map(argument, argv)) +
+                '\nRestart=on-failure\nRestartSec=10\nRestartPreventExitStatus=' +
+                ' '.join(map(str, PERMANENT_EXIT_STATUSES)) +
+                '\nUMask=0077\n\n[Install]\nWantedBy=default.target\n')
+        return text.encode('utf-8')
+    if backend == 'launchd':
+        label = memory_service_config.artifact_name(key, backend)[:-len('.plist')]
+        return plistlib.dumps(dict(Label=label, ProgramArguments=argv,
+                                   KoinonManaged='memory-service-v1', Umask=63,
+                                   RunAtLoad=True, ThrottleInterval=10,
+                                   KeepAlive=dict(SuccessfulExit=False)), sort_keys=True)
+    raise ValueError('manual operation has no service artifact')
