@@ -87,6 +87,8 @@ all 16 funded end commands at ordinary saturation and legacy snapshot continuati
 The [maintenance slice](WORK-ITEMS-MAINTENANCE.md) adds bounded due publication,
 finished-item reclamation, diagnostics, idle hints and shutdown drainage.
 
-Then add binding compatibility, opt-in installer configuration, and user capacity/upgrade
-documentation. Run the design's full-store, bootstrap, shutdown and mixed-version
+The [policy and guidance slice](WORK-ITEMS-POLICY.md) adds explicit installer opt-in
+and verified policy queries; [operator capacity planning](INSTALL.md#work-item-capacity-planning)
+documents finite workload and recovery limits. Binding compatibility, activation and
+upgrade procedures remain. Run the design's full-store, bootstrap, shutdown and mixed-version
 tests and Linux/macOS CI before claiming runtime implementation acceptance.

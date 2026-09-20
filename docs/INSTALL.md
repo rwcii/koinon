@@ -1,5 +1,68 @@
 # Install and enable Koinon
 
+## Work-item capacity planning
+
+Work commands remain staged: public startup uses schema 4. Explicit work-guidance
+configuration does not activate them. Before choosing this workflow when activation
+becomes available, check that the repository's retained workload fits these finite
+budgets. V1 supports bounded work, not indefinite sustained progress reporting.
+
+| Limit | Capacity implication |
+| --- | --- |
+| 128 retained work items | Finished and withdrawn items still count during retention. |
+| 2,048 retained work events across all items | Control reservations reduce ordinary admission; an open item's history does not expire. |
+| 12 MiB work logical usage within 32 MiB shared logical usage | Records, scope history and events compete for this budget. |
+| 16 retained writer bundles | Inactive bundles awaiting cleanup still count; storage admission can bind sooner. |
+| 64 scope revisions per item, 1,024 total | Long-running items have finite revision history. |
+| 20,000 shared replay records | Other memory operations and work control reservations also consume this budget. |
+
+Strings, payloads, optional resource claims, live leases, query results and maintenance
+batches also have explicit bounds. The complete [work budgets](WORK-ITEMS-IMPLEMENTATION-DESIGN.md#budgets-and-progress-reserves)
+and [storage accounting](WORK-ITEMS-STORAGE.md) give the reviewed limits. These are
+independent ceilings, not a promise that all maxima fit simultaneously.
+
+The 128 MiB combined database/WAL ceiling is **not ordinary write capacity**. With all
+16 claim bundles funded, their reserved debt is 10,240 pages and 1.5 MiB of logical
+space. The remaining ordinary database band is 4,038 pages, about **15.8 MiB**, before
+the append allowance and other limits apply. With no claim credits at schema 4, the
+reviewed ceilings are 14,278 ordinary pages, 16,326 control pages, 4,936 ordinary
+entries, 20,000 replay rows, and ordinary logical usage of 32 MiB minus the shared
+reserved bytes. These values describe admission accounting, not usable file-space
+estimates or instructions to change a store's schema.
+
+Sixteen writers reporting hourly reach the 2,048-event ceiling in roughly **5.3 days**,
+sooner after other mutations or reservations. Even one long-running item's history can
+exhaust capacity before any finished history is eligible for removal. Renewing a lease
+alone emits no work event, but still consumes shared replay-record capacity; meaningful
+progress checkpoints consume event capacity as well.
+There is no early history trimming. The design's example of 60 work blocks averaging
+20 events and 4 KiB per event is 1,200 events and about 4.7 MiB of event payload: a
+sizing example, not a throughput guarantee.
+
+At capacity, new ordinary work mutations are refused while live items, checkpoints,
+claims and recovery information are preserved. The refusal identifies the exhausted
+dimension, retained usage, outstanding reservations, and earliest eligible finished-item
+expiry, or explicitly none. Funded release, finish and expiry bookkeeping retain their
+reserved capacity; an exhausted ordinary event budget does not prevent ending an
+accepted active claim. This is a storage-admission promise, not immunity from disk
+failure or corruption.
+
+Finish only genuinely completed work or withdraw work that is actually abandoned.
+Finished and withdrawn items and their history become eligible for cleanup after
+30 days; active items remain preserved. Eligible cleanup frees rows and makes pages
+reusable inside the database, but **does not vacuum or reduce allocated page count**.
+Ordinary writes may therefore still refuse after rows have been reclaimed. Returning
+pages uses the existing note-admission/reclaim path or explicit store recovery; work
+admission does not itself trigger vacuum. At or above the applicable control ceiling,
+cleanup has no general progress guarantee. Check the timestamped maintenance status
+and faults instead of assuming every interval reclaimed capacity; see
+[maintenance and recovery limits](WORK-ITEMS-MAINTENANCE.md).
+
+Do not mark incomplete work finished to free history, rotate to an untracked store,
+delete active records, or shorten retention as recovery. Higher sustained workloads
+require a separately reviewed capacity/retention design. General event-history pruning
+is outside v1.
+
 ## Name and path compatibility
 
 Koinon was previously named Codex Peer Bridge. Fresh installations use

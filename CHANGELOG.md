@@ -5,6 +5,9 @@ into a dated release section when promoted to `main`.
 
 ## Unreleased
 
+- Document finite work-item capacity, retained-history limits, funded claim reserves,
+  and the distinction between reclaiming rows and recovering allocated page headroom.
+
 - Add explicit repository/participant work-guidance opt-in and removal, private backups,
   interrupted-publication recovery, and rule-aware uninstall. Policy queries verify
   managed section digests and report edited or missing guidance as disabled.
