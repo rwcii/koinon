@@ -76,7 +76,11 @@ Register an additive `memory_services` object in `install.json`:
 The 64-record limit is a conservative bound on per-installation lifecycle inventory,
 not a memory-store capacity limit. Adding a 65th distinct repository refuses with
 `memory_service_limit` (exit 78) before publication; repeated installation of an
-existing selection remains allowed at the limit. Removing an explicitly selected
+existing selection remains allowed at the limit. This is an installer-only admission
+refusal, declared in `runtime_names.CONFIGURATION_CODES` before use through
+`NameConflict`; it is not emitted by the memory runner or memory protocol. The runner
+validates saved selections and reports malformed retained configuration through its
+own declared configuration boundary rather than performing registration admission. Removing an explicitly selected
 registration preserves its store. A retained configuration exceeding the supported
 limit is invalid configuration, never truncated or reset automatically.
 
