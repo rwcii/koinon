@@ -1112,6 +1112,37 @@ class LifecycleTests(unittest.TestCase):
         self.assertTrue(self.client(op='hello')['ok'])
         self.assertIsNone(service.poll())
 
+    def test_guarded_stop_refuses_a_successor_before_sending_any_request(self):
+        service = self.spawn('serve')
+        self.wait_for_socket(pid=service.pid)
+        current = memory.read_owner(self.home)['generation']
+        stale = 'a' * 32 if current != 'a' * 32 else 'b' * 32
+        from unittest.mock import patch
+        with patch.object(memory, 'request', side_effect=AssertionError('stop sent to successor')):
+            with self.assertRaises(memory.MemoryError_) as caught:
+                memory.stop_service(self.home, self.repo, expected_generation=stale)
+        self.assertEqual(caught.exception.code, 'not_this_instance')
+        self.assertTrue(self.client(op='hello')['ok'])
+        self.assertIsNone(service.poll())
+
+    def test_guarded_stop_uses_the_captured_generation_and_reaps_the_child(self):
+        service = self.spawn('serve')
+        self.wait_for_socket(pid=service.pid)
+        generation = memory.read_owner(self.home)['generation']
+        result = memory.stop_service(self.home, self.repo, expected_generation=generation)
+        self.assertEqual(result['generation'], generation)
+        self.assertEqual(result['status'], 'stopped')
+        service.wait(timeout=10)
+        self.assertEqual(service.returncode, 0)
+
+    def test_guarded_stop_refuses_unknown_owner_and_invalid_generation_without_request(self):
+        from unittest.mock import patch
+        with patch.object(memory, 'request', side_effect=AssertionError('unverified stop sent')):
+            for generation, code in (('a' * 32, 'unknown_owner'), ('malformed', 'invalid_request')):
+                with self.subTest(generation=generation), self.assertRaises(memory.MemoryError_) as caught:
+                    memory.stop_service(self.home, self.repo, expected_generation=generation)
+                self.assertEqual(caught.exception.code, code)
+
     def test_the_cli_can_continue_recall_and_status_pages(self):
         self.spawn('serve')
         self.wait_for_socket()

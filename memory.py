@@ -2332,9 +2332,11 @@ def release(home, control, generation):
         return True
 
 
-def stop_service(home, repo, timeout=20):
+def stop_service(home, repo, timeout=20, *, expected_generation=None):
     """Stop one specific service instance and report only when it has gone.
 
+    A supervisor can supply its captured expected_generation; a changed or missing
+    owner then refuses before sending anything. Omitting it preserves CLI behavior.
     Completion is bound to the generation that was asked to stop. A refused connection
     is not evidence of exit: a service that has closed its listener and is still
     draining refuses connections while very much alive, so waiting on a failed handshake
@@ -2345,6 +2347,14 @@ def stop_service(home, repo, timeout=20):
     """
     control = platform_support.control_socket_path(Path(home))
     target = read_owner(home)
+    if expected_generation is not None:
+        if (not isinstance(expected_generation, str) or len(expected_generation) != 32
+                or any(c not in '0123456789abcdef' for c in expected_generation)):
+            raise MemoryError_('invalid_request', 'expected generation must be 32 lowercase hex characters')
+        if not target:
+            raise MemoryError_('unknown_owner', 'the captured service owner is no longer readable')
+        if target.get('generation') != expected_generation:
+            raise MemoryError_('not_this_instance', 'the captured service instance has changed; no stop sent')
     try:
         control = service_path(Path(home), legacy_socket=target.get('socket') if target else None)
     except FileNotFoundError:
