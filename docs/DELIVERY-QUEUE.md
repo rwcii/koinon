@@ -286,7 +286,8 @@ The current reachable work/startup mappings are covered by the PR #35 tests.
 
 **Source:** user requirement conveyed by the reviewer and recorded in
 [issue #42](https://github.com/rwcii/koinon/issues/42). **Status:** queued;
-implementation design pending. This includes the memory-service lifecycle gap.
+[implementation design candidate](MEMORY-INSTALLATION-DESIGN.md) under peer review.
+This includes the memory-service lifecycle gap.
 
 The installer copies memory runtime files but does not configure or start a memory
 service. Operator-created units are outside its restart observation and removal
