@@ -321,3 +321,62 @@ class ControlAliasTests(unittest.TestCase):
                         first.close()
                         second.close()
                         chosen.unlink(missing_ok=True)
+
+
+class UserServiceManagerTests(unittest.TestCase):
+    def test_shipped_command_order_and_distinct_caller_io_contracts(self):
+        # Characterize the pre-abstraction Linux invocations, including the two
+        # different availability policies and observation's unchecked return code.
+        names = ['second.service', 'first.service']
+        cases = [
+            ('available', [], ['show-environment'],
+             dict(stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=5)),
+            ('available', [], ['show-environment'], dict(check=True, stdout=subprocess.DEVNULL)),
+            ('fragment', names[:1], ['show', names[0], '--property=FragmentPath', '--value'],
+             dict(check=True, capture_output=True, text=True)),
+            ('observe', names, ['show', '--property=Id', '--property=ActiveState',
+                                '--property=FragmentPath', *names],
+             dict(capture_output=True, text=True, timeout=5)),
+            ('reload', [], ['daemon-reload'], dict(check=True)),
+            ('start', names, ['start', *names], dict(check=True)),
+            ('stop', names, ['stop', *names], dict(check=True)),
+            ('enable', names, ['enable', '--now', *names], dict(check=True)),
+            ('disable', names, ['disable', '--now', *names], dict(check=True)),
+        ]
+        for operation, selected, argv, options in cases:
+            with self.subTest(operation=operation, options=options), \
+                    patch.object(platform_support, 'SERVICE_MANAGER', 'systemd'), \
+                    patch.object(platform_support.subprocess, 'run') as run:
+                result = platform_support.user_service_manager(operation, selected, **options)
+                run.assert_called_once_with(['systemctl', '--user', *argv], **options)
+                self.assertIs(result, run.return_value)
+
+    def test_failure_and_timeout_are_not_reclassified_or_retried(self):
+        for failure in (FileNotFoundError('systemctl'), subprocess.TimeoutExpired('systemctl', 5),
+                        subprocess.CalledProcessError(1, ['systemctl'])):
+            with self.subTest(failure=type(failure).__name__), \
+                    patch.object(platform_support, 'SERVICE_MANAGER', 'systemd'), \
+                    patch.object(platform_support.subprocess, 'run', side_effect=failure) as run:
+                with self.assertRaises(type(failure)) as caught:
+                    platform_support.user_service_manager('start', ['synthetic.service'], check=True)
+                self.assertIs(caught.exception, failure)
+                self.assertEqual(run.call_count, 1)
+
+    def test_unavailable_manager_never_invokes_a_different_host_program(self):
+        for manager in (None, 'launchd'):
+            with self.subTest(manager=manager), \
+                    patch.object(platform_support, 'SERVICE_MANAGER', manager), \
+                    patch.object(platform_support.subprocess, 'run') as run:
+                with self.assertRaises(OSError):
+                    platform_support.user_service_manager('available')
+                run.assert_not_called()
+
+
+    def test_invalid_operation_is_a_programming_error_on_every_backend(self):
+        for manager in ('systemd', None, 'launchd'):
+            with self.subTest(manager=manager), \
+                    patch.object(platform_support, 'SERVICE_MANAGER', manager), \
+                    patch.object(platform_support.subprocess, 'run') as run:
+                with self.assertRaises(ValueError):
+                    platform_support.user_service_manager('misspelled-operation')
+                run.assert_not_called()

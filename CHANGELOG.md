@@ -5,6 +5,9 @@ into a dated release section when promoted to `main`.
 
 ## Unreleased
 
+- Route existing session, installation, and removal service-manager operations
+  through platform support while preserving Linux command and failure behavior.
+
 - Stage exact memory-service artifact ownership and recoverable publication,
   preserving conflicting files and interrupted-install evidence without activation.
 

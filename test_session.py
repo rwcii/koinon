@@ -330,6 +330,13 @@ raise SystemExit(78)
             self.assertEqual(command[:2], ['systemctl', '--user'])
             operation = command[2]
             self.assertIn(operation, ('show-environment', 'daemon-reload', 'start'))
+            if operation == 'show-environment':
+                self.assertEqual(command, ['systemctl', '--user', 'show-environment'])
+                self.assertEqual(kwargs, dict(stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=5))
+            else:
+                self.assertEqual(kwargs, dict(check=True))
+            if operation == 'daemon-reload':
+                self.assertEqual(command, ['systemctl', '--user', 'daemon-reload'])
             if operation == 'start':
                 self.starts += 1
                 if before_start:
@@ -349,6 +356,7 @@ raise SystemExit(78)
                 patch.object(sys, 'argv', arguments), \
                 patch.dict(os.environ, self.env), \
                 patch('session.subprocess.run', side_effect=service_manager), \
+                patch.object(session.platform_support, 'SERVICE_MANAGER', 'systemd'), \
                 redirect_stdout(output):
             session.main()
         result = json.loads(output.getvalue())

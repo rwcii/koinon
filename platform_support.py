@@ -398,3 +398,32 @@ def memory_service_artifact(prefix, python, key, selection):
                                    RunAtLoad=True, ThrottleInterval=10,
                                    KeepAlive=dict(SuccessfulExit=False)), sort_keys=True)
     raise ValueError('manual operation has no service artifact')
+
+
+def user_service_manager(operation, names=(), **options):
+    """Run one supported user-manager operation, preserving caller I/O policy.
+
+    This first abstraction retains the shipped systemd commands. Unsupported
+    managers raise OSError so existing availability probes report manual operation.
+    It does not start an alternate manager or change retry/readiness behavior.
+    """
+    names = tuple(names)
+    commands = {
+        'available': ['show-environment'],
+        'reload': ['daemon-reload'],
+        'start': ['start'],
+        'stop': ['stop'],
+        'enable': ['enable', '--now'],
+        'disable': ['disable', '--now'],
+        'fragment': ['show', *names, '--property=FragmentPath', '--value'],
+        'observe': ['show', '--property=Id', '--property=ActiveState',
+                    '--property=FragmentPath', *names],
+    }
+    if operation not in commands:
+        raise ValueError('unsupported user service operation')
+    if SERVICE_MANAGER != 'systemd':
+        raise OSError('no supported user service manager')
+    arguments = commands[operation]
+    if operation in ('start', 'stop', 'enable', 'disable'):
+        arguments = [*arguments, *names]
+    return subprocess.run(['systemctl', '--user', *arguments], **options)

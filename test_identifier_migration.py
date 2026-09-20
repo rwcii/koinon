@@ -202,11 +202,14 @@ class IdentifierMigrationTests(unittest.TestCase):
         foreign.write_text('# Managed by koinon\n[Service]\nExecStart="/python" "/other/session.py"\n')
         foreign_before = foreign.read_bytes()
         with mock.patch.object(sys, 'argv', ['uninstall.py', '--prefix', str(app)]), \
+             mock.patch.object(uninstaller.platform_support, 'SERVICE_MANAGER', 'systemd'), \
              mock.patch.object(uninstaller.subprocess, 'run') as run, redirect_stdout(io.StringIO()):
             uninstaller.main()
         disabled = run.call_args_list[0].args[0]
-        self.assertEqual(disabled[:4], ['systemctl', '--user', 'disable', '--now'])
-        self.assertEqual(set(disabled[4:]), set(owned))
+        self.assertEqual(disabled, ['systemctl', '--user', 'disable', '--now', *sorted(owned)])
+        self.assertEqual(run.call_args_list[0].kwargs, dict(check=True))
+        self.assertEqual(run.call_args_list[1].args[0], ['systemctl', '--user', 'daemon-reload'])
+        self.assertEqual(run.call_args_list[1].kwargs, dict(check=True))
         self.assertEqual(list(units.iterdir()), [foreign])
         self.assertEqual(foreign.read_bytes(), foreign_before)
         self.assertEqual(evidence.stat().st_ino, inode)
@@ -330,6 +333,7 @@ class IdentifierMigrationTests(unittest.TestCase):
         for name, content in rendered.items():
             (units/name).write_text(content)
         with mock.patch.object(sys, 'argv', ['uninstall.py', '--prefix', str(app)]), \
+             mock.patch.object(uninstaller.platform_support, 'SERVICE_MANAGER', 'systemd'), \
              mock.patch.object(uninstaller.subprocess, 'run') as run, redirect_stdout(io.StringIO()):
             uninstaller.main()
         self.assertEqual(set(run.call_args_list[0].args[0][4:]), set(rendered))

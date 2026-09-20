@@ -161,8 +161,8 @@ def active_units(unit_dir, names=SERVICES, prefix=None):
     for name in names:
         local = unit_dir/name
         check_owned_unit(local, prefix)
-        result = subprocess.run(['systemctl','--user','show',name,'--property=FragmentPath',
-                                 '--value'],check=True,capture_output=True,text=True)
+        result = platform_support.user_service_manager('fragment', [name],
+                                                       check=True, capture_output=True, text=True)
         fragment = result.stdout.strip()
         if fragment:
             actual = Path(fragment)
@@ -214,9 +214,8 @@ def report_session_restarts(prefix, unit_dir, *, no_start=False):
     observations = {}
     if not no_start:
         try:
-            result = subprocess.run(
-                ['systemctl', '--user', 'show', '--property=Id', '--property=ActiveState',
-                 '--property=FragmentPath', *owned], capture_output=True, text=True, timeout=5)
+            result = platform_support.user_service_manager(
+                'observe', owned, capture_output=True, text=True, timeout=5)
             if result.returncode:
                 reason = 'service manager query failed'
             else:
@@ -399,12 +398,12 @@ def install(a, p, configuration=None, validate_only=False):
                      legacy=selected == runtime_names.service_names(legacy=True))
     if not a.no_start:
         # Fail before modifying installation if the user manager is unavailable.
-        subprocess.run(['systemctl','--user','show-environment'],check=True,stdout=subprocess.DEVNULL)
+        platform_support.user_service_manager('available',check=True,stdout=subprocess.DEVNULL)
         existing = active_units(a.unit_dir, selected, a.prefix)
         if validate_only:
             return
         if existing:
-            subprocess.run(['systemctl','--user','stop',*existing],check=True)
+            platform_support.user_service_manager('stop', existing, check=True)
     if validate_only:
         return
     os.umask(0o077)
@@ -420,8 +419,8 @@ def install(a, p, configuration=None, validate_only=False):
     if a.no_start:
         print('Files and units written; services were not changed.')
     else:
-        subprocess.run(['systemctl','--user','daemon-reload'],check=True)
-        subprocess.run(['systemctl','--user','enable','--now',*rendered],check=True)
+        platform_support.user_service_manager('reload', check=True)
+        platform_support.user_service_manager('enable', rendered, check=True)
     print('Installed at',a.prefix)
     print('State directory:',a.state_dir)
     print('Check: systemctl --user status', *selected)
