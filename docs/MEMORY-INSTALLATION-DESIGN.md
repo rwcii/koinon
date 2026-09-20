@@ -57,7 +57,9 @@ invocations without an explicit repository preserve their current scope.
 Resolve the supplied repository before publication. Retain both its canonical common
 directory and the complete SHA-256 digest as collision evidence, with the existing
 16-character key used by the store. A matching short key with different full identity
-is a refusal. Execute the memory runner with the common directory as repository input
+is a refusal. This adds an installer admission check; it does not change the
+existing short-key store layout or protect stores created outside the installer.
+Execute the memory runner with the common directory as repository input
 so deleting the originally selected linked worktree does not strand its service.
 Test that Git can resolve the main and bare common-directory forms used here.
 
@@ -70,6 +72,13 @@ Register an additive `memory_services` object in `install.json`:
   health. Include before/after artifact digests during publication/removal recovery.
 - The backend-specific service name derives from the repository key, never a thread.
   Proposed Linux name: `koinon-memory-<key>.service`.
+
+The 64-record limit is a conservative bound on per-installation lifecycle inventory,
+not a memory-store capacity limit. Adding a 65th distinct repository refuses with
+`memory_service_limit` (exit 78) before publication; repeated installation of an
+existing selection remains allowed at the limit. Removing an explicitly selected
+registration preserves its store. A retained configuration exceeding the supported
+limit is invalid configuration, never truncated or reset automatically.
 
 Validate the whole known object before any write while preserving unrelated top-level
 configuration. Recheck after acquiring the permanent installation lock. On repeat

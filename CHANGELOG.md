@@ -5,6 +5,9 @@ into a dated release section when promoted to `main`.
 
 ## Unreleased
 
+- Add the managed memory installation design candidate, including repository
+  ownership, Linux/macOS supervision, recovery, migration, and delivery slices.
+
 - Record complete component installation and resumable upgrades in the delivery
   queue; clarify lifecycle responsibilities for operator-created memory services.
 
