@@ -1,10 +1,11 @@
 # Work-items implementation foundation
 
-The first implementation slice stages schema and lease primitives for the
-[merged design](WORK-ITEMS-IMPLEMENTATION-DESIGN.md). These modules are exercised
-with synthetic databases. They are not imported by the service or copied by the
-installer. `memory.SCHEMA` remains 4; no work command or schema-5 capability is
-advertised, and existing runtime databases are not migrated by this slice.
+The implementation stages schema and lease primitives for the
+[merged design](WORK-ITEMS-IMPLEMENTATION-DESIGN.md), with reservation enforcement
+at the shared memory transaction boundary. The installer copies the accounting
+dependencies, but `memory.SCHEMA` remains 4: no work command or schema-5 capability
+is advertised, and public startup does not migrate existing stores to schema 5.
+Tests upgrade synthetic Stores through the staged helper to exercise accounting.
 
 ## Implemented primitives
 
@@ -30,9 +31,9 @@ advertised, and existing runtime databases are not migrated by this slice.
 The transaction belongs to the caller. Migration and claim mutations refuse an
 autocommit call. Any exception must propagate to the caller's rollback boundary.
 Lease admission is a required callback receiving the before/after durable debt and
-whether the operation consumes its control reservation. It is not an implemented
-store-wide budget enforcer. The caller must also account for the complete work,
-event, replay and scope-history transaction before commit.
+whether the operation consumes its control reservation. The shared Store transaction
+now enforces the complete work, event, replay and scope-history usage before commit.
+Admission must still project and classify the intended mutation correctly.
 The work-command caller must check that the target item exists, validate its
 lifecycle/revision, and keep the progress epoch and event changes atomic with the
 lease mutation. The reusable lease engine alone does not establish these work-item
@@ -43,7 +44,29 @@ The synthetic tests cover retained note/snapshot/replay preservation, schema-3/4
 migration, failures after each migration write, malformed catalogs and identities,
 old-runtime refusal, stale owners, conflicts, renewal without stream progress,
 rollback on admission failures, restart and counter exhaustion. They do not prove
-work-command delivery, full-store completion, or a deployed upgrade.
+work-command delivery or a deployed upgrade.
+
+## Transaction reservation enforcement
+
+Every Store transaction checks pages, shared logical bytes, entry and replay slots,
+work-event slots, and the 12 MiB work sub-budget before commit. It reads remaining
+credit flags after the mutation, so a funded control does not spend its allowance
+twice. Ordinary writes also preserve the existing note reserve. Progress and note
+controls can use that reserve, but a breach rolls back instead of spending an
+outstanding work credit. FTS rebuilding and expiry use the same boundary.
+
+The schema is read from durable metadata, with an explicit initialisation state
+before metadata exists. Schema 3/4 has zero work debt by definition; a missing table
+or failed query in schema 5 never means zero debt. Existing schema-4 ceilings remain
+unchanged. `usage()` and `charge()` use one work-row/replay charge formula.
+
+The two incremental-vacuum operations retain their own transactions and WAL-reset
+guards. They verify that page count does not grow; unexpected growth blocks further
+writes. Tests exercise rollback across progress, snapshots, acknowledgements, direct
+transactions, expiry, FTS rebuild, and control events after ordinary capacity is full.
+The saturation exercise uses representative event/replay writes; actual work-command
+completion, current-record updates and lifecycle behavior remain integration tests
+for the next slice.
 
 ## Integration still required
 
@@ -53,9 +76,7 @@ format after the owner's WAL reset and before enabling work. Update all schema
 ownership/data/index sets. Preserve one atomic
 migration and the current read-only rejection behavior for foreign stores.
 
-Integrate the debt with every existing page, logical-byte, event and replay admission
-path, using the same accounting formula at admission and commit. Implement work
-records and lifecycle transitions, progress-credit rearming/overdue events, immutable
+Implement work records and lifecycle transitions, progress-credit rearming/overdue events, immutable
 stream payloads, note/FTS separation, frozen current-work snapshots, idempotency,
 and the record-format guard for both sync and acknowledgement. A lease primitive
 alone must never be exposed as a command that omits its corresponding work event.

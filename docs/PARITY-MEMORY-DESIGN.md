@@ -466,10 +466,10 @@ usage, held so that retirement can never be refused for space later; `usage` rep
 only once one exists.
 
 Progress transitions — acknowledgement, page issuance and activity refresh — are bounded rather
-than admitted. They may never be refused for space: a reader that cannot acknowledge can never
-advance, so refusing one would make the store unreadable-forward exactly when it most needs
-draining. They add no rows a caller controls, and they relieve write-ahead log growth when the file
-approaches its limit.
+than admitted and are funded by the note reserve so a reader can keep advancing at
+ordinary capacity. If that reserve proves insufficient, the transaction rolls back rather
+than consuming an outstanding work credit. They add no rows a caller controls, and they
+relieve write-ahead log growth when the file approaches its limit.
 
 Reclamation is not a transition a caller makes. It removes only records already past the
 lifetime above, and it may never evict one still inside its window to make room: an

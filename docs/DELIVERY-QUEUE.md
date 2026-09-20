@@ -233,7 +233,8 @@ does not authorize runtime removal, state deletion, or permission changes.
 ## DQ-09 — Work items v1
 
 **Source:** direct user request. **Status:** behavioral contract approved;
-design merged; migration and lease primitives staged with synthetic tests.
+design merged; migration, lease primitives, and shared transaction reservation
+enforcement staged with synthetic tests.
 No runtime work-item commands are delivered.
 
 The [approved contract](WORK-ITEMS-V1.md) defines structured repository work items,
