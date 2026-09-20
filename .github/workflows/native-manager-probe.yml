@@ -1,0 +1,22 @@
+name: Native manager interface evidence
+on:
+  push:
+    branches: [feature/native-memory-manager]
+permissions:
+  contents: read
+jobs:
+  launchd-interface:
+    runs-on: macos-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+      - run: python scripts/probe-launchd.py --run-isolated-job --output "$RUNNER_TEMP/koinon-manager-evidence/result.json"
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: launchd-interface-evidence
+          path: ${{ runner.temp }}/koinon-manager-evidence/result.json
+          if-no-files-found: error
