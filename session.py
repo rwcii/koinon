@@ -325,12 +325,12 @@ def main():
             if unit.exists():
                 check_owned_unit(unit, prefix)
                 try:
-                    available=subprocess.run(['systemctl','--user','show-environment'],stdout=subprocess.DEVNULL,
+                    available=platform_support.user_service_manager('available',stdout=subprocess.DEVNULL,
                         stderr=subprocess.DEVNULL,timeout=5).returncode==0
                 except (OSError,subprocess.TimeoutExpired):
                     available=False
                 if available:
-                    subprocess.run(['systemctl','--user','stop',unit.name],check=True)
+                    platform_support.user_service_manager('stop', [unit.name], check=True)
                 active=bridge_status(prefix,state)
             # Try independently addressable controls even if status could not answer.
             # Never interpret a timeout or a retained endpoint as proof of shutdown.
@@ -352,7 +352,7 @@ def main():
             return
         if a.action=='ensure':
             try:
-                available=subprocess.run(['systemctl','--user','show-environment'],stdout=subprocess.DEVNULL,
+                available=platform_support.user_service_manager('available',stdout=subprocess.DEVNULL,
                                          stderr=subprocess.DEVNULL,timeout=5).returncode==0
             except (OSError,subprocess.TimeoutExpired):
                 available=False
@@ -374,9 +374,9 @@ def main():
             # lifecycle lock until both children are ready, so another ensure,
             # stop, or rename cannot change this session during startup.
             fcntl.flock(lock,fcntl.LOCK_UN)
-            subprocess.run(['systemctl','--user','daemon-reload'],check=True)
+            platform_support.user_service_manager('reload', check=True)
             # Per-conversation services start now, not at every login forever.
-            subprocess.run(['systemctl','--user','start',*rendered],check=True)
+            platform_support.user_service_manager('start', rendered, check=True)
             for _ in range(50):
                 if notifier_ready(state,bridge_status(prefix,state)):
                     print(json.dumps(result(prefix,state,name,a.thread,repo,'running',agent,model)))

@@ -279,6 +279,14 @@ runtime over an active old one; coordinated version replacement belongs to DQ-12
 
 ## Reviewable implementation slices
 
+The session-manager abstraction routes existing availability, fragment lookup,
+observation, reload, start/stop, and enable/disable invocations through
+`platform_support.user_service_manager`. Its first implementation retains the existing
+systemd argument order and each caller's I/O, timeout, and failure policy. It adds no
+launchd backend or new restart behavior. Unsupported managers refuse without invoking
+an unrelated host program; existing availability probes retain the manual fallback.
+
+
 1. **Identity and configuration foundation:** selection model, preserved configuration,
    record validation, collisions, common-directory identity, exact artifact ownership,
    and publication recovery primitives. No automatic activation yet.

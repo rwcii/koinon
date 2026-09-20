@@ -56,10 +56,10 @@ def uninstall(prefix, state):
             subprocess.run([sys.executable,str(prefix/'session.py'),'stop','--thread',thread],check=True)
     existing=[name for name in owned if (unit_dir/name).exists()]
     if existing:
-        subprocess.run(['systemctl','--user','disable','--now',*existing],check=True)
+        platform_support.user_service_manager('disable', existing, check=True)
         for name in existing:
             (unit_dir/name).unlink()
-        subprocess.run(['systemctl','--user','daemon-reload'],check=True)
+        platform_support.user_service_manager('reload', check=True)
     if config:
         sys.path.insert(0,str(prefix))
         from participant_instructions import update

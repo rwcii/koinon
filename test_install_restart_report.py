@@ -52,10 +52,12 @@ class RestartReportTests(unittest.TestCase):
         self.assertIn('inactive at observation: ' + stopped.name, text)
         self.assertNotIn(foreign.name, text)
         argv = run.call_args.args[0]
-        self.assertEqual(argv[:3], ['systemctl', '--user', 'show'])
+        self.assertEqual(argv, ['systemctl', '--user', 'show', '--property=Id',
+                                '--property=ActiveState', '--property=FragmentPath',
+                                *sorted((active.name, stopped.name))])
         self.assertNotIn(foreign.name, argv)
         self.assertEqual(run.call_count, 1)
-        self.assertEqual(run.call_args.kwargs['timeout'], 5)
+        self.assertEqual(run.call_args.kwargs, dict(capture_output=True, text=True, timeout=5))
         self.assertEqual(before, {p: p.read_bytes() for p in before})
 
     def test_no_start_does_not_query_manager(self):
