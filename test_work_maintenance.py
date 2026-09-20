@@ -139,6 +139,60 @@ class MaintenanceTests(unittest.TestCase):
         self.assertEqual(self.commands.maintenance.state.snapshot()['fault'], 'capacity')
         self.assertEqual(self.sweep(now)['expired_items'], 0)
 
+    def test_background_cleanup_converges_above_ordinary_page_ceiling(self):
+        finished = self.finish()
+        active = self.start(self.create())
+        with self.store.transaction():
+            self.store.db.execute('UPDATE work_items SET expires_at=? WHERE work_id=?',
+                                  (self.now - 1, finished['work_id']))
+        debt = self.store.work_debt()
+        ordinary = self.store.ceilings(False, debt)['pages']
+        # Allocate a real database file into control headroom, then leave its pages
+        # on the freelist. Deletion is not guaranteed to shrink page_count.
+        with self.store.transaction(control=True):
+            self.store.db.execute('CREATE TABLE synthetic_padding(body BLOB)')
+            self.store.db.execute('INSERT INTO synthetic_padding VALUES(zeroblob(?))',
+                                  ((ordinary + 4 - self.store.pages()) * memory.PAGE_SIZE,))
+            self.store.db.execute('DROP TABLE synthetic_padding')
+        self.assertGreater(self.store.pages(), ordinary)
+        self.assertLess(self.store.pages(), self.store.ceilings(True, debt)['pages'])
+        # Start-boundary cleanup still cannot borrow this headroom.
+        with self.assertRaises(memory.MemoryError_) as caught:
+            with self.store.transaction(control=False):
+                self.work.engine().reclaim_one()
+        self.assertEqual(caught.exception.code, 'capacity')
+        result = self.sweep(self.now)
+        self.assertEqual(result['inactive_bundles'], 0)
+        self.assertEqual(result['expired_items'], 0)
+        self.assertIsNone(result['fault'])
+        self.assertEqual(self.store.work_debt(), debt)
+        self.assertTrue(self.work.get(active['work_id'], self.now)['lease_valid'])
+        self.assertEqual(self.store.floor(), finished['seq'])
+
+    def test_corrupt_inactive_obligations_are_reported_without_skipping(self):
+        self.finish()
+        self.store.db.execute('UPDATE claim_bundles SET end_credit=1 WHERE active=0')
+        before = tuple(self.store.db.iterdump())
+        with self.assertRaises(memory.MemoryError_) as error:
+            self.sweep(self.now + work_items.RETENTION)
+        self.assertEqual(error.exception.code, 'incompatible_store')
+        self.assertEqual(tuple(self.store.db.iterdump()), before)
+        self.assertEqual(self.commands.maintenance.state.snapshot()['fault'], 'incompatible_store')
+
+    def test_diagnostic_query_failure_does_not_discard_readable_status(self):
+        with patch.object(self.commands.maintenance.work, 'maintenance_counts', side_effect=OSError('injected')):
+            status = self.commands.status()
+        self.assertEqual(status['head'], self.store.head())
+        self.assertIn('usage', status)
+        self.assertEqual(status['work_maintenance']['fault'], 'storage_error')
+        self.assertIsNone(status['work_maintenance']['observed_at'])
+
+    def test_sweep_reports_completion_time(self):
+        with patch.object(work_maintenance.time, 'time', side_effect=[self.now, self.now + 10]):
+            result = self.commands.maintenance.sweep()
+        self.assertEqual(result['observed_at'], self.now)
+        self.assertEqual(result['last_successful_sweep'], self.now + 10)
+
     def test_failure_between_deletes_rolls_back_floor_and_both_histories(self):
         self.finish()
         with self.store.transaction(control=False):

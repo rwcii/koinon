@@ -109,9 +109,11 @@ budget also includes existing note/snapshot accounting.
 ## Cleanup, snapshots and recovery
 
 Do not disguise deletion as a zero-page operation. Inactive-bundle cleanup runs one
-bundle at a time under ordinary admission. Capacity refusal rolls back the deletion
-and may refuse new starts until cleanup can fit; active claims still retain their
-end credits. Finished-item cleanup is a separate bounded maintenance transaction
+bundle at a time. Background maintenance uses shared control headroom while preserving
+every remaining work credit; start-boundary cleanup uses ordinary admission. Requiring
+background deletion to fit the ordinary ceiling would stall retention cleanup after
+controls allocate into the reserve. Capacity refusal still rolls back the deletion
+and may refuse new starts until cleanup can fit; active claims retain their end credits. Finished-item cleanup is a separate bounded maintenance transaction
 using the shared control reserve while preserving every remaining work credit.
 
 An expired item stays hidden from queries even if physical cleanup is refused. Roll

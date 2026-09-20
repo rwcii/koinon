@@ -381,7 +381,7 @@ class WorkItems:
             (now, now)).fetchone()[0]
         expired = self.db.execute("SELECT count(*) FROM work_items WHERE lifecycle='finished' "
                                   'AND expires_at<=?', (now,)).fetchone()[0]
-        inactive = self.db.execute('SELECT count(*) FROM claim_bundles WHERE active=0').fetchone()[0]
+        inactive = self.engine().inactive_count()
         return dict(pending_due=pending, expired_items=expired, inactive_bundles=inactive)
 
     def reclaim_finished_one(self, now):

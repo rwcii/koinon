@@ -276,7 +276,10 @@ class LeaseEngine:
         self.db.execute('UPDATE claim_bundles SET active=0,overdue_credit=0,end_credit=0 '
                         'WHERE generation=?', (generation,))
 
-    def reclaim_one(self):
+    def inactive_count(self):
+        return self.db.execute('SELECT count(*) FROM claim_bundles WHERE active=0').fetchone()[0]
+
+    def reclaim_one(self, *, control=False):
         before = self._transaction()
         row = self.db.execute('SELECT generation,overdue_credit,end_credit FROM claim_bundles WHERE active=0 '
                               'ORDER BY generation LIMIT 1').fetchone()
@@ -286,6 +289,8 @@ class LeaseEngine:
             raise ClaimError('incompatible_store', 'inactive bundle still has funded obligations')
         self.db.execute('DELETE FROM claim_resources WHERE generation=?', (row[0],))
         self.db.execute('DELETE FROM claim_bundles WHERE generation=?', (row[0],))
-        # Deletion can allocate pages; it is ordinary admission, not a free control.
-        self._admit(before)
+        # Deletion can allocate pages. Background maintenance may use shared
+        # control headroom, but must preserve every outstanding work obligation.
+        # Request-boundary start cleanup retains ordinary admission by default.
+        self._admit(before, control=control)
         return True

@@ -20,7 +20,9 @@ failure and durable markers prevent duplicate events on retry or clock reversal.
 The current capacity of 16 claims is below the batch bound.
 
 The job then reclaims at most one inactive claim bundle (and its at-most-nine
-resources) using ordinary admission, and at most one expired finished work item.
+resources) using shared control headroom while preserving remaining work debt, and
+at most one expired finished work item. Start-boundary bundle cleanup still requires
+ordinary admission.
 Finished reclamation atomically removes the current record, up to 64 scope revisions,
 and up to 2048 paired stream/history rows. It advances the stream floor to at least
 the largest removed sequence without moving the head or identity counters. Frozen
@@ -37,7 +39,9 @@ Status includes `work_maintenance`: `enabled`, `last_successful_sweep`, `observe
 are blocked. If the worker cannot answer status promptly, the service returns the
 last cached observation with its original `observed_at`; it is not a fresh count.
 A null successful-sweep timestamp means no successful sweep has been recorded in this
-process. Diagnostics reset at service restart; durable event markers do not.
+process. Diagnostics reset at service restart; durable event markers do not. Corruption
+refusals stop the batch and remain visible as faults; maintenance never skips corrupt
+claim accounting to delete other data or silently repairs it.
 
 Shutdown stops scheduling, cancels and awaits the loop, and then drains accepted
 worker jobs before closing the store. Cancelling the loop never abandons a transaction

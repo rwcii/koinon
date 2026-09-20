@@ -1858,7 +1858,7 @@ class MemoryCommands:
         more = truncated or (beyond and len(consumers) == len(listed))
         return dict(repo=self.repo, protocol=PROTOCOL, schema=SCHEMA, store_id=self.store.meta('store_id'), generation=self.generation,
                     head=head, floor=self.store.floor(), healthy=self.store.healthy(),
-                    fts=self.store.fts, usage=use, work_maintenance=self.maintenance.observe(),
+                    fts=self.store.fts, usage=use, work_maintenance=self.maintenance.diagnostics(),
                     # A blocked store still answers status; that is the point of blocking
                     # writes rather than failing the service, and a caller needs to see it.
                     blocked=self.store.blocked, indexed=self.store.index_usable(),

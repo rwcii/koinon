@@ -46,9 +46,26 @@ class WorkMaintenance:
             self.state.update(enabled=True, observed_at=now, **counts)
         return self.state.snapshot()
 
+    def record_fault(self, exc, now):
+        if isinstance(exc, sqlite3.ProgrammingError):
+            code = 'internal_error'
+        elif isinstance(exc, (sqlite3.Error, OSError)):
+            code = 'storage_error'
+        else:
+            code = getattr(exc, 'database_fault', None) or getattr(exc, 'code', 'internal_error')
+        self.state.update(fault=code, fault_at=now)
+
+    def diagnostics(self):
+        try:
+            return self.observe()
+        except Exception as exc:
+            self.record_fault(exc, time.time())
+            return self.state.snapshot()
+
     def sweep(self, now=None):
         """One ordinary worker job; each transition/cleanup owns its transaction."""
-        now = time.time() if now is None else now
+        clock = time.time if now is None else lambda: now
+        now = clock()
         try:
             observed = self.observe(now)
             if not observed['enabled']:
@@ -56,21 +73,15 @@ class WorkMaintenance:
             for work_id in self.work.due_targets(now, MAX_TRANSITIONS):
                 # This is also the validated mutation-boundary transition function.
                 self.work.reconcile(work_id, now)
-            if observed['inactive_bundles'] or self.work.maintenance_counts(now)['inactive_bundles']:
-                with self.store.transaction(control=False):
-                    self.work.engine().reclaim_one()
+            if self.work.engine().inactive_count():
+                with self.store.transaction(control=True):
+                    self.work.engine().reclaim_one(control=True)
             self.work.reclaim_finished_one(now)
             self.observe(now)
-            self.state.update(last_successful_sweep=now, fault=None, fault_at=None)
+            self.state.update(last_successful_sweep=clock(), fault=None, fault_at=None)
             return self.state.snapshot()
         except Exception as exc:
-            if isinstance(exc, sqlite3.ProgrammingError):
-                code = 'internal_error'
-            elif isinstance(exc, (sqlite3.Error, OSError)):
-                code = 'storage_error'
-            else:
-                code = getattr(exc, 'database_fault', None) or getattr(exc, 'code', 'internal_error')
-            self.state.update(fault=code, fault_at=now)
+            self.record_fault(exc, clock())
             # Re-observe partial batch progress when readable; never obscure the
             # original failure if the diagnostic query also fails.
             try:
