@@ -598,3 +598,20 @@ inbox or switch targets during rollback. Restoring a backup loses subsequent loc
 records and requires an explicit decision about that loss. Keep the new state for
 recovery rather than deleting it. Installation alone does not establish native
 receipt support or close the discovery verification gate in [DELIVERY.md](DELIVERY.md).
+
+### Session restart reporting after runtime replacement
+
+Installing runtime files does not reload an existing session supervisor. The installer
+reports owned session units in the selected unit directory that are active or changing
+state as requiring an explicit restart. It checks both current and legacy unit names,
+verifies the runtime prefix and service fragment, and leaves other installations alone.
+This is a point-in-time observation, not proof of the code a process has loaded.
+
+The report never stops or restarts session supervisors. Follow the coordinated upgrade
+procedure and restart only the affected sessions. With `--no-start`, no service-manager
+query is made; candidate units are reported as unverified. Missing, failed, timed-out or
+ambiguous service-manager observations also remain unverified. An inventory exceeding
+128 candidate units is reported incomplete rather than partially declaring success.
+Manual supervisors, including macOS sessions, require an explicit coordinated restart;
+the installer does not inspect their processes. A successful file installation alone
+is not evidence that a running supervisor uses those files.

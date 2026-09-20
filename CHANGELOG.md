@@ -5,6 +5,9 @@ into a dated release section when promoted to `main`.
 
 ## Unreleased
 
+- Report session supervisors that may need an explicit restart after runtime
+  replacement; preserve no-start and manual-service uncertainty without restarting them.
+
 - Reconcile delivery-queue milestones with released source and completed work-items
   integration; retain the error-code validation proposal as an explicit follow-up.
 
