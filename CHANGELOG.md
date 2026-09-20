@@ -5,6 +5,9 @@ into a dated release section when promoted to `main`.
 
 ## Unreleased
 
+- Reconcile delivery-queue milestones with released source and completed work-items
+  integration; retain the error-code validation proposal as an explicit follow-up.
+
 - Enable schema-5 memory startup with atomic schema-3/4 migration, complete catalog
   validation and explicit work/record-format capabilities. Preserve legacy data and
   snapshots; document coordinated runtime upgrades and rollback boundaries.
