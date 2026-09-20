@@ -9,6 +9,8 @@ import sys
 from install import FILES, check_owned_unit, unit_targets_prefix
 import platform_support
 import runtime_names
+import install_state
+import work_guidance
 
 
 def main():
@@ -16,8 +18,17 @@ def main():
     p.add_argument('--prefix',type=Path)
     a=p.parse_args()
     prefix=(a.prefix or runtime_names.default_prefix()).expanduser().resolve()
+    runtime_names.install_config(prefix)  # Refuse malformed evidence before locking.
+    with install_state.locked(prefix) as state:
+        uninstall(prefix, state)
+
+
+def uninstall(prefix, state):
     config_path=prefix/'install.json'
-    config=runtime_names.install_config(prefix)
+    # Disable/remove each work rule through the same crash-recoverable path.
+    for key in list(state.config.get('work_items', {'rules': {}})['rules']):
+        work_guidance.remove_locked(prefix, state, key)
+    config=state.config
     unit_dir=Path(config.get('unit_dir',str(Path.home()/'.config/systemd/user')))
     state_root=Path(config.get('state_root') or runtime_names.default_state_root())
     candidates = set(runtime_names.service_names()) | set(runtime_names.service_names(legacy=True))
@@ -71,5 +82,9 @@ if __name__ == '__main__':
     try:
         main()
     except runtime_names.NameConflict as exc:
-        print(json.dumps(dict(ok=False, code=exc.code, paths=exc.paths)))
+        print(json.dumps(dict(ok=False, code=exc.code, paths=exc.paths, error=str(exc))))
+        raise SystemExit(75 if exc.code == 'configuration_busy' else
+                         platform_support.CONFIGURATION_EXIT_STATUS) from None
+    except work_guidance.GuidanceError as exc:
+        print(json.dumps(dict(ok=False, code=exc.code, path=exc.path, error=str(exc))))
         raise SystemExit(platform_support.CONFIGURATION_EXIT_STATUS) from None

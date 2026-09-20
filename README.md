@@ -249,7 +249,8 @@ lease primitives, shared transaction reservation checks, and
 [staged work commands](docs/WORK-ITEMS-COMMANDS.md), and
 [bounded maintenance](docs/WORK-ITEMS-MAINTENANCE.md) with synthetic tests;
 it does not upgrade a running store. The [staged policy query](docs/WORK-ITEMS-POLICY.md)
-adds validated configuration and preserving installer updates before work-guidance publication.
+adds validated configuration, preserving installer updates, and explicit work-guidance
+publication/removal with verified policy queries. Configuration does not activate work commands.
 
 ## Storage and multiple sessions
 

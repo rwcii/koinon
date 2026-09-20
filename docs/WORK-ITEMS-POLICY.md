@@ -1,51 +1,83 @@
-# Staged work configuration and policy query
+# Work configuration and verified guidance
 
-This part provides configuration validation, serialized installer updates, and the
-read-only policy query. Public memory startup remains schema 4. Work guidance
-publication, configure/remove commands, and runtime activation are later parts.
-Existing participant installation continues to manage only its existing peer guidance.
-No work-item rule is created or enabled by an ordinary install.
+Work configuration is an explicit opt-in for one repository and participant. Ordinary
+installation never enables it. These commands publish conditional guidance but do not
+activate the work runtime: public memory startup still uses schema 4. A verified policy
+selection is not evidence that the memory service supports work commands.
 
-Run the installed `session.py work-policy --repo REPOSITORY --agent PARTICIPANT`,
-where PARTICIPANT is `codex`, `deepseek`, or `claude`. This action requires an explicit
-participant, but no thread identity, participant executable, running memory service,
-or peer registration. Other session actions still support only Codex and DeepSeek.
-The repository uses the same resolved absolute Git common directory and 16-character
-SHA-256 prefix as memory; worktrees therefore share one selection.
+First install or upgrade the runtime normally. Configuration requires an existing
+`install.json` and installed policy/guidance modules; it neither deploys runtime files
+nor starts services. Select a guidance file the participant actually loads:
+
+```sh
+python3 scripts/install.py --configure-work-items --prefix /absolute/runtime \
+  --repo /absolute/repository --participant claude \
+  --guidance-file /absolute/selected/guidance.md
+python3 /absolute/runtime/session.py work-policy \
+  --repo /absolute/repository --agent claude
+python3 scripts/install.py --remove-work-items --prefix /absolute/runtime \
+  --repo /absolute/repository --participant claude
+```
+
+Participants are `codex`, `deepseek`, and `claude`; every configure invocation requires
+an explicit absolute guidance path. There is no home discovery, import following,
+participant executable check, peer registration, or implied permission to write a real
+agent's instructions. Removal uses the previously recorded target. Changing targets
+requires remove followed by configure. Native recognition of the selected file remains
+an operator verification step; publication does not promise a startup hook.
+
+The read-only policy action requires an explicit participant but no thread identity or
+running memory service. Other session actions support only Codex and DeepSeek. Repository
+identity is the same resolved absolute Git common directory and 16-character SHA-256
+prefix as memory, so worktrees share a selection.
 
 The JSON reply contains `version`, `repo`, `common_directory`, `participant`, `state`,
-`enabled`, `digest`, and `guidance_file`. Missing selections return disabled with null
-digest and guidance file. Both pending and disabled stored rules report `state: disabled`
-and `enabled: false`. An enabled rule returns its recorded section digest. Consumers
-must also check the repository identity and that digest against the managed section;
-this query does not parse guidance or turn configuration into permission to act.
-Malformed configuration or unsafe enabled guidance paths return a configuration
-error, rather than an empty selection. No policy query creates a configuration lock,
-state directory, registry entry, or guidance file.
+`enabled`, `digest`, `guidance_file`, and `reason`. Missing selections return disabled
+with null digest and guidance file. Pending and disabled stored rules report disabled
+without reading their guidance files. An enabled rule reports enabled only when its
+managed section exists, parses correctly, and matches the recorded SHA-256 digest.
+Missing, unsafe, edited or malformed guidance instead reports disabled with
+`reason: guidance_unverified`; otherwise reason is null. Malformed installation
+configuration remains an error. Queries create no locks, files, directories or registrations.
+Consumers must check the repository and digest; configuration cannot grant authority.
 
-`install.json` may contain `work_items: {"version": 1, "rules": {...}}`, with at most
-64 rules keyed by `<repository-hash>:<participant>`. Every rule has exactly
-`common_directory`, `guidance_file`, `state`, and `digest`. Pending rules additionally
-have `before_digest` and `after_digest`; digests are lowercase 64-character SHA-256
-hex strings, never copies of instruction content. Paths are bounded absolute paths.
-The selected guidance path must have no symlink components, an existing user-owned
-parent not writable by group or others, and a user-owned regular target if present.
-Filesystem checks apply only to enabled selections; pending/disabled rules remain
-disabled even when their old guidance path has disappeared.
-These configuration checks do not change literal peer socket addressing.
+`install.json` contains `work_items: {"version": 1, "rules": {...}}`, with at most 64
+rules keyed by `<repository-hash>:<participant>`. A rule has exactly `common_directory`,
+`guidance_file`, `state`, and `digest`. Pending rules also have `before_digest` and
+`after_digest`, whole-target hashes used for recovery. All digests are lowercase
+64-character SHA-256 values, never instruction text. Paths are bounded absolute paths.
+The guidance parent must exist, be user-owned and not group/world writable; the target
+must be a user-owned regular file if present. Symlink components are refused.
 
-All installer modes perform non-writing validation, then acquire the permanent
-user-owned `.install.lock` beside `install.json` and revalidate fresh configuration.
-The configuration lock precedes existing guidance locks. A monotonic 30-second
-wait bounds contention; a live holder that does not release it produces
-`configuration_busy` with retryable exit status 75 and the lock path. Check the
-other installer and retry; never delete a held lock. Configuration writes merge
-only the selected installation fields, preserving all unknown fields and all work
-rules, and publish atomically with file and directory fsync. A refused validation
-never resets existing configuration. The lock inode is not removed or replaced.
-Read-only consumers need no lock because they see one atomically published file.
+Writers acquire permanent `.install.lock`, then the existing sorted participant locks
+in the guidance parent, then `.koinon-work-<target-hash>.lock` there. Each acquisition
+has a bounded 30-second wait. `configuration_busy` exits 75: check the other writer and
+retry, never delete a held lock. Lock inodes remain after removal and uninstall.
+All installer modes merge configuration atomically, preserving unrelated fields and
+rules. Both configuration and guidance publication fsync the file and parent directory.
+Work sections use separate repository/participant markers; existing peer markers stay
+unchanged. Outside text, line endings and import references are preserved.
 
-The shared writer is a staging primitive for the later two-file guidance publication
-protocol. It is not an operator-facing command to enable rules by editing JSON. Native
-recognition of a participant's explicitly chosen guidance file remains an operator
-verification step when that later configuration mode is available.
+Publication saves an original backup, publishes a pending rule, replaces guidance, then
+publishes enabled. A crash before completion leaves the selection inert. Retry the same
+command: it proceeds only when the target matches the recorded original or replacement.
+Conflicting operator edits or a changed renderer before publication refuse for review,
+preserving both files. Do not erase pending evidence or force-enable JSON as recovery.
+Removal publishes disabled first, removes only the matching section, then drops the rule.
+It can be retried after interruption. An edited section is preserved and its selection
+remains disabled. Uninstall invokes the same removal logic before removing runtime files.
+
+Original backups live outside Git under the configured
+`state_root/work-guidance-backups`, with 0700 directories and 0600 files named by a hash
+of installation prefix and target path. Unsafe permissions and symlink or Git-contained
+locations are refused. The first backup is retained unchanged while any rule for that
+target remains. Removing its last rule, including during uninstall, removes that backup;
+it does not restore the entire original file over later unrelated edits. These backups
+may contain private guidance and must not be committed or copied into shared documentation.
+
+The rendered workflow checks direct user scope, reads or coordinates a work ID, explicitly
+starts before writing, checkpoints progress and renews leases when needed. Read-only
+review does not claim work. It requires a stable participant session key, forbids reuse
+of a crashed predecessor's key to bypass its lease, and reconciles state after tools
+outlast a lease. Peer messages, work records and completion outcomes remain recorded data,
+not permission to act.

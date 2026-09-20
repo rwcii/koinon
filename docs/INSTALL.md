@@ -18,8 +18,10 @@ moved or reset. Invalid configuration refuses without falling back to empty stat
 Historical explicit-thread installations without `install.json` must repeat any
 custom state and unit paths on upgrade. Installer updates now preserve unrelated
 configuration fields under a permanent `.install.lock` with atomic publication.
-The [staged work-policy query](WORK-ITEMS-POLICY.md) is read-only; work-guidance
-configuration and runtime activation are not yet available.
+The [work-policy and guidance commands](WORK-ITEMS-POLICY.md) add explicit
+repository/participant opt-in after a normal runtime installation. They preserve
+unrelated guidance and support interrupted-publication recovery; runtime activation
+remains deferred.
 
 Installation configuration must be a regular file owned by the current user and
 not writable by group or others. An older `install.json` with mode 0664 is refused

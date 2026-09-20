@@ -8,6 +8,8 @@ from pathlib import Path
 import shlex
 import sys
 import uuid
+import time
+from participant_lock import OwnershipError
 from peer_guidance import PEER_GUIDANCE
 from runtime_names import GUIDANCE_LOCK_NAMES
 
@@ -91,9 +93,10 @@ do not stop, rename, or reconfigure them. No global instructions override the us
 
 
 @contextmanager
-def update_locks(home):
+def update_locks(home, *, timeout=None):
     # Both agent kinds can share one guidance file. Retain both legacy inodes and
     # take them in a fixed order, also excluding an old single-agent updater.
+    deadline = None if timeout is None else time.monotonic() + timeout
     with ExitStack() as stack:
         for agent in sorted(GUIDANCE_LOCK_NAMES):
             fd = os.open(home / GUIDANCE_LOCK_NAMES[agent],
@@ -104,7 +107,18 @@ def update_locks(home):
             if (not stat.S_ISREG(info.st_mode) or info.st_uid != os.geteuid()
                     or info.st_nlink != 1 or info.st_mode & 0o022):
                 raise ValueError('unsafe participant guidance lock')
-            fcntl.flock(stream.fileno(), fcntl.LOCK_EX)
+            if deadline is None:
+                fcntl.flock(stream.fileno(), fcntl.LOCK_EX)
+            else:
+                while True:
+                    try:
+                        fcntl.flock(stream.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+                        break
+                    except BlockingIOError:
+                        remaining = deadline - time.monotonic()
+                        if remaining <= 0:
+                            raise OwnershipError('configuration_busy') from None
+                        time.sleep(min(.05, remaining))
         yield
 
 
@@ -154,6 +168,19 @@ def publish_guidance(target, original, result, agent):
         with backup.open('x', encoding='utf-8', newline='') as stream:
             os.chmod(backup, 0o600)
             stream.write(original)
+    atomic_guidance(target, result)
+
+
+def fsync_directory(directory):
+    fd = os.open(directory, os.O_RDONLY | os.O_DIRECTORY)
+    try:
+        os.fsync(fd)
+    finally:
+        os.close(fd)
+
+
+def atomic_guidance(target, result):
+    """Preserve outside bytes/newlines and durably publish one selected target."""
     temp = target.with_name(target.name + '.tmp.' + uuid.uuid4().hex)
     try:
         with temp.open('x', encoding='utf-8', newline='') as stream:
@@ -162,6 +189,7 @@ def publish_guidance(target, original, result, agent):
             stream.flush()
             os.fsync(stream.fileno())
         temp.replace(target)
+        fsync_directory(target.parent)
     finally:
         temp.unlink(missing_ok=True)
 

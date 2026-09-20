@@ -236,8 +236,8 @@ does not authorize runtime removal, state deletion, or permission changes.
 design merged; migration, lease primitives, and shared transaction reservation
 enforcement, work-command/stream integration, and bounded maintenance/reclamation
 staged with synthetic tests. Configuration validation, preserving installer updates,
-and the read-only [policy query](WORK-ITEMS-POLICY.md) are staged next; guidance
-publication and activation remain deferred.
+and the verified [policy query and explicit guidance publication](WORK-ITEMS-POLICY.md)
+are implemented with recoverable opt-in/removal; activation remains deferred.
 Public schema-4 startup does not enable the staged commands.
 
 The [approved contract](WORK-ITEMS-V1.md) defines structured repository work items,

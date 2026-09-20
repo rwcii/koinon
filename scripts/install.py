@@ -19,7 +19,7 @@ import install_state
 MARKER = runtime_names.SERVICE_MARKER
 SERVICES = runtime_names.service_names()
 
-FILES = ('docs/WORK-ITEMS-POLICY.md', 'install_state.py', 'work_policy.py', 'work_maintenance.py', 'work_items.py', 'work_storage.py', 'claims.py', 'work_schema.py', 'docs/DELIVERY.md', 'participant_presence.py', 'delivery_ledger.py', 'usage_report.py', 'usage_sources.py', 'usage_selection.py', 'docs/USAGE.md', 'runtime_names.py', 'participant_instructions.py', 'session_observation.py', 'durable_state.py', 'notification_delivery.py', 'notification_health.py', 'notification_journal.py', 'notification_legacy.py', 'notification_memory.py', 'notification_migration.py', 'notification_notices.py', 'notification_provider.py', 'notification_runtime.py', 'notification_source.py', 'notification_state.py', 'subscriptions.py','memory_bindings.py', 'inbox_schema.py', 'database_worker.py', 'service_runtime.py', 'participant_lock.py', 'peer_transport.py', 'peer_guidance.py', 'CHANGELOG.md', 'memory.py', 'session.py', 'codex_instructions.py', 'platform_support.py', 'dsh_delivery.py', 'scripts/install.py', 'scripts/uninstall.py', 'scripts/uninstall.sh', 'bridge.py', 'notify.py', 'README.md', 'PROTOCOL.md', 'LICENSE', 'CONTRIBUTING.md', 'AGENTS.md', 'docs/INSTALL.md', 'docs/NOTIFIER.md', 'docs/IDENTIFIER-MIGRATION.md', 'docs/PARITY-MEMORY-DESIGN.md')
+FILES = ('work_guidance.py', 'docs/WORK-ITEMS-POLICY.md', 'install_state.py', 'work_policy.py', 'work_maintenance.py', 'work_items.py', 'work_storage.py', 'claims.py', 'work_schema.py', 'docs/DELIVERY.md', 'participant_presence.py', 'delivery_ledger.py', 'usage_report.py', 'usage_sources.py', 'usage_selection.py', 'docs/USAGE.md', 'runtime_names.py', 'participant_instructions.py', 'session_observation.py', 'durable_state.py', 'notification_delivery.py', 'notification_health.py', 'notification_journal.py', 'notification_legacy.py', 'notification_memory.py', 'notification_migration.py', 'notification_notices.py', 'notification_provider.py', 'notification_runtime.py', 'notification_source.py', 'notification_state.py', 'subscriptions.py','memory_bindings.py', 'inbox_schema.py', 'database_worker.py', 'service_runtime.py', 'participant_lock.py', 'peer_transport.py', 'peer_guidance.py', 'CHANGELOG.md', 'memory.py', 'session.py', 'codex_instructions.py', 'platform_support.py', 'dsh_delivery.py', 'scripts/install.py', 'scripts/uninstall.py', 'scripts/uninstall.sh', 'bridge.py', 'notify.py', 'README.md', 'PROTOCOL.md', 'LICENSE', 'CONTRIBUTING.md', 'AGENTS.md', 'docs/INSTALL.md', 'docs/NOTIFIER.md', 'docs/IDENTIFIER-MIGRATION.md', 'docs/PARITY-MEMORY-DESIGN.md')
 
 
 def unit_arg(value):
@@ -176,6 +176,11 @@ def active_units(unit_dir, names=SERVICES, prefix=None):
 
 def main():
     p = argparse.ArgumentParser(description=__doc__)
+    work_mode = p.add_mutually_exclusive_group()
+    work_mode.add_argument('--configure-work-items', action='store_true')
+    work_mode.add_argument('--remove-work-items', action='store_true')
+    p.add_argument('--participant', choices=['codex', 'deepseek', 'claude'])
+    p.add_argument('--guidance-file', type=Path)
     p.add_argument('--thread', help='exact existing Codex thread ID')
     p.add_argument('--configure-codex', action='store_true', help='install managed global guidance and per-session registration')
     p.add_argument('--configure-deepseek', action='store_true',
@@ -194,6 +199,29 @@ def main():
     a = p.parse_args()
     if not platform_support.SUPPORTED or sys.version_info < (3,11):
         p.error('Linux or macOS with Python 3.11+ is required')
+    if a.configure_work_items or a.remove_work_items:
+        if (a.thread or a.configure_codex or a.configure_deepseek or a.name or a.no_start
+                or a.codex_home or a.dsh_home or a.state_dir or a.unit_dir or a.codex):
+            p.error('work configuration is independent of runtime installation and service options')
+        if not a.repo or not a.participant or (a.configure_work_items and not a.guidance_file):
+            p.error('work configuration requires --repo, --participant and an explicit --guidance-file when enabling')
+        if a.remove_work_items and a.guidance_file:
+            p.error('removal uses the previously configured guidance file')
+        import work_guidance
+        prefix = (a.prefix or runtime_names.default_prefix()).expanduser().resolve()
+        try:
+            result = (work_guidance.configure(prefix, a.repo, a.participant, a.guidance_file)
+                      if a.configure_work_items else work_guidance.remove(prefix, a.repo, a.participant))
+        except runtime_names.NameConflict:
+            raise
+        except (OSError, ValueError) as exc:
+            print(json.dumps(dict(ok=False, code=getattr(exc, 'code', 'invalid_work_configuration'),
+                                  error=str(exc), path=getattr(exc, 'path', None))))
+            raise SystemExit(platform_support.CONFIGURATION_EXIT_STATUS) from None
+        print(json.dumps(dict(ok=True, result=result)))
+        return
+    if a.participant or a.guidance_file:
+        p.error('--participant and --guidance-file require a work configuration mode')
     a.prefix = (a.prefix or runtime_names.default_prefix()).expanduser().resolve()
     # Refusals must not create even a prefix/lock. Recheck under the lock
     # using fresh configuration before any publication or service changes. Legacy

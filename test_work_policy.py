@@ -16,6 +16,7 @@ import memory
 import runtime_names
 import session
 import work_policy
+import work_guidance
 
 
 class PolicyTests(unittest.TestCase):
@@ -31,9 +32,11 @@ class PolicyTests(unittest.TestCase):
         self.common = memory.repo_common_directory(self.repo)
         self.key = memory.repo_identity(self.repo)
         self.guidance = self.root / 'synthetic guidance.txt'
-        self.guidance.write_bytes(b'Synthetic outside bytes\r\n')
+        section = work_guidance.render(self.prefix, self.common, self.key, 'codex', '\r\n')
+        self.original_guidance = ('Synthetic outside bytes\r\n'+section).encode()
+        self.guidance.write_bytes(self.original_guidance)
         self.rule = dict(common_directory=str(self.common), guidance_file=str(self.guidance),
-                         state='enabled', digest='a' * 64)
+                         state='enabled', digest=work_guidance.digest(section))
         self.config = dict(state_root=str(self.root/'state'), unit_dir=str(self.root/'units'),
                            codex=sys.executable, participants=[], opaque={'keep': [1, 2]},
                            work_items=dict(version=1, rules={self.key + ':codex': self.rule}))
@@ -74,8 +77,9 @@ class PolicyTests(unittest.TestCase):
                 rule.update(before_digest='b'*64, after_digest='c'*64)
             config = dict(self.config, work_items=dict(version=1,rules={self.key+':codex':rule}))
             if state == 'enabled':
-                with self.assertRaises(ValueError):
-                    work_policy.query(config, self.repo, 'codex')
+                result = work_policy.query(config, self.repo, 'codex')
+                self.assertFalse(result['enabled'])
+                self.assertEqual(result['reason'], 'guidance_unverified')
             else:
                 result = work_policy.query(config, self.repo, 'codex')
                 self.assertFalse(result['enabled'])
@@ -85,14 +89,16 @@ class PolicyTests(unittest.TestCase):
     def test_all_participants_and_pending_disabled_semantics(self):
         for agent in work_policy.PARTICIPANTS:
             for state in ('enabled', 'pending', 'disabled'):
-                rule = dict(self.rule, state=state)
+                section = work_guidance.render(self.prefix, self.common, self.key, agent)
+                self.guidance.write_text(section)
+                rule = dict(self.rule, state=state, digest=work_guidance.digest(section))
                 if state == 'pending':
                     rule.update(before_digest='b'*64, after_digest='c'*64)
                 config = dict(self.config, work_items=dict(version=1, rules={self.key+':'+agent:rule}))
                 result = work_policy.query(config, self.repo, agent)
                 self.assertEqual(result['enabled'], state == 'enabled')
                 self.assertEqual(result['state'], 'enabled' if state == 'enabled' else 'disabled')
-                self.assertEqual(result['digest'], 'a'*64)
+                self.assertEqual(result['digest'], work_guidance.digest(section))
                 self.assertEqual(result['common_directory'], str(self.common))
         self.assertFalse(work_policy.query({}, self.repo, 'codex')['enabled'])
         self.assertFalse(work_policy.query(self.config, self.repo, 'claude')['enabled'])
@@ -237,7 +243,7 @@ with install_state.locked(sys.argv[1]) as state:
             config = runtime_names.install_config(self.prefix)
             self.assertEqual(config['work_items'], self.config['work_items'])
             self.assertEqual(config['opaque'], self.config['opaque'])
-        self.assertEqual(self.guidance.read_bytes(), b'Synthetic outside bytes\r\n')
+        self.assertEqual(self.guidance.read_bytes(), self.original_guidance)
 
     def test_install_lock_timeout_is_retryable_and_preserves_state(self):
         self.save()
