@@ -13,6 +13,7 @@ import sys
 import tempfile
 import time
 import threading
+import types
 import unittest
 from unittest import mock
 
@@ -191,7 +192,8 @@ class IdentityMigrationTests(unittest.TestCase):
 
     def legacy_memory(self):
         path = self.root/'memory.sqlite3'
-        store = memory.Store(path, 'a'*16)
+        with mock.patch.object(memory, 'SCHEMA', 4):
+            store = memory.Store(path, 'a'*16)
         store.note('synthetic', 'decision', 'preserved')
         commands = memory.MemoryCommands(self.root, 'a'*16, store, 'b'*32)
         commands.command(dict(op='sync', consumer='synthetic'), 42)
@@ -238,11 +240,15 @@ class IdentityMigrationTests(unittest.TestCase):
         path = self.legacy_memory()
         source = """import os,sys,memory
 from pathlib import Path
-class Interrupted(memory.Store):
- def set_meta(self,key,value):
-  super().set_meta(key,value)
-  if key == 'store_id': os._exit(73)
-Interrupted(Path(sys.argv[1]), 'a'*16)
+import sqlite3
+class Interrupted(sqlite3.Connection):
+ def execute(self,sql,*args,**kwargs):
+  result=super().execute(sql,*args,**kwargs)
+  if sql == 'INSERT INTO meta VALUES (?,?)' and args and args[0][0] == 'store_id': os._exit(73)
+  return result
+connect=sqlite3.connect
+memory.sqlite3.connect=lambda *a,**k: connect(*a,**dict(k,factory=Interrupted))
+memory.Store(Path(sys.argv[1]), 'a'*16)
 """
         child = subprocess.run([sys.executable, '-c', source, str(path)], timeout=10)
         self.assertEqual(child.returncode, 73)
@@ -435,6 +441,53 @@ class BindingPublicTests(unittest.IsolatedAsyncioTestCase):
         self.assertFalse(reply['ok'])
         self.assertEqual(reply['code'], 'memory_upgrade_required')
         self.assertEqual(reply['recovery'], 'operator_action')
+        self.assertEqual((await self.request(dict(op='memory-bindings')))['result']['bindings'], [])
+
+    async def test_both_restart_orders_refuse_without_changing_binding_then_recover(self):
+        binding = await self.bind()
+        refresh = dict(op='refresh-memory', binding=binding['binding'])
+        await self.request(refresh)
+        before_inbox = (await self.request(dict(op='inbox')))['result']
+        before_rows = (await self.request(dict(op='memory-bindings')))['result']['bindings']
+        stable = [{field: row.get(field) for field in bindings.FIELDS} for row in before_rows]
+        original = self.mem.command
+        async def old_memory(request, pid):
+            result = await original(request, pid)
+            if request['op'] in ('hello', 'status'):
+                result['schema'] = 4
+            return result
+        # Bridge restarted first: the old memory process still advertises schema 4.
+        with mock.patch.object(self.mem, 'command', side_effect=old_memory):
+            refused = await self.request(refresh)
+        self.assertEqual((refused['code'], refused['recovery']),
+                         ('memory_upgrade_required', 'operator_action'))
+        # Memory restarted first: the bridge still compares against its loaded v4 code.
+        old_bridge_memory = types.SimpleNamespace(**vars(memory))
+        old_bridge_memory.SCHEMA = 4
+        with mock.patch.object(bindings, 'memory', old_bridge_memory):
+            refused = await self.request(refresh)
+        self.assertEqual((refused['code'], refused['recovery']),
+                         ('memory_version_unsupported', 'operator_action'))
+        self.assertEqual((await self.request(dict(op='inbox')))['result'], before_inbox)
+        after = (await self.request(dict(op='memory-bindings')))['result']['bindings']
+        self.assertEqual([{field: row.get(field) for field in bindings.FIELDS} for row in after], stable)
+        healthy = await self.request(refresh)
+        self.assertTrue(healthy['ok'], healthy)
+        self.assertFalse(healthy['result']['changed'])
+        reply, _ = await bridge.control_exchange(self.memroot, dict(op='status'))
+        self.assertEqual(reply['result']['head'], 0)
+        self.assertEqual((await self.request(dict(op='status')))['result']['ack_through'], 0)
+
+    async def test_noninteger_memory_version_is_explicit_operator_refusal(self):
+        original = self.mem.command
+        async def invalid(request, pid):
+            result = await original(request, pid)
+            if request['op'] == 'hello':
+                result['schema'] = True
+            return result
+        with mock.patch.object(self.mem, 'command', side_effect=invalid):
+            reply = await self.request(dict(op='bind-memory', repo_path=str(self.repo), memory_state_dir=str(self.memroot)))
+        self.assertEqual((reply['code'], reply['recovery']), ('memory_version_invalid', 'operator_action'))
         self.assertEqual((await self.request(dict(op='memory-bindings')))['result']['bindings'], [])
 
     async def test_memory_advance_after_observation_is_caught_by_next_refresh(self):

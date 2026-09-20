@@ -7,7 +7,8 @@ session. See [the approved contract](WORK-ITEMS-V1.md) and
 The [staged policy implementation](WORK-ITEMS-POLICY.md) currently covers validation,
 configuration preservation, verified read-only queries, and recoverable explicit
 publication/removal. Existing runtime installation is required; this mode does not
-deploy files or activate memory commands.
+deploy files or start memory. Schema-5 startup is covered by the
+[separate runtime upgrade procedure](WORK-ITEMS-UPGRADE.md).
 
 ## Commands and scope
 

@@ -1,10 +1,10 @@
-# Staged work commands
+# Work commands
 
-This slice implements the [approved work contract](WORK-ITEMS-V1.md) on synthetic
-schema-5 stores. Public startup remains schema 4 and refuses these commands with
-`schema_too_old`. There is no supported activation flag, live migration, participant
-opt-in. The [maintenance slice](WORK-ITEMS-MAINTENANCE.md) adds the background loop. The CLI parser is packaged
-so the interface and installed dependencies can be tested before activation.
+The memory runtime implements the [approved work contract](WORK-ITEMS-V1.md) on
+schema-5 stores. Public startup creates or migrates schema 5; use the
+[upgrade procedure](WORK-ITEMS-UPGRADE.md) for existing services and
+[explicit guidance opt-in](WORK-ITEMS-POLICY.md) for participants. The
+[maintenance implementation](WORK-ITEMS-MAINTENANCE.md) supplies the bounded background loop.
 
 ## Interface
 

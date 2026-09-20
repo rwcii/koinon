@@ -44,6 +44,11 @@ class Base(unittest.TestCase):
 
 
 class CompatibilityTests(Base):
+    def setUp(self):
+        # Preserve a real legacy source for migration/accounting comparisons.
+        with patch.object(memory, 'SCHEMA', 4):
+            super().setUp()
+
     def test_legacy_ceilings_are_unchanged_and_no_claim_table_is_read(self):
         trace = []
         self.store.db.set_trace_callback(trace.append)
@@ -73,14 +78,14 @@ class CompatibilityTests(Base):
                          memory.ORDINARY_MAX_PAGES - memory.COMMIT_SLACK - 640)
         self.assertEqual(self.store.ceilings(True)['idem'], memory.MAX_IDEM_ROWS - 1)
 
-    def test_production_constructor_still_refuses_schema_five_without_an_override(self):
+    def test_old_runtime_still_refuses_schema_five(self):
         self.migrate()
         self.store.close()
-        with self.assertRaises(memory.MemoryError_) as caught:
+        with patch.object(memory, 'SCHEMA', 4), self.assertRaises(memory.MemoryError_) as caught:
             memory.Store(self.path, REPO)
         self.assertEqual(caught.exception.code, 'schema_too_new')
         self.assertEqual(list(inspect.signature(memory.Store).parameters), ['path', 'repo', 'fts'])
-        self.assertEqual(memory.SCHEMA, 4)
+        self.assertEqual(memory.SCHEMA, 5)
 
     def test_missing_claim_table_or_schema_never_means_zero_debt(self):
         self.migrate()

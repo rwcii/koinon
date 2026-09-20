@@ -40,6 +40,8 @@ class Base(unittest.TestCase):
         self.svc = memory.MemoryCommands(self.home, REPO, self.s)
 
     def call(self, **r):
+        if r.get('op') in ('sync', 'ack'):
+            r.setdefault('record_format', 2)
         return self.svc.command(r, 4242)
 
     def note(self, body, **kw):
@@ -583,8 +585,8 @@ class SnapshotTests(Base):
     def test_a_snapshot_is_bound_to_the_consumer_that_opened_it(self):
         self.note('one')
         page = self.call(op='sync', consumer='reader-a')
-        for op in (dict(op='ack', consumer='reader-b', snapshot_id=page['snapshot_id']),
-                   dict(op='sync', consumer='reader-b', snapshot_id=page['snapshot_id'],
+        for op in (dict(op='ack', record_format=2, consumer='reader-b', snapshot_id=page['snapshot_id']),
+                   dict(op='sync', record_format=2, consumer='reader-b', snapshot_id=page['snapshot_id'],
                         page_token=0)):
             with self.assertRaises(memory.MemoryError_) as e:
                 self.call(**op)
@@ -834,6 +836,8 @@ class LifecycleTests(unittest.TestCase):
         self.fail('service did not become reachable')
 
     def client(self, **payload):
+        if payload.get('op') in ('sync', 'ack'):
+            payload.setdefault('record_format', 2)
         return asyncio.run(memory.request(self.home, payload))
 
     def test_recovery_is_reachable_from_the_command_line(self):
@@ -1452,7 +1456,7 @@ class StorageBoundTests(Base):
             # neither is promised at fullness.
             for _ in range(40):
                 store.note('writer', 'decision', body())
-            page = service.command(dict(op='sync', consumer='reader'), 4242)
+            page = service.command(dict(op='sync', record_format=2, consumer='reader'), 4242)
             self.assertEqual(page['kind'], 'snapshot')
 
             written = []
@@ -1473,7 +1477,7 @@ class StorageBoundTests(Base):
             for label, call in (
                     ('append', lambda: store.note('writer', 'decision', 'more')),
                     ('registration', lambda: service.command(
-                        dict(op='sync', consumer='late-reader'), 4242)),
+                        dict(op='sync', record_format=2, consumer='late-reader'), 4242)),
                     ('snapshot', lambda: memory.freeze(store, 'reader'))):
                 with self.subTest(refused=label):
                     with self.assertRaises(memory.MemoryError_) as e:
@@ -1483,14 +1487,14 @@ class StorageBoundTests(Base):
             # Page issuance on the snapshot taken earlier: promised, so it must commit.
             issued = 0
             while page.get('more'):
-                page = service.command(dict(op='sync', consumer='reader',
+                page = service.command(dict(op='sync', record_format=2, consumer='reader',
                                             snapshot_id=page['snapshot_id'],
                                             page_token=page['page_token']), 4242)
                 issued += 1
             self.assertGreater(issued, 0, 'no page was issued, so issuance was not exercised')
 
             # Acknowledgement: promised.
-            self.assertTrue(service.command(dict(op='ack', consumer='reader',
+            self.assertTrue(service.command(dict(op='ack', record_format=2, consumer='reader',
                                                  snapshot_id=page['snapshot_id']), 4242))
 
             # Withdrawal: a control mutation drawing on reserved slots and pages.

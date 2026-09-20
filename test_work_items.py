@@ -280,7 +280,8 @@ class WorkCommandsTests(unittest.TestCase):
 
     def test_legacy_frozen_snapshot_resumes_then_work_arrives_as_delta(self):
         path = Path(self.tmp.name) / 'legacy.sqlite3'
-        old = memory.Store(path, self.store.repo, fts=False)
+        with patch.object(memory, 'SCHEMA', 4):
+            old = memory.Store(path, self.store.repo, fts=False)
         self.addCleanup(old.close)
         commands = memory.MemoryCommands(self.tmp.name, old.repo, old)
         old.note('writer', 'decision', 'legacy note')

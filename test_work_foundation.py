@@ -71,7 +71,8 @@ class MigrationTests(unittest.TestCase):
 
     def test_legacy_records_identity_and_replays_survive(self):
         with tempfile.TemporaryDirectory() as root:
-            store = memory.Store(Path(root) / 'memory.sqlite3', REPO)
+            with patch.object(memory, 'SCHEMA', 4):
+                store = memory.Store(Path(root) / 'memory.sqlite3', REPO)
             try:
                 store.note('writer', 'decision', 'synthetic evidence', key='key',
                            deadline=time.time() + 600)
@@ -95,7 +96,7 @@ class MigrationTests(unittest.TestCase):
                     self.assertEqual(after, before[table])
             finally:
                 store.close()
-            with self.assertRaises(memory.MemoryError_) as caught:
+            with patch.object(memory, 'SCHEMA', 4), self.assertRaises(memory.MemoryError_) as caught:
                 memory.Store(Path(root) / 'memory.sqlite3', REPO)
             self.assertEqual(caught.exception.code, 'schema_too_new')
 

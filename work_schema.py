@@ -1,4 +1,4 @@
-"""Staged work-items schema; not activated by the memory service yet.
+"""Work-items schema validated and migrated by memory startup.
 
 The caller owns the connection and transaction. No function here configures a
 connection, commits, creates a daemon, or opens a persistent database.
@@ -250,8 +250,8 @@ def migrate(db, repo, legacy_statements):
     The caller must propagate errors out of its transaction and roll back. The
     caller must reset the WAL before BEGIN, disable cache spill, and invoke this
     helper before any other write in that transaction.
-    The runtime does not invoke this staged helper until schema-5 readers and storage
-    accounting are integrated. Revalidation here also protects synthetic callers.
+    Runtime startup invokes this after read-only source validation and configuration.
+    Revalidation here also protects independent synthetic callers.
     """
     if not db.in_transaction:
         raise RuntimeError('migration requires a caller-owned transaction')
