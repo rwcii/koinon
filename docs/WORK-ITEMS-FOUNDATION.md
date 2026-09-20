@@ -4,7 +4,7 @@ The implementation stages schema and lease primitives for the
 [merged design](WORK-ITEMS-IMPLEMENTATION-DESIGN.md), with reservation enforcement
 at the shared memory transaction boundary. The installer copies the accounting
 dependencies, but `memory.SCHEMA` remains 4: no work command or schema-5 capability
-is advertised, and public startup does not migrate existing stores to schema 5.
+is enabled by public startup, which does not migrate existing stores to schema 5.
 Tests upgrade synthetic Stores through the staged helper to exercise accounting.
 
 ## Implemented primitives
@@ -76,12 +76,15 @@ format after the owner's WAL reset and before enabling work. Update all schema
 ownership/data/index sets. Preserve one atomic
 migration and the current read-only rejection behavior for foreign stores.
 
-Implement work records and lifecycle transitions, progress-credit rearming/overdue events, immutable
-stream payloads, note/FTS separation, frozen current-work snapshots, idempotency,
-and the record-format guard for both sync and acknowledgement. A lease primitive
-alone must never be exposed as a command that omits its corresponding work event.
+The [staged command slice](WORK-ITEMS-COMMANDS.md) implements work records and
+lifecycle transitions, target-only due reconciliation, progress-credit rearming,
+immutable stream payloads, note/FTS separation, frozen current-work snapshots,
+idempotency, and the record-format guard for both sync and acknowledgement.
+Commands pair claim changes with their corresponding work events; standalone
+renewal preserves the work revision and stream head. Synthetic tests exercise
+all 16 funded end commands at ordinary saturation and legacy snapshot continuation.
 
-Then add bounded maintenance and finished-item expiry, service/CLI error mapping,
+Then add bounded maintenance and finished-item expiry, maintenance diagnostics,
 binding compatibility, opt-in installer configuration, and user capacity/upgrade
 documentation. Run the design's full-store, bootstrap, shutdown and mixed-version
 tests and Linux/macOS CI before claiming runtime implementation acceptance.

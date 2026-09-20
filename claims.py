@@ -2,7 +2,7 @@
 
 These functions never access the filesystem or grant permission to perform work.
 LeaseEngine uses its caller's transaction and mandatory admission callback. It is
-not yet wired into memory.py; stream and budget integration must land together.
+wired through the staged work commands; public schema-5 activation remains separate.
 """
 from dataclasses import dataclass
 import math
@@ -231,6 +231,33 @@ class LeaseEngine:
         self.owner(work_id, consumer, generation, now=now)
         self._end(generation)
         self._admit(before, control=True)
+
+    def progress(self, work_id, consumer, generation, epoch, *, now):
+        """Rearm one overdue obligation; the caller atomically records its progress event."""
+        integer(epoch, 'progress_epoch')
+        before = self._transaction()
+        current = self.owner(work_id, consumer, generation, now=now)
+        if epoch != current['progress_epoch'] + 1:
+            raise ClaimError('incompatible_store', 'work and claim progress epochs disagree')
+        self.db.execute('UPDATE claim_bundles SET progress_epoch=?,overdue_recorded=0,'
+                        'overdue_credit=1 WHERE generation=?', (epoch, generation))
+        self._admit(before)
+
+    def overdue(self, generation, epoch):
+        """Consume the overdue credit inside its caller's matching event transaction."""
+        integer(generation, 'generation')
+        integer(epoch, 'progress_epoch')
+        before = self._transaction()
+        row = self.db.execute('SELECT active,progress_epoch,overdue_recorded FROM claim_bundles '
+                              'WHERE generation=?', (generation,)).fetchone()
+        if not row or not row[0] or row[2]:
+            return False
+        if row[1] != epoch:
+            raise ClaimError('incompatible_store', 'work and claim progress epochs disagree')
+        self.db.execute('UPDATE claim_bundles SET overdue_credit=0,overdue_recorded=1 '
+                        'WHERE generation=?', (generation,))
+        self._admit(before, control=True)
+        return True
 
     def expire(self, generation, *, now):
         integer(generation, 'generation')

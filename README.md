@@ -243,9 +243,10 @@ for the capabilities that remain unverified.
 The approved [work-items v1 contract](docs/WORK-ITEMS-V1.md) and
 [implementation-design candidate](docs/WORK-ITEMS-IMPLEMENTATION-DESIGN.md) specify
 structured work, advisory writer claims and progress recovery. They are design documents;
-the current runtime does not yet provide work-item commands. The
+public schema-4 startup does not enable work-item commands. The
 [implementation foundation](docs/WORK-ITEMS-FOUNDATION.md) stages migration and
-lease primitives and shared transaction reservation checks with synthetic tests;
+lease primitives, shared transaction reservation checks, and
+[staged work commands](docs/WORK-ITEMS-COMMANDS.md) with synthetic tests;
 it does not upgrade a running store.
 
 ## Storage and multiple sessions

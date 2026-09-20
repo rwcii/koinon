@@ -237,7 +237,7 @@ class WritePathTests(Base):
         self.commands.register('reader')
         self.store.note('writer', 'decision', 'synthetic note')
         sid = memory.freeze(self.store, 'reader')
-        request = dict(consumer='reader', snapshot_id=sid)
+        request = dict(record_format=2, consumer='reader', snapshot_id=sid)
         cap = self.store.pages() + self.store.work_debt().pages + memory.COMMIT_SLACK - 1
         with patch.object(memory, 'MAX_PAGES', cap):
             self.unchanged_on_refusal(lambda: self.commands.snapshot_page('reader', sid, request))
@@ -250,11 +250,11 @@ class WritePathTests(Base):
         self.store.note('writer', 'decision', 'next synthetic note')
         cap = self.store.pages() + self.store.work_debt().pages + memory.COMMIT_SLACK - 1
         with patch.object(self.commands, 'touch'), patch.object(memory, 'MAX_PAGES', cap):
-            self.unchanged_on_refusal(lambda: self.commands.sync(dict(consumer='reader')))
-        delta = self.commands.sync(dict(consumer='reader'))
+            self.unchanged_on_refusal(lambda: self.commands.sync(dict(record_format=2, consumer='reader')))
+        delta = self.commands.sync(dict(record_format=2, consumer='reader'))
         with patch.object(self.commands, 'touch'), patch.object(memory, 'MAX_PAGES', cap):
             self.unchanged_on_refusal(lambda: self.commands.ack(
-                dict(consumer='reader', through=delta['next_cursor'])))
+                dict(record_format=2, consumer='reader', through=delta['next_cursor'])))
 
     def test_expired_snapshot_clear_preserves_work_reserve(self):
         self.commands.register('reader')
@@ -264,7 +264,7 @@ class WritePathTests(Base):
                                   (time.time() - memory.SNAPSHOT_TTL - 1, sid))
         cap = self.store.pages() + self.store.work_debt().pages + memory.COMMIT_SLACK - 1
         with patch.object(self.commands, 'touch'), patch.object(memory, 'MAX_PAGES', cap):
-            self.unchanged_on_refusal(lambda: self.commands.sync(dict(consumer='reader')))
+            self.unchanged_on_refusal(lambda: self.commands.sync(dict(record_format=2, consumer='reader')))
 
     def test_retirement_and_fts_creation_use_transaction_enforcement(self):
         self.commands.register('retiring-reader')
@@ -377,7 +377,7 @@ class WritePathTests(Base):
         self.commands.register('reader')
         self.store.note('writer', 'decision', 'snapshot seed')
         sid = memory.freeze(self.store, 'reader')
-        request = dict(consumer='reader', snapshot_id=sid)
+        request = dict(record_format=2, consumer='reader', snapshot_id=sid)
         timings = {}
 
         def timed(label, callback):

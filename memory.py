@@ -40,6 +40,7 @@ import time
 import uuid
 import claims
 import work_storage
+import work_items
 
 from database_worker import DatabaseWorker, CapacityError, WorkerFailure
 from service_runtime import Admission, close_writer, drain_handlers, database_status, HANDSHAKE_TIMEOUT
@@ -870,7 +871,7 @@ class Store:
             with self.transaction(blocking=False):
                 self.db.execute("INSERT INTO search(search) VALUES('delete-all')")
                 for seq, body in self.db.execute(
-                        'SELECT seq,body FROM entries ORDER BY seq').fetchall():
+                        "SELECT seq,body FROM entries WHERE type<>'work-event' ORDER BY seq").fetchall():
                     self.db.execute('INSERT INTO search(rowid,body) VALUES(?,?)', (seq, body))
                 self.set_meta('indexed_through', self.head())
         except MemoryError_ as exc:
@@ -1013,6 +1014,44 @@ class Store:
                 key, operation, result = values
                 total += self.charge(idem=(key,)) + work_storage.replay_extra((operation, result))
         return total
+
+    def work_event(self, kind, work_id, revision, payload, *, consumer, author, pid, now):
+        """One caller-owned transaction writes both halves of every work event."""
+        if not self.db.in_transaction:
+            raise RuntimeError('work event requires a caller-owned transaction')
+        serialized = work_items.encoded(payload)
+        if len(serialized.encode('utf-8')) > work_items.MAX_RECORD:
+            raise MemoryError_('record_too_large', 'work event exceeds its encoded bound')
+        seq = self.head() + 1
+        claims.integer(seq, 'sequence')
+        indexed = self.index_usable()
+        self.db.execute('INSERT INTO entries '
+            '(seq,ts,type,scope,scope_target,body,author,author_pid,consumer,revision) '
+            "VALUES (?,?,'work-event','repo',?,'',?,?,?,?)",
+            (seq, now, work_id, author, pid, consumer, revision))
+        self.db.execute('INSERT INTO work_events VALUES (?,?,?,?,?)',
+                        (seq, work_id, revision, kind, serialized))
+        self.set_meta('head', seq)
+        if indexed:
+            self.set_meta('indexed_through', seq)
+        return seq
+
+    def stream_rows(self, rows):
+        """Batch-load immutable work payloads, never substitute today's work record."""
+        entries = [self.row(row) for row in rows]
+        seqs = [e['seq'] for e in entries if e['type'] == 'work-event']
+        events = {}
+        if seqs:
+            events = {seq: (kind, json.loads(payload)) for seq, kind, payload in self.db.execute(
+                'SELECT seq,kind,payload FROM work_events WHERE seq IN ('
+                + ','.join('?' for _ in seqs) + ')', seqs)}
+        for entry in entries:
+            if entry['type'] == 'work-event':
+                if entry['seq'] not in events:
+                    raise MemoryError_('incompatible_store', 'work stream payload is missing')
+                kind, payload = events[entry['seq']]
+                entry.update(event_kind=kind, work_id=entry['scope_target'], payload=payload)
+        return entries
 
     @contextlib.contextmanager
     def mutation(self, need=0, slots=0, control=False):
@@ -1315,10 +1354,12 @@ class Store:
                 revision, target, conflict = 1, supersedes or revokes, None
                 if target:
                     found = self.db.execute(
-                        'SELECT revision,superseded_by,revoked_by FROM entries WHERE seq=?',
+                        'SELECT revision,superseded_by,revoked_by,type FROM entries WHERE seq=?',
                         (target,)).fetchone()
                     if not found:
                         raise MemoryError_('no_such_entry', 'the replaced entry does not exist')
+                    if found[3] == 'work-event':
+                        raise MemoryError_('invalid_request', 'notes cannot replace work events')
                     # A second replacement of the same target is a genuine conflict between
                     # two reporters. Both are retained and the conflict is reported. Refusing
                     # the later one would be first-writer-wins with the loser discarded, which
@@ -1368,9 +1409,9 @@ class Store:
     def live_clause(self, at=None):
         """Live as of an event horizon: not replaced at or below it, and not expired."""
         if at is None:
-            return ('(superseded_by IS NULL AND revoked_by IS NULL '
+            return ("type<>'work-event' AND (superseded_by IS NULL AND revoked_by IS NULL "
                     'AND (expires IS NULL OR expires > ?))', [time.time()])
-        return ('(seq<=? AND (superseded_by IS NULL OR superseded_by>?) '
+        return ("type<>'work-event' AND (seq<=? AND (superseded_by IS NULL OR superseded_by>?) "
                 'AND (revoked_by IS NULL OR revoked_by>?) AND (expires IS NULL OR expires > ?))',
                 [at, at, at, time.time()])
 
@@ -1421,6 +1462,8 @@ def freeze(store, consumer):
             if tails[entry['type']] > cap:
                 continue
         ordered.append(entry)
+    if store.accounting_version() >= 5:
+        ordered.extend(work_items.WorkItems(store, MemoryError_).snapshot_views(time.time()))
     held = store.db.execute(
         'SELECT count(*) FROM snapshots WHERE consumer=? AND ((acked IS NULL AND created >= ?) '
         'OR (acked IS NOT NULL AND acked_at >= ?))',
@@ -1513,6 +1556,12 @@ class MemoryCommands:
     def command(self, r, pid):
         validate_target(r, self.repo, self.generation)
         op = r.get('op')
+        if op in ('sync', 'ack'):
+            self.record_format(r)
+        if op in work_items.FIELDS:
+            if self.store.accounting_version() < 5:
+                raise MemoryError_('schema_too_old', 'work commands require a future schema-5 activation')
+            return work_items.WorkItems(self.store, MemoryError_).command(r, pid)
         if op not in self.READ_ONLY:
             self.store.maybe_expire()
         if op == 'recover':
@@ -1540,6 +1589,11 @@ class MemoryCommands:
         if op == 'stop':
             return stop_result(r, self.repo, self.generation)
         raise MemoryError_('invalid_request', f'unknown operation: {op}')
+
+    def record_format(self, request):
+        if self.store.accounting_version() >= 5 and (
+                type(request.get('record_format')) is not int or request['record_format'] != 2):
+            raise MemoryError_('client_upgrade_required', 'sync and ack require memory record format 2')
 
     # --- protocol state -------------------------------------------------------
 
@@ -1588,6 +1642,7 @@ class MemoryCommands:
 
     def sync(self, r):
         """Return work to do. This never advances the cursor; `ack` does that."""
+        self.record_format(r)
         consumer = self.consumer(r)
         seq, issued, snapshot, bootstrapped, resnapshot = self.register(consumer)
         self.touch(consumer)
@@ -1610,7 +1665,8 @@ class MemoryCommands:
             return self.snapshot_page(consumer, sid, r)
         rows = self.store.db.execute(f'{self.store.SELECT} WHERE seq>? ORDER BY seq LIMIT 500',
                                      (seq,)).fetchall()
-        entries, more = bounded((len(encode(self.store.row(x))), self.store.row(x)) for x in rows)
+        converted = self.store.stream_rows(rows)
+        entries, more = bounded((len(encode(x)), x) for x in converted)
         end = entries[-1]['seq'] if entries else seq
         head = self.store.head()
         if end > issued:
@@ -1662,6 +1718,7 @@ class MemoryCommands:
 
     def ack(self, r):
         """Advance a cursor. Completion is recorded here, never inferred from the caller."""
+        self.record_format(r)
         consumer = self.consumer(r)
         seq, issued, snapshot, bootstrapped, resnapshot = self.register(consumer)
         self.touch(consumer)
@@ -1860,6 +1917,8 @@ class Service:
                         await asyncio.sleep(REPLY_DELAY)
             except MemoryError_ as exc:
                 reply = local_error_reply(exc.code, str(exc))
+                if isinstance(exc.detail, dict):
+                    reply['details'] = exc.detail
             except CapacityError:
                 reply = local_error_reply('capacity', 'service request capacity reached')
             except WorkerFailure as exc:
@@ -2230,7 +2289,7 @@ def cli_main():
     paths.add_argument('--state-dir')
     paths.add_argument('--service-dir', help='exact bound memory service directory; no path suffix is added')
     p.add_argument('--repo-path', default=os.getcwd())
-    p.add_argument('--consumer', help='stable consumer key; required for note, sync and ack')
+    p.add_argument('--consumer', help='stable consumer key; required for note, sync, ack and work mutations')
     sub = p.add_subparsers(dest='op', required=True)
     for op in ('serve', 'stop', 'recover'):
         sub.add_parser(op)
@@ -2260,6 +2319,7 @@ def cli_main():
     q.add_argument('--before', type=int, help='continue from next_before of a previous page')
     st = sub.add_parser('status')
     st.add_argument('--after', help='continue from next_after of a previous page')
+    work_items.cli_parsers(sub)
     args = vars(p.parse_args())
     selected_root = args.pop('state_dir')
     exact = args.pop('service_dir')
@@ -2272,15 +2332,21 @@ def cli_main():
         home = Path(exact).absolute()
     private_state_dir(home)
     op = args.pop('op')
+    op = work_items.cli_request(op, args)
     if op == 'serve':
         print(json.dumps(serve(home, repo, lambda: Store(home / 'memory.sqlite3', repo))))
         return
     if op == 'stop':
         print(json.dumps(stop_service(home, repo), indent=2))
         return
-    if op in ('note', 'sync', 'ack') and not args.get('consumer'):
+    if (op in ('note', 'sync', 'ack') or op in work_items.FIELDS.keys() - work_items.READS) and not args.get('consumer'):
         raise SystemExit(f'{op} requires --consumer, a stable key that outlives one command')
+    clear_assignee = args.pop('_clear_assignee', False)
     payload = dict(op=op, **{k: v for k, v in args.items() if v is not None})
+    if clear_assignee:
+        payload['proposed_assignee'] = None
+    if op in ('sync', 'ack'):
+        payload['record_format'] = 2
     try:
         reply = asyncio.run(request_bound(home, repo, payload) if exact is not None else request(home, payload))
     except (ConnectionRefusedError, FileNotFoundError) as exc:
@@ -2291,12 +2357,14 @@ def cli_main():
 
 # Every locally raised recovery code and synthesized error has an explicit CLI policy. Unknown wire
 # codes retain exit 1; they cannot make a client claim a known retry/configuration class.
-SYNTHESIZED_ERROR_CODES = frozenset(('internal_error', 'storage_error', 'rejected')) | runtime_names.PATH_SELECTION_CODES
+SYNTHESIZED_ERROR_CODES = (frozenset(('internal_error', 'storage_error', 'rejected'))
+                           | runtime_names.PATH_SELECTION_CODES | work_items.ERROR_CODES)
 ERROR_EXIT_CLASSES = {
     'software': frozenset(('internal_error',)),
     'temporary': frozenset((
         'service_busy', 'service_unresponsive', 'service_unavailable', 'store_busy',
         'capacity', 'idem_capacity', 'snapshot_capacity', 'stopping',
+        'claim_capacity',
     )),
     'configuration': frozenset((
         'foreign_service', 'unsafe_service_endpoint', 'unsafe_state_directory',
@@ -2304,6 +2372,7 @@ ERROR_EXIT_CLASSES = {
         'schema_too_new', 'schema_too_old', 'repo_unresolved', 'unhealthy_service',
         'invalid_service_response', 'socket_in_use', 'unsupported_runtime',
         'store_too_large', 'service_refused', 'storage_blocked',
+        'client_upgrade_required',
     )) | runtime_names.PATH_SELECTION_CODES,
     'request': frozenset((
         'consumer_retired', 'entry_too_large', 'foreign_snapshot', 'idempotency_conflict',
@@ -2311,6 +2380,8 @@ ERROR_EXIT_CLASSES = {
         'not_this_instance', 'retry_deadline_expired', 'snapshot_expired',
         'snapshot_incomplete', 'snapshot_open', 'stale_page_token', 'stale_snapshot',
         'write_failed', 'storage_error', 'rejected',
+        'work_not_found', 'revision_conflict', 'stale_claim', 'claim_conflict',
+        'invalid_transition', 'record_too_large',
     )),
 }
 
