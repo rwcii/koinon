@@ -4,6 +4,7 @@ import argparse
 import copy
 import json
 import os
+import re
 from pathlib import Path
 import shutil
 import subprocess
@@ -174,6 +175,88 @@ def active_units(unit_dir, names=SERVICES, prefix=None):
     return existing
 
 
+
+def report_session_restarts(prefix, unit_dir, *, no_start=False):
+    """Read-only advice; installed files do not identify loaded process versions."""
+    print('Runtime replacement does not reload existing session supervisors.')
+    print('Supervisors newly started by this installation load the installed files.')
+    print('Restart affected manually managed supervisors explicitly; their state is not inspected.')
+    if platform_support.SERVICE_MANAGER != 'systemd':
+        print('Session supervisor service state: unverified (no supported service manager).')
+        return
+    candidates = []
+    try:
+        for path in Path(unit_dir).iterdir():
+            if re.fullmatch(r'(?:koinon|codex-peer)-session-[a-f0-9]{16}\.service', path.name):
+                candidates.append(path)
+                if len(candidates) > 128:
+                    print('Session supervisor inventory incomplete (more than 128 candidate units); inspect manually.')
+                    return
+    except FileNotFoundError:
+        return
+    except OSError:
+        print('Session supervisor inventory unverified (selected unit directory is unreadable).')
+        return
+    owned = {}
+    for path in sorted(candidates):
+        try:
+            check_owned_unit(path)
+            if not path.exists():
+                raise ValueError('unit disappeared')
+            if not unit_targets_prefix(path, prefix):
+                continue
+            owned[path.name] = path
+        except (OSError, ValueError):
+            print('Session supervisor ownership unverified:', path.name, '(inspect manually).')
+    if not owned:
+        return
+    reason = 'service query disabled by --no-start' if no_start else None
+    observations = {}
+    if not no_start:
+        try:
+            result = subprocess.run(
+                ['systemctl', '--user', 'show', '--property=Id', '--property=ActiveState',
+                 '--property=FragmentPath', *owned], capture_output=True, text=True, timeout=5)
+            if result.returncode:
+                reason = 'service manager query failed'
+            else:
+                # An unparseable listing invalidates the entire observation.
+                for block in result.stdout.strip().split('\n\n'):
+                    values = {}
+                    for line in block.splitlines():
+                        key, separator, value = line.partition('=')
+                        if not separator or key in values:
+                            raise ValueError('malformed service observation')
+                        values[key] = value
+                    name = values.get('Id')
+                    if name not in owned or name in observations:
+                        raise ValueError('unexpected service identity')
+                    observations[name] = values
+        except (OSError, subprocess.SubprocessError, ValueError):
+            reason = 'service manager observation unavailable'
+    for name, path in owned.items():
+        observation = observations.get(name, {})
+        if reason:
+            print('Session supervisor state unverified:', name, '(' + reason + ').')
+            continue
+        try:
+            if observation.get('FragmentPath') != str(path):
+                raise ValueError('service fragment mismatch')
+            # Recheck ownership after the service-manager round trip.
+            check_owned_unit(path, prefix)
+            if not path.exists():
+                raise ValueError('unit disappeared')
+        except (OSError, ValueError):
+            print('Session supervisor state unverified:', name, '(service ownership or fragment changed).')
+            continue
+        state = observation.get('ActiveState')
+        if state in ('active', 'activating', 'reloading', 'deactivating', 'refreshing'):
+            print('Session supervisor may still use previous runtime; explicit restart required:', name)
+        elif state in ('inactive', 'failed'):
+            print('Session supervisor inactive at observation:', name, '(next start loads installed files).')
+        else:
+            print('Session supervisor state unverified:', name, '(unknown service state).')
+
 def main():
     p = argparse.ArgumentParser(description=__doc__)
     work_mode = p.add_mutually_exclusive_group()
@@ -290,6 +373,7 @@ def install(a, p, configuration=None, validate_only=False):
         if dsh_guidance is not None:
             print('Managed DeepSeek guidance:',dsh_guidance)
         print('New sessions run session.py ensure with their own session identity.')
+        report_session_restarts(a.prefix, a.unit_dir, no_start=a.no_start)
         if a.thread and not a.no_start:
             subprocess.run([sys.executable,str(a.prefix/'session.py'),'ensure','--thread',a.thread,'--repo',a.repo or os.getcwd()],check=True)
         return
@@ -341,6 +425,7 @@ def install(a, p, configuration=None, validate_only=False):
     print('Installed at',a.prefix)
     print('State directory:',a.state_dir)
     print('Check: systemctl --user status', *selected)
+    report_session_restarts(a.prefix, a.unit_dir, no_start=a.no_start)
 
 
 if __name__ == '__main__':
