@@ -44,6 +44,14 @@ def encoded(value):
                       allow_nan=False)
 
 
+def freshness(lifecycle, progress_deadline, active, lease_expires, now):
+    """One observation rule for full views and list summaries/filters."""
+    live = bool(active and lease_expires > now)
+    ongoing = lifecycle in ('active', 'blocked')
+    overdue = bool(ongoing and progress_deadline is not None and progress_deadline <= now)
+    return live, overdue, bool(ongoing and (not live or overdue))
+
+
 def cli_parsers(sub):
     """Provider-neutral CLI; server-side validation remains authoritative."""
     work = sub.add_parser('work', help='staged work commands; requires schema-5 service')
@@ -137,7 +145,8 @@ class WorkItems:
         item['references'] = json.loads(item.pop('references_json'))
         item.update(type='work-item', seq=item['latest_seq'], observed_at=now)
         held = self.claim(item['work_id'])
-        live = bool(held and held['active'] and held['expires_at'] > now)
+        live, overdue, unverified = freshness(item['lifecycle'], item['progress_deadline'],
+            held['active'] if held else False, held['expires_at'] if held else None, now)
         # Historical event fields are not rewritten by renewal. Expose the
         # deadline used for this observation even when the retained lease is
         # expired and therefore cannot appear as a current claim.
@@ -151,14 +160,13 @@ class WorkItems:
                 (held['generation'],))]
         item['lease_valid'] = live
         ongoing = item['lifecycle'] in ('active', 'blocked')
-        item['progress_overdue'] = bool(ongoing and item['progress_deadline'] is not None
-                                       and item['progress_deadline'] <= now)
+        item['progress_overdue'] = overdue
         reasons = []
         if ongoing and not live:
             reasons.append('lease_expired')
         if item['progress_overdue']:
             reasons.append('progress_deadline_missed')
-        item['progress_unverified'] = bool(reasons)
+        item['progress_unverified'] = unverified
         item['progress_unverified_reasons'] = reasons
         scopes = self.db.execute('SELECT revision,criteria,non_goals FROM work_scope_revisions '
                                  'WHERE work_id=? ORDER BY revision', (item['work_id'],)).fetchall()
@@ -195,9 +203,8 @@ class WorkItems:
             'FROM work_items w LEFT JOIN claim_bundles b ON b.work_id=w.work_id '
             'WHERE w.expires_at IS NULL OR w.expires_at>? ORDER BY w.work_id', (now,))
         for work_id, revision, title, lifecycle, proposed, deadline, consumer, active, expires in rows:
-            live = bool(active and expires > now)
+            live, _, stale = freshness(lifecycle, deadline, active, expires, now)
             owner = consumer if live else None
-            stale = lifecycle in ('active', 'blocked') and (not live or deadline is not None and deadline <= now)
             tests = dict(owner=owner, lifecycle=lifecycle, proposed_assignee=proposed,
                          stale=stale, blocked=lifecycle == 'blocked')
             if any(request[k] != v for k, v in tests.items() if k in request):
