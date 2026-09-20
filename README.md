@@ -252,6 +252,13 @@ it does not upgrade a running store. The [staged policy query](docs/WORK-ITEMS-P
 adds validated configuration, preserving installer updates, and explicit work-guidance
 publication/removal with verified policy queries. Configuration does not activate work commands.
 
+Work-item capacity is finite: 2,048 retained events can be exhausted in roughly
+5.3 days by 16 hourly reporters, while finished history remains for 30 days. With
+16 funded claims, the ordinary database band is about 15.8 MiB; the 128 MiB total
+ceiling is not ordinary write capacity. Read the [operator capacity guidance](docs/INSTALL.md#work-item-capacity-planning)
+before adopting the staged workflow. It explains reservations, refusal and recovery,
+including why deleting expired rows does not necessarily restore page headroom.
+
 ## Storage and multiple sessions
 
 Fresh persistent state defaults to `$XDG_STATE_HOME/koinon`, or `~/.local/state/koinon`.
