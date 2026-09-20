@@ -13,6 +13,7 @@ DIGEST = re.compile(r'[0-9a-f]{64}')
 
 def absolute_path(value):
     if (not isinstance(value, str) or not value or '\x00' in value
+            or any(ord(char) < 32 or 127 <= ord(char) <= 159 for char in value)
             or len(value.encode('utf-8')) > 4096 or not Path(value).is_absolute()
             or '..' in Path(value).parts or str(Path(value)) != value):
         raise ValueError('expected a bounded absolute configuration path')

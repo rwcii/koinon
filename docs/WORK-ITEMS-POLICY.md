@@ -45,7 +45,8 @@ Consumers must check the repository and digest; configuration cannot grant autho
 rules keyed by `<repository-hash>:<participant>`. A rule has exactly `common_directory`,
 `guidance_file`, `state`, and `digest`. Pending rules also have `before_digest` and
 `after_digest`, whole-target hashes used for recovery. All digests are lowercase
-64-character SHA-256 values, never instruction text. Paths are bounded absolute paths.
+64-character SHA-256 values, never instruction text. Paths are bounded absolute paths
+without control characters, preventing embedded lines from breaking managed sections.
 The guidance parent must exist, be user-owned and not group/world writable; the target
 must be a user-owned regular file if present. Symlink components are refused.
 

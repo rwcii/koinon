@@ -109,6 +109,9 @@ class GuidanceTests(unittest.TestCase):
         command = section.split('```sh\n')[1].split('\n```')[0]
         self.assertEqual(shlex.split(command), [sys.executable, str(self.prefix/'session.py'),
                         'work-policy', '--repo', str(self.common), '--agent', 'claude'])
+        memory_command = section.split('```sh\n')[2].split('\n```')[0]
+        self.assertEqual(shlex.split(memory_command), [sys.executable, str(self.prefix/'memory.py'),
+                        '--repo-path', str(self.common), '--consumer', '<stable-consumer-key>'])
         self.assertIn('stable participant session key', section)
         self.assertIn('reconcile current work', section)
         self.assertIn('Configuration never grants permission', section)
@@ -340,6 +343,27 @@ class GuidanceTests(unittest.TestCase):
             self.enable()
         self.assertEqual(self.target.read_bytes(), self.original)
         self.assertEqual(self.rule()['state'], 'pending')
+
+    def test_control_characters_in_configuration_paths_refuse_before_writes(self):
+        for char in ('\n', '\r', '\t', '\x7f', '\x85'):
+            with self.subTest(char=repr(char)), self.assertRaises(ValueError):
+                work_policy.absolute_path(str(self.root/('unsafe'+char+'path')))
+        bad_repo = self.new_repo('newline\nrepository')
+        with self.assertRaises(ValueError):
+            self.enable(repo=bad_repo)
+        with self.assertRaises(ValueError):
+            guidance.configure(self.root/'newline\nprefix', self.repo, 'codex', self.target)
+        self.assertEqual(self.target.read_bytes(), self.original)
+        self.assertFalse((self.prefix/install_state.LOCK_NAME).exists())
+
+    def test_backup_git_check_failure_is_an_explicit_refusal(self):
+        for error in (FileNotFoundError('git unavailable'), subprocess.TimeoutExpired(['git'], 10)):
+            with self.subTest(error=type(error).__name__), \
+                 patch.object(guidance.subprocess, 'run', side_effect=error), \
+                 self.assertRaises(guidance.GuidanceError) as refused:
+                guidance.backup_path(self.prefix, self.initial, self.target)
+            self.assertIn('cannot verify backup location with Git', str(refused.exception))
+        self.assertFalse((self.root/'private state').exists())
 
     def test_legacy_guidance_updates_preserve_work_sections(self):
         # Existing peer updater chooses AGENTS.md beneath the explicitly supplied home.

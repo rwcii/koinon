@@ -72,7 +72,7 @@ def sections(text):
 def render(prefix, common, repo, agent, newline='\n'):
     policy = shlex.join([sys.executable, str(prefix/'session.py'), 'work-policy',
                         '--repo', str(common), '--agent', agent])
-    memory = shlex.join([sys.executable, str(prefix/'memory.py'), '--repo', str(common),
+    memory = shlex.join([sys.executable, str(prefix/'memory.py'), '--repo-path', str(common),
                         '--consumer', '<stable-consumer-key>'])
     text = f'''
 <!-- BEGIN KOINON WORK ITEMS {repo} {agent} -->
@@ -182,8 +182,11 @@ def backup_path(prefix, config, target, create=False):
     for component in (*reversed(directory.parents), directory):
         if component.is_symlink():
             conflict(component, 'backup directory cannot contain symlinks')
-    check = subprocess.run(['git', '-C', str(nearest), 'rev-parse', '--absolute-git-dir'],
-                           capture_output=True, timeout=10)
+    try:
+        check = subprocess.run(['git', '-C', str(nearest), 'rev-parse', '--absolute-git-dir'],
+                               capture_output=True, timeout=10)
+    except (OSError, subprocess.TimeoutExpired) as exc:
+        conflict(directory, 'cannot verify backup location with Git: ' + str(exc))
     if check.returncode == 0:
         conflict(directory, 'private guidance backups must be outside Git repositories')
     if create:
@@ -256,7 +259,7 @@ def configure(prefix, repository, agent, guidance_file):
     from memory import repo_common_directory
     if agent not in work_policy.PARTICIPANTS:
         raise ValueError('explicit participant is required')
-    prefix = Path(prefix)
+    prefix = work_policy.absolute_path(str(prefix))
     config = require_installation(prefix)
     common = repo_common_directory(repository)
     repo = work_policy.repository_key(common)
@@ -327,7 +330,7 @@ def remove(prefix, repository, agent):
     from memory import repo_common_directory
     if agent not in work_policy.PARTICIPANTS:
         raise ValueError('explicit participant is required')
-    prefix = Path(prefix)
+    prefix = work_policy.absolute_path(str(prefix))
     require_installation(prefix)
     key = work_policy.repository_key(repo_common_directory(repository))+':'+agent
     with install_state.locked(prefix) as state:
