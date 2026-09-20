@@ -101,30 +101,69 @@ On shutdown it stops only the captured child generation and waits for confirmed 
 An unreadable owner, changed generation, or drain timeout refuses completion and leaves
 recovery evidence. No arbitrary PID kill, socket unlink, or store deletion is allowed.
 
-Permanent failures 70 and 78 end supervision; retryable child failures use bounded
-backoff, with no rapid restart loop. A normal requested shutdown does not restart.
-Manager and foreground paths must implement the same restart classification exactly
-once rather than nesting two independent retry loops.
+Permanent failures 70 and 78 end supervision. In manager-backed operation the runner
+propagates retryable failures and the manager owns throttled restart; foreground
+operation uses the same classification with capped backoff. A normal requested shutdown
+does not restart. Do not nest two independent retry loops. A durable refusal record
+binds the observed failure to configuration digest and runner/child generation; ordinary
+`ensure` reports it rather than erasing it. An explicit retry after correction validates
+the selected identity, clears only its refusal record, and attempts readiness again.
 
 On Linux with a user systemd manager, render the owned unit using argument arrays and
 the existing systemd escaping rules, `UMask=0077`, `Restart=on-failure`, and permanent
 exit exclusions from `platform_support.PERMANENT_EXIT_STATUSES`. Unit activation alone
 is insufficient: confirm the runner and memory handshake before returning `running`.
 
-The portable foreground runner is part of the first lifecycle slice, not a later
-port. When a manager is unavailable, `ensure` returns `manual_required` with a quoted
-`start_command` and `running: false`. A caller with a persistent managed execution
-facility starts that command, retains the handle, and performs a separate readiness
-check. Loss of the host execution facility ends this supervision guarantee; a printed
-command alone cannot satisfy unattended installation acceptance.
+On macOS, add a user LaunchAgent backend selected through `platform_support.py`.
+Use a deterministic repository label and `~/Library/LaunchAgents/<label>.plist`,
+serialized with `plistlib`, an exact `ProgramArguments` array, `Umask` integer 63,
+and `KeepAlive` with `SuccessfulExit: false`. No system-domain jobs, user switching,
+shell evaluation, or detached double-fork. Agent availability is bounded by the user's
+login/service domain; logout and reboot are not an always-on system-service guarantee.
 
-**Platform completion gate:** issue #42 also requires unattended installation on macOS.
-The existing foreground fallback does not establish that property by itself. Resolve
-and document the persistent macOS host/backend and its ownership, login lifetime,
-restart exclusions, and removal semantics before activating the public installer path.
-A generated user service backend or a verified persistent host handoff may satisfy it;
-merely returning `manual_required` may not be reported as a complete installation.
-No platform may silently launch an untracked background process.
+Apple documents per-user agents loaded from the user's Library and the foreground
+process lifecycle in its [launchd guide](https://developer.apple.com/library/archive/documentation/MacOSX/Conceptual/BPSystemStartup/Chapters/CreatingLaunchdJobs.html).
+Its [published plist manual](https://github.com/apple-oss-distributions/launchd/blob/main/man/launchd.plist.5)
+documents successful-exit restart selection and integer umasks. These archived sources
+support the design choice, not a claim that present macOS supervision has been tested.
+
+Since that restart predicate cannot express the selected permanent exit exclusions,
+the launchd boundary wrapper records permanent refusal durably and returns zero to
+its manager while retaining the original 70/78 and error in status. The CLI must still
+report failure, never `running`, when the refusal marker exists. A later login/reload
+checks the marker before starting a child and remains stopped until explicit retry.
+If recording the marker fails, stop without repeated child starts, emit the original
+failure and recording failure to a private diagnostic sink, and report observation
+as unavailable rather than claiming a durable recorded refusal. Test this edge case.
+On systemd preserve the actual permanent exit and its existing restart exclusions.
+
+Route manager-specific render, availability, activate, observe, and deactivate through
+platform support. The domain selected for launchd operations must belong to the current
+user and be recorded/validated; never silently bootstrap into a different domain.
+Validate exact command behavior against the target macOS `launchctl` manual and real
+isolated CI jobs before freezing the implementation. Ownership must agree across
+registered artifact, loaded job, executable arguments, runner record, and memory peer.
+No successful CLI call or plist presence alone establishes readiness or ownership.
+
+Port session-supervisor manager calls through this backend interface as a separate
+reviewed slice before enabling launchd. Complete installation includes session
+supervision as well as memory; adding a memory LaunchAgent while leaving session
+supervisors dependent on an unattended terminal does not close #42. Preserve session
+identity, child readiness, and permanent-error handling through the same launchd
+boundary mechanism. This refactor must not change shipped Linux behavior.
+
+Keep portable foreground operation for a host where the selected user manager is
+unavailable. `ensure` reports `manual_required` with a quoted `start_command` and
+`running: false`. A persistent execution host can run it and separately verify
+readiness, but this remains a declared fallback, not unattended installation success.
+No platform may silently launch an untracked background process. `--no-start` stages
+artifacts without loading a job or querying a manager on either platform.
+
+The platform completion gate is real isolated Linux and macOS evidence for activation,
+verified readiness, crash restart, permanent-refusal non-restart, retry, stop, and owned
+removal. Use uniquely named fixture jobs and temporary repositories/state. Missing
+manager support in a runner is an unmet acceptance condition, not a passing skip.
+No production participants or stores are test fixtures.
 
 ## Publication, observation, and removal
 
@@ -186,10 +225,14 @@ runtime over an active old one; coordinated version replacement belongs to DQ-12
 1. **Identity and configuration foundation:** selection model, preserved configuration,
    record validation, collisions, common-directory identity, exact artifact ownership,
    and publication recovery primitives. No automatic activation yet.
-2. **Portable lifecycle and persistent backends:** runner ownership/readiness/stop,
-   restart classifications, Linux manager support and the resolved macOS completion
-   path together. Synthetic manager and real isolated foreground tests in both OS CI.
-3. **Installer integration and operational coverage:** one-invocation selection,
+2. **Session manager abstraction:** route existing session and legacy service-manager
+   operations through platform support with unchanged Linux semantics and explicit
+   unavailable-manager results. Review separately from new launchd behavior.
+3. **Portable lifecycle and persistent backends:** runner ownership/readiness/stop,
+   refusal persistence and restart classifications, Linux units, and macOS user
+   LaunchAgents for both session and memory supervision. Synthetic and real isolated
+   manager tests in both OS CI are required before public activation.
+4. **Installer integration and operational coverage:** one-invocation selection,
    repeat/no-start behavior, memory-only installation, observation and uninstall,
    explicit external-unit migration, complete user docs and end-to-end fixtures.
 
