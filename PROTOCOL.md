@@ -4,7 +4,9 @@ The [staged work command interface](docs/WORK-ITEMS-COMMANDS.md) documents the
 schema-5 work-event/current-view records and mandatory format-2 sync/ack guard.
 The [staged maintenance implementation](docs/WORK-ITEMS-MAINTENANCE.md) adds
 bounded reclamation and timestamped status diagnostics. Public startup remains
-schema 4; these staged interfaces are not runtime activation.
+schema 4; these staged interfaces are not runtime activation. The
+[staged work-policy query](docs/WORK-ITEMS-POLICY.md) documents versioned installation
+rules and disabled-by-default repository/participant selection.
 
 The peer transport below was observed in Claude Code 2.1.267 on Linux and 2.1.268 on macOS. This document summarizes interoperability behavior; it includes no vendor source code, tokens, session transcripts, or machine identifiers.
 

@@ -16,7 +16,10 @@ names present cause a refusal that names both paths. Default selection reports i
 path and reason on stderr. No state, cursor, memory store, registration or lock is
 moved or reset. Invalid configuration refuses without falling back to empty state.
 Historical explicit-thread installations without `install.json` must repeat any
-custom state and unit paths on upgrade.
+custom state and unit paths on upgrade. Installer updates now preserve unrelated
+configuration fields under a permanent `.install.lock` with atomic publication.
+The [staged work-policy query](WORK-ITEMS-POLICY.md) is read-only; work-guidance
+configuration and runtime activation are not yet available.
 
 Existing owned `codex-peer-*` unit names remain in use. Both old and new ownership
 markers and participant guidance sections are recognized for upgrade and removal.

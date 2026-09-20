@@ -4,6 +4,7 @@ import json
 import sys
 from pathlib import Path
 import re
+import stat
 
 NAME = 'koinon'
 LEGACY_NAME = 'codex-peer-bridge'
@@ -88,20 +89,30 @@ def reported_default(base, label):
     return selected
 
 
+def validate_install_config(result):
+    if not isinstance(result, dict):
+        raise ValueError('configuration is not an object')
+    for key in ('state_root', 'unit_dir'):
+        if not isinstance(result.get(key), str) or not Path(result[key]).is_absolute():
+            raise ValueError('missing or nonabsolute installation path')
+    if 'work_items' in result:
+        from work_policy import validate
+        validate(result['work_items'])
+    return result
+
+
 def install_config(prefix):
     """Absence is valid for old explicit-thread installs; invalid evidence refuses."""
     path = Path(prefix) / 'install.json'
     try:
         if not present(path):
             return {}
-        if path.is_symlink() or not path.is_file():
-            raise ValueError('configuration is not a regular file')
-        result = json.loads(path.read_text())
-        if not isinstance(result, dict):
-            raise ValueError('configuration is not an object')
-        for key in ('state_root', 'unit_dir'):
-            if not isinstance(result.get(key), str) or not Path(result[key]).is_absolute():
-                raise ValueError('missing or nonabsolute installation path')
-        return result
+        fd = os.open(path, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK)
+        with os.fdopen(fd, encoding='utf-8') as stream:
+            info = os.fstat(stream.fileno())
+            if (not stat.S_ISREG(info.st_mode) or info.st_uid != os.getuid()
+                    or info.st_mode & 0o022):
+                raise ValueError('configuration must be a user-owned regular file not writable by others')
+            return validate_install_config(json.load(stream))
     except (OSError, ValueError) as exc:
         raise NameConflict('invalid_install_configuration', (path,)) from exc

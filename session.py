@@ -77,7 +77,7 @@ def notifier_ready(state, bridge):
 
 
 def read_config(prefix):
-    return json.loads((prefix/'install.json').read_text())
+    return runtime_names.install_config(prefix)
 
 
 def details(prefix, config, thread, repo, agent='codex', model=None):
@@ -225,8 +225,8 @@ def validate_participant_executable(config, agent, action):
 def main():
     os.umask(0o077)
     p=argparse.ArgumentParser(description=__doc__)
-    p.add_argument('action',choices=['ensure','run','status','stop','rename'])
-    p.add_argument('--agent',choices=['codex','deepseek'],default=None,
+    p.add_argument('action',choices=['ensure','run','status','stop','rename','work-policy'])
+    p.add_argument('--agent',choices=['codex','deepseek','claude'],default=None,
                    help='participant kind this instance serves; defaults to the registered kind, '
                         'or is inferred from the session environment, and is codex otherwise')
     p.add_argument('--thread',default=None,
@@ -237,6 +237,19 @@ def main():
     p.add_argument('--repo',default=os.getcwd())
     a=p.parse_args()
     prefix=Path(__file__).resolve().parent
+    if a.action == 'work-policy':
+        if a.agent is None:
+            p.error('work-policy requires --agent')
+        import work_policy
+        try:
+            policy = work_policy.query(read_config(prefix), a.repo, a.agent)
+        except (ValueError, OSError) as exc:
+            print(json.dumps(dict(ok=False, code=getattr(exc, 'code', 'invalid_install_configuration'))))
+            raise SystemExit(platform_support.CONFIGURATION_EXIT_STATUS) from None
+        print(json.dumps(policy))
+        return
+    if a.agent == 'claude':
+        p.error('claude is supported only by work-policy')
     config=read_config(prefix)
     repo=str(Path(a.repo).resolve())
     # Keep what was actually requested separate from what gets inferred, because

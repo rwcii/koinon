@@ -4,6 +4,10 @@ Implementation specification, not instructions to configure the current developm
 session. See [the approved contract](WORK-ITEMS-V1.md) and
 [implementation design](WORK-ITEMS-IMPLEMENTATION-DESIGN.md).
 
+The [staged policy implementation](WORK-ITEMS-POLICY.md) currently covers validation,
+configuration preservation and the read-only query. Publication and removal below
+remain implementation requirements for the next part.
+
 ## Commands and scope
 
 Add a distinct installer mode, mutually exclusive with legacy thread/service setup:

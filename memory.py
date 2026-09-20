@@ -251,7 +251,7 @@ def private_state_dir(path):
                            'the state directory must be a private directory owned by this user') from None
 
 
-def repo_identity(start=None):
+def repo_common_directory(start=None):
     """Canonical repository key: the Git common directory, absolute, hashed.
 
     The bare `--git-common-dir` prints a path relative to the working directory, so
@@ -268,7 +268,11 @@ def repo_identity(start=None):
     if out.returncode or not path or not Path(path).is_absolute():
         raise MemoryError_('repo_unresolved',
                            'not inside a Git repository, or Git is too old for --path-format')
-    return hashlib.sha256(str(Path(path).resolve()).encode()).hexdigest()[:16]
+    return Path(path).resolve()
+
+
+def repo_identity(start=None):
+    return hashlib.sha256(str(repo_common_directory(start)).encode()).hexdigest()[:16]
 
 
 def state_dir(root, repo):

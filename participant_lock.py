@@ -41,11 +41,12 @@ def identity(provider, participant):
 
 
 @contextmanager
-def file_lock(path, conflict, owner):
+def file_lock(path, conflict, owner, *, blocking=False):
     """Acquire an owned regular file without following a link or unlinking it.
 
     Opening a persistent inode is intentional: unlink-on-release could let a new
     caller lock a different inode while an older caller still holds this one.
+    Installation writers may wait; notifier ownership remains nonblocking.
     """
     fd = None
     try:
@@ -58,7 +59,7 @@ def file_lock(path, conflict, owner):
                 raise OwnershipError('unsafe_lock_file', owner)
             os.set_inheritable(fd, False)
             try:
-                fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+                fcntl.flock(fd, fcntl.LOCK_EX | (0 if blocking else fcntl.LOCK_NB))
             except BlockingIOError:
                 raise OwnershipError(conflict, owner) from None
         except OSError:

@@ -235,7 +235,9 @@ does not authorize runtime removal, state deletion, or permission changes.
 **Source:** direct user request. **Status:** behavioral contract approved;
 design merged; migration, lease primitives, and shared transaction reservation
 enforcement, work-command/stream integration, and bounded maintenance/reclamation
-staged with synthetic tests.
+staged with synthetic tests. Configuration validation, preserving installer updates,
+and the read-only [policy query](WORK-ITEMS-POLICY.md) are staged next; guidance
+publication and activation remain deferred.
 Public schema-4 startup does not enable the staged commands.
 
 The [approved contract](WORK-ITEMS-V1.md) defines structured repository work items,
