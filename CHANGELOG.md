@@ -5,6 +5,9 @@ into a dated release section when promoted to `main`.
 
 ## Unreleased
 
+- Record complete component installation and resumable upgrades in the delivery
+  queue; clarify lifecycle responsibilities for operator-created memory services.
+
 - Name missing required work-command fields, enforce required CLI options, and
   preserve machine-readable argument refusals and optional replay pairs.
 
