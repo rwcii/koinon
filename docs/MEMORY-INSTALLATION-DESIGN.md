@@ -111,8 +111,10 @@ An unreadable owner, changed generation, or drain timeout refuses completion and
 recovery evidence. No arbitrary PID kill, socket unlink, or store deletion is allowed.
 
 Permanent failures 70 and 78 end supervision. In manager-backed operation the runner
-propagates retryable failures and the manager owns throttled restart; foreground
-operation uses the same classification with capped backoff. A normal requested shutdown
+propagates retryable failures and the manager owns throttled restart. New memory
+units use a 10-second restart delay; foreground memory supervision uses 10-second
+initial backoff, doubling to a 60-second cap and resetting after 60 seconds healthy.
+Existing Linux session restart timing stays unchanged during its abstraction slice. A normal requested shutdown
 does not restart. Do not nest two independent retry loops. A durable refusal record
 binds the observed failure to configuration digest and runner/child generation; ordinary
 `ensure` reports it rather than erasing it. An explicit retry after correction validates
@@ -126,9 +128,12 @@ is insufficient: confirm the runner and memory handshake before returning `runni
 On macOS, add a user LaunchAgent backend selected through `platform_support.py`.
 Use a deterministic repository label and `~/Library/LaunchAgents/<label>.plist`,
 serialized with `plistlib`, an exact `ProgramArguments` array, `Umask` integer 63,
-and `KeepAlive` with `SuccessfulExit: false`. No system-domain jobs, user switching,
-shell evaluation, or detached double-fork. Agent availability is bounded by the user's
-login/service domain; logout and reboot are not an always-on system-service guarantee.
+explicit `RunAtLoad: true`, `ThrottleInterval: 10`, and `KeepAlive` with
+`SuccessfulExit: false`. No system-domain jobs, user switching,
+shell evaluation, or detached double-fork. Both backends deliberately operate within a user-service lifetime; neither adds an
+always-on system-service guarantee across logout or reboot. The launchd agent uses
+the selected login/service domain; the systemd backend preserves existing user-manager
+policy without enabling lingering. This is the supported boundary on both platforms.
 
 Apple documents per-user agents loaded from the user's Library and the foreground
 process lifecycle in its [launchd guide](https://developer.apple.com/library/archive/documentation/MacOSX/Conceptual/BPSystemStartup/Chapters/CreatingLaunchdJobs.html).
@@ -172,7 +177,10 @@ The platform completion gate is real isolated Linux and macOS evidence for activ
 verified readiness, crash restart, permanent-refusal non-restart, retry, stop, and owned
 removal. Use uniquely named fixture jobs and temporary repositories/state. Missing
 manager support in a runner is an unmet acceptance condition, not a passing skip.
-No production participants or stores are test fixtures.
+No production participants or stores are test fixtures. A reviewer-coordinated
+real macOS probe of clean exits, 70/75/78, forced termination, load-time startup,
+and the on-device manual is pending. Record its measurements and reconcile them
+before treating these launchd settings as an accepted implementation contract.
 
 ## Publication, observation, and removal
 
