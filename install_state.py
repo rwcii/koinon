@@ -46,7 +46,10 @@ class LockedConfiguration:
 
 @contextmanager
 def locked(prefix):
-    """Acquire before guidance locks; never remove or replace the lock inode."""
+    """Lock order: installation, sorted artifact locks, then sorted guidance locks.
+
+    Never remove or replace permanent lock inodes.
+    """
     prefix = Path(prefix)
     path = prefix / LOCK_NAME
     with ExitStack() as stack:

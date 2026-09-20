@@ -65,7 +65,7 @@ class InstallTests(unittest.TestCase):
             # only the built prefix; importing the checkout would hide omissions.
             check = subprocess.run([sys.executable, '-I', '-c',
                 'import sys; sys.path.insert(0, sys.argv[1]); '
-                'import memory, claims, work_schema, work_storage, memory_service_config; '
+                'import memory, claims, work_schema, work_storage, memory_service_config, memory_service_artifacts; '
                 'memory_service_config.validate(dict(version=1, repositories={})); '
                 'assert memory.SCHEMA == 5; print(memory.__file__)', str(root/'app')],
                 cwd=root, capture_output=True, text=True)

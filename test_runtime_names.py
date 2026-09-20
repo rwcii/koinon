@@ -83,10 +83,10 @@ class RuntimeNameTests(unittest.TestCase):
     def test_configuration_codes_are_closed_and_every_raise_is_classified(self):
         import ast
         import memory_service_config
+        import memory_service_artifacts
         raised = set()
-        # Configuration refusals have two emitters; keep the declared vocabulary
-        # closed while inspecting actual raise sites in both modules.
-        for source in (names.__file__, memory_service_config.__file__):
+        # Keep the vocabulary closed across the explicit configuration emitters.
+        for source in (names.__file__, memory_service_config.__file__, memory_service_artifacts.__file__):
             tree = ast.parse(Path(source).read_text())
             for node in ast.walk(tree):
                 if not isinstance(node, ast.Call):
