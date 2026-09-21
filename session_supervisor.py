@@ -16,6 +16,7 @@ from peer_transport import control_exchange
 import platform_support
 import session_observation
 import session_endpoints
+import session_socket_handoff
 from session_supervisor_state import Records, StateError, alive_state, state_lock
 
 START_TIMEOUT = 20
@@ -62,6 +63,7 @@ class Runner:
         self.records, self.commands, self.stopped = records, commands, stopped
         self.owner = records.new_owner()
         self.children = {}
+        self.bound_controls = {}
 
     def stopping(self):
         return self.stopped.is_set() or self.records.stop_requested(self.owner['generation'])
@@ -139,8 +141,21 @@ class Runner:
                     self.owner['spawn_pending'] = None
             except subprocess.TimeoutExpired:
                 unconfirmed = True
+        for endpoint in self.bound_controls.values():
+            endpoint.close()
         if unconfirmed:
             raise StateError('session_shutdown_unconfirmed')
+        for kind in self.bound_controls:
+            root = self.records.directory if kind == 'bridge' else self.records.directory / 'notifier'
+            if not session_observation.endpoint_present(root):
+                continue
+            captured = self.owner['control_endpoints'][kind]
+            if session_endpoints.capture(root) != captured:
+                raise StateError('session_ownership_unknown')
+            from pathlib import Path
+            path = Path(captured['path'])
+            path.unlink()
+            platform_support.sync_state_directory(path.parent)
 
     def attempt(self):
         if (session_observation.endpoint_present(self.records.directory)
@@ -153,10 +168,26 @@ class Runner:
             for kind in ('bridge', 'notifier'):
                 if self.stopping():
                     return
+                root = self.records.directory if kind == 'bridge' else self.records.directory / 'notifier'
+                self.owner['endpoint_pending'] = kind
+                try:
+                    self.publish('starting')
+                except BaseException:
+                    self.owner['endpoint_pending'] = None  # Bind has not been called.
+                    raise
+                endpoint, identity = session_socket_handoff.bind(root)
+                self.bound_controls[kind] = endpoint
+                self.owner['control_endpoints'][kind] = identity
+                self.owner['endpoint_pending'] = None
+                self.publish('starting')
                 self.owner['spawn_pending'] = kind
                 self.publish('starting')
                 try:
-                    child = subprocess.Popen(self.commands[kind], stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL)
+                    command = [*self.commands[kind], '--supervisor-control-fd', str(endpoint.fileno()),
+                               '--supervisor-generation', self.owner['generation']]
+                    child = subprocess.Popen(command, stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL,
+                                             pass_fds=(endpoint.fileno(),))
+                    endpoint.close()
                 except OSError:
                     # Popen reaps an exec-failed child before raising its OSError.
                     self.owner['spawn_pending'] = None
@@ -186,7 +217,8 @@ class Runner:
                 self.stopped.wait(.2)
         except Exception as exc:
             primary = exc.code if isinstance(exc, StateError) else (
-                'session_configuration_failure' if isinstance(exc, (OSError, ValueError)) else 'session_software_failure')
+                'session_temporary_failure' if isinstance(exc, durable_state.StateReadBusyError) else
+                    'session_configuration_failure' if isinstance(exc, (OSError, ValueError)) else 'session_software_failure')
             raise
         finally:
             try:
@@ -211,7 +243,8 @@ def run(records, commands, backend):
             if records.read(refusal=True) is not None:
                 raise StateError('session_configuration_failure')
             old = records.read()
-            if old is not None and (old['spawn_pending'] is not None and not records.spawn_recovered(old)
+            if old is not None and (old.get('endpoint_pending') is not None
+                                    or old['spawn_pending'] is not None and not records.spawn_recovered(old)
                                     or alive_state(old) != 'dead'
                                     or any(child is not None and alive_state(child) != 'dead'
                                            for child in old['children'].values())):
@@ -229,6 +262,7 @@ def run(records, commands, backend):
                 runner.publish('stopped')
             except Exception as exc:
                 failure = exc if isinstance(exc, StateError) else StateError(
+                    'session_temporary_failure' if isinstance(exc, durable_state.StateReadBusyError) else
                     'session_configuration_failure' if isinstance(exc, (OSError, ValueError)) else 'session_software_failure')
                 status = STATUSES[failure.code]
                 runner.owner.update(phase='failed', exit_status=status, primary_code=getattr(failure, 'primary_code', failure.code),
@@ -245,7 +279,7 @@ def run(records, commands, backend):
                         pass
                 raise failure
     except (OSError, ValueError) as exc:
-        status = STATUSES.get(getattr(exc, 'code', None), 78)
+        status = 75 if isinstance(exc, durable_state.StateReadBusyError) else STATUSES.get(getattr(exc, 'code', None), 78)
         print(json.dumps(dict(status='unavailable', exit_status=status,
                               code=getattr(exc, 'code', 'invalid_session_state'))), flush=True)
     finally:

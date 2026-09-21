@@ -11,6 +11,7 @@ import sys
 import uuid
 
 import dsh_delivery
+import durable_state
 import platform_support
 from participant_lock import OwnershipError, notifier_ownership
 from bridge import DEFAULT, private_dir
@@ -172,6 +173,8 @@ def main():
     p.add_argument('--name', default='codex-peer')
     p.add_argument('--repo', default=os.getcwd())
     p.add_argument('--after', type=int, default=0)
+    p.add_argument('--supervisor-control-fd', type=int)
+    p.add_argument('--supervisor-generation')
     sub = p.add_subparsers(dest='action')
     sub.add_parser('status')
     sub.add_parser('stop')
@@ -181,6 +184,9 @@ def main():
     rebuild = sub.add_parser('rebuild-journal')
     rebuild.add_argument('--accept-history-loss', action='store_true', required=True)
     a = p.parse_args()
+    if ((a.supervisor_control_fd is None) != (a.supervisor_generation is None)
+            or a.action is not None and a.supervisor_control_fd is not None):
+        p.error('supervisor descriptor and generation require notifier serving mode')
     if a.action in (None, 'rebuild-journal') and not a.thread:
         p.error('--thread is required to start or rebuild the notifier')
     if a.after < 0 or a.after > (1 << 63) - 1:
@@ -212,6 +218,9 @@ def main():
         print(json.dumps(dict(ok=False, code=exc.code, recovery=exc.recovery)), flush=True)
         return (platform_support.TEMPORARY_EXIT_STATUS if exc.recovery == 'retry'
                 else platform_support.CONFIGURATION_EXIT_STATUS)
+    except durable_state.StateReadBusyError:
+        print(json.dumps(dict(ok=False, code='notifier_unavailable', recovery='retry')), flush=True)
+        return platform_support.TEMPORARY_EXIT_STATUS
     except RuntimeRefusal as exc:
         print(json.dumps(dict(ok=False, code=exc.code, path=exc.path)), flush=True)
         return platform_support.CONFIGURATION_EXIT_STATUS

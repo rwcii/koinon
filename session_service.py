@@ -185,7 +185,8 @@ def main(argv=None):
             return result['exit_status']
         return 75 if args.action in ('ensure', 'status') and result.get('status') != 'running' else 0
     except (OSError, ValueError) as exc:
-        code = getattr(exc, 'code', 'session_configuration_failure')
+        code = ('session_temporary_failure' if isinstance(exc, durable_state.StateReadBusyError)
+                else getattr(exc, 'code', 'session_configuration_failure'))
         if code not in session_supervisor.STATUSES:
             code = 'session_configuration_failure'
         exit_status = session_supervisor.STATUSES[code]

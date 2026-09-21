@@ -1,5 +1,6 @@
 """Bounded private JSON publication under an already-held service ownership lock."""
 import json
+import errno
 import os
 from pathlib import Path
 import stat
@@ -7,6 +8,11 @@ import stat
 import platform_support
 
 MAX_BYTES = 4096
+
+
+class StateReadBusyError(BlockingIOError):
+    def __init__(self):
+        super().__init__(errno.EAGAIN, 'state record changed during bounded read')
 
 
 class StateFileError(ValueError):
@@ -31,12 +37,33 @@ def pairs(items):
 
 
 def read(path):
+    for attempt in range(3):
+        try:
+            fd = os.open(path, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK | os.O_CLOEXEC)
+        except FileNotFoundError:
+            return None
+        try:
+            info = os.fstat(fd)
+            if info.st_nlink == 0:
+                # Atomic publication may unlink our opened predecessor before
+                # fstat. Reopen the current name; never relax link validation or
+                # consume the detached descriptor's contents.
+                try:
+                    current = os.lstat(path)
+                except FileNotFoundError:
+                    os.close(fd)
+                    return None
+                if (current.st_dev, current.st_ino) != (info.st_dev, info.st_ino):
+                    os.close(fd)
+                    continue
+            validate(info)
+        except BaseException:
+            os.close(fd)
+            raise
+        break
+    else:
+        raise StateReadBusyError()
     try:
-        fd = os.open(path, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK | os.O_CLOEXEC)
-    except FileNotFoundError:
-        return None
-    try:
-        validate(os.fstat(fd))
         data = bytearray()
         while len(data) <= MAX_BYTES:
             chunk = os.read(fd, MAX_BYTES + 1 - len(data))

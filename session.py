@@ -284,6 +284,9 @@ def main():
                 raise session_service.ServiceError(paths=(native, state / 'session.json'))
             return_code = session_service.main([a.action, '--prefix', str(prefix),
                                                 '--state-dir', str(state), '--backend', record['backend']])
+        except durable_state.StateReadBusyError:
+            print(json.dumps(dict(status='unavailable', code='session_temporary_failure')))
+            return_code = 75
         except (OSError, ValueError) as exc:
             print(json.dumps(dict(status='unavailable', code='session_configuration_failure',
                                   paths=[str(path) for path in getattr(exc, 'paths', (native,))])))

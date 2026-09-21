@@ -37,6 +37,8 @@ def validate_marker(value, target):
 def read_state(path):
     try:
         return durable_state.read(path)
+    except durable_state.StateReadBusyError:
+        raise
     except (ValueError, OSError) as exc:
         raise journal.JournalError('journal_recovery_required') from exc
 

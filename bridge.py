@@ -21,6 +21,7 @@ import platform_support
 import generation_stop
 import inbox_schema
 import delivery_ledger
+import durable_state
 import participant_presence
 import subscriptions
 import memory_bindings
@@ -256,8 +257,10 @@ class InboxStore:
 
 
 class Bridge:
-    def __init__(self, root):
+    def __init__(self, root, *, control_fd=None, supervisor_generation=None):
         self.root = root
+        self.control_fd = control_fd
+        self.supervisor_generation = supervisor_generation
         self.address = f'uds:/tmp/cc-socks/{os.getpid()}.sock'
         self.stop = asyncio.Event()
         self.generation = uuid.uuid4().hex
@@ -514,14 +517,26 @@ class Bridge:
             startup_directory(control.parent)
             # Bind exclusively. Never remove a pre-existing process socket.
             for path in (control, peer):
-                sock = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+                inherited = path == control and self.control_fd is not None
+                if inherited:
+                    import session_socket_handoff
+                    try:
+                        sock = session_socket_handoff.take(self.control_fd, self.root, 'bridge', self.supervisor_generation)
+                    except durable_state.StateReadBusyError:
+                        raise
+                    except (OSError, ValueError) as exc:
+                        raise BridgeOwnershipError(f'inherited control endpoint refused: {control}') from exc
+                    self.control_fd = None
+                else:
+                    sock = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
                 try:
                     # Bind exclusively. A pre-existing socket is never removed, on
                     # either route: a live listener and a saturated one look identical
                     # to a probe, because a full accept queue refuses a connection on
                     # macOS exactly as a dead owner does. A leftover from a killed
                     # instance is removed by hand after verifying the owner is dead.
-                    sock.bind(str(path))
+                    if not inherited:
+                        sock.bind(str(path))
                 except OSError as exc:
                     sock.close()
                     # Carry the path. A bare "Address already in use" does not say
@@ -642,7 +657,10 @@ def cli_main():
     p.add_argument('--state-dir')
     sub = p.add_subparsers(dest='op', required=True)
     for op in ('serve','status','stop','peers'):
-        sub.add_parser(op)
+        command = sub.add_parser(op)
+        if op == 'serve':
+            command.add_argument('--supervisor-control-fd', type=int)
+            command.add_argument('--supervisor-generation')
     s = sub.add_parser('send')
     s.add_argument('to')
     s.add_argument('message')
@@ -686,7 +704,10 @@ def cli_main():
     if a['op'] == 'peers':
         print(json.dumps(peers(), indent=2))
     elif a['op'] == 'serve':
-        asyncio.run(Bridge(root).run())
+        if (a['supervisor_control_fd'] is None) != (a['supervisor_generation'] is None):
+            p.error('supervisor descriptor and generation must be supplied together')
+        asyncio.run(Bridge(root, control_fd=a['supervisor_control_fd'],
+                           supervisor_generation=a['supervisor_generation']).run())
     else:
         raise SystemExit(asyncio.run(client(root, a)))
 
@@ -694,6 +715,9 @@ def cli_main():
 def main():
     try:
         cli_main()
+    except durable_state.StateReadBusyError:
+        print(json.dumps(dict(ok=False, code='service_unavailable', error='state observation busy; retry')))
+        raise SystemExit(platform_support.TEMPORARY_EXIT_STATUS) from None
     except runtime_names.NameConflict as exc:
         print(json.dumps(dict(ok=False, code=exc.code, paths=exc.paths)))
         raise SystemExit(platform_support.CONFIGURATION_EXIT_STATUS) from None

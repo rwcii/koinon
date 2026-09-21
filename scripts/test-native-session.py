@@ -72,11 +72,16 @@ class Fixture:
                            + '        with open(' + repr(str(self.runs)) + ', "a") as stream: stream.write("start\\n")\n'
                            + wrapper.read_text())
         self.failure = self.root / 'fail-startup'
+        self.prehandshake = self.root / 'crash-before-handoff'
         self.crash = self.root / 'crash-notifier'
         notifier = self.prefix / 'notify.py'
         notifier.write_text('''if __name__ == '__main__':
     import os as _fixture_os, threading as _fixture_threading, time as _fixture_time
     from pathlib import Path as _FixturePath
+    _prehandshake = _FixturePath(''' + repr(str(self.prehandshake)) + ''')
+    if _prehandshake.exists():
+        _prehandshake.unlink()
+        _fixture_os._exit(75)
     if _FixturePath(''' + repr(str(self.failure)) + ''').exists():
         raise SystemExit(78)
     def _fixture_crash():
@@ -121,7 +126,11 @@ def main():
         fixtures.append(first)
         second = Fixture(args.backend)
         fixtures.append(second)
+        first.prehandshake.touch()
         started = first.ensure()
+        if len(first.runs.read_text().splitlines()) < 2:
+            raise RuntimeError('pre-handshake child crash did not restart wrapper')
+        evidence['checks'].append('prehandshake_child_crash_restarts_pair')
         second_started = second.ensure()
         evidence['checks'].append('two_owned_pairs_ready')
         first.crash.write_text('75')

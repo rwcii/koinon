@@ -53,6 +53,8 @@ class RunnerError(ValueError):
 
 
 def classify(exc):
+    if isinstance(exc, durable_state.StateReadBusyError):
+        return RunnerError('memory_temporary_failure')
     return exc if isinstance(exc, RunnerError) else RunnerError(
         'configuration_error' if isinstance(exc, (OSError, ValueError)) else 'internal_error')
 
@@ -93,6 +95,8 @@ def configuration_boundary():
         yield
     except RunnerError:
         raise
+    except durable_state.StateReadBusyError as exc:
+        raise RunnerError('memory_temporary_failure') from exc
     except (OSError, ValueError) as exc:
         raise RunnerError('configuration_error', paths=getattr(exc, 'paths', ())) from exc
 
@@ -622,6 +626,10 @@ def main():
         print(json.dumps(dict(ok=False, status='unavailable', running=False, code=exc.code,
                               exit_status=status, primary_code=exc.primary_code,
                               shutdown_code=exc.shutdown_code, paths=list(exc.paths))), flush=True)
+    except durable_state.StateReadBusyError:
+        status = 75
+        print(json.dumps(dict(ok=False, status='unavailable', running=False,
+                              code='memory_temporary_failure', exit_status=status)), flush=True)
     except (OSError, ValueError) as exc:
         status = 78
         print(json.dumps(dict(ok=False, status='unavailable', running=False,
