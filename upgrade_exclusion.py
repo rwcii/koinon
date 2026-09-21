@@ -87,28 +87,37 @@ class Exclusion:
     def activate(self):
         """Exclude ordinary admission before any shutdown; repeat all flushes."""
         with install_state.locked(self.prefix, validator=self._validate) as installed:
-            phase = self.journal.read()
-            if installed.config == self.original and phase['step'] != 0:
-                raise ExclusionError('upgrade marker missing after prepared intent')
-            with ExitStack() as locks:
-                # Serialize an ensure that already read the old installation.
-                # Existing session admission takes lifecycle then registration;
-                # memory admission takes installation then manager.
-                components = self.loaded['documents']['components']['items']
-                for component in sorted(components, key=lambda item: (item['kind'], str(item['selection']))):
-                    record = component['selection']
-                    if component['kind'] == 'session':
-                        home = manifest.check_root(record['state_directory'])
-                        for name in ('lifecycle.lock', 'registration.lock'):
-                            locks.enter_context(session_service_artifacts.locked(home / name))
-                    else:
-                        home = manifest.check_root(record['service_directory'])
-                        locks.enter_context(file_lock(home / 'manager.lock', 'manager_busy', None))
-                if installed.config == self.marked:
-                    installed.confirm()
+            return self.activate_locked(installed)
+
+    def activate_locked(self, installed):
+        """Publish while the caller retains the preflight installation lock."""
+        if manifest.select_root(installed.prefix) != manifest.select_root(self.prefix):
+            raise ExclusionError('installation lock selects another prefix')
+        # Reopen under the exact lifecycle validator without acquiring another
+        # descriptor/lock. The caller retains the existing permanent lock inode.
+        installed = install_state.LockedConfiguration(installed.prefix, validator=self._validate)
+        phase = self.journal.read()
+        if installed.config == self.original and phase['step'] != 0:
+            raise ExclusionError('upgrade marker missing after prepared intent')
+        with ExitStack() as locks:
+            # Serialize an ensure that already read the old installation.
+            # Existing session admission takes lifecycle then registration;
+            # memory admission takes installation then manager.
+            components = self.loaded['documents']['components']['items']
+            for component in sorted(components, key=lambda item: (item['kind'], str(item['selection']))):
+                record = component['selection']
+                if component['kind'] == 'session':
+                    home = manifest.check_root(record['state_directory'])
+                    for name in ('lifecycle.lock', 'registration.lock'):
+                        locks.enter_context(session_service_artifacts.locked(home / name))
                 else:
-                    installed.merge(dict(installation_state='upgrading', upgrade=_marker(self.loaded)))
-            return self.journal.read()
+                    home = manifest.check_root(record['service_directory'])
+                    locks.enter_context(file_lock(home / 'manager.lock', 'manager_busy', None))
+            if installed.config == self.marked:
+                installed.confirm()
+            else:
+                installed.merge(dict(installation_state='upgrading', upgrade=_marker(self.loaded)))
+        return self.journal.read()
 
     def verify(self):
         with install_state.locked(self.prefix, validator=self._validate) as installed:

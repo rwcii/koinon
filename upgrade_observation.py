@@ -109,83 +109,91 @@ def installation(prefix):
     """
     prefix = manifest.select_root(prefix)
     with install_state.locked(prefix) as installed:
-        config = copy.deepcopy(installed.config)
-        if not config or config.get('installation_state', 'installed') != 'installed':
-            raise ObservationError('supported installed configuration required')
-        state = Path(config['state_root'])
-        canonical_state = manifest.select_root(state)
-        sessions = state / 'sessions'
+        return installation_locked(prefix, installed)
 
-        def scan():
-            if manifest.select_root(state) != canonical_state:
-                raise ObservationError('selected state root changed during enumeration')
-            try:
-                before = sessions.lstat()
-            except FileNotFoundError:
-                return None
-            if (not stat.S_ISDIR(before.st_mode) or before.st_uid != os.geteuid()
-                    or before.st_mode & 0o077):
-                raise ObservationError('session inventory directory must be owned and private')
-            with os.scandir(sessions) as entries:
-                names = sorted(entry.name for entry in islice(entries, plans.MAX_COMPONENTS + 1))
-            if len(names) > plans.MAX_COMPONENTS:
-                raise ObservationError('session inventory exceeds upgrade component capacity')
-            for name in names:
-                if len(name) != 16 or any(char not in '0123456789abcdef' for char in name):
-                    raise ObservationError('unrecognized session inventory entry')
-                info = (sessions / name).lstat()
-                if (not stat.S_ISDIR(info.st_mode) or info.st_uid != os.geteuid()
-                        or info.st_mode & 0o077):
-                    raise ObservationError('session inventory entry must be owned and private')
-            after = sessions.lstat()
-            stamp = lambda value: (value.st_dev, value.st_ino, value.st_mtime_ns, value.st_ctime_ns)
-            if stamp(before) != stamp(after):
-                raise ObservationError('session inventory changed during enumeration')
-            return dict(names=names, identity=stamp(after))
 
-        before = scan()
-        memories = config.get('memory_services', {}).get('repositories', {})
-        names = [] if before is None else before['names']
-        if len(names) + len(memories) > plans.MAX_COMPONENTS:
-            raise ObservationError('installation exceeds upgrade component capacity')
-        selections = []
+def installation_locked(prefix, installed):
+    """Caller retains the installation lock through plan preparation and exclusion."""
+    prefix = manifest.select_root(prefix)
+    if manifest.select_root(installed.prefix) != prefix:
+        raise ObservationError('installation lock selects another prefix')
+    config = copy.deepcopy(installed.config)
+    if not config or config.get('installation_state', 'installed') != 'installed':
+        raise ObservationError('supported installed configuration required')
+    state = Path(config['state_root'])
+    canonical_state = manifest.select_root(state)
+    sessions = state / 'sessions'
+
+    def scan():
+        if manifest.select_root(state) != canonical_state:
+            raise ObservationError('selected state root changed during enumeration')
+        try:
+            before = sessions.lstat()
+        except FileNotFoundError:
+            return None
+        if (not stat.S_ISDIR(before.st_mode) or before.st_uid != os.geteuid()
+                or before.st_mode & 0o077):
+            raise ObservationError('session inventory directory must be owned and private')
+        with os.scandir(sessions) as entries:
+            names = sorted(entry.name for entry in islice(entries, plans.MAX_COMPONENTS + 1))
+        if len(names) > plans.MAX_COMPONENTS:
+            raise ObservationError('session inventory exceeds upgrade component capacity')
         for name in names:
-            home = sessions / name
-            record = session_service_artifacts.load(home)
-            if record is None or record['state'] != 'installed':
-                raise ObservationError('legacy or unfinished session requires an explicit upgrade adapter')
-            if record['prefix'] != str(prefix):
-                raise ObservationError('shared session inventory selects a different runtime prefix')
-            if record['python'] != sys.executable:
-                raise ObservationError('session interpreter mismatch: run preflight with the installed '
-                                       'interpreter ' + record['python'])
-            try:
-                selected = session_service.Selection(prefix, home)
-            except (OSError, ValueError) as exc:
-                raise ObservationError('cannot verify saved session selection with interpreter '
-                                       + sys.executable) from exc
-            selections.append(('session', selected))
-        for key in sorted(memories):
-            record = memories[key]
-            if record['state'] != 'installed' or record['backend'] not in ('systemd', 'launchd'):
-                raise ObservationError('manual or unfinished memory requires an explicit upgrade adapter')
-            try:
-                selected = memory_service.Selection(prefix, record['common_directory'])
-            except (OSError, ValueError) as exc:
-                # Memory records do not separately retain the interpreter. A
-                # template mismatch cannot be attributed to Python alone.
-                raise ObservationError('cannot verify saved memory selection with interpreter '
-                                       + sys.executable + '; check the installed interpreter and '
-                                       'retained artifact/selection') from exc
-            selections.append(('memory', selected))
-        result = [session(selected) if kind == 'session' else memory(selected)
-                  for kind, selected in selections]
-        # Native registration publication takes this same installation lock;
-        # rechecks also refuse uncooperative changes rather than omitting them.
-        if runtime_names.install_config(prefix) != config or scan() != before:
-            raise ObservationError('installation selection changed during observation')
-        for kind, selected in selections:
-            if kind == 'session' and session_service_artifacts.load(selected.home) != selected.record:
-                raise ObservationError('saved session selection changed during observation')
-        return dict(version=1, prefix=str(prefix), installation=config,
-                    components=result)
+            if len(name) != 16 or any(char not in '0123456789abcdef' for char in name):
+                raise ObservationError('unrecognized session inventory entry')
+            info = (sessions / name).lstat()
+            if (not stat.S_ISDIR(info.st_mode) or info.st_uid != os.geteuid()
+                    or info.st_mode & 0o077):
+                raise ObservationError('session inventory entry must be owned and private')
+        after = sessions.lstat()
+        stamp = lambda value: (value.st_dev, value.st_ino, value.st_mtime_ns, value.st_ctime_ns)
+        if stamp(before) != stamp(after):
+            raise ObservationError('session inventory changed during enumeration')
+        return dict(names=names, identity=stamp(after))
+
+    before = scan()
+    memories = config.get('memory_services', {}).get('repositories', {})
+    names = [] if before is None else before['names']
+    if len(names) + len(memories) > plans.MAX_COMPONENTS:
+        raise ObservationError('installation exceeds upgrade component capacity')
+    selections = []
+    for name in names:
+        home = sessions / name
+        record = session_service_artifacts.load(home)
+        if record is None or record['state'] != 'installed':
+            raise ObservationError('legacy or unfinished session requires an explicit upgrade adapter')
+        if record['prefix'] != str(prefix):
+            raise ObservationError('shared session inventory selects a different runtime prefix')
+        if record['python'] != sys.executable:
+            raise ObservationError('session interpreter mismatch: run preflight with the installed '
+                                   'interpreter ' + record['python'])
+        try:
+            selected = session_service.Selection(prefix, home)
+        except (OSError, ValueError) as exc:
+            raise ObservationError('cannot verify saved session selection with interpreter '
+                                   + sys.executable) from exc
+        selections.append(('session', selected))
+    for key in sorted(memories):
+        record = memories[key]
+        if record['state'] != 'installed' or record['backend'] not in ('systemd', 'launchd'):
+            raise ObservationError('manual or unfinished memory requires an explicit upgrade adapter')
+        try:
+            selected = memory_service.Selection(prefix, record['common_directory'])
+        except (OSError, ValueError) as exc:
+            # Memory records do not separately retain the interpreter. A
+            # template mismatch cannot be attributed to Python alone.
+            raise ObservationError('cannot verify saved memory selection with interpreter '
+                                   + sys.executable + '; check the installed interpreter and '
+                                   'retained artifact/selection') from exc
+        selections.append(('memory', selected))
+    result = [session(selected) if kind == 'session' else memory(selected)
+              for kind, selected in selections]
+    # Native registration publication takes this same installation lock;
+    # rechecks also refuse uncooperative changes rather than omitting them.
+    if runtime_names.install_config(prefix) != config or scan() != before:
+        raise ObservationError('installation selection changed during observation')
+    for kind, selected in selections:
+        if kind == 'session' and session_service_artifacts.load(selected.home) != selected.record:
+            raise ObservationError('saved session selection changed during observation')
+    return dict(version=1, prefix=str(prefix), installation=config,
+                components=result)

@@ -18,7 +18,7 @@ class ProbeTests(unittest.TestCase):
             journal=SimpleNamespace(directory=Path('/synthetic/operation')),
             verify=lambda: dict(step=10))
         self.gate = dict(plan='a' * 64, operation='/synthetic/operation',
-                         generation='b' * 32, released=False)
+                         generation='b' * 32, released=False, post_release_start=False)
         self.status = dict(pid=123, generation='b' * 32, upgrade=self.gate, repo='a' * 16)
 
     def controls(self, stack, replies):
@@ -90,7 +90,7 @@ class LiveMemoryHandshakeTests(unittest.IsolatedAsyncioTestCase):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory).resolve()
             gate = SimpleNamespace(status=lambda: dict(plan='a' * 64,
-                operation='/synthetic/operation', generation=service.generation, released=False))
+                operation='/synthetic/operation', generation=service.generation, released=False, post_release_start=False))
             with patch.object(upgrade_gate, 'select', return_value=gate):
                 service = memory.Service(root, 'a' * 16,
                     lambda: memory.Store(root / 'memory.sqlite3', 'a' * 16),

@@ -32,7 +32,7 @@ def _gate(exclusion, value, captured, connected_pid):
             or value['pid'] != connected_pid or value.get('generation') != captured['generation']):
         raise ProbeError('private control does not match the selected child generation')
     expected = dict(plan=exclusion.loaded['sha256'], operation=str(exclusion.journal.directory),
-                    generation=captured['generation'], released=False)
+                    generation=captured['generation'], released=False, post_release_start=False)
     if value.get('upgrade') != expected or value['upgrade'].get('released') is not False:
         raise ProbeError('selected child has not confirmed the unreleased upgrade gate')
 

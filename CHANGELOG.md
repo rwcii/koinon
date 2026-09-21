@@ -5,6 +5,10 @@ into a dated release section when promoted to `main`.
 
 ## Unreleased
 
+- Bind pre-release service admission to verified child generations, distinguish later
+  restarts from preservation verification, and retain installation exclusion through
+  component observation and marker publication.
+
 - Retry deferred search initialization when the ordinary worker queue is full after
   upgrade release. Bind private memory inventories to both repository and generation.
 

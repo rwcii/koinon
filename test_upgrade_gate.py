@@ -49,10 +49,17 @@ class GateTests(unittest.TestCase):
     def advance(self, step):
         while self.journal.read()['step'] < step:
             current = self.journal.read()
-            self.journal.advance(current, evidence='a' * 64 if current['step'] % 2 == 0 else None)
+            evidence = 'a' * 64 if current['step'] % 2 == 0 else None
+            if current['step'] == 16:
+                from upgrade_documents import Documents
+                evidence = Documents(self.operation).put('release', dict(version=1,
+                    plan=self.prepared['sha256'], members=[
+                        dict(component=0, kind='bridge', generation='b' * 32),
+                        dict(component=0, kind='notifier', generation='c' * 32)]))
+            self.journal.advance(current, evidence=evidence)
 
     def gate(self):
-        return upgrade_gate.select(self.prefix, 'bridge', self.home, 'synthetic-generation')
+        return upgrade_gate.select(self.prefix, 'bridge', self.home, 'b' * 32)
 
     def test_selected_session_verifies_owned_artifact_while_excluded(self):
         selection = session_service.Selection(self.prefix, self.home, upgrading=True)
@@ -87,7 +94,7 @@ class GateTests(unittest.TestCase):
         self.assertFalse(gate.released())
         self.advance(17)
         self.assertTrue(gate.released())
-        self.assertEqual(gate.status()['generation'], 'synthetic-generation')
+        self.assertEqual(gate.status()['generation'], 'b' * 32)
 
     def test_missing_marker_does_not_release_an_already_bound_gate(self):
         self.advance(10)
@@ -109,6 +116,40 @@ class GateTests(unittest.TestCase):
         self.advance(17)
         with self.assertRaises(upgrade_gate.GateError):
             gate.authorize_inventory(request)
+
+    def test_restarted_unverified_child_does_not_inherit_global_release(self):
+        self.advance(16)
+        verified = self.gate()
+        successor = upgrade_gate.select(self.prefix, 'bridge', self.home, 'd' * 32)
+        notifier = upgrade_gate.select(self.prefix, 'notifier', self.home, 'c' * 32)
+        self.advance(17)
+        self.assertTrue(verified.released())
+        self.assertTrue(notifier.released())
+        with self.assertRaisesRegex(upgrade_gate.GateError, 'not verified'):
+            successor.released()
+
+    def test_missing_release_membership_evidence_never_releases(self):
+        self.advance(16)
+        gate = self.gate()
+        self.journal.advance(self.journal.read(), evidence='f' * 64)
+        with self.assertRaises(ValueError):
+            gate.released()
+
+    def test_post_release_restart_is_live_readiness_not_another_comparison(self):
+        self.advance(17)
+        successor = upgrade_gate.select(self.prefix, 'bridge', self.home, 'd' * 32)
+        self.assertTrue(successor.released())
+        self.assertTrue(successor.status()['post_release_start'])
+        with self.assertRaises(upgrade_gate.GateError):
+            successor.authorize_inventory(dict(op='upgrade-inventory', plan=self.prepared['sha256'], generation='d' * 32))
+
+    def test_gate_creation_reads_current_durable_phase_not_old_plan_snapshot(self):
+        self.advance(16)
+        loaded = upgrade_exclusion.read(self.prefix)
+        self.advance(17)
+        successor = upgrade_gate.Gate(loaded, 'bridge', self.home, 'd' * 32)
+        self.assertTrue(successor.post_release_start)
+        self.assertTrue(successor.released())
 
 
 class ClosedGate:

@@ -137,3 +137,18 @@ class ExclusionTests(unittest.TestCase):
             operation.finish()
         self.assertEqual(runtime_names.install_config(self.prefix), self.original)
         self.assertIsNone(exclusion.read(self.prefix))
+
+    def test_observation_and_marker_share_one_retained_installation_lock(self):
+        import upgrade_observation
+        from participant_lock import file_lock, OwnershipError
+        Path(self.original['state_root']).mkdir(mode=0o700)
+        with install_state.locked(self.prefix) as installed:
+            with patch.object(install_state, 'locked', side_effect=AssertionError('nested installation lock')):
+                observed = upgrade_observation.installation_locked(self.prefix, installed)
+                self.assertEqual(observed['components'], [])
+                with self.operation() as operation:
+                    operation.activate_locked(installed)
+                with self.assertRaises(OwnershipError):
+                    with file_lock(self.prefix / '.install.lock', 'busy', None, timeout=0):
+                        self.fail('preflight released the registration exclusion lock')
+        self.assertEqual(exclusion.read(self.prefix)['sha256'], self.plan['sha256'])

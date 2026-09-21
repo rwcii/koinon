@@ -542,3 +542,19 @@ the service. Stop remains responsive during the retry delay. A real worker test 
 a control job, fills all sixteen ordinary slots, and verifies one successful index
 resume after the queue drains. These are portable process/worker checks, not complete
 native manager upgrade acceptance or physical power-loss tests.
+
+
+Release receipts bind the plan to verified component/child generations. Every originally
+running selection requires membership (both children of a session pair). A child whose
+gate was constructed before release must match that membership before admitting traffic;
+a replacement born between comparison and the global decision cannot inherit admission.
+A fresh child constructed after the durable release is a separately marked post-release
+restart: it validates the release evidence and supplies live readiness, without another
+preservation comparison. The construction boundary uses a fresh journal read rather than
+the earlier plan snapshot. The marker remains until recorded final readiness at step 19.
+
+Preflight can now retain one permanent installation lock through bounded component
+observation, frozen-plan preparation and exclusion publication. This prevents registration
+between enumeration and marker publication; component admission locks still serialize
+starts that read the old configuration before exclusion. These internal APIs do not
+perform the remaining schema/capacity/backup-space probes or expose the public entrypoint.

@@ -14,6 +14,7 @@ class GateError(ValueError):
 
 class Gate:
     def __init__(self, loaded, kind, root, generation):
+        self.loaded = loaded
         self.prefix = Path(loaded['plan']['prefix'])
         self.operation = loaded['plan']['directory']
         self.plan = loaded['sha256']
@@ -22,7 +23,9 @@ class Gate:
         self.marked = upgrade_exclusion._configuration(loaded)
         self.journal = Journal(self.operation, self.plan)
         self._released = False
-        if loaded['phase']['step'] < 10:
+        creation_phase = self.journal.read()
+        self.post_release_start = creation_phase['step'] >= RELEASE_STEP
+        if creation_phase['step'] < 10:
             raise GateError('upgrade has not authorized new-runtime startup')
         matches = []
         for component in loaded['documents']['components']['items']:
@@ -38,6 +41,7 @@ class Gate:
         if len(matches) != 1:
             raise GateError('runtime state is not selected by this upgrade')
         self.component = matches[0]
+        self.component_index = loaded['documents']['components']['items'].index(self.component)
 
     def released(self):
         if self._released:
@@ -48,12 +52,18 @@ class Gate:
             return value
         if runtime_names._read_install_config(self.prefix, validate) != self.marked:
             raise GateError('upgrade marker missing before release')
-        self._released = self.journal.read()['step'] >= RELEASE_STEP
+        phase = self.journal.read()
+        if phase['step'] >= RELEASE_STEP:
+            import upgrade_release
+            included = upgrade_release.member(self.loaded, phase, self.component_index, self.kind, self.generation)
+            if not self.post_release_start and not included:
+                raise GateError('this child generation was not verified for upgrade release')
+            self._released = True
         return self._released
 
     def status(self):
         return dict(plan=self.plan, operation=self.operation, generation=self.generation,
-                    released=self.released())
+                    released=self.released(), post_release_start=self.post_release_start)
 
     def authorize_inventory(self, request):
         expected = {'op', 'plan', 'generation'}
