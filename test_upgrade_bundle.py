@@ -96,19 +96,25 @@ class BundleTests(unittest.TestCase):
         self.assertFalse((self.recovery / bundle.ARCHIVE).exists())
 
     def test_archive_confirmation_reopens_atomically_replaced_inode(self):
-        descriptor = bundle.prepare(self.recovery, self.frozen, 'entry.py')
-        path = self.recovery / bundle.ARCHIVE
-        replacement = self.recovery / 'replacement'
+        alias = self.root / 'selected-recovery'
+        alias.symlink_to(self.recovery, target_is_directory=True)
+        descriptor = bundle.prepare(alias, self.frozen, 'entry.py')
+        # Hook the frozen canonical path, not the caller's alias spelling.
+        path = bundle.verify(descriptor, self.frozen)
+        replacement = path.with_name('replacement')
         replacement.write_bytes(path.read_bytes())
         replacement.chmod(0o600)
         real_open = os.open
+        detached = []
         def open_then_replace(selected, flags, *args, **kwargs):
             fd = real_open(selected, flags, *args, **kwargs)
             if Path(selected) == path and flags & os.O_RDWR and replacement.exists():
                 os.replace(replacement, path)
+                detached.append(os.fstat(fd).st_nlink)
             return fd
         with patch.object(bundle.durable_state.os, 'open', side_effect=open_then_replace):
-            self.assertEqual(bundle.prepare(self.recovery, self.frozen, 'entry.py'), descriptor)
+            self.assertEqual(bundle.prepare(alias, self.frozen, 'entry.py'), descriptor)
+        self.assertEqual(detached, [0])
         self.assertFalse(replacement.exists())
 
 
