@@ -211,10 +211,12 @@ def publish(desired):
     with install_state.locked(desired['prefix']), locked(home / 'lifecycle.lock'), \
             locked(home / 'registration.lock'):
         home, path, content, old, before = prepare(desired)
-        # An exact repeat only verifies immutable selection and artifact evidence.
+        # An exact repeat verifies and flushes immutable selection and artifact evidence.
         # The running supervisor deliberately holds its lifetime lock, so acquire
         # that lock only when publication would actually mutate the selection.
         if old is not None and old['state'] == 'installed':
+            files._confirm(path, content)
+            durable_state.confirm(home / 'native-service.json', old)
             return desired
         with locked(home / 'supervisor.lock'):
             home, path, content, old, before = prepare(desired)
@@ -224,7 +226,7 @@ def publish(desired):
             if before != content:
                 files._replace(path, content, before)
             else:
-                platform_support.sync_state_directory(path.parent)
+                files._confirm(path, content)
             if files._read(path) != content:
                 raise ValueError('session artifact changed before completion')
             durable_state.publish(home / 'native-service.json', desired)

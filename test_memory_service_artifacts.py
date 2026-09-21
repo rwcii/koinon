@@ -328,5 +328,22 @@ class MemoryArtifactTests(unittest.TestCase):
                 artifacts.verify_owned(prefix, self.python, record)
 
 
+    def test_exact_repeat_requires_artifact_and_configuration_flushes(self):
+        _, record, _ = self.desired()
+        artifacts.publish(self.prefix, self.python, record)
+        inode = Path(record['artifact']).stat().st_ino
+        sync = platform_support.sync_state_directory
+        for failed_path in (self.units, self.prefix):
+            def fail_selected(path):
+                if Path(path) == failed_path:
+                    raise OSError('synthetic flush')
+                sync(path)
+            with patch.object(platform_support, 'sync_state_directory', side_effect=fail_selected):
+                with self.assertRaises((OSError, ValueError)):
+                    artifacts.publish(self.prefix, self.python, record)
+            self.assertEqual(Path(record['artifact']).stat().st_ino, inode)
+        self.assertEqual(artifacts.publish(self.prefix, self.python, record), record)
+        self.assertEqual(Path(record['artifact']).stat().st_ino, inode)
+
 if __name__ == '__main__':
     unittest.main()

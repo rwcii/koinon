@@ -148,3 +148,21 @@ class NativeSessionArtifactsTests(unittest.TestCase):
                 artifacts.publish(self.record)
         self.assertIsNone(artifacts.load(self.home))
         self.assertFalse(self.path.exists())
+
+    def test_visible_installed_record_does_not_bypass_failed_durability_confirmation(self):
+        publish = durable_state.publish
+        def fail_final_record(path, value):
+            if value.get('state') == 'installed':
+                with patch.object(platform_support, 'sync_state_directory', side_effect=OSError('flush')):
+                    return publish(path, value)
+            return publish(path, value)
+        with patch.object(durable_state, 'publish', side_effect=fail_final_record):
+            with self.assertRaises(OSError):
+                artifacts.publish(self.record)
+        self.assertEqual(artifacts.load(self.home)['state'], 'installed')
+        inode = self.path.stat().st_ino
+        with patch.object(platform_support, 'sync_state_directory', side_effect=OSError('flush')):
+            with self.assertRaises(OSError):
+                artifacts.publish(self.record)
+        self.assertEqual(artifacts.publish(self.record), self.record)
+        self.assertEqual(self.path.stat().st_ino, inode)

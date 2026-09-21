@@ -381,5 +381,16 @@ class GuidanceTests(unittest.TestCase):
         self.assertEqual(self.target.read_bytes(), self.original)
 
 
+    def test_exact_guidance_repeat_requires_installation_confirmation(self):
+        self.enable()
+        content = self.target.read_bytes()
+        with patch.object(install_state.platform_support, 'sync_state_directory', side_effect=OSError('flush')):
+            with self.assertRaises(OSError):
+                self.enable()
+        self.assertEqual(self.target.read_bytes(), content)
+        self.enable()
+        self.assertEqual(self.target.read_bytes(), content)
+        self.assertTrue(self.query()['enabled'])
+
 if __name__ == '__main__':
     unittest.main()
