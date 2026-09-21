@@ -19,6 +19,7 @@ import upgrade_coordinator
 from upgrade_documents import Documents
 import upgrade_exclusion
 import upgrade_manifest as manifest
+import upgrade_manual
 import upgrade_plan
 import upgrade_preflight
 
@@ -166,6 +167,9 @@ def main(argv=None):
             result = resume(args.resume, args.plan)
         print(json.dumps(dict(ok=True, result=result), sort_keys=True))
         return 0
+    except upgrade_manual.HandoffRequired as exc:
+        print(json.dumps(dict(ok=False, **exc.handoff), sort_keys=True))
+        return 75
     except (OSError, ValueError) as exc:
         result = dict(ok=False, error=str(exc))
         if isinstance(exc, upgrade_preflight.UnownedMemoryError):

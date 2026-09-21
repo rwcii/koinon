@@ -77,6 +77,9 @@ def session(selection):
 
 
 def memory(selection):
+    if selection.backend == 'manual':
+        import upgrade_manual
+        return upgrade_manual.observe(selection, 'memory')
     _native(selection)
     before = memory_service.manager_observation(selection)
     owner = memory_service.read_record(selection, selection.owner_path)
@@ -175,8 +178,8 @@ def installation_locked(prefix, installed):
         selections.append(('session', selected))
     for key in sorted(memories):
         record = memories[key]
-        if record['state'] != 'installed' or record['backend'] not in ('systemd', 'launchd'):
-            raise ObservationError('manual or unfinished memory requires an explicit upgrade adapter')
+        if record['state'] != 'installed' or record['backend'] not in ('systemd', 'launchd', 'manual'):
+            raise ObservationError('unfinished memory requires an explicit upgrade adapter')
         try:
             selected = memory_service.Selection(prefix, record['common_directory'])
         except (OSError, ValueError) as exc:

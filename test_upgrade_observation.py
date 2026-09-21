@@ -81,13 +81,14 @@ class ObservationTests(unittest.TestCase):
             with self.assertRaises(observation.ObservationError):
                 observation.memory(self.selection)
 
-    def test_manual_selection_refuses_before_any_manager_observation(self):
+    def test_manual_selection_uses_foreground_observation_without_native_manager(self):
         self.selection.backend = 'manual'
         with patch.object(observation.memory_service, 'manager_observation') as memory, \
-             patch.object(observation.session_service_manager, 'observation') as session:
-            for operation in (observation.session, observation.memory):
-                with self.assertRaises(observation.ObservationError):
-                    operation(self.selection)
+             patch.object(observation.session_service_manager, 'observation') as session, \
+             patch('upgrade_manual.observe', return_value={'manual': True}) as manual:
+            for operation in (observation.memory,):
+                self.assertEqual(operation(self.selection), {'manual': True})
+            self.assertEqual(manual.call_count, 1)
             memory.assert_not_called()
             session.assert_not_called()
 
@@ -134,7 +135,7 @@ class InstallationObservationTests(unittest.TestCase):
     def test_legacy_and_foreign_prefix_refuse_before_service_observation(self):
         path = self.home / 'native-service.json'
         path.unlink()
-        with self.assertRaisesRegex(observation.ObservationError, 'adapter'):
+        with self.assertRaisesRegex(observation.ObservationError, 'explicit upgrade adapter'):
             observation.installation(self.prefix)
         self.publish(path, dict(self.record, prefix=str(self.root / 'other-prefix')))
         with self.assertRaisesRegex(observation.ObservationError, 'different runtime'):
@@ -157,11 +158,11 @@ class InstallationObservationTests(unittest.TestCase):
         with self.assertRaisesRegex(observation.ObservationError, 'changed'):
             observation.installation(self.prefix)
 
-    def test_manual_memory_refuses_before_any_component_observation(self):
+    def test_invalid_manual_memory_selection_refuses_before_component_observation(self):
         from test_memory_service_config import inventory, record
         self.publish(self.prefix / 'install.json', dict(self.config,
                      memory_services=inventory(record(backend='manual'))))
-        with self.assertRaisesRegex(observation.ObservationError, 'adapter'):
+        with self.assertRaisesRegex(observation.ObservationError, 'cannot verify saved memory'):
             observation.installation(self.prefix)
         self.observe.assert_not_called()
 

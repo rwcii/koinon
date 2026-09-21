@@ -19,7 +19,7 @@ import platform_support
 from scripts import install
 
 
-def public_upgrade(fixture, source, interrupt):
+def public_upgrade(fixture, source, interrupt, handoff=None):
     """Kill only the isolated coordinator after durable phase publications."""
     phases = list(range(1, 20)) if interrupt == 'all' else ([int(interrupt)] if interrupt else [])
     evidence = fixture.root / 'interruptions'
@@ -40,8 +40,19 @@ def public_upgrade(fixture, source, interrupt):
     command = [sys.executable, str(source / 'scripts/upgrade.py'),
                '--prefix', str(fixture.prefix), '--source', str(source)]
     interrupted = []
-    for _ in range(len(phases) + 1):
+    for _ in range(len(phases) + (32 if handoff else 1)):
         result = subprocess.run(command, capture_output=True, text=True, timeout=120)
+        if result.returncode == 75 and handoff is not None:
+            pending = json.loads(result.stdout)
+            if pending.get('status') != 'manual_handoff_required':
+                raise RuntimeError('unexpected pending public operation')
+            pointer = json.loads((fixture.prefix / '.upgrade/current.json').read_text())
+            if pending['operation'] != pointer['operation'] or pending['plan'] != pointer['plan']:
+                raise RuntimeError('manual handoff refers to another operation')
+            handoff(pending)
+            command = [sys.executable, str(source / 'scripts/upgrade.py'), '--resume',
+                       pointer['operation'], '--plan', pointer['plan']]
+            continue
         if result.returncode != -9:
             if result.returncode:
                 raise RuntimeError('public upgrade failed: ' + result.stderr)

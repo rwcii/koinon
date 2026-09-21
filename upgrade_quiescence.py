@@ -63,7 +63,10 @@ def stop_phase(exclusion, kind):
         if component['kind'] != kind:
             continue
         selected = selection(exclusion, component)
-        if kind == 'session':
+        if selected.backend == 'manual':
+            import upgrade_manual
+            upgrade_manual.stop(selected, kind)
+        elif kind == 'session':
             with session_service_artifacts.locked(selected.home / 'lifecycle.lock'), \
                     session_service_artifacts.locked(selected.home / 'registration.lock'):
                 selected = selection(exclusion, component)
@@ -101,7 +104,10 @@ def restore_inactive(exclusion, component):
     if component['running'] or exclusion.verify()['step'] != 16:
         raise QuiescenceError('inactive restoration requires the pending release phase')
     selected = selection(exclusion, component)
-    if component['kind'] == 'session':
+    if selected.backend == 'manual':
+        import upgrade_manual
+        upgrade_manual.stop(selected, component['kind'])
+    elif component['kind'] == 'session':
         if component['registered']:
             session_service_manager.stop(selected)
         else:

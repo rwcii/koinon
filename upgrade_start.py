@@ -48,7 +48,10 @@ def component(exclusion, selected_component):
     selected = upgrade_quiescence.selection(exclusion, selected_component)
     kind = selected_component['kind']
     validate(exclusion, selected, kind)
-    if kind == 'session':
+    if selected.backend == 'manual':
+        import upgrade_manual
+        result = upgrade_manual.ensure(exclusion, selected, kind)
+    elif kind == 'session':
         result = session_service_manager.ensure(selected, upgrade=exclusion)
     else:
         result = memory_service.ensure_managed(selected, upgrade=exclusion)

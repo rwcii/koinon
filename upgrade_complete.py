@@ -24,8 +24,9 @@ class CompletionError(ValueError):
 
 def supported(components):
     if any(item['selection']['backend'] not in ('systemd', 'launchd')
+           and not (item['kind'] == 'memory' and item['selection']['backend'] == 'manual')
            for item in components):
-        raise CompletionError('completion requires an explicit manual adapter')
+        raise CompletionError('completion requires a supported component adapter')
 
 
 def _backups(exclusion, documents, phase):

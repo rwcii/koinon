@@ -5,6 +5,8 @@ into a dated release section when promoted to `main`.
 
 ## Unreleased
 
+- Upgrade saved manual memory through a verified persistent foreground handoff, retaining resumable phases and original stopped state. Legacy manual sessions still require explicit ownership migration.
+
 - Restore inactive native components to their original stopped and registered/deactivated
   state after gated upgrade verification, before releasing active components. Exercise
   synthetic coordinator interruption and resume at every durable phase.

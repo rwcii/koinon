@@ -14,7 +14,7 @@ start its owned supervisor, but never creates participant bindings automatically
 Native component selections refuse different runtime bytes during an ordinary reinstall;
 the coordinated replacement operation is tracked separately in DQ-12. The following
 manual runbook applies to legacy/manual deployments, not a bypass for that refusal.
-The development branch also provides an **experimental native coordinator**:
+The development branch also provides an **experimental upgrade coordinator**:
 
 ```sh
 python3 /path/to/new-source/scripts/upgrade.py --prefix /absolute/installed/prefix --source /path/to/new-source
@@ -33,11 +33,26 @@ remain under the private operation directory. JSON output contains private ident
 and cursors; keep it and the recovery directory out of Git.
 
 The executable adapter currently covers **owned native components**
-(systemd or launchd selections), schema-3/4/5 memory and schema-4 inboxes. Inactive native components are temporarily started behind the gate for migration and
+(systemd or launchd selections) and saved manual memory selections, schema-3/4/5
+memory and schema-4 inboxes. Inactive native components are temporarily started behind the gate for migration and
 comparison, then returned to their original stopped and registered/deactivated state
 before release. They are excluded from the release membership and cannot restart while
-the upgrade marker remains active. Manual selections still refuse before shutdown;
-the persistent-process handoff adapter and complete #43 acceptance remain outstanding. This command is not a claim that #43 or promotion is done.
+the upgrade marker remains active. Manual memory uses the explicit foreground handoff below. Legacy manual sessions
+without saved supervisor ownership still refuse before shutdown; they are not silently
+adopted. Complete #43 acceptance remains outstanding. This command is not a claim that
+#43 or promotion is done.
+
+For manual memory, the command returns exit status 75 with JSON status
+`manual_handoff_required`, the exact `argv`/shell-quoted `command`, operation path,
+plan digest and pending phase. Run that command in a persistent managed terminal or
+process session and retain that session for the service lifetime. Then invoke `--resume`
+with the returned operation and plan digest. The coordinator never detaches a child.
+Printing or starting the command does not complete handoff: resume joins the saved
+supervisor generation to kernel process identity and the child's private control
+handshake, verifies the migration gate, and performs the same preservation comparison
+as a native service. Failed or ambiguous ownership refuses; do not start a duplicate.
+An originally stopped manual memory service is temporarily handed off for migration
+and stopped again before release. Interruption retains the same pending operation.
 
 Preflight reads literal installer file lists without executing them, checks supported
 schema transitions on disposable online SQLite copies, and reserves backup and report
