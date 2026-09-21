@@ -63,8 +63,11 @@ def _observe(exclusion, component, *, live=False):
     else:
         observe = lambda: memory_service.managed_status(selected)
         owner_read = lambda: memory_service.read_record(selected, selected.owner_path)
+    if selected.backend == 'manual':
+        import upgrade_manual
+        observe = lambda: upgrade_manual.ready(selected, component['kind'])
     before = observe()
-    if before.get('status') != 'running' or before.get('managed') is not True:
+    if before.get('status') != 'running' or (selected.backend != 'manual' and before.get('managed') is not True):
         raise ProbeError('native manager and selected service are not jointly ready')
     owner = owner_read()
     if owner is None:

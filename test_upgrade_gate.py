@@ -21,6 +21,7 @@ import upgrade_plan
 
 
 class GateTests(unittest.TestCase):
+    originally_running = True
     def setUp(self):
         fixtures.PlanTests.setUp(self)
         self.home = Path(self.config['state_root']) / 'sessions'
@@ -32,8 +33,10 @@ class GateTests(unittest.TestCase):
         self.home.mkdir(mode=0o700)
         record = session_service_config.selection(self.prefix, sys.executable, self.home,
                                                  self.config, registration, 'systemd')
-        component = dict(kind='session', selection=record, manager=dict(status='absent'),
-                         registered=False, running=False, owner=None)
+        running = getattr(self, 'originally_running', False)
+        component = dict(kind='session', selection=record,
+                         manager=dict(status='observed' if running else 'absent'),
+                         registered=running, running=running, owner={} if running else None)
         self.prepared = fixtures.PlanTests.prepare(self, components=[component])
         import json
         (self.prefix / 'install.json').write_text(json.dumps(self.config))
@@ -150,6 +153,14 @@ class GateTests(unittest.TestCase):
         successor = upgrade_gate.Gate(loaded, 'bridge', self.home, 'd' * 32)
         self.assertTrue(successor.post_release_start)
         self.assertTrue(successor.released())
+
+
+class InactiveGateTests(unittest.TestCase):
+    def test_inactive_component_cannot_restart_after_release(self):
+        GateTests.setUp(self)
+        GateTests.advance(self, 17)
+        with self.assertRaisesRegex(upgrade_gate.GateError, 'inactive'):
+            upgrade_gate.select(self.prefix, 'bridge', self.home, 'd' * 32)
 
 
 class ClosedGate:

@@ -8,7 +8,10 @@ import tempfile
 import unittest
 from unittest.mock import patch
 
+import os
+
 from scripts import install
+import platform_support
 import upgrade_command
 import upgrade_exclusion
 import upgrade_plan
@@ -32,6 +35,28 @@ class CommandTests(unittest.TestCase):
                 if path.is_dir():
                     path.chmod(0o700)
         self.state.mkdir(mode=0o700)
+        # These are synthetic installations. Without controlled sources, discovery read
+        # the real host's loaded services, so the result depended on the machine and
+        # any unparseable third-party definition on it failed the unit test.
+        # Most of these tests run the dispatcher as a subprocess, which a patch in this
+        # process cannot reach, so the child is given the same controlled sources through
+        # its own import. Memory process detection is deliberately left real: the
+        # foreground regression depends on observing an actual process.
+        self.units = self.root / 'units'
+        sources = dict(directories=[str(self.units)], loaded_artifacts=[],
+                       loaded_discovery='synthetic_isolated_inventory')
+        isolated = patch.object(platform_support, 'upgrade_service_sources',
+                                return_value=sources)
+        isolated.start()
+        self.addCleanup(isolated.stop)
+        harness = self.root / 'harness'
+        harness.mkdir(mode=0o700)
+        (harness / 'sitecustomize.py').write_text(
+            'import sys\n'
+            f'sys.path.insert(0, {str(self.source)!r})\n'
+            'import platform_support\n'
+            f'platform_support.upgrade_service_sources = lambda prefix: {sources!r}\n')
+        self.env = {**os.environ, 'PYTHONPATH': str(harness)}
         self.config = dict(state_root=str(self.state), unit_dir=str(self.root / 'units'), codex=sys.executable)
         (self.prefix / 'install.json').write_text(json.dumps(self.config))
         (self.prefix / 'install.json').chmod(0o600)
@@ -39,7 +64,23 @@ class CommandTests(unittest.TestCase):
 
     def command(self, *args):
         return subprocess.run([sys.executable, str(self.source / 'scripts/upgrade.py'), *map(str, args)],
-                              capture_output=True, text=True, timeout=60)
+                              capture_output=True, text=True, timeout=60, env=self.env)
+
+    def test_subprocess_discovery_reads_the_controlled_sources(self):
+        """A patch in this process cannot reach the child, so assert the child's own scope.
+
+        The reported discovery status can only be the synthetic one when the child
+        itself used the controlled sources rather than this machine's real services.
+        """
+        units = Path(self.config['unit_dir'])
+        units.mkdir(mode=0o700)
+        (units / 'synthetic-isolation.service').write_text(
+            '[Service]\nExecStart=/synthetic/python ' + str(self.prefix / 'memory.py') + ' serve\n')
+        result = self.command('--prefix', self.prefix, '--source', self.source)
+        self.assertEqual(result.returncode, 1, result.stdout)
+        report = json.loads(result.stderr)
+        self.assertEqual(report['service_ownership']['loaded_discovery'],
+                         'synthetic_isolated_inventory')
 
     def test_public_command_executes_archive_and_reports_completed_upgrade(self):
         result = self.command('--prefix', self.prefix, '--source', self.source)
@@ -91,8 +132,48 @@ class CommandTests(unittest.TestCase):
         self.assertNotEqual(result.returncode, 0)
         report = json.loads(result.stderr)
         self.assertEqual(report['memory_ownership']['action'], 'refused')
+        self.assertEqual(report['recovery']['code'], 'unowned_memory_requires_inventory')
+        self.assertEqual(report['recovery']['phase'], 'refused_before_shutdown')
+        self.assertIn('Do not delete', report['recovery']['preserve'])
+        self.assertIn('#recovering-from-unowned-memory-refusal', report['recovery']['guide'])
         self.assertEqual(json.loads((self.prefix / 'install.json').read_text()), self.config)
         self.assertFalse((self.prefix / '.upgrade').exists())
+
+    def test_external_unit_outside_state_refuses_with_private_discovery_report(self):
+        units = Path(self.config['unit_dir'])
+        units.mkdir(mode=0o700)
+        definition = units / 'synthetic-repository-memory.service'
+        contents = ('[Service]\nExecStart=/synthetic/python ' + str(self.prefix / 'memory.py')
+                    + ' --state-dir /synthetic/outside-state serve\n')
+        definition.write_text(contents)
+        result = self.command('--prefix', self.prefix, '--source', self.source)
+        self.assertEqual(result.returncode, 1, result.stdout)
+        report = json.loads(result.stderr)
+        self.assertEqual(report['service_ownership']['action'], 'refused')
+        self.assertEqual(report['service_ownership']['findings'][0]['path'], str(definition))
+        self.assertEqual(report['recovery']['code'], 'unowned_service_requires_inventory')
+        self.assertEqual(definition.read_text(), contents)
+        self.assertFalse((self.prefix / '.upgrade').exists())
+        self.assertEqual(json.loads((self.prefix / 'install.json').read_text()), self.config)
+        self.assertEqual((self.prefix / 'LICENSE').read_text(), 'synthetic old release license bytes')
+
+    def test_external_foreground_memory_process_refuses_without_signalling_it(self):
+        script = self.prefix / 'memory.py'
+        script.write_text('import time\ntime.sleep(60)\n')
+        job = subprocess.Popen([sys.executable, str(script), 'serve'],
+                               stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        try:
+            result = self.command('--prefix', self.prefix, '--source', self.source)
+            self.assertEqual(result.returncode, 1, result.stdout)
+            report = json.loads(result.stderr)
+            self.assertEqual(report['recovery']['code'], 'unowned_service_requires_inventory')
+            self.assertEqual(report['service_ownership']['processes'][0]['pid'], job.pid)
+            self.assertEqual(report['service_ownership']['processes'][0]['ownership'], 'unowned')
+            self.assertIsNone(job.poll())
+            self.assertFalse((self.prefix / '.upgrade').exists())
+        finally:
+            job.terminate()
+            job.wait(timeout=5)
 
     def test_lost_exclusion_publication_has_discoverable_phase_zero_resume(self):
         activate = upgrade_exclusion.Exclusion.activate_locked

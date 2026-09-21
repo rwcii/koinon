@@ -14,7 +14,7 @@ start its owned supervisor, but never creates participant bindings automatically
 Native component selections refuse different runtime bytes during an ordinary reinstall;
 the coordinated replacement operation is tracked separately in DQ-12. The following
 manual runbook applies to legacy/manual deployments, not a bypass for that refusal.
-The development branch also provides an **experimental native coordinator**:
+The development branch also provides an **experimental upgrade coordinator**:
 
 ```sh
 python3 /path/to/new-source/scripts/upgrade.py --prefix /absolute/installed/prefix --source /path/to/new-source
@@ -32,11 +32,27 @@ The original runtime, component backups, migration expectations and completion r
 remain under the private operation directory. JSON output contains private identities
 and cursors; keep it and the recovery directory out of Git.
 
-The executable adapter currently covers **already running, owned native components**
-(systemd or launchd selections), schema-3/4/5 memory and schema-4 inboxes. It refuses
-inactive and manual selections before shutdown because their restoration/handoff
-adapters are not yet complete. Native macOS acceptance and the complete #43 acceptance
-matrix remain outstanding. This command is not a claim that #43 or promotion is done.
+The executable adapter currently covers **owned native components**
+(systemd or launchd selections) and saved manual memory selections, schema-3/4/5
+memory and schema-4 inboxes. Inactive native components are temporarily started behind the gate for migration and
+comparison, then returned to their original stopped and registered/deactivated state
+before release. They are excluded from the release membership and cannot restart while
+the upgrade marker remains active. Manual memory uses the explicit foreground handoff below. Legacy manual sessions
+without saved supervisor ownership still refuse before shutdown; they are not silently
+adopted. Complete #43 acceptance remains outstanding. This command is not a claim that
+#43 or promotion is done.
+
+For manual memory, the command returns exit status 75 with JSON status
+`manual_handoff_required`, the exact `argv`/shell-quoted `command`, operation path,
+plan digest and pending phase. Run that command in a persistent managed terminal or
+process session and retain that session for the service lifetime. Then invoke `--resume`
+with the returned operation and plan digest. The coordinator never detaches a child.
+Printing or starting the command does not complete handoff: resume joins the saved
+supervisor generation to kernel process identity and the child's private control
+handshake, verifies the migration gate, and performs the same preservation comparison
+as a native service. Failed or ambiguous ownership refuses; do not start a duplicate.
+An originally stopped manual memory service is temporarily handed off for migration
+and stopped again before release. Interruption retains the same pending operation.
 
 Preflight reads literal installer file lists without executing them, checks supported
 schema transitions on disposable online SQLite copies, and reserves backup and report
@@ -48,16 +64,79 @@ changed selections or unrecognized state refuse without silently resetting anyth
 
 Memory-state discovery covers the installation's configured state root and saved memory
 roots. Any directory there without a saved managed selection produces an explicit
-unowned-state report and refuses before shutdown, even if stopped. The command does
-not adopt, relabel, stop or delete that state. Arbitrary custom service locations outside
-those roots are not discovered; complete external-service discovery is still an acceptance
-gap. Do not interpret the report's stated discovery scope as a host-wide ownership claim.
+unowned-state report and refuses before shutdown, even if stopped. Service discovery
+also reads the selected legacy unit directory, native user service search directories,
+and paths of currently loaded user-service definitions. It reports definitions that
+directly reference the selected runtime, including hand-written units/plists outside
+saved state roots, loader links and drop-ins. Only an exact saved artifact path and
+matching digest establish ownership. An unowned reference refuses before shutdown;
+no file is adopted, relabeled, stopped or deleted. Direct same-user foreground
+`memory.py serve` and `memory_service.py run` processes are also inventoried and must
+match a saved supervisor/child PID and process-start marker; unowned processes are
+reported and left running. The private preflight/completion
+report retains the searched directories, discovery status, matching paths and hashes.
+
+This is a bounded search for direct runtime references, not arbitrary program analysis.
+Opaque wrappers, unselected runtime aliases and dynamically constructed runtime paths
+are not resolved, and other
+users or system service managers are outside the selected same-user scope. If the user
+manager is unavailable, the report explicitly identifies static-path-only discovery.
+Malformed or changing native inventory refuses rather than returning an empty result.
+
+Operating-system definition files under `/System/Library/LaunchAgents` are not read.
+Their jobs remain in scope: every loaded GUI job is still a same-user observation, its
+program and arguments are still inspected, and a direct runtime reference in one still
+produces an unowned finding and a refusal. Only the vendor's file is left unparsed, and
+each exclusion is reported with its path and the reason `os_definition_not_parsed`.
+Exclusion is never ownership. A path is excluded only when both its literal and its
+resolved form stay inside that directory, so a link or a traversal that leaves it is
+inventoried normally. Definitions under `~/Library/LaunchAgents`,
+`/Library/LaunchAgents` and custom loaded locations are parsed as before, and a
+malformed definition that is in scope still refuses.
+Preserve and inventory services outside the stated scope before upgrading a shared prefix.
 
 Ordinary ingress and notification delivery stay gated while migration and preservation
 are verified. The release receipt identifies verified child generations. After release,
 only live readiness is checked; preservation comparisons are never repeated over renewed
 traffic. An interrupted operation retains exclusion and evidence. Rollback remains an
 explicit separate recovery decision and never automatically replaces new writes.
+
+## Recovering from unowned-memory refusal
+
+An `unowned_memory_requires_inventory` error means the installation has no saved
+managed selection for a reported memory directory. An
+`unowned_service_requires_inventory` error identifies a service definition referencing
+the runtime without matching saved ownership. It does **not** mean the directory
+is unused or disposable. It can contain the only copy of notes, work, claims and
+consumer cursors. The error occurs before shutdown or runtime replacement; keep the
+current runtime available while investigating.
+
+1. Preserve each reported directory in place, including its SQLite sidecars. Do not
+   delete, move, rename it, add ownership markers, or edit `install.json` to make the
+   check pass. A running database must not be backed up by copying its main file alone.
+2. Privately inventory the service that uses it: repository Git common directory,
+   exact state path, runtime prefix, interpreter, startup command, native unit/plist
+   or persistent terminal, and dependent bound sessions. Read the existing service
+   definition and use that runtime's status command. A service may be stopped; absence
+   of a running process does not establish that its data can be discarded. If ownership
+   cannot be established, stop here and retain the current installation and data.
+3. For a legacy or hand-written service, use the maintenance procedure below with
+   **every service sharing the runtime**, including that service and its bound sessions.
+   Stop them through their existing controls, confirm process exit, and retain a
+   consistent private backup of all state before changing runtime bytes. Keep the
+   original service definition and startup command so its exact paths can be restored.
+   Do not run an ordinary reinstall over a prefix still used by an unaccounted service.
+4. The coordinator does not currently adopt a legacy service or import its store into
+   a managed selection. Continue using its established ownership arrangement after
+   the verified legacy upgrade. If automatic managed upgrades are required, arrange an
+   explicit adoption/migration implementation and review first; re-running this command
+   or recreating an empty managed store does not transfer the existing memory.
+
+A genuinely retired store can be archived only after its owner confirms the retirement,
+all writers are stopped, and a complete backup has been verified. Retirement is a
+separate data-retention decision, never a prerequisite silently imposed by this upgrade.
+
+## Legacy maintenance procedure
 
 Use an authorized maintenance window for the existing manual procedure:
 

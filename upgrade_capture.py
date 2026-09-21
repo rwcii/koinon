@@ -53,12 +53,14 @@ class Guard:
             if component['kind'] == 'session':
                 owner = selected.records.read()
                 portable = session_service.status(selected)
-                manager = session_service_manager.observation(selected)
+                manager = (dict(status='absent') if selected.backend == 'manual'
+                           else session_service_manager.observation(selected))
                 quiet = (portable['status'] in ('stopped', 'unobserved')
                          and not session_observation.endpoint_present(selected.home / 'notifier'))
             else:
                 owner = memory_service.read_record(selected, selected.owner_path)
-                manager = memory_service.manager_observation(selected)
+                manager = (dict(status='absent') if selected.backend == 'manual'
+                           else memory_service.manager_observation(selected))
                 quiet = (not session_observation.endpoint_present(selected.home)
                          and (owner is None or owner['configuration'] == selected.configuration
                               and memory_service.process_state(owner) == 'dead'

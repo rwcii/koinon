@@ -11,6 +11,7 @@ from pathlib import Path
 import stat
 import os
 
+import upgrade_discovery
 import upgrade_manifest as manifest
 import upgrade_observation
 import upgrade_plan
@@ -25,6 +26,12 @@ class UnownedMemoryError(PreflightError):
     def __init__(self, report):
         self.report = report
         super().__init__('unowned memory state found; upgrade refused before shutdown')
+
+
+class UnownedServiceError(PreflightError):
+    def __init__(self, report):
+        self.report = report
+        super().__init__('unowned service references this runtime; upgrade refused before shutdown')
 
 
 def runtime_manifest(root):
@@ -122,9 +129,14 @@ def observe_locked(prefix, installed):
     if ownership['unowned']:
         raise UnownedMemoryError(ownership)
     observed = upgrade_observation.installation_locked(prefix, installed)
+    services = upgrade_discovery.inventory(prefix, installed.config, observed['components'])
+    if services['action'] == 'refused':
+        raise UnownedServiceError(services)
+    if upgrade_discovery.inventory(prefix, installed.config, observed['components']) != services:
+        raise PreflightError('external service discovery changed during preflight')
     if memory_ownership(installed.config) != ownership:
         raise PreflightError('memory inventory changed during preflight')
-    return dict(observed, memory_ownership=ownership)
+    return dict(observed, memory_ownership=ownership, service_ownership=services)
 
 
 def database_check(root, database, workspace, *, kind, repo=None):

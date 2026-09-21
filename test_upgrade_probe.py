@@ -13,7 +13,7 @@ class ProbeTests(unittest.TestCase):
         self.component = dict(kind='memory', selection=dict(service_directory='/synthetic/state'))
         self.child = dict(pid=123, generation='b' * 32, proc_start='synthetic-child')
         self.owner = dict(pid=124, generation='c' * 32, child=self.child)
-        self.selection = SimpleNamespace(home=Path('/synthetic/state'), owner_path=Path('/synthetic/owner'))
+        self.selection = SimpleNamespace(backend='systemd', home=Path('/synthetic/state'), owner_path=Path('/synthetic/owner'))
         self.exclusion = SimpleNamespace(loaded=dict(sha256='a' * 64),
             journal=SimpleNamespace(directory=Path('/synthetic/operation')),
             verify=lambda: dict(step=10))
@@ -96,7 +96,7 @@ class ProbeTests(unittest.TestCase):
         component = dict(kind='session', selection=dict(state_directory='/synthetic/state'))
         owner = dict(self.owner, children=dict(bridge=self.child,
                      notifier=dict(self.child, pid=125, generation='d' * 32)))
-        selection = SimpleNamespace(home=self.selection.home, records=SimpleNamespace(read=lambda: owner))
+        selection = SimpleNamespace(backend='systemd', home=self.selection.home, records=SimpleNamespace(read=lambda: owner))
         notifier = dict(pid=125, generation='d' * 32,
                         upgrade=dict(self.gate, generation='d' * 32, released=True))
         with patch.object(probe, '_selected', return_value=(selection, 10)), \

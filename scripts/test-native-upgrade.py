@@ -19,7 +19,73 @@ import platform_support
 from scripts import install
 
 
-def session_case(backend):
+def public_upgrade(fixture, source, interrupt, handoff=None):
+    """Kill only the isolated coordinator after durable phase publications."""
+    phases = list(range(1, 20)) if interrupt == 'all' else ([int(interrupt)] if interrupt else [])
+    evidence = fixture.root / 'interruptions'
+    evidence.mkdir(mode=0o700)
+    if phases:
+        module = source / 'upgrade_journal.py'
+        with module.open('a') as stream:
+            stream.write("\n# Synthetic process-interruption acceptance only.\n")
+            stream.write('_fixture_advance = Journal.advance\n')
+            stream.write('def _fixture_interrupt(self, *args, **kwargs):\n')
+            stream.write('    result = _fixture_advance(self, *args, **kwargs)\n')
+            stream.write('    from pathlib import Path\n    import signal\n')
+            stream.write('    marker = Path(' + repr(str(evidence)) + ') / str(result["step"])\n')
+            stream.write('    if result["step"] in ' + repr(phases) + ' and not marker.exists():\n')
+            stream.write('        with marker.open("x") as record: record.write("process interruption")\n')
+            stream.write('        os.kill(os.getpid(), signal.SIGKILL)\n')
+            stream.write('    return result\nJournal.advance = _fixture_interrupt\n')
+    command = [sys.executable, str(source / 'scripts/upgrade.py'),
+               '--prefix', str(fixture.prefix), '--source', str(source)]
+    interrupted = []
+    for _ in range(len(phases) + (32 if handoff else 1)):
+        result = subprocess.run(command, capture_output=True, text=True, timeout=120)
+        if result.returncode == 75 and handoff is not None:
+            pending = json.loads(result.stdout)
+            if pending.get('status') != 'manual_handoff_required':
+                raise RuntimeError('unexpected pending public operation')
+            pointer = json.loads((fixture.prefix / '.upgrade/current.json').read_text())
+            if pending['operation'] != pointer['operation'] or pending['plan'] != pointer['plan']:
+                raise RuntimeError('manual handoff refers to another operation')
+            handoff(pending)
+            command = [sys.executable, str(source / 'scripts/upgrade.py'), '--resume',
+                       pointer['operation'], '--plan', pointer['plan']]
+            continue
+        if result.returncode != -9:
+            if result.returncode:
+                raise RuntimeError('public upgrade failed: ' + result.stderr)
+            if sorted(interrupted) != phases:
+                raise RuntimeError('not every selected interruption boundary was exercised')
+            return json.loads(result.stdout)
+        pointer = json.loads((fixture.prefix / '.upgrade/current.json').read_text())
+        phase = json.loads((Path(pointer['operation']) / 'phase.json').read_text())['step']
+        if phase not in phases or phase in interrupted:
+            raise RuntimeError('coordinator died outside the selected interruption boundary')
+        interrupted.append(phase)
+        command = [sys.executable, str(source / 'scripts/upgrade.py'), '--resume',
+                   pointer['operation'], '--plan', pointer['plan']]
+    raise RuntimeError('public coordinator did not complete after interruption retries')
+
+
+def inactive_check(selection, kind, registered):
+    import upgrade_observation
+    observe = upgrade_observation.session if kind == 'session' else upgrade_observation.memory
+    deadline = time.monotonic() + 10
+    while True:
+        try:
+            value = observe(selection)
+            if not value['running'] and value['registered'] is registered:
+                return
+        except (OSError, ValueError):
+            pass
+        if time.monotonic() >= deadline:
+            raise RuntimeError('inactive selection/registration was not restored')
+        time.sleep(.05)
+
+
+def session_case(backend, initial_state, interrupt):
     spec = importlib.util.spec_from_file_location('native_session_fixture', SOURCE / 'scripts/test-native-session.py')
     module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)
@@ -40,18 +106,23 @@ def session_case(backend):
                     path.chmod(0o700)
         (fixture.prefix / 'LICENSE').write_text('synthetic previous release')
         before = fixture.ensure()
-        result = subprocess.run([sys.executable, str(source / 'scripts/upgrade.py'),
-            '--prefix', str(fixture.prefix), '--source', str(source)],
-            capture_output=True, text=True, timeout=120)
-        if result.returncode:
-            raise RuntimeError('public session upgrade failed: ' + result.stderr)
-        report = json.loads(result.stdout)
         import session_service_manager
+        if initial_state != 'running':
+            if initial_state == 'stopped':
+                session_service_manager.stop(fixture.selection)
+            else:
+                session_service_manager.deactivate(fixture.selection)
+            inactive_check(fixture.selection, 'session', initial_state == 'stopped')
+        report = public_upgrade(fixture, source, interrupt)
+        import session_service_manager
+        if initial_state != 'running':
+            inactive_check(fixture.selection, 'session', initial_state == 'stopped')
+            fixture.ensure()
         after = session_service_manager.status(fixture.selection)
         if (not report['ok'] or after.get('status') != 'running'
                 or before['owner']['generation'] == after['owner']['generation']):
             raise RuntimeError('public session upgrade did not replace the owned pair')
-        print(json.dumps(dict(ok=True, backend=backend,
+        print(json.dumps(dict(ok=True, backend=backend, initial_state=initial_state, interrupted=interrupt,
             checks=['public_archive_execution', 'owned_native_pair_stop_restart',
                     'inbox_preservation', 'notifier_gate', 'post_release_readiness'])))
         return 0
@@ -61,14 +132,89 @@ def session_case(backend):
         import upgrade_exclusion
         active = upgrade_exclusion.read(fixture.prefix)
         selected = session_service.Selection(fixture.prefix, fixture.home, upgrading=active is not None)
-        session_service_manager.deactivate(selected)
+        import session_service_artifacts
+        with session_service_artifacts.locked(selected.home / 'lifecycle.lock'), \
+                session_service_artifacts.locked(selected.home / 'registration.lock'):
+            session_service_manager.deactivate_locked(selected, allow_unstarted=True)
+
+
+def combined_case(backend, interrupt):
+    spec = importlib.util.spec_from_file_location('native_install_fixture', SOURCE / 'scripts/test-native-install.py')
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    fixture = module.Fixture(backend, session=True)
+    try:
+        fixture.install()
+        fixture.status()
+        source = fixture.root / 'new-source'
+        shutil.copytree(fixture.source, source)
+        source.chmod(0o700)
+        (fixture.prefix / 'LICENSE').write_text('synthetic previous combined release')
+        fixture.note('note', 'retained combined-fixture note', '--type', 'finding')
+        deadline = str(int(time.time()) + 3600)
+        created = json.loads(fixture.note('work', 'create', '--title', 'Synthetic upgrade claim',
+            '--criteria', 'Preserved by upgrade', '--non-goals', 'No live peer work',
+            '--key', 'synthetic-create', '--deadline', deadline))['result']
+        started = json.loads(fixture.note('work', 'start', created['work_id'],
+            '--if-revision', str(created['revision']), '--checkpoint', 'Before upgrade',
+            '--next-artifact', 'Synthetic evidence', '--progress-deadline', deadline,
+            '--lease-seconds', '3600', '--key', 'synthetic-start', '--deadline', deadline))['result']
+        home = fixture.session_records[0]['state_directory']
+        bridge = [sys.executable, fixture.prefix / 'bridge.py', '--state-dir', home]
+        binding = json.loads(fixture.command(bridge + ['bind-memory', '--repo-path', fixture.repo,
+            '--memory-state-dir', fixture.records[0]['service_directory']]))['result']['binding']
+        # Finish the explicit initial observation before establishing the fixture
+        # baseline; bind alone leaves observation to asynchronous notifier work.
+        fixture.command(bridge + ['refresh-memory', binding])
+        def retained_bindings():
+            import memory_bindings
+            page = json.loads(fixture.command(bridge + ['memory-bindings']))['result']
+            if page['more']:
+                raise RuntimeError('synthetic single binding unexpectedly paginated')
+            return [{key: row[key] for key in memory_bindings.FIELDS} for row in page['bindings']]
+        bindings = retained_bindings()
+        before = json.loads(fixture.note('status'))['result']
+        report = public_upgrade(fixture, source, interrupt)
+        fixture.status()
+        after = json.loads(fixture.note('status'))['result']
+        if (not report['ok'] or before['store_id'] != after['store_id']
+                or before['head'] != after['head'] or before['floor'] != after['floor']):
+            raise RuntimeError('combined upgrade changed memory identity or stream')
+        if retained_bindings() != bindings:
+            raise RuntimeError('combined upgrade changed explicit memory binding')
+        # The original token must still renew against its original claim revision.
+        fixture.note('claim', 'renew', created['work_id'], '--claim-generation',
+                     str(started['claim']['generation']), '--if-claim-revision', str(started['claim']['revision']))
+        print(json.dumps(dict(ok=True, backend=backend, interrupted=interrupt,
+            checks=['combined_owned_native_restart', 'active_claim_preserved',
+                    'binding_preserved', 'memory_preserved', 'post_release_readiness'])))
+        return 0
+    finally:
+        import session_service
+        import session_service_artifacts
+        import session_service_manager
+        import upgrade_exclusion
+        if (fixture.prefix / 'install.json').exists():
+            active = upgrade_exclusion.read(fixture.prefix)
+            for record in fixture.session_records:
+                selected = session_service.Selection(fixture.prefix, record['state_directory'], upgrading=active is not None)
+                with session_service_artifacts.locked(selected.home / 'lifecycle.lock'), \
+                        session_service_artifacts.locked(selected.home / 'registration.lock'):
+                    session_service_manager.deactivate_locked(selected, allow_unstarted=True)
+            for record in fixture.records:
+                selected = memory_service.Selection(fixture.prefix, record['common_directory'], upgrading=active is not None)
+                with install_state.locked(fixture.prefix, validator=lambda value: value), \
+                        file_lock(selected.home / 'manager.lock', 'fixture_busy', None):
+                    memory_service.deactivate_owned(selected)
 
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--run-isolated-job', action='store_true', required=True)
     parser.add_argument('--backend', choices=('systemd', 'launchd'), required=True)
-    parser.add_argument('--kind', choices=('memory', 'session'), default='memory')
+    parser.add_argument('--kind', choices=('memory', 'session', 'combined'), default='memory')
+    parser.add_argument('--initial-state', choices=('running', 'stopped', 'deactivated'), default='running')
+    parser.add_argument('--interrupt-phase', choices=['all'] + [str(i) for i in range(1, 20)])
     args = parser.parse_args()
     # Python imports can create caches before a child sets its own umask.
     # All fixture subprocesses must inherit private creation permissions.
@@ -88,8 +234,12 @@ def main():
                 if time.monotonic() >= deadline:
                     raise RuntimeError('native user-manager D-Bus interface unavailable; acceptance unmet')
                 time.sleep(.1)
+    if args.kind == 'combined':
+        if args.initial_state != 'running':
+            parser.error('combined fixture currently requires running components')
+        return combined_case(args.backend, args.interrupt_phase)
     if args.kind == 'session':
-        return session_case(args.backend)
+        return session_case(args.backend, args.initial_state, args.interrupt_phase)
     spec = importlib.util.spec_from_file_location('native_memory_fixture', SOURCE / 'scripts/test-native-memory.py')
     module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)
@@ -114,19 +264,25 @@ def main():
             raise RuntimeError('isolated native memory is not ready')
         fixture.memory_cli('--consumer', 'synthetic-upgrade', 'note', 'retained synthetic note', '--type', 'finding')
         before = fixture.memory_cli('status')['result']
-        result = subprocess.run([sys.executable, str(source / 'scripts/upgrade.py'),
-            '--prefix', str(fixture.prefix), '--source', str(source)],
-            capture_output=True, text=True, timeout=120)
-        if result.returncode:
-            raise RuntimeError('public upgrade failed: ' + result.stderr)
-        report = json.loads(result.stdout)
+        if args.initial_state != 'running':
+            if args.initial_state == 'stopped':
+                memory_service.stop(fixture.selection)
+            else:
+                with install_state.locked(fixture.prefix), file_lock(
+                        fixture.selection.home / 'manager.lock', 'fixture_busy', None):
+                    memory_service.deactivate_owned(fixture.selection)
+            inactive_check(fixture.selection, 'memory', args.initial_state == 'stopped')
+        report = public_upgrade(fixture, source, args.interrupt_phase)
+        if args.initial_state != 'running':
+            inactive_check(fixture.selection, 'memory', args.initial_state == 'stopped')
+            memory_service.ensure_managed(fixture.selection)
         after = fixture.memory_cli('status')['result']
         if (not report['ok'] or before['store_id'] != after['store_id']
                 or before['head'] != after['head'] or before['floor'] != after['floor']):
             raise RuntimeError('public upgrade changed retained memory identity or cursors')
         if before['generation'] == after['generation']:
             raise RuntimeError('public upgrade did not replace the running child')
-        print(json.dumps(dict(ok=True, backend=args.backend,
+        print(json.dumps(dict(ok=True, backend=args.backend, initial_state=args.initial_state, interrupted=args.interrupt_phase,
                               checks=['public_archive_execution', 'owned_native_stop_restart',
                                       'memory_preservation', 'post_release_readiness'])))
         return 0

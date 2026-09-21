@@ -63,7 +63,10 @@ def stop_phase(exclusion, kind):
         if component['kind'] != kind:
             continue
         selected = selection(exclusion, component)
-        if kind == 'session':
+        if selected.backend == 'manual':
+            import upgrade_manual
+            upgrade_manual.stop(selected, kind)
+        elif kind == 'session':
             with session_service_artifacts.locked(selected.home / 'lifecycle.lock'), \
                     session_service_artifacts.locked(selected.home / 'registration.lock'):
                 selected = selection(exclusion, component)
@@ -81,3 +84,45 @@ def stop_phase(exclusion, kind):
     if results != final or exclusion.verify()['step'] != expected[kind]:
         raise QuiescenceError('shutdown evidence changed before phase completion')
     return dict(version=1, kind=kind, components=final)
+
+
+def inactive(exclusion, component):
+    """Observe the originally inactive native selection without starting it."""
+    if component['running'] or exclusion.verify()['step'] not in (16, 18):
+        raise QuiescenceError('inactive restoration is outside its selected boundary')
+    selected = selection(exclusion, component)
+    observe = upgrade_observation.session if component['kind'] == 'session' else upgrade_observation.memory
+    before = observe(selected)
+    if (before['running'] or before['registered'] != component['registered']
+            or observe(selected) != before):
+        raise QuiescenceError('original inactive registration/state was not restored')
+    return before
+
+
+def restore_inactive(exclusion, component):
+    """Stop a temporary migration generation; retain the original registration."""
+    if component['running'] or exclusion.verify()['step'] != 16:
+        raise QuiescenceError('inactive restoration requires the pending release phase')
+    selected = selection(exclusion, component)
+    if selected.backend == 'manual':
+        import upgrade_manual
+        upgrade_manual.stop(selected, component['kind'])
+    elif component['kind'] == 'session':
+        if component['registered']:
+            session_service_manager.stop(selected)
+        else:
+            with session_service_artifacts.locked(selected.home / 'lifecycle.lock'), \
+                    session_service_artifacts.locked(selected.home / 'registration.lock'):
+                selected = selection(exclusion, component)
+                session_service_manager.deactivate_locked(selected, allow_unstarted=True)
+    else:
+        with install_state.locked(exclusion.prefix, validator=exclusion._validate) as installed:
+            if installed.config != exclusion.marked:
+                raise QuiescenceError('upgrade exclusion disappeared during restoration')
+            with file_lock(Path(selected.home) / 'manager.lock', 'manager_busy', None):
+                selected = selection(exclusion, component)
+                if component['registered']:
+                    memory_service.stop(selected)
+                else:
+                    memory_service.deactivate_owned(selected)
+    return inactive(exclusion, component)

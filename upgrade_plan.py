@@ -50,7 +50,7 @@ def _components(values, prefix, config):
                 raise PlanError('invalid memory selection')
             key, _ = memory_service_config.identity(selection.get('common_directory'))
             memory_service_config.validate(dict(version=1, repositories={key: selection}))
-            if selection['state'] != 'installed' or selection['backend'] not in ('systemd', 'launchd'):
+            if selection['state'] != 'installed' or selection['backend'] not in ('systemd', 'launchd', 'manual'):
                 raise PlanError('memory selection requires a supported installed adapter')
             memories[key] = selection
         identity = value['kind'], key
