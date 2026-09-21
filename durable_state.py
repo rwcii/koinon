@@ -41,16 +41,18 @@ def read(path):
         try:
             fd = os.open(path, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK | os.O_CLOEXEC)
         except FileNotFoundError:
-            if attempt == 0:
-                return None
-            raise StateFileError('unsafe_state_file') from None
+            return None
         try:
             info = os.fstat(fd)
             if info.st_nlink == 0:
                 # Atomic publication may unlink our opened predecessor before
                 # fstat. Reopen the current name; never relax link validation or
                 # consume the detached descriptor's contents.
-                current = os.lstat(path)
+                try:
+                    current = os.lstat(path)
+                except FileNotFoundError:
+                    os.close(fd)
+                    return None
                 if (current.st_dev, current.st_ino) != (info.st_dev, info.st_ino):
                     os.close(fd)
                     continue

@@ -53,6 +53,20 @@ class DurableStateTests(unittest.TestCase):
             with self.assertRaises(state.StateFileError):
                 state.read(self.path)
 
+    def test_concurrent_record_removal_reports_absence_and_closes_descriptor(self):
+        state.publish(self.path, dict(refusal=True))
+        real_open = os.open
+        opened = []
+        def open_then_remove(path, flags, *args, **kwargs):
+            fd = real_open(path, flags, *args, **kwargs)
+            self.path.unlink()
+            opened.append(fd)
+            return fd
+        with mock.patch.object(state.os, 'open', side_effect=open_then_remove):
+            self.assertIsNone(state.read(self.path))
+        with self.assertRaises(OSError):
+            os.fstat(opened[0])
+
     def test_repeated_replacement_is_bounded_and_does_not_accept_detached_content(self):
         state.publish(self.path, dict(phase='starting'))
         real_open = os.open
