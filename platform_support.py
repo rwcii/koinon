@@ -423,6 +423,14 @@ def sync_state_directory(path):
         os.close(fd)
 
 
+def standalone_state_sync_source():
+    """Freeze these primitives into recovery code that removes this module."""
+    import inspect
+    return ('import os\nDARWIN = ' + repr(DARWIN) + '\n' +
+            inspect.getsource(sync_state_file) + '\n' +
+            inspect.getsource(sync_state_directory))
+
+
 def memory_service_command(prefix, python, key, selection):
     import memory_service_config
     from work_policy import absolute_path

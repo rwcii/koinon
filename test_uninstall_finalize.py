@@ -40,6 +40,15 @@ class FinalizeRemovalTests(unittest.TestCase):
         self.assertEqual((self.prefix / 'retained-store').read_text(), 'retained')
         self.assertTrue((self.prefix / '.install.lock').exists())
 
+    def test_recovery_flush_failure_prevents_runtime_deletion(self):
+        with patch.object(removal, 'sync_state_file', side_effect=OSError('flush')):
+            with self.assertRaises(OSError):
+                removal.finish(self.prefix, locked=True, names=self.names)
+        self.assertTrue((self.prefix / 'first.py').exists())
+        self.assertTrue((self.prefix / 'second.py').exists())
+        removal.finish(self.prefix, locked=True, names=self.names)
+        self.assertFalse((self.prefix / 'first.py').exists())
+
     def test_changed_runtime_refuses_before_deleting_any_file(self):
         (self.prefix / 'second.py').write_text('operator change')
         with self.assertRaises(ValueError):

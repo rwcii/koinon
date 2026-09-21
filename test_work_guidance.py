@@ -159,6 +159,36 @@ class GuidanceTests(unittest.TestCase):
             with patch.object(guidance, 'verify', side_effect=AssertionError('target read')):
                 self.assertFalse(self.query()['enabled'])
 
+    def test_backup_retry_reconfirms_before_pending_publication(self):
+        with patch.object(guidance.platform_support, 'sync_state_directory', side_effect=OSError('flush')):
+            with self.assertRaises(OSError):
+                self.enable()
+        self.assertIsNone(self.rule())
+        self.assertEqual(self.target.read_bytes(), self.original)
+        with patch.object(instructions, 'confirm_guidance', side_effect=OSError('retry flush')):
+            with self.assertRaises(OSError):
+                self.enable()
+        self.assertIsNone(self.rule())
+        self.enable()
+        self.assertEqual(self.backup().read_bytes(), self.original)
+
+    def test_pending_visible_guidance_requires_flush_before_enabling(self):
+        confirm = instructions.confirm_guidance
+        def fail_target(path, **kwargs):
+            if path == self.target:
+                raise OSError('target flush')
+            return confirm(path, **kwargs)
+        with patch.object(instructions, 'confirm_guidance', side_effect=fail_target):
+            with self.assertRaises(OSError):
+                self.enable()
+            self.assertEqual(self.rule()['state'], 'pending')
+            with self.assertRaises(OSError):
+                self.enable()
+            self.assertEqual(self.rule()['state'], 'pending')
+        self.enable()
+        self.assertEqual(self.rule()['state'], 'enabled')
+        self.assertEqual(self.backup().read_bytes(), self.original)
+
     def test_crash_before_pending_leaves_original_and_retryable_backup(self):
         with patch.object(guidance, 'change_rule', side_effect=OSError('synthetic crash')):
             with self.assertRaises(OSError):

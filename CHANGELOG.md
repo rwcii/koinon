@@ -12,6 +12,10 @@ into a dated release section when promoted to `main`.
 - Stage plan-bound upgrade phase records and immutable private recovery documents;
   the public coordinator and native interruption acceptance remain in development.
 
+- Flush guidance recovery copies before replacing user text, and reconfirm retained
+  copies and guidance on retries. Apply the shared device flush to session registration,
+  memory ownership, and self-contained uninstall recovery files as well.
+
 - Flush installation configuration and service artifacts through the shared platform
   primitives, so a replacement is followed by the device-level synchronization macOS
   requires. Exact repeats reconfirm retained records instead of accepting a visible but

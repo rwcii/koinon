@@ -270,7 +270,25 @@ marked section to `$CODEX_HOME/AGENTS.md` (normally `~/.codex/AGENTS.md`). If a 
 `AGENTS.override.md` already exists, the installer manages that higher-priority file
 instead. Existing content is preserved; a private backup is saved before the first
 edit. Reinstallation replaces only the managed section. Removal strips the section
-without restoring an old backup over subsequent user edits.
+without restoring an old backup over subsequent user edits. Recovery copies are
+atomically published and flushed before guidance replacement. A failed flush is an
+error; retrying reconfirms the retained copy before proceeding. Guidance publication
+and work-guidance retries also flush the retained target before reporting success.
+Linux uses `fsync`; macOS additionally requests `F_FULLFSYNC` for files through the
+shared platform primitives. These guarantees depend on filesystem and device support;
+fault-injection tests do not establish physical power-loss durability.
+
+The durability audit for gate #69 also covers these recovery records:
+
+| Publication site | Decision and reason |
+| --- | --- |
+| `participant_instructions` and `work_guidance` | Needs durability: preserve the original text before overwriting guidance and retain it across interrupted retries. |
+| `notify.save` | Needs durability: `session.save_registration` uses it for the saved session identity and assigned peer name. It is not merely a disposable notification cache. |
+| `memory.write_owner` | Needs durability: the ownership record is needed to recover a socket left after an unclean exit. |
+| `uninstall_finalize.publish` and directory synchronization | Needs durability: the recovery program and manifest must survive before runtime deletion begins. The generated helper embeds the shared flush primitives for the installation platform, so recovery still works after installed modules are removed. |
+
+All these file publications use the shared file flush and flush the parent directory;
+uninstall retries reconfirm the recovery files before continuing deletion.
 
 The section instructs each Codex conversation to run `session.py ensure` using its
 own `CODEX_THREAD_ID`. It never embeds a fixed thread ID. Each thread gets:

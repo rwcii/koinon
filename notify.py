@@ -50,8 +50,11 @@ def save(path, value):
         with temp.open('x') as f:
             json.dump(value, f)
             f.flush()
-            os.fsync(f.fileno())
+            platform_support.sync_state_file(f.fileno())
         temp.replace(path)
+        platform_support.sync_state_directory(path.parent)
+        with path.open('rb') as stream:
+            platform_support.sync_state_file(stream.fileno())
     finally:
         temp.unlink(missing_ok=True)
 
