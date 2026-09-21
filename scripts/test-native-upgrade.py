@@ -8,6 +8,7 @@ from pathlib import Path
 import shutil
 import subprocess
 import sys
+import time
 
 SOURCE = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(SOURCE))
@@ -72,6 +73,21 @@ def main():
     # Python imports can create caches before a child sets its own umask.
     # All fixture subprocesses must inherit private creation permissions.
     os.umask(0o077)
+    domain = f'gui/{os.geteuid()}' if args.backend == 'launchd' else None
+    if not platform_support.memory_manager_available(args.backend, domain):
+        raise RuntimeError('native user manager unavailable; acceptance unmet')
+    if args.backend == 'systemd':
+        # The manager private socket can answer before its typed user-bus
+        # interface is ready. Observe readiness before creating any fixture.
+        deadline = time.monotonic() + 15
+        while True:
+            try:
+                platform_support.systemd_registration_layout()
+                break
+            except OSError:
+                if time.monotonic() >= deadline:
+                    raise RuntimeError('native user-manager D-Bus interface unavailable; acceptance unmet')
+                time.sleep(.1)
     if args.kind == 'session':
         return session_case(args.backend)
     spec = importlib.util.spec_from_file_location('native_memory_fixture', SOURCE / 'scripts/test-native-memory.py')
