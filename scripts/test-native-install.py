@@ -9,6 +9,7 @@ import subprocess
 import sys
 import tempfile
 import uuid
+from unittest.mock import patch
 
 SOURCE = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(SOURCE))
@@ -16,11 +17,22 @@ import platform_support
 from scripts.install import FILES
 
 
+MANAGER_QUERIES = []
+
+
 def memory_observation(record):
     name = Path(record['artifact']).name
-    if record['backend'] == 'systemd':
-        return platform_support.systemd_service_observation(name)
-    return platform_support.launchd_service_observation(record['manager_domain'], name[:-6])
+    run = subprocess.run
+    def observed(argv, *args, **kwargs):
+        result = run(argv, *args, **kwargs)
+        if len(MANAGER_QUERIES) < 64:
+            MANAGER_QUERIES.append(dict(argv=list(map(str, argv)), returncode=result.returncode,
+                                       stdout=result.stdout, stderr=result.stderr))
+        return result
+    with patch.object(platform_support.subprocess, 'run', side_effect=observed):
+        if record['backend'] == 'systemd':
+            return platform_support.systemd_service_observation(name)
+        return platform_support.launchd_service_observation(record['manager_domain'], name[:-6])
 
 
 def require(condition, message):
@@ -149,8 +161,9 @@ def main():
         fixtures.append(first)
         first.install(staged=True)
         for record in first.records:
-            require(memory_observation(record)['status'] == 'absent',
-                    'no-start registered a memory job')
+            observed = memory_observation(record)
+            require(observed['status'] == 'absent',
+                    'no-start memory absence not established: ' + json.dumps(observed))
         for record in first.session_records:
             require(platform_support.session_manager_observation(record)['status'] == 'absent',
                     'no-start registered a session job')
@@ -194,6 +207,7 @@ def main():
         evidence['acceptance'] = 'native_public_installation_complete'
     except Exception as exc:
         evidence['error'] = str(exc)
+        evidence['manager_queries'] = MANAGER_QUERIES
     finally:
         errors = []
         for fixture in reversed(fixtures):
