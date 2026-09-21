@@ -8,6 +8,8 @@ import tempfile
 import unittest
 from unittest.mock import patch
 
+import os
+
 from scripts import install
 import platform_support
 import upgrade_command
@@ -36,14 +38,25 @@ class CommandTests(unittest.TestCase):
         # These are synthetic installations. Without controlled sources, discovery read
         # the real host's loaded services, so the result depended on the machine and
         # any unparseable third-party definition on it failed the unit test.
-        sources = dict(directories=[str(self.root / 'units')], loaded_artifacts=[],
+        # Most of these tests run the dispatcher as a subprocess, which a patch in this
+        # process cannot reach, so the child is given the same controlled sources through
+        # its own import. Memory process detection is deliberately left real: the
+        # foreground regression depends on observing an actual process.
+        self.units = self.root / 'units'
+        sources = dict(directories=[str(self.units)], loaded_artifacts=[],
                        loaded_discovery='synthetic_isolated_inventory')
-        for isolated in (patch.object(platform_support, 'upgrade_service_sources',
-                                      return_value=sources),
-                         patch.object(platform_support, 'upgrade_memory_processes',
-                                      return_value=[])):
-            isolated.start()
-            self.addCleanup(isolated.stop)
+        isolated = patch.object(platform_support, 'upgrade_service_sources',
+                                return_value=sources)
+        isolated.start()
+        self.addCleanup(isolated.stop)
+        harness = self.root / 'harness'
+        harness.mkdir(mode=0o700)
+        (harness / 'sitecustomize.py').write_text(
+            'import sys\n'
+            f'sys.path.insert(0, {str(self.source)!r})\n'
+            'import platform_support\n'
+            f'platform_support.upgrade_service_sources = lambda prefix: {sources!r}\n')
+        self.env = {**os.environ, 'PYTHONPATH': str(harness)}
         self.config = dict(state_root=str(self.state), unit_dir=str(self.root / 'units'), codex=sys.executable)
         (self.prefix / 'install.json').write_text(json.dumps(self.config))
         (self.prefix / 'install.json').chmod(0o600)
@@ -51,7 +64,23 @@ class CommandTests(unittest.TestCase):
 
     def command(self, *args):
         return subprocess.run([sys.executable, str(self.source / 'scripts/upgrade.py'), *map(str, args)],
-                              capture_output=True, text=True, timeout=60)
+                              capture_output=True, text=True, timeout=60, env=self.env)
+
+    def test_subprocess_discovery_reads_the_controlled_sources(self):
+        """A patch in this process cannot reach the child, so assert the child's own scope.
+
+        The reported discovery status can only be the synthetic one when the child
+        itself used the controlled sources rather than this machine's real services.
+        """
+        units = Path(self.config['unit_dir'])
+        units.mkdir(mode=0o700)
+        (units / 'synthetic-isolation.service').write_text(
+            '[Service]\nExecStart=/synthetic/python ' + str(self.prefix / 'memory.py') + ' serve\n')
+        result = self.command('--prefix', self.prefix, '--source', self.source)
+        self.assertEqual(result.returncode, 1, result.stdout)
+        report = json.loads(result.stderr)
+        self.assertEqual(report['service_ownership']['loaded_discovery'],
+                         'synthetic_isolated_inventory')
 
     def test_public_command_executes_archive_and_reports_completed_upgrade(self):
         result = self.command('--prefix', self.prefix, '--source', self.source)
