@@ -262,3 +262,20 @@ from the partly replaced installation. Tests must remove or corrupt a prefix mod
 mid-replacement and demonstrate recovery through that retained bundle, then reject a
 changed bundle or source. Ordinary install, uninstall and ensure must refuse incomplete
 upgrade state; status and plan-validated recovery must remain available.
+
+The staged `upgrade_journal.py` records alternating intent and completion for each
+coordinator phase. Completion carries the digest of separately verified evidence;
+phase records do not establish that the evidence is correct or authorize an action.
+The journal is bound to the frozen plan digest, validates its entire bounded shape,
+and serializes publication through a permanent private lock. An identical lost-reply
+retry is idempotent; a different or stale predecessor requires rereading. Resume refuses
+a missing or malformed journal. Initialization belongs only to preparation of a new
+operation, before its active-installation marker is published, never to recovery.
+
+The coordinator must separately hold its operation lock while observing and performing
+external actions. A short journal publication lock cannot stop two callers from executing
+the same pending action. Completing the releasing phase is the single durable release
+decision; subsequent completion/acknowledgement records cannot undo it. Synthetic tests
+cover publication failures before and after atomic replacement, retained lock identity,
+wrong-plan refusal and monotonic release. They do not replace process-interruption,
+native-manager or complete coordinator acceptance fixtures.
