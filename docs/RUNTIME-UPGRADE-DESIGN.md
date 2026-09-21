@@ -177,3 +177,24 @@ watermarks and consumer cursors, bounded inventories, and unrelated-prefix survi
 Run native Linux/macOS end-to-end upgrade fixtures plus manual-supervisor handoff coverage.
 The release gate is a working resumable command and its generated report, not this design
 or a rewritten manual runbook.
+
+## Implementation slices
+
+The first internal primitive, `upgrade_inventory.py`, captures a consistent SQLite
+snapshot from a dedicated connection after the coordinator has established stopped
+ownership (or selected a verified consistent backup). It does not open paths, validate
+service ownership, migrate data or authorize replacement. Every catalog object is
+fingerprinted; ordinary and FTS shadow tables include every stored column and duplicate
+row. Virtual interfaces and views are recorded without querying their results.
+
+Rows use storage-class tags and length framing. Each table hashes the sorted multiset of
+SHA-256 row digests, including multiplicity, so physical order and collations cannot hide
+changes. SQLite's sequence table is included even when its inbox is empty. The assumption
+is SHA-256 collision resistance. Counts accompany the hashes as diagnostics. Catalog,
+column, row, value and total encoded-byte bounds produce explicit refusal rather than a
+partial inventory; they are not wall-clock I/O limits.
+
+Exact comparison lists added, removed and changed tables and catalog changes. It grants
+no migration exceptions. Store-specific identity fields, supported migration adapters,
+private backup/manifest publication, exclusion gates and the coordinator remain separate
+implementation steps before the proposed public command can become available.
