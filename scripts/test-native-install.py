@@ -24,7 +24,13 @@ def memory_observation(record):
     name = Path(record['artifact']).name
     run = subprocess.run
     def observed(argv, *args, **kwargs):
-        result = run(argv, *args, **kwargs)
+        try:
+            result = run(argv, *args, **kwargs)
+        except subprocess.CalledProcessError as exc:
+            if len(MANAGER_QUERIES) < 64:
+                MANAGER_QUERIES.append(dict(argv=list(map(str, argv)), returncode=exc.returncode,
+                                           stdout=exc.stdout, stderr=exc.stderr))
+            raise
         if len(MANAGER_QUERIES) < 64:
             MANAGER_QUERIES.append(dict(argv=list(map(str, argv)), returncode=result.returncode,
                                        stdout=result.stdout, stderr=result.stderr))
@@ -207,7 +213,7 @@ def main():
         evidence['acceptance'] = 'native_public_installation_complete'
     except Exception as exc:
         evidence['error'] = str(exc)
-        evidence['manager_queries'] = MANAGER_QUERIES
+        evidence['manager_queries'] = list(MANAGER_QUERIES)
     finally:
         errors = []
         for fixture in reversed(fixtures):
