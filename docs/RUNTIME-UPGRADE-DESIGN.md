@@ -149,8 +149,10 @@ Initial supported memory transitions must be enumerated from the implemented mig
 schema 4 to 5 preserves the store UUID; schema 3 to 5 assigns one. Same-schema replacement
 preserves canonical logical records. Undeclared transitions refuse.
 
-Release is one durable prefix-wide decision for the verified plan. Services acknowledge
-that decision independently; a coordinator crash during acknowledgement does not permit
+Release is one durable prefix-wide decision for the verified plan. Releasing-pending
+keeps every writer gated. Only the confirmed completion record permits a service to
+resume writes. The journal reports this as `release_decision_committed`, not as an
+observation of any process. Services acknowledge that decision independently; a coordinator crash during acknowledgement does not permit
 a second comparison against already resumed writers or an automatic rollback. Lease time
 continues during downtime: preserving raw lease records does not silently extend their
 validity, and expiry maintenance begins only after release.
@@ -299,3 +301,35 @@ records refuse; observing a release record whose durability cannot be confirmed
 must not release a service. The shared ordinary state reader remains read-only.
 Synthetic fault tests cover failures after rename and continuing flush failures;
 these do not simulate hardware power loss or prove filesystem/device compliance.
+
+`upgrade_bundle.py` stages the selected source files and explicit Python entrypoint
+as a deterministic private zip application, currently bounded to 4 MiB. Its descriptor
+binds the entire source manifest and archive digest; the coordinator must retain that
+descriptor in its frozen plan and supply a complete import dependency allowlist.
+Preparation verifies source bytes again before publishing, refuses different retained
+archives, and confirms all durability flushes on an identical retry. Verification
+refuses changed source or archive bytes and never substitutes a new release.
+
+A synthetic archive runs with Python's isolated `-I` option beside a deliberately
+broken installed module and conflicting `PYTHONPATH`. This demonstrates archive import
+isolation for the supplied fixture, not yet a complete coordinator dependency closure
+or native upgrade recovery. The future recovery entrypoint must work inside the archive,
+validate its plan before actions, and use the selected interpreter with `-I`; this helper
+does not execute a bundle or expose a public upgrade command.
+
+
+Release acknowledgement integration will use one immutable document per selected
+component, named from its fixed plan index. Preflight will cap a plan at 128 components
+and reserve space for all acknowledgements, aggregate manifests, phase evidence and
+locks before stopping anything; each retry reuses its existing slot. A receipt records
+that component's plan/selection identity, observed generation, release decision and
+observation time. It is historical evidence, not a substitute for fresh readiness.
+Resume validates its domain fields against the frozen plan and reobserves live ownership;
+a retained receipt never licenses repeating the gated data comparison after release.
+
+The releasing phase completion commits the global decision first. Per-component
+acknowledgements and final readiness observations follow that commit, during the final
+completion phase. Partial acknowledgement therefore cannot leave the journal reporting
+an uncommitted release while writers have been deliberately released. These are
+coordinator ordering requirements; the acknowledgement schema, preflight reservation
+and service-gate consumers remain to be integrated and tested.

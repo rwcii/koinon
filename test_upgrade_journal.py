@@ -24,7 +24,7 @@ class JournalTests(unittest.TestCase):
         for step in range(journal.LAST_STEP + 1):
             self.assertEqual(value['step'], step)
             description = self.state.describe(value)
-            self.assertEqual(description['released'], step >= journal.RELEASE_STEP)
+            self.assertEqual(description['release_decision_committed'], step >= journal.RELEASE_STEP)
             self.assertEqual(description['finished'], step == journal.LAST_STEP)
             self.assertEqual(self.state.initialize(), value)
             if step < journal.LAST_STEP:
@@ -100,9 +100,9 @@ class JournalTests(unittest.TestCase):
         while value['step'] < journal.RELEASE_STEP:
             value = self.state.advance(value, evidence='b' * 64 if value['step'] % 2 == 0 else None)
         reopened = journal.Journal(self.root, 'a' * 64)
-        self.assertTrue(reopened.describe(reopened.read())['released'])
+        self.assertTrue(reopened.describe(reopened.read())['release_decision_committed'])
         next_value = reopened.advance(value)
-        self.assertTrue(reopened.describe(next_value)['released'])
+        self.assertTrue(reopened.describe(next_value)['release_decision_committed'])
         with self.assertRaises(journal.JournalError):
             reopened.advance(dict(value, step=0, receipts=[]), evidence='b' * 64)
 
@@ -165,7 +165,7 @@ class JournalTests(unittest.TestCase):
                 self.state.advance(value, evidence='c' * 64)
             with self.assertRaises(OSError):
                 self.state.read()
-        self.assertTrue(self.state.describe(self.state.advance(value, evidence='c' * 64))['released'])
+        self.assertTrue(self.state.describe(self.state.advance(value, evidence='c' * 64))['release_decision_committed'])
 
 
 if __name__ == '__main__':

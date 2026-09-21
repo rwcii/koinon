@@ -121,5 +121,5 @@ class Journal:
         value = self.validate(value)
         return dict(phase=PHASES[value['step'] // 2],
                     completion='complete' if value['step'] % 2 else 'pending',
-                    released=value['step'] >= RELEASE_STEP,
+                    release_decision_committed=value['step'] >= RELEASE_STEP,
                     finished=value['step'] == LAST_STEP)
