@@ -232,8 +232,10 @@ Interruptions between temporary startup and stop need explicit native coverage.
 
 The source runtime may predate the new gate. Component-era runtimes validate
 `installation_state` against `installed` and `removing`; a future `upgrading` state can
-therefore make those older invocations refuse. This is only a proposed exclusion
-mechanism, not proof that a running process stopped. New coordinator code must validate
+therefore make older commands or manager restarts that read configuration refuse
+with their existing invalid-configuration diagnostic. Running bridge and notifier
+processes do not universally reread installation configuration. This exclusion
+mechanism is not proof that a running process stopped. New coordinator code must validate
 its frozen plan before allowing upgrade-specific access to that state. An old process
 that already read configuration still requires owned shutdown and exit verification.
 Old invocations waiting on installation or component locks must revalidate after the
@@ -430,3 +432,26 @@ jobs under the same upgrade gates before this operation can offer that change.
 Existing selection metadata binds paths, not interpreter binary hashes or version
 identities. Replacing a Python binary in place is outside this coordinated
 operation and is not detected as a path mismatch.
+
+
+The staged admission integration publishes an exact plan-bound `upgrading` marker
+under installation and component admission locks. Ordinary installation readers
+refuse it with `installation_upgrading` and exit 78; the memory supervisor and
+session CLI preserve that cause and direct the operator to upgrade status/resume.
+They do not request automatic restart or configuration repair. The proposed public
+status/resume command is still part of the unfinished coordinator integration.
+
+Selected service status, owned stop and gated startup validate the active plan and
+frozen selection before using original installation inputs. Artifact verification
+still checks the current owning selection and literal artifact bytes. Ordinary
+ensure and deactivation do not acquire this access. New children refuse startup
+before the migration phase; thereafter bridge mutations, notifier delivery and
+memory maintenance remain gated until the confirmed global release decision.
+The bridge reserves its peer socket without listening while its private control
+endpoint supports verification. A missing or changed marker never releases a bound
+gate. Gate failures stop the affected service and drain its database worker before
+releasing owned endpoints.
+
+Synthetic tests cover these admission paths and service cleanup. They are not the
+complete stop/backup/replace/migrate/restart operation or native platform acceptance;
+those remain required before closing the upgrade gate.

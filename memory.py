@@ -1637,6 +1637,10 @@ class MemoryCommands:
             raise MemoryError_('invalid_request', 'a stable consumer key is required')
         return key.strip()
 
+    def upgrade_inventory(self):
+        import upgrade_inventory
+        return upgrade_inventory.capture(self.store.db)
+
     # Operations that must stay reachable when writes cannot proceed. Running cleanup
     # before them made a failed cleanup block the very reads, status and stop that the
     # blocked-store error promises remain available.
@@ -1938,6 +1942,8 @@ class Service:
     def __init__(self, root, repo, store_factory):
         self.root, self.repo = Path(root), repo
         self.generation = uuid.uuid4().hex
+        import upgrade_gate
+        self.upgrade = upgrade_gate.select(Path(__file__).parent, 'memory', root, self.generation)
         self.hints = subscriptions.HintHub(self.generation)
         self.stop = asyncio.Event()
         self.tasks = set()
@@ -1954,6 +1960,12 @@ class Service:
         if not isinstance(request, dict) or not isinstance(request.get('op'), str):
             raise MemoryError_('invalid_request', 'expected an operation object')
         validate_target(request, self.repo, self.generation)
+        if self.upgrade is not None:
+            if request['op'] == 'upgrade-inventory':
+                self.upgrade.authorize_inventory(request)
+                return await self.worker.call('upgrade_inventory')
+            if request['op'] not in ('hello', 'status', 'stop') and not self.upgrade.released():
+                raise ValueError('upgrade in progress; ordinary memory requests are gated')
         if request['op'] == 'stop':
             result = stop_result(request, self.repo, self.generation)
             self.stop.set()
@@ -1968,6 +1980,8 @@ class Service:
         else:
             result = await self.worker.call('command', request, pid)
         if request['op'] in ('hello', 'status'):
+            if self.upgrade is not None:
+                result['upgrade'] = self.upgrade.status()
             result['capabilities'] = ['memory_subscription', 'memory_target_guard']
             if result.get('schema') == work_schema.VERSION:
                 result['capabilities'].extend(['work_items_v1', 'memory_record_format_2'])
@@ -1993,6 +2007,8 @@ class Service:
                     request = json.loads(await reader.readline())
                 if not isinstance(request, dict):
                     raise MemoryError_('invalid_request', 'expected an operation object')
+                if request.get('op') == 'subscribe' and self.upgrade is not None and not self.upgrade.released():
+                    raise ValueError('upgrade in progress; subscriptions are gated')
                 if request.get('op') == 'subscribe':
                     self.admission.leave(slot)
                     slot = None
@@ -2035,6 +2051,8 @@ class Service:
 
     async def maintain_work(self):
         """One ordinary submission at a time, with monotonic waits between jobs."""
+        if self.upgrade is not None and not await self.upgrade.wait(self.stop):
+            return
         while not self.closing and not self.stop.is_set():
             try:
                 result = await self.worker.call('maintain_work')
@@ -2055,6 +2073,7 @@ class Service:
     async def run(self, sock):
         server = None
         maintenance_task = None
+        maintenance_failure = None
         try:
             # Initialization completed in the worker before the socket was bound.
             status = await self.command(dict(op='status'), os.getpid())
@@ -2067,13 +2086,19 @@ class Service:
                     pass
             print(json.dumps(status), flush=True)
             maintenance_task = asyncio.create_task(self.maintain_work())
+            maintenance_task.add_done_callback(
+                lambda task: self.stop.set() if not task.cancelled() and task.exception() else None)
             await self.stop.wait()
         finally:
             self.closing = True
             if maintenance_task is not None:
                 maintenance_task.cancel()
-                with contextlib.suppress(asyncio.CancelledError):
+                try:
                     await maintenance_task
+                except asyncio.CancelledError:
+                    pass
+                except Exception as exc:
+                    maintenance_failure = exc
             self.hints.close()
             if server is not None:
                 server.close()
@@ -2085,6 +2110,8 @@ class Service:
                 finally:
                     if server is not None:
                         await server.wait_closed()
+            if maintenance_failure is not None:
+                raise maintenance_failure
 
 
 def write_owner(home, sock_path, generation, repo):

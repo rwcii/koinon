@@ -15,17 +15,27 @@ LOCK_TIMEOUT = 30
 
 
 class LockedConfiguration:
-    def __init__(self, prefix):
+    def __init__(self, prefix, *, validator=None):
         self.prefix = prefix
-        self.config = runtime_names.install_config(prefix)
+        self.validator = validator
+        self.config = self._read()
+
+    def _read(self):
+        if self.validator is None:
+            return runtime_names.install_config(self.prefix)
+        return runtime_names._read_install_config(self.prefix, self.validator)
 
     def merge(self, updates):
         merged = dict(self.config)
         merged.update(updates)
-        runtime_names.validate_install_config(merged)
+        return self.replace(merged)
+
+    def replace(self, merged):
+        """Publish a complete configuration under the caller's lifecycle validator."""
+        (self.validator or runtime_names.validate_install_config)(merged)
         target = self.prefix / 'install.json'
         # Revalidate retained evidence before publication, including target type.
-        runtime_names.install_config(self.prefix)
+        self._read()
         fd, temporary = tempfile.mkstemp(prefix='.install-', dir=self.prefix)
         try:
             with os.fdopen(fd, 'w', encoding='utf-8') as stream:
@@ -48,13 +58,13 @@ class LockedConfiguration:
         Retain every unknown field and existing validation rule, including older
         readable config modes. A retry succeeds only after all durability flushes.
         """
-        if runtime_names.install_config(self.prefix) != self.config:
+        if self._read() != self.config:
             raise ValueError('installation configuration changed before confirmation')
         return self.merge({})
 
 
 @contextmanager
-def locked(prefix):
+def locked(prefix, *, validator=None):
     """Lock order: installation, sorted artifact locks, then sorted guidance locks.
 
     Never remove or replace permanent lock inodes.
@@ -72,7 +82,7 @@ def locked(prefix):
             info, current = os.fstat(fd), path.lstat()
             if (current.st_dev, current.st_ino) != (info.st_dev, info.st_ino):
                 raise ValueError('installation lock was replaced')
-            state = LockedConfiguration(prefix)
+            state = LockedConfiguration(prefix, validator=validator)
         except runtime_names.NameConflict:
             raise
         except OwnershipError as exc:

@@ -88,6 +88,10 @@ class InboxStore:
             self.db.close()
             raise
 
+    def upgrade_inventory(self):
+        import upgrade_inventory
+        return upgrade_inventory.capture(self.db)
+
     def close(self):
         self.db.close()
 
@@ -264,6 +268,8 @@ class Bridge:
         self.address = f'uds:/tmp/cc-socks/{os.getpid()}.sock'
         self.stop = asyncio.Event()
         self.generation = uuid.uuid4().hex
+        import upgrade_gate
+        self.upgrade = upgrade_gate.select(Path(__file__).parent, 'bridge', root, self.generation)
         self.hints = subscriptions.HintHub(self.generation)
         self.binding_health = {}
         # Construction must not open or migrate a database before endpoint ownership.
@@ -332,6 +338,9 @@ class Bridge:
             if control:
                 async with asyncio.timeout(HANDSHAKE_TIMEOUT):
                     request = json.loads(await reader.readline())
+            if self.upgrade is not None and not self.upgrade.released() and (
+                    not control or isinstance(request, dict) and request.get('op') == 'subscribe-inbox'):
+                raise ValueError('upgrade in progress; ingress is gated')
             if control and isinstance(request, dict) and request.get('op') == 'subscribe-inbox':
                 self.admission.leave(slot)
                 slot = None
@@ -423,6 +432,12 @@ class Bridge:
         if not isinstance(r, dict) or not isinstance(r.get('op'), str):
             raise ValueError('expected operation object')
         op = r['op']
+        if self.upgrade is not None:
+            if op == 'upgrade-inventory':
+                self.upgrade.authorize_inventory(r)
+                return await self.worker.call('upgrade_inventory')
+            if op not in ('status', 'stop', generation_stop.OPERATION) and not self.upgrade.released():
+                raise ValueError('upgrade in progress; ordinary bridge requests are gated')
         if op == 'status':
             state, diagnostics = await database_status(self.worker, r)
             if state is None:
@@ -433,6 +448,7 @@ class Bridge:
             return dict(pid=os.getpid(), address=self.address, generation=self.generation,
                         control_capabilities=[generation_stop.CAPABILITY],
                         **state, **diagnostics,
+                        **({'upgrade': self.upgrade.status()} if self.upgrade is not None else {}),
                         presence=dict(service=participant_presence.service('live_bridge_control'),
                                       model_activity=participant_presence.unknown()),
                         delivery='inbox available; run notify.py to notify the selected participant session')
@@ -506,6 +522,8 @@ class Bridge:
         if self.worker is not None or self.closing:
             raise RuntimeError('bridge instance cannot be started twice')
         sockets, servers, identities = [], [], {}
+        ingress_task = None
+        ingress_failure = None
         try:
             startup_directory(Path('/tmp/cc-socks'))
             peer = Path(self.address[4:])
@@ -558,10 +576,19 @@ class Bridge:
                 store.on_change = self.hints.notify_committed
                 return store
             self.worker = DatabaseWorker(store_factory)
-            for sock, _path in sockets:
-                sock.listen(16)
+            sockets[0][0].listen(16)
             servers.append(await asyncio.start_unix_server(lambda r,w: self.handle(r,w,True), sock=sockets[0][0], limit=LIMIT))
-            servers.append(await asyncio.start_unix_server(self.handle, sock=sockets[1][0], limit=LIMIT))
+            async def open_ingress():
+                if self.upgrade is not None and not await self.upgrade.wait(self.stop):
+                    return
+                sockets[1][0].listen(16)
+                servers.append(await asyncio.start_unix_server(self.handle, sock=sockets[1][0], limit=LIMIT))
+            if self.upgrade is None:
+                await open_ingress()
+            else:
+                ingress_task = asyncio.create_task(open_ingress())
+                ingress_task.add_done_callback(
+                    lambda task: self.stop.set() if not task.cancelled() and task.exception() else None)
             loop = asyncio.get_running_loop()
             for sig in (signal.SIGTERM, signal.SIGINT):
                 loop.add_signal_handler(sig, self.stop.set)
@@ -569,6 +596,14 @@ class Bridge:
             await self.stop.wait()
         finally:
             self.closing = True
+            if ingress_task is not None:
+                ingress_task.cancel()
+                try:
+                    await ingress_task
+                except asyncio.CancelledError:
+                    pass
+                except Exception as exc:
+                    ingress_failure = exc
             self.hints.close()
             # Keep the endpoint reservation until accepted database work drains.
             # New handlers see closing and cannot submit work. Some Python
@@ -597,6 +632,8 @@ class Bridge:
                                 continue
                             if (info.st_dev, info.st_ino) == identities.get(path):
                                 path.unlink()
+            if ingress_failure is not None:
+                raise ingress_failure
 
 
 async def client(root, request):

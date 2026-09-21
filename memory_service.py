@@ -32,7 +32,7 @@ BACKOFF_INITIAL = 10
 BACKOFF_MAX = 60
 HEALTHY_RESET = 60
 ERRORS = {
-    'configuration_error': 78, 'supervisor_in_use': 78,
+    'configuration_error': 78, 'installation_upgrading': 78, 'supervisor_in_use': 78,
     'external_memory_service': 78, 'ownership_unknown': 78,
     'recorded_refusal': 78, 'shutdown_unconfirmed': 78,
     'memory_configuration_failure': 78, 'memory_software_failure': 70,
@@ -98,14 +98,19 @@ def configuration_boundary():
     except durable_state.StateReadBusyError as exc:
         raise RunnerError('memory_temporary_failure') from exc
     except (OSError, ValueError) as exc:
-        raise RunnerError('configuration_error', paths=getattr(exc, 'paths', ())) from exc
+        code = ('installation_upgrading' if isinstance(exc, runtime_names.NameConflict)
+                and exc.code == 'installation_upgrading' else 'configuration_error')
+        raise RunnerError(code, paths=getattr(exc, 'paths', ())) from exc
 
 
 class Selection:
-    def __init__(self, prefix, repository, *, state_root=None, backend=None, removing=False):
+    def __init__(self, prefix, repository, *, state_root=None, backend=None, removing=False, upgrading=False):
         with configuration_boundary():
             self.prefix = absolute_path(str(prefix))
-            config = runtime_names.install_config(self.prefix)
+            import upgrade_exclusion
+            self.upgrade = upgrade_exclusion.read(self.prefix) if upgrading else None
+            config = (self.upgrade['documents']['installation'] if self.upgrade is not None
+                      else runtime_names.install_config(self.prefix))
             if config.get('installation_state') == 'removing' and not removing:
                 raise RunnerError('configuration_error', paths=(self.prefix / 'install.json',))
             self.key = memory.repo_identity(repository)
@@ -115,13 +120,18 @@ class Selection:
                 raise RunnerError('configuration_error')
             if removal:
                 self.record = memory_service_artifacts.verify_removing(self.prefix, sys.executable, self.record)
+            if self.upgrade is not None and not any(
+                    item['kind'] == 'memory' and item['selection'] == self.record
+                    for item in self.upgrade['documents']['components']['items']):
+                raise RunnerError('configuration_error')
             memory_service_config.verify_selection(self.record)
             self.backend = self.record['backend']
             if (state_root is not None and str(absolute_path(str(state_root))) != self.record['state_root']
                     or backend is not None and backend != self.backend):
                 raise RunnerError('configuration_error')
             if self.backend != 'manual' and not removal:
-                memory_service_artifacts.verify_owned(self.prefix, sys.executable, self.record)
+                memory_service_artifacts.verify_owned(self.prefix, sys.executable, self.record,
+                                                      upgrading=self.upgrade is not None)
             self.home = Path(self.record['service_directory'])
             self.installation = fingerprint([str(self.prefix), self.key, str(self.home)])
             self.configuration = fingerprint([self.installation, sys.executable, self.record])
@@ -247,7 +257,8 @@ def manager_observation(selection):
             if (result['argv'] != expected or result['executable'] != expected[0]):
                 raise RunnerError('manager_ownership_conflict')
             memory_service_artifacts.verify_loaded(selection.prefix, sys.executable, selection.record,
-                                                   result['artifact'])
+                                                   result['artifact'],
+                                                   **({'upgrading': True} if getattr(selection, 'upgrade', None) is not None else {}))
         return result
 
 
@@ -482,6 +493,8 @@ class Supervisor:
 
 
 def run(selection, *, foreground=False):
+    if selection.upgrade is not None and selection.upgrade['phase']['step'] < 10:
+        raise RunnerError('configuration_error')
     stopped = StopRequest(selection)
     previous = {}
     for signum in (signal.SIGTERM, signal.SIGINT):
@@ -614,7 +627,8 @@ def deactivate_owned(selection):
             or manager_observation(selection) != stopped):
         raise RunnerError('manager_observation_unknown')
     if stopped['status'] == 'observed':
-        memory_service_artifacts.verify_owned(selection.prefix, sys.executable, selection.record)
+        memory_service_artifacts.verify_owned(selection.prefix, sys.executable, selection.record,
+                                              **({'upgrading': True} if getattr(selection, 'upgrade', None) is not None else {}))
         platform_support.memory_manager_deregister(selection.record)
     if manager_observation(selection)['status'] != 'absent':
         raise RunnerError('manager_observation_unknown')
@@ -643,7 +657,8 @@ def main():
     status = 0
     backend = args.backend
     try:
-        selection = Selection(args.prefix, args.repo, state_root=args.state_root, backend=args.backend)
+        selection = Selection(args.prefix, args.repo, state_root=args.state_root, backend=args.backend,
+                              upgrading=args.action in ('run', 'status', 'stop'))
         backend = selection.backend
         if args.action == 'run':
             status = run(selection, foreground=args.foreground or backend == 'manual')
@@ -674,7 +689,9 @@ def main():
         status = exc.exit_status
         print(json.dumps(dict(ok=False, status='unavailable', running=False, code=exc.code,
                               exit_status=status, primary_code=exc.primary_code,
-                              shutdown_code=exc.shutdown_code, paths=list(exc.paths))), flush=True)
+                              shutdown_code=exc.shutdown_code, paths=list(exc.paths),
+                              **({'recovery': 'use upgrade status or resume; do not repair or reinstall'}
+                                 if exc.code == 'installation_upgrading' else {}))), flush=True)
     except durable_state.StateReadBusyError:
         status = 75
         print(json.dumps(dict(ok=False, status='unavailable', running=False,

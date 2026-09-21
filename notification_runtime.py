@@ -97,6 +97,8 @@ class Runtime:
         self.registry = Path(registry) if registry is not None else Path(
             os.environ.get('CLAUDE_CONFIG_DIR', str(Path.home() / '.claude'))) / 'sessions'
         self.generation = uuid.uuid4().hex
+        import upgrade_gate
+        self.upgrade = upgrade_gate.select(Path(__file__).parent, 'notifier', self.root, self.generation)
         self.stop = asyncio.Event()
         self.admission = Admission()
         self.handlers = set()
@@ -379,6 +381,8 @@ class Runtime:
         if not isinstance(request, dict) or not isinstance(request.get('op'), str):
             raise ValueError('invalid notifier control request')
         op = request['op']
+        if self.upgrade is not None and op not in ('status', 'stop', generation_stop.OPERATION) and not self.upgrade.released():
+            raise ValueError('upgrade in progress; notifier requests are gated')
         if op == generation_stop.OPERATION:
             generation_stop.validate(request, self.generation)
             self.stop.set()
@@ -392,6 +396,7 @@ class Runtime:
         if op == 'status':
             value = await self.observed_health()
             return dict(control_capabilities=[generation_stop.CAPABILITY],
+                        **({'upgrade': self.upgrade.status()} if self.upgrade is not None else {}),
                         bridge_generation=(self.bridge or {}).get('generation'),
                         generation=self.generation, pid=os.getpid(), lifecycle='stopping' if self.closing else 'running',
                         presence=dict(service=participant_presence.service('live_notifier_control'),
@@ -504,6 +509,10 @@ class Runtime:
                 sock.close()
                 raise
             self.health_worker = await create_worker(lambda: health.HealthFile(self.root))
+            if self.upgrade is not None:
+                durable_state.publish(self.root / 'notify-ready.json', dict(self.owner, participant_lock=self.participant))
+                if not await self.upgrade.wait(self.stop):
+                    return
             private_dir(self.registry)
             record = self.registry / f'{self.bridge["pid"]}.json'
             started = await platform_support.async_proc_start(self.bridge['pid'])

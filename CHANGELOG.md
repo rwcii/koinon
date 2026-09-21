@@ -5,6 +5,11 @@ into a dated release section when promoted to `main`.
 
 ## Unreleased
 
+- Stage upgrade exclusion and service admission: selected verification can retain
+  ownership checks while peer ingress, notification delivery and maintenance wait
+  for durable release. Preserve upgrade-specific supervisor diagnostics. The public
+  coordinated upgrade operation remains in development.
+
 - Allow streaming upgrade backups up to 1 GiB per file through the shared binary
   file guard. Other callers retain their smaller explicit limits; JSON records
   keep the 4 KiB default and 1 MiB maximum.
