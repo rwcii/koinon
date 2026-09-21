@@ -16,6 +16,13 @@ into a dated release section when promoted to `main`.
 - Explain safe recovery from an unowned-memory upgrade refusal, including a structured
   recovery code and preservation guidance for existing legacy stores and services.
 
+- Correct six stale claims in `AGENTS.md` and `README.md`: an authorized upgrade now points
+  at `scripts/upgrade.py` instead of rerunning the installer, the installer is described as
+  configuring and conditionally starting repository memory, macOS is launchd-supported rather
+  than manual-only, memory is described as carrying subscriptions and content-free notices
+  rather than being pull-only, and a fresh `--repo` installation is no longer described as
+  the legacy unit pair or as starting nothing automatically.
+
 - Add an experimental public native upgrade command with a retained recovery archive,
   explicit resume/status, preflight refusal of unowned memory state in selected roots,
   and private preservation reports through release and final readiness. Inactive/manual

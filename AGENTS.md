@@ -42,16 +42,20 @@ that scope. Do not send test messages to other agents unless communication is au
 3. Select a descriptive peer name and the intended project path. Check for an existing
    bridge, its target thread, state directory, and services before replacing anything.
    Preserve unrelated running bridges and all inbox state.
-4. For a user with systemd on Linux, run `python3 scripts/install.py --thread THREAD_ID --name
-   PEER_NAME --repo PROJECT_PATH`. Use argument arrays or correct shell quoting.
-   That explicit legacy mode manages one service pair. Prefer `--configure-codex` for
-   multiple conversations: install managed global guidance, then run `session.py ensure`
+4. Run `python3 scripts/install.py --thread THREAD_ID --name PEER_NAME --repo PROJECT_PATH`.
+   Use argument arrays or correct shell quoting. With `--repo` on a fresh prefix this
+   installs the repository components, not the legacy bridge/notifier unit pair; the
+   legacy pair is reached only when no memory selection is made. Prefer `--configure-codex`
+   for multiple conversations: install managed global guidance, then run `session.py ensure`
    with the current CODEX_THREAD_ID, or `session.py ensure --agent deepseek` in a harness
    session. Each session gets an isolated supervisor instance.
    For an isolated preview use `--no-start` plus temporary prefix, state, and unit paths.
-5. Without a user systemd manager — which includes every macOS host — use the manual
-   two-process setup in the installation guide. On macOS `install.py` refuses the service
-   path and `session.py ensure` reports `manual_required` with a start command. Do not
+5. macOS is supported through launchd, not only manually: `installation_backend()` selects
+   `launchd`, the artifact goes to `~/Library/LaunchAgents`, and `session.py ensure` drives
+   it. `manual_required` is reported when no user manager is reachable or the saved backend
+   is `manual` — not on macOS as such. The historical systemd-only explicit-thread path does
+   still refuse on macOS; use the repository component invocation instead. Without any user
+   service manager, use the manual two-process setup in the installation guide. Do not
    silently introduce sudo, system services, lingering, or permission changes.
 6. Verify both services, the bridge status, and the registry's bare filesystem socket path.
    When authorized, ask a peer to refresh its listing and send one short test by name.
@@ -80,9 +84,17 @@ credentials, environment dumps, inbox content, or private thread IDs into commit
 ## Shared memory and handoffs
 
 Read the shared memory sections in README.md, PROTOCOL.md, and docs/INSTALL.md before
-operating or changing `memory.py`. The installer copies the module, but does not start
-it or configure a memory service. Start it explicitly in a persistent managed session.
-It is currently pull-only: it has no peer-bus subscriptions or automatic notices.
+operating or changing `memory.py`. `scripts/install.py --configure-memory` configures a
+memory service, and a fresh install with `--repo` also selects one. `--no-start` only
+stages that selection; otherwise the installer runs `memory_service.py ensure`, which
+starts a selected native service when its manager is available. A selected manual
+backend never starts automatically, and neither does a native selection whose manager
+is unavailable; both report `manual_required` with a start command. Where no selection
+is made, or where `ensure` reports `manual_required`, start it explicitly in a
+persistent managed session.
+The service advertises `memory_subscription`, the notifier subscribes to it, and a head
+change queues a content-free notice carrying a `sync` command. Reading the store is still
+a pull the receiving session performs; the notice never carries memory content.
 
 One store serves each absolute Git common directory, including its worktrees. Use a
 stable consumer key for stateful commands. Read every snapshot page before acknowledging
@@ -97,10 +109,15 @@ Memory does not automatically import those files or replace agent-specific memor
 
 ## Upgrades and configuration changes
 
-Use a feature branch and the normal test/review flow for code changes. For an authorized
-runtime upgrade, rerun the installer with the same target and paths; keep state intact.
-A different target thread requires a separate state directory. Do not reset a checkpoint
-silently. The notifier's `--codex` option handles a CLI at a nonstandard absolute path.
+Use a feature branch and the normal test/review flow for code changes. An authorized
+runtime upgrade runs `python3 scripts/upgrade.py --prefix ABS_PREFIX --source ABS_SOURCE`;
+`--status ABS_PREFIX` reports an operation and `--resume ABS_OPERATION --plan DIGEST`
+continues an interrupted one. It takes its own preflight, consistent backup, gated
+release and preservation report, and it refuses rather than proceeding when it finds
+memory state without a saved managed selection. Do not rerun the installer as a
+substitute; that bypasses every one of those checks. Read `docs/WORK-ITEMS-UPGRADE.md`
+first. A different target thread requires a separate state directory. Do not reset a
+checkpoint silently. The notifier's `--codex` option handles a CLI at a nonstandard absolute path.
 If Claude uses `CLAUDE_CONFIG_DIR`, configure it consistently for both services.
 
 Use `scripts/uninstall.sh` for the default install; it preserves inbox state. For custom
