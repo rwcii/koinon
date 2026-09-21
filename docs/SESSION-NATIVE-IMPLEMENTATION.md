@@ -66,3 +66,49 @@ by lengthening native-manager waits.
 Only after both native lifecycles pass should the installer integrate one-invocation
 component selection, no-start behavior, inventory, exact removal and explicit external
 service migration.
+## Saved selection and entrypoint
+
+`session_service_config.py` binds an explicit native selection to its private session
+registration, participant digest, installed prefix, Python interpreter, notifier command,
+backend and artifact bytes. Records live in the existing session directory as
+`native-service.json`; they do not create an unbounded installation-wide inventory.
+The raw thread is not included in a native unit or plist. DeepSeek selections require
+an explicit harness URL and credential path, rather than inheriting a shell environment.
+Legacy manual operation remains separate.
+
+`session_service_artifacts.publish` requires existing private directories and a saved
+`session.json`. It acquires installation, lifecycle, registration and supervisor locks
+in that order, rechecks inputs, writes bounded publication intent, then publishes the
+artifact and completion record. Exact repeats preserve the artifact inode. Interrupted
+publication accepts only its saved empty preimage or exact intended bytes. Identical
+unregistered artifacts, changed registrations, unsafe locks and foreign paths refuse;
+evidence is retained. The hardened file and ancestor primitives are shared with memory
+publication. Publication performs no manager operation.
+
+`session_service.py` is the owned runner entrypoint and exposes status, stop, retry and
+explicit spawn recovery for an already-published selection. Status joins both private
+child handshakes with runner and child process identities; saved `running` state alone
+cannot establish readiness. Recovery requires the exact generation and
+`--assert-no-unrecorded-child`. The recovery `basis` field is mandatory, and every
+consumer retains `operator_assertion` beside that evidence. An unresolved spawn remains
+unresolved in status even after an assertion authorizes a separate explicit retry.
+
+These commands are not dispatched from legacy `session.py`, and neither the installer
+nor these primitives register a native job yet. The renderer targets this new runner;
+its systemd unit has no login enablement section. Existing sessions retain their current
+behavior until explicit activation and upgrade integration are implemented.
+
+## Upgrade preflight constraints
+
+An old regular session unit in a higher-precedence systemd lookup directory can shadow
+an otherwise valid runtime link with the same name. Activation must detect and identify
+that path before manager mutation, preserve it, and require the supported migration
+operation under #43. It must not silently rename the service, remove the old unit, or
+adopt its bytes. Native fresh-install evidence cannot establish upgrade acceptance.
+
+A legacy `supervisor.lock` with permissions such as `0664` is refused before starting
+children. The command reports the exact path and preserves its inode and permissions.
+Operator resolution means inspecting ownership and ensuring the old service and both
+children are stopped before an explicit, authorized repair/migration; deleting lock or
+supervisor evidence is not a supported recovery procedure. Automatic permission repair
+is not part of this slice. Installation-wide upgrade reconciliation remains #43 work.

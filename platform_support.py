@@ -485,6 +485,41 @@ def session_launchd_artifact(prefix, python, thread, repository, *, domain, agen
                                Umask=63, RunAtLoad=True, ThrottleInterval=10,
                                KeepAlive=dict(SuccessfulExit=False)), sort_keys=True)
 
+
+def session_service_command(record):
+    import session_service_config
+    session_service_config.validate(record)
+    return [record['python'], str(Path(record['prefix']) / 'session_service.py'), 'run',
+            '--prefix', record['prefix'], '--state-dir', record['state_directory'],
+            '--backend', record['backend']]
+
+
+def session_service_artifact(record):
+    """Render a saved native selection for the owned pair runner; no manager calls."""
+    import json
+    import plistlib
+    import session_service_config
+    session_service_config.validate(record)
+    argv = session_service_command(record)
+    if record['backend'] == 'systemd':
+        import runtime_names
+        escaped = [json.dumps(value.replace('%', '%%'), ensure_ascii=False) for value in argv]
+        return (runtime_names.SERVICE_MARKER + '# Native session service template v1\n'
+                '[Unit]\nDescription=Koinon owned session supervisor\n\n'
+                '[Service]\nType=simple\nExecStart=:' + ' '.join(escaped) +
+                '\nRestart=on-failure\nRestartSec=5\nRestartPreventExitStatus=' +
+                ' '.join(map(str, PERMANENT_EXIT_STATUSES)) + '\nUMask=0077\n').encode()
+    if record['backend'] == 'launchd':
+        if record['manager_domain'] != f'gui/{os.geteuid()}':
+            raise ValueError('launchd domain must belong to the current user')
+        label = session_service_config.artifact_name(record['session_key'], 'launchd')[:-6]
+        return plistlib.dumps(dict(Label=label, ProgramArguments=argv, KoinonManaged='owned-session-v1',
+                                   Umask=63, RunAtLoad=True, ThrottleInterval=10,
+                                   KeepAlive=dict(SuccessfulExit=False)), sort_keys=True)
+    raise ValueError('manual session has no native artifact')
+
+
+
 def user_service_manager(operation, names=(), **options):
     """Run one supported user-manager operation, preserving caller I/O policy.
 
