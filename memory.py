@@ -2101,8 +2101,11 @@ def write_owner(home, sock_path, generation, repo):
         with temp.open('x') as f:
             json.dump(record, f)
             f.flush()
-            os.fsync(f.fileno())
+            platform_support.sync_state_file(f.fileno())
         temp.replace(Path(home) / 'owner.json')
+        platform_support.sync_state_directory(Path(home))
+        with (Path(home) / 'owner.json').open('rb') as stream:
+            platform_support.sync_state_file(stream.fileno())
     finally:
         temp.unlink(missing_ok=True)
     return record
