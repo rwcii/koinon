@@ -71,8 +71,10 @@ class Records:
     def validate(self, value, *, refusal=False):
         fields = {'version', 'installation', 'configuration', 'generation', 'pid', 'proc_start',
                   'phase', 'children', 'spawn_pending', 'exit_status', 'primary_code', 'shutdown_code'}
+        if isinstance(value, dict) and value.get('version') == 2:
+            fields |= {'control_endpoints', 'endpoint_pending'}
         if (not isinstance(value, dict) or set(value) != fields or type(value['version']) is not int
-                or value['version'] != 1 or value['installation'] != self.installation
+                or value['version'] not in (1, 2) or value['installation'] != self.installation
                 or not hex_value(value['configuration'], 64) or not hex_value(value['generation'], 32)
                 or not process(value) or not isinstance(value['phase'], str) or value['phase'] not in PHASES
                 or not isinstance(value['children'], dict) or set(value['children']) != set(CHILDREN)
@@ -96,6 +98,25 @@ class Records:
                     raise StateError('invalid_session_state') from exc
                 if child['generation'] is None:
                     raise StateError('invalid_session_state')
+        if value['version'] == 2:
+            import session_endpoints
+            endpoints, pending_endpoint = value['control_endpoints'], value['endpoint_pending']
+            if (not isinstance(endpoints, dict) or set(endpoints) != set(CHILDREN)
+                    or pending_endpoint is not None and (not isinstance(pending_endpoint, str)
+                        or pending_endpoint not in CHILDREN or endpoints[pending_endpoint] is not None)):
+                raise StateError('invalid_session_state')
+            for kind, endpoint in endpoints.items():
+                if endpoint is not None:
+                    root = self.directory if kind == 'bridge' else self.directory / 'notifier'
+                    try:
+                        session_endpoints.validate(endpoint, root)
+                    except (OSError, ValueError) as exc:
+                        raise StateError('invalid_session_state') from exc
+                    child = value['children'][kind]
+                    if child is not None and child.get('control_endpoint', endpoint) != endpoint:
+                        raise StateError('invalid_session_state')
+            if pending_endpoint is not None and value['phase'] in ('running', 'stopped'):
+                raise StateError('invalid_session_state')
         pending = value['spawn_pending']
         if (pending is not None and (not isinstance(pending, str) or pending not in CHILDREN
                                      or value['children'][pending] is not None)
@@ -123,10 +144,11 @@ class Records:
             raise StateError('invalid_session_state') from exc
 
     def new_owner(self):
-        return self.validate(dict(version=1, installation=self.installation, configuration=self.configuration,
+        return self.validate(dict(version=2, installation=self.installation, configuration=self.configuration,
                                   generation=uuid.uuid4().hex, pid=os.getpid(),
                                   proc_start=platform_support.proc_start(os.getpid()), phase='starting',
                                   children={key: None for key in CHILDREN}, spawn_pending=None, exit_status=None,
+                                  control_endpoints={key: None for key in CHILDREN}, endpoint_pending=None,
                                   primary_code=None, shutdown_code=None))
 
     def publish(self, value, *, refusal=False):
@@ -185,7 +207,7 @@ class Records:
             for record in (owner, refusal):
                 if record is None:
                     continue
-                if (alive_state(record) != 'dead'
+                if (alive_state(record) != 'dead' or record.get('endpoint_pending') is not None
                         or record['spawn_pending'] is not None and not self.spawn_recovered(record)
                         or any(child is not None and alive_state(child) != 'dead'
                                for child in record['children'].values())):

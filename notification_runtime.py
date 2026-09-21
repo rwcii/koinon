@@ -478,10 +478,19 @@ class Runtime:
                 private_dir(control.parent)
             except (OSError, ValueError, RuntimeError) as exc:
                 raise RuntimeRefusal('notifier_endpoint_refused', control_root) from exc
-            sock = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+            inherited = getattr(self.options, 'supervisor_control_fd', None)
+            if inherited is not None:
+                import session_socket_handoff
+                try:
+                    sock = session_socket_handoff.take(inherited, self.root, 'notifier', self.options.supervisor_generation)
+                except (OSError, ValueError) as exc:
+                    raise RuntimeRefusal('notifier_endpoint_refused', control) from exc
+            else:
+                sock = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
             try:
                 try:
-                    sock.bind(str(control))
+                    if inherited is None:
+                        sock.bind(str(control))
                 except OSError as exc:
                     raise RuntimeRefusal('notifier_endpoint_refused', control) from exc
                 sock.setblocking(False)

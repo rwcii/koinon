@@ -40,7 +40,7 @@ def recover(records, owner):
     def stopped():
         return (records.read() == owner and alive_state(owner) == 'dead'
                 and all(child is None or alive_state(child) == 'dead' for child in owner['children'].values()))
-    if not stopped():
+    if owner.get('endpoint_pending') is not None or not stopped():
         raise StateError('session_ownership_unknown')
     pending = []
     try:
@@ -48,7 +48,9 @@ def recover(records, owner):
             root = records.directory if kind == 'bridge' else records.directory / 'notifier'
             if not session_observation.endpoint_present(root):
                 continue
-            captured = None if child is None else child.get('control_endpoint')
+            captured = owner.get('control_endpoints', {}).get(kind)
+            if captured is None and child is not None:
+                captured = child.get('control_endpoint')
             if captured is None or capture(root) != captured:
                 raise StateError('session_ownership_unknown')
             pending.append((root, captured))

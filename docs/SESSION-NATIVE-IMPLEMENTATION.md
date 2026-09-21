@@ -142,18 +142,19 @@ outside this cleanup.
 
 This differs deliberately from operator-installed endpoints: those still require
 explicit manual resolution. Automatic cleanup applies only to control sockets captured
-from this runner's verified children. A child killed before that capture can leave an
-unowned startup socket; that case remains conservative refusal. Closing this window
-requires parent-owned socket creation and descriptor handoff before spawning, including
-its own crash evidence, and is a further integration step. Merely seeing a new path
+from this runner's verified children. Version 1 supervision can leave an uncaptured socket if a child dies before that
+exchange. [Parent-owned descriptor handoff](SESSION-SOCKET-HANDOFF.md) now records
+control socket ownership before spawning, closing that child startup window. Its
+separate parent bind/publication crash window remains conservative refusal. Merely seeing a new path
 under `supervisor.lock` is insufficient because direct bridge/notifier starts do not
 acquire that lock.
 
 `scripts/test-native-session.py` tests two isolated real native session pairs, runtime
 notifier crash/restart, independence of the second session, permanent runtime refusal
 and explicit retry, permanent startup refusal, and guarded shutdown with exact
-deregistration and data retention. It does not establish pre-handshake crash
-recovery, complete installer integration, persistent memory login behavior, or upgrades
+deregistration and data retention. With descriptor handoff it also tests a child crash before first handshake. It does
+not establish atomic parent bind/publication, complete installer integration, persistent
+memory login behavior, or upgrades
 from legacy units. The fixture records failed cleanup and retains evidence on ambiguity.
 
 A systemd failed-unit tombstone may remain after the registration is removed. It is

@@ -5,6 +5,9 @@ into a dated release section when promoted to `main`.
 
 ## Unreleased
 
+- Pass parent-owned control sockets explicitly to session children, allowing native
+  restart after a child exits before its first handshake while preserving bind intent.
+
 - Activate explicitly selected native session pairs with verified manager ownership,
   guarded shutdown, and captured dead-child control-socket recovery after runtime crashes.
 
