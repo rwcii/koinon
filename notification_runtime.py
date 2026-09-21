@@ -392,6 +392,7 @@ class Runtime:
         if op == 'status':
             value = await self.observed_health()
             return dict(control_capabilities=[generation_stop.CAPABILITY],
+                        bridge_generation=(self.bridge or {}).get('generation'),
                         generation=self.generation, pid=os.getpid(), lifecycle='stopping' if self.closing else 'running',
                         presence=dict(service=participant_presence.service('live_notifier_control'),
                                       model_activity=participant_presence.unknown()),
