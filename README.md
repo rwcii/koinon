@@ -249,8 +249,10 @@ read the [upgrade procedure](docs/WORK-ITEMS-UPGRADE.md) before replacing a runn
 service. Work commands, immutable stream records, frozen snapshots and bounded
 maintenance share the existing memory store. [Explicit guidance configuration](docs/WORK-ITEMS-POLICY.md)
 selects a repository and participant. A fresh installation with `--repo` also selects the
-repository memory component and starts it; a repeat installation over an existing prefix
-does not, and reports how to add it with `--configure-memory`.
+repository memory component, and starts it unless `--no-start` stages the selection or no
+user manager is available. A repeat installation keeps a selection it already holds; only
+an existing prefix without that repository selected, and without `--configure-memory`,
+leaves memory out and reports how to add it.
 
 Work-item capacity is finite: 2,048 retained events can be exhausted in roughly
 5.3 days by 16 hourly reporters, while finished history remains for 30 days. With
