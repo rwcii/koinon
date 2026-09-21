@@ -76,6 +76,8 @@ def inputs(record):
 def boundary(record, observed_artifact=None):
     try:
         yield
+    except durable_state.StateReadBusyError:
+        raise
     except (OSError, ValueError) as exc:
         paths = list(getattr(exc, 'paths', ()))
         if isinstance(record, dict):

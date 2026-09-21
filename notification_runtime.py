@@ -483,6 +483,8 @@ class Runtime:
                 import session_socket_handoff
                 try:
                     sock = session_socket_handoff.take(inherited, self.root, 'notifier', self.options.supervisor_generation)
+                except durable_state.StateReadBusyError:
+                    raise
                 except (OSError, ValueError) as exc:
                     raise RuntimeRefusal('notifier_endpoint_refused', control) from exc
             else:

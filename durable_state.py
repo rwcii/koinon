@@ -1,5 +1,6 @@
 """Bounded private JSON publication under an already-held service ownership lock."""
 import json
+import errno
 import os
 from pathlib import Path
 import stat
@@ -7,6 +8,11 @@ import stat
 import platform_support
 
 MAX_BYTES = 4096
+
+
+class StateReadBusyError(BlockingIOError):
+    def __init__(self):
+        super().__init__(errno.EAGAIN, 'state record changed during bounded read')
 
 
 class StateFileError(ValueError):
@@ -54,7 +60,7 @@ def read(path):
             raise
         break
     else:
-        raise StateFileError('unsafe_state_file')
+        raise StateReadBusyError()
     try:
         data = bytearray()
         while len(data) <= MAX_BYTES:

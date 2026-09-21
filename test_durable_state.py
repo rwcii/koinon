@@ -66,7 +66,7 @@ class DurableStateTests(unittest.TestCase):
             opened.append(fd)
             return fd
         with mock.patch.object(state.os, 'open', side_effect=open_then_replace):
-            with self.assertRaises(state.StateFileError):
+            with self.assertRaises(state.StateReadBusyError):
                 state.read(self.path)
         self.assertEqual(len(opened), 3)
         for fd in opened:

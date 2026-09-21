@@ -21,6 +21,7 @@ import platform_support
 import generation_stop
 import inbox_schema
 import delivery_ledger
+import durable_state
 import participant_presence
 import subscriptions
 import memory_bindings
@@ -521,6 +522,8 @@ class Bridge:
                     import session_socket_handoff
                     try:
                         sock = session_socket_handoff.take(self.control_fd, self.root, 'bridge', self.supervisor_generation)
+                    except durable_state.StateReadBusyError:
+                        raise
                     except (OSError, ValueError) as exc:
                         raise BridgeOwnershipError(f'inherited control endpoint refused: {control}') from exc
                     self.control_fd = None
@@ -712,6 +715,9 @@ def cli_main():
 def main():
     try:
         cli_main()
+    except durable_state.StateReadBusyError:
+        print(json.dumps(dict(ok=False, code='service_unavailable', error='state observation busy; retry')))
+        raise SystemExit(platform_support.TEMPORARY_EXIT_STATUS) from None
     except runtime_names.NameConflict as exc:
         print(json.dumps(dict(ok=False, code=exc.code, paths=exc.paths)))
         raise SystemExit(platform_support.CONFIGURATION_EXIT_STATUS) from None

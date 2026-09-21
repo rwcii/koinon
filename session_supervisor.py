@@ -217,7 +217,8 @@ class Runner:
                 self.stopped.wait(.2)
         except Exception as exc:
             primary = exc.code if isinstance(exc, StateError) else (
-                'session_configuration_failure' if isinstance(exc, (OSError, ValueError)) else 'session_software_failure')
+                'session_temporary_failure' if isinstance(exc, durable_state.StateReadBusyError) else
+                    'session_configuration_failure' if isinstance(exc, (OSError, ValueError)) else 'session_software_failure')
             raise
         finally:
             try:
@@ -261,6 +262,7 @@ def run(records, commands, backend):
                 runner.publish('stopped')
             except Exception as exc:
                 failure = exc if isinstance(exc, StateError) else StateError(
+                    'session_temporary_failure' if isinstance(exc, durable_state.StateReadBusyError) else
                     'session_configuration_failure' if isinstance(exc, (OSError, ValueError)) else 'session_software_failure')
                 status = STATUSES[failure.code]
                 runner.owner.update(phase='failed', exit_status=status, primary_code=getattr(failure, 'primary_code', failure.code),
@@ -277,7 +279,7 @@ def run(records, commands, backend):
                         pass
                 raise failure
     except (OSError, ValueError) as exc:
-        status = STATUSES.get(getattr(exc, 'code', None), 78)
+        status = 75 if isinstance(exc, durable_state.StateReadBusyError) else STATUSES.get(getattr(exc, 'code', None), 78)
         print(json.dumps(dict(status='unavailable', exit_status=status,
                               code=getattr(exc, 'code', 'invalid_session_state'))), flush=True)
     finally:

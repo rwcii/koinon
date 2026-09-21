@@ -11,6 +11,7 @@ import sys
 import uuid
 
 import dsh_delivery
+import durable_state
 import platform_support
 from participant_lock import OwnershipError, notifier_ownership
 from bridge import DEFAULT, private_dir
@@ -217,6 +218,9 @@ def main():
         print(json.dumps(dict(ok=False, code=exc.code, recovery=exc.recovery)), flush=True)
         return (platform_support.TEMPORARY_EXIT_STATUS if exc.recovery == 'retry'
                 else platform_support.CONFIGURATION_EXIT_STATUS)
+    except durable_state.StateReadBusyError:
+        print(json.dumps(dict(ok=False, code='notifier_unavailable', recovery='retry')), flush=True)
+        return platform_support.TEMPORARY_EXIT_STATUS
     except RuntimeRefusal as exc:
         print(json.dumps(dict(ok=False, code=exc.code, path=exc.path)), flush=True)
         return platform_support.CONFIGURATION_EXIT_STATUS

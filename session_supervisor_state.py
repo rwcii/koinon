@@ -138,6 +138,8 @@ class Records:
         try:
             value = durable_state.read(self.refusal_path if refusal else self.owner_path)
             return None if value is None else self.validate(value, refusal=refusal)
+        except durable_state.StateReadBusyError as exc:
+            raise StateError('session_temporary_failure') from exc
         except (OSError, ValueError) as exc:
             if isinstance(exc, StateError):
                 raise
