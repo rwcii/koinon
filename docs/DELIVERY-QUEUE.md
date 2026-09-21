@@ -323,8 +323,8 @@ Acceptance requirements:
 ## DQ-12 — Supported, resumable runtime upgrades
 
 **Source:** user requirement conveyed by the reviewer and recorded in
-[issue #43](https://github.com/rwcii/koinon/issues/43). **Status:** implementation design
-under peer review in [RUNTIME-UPGRADE-DESIGN.md](RUNTIME-UPGRADE-DESIGN.md). Depends on
+[issue #43](https://github.com/rwcii/koinon/issues/43). **Status:** implementation in progress against the peer-reviewed
+[RUNTIME-UPGRADE-DESIGN.md](RUNTIME-UPGRADE-DESIGN.md). Uses the delivered
 DQ-11 component ownership and lifecycle inventory. The existing manual runbook applies
 to legacy/manual deployments; native runtime replacement remains refused until the
 supported operation is implemented and verified.

@@ -1,6 +1,6 @@
 # Resumable runtime upgrade design
 
-Status: implementation candidate for DQ-12 and issue #43. This describes the next
+Status: peer-reviewed design for DQ-12 and issue #43; implementation in progress. This describes the next
 operation after the component installer gate; it does not claim an available upgrade
 command or authorize changing a live installation. The current native installer refuses
 different runtime bytes during ordinary repeat installation.
@@ -24,6 +24,13 @@ There is no discovery-based adoption of unmanaged services or unrecorded state r
 An incomplete inventory refuses before shutdown or replacement and names the missing
 ownership evidence. Legacy migration needs an explicit supported adapter; absence of a
 native selection is not permission to invent one.
+
+Automated restoration is outside #43. The existing explicit
+[rollback runbook](WORK-ITEMS-UPGRADE.md) remains the recovery path: first prove all
+selected writers stopped, retain the failed/new state, validate a complete compatible
+backup and its original targets, and restore runtime and state together. The generated
+report must name the verified backup manifest, its compatibility limits and that runbook;
+it must never imply that a backup alone guarantees an automated restore operation.
 
 No implicit repository relocation, state-root migration, participant retargeting, new
 memory selection, guidance opt-in, traffic test, or rollback is part of upgrade. The
@@ -62,8 +69,8 @@ because its completion record is missing.
 
 | Phase | Completion evidence |
 | --- | --- |
-| Preflight | Exact prefix, source, state roots, repository identities, participant targets, supported transitions, capacity and all owned components validated without mutation. |
-| Prepared | Durable source/selection manifest and exclusion marker published. |
+| Preflight | Exact prefix, source, state roots, repository identities, participant targets, supported transitions, store capacity, backup space/privacy, destination ancestors and all owned components validated before shutdown. |
+| Prepared | Durable source/selection manifest and exclusion marker published; private backup/recovery/report destinations created and durable write probes completed before shutdown. |
 | Quiescing sessions | Selected notifier/bridge pairs stopped in dependency order; manager and PID/start/generation evidence proves owned process exit. |
 | Quiescing memory | Selected memory runners and children have exited; no unowned listener or writer is accepted as absence. |
 | Backed up | Stopped canonical inventory and complete private state/runtime backup durably published and verified. |
@@ -96,6 +103,17 @@ ordered representations and hashes for retained logical records, alongside indiv
 reported identity/cursor fields. Exclude volatile process metadata from data hashes;
 do not exclude business data merely because maintenance could change it later.
 
+Before shutdown, measure the complete proposed state/runtime backup and staged source,
+account for SQLite sidecars and recovery/report overhead, and compare that requirement
+with free space on each destination filesystem. Validate ownership, privacy, symlink
+policy and writability of every destination and its existing ancestors; never chmod an
+existing ancestor to make it pass. Prepared creates the selected private directories and
+completes durable write probes before stopping any service. Recheck available space
+before capture. These checks cannot reserve free space against unrelated writers or
+prevent later I/O failure; such a failure retains the incomplete phase and leaves runtime
+replacement forbidden until a complete verified backup exists. The report must distinguish
+that stopped/incomplete state from a usable backup.
+
 Back up stopped databases together with their SQLite sidecars and related configuration,
 checkpoint, binding and ownership evidence. Never copy only a live main database. Verify
 that the selected writers remain stopped throughout capture. Publish the completed backup
@@ -109,6 +127,16 @@ an unambiguous before/after preservation check. The new runtime therefore needs 
 explicit upgrade gate shared by its memory, bridge and notifier entrypoints. It allows
 ownership handshakes, health/status and coordinator verification, while refusing ordinary
 mutations, suppressing external notification delivery and delaying maintenance.
+
+During quiescence and gated startup, the peer transport listener does not accept new
+connections; only the private control interface needed for health and verification is
+available. There is no upgrade-time ingress queue and no automatic sender replay.
+Senders can observe missing endpoints, connection refusal or timeout. A send racing with
+shutdown may have an uncertain outcome: native socket-write completion is not evidence
+of durable storage or model processing. Already accepted database work drains before
+the stopped snapshot. Senders must inspect their available delivery evidence before an
+explicit retry; the upgrade report records the unavailable interval and this limitation.
+After release, peers must refresh discovery if the process/address changed.
 
 The gate is bound to the selected upgrade plan and service generation. It survives
 coordinator exit and must not become a generic bypass for normal admission or ownership
