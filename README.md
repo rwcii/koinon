@@ -248,8 +248,9 @@ The memory runtime now creates schema-5 stores and upgrades schema 3/4 at startu
 read the [upgrade procedure](docs/WORK-ITEMS-UPGRADE.md) before replacing a running
 service. Work commands, immutable stream records, frozen snapshots and bounded
 maintenance share the existing memory store. [Explicit guidance configuration](docs/WORK-ITEMS-POLICY.md)
-selects a repository and participant; ordinary installation never enables a selection
-or starts optional memory automatically.
+selects a repository and participant. A fresh installation with `--repo` also selects the
+repository memory component and starts it; a repeat installation over an existing prefix
+does not, and reports how to add it with `--configure-memory`.
 
 Work-item capacity is finite: 2,048 retained events can be exhausted in roughly
 5.3 days by 16 hourly reporters, while finished history remains for 30 days. With
