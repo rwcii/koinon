@@ -115,3 +115,44 @@ class ComponentInstallTests(unittest.TestCase):
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
         for directory in (self.prefix, self.prefix.parent, self.prefix.parent.parent):
             self.assertEqual(directory.stat().st_mode & 0o777, 0o700)
+
+    def test_interrupted_fresh_install_retains_component_intent_on_retry(self):
+        from scripts import install as installer
+        from unittest.mock import patch
+        command = ['scripts/install.py', '--configure-codex', '--repo', str(self.repo),
+                   '--codex', sys.executable, '--codex-home', str(self.root / 'codex'),
+                   '--prefix', str(self.prefix), '--state-dir', str(self.state),
+                   '--service-backend', 'systemd', '--no-start']
+        previous = os.umask(0o077)
+        try:
+            with patch.object(sys, 'argv', command), \
+                    patch.object(component_install, 'copy_runtime', side_effect=OSError('synthetic copy interruption')):
+                with self.assertRaisesRegex(OSError, 'synthetic copy interruption'):
+                    installer.main()
+        finally:
+            os.umask(previous)
+        config = json.loads((self.prefix / 'install.json').read_text())
+        record = next(iter(config['memory_services']['repositories'].values()))
+        self.assertEqual(record['state'], 'pending')
+        self.assertFalse(Path(record['artifact']).exists())
+        resumed = subprocess.run([sys.executable, *command], capture_output=True, text=True, timeout=20)
+        self.assertEqual(resumed.returncode, 0, resumed.stdout + resumed.stderr)
+        config = json.loads((self.prefix / 'install.json').read_text())
+        record = next(iter(config['memory_services']['repositories'].values()))
+        self.assertEqual(record['state'], 'installed')
+        self.assertTrue(Path(record['artifact']).is_file())
+
+    def test_runtime_publication_preserves_complete_files_and_exact_repeats(self):
+        from unittest.mock import patch
+        source, destination = self.root / 'source.py', self.root / 'runtime.py'
+        source.write_bytes(b'new complete module')
+        destination.write_bytes(b'old complete module')
+        with patch.object(component_install.os, 'replace', side_effect=OSError('synthetic publication interruption')):
+            with self.assertRaises(OSError):
+                component_install.copy_runtime(source, destination)
+        self.assertEqual(destination.read_bytes(), b'old complete module')
+        component_install.copy_runtime(source, destination)
+        inode = destination.stat().st_ino
+        component_install.copy_runtime(source, destination)
+        self.assertEqual(destination.read_bytes(), source.read_bytes())
+        self.assertEqual(destination.stat().st_ino, inode)

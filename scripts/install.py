@@ -386,20 +386,7 @@ def install(a, p, configuration=None, validate_only=False):
             return
         os.umask(0o077)
         a.prefix.mkdir(parents=True,exist_ok=True)
-        source = Path(__file__).resolve().parent.parent
-        for file in FILES:
-            dest=a.prefix/file
-            dest.parent.mkdir(parents=True,exist_ok=True)
-            if (source/file).resolve() != dest.resolve():
-                shutil.copyfile(source/file,dest)
-        sys.path.insert(0,str(a.prefix))
-        from participant_instructions import update
-        guidance = update(a.codex_home,a.prefix) if a.configure_codex else None
-        # The harness reads its guidance from AGENTS.md in the harness home, so a
-        # DeepSeek session learns to register and read its inbox the same way a
-        # Codex session does.
-        dsh_guidance = update(a.dsh_home,a.prefix,agent='deepseek') if a.configure_deepseek else None
-        configuration.merge(dict(state_root=str(a.state_dir),
+        updates = dict(state_root=str(a.state_dir),
             unit_dir=str(a.unit_dir),codex=a.codex,codex_home=str(a.codex_home.expanduser().resolve()),
             dsh_home=str(a.dsh_home.expanduser().resolve()),
             # Which managed sections this installation wrote, so uninstall removes
@@ -408,9 +395,35 @@ def install(a, p, configuration=None, validate_only=False):
             dsh_url=(os.environ.get('DSH_WEB_URL', previous.get('dsh_url'))
                      if a.configure_deepseek else previous.get('dsh_url')),
             dsh_credentials=(str(a.dsh_home.expanduser().resolve()/'.credentials.yaml')
-                             if a.configure_deepseek else previous.get('dsh_credentials'))))
+                             if a.configure_deepseek else previous.get('dsh_credentials')))
         if a.memory_selection is not None and not memory_only:
-            configuration.merge(dict(session_backend=a.memory_selection['backend']))
+            updates['session_backend'] = a.memory_selection['backend']
+        if a.memory_selection is not None:
+            component_install.prepare_artifact_directory(a.memory_selection)
+            import memory_service_config
+            key, _ = memory_service_config.identity(a.memory_selection['common_directory'])
+            inventory = previous.get('memory_services', dict(version=1, repositories={}))
+            if key not in inventory['repositories']:
+                pending = (dict(a.memory_selection, state='pending', before_digest=None,
+                                after_digest=a.memory_selection['artifact_digest'])
+                           if a.memory_selection['backend'] != 'manual' else a.memory_selection)
+                updates['memory_services'] = memory_service_config.admit(inventory, pending)
+        # Persist the requested component set before copying modules or guidance,
+        # so a retry cannot mistake an interrupted fresh install for a legacy one.
+        configuration.merge(updates)
+        source = Path(__file__).resolve().parent.parent
+        for file in FILES:
+            dest=a.prefix/file
+            dest.parent.mkdir(parents=True,exist_ok=True)
+            if (source/file).resolve() != dest.resolve():
+                component_install.copy_runtime(source/file, dest)
+        sys.path.insert(0,str(a.prefix))
+        from participant_instructions import update
+        guidance = update(a.codex_home,a.prefix) if a.configure_codex else None
+        # The harness reads its guidance from AGENTS.md in the harness home, so a
+        # DeepSeek session learns to register and read its inbox the same way a
+        # Codex session does.
+        dsh_guidance = update(a.dsh_home,a.prefix,agent='deepseek') if a.configure_deepseek else None
         print('Installed runtime:',a.prefix)
         print('State directory:',a.state_dir)
         if guidance is not None:

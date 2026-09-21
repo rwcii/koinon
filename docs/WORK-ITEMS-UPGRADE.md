@@ -9,8 +9,12 @@ cursor mutation. Upgrade bridge, session, notifier and memory runtime files toge
 bindings reject memory schema versions that do not match their runtime.
 
 Installing code and configuring work guidance are distinct from starting a repository
-memory service. Memory remains optional; the installer neither starts it nor creates
-bindings automatically. Use an authorized maintenance window for an existing service:
+memory service. Memory remains optional; explicit repository component installation can
+start its owned supervisor, but never creates participant bindings automatically.
+Native component selections refuse different runtime bytes during an ordinary reinstall;
+the coordinated replacement operation is tracked separately in DQ-12. The following
+manual runbook applies to legacy/manual deployments, not a bypass for that refusal.
+Use an authorized maintenance window for an existing service:
 
 1. Identify the exact repository, memory state directory, installed prefix, and affected
    bound session supervisors. Record the store UUID, head, floor, consumer cursors and

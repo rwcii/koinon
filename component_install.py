@@ -2,6 +2,7 @@
 import copy
 import os
 import stat
+import tempfile
 from pathlib import Path
 import sys
 
@@ -68,6 +69,36 @@ def memory_selection(prefix, repository, state_root, backend, config):
     return key, selected
 
 
+
+def prepare_artifact_directory(desired):
+    if desired['backend'] == 'manual':
+        return
+    artifact = Path(desired['artifact'])
+    artifacts.preflight_registration(desired, (artifact,))
+    for parent in reversed(artifact.parents):
+        if not runtime_names.present(parent):
+            parent.mkdir(mode=0o700, exist_ok=True)
+    artifacts._parents(artifact)
+
+
+def copy_runtime(source, destination):
+    """Publish a complete module atomically; exact repeats never truncate live files."""
+    data = Path(source).read_bytes()
+    destination = Path(destination)
+    if destination.exists() and destination.read_bytes() == data:
+        return
+    fd, temporary = tempfile.mkstemp(prefix='.runtime-', dir=destination.parent)
+    try:
+        with os.fdopen(fd, 'wb') as stream:
+            stream.write(data)
+            stream.flush()
+            platform_support.sync_state_file(stream.fileno())
+        os.replace(temporary, destination)
+        platform_support.sync_state_directory(destination.parent)
+    finally:
+        Path(temporary).unlink(missing_ok=True)
+
+
 def stage_memory(prefix, desired):
     """Publish a selected memory component, without activation or manager queries.
 
@@ -79,10 +110,5 @@ def stage_memory(prefix, desired):
             inventory = state.config.get('memory_services', dict(version=1, repositories={}))
             state.merge(dict(memory_services=memory_config.admit(inventory, desired)))
         return desired
-    artifact = Path(desired['artifact'])
-    artifacts.preflight_registration(desired, (artifact,))
-    for parent in reversed(artifact.parents):
-        if not runtime_names.present(parent):
-            parent.mkdir(mode=0o700, exist_ok=True)
-    artifacts._parents(artifact)
+    prepare_artifact_directory(desired)
     return artifacts.publish(prefix, sys.executable, desired)
