@@ -313,6 +313,8 @@ def main():
     # using fresh configuration before any publication or service changes. Legacy
     # service-manager availability is deliberately checked in both passes.
     install(copy.deepcopy(a), p, validate_only=True)
+    # The lock creates missing prefix ancestors before install() copies files.
+    os.umask(0o077)
     with install_state.locked(a.prefix) as configuration:
         install(a, p, configuration)
     if getattr(a, 'memory_selection', None) is not None:

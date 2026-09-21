@@ -104,3 +104,14 @@ class ComponentInstallTests(unittest.TestCase):
         self.assertNotIn('memory_services', config)
         selected = self.install()
         self.assertEqual(selected.returncode, 0, selected.stdout + selected.stderr)
+
+    def test_missing_prefix_ancestors_are_private_under_group_writable_umask(self):
+        self.prefix = self.root / 'new-parent' / 'nested' / 'app'
+        previous = os.umask(0o002)
+        try:
+            result = self.install()
+        finally:
+            os.umask(previous)
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        for directory in (self.prefix, self.prefix.parent, self.prefix.parent.parent):
+            self.assertEqual(directory.stat().st_mode & 0o777, 0o700)
