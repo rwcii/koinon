@@ -16,6 +16,7 @@ import time
 import uuid
 
 import durable_state
+import install_state
 import memory
 import memory_service_artifacts
 import memory_service_config
@@ -36,6 +37,8 @@ ERRORS = {
     'recorded_refusal': 78, 'shutdown_unconfirmed': 78,
     'memory_configuration_failure': 78, 'memory_software_failure': 70,
     'memory_temporary_failure': 75, 'internal_error': 70,
+    'manager_observation_unknown': 75, 'manager_operation_failed': 75,
+    'manager_ownership_conflict': 78,
 }
 
 
@@ -121,9 +124,8 @@ class Selection:
                 self.record['state_root'], '--repo-path', self.record['common_directory'], 'serve']
 
     def start_command(self):
-        return [sys.executable, str(self.prefix / 'memory_service.py'), 'run',
-                '--prefix', str(self.prefix), '--repo', self.record['common_directory'],
-                '--state-root', self.record['state_root'], '--backend', self.backend, '--foreground']
+        return platform_support.memory_service_command(
+            self.prefix, sys.executable, self.key, self.record) + ['--foreground']
 
 
 def _hex(value, length):
@@ -208,6 +210,104 @@ def observation(selection):
         return dict(status='unavailable', running=False)
     return dict(status='running', running=True, generation=owner['generation'],
                 child_generation=child['generation'])
+
+
+def manager_observation(selection):
+    """Corroborate loaded identity against exact registered bytes and arguments."""
+    with configuration_boundary():
+        if selection.backend == 'systemd':
+            result = platform_support.systemd_service_observation(
+                memory_service_config.artifact_name(selection.key, selection.backend))
+        elif selection.backend == 'launchd':
+            domain = selection.record.get('manager_domain')
+            if domain is None:
+                raise RunnerError('configuration_error')
+            result = platform_support.launchd_service_observation(
+                domain, memory_service_config.artifact_name(selection.key, selection.backend)[:-6])
+        else:
+            raise RunnerError('configuration_error')
+        if result['status'] == 'observed':
+            expected = platform_support.memory_service_command(
+                selection.prefix, sys.executable, selection.key, selection.record)
+            if selection.backend == 'systemd' and selection.record.get('template_version', 1) == 1:
+                # D-Bus exposes stored command arguments before dollar expansion.
+                # Compare the exact known template representation, never normalize
+                # arbitrary manager output into a matching command.
+                expected = [value.replace('$', '$$') for value in expected]
+            if (result['argv'] != expected or result['executable'] != expected[0]):
+                raise RunnerError('manager_ownership_conflict')
+            memory_service_artifacts.verify_loaded(selection.prefix, sys.executable, selection.record,
+                                                   result['artifact'])
+        return result
+
+
+def managed_status(selection):
+    portable = observation(selection)
+    if portable['status'] == 'refused':
+        return portable
+    observed = manager_observation(selection)
+    if observed['status'] != 'observed':
+        return dict(status='unavailable', running=False, manager=observed['status'])
+    owner = read_record(selection, selection.owner_path)
+    if (portable['running'] and owner and owner['generation'] == portable['generation']
+            and observed['pid'] == owner['pid'] and process_state(owner) == 'alive'):
+        return dict(portable, managed=True, backend=selection.backend)
+    return dict(status='unavailable', running=False, manager=observed['active_state'])
+
+
+def ensure_managed(selection):
+    """Activate only a saved owned selection, then prove manager and child readiness."""
+    portable = observation(selection)
+    if portable['status'] == 'refused':
+        return portable
+    with configuration_boundary():
+        domain = selection.record.get('manager_domain')
+        if not platform_support.memory_manager_available(selection.backend, domain):
+            return dict(status='manual_required', running=False,
+                        start_command=shlex.join(selection.start_command()))
+        private_dir(selection.home)
+        try:
+            with install_state.locked(selection.prefix) as installed, file_lock(
+                    selection.home / 'manager.lock', 'manager_busy', None):
+                saved = installed.config.get('memory_services', {}).get('repositories', {}).get(selection.key)
+                if saved != selection.record:
+                    raise RunnerError('configuration_error')
+                observed = manager_observation(selection)
+                if observed['status'] == 'unknown':
+                    raise RunnerError('manager_observation_unknown')
+                portable = observation(selection)
+                if portable['status'] == 'refused':
+                    return portable
+                if portable['running']:
+                    owner = read_record(selection, selection.owner_path)
+                    if (observed['status'] == 'observed' and owner
+                            and owner['generation'] == portable['generation']
+                            and observed['pid'] == owner['pid']):
+                        return dict(portable, managed=True, backend=selection.backend)
+                    raise RunnerError('external_memory_service')
+                if portable['status'] == 'externally_managed':
+                    raise RunnerError('external_memory_service')
+                operation = ('activate' if observed['status'] == 'absent' else
+                             'restart' if observed['pid'] == 0 else None)
+                if operation:
+                    # Recheck immediately before mutation. This detects changes,
+                    # but does not claim to lock the manager's global state.
+                    if manager_observation(selection) != observed:
+                        raise RunnerError('manager_observation_unknown')
+                    try:
+                        platform_support.memory_manager_action(selection.record, operation)
+                    except (OSError, subprocess.SubprocessError) as exc:
+                        raise RunnerError('manager_operation_failed') from exc
+                deadline = time.monotonic() + START_TIMEOUT
+                while True:
+                    result = managed_status(selection)
+                    if result['running'] or result['status'] == 'refused':
+                        return result
+                    if time.monotonic() >= deadline:
+                        raise RunnerError('manager_observation_unknown')
+                    time.sleep(.1)
+        except OwnershipError as exc:
+            raise RunnerError('manager_operation_failed') from exc
 
 
 def child_failure(status, *, started=False):
@@ -481,7 +581,9 @@ def main():
         else:
             if args.retry:
                 retry(selection)
-            result = observation(selection)
+            result = (ensure_managed(selection) if args.action == 'ensure' and selection.backend != 'manual'
+                      else managed_status(selection) if args.action == 'status' and selection.backend != 'manual'
+                      else observation(selection))
             if args.action == 'ensure' and not result['running']:
                 if result['status'] == 'refused':
                     status = result['exit_status']

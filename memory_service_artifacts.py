@@ -103,6 +103,34 @@ def verify_owned(prefix, python, record, *, observed_artifact=None):
         return record
 
 
+def verify_loaded(prefix, python, record, observed_artifact):
+    """Accept an exact artifact or its private same-user systemd loader link.
+
+    Custom unit locations are linked by systemd into its lookup directory. This
+    verifies one literal link target, never resolves an arbitrary alias chain.
+    """
+    verify_owned(prefix, python, record)
+    with _boundary(prefix, observed_artifact):
+        path = absolute_path(str(observed_artifact))
+        expected = Path(record['artifact'])
+        if path == expected:
+            return record
+        if record['backend'] != 'systemd' or path.name != expected.name:
+            raise ValueError('loaded manager artifact differs from registration')
+        _parents(path)
+        before = path.lstat()
+        if not stat.S_ISLNK(before.st_mode) or before.st_uid != os.geteuid():
+            raise ValueError('loaded artifact is not an owned loader link')
+        if os.readlink(path) != str(expected):
+            raise ValueError('loader link does not name the exact registered artifact')
+        after = path.lstat()
+        if ((before.st_dev, before.st_ino) != (after.st_dev, after.st_ino)
+                or os.readlink(path) != str(expected)):
+            raise ValueError('loader link changed during verification')
+        verify_owned(prefix, python, record)
+        return record
+
+
 def _prepare(prefix, python, desired, config):
     if not config:
         raise ValueError('installation configuration is required')
@@ -119,7 +147,7 @@ def _prepare(prefix, python, desired, config):
         if current is not None:
             raise ValueError('artifact exists without this installation owning it')
     else:
-        base = {field: old[field] for field in configuration.BASE_FIELDS}
+        base = {field: old[field] for field in configuration.base_fields(old)}
         base['state'] = 'installed'
         if old['state'] == 'removing':
             raise ValueError('publication cannot resume state removing')

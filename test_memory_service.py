@@ -154,11 +154,13 @@ class MemorySupervisorTests(unittest.TestCase):
         third = self.spawn()
         self.ready(third)
 
-    def select_launchd(self):
+    def select_launchd(self, backend='launchd'):
         units = self.root / 'units'
         units.mkdir(mode=0o700)
-        self.record.update(backend='launchd', artifact=str(units / memory_service_config.artifact_name(self.key, 'launchd')),
+        self.record.update(backend=backend, artifact=str(units / memory_service_config.artifact_name(self.key, backend)),
                            artifact_digest='0' * 64)
+        if backend == 'launchd':
+            self.record['manager_domain'] = f'gui/{os.geteuid()}'
         content = platform_support.memory_service_artifact(self.prefix, sys.executable, self.key, self.record)
         self.record['artifact_digest'] = memory_service_artifacts.digest(content)
         Path(self.record['artifact']).write_bytes(content)
@@ -269,6 +271,56 @@ class MemorySupervisorTests(unittest.TestCase):
         self.assertEqual(runner.returncode, 78, out + err)
         self.assertNotIn('"running": true', out)
         self.assertEqual(memory_service.observation(self.selection)['status'], 'refused')
+
+    def loaded_report(self, pid=0):
+        argv = platform_support.memory_service_command(self.prefix, sys.executable, self.key, self.record)
+        return dict(status='observed', artifact=self.record['artifact'], executable=argv[0],
+                    argv=argv, pid=pid, active_state='active' if pid else 'inactive', invocation='a' * 32)
+
+    def test_managed_ensure_requires_loaded_identity_and_real_child_readiness(self):
+        self.select_launchd('systemd')
+        started = []
+        def observe(_name):
+            return self.loaded_report(started[0].pid) if started else dict(status='absent')
+        def activate(record, operation):
+            self.assertEqual(record, self.record)
+            self.assertEqual(operation, 'activate')
+            started.append(self.spawn())
+        with patch.object(platform_support, 'memory_manager_available', return_value=True), \
+                patch.object(platform_support, 'systemd_service_observation', side_effect=observe), \
+                patch.object(platform_support, 'memory_manager_action', side_effect=activate) as action:
+            result = memory_service.ensure_managed(self.selection)
+            self.assertTrue(result['running'])
+            self.assertTrue(result['managed'])
+            self.assertTrue(memory_service.ensure_managed(self.selection)['managed'])
+            action.assert_called_once()
+            with patch.object(platform_support, 'systemd_service_observation', return_value=self.loaded_report(9999999)):
+                self.assertFalse(memory_service.managed_status(self.selection)['running'])
+
+    def test_managed_ensure_never_activates_foreign_or_unknown_job(self):
+        self.select_launchd('systemd')
+        foreign = self.loaded_report()
+        foreign['argv'] = ['/synthetic/foreign']
+        for report, code in [(foreign, 'manager_ownership_conflict'),
+                             (dict(status='unknown'), 'manager_observation_unknown')]:
+            with self.subTest(code=code), \
+                    patch.object(platform_support, 'memory_manager_available', return_value=True), \
+                    patch.object(platform_support, 'systemd_service_observation', return_value=report), \
+                    patch.object(platform_support, 'memory_manager_action') as action:
+                with self.assertRaises(memory_service.RunnerError) as caught:
+                    memory_service.ensure_managed(self.selection)
+                self.assertEqual(caught.exception.code, code)
+                action.assert_not_called()
+
+    def test_unavailable_selected_manager_reports_manual_without_creating_state(self):
+        self.select_launchd('systemd')
+        with patch.object(platform_support, 'memory_manager_available', return_value=False), \
+                patch.object(platform_support, 'memory_manager_action') as action:
+            result = memory_service.ensure_managed(self.selection)
+        self.assertEqual(result['status'], 'manual_required')
+        self.assertFalse(result['running'])
+        self.assertFalse(self.state.exists())
+        action.assert_not_called()
 
     def test_ensure_is_read_only_and_never_reports_unstarted_service_running(self):
         result = subprocess.run(self.command('ensure'), capture_output=True, text=True, timeout=15)

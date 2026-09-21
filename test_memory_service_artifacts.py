@@ -88,6 +88,46 @@ class MemoryArtifactTests(unittest.TestCase):
                 artifacts.verify_owned(self.prefix, self.python, record, observed_artifact=record['artifact'])
                 self.assertNotEqual(artifacts._lock_path(Path(record['artifact'])).parent, self.units)
 
+    def test_repeat_publication_preserves_explicit_launchd_domain(self):
+        key, record, content = self.desired('launchd')
+        record['manager_domain'] = 'gui/501'
+        artifacts.publish(self.prefix, self.python, record)
+        artifacts.publish(self.prefix, self.python, record)
+        self.assertEqual(self.retained()['memory_services']['repositories'][key]['manager_domain'], 'gui/501')
+        self.assertEqual(Path(record['artifact']).read_bytes(), content)
+        self.refused(dict(record, manager_domain='gui/502'))
+
+    def test_loaded_systemd_link_requires_one_owned_literal_hop(self):
+        key, record, content = self.desired()
+        artifacts.publish(self.prefix, self.python, record)
+        loader = self.root / 'loader'
+        loader.mkdir(mode=0o700)
+        link = loader / Path(record['artifact']).name
+        link.symlink_to(record['artifact'])
+        self.assertEqual(artifacts.verify_loaded(self.prefix, self.python, record, link), record)
+        link.unlink()
+        indirect = self.root / 'indirect'
+        indirect.symlink_to(record['artifact'])
+        link.symlink_to(indirect)
+        with self.assertRaises(runtime_names.NameConflict):
+            artifacts.verify_loaded(self.prefix, self.python, record, link)
+        link.unlink()
+        link.symlink_to(record['artifact'])
+        loader.chmod(0o775)
+        with self.assertRaises(runtime_names.NameConflict):
+            artifacts.verify_loaded(self.prefix, self.python, record, link)
+
+    def test_new_literal_systemd_template_does_not_replace_existing_template(self):
+        key, old, old_content = self.desired()
+        new = dict(old, template_version=2)
+        new_content = platform_support.memory_service_artifact(self.prefix, self.python, key, new)
+        self.assertIn(b'ExecStart=:', new_content)
+        self.assertNotEqual(new_content, old_content)
+        new['artifact_digest'] = artifacts.digest(new_content)
+        artifacts.publish(self.prefix, self.python, old)
+        self.refused(new)
+        self.assertEqual(Path(old['artifact']).read_bytes(), old_content)
+
     def test_pending_before_write_and_after_rename_recover_without_rewriting_postimage(self):
         key, record, content = self.desired()
         pending = dict(record, state='pending', before_digest=None, after_digest=record['artifact_digest'])

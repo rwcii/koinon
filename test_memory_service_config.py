@@ -80,6 +80,32 @@ class MemoryServiceConfigurationTests(unittest.TestCase):
             config.validate(inventory(dict(r, state='removing', before_digest=r['artifact_digest'],
                                            after_digest=None)))
 
+    def test_launchd_domain_is_explicit_canonical_and_preserved(self):
+        old = record(backend='launchd')
+        selected = dict(old, manager_domain='gui/501')
+        self.assertEqual(config.validate(inventory(selected)), inventory(selected))
+        self.assertEqual(config.admit(inventory(selected), selected), inventory(selected))
+        # An older staged record is still readable, but never silently acquires
+        # the domain of whichever session happens to read it.
+        self.assertEqual(config.validate(inventory(old)), inventory(old))
+        with self.assertRaises(ValueError):
+            config.admit(inventory(old), selected)
+        for domain in ('system', 'user/501', 'gui/0501', 'gui/-1', 'gui/4294967296', None):
+            with self.subTest(domain=domain), self.assertRaises(ValueError):
+                config.validate(inventory(dict(old, manager_domain=domain)))
+        with self.assertRaises(ValueError):
+            config.validate(inventory(dict(record(), manager_domain='gui/501')))
+
+    def test_template_version_is_explicit_and_backend_specific(self):
+        for version in (1, 2):
+            selected = dict(record(), template_version=version)
+            self.assertEqual(config.validate(inventory(selected)), inventory(selected))
+        for version in (True, 0, 3, '2'):
+            with self.subTest(version=version), self.assertRaises(ValueError):
+                config.validate(inventory(dict(record(), template_version=version)))
+        with self.assertRaises(ValueError):
+            config.validate(inventory(dict(record(backend='launchd'), template_version=2)))
+
     def test_cap_refuses_new_selection_but_allows_identical_repeat_without_aliases(self):
         records = [record('/synthetic/repo%d/.git' % n) for n in range(config.MAX_SERVICES)]
         full = inventory(*records)

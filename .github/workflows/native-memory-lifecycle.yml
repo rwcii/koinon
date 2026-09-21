@@ -1,0 +1,22 @@
+name: Native memory lifecycle evidence
+on:
+  push:
+    branches: [feature/native-memory-activation]
+permissions:
+  contents: read
+jobs:
+  launchd-memory:
+    runs-on: macos-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+      - run: python scripts/test-native-memory.py --run-isolated-job --backend launchd --output "$RUNNER_TEMP/koinon-memory-evidence/result.json"
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: launchd-memory-evidence
+          path: ${{ runner.temp }}/koinon-memory-evidence/result.json
+          if-no-files-found: error

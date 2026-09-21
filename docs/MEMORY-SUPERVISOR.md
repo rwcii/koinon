@@ -2,17 +2,18 @@
 
 `memory_service.py` implements the portable lifecycle portion of DQ-11 slice 3.
 It requires a validated saved memory-service selection. The installer copies it but
-still does not create selections or activate memory services. Native manager operations,
-loaded-job ownership checks, Linux/macOS manager acceptance, and complete installation
+still does not create selections or activate memory services. Native memory manager activation and loaded-job ownership checks are available
+for explicitly saved selections. Complete installation and native session supervision
 remain pending. A rendered artifact or a successful wrapper test does not establish
 persistent service support.
 
 The commands are `run`, `ensure`, `status`, and `stop`, with explicit `--prefix` and
 `--repo`. Optional state-root/backend arguments must match the saved selection.
-`ensure` observes without creating state and returns a foreground start command when
-needed; it does not activate a manager. `ensure --retry` explicitly clears this
+`ensure` verifies the selected manager, registered artifact and loaded command before
+activation, then requires matching manager PID, supervisor generation and child readiness.
+An unavailable manager returns a foreground start command with `running: false`. `ensure --retry` explicitly clears this
 installation's validated refusal only after the previous supervisor and child are
-proven dead. It then returns the same staged start command.
+proven dead. It then retries the selected lifecycle.
 
 The runner holds a permanent private supervisor lock, starts one child, and checks
 its PID, process start marker, generation, schema and required capabilities against
@@ -47,4 +48,29 @@ work history, claims, cursors and existing external services are preserved.
 Portable tests use temporary installed copies, synthetic repositories and directly
 owned subprocesses. They cover real readiness/stop, refusal/retry, backoff, stale stop
 requests, zombie observation, external-service preservation, private diagnostics and
-launchd exit mapping. Native systemd/launchd acceptance is a separate remaining gate.
+launchd exit mapping. Native acceptance uses `scripts/test-native-memory.py --run-isolated-job --backend
+systemd|launchd --output PATH`. It creates only temporary synthetic installations,
+exercises restart, permanent failure, refusal-recording failure and recovery, then
+checks that removal preserves the store and the other fixture's running service.
+
+The Linux fixture deliberately uses runtime registration and verifies both loader
+and enablement links are removed. It exercises the shared ownership checks, but does
+not establish persistent registration or login persistence. Production activation
+uses persistent registration; persistent installation remains an installer acceptance
+gate. The macOS fixture uses a temporary plist outside LaunchAgents. Neither fixture
+proves login startup. Cleanup refuses ambiguous ownership and retains evidence; killing
+the driver can leave a synthetic job requiring verified cleanup. Prefer disposable CI.
+
+Launchd selections must record the current user's explicit `gui/UID` domain. Old
+records remain readable, but no domain is inferred or silently added. New systemd
+selections can explicitly choose `template_version: 2`, which disables environment
+substitution while preserving literal arguments. Absent versions retain template v1
+bytes; existing artifacts are never silently rewritten.
+
+Loaded identity checks require the exact program and argument list plus the registered
+artifact. Systemd may expose one owned loader symlink with safe ancestors and a literal
+target equal to that artifact; indirect aliases are refused. Rechecks detect changes
+but do not lock the manager's global state. A failed or timed-out manager operation
+returns an error, never inferred readiness. `stop` remains generation-bound and does
+not unregister a job; deactivation callers must verify ownership and completed stop
+before removing registration.
