@@ -57,6 +57,9 @@ class Gate:
             import upgrade_release
             included = upgrade_release.member(self.loaded, phase, self.component_index, self.kind, self.generation)
             if not self.post_release_start and not included:
+                # Keep this retryable at child entrypoints (currently exit 1),
+                # never permanent configuration exit 78. Its successor can start
+                # after release and supply live readiness without comparison.
                 raise GateError('this child generation was not verified for upgrade release')
             self._released = True
         return self._released

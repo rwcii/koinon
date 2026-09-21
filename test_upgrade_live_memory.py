@@ -60,6 +60,20 @@ class LiveGatedMemoryTests(unittest.TestCase):
                 denied, _ = asyncio.run(control_exchange(self.home,
                     dict(op='note', consumer='synthetic', type='finding', body='must remain gated')))
                 self.assertFalse(denied['ok'])
+                from upgrade_documents import Documents
+                import platform_support
+                import session_supervisor
+                fixtures.MemoryCaptureTests.advance(self, owner, 16)
+                receipt = Documents(self.operation).put('release', dict(
+                    version=1, plan=self.prepared['sha256'], members=[]))
+                owner.journal.advance(owner.journal.read(), evidence=receipt)
+                _, error = process.communicate(timeout=10)
+                self.assertIn('not verified for upgrade release', error)
+                self.assertNotEqual(process.returncode, 0)
+                self.assertNotIn(process.returncode, platform_support.PERMANENT_EXIT_STATUSES)
+                self.assertEqual(memory_service.child_failure(process.returncode).exit_status, 75)
+                self.assertEqual(session_supervisor.child_failure(process.returncode).code,
+                                 'session_temporary_failure')
             finally:
                 if process.poll() is None:
                     process.terminate()
