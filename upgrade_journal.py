@@ -8,11 +8,10 @@ resume must call read(), which refuses a missing journal rather than recreating 
 """
 from contextlib import contextmanager
 import os
-from pathlib import Path
 
 import durable_state
 from participant_lock import file_lock
-from upgrade_manifest import check_root, hex_digest
+from upgrade_manifest import check_root, hex_digest, select_root
 
 PHASES = ('prepared', 'quiescing_sessions', 'quiescing_memory', 'backing_up',
           'replacing', 'verifying_migration', 'starting_gated', 'verifying',
@@ -29,7 +28,7 @@ class Journal:
     def __init__(self, directory, plan_digest):
         if not hex_digest(plan_digest):
             raise JournalError('invalid frozen plan digest')
-        self.directory = Path(directory)
+        self.directory = select_root(directory)
         self.plan_digest = plan_digest
         self.path = self.directory / 'phase.json'
         self.lock_path = self.directory / 'journal.lock'

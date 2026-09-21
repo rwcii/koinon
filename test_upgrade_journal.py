@@ -122,5 +122,21 @@ class JournalTests(unittest.TestCase):
             self.assertEqual(second.read(), value)
 
 
+    def test_initial_alias_is_frozen_before_journal_mutation(self):
+        selected = self.root / 'selected'
+        selected.mkdir(mode=0o700)
+        other = self.root / 'other'
+        other.mkdir(mode=0o700)
+        alias = self.root / 'alias'
+        alias.symlink_to(selected, target_is_directory=True)
+        state = journal.Journal(alias, 'a' * 64)
+        value = state.initialize()
+        self.assertEqual(state.directory, selected.resolve())
+        alias.unlink()
+        alias.symlink_to(other, target_is_directory=True)
+        self.assertEqual(state.read(), value)
+        self.assertFalse((other / 'phase.json').exists())
+
+
 if __name__ == '__main__':
     unittest.main()
