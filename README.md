@@ -249,8 +249,10 @@ read the [upgrade procedure](docs/WORK-ITEMS-UPGRADE.md) before replacing a runn
 service. Work commands, immutable stream records, frozen snapshots and bounded
 maintenance share the existing memory store. [Explicit guidance configuration](docs/WORK-ITEMS-POLICY.md)
 selects a repository and participant. A fresh installation with `--repo` also selects the
-repository memory component, and starts it unless `--no-start` stages the selection or no
-user manager is available. A repeat installation keeps a selection it already holds; only
+repository memory component, and starts it unless `--no-start` stages the selection, the
+selected backend is manual, or no user manager is available. In those cases `ensure`
+reports `manual_required` with a start command instead. A repeat installation keeps a
+selection it already holds; only
 an existing prefix without that repository selected, and without `--configure-memory`,
 leaves memory out and reports how to add it.
 

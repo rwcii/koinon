@@ -87,9 +87,11 @@ Read the shared memory sections in README.md, PROTOCOL.md, and docs/INSTALL.md b
 operating or changing `memory.py`. `scripts/install.py --configure-memory` configures a
 memory service, and a fresh install with `--repo` also selects one. `--no-start` only
 stages that selection; otherwise the installer runs `memory_service.py ensure`, which
-starts the service when a user manager is available and otherwise reports
-`manual_required` with a start command. Where no selection is made, or where `ensure`
-reports `manual_required`, start it explicitly in a persistent managed session.
+starts a selected native service when its manager is available. A selected manual
+backend never starts automatically, and neither does a native selection whose manager
+is unavailable; both report `manual_required` with a start command. Where no selection
+is made, or where `ensure` reports `manual_required`, start it explicitly in a
+persistent managed session.
 The service advertises `memory_subscription`, the notifier subscribes to it, and a head
 change queues a content-free notice carrying a `sync` command. Reading the store is still
 a pull the receiving session performs; the notice never carries memory content.
