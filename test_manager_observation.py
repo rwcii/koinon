@@ -99,6 +99,17 @@ class LaunchdObservationTests(unittest.TestCase):
                 patch.object(platform_support.subprocess, 'run', side_effect=results):
             return platform_support.launchd_service_observation(self.domain, self.label)
 
+    def test_absence_probe_discards_unrelated_domain_inventory(self):
+        with patch.object(platform_support, 'DARWIN', True), \
+                patch.object(platform_support.subprocess, 'run', side_effect=[
+                    self.result('', 113), self.result('unrelated inventory' * 10000)]) as run:
+            self.assertEqual(platform_support.launchd_service_observation(self.domain, self.label),
+                             dict(status='absent'))
+        probe = run.call_args_list[-1]
+        self.assertEqual(probe.args[0], ['launchctl', 'print', self.domain])
+        self.assertEqual(probe.kwargs['stdout'], subprocess.DEVNULL)
+        self.assertEqual(probe.kwargs['stderr'], subprocess.DEVNULL)
+
     def test_preserves_exact_argument_boundaries_and_ignores_environment(self):
         observed = self.observe([self.result(), self.result()])
         self.assertEqual(observed['status'], 'observed')
@@ -133,6 +144,45 @@ class LaunchdObservationTests(unittest.TestCase):
                 with self.subTest(domain=domain, label=label):
                     with self.assertRaises(ValueError):
                         platform_support.launchd_service_observation(domain, label)
+            run.assert_not_called()
+
+
+
+class NativeMemoryActionTests(unittest.TestCase):
+    def test_actions_use_only_selected_user_backend_and_exact_artifact(self):
+        from test_memory_service_config import record
+        selected = record()
+        with patch.object(platform_support, 'LINUX', True), \
+                patch.object(platform_support, 'memory_registration_paths', return_value=()), \
+                patch('memory_service_artifacts.preflight_registration') as preflight, \
+                patch.object(platform_support.subprocess, 'run') as run:
+            platform_support.memory_manager_action(selected, 'activate')
+            preflight.assert_called_once()
+        self.assertEqual(run.call_args.args[0], ['systemctl', '--user', '--no-ask-password',
+                                               'enable', selected['artifact']])
+        selected = dict(record(backend='launchd'), manager_domain=f'gui/{os.geteuid()}')
+        with patch.object(platform_support, 'DARWIN', True), \
+                patch.object(platform_support, 'memory_registration_paths', return_value=()), \
+                patch('memory_service_artifacts.preflight_registration') as preflight, \
+                patch.object(platform_support.subprocess, 'run') as run:
+            platform_support.memory_manager_action(selected, 'activate')
+            preflight.assert_not_called()
+            self.assertEqual(run.call_args.args[0], ['launchctl', 'bootstrap', selected['manager_domain'],
+                                                   selected['artifact']])
+            platform_support.memory_manager_action(selected, 'restart')
+            self.assertEqual(run.call_args.args[0], ['launchctl', 'kickstart',
+                selected['manager_domain'] + '/' + selected['artifact'].rsplit('/', 1)[1][:-6]])
+            self.assertNotIn('-k', run.call_args.args[0])
+
+    def test_missing_or_foreign_launchd_domain_never_invokes_manager(self):
+        from test_memory_service_config import record
+        with patch.object(platform_support.subprocess, 'run') as run:
+            for domain in (None, 'system', f'gui/{os.geteuid() + 1}'):
+                selected = record(backend='launchd')
+                if domain is not None:
+                    selected['manager_domain'] = domain
+                with self.assertRaises(ValueError):
+                    platform_support.memory_manager_action(selected, 'activate')
             run.assert_not_called()
 
 

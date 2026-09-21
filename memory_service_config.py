@@ -21,6 +21,12 @@ IDENTITY_FIELDS = frozenset(('common_directory', 'identity_digest', 'state_root'
 BASE_FIELDS = IDENTITY_FIELDS | {'state', 'artifact_digest'}
 
 
+def base_fields(record):
+    # Retain older staged selections without inventing a launchd domain. Native
+    # activation requires the explicit field; ordinary validation is read-only.
+    return BASE_FIELDS | {field for field in ('manager_domain', 'template_version') if field in record}
+
+
 def identity(common_directory):
     """Hash exactly the common-directory string used by memory.repo_identity."""
     common = absolute_path(str(common_directory))
@@ -65,7 +71,7 @@ def validate(value):
         if not isinstance(record, dict):
             raise ValueError('invalid memory-service record')
         state = record.get('state')
-        fields = BASE_FIELDS | ({'before_digest', 'after_digest'}
+        fields = base_fields(record) | ({'before_digest', 'after_digest'}
                                 if state in ('pending', 'removing') else set())
         if set(record) != fields or state not in ('pending', 'installed', 'removing'):
             raise ValueError('invalid memory-service fields or state')
@@ -79,6 +85,17 @@ def validate(value):
             raise ValueError('memory service directory does not match selection')
         backend = record['backend']
         expected_name = artifact_name(key, backend)
+        if 'template_version' in record:
+            version = record['template_version']
+            if (type(version) is not int or version not in (1, 2) or backend == 'manual'
+                    or version == 2 and backend != 'systemd'):
+                raise ValueError('unsupported memory artifact template')
+        if 'manager_domain' in record:
+            domain = record['manager_domain']
+            if (backend != 'launchd' or not isinstance(domain, str)
+                    or re.fullmatch(r'gui/(0|[1-9][0-9]{0,9})', domain) is None
+                    or int(domain[4:]) > 4294967295):
+                raise ValueError('invalid selected memory manager domain')
         if backend == 'manual':
             if (record['artifact'] is not None or record['artifact_digest'] is not None
                     or state != 'installed'):

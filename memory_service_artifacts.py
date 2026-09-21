@@ -32,11 +32,49 @@ def _parents(path):
         if (not stat.S_ISDIR(info.st_mode) or info.st_uid not in (0, os.getuid())
                 or (info.st_mode & 0o022 and not
                     (info.st_uid == 0 and info.st_mode & stat.S_ISVTX))):
-            raise ValueError('unsafe artifact ancestor')
+            raise RegistrationPathError(parent)
     info = path.parent.lstat()
     if info.st_uid != os.getuid() or info.st_mode & 0o022:
-        raise ValueError('artifact directory must be owned and not writable by others')
+        raise RegistrationPathError(path.parent)
 
+
+
+class RegistrationPathError(ValueError):
+    def __init__(self, path):
+        self.paths = (str(path),)
+        super().__init__('unsafe or conflicting manager registration path: ' + str(path))
+
+
+def preflight_registration(record, paths):
+    """Read-only checks before systemd creates loader and enablement links.
+
+    Missing suffix directories are allowed; existing ancestors may not be aliases
+    or writable by another user/group. Never repair permissions or adopt a target.
+    """
+    artifact = Path(record['artifact'])
+    for raw in paths:
+        path = absolute_path(str(raw))
+        closest = None
+        for parent in reversed(path.parents):
+            try:
+                info = parent.lstat()
+            except FileNotFoundError:
+                break
+            if (not stat.S_ISDIR(info.st_mode) or info.st_uid not in (0, os.geteuid())
+                    or (info.st_mode & 0o022 and not (info.st_uid == 0 and info.st_mode & stat.S_ISVTX))):
+                raise RegistrationPathError(parent)
+            closest = info
+        if closest is None or closest.st_uid != os.geteuid() or closest.st_mode & 0o022:
+            raise RegistrationPathError(path.parent)
+        try:
+            info = path.lstat()
+        except FileNotFoundError:
+            continue
+        if path == artifact:
+            continue  # The caller verifies canonical artifact bytes separately.
+        if (not stat.S_ISLNK(info.st_mode) or info.st_uid != os.geteuid()
+                or os.readlink(path) != str(artifact)):
+            raise RegistrationPathError(path)
 
 def _read(path):
     _parents(path)
@@ -82,7 +120,8 @@ def _boundary(prefix, artifact=None):
         raise
     except (OSError, ValueError) as exc:
         raise runtime_names.NameConflict('invalid_install_configuration',
-                                         tuple(path for path in (Path(prefix) / 'install.json', artifact)
+                                         tuple(path for path in (*getattr(exc, 'paths', ()),
+                                               Path(prefix) / 'install.json', artifact)
                                                if path is not None)) from exc
 
 
@@ -103,6 +142,34 @@ def verify_owned(prefix, python, record, *, observed_artifact=None):
         return record
 
 
+def verify_loaded(prefix, python, record, observed_artifact):
+    """Accept an exact artifact or its private same-user systemd loader link.
+
+    Custom unit locations are linked by systemd into its lookup directory. This
+    verifies one literal link target, never resolves an arbitrary alias chain.
+    """
+    verify_owned(prefix, python, record)
+    with _boundary(prefix, observed_artifact):
+        path = absolute_path(str(observed_artifact))
+        expected = Path(record['artifact'])
+        if path == expected:
+            return record
+        if record['backend'] != 'systemd' or path.name != expected.name:
+            raise ValueError('loaded manager artifact differs from registration')
+        _parents(path)
+        before = path.lstat()
+        if not stat.S_ISLNK(before.st_mode) or before.st_uid != os.geteuid():
+            raise ValueError('loaded artifact is not an owned loader link')
+        if os.readlink(path) != str(expected):
+            raise ValueError('loader link does not name the exact registered artifact')
+        after = path.lstat()
+        if ((before.st_dev, before.st_ino) != (after.st_dev, after.st_ino)
+                or os.readlink(path) != str(expected)):
+            raise ValueError('loader link changed during verification')
+        verify_owned(prefix, python, record)
+        return record
+
+
 def _prepare(prefix, python, desired, config):
     if not config:
         raise ValueError('installation configuration is required')
@@ -119,7 +186,7 @@ def _prepare(prefix, python, desired, config):
         if current is not None:
             raise ValueError('artifact exists without this installation owning it')
     else:
-        base = {field: old[field] for field in configuration.BASE_FIELDS}
+        base = {field: old[field] for field in configuration.base_fields(old)}
         base['state'] = 'installed'
         if old['state'] == 'removing':
             raise ValueError('publication cannot resume state removing')
