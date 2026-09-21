@@ -209,18 +209,23 @@ def publish(desired):
     desired = copy.deepcopy(desired)
     home, _, _, _, _ = prepare(desired)
     with install_state.locked(desired['prefix']), locked(home / 'lifecycle.lock'), \
-            locked(home / 'registration.lock'), locked(home / 'supervisor.lock'):
+            locked(home / 'registration.lock'):
         home, path, content, old, before = prepare(desired)
+        # An exact repeat only verifies immutable selection and artifact evidence.
+        # The running supervisor deliberately holds its lifetime lock, so acquire
+        # that lock only when publication would actually mutate the selection.
         if old is not None and old['state'] == 'installed':
             return desired
-        if old is None:
-            durable_state.publish(home / 'native-service.json', dict(desired, state='pending',
-                                  before_digest=None, after_digest=desired['artifact_digest']))
-        if before != content:
-            files._replace(path, content, before)
-        else:
-            platform_support.sync_state_directory(path.parent)
-        if files._read(path) != content:
-            raise ValueError('session artifact changed before completion')
-        durable_state.publish(home / 'native-service.json', desired)
-        return desired
+        with locked(home / 'supervisor.lock'):
+            home, path, content, old, before = prepare(desired)
+            if old is None:
+                durable_state.publish(home / 'native-service.json', dict(desired, state='pending',
+                                      before_digest=None, after_digest=desired['artifact_digest']))
+            if before != content:
+                files._replace(path, content, before)
+            else:
+                platform_support.sync_state_directory(path.parent)
+            if files._read(path) != content:
+                raise ValueError('session artifact changed before completion')
+            durable_state.publish(home / 'native-service.json', desired)
+            return desired

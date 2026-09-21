@@ -72,3 +72,9 @@ class SessionInstallTests(unittest.TestCase):
         self.assertEqual((self.home / 'session.json').read_bytes(), before)
         self.assertEqual(inbox.read_text(), 'retained')
         artifacts.verify_owned(repeated)
+
+    def test_exact_repeat_does_not_take_running_supervisors_lifetime_lock(self):
+        (self.home / 'session.json').unlink()
+        record = self.stage()
+        with artifacts.locked(self.home / 'supervisor.lock'):
+            self.assertEqual(self.stage(), record)
