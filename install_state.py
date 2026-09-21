@@ -6,6 +6,7 @@ from pathlib import Path
 import stat
 import tempfile
 
+import platform_support
 import runtime_names
 from participant_lock import file_lock, OwnershipError
 
@@ -31,17 +32,25 @@ class LockedConfiguration:
                 json.dump(merged, stream, ensure_ascii=False, sort_keys=True)
                 stream.write('\n')
                 stream.flush()
-                os.fsync(stream.fileno())
-            os.replace(temporary, target)
-            directory = os.open(self.prefix, os.O_RDONLY | os.O_DIRECTORY)
-            try:
-                os.fsync(directory)
-            finally:
-                os.close(directory)
+                platform_support.sync_state_file(stream.fileno())
+                os.replace(temporary, target)
+                platform_support.sync_state_directory(self.prefix)
+                platform_support.sync_state_file(stream.fileno())
             self.config = merged
             return merged
         finally:
             Path(temporary).unlink(missing_ok=True)
+
+
+    def confirm(self):
+        """Republish unchanged configuration after an ambiguous completion.
+
+        Retain every unknown field and existing validation rule, including older
+        readable config modes. A retry succeeds only after all durability flushes.
+        """
+        if runtime_names.install_config(self.prefix) != self.config:
+            raise ValueError('installation configuration changed before confirmation')
+        return self.merge({})
 
 
 @contextmanager

@@ -11,6 +11,7 @@ from pathlib import Path
 import stat
 import tempfile
 
+import durable_state
 import install_state
 import memory_service_config as configuration
 from participant_lock import file_lock, OwnershipError
@@ -252,9 +253,28 @@ def _save(state, key, record):
 
 
 def _fsync_directory(path):
-    fd = os.open(path, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
+    platform_support.sync_state_directory(path)
+
+
+def _confirm(path, content):
+    """Confirm exact retained artifact bytes without changing its inode."""
+    _parents(path)
+    fd = durable_state.open_validated(path, MAX_ARTIFACT_BYTES, writable=True)
+    if fd is None:
+        raise ValueError('owned artifact is missing')
     try:
-        os.fsync(fd)
+        original = os.fstat(fd)
+        def stamp(info):
+            return (info.st_dev, info.st_ino, info.st_size, info.st_mtime_ns, info.st_ctime_ns)
+        def unchanged():
+            if (_read(path) != content or stamp(path.lstat()) != stamp(original)
+                    or stamp(os.fstat(fd)) != stamp(original)):
+                raise ValueError('owned artifact changed during confirmation')
+        unchanged()
+        platform_support.sync_state_file(fd)
+        _fsync_directory(path.parent)
+        platform_support.sync_state_file(fd)
+        unchanged()
     finally:
         os.close(fd)
 
@@ -265,11 +285,12 @@ def _replace(path, content, before):
         with os.fdopen(fd, 'wb') as stream:
             stream.write(content)
             stream.flush()
-            os.fsync(stream.fileno())
-        if _read(path) != before:
-            raise ValueError('artifact changed during publication; pending evidence retained')
-        os.replace(temporary, path)
-        _fsync_directory(path.parent)
+            platform_support.sync_state_file(stream.fileno())
+            if _read(path) != before:
+                raise ValueError('artifact changed during publication; pending evidence retained')
+            os.replace(temporary, path)
+            _fsync_directory(path.parent)
+            platform_support.sync_state_file(stream.fileno())
     finally:
         Path(temporary).unlink(missing_ok=True)
 
@@ -290,6 +311,8 @@ def publish(prefix, python, desired):
         with install_state.locked(prefix) as state, _artifact_lock(path):
             key, path, content, old, before = _prepare(prefix, python, desired, state.config)
             if old and old['state'] == 'installed':
+                _confirm(path, content)
+                state.confirm()
                 return desired
             if not old:
                 _save(state, key, dict(desired, state='pending', before_digest=None,
@@ -297,9 +320,8 @@ def publish(prefix, python, desired):
             if before != content:
                 _replace(path, content, before)
             else:
-                # A crash after rename can precede directory fsync. Repeat it
-                # before declaring the recovered artifact durable.
-                _fsync_directory(path.parent)
+                # Reconfirm all file/directory/device flushes after an ambiguous rename.
+                _confirm(path, content)
             if _read(path) != content:
                 raise ValueError('artifact changed before completion; pending evidence retained')
             _save(state, key, desired)

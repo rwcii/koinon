@@ -413,7 +413,10 @@ def sync_state_file(fd):
 
 
 def sync_state_directory(path):
-    fd = os.open(path, os.O_RDONLY | os.O_DIRECTORY | os.O_CLOEXEC)
+    # O_NOFOLLOW preserves the refusal the memory artifact helper applied before it
+    # delegated here. Every caller validates the directory first, so a state
+    # directory is never legitimately reached through a symlink.
+    fd = os.open(path, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW | os.O_CLOEXEC)
     try:
         os.fsync(fd)
     finally:

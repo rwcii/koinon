@@ -5,6 +5,11 @@ into a dated release section when promoted to `main`.
 
 ## Unreleased
 
+- Flush installation configuration and service artifacts through the shared platform
+  primitives, so a replacement is followed by the device-level synchronization macOS
+  requires. Exact repeats reconfirm retained records instead of accepting a visible but
+  possibly unflushed file.
+
 - Stage read-only upgrade inventories and frozen source-file checks, including an explicit
   unsupported-SQLite refusal. The coordinated upgrade command remains in development.
 
