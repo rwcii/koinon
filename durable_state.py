@@ -9,6 +9,7 @@ import platform_support
 
 MAX_BYTES = 4096
 MAX_DOCUMENT_BYTES = 1024 * 1024
+MAX_PRIVATE_FILE_BYTES = 4 * 1024 * 1024
 
 
 class StateReadBusyError(BlockingIOError):
@@ -30,7 +31,10 @@ def byte_limit(max_bytes):
 
 
 def validate(info, *, max_bytes=None):
-    limit = byte_limit(max_bytes)
+    _validate(info, byte_limit(max_bytes))
+
+
+def _validate(info, limit):
     if (not stat.S_ISREG(info.st_mode) or info.st_uid != os.geteuid()
             or info.st_mode & 0o077 or info.st_nlink != 1 or info.st_size > limit):
         raise StateFileError('unsafe_state_file')
@@ -45,7 +49,15 @@ def pairs(items):
     return result
 
 
-def _open_validated(path, limit, *, writable=False):
+def open_validated(path, limit, *, writable=False):
+    """Return an owned private regular-file descriptor, or None on absence.
+
+    Caller closes the descriptor and bounds any reads. Binary callers may select
+    up to 4 MiB; JSON callers retain their separate 1 MiB explicit ceiling and
+    4 KiB default. Atomic replacement retries are shared by all callers.
+    """
+    if type(limit) is not int or not 0 < limit <= MAX_PRIVATE_FILE_BYTES:
+        raise ValueError('invalid private-file byte limit')
     access = os.O_RDWR if writable else os.O_RDONLY
     for attempt in range(3):
         try:
@@ -66,7 +78,7 @@ def _open_validated(path, limit, *, writable=False):
                 if (current.st_dev, current.st_ino) != (info.st_dev, info.st_ino):
                     os.close(fd)
                     continue
-            validate(info, max_bytes=limit)
+            _validate(info, limit)
         except BaseException:
             os.close(fd)
             raise
@@ -96,7 +108,7 @@ def _read_value(fd, limit):
 
 def read(path, *, max_bytes=None):
     limit = byte_limit(max_bytes)
-    fd = _open_validated(path, limit)
+    fd = open_validated(path, limit)
     if fd is None:
         return None
     try:
@@ -119,7 +131,7 @@ def confirm(path, expected, *, max_bytes=None):
     if (not stat.S_ISDIR(directory.st_mode) or directory.st_uid != os.geteuid()
             or directory.st_mode & 0o077):
         raise StateFileError('unsafe_state_directory')
-    fd = _open_validated(path, limit, writable=True)
+    fd = open_validated(path, limit, writable=True)
     if fd is None:
         raise StateFileError('missing_state_file')
     try:

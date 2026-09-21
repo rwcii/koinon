@@ -95,6 +95,22 @@ class BundleTests(unittest.TestCase):
             bundle.prepare(self.recovery, frozen, 'entry.py')
         self.assertFalse((self.recovery / bundle.ARCHIVE).exists())
 
+    def test_archive_confirmation_reopens_atomically_replaced_inode(self):
+        descriptor = bundle.prepare(self.recovery, self.frozen, 'entry.py')
+        path = self.recovery / bundle.ARCHIVE
+        replacement = self.recovery / 'replacement'
+        replacement.write_bytes(path.read_bytes())
+        replacement.chmod(0o600)
+        real_open = os.open
+        def open_then_replace(selected, flags, *args, **kwargs):
+            fd = real_open(selected, flags, *args, **kwargs)
+            if Path(selected) == path and flags & os.O_RDWR and replacement.exists():
+                os.replace(replacement, path)
+            return fd
+        with patch.object(bundle.durable_state.os, 'open', side_effect=open_then_replace):
+            self.assertEqual(bundle.prepare(self.recovery, self.frozen, 'entry.py'), descriptor)
+        self.assertFalse(replacement.exists())
+
 
 if __name__ == '__main__':
     unittest.main()

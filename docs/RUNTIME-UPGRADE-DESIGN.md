@@ -333,3 +333,18 @@ completion phase. Partial acknowledgement therefore cannot leave the journal rep
 an uncommitted release while writers have been deliberately released. These are
 coordinator ordering requirements; the acknowledgement schema, preflight reservation
 and service-gate consumers remain to be integrated and tested.
+
+Archive confirmation uses the same bounded private-file open/reopen primitive as
+JSON state recovery; its 4 MiB binary limit does not change JSON limits. Verification
+returns a path, so the later isolated interpreter launch still assumes no hostile
+same-user replacement between verification and execution. Rechecking the path does
+not remove that trust-boundary assumption.
+
+`upgrade_observation.py` captures a validated native selection's manager registration
+and running state separately. Manager observations must agree before and after the
+service probe and match the owned runner when running. An inactive result additionally
+requires confirmed child exit, no retained control endpoint, and no held owner lock.
+Unknown or changing evidence refuses. This is a read-only preflight observation, not
+installation-wide enumeration or exclusion against a subsequent start; quiescence
+must revalidate under the appropriate locks. Manual selections require their own
+explicit adapter before they can enter this native observation path.

@@ -10,6 +10,7 @@ from pathlib import Path
 import stat
 import zipfile
 
+import durable_state
 import platform_support
 from participant_lock import file_lock
 import upgrade_manifest as manifest
@@ -44,7 +45,9 @@ def _confirm(root, expected):
     """Reconfirm bytes, name and durability, including an earlier failed rename flush."""
     path = root / ARCHIVE
     directory = root.lstat()
-    fd = os.open(path, os.O_RDWR | os.O_NOFOLLOW | os.O_NONBLOCK | os.O_CLOEXEC)
+    fd = durable_state.open_validated(path, MAX_BYTES, writable=True)
+    if fd is None:
+        raise BundleError('recovery archive missing')
     try:
         original = os.fstat(fd)
         _private_file(original)
