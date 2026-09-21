@@ -43,13 +43,21 @@ class Journal:
         return info.st_dev, info.st_ino
 
     @contextmanager
-    def _locked(self):
+    def _locked(self, *, operation=False):
+        path = self.directory / 'coordinator.lock' if operation else self.lock_path
+        code = 'upgrade_coordinator_busy' if operation else 'upgrade_journal_busy'
         directory = self._directory()
-        with file_lock(self.lock_path, 'upgrade_journal_busy', None) as fd:
-            info, named = os.fstat(fd), self.lock_path.lstat()
+        with file_lock(path, code, None) as fd:
+            info, named = os.fstat(fd), path.lstat()
             if ((info.st_dev, info.st_ino) != (named.st_dev, named.st_ino)
                     or self._directory() != directory):
                 raise JournalError('upgrade journal ownership changed')
+            yield
+
+    @contextmanager
+    def operation(self):
+        """Exclude another coordinator while permitting status and gate reads."""
+        with self._locked(operation=True):
             yield
 
     def validate(self, value):

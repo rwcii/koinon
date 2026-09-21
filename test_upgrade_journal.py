@@ -107,5 +107,20 @@ class JournalTests(unittest.TestCase):
             reopened.advance(dict(value, step=0, receipts=[]), evidence='b' * 64)
 
 
+    def test_operation_lock_excludes_second_coordinator_but_not_journal_access(self):
+        from participant_lock import OwnershipError
+        value = self.state.initialize()
+        second = journal.Journal(self.root, 'a' * 64)
+        with self.state.operation():
+            self.assertEqual(second.read(), value)
+            with self.assertRaises(OwnershipError) as caught:
+                with second.operation():
+                    self.fail('second coordinator admitted')
+            self.assertEqual(caught.exception.code, 'upgrade_coordinator_busy')
+            value = self.state.advance(value, evidence='b' * 64)
+        with second.operation():
+            self.assertEqual(second.read(), value)
+
+
 if __name__ == '__main__':
     unittest.main()
