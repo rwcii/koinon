@@ -1119,13 +1119,18 @@ def _upgrade_launchd_labels(text, domain):
             if len(labels) != len(set(labels)):
                 raise ValueError('duplicate launchd service identity')
             return sorted(labels)
-        columns = line.split()
-        if (not line.startswith('\t\t') or len(columns) != 3
+        # A label is arbitrary text and may contain spaces, so take the row remainder
+        # verbatim instead of splitting it. Refusing those labels would make one
+        # unrelated third-party job refuse every upgrade on the host. A label is only
+        # ever passed as a single argv element, never to a shell.
+        columns = line[2:].split(None, 2)
+        label = columns[2].rstrip() if len(columns) == 3 else ''
+        if (not line.startswith('\t\t') or len(columns) != 3 or not label
+                or not label.isprintable()
                 or re.fullmatch(r'(?:0|[1-9][0-9]*|-)', columns[0]) is None
-                or re.fullmatch(r'(?:[0-9]+|[A-Za-z-]+)', columns[1]) is None
-                or re.fullmatch(r'[A-Za-z0-9][A-Za-z0-9_.-]*', columns[2]) is None):
+                or re.fullmatch(r'(?:[0-9]+|[A-Za-z-]+)', columns[1]) is None):
             raise ValueError('unsupported launchd service inventory shape')
-        labels.append(columns[2])
+        labels.append(label)
         if len(labels) > 4096:
             raise ValueError('launchd service inventory exceeds capacity')
     raise ValueError('unterminated launchd service inventory')

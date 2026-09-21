@@ -46,8 +46,13 @@ def _references(data, suffix, prefix):
             raise DiscoveryError('invalid service definition encoding') from exc
         # Recognize literal escaped strings without evaluating a unit or shell.
         text = re.sub(r'\\x([0-9a-fA-F]{2})', lambda m: chr(int(m[1], 16)), text)
-        text = text.replace('%%', '%').replace('$$', '$')
-        text = text.replace('%h', str(platform_support.account_home()))
+        text = text.replace('$$', '$')
+        # Expand specifiers in one left-to-right pass. A literal '%' produced by '%%'
+        # is never rescanned, so '%%h' stays the text '%h' exactly as systemd renders
+        # it; rescanning expanded it to the home path and reported a unit that does
+        # not reference this runtime as unowned.
+        home = str(platform_support.account_home())
+        text = re.sub(r'%(.)', lambda m: '%' if m[1] == '%' else home if m[1] == 'h' else m[0], text)
     candidates = {str(prefix), str(Path(prefix).resolve())}
     candidates.update(json.dumps(item, ensure_ascii=False)[1:-1] for item in tuple(candidates))
     return any(value + '/' in text for value in candidates)

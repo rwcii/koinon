@@ -136,3 +136,22 @@ class NativeDiscoveryShapeTests(unittest.TestCase):
                         value.replace('synthetic.two', 'synthetic.one')):
             with self.subTest(changed=changed), self.assertRaises(ValueError):
                 platform_support._upgrade_launchd_labels(changed, 'gui/501')
+
+    def test_unrelated_label_text_is_preserved_rather_than_refusing_every_upgrade(self):
+        """One third-party job must not make the whole host unupgradable."""
+        value = ('gui/501 = {\n\tservices = {\n\t\t0 M vendor job 3\n'
+                 '\t\t123 0 synthetic.two\n\t}\n}\n')
+        self.assertEqual(platform_support._upgrade_launchd_labels(value, 'gui/501'),
+                         ['synthetic.two', 'vendor job 3'])
+        for refused in ('vendor\x01job', 'vendor\x7fjob'):
+            with self.subTest(refused=refused), self.assertRaises(ValueError):
+                platform_support._upgrade_launchd_labels(
+                    value.replace('vendor job 3', refused), 'gui/501')
+
+    def test_escaped_percent_is_not_expanded_into_a_runtime_reference(self):
+        """systemd renders %%h as the literal text %h and never expands it."""
+        prefix = str(platform_support.account_home())
+        self.assertFalse(discovery._references(b'ExecStart=/bin/echo %%h/elsewhere\n',
+                                               '.service', prefix))
+        self.assertTrue(discovery._references(b'ExecStart=/bin/echo %h/elsewhere\n',
+                                              '.service', prefix))
