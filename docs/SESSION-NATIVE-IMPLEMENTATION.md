@@ -152,3 +152,12 @@ and explicit retry, permanent startup refusal, and guarded shutdown with exact
 deregistration and data retention. It does not establish pre-handshake crash
 recovery, complete installer integration, persistent memory login behavior, or upgrades
 from legacy units. The fixture records failed cleanup and retains evidence on ambiguity.
+
+A systemd failed-unit tombstone may remain after the registration is removed. It is
+classified as absent only when `LoadState=not-found`, the artifact and executable list
+are empty, and `MainPID=0`, with matching adjacent typed reads. A loaded transient unit
+is not absent, even with an empty fragment path and no running process. These adjacent
+reads detect changes during the query; they do not guarantee future stability or make
+manager mutation atomic. Durable owner/refusal records remain the failure authority
+for retry. Deactivation does not clear either those records or the manager's failed
+state, and no `reset-failed` command is issued.
