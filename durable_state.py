@@ -45,11 +45,11 @@ def pairs(items):
     return result
 
 
-def read(path, *, max_bytes=None):
-    limit = byte_limit(max_bytes)
+def _open_validated(path, limit, *, writable=False):
+    access = os.O_RDWR if writable else os.O_RDONLY
     for attempt in range(3):
         try:
-            fd = os.open(path, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK | os.O_CLOEXEC)
+            fd = os.open(path, access | os.O_NOFOLLOW | os.O_NONBLOCK | os.O_CLOEXEC)
         except FileNotFoundError:
             return None
         try:
@@ -73,21 +73,78 @@ def read(path, *, max_bytes=None):
         break
     else:
         raise StateReadBusyError()
+    return fd
+
+
+def _read_value(fd, limit):
+    data = bytearray()
+    while len(data) <= limit:
+        chunk = os.read(fd, limit + 1 - len(data))
+        if not chunk:
+            break
+        data.extend(chunk)
+    if len(data) > limit:
+        raise StateFileError('unsafe_state_file')
     try:
-        data = bytearray()
-        while len(data) <= limit:
-            chunk = os.read(fd, limit + 1 - len(data))
-            if not chunk:
-                break
-            data.extend(chunk)
-        if len(data) > limit:
-            raise StateFileError('unsafe_state_file')
-        try:
-            value = json.loads(data, object_pairs_hook=pairs)
-        except (ValueError, UnicodeError, RecursionError) as exc:
-            raise StateFileError('invalid_state_file') from exc
-        if not isinstance(value, dict):
-            raise StateFileError('invalid_state_file')
+        value = json.loads(data, object_pairs_hook=pairs)
+    except (ValueError, UnicodeError, RecursionError) as exc:
+        raise StateFileError('invalid_state_file') from exc
+    if not isinstance(value, dict):
+        raise StateFileError('invalid_state_file')
+    return value
+
+
+def read(path, *, max_bytes=None):
+    limit = byte_limit(max_bytes)
+    fd = _open_validated(path, limit)
+    if fd is None:
+        return None
+    try:
+        return _read_value(fd, limit)
+    finally:
+        os.close(fd)
+
+
+def confirm(path, expected, *, max_bytes=None):
+    """Confirm retained bytes and their durability without rewriting the record.
+
+    The caller holds the same ownership lock used for publication. This is for
+    recovery from an ambiguous publication result, including a failed directory
+    flush after replacement. Absence, substitution, or another flush failure
+    refuses; ordinary read() remains nonmutating and does not promise durability.
+    """
+    limit = byte_limit(max_bytes)
+    path = Path(path)
+    directory = path.parent.lstat()
+    if (not stat.S_ISDIR(directory.st_mode) or directory.st_uid != os.geteuid()
+            or directory.st_mode & 0o077):
+        raise StateFileError('unsafe_state_directory')
+    fd = _open_validated(path, limit, writable=True)
+    if fd is None:
+        raise StateFileError('missing_state_file')
+    try:
+        original = os.fstat(fd)
+        value = _read_value(fd, limit)
+        def encoded(item):
+            return json.dumps(item, sort_keys=True, separators=(',', ':'), allow_nan=False)
+        if encoded(value) != encoded(expected):
+            raise StateFileError('state_file_changed')
+        def stamp(info):
+            return (info.st_dev, info.st_ino, info.st_size, info.st_mtime_ns, info.st_ctime_ns)
+        def unchanged():
+            named, opened, parent = path.lstat(), os.fstat(fd), path.parent.lstat()
+            validate(named, max_bytes=limit)
+            validate(opened, max_bytes=limit)
+            if (stamp(named) != stamp(original) or stamp(opened) != stamp(original)
+                    or (parent.st_dev, parent.st_ino) != (directory.st_dev, directory.st_ino)
+                    or not stat.S_ISDIR(parent.st_mode) or parent.st_uid != os.geteuid()
+                    or parent.st_mode & 0o077):
+                raise StateFileError('state_file_changed')
+        unchanged()
+        platform_support.sync_state_file(fd)
+        platform_support.sync_state_directory(path.parent)
+        platform_support.sync_state_file(fd)
+        unchanged()
         return value
     finally:
         os.close(fd)

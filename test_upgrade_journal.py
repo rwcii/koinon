@@ -137,6 +137,36 @@ class JournalTests(unittest.TestCase):
         self.assertEqual(state.read(), value)
         self.assertFalse((other / 'phase.json').exists())
 
+    def test_initialization_retry_requires_successful_durability_confirmation(self):
+        with patch.object(durable_state.platform_support, 'sync_state_directory', side_effect=OSError('flush')):
+            with self.assertRaises(OSError):
+                self.state.initialize()
+            self.assertEqual(durable_state.read(self.state.path)['step'], 0)
+            with self.assertRaises(OSError):
+                self.state.initialize()
+            with self.assertRaises(OSError):
+                self.state.read()
+        self.assertEqual(self.state.initialize()['step'], 0)
+
+    def test_release_retry_cannot_accept_visible_but_unconfirmed_record(self):
+        value = self.state.initialize()
+        while value['step'] < journal.RELEASE_STEP - 1:
+            value = self.state.advance(value, evidence='b' * 64 if value['step'] % 2 == 0 else None)
+        publish = durable_state.publish
+        def fail_after_replace(*args):
+            with patch.object(durable_state.platform_support, 'sync_state_directory', side_effect=OSError('flush')):
+                publish(*args)
+        with patch.object(durable_state, 'publish', side_effect=fail_after_replace):
+            with self.assertRaises(OSError):
+                self.state.advance(value, evidence='c' * 64)
+        self.assertEqual(durable_state.read(self.state.path)['step'], journal.RELEASE_STEP)
+        with patch.object(durable_state.platform_support, 'sync_state_directory', side_effect=OSError('flush')):
+            with self.assertRaises(OSError):
+                self.state.advance(value, evidence='c' * 64)
+            with self.assertRaises(OSError):
+                self.state.read()
+        self.assertTrue(self.state.describe(self.state.advance(value, evidence='c' * 64))['released'])
+
 
 if __name__ == '__main__':
     unittest.main()

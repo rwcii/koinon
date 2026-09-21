@@ -74,7 +74,8 @@ class Journal:
         value = durable_state.read(self.path)
         if value is None:
             raise JournalError('upgrade journal missing; resume cannot initialize a new phase')
-        return self.validate(value)
+        value = self.validate(value)
+        return durable_state.confirm(self.path, value)
 
     def read(self):
         with self._locked():
@@ -85,7 +86,8 @@ class Journal:
         with self._locked():
             value = durable_state.read(self.path)
             if value is not None:
-                return self.validate(value)
+                value = self.validate(value)
+                return durable_state.confirm(self.path, value)
             value = dict(version=1, plan=self.plan_digest, step=0, receipts=[])
             durable_state.publish(self.path, value)
             return value

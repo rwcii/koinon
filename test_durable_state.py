@@ -183,3 +183,56 @@ class DurableStateTests(unittest.TestCase):
         self.path.chmod(0o644)
         with self.assertRaises(state.StateFileError):
             state.read(self.path, max_bytes=state.MAX_DOCUMENT_BYTES)
+
+    def test_confirm_repeats_all_flushes_after_ambiguous_publication(self):
+        value = dict(phase='released')
+        with mock.patch.object(platform_support, 'sync_state_directory', side_effect=OSError('flush failed')):
+            with self.assertRaises(OSError):
+                state.publish(self.path, value)
+            self.assertEqual(state.read(self.path), value)
+            with self.assertRaises(OSError):
+                state.confirm(self.path, value)
+        before = self.path.stat().st_ino
+        calls = []
+        with mock.patch.object(platform_support, 'sync_state_file', side_effect=lambda fd: calls.append('file')), \
+             mock.patch.object(platform_support, 'sync_state_directory', side_effect=lambda path: calls.append('directory')):
+            self.assertEqual(state.confirm(self.path, value), value)
+        self.assertEqual(calls, ['file', 'directory', 'file'])
+        self.assertEqual(self.path.stat().st_ino, before)
+
+    def test_confirm_refuses_missing_changed_and_nonprivate_records(self):
+        with self.assertRaises(state.StateFileError):
+            state.confirm(self.path, {})
+        self.assertFalse(self.path.exists())
+        state.publish(self.path, dict(step=1))
+        with self.assertRaises(state.StateFileError):
+            state.confirm(self.path, dict(step=True))
+        self.path.chmod(0o644)
+        with self.assertRaises(state.StateFileError):
+            state.confirm(self.path, dict(step=1))
+        self.assertEqual(self.path.stat().st_mode & 0o777, 0o644)
+
+    def test_confirm_reopens_replaced_inode_before_flushing(self):
+        state.publish(self.path, dict(step=0))
+        replacement = self.path.with_name('replacement.json')
+        state.publish(replacement, dict(step=1))
+        real_open = os.open
+        def open_then_replace(path, flags, *args, **kwargs):
+            fd = real_open(path, flags, *args, **kwargs)
+            if Path(path) == self.path and replacement.exists():
+                os.replace(replacement, self.path)
+            return fd
+        with mock.patch.object(state.os, 'open', side_effect=open_then_replace):
+            self.assertEqual(state.confirm(self.path, dict(step=1)), dict(step=1))
+
+    def test_confirm_refuses_replacement_during_flush(self):
+        state.publish(self.path, dict(step=0))
+        replacement = self.path.with_name('replacement.json')
+        state.publish(replacement, dict(step=1))
+        def replace_during_flush(fd):
+            if replacement.exists():
+                os.replace(replacement, self.path)
+        with mock.patch.object(platform_support, 'sync_state_file', side_effect=replace_during_flush):
+            with self.assertRaises(state.StateFileError):
+                state.confirm(self.path, dict(step=0))
+        self.assertEqual(state.read(self.path), dict(step=1))

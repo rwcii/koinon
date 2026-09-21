@@ -60,6 +60,7 @@ class Documents:
             if current is not None:
                 if fingerprint(current) != digest:
                     raise DocumentError('retained upgrade document differs; preserve it')
+                durable_state.confirm(path, current, max_bytes=MAX_BYTES)
                 return digest
             if len(list(islice(self.directory.iterdir(), MAX_DIRECTORY_ENTRIES + 1))) >= MAX_DIRECTORY_ENTRIES:
                 raise DocumentError('upgrade document directory capacity exceeded')
@@ -74,4 +75,4 @@ class Documents:
             value = durable_state.read(path, max_bytes=MAX_BYTES)
             if value is None or fingerprint(value) != expected_digest:
                 raise DocumentError('upgrade document missing or changed')
-            return value
+            return durable_state.confirm(path, value, max_bytes=MAX_BYTES)

@@ -289,3 +289,13 @@ Publication refuses a new document when the directory already has 1,024 entries
 (including locks and retained scratch files); existing identical documents remain
 readable at capacity. Atomic publication may briefly add one replacement file.
 Domain schemas and complete recovery-bundle validation remain coordinator work.
+
+A visible record is not proof that its final directory/device flush succeeded.
+Journal reads and retained-document reads therefore confirm the current expected
+bytes and repeat file, parent-directory, and final file synchronization under the
+publication lock before returning durable evidence. Identical retries use the same
+confirmation and preserve the original inode. Missing, substituted or unflushable
+records refuse; observing a release record whose durability cannot be confirmed
+must not release a service. The shared ordinary state reader remains read-only.
+Synthetic fault tests cover failures after rename and continuing flush failures;
+these do not simulate hardware power loss or prove filesystem/device compliance.

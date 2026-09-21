@@ -90,6 +90,20 @@ class DocumentsTests(unittest.TestCase):
         self.assertEqual(other.read_text(), '{}')
         self.assertTrue(self.documents.path('source').is_symlink())
 
+    def test_repeat_and_read_cannot_accept_unconfirmed_document(self):
+        value = dict(source='synthetic')
+        digest = documents.fingerprint(value)
+        with patch.object(durable_state.platform_support, 'sync_state_directory', side_effect=OSError('flush')):
+            with self.assertRaises(OSError):
+                self.documents.put('source', value)
+            self.assertEqual(durable_state.read(self.documents.path('source')), value)
+            with self.assertRaises(OSError):
+                self.documents.put('source', value)
+            with self.assertRaises(OSError):
+                self.documents.read('source', digest)
+        self.assertEqual(self.documents.put('source', value), digest)
+        self.assertEqual(self.documents.read('source', digest), value)
+
 
 if __name__ == '__main__':
     unittest.main()
