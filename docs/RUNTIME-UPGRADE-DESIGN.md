@@ -531,3 +531,14 @@ sequence head, acknowledgement watermark, journal activation and delivery identi
 Canonical comparison still covers all inbox and binding rows. Earlier inbox schemas
 require a declared migration adapter and must be rejected in preflight before shutdown;
 the expectation helper does not migrate or reinterpret them implicitly.
+
+
+The memory private-inventory request carries both repository and generation, matching
+the ordinary target guard before plan authorization. An isolated copied-runtime child
+test exercises actual gated startup, exact inventory preservation, wrong-repository
+refusal and blocked ordinary writes. After release, deferred search initialization
+retries ordinary queue capacity without consuming reserved control slots or terminating
+the service. Stop remains responsive during the retry delay. A real worker test blocks
+a control job, fills all sixteen ordinary slots, and verifies one successful index
+resume after the queue drains. These are portable process/worker checks, not complete
+native manager upgrade acceptance or physical power-loss tests.

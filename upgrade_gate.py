@@ -56,7 +56,14 @@ class Gate:
                     released=self.released())
 
     def authorize_inventory(self, request):
-        if (set(request) != {'op', 'plan', 'generation'} or request['plan'] != self.plan
+        expected = {'op', 'plan', 'generation'}
+        if self.kind == 'memory':
+            import memory_service_config
+            expected.add('repo')
+            repo, _ = memory_service_config.identity(self.component['selection']['common_directory'])
+            if request.get('repo') != repo:
+                raise GateError('upgrade inventory requires the selected repository')
+        if (set(request) != expected or request['plan'] != self.plan
                 or request['generation'] != self.generation or self.released()):
             raise GateError('upgrade inventory requires the selected gated generation')
 

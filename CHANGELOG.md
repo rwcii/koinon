@@ -5,6 +5,9 @@ into a dated release section when promoted to `main`.
 
 ## Unreleased
 
+- Retry deferred search initialization when the ordinary worker queue is full after
+  upgrade release. Bind private memory inventories to both repository and generation.
+
 - Connect the internal shutdown, backup and replacement phases to durable receipts;
   interrupted backup completion resumes without replacing unbacked runtime files.
 

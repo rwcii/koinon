@@ -2069,7 +2069,18 @@ class Service:
         if self.upgrade is not None:
             if not await self.upgrade.wait(self.stop):
                 return
-            await self.worker.call('resume_index')
+            while not self.closing and not self.stop.is_set():
+                try:
+                    await self.worker.call('resume_index')
+                    break
+                except CapacityError:
+                    self.maintenance_state.skipped()
+                except WorkerClosed:
+                    return
+                try:
+                    await asyncio.wait_for(self.stop.wait(), work_maintenance.INTERVAL)
+                except asyncio.TimeoutError:
+                    pass
         while not self.closing and not self.stop.is_set():
             try:
                 result = await self.worker.call('maintain_work')

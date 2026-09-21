@@ -77,6 +77,8 @@ def capture(exclusion, component):
     root = record['state_directory'] if kind == 'bridge' else record['service_directory']
     request = dict(op='upgrade-inventory', plan=exclusion.loaded['sha256'],
                    generation=status['generation'])
+    if kind == 'memory':
+        request['repo'] = status['repo']
     reply, pid = asyncio.run(control_exchange(Path(root), request, timeout=30))
     if reply.get('ok') is not True or type(pid) is not int or pid != status['pid']:
         raise ProbeError('selected child refused generation-bound inventory')

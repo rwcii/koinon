@@ -19,7 +19,7 @@ class ProbeTests(unittest.TestCase):
             verify=lambda: dict(step=10))
         self.gate = dict(plan='a' * 64, operation='/synthetic/operation',
                          generation='b' * 32, released=False)
-        self.status = dict(pid=123, generation='b' * 32, upgrade=self.gate)
+        self.status = dict(pid=123, generation='b' * 32, upgrade=self.gate, repo='a' * 16)
 
     def controls(self, stack, replies):
         stack.enter_context(patch.object(probe, '_selected', return_value=(self.selection, 10)))
@@ -38,7 +38,7 @@ class ProbeTests(unittest.TestCase):
             self.assertEqual(result['owner'], self.owner)
             self.assertEqual(exchange.call_args_list[0].args[1], dict(op='hello'))
             request = exchange.call_args_list[1].args[1]
-            self.assertEqual(request, dict(op='upgrade-inventory', plan='a' * 64, generation='b' * 32))
+            self.assertEqual(request, dict(op='upgrade-inventory', plan='a' * 64, generation='b' * 32, repo='a' * 16))
 
     def test_wrong_kernel_pid_generation_or_released_gate_refuses(self):
         for status, pid in ((self.status, 999),

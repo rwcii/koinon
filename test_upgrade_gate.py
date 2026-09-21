@@ -299,6 +299,91 @@ class RuntimeAdmissionTests(unittest.IsolatedAsyncioTestCase):
                 maintenance.cancel()
                 await service.worker.close()
 
+    async def test_deferred_index_retries_capacity_without_stopping_service(self):
+        from types import SimpleNamespace
+        from unittest.mock import AsyncMock, Mock
+        from database_worker import CapacityError
+        stop = asyncio.Event()
+        call = AsyncMock(side_effect=[CapacityError(), None, {'enabled': False}])
+        service = SimpleNamespace(upgrade=SimpleNamespace(wait=AsyncMock(return_value=True)),
+                                  stop=stop, closing=False, worker=SimpleNamespace(call=call),
+                                  maintenance_state=SimpleNamespace(skipped=Mock()))
+        with patch.object(memory.work_maintenance, 'INTERVAL', .001):
+            await memory.Service.maintain_work(service)
+        self.assertEqual([item.args for item in call.call_args_list],
+                         [('resume_index',), ('resume_index',), ('maintain_work',)])
+        service.maintenance_state.skipped.assert_called_once_with()
+        self.assertFalse(stop.is_set())
+
+    async def test_stop_during_deferred_index_capacity_wait_prevents_retry(self):
+        from types import SimpleNamespace
+        from unittest.mock import AsyncMock, Mock
+        from database_worker import CapacityError
+        stop = asyncio.Event()
+        def busy(*args):
+            stop.set()
+            raise CapacityError()
+        call = AsyncMock(side_effect=busy)
+        service = SimpleNamespace(upgrade=SimpleNamespace(wait=AsyncMock(return_value=True)),
+                                  stop=stop, closing=False, worker=SimpleNamespace(call=call),
+                                  maintenance_state=SimpleNamespace(skipped=Mock()))
+        await memory.Service.maintain_work(service)
+        call.assert_called_once_with('resume_index')
+
+    async def test_real_full_worker_queue_does_not_kill_deferred_index_task(self):
+        import threading
+        from types import SimpleNamespace
+        from unittest.mock import AsyncMock
+        entered, release = threading.Event(), threading.Event()
+        resumed = []
+        class Owner:
+            def status(self):
+                entered.set()
+                if not release.wait(5):
+                    raise RuntimeError('synthetic blocker timed out')
+            def ordinary(self):
+                return None
+            def resume_index(self):
+                resumed.append(True)
+            def maintain_work(self):
+                return {'enabled': False}
+            def close(self):
+                pass
+        worker = DatabaseWorker(Owner)
+        state = memory.work_maintenance.MaintenanceState()
+        service = SimpleNamespace(upgrade=SimpleNamespace(wait=AsyncMock(return_value=True)),
+                                  stop=asyncio.Event(), closing=False, worker=worker,
+                                  maintenance_state=state)
+        pending, maintenance = [], None
+        try:
+            pending.append(asyncio.create_task(worker.call('status', priority=True)))
+            self.assertTrue(await asyncio.to_thread(entered.wait, 2))
+            pending.extend(asyncio.create_task(worker.call('ordinary')) for _ in range(16))
+            async with asyncio.timeout(2):
+                while worker.snapshot()['ordinary_queued'] != 16:
+                    await asyncio.sleep(.001)
+            with patch.object(memory.work_maintenance, 'INTERVAL', .001):
+                maintenance = asyncio.create_task(memory.Service.maintain_work(service))
+                async with asyncio.timeout(2):
+                    while state.snapshot()['skipped_submissions'] == 0:
+                        if maintenance.done():
+                            await maintenance
+                            self.fail('maintenance exited before retry')
+                        await asyncio.sleep(.001)
+                self.assertFalse(service.stop.is_set())
+                release.set()
+                await asyncio.wait_for(asyncio.gather(*pending), 3)
+                await asyncio.wait_for(maintenance, 3)
+            self.assertEqual(resumed, [True])
+            self.assertFalse(service.stop.is_set())
+        finally:
+            release.set()
+            await asyncio.gather(*pending, return_exceptions=True)
+            if maintenance is not None:
+                service.stop.set()
+                await asyncio.gather(maintenance, return_exceptions=True)
+            await worker.close()
+
 
 class DeferredIndexTests(unittest.TestCase):
     def test_same_schema_gated_open_preserves_catalog_and_metadata_until_release(self):
