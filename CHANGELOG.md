@@ -5,6 +5,9 @@ into a dated release section when promoted to `main`.
 
 ## Unreleased
 
+- Activate explicitly selected native session pairs with verified manager ownership,
+  guarded shutdown, and captured dead-child control-socket recovery after runtime crashes.
+
 - Add saved native session selection, recoverable artifact publication, and an owned
   runner entrypoint with explicit recovery provenance; automatic activation remains pending.
 

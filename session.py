@@ -268,6 +268,27 @@ def main():
     agent=a.agent or 'codex'
     model=a.model or (dsh_delivery.default_model() if agent=='deepseek' else None)
     state,name,key=details(prefix,config,a.thread,repo,agent,model)
+    # An explicit saved native selection owns this path. Never fall through to
+    # legacy ensure/stop or silently rewrite its registered identity.
+    native = state / 'native-service.json'
+    if runtime_names.present(native):
+        import durable_state
+        import session_service
+        import session_service_artifacts
+        try:
+            record = session_service_artifacts.load(state)
+            saved = durable_state.read(state / 'session.json')
+            if record is None or saved is None or saved.get('thread') != a.thread:
+                raise session_service.ServiceError(paths=(native,))
+            if a.action == 'rename':
+                raise session_service.ServiceError(paths=(native, state / 'session.json'))
+            return_code = session_service.main([a.action, '--prefix', str(prefix),
+                                                '--state-dir', str(state), '--backend', record['backend']])
+        except (OSError, ValueError) as exc:
+            print(json.dumps(dict(status='unavailable', code='session_configuration_failure',
+                                  paths=[str(path) for path in getattr(exc, 'paths', (native,))])))
+            return_code = 78
+        raise SystemExit(return_code)
     if not (state/'session.json').exists():
         validate_participant_executable(config, agent, a.action)
     private_dir(state)

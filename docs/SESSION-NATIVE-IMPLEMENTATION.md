@@ -1,8 +1,8 @@
 # Native session supervision implementation
 
-This extends the approved [installation design](MEMORY-INSTALLATION-DESIGN.md)
-without enabling a new backend yet. Memory activation is isolated in PR #56; this
-branch is the next slice, for the bridge/notifier session pair. The installer remains
+This extends the approved [installation design](MEMORY-INSTALLATION-DESIGN.md).
+Memory activation is integrated through PR #56; native session activation now serves
+explicitly published bridge/notifier selections. The installer remains
 incomplete until both components and exact removal have operational coverage.
 
 ## Compatibility and selection
@@ -21,9 +21,8 @@ reboot persistence. Memory's repository lifetime is separate. Do not copy the me
 fixture's runtime override into a public persistent-memory installation path.
 
 The pure `platform_support.session_launchd_artifact` renderer is staged with synthetic
-tests. It is not called by registration or installation. In particular, the current
-session runner does not yet implement the required launchd refusal boundary; rendering
-a plist is not permission or evidence to load it.
+tests. It is not called by registration or installation. The separate owned-session renderer targets the generation-bound runner and its
+launchd refusal boundary; rendering alone is not evidence of loaded ownership.
 
 ## Implementation sequence
 
@@ -93,10 +92,10 @@ cannot establish readiness. Recovery requires the exact generation and
 consumer retains `operator_assertion` beside that evidence. An unresolved spawn remains
 unresolved in status even after an assertion authorizes a separate explicit retry.
 
-These commands are not dispatched from legacy `session.py`, and neither the installer
-nor these primitives register a native job yet. The renderer targets this new runner;
-its systemd unit has no login enablement section. Existing sessions retain their current
-behavior until explicit activation and upgrade integration are implemented.
+The installer does not create native session selections yet. Explicitly published
+selections dispatch through the native activation path below. The renderer targets the
+owned runner and has no login enablement section. Sessions without a saved native
+selection retain their existing behavior.
 
 ## Upgrade preflight constraints
 
@@ -112,3 +111,56 @@ Operator resolution means inspecting ownership and ensuring the old service and 
 children are stopped before an explicit, authorized repair/migration; deleting lock or
 supervisor evidence is not a supported recovery procedure. Automatic permission repair
 is not part of this slice. Installation-wide upgrade reconciliation remains #43 work.
+
+## Native activation and captured endpoint recovery
+
+A completed explicit selection now dispatches `session.py ensure`, `status`, `run`
+and `stop` to the owned native service. Sessions without that selection keep the
+legacy path. Rename refuses a selected native service until explicit reconciliation.
+Activation uses the existing twice-read systemd lookup layout and shared registration
+preflight. Any earlier same-name artifact is reported before mutation. A runtime
+loader link is verified while inert, then the selected job starts. launchd uses the
+explicit current-user domain and the registered plist. No session job is login-enabled.
+
+Readiness requires stable loaded executable/arguments/artifact, the recorded runner's
+PID/start identity, both child generations and private handshakes, and notifier binding
+to that bridge. Manager success or a saved running phase alone is insufficient.
+Ensure, stop and deactivation serialize with the same session lifecycle lock.
+Deactivation first confirms pair shutdown, then removes only its verified registration;
+it retains the artifact, selection, inbox, notification history and supervisor evidence.
+
+For a child that answered a generation- and kernel-PID-verified status exchange, the
+runner records the control socket's literal path, device and inode, checking the same
+inode before and after the exchange. Before publishing a successor, under supervisor
+ownership, it may remove only that captured private inode after the previous runner
+and every recorded child are proven dead. A replacement socket, changed owner record,
+unknown process, unsafe path or missing capture remains a refusal. Connection failure
+is never used as evidence for removal. The supervisor lock excludes cooperating
+runners, not independent operator path removal/replacement. Final checks detect
+changes, but unlink is not atomic with inode verification. Peer PID sockets are
+outside this cleanup.
+
+This differs deliberately from operator-installed endpoints: those still require
+explicit manual resolution. Automatic cleanup applies only to control sockets captured
+from this runner's verified children. A child killed before that capture can leave an
+unowned startup socket; that case remains conservative refusal. Closing this window
+requires parent-owned socket creation and descriptor handoff before spawning, including
+its own crash evidence, and is a further integration step. Merely seeing a new path
+under `supervisor.lock` is insufficient because direct bridge/notifier starts do not
+acquire that lock.
+
+`scripts/test-native-session.py` tests two isolated real native session pairs, runtime
+notifier crash/restart, independence of the second session, permanent runtime refusal
+and explicit retry, permanent startup refusal, and guarded shutdown with exact
+deregistration and data retention. It does not establish pre-handshake crash
+recovery, complete installer integration, persistent memory login behavior, or upgrades
+from legacy units. The fixture records failed cleanup and retains evidence on ambiguity.
+
+A systemd failed-unit tombstone may remain after the registration is removed. It is
+classified as absent only when `LoadState=not-found`, the artifact and executable list
+are empty, and `MainPID=0`, with matching adjacent typed reads. A loaded transient unit
+is not absent, even with an empty fragment path and no running process. These adjacent
+reads detect changes during the query; they do not guarantee future stability or make
+manager mutation atomic. Durable owner/refusal records remain the failure authority
+for retry. Deactivation does not clear either those records or the manager's failed
+state, and no `reset-failed` command is issued.

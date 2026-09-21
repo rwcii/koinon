@@ -22,7 +22,7 @@ PR #35. These source milestones do not establish local runtime deployment.
 Runtime refresh and initial shared work-item adoption have been independently
 checked for the selected installation; this does not establish deployment elsewhere
 or completion of long-term retention tests. Complete installation (DQ-11) and
-supported upgrades (DQ-12) are queued; their scheduling remains open. DQ-08 design is tracked in
+supported upgrades (DQ-12) remain open; native component ownership and lifecycle integration are in progress. DQ-08 design is tracked in
 [issue #38](https://github.com/rwcii/koinon/issues/38). Keep DQ-04 visible for a scope
 decision before DQ-05 history pruning. Investigating a requirement does not settle
 its protocol.
@@ -285,7 +285,7 @@ The current reachable work/startup mappings are covered by the PR #35 tests.
 ## DQ-11 — Install and manage every runtime component
 
 **Source:** user requirement conveyed by the reviewer and recorded in
-[issue #42](https://github.com/rwcii/koinon/issues/42). **Status:** queued;
+[issue #42](https://github.com/rwcii/koinon/issues/42). **Status:** implementation in progress;
 [implementation design candidate](MEMORY-INSTALLATION-DESIGN.md) under peer review.
 This includes the memory-service lifecycle gap.
 

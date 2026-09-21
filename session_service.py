@@ -136,16 +136,23 @@ def status(selection):
     return result
 
 
+def stop_owned(selection):
+    owner = selection.records.request_stop()
+    selection.records.wait_stopped(owner)
+    return dict(status='stopped', basis='kernel_process_start', generation=owner['generation'])
+
+
 def execute(action, selection, *, generation=None, assertion=False):
     if action == 'run':
         selection.validate_programs()
         return session_supervisor.run(selection.records, selection.commands, selection.backend)
-    if action == 'status':
-        return status(selection)
+    if action in ('ensure', 'status', 'deactivate'):
+        import session_service_manager
+        return {'ensure': session_service_manager.ensure, 'status': session_service_manager.status,
+                'deactivate': session_service_manager.deactivate}[action](selection)
     if action == 'stop':
-        owner = selection.records.request_stop()
-        selection.records.wait_stopped(owner)
-        return dict(status='stopped', basis='kernel_process_start', generation=owner['generation'])
+        import session_service_manager
+        return session_service_manager.stop(selection)
     if action == 'retry':
         selection.recovery()  # Refuse malformed provenance before granting retry.
         selection.records.retry()
@@ -159,7 +166,7 @@ def execute(action, selection, *, generation=None, assertion=False):
 def main(argv=None):
     os.umask(0o077)
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument('action', choices=('run', 'status', 'stop', 'retry', 'recover-spawn'))
+    parser.add_argument('action', choices=('ensure', 'run', 'status', 'stop', 'retry', 'recover-spawn', 'deactivate'))
     parser.add_argument('--prefix', required=True)
     parser.add_argument('--state-dir', required=True)
     parser.add_argument('--backend', choices=configuration.BACKENDS, required=True)
@@ -174,7 +181,9 @@ def main(argv=None):
         if type(result) is int:
             return result
         print(json.dumps(result), flush=True)
-        return 0
+        if result.get('status') == 'refused':
+            return result['exit_status']
+        return 75 if args.action in ('ensure', 'status') and result.get('status') != 'running' else 0
     except (OSError, ValueError) as exc:
         code = getattr(exc, 'code', 'session_configuration_failure')
         if code not in session_supervisor.STATUSES:

@@ -68,6 +68,29 @@ class SystemdObservationTests(unittest.TestCase):
                 patch.object(platform_support.subprocess, 'run', return_value=missing):
             self.assertEqual(platform_support.systemd_service_observation(self.name), dict(status='absent'))
 
+    def test_removed_failed_unit_requires_stable_empty_identity_and_zero_pid(self):
+        listed = self.response(('a(ssssssouso)', [[[self.name, self.name, 'not-found', 'failed',
+                                                   'failed', '', self.path, 0, '', '/']]]))
+        unit = self.response(('s', self.name), ('s', ''), ('s', 'not-found'), ('s', 'failed'), ('ay', []))
+        empty = self.response(('a(sasbttttuii)', []), ('u', 0))
+        alive = self.response(('a(sasbttttuii)', []), ('u', 123))
+        for response, expected in ((empty, 'absent'), (alive, 'unknown')):
+            with self.subTest(expected=expected), patch.object(platform_support, 'LINUX', True), \
+                    patch.object(platform_support.subprocess, 'run', side_effect=[listed, unit, response, unit, response]):
+                self.assertEqual(platform_support.systemd_service_observation(self.name)['status'], expected)
+        with patch.object(platform_support, 'LINUX', True), \
+                patch.object(platform_support.subprocess, 'run', side_effect=[listed, unit, empty, unit, alive]):
+            self.assertEqual(platform_support.systemd_service_observation(self.name)['status'], 'unknown')
+
+    def test_loaded_transient_without_fragment_is_not_absent(self):
+        listed = self.response(('a(ssssssouso)', [[[self.name, self.name, 'loaded', 'inactive',
+                                                   'dead', '', self.path, 0, '', '/']]]))
+        unit = self.response(('s', self.name), ('s', ''), ('s', 'loaded'), ('s', 'inactive'), ('ay', []))
+        empty = self.response(('a(sasbttttuii)', []), ('u', 0))
+        with patch.object(platform_support, 'LINUX', True), \
+                patch.object(platform_support.subprocess, 'run', side_effect=[listed, unit, empty, unit, empty]):
+            self.assertEqual(platform_support.systemd_service_observation(self.name)['status'], 'unknown')
+
     def test_invalid_names_and_other_platforms_do_not_query_manager(self):
         with patch.object(platform_support.subprocess, 'run') as run:
             for name in ('--system', 'bad/name.service', 'thing.service\n', None):
