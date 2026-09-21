@@ -43,6 +43,11 @@ runtime/state roots.
 The permanent installation lock serializes transitions. An additional durable upgrade
 marker makes ordinary install, ensure, removal and another upgrade refuse while an
 operation is incomplete. Status, owned stop and explicit resume remain available.
+Publish a private, digest-verified recovery bundle before replacing any runtime module.
+It must remain executable if replacement stops halfway through; `--resume` cannot depend
+on importing a partially replaced prefix. The ordinary launcher and the retained
+standalone recovery entrypoint identify the same frozen plan and coordinator version.
+
 Long waits must not hold a lock required by the selected child's startup or shutdown.
 Revalidate the plan and phase after reacquiring a lock; do not treat an unlocked wait
 as exclusive ownership. Permanent lock inodes are never replaced or removed.
@@ -115,6 +120,12 @@ changes after checkpoint, process incarnations and declared migration effects ex
 Initial supported memory transitions must be enumerated from the implemented migrations:
 schema 4 to 5 preserves the store UUID; schema 3 to 5 assigns one. Same-schema replacement
 preserves canonical logical records. Undeclared transitions refuse.
+
+Release is one durable prefix-wide decision for the verified plan. Services acknowledge
+that decision independently; a coordinator crash during acknowledgement does not permit
+a second comparison against already resumed writers or an automatic rollback. Lease time
+continues during downtime: preserving raw lease records does not silently extend their
+validity, and expiry maintenance begins only after release.
 
 After durable release, traffic and maintenance may legitimately change data. Capture a
 separate live observation with its timestamp; do not label arbitrary subsequent count
