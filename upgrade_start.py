@@ -28,3 +28,25 @@ def validate(exclusion, selection, kind):
     if current['files'] != source['files']:
         raise StartupError('gated startup requires the complete new runtime')
     return active
+
+
+def component(exclusion, selected_component):
+    """Start one explicit selection and return its verified child gate observations.
+
+    The coordinator chooses which inactive stores require temporary migration startup
+    and must restore their original stopped state before releasing the installation.
+    """
+    import memory_service
+    import session_service_manager
+    import upgrade_probe
+    import upgrade_quiescence
+    selected = upgrade_quiescence.selection(exclusion, selected_component)
+    kind = selected_component['kind']
+    validate(exclusion, selected, kind)
+    if kind == 'session':
+        result = session_service_manager.ensure(selected, upgrade=exclusion)
+    else:
+        result = memory_service.ensure_managed(selected, upgrade=exclusion)
+    if result.get('status') != 'running':
+        raise StartupError('selected native service did not become ready under the gate')
+    return upgrade_probe.gated(exclusion, selected_component)

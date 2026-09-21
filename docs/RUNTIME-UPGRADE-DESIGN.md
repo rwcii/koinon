@@ -507,3 +507,11 @@ readiness return. Ordinary ensure remains blocked by the installation marker.
 These manager results do not themselves verify the children's gate or data inventory;
 coordinator orchestration must still join the child generation and private gate status
 before migration comparison and release.
+
+
+Private gated probes now join manager readiness, retained supervisor/child ownership,
+kernel control-socket peer PID and child generation with the exact unreleased plan.
+Session probes require both bridge and notifier gates. Inventory requests name the
+verified generation and are bracketed by fresh gate/ownership observations; a changed
+supervisor or successor PID refuses. These observations are still internal inputs to
+the unfinished coordinator, not release authorization or native acceptance evidence.
