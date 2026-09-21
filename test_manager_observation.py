@@ -99,6 +99,17 @@ class LaunchdObservationTests(unittest.TestCase):
                 patch.object(platform_support.subprocess, 'run', side_effect=results):
             return platform_support.launchd_service_observation(self.domain, self.label)
 
+    def test_absence_probe_discards_unrelated_domain_inventory(self):
+        with patch.object(platform_support, 'DARWIN', True), \
+                patch.object(platform_support.subprocess, 'run', side_effect=[
+                    self.result('', 113), self.result('unrelated inventory' * 10000)]) as run:
+            self.assertEqual(platform_support.launchd_service_observation(self.domain, self.label),
+                             dict(status='absent'))
+        probe = run.call_args_list[-1]
+        self.assertEqual(probe.args[0], ['launchctl', 'print', self.domain])
+        self.assertEqual(probe.kwargs['stdout'], subprocess.DEVNULL)
+        self.assertEqual(probe.kwargs['stderr'], subprocess.DEVNULL)
+
     def test_preserves_exact_argument_boundaries_and_ignores_environment(self):
         observed = self.observe([self.result(), self.result()])
         self.assertEqual(observed['status'], 'observed')

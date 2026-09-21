@@ -657,7 +657,10 @@ def launchd_service_observation(domain, label):
         if before.returncode == 113:
             # Missing domain and missing job share an error code. An absent job
             # is established only while its selected domain is queryable.
-            if query(domain).returncode == 0:
+            # Domain output includes unrelated jobs and may exceed the bounded
+            # selected-job response. Only its success status is needed; never
+            # capture or parse that unrelated domain inventory.
+            if memory_manager_available('launchd', domain):
                 return dict(status='absent')
             return dict(status='unknown', reason='domain_unavailable')
         if before.returncode != 0:

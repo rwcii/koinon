@@ -62,8 +62,9 @@ class Fixture:
         config.chmod(0o600)
         memory_service_artifacts.publish(self.prefix, sys.executable, record)
         self.selection = memory_service.Selection(self.prefix, self.repo)
-        if memory_service.manager_observation(self.selection)['status'] != 'absent':
-            raise RuntimeError('synthetic manager identity is not provably absent')
+        initial = memory_service.manager_observation(self.selection)
+        if initial['status'] != 'absent':
+            raise RuntimeError('synthetic manager identity is not provably absent: ' + json.dumps(initial))
         self.loader_path = None
         self.runs, self.children, self.failure, self.crash, self.block_marker = (
             self.root / name for name in ('runs', 'children', 'failure', 'crash', 'block-marker'))
