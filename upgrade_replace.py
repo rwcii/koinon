@@ -180,3 +180,22 @@ def replace(guard):
     if actual['files'] != source['files']:
         raise ReplacementError('runtime differs from frozen source after replacement')
     return dict(version=1, plan=loaded['sha256'], runtime=actual)
+
+
+def confirm(guard):
+    """Revalidate recorded replacement completion without repeating publication."""
+    guard.verify()
+    phase = guard.exclusion.journal.read()
+    if phase['step'] != 9:
+        raise ReplacementError('replacement confirmation requires its completed phase')
+    _backup_evidence(guard, phase)
+    loaded = guard.exclusion.loaded
+    source = loaded['documents']['source']
+    for name, expected in source['files'].items():
+        _confirm(Path(loaded['plan']['canonical_prefix']), name, expected)
+    current = manifest.capture(loaded['plan']['canonical_prefix'], list(source['files']))
+    receipt = Documents(guard.exclusion.journal.directory).read('replacement', phase['receipts'][4])
+    if receipt != dict(version=1, plan=loaded['sha256'], runtime=current):
+        raise ReplacementError('replacement completion differs from current runtime')
+    guard.verify()
+    return receipt

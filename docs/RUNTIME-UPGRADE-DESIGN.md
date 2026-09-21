@@ -515,3 +515,12 @@ Session probes require both bridge and notifier gates. Inventory requests name t
 verified generation and are bracketed by fresh gate/ownership observations; a changed
 supervisor or successor PID refuses. These observations are still internal inputs to
 the unfinished coordinator, not release authorization or native acceptance evidence.
+
+
+The internal coordinator driver now connects prepared shutdown through replacement
+completion (journal steps 2 through 9). Backup destinations must already exist privately
+before shutdown. Aggregate backup and replacement receipts bind phase completion;
+retries reuse frozen capture evidence and revalidate completed replacement bytes.
+Step 9 remains an unavailable, gated installation awaiting migration and restart
+verification. This driver does not expose a public upgrade command or complete the
+remaining preflight, migration/release, report and platform acceptance requirements.

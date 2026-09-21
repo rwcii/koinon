@@ -5,6 +5,9 @@ into a dated release section when promoted to `main`.
 
 ## Unreleased
 
+- Connect the internal shutdown, backup and replacement phases to durable receipts;
+  interrupted backup completion resumes without replacing unbacked runtime files.
+
 - Connect internal native startup admission to the selected upgrade plan and complete
   new runtime bytes; ordinary ensure remains blocked during the operation.
 
