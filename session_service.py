@@ -200,7 +200,7 @@ def main(argv=None):
             code = 'session_configuration_failure'
         exit_status = session_supervisor.STATUSES[code]
         print(json.dumps(dict(status='unavailable', code=code, exit_status=exit_status,
-                              paths=list(getattr(exc, 'paths', ())),
+                              error=str(exc), paths=list(getattr(exc, 'paths', ())),
                               recovery='preserve evidence; inspect the reported selection or lock before explicit reconciliation')),
               flush=True)
         return platform_support.managed_service_exit(args.backend, exit_status) if args.action == 'run' else exit_status

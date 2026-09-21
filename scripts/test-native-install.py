@@ -8,6 +8,7 @@ import shutil
 import subprocess
 import sys
 import tempfile
+import time
 import uuid
 from unittest.mock import patch
 
@@ -163,6 +164,19 @@ def main():
         domain = f'gui/{os.geteuid()}' if args.backend == 'launchd' else None
         require(platform_support.memory_manager_available(args.backend, domain),
                 'native user manager unavailable; acceptance unmet (no skip or runtime fallback)')
+        if args.backend == 'systemd':
+            # systemctl can answer over the manager's private socket before its
+            # user-bus name is ready. Wait for the typed interface used by the
+            # product, without registering or starting any fixture service.
+            deadline = time.monotonic() + 15
+            while True:
+                try:
+                    platform_support.systemd_registration_layout()
+                    break
+                except OSError:
+                    if time.monotonic() >= deadline:
+                        raise RuntimeError('native user-manager D-Bus interface unavailable; environment acceptance unmet')
+                    time.sleep(.1)
         first = Fixture(args.backend, session=True)
         fixtures.append(first)
         first.install(staged=True)

@@ -29,7 +29,7 @@ def locked(path):
                 raise ValueError('session configuration lock changed')
             yield
     except OwnershipError as exc:
-        error = ValueError('session lock unavailable or unsafe; preserve and inspect ' + str(path))
+        error = ValueError('session lock failure (' + exc.code + '); preserve and inspect ' + str(path))
         error.paths = (str(path),)
         raise error from exc
 
