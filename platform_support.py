@@ -476,3 +476,185 @@ def managed_service_exit(backend, status):
     if backend == 'launchd' and status in PERMANENT_EXIT_STATUSES:
         return 0
     return status
+
+
+def systemd_service_observation(name):
+    """Read one user unit through typed D-Bus properties, without activation.
+
+    Missing tools, unsupported methods, malformed data, and observations that
+    change during the query remain unknown. Callers still compare the returned
+    artifact and argv with their owned registration and live runner handshake.
+    """
+    import json
+    import re
+
+    if not isinstance(name, str) or re.fullmatch(r'[A-Za-z0-9_.@-]+\.service', name) is None:
+        raise ValueError('invalid service name')
+    if not LINUX:
+        return dict(status='unknown', reason='backend_unavailable')
+    bus = ['busctl', '--user', '--auto-start=no', '--allow-interactive-authorization=no',
+           '--timeout=5', '--json=short']
+    destination = 'org.freedesktop.systemd1'
+
+    def pairs(items):
+        result = {}
+        for key, value in items:
+            if key in result:
+                raise ValueError('duplicate manager response key')
+            result[key] = value
+        return result
+
+    def query(arguments, signatures):
+        result = subprocess.run(bus + arguments, capture_output=True, text=True,
+                                check=True, timeout=PROCESS_QUERY_TIMEOUT + 1)
+        if len(result.stdout) > 65536:
+            raise ValueError('manager observation too large')
+        rows = result.stdout.splitlines()
+        if len(rows) != len(signatures):
+            raise ValueError('unexpected manager response count')
+        values = []
+        for row, signature in zip(rows, signatures):
+            value = json.loads(row, object_pairs_hook=pairs)
+            if not isinstance(value, dict) or set(value) != {'type', 'data'} or value['type'] != signature:
+                raise ValueError('unexpected manager response type')
+            values.append(value['data'])
+        return values
+
+    def properties(path, interface, names, signatures):
+        return query(['get-property', destination, path, interface, *names], signatures)
+
+    try:
+        listed, = query(['call', destination, '/org/freedesktop/systemd1', destination + '.Manager',
+                         'ListUnitsByNames', 'as', '1', name], ['a(ssssssouso)'])
+        if (not isinstance(listed, list) or len(listed) != 1 or not isinstance(listed[0], list)
+                or len(listed[0]) != 1 or not isinstance(listed[0][0], list) or len(listed[0][0]) != 10):
+            raise ValueError('unexpected unit listing')
+        unit = listed[0][0]
+        if unit[0] != name:
+            raise ValueError('unit listing identity mismatch')
+        if unit[2:5] == ['not-found', 'inactive', 'dead']:
+            return dict(status='absent')
+        path = unit[6]
+        if not isinstance(path, str) or not path.startswith('/org/freedesktop/systemd1/unit/'):
+            raise ValueError('invalid unit object path')
+        unit_names = ['Id', 'FragmentPath', 'LoadState', 'ActiveState', 'InvocationID']
+        unit_types = ['s', 's', 's', 's', 'ay']
+        service_names, service_types = ['ExecStart', 'MainPID'], ['a(sasbttttuii)', 'u']
+        before = properties(path, destination + '.Unit', unit_names, unit_types)
+        service = properties(path, destination + '.Service', service_names, service_types)
+        after = properties(path, destination + '.Unit', unit_names, unit_types)
+        service_after = properties(path, destination + '.Service', service_names, service_types)
+        if before != after or service != service_after:
+            return dict(status='unknown', reason='observation_changed')
+        identity, artifact, loaded, active, invocation = before
+        executions, pid = service
+        if (identity != name or not isinstance(artifact, str) or not Path(artifact).is_absolute()
+                or loaded != 'loaded' or not isinstance(active, str)
+                or not isinstance(invocation, list) or len(invocation) not in (0, 16)
+                or any(type(x) is not int or not 0 <= x <= 255 for x in invocation)
+                or type(pid) is not int or pid < 0
+                or not isinstance(executions, list) or len(executions) != 1
+                or not isinstance(executions[0], list) or len(executions[0]) != 10):
+            raise ValueError('incomplete unit ownership evidence')
+        executable, argv = executions[0][:2]
+        if (not isinstance(executable, str) or not Path(executable).is_absolute()
+                or not isinstance(argv, list) or not argv or not all(isinstance(x, str) for x in argv)):
+            raise ValueError('invalid loaded executable arguments')
+        return dict(status='observed', artifact=artifact, executable=executable, argv=argv,
+                    pid=pid, active_state=active, invocation=bytes(invocation).hex())
+    except (OSError, subprocess.SubprocessError, ValueError, TypeError, KeyError, IndexError, RecursionError):
+        return dict(status='unknown', reason='manager_observation_unavailable')
+
+
+def _launchd_print_identity(text, target):
+    """Parse only the native shape verified by the isolated macOS fixture.
+
+    launchctl print is not a stable API. Ambiguity or shape changes refuse an
+    observation; these fields never replace byte ownership or runner handshakes.
+    """
+    import re
+    lines = text.splitlines()
+    if not lines or lines[0] != target + ' = {' or lines[-1] != '}':
+        raise ValueError('unexpected launchd job envelope')
+    fields = {}
+    arguments = None
+    in_arguments = False
+    for line in lines[1:-1]:
+        if in_arguments:
+            if line == '\t}':
+                in_arguments = False
+                continue
+            if not line.startswith('\t\t'):
+                raise ValueError('unexpected launchd argument boundary')
+            argument = line[2:]
+            if any(ord(c) < 32 or 127 <= ord(c) <= 159 for c in argument):
+                raise ValueError('ambiguous launchd argument')
+            arguments.append(argument)
+            continue
+        match = re.match(r'^\t(path|program|arguments|state|pid)\b', line)
+        if not match:
+            continue
+        key = match.group(1)
+        prefix = '\t' + key + ' = '
+        if not line.startswith(prefix) or key in fields:
+            raise ValueError('ambiguous launchd identity field')
+        value = line[len(prefix):]
+        fields[key] = value
+        if key == 'arguments':
+            if value != '{':
+                raise ValueError('unexpected launchd arguments shape')
+            arguments, in_arguments = [], True
+    if in_arguments or not {'path', 'program', 'arguments', 'state'}.issubset(fields):
+        raise ValueError('incomplete launchd ownership evidence')
+    if (not Path(fields['path']).is_absolute() or not Path(fields['program']).is_absolute()
+            or not arguments or not fields['state']
+            or any(ord(c) < 32 or 127 <= ord(c) <= 159
+                   for key in ('path', 'program', 'state') for c in fields[key])):
+        raise ValueError('invalid launchd ownership evidence')
+    if 'pid' in fields:
+        if not re.fullmatch(r'[1-9][0-9]*', fields['pid']):
+            raise ValueError('invalid launchd process identity')
+        pid = int(fields['pid'])
+    elif fields['state'] in ('not running', 'waiting'):
+        pid = 0
+    else:
+        raise ValueError('missing launchd process identity')
+    return dict(status='observed', artifact=fields['path'], executable=fields['program'],
+                argv=arguments, pid=pid, active_state=fields['state'])
+
+
+def launchd_service_observation(domain, label):
+    """Observe exactly one job in the explicitly selected current-user GUI domain."""
+    import re
+    if domain != f'gui/{os.geteuid()}':
+        raise ValueError('launchd domain must belong to the current user')
+    if not isinstance(label, str) or re.fullmatch(r'[A-Za-z0-9][A-Za-z0-9_.-]*', label) is None:
+        raise ValueError('invalid launchd job label')
+    if not DARWIN:
+        return dict(status='unknown', reason='backend_unavailable')
+    target = domain + '/' + label
+
+    def query(selected):
+        result = subprocess.run(['launchctl', 'print', selected], capture_output=True,
+                                text=True, timeout=PROCESS_QUERY_TIMEOUT)
+        if len(result.stdout) > 65536:
+            raise ValueError('manager observation too large')
+        return result
+
+    try:
+        before = query(target)
+        if before.returncode == 113:
+            # Missing domain and missing job share an error code. An absent job
+            # is established only while its selected domain is queryable.
+            if query(domain).returncode == 0:
+                return dict(status='absent')
+            return dict(status='unknown', reason='domain_unavailable')
+        if before.returncode != 0:
+            return dict(status='unknown', reason='manager_observation_unavailable')
+        first = _launchd_print_identity(before.stdout, target)
+        after = query(target)
+        if after.returncode != 0 or first != _launchd_print_identity(after.stdout, target):
+            return dict(status='unknown', reason='observation_changed')
+        return first
+    except (OSError, subprocess.SubprocessError, ValueError, TypeError):
+        return dict(status='unknown', reason='manager_observation_unavailable')

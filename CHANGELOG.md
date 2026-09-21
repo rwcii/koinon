@@ -5,6 +5,10 @@ into a dated release section when promoted to `main`.
 
 ## Unreleased
 
+- Stage exact native service-manager observations with unknown results for missing,
+  malformed or changing evidence, plus isolated macOS interface fixtures. Activation
+  and complete installation remain pending.
+
 - Stage the repository memory supervisor with child readiness, generation-bound stop,
   bounded retry, retained failure diagnostics, and explicit refusal recovery. Native
   manager activation and installer integration remain pending.
