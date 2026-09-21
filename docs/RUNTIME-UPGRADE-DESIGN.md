@@ -388,3 +388,18 @@ exclusion. This helper cannot turn copying a live database into a consistent bac
 or certify that an incomplete caller-supplied selection contains all service data.
 Complete pre-shutdown space checks, ownership revalidation, SQLite logical comparison
 and publication of the plan-bound completed backup remain coordinator integration.
+
+`upgrade_backup_inventory.py` opens only a disposable, byte-verified copy when
+capturing logical SQLite evidence. The main database, WAL, shared-memory file
+and rollback journal must all be selected explicitly, including absences. This
+allows SQLite recovery and shared-memory bookkeeping to affect the disposable
+copy without changing retained recovery bytes. The copy uses query-only SQL,
+and the complete retained snapshot is verified again before returning a result
+bound to its digest. Missing sidecar selections, changed backup bytes and unsafe
+workspaces refuse. A synthetic abrupt writer exit verifies that committed WAL
+rows are included and all retained backup file hashes remain unchanged.
+
+Streaming backup verification performs multiple full source reads and destination
+verification; disposable logical inspection adds another copy. These costs belong
+in the outage and temporary-space budget. None of these bounded operations has a
+wall-clock deadline, and these helpers still do not establish writer exclusion.
