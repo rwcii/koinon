@@ -5,6 +5,9 @@ into a dated release section when promoted to `main`.
 
 ## Unreleased
 
+- Run native manager and memory lifecycle evidence on integration PRs and branch
+  updates, with manual dispatch available after feature branches are removed.
+
 - Add optional generation-bound bridge and notifier stops for supervisor-owned
   shutdown, preserving explicit operator stops.
 
