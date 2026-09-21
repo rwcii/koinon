@@ -106,6 +106,25 @@ class BackupTests(unittest.TestCase):
         self.assertIn(self.target, calls)
         self.assertIn(self.target / 'notifier', calls)
 
+    def test_retry_reconfirms_intermediate_directory_links(self):
+        nested = self.source / 'one' / 'two' / 'three'
+        for directory in (self.source / 'one', self.source / 'one' / 'two', nested):
+            directory.mkdir(mode=0o700)
+        path = nested / 'state.db'
+        path.write_bytes(b'synthetic state')
+        path.chmod(0o600)
+        snapshot = backup.capture(self.source, ['one/two/three/state.db'])
+        backup.copy(snapshot, self.target)
+        sync = backup.platform_support.sync_state_directory
+        def failing(path):
+            if Path(path) == self.target / 'one':
+                raise OSError('synthetic intermediate-directory flush')
+            sync(path)
+        with patch.object(backup.platform_support, 'sync_state_directory', side_effect=failing):
+            with self.assertRaisesRegex(OSError, 'intermediate-directory'):
+                backup.copy(snapshot, self.target)
+        self.assertEqual(backup.copy(snapshot, self.target)['source'], snapshot['sha256'])
+
     def test_symlink_and_reserved_bookkeeping_names_are_refused(self):
         (self.target / 'state.db').symlink_to(self.database)
         with self.assertRaises((OSError, ValueError)):

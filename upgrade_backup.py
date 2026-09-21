@@ -15,7 +15,7 @@ from participant_lock import file_lock
 import platform_support
 import upgrade_manifest as manifest
 
-MAX_FILE_BYTES = 1 << 30
+MAX_FILE_BYTES = durable_state.MAX_PRIVATE_FILE_BYTES
 MAX_TOTAL_BYTES = 4 << 30
 CHUNK_BYTES = 1 << 20
 LOCK = '.backup.lock'
@@ -153,6 +153,16 @@ def _destination(root):
     return root
 
 
+def _sync_parents(root, parent):
+    # An earlier mkdir may be visible despite a failed parent-directory flush.
+    # Retry every link inside the frozen destination, not only rename endpoints.
+    while True:
+        platform_support.sync_state_directory(parent)
+        if parent == root:
+            return
+        parent = parent.parent
+
+
 def _confirm(root, name, expected):
     path = root / name
     fd = durable_state.open_validated(path, MAX_FILE_BYTES, writable=True)
@@ -163,9 +173,7 @@ def _confirm(root, name, expected):
         if _file(root, name) != expected or _stamp(path.lstat()) != _stamp(original):
             raise BackupError('retained backup differs; preserve it')
         platform_support.sync_state_file(fd)
-        platform_support.sync_state_directory(path.parent)
-        if path.parent != root:
-            platform_support.sync_state_directory(root)
+        _sync_parents(root, path.parent)
         platform_support.sync_state_file(fd)
         if _stamp(os.fstat(fd)) != _stamp(original) or _stamp(path.lstat()) != _stamp(original):
             raise BackupError('retained backup changed during confirmation')
@@ -220,9 +228,7 @@ def copy(snapshot, destination):
                 if path.exists() or path.is_symlink():
                     raise BackupError('backup destination appeared during copy')
                 os.replace(temporary, path)
-                platform_support.sync_state_directory(path.parent)
-                if path.parent != target:
-                    platform_support.sync_state_directory(target)
+                _sync_parents(target, path.parent)
                 platform_support.sync_state_file(fd)
             finally:
                 os.close(fd)

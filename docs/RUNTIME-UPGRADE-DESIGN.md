@@ -375,7 +375,8 @@ source and destination evidence separate for later explicit restoration.
 
 A differing retained backup refuses without overwrite. Identical partial copies
 are reverified and their file/directory/device flushes repeated. Nested renames
-flush both the destination directory and the scratch-file directory. A free-space
+flush every directory link from the destination parent through the backup root,
+including intermediate directories retained after an interrupted creation. A free-space
 check covers remaining selected bytes plus 64 KiB per selected name and one extra
 metadata allowance before copying; it is conservative, does not reserve space,
 and cannot prevent later I/O failure. Scratch files are bounded separately by the

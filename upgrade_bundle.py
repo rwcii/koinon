@@ -16,7 +16,7 @@ from participant_lock import file_lock
 import upgrade_manifest as manifest
 
 ARCHIVE = 'recovery.pyz'
-MAX_BYTES = manifest.MAX_FILE_BYTES
+MAX_BYTES = min(manifest.MAX_FILE_BYTES, durable_state.MAX_PRIVATE_FILE_BYTES)
 
 
 class BundleError(ValueError):
