@@ -28,7 +28,13 @@ def capture(root):
 
 
 def recover(records, owner):
-    """Called under supervisor.lock before a successor owner can replace evidence."""
+    """Recover under supervisor.lock before a successor runner replaces evidence.
+
+    That lock excludes cooperating runners, not independent operator path removal
+    or replacement. Final inode checks detect changes; unlink is not an atomic
+    inode-conditional operation. Direct exclusive bind alone cannot replace an
+    existing socket, but an actor that first removes it can race this operation.
+    """
     from session_supervisor_state import alive_state, StateError
     records.validate(owner)
     def stopped():

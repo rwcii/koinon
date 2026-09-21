@@ -135,7 +135,10 @@ inode before and after the exchange. Before publishing a successor, under superv
 ownership, it may remove only that captured private inode after the previous runner
 and every recorded child are proven dead. A replacement socket, changed owner record,
 unknown process, unsafe path or missing capture remains a refusal. Connection failure
-is never used as evidence for removal. Peer PID sockets are outside this cleanup.
+is never used as evidence for removal. The supervisor lock excludes cooperating
+runners, not independent operator path removal/replacement. Final checks detect
+changes, but unlink is not atomic with inode verification. Peer PID sockets are
+outside this cleanup.
 
 This differs deliberately from operator-installed endpoints: those still require
 explicit manual resolution. Automatic cleanup applies only to control sockets captured
