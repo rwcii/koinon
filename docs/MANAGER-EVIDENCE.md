@@ -5,7 +5,8 @@ requires real Linux and macOS evidence for owned activation, readiness, crash re
 permanent refusal without restart, explicit retry, stop and removal preserving data.
 
 The current native interface fixture is `scripts/probe-launchd.py`. It runs only with
-`--run-isolated-job --output PATH` on macOS. The dedicated CI job runs it under the current user's GUI domain. It uses one randomly named job, a temporary plist
+`--run-isolated-job --output PATH` on macOS. The dedicated CI job runs it under the
+current user's GUI domain. It uses one randomly named job, a temporary plist
 outside the login agent directory, and a synthetic Python child. It never modifies a
 production service or a system-domain job. Cleanup targets only that fixture label.
 Missing manager capability is an unmet result and a failing job, not a passing skip.
