@@ -153,6 +153,7 @@ class NativeMemoryActionTests(unittest.TestCase):
         from test_memory_service_config import record
         selected = record()
         with patch.object(platform_support, 'LINUX', True), \
+                patch.object(platform_support, 'memory_registration_paths', return_value=()), \
                 patch('memory_service_artifacts.preflight_registration') as preflight, \
                 patch.object(platform_support.subprocess, 'run') as run:
             platform_support.memory_manager_action(selected, 'activate')
@@ -161,6 +162,7 @@ class NativeMemoryActionTests(unittest.TestCase):
                                                'enable', selected['artifact']])
         selected = dict(record(backend='launchd'), manager_domain=f'gui/{os.geteuid()}')
         with patch.object(platform_support, 'DARWIN', True), \
+                patch.object(platform_support, 'memory_registration_paths', return_value=()), \
                 patch('memory_service_artifacts.preflight_registration') as preflight, \
                 patch.object(platform_support.subprocess, 'run') as run:
             platform_support.memory_manager_action(selected, 'activate')

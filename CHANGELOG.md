@@ -7,8 +7,8 @@ into a dated release section when promoted to `main`.
 
 - Activate explicitly selected native memory supervisors with verified manager and
   child identity, explicit launchd domains, and opt-in literal systemd arguments.
-  Refuse unsafe registration paths before enabling and verify loaded identity before
-  starting systemd children. Add isolated native lifecycle checks; complete installer
+  Refuse unsafe manager-reported registration paths and verify inert loader links
+  before enabling or starting systemd children. Add isolated native lifecycle checks; complete installer
   integration remains pending.
 
 - Stage exact native service-manager observations with unknown results for missing,

@@ -32,10 +32,10 @@ def _parents(path):
         if (not stat.S_ISDIR(info.st_mode) or info.st_uid not in (0, os.getuid())
                 or (info.st_mode & 0o022 and not
                     (info.st_uid == 0 and info.st_mode & stat.S_ISVTX))):
-            raise ValueError('unsafe artifact ancestor')
+            raise RegistrationPathError(parent)
     info = path.parent.lstat()
     if info.st_uid != os.getuid() or info.st_mode & 0o022:
-        raise ValueError('artifact directory must be owned and not writable by others')
+        raise RegistrationPathError(path.parent)
 
 
 
@@ -120,7 +120,8 @@ def _boundary(prefix, artifact=None):
         raise
     except (OSError, ValueError) as exc:
         raise runtime_names.NameConflict('invalid_install_configuration',
-                                         tuple(path for path in (Path(prefix) / 'install.json', artifact)
+                                         tuple(path for path in (*getattr(exc, 'paths', ()),
+                                               Path(prefix) / 'install.json', artifact)
                                                if path is not None)) from exc
 
 

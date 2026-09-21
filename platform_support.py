@@ -409,6 +409,7 @@ def memory_service_command(prefix, python, key, selection):
             '--prefix', str(prefix), '--repo', selection['common_directory'],
             '--state-root', selection['state_root'], '--backend', selection['backend']]
 
+
 def memory_service_artifact(prefix, python, key, selection):
     """Canonical staged artifact bytes; no manager selection or activation.
 
@@ -696,22 +697,62 @@ def memory_manager_available(backend, domain=None):
 
 
 
-def memory_registration_paths(record, *, runtime=False):
-    """Expected client registration locations; loaded identity is checked again.
 
-    A manager may have different startup path configuration from its caller. Enable
-    therefore never starts a child: the actual loaded path is verified before start.
+def systemd_registration_directories():
+    """Recognize the native user manager's standard UnitPath layout, or refuse.
+
+    Use manager evidence, not the caller's XDG environment. An overridden or changed
+    layout is unsupported rather than guessed. No environment inventory is read.
     """
+    import json
     from work_policy import absolute_path
+    if not LINUX:
+        raise OSError('selected memory manager unavailable')
+    command = ['busctl', '--user', '--auto-start=no', '--allow-interactive-authorization=no',
+               '--timeout=5', '--json=short', 'get-property', 'org.freedesktop.systemd1',
+               '/org/freedesktop/systemd1', 'org.freedesktop.systemd1.Manager', 'UnitPath']
+    def pairs(items):
+        result = {}
+        for key, value in items:
+            if key in result:
+                raise ValueError('duplicate manager response key')
+            result[key] = value
+        return result
+    def query():
+        reply = subprocess.run(command, capture_output=True, text=True, check=True,
+                               timeout=PROCESS_QUERY_TIMEOUT + 1)
+        if len(reply.stdout) > 65536:
+            raise ValueError('manager paths exceed observation bound')
+        value = json.loads(reply.stdout, object_pairs_hook=pairs)
+        if (not isinstance(value, dict) or set(value) != {'type', 'data'} or value['type'] != 'as'
+                or not isinstance(value['data'], list) or not 6 <= len(value['data']) <= 128):
+            raise ValueError('unsupported manager path response')
+        paths = [absolute_path(path) for path in value['data']]
+        if len(set(paths)) != len(paths):
+            raise ValueError('duplicate manager paths')
+        return paths
+    try:
+        paths = query()
+        if query() != paths:
+            raise ValueError('manager paths changed')
+        control, runtime_control, transient, early, persistent = paths[:5]
+        runtime = runtime_control.with_name('user')
+        if (control.name != 'user.control' or control.parent.name != 'systemd'
+                or runtime_control.name != 'user.control' or runtime_control.parent.name != 'systemd'
+                or persistent != control.with_name('user') or runtime not in paths
+                or transient != runtime_control.with_name('transient')
+                or early != runtime_control.with_name('generator.early')):
+            raise ValueError('unsupported manager path layout')
+        return persistent, runtime
+    except (ValueError, TypeError, subprocess.SubprocessError) as exc:
+        raise OSError('manager registration paths unavailable') from exc
+
+
+def memory_registration_paths(record, *, runtime=False):
     if type(runtime) is not bool:
         raise ValueError('runtime selection must be boolean')
-    if runtime:
-        base = os.environ.get('XDG_RUNTIME_DIR')
-        if not base:
-            raise ValueError('explicit runtime directory required')
-    else:
-        base = os.environ.get('XDG_CONFIG_HOME') or str(Path.home() / '.config')
-    directory = absolute_path(base) / 'systemd' / 'user'
+    persistent, temporary = systemd_registration_directories()
+    directory = temporary if runtime else persistent
     name = Path(record['artifact']).name
     return (directory / name, directory / 'default.target.wants' / name)
 
@@ -722,22 +763,25 @@ def memory_manager_action(record, operation, *, runtime=False):
     memory_service_config.validate(dict(version=1, repositories={key: record}))
     if type(runtime) is not bool:
         raise ValueError('runtime selection must be boolean')
-    if operation not in ('activate', 'restart', 'deactivate'):
+    if operation not in ('register', 'activate', 'restart', 'deactivate'):
         raise ValueError('unsupported memory manager operation')
     backend = record['backend']
     if backend == 'systemd':
         if not LINUX:
             raise OSError('selected memory manager unavailable')
         name = memory_service_config.artifact_name(key, backend)
-        if operation == 'activate':
+        if operation in ('register', 'activate', 'restart'):
             import memory_service_artifacts
             memory_service_artifacts.preflight_registration(
                 record, memory_registration_paths(record, runtime=runtime))
-        commands = {'activate': ['enable', record['artifact']],
+        commands = {'register': ['link', record['artifact']],
+                    'activate': ['enable', record['artifact']],
                     'restart': ['start', name], 'deactivate': ['disable', name]}
         argv = ['systemctl', '--user', '--no-ask-password',
                 *(['--runtime'] if runtime else []), *commands[operation]]
     elif backend == 'launchd':
+        if operation == 'register':
+            raise ValueError('launchd registration is part of activation')
         domain = record.get('manager_domain')
         if domain != f'gui/{os.geteuid()}':
             raise ValueError('launchd domain must belong to the current user')

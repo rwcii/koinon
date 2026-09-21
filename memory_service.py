@@ -288,8 +288,10 @@ def ensure_managed(selection):
                     raise RunnerError('external_memory_service')
                 if portable['status'] == 'externally_managed':
                     raise RunnerError('external_memory_service')
-                operation = ('activate' if observed['status'] == 'absent' else
-                             'restart' if observed['pid'] == 0 else None)
+                operation = (('register' if selection.backend == 'systemd' else 'activate')
+                             if observed['status'] == 'absent' else
+                             ('activate' if selection.backend == 'systemd' else 'restart')
+                             if observed['pid'] == 0 else None)
                 if operation:
                     # Recheck immediately before mutation. This detects changes,
                     # but does not claim to lock the manager's global state.
@@ -298,13 +300,18 @@ def ensure_managed(selection):
                     try:
                         memory_service_artifacts.verify_owned(selection.prefix, sys.executable, selection.record)
                         platform_support.memory_manager_action(selection.record, operation)
-                        if selection.backend == 'systemd' and operation == 'activate':
-                            # Enable may create a loader link in a directory selected
-                            # by the manager, not the client. Verify its actual identity
-                            # before any explicit start; never combine enable --now.
+                        if selection.backend == 'systemd':
+                            # An inert loader link is verified before enablement can
+                            # create future-login activation, and again before start.
                             registered = manager_observation(selection)
                             if registered['status'] != 'observed':
                                 raise RunnerError('manager_observation_unknown')
+                            if operation == 'register':
+                                if manager_observation(selection) != registered:
+                                    raise RunnerError('manager_observation_unknown')
+                                platform_support.memory_manager_action(selection.record, 'activate')
+                                if manager_observation(selection) != registered:
+                                    raise RunnerError('manager_observation_unknown')
                             if registered['pid'] == 0:
                                 if manager_observation(selection) != registered:
                                     raise RunnerError('manager_observation_unknown')

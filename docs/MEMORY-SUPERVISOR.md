@@ -75,12 +75,22 @@ returns an error, never inferred readiness. `stop` remains generation-bound and 
 not unregister a job; deactivation callers must verify ownership and completed stop
 before removing registration.
 
-Before systemd registration, existing ancestors of the expected loader and enablement
-links must pass the same ownership policy. Unsafe paths are returned in the error's
-`paths` field; permissions are never changed automatically. Missing directories are
-not created by preflight. Registration uses `enable` without `--now`; the actual loaded
-artifact and command are checked before a separate start. This also prevents a start
-when the manager's path configuration differs from the caller's and yields unsafe or
-conflicting loaded evidence. A failed verification after registration can retain links
-for explicit recovery; it does not claim registration was rolled back. Preflight and
-rechecks narrow changes but are not atomic with the manager's state.
+Before systemd registration, existing ancestors of the loader and enablement links
+must pass the same ownership policy. Unsafe paths are returned in the error's `paths`
+field; permissions are never changed automatically. Missing directories are not
+created by preflight. Directory selection uses twice-read typed manager `UnitPath`
+evidence and recognizes the standard native user-manager layout, verified on systemd
+259.5-0ubuntu3.4. This layout interpretation is version-dependent; the subsequent
+loaded-identity checks remain required. Overridden, malformed
+or changing layouts refuse before mutation; the caller's XDG environment is not used
+to guess the manager's configuration. The recognized layout follows systemd's
+[user lookup-path construction](https://github.com/systemd/systemd/blob/main/src/libsystemd/sd-path/path-lookup.c).
+
+Registration first uses `link`, which does not add login enablement. The actual loaded
+artifact and command are verified before `enable`, and again before a separate start.
+Preflight also runs before enabling or starting an already registered stopped job.
+Unknown or conflicting loaded evidence never advances to the next step. A failed
+verification can retain an inert loader link for explicit recovery; errors do not
+claim registration was rolled back. Preflight and rechecks narrow changes but are not
+atomic with the manager's state. Persistent installation/login acceptance remains a
+separate installer gate.

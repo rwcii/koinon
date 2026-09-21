@@ -279,13 +279,16 @@ class MemorySupervisorTests(unittest.TestCase):
 
     def test_managed_ensure_requires_loaded_identity_and_real_child_readiness(self):
         self.select_launchd('systemd')
-        started = []
+        registered, started = [], []
         def observe(_name):
-            return self.loaded_report(started[0].pid) if started else dict(status='absent')
+            return (self.loaded_report(started[0].pid if started else 0)
+                    if registered else dict(status='absent'))
         def activate(record, operation):
             self.assertEqual(record, self.record)
-            self.assertEqual(operation, 'activate')
-            started.append(self.spawn())
+            if operation == 'register':
+                registered.append(True)
+            elif operation == 'restart':
+                started.append(self.spawn())
         with patch.object(platform_support, 'memory_manager_available', return_value=True), \
                 patch.object(platform_support, 'systemd_service_observation', side_effect=observe), \
                 patch.object(platform_support, 'memory_manager_action', side_effect=activate) as action:
@@ -293,7 +296,7 @@ class MemorySupervisorTests(unittest.TestCase):
             self.assertTrue(result['running'])
             self.assertTrue(result['managed'])
             self.assertTrue(memory_service.ensure_managed(self.selection)['managed'])
-            action.assert_called_once()
+            self.assertEqual([call.args[1] for call in action.call_args_list], ['register', 'activate', 'restart'])
             with patch.object(platform_support, 'systemd_service_observation', return_value=self.loaded_report(9999999)):
                 self.assertFalse(memory_service.managed_status(self.selection)['running'])
 
@@ -319,8 +322,11 @@ class MemorySupervisorTests(unittest.TestCase):
             return (self.loaded_report(started[0].pid if started else 0)
                     if registered else dict(status='absent'))
         def action(_record, operation):
-            if operation == 'activate':
+            if operation == 'register':
                 registered.append(True)
+            elif operation == 'activate':
+                self.assertTrue(registered)
+                self.assertFalse(started)
             elif operation == 'restart':
                 started.append(self.spawn())
             else:
@@ -329,7 +335,7 @@ class MemorySupervisorTests(unittest.TestCase):
                 patch.object(platform_support, 'systemd_service_observation', side_effect=observe), \
                 patch.object(platform_support, 'memory_manager_action', side_effect=action) as operations:
             self.assertTrue(memory_service.ensure_managed(self.selection)['managed'])
-            self.assertEqual([call.args[1] for call in operations.call_args_list], ['activate', 'restart'])
+            self.assertEqual([call.args[1] for call in operations.call_args_list], ['register', 'activate', 'restart'])
 
     def test_systemd_changed_loaded_command_after_registration_never_starts(self):
         self.select_launchd('systemd')
@@ -342,7 +348,7 @@ class MemorySupervisorTests(unittest.TestCase):
             with self.assertRaises(memory_service.RunnerError) as caught:
                 memory_service.ensure_managed(self.selection)
             self.assertEqual(caught.exception.code, 'manager_ownership_conflict')
-            self.assertEqual([call.args[1] for call in action.call_args_list], ['activate'])
+            self.assertEqual([call.args[1] for call in action.call_args_list], ['register'])
 
     def test_unavailable_selected_manager_reports_manual_without_creating_state(self):
         self.select_launchd('systemd')

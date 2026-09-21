@@ -114,8 +114,22 @@ class MemoryArtifactTests(unittest.TestCase):
         link.unlink()
         link.symlink_to(record['artifact'])
         loader.chmod(0o775)
-        with self.assertRaises(runtime_names.NameConflict):
+        with self.assertRaises(runtime_names.NameConflict) as caught:
             artifacts.verify_loaded(self.prefix, self.python, record, link)
+        self.assertIn(str(loader), caught.exception.paths)
+
+    def test_shadowing_regular_artifact_is_never_adopted_even_with_identical_bytes(self):
+        _, record, content = self.desired()
+        artifacts.publish(self.prefix, self.python, record)
+        shadow_dir = self.root / 'shadow'
+        shadow_dir.mkdir(mode=0o700)
+        shadow = shadow_dir / Path(record['artifact']).name
+        shadow.write_bytes(content)
+        shadow.chmod(0o600)
+        with self.assertRaises(runtime_names.NameConflict):
+            artifacts.verify_loaded(self.prefix, self.python, record, shadow)
+        self.assertEqual(shadow.read_bytes(), content)
+        self.assertEqual(Path(record['artifact']).read_bytes(), content)
 
     def test_new_literal_systemd_template_does_not_replace_existing_template(self):
         key, old, old_content = self.desired()
