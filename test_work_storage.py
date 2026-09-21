@@ -84,7 +84,12 @@ class CompatibilityTests(Base):
         with patch.object(memory, 'SCHEMA', 4), self.assertRaises(memory.MemoryError_) as caught:
             memory.Store(self.path, REPO)
         self.assertEqual(caught.exception.code, 'schema_too_new')
-        self.assertEqual(list(inspect.signature(memory.Store).parameters), ['path', 'repo', 'fts'])
+        parameters = inspect.signature(memory.Store).parameters
+        self.assertEqual([name for name, value in parameters.items()
+                          if value.kind == inspect.Parameter.POSITIONAL_OR_KEYWORD],
+                         ['path', 'repo', 'fts'])
+        self.assertEqual(parameters['defer_index'].kind, inspect.Parameter.KEYWORD_ONLY)
+        self.assertIs(parameters['defer_index'].default, False)
         self.assertEqual(memory.SCHEMA, 5)
 
     def test_missing_claim_table_or_schema_never_means_zero_debt(self):
