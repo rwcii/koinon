@@ -217,3 +217,48 @@ prove that mutable files across separate reads form an atomic snapshot. The coor
 must retain the manifest digest in its durable plan, stage and verify the frozen bytes,
 and establish stopped ownership before using file copies as state-backup evidence.
 The helper performs no copy, installation or permission repair.
+
+## Coordinator integration constraints
+
+Preserve manager registration and running state as separate plan fields. An upgrade
+must not resurrect every historical session registration. Unknown observations refuse
+preflight. Previously running components need verified readiness after release; inactive
+components must remain stopped with their selection and retained data preserved. If
+restoring a native registration causes temporary startup (for example launchd `RunAtLoad`),
+that startup remains gated and its owned stop must be verified before global release.
+Interruptions between temporary startup and stop need explicit native coverage.
+
+The source runtime may predate the new gate. Component-era runtimes validate
+`installation_state` against `installed` and `removing`; a future `upgrading` state can
+therefore make those older invocations refuse. This is only a proposed exclusion
+mechanism, not proof that a running process stopped. New coordinator code must validate
+its frozen plan before allowing upgrade-specific access to that state. An old process
+that already read configuration still requires owned shutdown and exit verification.
+Old invocations waiting on installation or component locks must revalidate after the
+coordinator publishes exclusion; tests must exercise that race.
+
+Legacy thread-only installs may have no `install.json`, and absence historically selects
+legacy behavior. A lifecycle field cannot protect an absent file. Likewise, a legacy
+manual session supervisor lacks the native supervisor's complete ownership record.
+Do not infer either into the component upgrade inventory. A supported legacy/manual
+adapter must supply explicit inventory and process-exit evidence before those paths can
+pass preflight; until then they refuse before shutdown. The complete #43 acceptance gate
+still includes manual-process coverage and cannot close on native-only implementation.
+
+After proving owned processes stopped, deactivate only their verified manager
+registrations and retain artifacts and state. Startup exclusion during backup requires
+more than endpoint probing: memory constructs its database worker while holding
+`start.lock`, before completing socket binding. Acquire its permanent start lock only
+after shutdown, because cleanup also needs it. A control-socket reservation alone cannot
+exclude that early database open. Bridge startup instead reserves its control endpoint
+before opening its database. The coordinator must revalidate all stopped owners and
+retained paths after taking the appropriate locks or endpoint reservations, keep them
+through consistent capture, and release only those needed by explicitly gated new starts.
+Neither a failed connection nor the new lifecycle marker substitutes for that evidence.
+
+A standalone recovery bundle must contain the coordinator and its imported dependencies
+from the frozen source, bound by the durable plan digest. Resume must not import modules
+from the partly replaced installation. Tests must remove or corrupt a prefix module
+mid-replacement and demonstrate recovery through that retained bundle, then reject a
+changed bundle or source. Ordinary install, uninstall and ensure must refuse incomplete
+upgrade state; status and plan-validated recovery must remain available.
