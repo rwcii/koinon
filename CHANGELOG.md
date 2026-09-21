@@ -5,6 +5,9 @@ into a dated release section when promoted to `main`.
 
 ## Unreleased
 
+- Stage plan-bound upgrade phase records and immutable private recovery documents;
+  the public coordinator and native interruption acceptance remain in development.
+
 - Stage read-only upgrade inventories and frozen source-file checks, including an explicit
   unsupported-SQLite refusal. The coordinated upgrade command remains in development.
 

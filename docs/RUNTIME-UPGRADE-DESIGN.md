@@ -279,3 +279,13 @@ decision; subsequent completion/acknowledgement records cannot undo it. Syntheti
 cover publication failures before and after atomic replacement, retained lock identity,
 wrong-plan refusal and monotonic release. They do not replace process-interruption,
 native-manager or complete coordinator acceptance fixtures.
+
+`upgrade_documents.py` retains immutable private JSON manifests and evidence, each
+bounded to 1 MiB. Their expected digests belong in the frozen plan or journal; a
+self-reported digest is not authority. Existing service-owner records retain their
+4 KiB default. Exact repeats retain the original document, changed content refuses,
+and reads never recreate missing evidence. The phase-journal name is reserved.
+Publication refuses a new document when the directory already has 1,024 entries
+(including locks and retained scratch files); existing identical documents remain
+readable at capacity. Atomic publication may briefly add one replacement file.
+Domain schemas and complete recovery-bundle validation remain coordinator work.

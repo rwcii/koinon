@@ -8,6 +8,7 @@ import stat
 import platform_support
 
 MAX_BYTES = 4096
+MAX_DOCUMENT_BYTES = 1024 * 1024
 
 
 class StateReadBusyError(BlockingIOError):
@@ -21,9 +22,17 @@ class StateFileError(ValueError):
         super().__init__(code)
 
 
-def validate(info):
+def byte_limit(max_bytes):
+    limit = MAX_BYTES if max_bytes is None else max_bytes
+    if type(limit) is not int or not 0 < limit <= MAX_DOCUMENT_BYTES:
+        raise ValueError('invalid state-file byte limit')
+    return limit
+
+
+def validate(info, *, max_bytes=None):
+    limit = byte_limit(max_bytes)
     if (not stat.S_ISREG(info.st_mode) or info.st_uid != os.geteuid()
-            or info.st_mode & 0o077 or info.st_nlink != 1 or info.st_size > MAX_BYTES):
+            or info.st_mode & 0o077 or info.st_nlink != 1 or info.st_size > limit):
         raise StateFileError('unsafe_state_file')
 
 
@@ -36,7 +45,8 @@ def pairs(items):
     return result
 
 
-def read(path):
+def read(path, *, max_bytes=None):
+    limit = byte_limit(max_bytes)
     for attempt in range(3):
         try:
             fd = os.open(path, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK | os.O_CLOEXEC)
@@ -56,7 +66,7 @@ def read(path):
                 if (current.st_dev, current.st_ino) != (info.st_dev, info.st_ino):
                     os.close(fd)
                     continue
-            validate(info)
+            validate(info, max_bytes=limit)
         except BaseException:
             os.close(fd)
             raise
@@ -65,12 +75,12 @@ def read(path):
         raise StateReadBusyError()
     try:
         data = bytearray()
-        while len(data) <= MAX_BYTES:
-            chunk = os.read(fd, MAX_BYTES + 1 - len(data))
+        while len(data) <= limit:
+            chunk = os.read(fd, limit + 1 - len(data))
             if not chunk:
                 break
             data.extend(chunk)
-        if len(data) > MAX_BYTES:
+        if len(data) > limit:
             raise StateFileError('unsafe_state_file')
         try:
             value = json.loads(data, object_pairs_hook=pairs)
@@ -83,30 +93,31 @@ def read(path):
         os.close(fd)
 
 
-def publish(path, value):
+def publish(path, value, *, max_bytes=None):
     """Publish or raise; an error after replacement has an unknown durable outcome.
 
     The caller serializes this with the notifier's state/participant ownership.
     A fixed replacement name bounds retained scratch files across process crashes.
     No caller may treat an exception as proof that the replacement did not occur.
     """
+    limit = byte_limit(max_bytes)
     path = Path(path)
     if not isinstance(value, dict):
         raise StateFileError('invalid_state_file')
     data = json.dumps(value, sort_keys=True, separators=(',', ':'), ensure_ascii=True).encode()
-    if len(data) > MAX_BYTES:
+    if len(data) > limit:
         raise StateFileError('state_file_capacity')
     directory = path.parent.lstat()
     if (not stat.S_ISDIR(directory.st_mode) or directory.st_uid != os.geteuid()
             or directory.st_mode & 0o077):
         raise StateFileError('unsafe_state_directory')
     try:
-        validate(path.lstat())
+        validate(path.lstat(), max_bytes=limit)
     except FileNotFoundError:
         pass
     temp = path.with_name(path.name + '.tmp')
     try:
-        validate(temp.lstat())
+        validate(temp.lstat(), max_bytes=limit)
     except FileNotFoundError:
         pass
     else:

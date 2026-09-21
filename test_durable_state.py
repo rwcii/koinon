@@ -154,3 +154,32 @@ class DurableStateTests(unittest.TestCase):
             flush.side_effect = OSError('synthetic unsupported flush')
             with self.assertRaises(OSError):
                 platform_support.sync_state_file(7)
+
+    def test_explicit_document_limit_does_not_expand_default_service_records(self):
+        value = dict(manifest='x' * 8192)
+        state.publish(self.path, value, max_bytes=16384)
+        self.assertEqual(state.read(self.path, max_bytes=16384), value)
+        with self.assertRaises(state.StateFileError):
+            state.read(self.path)
+        before = self.path.read_bytes()
+        with self.assertRaises(state.StateFileError):
+            state.publish(self.path, dict(replacement=True))
+        self.assertEqual(self.path.read_bytes(), before)
+        self.assertEqual(state.MAX_BYTES, 4096)
+
+    def test_explicit_document_overflow_preserves_prior_evidence(self):
+        state.publish(self.path, dict(phase='prepared'), max_bytes=8192)
+        before = self.path.read_bytes()
+        with self.assertRaises(state.StateFileError):
+            state.publish(self.path, dict(manifest='x' * 8192), max_bytes=8192)
+        self.assertEqual(self.path.read_bytes(), before)
+
+    def test_document_limit_is_bounded_and_cannot_relax_privacy(self):
+        for limit in (True, 0, -1, state.MAX_DOCUMENT_BYTES + 1):
+            with self.subTest(limit=limit), self.assertRaises(ValueError):
+                state.publish(self.path, {}, max_bytes=limit)
+        self.assertFalse(self.path.exists())
+        self.path.write_text('{}')
+        self.path.chmod(0o644)
+        with self.assertRaises(state.StateFileError):
+            state.read(self.path, max_bytes=state.MAX_DOCUMENT_BYTES)
