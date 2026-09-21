@@ -3,6 +3,7 @@
 import argparse
 import importlib.util
 import json
+import os
 from pathlib import Path
 import shutil
 import subprocess
@@ -68,6 +69,9 @@ def main():
     parser.add_argument('--backend', choices=('systemd', 'launchd'), required=True)
     parser.add_argument('--kind', choices=('memory', 'session'), default='memory')
     args = parser.parse_args()
+    # Python imports can create caches before a child sets its own umask.
+    # All fixture subprocesses must inherit private creation permissions.
+    os.umask(0o077)
     if args.kind == 'session':
         return session_case(args.backend)
     spec = importlib.util.spec_from_file_location('native_memory_fixture', SOURCE / 'scripts/test-native-memory.py')
