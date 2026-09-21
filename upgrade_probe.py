@@ -57,7 +57,7 @@ def gated(exclusion, component):
         if child is None or child.get('generation') is None:
             raise ProbeError('selected child has no generation')
         root = selected.home / 'notifier' if kind == 'notifier' else selected.home
-        reply, pid = asyncio.run(control_exchange(root, dict(op='status'), timeout=5))
+        reply, pid = asyncio.run(control_exchange(root, dict(op='hello' if kind == 'memory' else 'status'), timeout=5))
         if reply.get('ok') is not True:
             raise ProbeError('selected child refused private status')
         _gate(exclusion, reply.get('result'), child, pid)

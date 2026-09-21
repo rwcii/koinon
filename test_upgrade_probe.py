@@ -36,6 +36,7 @@ class ProbeTests(unittest.TestCase):
             result = probe.capture(self.exclusion, self.component)
             self.assertEqual(result['inventory'], inventory)
             self.assertEqual(result['owner'], self.owner)
+            self.assertEqual(exchange.call_args_list[0].args[1], dict(op='hello'))
             request = exchange.call_args_list[1].args[1]
             self.assertEqual(request, dict(op='upgrade-inventory', plan='a' * 64, generation='b' * 32))
 
@@ -78,3 +79,28 @@ class ProbeTests(unittest.TestCase):
                     (dict(ok=True, result=self.status), 123), (dict(ok=True, result=notifier), 125)])):
             with self.assertRaises(probe.ProbeError):
                 probe.gated(self.exclusion, component)
+
+
+class LiveMemoryHandshakeTests(unittest.IsolatedAsyncioTestCase):
+    async def test_actual_gated_memory_hello_supplies_probe_identity(self):
+        import os
+        import tempfile
+        import memory
+        import upgrade_gate
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory).resolve()
+            gate = SimpleNamespace(status=lambda: dict(plan='a' * 64,
+                operation='/synthetic/operation', generation=service.generation, released=False))
+            with patch.object(upgrade_gate, 'select', return_value=gate):
+                service = memory.Service(root, 'a' * 16,
+                    lambda: memory.Store(root / 'memory.sqlite3', 'a' * 16),
+                    gated_store_factory=lambda gate: memory.Store(root / 'memory.sqlite3', 'a' * 16, defer_index=True))
+            try:
+                value = await service.command(dict(op='hello'), os.getpid())
+                exclusion = SimpleNamespace(loaded=dict(sha256='a' * 64),
+                    journal=SimpleNamespace(directory=Path('/synthetic/operation')))
+                probe._gate(exclusion, value,
+                            dict(pid=os.getpid(), generation=service.generation), os.getpid())
+                self.assertTrue(value['healthy'])
+            finally:
+                await service.worker.close()
