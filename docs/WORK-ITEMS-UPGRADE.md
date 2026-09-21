@@ -82,6 +82,17 @@ are not resolved, and other
 users or system service managers are outside the selected same-user scope. If the user
 manager is unavailable, the report explicitly identifies static-path-only discovery.
 Malformed or changing native inventory refuses rather than returning an empty result.
+
+Operating-system definition files under `/System/Library/LaunchAgents` are not read.
+Their jobs remain in scope: every loaded GUI job is still a same-user observation, its
+program and arguments are still inspected, and a direct runtime reference in one still
+produces an unowned finding and a refusal. Only the vendor's file is left unparsed, and
+each exclusion is reported with its path and the reason `os_definition_not_parsed`.
+Exclusion is never ownership. A path is excluded only when both its literal and its
+resolved form stay inside that directory, so a link or a traversal that leaves it is
+inventoried normally. Definitions under `~/Library/LaunchAgents`,
+`/Library/LaunchAgents` and custom loaded locations are parsed as before, and a
+malformed definition that is in scope still refuses.
 Preserve and inventory services outside the stated scope before upgrading a shared prefix.
 
 Ordinary ingress and notification delivery stay gated while migration and preservation

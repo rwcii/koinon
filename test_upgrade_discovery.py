@@ -116,6 +116,80 @@ class DiscoveryTests(unittest.TestCase):
                 discovery.inventory(self.prefix, {}, [])
 
 
+class ExcludedJobStillRefusesTests(unittest.TestCase):
+    """Excluding the vendor's file must never grant its job ownership."""
+
+    def setUp(self):
+        temp = tempfile.TemporaryDirectory()
+        self.addCleanup(temp.cleanup)
+        self.root = Path(temp.name).resolve()
+        self.prefix = self.root / 'runtime'
+        self.agent = '/System/Library/LaunchAgents/com.apple.familycircled.plist'
+        self.sources = dict(
+            directories=[str(self.root / 'absent')], loaded_artifacts=[],
+            loaded_discovery='synthetic_native_inventory',
+            os_definitions=[dict(path=self.agent, reason='os_definition_not_parsed')],
+            loaded_references=[dict(identity='com.apple.familycircled', artifact=self.agent,
+                                    command_sha256='0' * 64)])
+        for replaced in (patch.object(platform_support, 'upgrade_service_sources',
+                                      return_value=self.sources),
+                         patch.object(platform_support, 'upgrade_memory_processes',
+                                      return_value=[])):
+            replaced.start()
+            self.addCleanup(replaced.stop)
+
+    def test_reference_from_an_excluded_definition_is_unowned_and_refuses(self):
+        report = discovery.inventory(self.prefix, {}, [])
+        self.assertEqual(report['loaded_references'][0]['ownership'], 'unowned')
+        self.assertEqual(report['loaded_references'][0]['action'], 'refused')
+        self.assertEqual(report['action'], 'refused')
+
+    def test_exclusions_are_carried_into_the_report(self):
+        report = discovery.inventory(self.prefix, {}, [])
+        self.assertEqual(report['os_definitions'],
+                         [dict(path=self.agent, reason='os_definition_not_parsed')])
+        self.assertIn('operating_system_definition_files_are_not_parsed_but_their_jobs_are_inspected',
+                      report['limitations'])
+
+
+class OperatingSystemDefinitionTests(unittest.TestCase):
+    """An OS definition file is not parsed; its job stays a same-user observation."""
+
+    def setUp(self):
+        temp = tempfile.TemporaryDirectory()
+        self.addCleanup(temp.cleanup)
+        self.root = Path(temp.name).resolve()
+        self.system = self.root / 'System/Library/LaunchAgents'
+        self.system.mkdir(parents=True)
+        replaced = patch.object(platform_support, 'OS_DEFINITION_ROOT', str(self.system))
+        replaced.start()
+        self.addCleanup(replaced.stop)
+
+    def test_operating_system_definition_is_excluded(self):
+        agent = self.system / 'com.apple.familycircled.plist'
+        agent.write_bytes(b'<?xml version="1.0 broken"?><plist><dict/></plist>')
+        self.assertTrue(platform_support.upgrade_os_definition(str(agent)))
+
+    def test_definitions_outside_the_operating_system_directory_are_inventoried(self):
+        library = self.root / 'Library/LaunchAgents'
+        library.mkdir(parents=True)
+        custom = library / 'com.vendor.custom.plist'
+        custom.write_bytes(b'<?xml version="1.0"?><plist><dict/></plist>')
+        self.assertFalse(platform_support.upgrade_os_definition(str(custom)))
+
+    def test_redirected_path_cannot_borrow_the_exclusion(self):
+        outside = self.root / 'elsewhere'
+        outside.mkdir()
+        planted = outside / 'com.attacker.plist'
+        planted.write_bytes(b'<?xml version="1.0"?><plist><dict/></plist>')
+        link = self.system / 'com.apple.redirected.plist'
+        link.symlink_to(planted)
+        # Lexically inside the OS directory, but it resolves out of it.
+        self.assertFalse(platform_support.upgrade_os_definition(str(link)))
+        traversal = self.system / '..' / '..' / '..' / 'elsewhere' / 'com.attacker.plist'
+        self.assertFalse(platform_support.upgrade_os_definition(str(traversal)))
+
+
 class NativeDiscoveryShapeTests(unittest.TestCase):
     def test_systemd_tombstone_is_distinct_from_unobserved_loaded_command(self):
         tombstone = 'Id=synthetic.service\nFragmentPath=\nLoadState=not-found\n'

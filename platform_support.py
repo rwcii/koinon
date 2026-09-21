@@ -1030,6 +1030,29 @@ def session_manager_deactivate(record):
         argv = ['launchctl', 'bootout', domain + '/' + name[:-6]]
     return subprocess.run(argv, capture_output=True, text=True, check=True, timeout=15)
 
+
+OS_DEFINITION_ROOT = '/System/Library/LaunchAgents'
+
+
+def upgrade_os_definition(path):
+    """Is this an operating-system launchd definition, which is not parsed as a file?
+
+    The job itself stays a same-user GUI observation and its command is still
+    inspected; only the vendor's definition file is left unread. Both the literal
+    and the resolved path must lie inside the OS directory, so a link or a
+    traversal that leaves it cannot borrow the exclusion.
+    """
+    root = Path(OS_DEFINITION_ROOT)
+    candidate = Path(path)
+    if not candidate.is_absolute() or root not in candidate.parents:
+        return False
+    try:
+        resolved, actual = candidate.resolve(), root.resolve()
+    except OSError:
+        return False
+    return root in resolved.parents or actual in resolved.parents
+
+
 def upgrade_service_sources(prefix):
     """Read native user definition locations, including loaded custom artifacts.
 
@@ -1039,7 +1062,7 @@ def upgrade_service_sources(prefix):
     """
     import re
     home = account_home()
-    references = []
+    references, os_definitions = [], []
     def query(argv):
         result = subprocess.run(argv, capture_output=True, text=True, timeout=PROCESS_QUERY_TIMEOUT + 1)
         if len(result.stdout.encode()) > 1024 * 1024:
@@ -1083,7 +1106,16 @@ def upgrade_service_sources(prefix):
                 # Application and submitted jobs can name an executable or bundle
                 # rather than a plist. Inspect their command, never read a binary
                 # as if it were a service definition.
-                loaded.extend(path for path in paths if Path(path).suffix in ('.plist', '.service'))
+                # An OS-provided definition is not read as an external service file.
+                # The job stays in scope: its command is inspected below exactly as
+                # any other, so a direct runtime reference still becomes a finding.
+                for path in paths:
+                    if Path(path).suffix not in ('.plist', '.service'):
+                        continue
+                    if upgrade_os_definition(path):
+                        os_definitions.append(path)
+                    else:
+                        loaded.append(path)
                 reference = _upgrade_loaded_reference(label, paths[0] if paths else None,
                     paths + _upgrade_launchd_command(job.stdout), prefix)
                 if reference is not None:
@@ -1097,7 +1129,9 @@ def upgrade_service_sources(prefix):
     if any(not Path(path).is_absolute() for path in paths):
         raise ValueError('service discovery requires absolute native search paths')
     return dict(directories=paths, loaded_artifacts=sorted(set(loaded)),
-                loaded_references=references, loaded_discovery=status)
+                loaded_references=references, loaded_discovery=status,
+                os_definitions=[dict(path=value, reason='os_definition_not_parsed')
+                                for value in sorted(set(os_definitions))])
 
 
 def _upgrade_launchd_labels(text, domain):

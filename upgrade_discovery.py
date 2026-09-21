@@ -171,8 +171,10 @@ def inventory(prefix, config, components):
                               action='preserved' if matched else 'refused'))
     return dict(version=1, scope='direct_runtime_references_in_user_services_and_memory_processes',
         directories=sorted(map(str, roots)), loaded_discovery=source['loaded_discovery'],
+        os_definitions=source.get('os_definitions', []),
         limitations=['opaque_wrappers_and_indirect_runtime_selection_are_not_resolved',
-                     'other_users_and_system_service_managers_are_not_selected'],
+                     'other_users_and_system_service_managers_are_not_selected',
+                     'operating_system_definition_files_are_not_parsed_but_their_jobs_are_inspected'],
         findings=findings, loaded_references=loaded, processes=processes,
         action='refused' if any(x['ownership'] == 'unowned' for x in findings + loaded + processes)
         else 'no_unowned_definition_or_process_found')
