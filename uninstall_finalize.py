@@ -8,6 +8,7 @@ import os
 from pathlib import Path
 import stat
 import tempfile
+from platform_support import sync_state_file, sync_state_directory
 
 MANIFEST = '.uninstall-files.json'
 RECOVERY = '.uninstall-finalize.py'
@@ -38,23 +39,17 @@ def read_owned(path, *, private=False):
         os.close(fd)
 
 
-def sync(directory):
-    fd = os.open(directory, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
-    try:
-        os.fsync(fd)
-    finally:
-        os.close(fd)
-
-
 def publish(path, content):
     fd, temporary = tempfile.mkstemp(prefix='.uninstall-', dir=path.parent)
     try:
         with os.fdopen(fd, 'wb') as stream:
             stream.write(content)
             stream.flush()
-            os.fsync(stream.fileno())
+            sync_state_file(stream.fileno())
         os.replace(temporary, path)
-        sync(path.parent)
+        sync_state_directory(path.parent)
+        with path.open('rb') as stream:
+            sync_state_file(stream.fileno())
     finally:
         Path(temporary).unlink(missing_ok=True)
 
@@ -83,13 +78,16 @@ def prepare(prefix, names):
         data = read_owned(selected_path(prefix, name))
         files[name] = None if data is None else digest(data)
     config = read_owned(prefix / 'install.json')
+    from platform_support import standalone_state_sync_source
     program = Path(__file__).read_bytes().replace(b'ALLOWED_FILES = ()',
                                                 ('ALLOWED_FILES = ' + repr(tuple(names))).encode(), 1)
+    program = program.replace(
+        b'from platform_support import sync_state_file, sync_state_directory\n',
+        standalone_state_sync_source().encode(), 1)
     current = read_owned(prefix / RECOVERY, private=True)
     if current is not None and current != program:
         raise ValueError('unrelated removal recovery program')
-    if current is None:
-        publish(prefix / RECOVERY, program)
+    publish(prefix / RECOVERY, program)
     manifest = dict(version=1, prefix=str(prefix), files=files,
                     configuration=None if config is None else digest(config))
     publish(prefix / MANIFEST, json.dumps(manifest, sort_keys=True).encode())
@@ -133,21 +131,30 @@ def finish(prefix, *, locked=False, names=()):
         if (config is None and selected and value['configuration'] is not None
                 or config is not None and digest(config) != value['configuration']):
             raise ValueError('installation configuration changed during removal')
+        for recovery_name in (RECOVERY, MANIFEST):
+            recovery_path = prefix / recovery_name
+            fd = os.open(recovery_path, os.O_RDONLY | os.O_NOFOLLOW)
+            try:
+                sync_state_file(fd)
+                sync_state_directory(prefix)
+                sync_state_file(fd)
+            finally:
+                os.close(fd)
         for path, expected in selected:
             data = read_owned(path)
             if data is not None:
                 if digest(data) != expected:
                     raise ValueError('runtime file changed before removal: ' + str(path))
                 path.unlink()
-                sync(path.parent)
+                sync_state_directory(path.parent)
         if config is not None:
             if read_owned(prefix / 'install.json') != config:
                 raise ValueError('installation configuration changed before removal')
             (prefix / 'install.json').unlink()
-            sync(prefix)
+            sync_state_directory(prefix)
         (prefix / MANIFEST).unlink()
         (prefix / RECOVERY).unlink()
-        sync(prefix)
+        sync_state_directory(prefix)
     return dict(status='removed', retained='state, archives and permanent locks')
 
 

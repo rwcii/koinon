@@ -10,6 +10,7 @@ import subprocess
 import sys
 import tempfile
 
+import platform_support
 import install_state
 import participant_instructions as instructions
 from participant_lock import file_lock, OwnershipError
@@ -208,16 +209,21 @@ def preserve_backup(prefix, config, target, original):
         info = path.lstat()
         if not stat.S_ISREG(info.st_mode) or info.st_uid != os.getuid() or info.st_mode & 0o077 or info.st_nlink != 1:
             conflict(path, 'existing guidance backup is unsafe')
+        platform_support.sync_state_directory(path.parent.parent)
+        platform_support.sync_state_directory(path.parent.parent.parent)
+        instructions.confirm_guidance(path, private=True)
         return
     fd, temp = tempfile.mkstemp(prefix='.backup-', dir=path.parent)
     try:
         with os.fdopen(fd, 'w', encoding='utf-8', newline='') as stream:
             stream.write(original)
             stream.flush()
-            os.fsync(stream.fileno())
+            platform_support.sync_state_file(stream.fileno())
         # The config and target locks exclude all managed backup writers.
         os.replace(temp, path)
-        instructions.fsync_directory(path.parent)
+        platform_support.sync_state_directory(path.parent.parent)
+        platform_support.sync_state_directory(path.parent.parent.parent)
+        instructions.confirm_guidance(path, private=True)
     finally:
         Path(temp).unlink(missing_ok=True)
 
@@ -268,9 +274,11 @@ def configure(prefix, repository, agent, guidance_file):
     with install_state.locked(prefix) as state, target_locks(target):
         key, old, original, replacement, desired = prepare(prefix, common, repo, agent, target, state.config)
         if old and old['state'] == 'enabled' and old['digest'] == desired['digest'] and original == replacement:
+            instructions.confirm_guidance(target)
             state.confirm()
             return desired
         if old and old['state'] == 'pending' and digest(original) == old['after_digest']:
+            instructions.confirm_guidance(target)
             change_rule(state, key, desired)
             return desired
         preserve_backup(prefix, state.config, target, original)
@@ -315,6 +323,10 @@ def remove_locked(prefix, state, key):
             if read_target(target) != original:
                 conflict(target, 'guidance changed during removal; selection disabled, file preserved')
             instructions.atomic_guidance(target, original[:span[0]]+original[span[1]:])
+        elif target.exists():
+            instructions.confirm_guidance(target)
+        else:
+            platform_support.sync_state_directory(target.parent)
         others = state.config.get('work_items', {'rules': {}})['rules']
         if not any(k != key and r['guidance_file'] == str(target) for k,r in others.items()):
             backup = backup_path(prefix, state.config, target)
@@ -323,7 +335,7 @@ def remove_locked(prefix, state, key):
                 if not stat.S_ISREG(info.st_mode) or info.st_uid != os.getuid() or info.st_mode & 0o077:
                     conflict(backup, 'refusing unsafe guidance backup removal')
                 backup.unlink()
-                instructions.fsync_directory(backup.parent)
+                platform_support.sync_state_directory(backup.parent)
         change_rule(state, key, None)
 
 

@@ -9,6 +9,7 @@ import shlex
 import sys
 import uuid
 import time
+import platform_support
 from participant_lock import OwnershipError
 from peer_guidance import PEER_GUIDANCE
 from runtime_names import GUIDANCE_LOCK_NAMES
@@ -162,21 +163,31 @@ def read_guidance(path):
         return stream.read()
 
 
-def publish_guidance(target, original, result, agent):
-    backup = target.with_name(f'{target.name}.before-{agent}-peer-bridge')
-    if target.exists() and not backup.exists():
-        with backup.open('x', encoding='utf-8', newline='') as stream:
-            os.chmod(backup, 0o600)
-            stream.write(original)
-    atomic_guidance(target, result)
-
-
-def fsync_directory(directory):
-    fd = os.open(directory, os.O_RDONLY | os.O_DIRECTORY)
+def confirm_guidance(path, *, private=False):
+    """Reconfirm a retained file after an interrupted publication."""
+    fd = os.open(path, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK)
     try:
-        os.fsync(fd)
+        info = os.fstat(fd)
+        if (not stat.S_ISREG(info.st_mode) or info.st_uid != os.geteuid()
+                or info.st_nlink != 1 or (private and info.st_mode & 0o077)):
+            raise ValueError('unsafe guidance file')
+        platform_support.sync_state_file(fd)
+        platform_support.sync_state_directory(path.parent)
+        platform_support.sync_state_file(fd)
+        current = path.lstat()
+        if (current.st_dev, current.st_ino) != (info.st_dev, info.st_ino):
+            raise ValueError('guidance file changed during synchronization')
     finally:
         os.close(fd)
+
+
+def publish_guidance(target, original, result, agent):
+    backup = target.with_name(f'{target.name}.before-{agent}-peer-bridge')
+    if target.exists():
+        if not backup.exists() and not backup.is_symlink():
+            atomic_guidance(backup, original)
+        confirm_guidance(backup, private=True)
+    atomic_guidance(target, result)
 
 
 def atomic_guidance(target, result):
@@ -187,9 +198,9 @@ def atomic_guidance(target, result):
             os.chmod(temp, target.stat().st_mode & 0o777 if target.exists() else 0o600)
             stream.write(result)
             stream.flush()
-            os.fsync(stream.fileno())
+            platform_support.sync_state_file(stream.fileno())
         temp.replace(target)
-        fsync_directory(target.parent)
+        confirm_guidance(target)
     finally:
         temp.unlink(missing_ok=True)
 
@@ -220,6 +231,8 @@ def update(home, prefix, remove=False, filename=None, agent='codex'):
                 result = original[:first] + replacement + original[last:]
             if result != original:
                 changes.append((path, original, result))
+            elif path.exists():
+                confirm_guidance(path)
         # Publish the preferred target first, then remove obsolete lower-priority
         # sections. I/O failure is reported; this is not a multi-file transaction.
         for path, original, result in changes:
