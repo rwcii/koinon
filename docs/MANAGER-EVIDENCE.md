@@ -24,3 +24,10 @@ remain unknown. Linux has structured properties through systemd's documented D-B
 interface, including FragmentPath, ExecStart and MainPID. The macOS mechanism still
 requires verification against the native interface; no text parser or label-only
 fallback has been accepted as ownership proof.
+
+The fixture is intended for disposable CI machines. Cleanup runs on ordinary failures,
+but cannot run after SIGKILL or a machine crash. In that case the temporary job may
+remain loaded until the GUI domain ends. Its child exits after 90 seconds and
+`KeepAlive` is false, so it does not become a respawning service. Local reproduction
+requires retaining the exact fixture label and handling that residual-job possibility;
+the fixture never sweeps other jobs.

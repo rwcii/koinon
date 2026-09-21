@@ -108,7 +108,11 @@ def main():
                     raise RuntimeError('synthetic bootstrap failed')
                 wait_for(lambda: starts.exists() and starts.read_text().splitlines(), 'synthetic startup')
                 evidence['loaded_print'] = describe(command(['launchctl', 'print', target]))
-                evidence['loaded_list'] = describe(command(['launchctl', 'list', label]))
+                listed = command(['launchctl', 'list', label])
+                evidence['loaded_list'] = describe(listed)
+                converted = subprocess.run(['plutil', '-convert', 'xml1', '-o', '-', '--', '-'],
+                                           input=listed.stdout, capture_output=True, text=True, timeout=15)
+                evidence['loaded_list_converted'] = describe(converted)
                 evidence['loaded_list_xml'] = describe(command(['launchctl', 'list', '-x', label]))
                 evidence['duplicate_bootstrap'] = describe(command(['launchctl', 'bootstrap', domain, str(artifact)]))
                 evidence['kickstart'] = describe(command(['launchctl', 'kickstart', '-k', target]))
