@@ -74,7 +74,6 @@ class EmptyOperationCompletionTests(unittest.TestCase):
             backups.assert_not_called()
 
     def test_inactive_adapter_requirement_is_explicit(self):
-        with self.assertRaisesRegex(upgrade_complete.CompletionError, 'adapter'):
-            upgrade_complete.supported([dict(running=False, selection=dict(backend='systemd'))])
+        upgrade_complete.supported([dict(running=False, selection=dict(backend='systemd'))])
         with self.assertRaisesRegex(upgrade_complete.CompletionError, 'adapter'):
             upgrade_complete.supported([dict(running=True, selection=dict(backend='manual'))])

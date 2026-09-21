@@ -41,6 +41,8 @@ class Gate:
         if len(matches) != 1:
             raise GateError('runtime state is not selected by this upgrade')
         self.component = matches[0]
+        if self.post_release_start and not self.component['running']:
+            raise GateError('originally inactive component remains stopped during release')
         self.component_index = loaded['documents']['components']['items'].index(self.component)
 
     def released(self):

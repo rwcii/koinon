@@ -5,6 +5,13 @@ into a dated release section when promoted to `main`.
 
 ## Unreleased
 
+- Restore inactive native components to their original stopped and registered/deactivated
+  state after gated upgrade verification, before releasing active components. Exercise
+  synthetic coordinator interruption and resume at every durable phase.
+
+- Explain safe recovery from an unowned-memory upgrade refusal, including a structured
+  recovery code and preservation guidance for existing legacy stores and services.
+
 - Add an experimental public native upgrade command with a retained recovery archive,
   explicit resume/status, preflight refusal of unowned memory state in selected roots,
   and private preservation reports through release and final readiness. Inactive/manual

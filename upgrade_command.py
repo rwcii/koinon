@@ -1,6 +1,6 @@
 """Experimental public upgrade dispatcher and retained recovery entrypoint.
 
-Only the explicitly checked native/all-running adapter is currently executable.
+Only the explicitly checked native adapter is currently executable.
 Unsupported selections refuse before shutdown; never infer adoption or rollback.
 """
 import argparse
@@ -170,6 +170,12 @@ def main(argv=None):
         result = dict(ok=False, error=str(exc))
         if isinstance(exc, upgrade_preflight.UnownedMemoryError):
             result['memory_ownership'] = exc.report
+            result['recovery'] = dict(
+                code='unowned_memory_requires_inventory',
+                guide='docs/WORK-ITEMS-UPGRADE.md#recovering-from-unowned-memory-refusal',
+                next_step='Keep the current runtime and state intact; identify the reported store and its service before choosing the documented legacy upgrade procedure.',
+                preserve='Do not delete, move, rename or relabel the reported state to make preflight pass. It may contain the only copy of shared memory.',
+                phase='refused_before_shutdown')
         print(json.dumps(result, sort_keys=True), file=sys.stderr)
         return 1
 

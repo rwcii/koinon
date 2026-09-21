@@ -13,6 +13,7 @@ import upgrade_start
 
 
 class SessionStartupTests(unittest.TestCase):
+    originally_running = True
     def setUp(self):
         gate.GateTests.setUp(self)
 

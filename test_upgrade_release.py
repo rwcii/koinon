@@ -14,8 +14,11 @@ class ReleaseEvidenceTests(unittest.TestCase):
                         dict(component=1, kind='memory', generation='d' * 32)]
         self.evidence = dict(version=1, plan='a' * 64, members=self.members)
 
-    def test_running_pair_and_memory_are_required_but_inactive_memory_is_optional(self):
+    def test_running_pair_and_memory_are_required_and_inactive_memory_stays_closed(self):
         self.assertEqual(upgrade_release.validate(self.loaded, self.evidence), self.evidence)
+        with self.assertRaises(upgrade_release.ReleaseError):
+            upgrade_release.validate(self.loaded, dict(self.evidence, members=self.members + [
+                dict(component=2, kind='memory', generation='e' * 32)]))
         for index in range(3):
             with self.subTest(missing=index), self.assertRaises(upgrade_release.ReleaseError):
                 upgrade_release.validate(self.loaded, dict(self.evidence, members=self.members[:index] + self.members[index + 1:]))

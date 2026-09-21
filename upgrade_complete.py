@@ -1,7 +1,7 @@
-"""Internal native completion driver for an all-running frozen selection.
+"""Internal native completion driver for a frozen native selection.
 
 The public preflight must establish this supported selection before shutdown.
-Inactive and manual adapters are deliberately not inferred by this driver.
+Inactive native selections are restored before release; manual handoff is separate.
 Caller retains the coordinator operation lock throughout; no rollback is automatic.
 """
 from pathlib import Path
@@ -14,6 +14,7 @@ import upgrade_manifest as manifest
 import upgrade_migration
 import upgrade_probe
 import upgrade_release
+import upgrade_quiescence
 import upgrade_start
 
 
@@ -22,9 +23,9 @@ class CompletionError(ValueError):
 
 
 def supported(components):
-    if any(not item['running'] or item['selection']['backend'] not in ('systemd', 'launchd')
+    if any(item['selection']['backend'] not in ('systemd', 'launchd')
            for item in components):
-        raise CompletionError('completion requires an explicit inactive/manual adapter')
+        raise CompletionError('completion requires an explicit manual adapter')
 
 
 def _backups(exclusion, documents, phase):
@@ -104,6 +105,8 @@ def _compare(exclusion, documents, phase, components, backups):
         if gate['owner'] != observed['owner']:
             raise CompletionError('generation changed after preservation comparison')
         for kind, child in gate['children'].items():
+            if not component['running']:
+                continue
             members.append(dict(component=index, kind=kind, generation=child['generation']))
         results.append(dict(component=index, result=result))
     return dict(version=1, plan=exclusion.loaded['sha256'], components=results), members
@@ -112,9 +115,8 @@ def _compare(exclusion, documents, phase, components, backups):
 def run(exclusion):
     """Resume phases 10..19 without ever redoing preservation checks after release.
 
-    This internal driver currently accepts only originally running native
-    components. Its caller must check supported() before any shutdown. The public
-    operation still needs the inactive/manual adapters and complete preflight.
+    Its caller checks supported() before shutdown. Native inactive components
+    are temporarily started behind the gate and restored before release.
     """
     components = exclusion.loaded['documents']['components']['items']
     supported(components)
@@ -143,11 +145,20 @@ def run(exclusion):
                 value['components'].append(dict(component=index, gated_ready=True))
             name = 'starting'
         elif step in (14, 16):
+            # A retry may follow an inactive component's completed restoration
+            # at 16. Reopen only the selected gated generation for comparison.
+            for _, component in _order(components):
+                upgrade_start.component(exclusion, component)
             backups = _backups(exclusion, documents, phase)
             comparison, members = _compare(exclusion, documents, phase, components, backups)
             if step == 14:
                 value, name = comparison, 'verification'
             else:
+                # Restore sessions before memory, preserving their original
+                # registration as well as their stopped state before release.
+                for _, component in reversed(_order(components)):
+                    if not component['running']:
+                        upgrade_quiescence.restore_inactive(exclusion, component)
                 value = dict(version=1, plan=exclusion.loaded['sha256'], members=members)
                 upgrade_release.validate(exclusion.loaded, value)
                 name = 'release'
@@ -162,8 +173,13 @@ def run(exclusion):
         else:
             readiness = []
             for index, component in _order(components):
-                upgrade_start.component(exclusion, component)
-                readiness.append(dict(component=index, live_ready=True))
+                if component['running']:
+                    upgrade_start.component(exclusion, component)
+                    readiness.append(dict(component=index, live_ready=True))
+                else:
+                    upgrade_quiescence.inactive(exclusion, component)
+                    readiness.append(dict(component=index, live_ready=False,
+                                          stopped=True, registered=component['registered']))
             verification = documents.read('verification', phase['receipts'][7])
             value = dict(version=1, plan=exclusion.loaded['sha256'],
                          preflight=documents.read('prepared-checks', phase['receipts'][0]),

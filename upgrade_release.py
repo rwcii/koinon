@@ -18,8 +18,8 @@ def validate(loaded, value):
     for index, component in enumerate(components):
         kinds = ('bridge', 'notifier') if component['kind'] == 'session' else ('memory',)
         for kind in kinds:
-            allowed.add((index, kind))
             if component['running']:
+                allowed.add((index, kind))
                 required.add((index, kind))
     seen = set()
     for member in value['members']:

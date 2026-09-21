@@ -91,6 +91,10 @@ class CommandTests(unittest.TestCase):
         self.assertNotEqual(result.returncode, 0)
         report = json.loads(result.stderr)
         self.assertEqual(report['memory_ownership']['action'], 'refused')
+        self.assertEqual(report['recovery']['code'], 'unowned_memory_requires_inventory')
+        self.assertEqual(report['recovery']['phase'], 'refused_before_shutdown')
+        self.assertIn('Do not delete', report['recovery']['preserve'])
+        self.assertIn('#recovering-from-unowned-memory-refusal', report['recovery']['guide'])
         self.assertEqual(json.loads((self.prefix / 'install.json').read_text()), self.config)
         self.assertFalse((self.prefix / '.upgrade').exists())
 
