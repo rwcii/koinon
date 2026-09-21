@@ -409,3 +409,35 @@ class UserServiceManagerTests(unittest.TestCase):
                 with self.assertRaises(ValueError):
                     platform_support.user_service_manager('misspelled-operation')
                 run.assert_not_called()
+
+
+class StateDirectoryFlushTests(unittest.TestCase):
+    """The directory flush must not reach a state directory through a symlink.
+
+    `memory_service_artifacts._fsync_directory` carried O_NOFOLLOW before it
+    delegated here, so consolidating the flushes must not lose that refusal.
+    """
+
+    def setUp(self):
+        self.temp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.temp.cleanup)
+        self.root = Path(self.temp.name)
+
+    def test_a_real_state_directory_is_flushed(self):
+        selected = self.root / 'state'
+        selected.mkdir(mode=0o700)
+        platform_support.sync_state_directory(selected)
+
+    def test_a_symlinked_state_directory_is_refused(self):
+        selected = self.root / 'state'
+        selected.mkdir(mode=0o700)
+        alias = self.root / 'alias'
+        alias.symlink_to(selected, target_is_directory=True)
+        with self.assertRaises(OSError):
+            platform_support.sync_state_directory(alias)
+
+    def test_a_file_is_refused_rather_than_flushed_as_a_directory(self):
+        target = self.root / 'record.json'
+        target.write_text('{}')
+        with self.assertRaises(NotADirectoryError):
+            platform_support.sync_state_directory(target)

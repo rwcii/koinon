@@ -268,6 +268,7 @@ def configure(prefix, repository, agent, guidance_file):
     with install_state.locked(prefix) as state, target_locks(target):
         key, old, original, replacement, desired = prepare(prefix, common, repo, agent, target, state.config)
         if old and old['state'] == 'enabled' and old['digest'] == desired['digest'] and original == replacement:
+            state.confirm()
             return desired
         if old and old['state'] == 'pending' and digest(original) == old['after_digest']:
             change_rule(state, key, desired)

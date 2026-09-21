@@ -349,3 +349,37 @@ runpy.run_path('scripts/install.py',run_name='__main__')
             'work-policy', '--repo', str(self.repo)], env=env, text=True, capture_output=True)
         self.assertNotEqual(bad.returncode, 0)
         self.assertFalse((self.root/'state').exists())
+
+    def test_install_publication_orders_platform_file_directory_and_device_flushes(self):
+        self.save()
+        calls = []
+        replace = install_state.os.replace
+        def replacing(source, destination):
+            calls.append('replace')
+            replace(source, destination)
+        with install_state.locked(self.prefix) as state, \
+                patch.object(install_state.platform_support, 'sync_state_file', side_effect=lambda fd: calls.append('file')), \
+                patch.object(install_state.platform_support, 'sync_state_directory', side_effect=lambda path: calls.append('directory')), \
+                patch.object(install_state.os, 'replace', side_effect=replacing):
+            state.merge({'new_field': 'preserved'})
+        self.assertEqual(calls, ['file', 'replace', 'directory', 'file'])
+
+    def test_install_confirmation_refuses_until_ambiguous_flush_recovers(self):
+        self.save()
+        with install_state.locked(self.prefix) as state:
+            with patch.object(install_state.platform_support, 'sync_state_directory', side_effect=OSError('flush')):
+                with self.assertRaises(OSError):
+                    state.confirm()
+                with self.assertRaises(OSError):
+                    state.confirm()
+            self.assertEqual(state.confirm(), self.config)
+        self.assertEqual(runtime_names.install_config(self.prefix), self.config)
+
+    def test_install_confirmation_preserves_an_unexpected_configuration_change(self):
+        self.save()
+        with install_state.locked(self.prefix) as state:
+            changed = dict(self.config, operator_change=True)
+            self.save(changed)
+            with self.assertRaises(ValueError):
+                state.confirm()
+        self.assertEqual(runtime_names.install_config(self.prefix), changed)
