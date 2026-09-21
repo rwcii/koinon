@@ -5,6 +5,9 @@ into a dated release section when promoted to `main`.
 
 ## Unreleased
 
+- Stage read-only upgrade inventories and frozen source-file checks, including an explicit
+  unsupported-SQLite refusal. The coordinated upgrade command remains in development.
+
 - Correct legacy installation-guide statements to distinguish delivered native component
   supervision from operator-managed services and the pending coordinated upgrade command.
 

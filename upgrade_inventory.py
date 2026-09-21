@@ -26,6 +26,10 @@ class InventoryError(ValueError):
     pass
 
 
+class UnsupportedSQLiteError(InventoryError):
+    code = 'unsupported_sqlite'
+
+
 def encoded(value):
     """Unambiguous SQLite storage-class encoding, independent of display format."""
     if value is None:
@@ -92,6 +96,13 @@ def _capture(db, max_rows, max_bytes):
             digest.update(data)
         return digest.digest()
 
+    # Unknown SQLite pragmas silently return no rows. Probe the required
+    # capability before reading sqlite_schema so an old build is not blamed on
+    # the operator's data. Even an empty main database lists sqlite_schema.
+    listing = db.execute('PRAGMA main.table_list').fetchall()
+    if not any(row[:3] == ('main', 'sqlite_schema', 'table') for row in listing):
+        raise UnsupportedSQLiteError(
+            'upgrade inventory requires PRAGMA table_list (SQLite 3.37 or newer)')
     catalog = db.execute(
         'SELECT type,name,tbl_name,sql FROM main.sqlite_schema ORDER BY type,name LIMIT ?',
         (MAX_OBJECTS + 1,)).fetchall()
@@ -100,7 +111,6 @@ def _capture(db, max_rows, max_bytes):
     # table_list identifies virtual interfaces without parsing arbitrary SQL and
     # distinguishes their physical shadow tables. Never query a view or virtual
     # interface, whose implementation could evaluate code or hide retained rows.
-    listing = db.execute('PRAGMA main.table_list').fetchall()
     kinds = {row[1]: row[2] for row in listing if row[0] == 'main'}
     objects = []
     tables = {}

@@ -193,5 +193,30 @@ class InventoryTests(unittest.TestCase):
         self.assertEqual(inventory.capture(db, max_rows=2)['rows'], 2)
 
 
+    def test_unsupported_table_list_is_a_build_refusal_before_catalog_read(self):
+        class OlderSQLite(sqlite3.Connection):
+            def execute(self, sql, *args):
+                if sql == 'PRAGMA main.table_list':
+                    return super().execute('SELECT 1 WHERE 0')
+                if 'main.sqlite_schema' in sql:
+                    raise AssertionError('catalog read before capability check')
+                return super().execute(sql, *args)
+
+        db = sqlite3.connect(':memory:', factory=OlderSQLite)
+        self.addCleanup(db.close)
+        previous = db.getlimit(sqlite3.SQLITE_LIMIT_LENGTH)
+        with self.assertRaises(inventory.UnsupportedSQLiteError) as caught:
+            inventory.capture(db)
+        self.assertEqual(caught.exception.code, 'unsupported_sqlite')
+        self.assertIn('SQLite 3.37', str(caught.exception))
+        self.assertFalse(db.in_transaction)
+        self.assertEqual(db.getlimit(sqlite3.SQLITE_LIMIT_LENGTH), previous)
+
+    def test_empty_database_has_valid_empty_inventory(self):
+        result = inventory.capture(self.database())
+        self.assertEqual(result['rows'], 0)
+        self.assertEqual(result['tables'], {})
+
+
 if __name__ == '__main__':
     unittest.main()

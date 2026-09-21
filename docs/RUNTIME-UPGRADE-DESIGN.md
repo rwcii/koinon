@@ -69,7 +69,7 @@ because its completion record is missing.
 
 | Phase | Completion evidence |
 | --- | --- |
-| Preflight | Exact prefix, source, state roots, repository identities, participant targets, supported transitions, store capacity, backup space/privacy, destination ancestors and all owned components validated before shutdown. |
+| Preflight | Exact prefix, source, state roots, repository identities, participant targets, required SQLite capabilities (3.37+), supported transitions, store capacity, backup space/privacy, destination ancestors and all owned components validated before shutdown. |
 | Prepared | Durable source/selection manifest and exclusion marker published; private backup/recovery/report destinations created and durable write probes completed before shutdown. |
 | Quiescing sessions | Selected notifier/bridge pairs stopped in dependency order; manager and PID/start/generation evidence proves owned process exit. |
 | Quiescing memory | Selected memory runners and children have exited; no unowned listener or writer is accepted as absence. |
@@ -164,6 +164,11 @@ migration refusal leaves a resumable phase and the original backup untouched.
 
 ## Platform and recovery acceptance
 
+Preflight must probe the required SQLite `table_list` capability on a transient empty
+database before shutdown; SQLite introduced it in
+[3.37.0](https://www.sqlite.org/pragma.html#pragma_table_list). An unsupported build
+refuses as `unsupported_sqlite` while all selected services remain untouched.
+
 Use the existing platform layer and exact owned manager operations on Linux and macOS.
 Manual supervision needs an explicit persistent-process handoff and readiness proof;
 printing a command is not completion. Never create system services, enable lingering,
@@ -192,7 +197,9 @@ SHA-256 row digests, including multiplicity, so physical order and collations ca
 changes. SQLite's sequence table is included even when its inbox is empty. The assumption
 is SHA-256 collision resistance. Counts accompany the hashes as diagnostics. Catalog,
 column, row, value and total encoded-byte bounds produce explicit refusal rather than a
-partial inventory; they are not wall-clock I/O limits.
+partial inventory; they are not wall-clock I/O limits. The required SQLite `table_list` capability
+(SQLite 3.37+) is probed first; its absence reports `unsupported_sqlite` rather than
+misclassifying the retained store.
 
 Exact comparison lists added, removed and changed tables and catalog changes. It grants
 no migration exceptions. Store-specific identity fields, supported migration adapters,
