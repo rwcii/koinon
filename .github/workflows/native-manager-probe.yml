@@ -1,7 +1,10 @@
 name: Native manager interface evidence
 on:
+  pull_request:
+    branches: [develop]
   push:
-    branches: [feature/native-memory-manager, feature/native-manager-observation]
+    branches: [develop, main]
+  workflow_dispatch:
 permissions:
   contents: read
 jobs:

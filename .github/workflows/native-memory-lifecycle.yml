@@ -1,7 +1,10 @@
 name: Native memory lifecycle evidence
 on:
+  pull_request:
+    branches: [develop]
   push:
-    branches: [feature/native-memory-activation]
+    branches: [develop, main]
+  workflow_dispatch:
 permissions:
   contents: read
 jobs:
