@@ -16,7 +16,7 @@ SERVICE_MARKERS = (SERVICE_MARKER, LEGACY_SERVICE_MARKER)
 REGISTRY_ENTRYPOINT = 'codex-peer-bridge'
 MEMORY_SERVICE = 'codex-peer-memory'
 PATH_SELECTION_CODES = frozenset(('ambiguous_default_paths', 'unsafe_default_path', 'default_path_unavailable'))
-CONFIGURATION_CODES = PATH_SELECTION_CODES | {'ambiguous_service_units', 'invalid_install_configuration', 'configuration_busy', 'memory_service_limit'}
+CONFIGURATION_CODES = PATH_SELECTION_CODES | {'ambiguous_service_units', 'invalid_install_configuration', 'configuration_busy', 'memory_service_limit', 'installation_upgrading'}
 GUIDANCE_LOCK_NAMES = {'codex': '.codex-peer-bridge.lock',
                        'deepseek': '.deepseek-peer-bridge.lock'}
 
@@ -27,7 +27,8 @@ class NameConflict(ValueError):
             raise KeyError(code)
         self.code = code
         self.paths = tuple(str(path) for path in paths)
-        advice = {'memory_service_limit': 'memory service registration limit reached; preserve existing selections',
+        advice = {'installation_upgrading': 'upgrade in progress; use upgrade status or resume; do not repair or reinstall',
+                  'memory_service_limit': 'memory service registration limit reached; preserve existing selections',
                   'invalid_install_configuration': 'preserve and repair configuration',
                   'configuration_busy': 'another installation holds the configuration lock; '
                                         'check that installer and retry; do not delete the lock'}.get(
@@ -121,6 +122,20 @@ def validate_install_config(result):
 
 def install_config(prefix):
     """Absence is valid for old explicit-thread installs; invalid evidence refuses."""
+    def validate(value):
+        if isinstance(value, dict) and value.get('installation_state') == 'upgrading':
+            marker = value.get('upgrade')
+            if (isinstance(marker, dict) and set(marker) == {'version', 'operation', 'plan'}
+                    and type(marker['version']) is int and marker['version'] == 1
+                    and isinstance(marker['operation'], str) and Path(marker['operation']).is_absolute()
+                    and isinstance(marker['plan'], str) and re.fullmatch('[0-9a-f]{64}', marker['plan'])):
+                raise NameConflict('installation_upgrading', (marker['operation'],))
+        return validate_install_config(value)
+    return _read_install_config(prefix, validate)
+
+
+def _read_install_config(prefix, validate):
+    """Shared file checks; lifecycle exceptions require a caller-owned validator."""
     path = Path(prefix) / 'install.json'
     try:
         if not present(path):
@@ -131,6 +146,8 @@ def install_config(prefix):
             if (not stat.S_ISREG(info.st_mode) or info.st_uid != os.getuid()
                     or info.st_mode & 0o022):
                 raise ValueError('configuration must be a user-owned regular file not writable by others')
-            return validate_install_config(json.load(stream))
+            return validate(json.load(stream))
+    except NameConflict:
+        raise
     except (OSError, ValueError) as exc:
         raise NameConflict('invalid_install_configuration', (path,)) from exc

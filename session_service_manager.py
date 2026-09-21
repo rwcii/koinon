@@ -11,13 +11,17 @@ from session_supervisor_state import alive_state, state_lock
 START_TIMEOUT = 25
 
 
+def upgrade_options(selection):
+    return {'upgrading': True} if getattr(selection, 'upgrade', None) is not None else {}
+
+
 def observation(selection):
     result = platform_support.session_manager_observation(selection.record)
     if result['status'] == 'observed':
         expected = platform_support.session_service_command(selection.record)
         if result['argv'] != expected or result['executable'] != expected[0]:
             raise service.ServiceError('session_ownership_unknown', paths=(result['artifact'],))
-        artifacts.verify_loaded(selection.record, result['artifact'])
+        artifacts.verify_loaded(selection.record, result['artifact'], **upgrade_options(selection))
     return result
 
 
@@ -67,10 +71,14 @@ def start_admission(selection, observed):
             raise service.ServiceError('session_ownership_unknown')
 
 
-def ensure(selection):
+def ensure(selection, *, upgrade=None):
     # These are session-local locks; unrelated session startup is independent.
     with artifacts.locked(selection.home / 'lifecycle.lock'), artifacts.locked(selection.home / 'registration.lock'):
-        selection = service.Selection(selection.prefix, selection.home, backend=selection.backend)
+        selection = service.Selection(selection.prefix, selection.home, backend=selection.backend,
+                                      **({'upgrading': True} if upgrade is not None else {}))
+        if upgrade is not None:
+            import upgrade_start
+            upgrade_start.validate(upgrade, selection, 'session')
         selection.validate_programs()
         failure = refusal(selection)
         if failure is not None:
@@ -86,6 +94,8 @@ def ensure(selection):
             result = status(selection)
             if result['status'] != 'running':
                 raise service.ServiceError('session_ownership_unknown')
+            if upgrade is not None:
+                upgrade_start.validate(upgrade, selection, 'session')
             return result
         owner = selection.records.read()
         active = (observed['status'] == 'observed' and observed['pid'] != 0)
@@ -98,15 +108,19 @@ def ensure(selection):
             operation = 'register' if observed['status'] == 'absent' else 'start'
             if observation(selection) != observed:
                 raise service.ServiceError('session_temporary_failure')
-            artifacts.verify_owned(selection.record)
+            artifacts.verify_owned(selection.record, **upgrade_options(selection))
             try:
+                if upgrade is not None:
+                    upgrade_start.validate(upgrade, selection, 'session')
                 platform_support.session_manager_action(selection.record, operation)
                 if selection.backend == 'systemd' and operation == 'register':
                     registered = observation(selection)
                     if (registered['status'] != 'observed' or registered['pid'] != 0
                             or observation(selection) != registered):
                         raise service.ServiceError('session_ownership_unknown')
-                    artifacts.verify_owned(selection.record)
+                    artifacts.verify_owned(selection.record, **upgrade_options(selection))
+                    if upgrade is not None:
+                        upgrade_start.validate(upgrade, selection, 'session')
                     platform_support.session_manager_action(selection.record, 'start')
             except (OSError, subprocess.SubprocessError) as exc:
                 # A failed or timed-out manager call has an unknown outcome.
@@ -115,6 +129,8 @@ def ensure(selection):
         while True:
             result = status(selection)
             if result['status'] in ('running', 'refused'):
+                if upgrade is not None:
+                    upgrade_start.validate(upgrade, selection, 'session')
                 return result
             if time.monotonic() >= deadline:
                 raise service.ServiceError('session_temporary_failure')
@@ -129,7 +145,8 @@ def deactivate(selection):
 
 def deactivate_locked(selection, *, allow_unstarted=False):
     """Caller holds lifecycle and registration locks through deactivation."""
-    selection = service.Selection(selection.prefix, selection.home, backend=selection.backend, removing=allow_unstarted)
+    selection = service.Selection(selection.prefix, selection.home, backend=selection.backend, removing=allow_unstarted,
+                                  **upgrade_options(selection))
     observed = observation(selection)
     if observed['status'] != 'observed' and not (allow_unstarted and observed['status'] == 'absent'):
         raise service.ServiceError('session_ownership_unknown')
@@ -153,7 +170,7 @@ def deactivate_locked(selection, *, allow_unstarted=False):
     if (stopped['status'] != 'observed' or stopped['pid'] != 0
             or observation(selection) != stopped):
         raise service.ServiceError('session_ownership_unknown')
-    artifacts.verify_owned(selection.record)
+    artifacts.verify_owned(selection.record, **upgrade_options(selection))
     try:
         platform_support.session_manager_deactivate(selection.record)
     except (OSError, subprocess.SubprocessError) as exc:
@@ -166,7 +183,8 @@ def deactivate_locked(selection, *, allow_unstarted=False):
 
 def stop(selection):
     with artifacts.locked(selection.home / 'lifecycle.lock'), artifacts.locked(selection.home / 'registration.lock'):
-        selection = service.Selection(selection.prefix, selection.home, backend=selection.backend)
+        selection = service.Selection(selection.prefix, selection.home, backend=selection.backend,
+                                      **upgrade_options(selection))
         observed = observation(selection)
         owner = selection.records.read()
         if (observed['status'] != 'observed' or owner is None or observed['pid'] != owner['pid']

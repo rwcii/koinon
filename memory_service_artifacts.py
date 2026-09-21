@@ -126,14 +126,19 @@ def _boundary(prefix, artifact=None):
                                                if path is not None)) from exc
 
 
-def verify_owned(prefix, python, record, *, observed_artifact=None):
+def verify_owned(prefix, python, record, *, observed_artifact=None, upgrading=False):
     """Verify disk ownership; an optional manager path must match literally.
 
     This does not query a manager or prove that any process is running.
     """
     with _boundary(prefix, record.get('artifact') if isinstance(record, dict) else None):
         key, path, expected = _expected(prefix, python, record)
-        saved = runtime_names.install_config(prefix).get('memory_services', {}).get('repositories', {}).get(key)
+        if upgrading:
+            import upgrade_exclusion
+            config = upgrade_exclusion.component_configuration(prefix, 'memory', record)
+        else:
+            config = runtime_names.install_config(prefix)
+        saved = config.get('memory_services', {}).get('repositories', {}).get(key)
         if saved != record or record['state'] != 'installed':
             raise ValueError('artifact has no completed owning registration')
         if observed_artifact is not None and str(observed_artifact) != str(path):
@@ -173,9 +178,9 @@ def verify_loader_link(path, expected):
         raise RegistrationPathError(path)
 
 
-def verify_loaded(prefix, python, record, observed_artifact):
+def verify_loaded(prefix, python, record, observed_artifact, *, upgrading=False):
     """Accept an exact artifact or its private same-user systemd loader link."""
-    verify_owned(prefix, python, record)
+    verify_owned(prefix, python, record, upgrading=upgrading)
     with _boundary(prefix, observed_artifact):
         path = absolute_path(str(observed_artifact))
         expected = Path(record['artifact'])
@@ -184,7 +189,7 @@ def verify_loaded(prefix, python, record, observed_artifact):
         if record['backend'] != 'systemd':
             raise ValueError('loaded manager artifact differs from registration')
         verify_loader_link(path, expected)
-        verify_owned(prefix, python, record)
+        verify_owned(prefix, python, record, upgrading=upgrading)
         return record
 
 

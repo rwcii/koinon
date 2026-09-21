@@ -5,6 +5,44 @@ into a dated release section when promoted to `main`.
 
 ## Unreleased
 
+- Add an experimental public native upgrade command with a retained recovery archive,
+  explicit resume/status, preflight refusal of unowned memory state in selected roots,
+  and private preservation reports through release and final readiness. Inactive/manual
+  adapters and the full cross-platform acceptance matrix remain unfinished.
+
+- Bind pre-release service admission to verified child generations, distinguish later
+  restarts from preservation verification, and retain installation exclusion through
+  component observation and marker publication.
+
+- Retry deferred search initialization when the ordinary worker queue is full after
+  upgrade release. Bind private memory inventories to both repository and generation.
+
+- Connect the internal shutdown, backup and replacement phases to durable receipts;
+  interrupted backup completion resumes without replacing unbacked runtime files.
+
+- Connect internal native startup admission to the selected upgrade plan and complete
+  new runtime bytes; ordinary ensure remains blocked during the operation.
+
+- Stage resumable runtime file replacement against retained backups and exact memory
+  migration verification. Defer search-index initialization until upgrade release.
+  The public upgrade coordinator and native acceptance remain unfinished.
+
+- Connect internal upgrade shutdown and component backup capture with retained
+  startup locks, recorded endpoint reservations and frozen retry inventories.
+  The public upgrade coordinator remains unfinished.
+
+- Stage upgrade exclusion and service admission: selected verification can retain
+  ownership checks while peer ingress, notification delivery and maintenance wait
+  for durable release. Preserve upgrade-specific supervisor diagnostics. The public
+  coordinated upgrade operation remains in development.
+
+- Allow streaming upgrade backups up to 1 GiB per file through the shared binary
+  file guard. Other callers retain their smaller explicit limits; JSON records
+  keep the 4 KiB default and 1 MiB maximum.
+
+- Stage plan-bound upgrade phase records and immutable private recovery documents;
+  the public coordinator and native interruption acceptance remain in development.
+
 - Flush guidance recovery copies before replacing user text, and reconfirm retained
   copies and guidance on retries. Apply the shared device flush to session registration,
   memory ownership, and self-contained uninstall recovery files as well.

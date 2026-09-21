@@ -1,0 +1,35 @@
+name: Native public upgrade evidence
+on:
+  pull_request:
+    branches: [develop]
+  push:
+    branches: [develop, main]
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  public-upgrade:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-latest
+            backend: systemd
+            kind: memory
+          - os: ubuntu-latest
+            backend: systemd
+            kind: session
+          - os: macos-latest
+            backend: launchd
+            kind: memory
+          - os: macos-latest
+            backend: launchd
+            kind: session
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+      - run: python scripts/test-native-upgrade.py --run-isolated-job --backend "${{ matrix.backend }}" --kind "${{ matrix.kind }}"

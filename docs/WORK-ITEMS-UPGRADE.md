@@ -14,7 +14,52 @@ start its owned supervisor, but never creates participant bindings automatically
 Native component selections refuse different runtime bytes during an ordinary reinstall;
 the coordinated replacement operation is tracked separately in DQ-12. The following
 manual runbook applies to legacy/manual deployments, not a bypass for that refusal.
-Use an authorized maintenance window for an existing service:
+The development branch also provides an **experimental native coordinator**:
+
+```sh
+python3 /path/to/new-source/scripts/upgrade.py --prefix /absolute/installed/prefix --source /path/to/new-source
+python3 /path/to/new-source/scripts/upgrade.py --status /absolute/installed/prefix
+python3 /path/to/new-source/scripts/upgrade.py --resume /absolute/installed/prefix/.upgrade/OPERATION --plan PLAN_DIGEST
+```
+
+Use the complete selected source checkout for these commands, including recovery
+when the installed runtime is partially replaced. Preserve that checkout unchanged
+until completion: resume verifies its frozen bytes. The dispatcher retains a private
+recovery archive and executes it with isolated Python before stopping anything.
+`--status` identifies the recorded operation, plan digest and durable phase. A lost
+reply is a reason to inspect or resume that operation, never to remove its marker.
+The original runtime, component backups, migration expectations and completion report
+remain under the private operation directory. JSON output contains private identities
+and cursors; keep it and the recovery directory out of Git.
+
+The executable adapter currently covers **already running, owned native components**
+(systemd or launchd selections), schema-3/4/5 memory and schema-4 inboxes. It refuses
+inactive and manual selections before shutdown because their restoration/handoff
+adapters are not yet complete. Native macOS acceptance and the complete #43 acceptance
+matrix remain outstanding. This command is not a claim that #43 or promotion is done.
+
+Preflight reads literal installer file lists without executing them, checks supported
+schema transitions on disposable online SQLite copies, and reserves backup and report
+capacity. Those copies are only preflight evidence: authoritative backups include
+all SQLite sidecars and are made after confirmed owned shutdown. Replacement invalidates only owned bytecode caches for the selected Python files,
+including unchecked-hash caches; unrelated cache-directory entries are preserved.
+File removal/layout migration is not supported by this adapter. Insufficient space, near-full memory,
+changed selections or unrecognized state refuse without silently resetting anything.
+
+Memory-state discovery covers the installation's configured state root and saved memory
+roots. Any directory there without a saved managed selection produces an explicit
+unowned-state report and refuses before shutdown, even if stopped. The command does
+not adopt, relabel, stop or delete that state. Arbitrary custom service locations outside
+those roots are not discovered; complete external-service discovery is still an acceptance
+gap. Do not interpret the report's stated discovery scope as a host-wide ownership claim.
+
+Ordinary ingress and notification delivery stay gated while migration and preservation
+are verified. The release receipt identifies verified child generations. After release,
+only live readiness is checked; preservation comparisons are never repeated over renewed
+traffic. An interrupted operation retains exclusion and evidence. Rollback remains an
+explicit separate recovery decision and never automatically replaces new writes.
+
+Use an authorized maintenance window for the existing manual procedure:
 
 1. Identify the exact repository, memory state directory, installed prefix, and affected
    bound session supervisors. Record the store UUID, head, floor, consumer cursors and

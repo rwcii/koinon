@@ -534,7 +534,13 @@ The supported coordinated replacement command is being implemented in
 deployments, use the [stopped-state runbook](WORK-ITEMS-UPGRADE.md), preserving the
 same prefix, state paths and targets. Never silently reset a checkpoint.
 Do not run session commands from an older runtime during an upgrade. Older commands
-do not use the lifecycle lock that protects session startup.
+do not use the lifecycle lock that protects session startup. Already-installed code
+that predates upgrade markers may report `invalid_install_configuration` instead of
+`installation_upgrading` while the operation is active. This is a compatibility
+limitation of that old reader, not evidence that the retained configuration needs
+repair. Preserve the configuration and recovery directory; use the selected upgrade
+operation's status/resume entrypoint. Do not repair, reinstall or delete its marker
+to bypass this refusal.
 
 For the peer-message guidance update, an operator may stage the compatible runtime
 files and replace each file atomically, installing `peer_guidance.py` before its

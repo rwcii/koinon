@@ -149,8 +149,10 @@ Initial supported memory transitions must be enumerated from the implemented mig
 schema 4 to 5 preserves the store UUID; schema 3 to 5 assigns one. Same-schema replacement
 preserves canonical logical records. Undeclared transitions refuse.
 
-Release is one durable prefix-wide decision for the verified plan. Services acknowledge
-that decision independently; a coordinator crash during acknowledgement does not permit
+Release is one durable prefix-wide decision for the verified plan. Releasing-pending
+keeps every writer gated. Only the confirmed completion record permits a service to
+resume writes. The journal reports this as `release_decision_committed`, not as an
+observation of any process. Services acknowledge that decision independently; a coordinator crash during acknowledgement does not permit
 a second comparison against already resumed writers or an automatic rollback. Lease time
 continues during downtime: preserving raw lease records does not silently extend their
 validity, and expiry maintenance begins only after release.
@@ -217,3 +219,342 @@ prove that mutable files across separate reads form an atomic snapshot. The coor
 must retain the manifest digest in its durable plan, stage and verify the frozen bytes,
 and establish stopped ownership before using file copies as state-backup evidence.
 The helper performs no copy, installation or permission repair.
+
+## Coordinator integration constraints
+
+Preserve manager registration and running state as separate plan fields. An upgrade
+must not resurrect every historical session registration. Unknown observations refuse
+preflight. Previously running components need verified readiness after release; inactive
+components must remain stopped with their selection and retained data preserved. If
+restoring a native registration causes temporary startup (for example launchd `RunAtLoad`),
+that startup remains gated and its owned stop must be verified before global release.
+Interruptions between temporary startup and stop need explicit native coverage.
+
+The source runtime may predate the new gate. Component-era runtimes validate
+`installation_state` against `installed` and `removing`; a future `upgrading` state can
+therefore make older commands or manager restarts that read configuration refuse
+with their existing invalid-configuration diagnostic. Running bridge and notifier
+processes do not universally reread installation configuration. This exclusion
+mechanism is not proof that a running process stopped. New coordinator code must validate
+its frozen plan before allowing upgrade-specific access to that state. An old process
+that already read configuration still requires owned shutdown and exit verification.
+Old invocations waiting on installation or component locks must revalidate after the
+coordinator publishes exclusion; tests must exercise that race.
+
+Legacy thread-only installs may have no `install.json`, and absence historically selects
+legacy behavior. A lifecycle field cannot protect an absent file. Likewise, a legacy
+manual session supervisor lacks the native supervisor's complete ownership record.
+Do not infer either into the component upgrade inventory. A supported legacy/manual
+adapter must supply explicit inventory and process-exit evidence before those paths can
+pass preflight; until then they refuse before shutdown. The complete #43 acceptance gate
+still includes manual-process coverage and cannot close on native-only implementation.
+
+After proving owned processes stopped, deactivate only their verified manager
+registrations and retain artifacts and state. Startup exclusion during backup requires
+more than endpoint probing: memory constructs its database worker while holding
+`start.lock`, before completing socket binding. Acquire its permanent start lock only
+after shutdown, because cleanup also needs it. A control-socket reservation alone cannot
+exclude that early database open. Bridge startup instead reserves its control endpoint
+before opening its database. The coordinator must revalidate all stopped owners and
+retained paths after taking the appropriate locks or endpoint reservations, keep them
+through consistent capture, and release only those needed by explicitly gated new starts.
+Neither a failed connection nor the new lifecycle marker substitutes for that evidence.
+
+A standalone recovery bundle must contain the coordinator and its imported dependencies
+from the frozen source, bound by the durable plan digest. Resume must not import modules
+from the partly replaced installation. Tests must remove or corrupt a prefix module
+mid-replacement and demonstrate recovery through that retained bundle, then reject a
+changed bundle or source. Ordinary install, uninstall and ensure must refuse incomplete
+upgrade state; status and plan-validated recovery must remain available.
+
+The staged `upgrade_journal.py` records alternating intent and completion for each
+coordinator phase. Completion carries the digest of separately verified evidence;
+phase records do not establish that the evidence is correct or authorize an action.
+The journal is bound to the frozen plan digest, validates its entire bounded shape,
+and serializes publication through a permanent private lock. An identical lost-reply
+retry is idempotent; a different or stale predecessor requires rereading. Resume refuses
+a missing or malformed journal. Initialization belongs only to preparation of a new
+operation, before its active-installation marker is published, never to recovery.
+
+The coordinator must separately hold its operation lock while observing and performing
+external actions. A short journal publication lock cannot stop two callers from executing
+the same pending action. Completing the releasing phase is the single durable release
+decision; subsequent completion/acknowledgement records cannot undo it. Synthetic tests
+cover publication failures before and after atomic replacement, retained lock identity,
+wrong-plan refusal and monotonic release. They do not replace process-interruption,
+native-manager or complete coordinator acceptance fixtures.
+
+`upgrade_documents.py` retains immutable private JSON manifests and evidence, each
+bounded to 1 MiB. Their expected digests belong in the frozen plan or journal; a
+self-reported digest is not authority. Existing service-owner records retain their
+4 KiB default. Exact repeats retain the original document, changed content refuses,
+and reads never recreate missing evidence. The phase-journal name is reserved.
+Publication refuses a new document when the directory already has 1,024 entries
+(including locks and retained scratch files); existing identical documents remain
+readable at capacity. Atomic publication may briefly add one replacement file.
+Domain schemas and complete recovery-bundle validation remain coordinator work.
+
+A visible record is not proof that its final directory/device flush succeeded.
+Journal reads and retained-document reads therefore confirm the current expected
+bytes and repeat file, parent-directory, and final file synchronization under the
+publication lock before returning durable evidence. Identical retries use the same
+confirmation and preserve the original inode. Missing, substituted or unflushable
+records refuse; observing a release record whose durability cannot be confirmed
+must not release a service. The shared ordinary state reader remains read-only.
+Synthetic fault tests cover failures after rename and continuing flush failures;
+these do not simulate hardware power loss or prove filesystem/device compliance.
+
+`upgrade_bundle.py` stages the selected source files and explicit Python entrypoint
+as a deterministic private zip application, currently bounded to 4 MiB. Its descriptor
+binds the entire source manifest and archive digest; the coordinator must retain that
+descriptor in its frozen plan and supply a complete import dependency allowlist.
+Preparation verifies source bytes again before publishing, refuses different retained
+archives, and confirms all durability flushes on an identical retry. Verification
+refuses changed source or archive bytes and never substitutes a new release.
+
+A synthetic archive runs with Python's isolated `-I` option beside a deliberately
+broken installed module and conflicting `PYTHONPATH`. This demonstrates archive import
+isolation for the supplied fixture, not yet a complete coordinator dependency closure
+or native upgrade recovery. The future recovery entrypoint must work inside the archive,
+validate its plan before actions, and use the selected interpreter with `-I`; this helper
+does not execute a bundle or expose a public upgrade command.
+
+
+Release acknowledgement integration will use one immutable document per selected
+component, named from its fixed plan index. Preflight will cap a plan at 128 components
+and reserve space for all acknowledgements, aggregate manifests, phase evidence and
+locks before stopping anything; each retry reuses its existing slot. A receipt records
+that component's plan/selection identity, observed generation, release decision and
+observation time. It is historical evidence, not a substitute for fresh readiness.
+Resume validates its domain fields against the frozen plan and reobserves live ownership;
+a retained receipt never licenses repeating the gated data comparison after release.
+
+The releasing phase completion commits the global decision first. Per-component
+acknowledgements and final readiness observations follow that commit, during the final
+completion phase. Partial acknowledgement therefore cannot leave the journal reporting
+an uncommitted release while writers have been deliberately released. These are
+coordinator ordering requirements; the acknowledgement schema, preflight reservation
+and service-gate consumers remain to be integrated and tested.
+
+Archive confirmation uses the same bounded private-file open/reopen primitive as
+JSON state recovery; its 4 MiB binary limit does not change JSON limits. Verification
+returns a path, so the later isolated interpreter launch still assumes no hostile
+same-user replacement between verification and execution. Rechecking the path does
+not remove that trust-boundary assumption.
+
+`upgrade_observation.py` captures a validated native selection's manager registration
+and running state separately. Manager observations must agree before and after the
+service probe and match the owned runner when running. An inactive result additionally
+requires confirmed child exit, no retained control endpoint, and no held owner lock.
+Unknown or changing evidence refuses. This is a read-only preflight observation, not
+installation-wide enumeration or exclusion against a subsequent start; quiescence
+must revalidate under the appropriate locks. Manual selections require their own
+explicit adapter before they can enter this native observation path.
+
+`upgrade_plan.py` binds source, old runtime, installation configuration, component
+observations and the recovery descriptor through immutable document digests. It
+checks the 128-component bound and reserves directory entries for acknowledgements
+and aggregate evidence before publishing plan documents. Preparation only records
+pending intent; it does not publish an installation marker or complete preflight.
+The coordinator still must prove complete session enumeration, backup space and
+ownership before preparing, then establish exclusion before shutdown.
+
+Explicit resume requires the caller's expected plan digest and every retained
+document. It never initializes missing phase state. Source and recovery bytes must
+still match, and a configured prefix alias cannot retarget the operation. The old
+runtime manifest is validated as retained data, not compared with current installed
+bytes during every resume: partial replacement is expected in some phases. The
+phase-specific coordinator must decide which current bytes are valid and cannot use
+successful plan loading alone as permission to replace or release anything.
+
+
+`upgrade_backup.py` streams an explicit stopped-state file selection, including
+recorded absent sidecars, into a private destination. Bounds are 256 selected names,
+1 GiB per file, and 4 GiB of selected bytes; reads use at most 1 MiB chunks. JSON
+state/document limits are unchanged. The snapshot records file bytes, hashes and
+original modes; copied files are private (0600). The completed descriptor keeps
+source and destination evidence separate for later explicit restoration.
+
+A differing retained backup refuses without overwrite. Identical partial copies
+are reverified and their file/directory/device flushes repeated. Nested renames
+flush every directory link from the destination parent through the backup root,
+including intermediate directories retained after an interrupted creation. A free-space
+check covers remaining selected bytes plus 64 KiB per selected name and one extra
+metadata allowance before copying; it is conservative, does not reserve space,
+and cannot prevent later I/O failure. Scratch files are bounded separately by the
+per-file limit. Completion is returned only after the selected source and complete
+destination both verify. Missing sidecars remain explicit evidence, so a sidecar
+appearing since the stopped snapshot refuses.
+
+The caller still must enumerate every required file and prove continuous writer
+exclusion. This helper cannot turn copying a live database into a consistent backup,
+or certify that an incomplete caller-supplied selection contains all service data.
+Complete pre-shutdown space checks, ownership revalidation, SQLite logical comparison
+and publication of the plan-bound completed backup remain coordinator integration.
+
+`upgrade_backup_inventory.py` opens only a disposable, byte-verified copy when
+capturing logical SQLite evidence. The main database, WAL, shared-memory file
+and rollback journal must all be selected explicitly, including absences. This
+allows SQLite recovery and shared-memory bookkeeping to affect the disposable
+copy without changing retained recovery bytes. The copy uses query-only SQL,
+and the complete retained snapshot is verified again before returning a result
+bound to its digest. Missing sidecar selections, changed backup bytes and unsafe
+workspaces refuse. A synthetic abrupt writer exit verifies that committed WAL
+rows are included and all retained backup file hashes remain unchanged.
+
+Streaming backup verification performs multiple full source reads and destination
+verification; disposable logical inspection adds another copy. These costs belong
+in the outage and temporary-space budget. None of these bounded operations has a
+wall-clock deadline, and these helpers still do not establish writer exclusion.
+
+Native installation observation now enumerates bounded saved session registrations
+and configured memory selections while holding the permanent installation lock.
+It validates all selections before observing any component, then rechecks config,
+the session directory inventory and saved records. It refuses unknown entries,
+legacy/manual or unfinished selections, ambiguous shared state roots, and component
+capacity overflow. A missing installation configuration never means an empty
+upgrade selection. Missing session directories remain absent. This observation
+releases its lock on return; the coordinator still must revalidate and publish
+startup exclusion before acting. It neither discovers arbitrary unmanaged writers
+nor supplies the manual/legacy upgrade adapters required by final acceptance.
+
+Native observation currently requires the recorded Python executable path. Session
+records identify a mismatched interpreter explicitly before probing components.
+Memory artifacts encode the interpreter without a separate saved field, so a
+verification refusal names the current interpreter and asks for verification of
+both interpreter and retained selection/artifact; it does not misclassify every
+artifact error as a proven Python mismatch. Changing the configured Python executable path is deferred. Run this coordinator
+with the executable path recorded by the installation; do not replace interpreter
+selection or manager artifacts manually to get past preflight. A supported
+interpreter-change adapter must record both old and new paths, verify old artifact
+ownership, validate target runtime/SQLite compatibility, and switch the selected
+jobs under the same upgrade gates before this operation can offer that change.
+Existing selection metadata binds paths, not interpreter binary hashes or version
+identities. Replacing a Python binary in place is outside this coordinated
+operation and is not detected as a path mismatch.
+
+
+The staged admission integration publishes an exact plan-bound `upgrading` marker
+under installation and component admission locks. Ordinary installation readers
+refuse it with `installation_upgrading` and exit 78; the memory supervisor and
+session CLI preserve that cause and direct the operator to upgrade status/resume.
+They do not request automatic restart or configuration repair. The proposed public
+status/resume command is still part of the unfinished coordinator integration.
+
+Selected service status, owned stop and gated startup validate the active plan and
+frozen selection before using original installation inputs. Artifact verification
+still checks the current owning selection and literal artifact bytes. Ordinary
+ensure and deactivation do not acquire this access. New children refuse startup
+before the migration phase; thereafter bridge mutations, notifier delivery and
+memory maintenance remain gated until the confirmed global release decision.
+The bridge reserves its peer socket without listening while its private control
+endpoint supports verification. A missing or changed marker never releases a bound
+gate. Gate failures stop the affected service and drain its database worker before
+releasing owned endpoints.
+
+Synthetic tests cover these admission paths and service cleanup. They are not the
+complete stop/backup/replace/migrate/restart operation or native platform acceptance;
+those remain required before closing the upgrade gate.
+
+
+Owned shutdown and guarded component capture are now connected internally.
+Shutdown reobserves native manager absence and recorded process exit, handles
+already inactive selections without starting them, and refuses memory shutdown
+until sessions are stopped. Capture retains permanent supervisor/startup locks;
+bridge control endpoints are reserved without listening. It rechecks manager,
+owner, directory, lock and endpoint identities through copy completion.
+
+Component inventories include all regular state files and explicit main/WAL/SHM/
+rollback-journal absences. Unexpected sockets, links and oversized inventories
+refuse. The complete source inventory is frozen before copying, so retry cannot
+silently omit a removed record. Copies and their descriptors remain private under
+the operation. The old runtime is captured separately from its frozen file list.
+Its backup can reside beneath the installed prefix only when no selected source
+file overlaps the backup destination; component copies still require disjoint roots. Permanent lock files may appear as retained evidence in a backup;
+they must never be restored over live lock inodes.
+
+Reservations record creation intent and captured endpoint identity. After a
+coordinator process dies, a recorded reservation can be reclaimed only with the
+matching inode and proven owner exit. A crash between bind and inode publication
+leaves ambiguous evidence: recovery preserves the endpoint and refuses automatic
+removal. Synthetic tests exercise actual owner-process death, binding exclusion,
+memory start-lock exclusion, sidecar absence and unchanged retained bytes. Native
+end-to-end orchestration, source/runtime replacement and migration verification
+remain incomplete; this integration does not make the public command available.
+
+
+Runtime replacement now consumes the completed backup receipt while retaining the
+capture guard. Each selected file must match its frozen old bytes or its recorded
+new postimage. A durable file index precedes publication; retries reconfirm completed
+postimages and all flushes without rewriting them. Changed completed files refuse.
+This adapter permits unchanged or expanded file selections. File removal or layout
+migration requires a separate adapter and must refuse during preflight before shutdown.
+
+Memory migration expectations are derived on disposable verified backup copies.
+Schema 3 to 5 may assign the verified gated store UUID; schema 4 to 5 preserves it;
+schema 5 requires exact canonical equality. Existing replay fields, metadata and
+business tables are checked independently of the added work schema. The actual gated
+inventory must match the complete expected catalog and logical rows. Search-index
+creation and reconciliation wait until durable release. These internal helpers still
+require public orchestration, individual identity/cursor reporting, restart integration
+and native/manual interruption acceptance before the coordinated command is available.
+
+
+Internal native manager admission now accepts an explicit coordinator context only
+for the selected pending migration/startup phases. It revalidates the active plan,
+component membership and complete new runtime bytes before manager actions and
+readiness return. Ordinary ensure remains blocked by the installation marker.
+These manager results do not themselves verify the children's gate or data inventory;
+coordinator orchestration must still join the child generation and private gate status
+before migration comparison and release.
+
+
+Private gated probes now join manager readiness, retained supervisor/child ownership,
+kernel control-socket peer PID and child generation with the exact unreleased plan.
+Session probes require both bridge and notifier gates. Inventory requests name the
+verified generation and are bracketed by fresh gate/ownership observations; a changed
+supervisor or successor PID refuses. These observations are still internal inputs to
+the unfinished coordinator, not release authorization or native acceptance evidence.
+
+
+The internal coordinator driver now connects prepared shutdown through replacement
+completion (journal steps 2 through 9). Backup destinations must already exist privately
+before shutdown. Aggregate backup and replacement receipts bind phase completion;
+retries reuse frozen capture evidence and revalidate completed replacement bytes.
+Step 9 remains an unavailable, gated installation awaiting migration and restart
+verification. This driver does not expose a public upgrade command or complete the
+remaining preflight, migration/release, report and platform acceptance requirements.
+
+
+Inbox expectations currently support exact schema-4 preservation, including allocated
+sequence head, acknowledgement watermark, journal activation and delivery identity.
+Canonical comparison still covers all inbox and binding rows. Earlier inbox schemas
+require a declared migration adapter and must be rejected in preflight before shutdown;
+the expectation helper does not migrate or reinterpret them implicitly.
+
+
+The memory private-inventory request carries both repository and generation, matching
+the ordinary target guard before plan authorization. An isolated copied-runtime child
+test exercises actual gated startup, exact inventory preservation, wrong-repository
+refusal and blocked ordinary writes. After release, deferred search initialization
+retries ordinary queue capacity without consuming reserved control slots or terminating
+the service. Stop remains responsive during the retry delay. A real worker test blocks
+a control job, fills all sixteen ordinary slots, and verifies one successful index
+resume after the queue drains. These are portable process/worker checks, not complete
+native manager upgrade acceptance or physical power-loss tests.
+
+
+Release receipts bind the plan to verified component/child generations. Every originally
+running selection requires membership (both children of a session pair). A child whose
+gate was constructed before release must match that membership before admitting traffic;
+a replacement born between comparison and the global decision cannot inherit admission.
+A fresh child constructed after the durable release is a separately marked post-release
+restart: it validates the release evidence and supplies live readiness, without another
+preservation comparison. The construction boundary uses a fresh journal read rather than
+the earlier plan snapshot. The marker remains until recorded final readiness at step 19.
+
+Preflight can now retain one permanent installation lock through bounded component
+observation, frozen-plan preparation and exclusion publication. This prevents registration
+between enumeration and marker publication; component admission locks still serialize
+starts that read the old configuration before exclusion. These internal APIs do not
+perform the remaining schema/capacity/backup-space probes or expose the public entrypoint.

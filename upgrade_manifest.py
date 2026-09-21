@@ -134,8 +134,8 @@ def hex_digest(value):
             and all(char in '0123456789abcdef' for char in value))
 
 
-def verify(expected):
-    """Require the entire frozen selection and bytes; never adopt a changed source."""
+def validate(expected):
+    """Validate frozen manifest structure without assuming the old files still exist."""
     if (not isinstance(expected, dict)
             or set(expected) != {'version', 'root', 'files', 'bytes', 'sha256'}
             or type(expected['version']) is not int or expected['version'] != 1
@@ -155,6 +155,12 @@ def verify(expected):
     unsigned = {key: value for key, value in expected.items() if key != 'sha256'}
     if fingerprint(unsigned) != expected['sha256']:
         raise ManifestError('manifest fingerprint mismatch')
+    return expected
+
+
+def verify(expected):
+    """Require the entire frozen selection and bytes; never adopt a changed source."""
+    expected = validate(expected)
     # The stored root is already canonical. Never follow a newly substituted
     # alias while resuming an operation against this frozen identity.
     actual = _capture_selected(check_root(expected['root']), list(expected['files']))

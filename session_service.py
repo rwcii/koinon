@@ -29,10 +29,14 @@ class ServiceError(ValueError):
 
 
 class Selection:
-    def __init__(self, prefix, home, *, backend=None, python=None, removing=False):
+    def __init__(self, prefix, home, *, backend=None, python=None, removing=False, upgrading=False):
         self.prefix, self.home = absolute_path(str(prefix)), absolute_path(str(home))
         import runtime_names
-        if runtime_names.install_config(self.prefix).get('installation_state') == 'removing' and not removing:
+        import upgrade_exclusion
+        self.upgrade = upgrade_exclusion.read(self.prefix) if upgrading else None
+        installed = (self.upgrade['documents']['installation'] if self.upgrade is not None
+                     else runtime_names.install_config(self.prefix))
+        if installed.get('installation_state') == 'removing' and not removing:
             raise ServiceError(paths=(self.prefix / 'install.json',))
         self.record = artifacts.load(self.home)
         removal = self.record and self.record['state'] == 'removing' and removing
@@ -44,8 +48,12 @@ class Selection:
                 or backend is not None and self.record['backend'] != backend):
             raise ServiceError(paths=(self.home / 'native-service.json',))
         if not removal:
-            artifacts.verify_owned(self.record)
-        config, registration = artifacts.inputs(self.record)
+            artifacts.verify_owned(self.record, upgrading=self.upgrade is not None)
+        if self.upgrade is not None and not any(
+                item['kind'] == 'session' and item['selection'] == self.record
+                for item in self.upgrade['documents']['components']['items']):
+            raise ServiceError(paths=(self.home / 'native-service.json',))
+        config, registration = artifacts.inputs(self.record, upgrading=self.upgrade is not None)
         self.commands = configuration.commands(self.prefix, self.record['python'], self.home, config, registration)
         self.backend = self.record['backend']
         installation = configuration.fingerprint([str(self.prefix), str(self.home), self.record['session_key']])
@@ -151,6 +159,8 @@ def stop_owned(selection):
 
 def execute(action, selection, *, generation=None, assertion=False):
     if action == 'run':
+        if selection.upgrade is not None and selection.upgrade['phase']['step'] < 10:
+            raise ServiceError(paths=(selection.prefix / 'install.json',))
         selection.validate_programs()
         return session_supervisor.run(selection.records, selection.commands, selection.backend)
     if action in ('ensure', 'status', 'deactivate'):
@@ -183,7 +193,8 @@ def main(argv=None):
     try:
         if args.action != 'recover-spawn' and (args.generation is not None or args.assert_no_unrecorded_child):
             raise ServiceError()
-        selection = Selection(args.prefix, args.state_dir, backend=args.backend)
+        selection = Selection(args.prefix, args.state_dir, backend=args.backend,
+                              upgrading=args.action in ('run', 'status', 'stop'))
         result = execute(args.action, selection, generation=args.generation, assertion=args.assert_no_unrecorded_child)
         if type(result) is int:
             return result
@@ -196,6 +207,11 @@ def main(argv=None):
     except (OSError, ValueError) as exc:
         code = ('session_temporary_failure' if isinstance(exc, durable_state.StateReadBusyError)
                 else getattr(exc, 'code', 'session_configuration_failure'))
+        if code == 'installation_upgrading':
+            print(json.dumps(dict(status='unavailable', code=code, exit_status=78,
+                                  paths=list(getattr(exc, 'paths', ())),
+                                  recovery='use upgrade status or resume; do not repair or reinstall')), flush=True)
+            return platform_support.managed_service_exit(args.backend, 78) if args.action == 'run' else 78
         if code not in session_supervisor.STATUSES:
             code = 'session_configuration_failure'
         exit_status = session_supervisor.STATUSES[code]

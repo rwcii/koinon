@@ -320,8 +320,9 @@ class Store:
               'conflicts_with', 'expires')
     SELECT = 'SELECT ' + ','.join(FIELDS) + ' FROM entries'
 
-    def __init__(self, path, repo, fts=None):
+    def __init__(self, path, repo, fts=None, *, defer_index=False):
         self.repo, self.path = repo, path
+        self._index_deferred, self._requested_fts = defer_index, fts
         self.expired_at = 0.0
         self.on_change = None
         self._initialisation = INITIALISING
@@ -376,8 +377,10 @@ class Store:
             if SCHEMA >= work_schema.VERSION:
                 self.reset_log()
                 work_schema.validate_format(self.db)
-            self.fts = False if fts is False else self._open_fts()
-            self._reconcile_index()
+            self.fts = False
+            if not defer_index:
+                self.fts = False if fts is False else self._open_fts()
+                self._reconcile_index()
         except work_schema.SchemaError as exc:
             self.db.close()
             if exc.code == 'capacity':
@@ -875,6 +878,13 @@ class Store:
             work_schema.validate(self.db, repo, SCHEMA_STATEMENTS)
 
     # --- schema helpers -------------------------------------------------------
+
+    def resume_index(self):
+        """Run deferred search initialization only after durable upgrade release."""
+        if self._index_deferred:
+            self.fts = False if self._requested_fts is False else self._open_fts()
+            self._reconcile_index()
+            self._index_deferred = False
 
     def _open_fts(self):
         """Create the search table if this build has FTS5 and there is room for it.
@@ -1619,6 +1629,9 @@ class MemoryCommands:
         self.maintenance = work_maintenance.WorkMaintenance(
             store, MemoryError_, maintenance_state or work_maintenance.MaintenanceState())
 
+    def resume_index(self):
+        self.store.resume_index()
+
     def maintain_work(self):
         return self.maintenance.sweep()
 
@@ -1636,6 +1649,10 @@ class MemoryCommands:
         if not isinstance(key, str) or not key.strip() or len(key) > 128:
             raise MemoryError_('invalid_request', 'a stable consumer key is required')
         return key.strip()
+
+    def upgrade_inventory(self):
+        import upgrade_inventory
+        return upgrade_inventory.capture(self.store.db)
 
     # Operations that must stay reachable when writes cannot proceed. Running cleanup
     # before them made a failed cleanup block the very reads, status and stop that the
@@ -1935,9 +1952,13 @@ class MemoryCommands:
 
 class Service:
     """Socket controller; all SQLite work belongs to the dedicated worker."""
-    def __init__(self, root, repo, store_factory):
+    def __init__(self, root, repo, store_factory, *, gated_store_factory=None):
         self.root, self.repo = Path(root), repo
         self.generation = uuid.uuid4().hex
+        import upgrade_gate
+        self.upgrade = upgrade_gate.select(Path(__file__).parent, 'memory', root, self.generation)
+        if self.upgrade is not None and gated_store_factory is None:
+            raise upgrade_gate.GateError('gated memory startup requires deferred search initialization')
         self.hints = subscriptions.HintHub(self.generation)
         self.stop = asyncio.Event()
         self.tasks = set()
@@ -1945,7 +1966,7 @@ class Service:
         self.admission = Admission()
         self.maintenance_state = work_maintenance.MaintenanceState()
         def owned_store():
-            store = store_factory()
+            store = gated_store_factory(self.upgrade) if self.upgrade is not None else store_factory()
             store.on_change = self.hints.notify_committed
             return MemoryCommands(root, repo, store, self.generation, self.maintenance_state)
         self.worker = DatabaseWorker(owned_store)
@@ -1954,6 +1975,12 @@ class Service:
         if not isinstance(request, dict) or not isinstance(request.get('op'), str):
             raise MemoryError_('invalid_request', 'expected an operation object')
         validate_target(request, self.repo, self.generation)
+        if self.upgrade is not None:
+            if request['op'] == 'upgrade-inventory':
+                self.upgrade.authorize_inventory(request)
+                return await self.worker.call('upgrade_inventory')
+            if request['op'] not in ('hello', 'status', 'stop') and not self.upgrade.released():
+                raise ValueError('upgrade in progress; ordinary memory requests are gated')
         if request['op'] == 'stop':
             result = stop_result(request, self.repo, self.generation)
             self.stop.set()
@@ -1968,6 +1995,8 @@ class Service:
         else:
             result = await self.worker.call('command', request, pid)
         if request['op'] in ('hello', 'status'):
+            if self.upgrade is not None:
+                result['upgrade'] = self.upgrade.status()
             result['capabilities'] = ['memory_subscription', 'memory_target_guard']
             if result.get('schema') == work_schema.VERSION:
                 result['capabilities'].extend(['work_items_v1', 'memory_record_format_2'])
@@ -1993,6 +2022,8 @@ class Service:
                     request = json.loads(await reader.readline())
                 if not isinstance(request, dict):
                     raise MemoryError_('invalid_request', 'expected an operation object')
+                if request.get('op') == 'subscribe' and self.upgrade is not None and not self.upgrade.released():
+                    raise ValueError('upgrade in progress; subscriptions are gated')
                 if request.get('op') == 'subscribe':
                     self.admission.leave(slot)
                     slot = None
@@ -2035,6 +2066,21 @@ class Service:
 
     async def maintain_work(self):
         """One ordinary submission at a time, with monotonic waits between jobs."""
+        if self.upgrade is not None:
+            if not await self.upgrade.wait(self.stop):
+                return
+            while not self.closing and not self.stop.is_set():
+                try:
+                    await self.worker.call('resume_index')
+                    break
+                except CapacityError:
+                    self.maintenance_state.skipped()
+                except WorkerClosed:
+                    return
+                try:
+                    await asyncio.wait_for(self.stop.wait(), work_maintenance.INTERVAL)
+                except asyncio.TimeoutError:
+                    pass
         while not self.closing and not self.stop.is_set():
             try:
                 result = await self.worker.call('maintain_work')
@@ -2055,6 +2101,7 @@ class Service:
     async def run(self, sock):
         server = None
         maintenance_task = None
+        maintenance_failure = None
         try:
             # Initialization completed in the worker before the socket was bound.
             status = await self.command(dict(op='status'), os.getpid())
@@ -2067,13 +2114,19 @@ class Service:
                     pass
             print(json.dumps(status), flush=True)
             maintenance_task = asyncio.create_task(self.maintain_work())
+            maintenance_task.add_done_callback(
+                lambda task: self.stop.set() if not task.cancelled() and task.exception() else None)
             await self.stop.wait()
         finally:
             self.closing = True
             if maintenance_task is not None:
                 maintenance_task.cancel()
-                with contextlib.suppress(asyncio.CancelledError):
+                try:
                     await maintenance_task
+                except asyncio.CancelledError:
+                    pass
+                except Exception as exc:
+                    maintenance_failure = exc
             self.hints.close()
             if server is not None:
                 server.close()
@@ -2085,6 +2138,8 @@ class Service:
                 finally:
                     if server is not None:
                         await server.wait_closed()
+            if maintenance_failure is not None:
+                raise maintenance_failure
 
 
 def write_owner(home, sock_path, generation, repo):
@@ -2283,7 +2338,7 @@ def bind_exclusive(home, repo, generation):
     raise MemoryError_('socket_in_use', f'cannot bind {control}')
 
 
-def start(home, repo, store_factory):
+def start(home, repo, store_factory, *, gated_store_factory=None):
     """Serialized start. Check and bind happen under one lock, never as a race."""
     private_state_dir(Path(home))
     with (Path(home) / 'start.lock').open('a') as lock:
@@ -2291,7 +2346,7 @@ def start(home, repo, store_factory):
         existing = asyncio.run(verify_running(home, repo))
         if existing:
             return None, existing
-        service = Service(home, repo, store_factory)
+        service = Service(home, repo, store_factory, gated_store_factory=gated_store_factory)
         try:
             sock, control = bind_exclusive(home, repo, service.generation)
         except BaseException:
@@ -2300,8 +2355,8 @@ def start(home, repo, store_factory):
         return (service, sock, control), None
 
 
-def serve(home, repo, store_factory):
-    started, existing = start(home, repo, store_factory)
+def serve(home, repo, store_factory, *, gated_store_factory=None):
+    started, existing = start(home, repo, store_factory, gated_store_factory=gated_store_factory)
     if existing:
         return dict(status='already_running', **existing)
     service, sock, control = started
@@ -2465,7 +2520,8 @@ def cli_main():
     op = args.pop('op')
     op = work_items.cli_request(op, args)
     if op == 'serve':
-        print(json.dumps(serve(home, repo, lambda: Store(home / 'memory.sqlite3', repo))))
+        print(json.dumps(serve(home, repo, lambda: Store(home / 'memory.sqlite3', repo),
+                               gated_store_factory=lambda gate: Store(home / 'memory.sqlite3', repo, defer_index=True))))
         return
     if op == 'stop':
         print(json.dumps(stop_service(home, repo), indent=2))

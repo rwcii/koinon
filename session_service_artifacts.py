@@ -62,10 +62,14 @@ def expected(record):
     return content
 
 
-def inputs(record):
+def inputs(record, *, upgrading=False):
     prefix, home = Path(record['prefix']), Path(record['state_directory'])
     files._parents(prefix / 'install.json')
-    config = runtime_names.install_config(prefix)
+    if upgrading:
+        import upgrade_exclusion
+        config = upgrade_exclusion.component_configuration(prefix, 'session', record)
+    else:
+        config = runtime_names.install_config(prefix)
     private_home(home)
     registration = durable_state.read(home / 'session.json')
     configuration.verify(record, config, registration)
@@ -93,11 +97,11 @@ def boundary(record, observed_artifact=None):
         raise error from exc
 
 
-def verify_owned(record, *, observed_artifact=None):
+def verify_owned(record, *, observed_artifact=None, upgrading=False):
     """Verify saved selection and literal disk evidence; never infer live health."""
     with boundary(record, observed_artifact):
         content = expected(record)
-        inputs(record)
+        inputs(record, upgrading=upgrading)
         if record['state'] != 'installed' or load(record['state_directory']) != record:
             raise ValueError('native session has no completed owning selection')
         path = Path(record['artifact'])
@@ -107,16 +111,16 @@ def verify_owned(record, *, observed_artifact=None):
             raise ValueError('owned session artifact missing or changed')
         return record
 
-def verify_loaded(record, observed_artifact):
+def verify_loaded(record, observed_artifact, *, upgrading=False):
     with boundary(record, observed_artifact):
-        verify_owned(record)
+        verify_owned(record, upgrading=upgrading)
         path, expected_path = absolute_path(str(observed_artifact)), Path(record['artifact'])
         if path == expected_path:
             return record
         if record['backend'] != 'systemd':
             raise ValueError('loaded session artifact differs from selection')
         files.verify_loader_link(path, expected_path)
-        return verify_owned(record)
+        return verify_owned(record, upgrading=upgrading)
 
 
 def verify_removing(record):
