@@ -5,6 +5,9 @@ into a dated release section when promoted to `main`.
 
 ## Unreleased
 
+- Record the native session-supervision implementation sequence and compatibility
+  gates for bridge/notifier ownership, refusal recovery, and isolated acceptance.
+
 - Activate explicitly selected native memory supervisors with verified manager and
   child identity, explicit launchd domains, and opt-in literal systemd arguments.
   Refuse unsafe manager-reported registration paths and verify inert loader links
