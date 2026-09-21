@@ -35,6 +35,40 @@ def _projection(db, table, columns):
     return hashlib.sha256(b''.join(sorted(rows))).hexdigest(), len(rows)
 
 
+def _rows(db, table, columns, *, where=''):
+    # Fixed internal table/column lists only. These fields are private identity
+    # and cursor evidence, never note bodies, inbox frames or work descriptions.
+    names = columns.split(',')
+    query = 'SELECT ' + ','.join(inventory.identifier(name) for name in names)
+    query += ' FROM ' + inventory.identifier(table) + where + ' ORDER BY 1 LIMIT ?'
+    rows = db.execute(query, (inventory.MAX_ROWS + 1,)).fetchall()
+    if len(rows) > inventory.MAX_ROWS:
+        raise MigrationError('report row capacity exceeded')
+    return [dict(zip(names, row)) for row in rows]
+
+
+def _summary(db, kind, captured):
+    result = dict(table_counts={name: value['rows'] for name, value in captured['tables'].items()})
+    if kind == 'memory':
+        result['metadata'] = dict(db.execute('SELECT key,value FROM meta'))
+        result['consumers'] = _rows(db, 'cursors',
+            'consumer,seq,issued,snapshot,bootstrapped,resnapshot,updated')
+        result['snapshots'] = _rows(db, 'snapshots',
+            'id,consumer,head,created,items,issued,acked,acked_at')
+        if 'work_items' in captured['tables']:
+            result['unfinished_work'] = _rows(db, 'work_items',
+                'work_id,revision,lifecycle,scope_revision,latest_seq', where=" WHERE lifecycle <> 'finished'")
+            result['claims'] = _rows(db, 'claim_bundles',
+                'generation,work_id,consumer,revision,expires_at,active,overdue_credit,end_credit')
+    else:
+        import inbox_schema
+        result['metadata'] = inbox_schema.metadata(db)
+        result['allocated_head'] = inbox_schema.allocated_head(db)
+        columns = ','.join(row[1] for row in db.execute('PRAGMA table_info(memory_binding)'))
+        result['bindings'] = _rows(db, 'memory_binding', columns)
+    return result
+
+
 def expected_memory(snapshot, workspace, repo, store_id):
     """Derive schema 3/4->5 or exact schema-5 expectation and explicit identity.
 
@@ -48,11 +82,13 @@ def expected_memory(snapshot, workspace, repo, store_id):
         version = work_schema.validate(db, repo, memory.SCHEMA_STATEMENTS)
         before = inventory.capture(db)
         original = dict(db.execute('SELECT key,value FROM meta'))
+        before_summary = _summary(db, 'memory', before)
         if version >= 4 and original['store_id'] != store_id:
             raise MigrationError('migration changed an existing store UUID')
         if version == 5:
             return dict(version=1, source_schema=5, target_schema=5, changes=[],
-                        identity=original, inventory=before)
+                        identity=original, inventory=before,
+                        before=before_summary, after=before_summary)
         replay_columns = ('key', 'fingerprint', 'seq', 'ts', 'deadline')
         replays = _projection(db, 'idem', replay_columns)
         expected_meta = dict(original, schema='5', store_id=store_id,
@@ -86,7 +122,8 @@ def expected_memory(snapshot, workspace, repo, store_id):
             raise MigrationError('migration created unexpected work records')
         return dict(version=1, source_schema=version, target_schema=5,
                     changes=['work_schema_5', *(['new_store_uuid'] if version == 3 else [])],
-                    identity=expected_meta, inventory=after)
+                    identity=expected_meta, inventory=after,
+                    before=before_summary, after=_summary(db, 'memory', after))
 
 
 def verify(expected, observed):
@@ -95,7 +132,8 @@ def verify(expected, observed):
         raise MigrationError('gated inventory differs from declared migration: ' + str(change))
     return dict(version=1, verified=True, source_schema=expected['source_schema'],
                 target_schema=expected['target_schema'], changes=expected['changes'],
-                identity=expected['identity'], inventory=observed['sha256'])
+                identity=expected['identity'], inventory=observed['sha256'],
+                before=expected['before'], after=expected['after'])
 
 
 def expected_inbox(snapshot, workspace):
@@ -112,5 +150,6 @@ def expected_inbox(snapshot, workspace):
         identity = dict(identity, allocated_head=inbox_schema.allocated_head(db),
                         delivery_identity=delivery_ledger.identity(db))
         expected = inventory.capture(db)
+        summary = _summary(db, 'session', expected)
     return dict(version=1, source_schema=inbox_schema.SCHEMA, target_schema=inbox_schema.SCHEMA,
-                changes=[], identity=identity, inventory=expected)
+                changes=[], identity=identity, inventory=expected, before=summary, after=summary)

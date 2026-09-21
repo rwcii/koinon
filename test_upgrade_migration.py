@@ -48,6 +48,10 @@ class MigrationExpectationTests(unittest.TestCase):
                     result = upgrade_migration.verify(expected, upgrade_inventory.capture(store.db))
                     self.assertTrue(result['verified'])
                     self.assertEqual(result['source_schema'], version)
+                    if version in (3, 4):
+                        self.assertEqual(result['before']['consumers'][0]['consumer'], 'synthetic-reader')
+                        self.assertEqual(result['before']['consumers'], result['after']['consumers'])
+                        self.assertEqual(result['after']['table_counts']['work_items'], 0)
                     if version == 4:
                         self.assertEqual(result['identity']['store_id'], 'a' * 32)
                     if version == 3:

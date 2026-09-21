@@ -5,6 +5,11 @@ into a dated release section when promoted to `main`.
 
 ## Unreleased
 
+- Add an experimental public native upgrade command with a retained recovery archive,
+  explicit resume/status, preflight refusal of unowned memory state in selected roots,
+  and private preservation reports through release and final readiness. Inactive/manual
+  adapters and the full cross-platform acceptance matrix remain unfinished.
+
 - Bind pre-release service admission to verified child generations, distinguish later
   restarts from preservation verification, and retain installation exclusion through
   component observation and marker publication.

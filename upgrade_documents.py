@@ -43,7 +43,7 @@ class Documents:
     def _locked(self):
         directory = self._directory()
         lock = self.directory / 'documents.lock'
-        with file_lock(lock, 'upgrade_documents_busy', None) as fd:
+        with file_lock(lock, 'upgrade_documents_busy', None, timeout=5) as fd:
             info, named = os.fstat(fd), lock.lstat()
             if ((info.st_dev, info.st_ino) != (named.st_dev, named.st_ino)
                     or self._directory() != directory):

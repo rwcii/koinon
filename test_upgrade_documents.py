@@ -14,6 +14,25 @@ class DocumentsTests(unittest.TestCase):
         self.root = Path(self.temp.name)
         self.documents = documents.Documents(self.root)
 
+    def test_concurrent_reader_waits_for_short_metadata_publication(self):
+        from concurrent.futures import ThreadPoolExecutor
+        from participant_lock import file_lock
+        import threading
+        import time
+        value = dict(version=1)
+        digest = self.documents.put('source', value)
+        entered = threading.Event()
+        def reader():
+            entered.set()
+            return self.documents.read('source', digest)
+        with ThreadPoolExecutor(max_workers=1) as executor:
+            with file_lock(self.root / 'documents.lock', 'synthetic_busy', None):
+                future = executor.submit(reader)
+                self.assertTrue(entered.wait(1))
+                time.sleep(.1)
+                self.assertFalse(future.done(), 'brief contention must not kill a gate reader')
+            self.assertEqual(future.result(timeout=2), value)
+
     def test_large_manifest_roundtrip_is_immutable_and_private(self):
         value = dict(files={f'module_{i}.py': dict(sha256=f'{i:064x}', bytes=i)
                             for i in range(128)})

@@ -145,7 +145,7 @@ def prepare(directory, source, entrypoint):
     return result
 
 
-def verify(expected, source):
+def verify(expected, source, *, require_source=True):
     """Read-only verification against a descriptor already bound by the caller's plan."""
     if (not isinstance(expected, dict) or set(expected) != {'version', 'source', 'entrypoint', 'archive'}
             or type(expected['version']) is not int or expected['version'] != 1
@@ -153,7 +153,9 @@ def verify(expected, source):
             or not isinstance(expected['archive'], dict)
             or not isinstance(expected['archive'].get('files'), dict)):
         raise BundleError('invalid recovery bundle descriptor')
-    source = manifest.verify(source)
+    if type(require_source) is not bool:
+        raise BundleError('source verification selection must be boolean')
+    source = manifest.verify(source) if require_source else manifest.validate(source)
     manifest.names_checked((expected['entrypoint'],))
     if (expected['source'] != manifest.fingerprint(source)
             or expected['entrypoint'] not in source['files']

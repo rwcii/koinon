@@ -78,7 +78,7 @@ def _validate(plan, root):
     return plan
 
 
-def _contents(plan, values):
+def _contents(plan, values, *, completed=False):
     source, runtime = (manifest.validate(values[name]) for name in ('source', 'runtime'))
     if runtime['root'] != plan['canonical_prefix']:
         raise PlanError('old runtime manifest selects another installation')
@@ -93,7 +93,7 @@ def _contents(plan, values):
     if len(inventory['items']) != plan['component_count']:
         raise PlanError('frozen component count mismatch')
     recovery = values['recovery']
-    archive = upgrade_bundle.verify(recovery, source)
+    archive = upgrade_bundle.verify(recovery, source, require_source=not completed)
     if archive.parent != Path(plan['directory']):
         raise PlanError('recovery archive selects another operation')
     return values
@@ -119,11 +119,11 @@ def prepare(directory, prefix, *, source, runtime, installation, components, rec
     journal = Journal(root, digest)
     documents = Documents(root)
     with journal.operation():
-        # Reserve one historical ack and two aggregate evidence slots per selected
+        # Reserve one reservation, two capture documents and one migration document per selected
         # component, plus phase/manifests/locks/scratch headroom. No post-shutdown
         # directory growth is permitted to turn a full plan into a partial one.
         current = len(list(islice(root.iterdir(), MAX_DIRECTORY_ENTRIES + 1)))
-        if current + 3 * plan['component_count'] + 64 > MAX_DIRECTORY_ENTRIES:
+        if current + 4 * plan['component_count'] + 64 > MAX_DIRECTORY_ENTRIES:
             raise PlanError('insufficient recovery directory capacity for complete operation')
         for name in DOCUMENTS:
             documents.put(name, values[name])
@@ -137,8 +137,9 @@ def load(directory, expected_digest):
 
     Old installed bytes may have changed during replacement. Only their retained
     manifest structure is checked here; the phase-specific coordinator decides
-    which current bytes are valid. The frozen source and recovery archive still
-    must verify against their recorded bytes.
+    which current bytes are valid. Unfinished operations require the frozen source
+    bytes. Completed operations require only its retained manifest and archive, so
+    a later checkout update cannot prevent status or the next upgrade.
     """
     root = manifest.check_root(directory)
     documents = Documents(root)
@@ -146,6 +147,6 @@ def load(directory, expected_digest):
     if manifest.select_root(plan['prefix']) != Path(plan['canonical_prefix']):
         raise PlanError('installed prefix alias changed since preparation')
     values = {name: documents.read(name, plan['documents'][name]) for name in DOCUMENTS}
-    _contents(plan, values)
     phase = Journal(root, expected_digest).read()
+    _contents(plan, values, completed=phase['step'] == 19)
     return dict(plan=plan, sha256=expected_digest, phase=phase, documents=values)

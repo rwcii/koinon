@@ -50,6 +50,18 @@ class SessionStartupTests(unittest.TestCase):
                 self.assertEqual([call.args[1] for call in action.call_args_list], ['register', 'start'])
             self.assertEqual(owner.journal.read()['step'], 10)
 
+    def test_final_readiness_restart_uses_live_probe_after_release(self):
+        self.ready()
+        gate.GateTests.advance(self, 18)
+        with self.owner() as owner, \
+                patch.object(session_service_manager, 'ensure', return_value=dict(status='running')), \
+                patch('upgrade_probe.live', return_value=dict(ready=True)) as live, \
+                patch('upgrade_probe.gated') as gated:
+            component = owner.loaded['documents']['components']['items'][0]
+            self.assertEqual(upgrade_start.component(owner, component), dict(ready=True))
+            live.assert_called_once_with(owner, component)
+            gated.assert_not_called()
+
     def test_runtime_substitution_after_registration_prevents_start(self):
         self.ready()
         with self.owner() as owner:

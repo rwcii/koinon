@@ -20,7 +20,7 @@ def validate(exclusion, selection, kind):
             or not any(item['kind'] == kind and item['selection'] == selection.record
                        for item in active['documents']['components']['items'])):
         raise StartupError('gated startup selection differs from the active plan')
-    if Journal(active['plan']['directory'], active['sha256']).read()['step'] not in (10, 12):
+    if Journal(active['plan']['directory'], active['sha256']).read()['step'] not in (10, 12, 18):
         raise StartupError('gated startup is outside a pending startup phase')
     source = active['documents']['source']
     manifest.verify(source)
@@ -49,4 +49,6 @@ def component(exclusion, selected_component):
         result = memory_service.ensure_managed(selected, upgrade=exclusion)
     if result.get('status') != 'running':
         raise StartupError('selected native service did not become ready under the gate')
+    if exclusion.verify()['step'] == 18:
+        return upgrade_probe.live(exclusion, selected_component)
     return upgrade_probe.gated(exclusion, selected_component)

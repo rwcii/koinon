@@ -65,6 +65,33 @@ class ProbeTests(unittest.TestCase):
             with self.assertRaises(probe.ProbeError):
                 probe.capture(self.exclusion, self.component)
 
+    def test_post_release_readiness_accepts_owned_successor_without_inventory(self):
+        self.exclusion.verify = lambda: dict(step=18)
+        self.status['upgrade'] = dict(self.gate, released=True, post_release_start=True)
+        with ExitStack() as stack:
+            exchange = self.controls(stack, [(dict(ok=True, result=self.status), 123)])
+            stack.enter_context(patch.object(probe, '_selected', return_value=(self.selection, 18)))
+            result = probe.live(self.exclusion, self.component)
+            self.assertEqual(result['owner'], self.owner)
+            self.assertEqual(exchange.call_count, 1)
+            self.assertEqual(exchange.call_args.args[1], dict(op='hello'))
+
+    def test_post_release_readiness_refuses_unreleased_or_foreign_child(self):
+        self.exclusion.verify = lambda: dict(step=18)
+        for gate in (self.gate, dict(self.gate, released=True, plan='e' * 64)):
+            with self.subTest(gate=gate), ExitStack() as stack:
+                self.controls(stack, [(dict(ok=True, result=dict(self.status, upgrade=gate)), 123)])
+                stack.enter_context(patch.object(probe, '_selected', return_value=(self.selection, 18)))
+                with self.assertRaises(probe.ProbeError):
+                    probe.live(self.exclusion, self.component)
+
+    def test_live_and_preservation_probes_refuse_each_others_phases(self):
+        with self.assertRaises(probe.ProbeError):
+            probe.live(self.exclusion, self.component)
+        self.exclusion.verify = lambda: dict(step=18)
+        with self.assertRaises(probe.ProbeError):
+            probe.capture(self.exclusion, self.component)
+
     def test_session_requires_both_bridge_and_notifier_gates(self):
         component = dict(kind='session', selection=dict(state_directory='/synthetic/state'))
         owner = dict(self.owner, children=dict(bridge=self.child,

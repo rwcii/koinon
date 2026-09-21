@@ -13,10 +13,10 @@ class ProbeError(ValueError):
     pass
 
 
-def _selected(exclusion, component):
+def _selected(exclusion, component, *, live=False):
     phase = exclusion.verify()['step']
-    if phase not in (10, 12, 14, 16):
-        raise ProbeError('gated verification requires a pending pre-release phase')
+    if phase not in ((18,) if live else (10, 12, 14, 16)):
+        raise ProbeError('verification is outside its selected pre/post-release phase')
     selected = upgrade_quiescence.selection(exclusion, component)
     source = exclusion.loaded['documents']['source']
     manifest.verify(source)
@@ -26,19 +26,37 @@ def _selected(exclusion, component):
     return selected, phase
 
 
-def _gate(exclusion, value, captured, connected_pid):
+def _gate(exclusion, value, captured, connected_pid, *, released=False):
     if (type(connected_pid) is not int or connected_pid != captured['pid']
             or not isinstance(value, dict) or type(value.get('pid')) is not int
             or value['pid'] != connected_pid or value.get('generation') != captured['generation']):
         raise ProbeError('private control does not match the selected child generation')
+    gate = value.get('upgrade')
+    if not isinstance(gate, dict) or type(gate.get('post_release_start')) is not bool:
+        raise ProbeError('selected child has no valid upgrade gate status')
     expected = dict(plan=exclusion.loaded['sha256'], operation=str(exclusion.journal.directory),
-                    generation=captured['generation'], released=False, post_release_start=False)
-    if value.get('upgrade') != expected or value['upgrade'].get('released') is not False:
-        raise ProbeError('selected child has not confirmed the unreleased upgrade gate')
+                    generation=captured['generation'], released=released,
+                    post_release_start=gate['post_release_start'] if released else False)
+    if gate != expected or gate.get('released') is not released:
+        raise ProbeError('selected child has not confirmed the required upgrade gate boundary')
 
 
 def gated(exclusion, component):
-    selected, phase = _selected(exclusion, component)
+    return _observe(exclusion, component)
+
+
+def live(exclusion, component):
+    """Check post-release readiness, never preservation after renewed writes.
+
+    A fresh post-release child may have a new generation. Its own gate checks the
+    release receipt; this probe joins that status to the current owned process.
+    """
+    return _observe(exclusion, component, live=True)
+
+
+def _observe(exclusion, component, *, live=False):
+    selected, phase = (_selected(exclusion, component, live=True) if live
+                       else _selected(exclusion, component))
     if component['kind'] == 'session':
         observe = lambda: session_service_manager.status(selected)
         owner_read = selected.records.read
@@ -60,7 +78,7 @@ def gated(exclusion, component):
         reply, pid = asyncio.run(control_exchange(root, dict(op='hello' if kind == 'memory' else 'status'), timeout=5))
         if reply.get('ok') is not True:
             raise ProbeError('selected child refused private status')
-        _gate(exclusion, reply.get('result'), child, pid)
+        _gate(exclusion, reply.get('result'), child, pid, released=live)
         statuses[kind] = reply['result']
     if (owner_read() != owner or observe() != before or owner_read() != owner
             or exclusion.verify()['step'] != phase):

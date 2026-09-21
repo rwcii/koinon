@@ -14,6 +14,24 @@ class JournalTests(unittest.TestCase):
         self.root = Path(self.temp.name)
         self.state = journal.Journal(self.root, 'a' * 64)
 
+    def test_concurrent_reader_waits_for_short_metadata_publication(self):
+        from concurrent.futures import ThreadPoolExecutor
+        from participant_lock import file_lock
+        import threading
+        import time
+        value = self.state.initialize()
+        entered = threading.Event()
+        def reader():
+            entered.set()
+            return self.state.read()
+        with ThreadPoolExecutor(max_workers=1) as executor:
+            with file_lock(self.state.lock_path, 'synthetic_busy', None):
+                future = executor.submit(reader)
+                self.assertTrue(entered.wait(1))
+                time.sleep(.1)
+                self.assertFalse(future.done(), 'brief contention must not kill a gate reader')
+            self.assertEqual(future.result(timeout=2), value)
+
     def test_resume_never_recreates_a_missing_journal(self):
         with self.assertRaisesRegex(journal.JournalError, 'missing'):
             self.state.read()
