@@ -54,8 +54,11 @@ services remains governed by the current upgrade runbook until DQ-12 lands.
 Proposed CLI: `install.py --configure-codex --repo REPOSITORY` configures memory for
 that repository as well as participant guidance. The DeepSeek form behaves the same. Add
 `--configure-memory --repo REPOSITORY` for memory-only or an additional repository; it
-must not validate or require an unused participant executable. Existing explicit thread
-installation configures memory for its selected repository. Guidance-only invocations
+must not validate or require an unused participant executable. A fresh explicit-thread installation with an explicit `--repo` configures memory for
+that repository. Existing installations retain their component scope until the operator
+adds `--configure-memory --repo REPOSITORY`; an ordinary rerun must not silently start
+an additional service. Legacy thread-only invocations without `--repo` retain their
+previous scope. Guidance-only invocations
 without an explicit repository preserve their current scope.
 
 Resolve the supplied repository before publication. Retain both its canonical common

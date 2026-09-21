@@ -20,7 +20,7 @@ import install_state
 MARKER = runtime_names.SERVICE_MARKER
 SERVICES = runtime_names.service_names()
 
-FILES = ('session_socket_handoff.py', 'session_endpoints.py', 'session_service_manager.py', 'session_service.py', 'session_service_artifacts.py', 'session_service_config.py', 'session_supervisor.py', 'session_supervisor_state.py', 'generation_stop.py', 'memory_service.py', 'memory_service_artifacts.py', 'memory_service_config.py', 'docs/WORK-ITEMS-UPGRADE.md', 'work_guidance.py', 'docs/WORK-ITEMS-POLICY.md', 'install_state.py', 'work_policy.py', 'work_maintenance.py', 'work_items.py', 'work_storage.py', 'claims.py', 'work_schema.py', 'docs/DELIVERY.md', 'participant_presence.py', 'delivery_ledger.py', 'usage_report.py', 'usage_sources.py', 'usage_selection.py', 'docs/USAGE.md', 'runtime_names.py', 'participant_instructions.py', 'session_observation.py', 'durable_state.py', 'notification_delivery.py', 'notification_health.py', 'notification_journal.py', 'notification_legacy.py', 'notification_memory.py', 'notification_migration.py', 'notification_notices.py', 'notification_provider.py', 'notification_runtime.py', 'notification_source.py', 'notification_state.py', 'subscriptions.py','memory_bindings.py', 'inbox_schema.py', 'database_worker.py', 'service_runtime.py', 'participant_lock.py', 'peer_transport.py', 'peer_guidance.py', 'CHANGELOG.md', 'memory.py', 'session.py', 'codex_instructions.py', 'platform_support.py', 'dsh_delivery.py', 'scripts/install.py', 'scripts/uninstall.py', 'scripts/uninstall.sh', 'bridge.py', 'notify.py', 'README.md', 'PROTOCOL.md', 'LICENSE', 'CONTRIBUTING.md', 'AGENTS.md', 'docs/INSTALL.md', 'docs/NOTIFIER.md', 'docs/IDENTIFIER-MIGRATION.md', 'docs/PARITY-MEMORY-DESIGN.md')
+FILES = ('uninstall_finalize.py', 'component_remove.py', 'session_install.py', 'component_install.py', 'session_socket_handoff.py', 'session_endpoints.py', 'session_service_manager.py', 'session_service.py', 'session_service_artifacts.py', 'session_service_config.py', 'session_supervisor.py', 'session_supervisor_state.py', 'generation_stop.py', 'memory_service.py', 'memory_service_artifacts.py', 'memory_service_config.py', 'docs/WORK-ITEMS-UPGRADE.md', 'work_guidance.py', 'docs/WORK-ITEMS-POLICY.md', 'install_state.py', 'work_policy.py', 'work_maintenance.py', 'work_items.py', 'work_storage.py', 'claims.py', 'work_schema.py', 'docs/DELIVERY.md', 'participant_presence.py', 'delivery_ledger.py', 'usage_report.py', 'usage_sources.py', 'usage_selection.py', 'docs/USAGE.md', 'runtime_names.py', 'participant_instructions.py', 'session_observation.py', 'durable_state.py', 'notification_delivery.py', 'notification_health.py', 'notification_journal.py', 'notification_legacy.py', 'notification_memory.py', 'notification_migration.py', 'notification_notices.py', 'notification_provider.py', 'notification_runtime.py', 'notification_source.py', 'notification_state.py', 'subscriptions.py','memory_bindings.py', 'inbox_schema.py', 'database_worker.py', 'service_runtime.py', 'participant_lock.py', 'peer_transport.py', 'peer_guidance.py', 'CHANGELOG.md', 'memory.py', 'session.py', 'codex_instructions.py', 'platform_support.py', 'dsh_delivery.py', 'scripts/install.py', 'scripts/uninstall.py', 'scripts/uninstall.sh', 'bridge.py', 'notify.py', 'README.md', 'PROTOCOL.md', 'LICENSE', 'CONTRIBUTING.md', 'AGENTS.md', 'docs/INSTALL.md', 'docs/NOTIFIER.md', 'docs/IDENTIFIER-MIGRATION.md', 'docs/PARITY-MEMORY-DESIGN.md')
 
 
 def unit_arg(value):
@@ -265,6 +265,8 @@ def main():
     p.add_argument('--guidance-file', type=Path)
     p.add_argument('--thread', help='exact existing Codex thread ID')
     p.add_argument('--configure-codex', action='store_true', help='install managed global guidance and per-session registration')
+    p.add_argument('--configure-memory', action='store_true', help='install repository memory without requiring a participant executable')
+    p.add_argument('--service-backend', choices=('systemd', 'launchd', 'manual'))
     p.add_argument('--configure-deepseek', action='store_true',
                    help='install managed harness guidance for DeepSeek (DSH) sessions')
     p.add_argument('--codex-home', type=Path)
@@ -282,7 +284,7 @@ def main():
     if not platform_support.SUPPORTED or sys.version_info < (3,11):
         p.error('Linux or macOS with Python 3.11+ is required')
     if a.configure_work_items or a.remove_work_items:
-        if (a.thread or a.configure_codex or a.configure_deepseek or a.name or a.no_start
+        if (a.thread or a.configure_codex or a.configure_deepseek or a.configure_memory or a.service_backend or a.name or a.no_start
                 or a.codex_home or a.dsh_home or a.state_dir or a.unit_dir or a.codex):
             p.error('work configuration is independent of runtime installation and service options')
         if not a.repo or not a.participant or (a.configure_work_items and not a.guidance_file):
@@ -304,21 +306,56 @@ def main():
         return
     if a.participant or a.guidance_file:
         p.error('--participant and --guidance-file require a work configuration mode')
+    if a.configure_memory and not a.repo:
+        p.error('--configure-memory requires an explicit --repo')
     a.prefix = (a.prefix or runtime_names.default_prefix()).expanduser().resolve()
     # Refusals must not create even a prefix/lock. Recheck under the lock
     # using fresh configuration before any publication or service changes. Legacy
     # service-manager availability is deliberately checked in both passes.
     install(copy.deepcopy(a), p, validate_only=True)
+    # The lock creates missing prefix ancestors before install() copies files.
+    os.umask(0o077)
     with install_state.locked(a.prefix) as configuration:
         install(a, p, configuration)
+    if getattr(a, 'memory_selection', None) is not None:
+        import component_install
+        record = component_install.stage_memory(a.prefix, a.memory_selection)
+        if a.no_start:
+            print('Memory selection staged; manager was not queried or started.')
+        else:
+            subprocess.run([sys.executable, str(a.prefix / 'memory_service.py'), 'ensure',
+                            '--prefix', str(a.prefix), '--repo', record['common_directory']], check=True)
+    if (a.thread and (a.configure_codex or a.configure_deepseek or a.configure_memory
+                      or getattr(a, 'memory_selection', None) is not None)
+            and (not a.no_start or getattr(a, 'memory_selection', None) is not None)):
+        subprocess.run([sys.executable, str(a.prefix / 'session.py'), 'stage' if a.no_start else 'ensure',
+                        '--thread', a.thread, '--repo', a.repo or os.getcwd()], check=True)
 
 
 def install(a, p, configuration=None, validate_only=False):
     previous = configuration.config if configuration is not None else runtime_names.install_config(a.prefix)
+    if previous.get('installation_state') == 'removing':
+        p.error('installation removal is incomplete; resume uninstall before reinstalling')
     a.state_dir = Path(a.state_dir or previous.get('state_root') or runtime_names.default_state_root()).expanduser().resolve()
     a.unit_dir = Path(a.unit_dir or previous.get('unit_dir') or Path.home()/'.config/systemd/user').expanduser().resolve()
-    if not a.thread and not (a.configure_codex or a.configure_deepseek):
-        p.error('--thread, --configure-codex or --configure-deepseek is required')
+    memory_only = a.configure_memory and not (a.thread or a.configure_codex or a.configure_deepseek)
+    if not a.thread and not (a.configure_codex or a.configure_deepseek or a.configure_memory):
+        p.error('--thread, --configure-codex, --configure-deepseek or --configure-memory is required')
+    a.memory_selection = None
+    if a.repo and (a.configure_memory or a.configure_codex or a.configure_deepseek or a.thread):
+        import component_install
+        import memory_service_config
+        key, _ = memory_service_config.selection(a.repo, a.state_dir)
+        existing = bool(previous) or (a.prefix / 'bridge.py').exists()
+        already_selected = key in previous.get('memory_services', {}).get('repositories', {})
+        if not existing or already_selected or a.configure_memory:
+            _, a.memory_selection = component_install.memory_selection(
+                a.prefix, a.repo, a.state_dir, a.service_backend, previous)
+        elif not validate_only:
+            print('Existing installation scope retained. To add repository memory, rerun with '
+                  '--configure-memory --repo and the same prefix/state paths.')
+    elif a.service_backend:
+        p.error('--service-backend requires an explicit repository selection')
     participants = set(previous.get('participants', ['codex'] if previous else []))
     participants.update(name for name, chosen in (('codex', a.configure_codex),
                                                   ('deepseek', a.configure_deepseek)) if chosen)
@@ -326,14 +363,21 @@ def install(a, p, configuration=None, validate_only=False):
     saved_codex = previous.get('codex')
     saved_codex_usable = (saved_codex and Path(saved_codex).is_absolute()
                           and Path(saved_codex).is_file() and os.access(saved_codex, os.X_OK))
-    if not explicit_codex:
+    if memory_only:
+        a.codex = previous.get('codex')
+    elif not explicit_codex:
         a.codex = saved_codex if saved_codex_usable else shutil.which('codex')
     # --thread starts a Codex session even when only DeepSeek guidance is selected.
-    if explicit_codex or a.thread or 'codex' in participants:
+    if not memory_only and (explicit_codex or a.thread or 'codex' in participants):
         if (not a.codex or not Path(a.codex).is_absolute()
                 or not Path(a.codex).is_file() or not os.access(a.codex, os.X_OK)):
             p.error('provide an executable absolute --codex path, or install Codex CLI on PATH')
-    if a.configure_codex or a.configure_deepseek:
+    if a.configure_codex or a.configure_deepseek or a.configure_memory or a.memory_selection is not None:
+        import component_install
+        component_install.runtime_preflight(a.prefix, Path(__file__).resolve().parent.parent, FILES, previous)
+        if (not memory_only and a.memory_selection is not None and previous.get('session_backend') is not None
+                and previous['session_backend'] != a.memory_selection['backend']):
+            p.error('changing the saved session backend requires explicit reconciliation')
         a.codex_home = a.codex_home or Path(previous.get('codex_home') or
                                           os.environ.get('CODEX_HOME', str(Path.home()/'.codex')))
         a.dsh_home = a.dsh_home or Path(previous.get('dsh_home') or
@@ -342,20 +386,7 @@ def install(a, p, configuration=None, validate_only=False):
             return
         os.umask(0o077)
         a.prefix.mkdir(parents=True,exist_ok=True)
-        source = Path(__file__).resolve().parent.parent
-        for file in FILES:
-            dest=a.prefix/file
-            dest.parent.mkdir(parents=True,exist_ok=True)
-            if (source/file).resolve() != dest.resolve():
-                shutil.copyfile(source/file,dest)
-        sys.path.insert(0,str(a.prefix))
-        from participant_instructions import update
-        guidance = update(a.codex_home,a.prefix) if a.configure_codex else None
-        # The harness reads its guidance from AGENTS.md in the harness home, so a
-        # DeepSeek session learns to register and read its inbox the same way a
-        # Codex session does.
-        dsh_guidance = update(a.dsh_home,a.prefix,agent='deepseek') if a.configure_deepseek else None
-        configuration.merge(dict(state_root=str(a.state_dir),
+        updates = dict(state_root=str(a.state_dir),
             unit_dir=str(a.unit_dir),codex=a.codex,codex_home=str(a.codex_home.expanduser().resolve()),
             dsh_home=str(a.dsh_home.expanduser().resolve()),
             # Which managed sections this installation wrote, so uninstall removes
@@ -364,17 +395,44 @@ def install(a, p, configuration=None, validate_only=False):
             dsh_url=(os.environ.get('DSH_WEB_URL', previous.get('dsh_url'))
                      if a.configure_deepseek else previous.get('dsh_url')),
             dsh_credentials=(str(a.dsh_home.expanduser().resolve()/'.credentials.yaml')
-                             if a.configure_deepseek else previous.get('dsh_credentials'))))
+                             if a.configure_deepseek else previous.get('dsh_credentials')))
+        if a.memory_selection is not None and not memory_only:
+            updates['session_backend'] = a.memory_selection['backend']
+        if a.memory_selection is not None:
+            component_install.prepare_artifact_directory(a.memory_selection)
+            import memory_service_config
+            key, _ = memory_service_config.identity(a.memory_selection['common_directory'])
+            inventory = previous.get('memory_services', dict(version=1, repositories={}))
+            if key not in inventory['repositories']:
+                pending = (dict(a.memory_selection, state='pending', before_digest=None,
+                                after_digest=a.memory_selection['artifact_digest'])
+                           if a.memory_selection['backend'] != 'manual' else a.memory_selection)
+                updates['memory_services'] = memory_service_config.admit(inventory, pending)
+        # Persist the requested component set before copying modules or guidance,
+        # so a retry cannot mistake an interrupted fresh install for a legacy one.
+        configuration.merge(updates)
+        source = Path(__file__).resolve().parent.parent
+        for file in FILES:
+            dest=a.prefix/file
+            dest.parent.mkdir(parents=True,exist_ok=True)
+            if (source/file).resolve() != dest.resolve():
+                component_install.copy_runtime(source/file, dest)
+        sys.path.insert(0,str(a.prefix))
+        from participant_instructions import update
+        guidance = update(a.codex_home,a.prefix) if a.configure_codex else None
+        # The harness reads its guidance from AGENTS.md in the harness home, so a
+        # DeepSeek session learns to register and read its inbox the same way a
+        # Codex session does.
+        dsh_guidance = update(a.dsh_home,a.prefix,agent='deepseek') if a.configure_deepseek else None
         print('Installed runtime:',a.prefix)
         print('State directory:',a.state_dir)
         if guidance is not None:
             print('Managed Codex guidance:',guidance)
         if dsh_guidance is not None:
             print('Managed DeepSeek guidance:',dsh_guidance)
-        print('New sessions run session.py ensure with their own session identity.')
-        report_session_restarts(a.prefix, a.unit_dir, no_start=a.no_start)
-        if a.thread and not a.no_start:
-            subprocess.run([sys.executable,str(a.prefix/'session.py'),'ensure','--thread',a.thread,'--repo',a.repo or os.getcwd()],check=True)
+        if not memory_only:
+            print('New sessions run session.py ensure with their own session identity.')
+            report_session_restarts(a.prefix, a.unit_dir, no_start=a.no_start)
         return
     if platform_support.SERVICE_MANAGER is None and not a.no_start:
         # The managed supervisor is the portable alternative to a service manager:
@@ -434,3 +492,10 @@ if __name__ == '__main__':
         print(json.dumps(dict(ok=False, code=exc.code, paths=exc.paths, error=str(exc))))
         raise SystemExit(75 if exc.code == 'configuration_busy' else
                          platform_support.CONFIGURATION_EXIT_STATUS) from None
+    except (OSError, ValueError, subprocess.SubprocessError) as exc:
+        import durable_state
+        temporary = isinstance(exc, (durable_state.StateReadBusyError, subprocess.SubprocessError))
+        print(json.dumps(dict(ok=False, code=getattr(exc, 'code', 'installation_incomplete'),
+                              error=str(exc), paths=getattr(exc, 'paths', ()),
+                              recovery='Preserve existing state and retry after correcting the reported condition.')))
+        raise SystemExit(getattr(exc, 'exit_status', 75 if temporary else 78)) from None

@@ -103,6 +103,8 @@ def reported_default(base, label):
 def validate_install_config(result):
     if not isinstance(result, dict):
         raise ValueError('configuration is not an object')
+    if result.get('installation_state', 'installed') not in ('installed', 'removing'):
+        raise ValueError('invalid installation lifecycle state')
     for key in ('state_root', 'unit_dir'):
         if not isinstance(result.get(key), str) or not Path(result[key]).is_absolute():
             raise ValueError('missing or nonabsolute installation path')
@@ -112,6 +114,8 @@ def validate_install_config(result):
     if 'memory_services' in result:
         from memory_service_config import validate
         validate(result['memory_services'])
+    if 'session_backend' in result and result['session_backend'] not in ('systemd', 'launchd', 'manual'):
+        raise ValueError('invalid session backend selection')
     return result
 
 

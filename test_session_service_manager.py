@@ -116,3 +116,24 @@ class NativeSessionManagerTests(unittest.TestCase):
             with self.assertRaises(service.ServiceError):
                 manager.deactivate(self.selection)
         deactivate.assert_not_called()
+
+    def test_unavailable_manager_reports_manual_command_without_mutation(self):
+        with patch.object(manager, 'observation', return_value=dict(status='unknown')), \
+                patch.object(platform_support, 'memory_manager_available', return_value=False), \
+                patch.object(platform_support, 'session_manager_action') as action:
+            result = manager.ensure(self.selection)
+        self.assertEqual(result['status'], 'manual_required')
+        self.assertFalse(result['running'])
+        import shlex
+        self.assertEqual(shlex.split(result['start_command']),
+                         platform_support.session_service_command(self.record))
+        action.assert_not_called()
+
+    def test_unknown_job_with_available_manager_is_temporary_failure(self):
+        with patch.object(manager, 'observation', return_value=dict(status='unknown')), \
+                patch.object(platform_support, 'memory_manager_available', return_value=True), \
+                patch.object(platform_support, 'session_manager_action') as action:
+            with self.assertRaises(service.ServiceError) as caught:
+                manager.ensure(self.selection)
+        self.assertEqual(caught.exception.code, 'session_temporary_failure')
+        action.assert_not_called()

@@ -42,6 +42,23 @@ LINUX = sys.platform.startswith('linux')
 # themselves, so this module stays the only place that knows the differences.
 SUPPORTED = DARWIN or LINUX
 SERVICE_MANAGER = 'systemd' if LINUX else None
+
+
+def installation_backend():
+    """Choose a native artifact format without probing a service manager."""
+    if LINUX:
+        return 'systemd'
+    if DARWIN:
+        return 'launchd'
+    raise ValueError('unsupported installation platform')
+
+
+def memory_artifact_directory(prefix, backend):
+    if backend == 'launchd':
+        return account_home() / 'Library' / 'LaunchAgents'
+    if backend in ('systemd', 'manual'):
+        return Path(prefix) / 'service-artifacts' / 'memory'
+    raise ValueError('unsupported installation backend')
 # Explicit configuration/ownership refusals require operator action, not restart loops.
 CONFIGURATION_EXIT_STATUS = 78
 TEMPORARY_EXIT_STATUS = 75
@@ -860,6 +877,41 @@ def memory_registration_paths(record, *, runtime=False):
     directory = temporary if runtime else persistent
     name = Path(record['artifact']).name
     return (directory / name, directory / 'default.target.wants' / name)
+
+
+def memory_manager_deregister(record):
+    """Remove only verified literal registration links for a stopped memory job."""
+    import memory_service_artifacts as artifacts
+    if record['backend'] == 'launchd':
+        return memory_manager_action(record, 'deactivate')
+    if record['backend'] != 'systemd' or not LINUX:
+        raise ValueError('native memory registration required')
+    paths = memory_registration_paths(record)
+    artifacts.preflight_registration(record, paths)
+    identities = {}
+    for path in paths:
+        try:
+            info = path.lstat()
+        except FileNotFoundError:
+            continue
+        artifacts.verify_loader_link(path, record['artifact'])
+        identities[path] = (info.st_dev, info.st_ino)
+    # Check the whole selected set before removing any link. An interrupted
+    # removal accepts missing links on retry, but never replaces changed links.
+    for path, identity in identities.items():
+        artifacts.verify_loader_link(path, record['artifact'])
+        info = path.lstat()
+        if (info.st_dev, info.st_ino) != identity:
+            raise artifacts.RegistrationPathError(path)
+    for path, identity in identities.items():
+        artifacts.verify_loader_link(path, record['artifact'])
+        info = path.lstat()
+        if (info.st_dev, info.st_ino) != identity:
+            raise artifacts.RegistrationPathError(path)
+        path.unlink()
+        sync_state_directory(path.parent)
+    return subprocess.run(['systemctl', '--user', '--no-ask-password', 'daemon-reload'],
+                          capture_output=True, text=True, check=True, timeout=15)
 
 def memory_manager_action(record, operation, *, runtime=False):
     """Execute a preflighted owned action; callers supply ownership verification."""

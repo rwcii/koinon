@@ -29,15 +29,22 @@ class ServiceError(ValueError):
 
 
 class Selection:
-    def __init__(self, prefix, home, *, backend=None, python=None):
+    def __init__(self, prefix, home, *, backend=None, python=None, removing=False):
         self.prefix, self.home = absolute_path(str(prefix)), absolute_path(str(home))
+        import runtime_names
+        if runtime_names.install_config(self.prefix).get('installation_state') == 'removing' and not removing:
+            raise ServiceError(paths=(self.prefix / 'install.json',))
         self.record = artifacts.load(self.home)
+        removal = self.record and self.record['state'] == 'removing' and removing
+        if removal:
+            self.record = artifacts.verify_removing(self.record)
         if (self.record is None or self.record['state'] != 'installed'
                 or self.record['prefix'] != str(self.prefix)
                 or self.record['python'] != (python or sys.executable)
                 or backend is not None and self.record['backend'] != backend):
             raise ServiceError(paths=(self.home / 'native-service.json',))
-        artifacts.verify_owned(self.record)
+        if not removal:
+            artifacts.verify_owned(self.record)
         config, registration = artifacts.inputs(self.record)
         self.commands = configuration.commands(self.prefix, self.record['python'], self.home, config, registration)
         self.backend = self.record['backend']
@@ -183,6 +190,8 @@ def main(argv=None):
         print(json.dumps(result), flush=True)
         if result.get('status') == 'refused':
             return result['exit_status']
+        if args.action == 'ensure' and result.get('status') == 'manual_required':
+            return 0
         return 75 if args.action in ('ensure', 'status') and result.get('status') != 'running' else 0
     except (OSError, ValueError) as exc:
         code = ('session_temporary_failure' if isinstance(exc, durable_state.StateReadBusyError)
@@ -191,7 +200,7 @@ def main(argv=None):
             code = 'session_configuration_failure'
         exit_status = session_supervisor.STATUSES[code]
         print(json.dumps(dict(status='unavailable', code=code, exit_status=exit_status,
-                              paths=list(getattr(exc, 'paths', ())),
+                              error=str(exc), paths=list(getattr(exc, 'paths', ())),
                               recovery='preserve evidence; inspect the reported selection or lock before explicit reconciliation')),
               flush=True)
         return platform_support.managed_service_exit(args.backend, exit_status) if args.action == 'run' else exit_status

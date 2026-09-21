@@ -129,7 +129,7 @@ class NativeSessionArtifactsTests(unittest.TestCase):
         lock = self.home / 'supervisor.lock'
         lock.touch(mode=0o600)
         lock.chmod(0o664)
-        with self.assertRaises(ValueError):
+        with self.assertRaisesRegex(ValueError, 'unsafe_lock_file'):
             artifacts.publish(self.record)
         self.assertEqual(lock.stat().st_mode & 0o777, 0o664)
         self.assertIsNone(artifacts.load(self.home))

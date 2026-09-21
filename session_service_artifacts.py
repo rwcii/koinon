@@ -29,7 +29,7 @@ def locked(path):
                 raise ValueError('session configuration lock changed')
             yield
     except OwnershipError as exc:
-        error = ValueError('session lock unavailable or unsafe; preserve and inspect ' + str(path))
+        error = ValueError('session lock failure (' + exc.code + '); preserve and inspect ' + str(path))
         error.paths = (str(path),)
         raise error from exc
 
@@ -119,6 +119,62 @@ def verify_loaded(record, observed_artifact):
         return verify_owned(record)
 
 
+def verify_removing(record):
+    desired = {field: copy.deepcopy(record[field]) for field in configuration.BASE_FIELDS}
+    desired['state'] = 'installed'
+    with boundary(record):
+        configuration.validate(record)
+        if record['state'] != 'removing' or load(record['state_directory']) != record:
+            raise ValueError('session removal evidence changed')
+        inputs(desired)
+        if files._read(Path(record['artifact'])) not in (None, expected(desired)):
+            raise ValueError('session artifact changed during removal')
+    return desired
+
+
+def archived_removal(prefix, home, config, registration):
+    """Read completed removal provenance without adopting an arbitrary registration."""
+    candidates = list(Path(home).glob('native-service-removed-*.json'))
+    if len(candidates) > 64:
+        raise ValueError('session removal inventory exceeds supported bound')
+    for path in candidates:
+        record = durable_state.read(path)
+        configuration.validate(record)
+        if (record['state'] != 'removing' or record['prefix'] != str(prefix)
+                or record['state_directory'] != str(home)
+                or path.name != 'native-service-removed-' + configuration.fingerprint(record) + '.json'):
+            raise ValueError('invalid archived removal provenance: ' + str(path))
+        configuration.verify(record, config, registration)
+        return record
+    return None
+
+
+def archive_removed(record):
+    """Caller holds installation and session locks after confirmed deactivation."""
+    verify_removing(record)
+    if runtime_names.present(Path(record['artifact'])):
+        raise ValueError('cannot complete session removal while artifact remains')
+    home = Path(record['state_directory'])
+    archive = home / ('native-service-removed-' + configuration.fingerprint(record) + '.json')
+    existing = durable_state.read(archive)
+    if existing is not None and existing != record:
+        raise ValueError('session removal archive differs')
+    if existing is None:
+        durable_state.publish(archive, record)
+    if load(home) != record:
+        raise ValueError('session removal selection changed')
+    intent_path = home / 'native-install-intent.json'
+    intent = durable_state.read(intent_path)
+    if intent is not None:
+        registration = durable_state.read(home / 'session.json')
+        if (intent.get('prefix') != record['prefix'] or intent.get('backend') != record['backend']
+                or intent.get('thread') != registration['thread']):
+            raise ValueError('session installation intent differs during removal')
+        intent_path.unlink()
+    (home / 'native-service.json').unlink()
+    platform_support.sync_state_directory(home)
+
+
 def prepare(desired):
     content = expected(desired)
     if desired['state'] != 'installed':
@@ -153,18 +209,23 @@ def publish(desired):
     desired = copy.deepcopy(desired)
     home, _, _, _, _ = prepare(desired)
     with install_state.locked(desired['prefix']), locked(home / 'lifecycle.lock'), \
-            locked(home / 'registration.lock'), locked(home / 'supervisor.lock'):
+            locked(home / 'registration.lock'):
         home, path, content, old, before = prepare(desired)
+        # An exact repeat only verifies immutable selection and artifact evidence.
+        # The running supervisor deliberately holds its lifetime lock, so acquire
+        # that lock only when publication would actually mutate the selection.
         if old is not None and old['state'] == 'installed':
             return desired
-        if old is None:
-            durable_state.publish(home / 'native-service.json', dict(desired, state='pending',
-                                  before_digest=None, after_digest=desired['artifact_digest']))
-        if before != content:
-            files._replace(path, content, before)
-        else:
-            platform_support.sync_state_directory(path.parent)
-        if files._read(path) != content:
-            raise ValueError('session artifact changed before completion')
-        durable_state.publish(home / 'native-service.json', desired)
-        return desired
+        with locked(home / 'supervisor.lock'):
+            home, path, content, old, before = prepare(desired)
+            if old is None:
+                durable_state.publish(home / 'native-service.json', dict(desired, state='pending',
+                                      before_digest=None, after_digest=desired['artifact_digest']))
+            if before != content:
+                files._replace(path, content, before)
+            else:
+                platform_support.sync_state_directory(path.parent)
+            if files._read(path) != content:
+                raise ValueError('session artifact changed before completion')
+            durable_state.publish(home / 'native-service.json', desired)
+            return desired

@@ -4,6 +4,7 @@ import argparse
 import json
 from pathlib import Path
 import re
+import shlex
 import subprocess
 import sys
 from install import FILES, check_owned_unit, unit_targets_prefix
@@ -11,6 +12,53 @@ import platform_support
 import runtime_names
 import install_state
 import work_guidance
+import component_remove
+import memory_service
+import session_service
+import session_service_artifacts
+import uninstall_finalize
+
+
+def removal_preflight(prefix, config):
+    """Verify retained component selections before any removal mutation."""
+    native_sessions = []
+    for record in config.get('memory_services', {}).get('repositories', {}).values():
+        try:
+            memory_service.Selection(prefix, record['common_directory'], removing=True)
+        except (OSError, ValueError, KeyError) as exc:
+            raise ValueError('cannot verify retained memory selection: '
+                             + str(record.get('artifact') or record.get('service_directory'))) from exc
+    state_root = Path(config.get('state_root') or runtime_names.default_state_root())
+    sessions = state_root / 'sessions'
+    registrations = []
+    if runtime_names.present(sessions):
+        if sessions.is_symlink() or not sessions.is_dir():
+            raise ValueError(f'unsafe session inventory: {sessions}')
+        for home in sessions.iterdir():
+            if home.is_symlink():
+                raise ValueError(f'unsafe session inventory entry: {home}')
+            if not home.is_dir():
+                continue
+            native = home / 'native-service.json'
+            if runtime_names.present(native):
+                try:
+                    record = session_service_artifacts.load(home)
+                    session_service.Selection(prefix, home, removing=True)
+                except (OSError, ValueError, KeyError) as exc:
+                    raise ValueError('cannot verify retained native session: ' + str(native)) from exc
+                native_sessions.append(home)
+            registration = home / 'session.json'
+            if runtime_names.present(registration):
+                if registration.is_symlink() or not registration.is_file():
+                    raise ValueError(f'unsafe session registration: {registration}')
+                value = json.loads(registration.read_text())
+                if not isinstance(value, dict) or not isinstance(value.get('thread'), str) or not value['thread']:
+                    raise ValueError(f'invalid session registration: {registration}')
+                if home not in native_sessions:
+                    archived = session_service_artifacts.archived_removal(prefix, home, config, value)
+                    if archived is None:
+                        registrations.append(value['thread'])
+    return registrations, native_sessions
 
 
 def main():
@@ -25,10 +73,8 @@ def main():
 
 def uninstall(prefix, state):
     config_path=prefix/'install.json'
-    # Disable/remove each work rule through the same crash-recoverable path.
-    for key in list(state.config.get('work_items', {'rules': {}})['rules']):
-        work_guidance.remove_locked(prefix, state, key)
     config=state.config
+    registrations, native_sessions = removal_preflight(prefix, config)
     unit_dir=Path(config.get('unit_dir',str(Path.home()/'.config/systemd/user')))
     state_root=Path(config.get('state_root') or runtime_names.default_state_root())
     candidates = set(runtime_names.service_names()) | set(runtime_names.service_names(legacy=True))
@@ -50,9 +96,18 @@ def uninstall(prefix, state):
         # not a reason to delete its executable and orphan the enabled unit.
         check_owned_unit(path, prefix)
         owned.append(name)
+    # All retained component and legacy-unit evidence has passed preflight.
+    if state.config and state.config.get('installation_state') != 'removing':
+        state.merge(dict(installation_state='removing'))
+    for home in native_sessions:
+        component_remove.remove_session(prefix, home)
+    for key in list(state.config.get('memory_services', dict(repositories={}))['repositories']):
+        component_remove.remove_memory(prefix, state, key)
+    # Disable/remove each work rule through the same crash-recoverable path.
+    for key in list(state.config.get('work_items', {'rules': {}})['rules']):
+        work_guidance.remove_locked(prefix, state, key)
     if config:
-        for registration in (state_root/'sessions').glob('*/session.json'):
-            thread=json.loads(registration.read_text())['thread']
+        for thread in registrations:
             subprocess.run([sys.executable,str(prefix/'session.py'),'stop','--thread',thread],check=True)
     existing=[name for name in owned if (unit_dir/name).exists()]
     if existing:
@@ -72,9 +127,13 @@ def uninstall(prefix, state):
             home = homes.get(agent)
             if home:
                 update(Path(home),prefix,remove=True,agent=agent)
-    for file in FILES:
-        (prefix/file).unlink(missing_ok=True)
-    config_path.unlink(missing_ok=True)
+    for home in native_sessions:
+        with session_service_artifacts.locked(home / 'lifecycle.lock'), session_service_artifacts.locked(home / 'registration.lock'):
+            session_service_artifacts.archive_removed(session_service_artifacts.load(home))
+    uninstall_finalize.prepare(prefix, FILES)
+    print('If final file cleanup is interrupted, resume with:',
+          shlex.join([sys.executable, str(prefix / uninstall_finalize.RECOVERY), '--prefix', str(prefix)]), flush=True)
+    uninstall_finalize.finish(prefix, locked=True, names=FILES)
     print('Owned services, managed guidance and runtime removed; inbox state preserved.')
 
 
@@ -88,3 +147,8 @@ if __name__ == '__main__':
     except work_guidance.GuidanceError as exc:
         print(json.dumps(dict(ok=False, code=exc.code, path=exc.path, error=str(exc))))
         raise SystemExit(platform_support.CONFIGURATION_EXIT_STATUS) from None
+    except (OSError, ValueError, subprocess.SubprocessError) as exc:
+        print(json.dumps(dict(ok=False, code=getattr(exc, 'code', 'removal_incomplete'),
+                              error=str(exc), paths=getattr(exc, 'paths', ()),
+                              recovery='Preserve state and retry uninstall; use the printed standalone command if runtime cleanup began.')))
+        raise SystemExit(getattr(exc, 'exit_status', 75 if isinstance(exc, (OSError, subprocess.SubprocessError)) else 78)) from None

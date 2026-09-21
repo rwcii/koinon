@@ -5,6 +5,11 @@ into a dated release section when promoted to `main`.
 
 ## Unreleased
 
+- Install selected repository memory and participant sessions through one public command,
+  with native Linux/macOS supervision, memory-only and no-start modes, and exact repeats.
+  Remove owned jobs with resumable cleanup while retaining inboxes, memory and recovery
+  evidence; clean reinstall reuses retained data. Native paths require safe ancestors.
+
 - Retry a state read when atomic publication replaced its opened predecessor,
   preserving strict validation of the current record.
 
