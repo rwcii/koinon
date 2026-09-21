@@ -9,7 +9,7 @@ import platform_support
 
 MAX_BYTES = 4096
 MAX_DOCUMENT_BYTES = 1024 * 1024
-MAX_PRIVATE_FILE_BYTES = 4 * 1024 * 1024
+MAX_PRIVATE_FILE_BYTES = 1024 * 1024 * 1024
 
 
 class StateReadBusyError(BlockingIOError):
@@ -53,7 +53,7 @@ def open_validated(path, limit, *, writable=False):
     """Return an owned private regular-file descriptor, or None on absence.
 
     Caller closes the descriptor and bounds any reads. Binary callers may select
-    up to 4 MiB; JSON callers retain their separate 1 MiB explicit ceiling and
+    up to 1 GiB for streaming state backups; JSON callers retain their separate 1 MiB explicit ceiling and
     4 KiB default. Atomic replacement retries are shared by all callers.
     """
     if type(limit) is not int or not 0 < limit <= MAX_PRIVATE_FILE_BYTES:

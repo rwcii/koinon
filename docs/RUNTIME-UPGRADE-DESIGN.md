@@ -364,3 +364,27 @@ runtime manifest is validated as retained data, not compared with current instal
 bytes during every resume: partial replacement is expected in some phases. The
 phase-specific coordinator must decide which current bytes are valid and cannot use
 successful plan loading alone as permission to replace or release anything.
+
+
+`upgrade_backup.py` streams an explicit stopped-state file selection, including
+recorded absent sidecars, into a private destination. Bounds are 256 selected names,
+1 GiB per file, and 4 GiB of selected bytes; reads use at most 1 MiB chunks. JSON
+state/document limits are unchanged. The snapshot records file bytes, hashes and
+original modes; copied files are private (0600). The completed descriptor keeps
+source and destination evidence separate for later explicit restoration.
+
+A differing retained backup refuses without overwrite. Identical partial copies
+are reverified and their file/directory/device flushes repeated. Nested renames
+flush both the destination directory and the scratch-file directory. A free-space
+check covers remaining selected bytes plus 64 KiB per selected name and one extra
+metadata allowance before copying; it is conservative, does not reserve space,
+and cannot prevent later I/O failure. Scratch files are bounded separately by the
+per-file limit. Completion is returned only after the selected source and complete
+destination both verify. Missing sidecars remain explicit evidence, so a sidecar
+appearing since the stopped snapshot refuses.
+
+The caller still must enumerate every required file and prove continuous writer
+exclusion. This helper cannot turn copying a live database into a consistent backup,
+or certify that an incomplete caller-supplied selection contains all service data.
+Complete pre-shutdown space checks, ownership revalidation, SQLite logical comparison
+and publication of the plan-bound completed backup remain coordinator integration.
