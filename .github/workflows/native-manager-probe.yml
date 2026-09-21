@@ -1,7 +1,7 @@
 name: Native manager interface evidence
 on:
   push:
-    branches: [feature/native-memory-manager]
+    branches: [feature/native-memory-manager, feature/native-manager-observation]
 permissions:
   contents: read
 jobs:

@@ -94,7 +94,8 @@ def main():
             program = ('import os,pathlib,time; '
                        f'p=pathlib.Path({str(starts)!r}); '
                        'f=p.open("a"); f.write(str(os.getpid())+"\\n"); f.close(); time.sleep(90)')
-            argv = [sys.executable, '-c', program, 'argument with spaces']
+            argv = [sys.executable, '-c', program, 'argument with spaces',
+                    'quote\"literal', r'backslash\literal', 'Ünicode', ' trailing ']
             artifact = root / (label + '.plist')
             artifact.write_bytes(plistlib.dumps(dict(Label=label, ProgramArguments=argv,
                                                      RunAtLoad=True, KeepAlive=False, Umask=63)))
@@ -108,6 +109,12 @@ def main():
                     raise RuntimeError('synthetic bootstrap failed')
                 wait_for(lambda: starts.exists() and starts.read_text().splitlines(), 'synthetic startup')
                 evidence['loaded_print'] = describe(command(['launchctl', 'print', target]))
+                observed = platform_support.launchd_service_observation(domain, label)
+                evidence['observation'] = observed
+                if (observed.get('status') != 'observed' or observed.get('artifact') != str(artifact)
+                        or observed.get('executable') != sys.executable or observed.get('argv') != argv
+                        or observed.get('pid') != int(starts.read_text().splitlines()[-1])):
+                    raise RuntimeError('native ownership observation did not preserve exact identity')
                 listed = command(['launchctl', 'list', label])
                 evidence['loaded_list'] = describe(listed)
                 converted = subprocess.run(['plutil', '-convert', 'xml1', '-o', '-', '--', '-'],

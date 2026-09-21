@@ -31,3 +31,13 @@ remain loaded until the GUI domain ends. Its child exits after 90 seconds and
 `KeepAlive` is false, so it does not become a respawning service. Local reproduction
 requires retaining the exact fixture label and handling that residual-job possibility;
 the fixture never sweeps other jobs.
+
+The native macOS 26.6.2 probe found that `list -x` is unavailable and that converting
+the supported listing through `plutil` fails. The observation candidate therefore
+requires a strictly recognized `print` envelope and exact path, program, argument
+boundaries and PID. Duplicate, incomplete or changed evidence returns unknown. The
+fixture now checks the candidate against its actual loaded job, including spaces,
+quotes, backslashes, Unicode and trailing whitespace in separate arguments. This is
+a version-tested interface, not a promise of a stable Apple API. Linux observation
+uses typed D-Bus properties instead. Both paths recheck observations; these checks
+do not lock the service manager or eliminate later state changes.
