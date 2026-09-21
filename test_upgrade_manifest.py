@@ -122,5 +122,34 @@ class ManifestTests(unittest.TestCase):
         self.assertEqual(manifest.verify(value), value)
 
 
+    def test_explicit_root_alias_freezes_canonical_identity(self):
+        alias = self.root / 'selected-root'
+        alias.symlink_to(self.root / 'docs', target_is_directory=True)
+        value = manifest.capture(alias, ('guide.md',))
+        self.assertEqual(value['root'], str((self.root / 'docs').resolve()))
+        other = self.root / 'other'
+        other.mkdir(mode=0o700)
+        (other / 'guide.md').write_text('different source')
+        (other / 'guide.md').chmod(0o600)
+        alias.unlink()
+        alias.symlink_to(other, target_is_directory=True)
+        # Resume reads the frozen original root, never the retargeted alias.
+        self.assertEqual(manifest.verify(value), value)
+        self.assertNotEqual(manifest.capture(alias, ('guide.md',))['root'], value['root'])
+
+    def test_new_alias_at_frozen_root_is_refused_on_resume(self):
+        selected = self.root / 'docs'
+        value = manifest.capture(selected, ('guide.md',))
+        moved = self.root / 'moved'
+        selected.rename(moved)
+        selected.symlink_to(moved, target_is_directory=True)
+        with self.assertRaises(manifest.ManifestError):
+            manifest.verify(value)
+
+    def test_relative_root_is_not_silently_selected(self):
+        with self.assertRaises(manifest.ManifestError):
+            manifest.capture(Path('.'), ('runtime.py',))
+
+
 if __name__ == '__main__':
     unittest.main()

@@ -207,7 +207,9 @@ private backup/manifest publication, exclusion gates and the coordinator remain 
 implementation steps before the proposed public command can become available.
 
 `upgrade_manifest.py` freezes an explicit bounded list of selected source files with
-per-file sizes and SHA-256 hashes. Reads refuse symlink components, hardlinks, unsafe
+per-file sizes and SHA-256 hashes. Initial root selection resolves aliases once, including
+macOS system paths; the manifest freezes that canonical root. Resume never follows a
+new alias at the frozen root. Reads beneath it refuse symlink components, hardlinks, unsafe
 owners or permissions, changing file identities, missing files and capacity overflow.
 Verification compares the complete selection with its frozen manifest; it does not
 silently recapture a different source. This helper does not discover an allowlist or

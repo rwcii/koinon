@@ -34,6 +34,18 @@ def names_checked(names):
     return tuple(sorted(result))
 
 
+def select_root(root):
+    """Resolve the explicit selection once, including OS aliases such as /var.
+
+    The resulting canonical root is frozen in the manifest. Subsequent file reads
+    validate that exact path without resolving newly introduced symlinks.
+    """
+    root = Path(root)
+    if not root.is_absolute() or '..' in root.parts or len(str(root).encode()) > 4096:
+        raise ManifestError('absolute manifest root required')
+    return check_root(root.resolve(strict=True))
+
+
 def check_root(root):
     root = Path(root)
     if not root.is_absolute() or '..' in root.parts or len(str(root).encode()) > 4096:
@@ -95,6 +107,10 @@ def read_selected(root, name):
 
 
 def capture(root, names):
+    return _capture_selected(select_root(root), names)
+
+
+def _capture_selected(root, names):
     root = check_root(root)
     files, total = {}, 0
     for name in names_checked(names):
@@ -139,7 +155,9 @@ def verify(expected):
     unsigned = {key: value for key, value in expected.items() if key != 'sha256'}
     if fingerprint(unsigned) != expected['sha256']:
         raise ManifestError('manifest fingerprint mismatch')
-    actual = capture(expected['root'], list(expected['files']))
+    # The stored root is already canonical. Never follow a newly substituted
+    # alias while resuming an operation against this frozen identity.
+    actual = _capture_selected(check_root(expected['root']), list(expected['files']))
     if actual != expected:
         raise ManifestError('selected source differs from frozen manifest')
     return actual
