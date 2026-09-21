@@ -158,6 +158,10 @@ request; it cannot bypass a full unclassified connection pool.
 
 ### Generation-bound session shutdown
 
+Notifier private status also reports `bridge_generation`, the bridge instance it
+observed. Session readiness joins this with both directly owned child identities;
+a notifier process alone is insufficient evidence of the selected pair.
+
 Bridge and notifier private status replies advertise
 `control_capabilities: ["generation_bound_stop"]` independently of database health.
 A supervisor must observe this capability before sending
