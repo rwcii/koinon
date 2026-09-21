@@ -1,8 +1,10 @@
 """External definitions are reported without adopting, executing or deleting them."""
 import hashlib
+import os
 from pathlib import Path
 import plistlib
 import tempfile
+from types import SimpleNamespace
 import unittest
 from unittest.mock import patch
 
@@ -114,6 +116,52 @@ class DiscoveryTests(unittest.TestCase):
         with patch.object(platform_support, 'upgrade_service_sources', side_effect=ValueError('unavailable')):
             with self.assertRaisesRegex(ValueError, 'unavailable'):
                 discovery.inventory(self.prefix, {}, [])
+
+
+class LaunchdSourceLoopTests(unittest.TestCase):
+    """Exercise the launchd branch itself, not only the classifier and the report."""
+
+    def setUp(self):
+        temp = tempfile.TemporaryDirectory()
+        self.addCleanup(temp.cleanup)
+        self.prefix = Path(temp.name).resolve() / 'runtime'
+        self.domain = 'gui/%d' % os.geteuid()
+        self.system = '/System/Library/LaunchAgents/com.apple.familycircled.plist'
+        self.custom = '/Library/LaunchAgents/com.vendor.custom.plist'
+        for replaced in (patch.object(platform_support, 'LINUX', False),
+                         patch.object(platform_support, 'DARWIN', True),
+                         patch.object(platform_support, 'memory_manager_available',
+                                      return_value=True),
+                         patch.object(platform_support.subprocess, 'run', self.query)):
+            replaced.start()
+            self.addCleanup(replaced.stop)
+
+    def query(self, argv, **kwargs):
+        target = argv[-1]
+        if target == self.domain:
+            body = ('\t\t0 M com.apple.familycircled\n'
+                    '\t\t123 0 com.vendor.custom\n')
+            text = f'{self.domain} = {{\n\tservices = {{\n{body}\t}}\n}}\n'
+        elif target.endswith('com.apple.familycircled'):
+            # The OS file is excluded, but this job's command names the runtime.
+            text = (f'{target} = {{\n\tpath = {self.system}\n'
+                    '\tprogram = /usr/bin/python3\n\targuments = {\n'
+                    '\t\t/usr/bin/python3\n'
+                    f'\t\t{self.prefix}/memory.py\n\t\tserve\n\t}}\n}}\n')
+        else:
+            text = (f'{target} = {{\n\tpath = {self.custom}\n'
+                    '\tprogram = /usr/bin/true\n}\n')
+        return SimpleNamespace(returncode=0, stdout=text, stderr='')
+
+    def test_excluded_os_file_is_reported_while_its_job_is_still_inspected(self):
+        source = platform_support.upgrade_service_sources(str(self.prefix))
+        self.assertEqual(source['os_definitions'],
+                         [dict(path=self.system, reason='os_definition_not_parsed')])
+        self.assertNotIn(self.system, source['loaded_artifacts'])
+        self.assertIn(self.custom, source['loaded_artifacts'])
+        referenced = [value['identity'] for value in source['loaded_references']]
+        self.assertEqual(referenced, ['com.apple.familycircled'])
+        self.assertEqual(source['loaded_references'][0]['artifact'], self.system)
 
 
 class ExcludedJobStillRefusesTests(unittest.TestCase):
