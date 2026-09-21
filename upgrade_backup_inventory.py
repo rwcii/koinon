@@ -3,7 +3,7 @@
 Caller-established writer exclusion and a complete backup selection are required.
 The expected snapshot digest must already be bound to the operation evidence.
 """
-from contextlib import closing
+from contextlib import closing, contextmanager
 from pathlib import Path
 import sqlite3
 import tempfile
@@ -13,7 +13,8 @@ import upgrade_inventory as inventory
 import upgrade_manifest as manifest
 
 
-def capture(snapshot, database, workspace):
+@contextmanager
+def open_copy(snapshot, database, workspace):
     """Return logical evidence from a disposable, byte-verified SQLite copy.
 
     SQLite may recover journals or maintain WAL shared memory while opening even
@@ -47,7 +48,13 @@ def capture(snapshot, database, workspace):
                                      uri=True, timeout=0)) as db:
             db.execute('PRAGMA trusted_schema=OFF')
             db.execute('PRAGMA query_only=ON')
-            captured = inventory.capture(db)
-        backup.verify(snapshot)
-    return dict(version=1, backup=snapshot['sha256'], database=database,
-                inventory=captured)
+            try:
+                yield db
+            finally:
+                backup.verify(snapshot)
+
+
+def capture(snapshot, database, workspace):
+    with open_copy(snapshot, database, workspace) as db:
+        captured = inventory.capture(db)
+    return dict(version=1, backup=snapshot['sha256'], database=database, inventory=captured)

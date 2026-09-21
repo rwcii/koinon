@@ -5,6 +5,10 @@ into a dated release section when promoted to `main`.
 
 ## Unreleased
 
+- Stage resumable runtime file replacement against retained backups and exact memory
+  migration verification. Defer search-index initialization until upgrade release.
+  The public upgrade coordinator and native acceptance remain unfinished.
+
 - Connect internal upgrade shutdown and component backup capture with retained
   startup locks, recorded endpoint reservations and frozen retry inventories.
   The public upgrade coordinator remains unfinished.

@@ -481,3 +481,20 @@ removal. Synthetic tests exercise actual owner-process death, binding exclusion,
 memory start-lock exclusion, sidecar absence and unchanged retained bytes. Native
 end-to-end orchestration, source/runtime replacement and migration verification
 remain incomplete; this integration does not make the public command available.
+
+
+Runtime replacement now consumes the completed backup receipt while retaining the
+capture guard. Each selected file must match its frozen old bytes or its recorded
+new postimage. A durable file index precedes publication; retries reconfirm completed
+postimages and all flushes without rewriting them. Changed completed files refuse.
+This adapter permits unchanged or expanded file selections. File removal or layout
+migration requires a separate adapter and must refuse during preflight before shutdown.
+
+Memory migration expectations are derived on disposable verified backup copies.
+Schema 3 to 5 may assign the verified gated store UUID; schema 4 to 5 preserves it;
+schema 5 requires exact canonical equality. Existing replay fields, metadata and
+business tables are checked independently of the added work schema. The actual gated
+inventory must match the complete expected catalog and logical rows. Search-index
+creation and reconciliation wait until durable release. These internal helpers still
+require public orchestration, individual identity/cursor reporting, restart integration
+and native/manual interruption acceptance before the coordinated command is available.

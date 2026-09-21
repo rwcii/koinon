@@ -270,12 +270,21 @@ class RuntimeAdmissionTests(unittest.IsolatedAsyncioTestCase):
             finally:
                 await service.worker.close()
 
+    async def test_gated_memory_refuses_factory_without_deferred_startup(self):
+        import tempfile
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory).resolve()
+            with patch.object(upgrade_gate, 'select', return_value=ClosedGate()):
+                with self.assertRaises(upgrade_gate.GateError):
+                    memory.Service(root, 'synthetic', lambda: self.fail('ordinary factory ran'))
+
     async def test_memory_mutation_and_maintenance_remain_gated(self):
         import tempfile
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory).resolve()
             with patch.object(upgrade_gate, 'select', return_value=ClosedGate()):
-                service = memory.Service(root, 'synthetic', lambda: memory.Store(root / 'memory.sqlite3', 'synthetic'))
+                service = memory.Service(root, 'synthetic', lambda: memory.Store(root / 'memory.sqlite3', 'synthetic'),
+                                         gated_store_factory=lambda gate: memory.Store(root / 'memory.sqlite3', 'synthetic', defer_index=True))
             maintenance = asyncio.create_task(service.maintain_work())
             try:
                 before = await service.command(dict(op='status'), 1)
@@ -289,3 +298,26 @@ class RuntimeAdmissionTests(unittest.IsolatedAsyncioTestCase):
             finally:
                 maintenance.cancel()
                 await service.worker.close()
+
+
+class DeferredIndexTests(unittest.TestCase):
+    def test_same_schema_gated_open_preserves_catalog_and_metadata_until_release(self):
+        import tempfile
+        import upgrade_inventory
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / 'memory.sqlite3'
+            original = memory.Store(path, 'a' * 16, fts=False)
+            try:
+                before = upgrade_inventory.capture(original.db)
+            finally:
+                original.close()
+            gated = memory.Store(path, 'a' * 16, defer_index=True)
+            try:
+                self.assertEqual(upgrade_inventory.capture(gated.db), before)
+                with patch.object(gated, '_open_fts', wraps=gated._open_fts) as open_index:
+                    gated.resume_index()
+                    open_index.assert_called_once_with()
+                    gated.resume_index()
+                    open_index.assert_called_once_with()
+            finally:
+                gated.close()

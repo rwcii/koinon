@@ -22,11 +22,6 @@ from work_policy import absolute_path
 
 class ServiceError(ValueError):
     def __init__(self, code='session_configuration_failure', *, paths=()):
-        if code == 'installation_upgrading':
-            print(json.dumps(dict(status='unavailable', code=code, exit_status=78,
-                                  paths=list(getattr(exc, 'paths', ())),
-                                  recovery='use upgrade status or resume; do not repair or reinstall')), flush=True)
-            return platform_support.managed_service_exit(args.backend, 78) if args.action == 'run' else 78
         if code not in session_supervisor.STATUSES:
             raise ValueError('invalid session service error code')
         self.code, self.paths = code, tuple(str(path) for path in paths)

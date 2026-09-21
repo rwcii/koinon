@@ -1,6 +1,8 @@
 import json
 from pathlib import Path
 import socket
+import subprocess
+import sys
 import unittest
 from unittest.mock import patch
 
@@ -68,13 +70,17 @@ class CaptureTests(unittest.TestCase):
 
     def test_unknown_state_socket_refuses_without_copying_partial_inventory(self):
         unknown = self.home / 'unknown.sock'
-        with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as endpoint:
-            endpoint.bind(str(unknown))
-            unknown.chmod(0o600)
-            with self.owner() as owner, patch('platform_support.session_manager_observation', return_value=dict(status='absent')):
-                with upgrade_capture.hold(owner) as guard:
-                    with self.assertRaises(upgrade_capture.CaptureError):
-                        upgrade_capture.copy_components(guard, [self.destination])
+        # A relative bind avoids macOS's short sockaddr_un path limit even
+        # when the test state lives beneath a long temporary-directory path.
+        subprocess.run([sys.executable, '-c',
+                        "import socket; s = socket.socket(socket.AF_UNIX); "
+                        "s.bind('unknown.sock'); s.close()"],
+                       cwd=self.home, check=True)
+        unknown.chmod(0o600)
+        with self.owner() as owner, patch('platform_support.session_manager_observation', return_value=dict(status='absent')):
+            with upgrade_capture.hold(owner) as guard:
+                with self.assertRaises(upgrade_capture.CaptureError):
+                    upgrade_capture.copy_components(guard, [self.destination])
         self.assertEqual(list(self.destination.iterdir()), [])
 
     def test_retry_cannot_omit_a_removed_business_file(self):
@@ -163,3 +169,22 @@ class MemoryCaptureTests(unittest.TestCase):
                 self.assertEqual((self.destination / 'memory.sqlite3').read_bytes(), before)
                 self.assertIsNone(result['components'][0]['source']['files']['memory.sqlite3-wal'])
         self.assertEqual((self.home / 'memory.sqlite3').read_bytes(), before)
+
+    def test_memory_deregistration_is_observed_and_repeat_has_no_manager_action(self):
+        import memory_service
+        import upgrade_quiescence
+        observed = dict(status='observed', pid=0)
+        def deregister(record):
+            self.assertEqual(record, self.record)
+            observed.clear()
+            observed.update(status='absent')
+        with self.owner() as owner, \
+                patch.object(memory_service, 'manager_observation', side_effect=lambda selection: dict(observed)), \
+                patch('platform_support.memory_manager_deregister', side_effect=deregister) as action:
+            self.advance(owner, 4)
+            result = upgrade_quiescence.stop_phase(owner, 'memory')
+            self.assertFalse(result['components'][0]['registered'])
+            self.assertFalse(result['components'][0]['running'])
+            self.assertEqual(upgrade_quiescence.stop_phase(owner, 'memory'), result)
+            action.assert_called_once_with(self.record)
+            self.assertEqual(owner.journal.read()['step'], 4)

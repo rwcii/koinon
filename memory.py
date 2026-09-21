@@ -320,8 +320,9 @@ class Store:
               'conflicts_with', 'expires')
     SELECT = 'SELECT ' + ','.join(FIELDS) + ' FROM entries'
 
-    def __init__(self, path, repo, fts=None):
+    def __init__(self, path, repo, fts=None, *, defer_index=False):
         self.repo, self.path = repo, path
+        self._index_deferred, self._requested_fts = defer_index, fts
         self.expired_at = 0.0
         self.on_change = None
         self._initialisation = INITIALISING
@@ -376,8 +377,10 @@ class Store:
             if SCHEMA >= work_schema.VERSION:
                 self.reset_log()
                 work_schema.validate_format(self.db)
-            self.fts = False if fts is False else self._open_fts()
-            self._reconcile_index()
+            self.fts = False
+            if not defer_index:
+                self.fts = False if fts is False else self._open_fts()
+                self._reconcile_index()
         except work_schema.SchemaError as exc:
             self.db.close()
             if exc.code == 'capacity':
@@ -875,6 +878,13 @@ class Store:
             work_schema.validate(self.db, repo, SCHEMA_STATEMENTS)
 
     # --- schema helpers -------------------------------------------------------
+
+    def resume_index(self):
+        """Run deferred search initialization only after durable upgrade release."""
+        if self._index_deferred:
+            self.fts = False if self._requested_fts is False else self._open_fts()
+            self._reconcile_index()
+            self._index_deferred = False
 
     def _open_fts(self):
         """Create the search table if this build has FTS5 and there is room for it.
@@ -1619,6 +1629,9 @@ class MemoryCommands:
         self.maintenance = work_maintenance.WorkMaintenance(
             store, MemoryError_, maintenance_state or work_maintenance.MaintenanceState())
 
+    def resume_index(self):
+        self.store.resume_index()
+
     def maintain_work(self):
         return self.maintenance.sweep()
 
@@ -1939,11 +1952,13 @@ class MemoryCommands:
 
 class Service:
     """Socket controller; all SQLite work belongs to the dedicated worker."""
-    def __init__(self, root, repo, store_factory):
+    def __init__(self, root, repo, store_factory, *, gated_store_factory=None):
         self.root, self.repo = Path(root), repo
         self.generation = uuid.uuid4().hex
         import upgrade_gate
         self.upgrade = upgrade_gate.select(Path(__file__).parent, 'memory', root, self.generation)
+        if self.upgrade is not None and gated_store_factory is None:
+            raise upgrade_gate.GateError('gated memory startup requires deferred search initialization')
         self.hints = subscriptions.HintHub(self.generation)
         self.stop = asyncio.Event()
         self.tasks = set()
@@ -1951,7 +1966,7 @@ class Service:
         self.admission = Admission()
         self.maintenance_state = work_maintenance.MaintenanceState()
         def owned_store():
-            store = store_factory()
+            store = gated_store_factory(self.upgrade) if self.upgrade is not None else store_factory()
             store.on_change = self.hints.notify_committed
             return MemoryCommands(root, repo, store, self.generation, self.maintenance_state)
         self.worker = DatabaseWorker(owned_store)
@@ -2051,8 +2066,10 @@ class Service:
 
     async def maintain_work(self):
         """One ordinary submission at a time, with monotonic waits between jobs."""
-        if self.upgrade is not None and not await self.upgrade.wait(self.stop):
-            return
+        if self.upgrade is not None:
+            if not await self.upgrade.wait(self.stop):
+                return
+            await self.worker.call('resume_index')
         while not self.closing and not self.stop.is_set():
             try:
                 result = await self.worker.call('maintain_work')
@@ -2310,7 +2327,7 @@ def bind_exclusive(home, repo, generation):
     raise MemoryError_('socket_in_use', f'cannot bind {control}')
 
 
-def start(home, repo, store_factory):
+def start(home, repo, store_factory, *, gated_store_factory=None):
     """Serialized start. Check and bind happen under one lock, never as a race."""
     private_state_dir(Path(home))
     with (Path(home) / 'start.lock').open('a') as lock:
@@ -2318,7 +2335,7 @@ def start(home, repo, store_factory):
         existing = asyncio.run(verify_running(home, repo))
         if existing:
             return None, existing
-        service = Service(home, repo, store_factory)
+        service = Service(home, repo, store_factory, gated_store_factory=gated_store_factory)
         try:
             sock, control = bind_exclusive(home, repo, service.generation)
         except BaseException:
@@ -2327,8 +2344,8 @@ def start(home, repo, store_factory):
         return (service, sock, control), None
 
 
-def serve(home, repo, store_factory):
-    started, existing = start(home, repo, store_factory)
+def serve(home, repo, store_factory, *, gated_store_factory=None):
+    started, existing = start(home, repo, store_factory, gated_store_factory=gated_store_factory)
     if existing:
         return dict(status='already_running', **existing)
     service, sock, control = started
@@ -2492,7 +2509,8 @@ def cli_main():
     op = args.pop('op')
     op = work_items.cli_request(op, args)
     if op == 'serve':
-        print(json.dumps(serve(home, repo, lambda: Store(home / 'memory.sqlite3', repo))))
+        print(json.dumps(serve(home, repo, lambda: Store(home / 'memory.sqlite3', repo),
+                               gated_store_factory=lambda gate: Store(home / 'memory.sqlite3', repo, defer_index=True))))
         return
     if op == 'stop':
         print(json.dumps(stop_service(home, repo), indent=2))
