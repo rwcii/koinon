@@ -92,5 +92,107 @@ class ObservationTests(unittest.TestCase):
             session.assert_not_called()
 
 
+class InstallationObservationTests(unittest.TestCase):
+    def setUp(self):
+        import sys
+        import durable_state
+        import session_service_artifacts as artifacts
+        import session_service_config as configuration
+        import test_session_service_artifacts as fixtures
+        fixtures.NativeSessionArtifactsTests.setUp(self)
+        self.record = configuration.selection(self.prefix, sys.executable, self.home,
+                                              self.config, self.registration, 'systemd')
+        artifacts.publish(self.record)
+        self.component = dict(kind='session', selection=self.record, registered=False,
+                              running=False, manager=dict(status='absent'), owner=None)
+        observing = patch.object(observation, 'session', return_value=self.component)
+        self.observe = observing.start()
+        self.addCleanup(observing.stop)
+        self.publish = durable_state.publish
+
+    def test_saved_session_is_enumerated_without_changing_registration(self):
+        before = (self.home / 'native-service.json').read_bytes()
+        result = observation.installation(self.prefix)
+        self.assertEqual(result['installation'], self.config)
+        self.assertEqual(result['components'], [self.component])
+        self.assertFalse(result['components'][0]['running'])
+        self.assertEqual((self.home / 'native-service.json').read_bytes(), before)
+        self.assertFalse((self.prefix / '.upgrade').exists())
+        self.observe.assert_called_once()
+
+    def test_unknown_entry_and_capacity_refuse_before_service_observation(self):
+        unexpected = self.home.parent / 'unexpected'
+        unexpected.write_text('unclassified')
+        with self.assertRaises(observation.ObservationError):
+            observation.installation(self.prefix)
+        unexpected.unlink()
+        with patch('upgrade_plan.MAX_COMPONENTS', 0):
+            with self.assertRaises(observation.ObservationError):
+                observation.installation(self.prefix)
+        self.observe.assert_not_called()
+
+    def test_legacy_and_foreign_prefix_refuse_before_service_observation(self):
+        path = self.home / 'native-service.json'
+        path.unlink()
+        with self.assertRaisesRegex(observation.ObservationError, 'adapter'):
+            observation.installation(self.prefix)
+        self.publish(path, dict(self.record, prefix=str(self.root / 'other-prefix')))
+        with self.assertRaisesRegex(observation.ObservationError, 'different runtime'):
+            observation.installation(self.prefix)
+        self.observe.assert_not_called()
+
+    def test_new_entry_during_observation_is_not_omitted(self):
+        def changed(selection):
+            (self.home.parent / ('a' * 16)).mkdir(mode=0o700)
+            return self.component
+        self.observe.side_effect = changed
+        with self.assertRaisesRegex(observation.ObservationError, 'changed'):
+            observation.installation(self.prefix)
+
+    def test_configuration_change_during_observation_refuses(self):
+        def changed(selection):
+            self.publish(self.prefix / 'install.json', dict(self.config, opaque='changed'))
+            return self.component
+        self.observe.side_effect = changed
+        with self.assertRaisesRegex(observation.ObservationError, 'changed'):
+            observation.installation(self.prefix)
+
+    def test_manual_memory_refuses_before_any_component_observation(self):
+        from test_memory_service_config import inventory, record
+        self.publish(self.prefix / 'install.json', dict(self.config,
+                     memory_services=inventory(record(backend='manual'))))
+        with self.assertRaisesRegex(observation.ObservationError, 'adapter'):
+            observation.installation(self.prefix)
+        self.observe.assert_not_called()
+
+    def test_every_saved_native_memory_is_observed(self):
+        from test_memory_service_config import inventory, record
+        records = [record('/synthetic/a/.git'), record('/synthetic/b/.git')]
+        self.publish(self.prefix / 'install.json', dict(self.config,
+                     memory_services=inventory(*records)))
+        def selected(prefix, repository):
+            return SimpleNamespace(record=next(r for r in records if r['common_directory'] == repository))
+        with patch.object(observation.memory_service, 'Selection', side_effect=selected), \
+             patch.object(observation, 'memory', side_effect=lambda item: dict(kind='memory', selection=item.record)) as probe:
+            result = observation.installation(self.prefix)
+        self.assertEqual(probe.call_count, 2)
+        self.assertEqual({item['selection']['common_directory'] for item in result['components']
+                          if item['kind'] == 'memory'}, {r['common_directory'] for r in records})
+
+    def test_absent_session_directory_is_empty_without_creating_it(self):
+        import shutil
+        shutil.rmtree(self.home.parent)
+        result = observation.installation(self.prefix)
+        self.assertEqual(result['components'], [])
+        self.assertFalse(self.home.parent.exists())
+        self.observe.assert_not_called()
+
+    def test_missing_configuration_is_not_treated_as_empty_installation(self):
+        (self.prefix / 'install.json').unlink()
+        with self.assertRaisesRegex(observation.ObservationError, 'configuration'):
+            observation.installation(self.prefix)
+        self.observe.assert_not_called()
+
+
 if __name__ == '__main__':
     unittest.main()

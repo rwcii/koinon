@@ -404,3 +404,14 @@ Streaming backup verification performs multiple full source reads and destinatio
 verification; disposable logical inspection adds another copy. These costs belong
 in the outage and temporary-space budget. None of these bounded operations has a
 wall-clock deadline, and these helpers still do not establish writer exclusion.
+
+Native installation observation now enumerates bounded saved session registrations
+and configured memory selections while holding the permanent installation lock.
+It validates all selections before observing any component, then rechecks config,
+the session directory inventory and saved records. It refuses unknown entries,
+legacy/manual or unfinished selections, ambiguous shared state roots, and component
+capacity overflow. A missing installation configuration never means an empty
+upgrade selection. Missing session directories remain absent. This observation
+releases its lock on return; the coordinator still must revalidate and publish
+startup exclusion before acting. It neither discovers arbitrary unmanaged writers
+nor supplies the manual/legacy upgrade adapters required by final acceptance.

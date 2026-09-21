@@ -87,3 +87,89 @@ def memory(selection):
             raise ObservationError('memory child or supervisor exit is unconfirmed')
     _quiet(selection.home, session=False)
     return _result('memory', selection, before, registered, False, owner)
+
+
+def installation(prefix):
+    """Enumerate supported saved components under the installation lock.
+
+    This freezes native registration selection only for the duration of this
+    call. It is not startup exclusion, complete upgrade preflight, or authority
+    to shut down a component. Legacy/manual/ambiguous registrations refuse.
+    """
+    from itertools import islice
+    import os
+    from pathlib import Path
+    import stat
+
+    import install_state
+    import runtime_names
+    import session_service_artifacts
+    import upgrade_manifest as manifest
+    from upgrade_plan import MAX_COMPONENTS
+
+    prefix = manifest.select_root(prefix)
+    with install_state.locked(prefix) as installed:
+        config = copy.deepcopy(installed.config)
+        if not config or config.get('installation_state', 'installed') != 'installed':
+            raise ObservationError('supported installed configuration required')
+        state = Path(config['state_root'])
+        canonical_state = manifest.select_root(state)
+        sessions = state / 'sessions'
+
+        def scan():
+            if manifest.select_root(state) != canonical_state:
+                raise ObservationError('selected state root changed during enumeration')
+            try:
+                before = sessions.lstat()
+            except FileNotFoundError:
+                return None
+            if (not stat.S_ISDIR(before.st_mode) or before.st_uid != os.geteuid()
+                    or before.st_mode & 0o077):
+                raise ObservationError('session inventory directory must be owned and private')
+            with os.scandir(sessions) as entries:
+                names = sorted(entry.name for entry in islice(entries, MAX_COMPONENTS + 1))
+            if len(names) > MAX_COMPONENTS:
+                raise ObservationError('session inventory exceeds upgrade component capacity')
+            for name in names:
+                if len(name) != 16 or any(char not in '0123456789abcdef' for char in name):
+                    raise ObservationError('unrecognized session inventory entry')
+                info = (sessions / name).lstat()
+                if (not stat.S_ISDIR(info.st_mode) or info.st_uid != os.geteuid()
+                        or info.st_mode & 0o077):
+                    raise ObservationError('session inventory entry must be owned and private')
+            after = sessions.lstat()
+            stamp = lambda value: (value.st_dev, value.st_ino, value.st_mtime_ns, value.st_ctime_ns)
+            if stamp(before) != stamp(after):
+                raise ObservationError('session inventory changed during enumeration')
+            return dict(names=names, identity=stamp(after))
+
+        before = scan()
+        memories = config.get('memory_services', {}).get('repositories', {})
+        names = [] if before is None else before['names']
+        if len(names) + len(memories) > MAX_COMPONENTS:
+            raise ObservationError('installation exceeds upgrade component capacity')
+        selections = []
+        for name in names:
+            home = sessions / name
+            record = session_service_artifacts.load(home)
+            if record is None or record['state'] != 'installed':
+                raise ObservationError('legacy or unfinished session requires an explicit upgrade adapter')
+            if record['prefix'] != str(prefix):
+                raise ObservationError('shared session inventory selects a different runtime prefix')
+            selections.append(('session', session_service.Selection(prefix, home)))
+        for key in sorted(memories):
+            record = memories[key]
+            if record['state'] != 'installed' or record['backend'] not in ('systemd', 'launchd'):
+                raise ObservationError('manual or unfinished memory requires an explicit upgrade adapter')
+            selections.append(('memory', memory_service.Selection(prefix, record['common_directory'])))
+        result = [session(selected) if kind == 'session' else memory(selected)
+                  for kind, selected in selections]
+        # Native registration publication takes this same installation lock;
+        # rechecks also refuse uncooperative changes rather than omitting them.
+        if runtime_names.install_config(prefix) != config or scan() != before:
+            raise ObservationError('installation selection changed during observation')
+        for kind, selected in selections:
+            if kind == 'session' and session_service_artifacts.load(selected.home) != selected.record:
+                raise ObservationError('saved session selection changed during observation')
+        return dict(version=1, prefix=str(prefix), installation=config,
+                    components=result)
