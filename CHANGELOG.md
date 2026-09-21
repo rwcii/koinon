@@ -5,6 +5,9 @@ into a dated release section when promoted to `main`.
 
 ## Unreleased
 
+- Correct legacy installation-guide statements to distinguish delivered native component
+  supervision from operator-managed services and the pending coordinated upgrade command.
+
 - Install selected repository memory and participant sessions through one public command,
   with native Linux/macOS supervision, memory-only and no-start modes, and exact repeats.
   Remove owned jobs with resumable cleanup while retaining inboxes, memory and recovery

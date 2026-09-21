@@ -27,6 +27,12 @@ Supported upgrades (DQ-12) remain in progress. DQ-08 design is tracked in
 decision before DQ-05 history pruning. Investigating a requirement does not settle
 its protocol.
 
+The distinct [pre-promotion review (#51)](https://github.com/rwcii/koinon/issues/51)
+must reconcile agent guidance with delivered component supervision: AGENTS.md still
+describes macOS as manual-only and memory as having no installer-managed service.
+Those statements predate the native repository-component path. Instruction-file
+changes and main promotion remain separate from the upgrade implementation.
+
 ## DQ-01 — Universal per-agent usage reports
 
 **Source:** user requirement conveyed by the reviewer and explicitly requested for
