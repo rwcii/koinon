@@ -153,14 +153,18 @@ class NativeMemoryActionTests(unittest.TestCase):
         from test_memory_service_config import record
         selected = record()
         with patch.object(platform_support, 'LINUX', True), \
+                patch('memory_service_artifacts.preflight_registration') as preflight, \
                 patch.object(platform_support.subprocess, 'run') as run:
             platform_support.memory_manager_action(selected, 'activate')
+            preflight.assert_called_once()
         self.assertEqual(run.call_args.args[0], ['systemctl', '--user', '--no-ask-password',
-                                               'enable', '--now', selected['artifact']])
+                                               'enable', selected['artifact']])
         selected = dict(record(backend='launchd'), manager_domain=f'gui/{os.geteuid()}')
         with patch.object(platform_support, 'DARWIN', True), \
+                patch('memory_service_artifacts.preflight_registration') as preflight, \
                 patch.object(platform_support.subprocess, 'run') as run:
             platform_support.memory_manager_action(selected, 'activate')
+            preflight.assert_not_called()
             self.assertEqual(run.call_args.args[0], ['launchctl', 'bootstrap', selected['manager_domain'],
                                                    selected['artifact']])
             platform_support.memory_manager_action(selected, 'restart')

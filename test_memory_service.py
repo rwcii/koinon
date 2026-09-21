@@ -312,6 +312,38 @@ class MemorySupervisorTests(unittest.TestCase):
                 self.assertEqual(caught.exception.code, code)
                 action.assert_not_called()
 
+    def test_systemd_registration_is_verified_before_start(self):
+        self.select_launchd('systemd')
+        registered, started = [], []
+        def observe(_name):
+            return (self.loaded_report(started[0].pid if started else 0)
+                    if registered else dict(status='absent'))
+        def action(_record, operation):
+            if operation == 'activate':
+                registered.append(True)
+            elif operation == 'restart':
+                started.append(self.spawn())
+            else:
+                self.fail('unexpected manager operation')
+        with patch.object(platform_support, 'memory_manager_available', return_value=True), \
+                patch.object(platform_support, 'systemd_service_observation', side_effect=observe), \
+                patch.object(platform_support, 'memory_manager_action', side_effect=action) as operations:
+            self.assertTrue(memory_service.ensure_managed(self.selection)['managed'])
+            self.assertEqual([call.args[1] for call in operations.call_args_list], ['activate', 'restart'])
+
+    def test_systemd_changed_loaded_command_after_registration_never_starts(self):
+        self.select_launchd('systemd')
+        foreign = self.loaded_report(0)
+        foreign['argv'] = ['/synthetic/foreign']
+        with patch.object(platform_support, 'memory_manager_available', return_value=True), \
+                patch.object(platform_support, 'systemd_service_observation', side_effect=[
+                    dict(status='absent'), dict(status='absent'), foreign]), \
+                patch.object(platform_support, 'memory_manager_action') as action:
+            with self.assertRaises(memory_service.RunnerError) as caught:
+                memory_service.ensure_managed(self.selection)
+            self.assertEqual(caught.exception.code, 'manager_ownership_conflict')
+            self.assertEqual([call.args[1] for call in action.call_args_list], ['activate'])
+
     def test_unavailable_selected_manager_reports_manual_without_creating_state(self):
         self.select_launchd('systemd')
         with patch.object(platform_support, 'memory_manager_available', return_value=False), \

@@ -43,7 +43,8 @@ ERRORS = {
 
 
 class RunnerError(ValueError):
-    def __init__(self, code):
+    def __init__(self, code, *, paths=()):
+        self.paths = tuple(paths)
         self.code = code
         self.exit_status = ERRORS[code]
         self.primary_code = code
@@ -93,7 +94,7 @@ def configuration_boundary():
     except RunnerError:
         raise
     except (OSError, ValueError) as exc:
-        raise RunnerError('configuration_error') from exc
+        raise RunnerError('configuration_error', paths=getattr(exc, 'paths', ())) from exc
 
 
 class Selection:
@@ -295,7 +296,19 @@ def ensure_managed(selection):
                     if manager_observation(selection) != observed:
                         raise RunnerError('manager_observation_unknown')
                     try:
+                        memory_service_artifacts.verify_owned(selection.prefix, sys.executable, selection.record)
                         platform_support.memory_manager_action(selection.record, operation)
+                        if selection.backend == 'systemd' and operation == 'activate':
+                            # Enable may create a loader link in a directory selected
+                            # by the manager, not the client. Verify its actual identity
+                            # before any explicit start; never combine enable --now.
+                            registered = manager_observation(selection)
+                            if registered['status'] != 'observed':
+                                raise RunnerError('manager_observation_unknown')
+                            if registered['pid'] == 0:
+                                if manager_observation(selection) != registered:
+                                    raise RunnerError('manager_observation_unknown')
+                                platform_support.memory_manager_action(selection.record, 'restart')
                     except (OSError, subprocess.SubprocessError) as exc:
                         raise RunnerError('manager_operation_failed') from exc
                 deadline = time.monotonic() + START_TIMEOUT
@@ -601,7 +614,7 @@ def main():
         status = exc.exit_status
         print(json.dumps(dict(ok=False, status='unavailable', running=False, code=exc.code,
                               exit_status=status, primary_code=exc.primary_code,
-                              shutdown_code=exc.shutdown_code)), flush=True)
+                              shutdown_code=exc.shutdown_code, paths=list(exc.paths))), flush=True)
     except (OSError, ValueError) as exc:
         status = 78
         print(json.dumps(dict(ok=False, status='unavailable', running=False,

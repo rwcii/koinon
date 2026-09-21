@@ -74,3 +74,13 @@ but do not lock the manager's global state. A failed or timed-out manager operat
 returns an error, never inferred readiness. `stop` remains generation-bound and does
 not unregister a job; deactivation callers must verify ownership and completed stop
 before removing registration.
+
+Before systemd registration, existing ancestors of the expected loader and enablement
+links must pass the same ownership policy. Unsafe paths are returned in the error's
+`paths` field; permissions are never changed automatically. Missing directories are
+not created by preflight. Registration uses `enable` without `--now`; the actual loaded
+artifact and command are checked before a separate start. This also prevents a start
+when the manager's path configuration differs from the caller's and yields unsafe or
+conflicting loaded evidence. A failed verification after registration can retain links
+for explicit recovery; it does not claim registration was rolled back. Preflight and
+rechecks narrow changes but are not atomic with the manager's state.

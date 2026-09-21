@@ -7,7 +7,9 @@ into a dated release section when promoted to `main`.
 
 - Activate explicitly selected native memory supervisors with verified manager and
   child identity, explicit launchd domains, and opt-in literal systemd arguments.
-  Add isolated native lifecycle checks; complete installer integration remains pending.
+  Refuse unsafe registration paths before enabling and verify loaded identity before
+  starting systemd children. Add isolated native lifecycle checks; complete installer
+  integration remains pending.
 
 - Stage exact native service-manager observations with unknown results for missing,
   malformed or changing evidence, plus isolated macOS interface fixtures. Activation

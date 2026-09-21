@@ -38,6 +38,44 @@ def _parents(path):
         raise ValueError('artifact directory must be owned and not writable by others')
 
 
+
+class RegistrationPathError(ValueError):
+    def __init__(self, path):
+        self.paths = (str(path),)
+        super().__init__('unsafe or conflicting manager registration path: ' + str(path))
+
+
+def preflight_registration(record, paths):
+    """Read-only checks before systemd creates loader and enablement links.
+
+    Missing suffix directories are allowed; existing ancestors may not be aliases
+    or writable by another user/group. Never repair permissions or adopt a target.
+    """
+    artifact = Path(record['artifact'])
+    for raw in paths:
+        path = absolute_path(str(raw))
+        closest = None
+        for parent in reversed(path.parents):
+            try:
+                info = parent.lstat()
+            except FileNotFoundError:
+                break
+            if (not stat.S_ISDIR(info.st_mode) or info.st_uid not in (0, os.geteuid())
+                    or (info.st_mode & 0o022 and not (info.st_uid == 0 and info.st_mode & stat.S_ISVTX))):
+                raise RegistrationPathError(parent)
+            closest = info
+        if closest is None or closest.st_uid != os.geteuid() or closest.st_mode & 0o022:
+            raise RegistrationPathError(path.parent)
+        try:
+            info = path.lstat()
+        except FileNotFoundError:
+            continue
+        if path == artifact:
+            continue  # The caller verifies canonical artifact bytes separately.
+        if (not stat.S_ISLNK(info.st_mode) or info.st_uid != os.geteuid()
+                or os.readlink(path) != str(artifact)):
+            raise RegistrationPathError(path)
+
 def _read(path):
     _parents(path)
     try:

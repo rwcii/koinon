@@ -695,6 +695,26 @@ def memory_manager_available(backend, domain=None):
         return False
 
 
+
+def memory_registration_paths(record, *, runtime=False):
+    """Expected client registration locations; loaded identity is checked again.
+
+    A manager may have different startup path configuration from its caller. Enable
+    therefore never starts a child: the actual loaded path is verified before start.
+    """
+    from work_policy import absolute_path
+    if type(runtime) is not bool:
+        raise ValueError('runtime selection must be boolean')
+    if runtime:
+        base = os.environ.get('XDG_RUNTIME_DIR')
+        if not base:
+            raise ValueError('explicit runtime directory required')
+    else:
+        base = os.environ.get('XDG_CONFIG_HOME') or str(Path.home() / '.config')
+    directory = absolute_path(base) / 'systemd' / 'user'
+    name = Path(record['artifact']).name
+    return (directory / name, directory / 'default.target.wants' / name)
+
 def memory_manager_action(record, operation, *, runtime=False):
     """Execute a preflighted owned action; callers supply ownership verification."""
     import memory_service_config
@@ -709,7 +729,11 @@ def memory_manager_action(record, operation, *, runtime=False):
         if not LINUX:
             raise OSError('selected memory manager unavailable')
         name = memory_service_config.artifact_name(key, backend)
-        commands = {'activate': ['enable', '--now', record['artifact']],
+        if operation == 'activate':
+            import memory_service_artifacts
+            memory_service_artifacts.preflight_registration(
+                record, memory_registration_paths(record, runtime=runtime))
+        commands = {'activate': ['enable', record['artifact']],
                     'restart': ['start', name], 'deactivate': ['disable', name]}
         argv = ['systemctl', '--user', '--no-ask-password',
                 *(['--runtime'] if runtime else []), *commands[operation]]
