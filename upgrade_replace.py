@@ -5,6 +5,7 @@ or expanded runtime file set; removal/layout migration needs a separate adapter.
 The coordinator must call preflight before shutting down selected services.
 """
 import hashlib
+import importlib.util
 import os
 from pathlib import Path
 import stat
@@ -117,6 +118,49 @@ def _backup_evidence(guard, phase):
     return value
 
 
+def bytecode_paths(root, names):
+    """Check only this interpreter's derived caches for selected Python sources.
+
+    Unchecked-hash caches can remain valid across arbitrary source replacement;
+    relying on mtimes or Python's normal invalidation is insufficient. Unknown
+    files elsewhere in __pycache__ are outside this selection and are preserved.
+    """
+    root = manifest.check_root(root)
+    selected = []
+    for name in manifest.names_checked(list(names)):
+        if not name.endswith('.py'):
+            continue
+        for optimization in ('', '1', '2'):
+            path = Path(importlib.util.cache_from_source(str(root / name), optimization=optimization))
+            try:
+                parent = path.parent.lstat()
+            except FileNotFoundError:
+                continue
+            manifest.check_root(path.parent)
+            try:
+                info = path.lstat()
+            except FileNotFoundError:
+                continue
+            if (not stat.S_ISREG(info.st_mode) or info.st_uid != os.geteuid()
+                    or info.st_nlink != 1 or info.st_mode & 0o022):
+                raise ReplacementError('unsafe selected Python bytecode cache; preserve it')
+            selected.append((path, (info.st_dev, info.st_ino), (parent.st_dev, parent.st_ino)))
+    return selected
+
+
+def _invalidate_bytecode(guard, root, names):
+    guard.verify()
+    for path, identity, parent_identity in bytecode_paths(root, names):
+        manifest.check_root(path.parent)
+        parent, named = path.parent.lstat(), path.lstat()
+        if ((named.st_dev, named.st_ino) != identity
+                or (parent.st_dev, parent.st_ino) != parent_identity):
+            raise ReplacementError('selected Python cache changed before invalidation')
+        path.unlink()
+        platform_support.sync_state_directory(path.parent)
+    guard.verify()
+
+
 def replace(guard):
     """Publish or reconfirm every file; never advance the global phase journal."""
     guard.verify()
@@ -129,6 +173,7 @@ def replace(guard):
     manifest.verify(source)
     _backup_evidence(guard, phase)
     root = manifest.check_root(runtime['root'])
+    bytecode_paths(root, names)
     progress_path = guard.exclusion.journal.directory / 'replacement-progress.json'
     progress = durable_state.read(progress_path)
     if progress is None:
@@ -176,6 +221,7 @@ def replace(guard):
         progress = dict(progress, index=index + 1)
         durable_state.publish(progress_path, progress)
     guard.verify()
+    _invalidate_bytecode(guard, root, names)
     actual = manifest.capture(root, list(names))
     if actual['files'] != source['files']:
         raise ReplacementError('runtime differs from frozen source after replacement')
@@ -193,6 +239,7 @@ def confirm(guard):
     source = loaded['documents']['source']
     for name, expected in source['files'].items():
         _confirm(Path(loaded['plan']['canonical_prefix']), name, expected)
+    _invalidate_bytecode(guard, Path(loaded['plan']['canonical_prefix']), list(source['files']))
     current = manifest.capture(loaded['plan']['canonical_prefix'], list(source['files']))
     receipt = Documents(guard.exclusion.journal.directory).read('replacement', phase['receipts'][4])
     if receipt != dict(version=1, plan=loaded['sha256'], runtime=current):

@@ -36,6 +36,46 @@ class ReplacementTests(unittest.TestCase):
                 self.assertEqual(upgrade_replace.replace(guard), result)
                 self.assertEqual(owner.journal.read()['step'], 8)
 
+    def test_unchecked_hash_bytecode_cannot_execute_the_old_runtime(self):
+        import importlib.util
+        import py_compile
+        import subprocess
+        import sys
+        cached = Path(importlib.util.cache_from_source(str(self.prefix / 'entry.py')))
+        py_compile.compile(str(self.prefix / 'entry.py'),
+                           invalidation_mode=py_compile.PycInvalidationMode.UNCHECKED_HASH)
+        cached.parent.chmod(0o700)
+        cached.chmod(0o600)
+        untouched = cached.parent / 'unrelated.keep'
+        untouched.write_text('retained unrelated file')
+        with self.owner() as owner, patch('platform_support.session_manager_observation', return_value=dict(status='absent')):
+            with upgrade_capture.hold(owner) as guard:
+                self.prepare_backups(owner, guard)
+                upgrade_replace.replace(guard)
+                self.assertFalse(cached.exists())
+        result = subprocess.run([sys.executable, '-I', '-c',
+            'import sys; sys.path.insert(0, sys.argv[1]); import entry', str(self.prefix)],
+            capture_output=True, text=True, check=True)
+        self.assertEqual(result.stdout.strip(), 'new')
+        self.assertEqual(untouched.read_text(), 'retained unrelated file')
+
+    def test_symlinked_cache_refuses_before_replacing_runtime(self):
+        import importlib.util
+        cached = Path(importlib.util.cache_from_source(str(self.prefix / 'entry.py')))
+        cached.parent.mkdir(mode=0o700)
+        unrelated = self.root / 'unrelated-data'
+        unrelated.write_text('do not remove')
+        cached.symlink_to(unrelated)
+        old = (self.prefix / 'entry.py').read_bytes()
+        with self.owner() as owner, patch('platform_support.session_manager_observation', return_value=dict(status='absent')):
+            with upgrade_capture.hold(owner) as guard:
+                self.prepare_backups(owner, guard)
+                with self.assertRaisesRegex(ValueError, 'bytecode'):
+                    upgrade_replace.replace(guard)
+        self.assertEqual((self.prefix / 'entry.py').read_bytes(), old)
+        self.assertTrue(cached.is_symlink())
+        self.assertEqual(unrelated.read_text(), 'do not remove')
+
     def test_lost_completion_reconfirms_postimage_without_rewriting(self):
         publish = upgrade_replace.durable_state.publish
         def interrupt(path, value, **kwargs):

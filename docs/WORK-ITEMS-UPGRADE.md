@@ -41,8 +41,9 @@ matrix remain outstanding. This command is not a claim that #43 or promotion is 
 Preflight reads literal installer file lists without executing them, checks supported
 schema transitions on disposable online SQLite copies, and reserves backup and report
 capacity. Those copies are only preflight evidence: authoritative backups include
-all SQLite sidecars and are made after confirmed owned shutdown. File removal/layout
-migration is not supported by this adapter. Insufficient space, near-full memory,
+all SQLite sidecars and are made after confirmed owned shutdown. Replacement invalidates only owned bytecode caches for the selected Python files,
+including unchecked-hash caches; unrelated cache-directory entries are preserved.
+File removal/layout migration is not supported by this adapter. Insufficient space, near-full memory,
 changed selections or unrecognized state refuse without silently resetting anything.
 
 Memory-state discovery covers the installation's configured state root and saved memory
