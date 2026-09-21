@@ -8,7 +8,7 @@ from inbox_schema import hex_value
 from participant_lock import identity
 from work_policy import absolute_path
 
-BACKENDS = ('manual', 'systemd', 'launchd')
+BACKENDS = ('systemd', 'launchd')
 BASE_FIELDS = frozenset(('version', 'state', 'prefix', 'python', 'state_directory', 'session_key',
                          'thread_digest', 'participant_digest', 'registration_digest', 'command_digest',
                          'backend', 'manager_domain', 'artifact', 'artifact_digest'))
@@ -49,8 +49,6 @@ def artifact_name(key, backend):
         return f'koinon-session-{key}.service'
     if backend == 'launchd':
         return f'io.github.rwcii.koinon.session.{key}.plist'
-    if backend == 'manual':
-        return None
     raise ValueError('invalid session backend')
 
 
@@ -101,11 +99,8 @@ def validate(record):
             raise ValueError('explicit user launchd domain required')
     elif domain is not None:
         raise ValueError('unexpected native session domain')
-    if backend == 'manual':
-        if record['artifact'] is not None or record['artifact_digest'] is not None or record['state'] != 'installed':
-            raise ValueError('manual session has no artifact')
-    elif (absolute_path(record['artifact']) != home / 'native-service' / artifact_name(record['session_key'], backend)
-          or not hex_value(record['artifact_digest'], 64)):
+    if (absolute_path(record['artifact']) != home / 'native-service' / artifact_name(record['session_key'], backend)
+            or not hex_value(record['artifact_digest'], 64)):
         raise ValueError('native session artifact mismatch')
     if record['state'] == 'pending':
         if record['before_digest'] is not None or record['after_digest'] != record['artifact_digest']:

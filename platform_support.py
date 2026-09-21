@@ -486,15 +486,21 @@ def session_launchd_artifact(prefix, python, thread, repository, *, domain, agen
                                KeepAlive=dict(SuccessfulExit=False)), sort_keys=True)
 
 
+def session_service_command(record):
+    import session_service_config
+    session_service_config.validate(record)
+    return [record['python'], str(Path(record['prefix']) / 'session_service.py'), 'run',
+            '--prefix', record['prefix'], '--state-dir', record['state_directory'],
+            '--backend', record['backend']]
+
+
 def session_service_artifact(record):
     """Render a saved native selection for the owned pair runner; no manager calls."""
     import json
     import plistlib
     import session_service_config
     session_service_config.validate(record)
-    argv = [record['python'], str(Path(record['prefix']) / 'session_service.py'), 'run',
-            '--prefix', record['prefix'], '--state-dir', record['state_directory'],
-            '--backend', record['backend']]
+    argv = session_service_command(record)
     if record['backend'] == 'systemd':
         import runtime_names
         escaped = [json.dumps(value.replace('%', '%%'), ensure_ascii=False) for value in argv]
@@ -511,6 +517,7 @@ def session_service_artifact(record):
                                    Umask=63, RunAtLoad=True, ThrottleInterval=10,
                                    KeepAlive=dict(SuccessfulExit=False)), sort_keys=True)
     raise ValueError('manual session has no native artifact')
+
 
 
 def user_service_manager(operation, names=(), **options):

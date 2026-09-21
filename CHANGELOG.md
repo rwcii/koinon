@@ -5,6 +5,9 @@ into a dated release section when promoted to `main`.
 
 ## Unreleased
 
+- Add saved native session selection, recoverable artifact publication, and an owned
+  runner entrypoint with explicit recovery provenance; automatic activation remains pending.
+
 - Stage durable session-runner ownership, refusal and generation-bound shutdown for
   bridge/notifier pairs; native session activation remains unwired.
 
