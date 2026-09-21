@@ -24,6 +24,7 @@ from notification_provider import Provider
 from notification_source import SourceError
 from notification_state import NotificationState
 import platform_support
+import generation_stop
 import participant_presence
 from peer_transport import control_exchange, credentials, encode, LIMIT, private_dir
 from service_runtime import Admission, HANDSHAKE_TIMEOUT, close_writer, drain_handlers
@@ -378,6 +379,10 @@ class Runtime:
         if not isinstance(request, dict) or not isinstance(request.get('op'), str):
             raise ValueError('invalid notifier control request')
         op = request['op']
+        if op == generation_stop.OPERATION:
+            generation_stop.validate(request, self.generation)
+            self.stop.set()
+            return dict(stopping=True, generation=self.generation, protocol=1)
         fields = {'op', 'sequences'} if op == 'retry' else {'op'}
         if set(request) != fields:
             raise ValueError('invalid notifier control fields')
@@ -386,7 +391,8 @@ class Runtime:
             return dict(stopping=True, generation=self.generation)
         if op == 'status':
             value = await self.observed_health()
-            return dict(generation=self.generation, pid=os.getpid(), lifecycle='stopping' if self.closing else 'running',
+            return dict(control_capabilities=[generation_stop.CAPABILITY],
+                        generation=self.generation, pid=os.getpid(), lifecycle='stopping' if self.closing else 'running',
                         presence=dict(service=participant_presence.service('live_notifier_control'),
                                       model_activity=participant_presence.unknown()),
                         priority=participant_presence.priority(self.options.agent),
@@ -420,10 +426,12 @@ class Runtime:
                 self.admission.leave(slot)
                 slot = None
                 op = request.get('op') if isinstance(request, dict) else None
-                slot = self.admission.enter('control' if op in ('status', 'stop') else 'ordinary')
+                slot = self.admission.enter('control' if op in ('status', 'stop', generation_stop.OPERATION) else 'ordinary')
                 async with asyncio.timeout(5):
                     result = await self.command(request)
                 reply = dict(ok=True, result=result)
+            except generation_stop.StopError as exc:
+                reply = dict(ok=False, code=exc.code)
             except ControlRefusal as exc:
                 reply = dict(ok=False, code=exc.code, recovery=exc.recovery)
             except JournalError as exc:

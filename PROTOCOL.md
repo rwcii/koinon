@@ -156,6 +156,33 @@ do not set a historical fault. These fields are not a complete database integrit
 or the notifier's separate delivery-health record. A status fallback requires a parsed
 request; it cannot bypass a full unclassified connection pool.
 
+### Generation-bound session shutdown
+
+Bridge and notifier private status replies advertise
+`control_capabilities: ["generation_bound_stop"]` independently of database health.
+A supervisor must observe this capability before sending
+`{"op":"stop-generation","protocol":1,"generation":GENERATION}` to either private control endpoint. The
+32-character lowercase hexadecimal generation must equal that process's current
+runtime generation; malformed requests return `invalid_request`, and stale targets
+return `not_this_instance`, before stopping. Accepted replies contain
+`{"stopping":true,"generation":GENERATION,"protocol":1}` in `result`. Missing
+capability is not permission to fall back to an unguarded stop. The client must bind
+capability and generation from the same status reply to the captured child PID and
+kernel peer PID, with the captured process-start marker checked before each exchange.
+The generation comparison at the receiving process remains the in-band target guard;
+these process observations are not an atomic lock. Old bridge versions ignore extra fields on `stop`; therefore a
+new field on that operation would silently lose the guard. The distinct operation
+also protects against an old replacement appearing between status and stop: it
+rejects the unknown operation. The shared client reports `guarded_stop_unsupported`
+when capability is absent and `guarded_stop_unconfirmed` for an ambiguous reply.
+Neither condition permits an unguarded retry. An accepted reply
+means shutdown was requested, not that the process has exited.
+
+Existing explicit operator requests containing only `{"op":"stop"}` remain
+supported. This control protocol does not execute stored peer messages. The staged
+native session runner will capture both child generations before using guarded stops;
+this protocol addition alone does not enable native session activation.
+
 ## Memory control protocol
 
 This section describes a protocol **this project defines**, unlike the rest of this document,

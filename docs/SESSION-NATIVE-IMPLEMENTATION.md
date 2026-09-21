@@ -35,7 +35,10 @@ a plist is not permission or evidence to load it.
    Join bridge handshake and notifier readiness to those identities. A healthy bridge
    alone is insufficient. Reuse durable publication and process observation primitives;
    do not reuse repository-memory selection records for participant sessions.
-3. Add generation-bound stop and explicit retry. Preserve both the triggering error
+3. Add generation-bound stop and explicit retry. The staged `stop-generation`
+   control operation requires capability evidence and refuses on old servers, including
+   replacement between status and stop. The shared client checks captured generation
+   and PID/start identity; it never falls back to legacy `stop`. Preserve both the triggering error
    and any unconfirmed shutdown. Never signal a PID merely because a record names it,
    or clear refusal while the old runner/children cannot be proven dead. Keep the
    original permanent failure in status even though launchd requires a zero wrapper

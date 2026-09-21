@@ -18,6 +18,7 @@ from database_worker import DatabaseWorker, CapacityError, WorkerFailure
 from service_runtime import Admission, close_writer, drain_handlers, database_status, HANDSHAKE_TIMEOUT
 from peer_guidance import PEER_GUIDANCE, MEMORY_POINTER_GUIDANCE
 import platform_support
+import generation_stop
 import inbox_schema
 import delivery_ledger
 import participant_presence
@@ -344,7 +345,7 @@ class Bridge:
                         raise ValueError('expected operation object')
                     self.admission.leave(slot)
                     slot = None
-                    slot = self.admission.enter('control' if request.get('op') in ('status', 'stop') else 'ordinary')
+                    slot = self.admission.enter('control' if request.get('op') in ('status', 'stop', generation_stop.OPERATION) else 'ordinary')
                     result = await self.command(request)
                     response = encode(dict(ok=True, result=result))
                     reply_started = True
@@ -375,7 +376,7 @@ class Bridge:
                 key = request.get('binding')
                 if isinstance(key, str) and key in self.binding_health:
                     self.record_binding_health(key, 'refused', exc.code)
-            if isinstance(exc, (memory_bindings.BindingError, delivery_ledger.DeliveryError)):
+            if isinstance(exc, (memory_bindings.BindingError, delivery_ledger.DeliveryError, generation_stop.StopError)):
                 code = exc.code
             elif isinstance(exc, CapacityError):
                 code = 'capacity'
@@ -427,6 +428,7 @@ class Bridge:
             if state['inbox_schema'] == inbox_schema.SCHEMA:
                 state['capabilities'].extend(('inbox_subscription', 'memory_binding'))
             return dict(pid=os.getpid(), address=self.address, generation=self.generation,
+                        control_capabilities=[generation_stop.CAPABILITY],
                         **state, **diagnostics,
                         presence=dict(service=participant_presence.service('live_bridge_control'),
                                       model_activity=participant_presence.unknown()),
@@ -488,6 +490,10 @@ class Bridge:
                     state, reason = 'unknown', None
                 item['service_state'], item['service_reason'] = state, reason
             return memory_bindings.page(bindings, r.get('after', ''))
+        if op == generation_stop.OPERATION:
+            generation_stop.validate(r, self.generation)
+            self.stop.set()
+            return dict(stopping=True, generation=self.generation, protocol=1)
         if op == 'stop':
             self.stop.set()
             return 'stopping'

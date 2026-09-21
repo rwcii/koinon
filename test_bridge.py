@@ -35,6 +35,22 @@ class BridgeTests(unittest.IsolatedAsyncioTestCase):
         w.close()
         await w.wait_closed()
 
+    async def test_stop_guard_refuses_stale_or_malformed_target_before_mutation(self):
+        for target in ('0' * 32, None, 17, [], 'invalid'):
+            with self.subTest(target=target), self.assertRaises(ValueError):
+                await self.b.command(dict(op='stop-generation', protocol=1, generation=target))
+            self.assertFalse(self.b.stop.is_set())
+        with self.assertRaises(ValueError):
+            await self.b.command(dict(op='stop-generation', protocol=1, generation=self.b.generation, extra=True))
+        self.assertFalse(self.b.stop.is_set())
+        self.assertEqual(await self.b.command(dict(op='stop-generation', protocol=1, generation=self.b.generation)),
+                         dict(stopping=True, generation=self.b.generation, protocol=1))
+        self.assertTrue(self.b.stop.is_set())
+
+    async def test_legacy_explicit_stop_remains_supported(self):
+        self.assertEqual(await self.b.command(dict(op='stop')), 'stopping')
+        self.assertTrue(self.b.stop.is_set())
+
     async def test_fragmented_and_eof_frames(self):
         frame = bridge.encode({'type':'user','message':{'content':'hello'}})
         await self.put([frame[:7],frame[7:],frame.rstrip()])
