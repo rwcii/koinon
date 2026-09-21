@@ -21,11 +21,17 @@ DQ-01, DQ-02, DQ-03 and DQ-07 were included in the promotion to `main` at
 PR #35. These source milestones do not establish local runtime deployment.
 Runtime refresh and initial shared work-item adoption have been independently
 checked for the selected installation; this does not establish deployment elsewhere
-or completion of long-term retention tests. Complete installation (DQ-11) and
-supported upgrades (DQ-12) remain open; native component ownership and lifecycle integration are in progress. DQ-08 design is tracked in
+or completion of long-term retention tests. Complete installation (DQ-11) is integrated on `develop` through PR #66.
+Supported upgrades (DQ-12) remain in progress. DQ-08 design is tracked in
 [issue #38](https://github.com/rwcii/koinon/issues/38). Keep DQ-04 visible for a scope
 decision before DQ-05 history pruning. Investigating a requirement does not settle
 its protocol.
+
+The distinct [pre-promotion review (#51)](https://github.com/rwcii/koinon/issues/51)
+must reconcile agent guidance with delivered component supervision: AGENTS.md still
+describes macOS as manual-only and memory as having no installer-managed service.
+Those statements predate the native repository-component path. Instruction-file
+changes and main promotion remain separate from the upgrade implementation.
 
 ## DQ-01 — Universal per-agent usage reports
 
@@ -285,14 +291,16 @@ The current reachable work/startup mappings are covered by the PR #35 tests.
 ## DQ-11 — Install and manage every runtime component
 
 **Source:** user requirement conveyed by the reviewer and recorded in
-[issue #42](https://github.com/rwcii/koinon/issues/42). **Status:** implementation in progress;
-[implementation design candidate](MEMORY-INSTALLATION-DESIGN.md) under peer review.
-This includes the memory-service lifecycle gap.
+[issue #42](https://github.com/rwcii/koinon/issues/42). **Status:** integrated on `develop` in [PR #66](https://github.com/rwcii/koinon/pull/66),
+merge `de7d265`. The [implementation design](MEMORY-INSTALLATION-DESIGN.md) records
+the component ownership and lifecycle boundaries.
 
 The component integration now selects repository memory and native sessions through
 public installation commands, with no-start staging, exact repeats and resumable owned
-removal. Native public installation/reinstall evidence on Linux and macOS is the remaining
-acceptance gate. Operator-created units remain outside the owned inventory and require
+removal. Native public installation/reinstall run
+[35563258522](https://github.com/rwcii/koinon/actions/runs/35563258522) passed all six
+checks on both Linux and macOS at reviewed head `f65ec57`; the independent full suite
+passed 1,003 tests. The merge preserves that exact reviewed tree. Operator-created units remain outside the owned inventory and require
 explicit migration; changed runtime bytes require the separate DQ-12 upgrade path.
 One store serves an absolute Git common directory, including its worktrees;
 memory service identity must not depend on a participant session.
@@ -321,10 +329,11 @@ Acceptance requirements:
 ## DQ-12 — Supported, resumable runtime upgrades
 
 **Source:** user requirement conveyed by the reviewer and recorded in
-[issue #43](https://github.com/rwcii/koinon/issues/43). **Status:** queued;
-implementation design pending. Depends on DQ-11 component ownership and lifecycle
-inventory; the current [upgrade runbook](WORK-ITEMS-UPGRADE.md) remains applicable
-until the replacement operation is implemented and verified.
+[issue #43](https://github.com/rwcii/koinon/issues/43). **Status:** implementation in progress against the peer-reviewed
+[RUNTIME-UPGRADE-DESIGN.md](RUNTIME-UPGRADE-DESIGN.md). Uses the delivered
+DQ-11 component ownership and lifecycle inventory. The existing manual runbook applies
+to legacy/manual deployments; native runtime replacement remains refused until the
+supported operation is implemented and verified.
 
 Turn the coordinated upgrade into an executable operation that records its phases,
 performs its own inventory and backup, and verifies recovery. Preserve explicit

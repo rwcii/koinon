@@ -367,8 +367,10 @@ numbers to avoid repeating work. A successful socket send is not proof of model 
 
 ## Shared repository memory
 
-The memory service is optional and independent of the bridge. It is not installed as a service
-unit, and nothing starts it automatically. Memory CLI errors use a structured
+The memory service is optional and independent of the bridge. Repository component
+installation can supervise it through systemd or launchd; a manual backend requires a
+persistent managed process. See [repository components](#repository-components-and-native-supervision).
+Memory CLI errors use a structured
 `ok:false` response with a recovery code. Exit 75 means temporary unavailability or
 capacity; retry after pending work settles. Exit 78 means an identity, ownership,
 configuration, permissions or invalid-handshake refusal that needs operator correction.
@@ -378,15 +380,15 @@ restart loop. Request-specific errors and ambiguous lost replies exit 1; do not 
 an exit code alone as permission to repeat an uncertain write. If you manage memory with a separate service manager,
 keep 75 retryable and exclude both 70 (internal software error) and 78 from automatic
 restarts. Internal errors require investigation or a code correction; they are not
-reported as incompatible user data. No memory service unit is
-created by the installer. An operator-created memory unit is not included in the
+reported as incompatible user data. An operator-created memory unit is not included in the
 installer's session restart report or in uninstall's owned-unit inventory. Before
 replacing or removing its runtime, stop that memory service separately and verify
 its process has exited. After a compatible upgrade, restart it explicitly and
 verify memory health and store identity. For removal, separately disable and remove
 only the operator-owned unit selected for this installation; preserve the memory
-store and unrelated services. Complete installer-managed memory supervision and
-supported upgrades are tracked as [DQ-11 and DQ-12](DELIVERY-QUEUE.md#dq-11--install-and-manage-every-runtime-component).
+store and unrelated services. Installer-managed component lifecycle is delivered in
+[DQ-11](DELIVERY-QUEUE.md#dq-11--install-and-manage-every-runtime-component);
+supported runtime replacement remains [DQ-12](DELIVERY-QUEUE.md#dq-12--supported-resumable-runtime-upgrades).
 
 Run one per repository, from inside that repository:
 
@@ -458,10 +460,12 @@ The pre-existing explicit single-thread mode remains available:
 python3 scripts/install.py --thread YOUR_THREAD_ID --name codex-project --repo /path/to/project
 ```
 
-That legacy mode manages the fixed `koinon-bridge`/`koinon-notify` pair (or the retained legacy names) and does
-not add global guidance. Prefer Codex-wide mode for concurrent sessions. It does not
-adopt an already running prototype or legacy inbox automatically; stop or migrate that
-instance deliberately to avoid duplicate registrations for one conversation.
+For a fresh prefix, that repository-scoped invocation selects the session supervisor
+and repository memory without adding global guidance. Existing legacy selections keep
+their original scope unless memory is explicitly selected with `--configure-memory`.
+Thread-only installation without a repository retains the legacy fixed pair. Existing
+prototype or legacy inboxes are never adopted automatically; deliberate migration must
+preserve their ownership and prevent duplicate registration for one conversation.
 
 ## Notifier ownership
 
@@ -506,10 +510,11 @@ do not treat installing files with `--no-start` as activating the new exclusion 
 
 ## Upgrades and removal
 
-Stop this installation's registered sessions before upgrading runtime code, then rerun
-`--configure-codex` with the same paths. Existing state and instructions are preserved;
-rerun `ensure` in active conversations afterward. Configure a distinct state root when
-you intend an independent installation. Never silently reset a checkpoint.
+Ordinary reinstall refuses changed runtime bytes when component selections exist.
+The supported coordinated replacement command is being implemented in
+[DQ-12](DELIVERY-QUEUE.md#dq-12--supported-resumable-runtime-upgrades). For legacy/manual
+deployments, use the [stopped-state runbook](WORK-ITEMS-UPGRADE.md), preserving the
+same prefix, state paths and targets. Never silently reset a checkpoint.
 Do not run session commands from an older runtime during an upgrade. Older commands
 do not use the lifecycle lock that protects session startup.
 
@@ -589,8 +594,8 @@ and its running loop. All installer-managed units exclude both permanent statuse
 
 ## Explicit memory bindings
 
-Memory remains optional and is not started by the installer. After starting the
-repository's memory service, use its exact state directory to bind it:
+Memory remains optional. Installation can start an explicitly selected repository
+service, but does not bind participants. Use its exact state directory to bind it:
 
 ```sh
 python3 bridge.py --state-dir /private/bridge-state bind-memory \
@@ -677,6 +682,6 @@ procedure and restart only the affected sessions. With `--no-start`, no service-
 query is made; candidate units are reported as unverified. Missing, failed, timed-out or
 ambiguous service-manager observations also remain unverified. An inventory exceeding
 128 candidate units is reported incomplete rather than partially declaring success.
-Manual supervisors, including macOS sessions, require an explicit coordinated restart;
+Manual supervisors require an explicit coordinated restart;
 the installer does not inspect their processes. A successful file installation alone
 is not evidence that a running supervisor uses those files.
