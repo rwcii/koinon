@@ -129,6 +129,8 @@ class Runner:
                     pass  # No broad stop or signal fallback after a guarded refusal.
             try:
                 child.wait(timeout=STOP_TIMEOUT)
+                if self.owner['spawn_pending'] == kind:
+                    self.owner['spawn_pending'] = None
             except subprocess.TimeoutExpired:
                 unconfirmed = True
         if unconfirmed:
@@ -145,12 +147,20 @@ class Runner:
             for kind in ('bridge', 'notifier'):
                 if self.stopping():
                     return
-                child = subprocess.Popen(self.commands[kind], stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL)
+                self.owner['spawn_pending'] = kind
+                self.publish('starting')
+                try:
+                    child = subprocess.Popen(self.commands[kind], stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL)
+                except OSError:
+                    # Popen reaps an exec-failed child before raising its OSError.
+                    self.owner['spawn_pending'] = None
+                    raise
                 self.children[kind] = child
                 if child.poll() is not None:
                     raise child_failure(child.returncode)
                 self.owner['children'][kind] = dict(pid=child.pid, proc_start=platform_support.proc_start(child.pid),
                                                     generation=None)
+                self.owner['spawn_pending'] = None
                 self.publish('starting')
                 deadline = time.monotonic() + START_TIMEOUT
                 while not self.stopping():
@@ -195,10 +205,15 @@ def run(records, commands, backend):
             if records.read(refusal=True) is not None:
                 raise StateError('session_configuration_failure')
             old = records.read()
-            if old is not None and (old['phase'] not in ('stopped', 'failed') or alive_state(old) != 'dead'
+            if old is not None and (old['spawn_pending'] is not None and not records.spawn_recovered(old)
+                                    or alive_state(old) != 'dead'
                                     or any(child is not None and alive_state(child) != 'dead'
                                            for child in old['children'].values())):
                 raise StateError('session_ownership_unknown')
+            if (old is not None and (old['exit_status'] in platform_support.PERMANENT_EXIT_STATUSES
+                                    or old['spawn_pending'] is not None)
+                    and not records.retry_requested(old['generation'])):
+                raise StateError('session_configuration_failure')
             runner = Runner(records, commands, stopped)
             try:
                 runner.attempt()

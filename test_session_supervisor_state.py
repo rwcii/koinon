@@ -72,9 +72,10 @@ class SessionStateTests(unittest.TestCase):
             self.assertEqual(caught.exception.code, 'session_shutdown_unconfirmed')
         with patch.object(state, 'alive_state', return_value='dead'):
             self.assertEqual(self.records.wait_stopped(owner, timeout=0)['status'], 'stopped')
-            self.records.publish(self.owner)
+            interrupted = dict(self.owner, spawn_pending='bridge')
+            self.records.publish(interrupted)
             with self.assertRaises(state.StateError):
-                self.records.wait_stopped(self.owner, timeout=0)
+                self.records.wait_stopped(interrupted, timeout=0)
 
     def test_retry_preserves_refusal_until_every_recorded_process_is_dead(self):
         failure = dict(self.owner, phase='failed', exit_status=78,
@@ -91,6 +92,67 @@ class SessionStateTests(unittest.TestCase):
             self.records.retry()
         self.assertFalse(self.records.refusal_path.exists())
         self.assertEqual(self.records.read(), failure)
+        self.assertTrue(self.records.retry_requested(failure['generation']))
+        self.assertFalse(self.records.retry_requested('f' * 32))
+
+    def test_unresolved_spawn_blocks_retry_even_when_terminal_and_parent_dead(self):
+        failure = dict(self.owner, phase='failed', exit_status=78, spawn_pending='notifier',
+                       primary_code='session_configuration_failure', shutdown_code='session_shutdown_unconfirmed')
+        self.records.publish(failure)
+        self.records.publish(failure, refusal=True)
+        with patch.object(state, 'alive_state', return_value='dead'):
+            with self.assertRaises(state.StateError):
+                self.records.retry()
+            with self.assertRaises(state.StateError):
+                self.records.wait_stopped(failure, timeout=0)
+        self.assertEqual(self.records.read(refusal=True), failure)
+        self.assertFalse(self.records.retry_path.exists())
+
+    def test_dead_pair_with_no_unresolved_spawn_can_be_observed_after_runner_crash(self):
+        interrupted = dict(self.owner, phase='starting')
+        self.records.publish(interrupted)
+        with patch.object(state, 'alive_state', return_value='dead'):
+            self.assertEqual(self.records.wait_stopped(interrupted, timeout=0)['status'], 'stopped')
+            self.records.retry()
+        self.assertTrue(self.records.retry_requested(interrupted['generation']))
+
+    def test_explicit_spawn_recovery_retains_evidence_without_claiming_observed_exit(self):
+        failure = dict(self.owner, phase='failed', exit_status=78, spawn_pending='bridge',
+                       primary_code='session_configuration_failure', shutdown_code='session_shutdown_unconfirmed')
+        self.records.publish(failure)
+        self.records.publish(failure, refusal=True)
+        with self.assertRaises(state.StateError):
+            self.records.recover_spawn(failure['generation'])
+        with patch.object(state, 'alive_state', return_value='alive'):
+            with self.assertRaises(state.StateError):
+                self.records.recover_spawn(failure['generation'], assert_no_unrecorded_child=True)
+        with patch.object(state, 'alive_state', return_value='dead'):
+            with self.assertRaises(state.StateError):
+                self.records.recover_spawn('f' * 32, assert_no_unrecorded_child=True)
+            result = self.records.recover_spawn(failure['generation'], assert_no_unrecorded_child=True)
+            self.assertEqual(result['status'], 'operator_assertion_recorded')
+            evidence = durable_state.read(self.records.recovery_path)
+            self.assertEqual(evidence['basis'], 'operator_assertion')
+            self.assertEqual(evidence['owner'], failure)
+            self.assertEqual(evidence['refusal'], failure)
+            self.assertEqual(self.records.read(), failure)
+            self.assertEqual(self.records.read(refusal=True), failure)
+            self.assertFalse(self.records.retry_requested(failure['generation']))
+            with self.assertRaises(state.StateError):
+                self.records.wait_stopped(failure, timeout=0)
+            self.records.retry()
+        self.assertTrue(self.records.retry_requested(failure['generation']))
+        self.assertFalse(self.records.spawn_recovered(dict(failure, generation='f' * 32)))
+        self.assertEqual(durable_state.read(self.records.recovery_path), evidence)
+
+    def test_legacy_nonprivate_lock_refuses_without_changing_permissions(self):
+        lock = self.home / 'supervisor.lock'
+        lock.touch(mode=0o600)
+        lock.chmod(0o664)
+        with self.assertRaises(state.StateError) as caught:
+            self.records.retry()
+        self.assertEqual(caught.exception.code, 'invalid_session_state')
+        self.assertEqual(lock.stat().st_mode & 0o777, 0o664)
 
     def test_foreign_or_unsafe_evidence_is_never_repaired(self):
         self.records.publish(self.owner)

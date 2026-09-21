@@ -65,10 +65,12 @@ class Records:
         self.owner_path = self.directory / 'session-supervisor.json'
         self.refusal_path = self.directory / 'session-supervisor-refusal.json'
         self.stop_path = self.directory / 'session-supervisor-stop.json'
+        self.retry_path = self.directory / 'session-supervisor-retry.json'
+        self.recovery_path = self.directory / 'session-supervisor-recovery.json'
 
     def validate(self, value, *, refusal=False):
         fields = {'version', 'installation', 'configuration', 'generation', 'pid', 'proc_start',
-                  'phase', 'children', 'exit_status', 'primary_code', 'shutdown_code'}
+                  'phase', 'children', 'spawn_pending', 'exit_status', 'primary_code', 'shutdown_code'}
         if (not isinstance(value, dict) or set(value) != fields or type(value['version']) is not int
                 or value['version'] != 1 or value['installation'] != self.installation
                 or not hex_value(value['configuration'], 64) or not hex_value(value['generation'], 32)
@@ -84,6 +86,11 @@ class Records:
             if child is not None and (not process(child) or set(child) != {'pid', 'proc_start', 'generation'}
                                       or child['generation'] is not None and not hex_value(child['generation'], 32)):
                 raise StateError('invalid_session_state')
+        pending = value['spawn_pending']
+        if (pending is not None and (not isinstance(pending, str) or pending not in CHILDREN
+                                     or value['children'][pending] is not None)
+                or pending is not None and value['phase'] in ('running', 'stopped')):
+            raise StateError('invalid_session_state')
         pids = [child['pid'] for child in value['children'].values() if child is not None]
         if len(set(pids)) != len(pids) or value['pid'] in pids:
             raise StateError('invalid_session_state')
@@ -109,7 +116,7 @@ class Records:
         return self.validate(dict(version=1, installation=self.installation, configuration=self.configuration,
                                   generation=uuid.uuid4().hex, pid=os.getpid(),
                                   proc_start=platform_support.proc_start(os.getpid()), phase='starting',
-                                  children={key: None for key in CHILDREN}, exit_status=None,
+                                  children={key: None for key in CHILDREN}, spawn_pending=None, exit_status=None,
                                   primary_code=None, shutdown_code=None))
 
     def publish(self, value, *, refusal=False):
@@ -154,11 +161,10 @@ class Records:
             children = [child for record in (captured, current)
                         for child in record['children'].values() if child is not None]
             if (alive_state(captured) == 'dead' and all(alive_state(child) == 'dead' for child in children)
-                    and current['phase'] in ('stopped', 'failed')
-                    and current['shutdown_code'] is None):
+                    and current['spawn_pending'] is None):
                 return dict(status='stopped', generation=captured['generation'])
-            # A dead runner in a nonterminal phase can have unrecorded startup work.
-            # Absence of a child record is not proof that no child was created.
+            # An unresolved spawn intent can represent an unrecorded child.
+            # Neither an absent child record nor a dead parent proves its exit.
             if time.monotonic() >= deadline:
                 raise StateError('session_shutdown_unconfirmed')
             time.sleep(.1)
@@ -169,10 +175,69 @@ class Records:
             for record in (owner, refusal):
                 if record is None:
                     continue
-                if (alive_state(record) != 'dead' or record['phase'] not in ('stopped', 'failed')
+                if (alive_state(record) != 'dead'
+                        or record['spawn_pending'] is not None and not self.spawn_recovered(record)
                         or any(child is not None and alive_state(child) != 'dead'
                                for child in record['children'].values())):
                     raise StateError('session_ownership_unknown')
+            target = owner or refusal
+            if target is not None:
+                durable_state.publish(self.retry_path, dict(version=1, installation=self.installation,
+                    configuration=self.configuration, generation=target['generation']))
             if refusal is not None:
                 self.refusal_path.unlink()
                 platform_support.sync_state_directory(self.directory)
+
+    def retry_requested(self, generation):
+        value = durable_state.read(self.retry_path)
+        if value is None:
+            return False
+        if (set(value) != {'version', 'installation', 'configuration', 'generation'}
+                or type(value['version']) is not int or value['version'] != 1
+                or value['installation'] != self.installation
+                or not hex_value(value['configuration'], 64) or not hex_value(value['generation'], 32)):
+            raise StateError('invalid_session_state')
+        return value['generation'] == generation and value['configuration'] == self.configuration
+
+    def spawn_recovered(self, record):
+        value = durable_state.read(self.recovery_path)
+        if value is None:
+            return False
+        if (set(value) != {'version', 'basis', 'generation', 'asserted_by_uid', 'owner', 'refusal'}
+                or type(value['version']) is not int or value['version'] != 1
+                or value['basis'] != 'operator_assertion'
+                or type(value['asserted_by_uid']) is not int or value['asserted_by_uid'] != os.geteuid()
+                or not hex_value(value['generation'], 32)):
+            raise StateError('invalid_session_state')
+        owner = self.validate(value['owner'])
+        refusal = None if value['refusal'] is None else self.validate(value['refusal'], refusal=True)
+        if (owner['spawn_pending'] is None or owner['generation'] != value['generation']
+                or refusal is not None and any(refusal[key] != owner[key]
+                    for key in ('generation', 'configuration', 'pid', 'proc_start'))):
+            raise StateError('invalid_session_state')
+        return record == owner or refusal is not None and record == refusal
+
+    def recover_spawn(self, generation, *, assert_no_unrecorded_child=False):
+        """Record an explicit operator assertion; never manufacture exit observation.
+
+        The caller must expose this as a deliberate recovery action, never infer the
+        assertion from absence, a timeout, or peer content. It does not authorize a
+        new attempt until the separate explicit retry completes.
+        """
+        if assert_no_unrecorded_child is not True or not hex_value(generation, 32):
+            raise StateError('invalid_session_state')
+        with state_lock(self.directory / 'supervisor.lock', 'session_supervisor_in_use'):
+            owner, refusal = self.read(), self.read(refusal=True)
+            if owner is None or owner['generation'] != generation or owner['spawn_pending'] is None:
+                raise StateError('session_ownership_unknown')
+            if refusal is not None and any(refusal[key] != owner[key]
+                    for key in ('generation', 'configuration', 'pid', 'proc_start')):
+                raise StateError('session_ownership_unknown')
+            for record in (owner, refusal):
+                if record is not None and (alive_state(record) != 'dead'
+                        or any(child is not None and alive_state(child) != 'dead'
+                               for child in record['children'].values())):
+                    raise StateError('session_ownership_unknown')
+            durable_state.publish(self.recovery_path, dict(version=1, basis='operator_assertion',
+                generation=generation, asserted_by_uid=os.geteuid(), owner=owner, refusal=refusal))
+            return dict(status='operator_assertion_recorded', generation=generation)
