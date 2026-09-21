@@ -76,6 +76,7 @@ def prepare(prefix, source):
                 root, database, repo = Path(record['state_directory']), 'inbox.sqlite3', None
             checks.append(upgrade_preflight.database_check(root, database, workspace, kind=kind, repo=repo))
         report_overhead = len(json.dumps(dict(memory_ownership=observed['memory_ownership'],
+                                              service_ownership=observed['service_ownership'],
                                               capacity=budget, databases=checks)).encode()) + 65536
         if sum(item['report_bytes'] for item in checks) + report_overhead > 1024 * 1024:
             raise ValueError('aggregate preservation report exceeds private document capacity')
@@ -89,7 +90,8 @@ def prepare(prefix, source):
             installation=installed.config, components=observed['components'], recovery=recovery)
         documents = Documents(operation)
         documents.put('prepared-checks', dict(version=1, plan=prepared['sha256'],
-            memory_ownership=observed['memory_ownership'], capacity=budget, databases=checks))
+            memory_ownership=observed['memory_ownership'],
+            service_ownership=observed['service_ownership'], capacity=budget, databases=checks))
         # Publish a discoverable recovery pointer before the exclusion marker.
         # A crash here resumes phase zero under the original configuration.
         durable_state.publish(parent / 'current.json', dict(version=1,
@@ -172,10 +174,11 @@ def main(argv=None):
         return 75
     except (OSError, ValueError) as exc:
         result = dict(ok=False, error=str(exc))
-        if isinstance(exc, upgrade_preflight.UnownedMemoryError):
-            result['memory_ownership'] = exc.report
+        if isinstance(exc, (upgrade_preflight.UnownedMemoryError, upgrade_preflight.UnownedServiceError)):
+            service = isinstance(exc, upgrade_preflight.UnownedServiceError)
+            result['service_ownership' if service else 'memory_ownership'] = exc.report
             result['recovery'] = dict(
-                code='unowned_memory_requires_inventory',
+                code='unowned_service_requires_inventory' if service else 'unowned_memory_requires_inventory',
                 guide='docs/WORK-ITEMS-UPGRADE.md#recovering-from-unowned-memory-refusal',
                 next_step='Keep the current runtime and state intact; identify the reported store and its service before choosing the documented legacy upgrade procedure.',
                 preserve='Do not delete, move, rename or relabel the reported state to make preflight pass. It may contain the only copy of shared memory.',

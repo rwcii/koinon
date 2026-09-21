@@ -5,6 +5,8 @@ into a dated release section when promoted to `main`.
 
 ## Unreleased
 
+- Report and refuse unowned user-service definitions that directly reference an upgrading runtime, including loaded custom artifacts and definitions outside saved state roots.
+
 - Upgrade saved manual memory through a verified persistent foreground handoff, retaining resumable phases and original stopped state. Legacy manual sessions still require explicit ownership migration.
 
 - Restore inactive native components to their original stopped and registered/deactivated

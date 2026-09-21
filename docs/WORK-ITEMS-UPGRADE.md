@@ -64,10 +64,25 @@ changed selections or unrecognized state refuse without silently resetting anyth
 
 Memory-state discovery covers the installation's configured state root and saved memory
 roots. Any directory there without a saved managed selection produces an explicit
-unowned-state report and refuses before shutdown, even if stopped. The command does
-not adopt, relabel, stop or delete that state. Arbitrary custom service locations outside
-those roots are not discovered; complete external-service discovery is still an acceptance
-gap. Do not interpret the report's stated discovery scope as a host-wide ownership claim.
+unowned-state report and refuses before shutdown, even if stopped. Service discovery
+also reads the selected legacy unit directory, native user service search directories,
+and paths of currently loaded user-service definitions. It reports definitions that
+directly reference the selected runtime, including hand-written units/plists outside
+saved state roots, loader links and drop-ins. Only an exact saved artifact path and
+matching digest establish ownership. An unowned reference refuses before shutdown;
+no file is adopted, relabeled, stopped or deleted. Direct same-user foreground
+`memory.py serve` and `memory_service.py run` processes are also inventoried and must
+match a saved supervisor/child PID and process-start marker; unowned processes are
+reported and left running. The private preflight/completion
+report retains the searched directories, discovery status, matching paths and hashes.
+
+This is a bounded search for direct runtime references, not arbitrary program analysis.
+Opaque wrappers, unselected runtime aliases and dynamically constructed runtime paths
+are not resolved, and other
+users or system service managers are outside the selected same-user scope. If the user
+manager is unavailable, the report explicitly identifies static-path-only discovery.
+Malformed or changing native inventory refuses rather than returning an empty result.
+Preserve and inventory services outside the stated scope before upgrading a shared prefix.
 
 Ordinary ingress and notification delivery stay gated while migration and preservation
 are verified. The release receipt identifies verified child generations. After release,
@@ -78,7 +93,9 @@ explicit separate recovery decision and never automatically replaces new writes.
 ## Recovering from unowned-memory refusal
 
 An `unowned_memory_requires_inventory` error means the installation has no saved
-managed selection for a reported memory directory. It does **not** mean the directory
+managed selection for a reported memory directory. An
+`unowned_service_requires_inventory` error identifies a service definition referencing
+the runtime without matching saved ownership. It does **not** mean the directory
 is unused or disposable. It can contain the only copy of notes, work, claims and
 consumer cursors. The error occurs before shutdown or runtime replacement; keep the
 current runtime available while investigating.

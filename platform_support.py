@@ -1029,3 +1029,236 @@ def session_manager_deactivate(record):
             raise OSError('selected session manager unavailable')
         argv = ['launchctl', 'bootout', domain + '/' + name[:-6]]
     return subprocess.run(argv, capture_output=True, text=True, check=True, timeout=15)
+
+def upgrade_service_sources(prefix):
+    """Read native user definition locations, including loaded custom artifacts.
+
+    Output contains paths and scope only. No service is loaded, started or changed.
+    A missing manager is explicit; an available manager with unparseable inventory
+    is an error, never evidence that it has no external services.
+    """
+    import re
+    home = account_home()
+    references = []
+    def query(argv):
+        result = subprocess.run(argv, capture_output=True, text=True, timeout=PROCESS_QUERY_TIMEOUT + 1)
+        if len(result.stdout.encode()) > 1024 * 1024:
+            raise ValueError('native service discovery exceeds response capacity')
+        return result
+    if LINUX:
+        if memory_manager_available('systemd'):
+            _, _, roots = systemd_registration_layout()
+            result = query(['systemctl', '--user', '--no-pager', '--no-ask-password', 'show',
+                            '*.service', '--all', '--property=Id,FragmentPath,ExecStart,LoadState'])
+            if result.returncode:
+                raise ValueError('loaded systemd service discovery unavailable')
+            loaded, references = _upgrade_systemd_definitions(result.stdout, prefix)
+            status = 'observed_systemd_user_manager'
+        else:
+            config = Path(os.environ.get('XDG_CONFIG_HOME', str(home / '.config')))
+            runtime = Path(os.environ.get('XDG_RUNTIME_DIR', f'/run/user/{os.geteuid()}'))
+            roots = (config / 'systemd/user', home / '.config/systemd/user',
+                     runtime / 'systemd/user', runtime / 'systemd/transient',
+                     Path('/etc/systemd/user'), Path('/usr/local/lib/systemd/user'),
+                     Path('/usr/lib/systemd/user'))
+            loaded, status = [], 'manager_unavailable_static_paths_only'
+    elif DARWIN:
+        roots = (home / 'Library/LaunchAgents', Path('/Library/LaunchAgents'))
+        domain = f'gui/{os.geteuid()}'
+        if memory_manager_available('launchd', domain):
+            result = query(['launchctl', 'print', domain])
+            if result.returncode:
+                raise ValueError('loaded launchd service discovery unavailable')
+            labels = _upgrade_launchd_labels(result.stdout, domain)
+            loaded = []
+            for label in labels:
+                job = query(['launchctl', 'print', domain + '/' + label])
+                if job.returncode:
+                    raise ValueError('launchd service disappeared during discovery')
+                # Built-in jobs may have no plist. Preserve only explicit paths;
+                # never parse nested environment values as service identity.
+                paths = re.findall(r'^\tpath = (.+)$', job.stdout, re.MULTILINE)
+                if len(paths) > 1 or any(not Path(path).is_absolute() for path in paths):
+                    raise ValueError('invalid loaded launchd definition path')
+                # Application and submitted jobs can name an executable or bundle
+                # rather than a plist. Inspect their command, never read a binary
+                # as if it were a service definition.
+                loaded.extend(path for path in paths if Path(path).suffix in ('.plist', '.service'))
+                reference = _upgrade_loaded_reference(label, paths[0] if paths else None,
+                    paths + _upgrade_launchd_command(job.stdout), prefix)
+                if reference is not None:
+                    references.append(reference)
+            status = 'observed_launchd_gui_domain'
+        else:
+            loaded, status = [], 'gui_domain_unavailable_static_paths_only'
+    else:
+        raise ValueError('service discovery platform unavailable')
+    paths = sorted(set(map(str, roots)))
+    if any(not Path(path).is_absolute() for path in paths):
+        raise ValueError('service discovery requires absolute native search paths')
+    return dict(directories=paths, loaded_artifacts=sorted(set(loaded)),
+                loaded_references=references, loaded_discovery=status)
+
+
+def _upgrade_launchd_labels(text, domain):
+    """Accept one bounded services table from an explicit launchd GUI domain.
+
+    The native print interface is not stable. Unsupported shapes refuse instead
+    of being interpreted as an empty inventory. Only labels leave this parser.
+    """
+    import re
+    lines = text.splitlines()
+    if not lines or lines[0] != domain + ' = {' or lines[-1] != '}':
+        raise ValueError('unexpected launchd domain envelope')
+    starts = [index for index, line in enumerate(lines) if line == '\tservices = {']
+    if len(starts) != 1:
+        raise ValueError('launchd service inventory is unavailable')
+    labels = []
+    for line in lines[starts[0] + 1:]:
+        if line == '\t}':
+            if len(labels) != len(set(labels)):
+                raise ValueError('duplicate launchd service identity')
+            return sorted(labels)
+        columns = line.split()
+        if (not line.startswith('\t\t') or len(columns) != 3
+                or re.fullmatch(r'(?:0|[1-9][0-9]*|-)', columns[0]) is None
+                or re.fullmatch(r'(?:[0-9]+|[A-Za-z-]+)', columns[1]) is None
+                or re.fullmatch(r'[A-Za-z0-9][A-Za-z0-9_.-]*', columns[2]) is None):
+            raise ValueError('unsupported launchd service inventory shape')
+        labels.append(columns[2])
+        if len(labels) > 4096:
+            raise ValueError('launchd service inventory exceeds capacity')
+    raise ValueError('unterminated launchd service inventory')
+
+def upgrade_memory_processes(prefix):
+    """Observe direct same-user memory runner argv without retaining arguments.
+
+    This is inventory, not process ownership or permission to signal a PID. The
+    coordinator joins returned start markers to saved supervisor/child records.
+    """
+    import re
+    scripts = {str(Path(root) / name): kind
+               for root in (str(prefix), str(Path(prefix).resolve()))
+               for name, kind in (('memory.py', 'memory'), ('memory_service.py', 'memory_supervisor'))}
+    def selected(arguments):
+        for script, kind in scripts.items():
+            if isinstance(arguments, list):
+                if script not in arguments:
+                    continue
+                rest = arguments[arguments.index(script) + 1:]
+                match = ('serve' if kind == 'memory' else 'run') in rest
+            else:
+                suffix = 'serve' if kind == 'memory' else 'run'
+                match = re.search(re.escape(script) + r'(?:\s|$).*\b' + suffix + r'\b', arguments) is not None
+            if match:
+                return kind
+        return None
+    rows = []
+    if LINUX:
+        with os.scandir('/proc') as entries:
+            for count, entry in enumerate(entries):
+                if count >= 65536:
+                    raise ValueError('process discovery exceeds capacity')
+                if not entry.name.isdecimal():
+                    continue
+                try:
+                    if entry.stat(follow_symlinks=False).st_uid != os.geteuid():
+                        continue
+                    pid = int(entry.name)
+                    before = proc_start(pid)
+                    with (Path(entry.path) / 'cmdline').open('rb') as stream:
+                        raw = stream.read(65537)
+                    if len(raw) > 65536:
+                        raise ValueError('process arguments exceed discovery capacity')
+                    arguments = [os.fsdecode(value) for value in raw.split(b'\0') if value]
+                    kind = selected(arguments)
+                    if kind is not None:
+                        if not same_process(before, proc_start(pid)):
+                            raise ValueError('memory process changed during discovery')
+                        rows.append(dict(pid=pid, proc_start=before, kind=kind))
+                except (FileNotFoundError, ProcessLookupError):
+                    continue
+    elif DARWIN:
+        result = subprocess.run(['ps', '-axww', '-o', 'uid=,pid=,command='], capture_output=True,
+                                text=True, timeout=PROCESS_QUERY_TIMEOUT)
+        if result.returncode or len(result.stdout.encode()) > 16 * 1024 * 1024:
+            raise ValueError('same-user process discovery unavailable')
+        for count, line in enumerate(result.stdout.splitlines()):
+            if count >= 65536:
+                raise ValueError('process discovery exceeds capacity')
+            fields = line.split(None, 2)
+            if len(fields) != 3 or not fields[0].isdecimal() or not fields[1].isdecimal():
+                raise ValueError('invalid process discovery response')
+            if int(fields[0]) != os.geteuid():
+                continue
+            kind = selected(fields[2])
+            if kind is not None:
+                pid = int(fields[1])
+                try:
+                    rows.append(dict(pid=pid, proc_start=proc_start(pid), kind=kind))
+                except ProcessLookupError:
+                    continue
+    else:
+        raise ValueError('process discovery platform unavailable')
+    return sorted(rows, key=lambda item: item['pid'])
+
+
+def _upgrade_loaded_reference(identity, artifact, values, prefix):
+    import json
+    import re
+    text = '\n'.join(values).replace('%%', '%').replace('$$', '$')
+    text = re.sub(r'\\x([0-9a-fA-F]{2})', lambda m: chr(int(m[1], 16)), text)
+    candidates = {str(prefix), str(Path(prefix).resolve())}
+    candidates.update(json.dumps(value, ensure_ascii=False)[1:-1] for value in tuple(candidates))
+    if not any(value + '/' in text for value in candidates):
+        return None
+    return dict(identity=identity, artifact=artifact,
+                command_sha256=hashlib.sha256(json.dumps(values, ensure_ascii=True).encode()).hexdigest())
+
+
+def _upgrade_systemd_definitions(text, prefix):
+    paths, references = [], []
+    blocks = text.strip().split('\n\n') if text.strip() else []
+    if len(blocks) > 4096:
+        raise ValueError('loaded systemd inventory exceeds capacity')
+    for block in blocks:
+        fields = {}
+        for line in block.splitlines():
+            key, delimiter, value = line.partition('=')
+            if not delimiter or key in fields or key not in ('Id', 'FragmentPath', 'ExecStart', 'LoadState'):
+                raise ValueError('invalid loaded systemd inventory')
+            fields[key] = value
+        if not {'Id', 'FragmentPath', 'LoadState'} <= set(fields) or not fields['Id'].endswith('.service'):
+            raise ValueError('incomplete loaded systemd inventory')
+        if fields['LoadState'] == 'not-found' and not fields['FragmentPath'] and not fields.get('ExecStart'):
+            continue
+        if 'ExecStart' not in fields:
+            raise ValueError('loaded systemd service has no command observation')
+        path = fields['FragmentPath']
+        if path:
+            if not Path(path).is_absolute():
+                raise ValueError('invalid loaded systemd definition path')
+            paths.append(path)
+        reference = _upgrade_loaded_reference(fields['Id'], path or None, [fields['ExecStart']], prefix)
+        if reference is not None:
+            references.append(reference)
+    return paths, references
+
+
+def _upgrade_launchd_command(text):
+    commands, arguments = [], False
+    for line in text.splitlines():
+        if arguments:
+            if line == '\t}':
+                arguments = False
+            elif line.startswith('\t\t'):
+                commands.append(line[2:])
+            else:
+                raise ValueError('invalid loaded launchd argument boundary')
+        elif line == '\targuments = {':
+            arguments = True
+        elif line.startswith('\tprogram = '):
+            commands.append(line[len('\tprogram = '):])
+    if arguments:
+        raise ValueError('unterminated loaded launchd arguments')
+    return commands

@@ -98,6 +98,42 @@ class CommandTests(unittest.TestCase):
         self.assertEqual(json.loads((self.prefix / 'install.json').read_text()), self.config)
         self.assertFalse((self.prefix / '.upgrade').exists())
 
+    def test_external_unit_outside_state_refuses_with_private_discovery_report(self):
+        units = Path(self.config['unit_dir'])
+        units.mkdir(mode=0o700)
+        definition = units / 'synthetic-repository-memory.service'
+        contents = ('[Service]\nExecStart=/synthetic/python ' + str(self.prefix / 'memory.py')
+                    + ' --state-dir /synthetic/outside-state serve\n')
+        definition.write_text(contents)
+        result = self.command('--prefix', self.prefix, '--source', self.source)
+        self.assertEqual(result.returncode, 1, result.stdout)
+        report = json.loads(result.stderr)
+        self.assertEqual(report['service_ownership']['action'], 'refused')
+        self.assertEqual(report['service_ownership']['findings'][0]['path'], str(definition))
+        self.assertEqual(report['recovery']['code'], 'unowned_service_requires_inventory')
+        self.assertEqual(definition.read_text(), contents)
+        self.assertFalse((self.prefix / '.upgrade').exists())
+        self.assertEqual(json.loads((self.prefix / 'install.json').read_text()), self.config)
+        self.assertEqual((self.prefix / 'LICENSE').read_text(), 'synthetic old release license bytes')
+
+    def test_external_foreground_memory_process_refuses_without_signalling_it(self):
+        script = self.prefix / 'memory.py'
+        script.write_text('import time\ntime.sleep(60)\n')
+        job = subprocess.Popen([sys.executable, str(script), 'serve'],
+                               stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        try:
+            result = self.command('--prefix', self.prefix, '--source', self.source)
+            self.assertEqual(result.returncode, 1, result.stdout)
+            report = json.loads(result.stderr)
+            self.assertEqual(report['recovery']['code'], 'unowned_service_requires_inventory')
+            self.assertEqual(report['service_ownership']['processes'][0]['pid'], job.pid)
+            self.assertEqual(report['service_ownership']['processes'][0]['ownership'], 'unowned')
+            self.assertIsNone(job.poll())
+            self.assertFalse((self.prefix / '.upgrade').exists())
+        finally:
+            job.terminate()
+            job.wait(timeout=5)
+
     def test_lost_exclusion_publication_has_discoverable_phase_zero_resume(self):
         activate = upgrade_exclusion.Exclusion.activate_locked
         def interrupted(owner, installed):
