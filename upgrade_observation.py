@@ -5,6 +5,17 @@ establish installation-wide inventory completeness nor exclude a later start;
 quiescence must revalidate them under the appropriate ownership locks.
 """
 import copy
+from itertools import islice
+import os
+from pathlib import Path
+import stat
+import sys
+
+import install_state
+import runtime_names
+import session_service_artifacts
+import upgrade_manifest as manifest
+import upgrade_plan as plans
 
 import memory_service
 import session_observation
@@ -96,17 +107,6 @@ def installation(prefix):
     call. It is not startup exclusion, complete upgrade preflight, or authority
     to shut down a component. Legacy/manual/ambiguous registrations refuse.
     """
-    from itertools import islice
-    import os
-    from pathlib import Path
-    import stat
-
-    import install_state
-    import runtime_names
-    import session_service_artifacts
-    import upgrade_manifest as manifest
-    from upgrade_plan import MAX_COMPONENTS
-
     prefix = manifest.select_root(prefix)
     with install_state.locked(prefix) as installed:
         config = copy.deepcopy(installed.config)
@@ -127,8 +127,8 @@ def installation(prefix):
                     or before.st_mode & 0o077):
                 raise ObservationError('session inventory directory must be owned and private')
             with os.scandir(sessions) as entries:
-                names = sorted(entry.name for entry in islice(entries, MAX_COMPONENTS + 1))
-            if len(names) > MAX_COMPONENTS:
+                names = sorted(entry.name for entry in islice(entries, plans.MAX_COMPONENTS + 1))
+            if len(names) > plans.MAX_COMPONENTS:
                 raise ObservationError('session inventory exceeds upgrade component capacity')
             for name in names:
                 if len(name) != 16 or any(char not in '0123456789abcdef' for char in name):
@@ -146,7 +146,7 @@ def installation(prefix):
         before = scan()
         memories = config.get('memory_services', {}).get('repositories', {})
         names = [] if before is None else before['names']
-        if len(names) + len(memories) > MAX_COMPONENTS:
+        if len(names) + len(memories) > plans.MAX_COMPONENTS:
             raise ObservationError('installation exceeds upgrade component capacity')
         selections = []
         for name in names:
@@ -156,12 +156,28 @@ def installation(prefix):
                 raise ObservationError('legacy or unfinished session requires an explicit upgrade adapter')
             if record['prefix'] != str(prefix):
                 raise ObservationError('shared session inventory selects a different runtime prefix')
-            selections.append(('session', session_service.Selection(prefix, home)))
+            if record['python'] != sys.executable:
+                raise ObservationError('session interpreter mismatch: run preflight with the installed '
+                                       'interpreter ' + record['python'])
+            try:
+                selected = session_service.Selection(prefix, home)
+            except (OSError, ValueError) as exc:
+                raise ObservationError('cannot verify saved session selection with interpreter '
+                                       + sys.executable) from exc
+            selections.append(('session', selected))
         for key in sorted(memories):
             record = memories[key]
             if record['state'] != 'installed' or record['backend'] not in ('systemd', 'launchd'):
                 raise ObservationError('manual or unfinished memory requires an explicit upgrade adapter')
-            selections.append(('memory', memory_service.Selection(prefix, record['common_directory'])))
+            try:
+                selected = memory_service.Selection(prefix, record['common_directory'])
+            except (OSError, ValueError) as exc:
+                # Memory records do not separately retain the interpreter. A
+                # template mismatch cannot be attributed to Python alone.
+                raise ObservationError('cannot verify saved memory selection with interpreter '
+                                       + sys.executable + '; check the installed interpreter and '
+                                       'retained artifact/selection') from exc
+            selections.append(('memory', selected))
         result = [session(selected) if kind == 'session' else memory(selected)
                   for kind, selected in selections]
         # Native registration publication takes this same installation lock;

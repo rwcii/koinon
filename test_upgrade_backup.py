@@ -125,6 +125,13 @@ class BackupTests(unittest.TestCase):
                 backup.copy(snapshot, self.target)
         self.assertEqual(backup.copy(snapshot, self.target)['source'], snapshot['sha256'])
 
+    def test_directory_confirmation_outside_root_refuses_before_flushing(self):
+        with patch.object(backup.platform_support, 'sync_state_directory') as sync:
+            for parent in (self.source, self.target / '..' / 'source'):
+                with self.assertRaises(backup.BackupError):
+                    backup._sync_parents(self.target, parent)
+            sync.assert_not_called()
+
     def test_symlink_and_reserved_bookkeeping_names_are_refused(self):
         (self.target / 'state.db').symlink_to(self.database)
         with self.assertRaises((OSError, ValueError)):

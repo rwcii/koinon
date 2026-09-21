@@ -165,6 +165,28 @@ class InstallationObservationTests(unittest.TestCase):
             observation.installation(self.prefix)
         self.observe.assert_not_called()
 
+    def test_different_interpreter_has_explicit_refusal_before_observation(self):
+        installed_python = self.record['python']
+        with patch.object(observation.sys, 'executable', installed_python + '.different'):
+            with self.assertRaisesRegex(observation.ObservationError, 'interpreter mismatch') as caught:
+                observation.installation(self.prefix)
+        self.assertIn(installed_python, str(caught.exception))
+        self.observe.assert_not_called()
+
+    def test_memory_verification_refusal_names_interpreter_without_false_diagnosis(self):
+        from test_memory_service_config import inventory, record
+        self.publish(self.prefix / 'install.json', dict(self.config,
+                     memory_services=inventory(record())))
+        cause = observation.memory_service.RunnerError('configuration_error')
+        with patch.object(observation.memory_service, 'Selection', side_effect=cause):
+            with self.assertRaisesRegex(observation.ObservationError, 'memory selection with interpreter') as caught:
+                observation.installation(self.prefix)
+        self.assertIs(caught.exception.__cause__, cause)
+        self.assertIn(observation.sys.executable, str(caught.exception))
+        self.assertIn('artifact/selection', str(caught.exception))
+        self.assertNotIn('interpreter mismatch', str(caught.exception))
+        self.observe.assert_not_called()
+
     def test_every_saved_native_memory_is_observed(self):
         from test_memory_service_config import inventory, record
         records = [record('/synthetic/a/.git'), record('/synthetic/b/.git')]

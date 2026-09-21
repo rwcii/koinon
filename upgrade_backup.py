@@ -156,10 +156,14 @@ def _destination(root):
 def _sync_parents(root, parent):
     # An earlier mkdir may be visible despite a failed parent-directory flush.
     # Retry every link inside the frozen destination, not only rename endpoints.
-    while True:
+    try:
+        relative = parent.relative_to(root)
+    except ValueError as exc:
+        raise BackupError('backup directory is outside its frozen root') from exc
+    if '..' in relative.parts:
+        raise BackupError('backup directory contains parent traversal')
+    for _ in range(len(relative.parts) + 1):
         platform_support.sync_state_directory(parent)
-        if parent == root:
-            return
         parent = parent.parent
 
 

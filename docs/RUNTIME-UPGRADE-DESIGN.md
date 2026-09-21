@@ -415,3 +415,11 @@ upgrade selection. Missing session directories remain absent. This observation
 releases its lock on return; the coordinator still must revalidate and publish
 startup exclusion before acting. It neither discovers arbitrary unmanaged writers
 nor supplies the manual/legacy upgrade adapters required by final acceptance.
+
+Native observation currently requires the installed Python interpreter. Session
+records identify a mismatched interpreter explicitly before probing components.
+Memory artifacts encode the interpreter without a separate saved field, so a
+verification refusal names the current interpreter and asks for verification of
+both interpreter and retained selection/artifact; it does not misclassify every
+artifact error as a proven Python mismatch. Interpreter migration requires a
+separate supported adapter and is not inferred during component enumeration.
