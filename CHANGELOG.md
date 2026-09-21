@@ -5,6 +5,12 @@ into a dated release section when promoted to `main`.
 
 ## Unreleased
 
+- Add optional generation-bound bridge and notifier stops for supervisor-owned
+  shutdown, preserving explicit operator stops.
+
+- Stage pure native session artifact rendering and its implementation sequence,
+  preserving Linux behavior while ownership and refusal integration remain pending.
+
 - Activate explicitly selected native memory supervisors with verified manager and
   child identity, explicit launchd domains, and opt-in literal systemd arguments.
   Refuse unsafe manager-reported registration paths and verify inert loader links

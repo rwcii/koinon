@@ -14,6 +14,8 @@ from notification_runtime import Runtime, RuntimeRefusal, create_worker
 import threading
 from unittest import mock
 import platform_support
+import generation_stop
+import os
 from participant_lock import identity
 from peer_transport import control_exchange
 
@@ -126,6 +128,29 @@ class RuntimeTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(reply['result']['delivery_health']['state'], 'degraded')
         self.assertIn('uncertain_delivery', reply['result']['delivery_health']['reasons'])
         self.assertFalse(self.task.done())
+
+    async def test_generation_bound_stop_refuses_stale_request_and_accepts_current(self):
+        for target in ('0' * 32, None, 17, [], 'invalid'):
+            with self.subTest(target=target):
+                reply = await self.request('stop-generation', protocol=1, generation=target)
+                self.assertFalse(reply['ok'])
+                self.assertEqual(reply['code'], 'not_this_instance' if target == '0' * 32 else 'invalid_request')
+                self.assertFalse(self.runtime.stop.is_set())
+        reply = await self.request('status')
+        self.assertIn('generation_bound_stop', reply['result']['control_capabilities'])
+        bridge_status = await self.bus.command(dict(op='status'))
+        self.assertIn('generation_bound_stop', bridge_status['control_capabilities'])
+        reply = await generation_stop.request_stop(self.state / 'notifier', self.runtime.generation, os.getpid(),
+                                                  platform_support.proc_start(os.getpid()))
+        self.assertTrue(reply['stopping'])
+        await asyncio.wait_for(self.task, 4)
+        self.assertFalse((self.state / 'notify-ready.json').exists())
+        self.assertFalse(self.bus.stop.is_set())
+        reply = await generation_stop.request_stop(self.state, self.bus.generation, os.getpid(),
+                                                  platform_support.proc_start(os.getpid()))
+        self.assertTrue(reply['stopping'])
+        await asyncio.wait_for(self.bus_task, 4)
+        self.assertTrue((self.state / 'inbox.sqlite3').exists())
 
     async def test_stop_control_settles_and_removes_only_owned_readiness(self):
         reply = await self.request('stop')
