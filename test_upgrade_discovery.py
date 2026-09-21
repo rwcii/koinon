@@ -148,6 +148,14 @@ class NativeDiscoveryShapeTests(unittest.TestCase):
                 platform_support._upgrade_launchd_labels(
                     value.replace('vendor job 3', refused), 'gui/501')
 
+    def test_malformed_property_list_refuses_and_names_the_file(self):
+        """ExpatError is not a ValueError, so it escaped the handler and crashed."""
+        malformed = b'<?xml version="1.0 broken"?><plist><dict/></plist>'
+        with self.assertRaises(discovery.DiscoveryError) as refused:
+            discovery._references(malformed, '.plist', '/synthetic/runtime',
+                                  Path('/synthetic/agents/vendor.plist'))
+        self.assertIn('vendor.plist', str(refused.exception))
+
     def test_escaped_percent_is_not_expanded_into_a_runtime_reference(self):
         """systemd renders %%h as the literal text %h and never expands it."""
         prefix = str(platform_support.account_home())

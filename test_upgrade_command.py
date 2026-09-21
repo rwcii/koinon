@@ -9,6 +9,7 @@ import unittest
 from unittest.mock import patch
 
 from scripts import install
+import platform_support
 import upgrade_command
 import upgrade_exclusion
 import upgrade_plan
@@ -32,6 +33,17 @@ class CommandTests(unittest.TestCase):
                 if path.is_dir():
                     path.chmod(0o700)
         self.state.mkdir(mode=0o700)
+        # These are synthetic installations. Without controlled sources, discovery read
+        # the real host's loaded services, so the result depended on the machine and
+        # any unparseable third-party definition on it failed the unit test.
+        sources = dict(directories=[str(self.root / 'units')], loaded_artifacts=[],
+                       loaded_discovery='synthetic_isolated_inventory')
+        for isolated in (patch.object(platform_support, 'upgrade_service_sources',
+                                      return_value=sources),
+                         patch.object(platform_support, 'upgrade_memory_processes',
+                                      return_value=[])):
+            isolated.start()
+            self.addCleanup(isolated.stop)
         self.config = dict(state_root=str(self.state), unit_dir=str(self.root / 'units'), codex=sys.executable)
         (self.prefix / 'install.json').write_text(json.dumps(self.config))
         (self.prefix / 'install.json').chmod(0o600)

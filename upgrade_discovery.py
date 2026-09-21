@@ -6,6 +6,7 @@ from pathlib import Path
 import plistlib
 import re
 import stat
+import xml.parsers.expat
 
 import platform_support
 
@@ -33,12 +34,16 @@ def _strings(value):
             yield from _strings(item)
 
 
-def _references(data, suffix, prefix):
+def _references(data, suffix, prefix, source=None):
     if suffix == '.plist' or data.startswith(b'bplist') or data.lstrip().startswith((b'<?xml', b'<plist')):
         try:
             text = '\n'.join(_strings(plistlib.loads(data)))
-        except (ValueError, plistlib.InvalidFileException, OverflowError) as exc:
-            raise DiscoveryError('invalid service property list') from exc
+        # ExpatError does not derive from ValueError, so a malformed XML declaration
+        # escaped this handler and crashed the upgrade instead of refusing. Name the
+        # file: a refusal an operator cannot locate is not actionable.
+        except (ValueError, plistlib.InvalidFileException, OverflowError,
+                xml.parsers.expat.ExpatError) as exc:
+            raise DiscoveryError('invalid service property list: ' + str(source)) from exc
     else:
         try:
             text = data.decode('utf-8')
@@ -127,7 +132,7 @@ def inventory(prefix, config, components):
                 or _stamp(resolved.lstat()) != _stamp(info)):
             raise DiscoveryError('service definition changed during inventory')
         files.append((path, _stamp(link), resolved, _stamp(info)))
-        if not _references(data, path.suffix, prefix):
+        if not _references(data, path.suffix, prefix, path):
             continue
         digest = hashlib.sha256(data).hexdigest()
         matched = owned.get(resolved) == digest
