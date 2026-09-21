@@ -29,15 +29,22 @@ class ServiceError(ValueError):
 
 
 class Selection:
-    def __init__(self, prefix, home, *, backend=None, python=None):
+    def __init__(self, prefix, home, *, backend=None, python=None, removing=False):
         self.prefix, self.home = absolute_path(str(prefix)), absolute_path(str(home))
+        import runtime_names
+        if runtime_names.install_config(self.prefix).get('installation_state') == 'removing' and not removing:
+            raise ServiceError(paths=(self.prefix / 'install.json',))
         self.record = artifacts.load(self.home)
+        removal = self.record and self.record['state'] == 'removing' and removing
+        if removal:
+            self.record = artifacts.verify_removing(self.record)
         if (self.record is None or self.record['state'] != 'installed'
                 or self.record['prefix'] != str(self.prefix)
                 or self.record['python'] != (python or sys.executable)
                 or backend is not None and self.record['backend'] != backend):
             raise ServiceError(paths=(self.home / 'native-service.json',))
-        artifacts.verify_owned(self.record)
+        if not removal:
+            artifacts.verify_owned(self.record)
         config, registration = artifacts.inputs(self.record)
         self.commands = configuration.commands(self.prefix, self.record['python'], self.home, config, registration)
         self.backend = self.record['backend']

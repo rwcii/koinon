@@ -228,7 +228,7 @@ def validate_participant_executable(config, agent, action):
 def main():
     os.umask(0o077)
     p=argparse.ArgumentParser(description=__doc__)
-    p.add_argument('action',choices=['ensure','run','status','stop','rename','work-policy'])
+    p.add_argument('action',choices=['ensure','stage','run','status','stop','rename','work-policy'])
     p.add_argument('--agent',choices=['codex','deepseek','claude'],default=None,
                    help='participant kind this instance serves; defaults to the registered kind, '
                         'or is inferred from the session environment, and is codex otherwise')
@@ -255,6 +255,10 @@ def main():
     if a.agent == 'claude':
         p.error('claude is supported only by work-policy')
     config=read_config(prefix)
+    if config.get('installation_state') == 'removing' and a.action not in ('stop', 'status'):
+        print(json.dumps(dict(status='unavailable', code='session_configuration_failure',
+                              error='installation removal is in progress; resume uninstall')))
+        raise SystemExit(78)
     repo=str(Path(a.repo).resolve())
     # Keep what was actually requested separate from what gets inferred, because
     # only an explicit request may override a registered identity.
@@ -271,6 +275,18 @@ def main():
     # An explicit saved native selection owns this path. Never fall through to
     # legacy ensure/stop or silently rewrite its registered identity.
     native = state / 'native-service.json'
+    if a.action in ('ensure', 'stage') and config.get('session_backend') in ('systemd', 'launchd'):
+        import session_install
+        try:
+            validate_participant_executable(config, agent, a.action)
+            session_install.stage(prefix, config, state, a.thread, repo, agent, model, save_registration)
+        except (OSError, ValueError) as exc:
+            print(json.dumps(dict(status='unavailable', code='session_configuration_failure',
+                                  error=str(exc), paths=[str(native), str(state / 'session.json')])))
+            raise SystemExit(78) from None
+        if a.action == 'stage':
+            print(json.dumps(dict(status='staged', running=False, state_dir=str(state))))
+            return
     if runtime_names.present(native):
         import durable_state
         import session_service
@@ -319,6 +335,9 @@ def main():
             saved=save_registration(state,Path(config['state_root']),a.thread,repo,agent=agent,model=model)
             name=saved['name']
         validate_participant_executable(config, agent, a.action)
+        if a.action == 'stage':
+            print(json.dumps(dict(status='staged', running=False, state_dir=str(state))))
+            return
         active=bridge_status(prefix,state)
         observed=session_observation.lifecycle(state,active)
         if a.action=='rename':
@@ -375,6 +394,9 @@ def main():
             # systemd's Restart=on-failure does not restart a clean stop.
             return
         if a.action=='ensure':
+            if config.get('session_backend') == 'manual':
+                print(json.dumps(result(prefix,state,name,a.thread,repo,'manual_required',agent,model)))
+                return
             try:
                 available=platform_support.user_service_manager('available',stdout=subprocess.DEVNULL,
                                          stderr=subprocess.DEVNULL,timeout=5).returncode==0

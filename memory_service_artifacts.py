@@ -142,6 +142,20 @@ def verify_owned(prefix, python, record, *, observed_artifact=None):
         return record
 
 
+def verify_removing(prefix, python, record):
+    """Validate retained removal evidence; a removed artifact is an expected phase."""
+    desired = {field: copy.deepcopy(record[field]) for field in configuration.base_fields(record)}
+    desired['state'] = 'installed'
+    with _boundary(prefix, record.get('artifact')):
+        key, path, expected = _expected(prefix, python, desired)
+        saved = runtime_names.install_config(prefix).get('memory_services', {}).get('repositories', {}).get(key)
+        if saved != record or record['state'] != 'removing':
+            raise ValueError('memory removal evidence changed')
+        if _read(path) not in (None, expected):
+            raise ValueError('memory artifact changed during removal')
+    return desired
+
+
 def verify_loader_link(path, expected):
     """Verify one private same-user literal loader link, never an alias chain."""
     path, expected = absolute_path(str(path)), absolute_path(str(expected))

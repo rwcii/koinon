@@ -102,20 +102,25 @@ def configuration_boundary():
 
 
 class Selection:
-    def __init__(self, prefix, repository, *, state_root=None, backend=None):
+    def __init__(self, prefix, repository, *, state_root=None, backend=None, removing=False):
         with configuration_boundary():
             self.prefix = absolute_path(str(prefix))
             config = runtime_names.install_config(self.prefix)
+            if config.get('installation_state') == 'removing' and not removing:
+                raise RunnerError('configuration_error', paths=(self.prefix / 'install.json',))
             self.key = memory.repo_identity(repository)
             self.record = config.get('memory_services', {}).get('repositories', {}).get(self.key)
-            if not self.record or self.record['state'] != 'installed':
+            removal = self.record and self.record['state'] == 'removing' and removing
+            if not self.record or self.record['state'] != 'installed' and not removal:
                 raise RunnerError('configuration_error')
+            if removal:
+                self.record = memory_service_artifacts.verify_removing(self.prefix, sys.executable, self.record)
             memory_service_config.verify_selection(self.record)
             self.backend = self.record['backend']
             if (state_root is not None and str(absolute_path(str(state_root))) != self.record['state_root']
                     or backend is not None and backend != self.backend):
                 raise RunnerError('configuration_error')
-            if self.backend != 'manual':
+            if self.backend != 'manual' and not removal:
                 memory_service_artifacts.verify_owned(self.prefix, sys.executable, self.record)
             self.home = Path(self.record['service_directory'])
             self.installation = fingerprint([str(self.prefix), self.key, str(self.home)])
@@ -581,9 +586,51 @@ def stop(selection):
     return dict(status='stopped', running=False, generation=owner['generation'])
 
 
+def deactivate_owned(selection):
+    """Caller holds installation and manager locks; retain all artifact/data evidence."""
+    observed = manager_observation(selection)
+    if observed['status'] not in ('observed', 'absent'):
+        raise RunnerError('manager_observation_unknown')
+    owner = read_record(selection, selection.owner_path)
+    if owner is None:
+        if (runtime_names.present(platform_support.control_socket_path(selection.home))
+                or observed['status'] == 'observed' and observed['pid'] != 0):
+            raise RunnerError('ownership_unknown')
+    else:
+        if owner['configuration'] != selection.configuration:
+            raise RunnerError('ownership_unknown')
+        if process_state(owner) == 'alive' and (
+                observed['status'] != 'observed' or observed['pid'] != owner['pid']):
+            raise RunnerError('manager_ownership_conflict')
+        stop(selection)
+        after = read_record(selection, selection.owner_path)
+        if (after is None or after['generation'] != owner['generation']
+                or process_state(after) != 'dead'
+                or after['child'] and process_state(after['child']) != 'dead'):
+            raise RunnerError('shutdown_unconfirmed')
+    stopped = manager_observation(selection)
+    if (stopped['status'] not in ('observed', 'absent')
+            or stopped['status'] == 'observed' and stopped['pid'] != 0
+            or manager_observation(selection) != stopped):
+        raise RunnerError('manager_observation_unknown')
+    if stopped['status'] == 'observed':
+        memory_service_artifacts.verify_owned(selection.prefix, sys.executable, selection.record)
+        platform_support.memory_manager_deregister(selection.record)
+    if manager_observation(selection)['status'] != 'absent':
+        raise RunnerError('manager_observation_unknown')
+    return dict(status='deactivated', running=False, retained=['selection', 'artifact', 'store', 'supervisor_evidence'])
+
+
+def deactivate(selection):
+    private_dir(selection.home)
+    with install_state.locked(selection.prefix), file_lock(selection.home / 'manager.lock', 'manager_busy', None):
+        selection = Selection(selection.prefix, selection.record['common_directory'], backend=selection.backend)
+        return deactivate_owned(selection)
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument('action', choices=('ensure', 'run', 'status', 'stop'))
+    parser.add_argument('action', choices=('ensure', 'run', 'status', 'stop', 'deactivate'))
     parser.add_argument('--prefix', type=Path, required=True)
     parser.add_argument('--repo', type=Path, required=True)
     parser.add_argument('--state-root', type=Path)
@@ -602,6 +649,8 @@ def main():
             status = run(selection, foreground=args.foreground or backend == 'manual')
         elif args.action == 'stop':
             print(json.dumps(stop(selection)))
+        elif args.action == 'deactivate':
+            print(json.dumps(deactivate(selection)))
         else:
             if args.retry:
                 retry(selection)

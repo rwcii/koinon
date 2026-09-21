@@ -120,33 +120,44 @@ def ensure(selection):
 def deactivate(selection):
     """Stop the owned pair before removing its selected manager registration."""
     with artifacts.locked(selection.home / 'lifecycle.lock'), artifacts.locked(selection.home / 'registration.lock'):
-        selection = service.Selection(selection.prefix, selection.home, backend=selection.backend)
-        observed = observation(selection)
-        if observed['status'] != 'observed':
+        return deactivate_locked(selection)
+
+
+def deactivate_locked(selection, *, allow_unstarted=False):
+    """Caller holds lifecycle and registration locks through deactivation."""
+    selection = service.Selection(selection.prefix, selection.home, backend=selection.backend, removing=allow_unstarted)
+    observed = observation(selection)
+    if observed['status'] != 'observed' and not (allow_unstarted and observed['status'] == 'absent'):
+        raise service.ServiceError('session_ownership_unknown')
+    owner = selection.records.read()
+    if owner is None:
+        import session_observation
+        if (not allow_unstarted or observed['status'] == 'observed' and observed['pid'] != 0
+                or any(session_observation.endpoint_present(root)
+                       for root in (selection.home, selection.home / 'notifier'))):
             raise service.ServiceError('session_ownership_unknown')
-        owner = selection.records.read()
-        if owner is None:
+    elif alive_state(owner) == 'alive':
+        if owner['pid'] != observed['pid']:
             raise service.ServiceError('session_ownership_unknown')
-        elif alive_state(owner) == 'alive':
-            if owner['pid'] != observed['pid']:
-                raise service.ServiceError('session_ownership_unknown')
-            service.stop_owned(selection)
-        elif (alive_state(owner) != 'dead' or owner['spawn_pending'] is not None
-              or any(child is not None and alive_state(child) != 'dead' for child in owner['children'].values())):
-            raise service.ServiceError('session_shutdown_unconfirmed')
-        stopped = observation(selection)
-        if (stopped['status'] != 'observed' or stopped['pid'] != 0
-                or observation(selection) != stopped):
-            raise service.ServiceError('session_ownership_unknown')
-        artifacts.verify_owned(selection.record)
-        try:
-            platform_support.session_manager_deactivate(selection.record)
-        except (OSError, subprocess.SubprocessError) as exc:
-            raise service.ServiceError('session_temporary_failure') from exc
-        if observation(selection)['status'] != 'absent':
-            raise service.ServiceError('session_ownership_unknown')
-        return dict(status='deactivated', basis='manager_absence_and_pair_exit',
-                    retained=['selection', 'artifact', 'inbox', 'notification_history', 'supervisor_evidence'])
+        service.stop_owned(selection)
+    elif (alive_state(owner) != 'dead' or owner['spawn_pending'] is not None
+          or any(child is not None and alive_state(child) != 'dead' for child in owner['children'].values())):
+        raise service.ServiceError('session_shutdown_unconfirmed')
+    stopped = observation(selection)
+    if allow_unstarted and stopped['status'] == 'absent' and observation(selection) == stopped:
+        return dict(status='deactivated', basis='manager_absence_and_pair_exit')
+    if (stopped['status'] != 'observed' or stopped['pid'] != 0
+            or observation(selection) != stopped):
+        raise service.ServiceError('session_ownership_unknown')
+    artifacts.verify_owned(selection.record)
+    try:
+        platform_support.session_manager_deactivate(selection.record)
+    except (OSError, subprocess.SubprocessError) as exc:
+        raise service.ServiceError('session_temporary_failure') from exc
+    if observation(selection)['status'] != 'absent':
+        raise service.ServiceError('session_ownership_unknown')
+    return dict(status='deactivated', basis='manager_absence_and_pair_exit',
+                retained=['selection', 'artifact', 'inbox', 'notification_history', 'supervisor_evidence'])
 
 
 def stop(selection):
