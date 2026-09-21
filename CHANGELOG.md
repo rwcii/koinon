@@ -5,8 +5,8 @@ into a dated release section when promoted to `main`.
 
 ## Unreleased
 
-- Record the native session-supervision implementation sequence and compatibility
-  gates for bridge/notifier ownership, refusal recovery, and isolated acceptance.
+- Stage pure native session artifact rendering and its implementation sequence,
+  preserving Linux behavior while ownership and refusal integration remain pending.
 
 - Activate explicitly selected native memory supervisors with verified manager and
   child identity, explicit launchd domains, and opt-in literal systemd arguments.

@@ -20,6 +20,11 @@ provide unattended supervision during that user-manager lifetime without promisi
 reboot persistence. Memory's repository lifetime is separate. Do not copy the memory
 fixture's runtime override into a public persistent-memory installation path.
 
+The pure `platform_support.session_launchd_artifact` renderer is staged with synthetic
+tests. It is not called by registration or installation. In particular, the current
+session runner does not yet implement the required launchd refusal boundary; rendering
+a plist is not permission or evidence to load it.
+
 ## Implementation sequence
 
 1. Add pure canonical session command and LaunchAgent rendering in platform support,

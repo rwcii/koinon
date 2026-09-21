@@ -450,6 +450,41 @@ def memory_service_artifact(prefix, python, key, selection):
     raise ValueError('manual operation has no service artifact')
 
 
+
+def session_launchd_artifact(prefix, python, thread, repository, *, domain, agent='codex', model=None):
+    """Render a staged session job; never select, publish or activate a manager.
+
+    The session refusal boundary and loaded-job ownership join must be implemented
+    before callers may activate this artifact. Existing Linux rendering is unchanged.
+    """
+    import plistlib
+    import re
+    from work_policy import absolute_path
+
+    if domain != f'gui/{os.geteuid()}':
+        raise ValueError('launchd domain must belong to the current user')
+    if not isinstance(thread, str) or re.fullmatch(r'[A-Za-z0-9_-]{1,128}', thread) is None:
+        raise ValueError('valid explicit participant identity required')
+    if agent not in ('codex', 'deepseek'):
+        raise ValueError('unsupported session participant')
+    if model is not None and (not isinstance(model, str) or not model
+                              or len(model.encode('utf-8')) > 512
+                              or any(ord(c) < 32 or 127 <= ord(c) <= 159 for c in model)):
+        raise ValueError('invalid session model')
+    prefix, python, repository = (absolute_path(str(value)) for value in (prefix, python, repository))
+    key = hashlib.sha256(thread.encode()).hexdigest()[:16]
+    # Equals forms preserve values that begin with a dash without shell evaluation.
+    argv = [str(python), str(prefix / 'session.py'), 'run', '--thread=' + thread,
+            '--repo', str(repository)]
+    if agent != 'codex':
+        argv += ['--agent', agent]
+    if model is not None:
+        argv += ['--model=' + model]
+    return plistlib.dumps(dict(Label='io.github.rwcii.koinon.session.' + key,
+                               ProgramArguments=argv, KoinonManaged='session-service-v1',
+                               Umask=63, RunAtLoad=True, ThrottleInterval=10,
+                               KeepAlive=dict(SuccessfulExit=False)), sort_keys=True)
+
 def user_service_manager(operation, names=(), **options):
     """Run one supported user-manager operation, preserving caller I/O policy.
 
