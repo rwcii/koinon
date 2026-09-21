@@ -1,5 +1,6 @@
 """Native activation only after selection, manager and pair identities agree."""
 import subprocess
+import shlex
 import time
 
 import platform_support
@@ -76,6 +77,9 @@ def ensure(selection):
             return failure
         observed = observation(selection)
         if observed['status'] == 'unknown':
+            if not platform_support.memory_manager_available(selection.backend, selection.record['manager_domain']):
+                return dict(status='manual_required', running=False,
+                            start_command=shlex.join(platform_support.session_service_command(selection.record)))
             raise service.ServiceError('session_temporary_failure')
         portable = service.status(selection)
         if portable['status'] == 'running':

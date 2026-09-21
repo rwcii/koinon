@@ -4,6 +4,7 @@ import argparse
 import json
 from pathlib import Path
 import re
+import shlex
 import subprocess
 import sys
 from install import FILES, check_owned_unit, unit_targets_prefix
@@ -19,12 +20,7 @@ import uninstall_finalize
 
 
 def removal_preflight(prefix, config):
-    """Inventory retained native selections before any legacy removal mutation.
-
-    Native deregistration/removal is a separate lifecycle operation. Until that
-    operation is integrated, retaining the entire installation is safer than
-    deleting executables behind a registered job, including a currently idle one.
-    """
+    """Verify retained component selections before any removal mutation."""
     native_sessions = []
     for record in config.get('memory_services', {}).get('repositories', {}).values():
         try:
@@ -136,7 +132,7 @@ def uninstall(prefix, state):
             session_service_artifacts.archive_removed(session_service_artifacts.load(home))
     uninstall_finalize.prepare(prefix, FILES)
     print('If final file cleanup is interrupted, resume with:',
-          sys.executable, prefix / uninstall_finalize.RECOVERY, '--prefix', prefix, flush=True)
+          shlex.join([sys.executable, str(prefix / uninstall_finalize.RECOVERY), '--prefix', str(prefix)]), flush=True)
     uninstall_finalize.finish(prefix, locked=True, names=FILES)
     print('Owned services, managed guidance and runtime removed; inbox state preserved.')
 
@@ -151,3 +147,8 @@ if __name__ == '__main__':
     except work_guidance.GuidanceError as exc:
         print(json.dumps(dict(ok=False, code=exc.code, path=exc.path, error=str(exc))))
         raise SystemExit(platform_support.CONFIGURATION_EXIT_STATUS) from None
+    except (OSError, ValueError, subprocess.SubprocessError) as exc:
+        print(json.dumps(dict(ok=False, code=getattr(exc, 'code', 'removal_incomplete'),
+                              error=str(exc), paths=getattr(exc, 'paths', ()),
+                              recovery='Preserve state and retry uninstall; use the printed standalone command if runtime cleanup began.')))
+        raise SystemExit(getattr(exc, 'exit_status', 75 if isinstance(exc, (OSError, subprocess.SubprocessError)) else 78)) from None

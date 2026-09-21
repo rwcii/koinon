@@ -68,7 +68,7 @@ Verified with Codex CLI 0.154.0 and Claude Code 2.1.267 on Linux, and with Claud
 Configure Codex once so each session registers itself with its own inbox and peer name:
 
 ```sh
-python3 scripts/install.py --configure-codex
+python3 scripts/install.py --configure-codex --repo /path/to/repository
 ```
 
 See [the installation guide](docs/INSTALL.md) for managed global instructions,
@@ -132,7 +132,9 @@ records is invisible to a session that started earlier. `memory.py` is a per-rep
 holding a shared, append-only log that those sessions write to and read from.
 
 It is separate from the bridge, with its own private control socket, and it carries no peer
-traffic. Start one per repository:
+traffic. Install and supervise it with
+`python3 scripts/install.py --configure-memory --repo /path/to/repository`, or start one
+manually per repository:
 
 ```sh
 python3 memory.py serve
@@ -299,7 +301,7 @@ other programs that deliver to the same session without taking this lock.
 
 ## Lifecycle
 
-Both processes must remain running. The optional installer supplies systemd user services on Linux; see [installation](docs/INSTALL.md). macOS has no systemd, so it uses the managed supervisor instead (`session.py ensure` reports `manual_required` with a start command, and `session.py run` owns both children in one persistent session). Stop the watcher with Ctrl-C or SIGTERM; `bridge.py stop` stops the server and causes the watcher to exit. Graceful cleanup removes only the process's own sockets and registry entry. SQLite and checkpoints remain for restart.
+Both processes must remain running. Repository component installation supplies native systemd supervision on Linux and launchd supervision on macOS; see [installation](docs/INSTALL.md#repository-components-and-native-supervision). Manual selections and unavailable user managers report `manual_required` with a command to keep running in a persistent session. Stop the watcher with Ctrl-C or SIGTERM; `bridge.py stop` stops the server and causes the watcher to exit. Graceful cleanup removes only the process's own sockets and registry entry. SQLite and checkpoints remain for restart.
 
 Socket addresses change with the server PID. The watcher publishes `<bridge-pid>.json` in `${CLAUDE_CONFIG_DIR:-~/.claude}/sessions` and refuses to overwrite a pre-existing record. Its process-start marker protects against PID reuse. A forced kill may leave stale sockets or a registry record: verify that the old process is dead and socket connections are refused before removing those specific stale files. Never clear the shared socket or registry directory.
 

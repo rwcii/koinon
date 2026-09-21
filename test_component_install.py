@@ -65,3 +65,42 @@ class ComponentInstallTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             component_install.memory_selection(self.prefix, self.root / 'missing', self.state, 'manual', {})
         self.assertFalse(self.prefix.exists())
+
+    def test_explicit_thread_and_memory_stage_native_session_without_global_guidance(self):
+        result = self.install('systemd', '--thread', 'synthetic-installer-thread', '--codex', sys.executable)
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        config = json.loads((self.prefix / 'install.json').read_text())
+        self.assertEqual(config['participants'], [])
+        self.assertEqual(config['session_backend'], 'systemd')
+        selections = list((self.state / 'sessions').glob('*/native-service.json'))
+        self.assertEqual(len(selections), 1)
+        selection = json.loads(selections[0].read_text())
+        self.assertEqual(selection['state'], 'installed')
+        self.assertTrue(Path(selection['artifact']).is_file())
+        self.assertFalse((selections[0].parent / 'supervisor-owner.json').exists())
+
+    def test_fresh_explicit_repository_thread_selects_both_components(self):
+        command = [sys.executable, str(Path(__file__).parent / 'scripts/install.py'),
+                   '--repo', str(self.repo), '--thread', 'synthetic-fresh-thread', '--codex', sys.executable,
+                   '--prefix', str(self.prefix), '--state-dir', str(self.state),
+                   '--service-backend', 'systemd', '--no-start']
+        result = subprocess.run(command, env=self.env, capture_output=True, text=True, timeout=20)
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        config = json.loads((self.prefix / 'install.json').read_text())
+        self.assertEqual(len(config['memory_services']['repositories']), 1)
+        self.assertEqual(len(list((self.state / 'sessions').glob('*/native-service.json'))), 1)
+
+    def test_existing_guidance_install_does_not_silently_add_memory(self):
+        base = [sys.executable, str(Path(__file__).parent / 'scripts/install.py'),
+                '--configure-codex', '--codex', sys.executable, '--codex-home', str(self.root / 'codex'),
+                '--prefix', str(self.prefix), '--state-dir', str(self.state), '--no-start']
+        first = subprocess.run(base, env=self.env, capture_output=True, text=True, timeout=20)
+        self.assertEqual(first.returncode, 0, first.stdout + first.stderr)
+        repeated = subprocess.run(base + ['--repo', str(self.repo)], env=self.env,
+                                  capture_output=True, text=True, timeout=20)
+        self.assertEqual(repeated.returncode, 0, repeated.stdout + repeated.stderr)
+        self.assertIn('Existing installation scope retained', repeated.stdout)
+        config = json.loads((self.prefix / 'install.json').read_text())
+        self.assertNotIn('memory_services', config)
+        selected = self.install()
+        self.assertEqual(selected.returncode, 0, selected.stdout + selected.stderr)

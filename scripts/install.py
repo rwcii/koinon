@@ -323,7 +323,8 @@ def main():
         else:
             subprocess.run([sys.executable, str(a.prefix / 'memory_service.py'), 'ensure',
                             '--prefix', str(a.prefix), '--repo', record['common_directory']], check=True)
-    if (a.thread and (a.configure_codex or a.configure_deepseek)
+    if (a.thread and (a.configure_codex or a.configure_deepseek or a.configure_memory
+                      or getattr(a, 'memory_selection', None) is not None)
             and (not a.no_start or getattr(a, 'memory_selection', None) is not None)):
         subprocess.run([sys.executable, str(a.prefix / 'session.py'), 'stage' if a.no_start else 'ensure',
                         '--thread', a.thread, '--repo', a.repo or os.getcwd()], check=True)
@@ -339,10 +340,18 @@ def install(a, p, configuration=None, validate_only=False):
     if not a.thread and not (a.configure_codex or a.configure_deepseek or a.configure_memory):
         p.error('--thread, --configure-codex, --configure-deepseek or --configure-memory is required')
     a.memory_selection = None
-    if a.repo and (a.configure_memory or a.configure_codex or a.configure_deepseek):
+    if a.repo and (a.configure_memory or a.configure_codex or a.configure_deepseek or a.thread):
         import component_install
-        _, a.memory_selection = component_install.memory_selection(
-            a.prefix, a.repo, a.state_dir, a.service_backend, previous)
+        import memory_service_config
+        key, _ = memory_service_config.selection(a.repo, a.state_dir)
+        existing = bool(previous) or (a.prefix / 'bridge.py').exists()
+        already_selected = key in previous.get('memory_services', {}).get('repositories', {})
+        if not existing or already_selected or a.configure_memory:
+            _, a.memory_selection = component_install.memory_selection(
+                a.prefix, a.repo, a.state_dir, a.service_backend, previous)
+        elif not validate_only:
+            print('Existing installation scope retained. To add repository memory, rerun with '
+                  '--configure-memory --repo and the same prefix/state paths.')
     elif a.service_backend:
         p.error('--service-backend requires an explicit repository selection')
     participants = set(previous.get('participants', ['codex'] if previous else []))
@@ -361,7 +370,7 @@ def install(a, p, configuration=None, validate_only=False):
         if (not a.codex or not Path(a.codex).is_absolute()
                 or not Path(a.codex).is_file() or not os.access(a.codex, os.X_OK)):
             p.error('provide an executable absolute --codex path, or install Codex CLI on PATH')
-    if a.configure_codex or a.configure_deepseek or memory_only:
+    if a.configure_codex or a.configure_deepseek or a.configure_memory or a.memory_selection is not None:
         import component_install
         component_install.runtime_preflight(a.prefix, Path(__file__).resolve().parent.parent, FILES, previous)
         if (not memory_only and a.memory_selection is not None and previous.get('session_backend') is not None
@@ -468,3 +477,10 @@ if __name__ == '__main__':
         print(json.dumps(dict(ok=False, code=exc.code, paths=exc.paths, error=str(exc))))
         raise SystemExit(75 if exc.code == 'configuration_busy' else
                          platform_support.CONFIGURATION_EXIT_STATUS) from None
+    except (OSError, ValueError, subprocess.SubprocessError) as exc:
+        import durable_state
+        temporary = isinstance(exc, (durable_state.StateReadBusyError, subprocess.SubprocessError))
+        print(json.dumps(dict(ok=False, code=getattr(exc, 'code', 'installation_incomplete'),
+                              error=str(exc), paths=getattr(exc, 'paths', ()),
+                              recovery='Preserve existing state and retry after correcting the reported condition.')))
+        raise SystemExit(getattr(exc, 'exit_status', 75 if temporary else 78)) from None

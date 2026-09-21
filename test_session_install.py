@@ -54,3 +54,21 @@ class SessionInstallTests(unittest.TestCase):
         self.assertFalse((self.home / 'native-service.json').exists())
         record = self.stage()
         artifacts.verify_owned(record)
+
+    def test_completed_removal_allows_reinstall_with_retained_registration(self):
+        (self.home / 'session.json').unlink()
+        record = self.stage()
+        before = (self.home / 'session.json').read_bytes()
+        inbox = self.home / 'synthetic-retained-inbox'
+        inbox.write_text('retained')
+        removing = dict(record, state='removing', before_digest=record['artifact_digest'], after_digest=None)
+        durable_state.publish(self.home / 'native-service.json', removing)
+        Path(record['artifact']).unlink()
+        artifacts.archive_removed(removing)
+        self.assertFalse((self.home / 'native-service.json').exists())
+        with patch.object(self, 'register', side_effect=AssertionError('reinstall replaced registration')):
+            repeated = self.stage()
+        self.assertEqual(repeated, record)
+        self.assertEqual((self.home / 'session.json').read_bytes(), before)
+        self.assertEqual(inbox.read_text(), 'retained')
+        artifacts.verify_owned(repeated)

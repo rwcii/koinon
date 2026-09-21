@@ -289,10 +289,11 @@ The current reachable work/startup mappings are covered by the PR #35 tests.
 [implementation design candidate](MEMORY-INSTALLATION-DESIGN.md) under peer review.
 This includes the memory-service lifecycle gap.
 
-The installer copies memory runtime files but does not configure or start a memory
-service. Operator-created units are outside its restart observation and removal
-inventory. Provide a complete installation path with repository-scoped memory
-supervision, repeat installation, upgrade reporting, and owned-service removal.
+The component integration now selects repository memory and native sessions through
+public installation commands, with no-start staging, exact repeats and resumable owned
+removal. Native public installation/reinstall evidence on Linux and macOS is the remaining
+acceptance gate. Operator-created units remain outside the owned inventory and require
+explicit migration; changed runtime bytes require the separate DQ-12 upgrade path.
 One store serves an absolute Git common directory, including its worktrees;
 memory service identity must not depend on a participant session.
 

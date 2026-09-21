@@ -1,0 +1,214 @@
+#!/usr/bin/env python3
+"""Exercise public installation and removal in explicitly requested synthetic fixtures."""
+import argparse
+import json
+import os
+from pathlib import Path
+import shutil
+import subprocess
+import sys
+import tempfile
+import uuid
+
+SOURCE = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(SOURCE))
+import platform_support
+from scripts.install import FILES
+
+
+def memory_observation(record):
+    name = Path(record['artifact']).name
+    if record['backend'] == 'systemd':
+        return platform_support.systemd_service_observation(name)
+    return platform_support.launchd_service_observation(record['manager_domain'], name[:-6])
+
+
+def require(condition, message):
+    if not condition:
+        raise RuntimeError(message)
+
+
+class Fixture:
+    def __init__(self, backend, session):
+        self.backend, self.session = backend, session
+        self.root = Path(tempfile.mkdtemp(prefix='koinon-install-fixture-')).resolve()
+        self.source = self.root / 'source'
+        self.prefix = self.root / 'app space $literal %n'
+        self.repo, self.state = self.root / 'repo', self.root / 'state'
+        self.thread = 'synthetic-install-' + uuid.uuid4().hex
+        self.env = dict(os.environ, CLAUDE_CONFIG_DIR=str(self.root / 'claude'))
+        self.records, self.session_records = [], []
+        self.removed = False
+        for name in FILES:
+            target = self.source / name
+            target.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copyfile(SOURCE / name, target)
+            target.chmod(0o600)
+        # Isolate synthetic participant locks and peer discovery, while retaining
+        # the real account home and native persistent manager registration paths.
+        with (self.source / 'platform_support.py').open('a') as stream:
+            stream.write('\nos.environ["CLAUDE_CONFIG_DIR"] = ' + repr(self.env['CLAUDE_CONFIG_DIR']) + '\n')
+            stream.write('\ndef participant_lock_dir():\n    return Path(' + repr(str(self.root / 'locks')) + ')\n')
+        self.command(['git', 'init', '-q', str(self.repo)])
+        self.command(['git', '-C', str(self.repo), '-c', 'user.name=Synthetic Fixture',
+                      '-c', 'user.email=fixture@example.invalid', '-c', 'commit.gpgsign=false',
+                      '-c', 'core.hooksPath=/dev/null', 'commit', '--allow-empty', '-qm', 'fixture'])
+
+    def command(self, argv):
+        result = subprocess.run(list(map(str, argv)), env=self.env, capture_output=True, text=True, timeout=90)
+        require(result.returncode == 0, 'public command failed: ' + repr(list(map(str, argv)))
+                + '\n' + result.stdout + result.stderr)
+        return result.stdout
+
+    def install(self, *, staged=False, repo=None):
+        argv = [sys.executable, self.source / 'scripts/install.py', '--configure-memory',
+                '--repo', repo or self.repo, '--prefix', self.prefix, '--state-dir', self.state,
+                '--unit-dir', self.root / 'legacy-units', '--service-backend', self.backend]
+        if self.session:
+            argv += ['--configure-codex', '--codex-home', self.root / 'codex',
+                     '--thread', self.thread, '--codex', sys.executable]
+        if staged:
+            argv += ['--no-start']
+        self.command(argv)
+        config = json.loads((self.prefix / 'install.json').read_text())
+        self.records = list(config['memory_services']['repositories'].values())
+        self.session_records = [json.loads(path.read_text())
+                                for path in (self.state / 'sessions').glob('*/native-service.json')]
+        self.removed = False
+        return config
+
+    def status(self):
+        memory = json.loads(self.command([sys.executable, self.prefix / 'memory_service.py',
+                                          'status', '--prefix', self.prefix, '--repo', self.repo]))
+        require(memory.get('running') is True and memory.get('managed') is True,
+                'public memory status did not prove native readiness: ' + json.dumps(memory))
+        if self.session:
+            session = json.loads(self.command([sys.executable, self.prefix / 'session.py',
+                                               'status', '--thread', self.thread, '--repo', self.repo]))
+            require(session.get('status') == 'running' and session.get('managed') is True,
+                    'public session status did not prove native readiness: ' + json.dumps(session))
+        return memory
+
+    def note(self, *args):
+        return self.command([sys.executable, self.prefix / 'memory.py', '--state-dir', self.state,
+                             '--repo-path', self.repo, '--consumer', 'synthetic-install-fixture', *args])
+
+    def verify_registration(self):
+        for record in self.records:
+            if self.backend == 'systemd':
+                paths = platform_support.memory_registration_paths(record)
+                for path in paths:
+                    require(path.is_symlink() and os.readlink(path) == record['artifact'],
+                            'persistent memory registration missing or mismatched: ' + str(path))
+                persistent, runtime = platform_support.systemd_registration_directories()
+                require(paths[0].parent == persistent and persistent != runtime,
+                        'memory fixture used runtime registration')
+            else:
+                require(Path(record['artifact']).parent == platform_support.account_home() / 'Library/LaunchAgents',
+                        'memory fixture did not use the account LaunchAgents directory')
+
+    def uninstall(self):
+        if self.removed or not (self.prefix / 'install.json').exists():
+            return
+        # Read newly staged selections even if installation failed after publication.
+        config = json.loads((self.prefix / 'install.json').read_text())
+        self.records = list(config.get('memory_services', {}).get('repositories', {}).values())
+        self.session_records = [json.loads(path.read_text())
+                                for path in (self.state / 'sessions').glob('*/native-service.json')]
+        self.command([sys.executable, self.source / 'scripts/uninstall.py', '--prefix', self.prefix])
+        for record in self.records:
+            require(memory_observation(record)['status'] == 'absent',
+                    'removed memory job is not provably absent')
+            require(not Path(record['artifact']).exists(), 'removed memory artifact remains')
+            if self.backend == 'systemd':
+                require(not any(os.path.lexists(path) for path in platform_support.memory_registration_paths(record)),
+                        'persistent memory registration remains')
+        for record in self.session_records:
+            require(platform_support.session_manager_observation(record)['status'] == 'absent',
+                    'removed session job is not provably absent')
+            require(not Path(record['artifact']).exists(), 'removed session artifact remains')
+        require(not (self.prefix / 'install.json').exists(), 'installation configuration remains')
+        require(not (self.prefix / 'session.py').exists(), 'runtime remains')
+        self.removed = True
+
+
+def main():
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument('--run-isolated-job', action='store_true', required=True)
+    parser.add_argument('--backend', choices=('systemd', 'launchd'), required=True)
+    parser.add_argument('--output', type=Path, required=True)
+    args = parser.parse_args()
+    os.umask(0o077)
+    evidence = dict(acceptance='unmet', backend=args.backend, checks=[], registration='persistent-memory')
+    fixtures = []
+    try:
+        domain = f'gui/{os.geteuid()}' if args.backend == 'launchd' else None
+        require(platform_support.memory_manager_available(args.backend, domain),
+                'native user manager unavailable; acceptance unmet (no skip or runtime fallback)')
+        first = Fixture(args.backend, session=True)
+        fixtures.append(first)
+        first.install(staged=True)
+        for record in first.records:
+            require(memory_observation(record)['status'] == 'absent',
+                    'no-start registered a memory job')
+        for record in first.session_records:
+            require(platform_support.session_manager_observation(record)['status'] == 'absent',
+                    'no-start registered a session job')
+        evidence['checks'].append('public no-start stages both components without registration')
+        first.install()
+        first.status()
+        first.verify_registration()
+        first.note('note', 'synthetic-install-preserved', '--type', 'finding')
+        registration = Path(first.session_records[0]['state_directory']) / 'session.json'
+        saved = registration.read_bytes()
+        first.install()
+        first.status()
+        require('synthetic-install-preserved' in first.note('recall', 'synthetic-install-preserved'),
+                'repeat installation lost stored note')
+        evidence['checks'].append('public combined installation and exact repeat retain data')
+        linked = first.root / 'linked'
+        first.command(['git', '-C', first.repo, 'worktree', 'add', '--detach', linked])
+        config = first.install(repo=linked)
+        require(len(config['memory_services']['repositories']) == 1, 'linked worktree duplicated memory service')
+        evidence['checks'].append('linked worktrees share one memory service')
+        second = Fixture(args.backend, session=False)
+        fixtures.append(second)
+        config = second.install()
+        require(config['participants'] == [] and config['codex'] is None,
+                'memory-only installation required participant configuration')
+        second.status()
+        second.verify_registration()
+        evidence['checks'].append('independent memory-only public installation')
+        first.uninstall()
+        second.status()
+        require(registration.read_bytes() == saved, 'uninstall changed retained session registration')
+        require((first.prefix / '.install.lock').exists(), 'uninstall deleted permanent installation lock')
+        evidence['checks'].append('public uninstall removes owned jobs and retains state and unrelated service')
+        first.install()
+        first.status()
+        first.verify_registration()
+        require(registration.read_bytes() == saved, 'reinstall changed retained session registration')
+        require('synthetic-install-preserved' in first.note('recall', 'synthetic-install-preserved'),
+                'clean reinstall lost retained memory')
+        evidence['checks'].append('clean public reinstall reuses retained session and memory data')
+        evidence['acceptance'] = 'native_public_installation_complete'
+    except Exception as exc:
+        evidence['error'] = str(exc)
+    finally:
+        errors = []
+        for fixture in reversed(fixtures):
+            try:
+                fixture.uninstall()
+            except Exception as exc:
+                errors.append(dict(root=str(fixture.root), error=str(exc)))
+        evidence['cleanup'] = 'confirmed' if not errors else errors
+        if errors:
+            evidence['acceptance'] = 'unmet'
+        args.output.parent.mkdir(parents=True, exist_ok=True)
+        args.output.write_text(json.dumps(evidence, indent=2) + '\n')
+        print(json.dumps(evidence, indent=2))
+    return 0 if evidence['acceptance'] == 'native_public_installation_complete' else 1
+
+
+if __name__ == '__main__':
+    raise SystemExit(main())

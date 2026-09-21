@@ -190,6 +190,8 @@ def main(argv=None):
         print(json.dumps(result), flush=True)
         if result.get('status') == 'refused':
             return result['exit_status']
+        if args.action == 'ensure' and result.get('status') == 'manual_required':
+            return 0
         return 75 if args.action in ('ensure', 'status') and result.get('status') != 'running' else 0
     except (OSError, ValueError) as exc:
         code = ('session_temporary_failure' if isinstance(exc, durable_state.StateReadBusyError)

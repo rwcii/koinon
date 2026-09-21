@@ -131,21 +131,70 @@ The bridge targets an existing conversation. A standalone API key or unrelated
 Codex daemon does not provide access to that conversation. Hosted clients without
 local shell/queue access are not automatically supported.
 
-## macOS
+## Repository components and native supervision
 
-There is no systemd on macOS, so the service path is unavailable. Install the runtime
-and managed guidance, then start each session's supervisor in a persistent session:
+Select a repository to install participant guidance and its shared memory service in
+one invocation. An explicit thread also stages and starts that existing session:
 
 ```sh
-python3.12 scripts/install.py --configure-codex --no-start
-python3.12 session.py ensure                    # in a Codex session: uses CODEX_THREAD_ID
-python3.12 session.py ensure --agent deepseek   # in a harness session: uses DSH_SESSION_ID
+python3 scripts/install.py --configure-codex --repo /path/to/repository
+python3 scripts/install.py --configure-codex --repo /path/to/repository --thread EXISTING_THREAD
+# Memory alone needs Git and Python, but no Codex or DeepSeek executable:
+python3 scripts/install.py --configure-memory --repo /path/to/repository
 ```
 
-`ensure` reports `manual_required` with an exact `start_command` on macOS. Run that
-command in a persistent terminal or managed tool session and keep it alive while using
-the bridge. `install.py` refuses the systemd path on macOS rather than writing units that
-nothing would load.
+`--configure-deepseek --repo REPOSITORY` selects the same memory component alongside
+harness guidance. `--configure-memory --thread EXISTING_THREAD --repo REPOSITORY`
+selects memory and that Codex session without modifying global participant guidance.
+A fresh `--thread EXISTING_THREAD --repo REPOSITORY` installation also selects both
+components. Guidance-only commands without `--repo` and legacy thread-only commands
+without `--repo` retain their previous scope. Repeating an existing installation does
+not add an unselected repository service: use `--configure-memory --repo REPOSITORY`
+to opt in explicitly. Existing unmanaged units and sessions are not adopted.
+
+The default backend is systemd on Linux and launchd on macOS. Linux memory uses
+persistent user registration and login enablement; session jobs use runtime registration
+without login enablement. macOS memory uses the account's `Library/LaunchAgents`
+directory and the selected GUI user domain. Session jobs are bootstrapped explicitly.
+No system service, sudo, or lingering configuration is created. Without an available
+user manager, startup reports `manual_required` with the exact command to keep running
+in a persistent terminal or managed tool session. `--service-backend manual` selects
+manual operation explicitly; changing a saved backend requires reconciliation.
+
+Add `--no-start` to stage runtime, configuration, and selected artifacts without querying
+or starting a manager. A later invocation without that flag activates the selection and
+checks live readiness. Repeating the same selection preserves stores and registration.
+Linked worktrees share the service selected by their Git common directory; a second
+repository receives its own service. Inspect memory with:
+
+```sh
+python3 /path/to/prefix/memory_service.py status --prefix /path/to/prefix --repo /path/to/repository
+```
+
+Native installation requires owned, non-group-writable and non-other-writable ancestors
+for the prefix, state, and registration paths. An existing group-writable `.local` or
+`.config` directory is refused even when its group currently contains only the owner.
+The refusal names the offending path. Review its ownership and sharing requirements,
+then choose a suitable private location or explicitly correct that directory yourself.
+The installer creates missing directories privately and never changes existing ancestor
+permissions. This precondition also applies to the native CI fixtures.
+
+Runtime files belonging to a selected native installation cannot be replaced with
+different bytes by an ordinary repeat install. Coordinated runtime upgrades are a
+separate operation; preserve the current installation when this refusal occurs.
+
+## macOS
+
+Use Python 3.11+ and a logged-in GUI user for launchd supervision:
+
+```sh
+python3.12 scripts/install.py --configure-codex --repo /path/to/repository
+```
+
+Guidance-only installations without a repository retain the manual supervisor path.
+Their `session.py ensure` reports `manual_required`; run its exact `start_command` in a
+persistent session. The historical systemd-only explicit-thread path remains unavailable
+on macOS; use the repository component invocation above instead.
 
 ### Recovering from a killed instance
 
@@ -479,11 +528,20 @@ scripts/uninstall.sh
 python3 scripts/uninstall.py --prefix /path/to/installed/runtime
 ```
 
-Removal stops this installation's registered sessions, removes its owned units, strips
-managed global guidance, and deletes runtime files. Inbox state and instruction backups
-remain. Stop/ownership errors abort removal instead of deleting files under a running
+Removal verifies and stops this installation's registered sessions and memory runners,
+removes only their owned manager registrations and artifacts, strips its managed guidance,
+and deletes runtime files. Inbox state, memory databases, notification history, instruction
+backups, removal provenance, and permanent locks remain. Stop/ownership errors abort removal instead of deleting files under a running
 service. Unmarked units from pre-release experiments are refused; inspect and remove
 only confirmed bridge units before migration.
+
+If removal is interrupted, repeat the uninstall command. A durable removal marker
+prevents installation or startup from reactivating a partially removed installation.
+Before deleting runtime modules, uninstall prints a standalone recovery command using
+`<prefix>/.uninstall-finalize.py`. If module deletion was interrupted, run that exact
+command; it validates the retained manifest and deletes only the recorded runtime files.
+It never traverses or removes the state directory. After successful removal, reinstalling
+the same selection reuses retained session registration and memory data.
 
 ## Troubleshooting
 

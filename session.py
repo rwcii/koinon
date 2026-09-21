@@ -281,9 +281,12 @@ def main():
             validate_participant_executable(config, agent, a.action)
             session_install.stage(prefix, config, state, a.thread, repo, agent, model, save_registration)
         except (OSError, ValueError) as exc:
-            print(json.dumps(dict(status='unavailable', code='session_configuration_failure',
+            import durable_state
+            temporary = isinstance(exc, durable_state.StateReadBusyError)
+            print(json.dumps(dict(status='unavailable',
+                                  code='session_temporary_failure' if temporary else 'session_configuration_failure',
                                   error=str(exc), paths=[str(native), str(state / 'session.json')])))
-            raise SystemExit(78) from None
+            raise SystemExit(75 if temporary else 78) from None
         if a.action == 'stage':
             print(json.dumps(dict(status='staged', running=False, state_dir=str(state))))
             return
