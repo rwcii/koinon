@@ -524,3 +524,10 @@ retries reuse frozen capture evidence and revalidate completed replacement bytes
 Step 9 remains an unavailable, gated installation awaiting migration and restart
 verification. This driver does not expose a public upgrade command or complete the
 remaining preflight, migration/release, report and platform acceptance requirements.
+
+
+Inbox expectations currently support exact schema-4 preservation, including allocated
+sequence head, acknowledgement watermark, journal activation and delivery identity.
+Canonical comparison still covers all inbox and binding rows. Earlier inbox schemas
+require a declared migration adapter and must be rejected in preflight before shutdown;
+the expectation helper does not migrate or reinterpret them implicitly.

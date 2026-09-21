@@ -82,3 +82,53 @@ class MigrationExpectationTests(unittest.TestCase):
                 upgrade_migration.verify(expected, upgrade_inventory.capture(store.db))
         finally:
             store.close()
+
+
+class InboxExpectationTests(unittest.TestCase):
+    def fixture(self):
+        import bridge
+        temporary = tempfile.TemporaryDirectory()
+        self.addCleanup(temporary.cleanup)
+        root = Path(temporary.name).resolve()
+        home, retained, workspace = (root / name for name in ('state', 'backup', 'workspace'))
+        for path in (home, retained, workspace):
+            path.mkdir(mode=0o700)
+        store = bridge.InboxStore(home)
+        store.db.execute("INSERT INTO inbox(received,pid,frame) VALUES (1.0, 123, '{}')")
+        store.db.commit()
+        store.close()
+        snapshot = upgrade_backup.capture(home, ['inbox.sqlite3' + suffix for suffix in ('', '-wal', '-shm', '-journal')])
+        backup = upgrade_backup.copy(snapshot, retained)['destination']
+        return home, backup, workspace
+
+    def test_same_schema_inbox_preserves_ack_allocated_head_and_delivery_identity(self):
+        import bridge
+        import delivery_ledger
+        home, backup, workspace = self.fixture()
+        expected = upgrade_migration.expected_inbox(backup, workspace)
+        store = bridge.InboxStore(home)
+        try:
+            result = upgrade_migration.verify(expected, store.upgrade_inventory())
+            self.assertEqual(result['identity']['allocated_head'], 1)
+            self.assertEqual(result['identity']['ack_through'], 0)
+            self.assertEqual(result['identity']['delivery_identity'], delivery_ledger.identity(store.db))
+            store.db.execute("UPDATE inbox_meta SET value='1' WHERE key='ack_through'")
+            store.db.commit()
+            with self.assertRaises(upgrade_migration.MigrationError):
+                upgrade_migration.verify(expected, store.upgrade_inventory())
+        finally:
+            store.close()
+        upgrade_backup.verify(backup)
+
+    def test_undeclared_inbox_transition_refuses_without_rewriting_backup(self):
+        home, _, workspace = self.fixture()
+        with sqlite3.connect(home / 'inbox.sqlite3') as db:
+            db.execute("UPDATE inbox_meta SET value='3' WHERE key='schema'")
+        db.close()
+        retained = workspace.parent / 'legacy-backup'
+        retained.mkdir(mode=0o700)
+        snapshot = upgrade_backup.capture(home, ['inbox.sqlite3' + suffix for suffix in ('', '-wal', '-shm', '-journal')])
+        backup = upgrade_backup.copy(snapshot, retained)['destination']
+        with self.assertRaises(sqlite3.DatabaseError):
+            upgrade_migration.expected_inbox(backup, workspace)
+        upgrade_backup.verify(backup)

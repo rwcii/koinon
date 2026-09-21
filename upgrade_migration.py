@@ -96,3 +96,21 @@ def verify(expected, observed):
     return dict(version=1, verified=True, source_schema=expected['source_schema'],
                 target_schema=expected['target_schema'], changes=expected['changes'],
                 identity=expected['identity'], inventory=observed['sha256'])
+
+
+def expected_inbox(snapshot, workspace):
+    """Exact current-schema inbox expectation; older transitions require an adapter.
+
+    This check is also required in preflight before selected services are stopped.
+    It never upgrades the retained backup or invents binding/delivery identities.
+    """
+    import delivery_ledger
+    import inbox_schema
+    with upgrade_backup_inventory.open_copy(snapshot, 'inbox.sqlite3', workspace) as db:
+        identity = inbox_schema.metadata(db)
+        inbox_schema.validate_bindings(db)
+        identity = dict(identity, allocated_head=inbox_schema.allocated_head(db),
+                        delivery_identity=delivery_ledger.identity(db))
+        expected = inventory.capture(db)
+    return dict(version=1, source_schema=inbox_schema.SCHEMA, target_schema=inbox_schema.SCHEMA,
+                changes=[], identity=identity, inventory=expected)
