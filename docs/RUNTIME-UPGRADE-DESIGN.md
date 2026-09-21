@@ -416,10 +416,17 @@ releases its lock on return; the coordinator still must revalidate and publish
 startup exclusion before acting. It neither discovers arbitrary unmanaged writers
 nor supplies the manual/legacy upgrade adapters required by final acceptance.
 
-Native observation currently requires the installed Python interpreter. Session
+Native observation currently requires the recorded Python executable path. Session
 records identify a mismatched interpreter explicitly before probing components.
 Memory artifacts encode the interpreter without a separate saved field, so a
 verification refusal names the current interpreter and asks for verification of
 both interpreter and retained selection/artifact; it does not misclassify every
-artifact error as a proven Python mismatch. Interpreter migration requires a
-separate supported adapter and is not inferred during component enumeration.
+artifact error as a proven Python mismatch. Changing the configured Python executable path is deferred. Run this coordinator
+with the executable path recorded by the installation; do not replace interpreter
+selection or manager artifacts manually to get past preflight. A supported
+interpreter-change adapter must record both old and new paths, verify old artifact
+ownership, validate target runtime/SQLite compatibility, and switch the selected
+jobs under the same upgrade gates before this operation can offer that change.
+Existing selection metadata binds paths, not interpreter binary hashes or version
+identities. Replacing a Python binary in place is outside this coordinated
+operation and is not detected as a path mismatch.
