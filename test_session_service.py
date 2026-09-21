@@ -155,3 +155,24 @@ class NativeSessionServiceTests(unittest.TestCase):
         self.assertEqual(observed['basis'], 'kernel_process_start')
         self.assertTrue((self.home / 'inbox.sqlite3').exists())
         self.assertEqual(artifacts.load(self.home), record)
+
+    def test_cli_names_missing_or_changed_owned_artifact(self):
+        artifact = Path(self.record['artifact'])
+        original = artifact.read_bytes()
+        for missing in (True, False):
+            with self.subTest(missing=missing):
+                if missing:
+                    artifact.unlink()
+                else:
+                    artifact.write_bytes(b'changed artifact')
+                    artifact.chmod(0o600)
+                output = io.StringIO()
+                with contextlib.redirect_stdout(output):
+                    result = service.main(['status', '--prefix', str(self.prefix),
+                                           '--state-dir', str(self.home), '--backend', 'systemd'])
+                self.assertEqual(result, 78)
+                failure = json.loads(output.getvalue())
+                self.assertIn(str(artifact), failure['paths'])
+                self.assertIn(str(self.home / 'native-service.json'), failure['paths'])
+                artifact.write_bytes(original)
+                artifact.chmod(0o600)

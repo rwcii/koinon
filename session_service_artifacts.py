@@ -72,37 +72,49 @@ def inputs(record):
     return config, registration
 
 
+@contextmanager
+def boundary(record, observed_artifact=None):
+    try:
+        yield
+    except (OSError, ValueError) as exc:
+        paths = list(getattr(exc, 'paths', ()))
+        if isinstance(record, dict):
+            home = record.get('state_directory')
+            if isinstance(home, str):
+                paths.append(str(Path(home) / 'native-service.json'))
+            if isinstance(record.get('artifact'), str):
+                paths.append(record['artifact'])
+        if observed_artifact is not None:
+            paths.append(str(observed_artifact))
+        error = ValueError(str(exc))
+        error.paths = tuple(dict.fromkeys(str(path) for path in paths))
+        raise error from exc
+
+
 def verify_owned(record, *, observed_artifact=None):
     """Verify saved selection and literal disk evidence; never infer live health."""
-    content = expected(record)
-    inputs(record)
-    if record['state'] != 'installed' or load(record['state_directory']) != record:
-        raise ValueError('native session has no completed owning selection')
-    path = Path(record['artifact'])
-    if observed_artifact is not None and str(observed_artifact) != str(path):
-        raise ValueError('loaded session artifact differs from selection')
-    if files._read(path) != content:
-        raise ValueError('owned session artifact missing or changed')
-    return record
-
+    with boundary(record, observed_artifact):
+        content = expected(record)
+        inputs(record)
+        if record['state'] != 'installed' or load(record['state_directory']) != record:
+            raise ValueError('native session has no completed owning selection')
+        path = Path(record['artifact'])
+        if observed_artifact is not None and str(observed_artifact) != str(path):
+            raise ValueError('loaded session artifact differs from selection')
+        if files._read(path) != content:
+            raise ValueError('owned session artifact missing or changed')
+        return record
 
 def verify_loaded(record, observed_artifact):
-    verify_owned(record)
-    path, expected_path = absolute_path(str(observed_artifact)), Path(record['artifact'])
-    if path == expected_path:
-        return record
-    if record['backend'] != 'systemd' or path.name != expected_path.name:
-        raise ValueError('loaded session artifact differs from selection')
-    files._parents(path)
-    before = path.lstat()
-    if (not stat.S_ISLNK(before.st_mode) or before.st_uid != os.geteuid()
-            or os.readlink(path) != str(expected_path)):
-        raise ValueError('loaded session artifact is not its owned literal link')
-    after = path.lstat()
-    if ((before.st_dev, before.st_ino) != (after.st_dev, after.st_ino)
-            or os.readlink(path) != str(expected_path)):
-        raise ValueError('session loader link changed')
-    return verify_owned(record)
+    with boundary(record, observed_artifact):
+        verify_owned(record)
+        path, expected_path = absolute_path(str(observed_artifact)), Path(record['artifact'])
+        if path == expected_path:
+            return record
+        if record['backend'] != 'systemd':
+            raise ValueError('loaded session artifact differs from selection')
+        files.verify_loader_link(path, expected_path)
+        return verify_owned(record)
 
 
 def prepare(desired):

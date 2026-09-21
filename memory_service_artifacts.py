@@ -142,30 +142,33 @@ def verify_owned(prefix, python, record, *, observed_artifact=None):
         return record
 
 
-def verify_loaded(prefix, python, record, observed_artifact):
-    """Accept an exact artifact or its private same-user systemd loader link.
+def verify_loader_link(path, expected):
+    """Verify one private same-user literal loader link, never an alias chain."""
+    path, expected = absolute_path(str(path)), absolute_path(str(expected))
+    if path.name != expected.name:
+        raise RegistrationPathError(path)
+    _parents(path)
+    before = path.lstat()
+    if (not stat.S_ISLNK(before.st_mode) or before.st_uid != os.geteuid()
+            or os.readlink(path) != str(expected)):
+        raise RegistrationPathError(path)
+    after = path.lstat()
+    if ((before.st_dev, before.st_ino) != (after.st_dev, after.st_ino)
+            or os.readlink(path) != str(expected)):
+        raise RegistrationPathError(path)
 
-    Custom unit locations are linked by systemd into its lookup directory. This
-    verifies one literal link target, never resolves an arbitrary alias chain.
-    """
+
+def verify_loaded(prefix, python, record, observed_artifact):
+    """Accept an exact artifact or its private same-user systemd loader link."""
     verify_owned(prefix, python, record)
     with _boundary(prefix, observed_artifact):
         path = absolute_path(str(observed_artifact))
         expected = Path(record['artifact'])
         if path == expected:
             return record
-        if record['backend'] != 'systemd' or path.name != expected.name:
+        if record['backend'] != 'systemd':
             raise ValueError('loaded manager artifact differs from registration')
-        _parents(path)
-        before = path.lstat()
-        if not stat.S_ISLNK(before.st_mode) or before.st_uid != os.geteuid():
-            raise ValueError('loaded artifact is not an owned loader link')
-        if os.readlink(path) != str(expected):
-            raise ValueError('loader link does not name the exact registered artifact')
-        after = path.lstat()
-        if ((before.st_dev, before.st_ino) != (after.st_dev, after.st_ino)
-                or os.readlink(path) != str(expected)):
-            raise ValueError('loader link changed during verification')
+        verify_loader_link(path, expected)
         verify_owned(prefix, python, record)
         return record
 

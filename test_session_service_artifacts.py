@@ -109,14 +109,16 @@ class NativeSessionArtifactsTests(unittest.TestCase):
         link.unlink()
         link.write_bytes(self.path.read_bytes())
         link.chmod(0o600)
-        with self.assertRaises(ValueError):
+        with self.assertRaises(ValueError) as caught:
             artifacts.verify_loaded(self.record, link)
+        self.assertIn(str(link), caught.exception.paths)
         link.unlink()
         intermediate = self.root / 'alias'
         intermediate.symlink_to(self.path)
         link.symlink_to(intermediate)
-        with self.assertRaises(ValueError):
+        with self.assertRaises(ValueError) as caught:
             artifacts.verify_loaded(self.record, link)
+        self.assertIn(str(link), caught.exception.paths)
 
     def test_unsafe_directory_or_legacy_lock_preserved_and_refused(self):
         self.home.chmod(0o770)
