@@ -31,12 +31,31 @@ def pairs(items):
 
 
 def read(path):
+    for attempt in range(3):
+        try:
+            fd = os.open(path, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK | os.O_CLOEXEC)
+        except FileNotFoundError:
+            if attempt == 0:
+                return None
+            raise StateFileError('unsafe_state_file') from None
+        try:
+            info = os.fstat(fd)
+            if info.st_nlink == 0:
+                # Atomic publication may unlink our opened predecessor before
+                # fstat. Reopen the current name; never relax link validation or
+                # consume the detached descriptor's contents.
+                current = os.lstat(path)
+                if (current.st_dev, current.st_ino) != (info.st_dev, info.st_ino):
+                    os.close(fd)
+                    continue
+            validate(info)
+        except BaseException:
+            os.close(fd)
+            raise
+        break
+    else:
+        raise StateFileError('unsafe_state_file')
     try:
-        fd = os.open(path, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK | os.O_CLOEXEC)
-    except FileNotFoundError:
-        return None
-    try:
-        validate(os.fstat(fd))
         data = bytearray()
         while len(data) <= MAX_BYTES:
             chunk = os.read(fd, MAX_BYTES + 1 - len(data))

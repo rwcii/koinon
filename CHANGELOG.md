@@ -5,6 +5,9 @@ into a dated release section when promoted to `main`.
 
 ## Unreleased
 
+- Retry a state read when atomic publication replaced its opened predecessor,
+  preserving strict validation of the current record.
+
 - Pass parent-owned control sockets explicitly to session children, allowing native
   restart after a child exits before its first handshake while preserving bind intent.
 
