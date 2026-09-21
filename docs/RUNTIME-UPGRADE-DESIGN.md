@@ -69,7 +69,7 @@ because its completion record is missing.
 
 | Phase | Completion evidence |
 | --- | --- |
-| Preflight | Exact prefix, source, state roots, repository identities, participant targets, supported transitions, store capacity, backup space/privacy, destination ancestors and all owned components validated before shutdown. |
+| Preflight | Exact prefix, source, state roots, repository identities, participant targets, required SQLite capabilities (3.37+), supported transitions, store capacity, backup space/privacy, destination ancestors and all owned components validated before shutdown. |
 | Prepared | Durable source/selection manifest and exclusion marker published; private backup/recovery/report destinations created and durable write probes completed before shutdown. |
 | Quiescing sessions | Selected notifier/bridge pairs stopped in dependency order; manager and PID/start/generation evidence proves owned process exit. |
 | Quiescing memory | Selected memory runners and children have exited; no unowned listener or writer is accepted as absence. |
@@ -164,6 +164,11 @@ migration refusal leaves a resumable phase and the original backup untouched.
 
 ## Platform and recovery acceptance
 
+Preflight must probe the required SQLite `table_list` capability on a transient empty
+database before shutdown; SQLite introduced it in
+[3.37.0](https://www.sqlite.org/pragma.html#pragma_table_list). An unsupported build
+refuses as `unsupported_sqlite` while all selected services remain untouched.
+
 Use the existing platform layer and exact owned manager operations on Linux and macOS.
 Manual supervision needs an explicit persistent-process handoff and readiness proof;
 printing a command is not completion. Never create system services, enable lingering,
@@ -177,3 +182,38 @@ watermarks and consumer cursors, bounded inventories, and unrelated-prefix survi
 Run native Linux/macOS end-to-end upgrade fixtures plus manual-supervisor handoff coverage.
 The release gate is a working resumable command and its generated report, not this design
 or a rewritten manual runbook.
+
+## Implementation slices
+
+The first internal primitive, `upgrade_inventory.py`, captures a consistent SQLite
+snapshot from a dedicated connection after the coordinator has established stopped
+ownership (or selected a verified consistent backup). It does not open paths, validate
+service ownership, migrate data or authorize replacement. Every catalog object is
+fingerprinted; ordinary and FTS shadow tables include every stored column and duplicate
+row. Virtual interfaces and views are recorded without querying their results.
+
+Rows use storage-class tags and length framing. Each table hashes the sorted multiset of
+SHA-256 row digests, including multiplicity, so physical order and collations cannot hide
+changes. SQLite's sequence table is included even when its inbox is empty. The assumption
+is SHA-256 collision resistance. Counts accompany the hashes as diagnostics. Catalog,
+column, row, value and total encoded-byte bounds produce explicit refusal rather than a
+partial inventory; they are not wall-clock I/O limits. The required SQLite `table_list` capability
+(SQLite 3.37+) is probed first; its absence reports `unsupported_sqlite` rather than
+misclassifying the retained store.
+
+Exact comparison lists added, removed and changed tables and catalog changes. It grants
+no migration exceptions. Store-specific identity fields, supported migration adapters,
+private backup/manifest publication, exclusion gates and the coordinator remain separate
+implementation steps before the proposed public command can become available.
+
+`upgrade_manifest.py` freezes an explicit bounded list of selected source files with
+per-file sizes and SHA-256 hashes. Initial root selection resolves aliases once, including
+macOS system paths; the manifest freezes that canonical root. Resume never follows a
+new alias at the frozen root. Reads beneath it refuse symlink components, hardlinks, unsafe
+owners or permissions, changing file identities, missing files and capacity overflow.
+Verification compares the complete selection with its frozen manifest; it does not
+silently recapture a different source. This helper does not discover an allowlist or
+prove that mutable files across separate reads form an atomic snapshot. The coordinator
+must retain the manifest digest in its durable plan, stage and verify the frozen bytes,
+and establish stopped ownership before using file copies as state-backup evidence.
+The helper performs no copy, installation or permission repair.
