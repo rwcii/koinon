@@ -5,6 +5,9 @@ into a dated release section when promoted to `main`.
 
 ## Unreleased
 
+- Connect internal native startup admission to the selected upgrade plan and complete
+  new runtime bytes; ordinary ensure remains blocked during the operation.
+
 - Stage resumable runtime file replacement against retained backups and exact memory
   migration verification. Defer search-index initialization until upgrade release.
   The public upgrade coordinator and native acceptance remain unfinished.

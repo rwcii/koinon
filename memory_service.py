@@ -276,8 +276,11 @@ def managed_status(selection):
     return dict(status='unavailable', running=False, manager=observed['active_state'])
 
 
-def ensure_managed(selection):
+def ensure_managed(selection, *, upgrade=None):
     """Activate only a saved owned selection, then prove manager and child readiness."""
+    if upgrade is not None:
+        import upgrade_start
+        upgrade_start.validate(upgrade, selection, 'memory')
     portable = observation(selection)
     if portable['status'] == 'refused':
         return portable
@@ -288,8 +291,11 @@ def ensure_managed(selection):
                         start_command=shlex.join(selection.start_command()))
         private_dir(selection.home)
         try:
-            with install_state.locked(selection.prefix) as installed, file_lock(
+            with install_state.locked(selection.prefix,
+                    **({'validator': upgrade._validate} if upgrade is not None else {})) as installed, file_lock(
                     selection.home / 'manager.lock', 'manager_busy', None):
+                if upgrade is not None:
+                    upgrade_start.validate(upgrade, selection, 'memory')
                 saved = installed.config.get('memory_services', {}).get('repositories', {}).get(selection.key)
                 if saved != selection.record:
                     raise RunnerError('configuration_error')
@@ -304,6 +310,8 @@ def ensure_managed(selection):
                     if (observed['status'] == 'observed' and owner
                             and owner['generation'] == portable['generation']
                             and observed['pid'] == owner['pid']):
+                        if upgrade is not None:
+                            upgrade_start.validate(upgrade, selection, 'memory')
                         return dict(portable, managed=True, backend=selection.backend)
                     raise RunnerError('external_memory_service')
                 if portable['status'] == 'externally_managed':
@@ -318,7 +326,10 @@ def ensure_managed(selection):
                     if manager_observation(selection) != observed:
                         raise RunnerError('manager_observation_unknown')
                     try:
-                        memory_service_artifacts.verify_owned(selection.prefix, sys.executable, selection.record)
+                        memory_service_artifacts.verify_owned(selection.prefix, sys.executable, selection.record,
+                            **({'upgrading': True} if upgrade is not None else {}))
+                        if upgrade is not None:
+                            upgrade_start.validate(upgrade, selection, 'memory')
                         platform_support.memory_manager_action(selection.record, operation)
                         if selection.backend == 'systemd':
                             # An inert loader link is verified before enablement can
@@ -329,12 +340,16 @@ def ensure_managed(selection):
                             if operation == 'register':
                                 if manager_observation(selection) != registered:
                                     raise RunnerError('manager_observation_unknown')
+                                if upgrade is not None:
+                                    upgrade_start.validate(upgrade, selection, 'memory')
                                 platform_support.memory_manager_action(selection.record, 'activate')
                                 if manager_observation(selection) != registered:
                                     raise RunnerError('manager_observation_unknown')
                             if registered['pid'] == 0:
                                 if manager_observation(selection) != registered:
                                     raise RunnerError('manager_observation_unknown')
+                                if upgrade is not None:
+                                    upgrade_start.validate(upgrade, selection, 'memory')
                                 platform_support.memory_manager_action(selection.record, 'restart')
                     except (OSError, subprocess.SubprocessError) as exc:
                         raise RunnerError('manager_operation_failed') from exc
@@ -342,6 +357,8 @@ def ensure_managed(selection):
                 while True:
                     result = managed_status(selection)
                     if result['running'] or result['status'] == 'refused':
+                        if upgrade is not None:
+                            upgrade_start.validate(upgrade, selection, 'memory')
                         return result
                     if time.monotonic() >= deadline:
                         raise RunnerError('manager_observation_unknown')

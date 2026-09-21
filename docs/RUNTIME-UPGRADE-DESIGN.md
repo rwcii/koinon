@@ -498,3 +498,12 @@ inventory must match the complete expected catalog and logical rows. Search-inde
 creation and reconciliation wait until durable release. These internal helpers still
 require public orchestration, individual identity/cursor reporting, restart integration
 and native/manual interruption acceptance before the coordinated command is available.
+
+
+Internal native manager admission now accepts an explicit coordinator context only
+for the selected pending migration/startup phases. It revalidates the active plan,
+component membership and complete new runtime bytes before manager actions and
+readiness return. Ordinary ensure remains blocked by the installation marker.
+These manager results do not themselves verify the children's gate or data inventory;
+coordinator orchestration must still join the child generation and private gate status
+before migration comparison and release.
