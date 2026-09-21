@@ -5,6 +5,10 @@ into a dated release section when promoted to `main`.
 
 ## Unreleased
 
+- Connect internal upgrade shutdown and component backup capture with retained
+  startup locks, recorded endpoint reservations and frozen retry inventories.
+  The public upgrade coordinator remains unfinished.
+
 - Stage upgrade exclusion and service admission: selected verification can retain
   ownership checks while peer ingress, notification delivery and maintenance wait
   for durable release. Preserve upgrade-specific supervisor diagnostics. The public

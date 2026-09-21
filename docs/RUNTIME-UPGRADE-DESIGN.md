@@ -455,3 +455,29 @@ releasing owned endpoints.
 Synthetic tests cover these admission paths and service cleanup. They are not the
 complete stop/backup/replace/migrate/restart operation or native platform acceptance;
 those remain required before closing the upgrade gate.
+
+
+Owned shutdown and guarded component capture are now connected internally.
+Shutdown reobserves native manager absence and recorded process exit, handles
+already inactive selections without starting them, and refuses memory shutdown
+until sessions are stopped. Capture retains permanent supervisor/startup locks;
+bridge control endpoints are reserved without listening. It rechecks manager,
+owner, directory, lock and endpoint identities through copy completion.
+
+Component inventories include all regular state files and explicit main/WAL/SHM/
+rollback-journal absences. Unexpected sockets, links and oversized inventories
+refuse. The complete source inventory is frozen before copying, so retry cannot
+silently omit a removed record. Copies and their descriptors remain private under
+the operation. The old runtime is captured separately from its frozen file list.
+Its backup can reside beneath the installed prefix only when no selected source
+file overlaps the backup destination; component copies still require disjoint roots. Permanent lock files may appear as retained evidence in a backup;
+they must never be restored over live lock inodes.
+
+Reservations record creation intent and captured endpoint identity. After a
+coordinator process dies, a recorded reservation can be reclaimed only with the
+matching inode and proven owner exit. A crash between bind and inode publication
+leaves ambiguous evidence: recovery preserves the endpoint and refuses automatic
+removal. Synthetic tests exercise actual owner-process death, binding exclusion,
+memory start-lock exclusion, sidecar absence and unchanged retained bytes. Native
+end-to-end orchestration, source/runtime replacement and migration verification
+remain incomplete; this integration does not make the public command available.

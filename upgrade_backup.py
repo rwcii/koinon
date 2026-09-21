@@ -185,13 +185,20 @@ def _confirm(root, name, expected):
         os.close(fd)
 
 
-def copy(snapshot, destination):
+def copy(snapshot, destination, *, allow_nested_destination=False):
     """Copy/reconfirm frozen bytes; publish no completion descriptor on partial failure."""
     snapshot = verify(snapshot)
     source = manifest.check_root(snapshot['root'])
     target = _destination(destination)  # Already frozen by the coordinator; no alias resolution.
-    if source == target or source in target.parents or target in source.parents:
+    nested = source in target.parents
+    if (source == target or target in source.parents
+            or nested and not allow_nested_destination):
         raise BackupError('backup source and destination must be disjoint')
+    if nested:
+        relative = target.relative_to(source)
+        if any(Path(name).is_relative_to(relative) or relative.is_relative_to(Path(name))
+               for name in snapshot['files']):
+            raise BackupError('nested backup destination overlaps selected source files')
     lock = target / LOCK
     directory = target.stat()
     with file_lock(lock, 'upgrade_backup_busy', None) as lock_fd:
