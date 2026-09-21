@@ -335,6 +335,13 @@ DQ-11 component ownership and lifecycle inventory. The existing manual runbook a
 to legacy/manual deployments; native runtime replacement remains refused until the
 supported operation is implemented and verified.
 
+The read-only inventory/source foundation is merged in [PR #68](https://github.com/rwcii/koinon/pull/68).
+The [coordinator draft, PR #70](https://github.com/rwcii/koinon/pull/70), stages phase
+records, immutable evidence, isolated recovery archives, native observations, and
+frozen-plan preparation. The public operation, complete preflight/exclusion, backup,
+replacement/migration, service gates, reporting, and native/manual interruption
+acceptance remain unfinished. Passing helper tests do not complete this queue item.
+
 Turn the coordinated upgrade into an executable operation that records its phases,
 performs its own inventory and backup, and verifies recovery. Preserve explicit
 installation, participant, repository, and state selection. The operation must not
