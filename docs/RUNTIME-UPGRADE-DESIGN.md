@@ -348,3 +348,19 @@ Unknown or changing evidence refuses. This is a read-only preflight observation,
 installation-wide enumeration or exclusion against a subsequent start; quiescence
 must revalidate under the appropriate locks. Manual selections require their own
 explicit adapter before they can enter this native observation path.
+
+`upgrade_plan.py` binds source, old runtime, installation configuration, component
+observations and the recovery descriptor through immutable document digests. It
+checks the 128-component bound and reserves directory entries for acknowledgements
+and aggregate evidence before publishing plan documents. Preparation only records
+pending intent; it does not publish an installation marker or complete preflight.
+The coordinator still must prove complete session enumeration, backup space and
+ownership before preparing, then establish exclusion before shutdown.
+
+Explicit resume requires the caller's expected plan digest and every retained
+document. It never initializes missing phase state. Source and recovery bytes must
+still match, and a configured prefix alias cannot retarget the operation. The old
+runtime manifest is validated as retained data, not compared with current installed
+bytes during every resume: partial replacement is expected in some phases. The
+phase-specific coordinator must decide which current bytes are valid and cannot use
+successful plan loading alone as permission to replace or release anything.
