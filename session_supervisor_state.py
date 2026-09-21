@@ -82,10 +82,20 @@ class Records:
                     (not isinstance(value['primary_code'], str) or value['primary_code'] not in CODES))
                 or value['shutdown_code'] not in (None, 'session_shutdown_unconfirmed')):
             raise StateError('invalid_session_state')
-        for child in value['children'].values():
-            if child is not None and (not process(child) or set(child) != {'pid', 'proc_start', 'generation'}
+        for kind, child in value['children'].items():
+            if child is not None and (not process(child) or set(child) not in (
+                    {'pid', 'proc_start', 'generation'}, {'pid', 'proc_start', 'generation', 'control_endpoint'})
                                       or child['generation'] is not None and not hex_value(child['generation'], 32)):
                 raise StateError('invalid_session_state')
+            if child is not None and 'control_endpoint' in child:
+                import session_endpoints
+                root = self.directory if kind == 'bridge' else self.directory / 'notifier'
+                try:
+                    session_endpoints.validate(child['control_endpoint'], root)
+                except (OSError, ValueError) as exc:
+                    raise StateError('invalid_session_state') from exc
+                if child['generation'] is None:
+                    raise StateError('invalid_session_state')
         pending = value['spawn_pending']
         if (pending is not None and (not isinstance(pending, str) or pending not in CHILDREN
                                      or value['children'][pending] is not None)

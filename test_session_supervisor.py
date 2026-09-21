@@ -78,6 +78,7 @@ class FailureTests(unittest.TestCase):
                        primary_code='session_configuration_failure')
         self.records.publish(failure)
         with patch.object(supervisor, 'alive_state', return_value='dead'), \
+                patch('session_supervisor_state.alive_state', return_value='dead'), \
                 patch.object(supervisor.Runner, 'attempt') as attempt:
             self.assertEqual(supervisor.run(self.records, self.commands, 'manual'), 78)
             attempt.assert_not_called()

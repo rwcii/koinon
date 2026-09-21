@@ -15,6 +15,7 @@ import notification_health
 from peer_transport import control_exchange
 import platform_support
 import session_observation
+import session_endpoints
 from session_supervisor_state import Records, StateError, alive_state, state_lock
 
 START_TIMEOUT = 20
@@ -81,6 +82,7 @@ class Runner:
         captured = self.owner['children'][kind]
         root = self.records.directory if kind == 'bridge' else self.records.directory / 'notifier'
         try:
+            before = session_endpoints.capture(root)
             reply, pid = asyncio.run(control_exchange(root, dict(op='status'), timeout=1))
         except (OSError, ValueError, TimeoutError):
             return False
@@ -96,6 +98,10 @@ class Runner:
             raise StateError('session_configuration_failure')
         if captured['generation'] is not None and captured['generation'] != value['generation']:
             raise StateError('session_ownership_unknown')
+        if session_endpoints.capture(root) != before or (
+                captured.get('control_endpoint') is not None and captured['control_endpoint'] != before):
+            raise StateError('session_ownership_unknown')
+        captured['control_endpoint'] = before
         captured['generation'] = value['generation']
         self.publish('starting')
         if kind == 'bridge':
@@ -214,6 +220,8 @@ def run(records, commands, backend):
                                     or old['spawn_pending'] is not None)
                     and not records.retry_requested(old['generation'])):
                 raise StateError('session_configuration_failure')
+            if old is not None:
+                session_endpoints.recover(records, old)
             runner = Runner(records, commands, stopped)
             try:
                 runner.attempt()

@@ -292,7 +292,10 @@ def control_socket_path(root):
     state directory, so cleanup does not own it. A path left behind by a killed
     instance is therefore removed by hand after verifying the old process is dead
     and its socket refuses connections, exactly as the project already requires for
-    stale peer sockets. Nothing here removes a socket automatically: a listening
+    stale peer sockets. The owned session runner separately records verified child
+    socket inodes and may remove an exact match after every owned process is proven
+    dead; uncaptured and operator-installed endpoints keep this manual rule.
+    Nothing in this path-selection function removes a socket automatically: a listening
     socket and a saturated one are indistinguishable by probing, because a full
     accept queue refuses a connection on macOS just as a dead owner does.
     """
@@ -630,6 +633,12 @@ def systemd_service_observation(name):
             return dict(status='unknown', reason='observation_changed')
         identity, artifact, loaded, active, invocation = before
         executions, pid = service
+        # A removed failed unit can retain a manager tombstone. Establish absence
+        # only from stable typed empty artifact/command and zero live PID evidence.
+        if (identity == name and loaded == 'not-found' and artifact == ''
+                and active in ('inactive', 'failed') and type(pid) is int and pid == 0
+                and executions == []):
+            return dict(status='absent')
         if (identity != name or not isinstance(artifact, str) or not Path(artifact).is_absolute()
                 or loaded != 'loaded' or not isinstance(active, str)
                 or not isinstance(invocation, list) or len(invocation) not in (0, 16)
@@ -768,7 +777,7 @@ def memory_manager_available(backend, domain=None):
 
 
 
-def systemd_registration_directories():
+def systemd_registration_layout():
     """Recognize the native user manager's standard UnitPath layout, or refuse.
 
     Use manager evidence, not the caller's XDG environment. An overridden or changed
@@ -813,9 +822,35 @@ def systemd_registration_directories():
                 or transient != runtime_control.with_name('transient')
                 or early != runtime_control.with_name('generator.early')):
             raise ValueError('unsupported manager path layout')
-        return persistent, runtime
+        return persistent, runtime, tuple(paths)
     except (ValueError, TypeError, subprocess.SubprocessError) as exc:
         raise OSError('manager registration paths unavailable') from exc
+
+
+def systemd_registration_directories():
+    persistent, runtime, _ = systemd_registration_layout()
+    return persistent, runtime
+
+
+def session_registration_preflight(record):
+    """Refuse known higher-priority shadows before creating a runtime loader link."""
+    import memory_service_artifacts
+    import session_service_config
+    session_service_config.validate(record)
+    if record['backend'] != 'systemd':
+        raise ValueError('systemd session selection required')
+    _, runtime, paths = systemd_registration_layout()
+    name = session_service_config.artifact_name(record['session_key'], 'systemd')
+    for directory in paths[:paths.index(runtime)]:
+        candidate = directory / name
+        try:
+            candidate.lstat()
+        except FileNotFoundError:
+            continue
+        # Even a matching link in an unselected loader directory is not ours.
+        raise memory_service_artifacts.RegistrationPathError(candidate)
+    memory_service_artifacts.preflight_registration(record, (runtime / name,))
+    return runtime / name
 
 
 def memory_registration_paths(record, *, runtime=False):
@@ -864,4 +899,70 @@ def memory_manager_action(record, operation, *, runtime=False):
         argv = ['launchctl', *commands[operation]]
     else:
         raise ValueError('manual selection has no manager operation')
+    return subprocess.run(argv, capture_output=True, text=True, check=True, timeout=15)
+
+def session_manager_observation(record):
+    import session_service_config
+    session_service_config.validate(record)
+    name = session_service_config.artifact_name(record['session_key'], record['backend'])
+    if record['backend'] == 'systemd':
+        return systemd_service_observation(name)
+    if record['backend'] == 'launchd':
+        return launchd_service_observation(record['manager_domain'], name[:-6])
+    return dict(status='unknown', reason='manual_selection')
+
+
+def session_manager_action(record, operation):
+    """Selected session jobs last for this user-manager lifetime, never login-enabled."""
+    import session_service_config
+    session_service_config.validate(record)
+    if operation not in ('register', 'start'):
+        raise ValueError('unsupported session manager action')
+    name = session_service_config.artifact_name(record['session_key'], record['backend'])
+    if record['backend'] == 'systemd':
+        if not LINUX:
+            raise OSError('selected session manager unavailable')
+        if operation in ('register', 'start'):
+            session_registration_preflight(record)
+        arguments = {'register': ['link', record['artifact']], 'start': ['start', name]}[operation]
+        argv = ['systemctl', '--user', '--no-ask-password', '--runtime', *arguments]
+    elif record['backend'] == 'launchd':
+        domain = record['manager_domain']
+        if not DARWIN or domain != f'gui/{os.geteuid()}':
+            raise OSError('selected session manager unavailable')
+        label = name[:-6]
+        arguments = {'register': ['bootstrap', domain, record['artifact']],
+                     'start': ['kickstart', domain + '/' + label]}[operation]
+        argv = ['launchctl', *arguments]
+    else:
+        raise ValueError('manual selection has no manager action')
+    return subprocess.run(argv, capture_output=True, text=True, check=True, timeout=15)
+
+
+
+def session_manager_deactivate(record):
+    """Remove only the selected stopped job registration, preserving its artifact."""
+    import session_service_config
+    import memory_service_artifacts
+    session_service_config.validate(record)
+    name = session_service_config.artifact_name(record['session_key'], record['backend'])
+    if record['backend'] == 'systemd':
+        if not LINUX:
+            raise OSError('selected session manager unavailable')
+        path = session_registration_preflight(record)
+        before = path.lstat()
+        if (not stat.S_ISLNK(before.st_mode) or before.st_uid != os.geteuid()
+                or os.readlink(path) != record['artifact']):
+            raise memory_service_artifacts.RegistrationPathError(path)
+        after = path.lstat()
+        if (before.st_dev, before.st_ino) != (after.st_dev, after.st_ino):
+            raise memory_service_artifacts.RegistrationPathError(path)
+        path.unlink()
+        sync_state_directory(path.parent)
+        argv = ['systemctl', '--user', '--no-ask-password', 'daemon-reload']
+    else:
+        domain = record['manager_domain']
+        if not DARWIN or domain != f'gui/{os.geteuid()}':
+            raise OSError('selected session manager unavailable')
+        argv = ['launchctl', 'bootout', domain + '/' + name[:-6]]
     return subprocess.run(argv, capture_output=True, text=True, check=True, timeout=15)
