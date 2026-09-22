@@ -247,7 +247,7 @@ class SystemdStartupTests(unittest.TestCase):
 
     def test_supervisor_preserves_bridge_startup_refusal(self):
         script = self.app/'bridge.py'
-        source = script.read_text().split("if __name__ == '__main__':", 1)[0]
+        source = script.read_text().rsplit("if __name__ == '__main__':", 1)[0]
         for exit_code in (70, 78):
             script.write_text(source + f"if __name__ == '__main__':\n    import sys\n    if sys.argv[-1] == 'serve':\n        raise SystemExit({exit_code})\n    main()\n")
             process = self.spawn([sys.executable, str(self.app/'session.py'), 'run',
@@ -259,7 +259,7 @@ class SystemdStartupTests(unittest.TestCase):
 
     def test_supervisor_preserves_configuration_refusal_and_stops_bridge(self):
         notifier = self.app/'notify.py'
-        source = notifier.read_text().split("if __name__ == '__main__':", 1)[0]
+        source = notifier.read_text().rsplit("if __name__ == '__main__':", 1)[0]
         notifier.write_text(source + "if __name__ == '__main__':\n    raise SystemExit(78)\n")
         process = self.spawn([sys.executable, str(self.app/'session.py'), 'run',
                               '--thread', self.thread, '--repo', self.repo])
@@ -273,7 +273,7 @@ class SystemdStartupTests(unittest.TestCase):
         # This test-owned child takes the real readiness lock, then exits with the
         # permanent-refusal code after the supervisor has entered its running loop.
         notifier = self.app/'notify.py'
-        source = notifier.read_text().split("if __name__ == '__main__':", 1)[0]
+        source = notifier.read_text().rsplit("if __name__ == '__main__':", 1)[0]
         import textwrap
         notifier.write_text(source + "if __name__ == '__main__':\n" + textwrap.indent("""
 import fcntl, json, os, sys, time

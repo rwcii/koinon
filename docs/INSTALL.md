@@ -170,6 +170,28 @@ can be partial or unavailable, so an exclusive-looking group cannot be shown to 
 exclusive. Koinon never repairs permissions and never adopts a path; the operator makes the
 change.
 
+### Bytecode caches
+
+Python writes compiled caches into `__pycache__` next to the modules it imports, and
+creates that directory with the importing process's umask. Every Koinon command therefore
+sets `umask 077` as its first statement, before it imports any Koinon module, so a cache
+directory that a command creates is private whatever the operator's umask is.
+
+A cache directory that is already group- or other-writable, or that holds a writable cache
+file, is not trusted: another account could have replaced a cache with code that Python
+would run. A command that finds one never reads any cache for that run, and runs correctly
+from source. `scripts/install.py`, `scripts/uninstall.py` and `scripts/upgrade.py` never read
+a cache at all, because they also run from a source checkout whose caches Koinon does not
+validate. No command changes the mode of, or removes, a cache directory.
+
+The runtime upgrade reports each untrusted cache directory in its preflight evidence
+(`untrusted_caches`) and, after the owned shutdown, moves it whole into the operation
+directory under `untrusted-cache/`. It keeps the directory there unchanged, and removes nothing. It refuses before
+shutdown with `untrusted_cache_contents` when such a directory holds anything other than
+caches for the runtime's own modules, or more than 64 entries, because moving it would
+carry away data that importing did not create. Preserve the reported entry and move it
+yourself if it is yours.
+
 ## Repository components and native supervision
 
 Select a repository to install participant guidance and its shared memory service in

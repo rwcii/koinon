@@ -7,10 +7,10 @@ a readable runtime and the frozen backup still holds every old path.
 The coordinator must call preflight before shutting down selected services.
 """
 import hashlib
-import importlib.util
 import os
 from pathlib import Path
 import stat
+import sys
 import tempfile
 
 from koinon import durable_state
@@ -132,33 +132,185 @@ def _backup_evidence(guard, phase):
     return value
 
 
+MAX_CACHE_ENTRIES = 64
+_CACHE_OPTIMIZATIONS = ('', '.opt-1', '.opt-2')
+
+
+def _cache_entry(name):
+    """Split `<stem>.<tag>[.opt-N].pyc` into its stem, or return None."""
+    if not name.endswith('.pyc'):
+        return None
+    parts = name[:-4].split('.')
+    if parts[-1] in ('opt-1', 'opt-2'):
+        parts = parts[:-1]
+    if len(parts) != 2 or not parts[0].isidentifier() or not parts[1]:
+        return None
+    return parts[0]
+
+
+def _cache_sources(root, names):
+    """Map each runtime cache directory to the selected source stems it serves.
+
+    The path is derived from the runtime layout, never from
+    `importlib.util.cache_from_source`: that follows `sys.pycache_prefix`, which
+    the coordinator sets to a private directory, and would then select the wrong
+    caches to check, quarantine and invalidate.
+    """
+    directories = {}
+    for name in manifest.names_checked(list(names)):
+        if name.endswith('.py'):
+            path = root / name
+            directories.setdefault(path.parent / '__pycache__', set()).add(path.stem)
+    return directories
+
+
+def _safe(info, kind):
+    return kind(info.st_mode) and info.st_uid == os.geteuid() and not info.st_mode & 0o022
+
+
+def _classify(directory, stems):
+    """Return None when absent, 'trusted' or 'untrusted'; refuse what cannot move safely.
+
+    A trusted directory is owned and writable only by its owner, and each cache
+    for a selected source in it is a private regular file. Unrelated files in a
+    trusted directory are preserved, as before. An untrusted directory may hold
+    only caches for selected sources, at most MAX_CACHE_ENTRIES of them, so that
+    quarantine never carries away data the operator did not create by importing.
+    """
+    try:
+        info = directory.lstat()
+    except FileNotFoundError:
+        return None
+    parent = manifest.check_root(directory.parent)
+    if not stat.S_ISDIR(info.st_mode) or info.st_uid != os.geteuid():
+        raise ReplacementError('untrusted_cache_contents: %s is not an owned directory' % directory)
+    with os.scandir(directory) as scan:
+        entries = sorted(entry.name for entry in scan)
+    trusted = not info.st_mode & 0o022
+    for name in entries:
+        if _cache_entry(name) in stems:
+            value = (directory / name).lstat()
+            if not _safe(value, stat.S_ISREG) or value.st_nlink != 1:
+                trusted = False
+    if trusted:
+        return 'trusted'
+    if len(entries) > MAX_CACHE_ENTRIES:
+        raise ReplacementError('untrusted_cache_contents: %s holds more than %d entries'
+                               % (directory, MAX_CACHE_ENTRIES))
+    for name in entries:
+        value = (directory / name).lstat()
+        if (_cache_entry(name) not in stems or not stat.S_ISREG(value.st_mode)
+                or value.st_uid != os.geteuid()):
+            raise ReplacementError('untrusted_cache_contents: unsafe Python bytecode cache entry %s'
+                                   % (directory / name))
+    if info.st_dev != parent.lstat().st_dev:
+        raise ReplacementError('untrusted_cache_contents: %s is on another filesystem' % directory)
+    return 'untrusted'
+
+
+def untrusted_caches(root, names):
+    """Report group- or other-writable caches for quarantine; refuse unmovable ones.
+
+    Preflight calls this before shutdown, so every refusal happens while the
+    services still run. The coordinator never reads these caches: it runs from a
+    private `sys.pycache_prefix` (docs/LEGACY-ADOPTION-DESIGN.md, G1).
+    """
+    root = manifest.check_root(root)
+    return sorted(str(directory) for directory, stems in _cache_sources(root, names).items()
+                  if _classify(directory, stems) == 'untrusted')
+
+
+def quarantine(guard, root, names):
+    """Move each untrusted cache directory into the operation, journaled and resumable.
+
+    Each move records its identity before the rename and its completion after,
+    so a resume finds the directory at exactly one of its two paths. The
+    quarantined directory is retained, never deleted or chmodded.
+    """
+    guard.verify()
+    root = manifest.check_root(root)
+    directory = guard.exclusion.journal.directory
+    plan = guard.exclusion.loaded['sha256']
+    path = directory / 'cache-quarantine.json'
+    progress = durable_state.read(path) or dict(version=1, plan=plan, items=[], completed=0)
+    if (not isinstance(progress, dict) or set(progress) != {'version', 'plan', 'items', 'completed'}
+            or progress['version'] != 1 or progress['plan'] != plan
+            or not isinstance(progress['items'], list) or type(progress['completed']) is not int
+            or not len(progress['items']) - 1 <= progress['completed'] <= len(progress['items'])):
+        raise ReplacementError('invalid retained cache quarantine progress')
+    target = directory / 'untrusted-cache'
+    try:
+        target.mkdir(mode=0o700)
+    except FileExistsError:
+        pass
+    manifest.check_root(target)
+    platform_support.sync_state_directory(directory)
+
+    def settled(item):
+        moved = Path(item['destination']).lstat()
+        if (moved.st_dev, moved.st_ino) != (item['dev'], item['ino']):
+            raise ReplacementError('quarantined cache identity changed')
+
+    def move(item):
+        source = Path(item['directory'])
+        try:
+            info = source.lstat()
+        except FileNotFoundError:
+            info = None
+        if info is not None and (info.st_dev, info.st_ino) == (item['dev'], item['ino']):
+            os.rename(source, item['destination'])
+        settled(item)
+        platform_support.sync_state_directory(source.parent)
+        platform_support.sync_state_directory(target)
+
+    for index in range(progress['completed'], len(progress['items'])):
+        move(progress['items'][index])
+        progress = dict(progress, completed=index + 1)
+        durable_state.publish(path, progress)
+    for item in progress['items']:
+        settled(item)
+    for source, stems in sorted(_cache_sources(root, names).items()):
+        guard.verify()
+        if _classify(source, stems) != 'untrusted':
+            continue
+        info = source.lstat()
+        item = dict(directory=str(source), dev=info.st_dev, ino=info.st_ino,
+                    destination=str(target / ('%03d' % len(progress['items']))))
+        progress = dict(progress, items=[*progress['items'], item])
+        durable_state.publish(path, progress)
+        move(item)
+        progress = dict(progress, completed=len(progress['items']))
+        durable_state.publish(path, progress)
+    guard.verify()
+    return [item['directory'] for item in progress['items']]
+
+
 def bytecode_paths(root, names):
     """Check only this interpreter's derived caches for selected Python sources.
 
     Unchecked-hash caches can remain valid across arbitrary source replacement;
     relying on mtimes or Python's normal invalidation is insufficient. Unknown
     files elsewhere in __pycache__ are outside this selection and are preserved.
+    An untrusted directory must be quarantined before this is called.
     """
     root = manifest.check_root(root)
+    tag = sys.implementation.cache_tag
     selected = []
-    for name in manifest.names_checked(list(names)):
-        if not name.endswith('.py'):
+    for directory, stems in sorted(_cache_sources(root, names).items()):
+        state = _classify(directory, stems)
+        if state is None or tag is None:
             continue
-        for optimization in ('', '1', '2'):
-            path = Path(importlib.util.cache_from_source(str(root / name), optimization=optimization))
-            try:
-                parent = path.parent.lstat()
-            except FileNotFoundError:
-                continue
-            manifest.check_root(path.parent)
-            try:
-                info = path.lstat()
-            except FileNotFoundError:
-                continue
-            if (not stat.S_ISREG(info.st_mode) or info.st_uid != os.geteuid()
-                    or info.st_nlink != 1 or info.st_mode & 0o022):
-                raise ReplacementError('unsafe selected Python bytecode cache; preserve it')
-            selected.append((path, (info.st_dev, info.st_ino), (parent.st_dev, parent.st_ino)))
+        if state != 'trusted':
+            raise ReplacementError('unsafe selected Python bytecode cache; quarantine it first')
+        parent = directory.lstat()
+        for stem in sorted(stems):
+            for optimization in _CACHE_OPTIMIZATIONS:
+                path = directory / ('%s.%s%s.pyc' % (stem, tag, optimization))
+                try:
+                    info = path.lstat()
+                except FileNotFoundError:
+                    continue
+                selected.append((path, (info.st_dev, info.st_ino), (parent.st_dev, parent.st_ino)))
     return selected
 
 
@@ -229,7 +381,8 @@ def replace(guard):
     manifest.verify(source)
     _backup_evidence(guard, phase)
     root = manifest.check_root(runtime['root'])
-    bytecode_paths(root, names)
+    cached = [*names, *(old for old, _ in retired)]
+    untrusted_caches(root, cached)
     progress_path = guard.exclusion.journal.directory / 'replacement-progress.json'
     progress = durable_state.read(progress_path)
     if progress is None:
@@ -279,13 +432,14 @@ def replace(guard):
         progress = dict(progress, index=index + 1)
         durable_state.publish(progress_path, progress)
     guard.verify()
+    quarantined = quarantine(guard, root, cached)
     _invalidate_bytecode(guard, root, names)
     _retire(guard, root, runtime, retired, progress, progress_path)
     actual = manifest.capture(root, list(names))
     if actual['files'] != source['files']:
         raise ReplacementError('runtime differs from frozen source after replacement')
     return dict(version=1, plan=loaded['sha256'], runtime=actual,
-                retired=[old for old, _ in retired])
+                retired=[old for old, _ in retired], quarantined=quarantined)
 
 
 def confirm(guard):
@@ -299,15 +453,16 @@ def confirm(guard):
     source = loaded['documents']['source']
     for name, expected in source['files'].items():
         _confirm(Path(loaded['plan']['canonical_prefix']), name, expected)
-    _invalidate_bytecode(guard, Path(loaded['plan']['canonical_prefix']), list(source['files']))
-    current = manifest.capture(loaded['plan']['canonical_prefix'], list(source['files']))
     prefix = Path(loaded['plan']['canonical_prefix'])
     retired = retirements(source, loaded['documents']['runtime'])
+    quarantined = quarantine(guard, prefix, [*source['files'], *(old for old, _ in retired)])
+    _invalidate_bytecode(guard, prefix, list(source['files']))
+    current = manifest.capture(loaded['plan']['canonical_prefix'], list(source['files']))
     for old_name, _ in retired:
         _absent(prefix, old_name)
     receipt = Documents(guard.exclusion.journal.directory).read('replacement', phase['receipts'][4])
     if receipt != dict(version=1, plan=loaded['sha256'], runtime=current,
-                       retired=[old_name for old_name, _ in retired]):
+                       retired=[old_name for old_name, _ in retired], quarantined=quarantined):
         raise ReplacementError('replacement completion differs from current runtime')
     guard.verify()
     return receipt

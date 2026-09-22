@@ -57,8 +57,13 @@ and stopped again before release. Interruption retains the same pending operatio
 Preflight reads literal installer file lists without executing them, checks supported
 schema transitions on disposable online SQLite copies, and reserves backup and report
 capacity. Those copies are only preflight evidence: authoritative backups include
-all SQLite sidecars and are made after confirmed owned shutdown. Replacement invalidates only owned bytecode caches for the selected Python files,
-including unchecked-hash caches; unrelated cache-directory entries are preserved.
+all SQLite sidecars and are made after confirmed owned shutdown. The coordinator never reads
+a bytecode cache from the prefix or the source checkout. Replacement moves each untrusted
+(group- or other-writable) cache directory next to the runtime's modules into the operation's
+`untrusted-cache/` directory, journaled so that a resume finds it on exactly one side of the
+move, and then invalidates this interpreter's caches for the selected Python files, including
+unchecked-hash caches. Unrelated entries in a trusted cache directory are preserved; see
+[Bytecode caches](INSTALL.md#bytecode-caches).
 A runtime path the release no longer ships is retired only where `koinon/upgrade_layout.py`
 declares which published path replaces it. An undeclared disappearance refuses before shutdown,
 because it cannot be told apart from an operator's own change. A declared path is removed only

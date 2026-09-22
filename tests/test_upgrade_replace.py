@@ -72,11 +72,91 @@ class ReplacementTests(unittest.TestCase):
         with self.owner() as owner, patch('koinon.platform_support.session_manager_observation', return_value=dict(status='absent')):
             with upgrade_capture.hold(owner) as guard:
                 self.prepare_backups(owner, guard)
-                with self.assertRaisesRegex(ValueError, 'bytecode'):
+                with self.assertRaisesRegex(ValueError, 'untrusted_cache_contents: unsafe Python bytecode'):
                     upgrade_replace.replace(guard)
         self.assertEqual((self.prefix / 'entry.py').read_bytes(), old)
         self.assertTrue(cached.is_symlink())
         self.assertEqual(unrelated.read_text(), 'do not remove')
+
+    def untrusted_cache(self, extra=None):
+        """A group-writable cache left by an operator command run under umask 002."""
+        import importlib._bootstrap_external as external
+        source = self.prefix / 'entry.py'
+        cached = Path(external.cache_from_source(str(source)))
+        cached.parent.mkdir(mode=0o700)
+        info = source.stat()
+        cached.write_bytes(bytes(external._code_to_timestamp_pyc(
+            compile(source.read_text(), str(source), 'exec'), info.st_mtime, info.st_size)))
+        cached.chmod(0o600)
+        if extra is not None:
+            (cached.parent / extra).write_text('operator data')
+        cached.parent.chmod(0o775)
+        identity = cached.parent.lstat()
+        return cached.parent, (identity.st_dev, identity.st_ino)
+
+    def test_untrusted_cache_is_quarantined_intact_and_never_chmodded(self):
+        directory, identity = self.untrusted_cache()
+        with self.owner() as owner, patch('koinon.platform_support.session_manager_observation', return_value=dict(status='absent')):
+            with upgrade_capture.hold(owner) as guard:
+                self.prepare_backups(owner, guard)
+                result = upgrade_replace.replace(guard)
+                moved = guard.exclusion.journal.directory / 'untrusted-cache' / '000'
+        self.assertEqual(result['quarantined'], [str(directory)])
+        self.assertFalse(directory.exists())
+        info = moved.lstat()
+        self.assertEqual((info.st_dev, info.st_ino), identity)
+        self.assertEqual(info.st_mode & 0o777, 0o775)
+        self.assertEqual(len(list(moved.iterdir())), 1)
+
+    def test_quarantine_resumes_on_either_side_of_the_rename(self):
+        for failure in ('rename', 'completion'):
+            with self.subTest(failure=failure):
+                self.setUp()
+                directory, identity = self.untrusted_cache()
+                rename, publish = upgrade_replace.os.rename, upgrade_replace.durable_state.publish
+                def failing_rename(*args):
+                    raise OSError('synthetic interruption before the rename')
+                def failing_publish(path, value, **kwargs):
+                    if Path(path).name == 'cache-quarantine.json' and value['completed'] == 1:
+                        raise OSError('synthetic interruption after the rename')
+                    return publish(path, value, **kwargs)
+                interrupted = (patch.object(upgrade_replace.os, 'rename', side_effect=failing_rename)
+                               if failure == 'rename' else
+                               patch.object(upgrade_replace.durable_state, 'publish', side_effect=failing_publish))
+                with self.owner() as owner, patch('koinon.platform_support.session_manager_observation', return_value=dict(status='absent')):
+                    with upgrade_capture.hold(owner) as guard:
+                        self.prepare_backups(owner, guard)
+                        with interrupted, self.assertRaises(OSError):
+                            upgrade_replace.replace(guard)
+                        self.assertEqual(directory.exists(), failure == 'rename')
+                        result = upgrade_replace.replace(guard)
+                        moved = guard.exclusion.journal.directory / 'untrusted-cache' / '000'
+                self.assertEqual(result['quarantined'], [str(directory)])
+                self.assertEqual((moved.lstat().st_dev, moved.lstat().st_ino), identity)
+                self.assertFalse((moved.parent / '001').exists())
+
+    def test_untrusted_cache_holding_other_data_refuses_before_publication(self):
+        directory, _ = self.untrusted_cache(extra='notes.txt')
+        old = (self.prefix / 'entry.py').read_bytes()
+        with self.assertRaisesRegex(ValueError, 'untrusted_cache_contents: .*notes.txt'):
+            upgrade_replace.untrusted_caches(self.prefix, ['entry.py'])
+        with self.owner() as owner, patch('koinon.platform_support.session_manager_observation', return_value=dict(status='absent')):
+            with upgrade_capture.hold(owner) as guard:
+                self.prepare_backups(owner, guard)
+                with self.assertRaisesRegex(ValueError, 'untrusted_cache_contents'):
+                    upgrade_replace.replace(guard)
+        self.assertEqual((self.prefix / 'entry.py').read_bytes(), old)
+        self.assertEqual((directory / 'notes.txt').read_text(), 'operator data')
+
+    def test_preflight_reports_the_cache_it_will_quarantine(self):
+        directory, _ = self.untrusted_cache()
+        self.assertEqual(upgrade_replace.untrusted_caches(self.prefix, ['entry.py']), [str(directory)])
+
+    def test_cache_selection_ignores_a_private_pycache_prefix(self):
+        import sys
+        directory, _ = self.untrusted_cache()
+        with patch.object(sys, 'pycache_prefix', str(self.root / 'private-cache')):
+            self.assertEqual(upgrade_replace.untrusted_caches(self.prefix, ['entry.py']), [str(directory)])
 
     def test_lost_completion_reconfirms_postimage_without_rewriting(self):
         publish = upgrade_replace.durable_state.publish
