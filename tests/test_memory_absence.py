@@ -62,7 +62,8 @@ class MemoryAbsenceTests(unittest.TestCase):
 
     def test_existing_unsafe_paths_are_still_refused(self):
         unsafe = self.root / 'unsafe'
-        unsafe.mkdir(mode=0o755)
+        unsafe.mkdir(mode=0o700)
+        unsafe.chmod(0o755)
         for option in ('--state-dir', '--service-dir'):
             result = self.cli(option, unsafe, 'status')
             self.assertEqual(json.loads(result.stdout)['code'], 'unsafe_state_directory')
