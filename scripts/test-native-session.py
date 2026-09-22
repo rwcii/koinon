@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Run explicitly requested isolated native jobs with synthetic session participants."""
 import argparse
+import importlib.util
 import json
 import os
 from pathlib import Path
@@ -22,6 +23,14 @@ from koinon import session_service_config
 from koinon import session_service_manager
 
 
+def released_manifest(release):
+    """Read a release's own shipped file list, from that release's installer."""
+    spec = importlib.util.spec_from_file_location('released_installer', release / 'scripts/install.py')
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module.FILES
+
+
 def wait_for(predicate, description, timeout=60):
     deadline = time.monotonic() + timeout
     while time.monotonic() < deadline:
@@ -33,22 +42,24 @@ def wait_for(predicate, description, timeout=60):
 
 
 class Fixture:
-    def __init__(self, backend):
+    def __init__(self, backend, release=None):
+        # `release` installs a different release than the one running this fixture,
+        # which is what makes a cross-release upgrade testable. Its own manifest and
+        # its own layout are used, never this checkout's.
+        self.release = Path(release) if release is not None else SOURCE
+        manifest = FILES if self.release == SOURCE else released_manifest(self.release)
         self.root = Path(tempfile.mkdtemp(prefix='koinon-session-fixture-')).resolve()
         self.prefix = self.root / 'prefix space $literal %n "quote"'
         self.prefix.mkdir(mode=0o700)
-        for filename in FILES:
+        for filename in manifest:
             target = self.prefix / filename
             target.parent.mkdir(parents=True, exist_ok=True)
-            shutil.copyfile(SOURCE / filename, target)
+            shutil.copyfile(self.release / filename, target)
             target.chmod(0o600)
         account = self.root / 'account'
         account.mkdir(mode=0o700)
-        with (self.prefix / 'koinon/platform_support.py').open('a') as stream:
-            stream.write('\ndef account_home():\n    return Path(' + repr(str(account)) + ')\n')
-        wrapper = self.prefix / 'session_service.py'
-        wrapper.write_text('import os as _fixture_os\n_fixture_os.environ["CLAUDE_CONFIG_DIR"] = '
-                           + repr(str(self.root / 'claude')) + '\n' + wrapper.read_text())
+        self.account = account
+        self.apply_overrides(self.prefix)
         self.registration = dict(thread='synthetic-' + uuid.uuid4().hex,
                                  name='synthetic-native-' + uuid.uuid4().hex[:12], repo=str(self.root))
         state = self.root / 'state'
@@ -94,6 +105,21 @@ class Fixture:
             _fixture_time.sleep(.1)
     _fixture_threading.Thread(target=_fixture_crash, daemon=True).start()
 ''' + notifier.read_text())
+
+    def apply_overrides(self, tree):
+        """Keep a tree inside this fixture's private account and registry.
+
+        Both the installed release and the release upgraded to need these, or the
+        upgraded runtime would reach the real host's account and peer registry.
+        The layout differs between releases, so the module is located, not assumed.
+        """
+        tree = Path(tree)
+        platform = 'koinon/platform_support.py' if (tree / 'koinon').is_dir() else 'platform_support.py'
+        with (tree / platform).open('a') as stream:
+            stream.write('\ndef account_home():\n    return Path(' + repr(str(self.account)) + ')\n')
+        wrapper = tree / 'session_service.py'
+        wrapper.write_text('import os as _fixture_os\n_fixture_os.environ["CLAUDE_CONFIG_DIR"] = '
+                           + repr(str(self.root / 'claude')) + '\n' + wrapper.read_text())
 
     def ensure(self):
         completed = subprocess.run([sys.executable, str(self.prefix / 'session.py'), 'ensure',

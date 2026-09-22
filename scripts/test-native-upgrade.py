@@ -8,6 +8,7 @@ from pathlib import Path
 import shutil
 import subprocess
 import sys
+import tempfile
 import time
 
 SOURCE = Path(__file__).resolve().parents[1]
@@ -85,49 +86,53 @@ def inactive_check(selection, kind, registered):
         time.sleep(.05)
 
 
-def previous_layout(prefix):
-    """Turn an installed runtime back into the layout the declared moves came from.
+# The last release published before the implementation modules moved into the
+# `koinon` package. Upgrading from a synthesized layout proves nothing: the code
+# and the file list have to be the ones that release actually shipped.
+PREVIOUS_RELEASE = '86567bef93021ff0e57facc1f19b1e5f4b883992'
 
-    Without this the fixture could only upgrade a release to itself: the old and new
-    file sets were identical by construction, so no job ever exercised a file set
-    that changes shape. The declaration is the only record of where each path used
-    to live; `tests/test_upgrade_layout.py` checks that record against the shipped
-    manifest, which is what catches a move nobody declared.
-    """
-    from koinon import upgrade_layout
-    retired = []
-    for old, new in sorted(upgrade_layout.MOVES.items()):
-        source, destination = prefix / new, prefix / old
-        if not source.exists():
-            raise RuntimeError('declared move is absent from the installed runtime: ' + new)
-        destination.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
-        shutil.move(str(source), str(destination))
-        retired.append(old)
-    for path in prefix.rglob('*'):
-        if path.is_dir() and not any(path.iterdir()):
-            path.rmdir()
-    return retired
+
+def materialize_release(root, ref=PREVIOUS_RELEASE):
+    """Extract a pinned release from history, as that release actually shipped."""
+    target = Path(root) / ('release-' + ref[:12])
+    target.mkdir(mode=0o700)
+    archive = subprocess.run(['git', '-C', str(SOURCE), 'archive', '--format=tar', ref],
+                             stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+    if archive.returncode:
+        raise RuntimeError('pinned release ' + ref + ' is unavailable; a shallow clone '
+                           'cannot upgrade from a real previous release: '
+                           + archive.stderr.decode(errors='replace'))
+    extract = subprocess.run(['tar', '-x', '-C', str(target)], input=archive.stdout,
+                             stderr=subprocess.PIPE)
+    if extract.returncode:
+        raise RuntimeError('could not extract the pinned release: '
+                           + extract.stderr.decode(errors='replace'))
+    return target
 
 
 def session_case(backend, initial_state, interrupt):
     spec = importlib.util.spec_from_file_location('native_session_fixture', SOURCE / 'scripts/test-native-session.py')
     module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)
-    fixture = module.Fixture(backend)
+    staging = Path(tempfile.mkdtemp(prefix='koinon-previous-release-'))
+    previous = materialize_release(staging)
+    fixture = module.Fixture(backend, release=previous)
     try:
-        # Retain the fixture's private account/registry overrides in both releases.
-        # No real participant receives messages and no real peer registry is used.
+        # The installed runtime is the pinned previous release; the source is this
+        # checkout. Retain the fixture's private account/registry overrides in both,
+        # so no real participant receives messages and no real peer registry is used.
         source = fixture.root / 'new-source'
         source.mkdir(mode=0o700)
         for name in install.FILES:
             target = source / name
             target.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
-            shutil.copyfile(fixture.prefix / name, target)
+            shutil.copyfile(SOURCE / name, target)
             target.chmod(0o600)
-        # The installed runtime becomes the previous layout, so this is a real
-        # cross-layout upgrade: the new source publishes paths the runtime holds
-        # elsewhere, and every retired path must be gone afterwards.
-        retired = previous_layout(fixture.prefix)
+        fixture.apply_overrides(source)
+        retired = sorted(set(module.released_manifest(previous)) - set(install.FILES))
+        if not retired:
+            raise RuntimeError('the pinned release ships nothing this release retires; '
+                               'the cross-release upgrade would prove nothing')
         for root in (source, fixture.prefix):
             for path in root.rglob('*'):
                 if path.is_dir():
@@ -177,15 +182,30 @@ def combined_case(backend, interrupt):
     spec = importlib.util.spec_from_file_location('native_install_fixture', SOURCE / 'scripts/test-native-install.py')
     module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)
-    fixture = module.Fixture(backend, session=True)
+    staging = Path(tempfile.mkdtemp(prefix='koinon-previous-release-'))
+    previous = materialize_release(staging)
+    fixture = module.Fixture(backend, session=True, release=previous)
     try:
         fixture.install()
         fixture.status()
+        # The new source is this checkout, carrying the fixture's own isolation, so
+        # the upgrade crosses releases rather than upgrading a release to itself.
         source = fixture.root / 'new-source'
-        shutil.copytree(fixture.source, source)
+        source.mkdir(mode=0o700)
+        for name in install.FILES:
+            target = source / name
+            target.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
+            shutil.copyfile(SOURCE / name, target)
+            target.chmod(0o600)
+        with (source / 'koinon/platform_support.py').open('a') as stream:
+            stream.write('\nos.environ["CLAUDE_CONFIG_DIR"] = '
+                         + repr(fixture.env['CLAUDE_CONFIG_DIR']) + '\n')
         source.chmod(0o700)
         (fixture.prefix / 'LICENSE').write_text('synthetic previous combined release')
-        retired = previous_layout(fixture.prefix)
+        retired = sorted(set(module.released_manifest(previous)) - set(install.FILES))
+        if not retired:
+            raise RuntimeError('the pinned release ships nothing this release retires; '
+                               'the cross-release upgrade would prove nothing')
         fixture.note('note', 'retained combined-fixture note', '--type', 'finding')
         deadline = str(int(time.time()) + 3600)
         created = json.loads(fixture.note('work', 'create', '--title', 'Synthetic upgrade claim',

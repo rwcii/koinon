@@ -175,6 +175,13 @@ def _invalidate_bytecode(guard, root, names):
     guard.verify()
 
 
+def _absent(root, name):
+    """Establish that a retired path is gone, and that its removal is durable."""
+    if _content(root, name) is not None:
+        raise ReplacementError('retired runtime path is still present')
+    platform_support.sync_state_directory((root / name).parent)
+
+
 def _retire(guard, root, runtime, retired, progress, progress_path):
     """Remove each declared old path, after its replacement is confirmed.
 
@@ -185,6 +192,10 @@ def _retire(guard, root, runtime, retired, progress, progress_path):
     """
     if retired:
         _invalidate_bytecode(guard, root, [old for old, _ in retired])
+    # Reconfirm the entries an earlier attempt recorded. A checkpoint is a claim
+    # that the path is gone durably, so it is re-established, never assumed.
+    for old, _ in retired[:progress['retired']]:
+        _absent(root, old)
     for index in range(progress['retired'], len(retired)):
         old, new = retired[index]
         guard.verify()
@@ -194,11 +205,11 @@ def _retire(guard, root, runtime, retired, progress, progress_path):
             raise ReplacementError('retired runtime path changed before removal')
         durable_state.publish(progress_path, dict(progress, retired=index))
         if current is not None:
-            path = root / old
-            path.unlink()
-            platform_support.sync_state_directory(path.parent)
-        if _content(root, old) is not None:
-            raise ReplacementError('retired runtime path is still present')
+            (root / old).unlink()
+        # Absence and its directory flush are re-established before the checkpoint
+        # on every attempt, including a resumed one whose unlink already happened.
+        # An unlink whose flush failed is not a completed retirement.
+        _absent(root, old)
         progress = dict(progress, retired=index + 1)
         durable_state.publish(progress_path, progress)
     guard.verify()
@@ -293,8 +304,7 @@ def confirm(guard):
     prefix = Path(loaded['plan']['canonical_prefix'])
     retired = retirements(source, loaded['documents']['runtime'])
     for old_name, _ in retired:
-        if _content(prefix, old_name) is not None:
-            raise ReplacementError('retired runtime path is present again')
+        _absent(prefix, old_name)
     receipt = Documents(guard.exclusion.journal.directory).read('replacement', phase['receipts'][4])
     if receipt != dict(version=1, plan=loaded['sha256'], runtime=current,
                        retired=[old_name for old_name, _ in retired]):

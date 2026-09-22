@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Exercise public installation and removal in explicitly requested synthetic fixtures."""
 import argparse
+import importlib.util
 import json
 import os
 from pathlib import Path
@@ -47,8 +48,19 @@ def require(condition, message):
         raise RuntimeError(message)
 
 
+def released_manifest(release):
+    """Read a release's own shipped file list, from that release's installer."""
+    spec = importlib.util.spec_from_file_location('released_installer', release / 'scripts/install.py')
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module.FILES
+
+
 class Fixture:
-    def __init__(self, backend, session):
+    def __init__(self, backend, session, release=None):
+        # `release` builds the installable tree from a different release than the
+        # one running this fixture, using that release's own manifest and layout.
+        self.release = Path(release) if release is not None else SOURCE
         self.backend, self.session = backend, session
         self.root = Path(tempfile.mkdtemp(prefix='koinon-install-fixture-')).resolve()
         self.source = self.root / 'source'
@@ -58,14 +70,17 @@ class Fixture:
         self.env = dict(os.environ, CLAUDE_CONFIG_DIR=str(self.root / 'claude'))
         self.records, self.session_records = [], []
         self.removed = False
-        for name in FILES:
+        manifest = FILES if self.release == SOURCE else released_manifest(self.release)
+        for name in manifest:
             target = self.source / name
             target.parent.mkdir(parents=True, exist_ok=True)
-            shutil.copyfile(SOURCE / name, target)
+            shutil.copyfile(self.release / name, target)
             target.chmod(0o600)
         # Isolate synthetic participant locks and peer discovery, while retaining
         # the real account home and native persistent manager registration paths.
-        with (self.source / 'koinon/platform_support.py').open('a') as stream:
+        self.platform = ('koinon/platform_support.py' if (self.source / 'koinon').is_dir()
+                         else 'platform_support.py')
+        with (self.source / self.platform).open('a') as stream:
             stream.write('\nos.environ["CLAUDE_CONFIG_DIR"] = ' + repr(self.env['CLAUDE_CONFIG_DIR']) + '\n')
             stream.write('\ndef participant_lock_dir():\n    return Path(' + repr(str(self.root / 'locks')) + ')\n')
         self.command(['git', 'init', '-q', str(self.repo)])
