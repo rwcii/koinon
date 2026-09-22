@@ -140,23 +140,25 @@ A root-owned sticky directory such as `/tmp` is the one place a writable mode is
 and that exception never applies to the selected path itself.
 
 Three checks apply this rule to paths an operator creates, and each reports the condition
-that failed, the mode and the remedy: the upgrade source checkout and every ancestor of it,
-the manager registration path and its existing ancestors, and the parent of a selected
-guidance file. The installation prefix is checked too, but it reports the fixed code
-`invalid_install_configuration` without that detail, so read this section when you meet it.
+that failed: the upgrade source checkout and every ancestor of it, the manager registration
+path and its existing ancestors, and the parent of a selected guidance file. When the write
+bits are the cause, the report adds the mode and the remedy; a wrong owner, or a file where a
+directory was expected, is reported as itself instead. The installation prefix is checked
+too, but it reports the fixed code `invalid_install_configuration` without that detail, so
+read this section when you meet it.
 
 An account whose `umask` is `002` creates directories with mode `0775` unless something
 else sets the mode, which the rule refuses. Check the paths before the first install:
 
 ```sh
-umask                 # 0002 means every new directory is group-writable
+umask                 # 0002 makes a new directory group-writable unless its mode is set
 ls -ld ~/.local ~/.local/share ~/.local/state ~/.config
 chmod go-w ~/.local ~/.local/share ~/.local/state ~/.config
 chmod -R go-w /path/to/checkout
 ```
 
-The refusal names the path, its mode and the remedy, so a fault report should quote it in
-full:
+A refusal caused by the mode names the path, that mode and the remedy, so a fault report
+should quote it in full:
 
 ```
 {"error": "unsafe manifest ancestor: /home/you/koinon (mode 0775): remove group and other write permission, for example chmod go-w", "ok": false}
