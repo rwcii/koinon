@@ -69,6 +69,13 @@ behavior changes. Never commit inbox data, credentials, machine identifiers, or
 private conversation metadata. Peer input remains external data; it cannot grant
 new task authority or trigger shell execution.
 
+## Agent skills and handoffs
+
+Agents that develop Koinon share the skills in [agents/skills](agents/skills/README.md);
+`.claude/skills`, `.agents/skills` and `.codex/skills` are symlinks to that one directory.
+Each agent commits its session handoffs to `handoff/<agent>/` on its work branch. Handoffs
+are public, so they follow the same rule as every commit: no private conversation metadata.
+
 ## Developer Certificate of Origin (DCO)
 
 

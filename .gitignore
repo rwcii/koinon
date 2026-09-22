@@ -10,3 +10,4 @@ notifier.lock
 install.json
 session.json
 _handoff/
+.claude/settings.local.json
