@@ -75,6 +75,8 @@ Agents that develop Koinon share the skills in [agents/skills](agents/skills/REA
 `.claude/skills`, `.agents/skills` and `.codex/skills` are symlinks to that one directory.
 Each agent commits its session handoffs to `handoff/<agent>/` on its work branch. Handoffs
 are public, so they follow the same rule as every commit: no private conversation metadata.
+Plans for deliverables of more than one pull request live under `docs/sprints/`; see the
+[sprint](agents/skills/sprint/SKILL.md) skill.
 
 ## Developer Certificate of Origin (DCO)
 

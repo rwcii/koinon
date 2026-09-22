@@ -56,6 +56,9 @@ gh pr list --state open
 gh issue list --state open
 ```
 
+When the handoff names a sprint, read its plan under `docs/sprints/` and list the open issues on
+its milestone, if it has one: `gh issue list --milestone "<sprint>" --state open`.
+
 ## 4. Orient, then continue
 
 Report briefly:
