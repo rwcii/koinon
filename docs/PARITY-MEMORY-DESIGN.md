@@ -566,8 +566,10 @@ A sync snapshot is a consistent selection of records, not a generated summary. S
 checkpointing and incremental vacuum are storage maintenance, not memory consolidation.
 Cross-repository consolidation also requires separate design and validation.
 
-The current service implements expiry-based garbage collection and storage reclamation.
-Stage 6 adds the remaining history-pruning policy and recovery checks. This terminology
+The current service implements expiry-based garbage collection and storage reclamation, plus
+finished work-item retention, which removes that item's stream rows and advances the retained
+history floor whether or not those rows expire.
+Stage 6 adds the remaining general history-pruning policy and recovery checks. This terminology
 correction does not authorize deleting additional records or change retention requirements.
 
 ### Retention and capacity

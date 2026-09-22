@@ -46,10 +46,13 @@ that scope. Do not send test messages to other agents unless communication is au
 2. Determine the exact intended Codex thread. Inspect `CODEX_THREAD_ID` from that
    session's shell when available. If absent, ask the user for the target thread; do not
    guess or create a replacement conversation. Confirm a harmless queue test reaches it.
-3. Select a descriptive peer name and the intended project path. Check for an existing
-   bridge, its target thread, state directory, and services before replacing anything.
-   Preserve unrelated running bridges and all inbox state.
-4. Run `python3 scripts/install.py --thread THREAD_ID --name PEER_NAME --repo PROJECT_PATH`.
+3. Determine the intended project path. Check for an existing bridge, its target thread,
+   state directory, and services before replacing anything. Preserve unrelated running
+   bridges and all inbox state. Do not choose a peer name: on the component path the name is
+   derived from the repository directory name and made unique against the names already
+   taken. `--name` is read only on the legacy unit-pair path, and is ignored without warning
+   on the invocation below.
+4. Run `python3 scripts/install.py --thread THREAD_ID --repo PROJECT_PATH`.
    Use argument arrays or correct shell quoting. With `--repo` on a fresh prefix this
    installs the repository components, not the legacy bridge/notifier unit pair; the
    legacy pair is reached only when no memory selection is made. Prefer `--configure-codex`
@@ -58,8 +61,10 @@ that scope. Do not send test messages to other agents unless communication is au
    session. Each session gets an isolated supervisor instance.
    For an isolated preview use `--no-start` plus temporary prefix, state, and unit paths.
 5. macOS is supported through launchd, not only manually: `installation_backend()` selects
-   `launchd`, the artifact goes to `~/Library/LaunchAgents`, and `session.py ensure` drives
-   it. `manual_required` is reported when no user manager is reachable or the saved backend
+   `launchd`, and `session.py ensure` drives it. Only the memory artifact goes to
+   `~/Library/LaunchAgents`. A session job's artifact is published under that session's own
+   state directory, at `<state>/sessions/<key>/native-service/`, and is bootstrapped
+   explicitly. `manual_required` is reported when no user manager is reachable or the saved backend
    is `manual` — not on macOS as such. The historical systemd-only explicit-thread path does
    still refuse on macOS; use the repository component invocation instead. Without any user
    service manager, use the manual two-process setup in the installation guide. Do not
@@ -132,7 +137,9 @@ paths, follow the manual removal instructions. Stale files may be removed only a
 verifying ownership and that their old process is dead. Never purge shared socket or
 session-registry directories.
 
-For automatic setup, read `koinon/codex_instructions.py` and `session.py`. Test preservation,
+For automatic setup, read `koinon/participant_instructions.py` and `session.py`.
+`koinon/codex_instructions.py` is a legacy import shim over the first of those and carries
+no implementation. Test preservation,
 repeat installation, override precedence, concurrent thread isolation, and complete
 bridge/notifier health. Registration must never claim success based on the bridge
 alone. Run the returned start_command in a managed session when no user systemd manager
