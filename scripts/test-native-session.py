@@ -77,6 +77,7 @@ class Fixture:
         if session_service_manager.observation(self.selection)['status'] != 'absent':
             raise RuntimeError('synthetic manager identity is not provably absent')
         self.runs = self.root / 'runs'
+        wrapper = self.prefix / 'session_service.py'
         wrapper.write_text('if __name__ == "__main__":\n'
                            '    import sys as _fixture_sys\n'
                            '    if len(_fixture_sys.argv) > 1 and _fixture_sys.argv[1] == "run":\n'
