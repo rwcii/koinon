@@ -32,16 +32,20 @@ ten-second restart interval, which the present deadlines cannot cover.
 4. When the task or process being waited on has already failed, the test reports that failure,
    not a timeout.
 5. A test run that stops making progress (in a test, its setup or teardown, or a class or
-   module fixture) ends within a stated bound with a nonzero exit status, names the test that
-   was running, and prints the stack of every thread.
+   module fixture) ends within a stated bound with a nonzero exit status, names the test or
+   the fixture that was running, and prints the stack of every thread.
 6. The required `Tests` job has a job timeout.
-7. A controlled test with a worker that never finishes proves criteria 4 and 5: bounded failure
-   with the diagnostics retained.
+7. A controlled test with a worker that never finishes proves criterion 5: bounded failure
+   with the diagnostics retained. Criterion 4 is proved separately, with a task and a process
+   that have already failed.
 8. Tests that measure a product deadline or expiry keep their timing assertions unchanged.
 9. The suite's result is unchanged when nothing hangs: the same tests pass on Linux and macOS.
-10. The two observed hangs (#63's `test_work_activation`; `test_upgrade_probe` with
-    `test_upgrade_manual`) are each either fixed with a test, or recorded in an issue on this
-    milestone with the diagnostics that the watchdog produced.
+10. For each of the two observed hangs (#63's `test_work_activation`; `test_upgrade_probe` with
+    `test_upgrade_manual`), one bounded reproduction attempt runs under the watchdog, and its
+    exact command, revision and result are recorded. A reproduced hang is fixed with a test, or
+    recorded in an issue on this milestone with the watchdog's diagnostics. A hang that does
+    not reproduce is recorded as not reproduced, and its issue stays open while its cause is
+    unknown.
 
 ## Constraints
 

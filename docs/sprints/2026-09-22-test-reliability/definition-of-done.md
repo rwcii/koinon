@@ -7,16 +7,25 @@
   re-raises the exception of a failed task or reports the exit status of a failed process
   instead of timing out; the scale factor multiplies the default and an explicit per-call
   deadline.
-- The watchdog has a subprocess test: a synthetic test module whose test blocks forever runs
-  under the CI command with a short bound. The child exits nonzero within the bound plus a
-  small margin, its output names the blocked test, and it contains a stack for every thread.
-  The same test covers a block in `setUp`, in `tearDown` and in `setUpClass`.
+- The watchdog has one parameterized subprocess test. For each blocking place, a synthetic
+  test module blocks forever there and runs under the CI command with a short bound. The places
+  are the test body, `setUp`, `tearDown`, `setUpClass`, `tearDownClass`, `setUpModule` and
+  `tearDownModule`, and a test body blocked in `select` on a pipe that is never written (the
+  `select`/`epoll` case). For each, the child exits nonzero within the bound plus a small
+  margin, its output names the running test or, outside a test, the fixture and its class or
+  module, and it contains a stack for every thread.
 - The stalled-worker test (criterion 7) uses a synthetic asynchronous worker that never
-  completes, awaited the way the service tests await real workers.
-- A repository test fails when a test file under `tests/` contains a coordination deadline
-  outside the helper: `asyncio.timeout(`, `asyncio.wait_for(`, or a `monotonic() +` or
-  `time() +` deadline, except in the helper module and in an explicit, commented allow-list of
-  product-deadline tests (criterion 8).
+  completes, awaited the way the service tests await real workers, and runs in the same
+  subprocess form.
+- Migration completeness (criterion 1) is established by a reviewed inventory: the first
+  converting chunk lists every coordination wait in `tests/` by file and test, and each later
+  chunk marks the entries it converts. The inventory is complete when every entry is converted
+  or excepted.
+- A repository test is the regression guard for the known patterns. It fails when a file under
+  `tests/` other than the helper module contains `asyncio.timeout(`, `asyncio.wait_for(`, or a
+  `monotonic() +` or `time() +` deadline, unless that exact expression in that test is on an
+  exception list with its reason (criterion 8). Exceptions name the test and the expression,
+  never a whole file.
 
 ## Integration points
 
@@ -38,5 +47,7 @@
 
 - The `check` skill, run with the CI command.
 - `Tests` green on all six jobs of the pull request, and green again on the push to `develop`.
-- For chunks that convert waits: the converted files pass three consecutive full CI runs on
-  macOS without a timing failure (reruns of the same commit through `workflow_dispatch`).
+- At the head of the last converting chunk, one macOS job runs the modules with earlier
+  timing failures (`test_notification_runtime`, `test_session`, `test_session_supervisor`)
+  five times in one bounded invocation, with no timing failure. A full suite is repeated only
+  to investigate an actual unresolved failure.
