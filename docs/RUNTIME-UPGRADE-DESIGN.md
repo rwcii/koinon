@@ -253,6 +253,8 @@ Do not infer either into the component upgrade inventory. A supported legacy/man
 adapter must supply explicit inventory and process-exit evidence before those paths can
 pass preflight; until then they refuse before shutdown. The complete #43 acceptance gate
 still includes manual-process coverage and cannot close on native-only implementation.
+The approved specification for those adapters, for the published release and for the
+legacy shapes the installer still creates, is [LEGACY-ADOPTION-DESIGN.md](LEGACY-ADOPTION-DESIGN.md).
 
 After proving owned processes stopped, deactivate only their verified manager
 registrations and retain artifacts and state. Startup exclusion during backup requires
