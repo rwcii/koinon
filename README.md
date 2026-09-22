@@ -200,13 +200,15 @@ arrive afterwards as deltas. If a caller fails between receiving entries and act
 unacknowledged work is delivered again rather than lost.
 
 Refusals name a recovery path in a `code` field. `snapshot_expired` and `stale_page_token` mean
-restart `sync`; `snapshot_incomplete` means page to the end first; `snapshot_open` and
-`not_bootstrapped` mean acknowledge the open snapshot by its identity before acknowledging a
-sequence; `foreign_snapshot` means the snapshot belongs to another consumer; `consumer_retired`
+restart `sync`; `snapshot_incomplete` means page to the end first; `snapshot_open` means
+acknowledge the open snapshot by its identity before acknowledging a sequence, while
+`not_bootstrapped` means no snapshot has been completed yet, so call `sync` to obtain one;
+`foreign_snapshot` means the snapshot belongs to another consumer; `consumer_retired`
 means the key was reclaimed after long inactivity and a new one is needed; `retry_deadline_expired`
-means deduplication state has lapsed; `idempotency_conflict` means that key already carries
-different content; `capacity`, `snapshot_capacity` and `idem_capacity` mean nothing was written and
-stored data is intact; and `entry_too_large` means the entry could never be delivered in one page.
+means deduplication state has lapsed; `idempotency_conflict` means that key was already used with
+different content, or with a different deadline; `capacity`, `snapshot_capacity` and
+`idem_capacity` mean nothing was written and stored data is intact; and `entry_too_large`
+means the entry could never be delivered in one page.
 
 Retention is finite and stated: an unacknowledged snapshot lasts an hour, an acknowledgement is
 replayable for a day, an idempotency key lasts until its deadline and at most a day, an idle
@@ -276,7 +278,7 @@ python3 notify.py --state-dir /path/to/private/state --thread ANOTHER_THREAD_ID 
 python3 bridge.py --state-dir /path/to/private/state inbox
 ```
 
-State directories must be owned by the current user and mode 0700. The notifier checkpoint is tied to its thread ID; do not reuse one instance for unrelated conversations. Runtime databases, sockets, checkpoints, peer keys, and logs do not belong in Git.
+State directories must be owned by the current user and carry no group or other permissions; the runtime creates them as 0700 and refuses any that a second account could reach. The notifier checkpoint is tied to its thread ID; do not reuse one instance for unrelated conversations. Runtime databases, sockets, checkpoints, peer keys, and logs do not belong in Git.
 
 The notifier subscribes before checking durable inbox state and repeats the check
 at a two-second recovery interval. It skips peer controls. Each notice contains at
@@ -379,9 +381,11 @@ directories also produce a structured ownership refusal with exit 78.
 
 ### Inbox migration progress
 
-The bridge now maintains a transactional acknowledgement watermark and durable
-journal activation evidence in inbox schema 3 (introduced in schema 2). Migration preserves retained messages
-and sequence allocation. See [the schema contract](PROTOCOL.md#inbox-schema-2-and-journal-activation).
+The bridge maintains a transactional acknowledgement watermark and durable journal
+activation evidence, both introduced in inbox schema 2. The current inbox schema is 4,
+which adds the delivery ledger; startup accepts a store at schema 2, 3 or 4 and upgrades
+anything below 4. Migration preserves retained messages and sequence allocation. See
+[the schema contract](PROTOCOL.md#inbox-schema-2-and-journal-activation).
 Explicit repository bindings and content-free memory pointers are available through
 [the binding controls](PROTOCOL.md#memory-bindings-and-pointers). The notifier
 refreshes these bindings through subscriptions and finite recovery checks, then

@@ -5,6 +5,16 @@ into a dated release section when promoted to `main`.
 
 ## Unreleased
 
+- Correct four `README.md` statements the code contradicts. The current inbox schema is 4,
+  which adds the delivery ledger; startup accepts a store at schema 2, 3 or 4, so describing
+  the acknowledgement watermark as living in schema 3 named a superseded version. A state
+  directory is refused when any group or other permission bit is set, rather than compared
+  against 0700 exactly, so an owner-only mode other than 0700 also passes. `not_bootstrapped`
+  fires only when no snapshot is open, which is the opposite of `snapshot_open`, so the two
+  cannot share one recovery instruction: it means call `sync` to obtain a first snapshot.
+  `idempotency_conflict` is also raised when a key is repeated with the same content and a
+  different deadline, not only when the content differs.
+
 - Say what is wrong when a path is refused as unsafe. Installation and upgrade refuse a
   path that a second account can write, which an account whose `umask` is `002` produces
   for the directories it creates. The refusals named only the path, so an operator could
