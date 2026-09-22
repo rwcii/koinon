@@ -22,6 +22,28 @@ class PreflightError(ValueError):
     pass
 
 
+class StateRootError(PreflightError):
+    def __init__(self, path, code, reason):
+        self.path, self.code = str(path), code
+        super().__init__(reason + ': ' + self.path)
+
+
+class MissingStateRootError(StateRootError):
+    def __init__(self, path):
+        super().__init__(path, 'missing_state_root', 'recorded state root is missing')
+
+
+def state_root(path):
+    """Validate recorded state without inventing an empty replacement."""
+    try:
+        return manifest.select_root(path)
+    except FileNotFoundError as exc:
+        raise MissingStateRootError(path) from exc
+    except NotADirectoryError as exc:
+        raise StateRootError(path, 'invalid_state_root',
+                             'recorded state root has a non-directory path component') from exc
+
+
 class UnownedMemoryError(PreflightError):
     def __init__(self, report):
         self.report = report
@@ -70,8 +92,15 @@ def runtime_pair(prefix, source):
     old, new = runtime_manifest(prefix), runtime_manifest(source)
     upgrade_replace.preflight(new, old)
     retired = upgrade_replace.retirements(new, old)
-    upgrade_replace.bytecode_paths(prefix, [*new['files'], *(name for name, _ in retired)])
+    bytecode_caches(prefix, dict(runtime=old, source=new))
     return dict(runtime=old, source=new)
+
+
+def bytecode_caches(prefix, pair):
+    """Name the untrusted caches replacement will quarantine; refuse unmovable ones."""
+    retired = upgrade_replace.retirements(pair['source'], pair['runtime'])
+    return upgrade_replace.untrusted_caches(
+        prefix, [*pair['source']['files'], *(name for name, _ in retired)])
 
 
 def memory_ownership(config):
@@ -85,11 +114,11 @@ def memory_ownership(config):
     records = config.get('memory_services', {}).get('repositories', {})
     roots = {str(Path(config['state_root']))}
     roots.update(record['state_root'] for record in records.values())
-    selected = {str(manifest.select_root(record['state_root']) / 'memory' / key)
+    selected = {str(state_root(record['state_root']) / 'memory' / key)
                 for key, record in records.items()}
     unowned, scanned = [], []
     for root in sorted(roots):
-        root = manifest.select_root(root)
+        root = state_root(root)
         directory = root / 'memory'
         try:
             info = directory.lstat()

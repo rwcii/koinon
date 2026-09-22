@@ -178,7 +178,7 @@ def session_case(backend, initial_state, interrupt):
             session_service_manager.deactivate_locked(selected, allow_unstarted=True)
 
 
-def combined_case(backend, interrupt):
+def combined_case(backend, interrupt, interactive_umask=0o077):
     spec = importlib.util.spec_from_file_location('native_install_fixture', SOURCE / 'scripts/test-native-install.py')
     module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)
@@ -228,7 +228,38 @@ def combined_case(backend, interrupt):
             return [{key: row[key] for key in memory_bindings.FIELDS} for row in page['bindings']]
         bindings = retained_bindings()
         before = json.loads(fixture.note('status'))['result']
+        caches = [fixture.prefix / part / '__pycache__' for part in ('', 'koinon', 'scripts')]
+        def interactive():
+            # An operator's own commands, run from the installed prefix under the
+            # operator's umask rather than the fixture's private one.
+            for argv in (bridge + ['memory-bindings'],
+                         [sys.executable, fixture.prefix / 'memory.py', '--help']):
+                subprocess.run([str(value) for value in argv], check=True, capture_output=True,
+                               preexec_fn=lambda: os.umask(interactive_umask))
+        if interactive_umask != 0o077:
+            # The fixture's own commands above ran under umask 077 and created the old
+            # release's caches privately, and Python never changes an existing cache
+            # directory's mode. Remove them so the operator's commands are the first
+            # importers, as on an install whose services have not yet imported them.
+            for path in caches:
+                if path.is_dir():
+                    shutil.rmtree(path)
+            interactive()
+            if not any(path.is_dir() and path.stat().st_mode & 0o022 for path in caches):
+                raise RuntimeError('the previous release left no group-writable cache; '
+                                   'the untrusted-cache upgrade would prove nothing')
         report = public_upgrade(fixture, source, interrupt)
+        if interactive_umask != 0o077:
+            reported = report['result']['preflight']['untrusted_caches']
+            if not reported:
+                raise RuntimeError('preflight did not report the untrusted cache')
+            operation = Path(json.loads((fixture.prefix / '.upgrade' / 'current.json').read_text())['operation'])
+            if len(list((operation / 'untrusted-cache').iterdir())) != len(reported):
+                raise RuntimeError('an untrusted cache was not quarantined')
+            interactive()
+            unsafe = [str(path) for path in caches if path.is_dir() and path.stat().st_mode & 0o022]
+            if unsafe:
+                raise RuntimeError('the upgraded runtime created group-writable caches: ' + ', '.join(unsafe))
         fixture.status()
         after = json.loads(fixture.note('status'))['result']
         if (not report['ok'] or before['store_id'] != after['store_id']
@@ -246,9 +277,12 @@ def combined_case(backend, interrupt):
         fixture.note('claim', 'renew', created['work_id'], '--claim-generation',
                      str(started['claim']['generation']), '--if-claim-revision', str(started['claim']['revision']))
         print(json.dumps(dict(ok=True, backend=backend, interrupted=interrupt,
+            interactive_umask='%03o' % interactive_umask,
             checks=['combined_owned_native_restart', 'active_claim_preserved',
                     'binding_preserved', 'memory_preserved', 'layout_migration',
-                    'post_release_readiness'])))
+                    'post_release_readiness']
+                   + (['untrusted_cache_quarantined', 'private_caches_after_upgrade']
+                      if interactive_umask != 0o077 else []))))
         return 0
     finally:
         import session_service
@@ -276,6 +310,8 @@ def main():
     parser.add_argument('--kind', choices=('memory', 'session', 'combined'), default='memory')
     parser.add_argument('--initial-state', choices=('running', 'stopped', 'deactivated'), default='running')
     parser.add_argument('--interrupt-phase', choices=['all'] + [str(i) for i in range(1, 20)])
+    parser.add_argument('--interactive-umask', choices=('077', '002'), default='077',
+                        help='umask for operator commands run from the prefix (combined only)')
     args = parser.parse_args()
     # Python imports can create caches before a child sets its own umask.
     # All fixture subprocesses must inherit private creation permissions.
@@ -298,7 +334,7 @@ def main():
     if args.kind == 'combined':
         if args.initial_state != 'running':
             parser.error('combined fixture currently requires running components')
-        return combined_case(args.backend, args.interrupt_phase)
+        return combined_case(args.backend, args.interrupt_phase, int(args.interactive_umask, 8))
     if args.kind == 'session':
         return session_case(args.backend, args.initial_state, args.interrupt_phase)
     spec = importlib.util.spec_from_file_location('native_memory_fixture', SOURCE / 'scripts/test-native-memory.py')

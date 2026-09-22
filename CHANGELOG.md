@@ -3,7 +3,7 @@
 User-visible changes to Koinon are recorded here. Unreleased entries move
 into a dated release section when promoted to `main`.
 
-## Unreleased
+## 2026-09-22 — Package layout, native supervision, repository memory and runtime upgrade
 
 - Correct four `README.md` statements the code contradicts. The current inbox schema is 4,
   which adds the delivery ledger; startup accepts a store at schema 2, 3 or 4, so describing
@@ -14,6 +14,34 @@ into a dated release section when promoted to `main`.
   cannot share one recovery instruction: it means call `sync` to obtain a first snapshot.
   `idempotency_conflict` is also raised when a key is repeated with the same content and a
   different deadline, not only when the content differs.
+
+- Report a missing recorded state root during upgrade preflight with
+  `missing_state_root`, its path, and recovery guidance before shutdown or upgrade
+  publication. Report a non-directory path component as `invalid_state_root`.
+  Preserve state and configuration rather than creating an empty
+  replacement. Installation now labels the state directory as configured, since
+  staging without service initialization may leave it absent (#80).
+
+- Describe the shipped schema-5 work commands and advisory claims in module
+  documentation and CLI help, removing stale staging language. Document
+  `schema_too_old`, its configuration exit status, and recovery without resetting
+  stored state (#86).
+
+- Memory client commands no longer create missing state directories while probing an
+  absent service. Only `serve` initializes them; existing directory safety checks remain (#81).
+
+- Stop an operator's own commands from blocking the next upgrade, and do not run a cache
+  another account could have written. Under `umask 002`, one interactive command run from
+  the installed prefix left a group-writable `__pycache__` that made every later upgrade
+  refuse with `unsafe manifest ancestor`. Every command now sets `umask 077` before its
+  first Koinon import, so the caches it creates are private. A command that finds an
+  untrusted cache directory runs from source without reading any cache, and the install,
+  uninstall and upgrade scripts never read one. The upgrade moves an untrusted cache
+  directory into its operation directory instead of refusing, and refuses before shutdown
+  only when that directory holds data other than the runtime's caches. The upgrade also
+  located caches through `sys.pycache_prefix`, which would have checked the wrong
+  directory once a private prefix is set; it now derives them from the runtime layout. The
+  upgrade command no longer describes itself as experimental.
 
 - Say what is wrong when a path is refused as unsafe. Installation and upgrade refuse a
   path that a second account can write, which an account whose `umask` is `002` produces

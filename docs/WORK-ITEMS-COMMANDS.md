@@ -6,6 +6,20 @@ schema-5 stores. Public startup creates or migrates schema 5; use the
 [explicit guidance opt-in](WORK-ITEMS-POLICY.md) for participants. The
 [maintenance implementation](WORK-ITEMS-MAINTENANCE.md) supplies the bounded background loop.
 
+## Schema refusals
+
+`schema_too_old` refuses a work command when the store is below schema 5. The CLI
+classifies this as a configuration refusal (exit 78). Upgrade the selected memory
+runtime and restart it through the documented upgrade procedure before retrying;
+changing the client alone does not migrate a running service's store. Preserve the
+existing state and do not rewrite schema metadata or create a replacement store to
+bypass the refusal.
+
+At startup, `schema_too_old` can also mean that stored schema or protocol metadata
+is older than a version for which this runtime has a migration. The error identifies
+the unsupported field and versions. Supported schema-3 and schema-4 stores migrate
+to schema 5 during startup; the refusal does not mean every older store is unsupported.
+
 ## Interface
 
 The CLI uses `memory.py --consumer NAME work OPERATION` and

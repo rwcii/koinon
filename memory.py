@@ -21,6 +21,38 @@ a defect in review:
 * **The server owns protocol state.** Page issuance, completion and acknowledgement
   are recorded here, never inferred from a number the caller supplies.
 """
+# Bytecode guard (docs/INSTALL.md). It runs before the first
+# project import and uses only the standard library, because a shared helper would
+# itself load from the cache it must judge. It keeps the canonical text below, which
+# tests/test_bytecode_guard.py compares across every entrypoint.
+if __name__ == '__main__':
+    import os as _os, stat as _stat, sys as _sys, tempfile as _tempfile
+    _os.umask(0o077)
+    _here = _os.path.dirname(_os.path.abspath(__file__))
+    _script = _os.path.basename(_here) == 'scripts'
+    _root = _os.path.dirname(_here) if _script else _here
+
+    def _owned(info, kind):
+        return kind(info.st_mode) and info.st_uid == _os.geteuid() and not info.st_mode & 0o022
+
+    def _trusted(path):
+        try:
+            info = _os.lstat(path)
+        except FileNotFoundError:
+            return True
+        if not _owned(info, _stat.S_ISDIR):
+            return False
+        with _os.scandir(path) as entries:
+            return all(_owned(entry.stat(follow_symlinks=False), _stat.S_ISREG)
+                       and entry.stat(follow_symlinks=False).st_nlink == 1 for entry in entries)
+
+    if _script or not all(_trusted(_os.path.join(_root, part, '__pycache__'))
+                            for part in ('', 'koinon', 'scripts')):
+        _sys.pycache_prefix = _tempfile.mkdtemp(prefix='koinon-pycache-')
+        _sys.dont_write_bytecode = True
+        import atexit as _atexit
+        _atexit.register(lambda path=_sys.pycache_prefix: _os.path.isdir(path) and _os.rmdir(path))
+# End of bytecode guard.
 import argparse
 from koinon import runtime_names
 import asyncio
@@ -33,6 +65,7 @@ import math
 import os
 from pathlib import Path
 import signal
+import stat
 import socket
 import sqlite3
 import subprocess
@@ -247,9 +280,18 @@ class MemoryError_(ValueError):
         return CHAINED_DATABASE_FAULTS.get(self.code)
 
 
-def private_state_dir(path):
+def private_state_dir(path, *, create=True):
     try:
-        private_dir(path)
+        if create:
+            private_dir(path)
+        else:
+            try:
+                info = path.lstat()
+            except FileNotFoundError:
+                return
+            if (not stat.S_ISDIR(info.st_mode) or info.st_uid != os.getuid()
+                    or info.st_mode & 0o077):
+                raise ValueError('unsafe state directory')
     except (ValueError, PermissionError, FileExistsError, NotADirectoryError):
         raise MemoryError_('unsafe_state_directory',
                            'the state directory must be a private directory owned by this user') from None
@@ -2510,15 +2552,15 @@ def cli_main():
     selected_root = args.pop('state_dir')
     exact = args.pop('service_dir')
     repo = repo_identity(args.pop('repo_path'))
+    op = args.pop('op')
+    op = work_items.cli_request(op, args)
     if exact is None:
         root = Path(selected_root or runtime_names.default_state_root()).absolute()
-        private_state_dir(root)
+        private_state_dir(root, create=op == 'serve')
         home = state_dir(root, repo)
     else:
         home = Path(exact).absolute()
-    private_state_dir(home)
-    op = args.pop('op')
-    op = work_items.cli_request(op, args)
+    private_state_dir(home, create=op == 'serve')
     if op == 'serve':
         print(json.dumps(serve(home, repo, lambda: Store(home / 'memory.sqlite3', repo),
                                gated_store_factory=lambda gate: Store(home / 'memory.sqlite3', repo, defer_index=True))))

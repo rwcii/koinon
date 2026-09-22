@@ -1,6 +1,6 @@
 """Work-row accounting used by the shared memory transaction boundary.
 
-No connection ownership, commits, migration, or activation lives here. The same
+The memory service owns connections, commits and schema migration. The same
 row charge is used for projections and stored usage; snapshots retain the memory
 service's existing accounting and do not count toward the work sub-budget.
 """

@@ -170,6 +170,28 @@ can be partial or unavailable, so an exclusive-looking group cannot be shown to 
 exclusive. Koinon never repairs permissions and never adopts a path; the operator makes the
 change.
 
+### Bytecode caches
+
+Python writes compiled caches into `__pycache__` next to the modules it imports, and
+creates that directory with the importing process's umask. Every Koinon command therefore
+sets `umask 077` as its first statement, before it imports any Koinon module, so a cache
+directory that a command creates is private whatever the operator's umask is.
+
+A cache directory that is already group- or other-writable, or that holds a writable cache
+file, is not trusted: another account could have replaced a cache with code that Python
+would run. A command that finds one never reads any cache for that run, and runs correctly
+from source. `scripts/install.py`, `scripts/uninstall.py` and `scripts/upgrade.py` never read
+a cache at all, because they also run from a source checkout whose caches Koinon does not
+validate. No command changes the mode of, or removes, a cache directory.
+
+The runtime upgrade reports each untrusted cache directory in its preflight evidence
+(`untrusted_caches`) and, after the owned shutdown, moves it whole into the operation
+directory under `untrusted-cache/`. It keeps the directory there unchanged, and removes nothing. It refuses before
+shutdown with `untrusted_cache_contents` when such a directory holds anything other than
+caches for the runtime's own modules, or caches from more than eight Python versions,
+because moving it would carry away data that importing did not create. Preserve the reported entry and move it
+yourself if it is yours.
+
 ## Repository components and native supervision
 
 Select a repository to install participant guidance and its shared memory service in
@@ -453,6 +475,12 @@ Run one per repository, from inside that repository:
 python3 memory.py serve
 ```
 
+Only `serve` initializes missing memory state directories. Client commands, including
+`status`, `recall`, and `stop`, leave absent directories absent. A query without a running
+service reports absence (the explicit `--service-dir` form returns
+`service_unavailable`); `stop` reports `not_running`. Existing state
+directories must still be private and owned by the current user.
+
 It prints its status as one JSON line and then serves until stopped. Start it in a persistent
 managed session, as with the manual bridge setup; it holds a socket, so an ordinary background
 command that dies with its shell will leave state behind.
@@ -564,6 +592,28 @@ notifiers that could target the same participant before restarting them. An olde
 notifier in another state directory does not hold the new lock and cannot be excluded
 by it. Preserve inboxes, checkpoints, registration targets and unrelated bridge instances;
 do not treat installing files with `--no-start` as activating the new exclusion rule.
+
+## Missing state root
+
+Installation reports the **configured** state directory; staging a manual or
+`--no-start` memory component does not initialize its state or database. The
+`installed` selection records staged configuration, not a running service or an
+initialized store.
+
+Upgrade preflight refuses an absent recorded state root with `code: missing_state_root`,
+the configured `path`, and recovery guidance before shutdown, runtime replacement,
+or publication of an upgrade operation. This applies to the installation state root
+and separately selected memory state roots. A non-directory component blocking resolution
+of the recorded path instead returns `invalid_state_root`. Upgrade does not create empty
+state or remove an obstructing file to make its inventory pass.
+
+Verify the configured path and any expected mounted storage first. For an installation
+that has never been started, initialize the selected service using the installed
+runtime and the documented native start or manual handoff, then retry the upgrade.
+If state previously existed, recover the original state before retrying. Do not create
+an empty replacement, reset checkpoints, or change the saved selection to bypass the
+refusal. This diagnostic does not establish whether missing state was never created
+or was lost.
 
 ## Upgrades and removal
 

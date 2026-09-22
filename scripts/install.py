@@ -1,5 +1,37 @@
 #!/usr/bin/env python3
 """Install a per-user bridge and optional systemd user services."""
+# Bytecode guard (docs/INSTALL.md). It runs before the first
+# project import and uses only the standard library, because a shared helper would
+# itself load from the cache it must judge. It keeps the canonical text below, which
+# tests/test_bytecode_guard.py compares across every entrypoint.
+if __name__ == '__main__':
+    import os as _os, stat as _stat, sys as _sys, tempfile as _tempfile
+    _os.umask(0o077)
+    _here = _os.path.dirname(_os.path.abspath(__file__))
+    _script = _os.path.basename(_here) == 'scripts'
+    _root = _os.path.dirname(_here) if _script else _here
+
+    def _owned(info, kind):
+        return kind(info.st_mode) and info.st_uid == _os.geteuid() and not info.st_mode & 0o022
+
+    def _trusted(path):
+        try:
+            info = _os.lstat(path)
+        except FileNotFoundError:
+            return True
+        if not _owned(info, _stat.S_ISDIR):
+            return False
+        with _os.scandir(path) as entries:
+            return all(_owned(entry.stat(follow_symlinks=False), _stat.S_ISREG)
+                       and entry.stat(follow_symlinks=False).st_nlink == 1 for entry in entries)
+
+    if _script or not all(_trusted(_os.path.join(_root, part, '__pycache__'))
+                            for part in ('', 'koinon', 'scripts')):
+        _sys.pycache_prefix = _tempfile.mkdtemp(prefix='koinon-pycache-')
+        _sys.dont_write_bytecode = True
+        import atexit as _atexit
+        _atexit.register(lambda path=_sys.pycache_prefix: _os.path.isdir(path) and _os.rmdir(path))
+# End of bytecode guard.
 import argparse
 import copy
 import json
@@ -425,7 +457,7 @@ def install(a, p, configuration=None, validate_only=False):
         # Codex session does.
         dsh_guidance = update(a.dsh_home,a.prefix,agent='deepseek') if a.configure_deepseek else None
         print('Installed runtime:',a.prefix)
-        print('State directory:',a.state_dir)
+        print('Configured state directory (may not exist until service initialization):',a.state_dir)
         if guidance is not None:
             print('Managed Codex guidance:',guidance)
         if dsh_guidance is not None:
@@ -480,7 +512,7 @@ def install(a, p, configuration=None, validate_only=False):
         platform_support.user_service_manager('reload', check=True)
         platform_support.user_service_manager('enable', rendered, check=True)
     print('Installed at',a.prefix)
-    print('State directory:',a.state_dir)
+    print('Configured state directory (may not exist until service initialization):',a.state_dir)
     print('Check: systemctl --user status', *selected)
     report_session_restarts(a.prefix, a.unit_dir, no_start=a.no_start)
 
