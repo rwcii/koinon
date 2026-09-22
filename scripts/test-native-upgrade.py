@@ -8,14 +8,15 @@ from pathlib import Path
 import shutil
 import subprocess
 import sys
+import tempfile
 import time
 
 SOURCE = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(SOURCE))
-import install_state
+from koinon import install_state
 import memory_service
-from participant_lock import file_lock
-import platform_support
+from koinon.participant_lock import file_lock
+from koinon import platform_support
 from scripts import install
 
 
@@ -25,7 +26,7 @@ def public_upgrade(fixture, source, interrupt, handoff=None):
     evidence = fixture.root / 'interruptions'
     evidence.mkdir(mode=0o700)
     if phases:
-        module = source / 'upgrade_journal.py'
+        module = source / 'koinon/upgrade_journal.py'
         with module.open('a') as stream:
             stream.write("\n# Synthetic process-interruption acceptance only.\n")
             stream.write('_fixture_advance = Journal.advance\n')
@@ -70,7 +71,7 @@ def public_upgrade(fixture, source, interrupt, handoff=None):
 
 
 def inactive_check(selection, kind, registered):
-    import upgrade_observation
+    from koinon import upgrade_observation
     observe = upgrade_observation.session if kind == 'session' else upgrade_observation.memory
     deadline = time.monotonic() + 10
     while True:
@@ -85,28 +86,60 @@ def inactive_check(selection, kind, registered):
         time.sleep(.05)
 
 
+# The last release published before the implementation modules moved into the
+# `koinon` package. Upgrading from a synthesized layout proves nothing: the code
+# and the file list have to be the ones that release actually shipped.
+PREVIOUS_RELEASE = '86567bef93021ff0e57facc1f19b1e5f4b883992'
+
+
+def materialize_release(root, ref=PREVIOUS_RELEASE):
+    """Extract a pinned release from history, as that release actually shipped."""
+    target = Path(root) / ('release-' + ref[:12])
+    target.mkdir(mode=0o700)
+    archive = subprocess.run(['git', '-C', str(SOURCE), 'archive', '--format=tar', ref],
+                             stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+    if archive.returncode:
+        raise RuntimeError('pinned release ' + ref + ' is unavailable; a shallow clone '
+                           'cannot upgrade from a real previous release: '
+                           + archive.stderr.decode(errors='replace'))
+    extract = subprocess.run(['tar', '-x', '-C', str(target)], input=archive.stdout,
+                             stderr=subprocess.PIPE)
+    if extract.returncode:
+        raise RuntimeError('could not extract the pinned release: '
+                           + extract.stderr.decode(errors='replace'))
+    return target
+
+
 def session_case(backend, initial_state, interrupt):
     spec = importlib.util.spec_from_file_location('native_session_fixture', SOURCE / 'scripts/test-native-session.py')
     module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)
-    fixture = module.Fixture(backend)
+    staging = Path(tempfile.mkdtemp(prefix='koinon-previous-release-'))
+    previous = materialize_release(staging)
+    fixture = module.Fixture(backend, release=previous)
     try:
-        # Retain the fixture's private account/registry overrides in both releases.
-        # No real participant receives messages and no real peer registry is used.
+        # The installed runtime is the pinned previous release; the source is this
+        # checkout. Retain the fixture's private account/registry overrides in both,
+        # so no real participant receives messages and no real peer registry is used.
         source = fixture.root / 'new-source'
         source.mkdir(mode=0o700)
         for name in install.FILES:
             target = source / name
             target.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
-            shutil.copyfile(fixture.prefix / name, target)
+            shutil.copyfile(SOURCE / name, target)
             target.chmod(0o600)
+        fixture.apply_overrides(source)
+        retired = sorted(set(module.released_manifest(previous)) - set(install.FILES))
+        if not retired:
+            raise RuntimeError('the pinned release ships nothing this release retires; '
+                               'the cross-release upgrade would prove nothing')
         for root in (source, fixture.prefix):
             for path in root.rglob('*'):
                 if path.is_dir():
                     path.chmod(0o700)
         (fixture.prefix / 'LICENSE').write_text('synthetic previous release')
         before = fixture.ensure()
-        import session_service_manager
+        from koinon import session_service_manager
         if initial_state != 'running':
             if initial_state == 'stopped':
                 session_service_manager.stop(fixture.selection)
@@ -114,7 +147,7 @@ def session_case(backend, initial_state, interrupt):
                 session_service_manager.deactivate(fixture.selection)
             inactive_check(fixture.selection, 'session', initial_state == 'stopped')
         report = public_upgrade(fixture, source, interrupt)
-        import session_service_manager
+        from koinon import session_service_manager
         if initial_state != 'running':
             inactive_check(fixture.selection, 'session', initial_state == 'stopped')
             fixture.ensure()
@@ -122,17 +155,24 @@ def session_case(backend, initial_state, interrupt):
         if (not report['ok'] or after.get('status') != 'running'
                 or before['owner']['generation'] == after['owner']['generation']):
             raise RuntimeError('public session upgrade did not replace the owned pair')
+        present = [name for name in retired if (fixture.prefix / name).exists()]
+        if present:
+            raise RuntimeError('retired runtime paths survived the upgrade: ' + ', '.join(present[:5]))
+        for name in install.FILES:
+            if not (fixture.prefix / name).exists():
+                raise RuntimeError('upgraded runtime is missing a published path: ' + name)
         print(json.dumps(dict(ok=True, backend=backend, initial_state=initial_state, interrupted=interrupt,
             checks=['public_archive_execution', 'owned_native_pair_stop_restart',
-                    'inbox_preservation', 'notifier_gate', 'post_release_readiness'])))
+                    'inbox_preservation', 'notifier_gate', 'layout_migration',
+                    'post_release_readiness'])))
         return 0
     finally:
         import session_service
-        import session_service_manager
-        import upgrade_exclusion
+        from koinon import session_service_manager
+        from koinon import upgrade_exclusion
         active = upgrade_exclusion.read(fixture.prefix)
         selected = session_service.Selection(fixture.prefix, fixture.home, upgrading=active is not None)
-        import session_service_artifacts
+        from koinon import session_service_artifacts
         with session_service_artifacts.locked(selected.home / 'lifecycle.lock'), \
                 session_service_artifacts.locked(selected.home / 'registration.lock'):
             session_service_manager.deactivate_locked(selected, allow_unstarted=True)
@@ -142,14 +182,28 @@ def combined_case(backend, interrupt):
     spec = importlib.util.spec_from_file_location('native_install_fixture', SOURCE / 'scripts/test-native-install.py')
     module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)
-    fixture = module.Fixture(backend, session=True)
+    staging = Path(tempfile.mkdtemp(prefix='koinon-previous-release-'))
+    previous = materialize_release(staging)
+    fixture = module.Fixture(backend, session=True, release=previous)
     try:
         fixture.install()
         fixture.status()
+        # The new source is this checkout, carrying the fixture's own isolation, so
+        # the upgrade crosses releases rather than upgrading a release to itself.
         source = fixture.root / 'new-source'
-        shutil.copytree(fixture.source, source)
+        source.mkdir(mode=0o700)
+        for name in install.FILES:
+            target = source / name
+            target.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
+            shutil.copyfile(SOURCE / name, target)
+            target.chmod(0o600)
+        fixture.apply_overrides(source)
         source.chmod(0o700)
         (fixture.prefix / 'LICENSE').write_text('synthetic previous combined release')
+        retired = sorted(set(module.released_manifest(previous)) - set(install.FILES))
+        if not retired:
+            raise RuntimeError('the pinned release ships nothing this release retires; '
+                               'the cross-release upgrade would prove nothing')
         fixture.note('note', 'retained combined-fixture note', '--type', 'finding')
         deadline = str(int(time.time()) + 3600)
         created = json.loads(fixture.note('work', 'create', '--title', 'Synthetic upgrade claim',
@@ -167,7 +221,7 @@ def combined_case(backend, interrupt):
         # baseline; bind alone leaves observation to asynchronous notifier work.
         fixture.command(bridge + ['refresh-memory', binding])
         def retained_bindings():
-            import memory_bindings
+            from koinon import memory_bindings
             page = json.loads(fixture.command(bridge + ['memory-bindings']))['result']
             if page['more']:
                 raise RuntimeError('synthetic single binding unexpectedly paginated')
@@ -182,18 +236,25 @@ def combined_case(backend, interrupt):
             raise RuntimeError('combined upgrade changed memory identity or stream')
         if retained_bindings() != bindings:
             raise RuntimeError('combined upgrade changed explicit memory binding')
+        present = [name for name in retired if (fixture.prefix / name).exists()]
+        if present:
+            raise RuntimeError('retired runtime paths survived the upgrade: ' + ', '.join(present[:5]))
+        for name in install.FILES:
+            if not (fixture.prefix / name).exists():
+                raise RuntimeError('upgraded runtime is missing a published path: ' + name)
         # The original token must still renew against its original claim revision.
         fixture.note('claim', 'renew', created['work_id'], '--claim-generation',
                      str(started['claim']['generation']), '--if-claim-revision', str(started['claim']['revision']))
         print(json.dumps(dict(ok=True, backend=backend, interrupted=interrupt,
             checks=['combined_owned_native_restart', 'active_claim_preserved',
-                    'binding_preserved', 'memory_preserved', 'post_release_readiness'])))
+                    'binding_preserved', 'memory_preserved', 'layout_migration',
+                    'post_release_readiness'])))
         return 0
     finally:
         import session_service
-        import session_service_artifacts
-        import session_service_manager
-        import upgrade_exclusion
+        from koinon import session_service_artifacts
+        from koinon import session_service_manager
+        from koinon import upgrade_exclusion
         if (fixture.prefix / 'install.json').exists():
             active = upgrade_exclusion.read(fixture.prefix)
             for record in fixture.session_records:
@@ -291,7 +352,7 @@ def main():
         # unrelated unit is discovered, stopped, disabled, or deleted here.
         with install_state.locked(fixture.prefix, validator=lambda value: value):
             with file_lock(fixture.selection.home / 'manager.lock', 'fixture_busy', None):
-                import upgrade_exclusion
+                from koinon import upgrade_exclusion
                 active = upgrade_exclusion.read(fixture.prefix)
                 selected = memory_service.Selection(fixture.prefix, fixture.repo, upgrading=active is not None)
                 memory_service.deactivate_owned(selected)

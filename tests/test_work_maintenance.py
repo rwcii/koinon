@@ -4,7 +4,7 @@ from contextlib import redirect_stdout
 import io
 from pathlib import Path
 import socket
-import subscriptions
+from koinon import subscriptions
 import tempfile
 import threading
 import time
@@ -12,12 +12,12 @@ import unittest
 from unittest.mock import patch, AsyncMock
 
 import memory
-import work_items
-import work_maintenance
-import work_schema
-import work_storage
+from koinon import work_items
+from koinon import work_maintenance
+from koinon import work_schema
+from koinon import work_storage
 import test_work_items
-from database_worker import CapacityError
+from koinon.database_worker import CapacityError
 
 
 class MaintenanceTests(unittest.TestCase):

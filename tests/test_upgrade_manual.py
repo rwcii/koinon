@@ -6,8 +6,8 @@ from types import SimpleNamespace
 import unittest
 from unittest.mock import Mock, patch
 
-import upgrade_manual as manual
-import upgrade_observation
+from koinon import upgrade_manual as manual
+from koinon import upgrade_observation
 
 
 class ManualTests(unittest.TestCase):

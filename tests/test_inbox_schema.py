@@ -11,7 +11,7 @@ import tempfile
 import unittest
 
 import bridge
-import inbox_schema as schema
+from koinon import inbox_schema as schema
 
 FRAME = {'type':'user', 'message':{'content':'synthetic message'}}
 TARGET, NONCE, NEXT = 'a'*64, 'b'*32, 'c'*32
@@ -191,7 +191,7 @@ class InboxSchemaTests(unittest.TestCase):
     def crash(self, match, operation):
         code = '''
 import os, sqlite3, sys
-import inbox_schema
+from koinon import inbox_schema
 connection = sqlite3.connect(sys.argv[1])
 def trace(statement):
     if statement.startswith(sys.argv[2]):
@@ -312,7 +312,8 @@ class SchemaPublicTests(unittest.IsolatedAsyncioTestCase):
 
     async def test_factory_programming_error_is_software_failure(self):
         code = """
-import bridge, inbox_schema
+import bridge
+from koinon import inbox_schema
 original = inbox_schema.initialize
 def broken(db):
     db.close()

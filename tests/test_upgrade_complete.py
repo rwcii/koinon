@@ -3,10 +3,10 @@ import unittest
 from unittest.mock import patch
 
 import test_upgrade_coordinator as pipeline
-import upgrade_complete
-from upgrade_documents import Documents
-import upgrade_exclusion
-import upgrade_plan
+from koinon import upgrade_complete
+from koinon.upgrade_documents import Documents
+from koinon import upgrade_exclusion
+from koinon import upgrade_plan
 
 
 class EmptyOperationCompletionTests(unittest.TestCase):

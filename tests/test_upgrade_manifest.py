@@ -4,7 +4,7 @@ import tempfile
 import unittest
 from unittest.mock import patch
 
-import upgrade_manifest as manifest
+from koinon import upgrade_manifest as manifest
 
 
 class ManifestTests(unittest.TestCase):

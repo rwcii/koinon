@@ -6,7 +6,7 @@ from types import SimpleNamespace
 import unittest
 from unittest.mock import patch
 
-import upgrade_backup as backup
+from koinon import upgrade_backup as backup
 
 
 class BackupTests(unittest.TestCase):

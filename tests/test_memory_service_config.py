@@ -8,10 +8,10 @@ import tempfile
 import unittest
 from unittest.mock import patch
 
-import install_state
+from koinon import install_state
 import memory
-import memory_service_config as config
-import runtime_names
+from koinon import memory_service_config as config
+from koinon import runtime_names
 
 
 def record(common='/synthetic/repo/.git', backend='systemd'):

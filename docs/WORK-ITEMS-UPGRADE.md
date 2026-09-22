@@ -59,8 +59,14 @@ schema transitions on disposable online SQLite copies, and reserves backup and r
 capacity. Those copies are only preflight evidence: authoritative backups include
 all SQLite sidecars and are made after confirmed owned shutdown. Replacement invalidates only owned bytecode caches for the selected Python files,
 including unchecked-hash caches; unrelated cache-directory entries are preserved.
-File removal/layout migration is not supported by this adapter. Insufficient space, near-full memory,
-changed selections or unrecognized state refuse without silently resetting anything.
+A runtime path the release no longer ships is retired only where `koinon/upgrade_layout.py`
+declares which published path replaces it. An undeclared disappearance refuses before shutdown,
+because it cannot be told apart from an operator's own change. A declared path is removed only
+after its replacement is published and confirmed, so an interruption leaves a runtime that still
+reads, and the frozen backup still holds every old path for recovery. A retiring path whose
+content is no longer its frozen preimage refuses rather than being deleted. Insufficient space,
+near-full memory, changed selections or unrecognized state refuse without silently resetting
+anything.
 
 Memory-state discovery covers the installation's configured state root and saved memory
 roots. Any directory there without a saved managed selection produces an explicit

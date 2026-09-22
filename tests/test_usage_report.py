@@ -6,8 +6,8 @@ import unittest
 from unittest.mock import patch
 
 import usage_report as report
-import usage_sources as sources
-import usage_selection as selection
+from koinon import usage_sources as sources
+from koinon import usage_selection as selection
 
 START = '2026-01-01T00:00:00Z'
 MID = '2026-01-01T00:00:10Z'

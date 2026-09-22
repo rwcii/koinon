@@ -8,8 +8,8 @@ import unittest
 from unittest.mock import patch
 
 import memory_service
-import memory_service_artifacts as artifacts
-import platform_support
+from koinon import memory_service_artifacts as artifacts
+from koinon import platform_support
 from test_memory_service_config import record
 
 

@@ -14,7 +14,7 @@ import unittest
 from unittest.mock import patch
 
 import memory
-import platform_support
+from koinon import platform_support
 
 REPO = '0123456789abcdef'
 

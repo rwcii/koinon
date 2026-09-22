@@ -13,8 +13,8 @@ import time
 SOURCE = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(SOURCE))
 import memory_service
-import upgrade_exclusion
-import upgrade_manual
+from koinon import upgrade_exclusion
+from koinon import upgrade_manual
 
 
 def module(name, path):

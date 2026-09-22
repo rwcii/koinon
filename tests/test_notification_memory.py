@@ -4,8 +4,8 @@ import tempfile
 import unittest
 from unittest import mock
 
-from participant_lock import identity
-import notification_memory as watching
+from koinon.participant_lock import identity
+from koinon import notification_memory as watching
 from test_memory_bindings import record
 
 

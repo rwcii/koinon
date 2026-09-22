@@ -4,12 +4,12 @@ from unittest.mock import patch
 
 import memory_service
 import session_service
-import session_service_manager
+from koinon import session_service_manager
 import test_upgrade_capture as capture
 import test_upgrade_gate as gate
-import upgrade_exclusion
-import upgrade_quiescence
-import upgrade_start
+from koinon import upgrade_exclusion
+from koinon import upgrade_quiescence
+from koinon import upgrade_start
 
 
 class SessionStartupTests(unittest.TestCase):
@@ -30,7 +30,7 @@ class SessionStartupTests(unittest.TestCase):
             with self.assertRaises(upgrade_start.StartupError):
                 upgrade_start.validate(owner, selected, 'session')
             gate.GateTests.advance(self, 10)
-            with patch('platform_support.session_manager_action') as action:
+            with patch('koinon.platform_support.session_manager_action') as action:
                 with self.assertRaises(upgrade_start.StartupError):
                     session_service_manager.ensure(selected, upgrade=owner)
                 action.assert_not_called()
@@ -46,7 +46,7 @@ class SessionStartupTests(unittest.TestCase):
                         dict(status='absent'), dict(status='absent'),
                         dict(status='observed', pid=0), dict(status='observed', pid=0)]), \
                     patch.object(session_service_manager, 'status', return_value=dict(status='running')), \
-                    patch('platform_support.session_manager_action') as action:
+                    patch('koinon.platform_support.session_manager_action') as action:
                 self.assertEqual(session_service_manager.ensure(selected, upgrade=owner)['status'], 'running')
                 self.assertEqual([call.args[1] for call in action.call_args_list], ['register', 'start'])
             self.assertEqual(owner.journal.read()['step'], 10)
@@ -56,8 +56,8 @@ class SessionStartupTests(unittest.TestCase):
         gate.GateTests.advance(self, 18)
         with self.owner() as owner, \
                 patch.object(session_service_manager, 'ensure', return_value=dict(status='running')), \
-                patch('upgrade_probe.live', return_value=dict(ready=True)) as live, \
-                patch('upgrade_probe.gated') as gated:
+                patch('koinon.upgrade_probe.live', return_value=dict(ready=True)) as live, \
+                patch('koinon.upgrade_probe.gated') as gated:
             component = owner.loaded['documents']['components']['items'][0]
             self.assertEqual(upgrade_start.component(owner, component), dict(ready=True))
             live.assert_called_once_with(owner, component)
@@ -73,7 +73,7 @@ class SessionStartupTests(unittest.TestCase):
                     patch.object(session_service_manager, 'observation', side_effect=[
                         dict(status='absent'), dict(status='absent'),
                         dict(status='observed', pid=0), dict(status='observed', pid=0)]), \
-                    patch('platform_support.session_manager_action', side_effect=change_runtime) as action:
+                    patch('koinon.platform_support.session_manager_action', side_effect=change_runtime) as action:
                 with self.assertRaises(upgrade_start.StartupError):
                     session_service_manager.ensure(selected, upgrade=owner)
                 self.assertEqual([call.args[1] for call in action.call_args_list], ['register'])
@@ -90,19 +90,19 @@ class MemoryStartupTests(unittest.TestCase):
         with self.owner() as owner:
             capture.MemoryCaptureTests.advance(self, owner, 10)
             selected = upgrade_quiescence.selection(owner, owner.loaded['documents']['components']['items'][0])
-            with patch('platform_support.memory_manager_available', return_value=True), \
+            with patch('koinon.platform_support.memory_manager_available', return_value=True), \
                     patch.object(memory_service, 'manager_observation', side_effect=[
                         dict(status='absent'), dict(status='absent'),
                         dict(status='observed', pid=0), dict(status='observed', pid=0),
                         dict(status='observed', pid=0), dict(status='observed', pid=0)]), \
                     patch.object(memory_service, 'managed_status', return_value=dict(status='running', running=True)), \
-                    patch('platform_support.memory_manager_action') as action:
+                    patch('koinon.platform_support.memory_manager_action') as action:
                 self.assertTrue(memory_service.ensure_managed(selected, upgrade=owner)['running'])
                 self.assertEqual([call.args[1] for call in action.call_args_list],
                                  ['register', 'activate', 'restart'])
             self.assertEqual(owner.journal.read()['step'], 10)
-            with patch('platform_support.memory_manager_available', return_value=True), \
-                    patch('platform_support.memory_manager_action') as action:
+            with patch('koinon.platform_support.memory_manager_available', return_value=True), \
+                    patch('koinon.platform_support.memory_manager_action') as action:
                 with self.assertRaises(ValueError):
                     memory_service.ensure_managed(selected)
                 action.assert_not_called()

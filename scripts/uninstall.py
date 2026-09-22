@@ -8,15 +8,15 @@ import shlex
 import subprocess
 import sys
 from install import FILES, check_owned_unit, unit_targets_prefix
-import platform_support
-import runtime_names
-import install_state
-import work_guidance
-import component_remove
+from koinon import platform_support
+from koinon import runtime_names
+from koinon import install_state
+from koinon import work_guidance
+from koinon import component_remove
 import memory_service
 import session_service
-import session_service_artifacts
-import uninstall_finalize
+from koinon import session_service_artifacts
+from koinon import uninstall_finalize
 
 
 def removal_preflight(prefix, config):
@@ -117,7 +117,7 @@ def uninstall(prefix, state):
         platform_support.user_service_manager('reload', check=True)
     if config:
         sys.path.insert(0,str(prefix))
-        from participant_instructions import update
+        from koinon.participant_instructions import update
         # Remove the managed section for every participant this installation
         # configured, not just Codex: a harness section left behind would keep
         # telling sessions to register against a runtime that is gone. Older

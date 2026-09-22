@@ -4,11 +4,11 @@ import tempfile
 import unittest
 
 import bridge
-from database_worker import DatabaseWorker
-import inbox_schema
-from notification_delivery import DeliveryLoop
-from notification_journal import JournalError
-from notification_state import NotificationState
+from koinon.database_worker import DatabaseWorker
+from koinon import inbox_schema
+from koinon.notification_delivery import DeliveryLoop
+from koinon.notification_journal import JournalError
+from koinon.notification_state import NotificationState
 from test_memory_bindings import record, observation
 
 CAPABILITIES = (*inbox_schema.CAPABILITIES, 'memory_binding')

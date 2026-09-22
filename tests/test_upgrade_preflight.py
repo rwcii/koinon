@@ -4,8 +4,8 @@ import tempfile
 import unittest
 from unittest.mock import patch
 
-import upgrade_preflight as preflight
-import upgrade_manifest as manifest
+from koinon import upgrade_preflight as preflight
+from koinon import upgrade_manifest as manifest
 
 
 class PreflightTests(unittest.TestCase):
@@ -69,7 +69,7 @@ class PreflightTests(unittest.TestCase):
         sentinel = home / 'memory.sqlite3'
         sentinel.write_bytes(b'not opened or modified')
         installed = type('Installed', (), dict(config=self.config))()
-        with patch('upgrade_observation.installation_locked') as observation:
+        with patch('koinon.upgrade_observation.installation_locked') as observation:
             with self.assertRaises(preflight.UnownedMemoryError) as error:
                 preflight.observe_locked(self.old, installed)
             observation.assert_not_called()

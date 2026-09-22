@@ -3,10 +3,11 @@ import shlex
 import sys
 import unittest
 from unittest import mock
-from notification_provider import MAX_NOTICE_BYTES
+from koinon.notification_provider import MAX_NOTICE_BYTES
 
-from participant_lock import identity
-import notification_notices as notices
+from koinon.participant_lock import identity
+from koinon import notification_notices as notices
+from repo_root import ROOT
 
 
 class NoticeTests(unittest.TestCase):
@@ -20,7 +21,7 @@ class NoticeTests(unittest.TestCase):
 
     def test_memory_notice_has_exact_quoted_root_and_no_memory_payload_or_head(self):
         text = notices.render([self.row], '/synthetic/bridge', self.participant, {'a' * 64: self.binding})
-        expected = shlex.join([sys.executable, str(Path(notices.__file__).resolve().with_name('memory.py')),
+        expected = shlex.join([sys.executable, str(ROOT / 'memory.py'),
             '--service-dir', self.binding['memory_state_dir'], '--repo-path', self.binding['repo_path'],
             '--consumer', notices.consumer_key(self.participant, self.binding['repo_key']), 'sync'])
         self.assertIn(expected, text)

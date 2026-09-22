@@ -1,7 +1,7 @@
 import sqlite3
 import unittest
 
-import upgrade_inventory as inventory
+from koinon import upgrade_inventory as inventory
 
 
 class InventoryTests(unittest.TestCase):
@@ -154,7 +154,7 @@ class InventoryTests(unittest.TestCase):
         from pathlib import Path
         import tempfile
         import bridge
-        import notification_journal
+        from koinon import notification_journal
         with tempfile.TemporaryDirectory() as home:
             root = Path(home)
             store = bridge.InboxStore(root)

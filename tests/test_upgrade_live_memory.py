@@ -8,10 +8,10 @@ import unittest
 
 import memory
 import memory_service
-from peer_transport import control_exchange
+from koinon.peer_transport import control_exchange
 from scripts.install import FILES
 import test_upgrade_capture as fixtures
-import upgrade_inventory
+from koinon import upgrade_inventory
 
 
 class LiveGatedMemoryTests(unittest.TestCase):
@@ -60,9 +60,9 @@ class LiveGatedMemoryTests(unittest.TestCase):
                 denied, _ = asyncio.run(control_exchange(self.home,
                     dict(op='note', consumer='synthetic', type='finding', body='must remain gated')))
                 self.assertFalse(denied['ok'])
-                from upgrade_documents import Documents
-                import platform_support
-                import session_supervisor
+                from koinon.upgrade_documents import Documents
+                from koinon import platform_support
+                from koinon import session_supervisor
                 fixtures.MemoryCaptureTests.advance(self, owner, 16)
                 receipt = Documents(self.operation).put('release', dict(
                     version=1, plan=self.prepared['sha256'], members=[]))

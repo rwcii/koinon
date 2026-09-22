@@ -4,8 +4,8 @@ import tempfile
 import unittest
 from unittest import mock
 
-import platform_support
-import session_observation as observation
+from koinon import platform_support
+from koinon import session_observation as observation
 
 
 class LifecycleObservationTests(unittest.TestCase):

@@ -98,7 +98,7 @@ remove the permanent lock to force progress.
 
 Existing owned `codex-peer-*` unit names remain in use. Both old and new ownership
 markers and participant guidance sections are recognized for upgrade and removal.
-The implementation is `participant_instructions.py`; `codex_instructions.py` remains
+The implementation is `koinon/participant_instructions.py`; `koinon/codex_instructions.py` remains
 an import shim. The guidance lock filenames remain unchanged so old and new
 updaters cannot write at the same time. Do not replace markers or delete locks by hand.
 
@@ -543,7 +543,7 @@ operation's status/resume entrypoint. Do not repair, reinstall or delete its mar
 to bypass this refusal.
 
 For the peer-message guidance update, an operator may stage the compatible runtime
-files and replace each file atomically, installing `peer_guidance.py` before its
+files and replace each file atomically, installing `koinon/peer_guidance.py` before its
 importers, without stopping existing sessions. Preserve `install.json`, all state,
 units, and unrelated global instructions. The updated inbox CLI adds guidance even
 when connected to an older server. Running notifiers retain their loaded wording

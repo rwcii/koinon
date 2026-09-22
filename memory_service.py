@@ -15,16 +15,16 @@ import threading
 import time
 import uuid
 
-import durable_state
-import install_state
+from koinon import durable_state
+from koinon import install_state
 import memory
-import memory_service_artifacts
-import memory_service_config
-from participant_lock import file_lock, OwnershipError
-from peer_transport import private_dir
-import platform_support
-import runtime_names
-from work_policy import absolute_path
+from koinon import memory_service_artifacts
+from koinon import memory_service_config
+from koinon.participant_lock import file_lock, OwnershipError
+from koinon.peer_transport import private_dir
+from koinon import platform_support
+from koinon import runtime_names
+from koinon.work_policy import absolute_path
 
 START_TIMEOUT = 20
 STOP_TIMEOUT = 20
@@ -107,7 +107,7 @@ class Selection:
     def __init__(self, prefix, repository, *, state_root=None, backend=None, removing=False, upgrading=False):
         with configuration_boundary():
             self.prefix = absolute_path(str(prefix))
-            import upgrade_exclusion
+            from koinon import upgrade_exclusion
             self.upgrade = upgrade_exclusion.read(self.prefix) if upgrading else None
             config = (self.upgrade['documents']['installation'] if self.upgrade is not None
                       else runtime_names.install_config(self.prefix))
@@ -279,7 +279,7 @@ def managed_status(selection):
 def ensure_managed(selection, *, upgrade=None):
     """Activate only a saved owned selection, then prove manager and child readiness."""
     if upgrade is not None:
-        import upgrade_start
+        from koinon import upgrade_start
         upgrade_start.validate(upgrade, selection, 'memory')
     portable = observation(selection)
     if portable['status'] == 'refused':

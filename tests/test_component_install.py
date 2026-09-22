@@ -7,7 +7,7 @@ import sys
 import tempfile
 import unittest
 
-import component_install
+from koinon import component_install
 from repo_root import ROOT
 
 

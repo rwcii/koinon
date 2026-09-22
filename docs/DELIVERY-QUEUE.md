@@ -318,7 +318,7 @@ Acceptance requirements:
   installation identity before replacement or removal; preserve store data and
   unrelated installations. Define explicit migration for operator-created units
   without silently adopting or overwriting them.
-- Provide Linux without systemd and macOS parity through `platform_support.py`.
+- Provide Linux without systemd and macOS parity through `koinon/platform_support.py`.
   Specify the managed-process handoff and truthful `manual_required`/`start_command`
   result when a persistent host process is required. Resolve the issue's
   unattended-supervision acceptance against this fallback in the design; merely

@@ -5,8 +5,8 @@ from types import SimpleNamespace
 import unittest
 from unittest.mock import Mock, patch
 
-from participant_lock import file_lock
-import upgrade_observation as observation
+from koinon.participant_lock import file_lock
+from koinon import upgrade_observation as observation
 
 
 class ObservationTests(unittest.TestCase):
@@ -85,7 +85,7 @@ class ObservationTests(unittest.TestCase):
         self.selection.backend = 'manual'
         with patch.object(observation.memory_service, 'manager_observation') as memory, \
              patch.object(observation.session_service_manager, 'observation') as session, \
-             patch('upgrade_manual.observe', return_value={'manual': True}) as manual:
+             patch('koinon.upgrade_manual.observe', return_value={'manual': True}) as manual:
             for operation in (observation.memory,):
                 self.assertEqual(operation(self.selection), {'manual': True})
             self.assertEqual(manual.call_count, 1)
@@ -96,9 +96,9 @@ class ObservationTests(unittest.TestCase):
 class InstallationObservationTests(unittest.TestCase):
     def setUp(self):
         import sys
-        import durable_state
-        import session_service_artifacts as artifacts
-        import session_service_config as configuration
+        from koinon import durable_state
+        from koinon import session_service_artifacts as artifacts
+        from koinon import session_service_config as configuration
         import test_session_service_artifacts as fixtures
         fixtures.NativeSessionArtifactsTests.setUp(self)
         self.record = configuration.selection(self.prefix, sys.executable, self.home,
@@ -127,7 +127,7 @@ class InstallationObservationTests(unittest.TestCase):
         with self.assertRaises(observation.ObservationError):
             observation.installation(self.prefix)
         unexpected.unlink()
-        with patch('upgrade_plan.MAX_COMPONENTS', 0):
+        with patch('koinon.upgrade_plan.MAX_COMPONENTS', 0):
             with self.assertRaises(observation.ObservationError):
                 observation.installation(self.prefix)
         self.observe.assert_not_called()

@@ -6,11 +6,11 @@ import threading
 import unittest
 from unittest.mock import patch
 
-import platform_support
-import session_endpoints
-import session_socket_handoff as handoff
-import session_supervisor
-from session_supervisor_state import Records, StateError
+from koinon import platform_support
+from koinon import session_endpoints
+from koinon import session_socket_handoff as handoff
+from koinon import session_supervisor
+from koinon.session_supervisor_state import Records, StateError
 from repo_root import ROOT
 
 
@@ -28,7 +28,7 @@ class SocketHandoffTests(unittest.TestCase):
         owner['control_endpoints']['bridge'] = captured
         owner['spawn_pending'] = 'bridge'
         self.records.publish(owner)
-        script = ('import os,sys\nfrom session_socket_handoff import take\n'
+        script = ('import os,sys\nfrom koinon.session_socket_handoff import take\n'
                   'fd=int(sys.argv[1])\nsock=take(fd,sys.argv[2],"bridge",sys.argv[3])\n'
                   'assert sock.getsockname()==sys.argv[4]\n'
                   'try: os.fstat(fd)\nexcept OSError: pass\nelse: raise AssertionError("original descriptor leaked")\n'
@@ -89,7 +89,7 @@ class SocketHandoffTests(unittest.TestCase):
         owner = self.records.new_owner()
         owner.update(phase='failed', exit_status=78, endpoint_pending='bridge', primary_code='session_configuration_failure')
         self.records.publish(owner)
-        with patch('session_supervisor_state.alive_state', return_value='dead'):
+        with patch('koinon.session_supervisor_state.alive_state', return_value='dead'):
             with self.assertRaises(StateError):
                 self.records.retry()
             with self.assertRaises(StateError):

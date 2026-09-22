@@ -10,14 +10,14 @@ import unittest
 import bridge
 import memory
 import subprocess
-from notification_runtime import Runtime, RuntimeRefusal, create_worker
+from koinon.notification_runtime import Runtime, RuntimeRefusal, create_worker
 import threading
 from unittest import mock
-import platform_support
-import generation_stop
+from koinon import platform_support
+from koinon import generation_stop
 import os
-from participant_lock import identity
-from peer_transport import control_exchange
+from koinon.participant_lock import identity
+from koinon.peer_transport import control_exchange
 from repo_root import ROOT
 
 
@@ -261,7 +261,7 @@ class RuntimeTests(unittest.IsolatedAsyncioTestCase):
         self.assertFalse(self.runtime.operator_blocked)
 
     async def test_manual_control_storage_fault_is_visible_through_public_status(self):
-        from notification_journal import JournalError
+        from koinon.notification_journal import JournalError
         original = self.runtime.worker.call
         async def fail_retry(method, *args, **kwargs):
             if method == 'retry':
@@ -293,14 +293,14 @@ class RuntimeTests(unittest.IsolatedAsyncioTestCase):
                 release.set()
 
     async def test_cli_rebuild_refuses_foreign_target_and_preserves_original_evidence(self):
-        from notification_migration import sqlite_files
+        from koinon.notification_migration import sqlite_files
         await self.request('stop')
         await self.task
         before = (self.state / 'notify-migration.json').read_bytes()
         cursor = (self.state / 'notify-cursor.json').read_bytes()
         for path in sqlite_files(self.state):
             path.unlink(missing_ok=True)  # Synthetic loss, after the journal owner stopped.
-        with mock.patch('platform_support.account_home', return_value=self.root / 'account'):
+        with mock.patch('koinon.platform_support.account_home', return_value=self.root / 'account'):
             (self.root / 'account').mkdir()
             code, result = await self.cli('--thread', 'other-synthetic-target',
                                           'rebuild-journal', '--accept-history-loss')
@@ -333,7 +333,7 @@ class WorkerCreationCancellationTests(unittest.IsolatedAsyncioTestCase):
                 closing.set()
                 await finish.wait()
                 closed.append(True)
-        with mock.patch('notification_runtime.DatabaseWorker', Owned):
+        with mock.patch('koinon.notification_runtime.DatabaseWorker', Owned):
             task = asyncio.create_task(create_worker(lambda: None))
             try:
                 async with asyncio.timeout(3):
@@ -388,7 +388,7 @@ class CleanupTests(unittest.IsolatedAsyncioTestCase):
             self.assertFalse(control.exists())
 
     async def test_memory_close_waits_for_all_watchers_after_one_fails(self):
-        from notification_memory import MemoryWatches
+        from koinon.notification_memory import MemoryWatches
         manager = MemoryWatches('synthetic', mock.AsyncMock())
         entered, release = asyncio.Event(), asyncio.Event()
         async def slow_close():
@@ -413,7 +413,7 @@ class CleanupTests(unittest.IsolatedAsyncioTestCase):
 
 class FailureClassificationTests(unittest.TestCase):
     def test_retryable_journal_faults_do_not_claim_operator_recovery(self):
-        from notification_journal import JournalError
+        from koinon.notification_journal import JournalError
         for code, reason in (('journal_checkpoint_failed', 'storage_error'),
                              ('journal_attempt_in_progress', 'storage_wait')):
             with self.subTest(code=code):
@@ -429,8 +429,8 @@ class FailureClassificationTests(unittest.TestCase):
         self.assertTrue(runtime.internal_fault)
 
     def test_invalid_source_metadata_is_not_a_transient_disk_fault(self):
-        from inbox_schema import InboxSchemaError
-        from database_worker import WorkerFailure
+        from koinon.inbox_schema import InboxSchemaError
+        from koinon.database_worker import WorkerFailure
         fault = InboxSchemaError('synthetic malformed acknowledgement')
         wrapped = WorkerFailure('storage_error')
         wrapped.__cause__ = fault
@@ -442,7 +442,7 @@ class FailureClassificationTests(unittest.TestCase):
 
     def test_only_sqlite_lock_codes_report_storage_wait(self):
         import sqlite3
-        from database_worker import WorkerFailure
+        from koinon.database_worker import WorkerFailure
         for code, wanted in ((sqlite3.SQLITE_BUSY, 'storage_wait'),
                              (sqlite3.SQLITE_LOCKED, 'storage_wait'),
                              (sqlite3.SQLITE_BUSY | (2 << 8), 'storage_wait'),
@@ -466,8 +466,8 @@ class FailureClassificationTests(unittest.TestCase):
 
 class OperatorRecoveryTests(unittest.IsolatedAsyncioTestCase):
     async def test_operator_fault_suspends_delivery_but_keeps_controls_available(self):
-        from notification_journal import JournalError
-        from notification_runtime import ControlRefusal
+        from koinon.notification_journal import JournalError
+        from koinon.notification_runtime import ControlRefusal
         runtime = Runtime(argparse.Namespace(agent='codex'), Path('/synthetic'), 'synthetic', provider=SyntheticProvider())
         runtime.owner = dict(owner='a'*32, bridge_pid=1, notifier_pid=2, proc_start='synthetic')
         runtime.observe_bridge = mock.AsyncMock()
@@ -486,10 +486,10 @@ class OperatorRecoveryTests(unittest.IsolatedAsyncioTestCase):
 class ControlPolicyTests(unittest.TestCase):
     def test_every_control_refusal_is_enumerated_with_the_journal_recovery_vocabulary(self):
         import ast
-        import notification_runtime
-        from notification_journal import ERROR_POLICY
+        from koinon import notification_runtime
+        from koinon.notification_journal import ERROR_POLICY
         raised = set()
-        for name in ('notify.py', 'notification_runtime.py'):
+        for name in ('notify.py', 'koinon/notification_runtime.py'):
             tree = ast.parse((ROOT / name).read_text())
             for node in ast.walk(tree):
                 if isinstance(node, ast.Call) and isinstance(node.func, ast.Name) and node.func.id == 'ControlRefusal':
@@ -517,8 +517,8 @@ class ControlPolicyTests(unittest.TestCase):
                 with mock.patch('sys.argv', ['notify.py', '--state-dir', tmp, '--thread', 'synthetic',
                                            'rebuild-journal', '--accept-history-loss']), \
                      mock.patch('notify.notifier_ownership', return_value=nullcontext()), \
-                     mock.patch('peer_transport.control_exchange', mock.AsyncMock(return_value=(reply, 123))), \
-                     mock.patch('notification_migration.Migration.rebuild') as rebuild, redirect_stdout(output):
+                     mock.patch('koinon.peer_transport.control_exchange', mock.AsyncMock(return_value=(reply, 123))), \
+                     mock.patch('koinon.notification_migration.Migration.rebuild') as rebuild, redirect_stdout(output):
                     self.assertEqual(notify.main(), exit_status)
                 self.assertEqual(json.loads(output.getvalue())['code'], code)
                 self.assertEqual(marker.read_bytes(), b'synthetic retained evidence')

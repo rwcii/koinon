@@ -6,9 +6,9 @@ import sys
 import tempfile
 import unittest
 
-import durable_state
-import notification_migration as migration
-from participant_lock import identity
+from koinon import durable_state
+from koinon import notification_migration as migration
+from koinon.participant_lock import identity
 from repo_root import ROOT
 
 PARTICIPANT = 'synthetic-crash-session'
@@ -21,8 +21,8 @@ import os
 from pathlib import Path
 import sqlite3
 import sys
-import durable_state
-import notification_migration as migration
+from koinon import durable_state
+from koinon import notification_migration as migration
 
 root, boundary = Path(sys.argv[1]), sys.argv[2]
 participant = 'synthetic-crash-session'

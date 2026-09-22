@@ -3,10 +3,10 @@ import tempfile
 import unittest
 from unittest.mock import patch
 
-import durable_state
-import platform_support
-import session_service_artifacts as artifacts
-import session_service_config as configuration
+from koinon import durable_state
+from koinon import platform_support
+from koinon import session_service_artifacts as artifacts
+from koinon import session_service_config as configuration
 
 
 class NativeSessionArtifactsTests(unittest.TestCase):

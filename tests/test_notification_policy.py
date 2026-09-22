@@ -6,9 +6,9 @@ import tempfile
 import unittest
 from unittest import mock
 
-from database_worker import DatabaseWorker, WorkerFailure
-import notification_journal as journal
-import notification_migration as migration
+from koinon.database_worker import DatabaseWorker, WorkerFailure
+from koinon import notification_journal as journal
+from koinon import notification_migration as migration
 from test_notification_journal import work
 
 

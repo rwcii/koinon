@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Register the live bridge and queue inbox notifications to a selected participant."""
 import argparse
-import runtime_names
+from koinon import runtime_names
 import json
 import os
 from pathlib import Path
@@ -10,12 +10,12 @@ import shlex
 import sys
 import uuid
 
-import dsh_delivery
-import durable_state
-import platform_support
-from participant_lock import OwnershipError, notifier_ownership
+from koinon import dsh_delivery
+from koinon import durable_state
+from koinon import platform_support
+from koinon.participant_lock import OwnershipError, notifier_ownership
 from bridge import DEFAULT, private_dir
-from peer_guidance import PEER_GUIDANCE
+from koinon.peer_guidance import PEER_GUIDANCE
 
 
 def proc_start(pid):
@@ -73,7 +73,7 @@ def run(a):
 
 def run_owned(a, root, participant):
     import asyncio
-    from notification_runtime import Runtime
+    from koinon.notification_runtime import Runtime
     async def serving():
         runtime = Runtime(a, root, participant)
         loop = asyncio.get_running_loop()
@@ -88,7 +88,7 @@ def run_owned(a, root, participant):
 
 
 async def control(a):
-    from peer_transport import control_exchange
+    from koinon.peer_transport import control_exchange
     root = Path(a.state_dir).absolute()
     payload = dict(op=a.action)
     if a.action == 'retry':
@@ -98,7 +98,7 @@ async def control(a):
     except (OSError, ValueError, TimeoutError):
         if a.action != 'status':
             raise
-        import notification_health
+        from koinon import notification_health
         import asyncio
         def observe():
             ready = notification_health.verify_owner(root)
@@ -116,13 +116,13 @@ async def control(a):
 
 
 async def rebuild_owned(a, root):
-    from notification_migration import Migration, read_state
-    from notification_runtime import create_worker, settled_cleanup, ControlRefusal
-    from notification_source import InboxSource
-    from notification_journal import JournalError
+    from koinon.notification_migration import Migration, read_state
+    from koinon.notification_runtime import create_worker, settled_cleanup, ControlRefusal
+    from koinon.notification_source import InboxSource
+    from koinon.notification_journal import JournalError
     from contextlib import closing
     import asyncio
-    from peer_transport import control_exchange
+    from koinon.peer_transport import control_exchange
     reply, pid = await control_exchange(root, dict(op='status'))
     status = reply.get('result') if reply.get('ok') else None
     if not isinstance(status, dict) or status.get('pid') != pid:
@@ -164,8 +164,8 @@ async def rebuild_owned(a, root):
 
 def main():
     import asyncio
-    from notification_journal import JournalError
-    from notification_runtime import RuntimeRefusal, ControlRefusal
+    from koinon.notification_journal import JournalError
+    from koinon.notification_runtime import RuntimeRefusal, ControlRefusal
     p = argparse.ArgumentParser(description=__doc__)
     p.add_argument('--thread', help='exact existing Codex thread or DeepSeek session; required to start or rebuild')
     p.add_argument('--agent', choices=['codex', 'deepseek'], default='codex')

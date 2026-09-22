@@ -13,8 +13,8 @@ from unittest.mock import patch, Mock
 
 import bridge
 import memory
-import peer_transport as transport
-import platform_support
+from koinon import peer_transport as transport
+from koinon import platform_support
 
 
 class ControlTransportTests(unittest.IsolatedAsyncioTestCase):
@@ -217,8 +217,8 @@ class ControlTransportTests(unittest.IsolatedAsyncioTestCase):
         writer = Writer()
         async def connect(*args, **kwargs):
             return Reader(), writer
-        with patch('peer_transport.asyncio.open_unix_connection', connect), \
-                patch('peer_transport.credentials', return_value=os.getpid()):
+        with patch('koinon.peer_transport.asyncio.open_unix_connection', connect), \
+                patch('koinon.peer_transport.credentials', return_value=os.getpid()):
             task = asyncio.create_task(transport.control_exchange(self.root, {'op': 'status'}))
             await asyncio.wait_for(entered.wait(), 1)
             task.cancel()
@@ -246,7 +246,7 @@ class ControlTransportTests(unittest.IsolatedAsyncioTestCase):
 
     async def test_request_size_is_checked_before_connection(self):
         await self.server()
-        with patch('peer_transport.asyncio.open_unix_connection') as connect:
+        with patch('koinon.peer_transport.asyncio.open_unix_connection') as connect:
             with self.assertRaisesRegex(ValueError, 'frame too large'):
                 await transport.control_exchange(self.root, {'op': 'x', 'body': 'x'*transport.LIMIT})
             connect.assert_not_called()

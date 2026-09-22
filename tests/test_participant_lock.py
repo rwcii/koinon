@@ -11,8 +11,8 @@ import unittest
 from unittest.mock import patch
 
 import notify
-import participant_lock as locks
-import platform_support
+from koinon import participant_lock as locks
+from koinon import platform_support
 
 
 class OwnershipTests(unittest.TestCase):
@@ -24,7 +24,7 @@ class OwnershipTests(unittest.TestCase):
         self.root = Path(temporary.name)
         self.home = self.root / 'account home'
         self.home.mkdir(mode=0o700)
-        self.patch = patch('platform_support.account_home', return_value=self.home)
+        self.patch = patch('koinon.platform_support.account_home', return_value=self.home)
         self.patch.start()
         self.addCleanup(self.patch.stop)
         self.state = self.root / 'one'
@@ -140,7 +140,7 @@ class OwnershipTests(unittest.TestCase):
         self.assertFalse(self.state.exists())
 
     def test_missing_account_home_has_explicit_failure(self):
-        with patch('platform_support.account_home', side_effect=platform_support.AccountHomeUnavailable):
+        with patch('koinon.platform_support.account_home', side_effect=platform_support.AccountHomeUnavailable):
             with self.assertRaises(locks.OwnershipError) as caught:
                 with locks.notifier_ownership(self.state, 'codex', 'a'):
                     pass
@@ -150,7 +150,7 @@ class OwnershipTests(unittest.TestCase):
     def test_cli_reports_account_home_failure_without_traceback(self):
         script = """
 import runpy, sys
-import platform_support
+from koinon import platform_support
 platform_support.account_home = lambda: (_ for _ in ()).throw(
     platform_support.AccountHomeUnavailable())
 sys.argv = ['notify.py', '--thread', 'synthetic-session', '--state-dir', sys.argv[1]]
@@ -175,8 +175,8 @@ runpy.run_module('notify', run_name='__main__')
         script = '''
 import json, subprocess, sys
 from pathlib import Path
-import platform_support
-from participant_lock import notifier_ownership
+from koinon import platform_support
+from koinon.participant_lock import notifier_ownership
 platform_support.account_home = lambda: Path(sys.argv[1])
 with notifier_ownership(Path(sys.argv[2]), 'codex', 'a') as owner:
     child = subprocess.Popen([sys.executable, '-c', 'import time; time.sleep(60)'],

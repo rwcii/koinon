@@ -20,12 +20,12 @@ import sys
 import time
 
 from bridge import private_dir, peers
-import dsh_delivery
+from koinon import dsh_delivery
 from notify import save
-import platform_support
-import runtime_names
-import notification_health
-import session_observation
+from koinon import platform_support
+from koinon import runtime_names
+from koinon import notification_health
+from koinon import session_observation
 from scripts.install import units, check_owned_unit, start_command_for
 
 
@@ -243,7 +243,7 @@ def main():
     if a.action == 'work-policy':
         if a.agent is None:
             p.error('work-policy requires --agent')
-        import work_policy
+        from koinon import work_policy
         try:
             policy = work_policy.query(runtime_names.install_config(prefix), a.repo, a.agent)
         except (ValueError, OSError) as exc:
@@ -276,12 +276,12 @@ def main():
     # legacy ensure/stop or silently rewrite its registered identity.
     native = state / 'native-service.json'
     if a.action in ('ensure', 'stage') and config.get('session_backend') in ('systemd', 'launchd'):
-        import session_install
+        from koinon import session_install
         try:
             validate_participant_executable(config, agent, a.action)
             session_install.stage(prefix, config, state, a.thread, repo, agent, model, save_registration)
         except (OSError, ValueError) as exc:
-            import durable_state
+            from koinon import durable_state
             temporary = isinstance(exc, durable_state.StateReadBusyError)
             print(json.dumps(dict(status='unavailable',
                                   code='session_temporary_failure' if temporary else 'session_configuration_failure',
@@ -291,9 +291,9 @@ def main():
             print(json.dumps(dict(status='staged', running=False, state_dir=str(state))))
             return
     if runtime_names.present(native):
-        import durable_state
+        from koinon import durable_state
         import session_service
-        import session_service_artifacts
+        from koinon import session_service_artifacts
         try:
             record = session_service_artifacts.load(state)
             saved = durable_state.read(state / 'session.json')

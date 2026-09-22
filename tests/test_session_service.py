@@ -10,12 +10,12 @@ import sys
 import unittest
 from unittest.mock import patch
 
-import durable_state
-import platform_support
+from koinon import durable_state
+from koinon import platform_support
 import session_service as service
-import session_service_artifacts as artifacts
-import session_service_config as configuration
-from session_supervisor_state import StateError
+from koinon import session_service_artifacts as artifacts
+from koinon import session_service_config as configuration
+from koinon.session_supervisor_state import StateError
 import test_session_service_artifacts as artifact_tests
 from scripts.install import FILES
 from test_session import isolate_account_home
@@ -55,7 +55,7 @@ class NativeSessionServiceTests(unittest.TestCase):
     def test_recovery_basis_is_mandatory_and_never_turns_assertion_into_exit(self):
         owner = self.pending()
         before = self.records.owner_path.read_bytes(), self.records.refusal_path.read_bytes()
-        with patch('session_supervisor_state.alive_state', return_value='dead'), \
+        with patch('koinon.session_supervisor_state.alive_state', return_value='dead'), \
                 patch.object(service, 'alive_state', return_value='dead'):
             result = service.execute('recover-spawn', self.selection,
                                      generation=owner['generation'], assertion=True)

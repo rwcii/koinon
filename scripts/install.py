@@ -13,14 +13,14 @@ import sys
 # Run directly, `scripts/` is sys.path[0], so the project root is added to reach
 # the platform module rather than testing the platform here.
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
-import platform_support
-import runtime_names
-import install_state
+from koinon import platform_support
+from koinon import runtime_names
+from koinon import install_state
 
 MARKER = runtime_names.SERVICE_MARKER
 SERVICES = runtime_names.service_names()
 
-FILES = ('upgrade_discovery.py', 'upgrade_manual.py', 'scripts/upgrade.py', 'upgrade_command.py', 'upgrade_complete.py', 'upgrade_preflight.py', 'upgrade_release.py', 'upgrade_coordinator.py', 'upgrade_probe.py', 'upgrade_start.py', 'upgrade_replace.py', 'upgrade_migration.py', 'upgrade_capture.py', 'upgrade_quiescence.py', 'upgrade_reservation.py', 'upgrade_backup.py', 'upgrade_backup_inventory.py', 'upgrade_bundle.py', 'upgrade_documents.py', 'upgrade_exclusion.py', 'upgrade_gate.py', 'upgrade_inventory.py', 'upgrade_journal.py', 'upgrade_manifest.py', 'upgrade_observation.py', 'upgrade_plan.py', 'uninstall_finalize.py', 'component_remove.py', 'session_install.py', 'component_install.py', 'session_socket_handoff.py', 'session_endpoints.py', 'session_service_manager.py', 'session_service.py', 'session_service_artifacts.py', 'session_service_config.py', 'session_supervisor.py', 'session_supervisor_state.py', 'generation_stop.py', 'memory_service.py', 'memory_service_artifacts.py', 'memory_service_config.py', 'docs/WORK-ITEMS-UPGRADE.md', 'work_guidance.py', 'docs/WORK-ITEMS-POLICY.md', 'install_state.py', 'work_policy.py', 'work_maintenance.py', 'work_items.py', 'work_storage.py', 'claims.py', 'work_schema.py', 'docs/DELIVERY.md', 'participant_presence.py', 'delivery_ledger.py', 'usage_report.py', 'usage_sources.py', 'usage_selection.py', 'docs/USAGE.md', 'runtime_names.py', 'participant_instructions.py', 'session_observation.py', 'durable_state.py', 'notification_delivery.py', 'notification_health.py', 'notification_journal.py', 'notification_legacy.py', 'notification_memory.py', 'notification_migration.py', 'notification_notices.py', 'notification_provider.py', 'notification_runtime.py', 'notification_source.py', 'notification_state.py', 'subscriptions.py','memory_bindings.py', 'inbox_schema.py', 'database_worker.py', 'service_runtime.py', 'participant_lock.py', 'peer_transport.py', 'peer_guidance.py', 'CHANGELOG.md', 'memory.py', 'session.py', 'codex_instructions.py', 'platform_support.py', 'dsh_delivery.py', 'scripts/install.py', 'scripts/uninstall.py', 'scripts/uninstall.sh', 'bridge.py', 'notify.py', 'README.md', 'PROTOCOL.md', 'LICENSE', 'CONTRIBUTING.md', 'AGENTS.md', 'docs/INSTALL.md', 'docs/NOTIFIER.md', 'docs/IDENTIFIER-MIGRATION.md', 'docs/PARITY-MEMORY-DESIGN.md')
+FILES = ('koinon/upgrade_discovery.py', 'koinon/upgrade_manual.py', 'scripts/upgrade.py', 'koinon/upgrade_command.py', 'koinon/upgrade_complete.py', 'koinon/upgrade_preflight.py', 'koinon/upgrade_release.py', 'koinon/upgrade_coordinator.py', 'koinon/upgrade_probe.py', 'koinon/upgrade_start.py', 'koinon/upgrade_replace.py', 'koinon/upgrade_migration.py', 'koinon/upgrade_capture.py', 'koinon/upgrade_quiescence.py', 'koinon/upgrade_reservation.py', 'koinon/upgrade_backup.py', 'koinon/upgrade_backup_inventory.py', 'koinon/upgrade_bundle.py', 'koinon/upgrade_documents.py', 'koinon/upgrade_exclusion.py', 'koinon/upgrade_gate.py', 'koinon/upgrade_inventory.py', 'koinon/upgrade_journal.py', 'koinon/upgrade_layout.py', 'koinon/upgrade_manifest.py', 'koinon/upgrade_observation.py', 'koinon/upgrade_plan.py', 'koinon/uninstall_finalize.py', 'koinon/component_remove.py', 'koinon/session_install.py', 'koinon/component_install.py', 'koinon/session_socket_handoff.py', 'koinon/session_endpoints.py', 'koinon/session_service_manager.py', 'session_service.py', 'koinon/session_service_artifacts.py', 'koinon/session_service_config.py', 'koinon/session_supervisor.py', 'koinon/session_supervisor_state.py', 'koinon/generation_stop.py', 'memory_service.py', 'koinon/memory_service_artifacts.py', 'koinon/memory_service_config.py', 'docs/WORK-ITEMS-UPGRADE.md', 'koinon/work_guidance.py', 'docs/WORK-ITEMS-POLICY.md', 'koinon/install_state.py', 'koinon/work_policy.py', 'koinon/work_maintenance.py', 'koinon/work_items.py', 'koinon/work_storage.py', 'koinon/__init__.py', 'koinon/claims.py', 'koinon/work_schema.py', 'docs/DELIVERY.md', 'koinon/participant_presence.py', 'koinon/delivery_ledger.py', 'usage_report.py', 'koinon/usage_sources.py', 'koinon/usage_selection.py', 'docs/USAGE.md', 'koinon/runtime_names.py', 'koinon/participant_instructions.py', 'koinon/session_observation.py', 'koinon/durable_state.py', 'koinon/notification_delivery.py', 'koinon/notification_health.py', 'koinon/notification_journal.py', 'koinon/notification_legacy.py', 'koinon/notification_memory.py', 'koinon/notification_migration.py', 'koinon/notification_notices.py', 'koinon/notification_provider.py', 'koinon/notification_runtime.py', 'koinon/notification_source.py', 'koinon/notification_state.py', 'koinon/subscriptions.py', 'koinon/memory_bindings.py', 'koinon/inbox_schema.py', 'koinon/database_worker.py', 'koinon/service_runtime.py', 'koinon/participant_lock.py', 'koinon/peer_transport.py', 'koinon/peer_guidance.py', 'CHANGELOG.md', 'memory.py', 'session.py', 'koinon/codex_instructions.py', 'koinon/platform_support.py', 'koinon/dsh_delivery.py', 'scripts/install.py', 'scripts/uninstall.py', 'scripts/uninstall.sh', 'bridge.py', 'notify.py', 'README.md', 'PROTOCOL.md', 'LICENSE', 'CONTRIBUTING.md', 'AGENTS.md', 'docs/INSTALL.md', 'docs/NOTIFIER.md', 'docs/IDENTIFIER-MIGRATION.md', 'docs/PARITY-MEMORY-DESIGN.md')
 
 
 def unit_arg(value):
@@ -291,7 +291,7 @@ def main():
             p.error('work configuration requires --repo, --participant and an explicit --guidance-file when enabling')
         if a.remove_work_items and a.guidance_file:
             p.error('removal uses the previously configured guidance file')
-        import work_guidance
+        from koinon import work_guidance
         prefix = (a.prefix or runtime_names.default_prefix()).expanduser().resolve()
         try:
             result = (work_guidance.configure(prefix, a.repo, a.participant, a.guidance_file)
@@ -318,7 +318,7 @@ def main():
     with install_state.locked(a.prefix) as configuration:
         install(a, p, configuration)
     if getattr(a, 'memory_selection', None) is not None:
-        import component_install
+        from koinon import component_install
         record = component_install.stage_memory(a.prefix, a.memory_selection)
         if a.no_start:
             print('Memory selection staged; manager was not queried or started.')
@@ -343,8 +343,8 @@ def install(a, p, configuration=None, validate_only=False):
         p.error('--thread, --configure-codex, --configure-deepseek or --configure-memory is required')
     a.memory_selection = None
     if a.repo and (a.configure_memory or a.configure_codex or a.configure_deepseek or a.thread):
-        import component_install
-        import memory_service_config
+        from koinon import component_install
+        from koinon import memory_service_config
         key, _ = memory_service_config.selection(a.repo, a.state_dir)
         existing = bool(previous) or (a.prefix / 'bridge.py').exists()
         already_selected = key in previous.get('memory_services', {}).get('repositories', {})
@@ -373,7 +373,7 @@ def install(a, p, configuration=None, validate_only=False):
                 or not Path(a.codex).is_file() or not os.access(a.codex, os.X_OK)):
             p.error('provide an executable absolute --codex path, or install Codex CLI on PATH')
     if a.configure_codex or a.configure_deepseek or a.configure_memory or a.memory_selection is not None:
-        import component_install
+        from koinon import component_install
         component_install.runtime_preflight(a.prefix, Path(__file__).resolve().parent.parent, FILES, previous)
         if (not memory_only and a.memory_selection is not None and previous.get('session_backend') is not None
                 and previous['session_backend'] != a.memory_selection['backend']):
@@ -400,7 +400,7 @@ def install(a, p, configuration=None, validate_only=False):
             updates['session_backend'] = a.memory_selection['backend']
         if a.memory_selection is not None:
             component_install.prepare_artifact_directory(a.memory_selection)
-            import memory_service_config
+            from koinon import memory_service_config
             key, _ = memory_service_config.identity(a.memory_selection['common_directory'])
             inventory = previous.get('memory_services', dict(version=1, repositories={}))
             if key not in inventory['repositories']:
@@ -418,7 +418,7 @@ def install(a, p, configuration=None, validate_only=False):
             if (source/file).resolve() != dest.resolve():
                 component_install.copy_runtime(source/file, dest)
         sys.path.insert(0,str(a.prefix))
-        from participant_instructions import update
+        from koinon.participant_instructions import update
         guidance = update(a.codex_home,a.prefix) if a.configure_codex else None
         # The harness reads its guidance from AGENTS.md in the harness home, so a
         # DeepSeek session learns to register and read its inbox the same way a
@@ -493,7 +493,7 @@ if __name__ == '__main__':
         raise SystemExit(75 if exc.code == 'configuration_busy' else
                          platform_support.CONFIGURATION_EXIT_STATUS) from None
     except (OSError, ValueError, subprocess.SubprocessError) as exc:
-        import durable_state
+        from koinon import durable_state
         temporary = isinstance(exc, (durable_state.StateReadBusyError, subprocess.SubprocessError))
         print(json.dumps(dict(ok=False, code=getattr(exc, 'code', 'installation_incomplete'),
                               error=str(exc), paths=getattr(exc, 'paths', ()),

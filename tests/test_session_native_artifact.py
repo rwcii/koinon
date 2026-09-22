@@ -4,7 +4,7 @@ import plistlib
 import unittest
 from unittest.mock import patch
 
-import platform_support
+from koinon import platform_support
 import session
 
 

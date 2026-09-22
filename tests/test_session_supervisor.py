@@ -12,8 +12,8 @@ import unittest
 from unittest.mock import Mock, patch
 
 from scripts.install import FILES
-import session_supervisor as supervisor
-from session_supervisor_state import Records, StateError
+from koinon import session_supervisor as supervisor
+from koinon.session_supervisor_state import Records, StateError
 from test_session import isolate_account_home
 from repo_root import ROOT
 
@@ -65,7 +65,7 @@ class FailureTests(unittest.TestCase):
                 refusal = records.read(refusal=True)
                 self.assertEqual(refusal['spawn_pending'], None if reaped else 'bridge')
                 self.assertEqual(refusal['primary_code'], 'session_configuration_failure')
-                with patch('session_supervisor_state.alive_state', return_value='dead'):
+                with patch('koinon.session_supervisor_state.alive_state', return_value='dead'):
                     if reaped:
                         records.retry()
                     else:
@@ -79,11 +79,11 @@ class FailureTests(unittest.TestCase):
                        primary_code='session_configuration_failure')
         self.records.publish(failure)
         with patch.object(supervisor, 'alive_state', return_value='dead'), \
-                patch('session_supervisor_state.alive_state', return_value='dead'), \
+                patch('koinon.session_supervisor_state.alive_state', return_value='dead'), \
                 patch.object(supervisor.Runner, 'attempt') as attempt:
             self.assertEqual(supervisor.run(self.records, self.commands, 'manual'), 78)
             attempt.assert_not_called()
-            with patch('session_supervisor_state.alive_state', return_value='dead'):
+            with patch('koinon.session_supervisor_state.alive_state', return_value='dead'):
                 self.records.retry()
             self.assertEqual(supervisor.run(self.records, self.commands, 'manual'), 0)
             attempt.assert_called_once()
@@ -141,7 +141,8 @@ class NativeChildrenTests(unittest.TestCase):
 
     def start(self, commands=None):
         wrapper = self.app / 'synthetic-runner.py'
-        wrapper.write_text('from session_supervisor import run\nfrom session_supervisor_state import Records\n'
+        wrapper.write_text('from koinon.session_supervisor import run\n'
+                           'from koinon.session_supervisor_state import Records\n'
                            + 'raise SystemExit(run(Records(' + repr(str(self.home)) + ", 'a'*64, 'b'*64), "
                            + repr(commands or self.commands) + ", 'manual'))\n")
         log = (self.root / 'runner.log').open('w')
@@ -182,7 +183,7 @@ class NativeChildrenTests(unittest.TestCase):
 
     def test_notifier_permanent_runtime_failure_stops_bridge_and_records_refusal(self):
         trigger = self.root / 'fail-notifier'
-        module = self.app / 'notification_runtime.py'
+        module = self.app / 'koinon/notification_runtime.py'
         with module.open('a') as stream:
             stream.write("\n_original_run = Runtime.run\n"
                          "async def _synthetic_run(self):\n"

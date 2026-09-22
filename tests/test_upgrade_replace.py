@@ -4,9 +4,11 @@ import unittest
 from unittest.mock import patch
 
 import test_upgrade_capture as fixtures
-import upgrade_capture
-from upgrade_documents import Documents
-import upgrade_replace
+from koinon import upgrade_capture
+from koinon.upgrade_documents import Documents
+from koinon import durable_state
+from koinon import upgrade_layout
+from koinon import upgrade_replace
 
 
 class ReplacementTests(unittest.TestCase):
@@ -27,7 +29,7 @@ class ReplacementTests(unittest.TestCase):
 
     def test_replace_and_repeat_preserve_backups_and_confirm_all_source_bytes(self):
         old = (self.prefix / 'entry.py').read_bytes()
-        with self.owner() as owner, patch('platform_support.session_manager_observation', return_value=dict(status='absent')):
+        with self.owner() as owner, patch('koinon.platform_support.session_manager_observation', return_value=dict(status='absent')):
             with upgrade_capture.hold(owner) as guard:
                 self.prepare_backups(owner, guard)
                 result = upgrade_replace.replace(guard)
@@ -48,7 +50,7 @@ class ReplacementTests(unittest.TestCase):
         cached.chmod(0o600)
         untouched = cached.parent / 'unrelated.keep'
         untouched.write_text('retained unrelated file')
-        with self.owner() as owner, patch('platform_support.session_manager_observation', return_value=dict(status='absent')):
+        with self.owner() as owner, patch('koinon.platform_support.session_manager_observation', return_value=dict(status='absent')):
             with upgrade_capture.hold(owner) as guard:
                 self.prepare_backups(owner, guard)
                 upgrade_replace.replace(guard)
@@ -67,7 +69,7 @@ class ReplacementTests(unittest.TestCase):
         unrelated.write_text('do not remove')
         cached.symlink_to(unrelated)
         old = (self.prefix / 'entry.py').read_bytes()
-        with self.owner() as owner, patch('platform_support.session_manager_observation', return_value=dict(status='absent')):
+        with self.owner() as owner, patch('koinon.platform_support.session_manager_observation', return_value=dict(status='absent')):
             with upgrade_capture.hold(owner) as guard:
                 self.prepare_backups(owner, guard)
                 with self.assertRaisesRegex(ValueError, 'bytecode'):
@@ -82,7 +84,7 @@ class ReplacementTests(unittest.TestCase):
             if Path(path).name == 'replacement-progress.json' and value['index'] == 1:
                 raise OSError('synthetic completion interruption')
             return publish(path, value, **kwargs)
-        with self.owner() as owner, patch('platform_support.session_manager_observation', return_value=dict(status='absent')):
+        with self.owner() as owner, patch('koinon.platform_support.session_manager_observation', return_value=dict(status='absent')):
             with upgrade_capture.hold(owner) as guard:
                 self.prepare_backups(owner, guard)
                 with patch.object(upgrade_replace.durable_state, 'publish', side_effect=interrupt):
@@ -94,7 +96,7 @@ class ReplacementTests(unittest.TestCase):
 
     def test_missing_backup_receipt_prevents_runtime_mutation(self):
         before = (self.prefix / 'entry.py').read_bytes()
-        with self.owner() as owner, patch('platform_support.session_manager_observation', return_value=dict(status='absent')):
+        with self.owner() as owner, patch('koinon.platform_support.session_manager_observation', return_value=dict(status='absent')):
             with upgrade_capture.hold(owner) as guard:
                 owner.journal.advance(owner.journal.read(), evidence='a' * 64)
                 owner.journal.advance(owner.journal.read())
@@ -103,7 +105,7 @@ class ReplacementTests(unittest.TestCase):
         self.assertEqual((self.prefix / 'entry.py').read_bytes(), before)
 
     def test_substituted_completed_file_is_never_repaired_implicitly(self):
-        with self.owner() as owner, patch('platform_support.session_manager_observation', return_value=dict(status='absent')):
+        with self.owner() as owner, patch('koinon.platform_support.session_manager_observation', return_value=dict(status='absent')):
             with upgrade_capture.hold(owner) as guard:
                 self.prepare_backups(owner, guard)
                 upgrade_replace.replace(guard)
@@ -111,3 +113,113 @@ class ReplacementTests(unittest.TestCase):
                 with self.assertRaises(ValueError):
                     upgrade_replace.replace(guard)
                 self.assertEqual((self.prefix / 'entry.py').read_text(), 'operator changed this file')
+
+
+class RetirementTests(unittest.TestCase):
+    """A cross-layout upgrade: the release publishes a path the runtime holds elsewhere."""
+    legacy = (('legacy/old.py', 'koinon/legacy.py'),)
+
+    def setUp(self):
+        ReplacementTests.setUp(self)
+
+    def owner(self):
+        return ReplacementTests.owner(self)
+
+    def prepare_backups(self, owner, guard):
+        ReplacementTests.prepare_backups(self, owner, guard)
+
+    def held(self, moves):
+        return (self.owner(),
+                patch('koinon.platform_support.session_manager_observation', return_value=dict(status='absent')),
+                patch.dict(upgrade_layout.MOVES, moves, clear=True))
+
+    def test_declared_move_publishes_then_retires_and_keeps_the_old_bytes_in_backup(self):
+        retired_bytes = (self.prefix / 'legacy/old.py').read_bytes()
+        owner_context, observation, declaration = self.held({'legacy/old.py': 'koinon/legacy.py'})
+        with owner_context as owner, observation, declaration:
+            with upgrade_capture.hold(owner) as guard:
+                self.prepare_backups(owner, guard)
+                result = upgrade_replace.replace(guard)
+                self.assertEqual((self.prefix / 'koinon/legacy.py').read_bytes(),
+                                 (self.source / 'koinon/legacy.py').read_bytes())
+                self.assertFalse((self.prefix / 'legacy/old.py').exists())
+                # The frozen backup still holds the retired path, so recovery stays possible.
+                self.assertEqual((self.runtime_destination / 'legacy/old.py').read_bytes(), retired_bytes)
+                self.assertEqual(result['retired'], ['legacy/old.py'])
+                # Repeating the step must not reconstruct the retired path.
+                self.assertEqual(upgrade_replace.replace(guard), result)
+                self.assertFalse((self.prefix / 'legacy/old.py').exists())
+
+    def test_undeclared_removal_refuses_before_publishing_or_retiring_anything(self):
+        published = (self.prefix / 'entry.py').read_bytes()
+        owner_context, observation, declaration = self.held({})
+        with owner_context as owner, observation, declaration:
+            with upgrade_capture.hold(owner) as guard:
+                self.prepare_backups(owner, guard)
+                with self.assertRaises(upgrade_replace.ReplacementError) as refusal:
+                    upgrade_replace.replace(guard)
+        self.assertIn('undeclared runtime file removal: legacy/old.py', str(refusal.exception))
+        self.assertTrue((self.prefix / 'legacy/old.py').exists())
+        self.assertEqual((self.prefix / 'entry.py').read_bytes(), published)
+
+    def test_declared_move_without_a_published_destination_refuses(self):
+        owner_context, observation, declaration = self.held({'legacy/old.py': 'koinon/absent.py'})
+        with owner_context as owner, observation, declaration:
+            with upgrade_capture.hold(owner) as guard:
+                self.prepare_backups(owner, guard)
+                with self.assertRaises(upgrade_replace.ReplacementError) as refusal:
+                    upgrade_replace.replace(guard)
+        self.assertIn('no published destination', str(refusal.exception))
+        self.assertTrue((self.prefix / 'legacy/old.py').exists())
+
+    def test_operator_change_to_a_retiring_path_refuses_instead_of_deleting_it(self):
+        owner_context, observation, declaration = self.held({'legacy/old.py': 'koinon/legacy.py'})
+        with owner_context as owner, observation, declaration:
+            with upgrade_capture.hold(owner) as guard:
+                self.prepare_backups(owner, guard)
+                (self.prefix / 'legacy/old.py').write_text('operator change\n')
+                with self.assertRaises(upgrade_replace.ReplacementError) as refusal:
+                    upgrade_replace.replace(guard)
+        self.assertIn('retired runtime path changed before removal', str(refusal.exception))
+        self.assertEqual((self.prefix / 'legacy/old.py').read_text(), 'operator change\n')
+
+    def test_a_failed_directory_flush_leaves_the_retirement_uncheckpointed(self):
+        """Unlink then a failed flush must not be recorded as a completed retirement.
+
+        A checkpoint claims the path is gone durably. If the flush fails after the
+        unlink, the resumed attempt sees the path already absent, so without
+        re-establishing durability it would record a removal that never reached
+        storage. The fault fires only once the path is gone, which is exactly the
+        window between the unlink and its checkpoint.
+        """
+        real = upgrade_replace.platform_support.sync_state_directory
+        faults, flushes = {'left': 1}, []
+
+        def flush(path):
+            retired_gone = not (self.prefix / 'legacy/old.py').exists()
+            if Path(path) == self.prefix / 'legacy' and retired_gone:
+                flushes.append(faults['left'])
+                if faults['left']:
+                    faults['left'] -= 1
+                    raise OSError('injected directory flush failure')
+            return real(path)
+
+        owner_context, observation, declaration = self.held({'legacy/old.py': 'koinon/legacy.py'})
+        progress = self.operation / 'replacement-progress.json'
+        with owner_context as owner, observation, declaration:
+            with upgrade_capture.hold(owner) as guard:
+                self.prepare_backups(owner, guard)
+                with patch.object(upgrade_replace.platform_support, 'sync_state_directory', flush):
+                    with self.assertRaises(OSError):
+                        upgrade_replace.replace(guard)
+                    # The unlink happened; the flush did not. Nothing may be recorded.
+                    self.assertFalse((self.prefix / 'legacy/old.py').exists())
+                    self.assertEqual(faults['left'], 0)
+                    self.assertEqual(durable_state.read(progress)['retired'], 0)
+                    flushes.clear()
+                    result = upgrade_replace.replace(guard)
+                # The resumed attempt must flush the directory again, although the
+                # path was already gone when it started.
+                self.assertTrue(flushes)
+                self.assertEqual(result['retired'], ['legacy/old.py'])
+                self.assertFalse((self.prefix / 'legacy/old.py').exists())

@@ -13,7 +13,7 @@ import unittest
 from unittest.mock import patch
 import urllib.error
 
-import dsh_delivery
+from koinon import dsh_delivery
 
 SECRET = bytes(range(32))
 SECRET_TEXT = base64.urlsafe_b64encode(SECRET).decode().rstrip('=')
@@ -414,7 +414,7 @@ class DeliverTests(unittest.TestCase):
                 raise urllib.error.URLError(ConnectionRefusedError(61, 'Connection refused'))
             return FakeResponse({'ok': True, 'value': {'accepted': True}})
 
-        with patch('dsh_delivery.socket.getaddrinfo', return_value=[
+        with patch('koinon.dsh_delivery.socket.getaddrinfo', return_value=[
                 (socket.AF_INET6, socket.SOCK_STREAM, 6, '', ('::1', 51992, 0, 0)),
                 (socket.AF_INET, socket.SOCK_STREAM, 6, '', ('127.0.0.1', 51992))]):
             result = dsh_delivery.deliver('http://localhost:51992', 'session-abc', 'notice',
@@ -433,7 +433,7 @@ class DeliverTests(unittest.TestCase):
             attempts.append(request.full_url)
             raise urllib.error.HTTPError(request.full_url, 401, 'Unauthorized', {}, None)
 
-        with patch('dsh_delivery.socket.getaddrinfo', return_value=[
+        with patch('koinon.dsh_delivery.socket.getaddrinfo', return_value=[
                 (socket.AF_INET6, socket.SOCK_STREAM, 6, '', ('::1', 51992, 0, 0)),
                 (socket.AF_INET, socket.SOCK_STREAM, 6, '', ('127.0.0.1', 51992))]):
             with self.assertRaises(dsh_delivery.DeliveryError):
@@ -445,7 +445,7 @@ class DeliverTests(unittest.TestCase):
         def opener(request, timeout=None):
             raise urllib.error.URLError(ConnectionRefusedError(61, 'Connection refused'))
 
-        with patch('dsh_delivery.socket.getaddrinfo', return_value=[
+        with patch('koinon.dsh_delivery.socket.getaddrinfo', return_value=[
                 (socket.AF_INET, socket.SOCK_STREAM, 6, '', ('127.0.0.1', 51992))]):
             with self.assertRaises(dsh_delivery.DeliveryError) as caught:
                 dsh_delivery.deliver('http://127.0.0.1:51992', 'session-abc', 'notice',
@@ -480,7 +480,7 @@ class DeliverTests(unittest.TestCase):
                 raise urllib.error.HTTPError(request.full_url, 503, 'Service Unavailable', {}, None)
             return FakeResponse({'ok': True, 'value': {'accepted': True}})
 
-        with patch('dsh_delivery.socket.getaddrinfo', return_value=TWO_LOOPBACK):
+        with patch('koinon.dsh_delivery.socket.getaddrinfo', return_value=TWO_LOOPBACK):
             result = dsh_delivery.deliver('http://localhost:51992', 'session-abc', 'notice',
                                           credentials=self.credentials, opener=opener)
         self.assertEqual(result, {'accepted': True})
@@ -495,7 +495,7 @@ class DeliverTests(unittest.TestCase):
                 return RawResponse(b'<html>not the harness</html>')
             return FakeResponse({'ok': True, 'value': {'accepted': True}})
 
-        with patch('dsh_delivery.socket.getaddrinfo', return_value=TWO_LOOPBACK):
+        with patch('koinon.dsh_delivery.socket.getaddrinfo', return_value=TWO_LOOPBACK):
             result = dsh_delivery.deliver('http://localhost:51992', 'session-abc', 'notice',
                                           credentials=self.credentials, opener=opener)
         self.assertEqual(result, {'accepted': True})
@@ -516,7 +516,7 @@ class DeliverTests(unittest.TestCase):
                 raise http.client.BadStatusLine('HELLO FROM A NON-HARNESS SERVICE')
             return FakeResponse({'ok': True, 'value': {'accepted': True}})
 
-        with patch('dsh_delivery.socket.getaddrinfo', return_value=TWO_LOOPBACK):
+        with patch('koinon.dsh_delivery.socket.getaddrinfo', return_value=TWO_LOOPBACK):
             result = dsh_delivery.deliver('http://localhost:51992', 'session-abc', 'notice',
                                           credentials=self.credentials, opener=opener)
         self.assertEqual(result, {'accepted': True})

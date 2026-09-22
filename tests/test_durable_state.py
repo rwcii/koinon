@@ -4,8 +4,8 @@ import tempfile
 import unittest
 from unittest import mock
 
-import durable_state as state
-import platform_support
+from koinon import durable_state as state
+from koinon import platform_support
 
 
 class DurableStateTests(unittest.TestCase):

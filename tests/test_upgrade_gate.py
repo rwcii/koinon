@@ -6,18 +6,18 @@ import unittest
 from unittest.mock import patch
 
 import bridge
-import durable_state
+from koinon import durable_state
 import session_service
-import session_service_artifacts
-import session_service_manager
-from database_worker import DatabaseWorker
+from koinon import session_service_artifacts
+from koinon import session_service_manager
+from koinon.database_worker import DatabaseWorker
 import memory
-import session_service_config
+from koinon import session_service_config
 import test_upgrade_plan as fixtures
-import upgrade_exclusion
-import upgrade_gate
-from upgrade_journal import Journal
-import upgrade_plan
+from koinon import upgrade_exclusion
+from koinon import upgrade_gate
+from koinon.upgrade_journal import Journal
+from koinon import upgrade_plan
 
 
 class GateTests(unittest.TestCase):
@@ -54,7 +54,7 @@ class GateTests(unittest.TestCase):
             current = self.journal.read()
             evidence = 'a' * 64 if current['step'] % 2 == 0 else None
             if current['step'] == 16:
-                from upgrade_documents import Documents
+                from koinon.upgrade_documents import Documents
                 evidence = Documents(self.operation).put('release', dict(version=1,
                     plan=self.prepared['sha256'], members=[
                         dict(component=0, kind='bridge', generation='b' * 32),
@@ -229,7 +229,7 @@ class RuntimeAdmissionTests(unittest.IsolatedAsyncioTestCase):
         import io
         import socket
         import tempfile
-        from peer_transport import control_exchange
+        from koinon.peer_transport import control_exchange
         class FaultGate(ClosedGate):
             def __init__(self):
                 self.fail = asyncio.Event()
@@ -268,8 +268,8 @@ class RuntimeAdmissionTests(unittest.IsolatedAsyncioTestCase):
         import contextlib
         import io
         import tempfile
-        import notification_runtime
-        from participant_lock import identity
+        from koinon import notification_runtime
+        from koinon.participant_lock import identity
         from test_notification_runtime import SyntheticProvider
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory).resolve()
@@ -354,7 +354,7 @@ class RuntimeAdmissionTests(unittest.IsolatedAsyncioTestCase):
     async def test_deferred_index_retries_capacity_without_stopping_service(self):
         from types import SimpleNamespace
         from unittest.mock import AsyncMock, Mock
-        from database_worker import CapacityError
+        from koinon.database_worker import CapacityError
         stop = asyncio.Event()
         call = AsyncMock(side_effect=[CapacityError(), None, {'enabled': False}])
         service = SimpleNamespace(upgrade=SimpleNamespace(wait=AsyncMock(return_value=True)),
@@ -370,7 +370,7 @@ class RuntimeAdmissionTests(unittest.IsolatedAsyncioTestCase):
     async def test_stop_during_deferred_index_capacity_wait_prevents_retry(self):
         from types import SimpleNamespace
         from unittest.mock import AsyncMock, Mock
-        from database_worker import CapacityError
+        from koinon.database_worker import CapacityError
         stop = asyncio.Event()
         def busy(*args):
             stop.set()
@@ -440,7 +440,7 @@ class RuntimeAdmissionTests(unittest.IsolatedAsyncioTestCase):
 class DeferredIndexTests(unittest.TestCase):
     def test_same_schema_gated_open_preserves_catalog_and_metadata_until_release(self):
         import tempfile
-        import upgrade_inventory
+        from koinon import upgrade_inventory
         with tempfile.TemporaryDirectory() as directory:
             path = Path(directory) / 'memory.sqlite3'
             original = memory.Store(path, 'a' * 16, fts=False)

@@ -67,7 +67,7 @@ component selection, no-start behavior, inventory, exact removal and explicit ex
 service migration.
 ## Saved selection and entrypoint
 
-`session_service_config.py` binds an explicit native selection to its private session
+`koinon/session_service_config.py` binds an explicit native selection to its private session
 registration, participant digest, installed prefix, Python interpreter, notifier command,
 backend and artifact bytes. Records live in the existing session directory as
 `native-service.json`; they do not create an unbounded installation-wide inventory.

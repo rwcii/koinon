@@ -12,9 +12,9 @@ from unittest import mock
 
 import bridge
 import memory
-import subscriptions as sub
-from database_worker import DatabaseWorker
-from service_runtime import close_writer, drain_handlers
+from koinon import subscriptions as sub
+from koinon.database_worker import DatabaseWorker
+from koinon.service_runtime import close_writer, drain_handlers
 
 REPO = 'a'*16
 

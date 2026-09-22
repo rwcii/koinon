@@ -7,8 +7,8 @@ import tempfile
 import unittest
 from unittest.mock import patch
 
-import upgrade_backup as backup
-import upgrade_backup_inventory as inspection
+from koinon import upgrade_backup as backup
+from koinon import upgrade_backup_inventory as inspection
 
 
 class BackupInventoryTests(unittest.TestCase):

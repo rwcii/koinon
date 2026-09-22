@@ -8,10 +8,10 @@ import time
 import unittest
 from unittest.mock import patch
 
-import claims
+from koinon import claims
 import memory
-import work_schema
-import work_storage
+from koinon import work_schema
+from koinon import work_storage
 
 REPO = '0123456789abcdef'
 WORK = '00000000000000000000000000000001'

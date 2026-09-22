@@ -7,9 +7,9 @@ import time
 import unittest
 from unittest.mock import patch
 
-import claims
+from koinon import claims
 import memory
-import work_schema
+from koinon import work_schema
 from repo_root import ROOT
 
 REPO = '0123456789abcdef'
@@ -291,7 +291,7 @@ class MigrationTests(unittest.TestCase):
             def close(self):
                 self.db.close()
 
-        with patch('work_schema.sqlite3.connect', side_effect=lambda *a, **kw: WithoutFTS()):
+        with patch('koinon.work_schema.sqlite3.connect', side_effect=lambda *a, **kw: WithoutFTS()):
             with self.assertRaises(work_schema.SchemaError) as caught:
                 work_schema.expected_catalog(memory.SCHEMA_STATEMENTS, 4, True)
         self.assertEqual(caught.exception.code, 'unsupported_sqlite')

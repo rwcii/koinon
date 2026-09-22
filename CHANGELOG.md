@@ -5,6 +5,17 @@ into a dated release section when promoted to `main`.
 
 ## Unreleased
 
+- Support a declared runtime layout migration during upgrade. A release records
+  where a shipped file moved to in `koinon/upgrade_layout.py`; replacement publishes the
+  new path, confirms it, then retires the old one, and refuses an undeclared removal
+  before shutting anything down. The frozen backup keeps every old path for recovery.
+
+- Move the implementation modules into a `koinon` package. The executable
+  entrypoints stay at the installation prefix — `bridge.py`, `notify.py`, `session.py`,
+  `memory.py`, `memory_service.py`, `session_service.py` and `usage_report.py` — so
+  installed service definitions and documented commands keep their paths. The shipped
+  file manifest moves with the layout.
+
 - Enable `fetch.prune` in `scripts/setup-repo.sh`, so a clone drops tracking refs
   for branches the remote has already deleted. A stale tracking ref otherwise reads
   as a live branch.

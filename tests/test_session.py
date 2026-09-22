@@ -16,7 +16,7 @@ from scripts.install import units
 def isolate_account_home(app, home):
     home.mkdir(parents=True, exist_ok=True)
     # Test-owned installed copy only; production has no environment escape hatch.
-    with (app/'platform_support.py').open('a') as stream:
+    with (app/'koinon/platform_support.py').open('a') as stream:
         stream.write('\ndef account_home():\n    return Path(' + repr(str(home)) + ')\n')
 
 
@@ -103,7 +103,7 @@ class SessionTests(unittest.TestCase):
                                            env=env,capture_output=True,text=True,check=True)
                     reported = json.loads(result.stdout)
                     self.assertEqual(reported['bridge']['pid'],status['pid'])
-                    from participant_lock import identity
+                    from koinon.participant_lock import identity
                     self.assertEqual(reported['participant_lock'], identity('codex', thread))
                     self.assertEqual(json.loads((state/'notify-ready.json').read_text())[
                         'participant_lock'], reported['participant_lock'])
@@ -278,7 +278,7 @@ class SystemdStartupTests(unittest.TestCase):
         notifier.write_text(source + "if __name__ == '__main__':\n" + textwrap.indent("""
 import fcntl, json, os, sys, time
 from pathlib import Path
-import platform_support
+from koinon import platform_support
 root = Path(sys.argv[sys.argv.index('--state-dir')+1])
 lock = (root/'notifier.lock').open('a')
 fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
