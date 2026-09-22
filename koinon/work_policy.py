@@ -5,6 +5,8 @@ from pathlib import Path
 import re
 import stat
 
+from koinon import path_permissions
+
 VERSION = 1
 MAX_RULES = 64
 PARTICIPANTS = ('codex', 'deepseek', 'claude')
@@ -36,9 +38,10 @@ def guidance_path(value):
             raise ValueError('guidance parent must be a directory')
         if component == path and (not stat.S_ISREG(info.st_mode) or info.st_uid != os.getuid()):
             raise ValueError('guidance must be a regular file owned by this user')
-    parent = path.parent.stat()
-    if parent.st_uid != os.getuid() or parent.st_mode & 0o022:
-        raise ValueError('guidance parent must be user-owned and not writable by others')
+    fault = path_permissions.target_fault(path.parent, path.parent.stat(), os.getuid())
+    if fault is not None:
+        raise ValueError('guidance parent must be user-owned and not writable by others: '
+                         + fault)
     return path
 
 
