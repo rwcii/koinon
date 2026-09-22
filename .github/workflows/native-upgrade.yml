@@ -1,0 +1,75 @@
+name: Native public upgrade evidence
+on:
+  pull_request:
+    branches: [develop]
+  push:
+    branches: [develop, main]
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  public-upgrade:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+        kind: [memory, session]
+        initial_state: [running, stopped, deactivated]
+        include:
+          - os: ubuntu-latest
+            backend: systemd
+          - os: macos-latest
+            backend: launchd
+          - os: ubuntu-latest
+            backend: systemd
+            kind: combined
+            initial_state: running
+          - os: macos-latest
+            backend: launchd
+            kind: combined
+            initial_state: running
+          # An operator's commands under umask 002 leave group-writable caches
+          # in the previous release's prefix; the upgrade must quarantine them.
+          - os: ubuntu-latest
+            backend: systemd
+            kind: combined
+            initial_state: running
+            interactive_umask: '002'
+          - os: macos-latest
+            backend: launchd
+            kind: combined
+            initial_state: running
+            interactive_umask: '002'
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # The upgrade jobs install a pinned previous release from history.
+          # A shallow clone cannot reach it, and the job refuses rather than
+          # quietly upgrading this release to itself.
+          fetch-depth: 0
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+      - run: python scripts/test-native-upgrade.py --run-isolated-job --backend "${{ matrix.backend }}" --kind "${{ matrix.kind }}" --initial-state "${{ matrix.initial_state }}" --interrupt-phase all --interactive-umask "${{ matrix.interactive_umask || '077' }}"
+
+  manual-memory-upgrade:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+        initial_state: [running, stopped]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # The upgrade jobs install a pinned previous release from history.
+          # A shallow clone cannot reach it, and the job refuses rather than
+          # quietly upgrading this release to itself.
+          fetch-depth: 0
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+      - run: python scripts/test-manual-upgrade.py --run-isolated-job --initial-state "${{ matrix.initial_state }}" --interrupt-phase all

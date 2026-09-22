@@ -24,6 +24,8 @@ feature/*  ──(squash PR)──▶  develop  ──(merge PR)──▶  main
 - Review the diff independently for correctness, compatibility, and the documented
   same-user trust boundary. The maintainer owns acceptance.
 - Merged working branches are deleted automatically; long-lived branches are protected.
+- Your clone prunes on fetch, so `git branch -r` reports the branches the remote still holds.
+  The remote is the authority; a local tracking ref is not evidence that a branch exists.
 
 Run `scripts/setup-repo.sh` to apply the local guard and GitHub settings. Server-side
 rulesets depend on the account's support for private-repository protection; the script
@@ -37,7 +39,7 @@ personal-repository conventions in [rwcii/afterglow](https://github.com/rwcii/af
 git switch develop
 git pull --ff-only
 git switch -c feature/my-change
-python3 -m unittest discover -v
+python3 -m unittest discover -v -s tests
 git diff --check
 git commit -S -s -m "Add a concise description"
 git push -u origin feature/my-change
@@ -58,7 +60,7 @@ is preserved; signed-off contributions are required from adoption of this policy
 
 ## Local checks and scope
 
-Run `python3 -m unittest discover -v` and `git diff --check`. For setup or hook edits,
+Run `python3 -m unittest discover -v -s tests` and `git diff --check`. For setup or hook edits,
 also run `bash -n scripts/setup-repo.sh` and `sh -n .githooks/pre-commit`.
 Tests must use synthetic peers, never send traffic to live agent sessions by default.
 

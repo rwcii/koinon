@@ -1,7 +1,39 @@
 #!/usr/bin/env python3
 """Local Claude peer protocol adapter. Python standard library only."""
+# Bytecode guard (docs/INSTALL.md). It runs before the first
+# project import and uses only the standard library, because a shared helper would
+# itself load from the cache it must judge. It keeps the canonical text below, which
+# tests/test_bytecode_guard.py compares across every entrypoint.
+if __name__ == '__main__':
+    import os as _os, stat as _stat, sys as _sys, tempfile as _tempfile
+    _os.umask(0o077)
+    _here = _os.path.dirname(_os.path.abspath(__file__))
+    _script = _os.path.basename(_here) == 'scripts'
+    _root = _os.path.dirname(_here) if _script else _here
+
+    def _owned(info, kind):
+        return kind(info.st_mode) and info.st_uid == _os.geteuid() and not info.st_mode & 0o022
+
+    def _trusted(path):
+        try:
+            info = _os.lstat(path)
+        except FileNotFoundError:
+            return True
+        if not _owned(info, _stat.S_ISDIR):
+            return False
+        with _os.scandir(path) as entries:
+            return all(_owned(entry.stat(follow_symlinks=False), _stat.S_ISREG)
+                       and entry.stat(follow_symlinks=False).st_nlink == 1 for entry in entries)
+
+    if _script or not all(_trusted(_os.path.join(_root, part, '__pycache__'))
+                            for part in ('', 'koinon', 'scripts')):
+        _sys.pycache_prefix = _tempfile.mkdtemp(prefix='koinon-pycache-')
+        _sys.dont_write_bytecode = True
+        import atexit as _atexit
+        _atexit.register(lambda path=_sys.pycache_prefix: _os.path.isdir(path) and _os.rmdir(path))
+# End of bytecode guard.
 import argparse
-import runtime_names
+from koinon import runtime_names
 import asyncio
 import json
 import os
@@ -14,17 +46,19 @@ import subprocess
 import time
 import uuid
 
-from database_worker import DatabaseWorker, CapacityError, WorkerFailure
-from service_runtime import Admission, close_writer, drain_handlers, database_status, HANDSHAKE_TIMEOUT
-from peer_guidance import PEER_GUIDANCE, MEMORY_POINTER_GUIDANCE
-import platform_support
-import inbox_schema
-import delivery_ledger
-import participant_presence
-import subscriptions
-import memory_bindings
+from koinon.database_worker import DatabaseWorker, CapacityError, WorkerFailure
+from koinon.service_runtime import Admission, close_writer, drain_handlers, database_status, HANDSHAKE_TIMEOUT
+from koinon.peer_guidance import PEER_GUIDANCE, MEMORY_POINTER_GUIDANCE
+from koinon import platform_support
+from koinon import generation_stop
+from koinon import inbox_schema
+from koinon import delivery_ledger
+from koinon import durable_state
+from koinon import participant_presence
+from koinon import subscriptions
+from koinon import memory_bindings
 
-from peer_transport import LIMIT, credentials, encode, peer_token, private_dir, target_path, control_exchange, UnsafeServiceEndpoint, NoControlReply
+from koinon.peer_transport import LIMIT, credentials, encode, peer_token, private_dir, target_path, control_exchange, UnsafeServiceEndpoint, NoControlReply
 DEFAULT = str(Path(os.environ.get('XDG_STATE_HOME', str(Path.home() / '.local/state'))) / 'koinon')
 
 
@@ -85,6 +119,10 @@ class InboxStore:
         except BaseException:
             self.db.close()
             raise
+
+    def upgrade_inventory(self):
+        from koinon import upgrade_inventory
+        return upgrade_inventory.capture(self.db)
 
     def close(self):
         self.db.close()
@@ -255,11 +293,15 @@ class InboxStore:
 
 
 class Bridge:
-    def __init__(self, root):
+    def __init__(self, root, *, control_fd=None, supervisor_generation=None):
         self.root = root
+        self.control_fd = control_fd
+        self.supervisor_generation = supervisor_generation
         self.address = f'uds:/tmp/cc-socks/{os.getpid()}.sock'
         self.stop = asyncio.Event()
         self.generation = uuid.uuid4().hex
+        from koinon import upgrade_gate
+        self.upgrade = upgrade_gate.select(Path(__file__).parent, 'bridge', root, self.generation)
         self.hints = subscriptions.HintHub(self.generation)
         self.binding_health = {}
         # Construction must not open or migrate a database before endpoint ownership.
@@ -328,6 +370,9 @@ class Bridge:
             if control:
                 async with asyncio.timeout(HANDSHAKE_TIMEOUT):
                     request = json.loads(await reader.readline())
+            if self.upgrade is not None and not self.upgrade.released() and (
+                    not control or isinstance(request, dict) and request.get('op') == 'subscribe-inbox'):
+                raise ValueError('upgrade in progress; ingress is gated')
             if control and isinstance(request, dict) and request.get('op') == 'subscribe-inbox':
                 self.admission.leave(slot)
                 slot = None
@@ -344,7 +389,7 @@ class Bridge:
                         raise ValueError('expected operation object')
                     self.admission.leave(slot)
                     slot = None
-                    slot = self.admission.enter('control' if request.get('op') in ('status', 'stop') else 'ordinary')
+                    slot = self.admission.enter('control' if request.get('op') in ('status', 'stop', generation_stop.OPERATION) else 'ordinary')
                     result = await self.command(request)
                     response = encode(dict(ok=True, result=result))
                     reply_started = True
@@ -375,7 +420,7 @@ class Bridge:
                 key = request.get('binding')
                 if isinstance(key, str) and key in self.binding_health:
                     self.record_binding_health(key, 'refused', exc.code)
-            if isinstance(exc, (memory_bindings.BindingError, delivery_ledger.DeliveryError)):
+            if isinstance(exc, (memory_bindings.BindingError, delivery_ledger.DeliveryError, generation_stop.StopError)):
                 code = exc.code
             elif isinstance(exc, CapacityError):
                 code = 'capacity'
@@ -419,6 +464,12 @@ class Bridge:
         if not isinstance(r, dict) or not isinstance(r.get('op'), str):
             raise ValueError('expected operation object')
         op = r['op']
+        if self.upgrade is not None:
+            if op == 'upgrade-inventory':
+                self.upgrade.authorize_inventory(r)
+                return await self.worker.call('upgrade_inventory')
+            if op not in ('status', 'stop', generation_stop.OPERATION) and not self.upgrade.released():
+                raise ValueError('upgrade in progress; ordinary bridge requests are gated')
         if op == 'status':
             state, diagnostics = await database_status(self.worker, r)
             if state is None:
@@ -427,7 +478,9 @@ class Bridge:
             if state['inbox_schema'] == inbox_schema.SCHEMA:
                 state['capabilities'].extend(('inbox_subscription', 'memory_binding'))
             return dict(pid=os.getpid(), address=self.address, generation=self.generation,
+                        control_capabilities=[generation_stop.CAPABILITY],
                         **state, **diagnostics,
+                        **({'upgrade': self.upgrade.status()} if self.upgrade is not None else {}),
                         presence=dict(service=participant_presence.service('live_bridge_control'),
                                       model_activity=participant_presence.unknown()),
                         delivery='inbox available; run notify.py to notify the selected participant session')
@@ -488,6 +541,10 @@ class Bridge:
                     state, reason = 'unknown', None
                 item['service_state'], item['service_reason'] = state, reason
             return memory_bindings.page(bindings, r.get('after', ''))
+        if op == generation_stop.OPERATION:
+            generation_stop.validate(r, self.generation)
+            self.stop.set()
+            return dict(stopping=True, generation=self.generation, protocol=1)
         if op == 'stop':
             self.stop.set()
             return 'stopping'
@@ -497,6 +554,8 @@ class Bridge:
         if self.worker is not None or self.closing:
             raise RuntimeError('bridge instance cannot be started twice')
         sockets, servers, identities = [], [], {}
+        ingress_task = None
+        ingress_failure = None
         try:
             startup_directory(Path('/tmp/cc-socks'))
             peer = Path(self.address[4:])
@@ -508,14 +567,26 @@ class Bridge:
             startup_directory(control.parent)
             # Bind exclusively. Never remove a pre-existing process socket.
             for path in (control, peer):
-                sock = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+                inherited = path == control and self.control_fd is not None
+                if inherited:
+                    from koinon import session_socket_handoff
+                    try:
+                        sock = session_socket_handoff.take(self.control_fd, self.root, 'bridge', self.supervisor_generation)
+                    except durable_state.StateReadBusyError:
+                        raise
+                    except (OSError, ValueError) as exc:
+                        raise BridgeOwnershipError(f'inherited control endpoint refused: {control}') from exc
+                    self.control_fd = None
+                else:
+                    sock = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
                 try:
                     # Bind exclusively. A pre-existing socket is never removed, on
                     # either route: a live listener and a saturated one look identical
                     # to a probe, because a full accept queue refuses a connection on
                     # macOS exactly as a dead owner does. A leftover from a killed
                     # instance is removed by hand after verifying the owner is dead.
-                    sock.bind(str(path))
+                    if not inherited:
+                        sock.bind(str(path))
                 except OSError as exc:
                     sock.close()
                     # Carry the path. A bare "Address already in use" does not say
@@ -537,10 +608,19 @@ class Bridge:
                 store.on_change = self.hints.notify_committed
                 return store
             self.worker = DatabaseWorker(store_factory)
-            for sock, _path in sockets:
-                sock.listen(16)
+            sockets[0][0].listen(16)
             servers.append(await asyncio.start_unix_server(lambda r,w: self.handle(r,w,True), sock=sockets[0][0], limit=LIMIT))
-            servers.append(await asyncio.start_unix_server(self.handle, sock=sockets[1][0], limit=LIMIT))
+            async def open_ingress():
+                if self.upgrade is not None and not await self.upgrade.wait(self.stop):
+                    return
+                sockets[1][0].listen(16)
+                servers.append(await asyncio.start_unix_server(self.handle, sock=sockets[1][0], limit=LIMIT))
+            if self.upgrade is None:
+                await open_ingress()
+            else:
+                ingress_task = asyncio.create_task(open_ingress())
+                ingress_task.add_done_callback(
+                    lambda task: self.stop.set() if not task.cancelled() and task.exception() else None)
             loop = asyncio.get_running_loop()
             for sig in (signal.SIGTERM, signal.SIGINT):
                 loop.add_signal_handler(sig, self.stop.set)
@@ -548,6 +628,14 @@ class Bridge:
             await self.stop.wait()
         finally:
             self.closing = True
+            if ingress_task is not None:
+                ingress_task.cancel()
+                try:
+                    await ingress_task
+                except asyncio.CancelledError:
+                    pass
+                except Exception as exc:
+                    ingress_failure = exc
             self.hints.close()
             # Keep the endpoint reservation until accepted database work drains.
             # New handlers see closing and cannot submit work. Some Python
@@ -576,6 +664,8 @@ class Bridge:
                                 continue
                             if (info.st_dev, info.st_ino) == identities.get(path):
                                 path.unlink()
+            if ingress_failure is not None:
+                raise ingress_failure
 
 
 async def client(root, request):
@@ -636,7 +726,10 @@ def cli_main():
     p.add_argument('--state-dir')
     sub = p.add_subparsers(dest='op', required=True)
     for op in ('serve','status','stop','peers'):
-        sub.add_parser(op)
+        command = sub.add_parser(op)
+        if op == 'serve':
+            command.add_argument('--supervisor-control-fd', type=int)
+            command.add_argument('--supervisor-generation')
     s = sub.add_parser('send')
     s.add_argument('to')
     s.add_argument('message')
@@ -680,7 +773,10 @@ def cli_main():
     if a['op'] == 'peers':
         print(json.dumps(peers(), indent=2))
     elif a['op'] == 'serve':
-        asyncio.run(Bridge(root).run())
+        if (a['supervisor_control_fd'] is None) != (a['supervisor_generation'] is None):
+            p.error('supervisor descriptor and generation must be supplied together')
+        asyncio.run(Bridge(root, control_fd=a['supervisor_control_fd'],
+                           supervisor_generation=a['supervisor_generation']).run())
     else:
         raise SystemExit(asyncio.run(client(root, a)))
 
@@ -688,6 +784,9 @@ def cli_main():
 def main():
     try:
         cli_main()
+    except durable_state.StateReadBusyError:
+        print(json.dumps(dict(ok=False, code='service_unavailable', error='state observation busy; retry')))
+        raise SystemExit(platform_support.TEMPORARY_EXIT_STATUS) from None
     except runtime_names.NameConflict as exc:
         print(json.dumps(dict(ok=False, code=exc.code, paths=exc.paths)))
         raise SystemExit(platform_support.CONFIGURATION_EXIT_STATUS) from None

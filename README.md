@@ -68,7 +68,7 @@ Verified with Codex CLI 0.154.0 and Claude Code 2.1.267 on Linux, and with Claud
 Configure Codex once so each session registers itself with its own inbox and peer name:
 
 ```sh
-python3 scripts/install.py --configure-codex
+python3 scripts/install.py --configure-codex --repo /path/to/repository
 ```
 
 See [the installation guide](docs/INSTALL.md) for managed global instructions,
@@ -132,7 +132,9 @@ records is invisible to a session that started earlier. `memory.py` is a per-rep
 holding a shared, append-only log that those sessions write to and read from.
 
 It is separate from the bridge, with its own private control socket, and it carries no peer
-traffic. Start one per repository:
+traffic. Install and supervise it with
+`python3 scripts/install.py --configure-memory --repo /path/to/repository`, or start one
+manually per repository:
 
 ```sh
 python3 memory.py serve
@@ -198,13 +200,15 @@ arrive afterwards as deltas. If a caller fails between receiving entries and act
 unacknowledged work is delivered again rather than lost.
 
 Refusals name a recovery path in a `code` field. `snapshot_expired` and `stale_page_token` mean
-restart `sync`; `snapshot_incomplete` means page to the end first; `snapshot_open` and
-`not_bootstrapped` mean acknowledge the open snapshot by its identity before acknowledging a
-sequence; `foreign_snapshot` means the snapshot belongs to another consumer; `consumer_retired`
+restart `sync`; `snapshot_incomplete` means page to the end first; `snapshot_open` means
+acknowledge the open snapshot by its identity before acknowledging a sequence, while
+`not_bootstrapped` means no snapshot has been completed yet, so call `sync` to obtain one;
+`foreign_snapshot` means the snapshot belongs to another consumer; `consumer_retired`
 means the key was reclaimed after long inactivity and a new one is needed; `retry_deadline_expired`
-means deduplication state has lapsed; `idempotency_conflict` means that key already carries
-different content; `capacity`, `snapshot_capacity` and `idem_capacity` mean nothing was written and
-stored data is intact; and `entry_too_large` means the entry could never be delivered in one page.
+means deduplication state has lapsed; `idempotency_conflict` means that key was already used with
+different content, or with a different deadline; `capacity`, `snapshot_capacity` and
+`idem_capacity` mean nothing was written and stored data is intact; and `entry_too_large`
+means the entry could never be delivered in one page.
 
 Retention is finite and stated: an unacknowledged snapshot lasts an hour, an acknowledgement is
 replayable for a day, an idempotency key lasts until its deadline and at most a day, an idle
@@ -222,8 +226,10 @@ Limits: 8 KiB per body, 5,000 entries, 32 MiB logical and 128 MiB physical stora
 and pages bounded by encoded bytes rather than a row count. Entry slots and bytes are both
 reserved so a withdrawal stays recordable in a full store. Retained snapshots, acknowledgements,
 idempotency keys and idle consumers each have a lifetime, and expiry returns a defined recovery
-result rather than changing a caller's meaning silently. Entry garbage collection currently
-removes only expired entries. Broader history pruning remains planned; semantic memory
+result rather than changing a caller's meaning silently. Entry garbage collection removes
+expired entries, and finished work-item retention additionally removes that item's stream
+rows and advances the retained-history floor, whether or not those rows expire. Broader
+pruning of general entry history remains planned; semantic memory
 consolidation (summarizing related memories) is neither implemented nor specified by this
 programme. Sync snapshots contain records, not generated summaries. See the
 [memory maintenance terminology](docs/PARITY-MEMORY-DESIGN.md#memory-maintenance-terminology).
@@ -240,6 +246,27 @@ storage or programming failures until restart; it is not an integrity check.
 See [the design contract](docs/PARITY-MEMORY-DESIGN.md) for the requirements this implements and
 for the capabilities that remain unverified.
 
+The [work-items v1 contract](docs/WORK-ITEMS-V1.md) supports structured repository
+work, advisory writer claims, explicit progress and finished-history retention.
+The memory runtime now creates schema-5 stores and upgrades schema 3/4 at startup;
+read the [upgrade procedure](docs/WORK-ITEMS-UPGRADE.md) before replacing a running
+service. Work commands, immutable stream records, frozen snapshots and bounded
+maintenance share the existing memory store. [Explicit guidance configuration](docs/WORK-ITEMS-POLICY.md)
+selects a repository and participant. A fresh installation with `--repo` also selects the
+repository memory component, and starts it unless `--no-start` stages the selection, the
+selected backend is manual, or no user manager is available. For a manual backend or an
+unavailable manager `ensure` reports `manual_required` with a start command instead. A repeat installation keeps a
+selection it already holds; only
+an existing prefix without that repository selected, and without `--configure-memory`,
+leaves memory out and reports how to add it.
+
+Work-item capacity is finite: 2,048 retained events can be exhausted in roughly
+5.3 days by 16 hourly reporters, while finished history remains for 30 days. With
+16 funded claims, the ordinary database band is about 15.8 MiB; the 128 MiB total
+ceiling is not ordinary write capacity. Read the [operator capacity guidance](docs/INSTALL.md#work-item-capacity-planning)
+before adopting the workflow. It explains reservations, refusal and recovery,
+including why deleting expired rows does not necessarily restore page headroom.
+
 ## Storage and multiple sessions
 
 Fresh persistent state defaults to `$XDG_STATE_HOME/koinon`, or `~/.local/state/koinon`.
@@ -251,7 +278,7 @@ python3 notify.py --state-dir /path/to/private/state --thread ANOTHER_THREAD_ID 
 python3 bridge.py --state-dir /path/to/private/state inbox
 ```
 
-State directories must be owned by the current user and mode 0700. The notifier checkpoint is tied to its thread ID; do not reuse one instance for unrelated conversations. Runtime databases, sockets, checkpoints, peer keys, and logs do not belong in Git.
+State directories must be owned by the current user and carry no group or other permissions; the runtime creates them as 0700 and refuses any that a second account could reach. The notifier checkpoint is tied to its thread ID; do not reuse one instance for unrelated conversations. Runtime databases, sockets, checkpoints, peer keys, and logs do not belong in Git.
 
 The notifier subscribes before checking durable inbox state and repeats the check
 at a two-second recovery interval. It skips peer controls. Each notice contains at
@@ -283,7 +310,7 @@ other programs that deliver to the same session without taking this lock.
 
 ## Lifecycle
 
-Both processes must remain running. The optional installer supplies systemd user services on Linux; see [installation](docs/INSTALL.md). macOS has no systemd, so it uses the managed supervisor instead (`session.py ensure` reports `manual_required` with a start command, and `session.py run` owns both children in one persistent session). Stop the watcher with Ctrl-C or SIGTERM; `bridge.py stop` stops the server and causes the watcher to exit. Graceful cleanup removes only the process's own sockets and registry entry. SQLite and checkpoints remain for restart.
+Both processes must remain running. Repository component installation supplies native systemd supervision on Linux and launchd supervision on macOS; see [installation](docs/INSTALL.md#repository-components-and-native-supervision). Manual selections and unavailable user managers report `manual_required` with a command to keep running in a persistent session. Stop the watcher with Ctrl-C or SIGTERM; `bridge.py stop` stops the server and causes the watcher to exit. Graceful cleanup removes only the process's own sockets and registry entry. SQLite and checkpoints remain for restart.
 
 Socket addresses change with the server PID. The watcher publishes `<bridge-pid>.json` in `${CLAUDE_CONFIG_DIR:-~/.claude}/sessions` and refuses to overwrite a pre-existing record. Its process-start marker protects against PID reuse. A forced kill may leave stale sockets or a registry record: verify that the old process is dead and socket connections are refused before removing those specific stale files. Never clear the shared socket or registry directory.
 
@@ -304,7 +331,7 @@ Ordinary peer limits: 16 active connections, six-second handler deadline, 32 fra
 ## Development
 
 ```sh
-python3 -m unittest discover -v
+python3 -m unittest discover -v -s tests
 ```
 
 Tests cover fragmented and EOF-delimited messages, malformed and oversized input, inert controls, outgoing socket identity, persistent storage, local control requests, notification filtering, checkpoints, platform process and socket facts, participant peer naming, DeepSeek notice delivery, and the memory service: frozen snapshots under concurrent revocation and reclamation, server-tracked page issuance, acknowledgement replay, durable-head and liveness rules, both storage budgets, transaction rollback, serialized start, and recovery from an unclean exit. CI runs on Linux and macOS with Python 3.11–3.13. Tests use synthetic peers and never message live Claude sessions.
@@ -344,17 +371,21 @@ structured CLI errors and exit 1. A failed reply does not establish whether a
 mutation committed. The CLI does not automatically repeat that mutation.
 
 On Linux, installed systemd bridge and session services do not restart on exit 70
-(internal software error) or 78 (configuration refusal).
-On macOS, the manual process exits and must be started again after correction; see
+(internal software error) or 78 (configuration refusal). Installed launchd jobs on macOS
+apply the same rule: because launchd's restart predicate is binary, a permanent failure is
+mapped to a zero exit so `KeepAlive` does not restart it, and the reported status is
+preserved. A manual process simply exits and must be started again after correction; see
 [macOS setup](docs/INSTALL.md#macos). For a leftover socket, follow [recovery from a killed instance](docs/INSTALL.md#recovering-from-a-killed-instance).
 Remove a socket only after verifying that its owner is dead. Unsafe startup
 directories also produce a structured ownership refusal with exit 78.
 
 ### Inbox migration progress
 
-The bridge now maintains a transactional acknowledgement watermark and durable
-journal activation evidence in inbox schema 3 (introduced in schema 2). Migration preserves retained messages
-and sequence allocation. See [the schema contract](PROTOCOL.md#inbox-schema-2-and-journal-activation).
+The bridge maintains a transactional acknowledgement watermark and durable journal
+activation evidence, both introduced in inbox schema 2. The current inbox schema is 4,
+which adds the delivery ledger; startup accepts a store at schema 2, 3 or 4 and upgrades
+anything below 4. Migration preserves retained messages and sequence allocation. See
+[the schema contract](PROTOCOL.md#inbox-schema-2-and-journal-activation).
 Explicit repository bindings and content-free memory pointers are available through
 [the binding controls](PROTOCOL.md#memory-bindings-and-pointers). The notifier
 refreshes these bindings through subscriptions and finite recovery checks, then

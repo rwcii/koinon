@@ -3,6 +3,11 @@
 set -euo pipefail
 repo="${1:-$(gh repo view --json nameWithOwner -q .nameWithOwner)}"
 git config core.hooksPath .githooks
+# The remote deletes a head branch when its pull request merges, so without pruning the
+# clone keeps a tracking ref for every branch that is already gone. A stale ref reads as a
+# live branch, so treat the remote as the authority and drop what it no longer reports.
+# This removes local tracking refs only, and the shared config covers linked worktrees.
+git config fetch.prune true
 gh api --method PATCH "repos/$repo" \
   -F allow_squash_merge=true -F allow_merge_commit=true -F allow_rebase_merge=false \
   -F delete_branch_on_merge=true \

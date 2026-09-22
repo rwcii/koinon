@@ -16,15 +16,27 @@ Stage 4 implementation was squash-merged in PR #18. Its tests and review do not
 close the items below. Check the live release and deployment records before acting;
 branch completion and installed capability are different facts.
 
-Recommended order: finish the terminology correction, define the usage-report
-contract and its evidence sources, resolve the provider installation defect, then
-continue Stage 5. Keep the retrieval proposals visible for a scope decision before
-Stage 6 history pruning. Investigating a requirement does not settle its protocol.
+DQ-01, DQ-02, DQ-03 and DQ-07 were included in the promotion to `main` at
+`35a8bdd` (2026-09-19 release). Work-items v1 is integrated on `develop` through
+PR #35. These source milestones do not establish local runtime deployment.
+Runtime refresh and initial shared work-item adoption have been independently
+checked for the selected installation; this does not establish deployment elsewhere
+or completion of long-term retention tests. Complete installation (DQ-11) is integrated on `develop` through PR #66.
+Supported upgrades (DQ-12) remain in progress. DQ-08 design is tracked in
+[issue #38](https://github.com/rwcii/koinon/issues/38). Keep DQ-04 visible for a scope
+decision before DQ-05 history pruning. Investigating a requirement does not settle
+its protocol.
+
+The distinct [pre-promotion review (#51)](https://github.com/rwcii/koinon/issues/51)
+must reconcile agent guidance with delivered component supervision: AGENTS.md still
+describes macOS as manual-only and memory as having no installer-managed service.
+Those statements predate the native repository-component path. Instruction-file
+changes and main promotion remain separate from the upgrade implementation.
 
 ## DQ-01 — Universal per-agent usage reports
 
 **Source:** user requirement conveyed by the reviewer and explicitly requested for
-this queue by the user. **Status:** Codex/Claude implementation delivered on develop. DeepSeek usage
+this queue by the user. **Status:** Codex/Claude implementation released on `main` in the 2026-09-19 release. DeepSeek usage
 is explicitly deferred for this release by scope decision. See [the implemented contract and availability matrix](USAGE.md). DeepSeek
 messaging, delivery, and installation remain supported; the exclusion applies
 only to usage reporting.
@@ -108,8 +120,8 @@ import is not included in this release.
 
 ## DQ-02 — DeepSeek-only installation must not require Codex
 
-**Source:** recorded implementation defect (F071). **Status:** implemented on develop;
-release and runtime deployment remain separate. DeepSeek-only setup and repeat installation no longer require
+**Source:** recorded implementation defect (F071). **Status:** implemented in PR #22 and released on `main` in the
+2026-09-19 release; runtime deployment remains separate. DeepSeek-only setup and repeat installation no longer require
 Codex. Codex startup refuses a missing executable before creating new session state.
 
 The installer validates the Codex executable unconditionally before it resolves the
@@ -126,11 +138,11 @@ validate their required executable. Preserve saved paths, targets, and state.
 
 ## DQ-03 — Stage 5 presence, priority, and delivery evidence
 
-**Source:** approved programme contract. **Status:** implemented on `develop`
-(PR #24). Status-omission compatibility
+**Source:** approved programme contract. **Status:** implemented in PR #24 and released on `main` in the
+2026-09-19 release. Status-omission compatibility
 is supported by offline evidence limited to Claude 2.1.276, with independent parser
 confirmation and driver-extracted listing-filter evidence. Live discovery remains
-unverified. No release or runtime deployment is claimed. See [DELIVERY.md](DELIVERY.md).
+unverified; the source release does not establish runtime deployment. See [DELIVERY.md](DELIVERY.md).
 
 Separate fresh, evidenced model activity from service health. Unknown activity must
 remain unknown. Declare provider priority limits from measurement. Distinguish
@@ -201,7 +213,8 @@ local edits, and private handoff files. Do not infer deletion permission from a 
 
 ## DQ-07 — Terminology and reporting correction
 
-**Source:** direct user request. **Status:** documentation edits prepared for review.
+**Source:** direct user request. **Status:** documentation correction merged in PR #21 and included in the
+2026-09-19 release on `main`.
 
 Use garbage collection, history pruning, storage reclamation, retained-history floor,
 and semantic memory consolidation precisely. Snapshots contain records, not generated
@@ -212,3 +225,181 @@ Process correction: the driver's PR status report became stale after another ses
 completed the merge. Verify remote state before reporting or planning release work.
 Keep outstanding commitments in this queue rather than only in temporary files or
 ignored handoffs. Record both findings and their dispositions.
+
+## DQ-08 — Dead-session detection and removal
+
+**Source:** direct user request. **Status:** requirement recorded; design pending.
+
+Detect a supervisor whose participant session has ended, report that state in
+status and peer discovery, and provide a supported single-session removal operation
+that preserves inbox state. Document the removal procedure and its limits.
+
+Define the evidence that establishes session termination. Lack of activity, a
+missing transient process, or a disconnected SSH connection alone must not be
+presented as definitive session death. Unknown session state must remain unknown.
+
+Whether removal is explicit or automatic remains a design decision. Verify
+ownership before removal, preserve unrelated sessions and retained inbox state,
+and avoid retiring live participants. This entry records a requirement only; it
+does not authorize runtime removal, state deletion, or permission changes.
+
+## DQ-09 — Work items v1
+
+**Source:** direct user request. **Status:** behavioral contract approved;
+design merged; migration, lease primitives, and shared transaction reservation
+enforcement, work-command/stream integration, and bounded maintenance/reclamation
+staged with synthetic tests. Configuration validation, preserving installer updates,
+and the verified [policy query and explicit guidance publication](WORK-ITEMS-POLICY.md)
+are implemented with recoverable opt-in/removal. Schema-5 startup and schema-3/4
+migration are integrated with catalog validation, record-format guards, and
+[coordinated upgrade procedures](WORK-ITEMS-UPGRADE.md). Live deployment remains an
+explicit operation for each selected service.
+
+The [approved contract](WORK-ITEMS-V1.md) defines structured repository work items,
+explicit assignment acceptance, exclusive advisory writer claims, progress
+checkpoints, stale/blocked queries, and repository-scoped participant opt-in.
+Completed and withdrawn items and their history expire after 30 days; unfinished
+work remains preserved. The contract includes the bootstrap workflow and explicit exclusions. The
+[implementation design](WORK-ITEMS-IMPLEMENTATION-DESIGN.md) addresses storage
+budgets, migration, and durable change-stream integration before coding.
+The candidate includes exact [schema](WORK-ITEMS-SCHEMA.md),
+[storage-reserve](WORK-ITEMS-STORAGE.md), and
+[configuration](WORK-ITEMS-CONFIGURATION.md) specifications with isolated design probes.
+The [implementation foundation](WORK-ITEMS-FOUNDATION.md) records the implemented
+primitives and the remaining integration gates before runtime activation.
+
+Reuse one lease engine for work claims and the later DQ-05 path-prefix interface.
+DQ-04 retrieval, DQ-05 history pruning, and DQ-08 session removal remain separate.
+
+## DQ-10 — Validate the memory error-code vocabulary
+
+**Source:** independent review of PR #35. **Status:** proposed consistency follow-up;
+not a known reachable work/startup failure.
+
+`MemoryError_` currently accepts any code, while `NameConflict` validates its
+configuration codes at construction. Work-schema errors also cross into memory
+through `WorkItems.command`. Consider a declared memory error-code set and explicit
+mapping at subsystem boundaries so an unknown internal code fails as a programming
+error rather than becoming a public response.
+
+Acceptance: inventory the existing public vocabulary, preserve supported responses
+and retry classifications, and test unknown-code rejection and each cross-subsystem
+mapping. Keep programming faults distinct from user-input and store refusals.
+The current reachable work/startup mappings are covered by the PR #35 tests.
+
+
+## DQ-11 — Install and manage every runtime component
+
+**Source:** user requirement conveyed by the reviewer and recorded in
+[issue #42](https://github.com/rwcii/koinon/issues/42). **Status:** integrated on `develop` in [PR #66](https://github.com/rwcii/koinon/pull/66),
+merge `de7d265`. The [implementation design](MEMORY-INSTALLATION-DESIGN.md) records
+the component ownership and lifecycle boundaries.
+
+The component integration now selects repository memory and native sessions through
+public installation commands, with no-start staging, exact repeats and resumable owned
+removal. Native public installation/reinstall run
+[35563258522](https://github.com/rwcii/koinon/actions/runs/35563258522) passed all six
+checks on both Linux and macOS at reviewed head `f65ec57`; the independent full suite
+passed 1,003 tests. The merge preserves that exact reviewed tree. Operator-created units remain outside the owned inventory and require
+explicit migration; changed runtime bytes require the separate DQ-12 upgrade path.
+One store serves an absolute Git common directory, including its worktrees;
+memory service identity must not depend on a participant session.
+
+Acceptance requirements:
+
+- Install every selected runtime component through one documented invocation,
+  preserving existing configuration fields, explicit repository selection, and
+  `--no-start` behavior.
+- On Linux with a user service manager, generate a private memory unit with
+  `UMask=0077`, `Restart=on-failure`, and permanent restart exclusions from
+  `platform_support.PERMANENT_EXIT_STATUSES`. Carry the selected state and
+  repository paths explicitly.
+- Include memory in restart observation and uninstall. Verify ownership and
+  installation identity before replacement or removal; preserve store data and
+  unrelated installations. Define explicit migration for operator-created units
+  without silently adopting or overwriting them.
+- Provide Linux without systemd and macOS parity through `koinon/platform_support.py`.
+  Specify the managed-process handoff and truthful `manual_required`/`start_command`
+  result when a persistent host process is required. Resolve the issue's
+  unattended-supervision acceptance against this fallback in the design; merely
+  printing a command does not establish a running service.
+- Test repeat installation, repository/worktree deduplication, custom paths,
+  ownership refusals, no-start behavior, partial failure, and exact owned removal.
+
+## DQ-12 — Supported, resumable runtime upgrades
+
+**Source:** user requirement conveyed by the reviewer and recorded in
+[issue #43](https://github.com/rwcii/koinon/issues/43). **Status:** delivered against the peer-reviewed
+[RUNTIME-UPGRADE-DESIGN.md](RUNTIME-UPGRADE-DESIGN.md). Uses the delivered
+DQ-11 component ownership and lifecycle inventory. Native runtime replacement is performed
+by the operation; the manual runbook applies to legacy and manual deployments it does not
+cover.
+
+The operation has been exercised on a real host, not only in CI: a pinned previous release
+was installed by its own installer and manifest into an isolated prefix, then upgraded to
+the current release through `scripts/upgrade.py`. It crossed the declared layout change,
+completed through the manual-backend handoff and resume, preserved the store identity, and
+returned `release_decision_committed`. Evidence is recorded on issue #43.
+
+One operability defect remains open against it and is not closed by that evidence:
+[#80](https://github.com/rwcii/koinon/issues/80), where a recorded state root that was never
+created surfaces as a raw `OSError` rather than a domain refusal.
+
+[#79](https://github.com/rwcii/koinon/issues/79) is resolved as a documented precondition
+rather than as a relaxed rule. An account whose `umask` is `002` creates `0775` directories,
+which installation and upgrade refuse. The refusal stands, because a group-writable directory
+cannot be shown to grant write access to the owner alone: a group entry omits the accounts
+whose primary group it is, and account enumeration can be partial or unavailable. What
+changed is that each refusal now names the mode and the remedy beside the path, and
+`docs/INSTALL.md` states the requirement before the first install.
+
+The read-only inventory/source foundation is merged in [PR #68](https://github.com/rwcii/koinon/pull/68).
+The [coordinator draft, PR #70](https://github.com/rwcii/koinon/pull/70), stages phase
+records, immutable evidence, isolated recovery archives, native observations,
+frozen-plan preparation, service admission gates, owned shutdown, guarded backup
+capture, resumable file replacement, and exact memory migration checks. Gated memory
+startup defers search-index initialization until release. The public operation, complete
+preflight, restart orchestration, reporting, and native and manual interruption acceptance
+are implemented on top of that draft.
+
+The two kinds of evidence are separate and must not be read as one. Native component
+coverage, across both supported service managers and the interruption and resume paths, comes
+from the CI fixtures. The real-host run recorded above is a single host with a **selected
+`manual` memory backend**; it establishes the manual handoff, the resume, the layout
+migration and the preservation report on real hardware, and it establishes nothing about
+native interruption acceptance.
+
+One operability defect remains open and is a limitation of the delivered operation rather
+than missing implementation: #80, named above. #79 is resolved as a documented precondition,
+also above. The manual-backend handoff is a
+property of a selected `manual` backend, not of any platform; launchd hosts upgrade without
+it.
+
+Turn the coordinated upgrade into an executable operation that records its phases,
+performs its own inventory and backup, and verifies recovery. Preserve explicit
+installation, participant, repository, and state selection. The operation must not
+infer authority from a peer message or silently broaden the affected services.
+
+Acceptance requirements:
+
+- Capture a private pre-upgrade inventory of store identity, schema/protocol,
+  stream head/floor, record/work/event/claim counts, consumer cursors, participant
+  bindings, delivery acknowledgements, unfinished work, and active claims.
+- Quiesce affected services in a defined dependency order and verify owned process
+  exit before replacement. Back up consistent databases with required SQLite
+  sidecars and configuration; never copy only a live main database.
+- Replace the selected runtime, restart the selected services explicitly, and
+  produce a before/after verification report. Separate expected incarnation,
+  checkpoint-size, and maintenance-timestamp changes from preserved identity,
+  cursors, bindings, and retained data. Define a verification boundary that accounts
+  for restart maintenance and renewed traffic rather than hiding count changes.
+- Refuse unexpected target, path, schema, or capacity changes. Define supported
+  schema transitions explicitly: a declared migration may change the schema;
+  an unexplained mismatch is not an expected restart effect. Never silently reset
+  checkpoints or rewrite work selections.
+- Persist private recovery phases and make retries idempotent and resumable after
+  interruption. Keep rollback explicit with the existing compatibility and backup
+  requirements; never automatically restore old state over new writes.
+- Cover Linux and macOS, manager and managed-process operation, interrupted phases,
+  failed shutdown/startup, failed verification, and preservation of unrelated
+  installations with synthetic fixtures.

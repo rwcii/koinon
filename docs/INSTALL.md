@@ -1,5 +1,68 @@
 # Install and enable Koinon
 
+## Work-item capacity planning
+
+Memory startup now uses schema 5. Follow the [upgrade procedure](WORK-ITEMS-UPGRADE.md)
+before replacing a running service. Explicit work guidance is a separate opt-in.
+Before choosing this workflow, check that the repository's retained workload fits these finite
+budgets. V1 supports bounded work, not indefinite sustained progress reporting.
+
+| Limit | Capacity implication |
+| --- | --- |
+| 128 retained work items | Finished and withdrawn items still count during retention. |
+| 2,048 retained work events across all items | Control reservations reduce ordinary admission; an open item's history does not expire. |
+| 12 MiB work logical usage within 32 MiB shared logical usage | Records, scope history and events compete for this budget. |
+| 16 retained writer bundles | Inactive bundles awaiting cleanup still count; storage admission can bind sooner. |
+| 64 scope revisions per item, 1,024 total | Long-running items have finite revision history. |
+| 20,000 shared replay records | Other memory operations and work control reservations also consume this budget. |
+
+Strings, payloads, optional resource claims, live leases, query results and maintenance
+batches also have explicit bounds. The complete [work budgets](WORK-ITEMS-IMPLEMENTATION-DESIGN.md#budgets-and-progress-reserves)
+and [storage accounting](WORK-ITEMS-STORAGE.md) give the reviewed limits. These are
+independent ceilings, not a promise that all maxima fit simultaneously.
+
+The 128 MiB combined database/WAL ceiling is **not ordinary write capacity**. With all
+16 claim bundles funded, their reserved debt is 10,240 pages and 1.5 MiB of logical
+space. The remaining ordinary database band is 4,038 pages, about **15.8 MiB**, before
+the append allowance and other limits apply. With no claim credits at schema 4, the
+reviewed ceilings are 14,278 ordinary pages, 16,326 control pages, 4,936 ordinary
+entries, 20,000 replay rows, and ordinary logical usage of 32 MiB minus the shared
+reserved bytes. These values describe admission accounting, not usable file-space
+estimates or instructions to change a store's schema.
+
+Sixteen writers reporting hourly reach the 2,048-event ceiling in roughly **5.3 days**,
+sooner after other mutations or reservations. Even one long-running item's history can
+exhaust capacity before any finished history is eligible for removal. Renewing a lease
+alone emits no work event, but still consumes shared replay-record capacity; meaningful
+progress checkpoints consume event capacity as well.
+There is no early history trimming. The design's example of 60 work blocks averaging
+20 events and 4 KiB per event is 1,200 events and about 4.7 MiB of event payload: a
+sizing example, not a throughput guarantee.
+
+At capacity, new ordinary work mutations are refused while live items, checkpoints,
+claims and recovery information are preserved. The refusal identifies the exhausted
+dimension, retained usage, outstanding reservations, and earliest eligible finished-item
+expiry, or explicitly none. Funded release, finish and expiry bookkeeping retain their
+reserved capacity; an exhausted ordinary event budget does not prevent ending an
+accepted active claim. This is a storage-admission promise, not immunity from disk
+failure or corruption.
+
+Finish only genuinely completed work or withdraw work that is actually abandoned.
+Finished and withdrawn items and their history become eligible for cleanup after
+30 days; active items remain preserved. Eligible cleanup frees rows and makes pages
+reusable inside the database, but **does not vacuum or reduce allocated page count**.
+Ordinary writes may therefore still refuse after rows have been reclaimed. Returning
+pages uses the existing note-admission/reclaim path or explicit store recovery; work
+admission does not itself trigger vacuum. At or above the applicable control ceiling,
+cleanup has no general progress guarantee. Check the timestamped maintenance status
+and faults instead of assuming every interval reclaimed capacity; see
+[maintenance and recovery limits](WORK-ITEMS-MAINTENANCE.md).
+
+Do not mark incomplete work finished to free history, rotate to an untracked store,
+delete active records, or shorten retention as recovery. Higher sustained workloads
+require a separately reviewed capacity/retention design. General event-history pruning
+is outside v1.
+
 ## Name and path compatibility
 
 Koinon was previously named Codex Peer Bridge. Fresh installations use
@@ -16,11 +79,26 @@ names present cause a refusal that names both paths. Default selection reports i
 path and reason on stderr. No state, cursor, memory store, registration or lock is
 moved or reset. Invalid configuration refuses without falling back to empty state.
 Historical explicit-thread installations without `install.json` must repeat any
-custom state and unit paths on upgrade.
+custom state and unit paths on upgrade. Installer updates now preserve unrelated
+configuration fields under a permanent `.install.lock` with atomic publication.
+The [work-policy and guidance commands](WORK-ITEMS-POLICY.md) add explicit
+repository/participant opt-in after a normal runtime installation. They preserve
+unrelated guidance and support interrupted-publication recovery. Starting memory with
+this runtime creates or migrates schema 5; follow the [upgrade procedure](WORK-ITEMS-UPGRADE.md).
+
+Installation configuration must be a regular file owned by the current user and
+not writable by group or others. An older `install.json` with mode 0664 is refused
+with `invalid_install_configuration`; its contents are preserved. Verify the selected
+prefix and expected owner, then explicitly restore owner-only write access (for example,
+mode 0600 on that verified file) before retrying. The installer does not silently repair
+ownership, permissions, symlinks, or malformed configuration. Ordinary 0600/0644 files
+remain readable. Concurrent installers wait up to 30 seconds for `.install.lock`;
+`configuration_busy` with exit 75 means check the other installer and retry, never
+remove the permanent lock to force progress.
 
 Existing owned `codex-peer-*` unit names remain in use. Both old and new ownership
 markers and participant guidance sections are recognized for upgrade and removal.
-The implementation is `participant_instructions.py`; `codex_instructions.py` remains
+The implementation is `koinon/participant_instructions.py`; `koinon/codex_instructions.py` remains
 an import shim. The guidance lock filenames remain unchanged so old and new
 updaters cannot write at the same time. Do not replace markers or delete locks by hand.
 
@@ -53,21 +131,131 @@ The bridge targets an existing conversation. A standalone API key or unrelated
 Codex daemon does not provide access to that conversation. Hosted clients without
 local shell/queue access are not automatically supported.
 
-## macOS
+### Directory permissions
 
-There is no systemd on macOS, so the service path is unavailable. Install the runtime
-and managed guidance, then start each session's supervisor in a persistent session:
+Install and upgrade refuse a path that a second account can write. An ancestor must be a
+directory owned by this user or by root and must not be group- or other-writable; the
+selected path itself must be owned by this user and must not be group- or other-writable.
+A root-owned sticky directory such as `/tmp` is the one place a writable mode is allowed,
+and that exception never applies to the selected path itself.
+
+Three checks apply this rule to paths an operator creates, and each reports the condition
+that failed: the upgrade source checkout and every ancestor of it, the manager registration
+path and its existing ancestors, and the parent of a selected guidance file. When the write
+bits are the cause, the report adds the mode and the remedy; a wrong owner, or a file where a
+directory was expected, is reported as itself instead. The installation prefix is checked
+too, but it reports the fixed code `invalid_install_configuration` without that detail, so
+read this section when you meet it.
+
+An account whose `umask` is `002` creates directories with mode `0775` unless something
+else sets the mode, which the rule refuses. Check the paths before the first install:
 
 ```sh
-python3.12 scripts/install.py --configure-codex --no-start
-python3.12 session.py ensure                    # in a Codex session: uses CODEX_THREAD_ID
-python3.12 session.py ensure --agent deepseek   # in a harness session: uses DSH_SESSION_ID
+umask                 # 0002 makes a new directory group-writable unless its mode is set
+ls -ld ~/.local ~/.local/share ~/.local/state ~/.config
+chmod go-w ~/.local ~/.local/share ~/.local/state ~/.config
+chmod -R go-w /path/to/checkout
 ```
 
-`ensure` reports `manual_required` with an exact `start_command` on macOS. Run that
-command in a persistent terminal or managed tool session and keep it alive while using
-the bridge. `install.py` refuses the systemd path on macOS rather than writing units that
-nothing would load.
+A refusal caused by the mode names the path, that mode and the remedy, so a fault report
+should quote it in full:
+
+```
+{"error": "unsafe manifest ancestor: /home/you/koinon (mode 0775): remove group and other write permission, for example chmod go-w", "ok": false}
+```
+
+A group-writable directory is refused even when its group appears to hold only the owner.
+A group entry does not list the accounts whose primary group it is, and account enumeration
+can be partial or unavailable, so an exclusive-looking group cannot be shown to be
+exclusive. Koinon never repairs permissions and never adopts a path; the operator makes the
+change.
+
+### Bytecode caches
+
+Python writes compiled caches into `__pycache__` next to the modules it imports, and
+creates that directory with the importing process's umask. Every Koinon command therefore
+sets `umask 077` as its first statement, before it imports any Koinon module, so a cache
+directory that a command creates is private whatever the operator's umask is.
+
+A cache directory that is already group- or other-writable, or that holds a writable cache
+file, is not trusted: another account could have replaced a cache with code that Python
+would run. A command that finds one never reads any cache for that run, and runs correctly
+from source. `scripts/install.py`, `scripts/uninstall.py` and `scripts/upgrade.py` never read
+a cache at all, because they also run from a source checkout whose caches Koinon does not
+validate. No command changes the mode of, or removes, a cache directory.
+
+The runtime upgrade reports each untrusted cache directory in its preflight evidence
+(`untrusted_caches`) and, after the owned shutdown, moves it whole into the operation
+directory under `untrusted-cache/`. It keeps the directory there unchanged, and removes nothing. It refuses before
+shutdown with `untrusted_cache_contents` when such a directory holds anything other than
+caches for the runtime's own modules, or caches from more than eight Python versions,
+because moving it would carry away data that importing did not create. Preserve the reported entry and move it
+yourself if it is yours.
+
+## Repository components and native supervision
+
+Select a repository to install participant guidance and its shared memory service in
+one invocation. An explicit thread also stages and starts that existing session:
+
+```sh
+python3 scripts/install.py --configure-codex --repo /path/to/repository
+python3 scripts/install.py --configure-codex --repo /path/to/repository --thread EXISTING_THREAD
+# Memory alone needs Git and Python, but no Codex or DeepSeek executable:
+python3 scripts/install.py --configure-memory --repo /path/to/repository
+```
+
+`--configure-deepseek --repo REPOSITORY` selects the same memory component alongside
+harness guidance. `--configure-memory --thread EXISTING_THREAD --repo REPOSITORY`
+selects memory and that Codex session without modifying global participant guidance.
+A fresh `--thread EXISTING_THREAD --repo REPOSITORY` installation also selects both
+components. Guidance-only commands without `--repo` and legacy thread-only commands
+without `--repo` retain their previous scope. Repeating an existing installation does
+not add an unselected repository service: use `--configure-memory --repo REPOSITORY`
+to opt in explicitly. Existing unmanaged units and sessions are not adopted.
+
+The default backend is systemd on Linux and launchd on macOS. Linux memory uses
+persistent user registration and login enablement; session jobs use runtime registration
+without login enablement. macOS memory uses the account's `Library/LaunchAgents`
+directory and the selected GUI user domain. Session jobs are bootstrapped explicitly.
+No system service, sudo, or lingering configuration is created. Without an available
+user manager, startup reports `manual_required` with the exact command to keep running
+in a persistent terminal or managed tool session. `--service-backend manual` selects
+manual operation explicitly; changing a saved backend requires reconciliation.
+
+Add `--no-start` to stage runtime, configuration, and selected artifacts without querying
+or starting a manager. A later invocation without that flag activates the selection and
+checks live readiness. Repeating the same selection preserves stores and registration.
+Linked worktrees share the service selected by their Git common directory; a second
+repository receives its own service. Inspect memory with:
+
+```sh
+python3 /path/to/prefix/memory_service.py status --prefix /path/to/prefix --repo /path/to/repository
+```
+
+Native installation requires owned, non-group-writable and non-other-writable ancestors
+for the prefix, state, and registration paths. An existing group-writable `.local` or
+`.config` directory is refused even when its group currently contains only the owner.
+The refusal names the offending path. Review its ownership and sharing requirements,
+then choose a suitable private location or explicitly correct that directory yourself.
+The installer creates missing directories privately and never changes existing ancestor
+permissions. This precondition also applies to the native CI fixtures.
+
+Runtime files belonging to a selected native installation cannot be replaced with
+different bytes by an ordinary repeat install. Coordinated runtime upgrades are a
+separate operation; preserve the current installation when this refusal occurs.
+
+## macOS
+
+Use Python 3.11+ and a logged-in GUI user for launchd supervision:
+
+```sh
+python3.12 scripts/install.py --configure-codex --repo /path/to/repository
+```
+
+Guidance-only installations without a repository retain the manual supervisor path.
+Their `session.py ensure` reports `manual_required`; run its exact `start_command` in a
+persistent session. The historical systemd-only explicit-thread path remains unavailable
+on macOS; use the repository component invocation above instead.
 
 ### Recovering from a killed instance
 
@@ -143,7 +331,25 @@ marked section to `$CODEX_HOME/AGENTS.md` (normally `~/.codex/AGENTS.md`). If a 
 `AGENTS.override.md` already exists, the installer manages that higher-priority file
 instead. Existing content is preserved; a private backup is saved before the first
 edit. Reinstallation replaces only the managed section. Removal strips the section
-without restoring an old backup over subsequent user edits.
+without restoring an old backup over subsequent user edits. Recovery copies are
+atomically published and flushed before guidance replacement. A failed flush is an
+error; retrying reconfirms the retained copy before proceeding. Guidance publication
+and work-guidance retries also flush the retained target before reporting success.
+Linux uses `fsync`; macOS additionally requests `F_FULLFSYNC` for files through the
+shared platform primitives. These guarantees depend on filesystem and device support;
+fault-injection tests do not establish physical power-loss durability.
+
+The durability audit for gate #69 also covers these recovery records:
+
+| Publication site | Decision and reason |
+| --- | --- |
+| `participant_instructions` and `work_guidance` | Needs durability: preserve the original text before overwriting guidance and retain it across interrupted retries. |
+| `notify.save` | Needs durability: `session.save_registration` uses it for the saved session identity and assigned peer name. It is not merely a disposable notification cache. |
+| `memory.write_owner` | Needs durability: the ownership record is needed to recover a socket left after an unclean exit. |
+| `uninstall_finalize.publish` and directory synchronization | Needs durability: the recovery program and manifest must survive before runtime deletion begins. The generated helper embeds the shared flush primitives for the installation platform, so recovery still works after installed modules are removed. |
+
+All these file publications use the shared file flush and flush the parent directory;
+uninstall retries reconfirm the recovery files before continuing deletion.
 
 The section instructs each Codex conversation to run `session.py ensure` using its
 own `CODEX_THREAD_ID`. It never embeds a fixed thread ID. Each thread gets:
@@ -240,8 +446,10 @@ numbers to avoid repeating work. A successful socket send is not proof of model 
 
 ## Shared repository memory
 
-The memory service is optional and independent of the bridge. It is not installed as a service
-unit, and nothing starts it automatically. Memory CLI errors use a structured
+The memory service is optional and independent of the bridge. Repository component
+installation can supervise it through systemd or launchd; a manual backend requires a
+persistent managed process. See [repository components](#repository-components-and-native-supervision).
+Memory CLI errors use a structured
 `ok:false` response with a recovery code. Exit 75 means temporary unavailability or
 capacity; retry after pending work settles. Exit 78 means an identity, ownership,
 configuration, permissions or invalid-handshake refusal that needs operator correction.
@@ -251,14 +459,27 @@ restart loop. Request-specific errors and ambiguous lost replies exit 1; do not 
 an exit code alone as permission to repeat an uncertain write. If you manage memory with a separate service manager,
 keep 75 retryable and exclude both 70 (internal software error) and 78 from automatic
 restarts. Internal errors require investigation or a code correction; they are not
-reported as incompatible user data. No memory service unit is
-created by the installer.
+reported as incompatible user data. An operator-created memory unit is not included in the
+installer's session restart report or in uninstall's owned-unit inventory. Before
+replacing or removing its runtime, stop that memory service separately and verify
+its process has exited. After a compatible upgrade, restart it explicitly and
+verify memory health and store identity. For removal, separately disable and remove
+only the operator-owned unit selected for this installation; preserve the memory
+store and unrelated services. Installer-managed component lifecycle is delivered in
+[DQ-11](DELIVERY-QUEUE.md#dq-11--install-and-manage-every-runtime-component);
+supported runtime replacement remains [DQ-12](DELIVERY-QUEUE.md#dq-12--supported-resumable-runtime-upgrades).
 
 Run one per repository, from inside that repository:
 
 ```sh
 python3 memory.py serve
 ```
+
+Only `serve` initializes missing memory state directories. Client commands, including
+`status`, `recall`, and `stop`, leave absent directories absent. A query without a running
+service reports absence (the explicit `--service-dir` form returns
+`service_unavailable`); `stop` reports `not_running`. Existing state
+directories must still be private and owned by the current user.
 
 It prints its status as one JSON line and then serves until stopped. Start it in a persistent
 managed session, as with the manual bridge setup; it holds a socket, so an ordinary background
@@ -324,10 +545,12 @@ The pre-existing explicit single-thread mode remains available:
 python3 scripts/install.py --thread YOUR_THREAD_ID --name codex-project --repo /path/to/project
 ```
 
-That legacy mode manages the fixed `koinon-bridge`/`koinon-notify` pair (or the retained legacy names) and does
-not add global guidance. Prefer Codex-wide mode for concurrent sessions. It does not
-adopt an already running prototype or legacy inbox automatically; stop or migrate that
-instance deliberately to avoid duplicate registrations for one conversation.
+For a fresh prefix, that repository-scoped invocation selects the session supervisor
+and repository memory without adding global guidance. Existing legacy selections keep
+their original scope unless memory is explicitly selected with `--configure-memory`.
+Thread-only installation without a repository retains the legacy fixed pair. Existing
+prototype or legacy inboxes are never adopted automatically; deliberate migration must
+preserve their ownership and prevent duplicate registration for one conversation.
 
 ## Notifier ownership
 
@@ -370,17 +593,82 @@ notifier in another state directory does not hold the new lock and cannot be exc
 by it. Preserve inboxes, checkpoints, registration targets and unrelated bridge instances;
 do not treat installing files with `--no-start` as activating the new exclusion rule.
 
+## Missing state root
+
+Installation reports the **configured** state directory; staging a manual or
+`--no-start` memory component does not initialize its state or database. The
+`installed` selection records staged configuration, not a running service or an
+initialized store.
+
+Upgrade preflight refuses an absent recorded state root with `code: missing_state_root`,
+the configured `path`, and recovery guidance before shutdown, runtime replacement,
+or publication of an upgrade operation. This applies to the installation state root
+and separately selected memory state roots. A non-directory component blocking resolution
+of the recorded path instead returns `invalid_state_root`. Upgrade does not create empty
+state or remove an obstructing file to make its inventory pass.
+
+Verify the configured path and any expected mounted storage first. For an installation
+that has never been started, initialize the selected service using the installed
+runtime and the documented native start or manual handoff, then retry the upgrade.
+If state previously existed, recover the original state before retrying. Do not create
+an empty replacement, reset checkpoints, or change the saved selection to bypass the
+refusal. This diagnostic does not establish whether missing state was never created
+or was lost.
+
 ## Upgrades and removal
 
-Stop this installation's registered sessions before upgrading runtime code, then rerun
-`--configure-codex` with the same paths. Existing state and instructions are preserved;
-rerun `ensure` in active conversations afterward. Configure a distinct state root when
-you intend an independent installation. Never silently reset a checkpoint.
+Ordinary reinstall refuses changed runtime bytes when component selections exist.
+Replacing them is a supported operation, not a runbook. Run it from a complete checkout
+of the new release against the installed prefix:
+
+```sh
+python3 /path/to/new-source/scripts/upgrade.py --prefix /absolute/installed/prefix --source /path/to/new-source
+python3 /path/to/new-source/scripts/upgrade.py --status /absolute/installed/prefix
+python3 /path/to/new-source/scripts/upgrade.py --resume /absolute/installed/prefix/.upgrade/OPERATION --plan PLAN_DIGEST
+```
+
+The three modes are mutually exclusive, and `--resume` requires the plan digest that
+`--status` reports. The operation is resumable from its recorded phase, takes its own
+consistent backup, and produces a before/after verification report naming what it
+preserved and what it found. It reports any memory service the installation does not
+own rather than adopting or passing over it. It also carries a release across a declared
+layout change, so a file that moved between releases is retired only after its new path
+is published and confirmed; see [WORK-ITEMS-UPGRADE.md](WORK-ITEMS-UPGRADE.md) for the
+retirement rules and the manual-backend handoff.
+
+When the memory component's selected backend is `manual`, the operation stops at that
+component and returns `manual_handoff_required` with the exact start command. Run it in a
+persistent managed session, keep it alive, then resume with the plan digest. The operation
+never detaches a process, and a printed command is not readiness.
+
+This is a property of the selected backend, not of the platform. macOS installs launchd
+components like any other supported host, and they are upgraded without a handoff. An
+unreachable user service manager is a refusal to be corrected, not an automatic fallback to
+`manual`.
+
+**Precondition.** The operation validates the source checkout it reads from, under the same
+rule as installation; see [Directory permissions](#directory-permissions). Each ancestor must
+be a directory owned by this user or by root, and must not be group- or other-writable —
+except a root-owned sticky directory such as `/tmp`, which is allowed. The checkout itself
+must be owned by this user and must not be group- or other-writable. An account using
+`umask 002` creates `0775` directories, so the operation refuses with `unsafe manifest
+ancestor`, naming the path, its mode and the remedy. The selected checkout is validated
+inside the same ancestor walk, so it is reported the same way.
+
+The [stopped-state runbook](WORK-ITEMS-UPGRADE.md) remains for legacy and manual
+deployments that the operation does not cover, preserving the same prefix, state paths
+and targets. Never silently reset a checkpoint.
 Do not run session commands from an older runtime during an upgrade. Older commands
-do not use the lifecycle lock that protects session startup.
+do not use the lifecycle lock that protects session startup. Already-installed code
+that predates upgrade markers may report `invalid_install_configuration` instead of
+`installation_upgrading` while the operation is active. This is a compatibility
+limitation of that old reader, not evidence that the retained configuration needs
+repair. Preserve the configuration and recovery directory; use the selected upgrade
+operation's status/resume entrypoint. Do not repair, reinstall or delete its marker
+to bypass this refusal.
 
 For the peer-message guidance update, an operator may stage the compatible runtime
-files and replace each file atomically, installing `peer_guidance.py` before its
+files and replace each file atomically, installing `koinon/peer_guidance.py` before its
 importers, without stopping existing sessions. Preserve `install.json`, all state,
 units, and unrelated global instructions. The updated inbox CLI adds guidance even
 when connected to an older server. Running notifiers retain their loaded wording
@@ -394,11 +682,20 @@ scripts/uninstall.sh
 python3 scripts/uninstall.py --prefix /path/to/installed/runtime
 ```
 
-Removal stops this installation's registered sessions, removes its owned units, strips
-managed global guidance, and deletes runtime files. Inbox state and instruction backups
-remain. Stop/ownership errors abort removal instead of deleting files under a running
+Removal verifies and stops this installation's registered sessions and memory runners,
+removes only their owned manager registrations and artifacts, strips its managed guidance,
+and deletes runtime files. Inbox state, memory databases, notification history, instruction
+backups, removal provenance, and permanent locks remain. Stop/ownership errors abort removal instead of deleting files under a running
 service. Unmarked units from pre-release experiments are refused; inspect and remove
 only confirmed bridge units before migration.
+
+If removal is interrupted, repeat the uninstall command. A durable removal marker
+prevents installation or startup from reactivating a partially removed installation.
+Before deleting runtime modules, uninstall prints a standalone recovery command using
+`<prefix>/.uninstall-finalize.py`. If module deletion was interrupted, run that exact
+command; it validates the retained manifest and deletes only the recorded runtime files.
+It never traverses or removes the state directory. After successful removal, reinstalling
+the same selection reuses retained session registration and memory data.
 
 ## Troubleshooting
 
@@ -427,7 +724,7 @@ schema 3; earlier runtimes do not maintain the acknowledgement watermark. Restor
 rollback instead of mixing runtime and metadata versions. The schema change preserves
 ordinary-reader compatibility but does not upgrade an old notifier. The new notifier
 uses subscriptions and imports the legacy checkpoint into its separate journal.
-Explicit bindings require memory schema 4; restart each optional memory service with
+Explicit bindings require memory schema 5; restart each optional memory service with
 the new runtime before binding. Activation controls store evidence only. They are
 not a substitute for [stopped-notifier recovery](NOTIFIER.md).
 
@@ -446,8 +743,8 @@ and its running loop. All installer-managed units exclude both permanent statuse
 
 ## Explicit memory bindings
 
-Memory remains optional and is not started by the installer. After starting the
-repository's memory service, use its exact state directory to bind it:
+Memory remains optional. Installation can start an explicitly selected repository
+service, but does not bind participants. Use its exact state directory to bind it:
 
 ```sh
 python3 bridge.py --state-dir /private/bridge-state bind-memory \
@@ -464,10 +761,11 @@ sync command with the exact service root and a stable consumer identity. The leg
 notifier does not deliver memory pointers. Binding and notification do not acknowledge
 or import memory; the consumer must run sync and acknowledge issued pages explicitly.
 
-Memory schema 3 upgrades to schema 4 in a transaction that adds a durable store UUID
-and changes the schema version together. Records, snapshots and consumer cursors
-are retained. A schema-4 store with missing or invalid identity is refused, never
-silently assigned a replacement identity. Older runtimes refuse schema 4. Preserve
+Memory schemas 3 and 4 upgrade to schema 5 in one transaction; schema 3 also receives
+a durable store UUID. Existing records, replay results, snapshots and consumer cursors
+are retained. Schema-4/5 stores with missing or invalid identity are refused, never
+silently assigned a replacement identity. Older runtimes refuse schema 5. Read the
+[coordinated runtime upgrade procedure](WORK-ITEMS-UPGRADE.md). Preserve
 consistent backups before upgrade; rollback means restoring a compatible backup,
 not changing a schema number. An inbox upgrade does not restart memory for you.
 If `memory_upgrade_required` is returned, stop that memory service and start it
@@ -519,3 +817,20 @@ inbox or switch targets during rollback. Restoring a backup loses subsequent loc
 records and requires an explicit decision about that loss. Keep the new state for
 recovery rather than deleting it. Installation alone does not establish native
 receipt support or close the discovery verification gate in [DELIVERY.md](DELIVERY.md).
+
+### Session restart reporting after runtime replacement
+
+Installing runtime files does not reload an existing session supervisor. The installer
+reports owned session units in the selected unit directory that are active or changing
+state as requiring an explicit restart. It checks both current and legacy unit names,
+verifies the runtime prefix and service fragment, and leaves other installations alone.
+This is a point-in-time observation, not proof of the code a process has loaded.
+
+The report never stops or restarts session supervisors. Follow the coordinated upgrade
+procedure and restart only the affected sessions. With `--no-start`, no service-manager
+query is made; candidate units are reported as unverified. Missing, failed, timed-out or
+ambiguous service-manager observations also remain unverified. An inventory exceeding
+128 candidate units is reported incomplete rather than partially declaring success.
+Manual supervisors require an explicit coordinated restart;
+the installer does not inspect their processes. A successful file installation alone
+is not evidence that a running supervisor uses those files.

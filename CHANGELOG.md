@@ -3,6 +3,275 @@
 User-visible changes to Koinon are recorded here. Unreleased entries move
 into a dated release section when promoted to `main`.
 
+## 2026-09-22 — Package layout, native supervision, repository memory and runtime upgrade
+
+- Correct four `README.md` statements the code contradicts. The current inbox schema is 4,
+  which adds the delivery ledger; startup accepts a store at schema 2, 3 or 4, so describing
+  the acknowledgement watermark as living in schema 3 named a superseded version. A state
+  directory is refused when any group or other permission bit is set, rather than compared
+  against 0700 exactly, so an owner-only mode other than 0700 also passes. `not_bootstrapped`
+  fires only when no snapshot is open, which is the opposite of `snapshot_open`, so the two
+  cannot share one recovery instruction: it means call `sync` to obtain a first snapshot.
+  `idempotency_conflict` is also raised when a key is repeated with the same content and a
+  different deadline, not only when the content differs.
+
+- Report a missing recorded state root during upgrade preflight with
+  `missing_state_root`, its path, and recovery guidance before shutdown or upgrade
+  publication. Report a non-directory path component as `invalid_state_root`.
+  Preserve state and configuration rather than creating an empty
+  replacement. Installation now labels the state directory as configured, since
+  staging without service initialization may leave it absent (#80).
+
+- Describe the shipped schema-5 work commands and advisory claims in module
+  documentation and CLI help, removing stale staging language. Document
+  `schema_too_old`, its configuration exit status, and recovery without resetting
+  stored state (#86).
+
+- Memory client commands no longer create missing state directories while probing an
+  absent service. Only `serve` initializes them; existing directory safety checks remain (#81).
+
+- Stop an operator's own commands from blocking the next upgrade, and do not run a cache
+  another account could have written. Under `umask 002`, one interactive command run from
+  the installed prefix left a group-writable `__pycache__` that made every later upgrade
+  refuse with `unsafe manifest ancestor`. Every command now sets `umask 077` before its
+  first Koinon import, so the caches it creates are private. A command that finds an
+  untrusted cache directory runs from source without reading any cache, and the install,
+  uninstall and upgrade scripts never read one. The upgrade moves an untrusted cache
+  directory into its operation directory instead of refusing, and refuses before shutdown
+  only when that directory holds data other than the runtime's caches. The upgrade also
+  located caches through `sys.pycache_prefix`, which would have checked the wrong
+  directory once a private prefix is set; it now derives them from the runtime layout. The
+  upgrade command no longer describes itself as experimental.
+
+- Say what is wrong when a path is refused as unsafe. Installation and upgrade refuse a
+  path that a second account can write, which an account whose `umask` is `002` produces
+  for the directories it creates. The refusals named only the path, so an operator could
+  see neither the condition nor the remedy. The three checks that validate paths an
+  operator creates — the upgrade source checkout, the manager registration path and the
+  parent of a selected guidance file — now name the condition that failed, and give the
+  mode and the remedy when the mode is at fault, through one shared rule in
+  `koinon/path_permissions.py`. A wrong owner and a file where a directory was expected
+  are reported as themselves rather than as a mode to correct. The installation guide
+  states the requirement before the first install. The rule itself is unchanged and still
+  refuses a group-writable path: a group entry omits the accounts whose primary group it
+  is, and account enumeration can be partial or unavailable, so a group that looks
+  exclusive cannot be shown to be exclusive. Nothing repairs permissions or adopts a path.
+
+- Document the coordinated runtime upgrade as the supported operation it is, rather
+  than as work in progress with a manual runbook in its place. The installation guide
+  now carries the three command forms, the manual-backend handoff, and the permission
+  precondition that refuses a default `umask 002` checkout. The runbook remains for
+  legacy and manual deployments the operation does not cover. Two command forms that
+  the design document proposed do not parse and are corrected.
+
+- Correct statements in `README.md` and `AGENTS.md` that the code contradicts. A session
+  job's launchd artifact is published under its own state directory, not in
+  `~/Library/LaunchAgents`, which holds only the memory artifact. `--name` is read on the
+  legacy unit-pair path only and is ignored without warning on the component invocation,
+  where the peer name derives from the repository directory name. Entry garbage collection
+  is not limited to expired entries: finished work-item retention removes that item's stream
+  rows and advances the retained-history floor regardless of expiry. Installed launchd jobs
+  apply the same permanent-failure non-restart rule as systemd, by mapping those exits to
+  zero. `koinon/codex_instructions.py` is a legacy shim; the implementation is
+  `koinon/participant_instructions.py`.
+
+- Support a declared runtime layout migration during upgrade. A release records
+  where a shipped file moved to in `koinon/upgrade_layout.py`; replacement publishes the
+  new path, confirms it, then retires the old one, and refuses an undeclared removal
+  before shutting anything down. The frozen backup keeps every old path for recovery.
+
+- Move the implementation modules into a `koinon` package. The executable
+  entrypoints stay at the installation prefix — `bridge.py`, `notify.py`, `session.py`,
+  `memory.py`, `memory_service.py`, `session_service.py` and `usage_report.py` — so
+  installed service definitions and documented commands keep their paths. The shipped
+  file manifest moves with the layout.
+
+- Enable `fetch.prune` in `scripts/setup-repo.sh`, so a clone drops tracking refs
+  for branches the remote has already deleted. A stale tracking ref otherwise reads
+  as a live branch.
+
+- Move the test suite into `tests/`, leaving the repository root for modules,
+  documents and project metadata. Run the suite with
+  `python3 -m unittest discover -v -s tests` from the repository root.
+
+- Report and refuse unowned user-service definitions that directly reference an upgrading runtime, including loaded custom artifacts and definitions outside saved state roots.
+
+- Upgrade saved manual memory through a verified persistent foreground handoff, retaining resumable phases and original stopped state. Legacy manual sessions still require explicit ownership migration.
+
+- Restore inactive native components to their original stopped and registered/deactivated
+  state after gated upgrade verification, before releasing active components. Exercise
+  synthetic coordinator interruption and resume at every durable phase.
+
+- Explain safe recovery from an unowned-memory upgrade refusal, including a structured
+  recovery code and preservation guidance for existing legacy stores and services.
+
+- Correct six stale claims in `AGENTS.md` and `README.md`: an authorized upgrade now points
+  at `scripts/upgrade.py` instead of rerunning the installer, the installer is described as
+  configuring and conditionally starting repository memory, macOS is launchd-supported rather
+  than manual-only, memory is described as carrying subscriptions and content-free notices
+  rather than being pull-only, and a fresh `--repo` installation is no longer described as
+  the legacy unit pair or as starting nothing automatically.
+
+- Add an experimental public native upgrade command with a retained recovery archive,
+  explicit resume/status, preflight refusal of unowned memory state in selected roots,
+  and private preservation reports through release and final readiness. Inactive/manual
+  adapters and the full cross-platform acceptance matrix remain unfinished.
+
+- Bind pre-release service admission to verified child generations, distinguish later
+  restarts from preservation verification, and retain installation exclusion through
+  component observation and marker publication.
+
+- Retry deferred search initialization when the ordinary worker queue is full after
+  upgrade release. Bind private memory inventories to both repository and generation.
+
+- Connect the internal shutdown, backup and replacement phases to durable receipts;
+  interrupted backup completion resumes without replacing unbacked runtime files.
+
+- Connect internal native startup admission to the selected upgrade plan and complete
+  new runtime bytes; ordinary ensure remains blocked during the operation.
+
+- Stage resumable runtime file replacement against retained backups and exact memory
+  migration verification. Defer search-index initialization until upgrade release.
+  The public upgrade coordinator and native acceptance remain unfinished.
+
+- Connect internal upgrade shutdown and component backup capture with retained
+  startup locks, recorded endpoint reservations and frozen retry inventories.
+  The public upgrade coordinator remains unfinished.
+
+- Stage upgrade exclusion and service admission: selected verification can retain
+  ownership checks while peer ingress, notification delivery and maintenance wait
+  for durable release. Preserve upgrade-specific supervisor diagnostics. The public
+  coordinated upgrade operation remains in development.
+
+- Allow streaming upgrade backups up to 1 GiB per file through the shared binary
+  file guard. Other callers retain their smaller explicit limits; JSON records
+  keep the 4 KiB default and 1 MiB maximum.
+
+- Stage plan-bound upgrade phase records and immutable private recovery documents;
+  the public coordinator and native interruption acceptance remain in development.
+
+- Flush guidance recovery copies before replacing user text, and reconfirm retained
+  copies and guidance on retries. Apply the shared device flush to session registration,
+  memory ownership, and self-contained uninstall recovery files as well.
+
+- Flush installation configuration and service artifacts through the shared platform
+  primitives, so a replacement is followed by the device-level synchronization macOS
+  requires. Exact repeats reconfirm retained records instead of accepting a visible but
+  possibly unflushed file.
+
+- Stage read-only upgrade inventories and frozen source-file checks, including an explicit
+  unsupported-SQLite refusal. The coordinated upgrade command remains in development.
+
+- Correct legacy installation-guide statements to distinguish delivered native component
+  supervision from operator-managed services and the pending coordinated upgrade command.
+
+- Install selected repository memory and participant sessions through one public command,
+  with native Linux/macOS supervision, memory-only and no-start modes, and exact repeats.
+  Remove owned jobs with resumable cleanup while retaining inboxes, memory and recovery
+  evidence; clean reinstall reuses retained data. Native paths require safe ancestors.
+
+- Retry a state read when atomic publication replaced its opened predecessor,
+  preserving strict validation of the current record.
+
+- Pass parent-owned control sockets explicitly to session children, allowing native
+  restart after a child exits before its first handshake while preserving bind intent.
+
+- Activate explicitly selected native session pairs with verified manager ownership,
+  guarded shutdown, and captured dead-child control-socket recovery after runtime crashes.
+
+- Add saved native session selection, recoverable artifact publication, and an owned
+  runner entrypoint with explicit recovery provenance; automatic activation remains pending.
+
+- Stage durable session-runner ownership, refusal and generation-bound shutdown for
+  bridge/notifier pairs; native session activation remains unwired.
+
+- Run native manager and memory lifecycle evidence on integration PRs and branch
+  updates, with manual dispatch available after feature branches are removed.
+
+- Add optional generation-bound bridge and notifier stops for supervisor-owned
+  shutdown, preserving explicit operator stops.
+
+- Stage pure native session artifact rendering and its implementation sequence,
+  preserving Linux behavior while ownership and refusal integration remain pending.
+
+- Activate explicitly selected native memory supervisors with verified manager and
+  child identity, explicit launchd domains, and opt-in literal systemd arguments.
+  Refuse unsafe manager-reported registration paths and verify inert loader links
+  before enabling or starting systemd children. Add isolated native lifecycle checks; complete installer
+  integration remains pending.
+
+- Stage exact native service-manager observations with unknown results for missing,
+  malformed or changing evidence, plus isolated macOS interface fixtures. Activation
+  and complete installation remain pending.
+
+- Stage the repository memory supervisor with child readiness, generation-bound stop,
+  bounded retry, retained failure diagnostics, and explicit refusal recovery. Native
+  manager activation and installer integration remain pending.
+
+- Allow managed callers to bind memory shutdown to their captured generation,
+  refusing a replacement or unreadable owner before sending a stop request.
+
+- Route existing session, installation, and removal service-manager operations
+  through platform support while preserving Linux command and failure behavior.
+
+- Stage exact memory-service artifact ownership and recoverable publication,
+  preserving conflicting files and interrupted-install evidence without activation.
+
+- Stage validated repository memory-service selections and bounded installer admission,
+  preserving configuration and store identity without activating services.
+
+- Add the managed memory installation design candidate, including repository
+  ownership, Linux/macOS supervision, recovery, migration, and delivery slices.
+
+- Record complete component installation and resumable upgrades in the delivery
+  queue; clarify lifecycle responsibilities for operator-created memory services.
+
+- Name missing required work-command fields, enforce required CLI options, and
+  preserve machine-readable argument refusals and optional replay pairs.
+
+- Report session supervisors that may need an explicit restart after runtime
+  replacement; preserve no-start and manual-service uncertainty without restarting them.
+
+- Reconcile delivery-queue milestones with released source and completed work-items
+  integration; retain the error-code validation proposal as an explicit follow-up.
+
+- Enable schema-5 memory startup with atomic schema-3/4 migration, complete catalog
+  validation and explicit work/record-format capabilities. Preserve legacy data and
+  snapshots; document coordinated runtime upgrades and rollback boundaries.
+
+- Document finite work-item capacity, retained-history limits, funded claim reserves,
+  and the distinction between reclaiming rows and recovering allocated page headroom.
+
+- Add explicit repository/participant work-guidance opt-in and removal, private backups,
+  interrupted-publication recovery, and rule-aware uninstall. Policy queries verify
+  managed section digests and report edited or missing guidance as disabled.
+
+- Preserve unknown installation fields and staged work rules across upgrades using
+  a permanent configuration lock and atomic writes. Add a read-only `work-policy`
+  query for explicit repository/participant selections; work activation remains deferred.
+
+- Add staged bounded work maintenance, atomic finished-history reclamation, and
+  timestamped status diagnostics. Idle subscribers receive committed change hints;
+  shutdown drains accepted jobs. Public startup remains schema 4.
+
+- Add staged work lifecycle commands, replay results and immutable stream/snapshot
+  integration, with strict reader-format guards and note isolation. Public startup
+  stays schema 4; work activation remains pending.
+
+- Enforce remaining work reservations at the shared memory transaction boundary,
+  including progress, cleanup and index rebuilds. Add synthetic capacity/rollback
+  tests and package the accounting dependencies; public startup remains schema 4.
+
+- Add staged schema-migration and advisory-lease primitives with synthetic rollback,
+  restart, conflict, and reservation tests. Runtime activation remains pending;
+  the memory service still uses schema 4 and exposes no work-item commands.
+
+- Record the approved work-items v1 contract and its implementation design for
+  advisory writer claims, progress reporting, interruption recovery, and 30-day
+  retention of finished work and its history.
+- Record the requirement for dead-session detection and supported single-session
+  removal that preserves inbox state; design remains pending.
+
 ## 2026-09-19 — Usage reports and delivery evidence
 
 - Add bounded local delivery records, acknowledgement-independent deduplication,

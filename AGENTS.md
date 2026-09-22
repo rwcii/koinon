@@ -9,7 +9,14 @@ is not implemented.
 
 Read README.md, PROTOCOL.md, and CONTRIBUTING.md before changing it.
 
-Platform differences belong in `platform_support.py`; do not add `sys.platform` checks
+Implementation modules live in the `koinon` package. The executable entrypoints stay beside
+it at the repository root and at the installation prefix — `bridge.py`, `notify.py`,
+`session.py`, `memory.py`, `memory_service.py`, `session_service.py` and `usage_report.py` —
+because installed service definitions name their paths and are compared byte for byte. Add a
+new module to the package, and add a new root entrypoint only when a service definition or a
+documented command must name it. Tests live in `tests/`.
+
+Platform differences belong in `koinon/platform_support.py`; do not add `sys.platform` checks
 elsewhere. Peer addresses and registry socket paths must stay unresolved, because the peer
 key filename is derived from the literal path.
 
@@ -17,7 +24,7 @@ Work on feature/fix/chore branches off develop. Squash PRs into develop; promote
 through a merge PR to main. Never commit directly to either long-lived branch.
 Use signed, DCO signed-off commits with the human author and no automated attribution.
 
-Run `python3 -m unittest discover -v` and `git diff --check` before pushing.
+Run `python3 -m unittest discover -v -s tests` and `git diff --check` before pushing.
 Review shell edits with `bash -n scripts/setup-repo.sh` and `sh -n .githooks/pre-commit`.
 Keep documentation current. Runtime messages, keys, checkpoints, and private session
 identifiers must not enter the repository. Tests use synthetic peers.
@@ -39,19 +46,28 @@ that scope. Do not send test messages to other agents unless communication is au
 2. Determine the exact intended Codex thread. Inspect `CODEX_THREAD_ID` from that
    session's shell when available. If absent, ask the user for the target thread; do not
    guess or create a replacement conversation. Confirm a harmless queue test reaches it.
-3. Select a descriptive peer name and the intended project path. Check for an existing
-   bridge, its target thread, state directory, and services before replacing anything.
-   Preserve unrelated running bridges and all inbox state.
-4. For a user with systemd on Linux, run `python3 scripts/install.py --thread THREAD_ID --name
-   PEER_NAME --repo PROJECT_PATH`. Use argument arrays or correct shell quoting.
-   That explicit legacy mode manages one service pair. Prefer `--configure-codex` for
-   multiple conversations: install managed global guidance, then run `session.py ensure`
+3. Determine the intended project path. Check for an existing bridge, its target thread,
+   state directory, and services before replacing anything. Preserve unrelated running
+   bridges and all inbox state. Do not choose a peer name: on the component path the name is
+   derived from the repository directory name and made unique against the names already
+   taken. `--name` is read only on the legacy unit-pair path, and is ignored without warning
+   on the invocation below.
+4. Run `python3 scripts/install.py --thread THREAD_ID --repo PROJECT_PATH`.
+   Use argument arrays or correct shell quoting. With `--repo` on a fresh prefix this
+   installs the repository components, not the legacy bridge/notifier unit pair; the
+   legacy pair is reached only when no memory selection is made. Prefer `--configure-codex`
+   for multiple conversations: install managed global guidance, then run `session.py ensure`
    with the current CODEX_THREAD_ID, or `session.py ensure --agent deepseek` in a harness
    session. Each session gets an isolated supervisor instance.
    For an isolated preview use `--no-start` plus temporary prefix, state, and unit paths.
-5. Without a user systemd manager — which includes every macOS host — use the manual
-   two-process setup in the installation guide. On macOS `install.py` refuses the service
-   path and `session.py ensure` reports `manual_required` with a start command. Do not
+5. macOS is supported through launchd, not only manually: `installation_backend()` selects
+   `launchd`, and `session.py ensure` drives it. Only the memory artifact goes to
+   `~/Library/LaunchAgents`. A session job's artifact is published under that session's own
+   state directory, at `<state>/sessions/<key>/native-service/`, and is bootstrapped
+   explicitly. `manual_required` is reported when no user manager is reachable or the saved backend
+   is `manual` — not on macOS as such. The historical systemd-only explicit-thread path does
+   still refuse on macOS; use the repository component invocation instead. Without any user
+   service manager, use the manual two-process setup in the installation guide. Do not
    silently introduce sudo, system services, lingering, or permission changes.
 6. Verify both services, the bridge status, and the registry's bare filesystem socket path.
    When authorized, ask a peer to refresh its listing and send one short test by name.
@@ -80,9 +96,17 @@ credentials, environment dumps, inbox content, or private thread IDs into commit
 ## Shared memory and handoffs
 
 Read the shared memory sections in README.md, PROTOCOL.md, and docs/INSTALL.md before
-operating or changing `memory.py`. The installer copies the module, but does not start
-it or configure a memory service. Start it explicitly in a persistent managed session.
-It is currently pull-only: it has no peer-bus subscriptions or automatic notices.
+operating or changing `memory.py`. `scripts/install.py --configure-memory` configures a
+memory service, and a fresh install with `--repo` also selects one. `--no-start` only
+stages that selection; otherwise the installer runs `memory_service.py ensure`, which
+starts a selected native service when its manager is available. A selected manual
+backend never starts automatically, and neither does a native selection whose manager
+is unavailable; both report `manual_required` with a start command. Where no selection
+is made, or where `ensure` reports `manual_required`, start it explicitly in a
+persistent managed session.
+The service advertises `memory_subscription`, the notifier subscribes to it, and a head
+change queues a content-free notice carrying a `sync` command. Reading the store is still
+a pull the receiving session performs; the notice never carries memory content.
 
 One store serves each absolute Git common directory, including its worktrees. Use a
 stable consumer key for stateful commands. Read every snapshot page before acknowledging
@@ -97,10 +121,15 @@ Memory does not automatically import those files or replace agent-specific memor
 
 ## Upgrades and configuration changes
 
-Use a feature branch and the normal test/review flow for code changes. For an authorized
-runtime upgrade, rerun the installer with the same target and paths; keep state intact.
-A different target thread requires a separate state directory. Do not reset a checkpoint
-silently. The notifier's `--codex` option handles a CLI at a nonstandard absolute path.
+Use a feature branch and the normal test/review flow for code changes. An authorized
+runtime upgrade runs `python3 scripts/upgrade.py --prefix ABS_PREFIX --source ABS_SOURCE`;
+`--status ABS_PREFIX` reports an operation and `--resume ABS_OPERATION --plan DIGEST`
+continues an interrupted one. It takes its own preflight, consistent backup, gated
+release and preservation report, and it refuses rather than proceeding when it finds
+memory state without a saved managed selection. Do not rerun the installer as a
+substitute; that bypasses every one of those checks. Read `docs/WORK-ITEMS-UPGRADE.md`
+first. A different target thread requires a separate state directory. Do not reset a
+checkpoint silently. The notifier's `--codex` option handles a CLI at a nonstandard absolute path.
 If Claude uses `CLAUDE_CONFIG_DIR`, configure it consistently for both services.
 
 Use `scripts/uninstall.sh` for the default install; it preserves inbox state. For custom
@@ -108,7 +137,9 @@ paths, follow the manual removal instructions. Stale files may be removed only a
 verifying ownership and that their old process is dead. Never purge shared socket or
 session-registry directories.
 
-For automatic setup, read `codex_instructions.py` and `session.py`. Test preservation,
+For automatic setup, read `koinon/participant_instructions.py` and `session.py`.
+`koinon/codex_instructions.py` is a legacy import shim over the first of those and carries
+no implementation. Test preservation,
 repeat installation, override precedence, concurrent thread isolation, and complete
 bridge/notifier health. Registration must never claim success based on the bridge
 alone. Run the returned start_command in a managed session when no user systemd manager

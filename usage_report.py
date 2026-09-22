@@ -1,5 +1,37 @@
 #!/usr/bin/env python3
 """Explicit local per-agent usage reports. No hooks, messaging or cost calculation."""
+# Bytecode guard (docs/INSTALL.md). It runs before the first
+# project import and uses only the standard library, because a shared helper would
+# itself load from the cache it must judge. It keeps the canonical text below, which
+# tests/test_bytecode_guard.py compares across every entrypoint.
+if __name__ == '__main__':
+    import os as _os, stat as _stat, sys as _sys, tempfile as _tempfile
+    _os.umask(0o077)
+    _here = _os.path.dirname(_os.path.abspath(__file__))
+    _script = _os.path.basename(_here) == 'scripts'
+    _root = _os.path.dirname(_here) if _script else _here
+
+    def _owned(info, kind):
+        return kind(info.st_mode) and info.st_uid == _os.geteuid() and not info.st_mode & 0o022
+
+    def _trusted(path):
+        try:
+            info = _os.lstat(path)
+        except FileNotFoundError:
+            return True
+        if not _owned(info, _stat.S_ISDIR):
+            return False
+        with _os.scandir(path) as entries:
+            return all(_owned(entry.stat(follow_symlinks=False), _stat.S_ISREG)
+                       and entry.stat(follow_symlinks=False).st_nlink == 1 for entry in entries)
+
+    if _script or not all(_trusted(_os.path.join(_root, part, '__pycache__'))
+                            for part in ('', 'koinon', 'scripts')):
+        _sys.pycache_prefix = _tempfile.mkdtemp(prefix='koinon-pycache-')
+        _sys.dont_write_bytecode = True
+        import atexit as _atexit
+        _atexit.register(lambda path=_sys.pycache_prefix: _os.path.isdir(path) and _os.rmdir(path))
+# End of bytecode guard.
 import argparse
 import datetime
 import hashlib
@@ -8,8 +40,8 @@ import os
 from pathlib import Path
 import sys
 
-from usage_selection import self_manifest
-from usage_sources import ADAPTER_VERSION, COMPONENTS, FIELDS, collect, normalize, text, timestamp
+from koinon.usage_selection import self_manifest
+from koinon.usage_sources import ADAPTER_VERSION, COMPONENTS, FIELDS, collect, normalize, text, timestamp
 
 
 def read_json(path):
@@ -40,7 +72,7 @@ def selections(manifest):
         selected['path'] = str(path.resolve())
         child = None
         if selected['provider'] == 'claude':
-            from usage_selection import native_role
+            from koinon.usage_selection import native_role
             if native_role('claude', path, selected['session_id'], {})[0] == 'subagent':
                 child = path.stem
         identity = (selected['provider'], selected['session_id'], child)

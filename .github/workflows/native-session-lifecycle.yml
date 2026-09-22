@@ -1,0 +1,25 @@
+name: Native session lifecycle evidence
+on:
+  pull_request:
+    branches: [develop]
+  push:
+    branches: [develop, main]
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  launchd-session:
+    runs-on: macos-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+      - run: python scripts/test-native-session.py --run-isolated-job --backend launchd --output "$RUNNER_TEMP/koinon-session-evidence/result.json"
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: launchd-session-evidence
+          path: ${{ runner.temp }}/koinon-session-evidence/result.json
+          if-no-files-found: error

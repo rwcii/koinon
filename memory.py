@@ -21,10 +21,42 @@ a defect in review:
 * **The server owns protocol state.** Page issuance, completion and acknowledgement
   are recorded here, never inferred from a number the caller supplies.
 """
+# Bytecode guard (docs/INSTALL.md). It runs before the first
+# project import and uses only the standard library, because a shared helper would
+# itself load from the cache it must judge. It keeps the canonical text below, which
+# tests/test_bytecode_guard.py compares across every entrypoint.
+if __name__ == '__main__':
+    import os as _os, stat as _stat, sys as _sys, tempfile as _tempfile
+    _os.umask(0o077)
+    _here = _os.path.dirname(_os.path.abspath(__file__))
+    _script = _os.path.basename(_here) == 'scripts'
+    _root = _os.path.dirname(_here) if _script else _here
+
+    def _owned(info, kind):
+        return kind(info.st_mode) and info.st_uid == _os.geteuid() and not info.st_mode & 0o022
+
+    def _trusted(path):
+        try:
+            info = _os.lstat(path)
+        except FileNotFoundError:
+            return True
+        if not _owned(info, _stat.S_ISDIR):
+            return False
+        with _os.scandir(path) as entries:
+            return all(_owned(entry.stat(follow_symlinks=False), _stat.S_ISREG)
+                       and entry.stat(follow_symlinks=False).st_nlink == 1 for entry in entries)
+
+    if _script or not all(_trusted(_os.path.join(_root, part, '__pycache__'))
+                            for part in ('', 'koinon', 'scripts')):
+        _sys.pycache_prefix = _tempfile.mkdtemp(prefix='koinon-pycache-')
+        _sys.dont_write_bytecode = True
+        import atexit as _atexit
+        _atexit.register(lambda path=_sys.pycache_prefix: _os.path.isdir(path) and _os.rmdir(path))
+# End of bytecode guard.
 import argparse
-import runtime_names
+from koinon import runtime_names
 import asyncio
-import subscriptions
+from koinon import subscriptions
 import contextlib
 import fcntl
 import hashlib
@@ -33,20 +65,27 @@ import math
 import os
 from pathlib import Path
 import signal
+import stat
 import socket
 import sqlite3
 import subprocess
 import time
 import uuid
+from koinon import claims
+from koinon import work_storage
+from koinon import work_items
+from koinon import work_maintenance
+from koinon import work_schema
 
-from database_worker import DatabaseWorker, CapacityError, WorkerFailure
-from service_runtime import Admission, close_writer, drain_handlers, database_status, HANDSHAKE_TIMEOUT
-from peer_transport import LIMIT, credentials, encode, private_dir
-import platform_support
-from peer_transport import control_exchange as transport_exchange, service_path, NoControlReply, UnsafeServiceEndpoint
+from koinon.database_worker import DatabaseWorker, CapacityError, WorkerFailure, WorkerClosed
+from koinon.service_runtime import Admission, close_writer, drain_handlers, database_status, HANDSHAKE_TIMEOUT
+from koinon.peer_transport import LIMIT, credentials, encode, private_dir
+from koinon import platform_support
+from koinon.peer_transport import control_exchange as transport_exchange, service_path, NoControlReply, UnsafeServiceEndpoint
 
 PROTOCOL = 1
-SCHEMA = 4
+SCHEMA = 5
+INITIALISING = object()
 VERIFY_TIMEOUT = 5
 
 # One statement per element. `executescript` runs a script in autocommit mode, so these
@@ -82,10 +121,11 @@ CREATE TABLE IF NOT EXISTS entries(
 # that differs is a different table wearing the same name, so shapes are compared too.
 SCHEMA_TABLES = frozenset(('meta', 'entries', 'idem', 'cursors', 'retired', 'snapshots',
                            'snapshot_items'))
-SCHEMA_INDEXES = frozenset(('entries_live',))
+SCHEMA_TABLES |= work_schema.TABLES
+SCHEMA_INDEXES = frozenset(('entries_live',)) | work_schema.INDEXES
 # Tables holding what a caller stored. Any row here without an identity means the file is
 # somebody's data, whether the metadata table is empty or missing altogether.
-DATA_TABLES = ('entries', 'snapshot_items', 'snapshots', 'cursors', 'retired', 'idem')
+DATA_TABLES = ('entries', 'snapshot_items', 'snapshots', 'cursors', 'retired', 'idem') + tuple(sorted(work_schema.TABLES))
 FTS_TABLE = 'search'
 FTS_TABLE_SQL = 'CREATE VIRTUAL TABLE IF NOT EXISTS search USING fts5(body, content="")'
 # The shadow tables FTS5 creates for a contentless `search`, verified against a real one
@@ -218,6 +258,8 @@ CHAINED_DATABASE_FAULTS = {
     'store_busy': None,
     'capacity': None,
     'incompatible_store': None,
+    'unsupported_runtime': None,
+    'wrong_repository': None,
     'socket_in_use': None,
 }
 
@@ -238,15 +280,24 @@ class MemoryError_(ValueError):
         return CHAINED_DATABASE_FAULTS.get(self.code)
 
 
-def private_state_dir(path):
+def private_state_dir(path, *, create=True):
     try:
-        private_dir(path)
+        if create:
+            private_dir(path)
+        else:
+            try:
+                info = path.lstat()
+            except FileNotFoundError:
+                return
+            if (not stat.S_ISDIR(info.st_mode) or info.st_uid != os.getuid()
+                    or info.st_mode & 0o077):
+                raise ValueError('unsafe state directory')
     except (ValueError, PermissionError, FileExistsError, NotADirectoryError):
         raise MemoryError_('unsafe_state_directory',
                            'the state directory must be a private directory owned by this user') from None
 
 
-def repo_identity(start=None):
+def repo_common_directory(start=None):
     """Canonical repository key: the Git common directory, absolute, hashed.
 
     The bare `--git-common-dir` prints a path relative to the working directory, so
@@ -263,7 +314,11 @@ def repo_identity(start=None):
     if out.returncode or not path or not Path(path).is_absolute():
         raise MemoryError_('repo_unresolved',
                            'not inside a Git repository, or Git is too old for --path-format')
-    return hashlib.sha256(str(Path(path).resolve()).encode()).hexdigest()[:16]
+    return Path(path).resolve()
+
+
+def repo_identity(start=None):
+    return hashlib.sha256(str(repo_common_directory(start)).encode()).hexdigest()[:16]
 
 
 def state_dir(root, repo):
@@ -307,10 +362,12 @@ class Store:
               'conflicts_with', 'expires')
     SELECT = 'SELECT ' + ','.join(FIELDS) + ' FROM entries'
 
-    def __init__(self, path, repo, fts=None):
+    def __init__(self, path, repo, fts=None, *, defer_index=False):
         self.repo, self.path = repo, path
+        self._index_deferred, self._requested_fts = defer_index, fts
         self.expired_at = 0.0
         self.on_change = None
+        self._initialisation = INITIALISING
         # Autocommit, with every transaction opened explicitly below. The driver starts an
         # implicit transaction only for INSERT, UPDATE, DELETE and REPLACE, so DDL ran in
         # autocommit however it was wrapped, and the schema stayed several transactions.
@@ -326,6 +383,7 @@ class Store:
             state = self.classify(repo)
             if state == 'initialised':
                 self.inspect(repo)
+                self._initialisation = None
             self.configure()
             # The schema and the metadata that identifies it are one transaction. Split
             # across two, an interruption between them left a store with tables and no
@@ -334,16 +392,52 @@ class Store:
                 with self.transaction():
                     for statement in SCHEMA_STATEMENTS:
                         self.db.execute(statement)
+                    if SCHEMA >= work_schema.VERSION:
+                        replay_columns = {row[1] for row in self.db.execute('PRAGMA table_info(idem)')}
+                        for statement in work_schema.MIGRATION_STATEMENTS:
+                            if statement.startswith('ALTER TABLE'):
+                                if statement.split()[5] in replay_columns:
+                                    continue
+                            else:
+                                statement = statement.replace('CREATE TABLE ', 'CREATE TABLE IF NOT EXISTS ', 1).replace(
+                                    'CREATE INDEX ', 'CREATE INDEX IF NOT EXISTS ', 1)
+                            self.db.execute(statement)
+                        for key in work_schema.COUNTERS:
+                            self.set_meta(key, 0)
                     for key, value in (('repo', repo), ('protocol', PROTOCOL),
                                        ('schema', SCHEMA), ('head', 0), ('floor', 0),
                                        ('store_id', uuid.uuid4().hex)):
                         self.set_meta(key, value)
+                self._initialisation = None
+            elif int(self.meta('schema')) < SCHEMA and SCHEMA >= work_schema.VERSION:
+                with self.transaction(control=True):
+                    work_schema.migrate(self.db, repo, SCHEMA_STATEMENTS)
             elif int(self.meta('schema')) == 3:
                 with self.transaction(control=True):
                     self.set_meta('store_id', uuid.uuid4().hex)
                     self.set_meta('schema', SCHEMA)
-            self.fts = False if fts is False else self._open_fts()
-            self._reconcile_index()
+            if SCHEMA >= work_schema.VERSION:
+                self.reset_log()
+                work_schema.validate_format(self.db)
+            self.fts = False
+            if not defer_index:
+                self.fts = False if fts is False else self._open_fts()
+                self._reconcile_index()
+        except work_schema.SchemaError as exc:
+            self.db.close()
+            if exc.code == 'capacity':
+                raise MemoryError_('capacity', str(exc)) from exc
+            if exc.code == 'unsupported_sqlite':
+                raise MemoryError_('unsupported_runtime', str(exc)) from exc
+            if exc.code == 'storage_blocked':
+                raise MemoryError_('storage_blocked', str(exc)) from exc
+            if exc.code == 'store_busy':
+                raise MemoryError_('store_busy', str(exc)) from exc
+            if exc.code == 'wrong_repository':
+                raise MemoryError_('wrong_repository', str(exc)) from exc
+            if exc.code == 'incompatible_store':
+                raise MemoryError_('incompatible_store', str(exc)) from exc
+            raise RuntimeError('unhandled schema startup error code: ' + exc.code) from exc
         except sqlite3.Error as exc:
             self.db.close()
             if owned_elsewhere(exc):
@@ -465,7 +559,12 @@ class Store:
         try:
             previous = self.head() if callback is not None else None
             yield
-            self.enforce_pages(control)
+            # Read the remaining durable promises once AFTER all mutations. A
+            # funded control has already cleared its flags; subtracting its
+            # allowance again here would spend the same credit twice.
+            debt = self.work_debt()
+            self.enforce_pages(control, debt)
+            self.enforce_logical(control, debt)
             changed = callback is not None and self.head() != previous
             self.db.execute('COMMIT')
         except BaseException as exc:
@@ -525,6 +624,7 @@ class Store:
             raise MemoryError_('storage_blocked', self.blocked)
         # Only now is a write permissible.
         try:
+            pages_before = self.pages()
             self.db.execute('PRAGMA incremental_vacuum').fetchall()
             busy, log_pages, residual = self.log_state()
         except (sqlite3.Error, OSError) as exc:
@@ -533,17 +633,61 @@ class Store:
         if busy or log_pages or residual:
             self.block('recovery reclaimed pages but could not reset the log afterwards')
             raise MemoryError_('storage_blocked', self.blocked)
+        pages_after = self.verify_vacuum_pages(pages_before)
         self.blocked = None
-        return dict(recovered=True, pages=self.pages(), blocked=None)
+        return dict(recovered=True, pages=pages_after, blocked=None)
 
     @staticmethod
-    def page_cap(control):
+    def page_cap(control, debt=None):
         """The one effective page limit, so admission and enforcement cannot disagree.
 
         Both must subtract the commit-time allocation. When only enforcement did, a store
         resting between the two figures admitted every append and rolled every one back.
         """
-        return (MAX_PAGES if control else ORDINARY_MAX_PAGES) - COMMIT_SLACK
+        return ((MAX_PAGES if control else ORDINARY_MAX_PAGES) - COMMIT_SLACK
+                - (debt.pages if debt is not None else 0))
+
+    def accounting_version(self):
+        if self._initialisation is INITIALISING:
+            return 0
+        # Read durable state, not a cache: a migration in the current transaction
+        # may have changed the version. Missing/malformed metadata is an error,
+        # never permission to silently stop preserving outstanding credits.
+        version = self.meta('schema')
+        if version not in ('3', '4', '5'):
+            raise MemoryError_('incompatible_store', 'invalid accounting schema version')
+        return int(version)
+
+    def verify_vacuum_pages(self, before):
+        try:
+            after = self.pages()
+        except sqlite3.Error as exc:
+            self.block('post-vacuum page count could not be verified')
+            raise MemoryError_('storage_blocked', self.blocked) from exc
+        if after > before:
+            self.block('incremental vacuum unexpectedly increased the page count')
+            raise MemoryError_('storage_blocked', self.blocked)
+        return after
+
+    def work_debt(self):
+        if self.accounting_version() < 5:
+            return claims.Debt(0, 0)
+        return work_storage.debt(self.db)
+
+    def ceilings(self, control, debt=None):
+        debt = self.work_debt() if debt is None else debt
+        # The note reserve funds progress and note controls. If that allowance
+        # proves insufficient, roll back rather than consume promised work
+        # credits. Work controls use this same table AFTER clearing only their
+        # own credits; unrelated controls preserve all remaining obligations.
+        return dict(pages=self.page_cap(control, debt),
+                    logical=MAX_LOGICAL_BYTES - (0 if control else RESERVED_BYTES)
+                            - debt.logical_bytes,
+                    entries=MAX_ENTRIES - (0 if control else RESERVED_ENTRIES)
+                            - debt.event_slots,
+                    idem=MAX_IDEM_ROWS - debt.replay_slots,
+                    work_logical=work_storage.MAX_LOGICAL_BYTES - debt.logical_bytes,
+                    work_events=work_storage.MAX_EVENTS - debt.event_slots)
 
     def reset_log(self):
         """Return the log to zero before a write, and prove it rather than assume it.
@@ -635,26 +779,35 @@ class Store:
 
         # No identity, so this may only be adopted if it is exactly an unfinished start.
         expected = {}
-        for statement in SCHEMA_STATEMENTS:
-            name = statement.split('EXISTS', 1)[1].split('(', 1)[0].split()[0]
-            expected[name] = normalised_sql(statement)
+        for version in ((4, 5) if SCHEMA >= work_schema.VERSION else (4,)):
+            for kind, name, _table, sql in work_schema.expected_catalog(SCHEMA_STATEMENTS, version, False):
+                if not name.startswith('sqlite_'):
+                    expected.setdefault(name, set()).add(work_schema.sql_tokens(sql))
         fts_present = any(name == FTS_TABLE and normalised_sql(sql) == normalised_sql(FTS_TABLE_SQL)
                           for _type, name, sql in objects)
+        fts_expected = {}
+        if fts_present:
+            fts_expected = {name: work_schema.sql_tokens(sql)
+                            for _kind, name, _table, sql in work_schema.expected_catalog(
+                                SCHEMA_STATEMENTS, 4, True)
+                            if name == FTS_TABLE or name in FTS_SHADOWS}
         unknown, malformed = [], []
         for _type, name, sql in objects:
             if name == FTS_TABLE:
-                if not fts_present:
+                if not fts_present or work_schema.sql_tokens(sql) != fts_expected.get(name):
                     malformed.append(name)
                 continue
             if name in FTS_SHADOWS:
                 # Admitted only alongside the virtual table that owns them.
                 if not fts_present:
                     unknown.append(name)
+                elif work_schema.sql_tokens(sql) != fts_expected.get(name):
+                    malformed.append(name)
                 continue
             if name not in expected:
                 unknown.append(name)
                 continue
-            if normalised_sql(sql) != expected[name]:
+            if work_schema.sql_tokens(sql) not in expected[name]:
                 malformed.append(name)
         if unknown:
             raise MemoryError_(
@@ -741,13 +894,17 @@ class Store:
                                        'state directory belongs to another repository; it was left '
                                'untouched')
         for key, current in (('schema', SCHEMA), ('protocol', PROTOCOL)):
-            found = int(rows.get(key) or 0)
+            try:
+                found = int(rows.get(key) or 0)
+            except (TypeError, ValueError):
+                raise MemoryError_('incompatible_store',
+                                   'store version metadata is malformed; nothing was written') from None
             if found > current:
                 raise MemoryError_('schema_too_new',
                                    f'this store declares {key} {found}; this runtime supports '
                                    f'{current}. Upgrade the runtime rather than downgrading the '
                                    'store. Nothing was written')
-            if found < current and not (key == 'schema' and found == 3):
+            if found < current and not (key == 'schema' and found in (3, 4)):
                 raise MemoryError_('schema_too_old',
                                    f'this store declares {key} {found}; this runtime expects '
                                    f'{current} and has no migration for it. Nothing was written')
@@ -759,8 +916,17 @@ class Store:
         elif (not isinstance(store_id, str) or len(store_id) != 32
               or any(c not in '0123456789abcdef' for c in store_id)):
             raise MemoryError_('incompatible_store', 'store identity is missing or invalid; it was left untouched')
+        if SCHEMA >= work_schema.VERSION:
+            work_schema.validate(self.db, repo, SCHEMA_STATEMENTS)
 
     # --- schema helpers -------------------------------------------------------
+
+    def resume_index(self):
+        """Run deferred search initialization only after durable upgrade release."""
+        if self._index_deferred:
+            self.fts = False if self._requested_fts is False else self._open_fts()
+            self._reconcile_index()
+            self._index_deferred = False
 
     def _open_fts(self):
         """Create the search table if this build has FTS5 and there is room for it.
@@ -806,7 +972,7 @@ class Store:
             return
         with self.transaction(blocking=False):
             self.set_meta('indexed_through', -1)
-        if self.pages() > self.page_cap(control=True) - REBUILD_HEADROOM:
+        if self.pages() > self.ceilings(control=True)['pages'] - REBUILD_HEADROOM:
             # Refused before it starts rather than part way through. Search stays on the
             # scan until there is room, which reclamation can create.
             return
@@ -814,7 +980,7 @@ class Store:
             with self.transaction(blocking=False):
                 self.db.execute("INSERT INTO search(search) VALUES('delete-all')")
                 for seq, body in self.db.execute(
-                        'SELECT seq,body FROM entries ORDER BY seq').fetchall():
+                        "SELECT seq,body FROM entries WHERE type<>'work-event' ORDER BY seq").fetchall():
                     self.db.execute('INSERT INTO search(rowid,body) VALUES(?,?)', (seq, body))
                 self.set_meta('indexed_through', self.head())
         except MemoryError_ as exc:
@@ -902,6 +1068,12 @@ class Store:
             '+length(cast(consumer AS BLOB))+96),0) FROM snapshots').fetchone()
         logical = (body + count * ENTRY_OVERHEAD + frozen + idem_bytes + readers
                    + retired[1] + shots[1])
+        work = {}
+        if self.accounting_version() >= 5:
+            work = work_storage.usage(self.db, lambda row: self.charge(entry=row),
+                                      lambda row: self.charge(idem=row))
+            # Stream rows and base replay charges are already counted above.
+            logical += work['work_table_bytes'] + work['work_replay_extra']
         page_size = self.db.execute('PRAGMA page_size').fetchone()[0]
         pages = self.db.execute('PRAGMA page_count').fetchone()[0]
         physical = page_size * pages
@@ -911,7 +1083,7 @@ class Store:
             except OSError:
                 pass
         return dict(entries=count, logical=logical, physical=physical, idem=idem,
-                    retired=retired[0], snapshots=shots[0])
+                    retired=retired[0], snapshots=shots[0], **work)
 
     def physical(self):
         """Bytes actually allocated, including the write-ahead log."""
@@ -945,7 +1117,77 @@ class Store:
                 # The same figure usage() sums from the stored `bytes` column. A charge
                 # that differs from the measurement is not accounting, it is two opinions.
                 total += sum(values)
+            elif kind == 'work_row':
+                total += work_storage.row_charge(values)
+            elif kind == 'work_replay':
+                key, operation, result = values
+                total += self.charge(idem=(key,)) + work_storage.replay_extra((operation, result))
         return total
+
+    def work_event(self, kind, work_id, revision, payload, *, consumer, author, pid, now):
+        """One caller-owned transaction writes both halves of every work event."""
+        if not self.db.in_transaction:
+            raise RuntimeError('work event requires a caller-owned transaction')
+        serialized = work_items.encoded(payload)
+        if len(serialized.encode('utf-8')) > work_items.MAX_RECORD:
+            raise MemoryError_('record_too_large', 'work event exceeds its encoded bound')
+        seq = self.head() + 1
+        claims.integer(seq, 'sequence')
+        indexed = self.index_usable()
+        self.db.execute('INSERT INTO entries '
+            '(seq,ts,type,scope,scope_target,body,author,author_pid,consumer,revision) '
+            "VALUES (?,?,'work-event','repo',?,'',?,?,?,?)",
+            (seq, now, work_id, author, pid, consumer, revision))
+        self.db.execute('INSERT INTO work_events VALUES (?,?,?,?,?)',
+                        (seq, work_id, revision, kind, serialized))
+        self.set_meta('head', seq)
+        if indexed:
+            self.set_meta('indexed_through', seq)
+        return seq
+
+    def reclaim_work_events(self, work_id, latest_seq):
+        """Reclaim a bounded paired history inside its item-deletion transaction."""
+        if not self.db.in_transaction:
+            raise RuntimeError('work reclamation requires a caller-owned transaction')
+        count, highest = self.db.execute('SELECT count(*),max(seq) FROM work_events '
+                                         'WHERE work_id=?', (work_id,)).fetchone()
+        if not 1 <= count <= work_storage.MAX_EVENTS:
+            raise MemoryError_('incompatible_store', 'expired work event count exceeds retained bounds')
+        if highest != latest_seq:
+            raise MemoryError_('incompatible_store', 'expired work latest sequence disagrees with history')
+        invalid = self.db.execute('SELECT 1 FROM work_events w LEFT JOIN entries e ON e.seq=w.seq '
+            "WHERE w.work_id=? AND (e.seq IS NULL OR e.type<>'work-event' OR e.type IS NULL "
+            "OR e.scope<>'repo' OR e.scope IS NULL OR e.scope_target IS NULL OR e.scope_target<>w.work_id "
+            "OR e.revision IS NULL OR e.revision<>w.revision OR e.path IS NOT NULL "
+            "OR e.supersedes IS NOT NULL OR e.revokes IS NOT NULL OR e.superseded_by IS NOT NULL "
+            "OR e.revoked_by IS NOT NULL OR e.conflicts_with IS NOT NULL "
+            "OR e.body IS NULL OR e.body<>'' OR e.expires IS NOT NULL) LIMIT 1", (work_id,)).fetchone()
+        extra = self.db.execute("SELECT 1 FROM entries e WHERE e.type='work-event' "
+            'AND e.scope_target=? AND NOT EXISTS (SELECT 1 FROM work_events w '
+            'WHERE w.seq=e.seq AND w.work_id=?) LIMIT 1', (work_id, work_id)).fetchone()
+        if invalid or extra:
+            raise MemoryError_('incompatible_store', 'expired work has inconsistent stream rows')
+        self.db.execute('DELETE FROM entries WHERE seq IN '
+                        '(SELECT seq FROM work_events WHERE work_id=?)', (work_id,))
+        self.db.execute('DELETE FROM work_events WHERE work_id=?', (work_id,))
+        self.set_meta('floor', max(self.floor(), highest))
+
+    def stream_rows(self, rows):
+        """Batch-load immutable work payloads, never substitute today's work record."""
+        entries = [self.row(row) for row in rows]
+        seqs = [e['seq'] for e in entries if e['type'] == 'work-event']
+        events = {}
+        if seqs:
+            events = {seq: (kind, json.loads(payload)) for seq, kind, payload in self.db.execute(
+                'SELECT seq,kind,payload FROM work_events WHERE seq IN ('
+                + ','.join('?' for _ in seqs) + ')', seqs)}
+        for entry in entries:
+            if entry['type'] == 'work-event':
+                if entry['seq'] not in events:
+                    raise MemoryError_('incompatible_store', 'work stream payload is missing')
+                kind, payload = events[entry['seq']]
+                entry.update(event_kind=kind, work_id=entry['scope_target'], payload=payload)
+        return entries
 
     @contextlib.contextmanager
     def mutation(self, need=0, slots=0, control=False):
@@ -959,36 +1201,50 @@ class Store:
         self.admit(need, slots, control)
         with self.transaction(control):
             yield
-            if need:
-                self.enforce_logical(control)
 
     @contextlib.contextmanager
     def progress(self):
-        """A transition that records progress and may never be refused for space.
+        """Record progress using the note reserve while preserving work promises.
 
-        Acknowledgements, page issuance and activity refreshes cannot be rejected on
-        capacity: a reader that cannot acknowledge can never advance, and the store would
-        become unreadable-forward precisely when it most needs draining. They draw on the
+        Acknowledgements, page issuance and activity refreshes need room to keep
+        readers advancing at ordinary capacity. They draw on the
         reserve, which ordinary appends may not consume, rather than on a margin.
+        An invariant breach still rolls back; it must never spend another work
+        item's credits to conceal insufficient progress headroom.
         """
         with self.transaction(control=True):
             yield
 
-    def enforce_logical(self, control):
+    def enforce_logical(self, control, debt=None):
         """The logical budget, checked inside the transaction like the page ceiling.
 
         Logical usage is what callers control, so it is measured after the change rather
         than projected from the request alone.
         """
-        cap = MAX_LOGICAL_BYTES if control else MAX_LOGICAL_BYTES - RESERVED_BYTES
-        logical = self.usage()['logical']
-        if logical > cap:
-            raise MemoryError_('capacity',
-                               f'this mutation would leave {logical} logical bytes stored, '
-                               f'above the {cap} byte limit; it was rolled back and stored '
-                               'data is intact')
+        caps = self.ceilings(control, debt)
+        use = self.usage()
+        for name in ('logical', 'entries', 'idem', 'work_logical'):
+            if use.get(name, 0) > caps[name]:
+                detail = (f'{name} would be {use[name]}, above the {caps[name]} limit '
+                          'after preserving work reservations; rolled back and stored data is intact')
+                if name == 'idem':
+                    raise MemoryError_('idem_capacity', detail)
+                raise MemoryError_('capacity', detail)
+        counts = use.get('work_counts', {})
+        maxima = dict(work_items=work_storage.MAX_ITEMS,
+                      work_scope_revisions=work_storage.MAX_SCOPES,
+                      claim_bundles=claims.MAX_BUNDLES,
+                      claim_resources=claims.MAX_BUNDLES * (claims.MAX_RESOURCES + 1),
+                      work_events=caps['work_events'])
+        for name, maximum in maxima.items():
+            if counts.get(name, 0) > maximum:
+                raise MemoryError_('capacity', f'{name} exceeds its {maximum} retained-row '
+                                   'limit after reservations; rolled back and stored data is intact')
+        if use.get('work_scopes_per_item', 0) > work_storage.MAX_SCOPES_PER_ITEM:
+            raise MemoryError_('capacity', 'scope history exceeds the per-item limit; '
+                               'rolled back and stored data is intact')
 
-    def enforce_pages(self, control):
+    def enforce_pages(self, control, debt=None):
         """Check pages actually allocated, inside the transaction, so a breach rolls back.
 
         Projecting growth from payload bytes is not enforcement: SQLite allocates pages
@@ -1004,7 +1260,7 @@ class Store:
         A control or progress transition may draw on the reserve; an ordinary append may
         not, which is what keeps a withdrawal possible at a full store.
         """
-        cap = self.page_cap(control)
+        cap = self.ceilings(control, debt)['pages']
         actual = self.pages()
         if actual > cap:
             raise MemoryError_('capacity',
@@ -1025,12 +1281,12 @@ class Store:
         """
         for attempt in (0, 1):
             use = self.usage()
-            entry_cap = MAX_ENTRIES if control else MAX_ENTRIES - RESERVED_ENTRIES
-            byte_cap = MAX_LOGICAL_BYTES if control else MAX_LOGICAL_BYTES - RESERVED_BYTES
+            caps = self.ceilings(control)
+            entry_cap, byte_cap = caps['entries'], caps['logical']
             # The same effective limit enforcement uses, less the room one append can
             # need. The log is not in this comparison at all; the end-of-transaction check
             # is what catches growth a projection cannot predict.
-            cap = self.page_cap(control) - (0 if control else APPEND_ALLOWANCE)
+            cap = caps['pages'] - (0 if control else APPEND_ALLOWANCE)
             pages = self.pages()
             if (use['entries'] + slots <= entry_cap and use['logical'] + need <= byte_cap
                     and pages <= cap):
@@ -1144,8 +1400,14 @@ class Store:
         # pages exactly where they were. It runs its own transaction, so the log is reset on
         # both sides of it.
         self.reset_log()
+        try:
+            pages_before = self.pages()
+        except sqlite3.Error as exc:
+            self.block('pre-vacuum page count could not be verified; vacuum was not run')
+            raise MemoryError_('storage_blocked', self.blocked) from exc
         self.db.execute('PRAGMA incremental_vacuum').fetchall()
         self.reset_log()
+        self.verify_vacuum_pages(pages_before)
         return removed
 
     def note(self, consumer, kind, body, scope='repo', scope_target=None, path=None,
@@ -1228,10 +1490,12 @@ class Store:
                 revision, target, conflict = 1, supersedes or revokes, None
                 if target:
                     found = self.db.execute(
-                        'SELECT revision,superseded_by,revoked_by FROM entries WHERE seq=?',
+                        'SELECT revision,superseded_by,revoked_by,type FROM entries WHERE seq=?',
                         (target,)).fetchone()
                     if not found:
                         raise MemoryError_('no_such_entry', 'the replaced entry does not exist')
+                    if found[3] == 'work-event':
+                        raise MemoryError_('invalid_request', 'notes cannot replace work events')
                     # A second replacement of the same target is a genuine conflict between
                     # two reporters. Both are retained and the conflict is reported. Refusing
                     # the later one would be first-writer-wins with the loser discarded, which
@@ -1259,7 +1523,7 @@ class Store:
                     self.set_meta('indexed_through', seq)
                 if scoped:
                     held = self.db.execute('SELECT count(*) FROM idem').fetchone()[0]
-                    if held >= MAX_IDEM_ROWS:
+                    if held >= self.ceilings(control=bool(supersedes or revokes))['idem']:
                         # Refuse rather than evict. Dropping an in-window key to make
                         # room would turn a safe retry into a silent duplicate.
                         raise MemoryError_('idem_capacity',
@@ -1281,9 +1545,9 @@ class Store:
     def live_clause(self, at=None):
         """Live as of an event horizon: not replaced at or below it, and not expired."""
         if at is None:
-            return ('(superseded_by IS NULL AND revoked_by IS NULL '
+            return ("type<>'work-event' AND (superseded_by IS NULL AND revoked_by IS NULL "
                     'AND (expires IS NULL OR expires > ?))', [time.time()])
-        return ('(seq<=? AND (superseded_by IS NULL OR superseded_by>?) '
+        return ("type<>'work-event' AND (seq<=? AND (superseded_by IS NULL OR superseded_by>?) "
                 'AND (revoked_by IS NULL OR revoked_by>?) AND (expires IS NULL OR expires > ?))',
                 [at, at, at, time.time()])
 
@@ -1334,6 +1598,8 @@ def freeze(store, consumer):
             if tails[entry['type']] > cap:
                 continue
         ordered.append(entry)
+    if store.accounting_version() >= 5:
+        ordered.extend(work_items.WorkItems(store, MemoryError_).snapshot_views(time.time()))
     held = store.db.execute(
         'SELECT count(*) FROM snapshots WHERE consumer=? AND ((acked IS NULL AND created >= ?) '
         'OR (acked IS NOT NULL AND acked_at >= ?))',
@@ -1399,9 +1665,17 @@ def stop_result(r, repo, generation):
 
 class MemoryCommands:
     """Synchronous protocol operations owned by the database thread."""
-    def __init__(self, root, repo, store, generation=None):
+    def __init__(self, root, repo, store, generation=None, maintenance_state=None):
         self.root, self.repo, self.store = Path(root), repo, store
         self.generation = generation or uuid.uuid4().hex
+        self.maintenance = work_maintenance.WorkMaintenance(
+            store, MemoryError_, maintenance_state or work_maintenance.MaintenanceState())
+
+    def resume_index(self):
+        self.store.resume_index()
+
+    def maintain_work(self):
+        return self.maintenance.sweep()
 
     def close(self):
         self.store.close()
@@ -1418,6 +1692,10 @@ class MemoryCommands:
             raise MemoryError_('invalid_request', 'a stable consumer key is required')
         return key.strip()
 
+    def upgrade_inventory(self):
+        from koinon import upgrade_inventory
+        return upgrade_inventory.capture(self.store.db)
+
     # Operations that must stay reachable when writes cannot proceed. Running cleanup
     # before them made a failed cleanup block the very reads, status and stop that the
     # blocked-store error promises remain available.
@@ -1426,6 +1704,12 @@ class MemoryCommands:
     def command(self, r, pid):
         validate_target(r, self.repo, self.generation)
         op = r.get('op')
+        if op in ('sync', 'ack'):
+            self.record_format(r)
+        if op in work_items.FIELDS:
+            if self.store.accounting_version() < 5:
+                raise MemoryError_('schema_too_old', 'work commands require schema 5; upgrade the memory runtime')
+            return work_items.WorkItems(self.store, MemoryError_).command(r, pid)
         if op not in self.READ_ONLY:
             self.store.maybe_expire()
         if op == 'recover':
@@ -1453,6 +1737,11 @@ class MemoryCommands:
         if op == 'stop':
             return stop_result(r, self.repo, self.generation)
         raise MemoryError_('invalid_request', f'unknown operation: {op}')
+
+    def record_format(self, request):
+        if self.store.accounting_version() >= 5 and (
+                type(request.get('record_format')) is not int or request['record_format'] != 2):
+            raise MemoryError_('client_upgrade_required', 'sync and ack require memory record format 2')
 
     # --- protocol state -------------------------------------------------------
 
@@ -1501,6 +1790,7 @@ class MemoryCommands:
 
     def sync(self, r):
         """Return work to do. This never advances the cursor; `ack` does that."""
+        self.record_format(r)
         consumer = self.consumer(r)
         seq, issued, snapshot, bootstrapped, resnapshot = self.register(consumer)
         self.touch(consumer)
@@ -1523,7 +1813,8 @@ class MemoryCommands:
             return self.snapshot_page(consumer, sid, r)
         rows = self.store.db.execute(f'{self.store.SELECT} WHERE seq>? ORDER BY seq LIMIT 500',
                                      (seq,)).fetchall()
-        entries, more = bounded((len(encode(self.store.row(x))), self.store.row(x)) for x in rows)
+        converted = self.store.stream_rows(rows)
+        entries, more = bounded((len(encode(x)), x) for x in converted)
         end = entries[-1]['seq'] if entries else seq
         head = self.store.head()
         if end > issued:
@@ -1575,6 +1866,7 @@ class MemoryCommands:
 
     def ack(self, r):
         """Advance a cursor. Completion is recorded here, never inferred from the caller."""
+        self.record_format(r)
         consumer = self.consumer(r)
         seq, issued, snapshot, bootstrapped, resnapshot = self.register(consumer)
         self.touch(consumer)
@@ -1681,7 +1973,7 @@ class MemoryCommands:
         more = truncated or (beyond and len(consumers) == len(listed))
         return dict(repo=self.repo, protocol=PROTOCOL, schema=SCHEMA, store_id=self.store.meta('store_id'), generation=self.generation,
                     head=head, floor=self.store.floor(), healthy=self.store.healthy(),
-                    fts=self.store.fts, usage=use,
+                    fts=self.store.fts, usage=use, work_maintenance=self.maintenance.diagnostics(),
                     # A blocked store still answers status; that is the point of blocking
                     # writes rather than failing the service, and a caller needs to see it.
                     blocked=self.store.blocked, indexed=self.store.index_usable(),
@@ -1702,24 +1994,35 @@ class MemoryCommands:
 
 class Service:
     """Socket controller; all SQLite work belongs to the dedicated worker."""
-    def __init__(self, root, repo, store_factory):
+    def __init__(self, root, repo, store_factory, *, gated_store_factory=None):
         self.root, self.repo = Path(root), repo
         self.generation = uuid.uuid4().hex
+        from koinon import upgrade_gate
+        self.upgrade = upgrade_gate.select(Path(__file__).parent, 'memory', root, self.generation)
+        if self.upgrade is not None and gated_store_factory is None:
+            raise upgrade_gate.GateError('gated memory startup requires deferred search initialization')
         self.hints = subscriptions.HintHub(self.generation)
         self.stop = asyncio.Event()
         self.tasks = set()
         self.closing = False
         self.admission = Admission()
+        self.maintenance_state = work_maintenance.MaintenanceState()
         def owned_store():
-            store = store_factory()
+            store = gated_store_factory(self.upgrade) if self.upgrade is not None else store_factory()
             store.on_change = self.hints.notify_committed
-            return MemoryCommands(root, repo, store, self.generation)
+            return MemoryCommands(root, repo, store, self.generation, self.maintenance_state)
         self.worker = DatabaseWorker(owned_store)
 
     async def command(self, request, pid):
         if not isinstance(request, dict) or not isinstance(request.get('op'), str):
             raise MemoryError_('invalid_request', 'expected an operation object')
         validate_target(request, self.repo, self.generation)
+        if self.upgrade is not None:
+            if request['op'] == 'upgrade-inventory':
+                self.upgrade.authorize_inventory(request)
+                return await self.worker.call('upgrade_inventory')
+            if request['op'] not in ('hello', 'status', 'stop') and not self.upgrade.released():
+                raise ValueError('upgrade in progress; ordinary memory requests are gated')
         if request['op'] == 'stop':
             result = stop_result(request, self.repo, self.generation)
             self.stop.set()
@@ -1729,11 +2032,16 @@ class Service:
             if result is None:
                 result = dict(repo=self.repo, protocol=PROTOCOL, schema=SCHEMA,
                               generation=self.generation, healthy=False)
+                result['work_maintenance'] = self.maintenance_state.snapshot()
             result.update(diagnostics)
         else:
             result = await self.worker.call('command', request, pid)
         if request['op'] in ('hello', 'status'):
+            if self.upgrade is not None:
+                result['upgrade'] = self.upgrade.status()
             result['capabilities'] = ['memory_subscription', 'memory_target_guard']
+            if result.get('schema') == work_schema.VERSION:
+                result['capabilities'].extend(['work_items_v1', 'memory_record_format_2'])
             fault = (result['database_observed_fault'] if request['op'] == 'status'
                      else self.worker.fault)
             if request['op'] == 'hello':
@@ -1756,6 +2064,8 @@ class Service:
                     request = json.loads(await reader.readline())
                 if not isinstance(request, dict):
                     raise MemoryError_('invalid_request', 'expected an operation object')
+                if request.get('op') == 'subscribe' and self.upgrade is not None and not self.upgrade.released():
+                    raise ValueError('upgrade in progress; subscriptions are gated')
                 if request.get('op') == 'subscribe':
                     self.admission.leave(slot)
                     slot = None
@@ -1773,6 +2083,8 @@ class Service:
                         await asyncio.sleep(REPLY_DELAY)
             except MemoryError_ as exc:
                 reply = local_error_reply(exc.code, str(exc))
+                if isinstance(exc.detail, dict):
+                    reply['details'] = exc.detail
             except CapacityError:
                 reply = local_error_reply('capacity', 'service request capacity reached')
             except WorkerFailure as exc:
@@ -1794,8 +2106,44 @@ class Service:
                     self.admission.leave(slot)
                 self.tasks.discard(task)
 
+    async def maintain_work(self):
+        """One ordinary submission at a time, with monotonic waits between jobs."""
+        if self.upgrade is not None:
+            if not await self.upgrade.wait(self.stop):
+                return
+            while not self.closing and not self.stop.is_set():
+                try:
+                    await self.worker.call('resume_index')
+                    break
+                except CapacityError:
+                    self.maintenance_state.skipped()
+                except WorkerClosed:
+                    return
+                try:
+                    await asyncio.wait_for(self.stop.wait(), work_maintenance.INTERVAL)
+                except asyncio.TimeoutError:
+                    pass
+        while not self.closing and not self.stop.is_set():
+            try:
+                result = await self.worker.call('maintain_work')
+                if not result['enabled']:
+                    return
+            except CapacityError:
+                self.maintenance_state.skipped()
+            except WorkerClosed:
+                return
+            except (MemoryError_, WorkerFailure):
+                # The worker-owned sweep recorded its fault and partial progress.
+                pass
+            try:
+                await asyncio.wait_for(self.stop.wait(), work_maintenance.INTERVAL)
+            except asyncio.TimeoutError:
+                pass
+
     async def run(self, sock):
         server = None
+        maintenance_task = None
+        maintenance_failure = None
         try:
             # Initialization completed in the worker before the socket was bound.
             status = await self.command(dict(op='status'), os.getpid())
@@ -1807,9 +2155,20 @@ class Service:
                 except (NotImplementedError, ValueError):
                     pass
             print(json.dumps(status), flush=True)
+            maintenance_task = asyncio.create_task(self.maintain_work())
+            maintenance_task.add_done_callback(
+                lambda task: self.stop.set() if not task.cancelled() and task.exception() else None)
             await self.stop.wait()
         finally:
             self.closing = True
+            if maintenance_task is not None:
+                maintenance_task.cancel()
+                try:
+                    await maintenance_task
+                except asyncio.CancelledError:
+                    pass
+                except Exception as exc:
+                    maintenance_failure = exc
             self.hints.close()
             if server is not None:
                 server.close()
@@ -1821,6 +2180,8 @@ class Service:
                 finally:
                     if server is not None:
                         await server.wait_closed()
+            if maintenance_failure is not None:
+                raise maintenance_failure
 
 
 def write_owner(home, sock_path, generation, repo):
@@ -1837,8 +2198,11 @@ def write_owner(home, sock_path, generation, repo):
         with temp.open('x') as f:
             json.dump(record, f)
             f.flush()
-            os.fsync(f.fileno())
+            platform_support.sync_state_file(f.fileno())
         temp.replace(Path(home) / 'owner.json')
+        platform_support.sync_state_directory(Path(home))
+        with (Path(home) / 'owner.json').open('rb') as stream:
+            platform_support.sync_state_file(stream.fileno())
     finally:
         temp.unlink(missing_ok=True)
     return record
@@ -2016,7 +2380,7 @@ def bind_exclusive(home, repo, generation):
     raise MemoryError_('socket_in_use', f'cannot bind {control}')
 
 
-def start(home, repo, store_factory):
+def start(home, repo, store_factory, *, gated_store_factory=None):
     """Serialized start. Check and bind happen under one lock, never as a race."""
     private_state_dir(Path(home))
     with (Path(home) / 'start.lock').open('a') as lock:
@@ -2024,7 +2388,7 @@ def start(home, repo, store_factory):
         existing = asyncio.run(verify_running(home, repo))
         if existing:
             return None, existing
-        service = Service(home, repo, store_factory)
+        service = Service(home, repo, store_factory, gated_store_factory=gated_store_factory)
         try:
             sock, control = bind_exclusive(home, repo, service.generation)
         except BaseException:
@@ -2033,8 +2397,8 @@ def start(home, repo, store_factory):
         return (service, sock, control), None
 
 
-def serve(home, repo, store_factory):
-    started, existing = start(home, repo, store_factory)
+def serve(home, repo, store_factory, *, gated_store_factory=None):
+    started, existing = start(home, repo, store_factory, gated_store_factory=gated_store_factory)
     if existing:
         return dict(status='already_running', **existing)
     service, sock, control = started
@@ -2068,9 +2432,11 @@ def release(home, control, generation):
         return True
 
 
-def stop_service(home, repo, timeout=20):
+def stop_service(home, repo, timeout=20, *, expected_generation=None):
     """Stop one specific service instance and report only when it has gone.
 
+    A supervisor can supply its captured expected_generation; a changed or missing
+    owner then refuses before sending anything. Omitting it preserves CLI behavior.
     Completion is bound to the generation that was asked to stop. A refused connection
     is not evidence of exit: a service that has closed its listener and is still
     draining refuses connections while very much alive, so waiting on a failed handshake
@@ -2081,6 +2447,14 @@ def stop_service(home, repo, timeout=20):
     """
     control = platform_support.control_socket_path(Path(home))
     target = read_owner(home)
+    if expected_generation is not None:
+        if (not isinstance(expected_generation, str) or len(expected_generation) != 32
+                or any(c not in '0123456789abcdef' for c in expected_generation)):
+            raise MemoryError_('invalid_request', 'expected generation must be 32 lowercase hex characters')
+        if not target:
+            raise MemoryError_('unknown_owner', 'the captured service owner is no longer readable')
+        if target.get('generation') != expected_generation:
+            raise MemoryError_('not_this_instance', 'the captured service instance has changed; no stop sent')
     try:
         control = service_path(Path(home), legacy_socket=target.get('socket') if target else None)
     except FileNotFoundError:
@@ -2143,7 +2517,7 @@ def cli_main():
     paths.add_argument('--state-dir')
     paths.add_argument('--service-dir', help='exact bound memory service directory; no path suffix is added')
     p.add_argument('--repo-path', default=os.getcwd())
-    p.add_argument('--consumer', help='stable consumer key; required for note, sync and ack')
+    p.add_argument('--consumer', help='stable consumer key; required for note, sync, ack and work mutations')
     sub = p.add_subparsers(dest='op', required=True)
     for op in ('serve', 'stop', 'recover'):
         sub.add_parser(op)
@@ -2173,27 +2547,35 @@ def cli_main():
     q.add_argument('--before', type=int, help='continue from next_before of a previous page')
     st = sub.add_parser('status')
     st.add_argument('--after', help='continue from next_after of a previous page')
+    work_items.cli_parsers(sub)
     args = vars(p.parse_args())
     selected_root = args.pop('state_dir')
     exact = args.pop('service_dir')
     repo = repo_identity(args.pop('repo_path'))
+    op = args.pop('op')
+    op = work_items.cli_request(op, args)
     if exact is None:
         root = Path(selected_root or runtime_names.default_state_root()).absolute()
-        private_state_dir(root)
+        private_state_dir(root, create=op == 'serve')
         home = state_dir(root, repo)
     else:
         home = Path(exact).absolute()
-    private_state_dir(home)
-    op = args.pop('op')
+    private_state_dir(home, create=op == 'serve')
     if op == 'serve':
-        print(json.dumps(serve(home, repo, lambda: Store(home / 'memory.sqlite3', repo))))
+        print(json.dumps(serve(home, repo, lambda: Store(home / 'memory.sqlite3', repo),
+                               gated_store_factory=lambda gate: Store(home / 'memory.sqlite3', repo, defer_index=True))))
         return
     if op == 'stop':
         print(json.dumps(stop_service(home, repo), indent=2))
         return
-    if op in ('note', 'sync', 'ack') and not args.get('consumer'):
+    if (op in ('note', 'sync', 'ack') or op in work_items.FIELDS.keys() - work_items.READS) and not args.get('consumer'):
         raise SystemExit(f'{op} requires --consumer, a stable key that outlives one command')
+    clear_assignee = args.pop('_clear_assignee', False)
     payload = dict(op=op, **{k: v for k, v in args.items() if v is not None})
+    if clear_assignee:
+        payload['proposed_assignee'] = None
+    if op in ('sync', 'ack'):
+        payload['record_format'] = 2
     try:
         reply = asyncio.run(request_bound(home, repo, payload) if exact is not None else request(home, payload))
     except (ConnectionRefusedError, FileNotFoundError) as exc:
@@ -2204,12 +2586,14 @@ def cli_main():
 
 # Every locally raised recovery code and synthesized error has an explicit CLI policy. Unknown wire
 # codes retain exit 1; they cannot make a client claim a known retry/configuration class.
-SYNTHESIZED_ERROR_CODES = frozenset(('internal_error', 'storage_error', 'rejected')) | runtime_names.PATH_SELECTION_CODES
+SYNTHESIZED_ERROR_CODES = (frozenset(('internal_error', 'storage_error', 'rejected'))
+                           | runtime_names.PATH_SELECTION_CODES | work_items.ERROR_CODES)
 ERROR_EXIT_CLASSES = {
     'software': frozenset(('internal_error',)),
     'temporary': frozenset((
         'service_busy', 'service_unresponsive', 'service_unavailable', 'store_busy',
         'capacity', 'idem_capacity', 'snapshot_capacity', 'stopping',
+        'claim_capacity',
     )),
     'configuration': frozenset((
         'foreign_service', 'unsafe_service_endpoint', 'unsafe_state_directory',
@@ -2217,6 +2601,7 @@ ERROR_EXIT_CLASSES = {
         'schema_too_new', 'schema_too_old', 'repo_unresolved', 'unhealthy_service',
         'invalid_service_response', 'socket_in_use', 'unsupported_runtime',
         'store_too_large', 'service_refused', 'storage_blocked',
+        'client_upgrade_required',
     )) | runtime_names.PATH_SELECTION_CODES,
     'request': frozenset((
         'consumer_retired', 'entry_too_large', 'foreign_snapshot', 'idempotency_conflict',
@@ -2224,6 +2609,8 @@ ERROR_EXIT_CLASSES = {
         'not_this_instance', 'retry_deadline_expired', 'snapshot_expired',
         'snapshot_incomplete', 'snapshot_open', 'stale_page_token', 'stale_snapshot',
         'write_failed', 'storage_error', 'rejected',
+        'work_not_found', 'revision_conflict', 'stale_claim', 'claim_conflict',
+        'invalid_transition', 'record_too_large',
     )),
 }
 

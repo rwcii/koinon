@@ -1,8 +1,42 @@
 #!/usr/bin/env python3
 """Install a per-user bridge and optional systemd user services."""
+# Bytecode guard (docs/INSTALL.md). It runs before the first
+# project import and uses only the standard library, because a shared helper would
+# itself load from the cache it must judge. It keeps the canonical text below, which
+# tests/test_bytecode_guard.py compares across every entrypoint.
+if __name__ == '__main__':
+    import os as _os, stat as _stat, sys as _sys, tempfile as _tempfile
+    _os.umask(0o077)
+    _here = _os.path.dirname(_os.path.abspath(__file__))
+    _script = _os.path.basename(_here) == 'scripts'
+    _root = _os.path.dirname(_here) if _script else _here
+
+    def _owned(info, kind):
+        return kind(info.st_mode) and info.st_uid == _os.geteuid() and not info.st_mode & 0o022
+
+    def _trusted(path):
+        try:
+            info = _os.lstat(path)
+        except FileNotFoundError:
+            return True
+        if not _owned(info, _stat.S_ISDIR):
+            return False
+        with _os.scandir(path) as entries:
+            return all(_owned(entry.stat(follow_symlinks=False), _stat.S_ISREG)
+                       and entry.stat(follow_symlinks=False).st_nlink == 1 for entry in entries)
+
+    if _script or not all(_trusted(_os.path.join(_root, part, '__pycache__'))
+                            for part in ('', 'koinon', 'scripts')):
+        _sys.pycache_prefix = _tempfile.mkdtemp(prefix='koinon-pycache-')
+        _sys.dont_write_bytecode = True
+        import atexit as _atexit
+        _atexit.register(lambda path=_sys.pycache_prefix: _os.path.isdir(path) and _os.rmdir(path))
+# End of bytecode guard.
 import argparse
+import copy
 import json
 import os
+import re
 from pathlib import Path
 import shutil
 import subprocess
@@ -11,13 +45,14 @@ import sys
 # Run directly, `scripts/` is sys.path[0], so the project root is added to reach
 # the platform module rather than testing the platform here.
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
-import platform_support
-import runtime_names
+from koinon import platform_support
+from koinon import runtime_names
+from koinon import install_state
 
 MARKER = runtime_names.SERVICE_MARKER
 SERVICES = runtime_names.service_names()
 
-FILES = ('docs/DELIVERY.md', 'participant_presence.py', 'delivery_ledger.py', 'usage_report.py', 'usage_sources.py', 'usage_selection.py', 'docs/USAGE.md', 'runtime_names.py', 'participant_instructions.py', 'session_observation.py', 'durable_state.py', 'notification_delivery.py', 'notification_health.py', 'notification_journal.py', 'notification_legacy.py', 'notification_memory.py', 'notification_migration.py', 'notification_notices.py', 'notification_provider.py', 'notification_runtime.py', 'notification_source.py', 'notification_state.py', 'subscriptions.py','memory_bindings.py', 'inbox_schema.py', 'database_worker.py', 'service_runtime.py', 'participant_lock.py', 'peer_transport.py', 'peer_guidance.py', 'CHANGELOG.md', 'memory.py', 'session.py', 'codex_instructions.py', 'platform_support.py', 'dsh_delivery.py', 'scripts/install.py', 'scripts/uninstall.py', 'scripts/uninstall.sh', 'bridge.py', 'notify.py', 'README.md', 'PROTOCOL.md', 'LICENSE', 'CONTRIBUTING.md', 'AGENTS.md', 'docs/INSTALL.md', 'docs/NOTIFIER.md', 'docs/IDENTIFIER-MIGRATION.md', 'docs/PARITY-MEMORY-DESIGN.md')
+FILES = ('koinon/path_permissions.py', 'koinon/upgrade_discovery.py', 'koinon/upgrade_manual.py', 'scripts/upgrade.py', 'koinon/upgrade_command.py', 'koinon/upgrade_complete.py', 'koinon/upgrade_preflight.py', 'koinon/upgrade_release.py', 'koinon/upgrade_coordinator.py', 'koinon/upgrade_probe.py', 'koinon/upgrade_start.py', 'koinon/upgrade_replace.py', 'koinon/upgrade_migration.py', 'koinon/upgrade_capture.py', 'koinon/upgrade_quiescence.py', 'koinon/upgrade_reservation.py', 'koinon/upgrade_backup.py', 'koinon/upgrade_backup_inventory.py', 'koinon/upgrade_bundle.py', 'koinon/upgrade_documents.py', 'koinon/upgrade_exclusion.py', 'koinon/upgrade_gate.py', 'koinon/upgrade_inventory.py', 'koinon/upgrade_journal.py', 'koinon/upgrade_layout.py', 'koinon/upgrade_manifest.py', 'koinon/upgrade_observation.py', 'koinon/upgrade_plan.py', 'koinon/uninstall_finalize.py', 'koinon/component_remove.py', 'koinon/session_install.py', 'koinon/component_install.py', 'koinon/session_socket_handoff.py', 'koinon/session_endpoints.py', 'koinon/session_service_manager.py', 'session_service.py', 'koinon/session_service_artifacts.py', 'koinon/session_service_config.py', 'koinon/session_supervisor.py', 'koinon/session_supervisor_state.py', 'koinon/generation_stop.py', 'memory_service.py', 'koinon/memory_service_artifacts.py', 'koinon/memory_service_config.py', 'docs/WORK-ITEMS-UPGRADE.md', 'koinon/work_guidance.py', 'docs/WORK-ITEMS-POLICY.md', 'koinon/install_state.py', 'koinon/work_policy.py', 'koinon/work_maintenance.py', 'koinon/work_items.py', 'koinon/work_storage.py', 'koinon/__init__.py', 'koinon/claims.py', 'koinon/work_schema.py', 'docs/DELIVERY.md', 'koinon/participant_presence.py', 'koinon/delivery_ledger.py', 'usage_report.py', 'koinon/usage_sources.py', 'koinon/usage_selection.py', 'docs/USAGE.md', 'koinon/runtime_names.py', 'koinon/participant_instructions.py', 'koinon/session_observation.py', 'koinon/durable_state.py', 'koinon/notification_delivery.py', 'koinon/notification_health.py', 'koinon/notification_journal.py', 'koinon/notification_legacy.py', 'koinon/notification_memory.py', 'koinon/notification_migration.py', 'koinon/notification_notices.py', 'koinon/notification_provider.py', 'koinon/notification_runtime.py', 'koinon/notification_source.py', 'koinon/notification_state.py', 'koinon/subscriptions.py', 'koinon/memory_bindings.py', 'koinon/inbox_schema.py', 'koinon/database_worker.py', 'koinon/service_runtime.py', 'koinon/participant_lock.py', 'koinon/peer_transport.py', 'koinon/peer_guidance.py', 'CHANGELOG.md', 'memory.py', 'session.py', 'koinon/codex_instructions.py', 'koinon/platform_support.py', 'koinon/dsh_delivery.py', 'scripts/install.py', 'scripts/uninstall.py', 'scripts/uninstall.sh', 'bridge.py', 'notify.py', 'README.md', 'PROTOCOL.md', 'LICENSE', 'CONTRIBUTING.md', 'AGENTS.md', 'docs/INSTALL.md', 'docs/NOTIFIER.md', 'docs/IDENTIFIER-MIGRATION.md', 'docs/PARITY-MEMORY-DESIGN.md')
 
 
 def unit_arg(value):
@@ -158,8 +193,8 @@ def active_units(unit_dir, names=SERVICES, prefix=None):
     for name in names:
         local = unit_dir/name
         check_owned_unit(local, prefix)
-        result = subprocess.run(['systemctl','--user','show',name,'--property=FragmentPath',
-                                 '--value'],check=True,capture_output=True,text=True)
+        result = platform_support.user_service_manager('fragment', [name],
+                                                       check=True, capture_output=True, text=True)
         fragment = result.stdout.strip()
         if fragment:
             actual = Path(fragment)
@@ -172,10 +207,98 @@ def active_units(unit_dir, names=SERVICES, prefix=None):
     return existing
 
 
+
+def report_session_restarts(prefix, unit_dir, *, no_start=False):
+    """Read-only advice; installed files do not identify loaded process versions."""
+    print('Runtime replacement does not reload existing session supervisors.')
+    print('Supervisors newly started by this installation load the installed files.')
+    print('Restart affected manually managed supervisors explicitly; their state is not inspected.')
+    if platform_support.SERVICE_MANAGER != 'systemd':
+        print('Session supervisor service state: unverified (no supported service manager).')
+        return
+    candidates = []
+    try:
+        for path in Path(unit_dir).iterdir():
+            if re.fullmatch(r'(?:koinon|codex-peer)-session-[a-f0-9]{16}\.service', path.name):
+                candidates.append(path)
+                if len(candidates) > 128:
+                    print('Session supervisor inventory incomplete (more than 128 candidate units); inspect manually.')
+                    return
+    except FileNotFoundError:
+        return
+    except OSError:
+        print('Session supervisor inventory unverified (selected unit directory is unreadable).')
+        return
+    owned = {}
+    for path in sorted(candidates):
+        try:
+            check_owned_unit(path)
+            if not path.exists():
+                raise ValueError('unit disappeared')
+            if not unit_targets_prefix(path, prefix):
+                continue
+            owned[path.name] = path
+        except (OSError, ValueError):
+            print('Session supervisor ownership unverified:', path.name, '(inspect manually).')
+    if not owned:
+        return
+    reason = 'service query disabled by --no-start' if no_start else None
+    observations = {}
+    if not no_start:
+        try:
+            result = platform_support.user_service_manager(
+                'observe', owned, capture_output=True, text=True, timeout=5)
+            if result.returncode:
+                reason = 'service manager query failed'
+            else:
+                # An unparseable listing invalidates the entire observation.
+                for block in result.stdout.strip().split('\n\n'):
+                    values = {}
+                    for line in block.splitlines():
+                        key, separator, value = line.partition('=')
+                        if not separator or key in values:
+                            raise ValueError('malformed service observation')
+                        values[key] = value
+                    name = values.get('Id')
+                    if name not in owned or name in observations:
+                        raise ValueError('unexpected service identity')
+                    observations[name] = values
+        except (OSError, subprocess.SubprocessError, ValueError):
+            reason = 'service manager observation unavailable'
+    for name, path in owned.items():
+        observation = observations.get(name, {})
+        if reason:
+            print('Session supervisor state unverified:', name, '(' + reason + ').')
+            continue
+        try:
+            if observation.get('FragmentPath') != str(path):
+                raise ValueError('service fragment mismatch')
+            # Recheck ownership after the service-manager round trip.
+            check_owned_unit(path, prefix)
+            if not path.exists():
+                raise ValueError('unit disappeared')
+        except (OSError, ValueError):
+            print('Session supervisor state unverified:', name, '(service ownership or fragment changed).')
+            continue
+        state = observation.get('ActiveState')
+        if state in ('active', 'activating', 'reloading', 'deactivating', 'refreshing'):
+            print('Session supervisor may still use previous runtime; explicit restart required:', name)
+        elif state in ('inactive', 'failed'):
+            print('Session supervisor inactive at observation:', name, '(next start loads installed files).')
+        else:
+            print('Session supervisor state unverified:', name, '(unknown service state).')
+
 def main():
     p = argparse.ArgumentParser(description=__doc__)
+    work_mode = p.add_mutually_exclusive_group()
+    work_mode.add_argument('--configure-work-items', action='store_true')
+    work_mode.add_argument('--remove-work-items', action='store_true')
+    p.add_argument('--participant', choices=['codex', 'deepseek', 'claude'])
+    p.add_argument('--guidance-file', type=Path)
     p.add_argument('--thread', help='exact existing Codex thread ID')
     p.add_argument('--configure-codex', action='store_true', help='install managed global guidance and per-session registration')
+    p.add_argument('--configure-memory', action='store_true', help='install repository memory without requiring a participant executable')
+    p.add_argument('--service-backend', choices=('systemd', 'launchd', 'manual'))
     p.add_argument('--configure-deepseek', action='store_true',
                    help='install managed harness guidance for DeepSeek (DSH) sessions')
     p.add_argument('--codex-home', type=Path)
@@ -192,13 +315,79 @@ def main():
     a = p.parse_args()
     if not platform_support.SUPPORTED or sys.version_info < (3,11):
         p.error('Linux or macOS with Python 3.11+ is required')
+    if a.configure_work_items or a.remove_work_items:
+        if (a.thread or a.configure_codex or a.configure_deepseek or a.configure_memory or a.service_backend or a.name or a.no_start
+                or a.codex_home or a.dsh_home or a.state_dir or a.unit_dir or a.codex):
+            p.error('work configuration is independent of runtime installation and service options')
+        if not a.repo or not a.participant or (a.configure_work_items and not a.guidance_file):
+            p.error('work configuration requires --repo, --participant and an explicit --guidance-file when enabling')
+        if a.remove_work_items and a.guidance_file:
+            p.error('removal uses the previously configured guidance file')
+        from koinon import work_guidance
+        prefix = (a.prefix or runtime_names.default_prefix()).expanduser().resolve()
+        try:
+            result = (work_guidance.configure(prefix, a.repo, a.participant, a.guidance_file)
+                      if a.configure_work_items else work_guidance.remove(prefix, a.repo, a.participant))
+        except runtime_names.NameConflict:
+            raise
+        except (OSError, ValueError) as exc:
+            print(json.dumps(dict(ok=False, code=getattr(exc, 'code', 'invalid_work_configuration'),
+                                  error=str(exc), path=getattr(exc, 'path', None))))
+            raise SystemExit(platform_support.CONFIGURATION_EXIT_STATUS) from None
+        print(json.dumps(dict(ok=True, result=result)))
+        return
+    if a.participant or a.guidance_file:
+        p.error('--participant and --guidance-file require a work configuration mode')
+    if a.configure_memory and not a.repo:
+        p.error('--configure-memory requires an explicit --repo')
     a.prefix = (a.prefix or runtime_names.default_prefix()).expanduser().resolve()
-    config_path = a.prefix / 'install.json'
-    previous = runtime_names.install_config(a.prefix)
+    # Refusals must not create even a prefix/lock. Recheck under the lock
+    # using fresh configuration before any publication or service changes. Legacy
+    # service-manager availability is deliberately checked in both passes.
+    install(copy.deepcopy(a), p, validate_only=True)
+    # The lock creates missing prefix ancestors before install() copies files.
+    os.umask(0o077)
+    with install_state.locked(a.prefix) as configuration:
+        install(a, p, configuration)
+    if getattr(a, 'memory_selection', None) is not None:
+        from koinon import component_install
+        record = component_install.stage_memory(a.prefix, a.memory_selection)
+        if a.no_start:
+            print('Memory selection staged; manager was not queried or started.')
+        else:
+            subprocess.run([sys.executable, str(a.prefix / 'memory_service.py'), 'ensure',
+                            '--prefix', str(a.prefix), '--repo', record['common_directory']], check=True)
+    if (a.thread and (a.configure_codex or a.configure_deepseek or a.configure_memory
+                      or getattr(a, 'memory_selection', None) is not None)
+            and (not a.no_start or getattr(a, 'memory_selection', None) is not None)):
+        subprocess.run([sys.executable, str(a.prefix / 'session.py'), 'stage' if a.no_start else 'ensure',
+                        '--thread', a.thread, '--repo', a.repo or os.getcwd()], check=True)
+
+
+def install(a, p, configuration=None, validate_only=False):
+    previous = configuration.config if configuration is not None else runtime_names.install_config(a.prefix)
+    if previous.get('installation_state') == 'removing':
+        p.error('installation removal is incomplete; resume uninstall before reinstalling')
     a.state_dir = Path(a.state_dir or previous.get('state_root') or runtime_names.default_state_root()).expanduser().resolve()
     a.unit_dir = Path(a.unit_dir or previous.get('unit_dir') or Path.home()/'.config/systemd/user').expanduser().resolve()
-    if not a.thread and not (a.configure_codex or a.configure_deepseek):
-        p.error('--thread, --configure-codex or --configure-deepseek is required')
+    memory_only = a.configure_memory and not (a.thread or a.configure_codex or a.configure_deepseek)
+    if not a.thread and not (a.configure_codex or a.configure_deepseek or a.configure_memory):
+        p.error('--thread, --configure-codex, --configure-deepseek or --configure-memory is required')
+    a.memory_selection = None
+    if a.repo and (a.configure_memory or a.configure_codex or a.configure_deepseek or a.thread):
+        from koinon import component_install
+        from koinon import memory_service_config
+        key, _ = memory_service_config.selection(a.repo, a.state_dir)
+        existing = bool(previous) or (a.prefix / 'bridge.py').exists()
+        already_selected = key in previous.get('memory_services', {}).get('repositories', {})
+        if not existing or already_selected or a.configure_memory:
+            _, a.memory_selection = component_install.memory_selection(
+                a.prefix, a.repo, a.state_dir, a.service_backend, previous)
+        elif not validate_only:
+            print('Existing installation scope retained. To add repository memory, rerun with '
+                  '--configure-memory --repo and the same prefix/state paths.')
+    elif a.service_backend:
+        p.error('--service-backend requires an explicit repository selection')
     participants = set(previous.get('participants', ['codex'] if previous else []))
     participants.update(name for name, chosen in (('codex', a.configure_codex),
                                                   ('deepseek', a.configure_deepseek)) if chosen)
@@ -206,34 +395,30 @@ def main():
     saved_codex = previous.get('codex')
     saved_codex_usable = (saved_codex and Path(saved_codex).is_absolute()
                           and Path(saved_codex).is_file() and os.access(saved_codex, os.X_OK))
-    if not explicit_codex:
+    if memory_only:
+        a.codex = previous.get('codex')
+    elif not explicit_codex:
         a.codex = saved_codex if saved_codex_usable else shutil.which('codex')
     # --thread starts a Codex session even when only DeepSeek guidance is selected.
-    if explicit_codex or a.thread or 'codex' in participants:
+    if not memory_only and (explicit_codex or a.thread or 'codex' in participants):
         if (not a.codex or not Path(a.codex).is_absolute()
                 or not Path(a.codex).is_file() or not os.access(a.codex, os.X_OK)):
             p.error('provide an executable absolute --codex path, or install Codex CLI on PATH')
-    if a.configure_codex or a.configure_deepseek:
+    if a.configure_codex or a.configure_deepseek or a.configure_memory or a.memory_selection is not None:
+        from koinon import component_install
+        component_install.runtime_preflight(a.prefix, Path(__file__).resolve().parent.parent, FILES, previous)
+        if (not memory_only and a.memory_selection is not None and previous.get('session_backend') is not None
+                and previous['session_backend'] != a.memory_selection['backend']):
+            p.error('changing the saved session backend requires explicit reconciliation')
         a.codex_home = a.codex_home or Path(previous.get('codex_home') or
                                           os.environ.get('CODEX_HOME', str(Path.home()/'.codex')))
         a.dsh_home = a.dsh_home or Path(previous.get('dsh_home') or
                                       os.environ.get('DSH_HOME', str(Path.home()/'.dsh')))
+        if validate_only:
+            return
         os.umask(0o077)
         a.prefix.mkdir(parents=True,exist_ok=True)
-        source = Path(__file__).resolve().parent.parent
-        for file in FILES:
-            dest=a.prefix/file
-            dest.parent.mkdir(parents=True,exist_ok=True)
-            if (source/file).resolve() != dest.resolve():
-                shutil.copyfile(source/file,dest)
-        sys.path.insert(0,str(a.prefix))
-        from participant_instructions import update
-        guidance = update(a.codex_home,a.prefix) if a.configure_codex else None
-        # The harness reads its guidance from AGENTS.md in the harness home, so a
-        # DeepSeek session learns to register and read its inbox the same way a
-        # Codex session does.
-        dsh_guidance = update(a.dsh_home,a.prefix,agent='deepseek') if a.configure_deepseek else None
-        (a.prefix/'install.json').write_text(json.dumps(dict(state_root=str(a.state_dir),
+        updates = dict(state_root=str(a.state_dir),
             unit_dir=str(a.unit_dir),codex=a.codex,codex_home=str(a.codex_home.expanduser().resolve()),
             dsh_home=str(a.dsh_home.expanduser().resolve()),
             # Which managed sections this installation wrote, so uninstall removes
@@ -242,16 +427,44 @@ def main():
             dsh_url=(os.environ.get('DSH_WEB_URL', previous.get('dsh_url'))
                      if a.configure_deepseek else previous.get('dsh_url')),
             dsh_credentials=(str(a.dsh_home.expanduser().resolve()/'.credentials.yaml')
-                             if a.configure_deepseek else previous.get('dsh_credentials')))))
+                             if a.configure_deepseek else previous.get('dsh_credentials')))
+        if a.memory_selection is not None and not memory_only:
+            updates['session_backend'] = a.memory_selection['backend']
+        if a.memory_selection is not None:
+            component_install.prepare_artifact_directory(a.memory_selection)
+            from koinon import memory_service_config
+            key, _ = memory_service_config.identity(a.memory_selection['common_directory'])
+            inventory = previous.get('memory_services', dict(version=1, repositories={}))
+            if key not in inventory['repositories']:
+                pending = (dict(a.memory_selection, state='pending', before_digest=None,
+                                after_digest=a.memory_selection['artifact_digest'])
+                           if a.memory_selection['backend'] != 'manual' else a.memory_selection)
+                updates['memory_services'] = memory_service_config.admit(inventory, pending)
+        # Persist the requested component set before copying modules or guidance,
+        # so a retry cannot mistake an interrupted fresh install for a legacy one.
+        configuration.merge(updates)
+        source = Path(__file__).resolve().parent.parent
+        for file in FILES:
+            dest=a.prefix/file
+            dest.parent.mkdir(parents=True,exist_ok=True)
+            if (source/file).resolve() != dest.resolve():
+                component_install.copy_runtime(source/file, dest)
+        sys.path.insert(0,str(a.prefix))
+        from koinon.participant_instructions import update
+        guidance = update(a.codex_home,a.prefix) if a.configure_codex else None
+        # The harness reads its guidance from AGENTS.md in the harness home, so a
+        # DeepSeek session learns to register and read its inbox the same way a
+        # Codex session does.
+        dsh_guidance = update(a.dsh_home,a.prefix,agent='deepseek') if a.configure_deepseek else None
         print('Installed runtime:',a.prefix)
-        print('State directory:',a.state_dir)
+        print('Configured state directory (may not exist until service initialization):',a.state_dir)
         if guidance is not None:
             print('Managed Codex guidance:',guidance)
         if dsh_guidance is not None:
             print('Managed DeepSeek guidance:',dsh_guidance)
-        print('New sessions run session.py ensure with their own session identity.')
-        if a.thread and not a.no_start:
-            subprocess.run([sys.executable,str(a.prefix/'session.py'),'ensure','--thread',a.thread,'--repo',a.repo or os.getcwd()],check=True)
+        if not memory_only:
+            print('New sessions run session.py ensure with their own session identity.')
+            report_session_restarts(a.prefix, a.unit_dir, no_start=a.no_start)
         return
     if platform_support.SERVICE_MANAGER is None and not a.no_start:
         # The managed supervisor is the portable alternative to a service manager:
@@ -275,10 +488,14 @@ def main():
                      legacy=selected == runtime_names.service_names(legacy=True))
     if not a.no_start:
         # Fail before modifying installation if the user manager is unavailable.
-        subprocess.run(['systemctl','--user','show-environment'],check=True,stdout=subprocess.DEVNULL)
+        platform_support.user_service_manager('available',check=True,stdout=subprocess.DEVNULL)
         existing = active_units(a.unit_dir, selected, a.prefix)
+        if validate_only:
+            return
         if existing:
-            subprocess.run(['systemctl','--user','stop',*existing],check=True)
+            platform_support.user_service_manager('stop', existing, check=True)
+    if validate_only:
+        return
     os.umask(0o077)
     a.prefix.mkdir(parents=True,exist_ok=True)
     a.unit_dir.mkdir(parents=True,exist_ok=True)
@@ -292,16 +509,25 @@ def main():
     if a.no_start:
         print('Files and units written; services were not changed.')
     else:
-        subprocess.run(['systemctl','--user','daemon-reload'],check=True)
-        subprocess.run(['systemctl','--user','enable','--now',*rendered],check=True)
+        platform_support.user_service_manager('reload', check=True)
+        platform_support.user_service_manager('enable', rendered, check=True)
     print('Installed at',a.prefix)
-    print('State directory:',a.state_dir)
+    print('Configured state directory (may not exist until service initialization):',a.state_dir)
     print('Check: systemctl --user status', *selected)
+    report_session_restarts(a.prefix, a.unit_dir, no_start=a.no_start)
 
 
 if __name__ == '__main__':
     try:
         main()
     except runtime_names.NameConflict as exc:
-        print(json.dumps(dict(ok=False, code=exc.code, paths=exc.paths)))
-        raise SystemExit(platform_support.CONFIGURATION_EXIT_STATUS) from None
+        print(json.dumps(dict(ok=False, code=exc.code, paths=exc.paths, error=str(exc))))
+        raise SystemExit(75 if exc.code == 'configuration_busy' else
+                         platform_support.CONFIGURATION_EXIT_STATUS) from None
+    except (OSError, ValueError, subprocess.SubprocessError) as exc:
+        from koinon import durable_state
+        temporary = isinstance(exc, (durable_state.StateReadBusyError, subprocess.SubprocessError))
+        print(json.dumps(dict(ok=False, code=getattr(exc, 'code', 'installation_incomplete'),
+                              error=str(exc), paths=getattr(exc, 'paths', ()),
+                              recovery='Preserve existing state and retry after correcting the reported condition.')))
+        raise SystemExit(getattr(exc, 'exit_status', 75 if temporary else 78)) from None

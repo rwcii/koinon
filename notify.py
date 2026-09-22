@@ -1,7 +1,39 @@
 #!/usr/bin/env python3
 """Register the live bridge and queue inbox notifications to a selected participant."""
+# Bytecode guard (docs/INSTALL.md). It runs before the first
+# project import and uses only the standard library, because a shared helper would
+# itself load from the cache it must judge. It keeps the canonical text below, which
+# tests/test_bytecode_guard.py compares across every entrypoint.
+if __name__ == '__main__':
+    import os as _os, stat as _stat, sys as _sys, tempfile as _tempfile
+    _os.umask(0o077)
+    _here = _os.path.dirname(_os.path.abspath(__file__))
+    _script = _os.path.basename(_here) == 'scripts'
+    _root = _os.path.dirname(_here) if _script else _here
+
+    def _owned(info, kind):
+        return kind(info.st_mode) and info.st_uid == _os.geteuid() and not info.st_mode & 0o022
+
+    def _trusted(path):
+        try:
+            info = _os.lstat(path)
+        except FileNotFoundError:
+            return True
+        if not _owned(info, _stat.S_ISDIR):
+            return False
+        with _os.scandir(path) as entries:
+            return all(_owned(entry.stat(follow_symlinks=False), _stat.S_ISREG)
+                       and entry.stat(follow_symlinks=False).st_nlink == 1 for entry in entries)
+
+    if _script or not all(_trusted(_os.path.join(_root, part, '__pycache__'))
+                            for part in ('', 'koinon', 'scripts')):
+        _sys.pycache_prefix = _tempfile.mkdtemp(prefix='koinon-pycache-')
+        _sys.dont_write_bytecode = True
+        import atexit as _atexit
+        _atexit.register(lambda path=_sys.pycache_prefix: _os.path.isdir(path) and _os.rmdir(path))
+# End of bytecode guard.
 import argparse
-import runtime_names
+from koinon import runtime_names
 import json
 import os
 from pathlib import Path
@@ -10,11 +42,12 @@ import shlex
 import sys
 import uuid
 
-import dsh_delivery
-import platform_support
-from participant_lock import OwnershipError, notifier_ownership
+from koinon import dsh_delivery
+from koinon import durable_state
+from koinon import platform_support
+from koinon.participant_lock import OwnershipError, notifier_ownership
 from bridge import DEFAULT, private_dir
-from peer_guidance import PEER_GUIDANCE
+from koinon.peer_guidance import PEER_GUIDANCE
 
 
 def proc_start(pid):
@@ -49,8 +82,11 @@ def save(path, value):
         with temp.open('x') as f:
             json.dump(value, f)
             f.flush()
-            os.fsync(f.fileno())
+            platform_support.sync_state_file(f.fileno())
         temp.replace(path)
+        platform_support.sync_state_directory(path.parent)
+        with path.open('rb') as stream:
+            platform_support.sync_state_file(stream.fileno())
     finally:
         temp.unlink(missing_ok=True)
 
@@ -69,7 +105,7 @@ def run(a):
 
 def run_owned(a, root, participant):
     import asyncio
-    from notification_runtime import Runtime
+    from koinon.notification_runtime import Runtime
     async def serving():
         runtime = Runtime(a, root, participant)
         loop = asyncio.get_running_loop()
@@ -84,7 +120,7 @@ def run_owned(a, root, participant):
 
 
 async def control(a):
-    from peer_transport import control_exchange
+    from koinon.peer_transport import control_exchange
     root = Path(a.state_dir).absolute()
     payload = dict(op=a.action)
     if a.action == 'retry':
@@ -94,7 +130,7 @@ async def control(a):
     except (OSError, ValueError, TimeoutError):
         if a.action != 'status':
             raise
-        import notification_health
+        from koinon import notification_health
         import asyncio
         def observe():
             ready = notification_health.verify_owner(root)
@@ -112,13 +148,13 @@ async def control(a):
 
 
 async def rebuild_owned(a, root):
-    from notification_migration import Migration, read_state
-    from notification_runtime import create_worker, settled_cleanup, ControlRefusal
-    from notification_source import InboxSource
-    from notification_journal import JournalError
+    from koinon.notification_migration import Migration, read_state
+    from koinon.notification_runtime import create_worker, settled_cleanup, ControlRefusal
+    from koinon.notification_source import InboxSource
+    from koinon.notification_journal import JournalError
     from contextlib import closing
     import asyncio
-    from peer_transport import control_exchange
+    from koinon.peer_transport import control_exchange
     reply, pid = await control_exchange(root, dict(op='status'))
     status = reply.get('result') if reply.get('ok') else None
     if not isinstance(status, dict) or status.get('pid') != pid:
@@ -160,8 +196,8 @@ async def rebuild_owned(a, root):
 
 def main():
     import asyncio
-    from notification_journal import JournalError
-    from notification_runtime import RuntimeRefusal, ControlRefusal
+    from koinon.notification_journal import JournalError
+    from koinon.notification_runtime import RuntimeRefusal, ControlRefusal
     p = argparse.ArgumentParser(description=__doc__)
     p.add_argument('--thread', help='exact existing Codex thread or DeepSeek session; required to start or rebuild')
     p.add_argument('--agent', choices=['codex', 'deepseek'], default='codex')
@@ -172,6 +208,8 @@ def main():
     p.add_argument('--name', default='codex-peer')
     p.add_argument('--repo', default=os.getcwd())
     p.add_argument('--after', type=int, default=0)
+    p.add_argument('--supervisor-control-fd', type=int)
+    p.add_argument('--supervisor-generation')
     sub = p.add_subparsers(dest='action')
     sub.add_parser('status')
     sub.add_parser('stop')
@@ -181,6 +219,9 @@ def main():
     rebuild = sub.add_parser('rebuild-journal')
     rebuild.add_argument('--accept-history-loss', action='store_true', required=True)
     a = p.parse_args()
+    if ((a.supervisor_control_fd is None) != (a.supervisor_generation is None)
+            or a.action is not None and a.supervisor_control_fd is not None):
+        p.error('supervisor descriptor and generation require notifier serving mode')
     if a.action in (None, 'rebuild-journal') and not a.thread:
         p.error('--thread is required to start or rebuild the notifier')
     if a.after < 0 or a.after > (1 << 63) - 1:
@@ -212,6 +253,9 @@ def main():
         print(json.dumps(dict(ok=False, code=exc.code, recovery=exc.recovery)), flush=True)
         return (platform_support.TEMPORARY_EXIT_STATUS if exc.recovery == 'retry'
                 else platform_support.CONFIGURATION_EXIT_STATUS)
+    except durable_state.StateReadBusyError:
+        print(json.dumps(dict(ok=False, code='notifier_unavailable', recovery='retry')), flush=True)
+        return platform_support.TEMPORARY_EXIT_STATUS
     except RuntimeRefusal as exc:
         print(json.dumps(dict(ok=False, code=exc.code, path=exc.path)), flush=True)
         return platform_support.CONFIGURATION_EXIT_STATUS

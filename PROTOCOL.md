@@ -1,10 +1,20 @@
 # Koinon protocols
 
+The [work command interface](docs/WORK-ITEMS-COMMANDS.md) provides schema-5
+work records, advisory claims and immutable events. Startup creates schema 5 or
+atomically migrates schema 3/4 after validating the complete catalog. Transport remains
+protocol 1; hello/status advertise `work_items_v1` and `memory_record_format_2`.
+Every sync and ack requires integer `record_format: 2`, refused before maintenance or
+cursor mutation if missing or incompatible. New readers retain legacy snapshot shapes.
+[Maintenance](docs/WORK-ITEMS-MAINTENANCE.md) bounds reclamation and reports timestamped
+diagnostics. [Policy and guidance](docs/WORK-ITEMS-POLICY.md) remain explicit opt-in.
+Follow the [runtime upgrade procedure](docs/WORK-ITEMS-UPGRADE.md) for existing services.
+
 The peer transport below was observed in Claude Code 2.1.267 on Linux and 2.1.268 on macOS. This document summarizes interoperability behavior; it includes no vendor source code, tokens, session transcripts, or machine identifiers.
 
 ## Platform differences
 
-The wire protocol is identical on both platforms. The local facts around it are not, and each is handled in `platform_support.py`:
+The wire protocol is identical on both platforms. The local facts around it are not, and each is handled in `koinon/platform_support.py`:
 
 - **Peer identity.** Linux returns pid, uid and gid from one `SO_PEERCRED` getsockopt. macOS has no such option: `getpeereid` returns uid and gid only, and the peer pid comes from a separate `LOCAL_PEERPID` socket option. Both are required, and a failure to read them rejects the connection.
 - **Process start marker.** Linux reads field 22 of `/proc/<pid>/stat`, a tick count. macOS reports an asctime string, and Claude writes it in **UTC**, so a reader must force `TZ=UTC` rather than inherit the local zone; a local-time port is six hours off in a US mountain zone.
@@ -38,9 +48,9 @@ an authenticated agent type and cannot replace the bridge-owned guidance.
 
 ## Participant guidance
 
-`participant_instructions.py` manages guidance for both Codex and DeepSeek
+`koinon/participant_instructions.py` manages guidance for both Codex and DeepSeek
 participants, with separate Koinon markers and setup commands. The old
-`codex_instructions.py` import remains a shim. Updates and removal recognize legacy
+`koinon/codex_instructions.py` import remains a shim. Updates and removal recognize legacy
 markers and retain the legacy lock inodes to exclude old updaters. Koinon supplies the
 peer-input guidance in those managed instructions, each inbox result, and each queued
 notice. This does not depend on the participant runtime adding its own peer framing.
@@ -145,6 +155,37 @@ successful unrelated query does not clear it or prove recovery. Memory also sets
 do not set a historical fault. These fields are not a complete database integrity check
 or the notifier's separate delivery-health record. A status fallback requires a parsed
 request; it cannot bypass a full unclassified connection pool.
+
+### Generation-bound session shutdown
+
+Notifier private status also reports `bridge_generation`, the bridge instance it
+observed. Session readiness joins this with both directly owned child identities;
+a notifier process alone is insufficient evidence of the selected pair.
+
+Bridge and notifier private status replies advertise
+`control_capabilities: ["generation_bound_stop"]` independently of database health.
+A supervisor must observe this capability before sending
+`{"op":"stop-generation","protocol":1,"generation":GENERATION}` to either private control endpoint. The
+32-character lowercase hexadecimal generation must equal that process's current
+runtime generation; malformed requests return `invalid_request`, and stale targets
+return `not_this_instance`, before stopping. Accepted replies contain
+`{"stopping":true,"generation":GENERATION,"protocol":1}` in `result`. Missing
+capability is not permission to fall back to an unguarded stop. The client must bind
+capability and generation from the same status reply to the captured child PID and
+kernel peer PID, with the captured process-start marker checked before each exchange.
+The generation comparison at the receiving process remains the in-band target guard;
+these process observations are not an atomic lock. Old bridge versions ignore extra fields on `stop`; therefore a
+new field on that operation would silently lose the guard. The distinct operation
+also protects against an old replacement appearing between status and stop: it
+rejects the unknown operation. The shared client reports `guarded_stop_unsupported`
+when capability is absent and `guarded_stop_unconfirmed` for an ambiguous reply.
+Neither condition permits an unguarded retry. An accepted reply
+means shutdown was requested, not that the process has exited.
+
+Existing explicit operator requests containing only `{"op":"stop"}` remain
+supported. This control protocol does not execute stored peer messages. The staged
+native session runner will capture both child generations before using guarded stops;
+this protocol addition alone does not enable native session activation.
 
 ## Memory control protocol
 
@@ -317,7 +358,7 @@ obsolete prior binding from unexpected missing data. The pointer frame stays bin
 
 Before binding or refresh, the bridge verifies the memory service name, protocol,
 repository, recorded owner, kernel PID, process-start marker and generation.
-Memory schema 4 is required for its durable 32-hex `store_id`. An older live memory
+Memory schema 5 is required; the durable 32-hex `store_id` is preserved from schema 4. An older live memory
 service yields `memory_upgrade_required`; restart it with the new runtime. Missing
 memory yields `memory_unavailable`; incompatible identity or unhealthy storage is
 refused. Binding refusals include `recovery:"retry"` for transient failures or

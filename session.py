@@ -6,6 +6,38 @@ or its DeepSeek session ID. Peer names follow the fleet form
 `<agent>[-<model>]-<repo>-<two hex>`, so a Claude peer can tell which agent and,
 for DeepSeek, which model it is addressing.
 """
+# Bytecode guard (docs/INSTALL.md). It runs before the first
+# project import and uses only the standard library, because a shared helper would
+# itself load from the cache it must judge. It keeps the canonical text below, which
+# tests/test_bytecode_guard.py compares across every entrypoint.
+if __name__ == '__main__':
+    import os as _os, stat as _stat, sys as _sys, tempfile as _tempfile
+    _os.umask(0o077)
+    _here = _os.path.dirname(_os.path.abspath(__file__))
+    _script = _os.path.basename(_here) == 'scripts'
+    _root = _os.path.dirname(_here) if _script else _here
+
+    def _owned(info, kind):
+        return kind(info.st_mode) and info.st_uid == _os.geteuid() and not info.st_mode & 0o022
+
+    def _trusted(path):
+        try:
+            info = _os.lstat(path)
+        except FileNotFoundError:
+            return True
+        if not _owned(info, _stat.S_ISDIR):
+            return False
+        with _os.scandir(path) as entries:
+            return all(_owned(entry.stat(follow_symlinks=False), _stat.S_ISREG)
+                       and entry.stat(follow_symlinks=False).st_nlink == 1 for entry in entries)
+
+    if _script or not all(_trusted(_os.path.join(_root, part, '__pycache__'))
+                            for part in ('', 'koinon', 'scripts')):
+        _sys.pycache_prefix = _tempfile.mkdtemp(prefix='koinon-pycache-')
+        _sys.dont_write_bytecode = True
+        import atexit as _atexit
+        _atexit.register(lambda path=_sys.pycache_prefix: _os.path.isdir(path) and _os.rmdir(path))
+# End of bytecode guard.
 import argparse
 import fcntl
 import hashlib
@@ -20,12 +52,12 @@ import sys
 import time
 
 from bridge import private_dir, peers
-import dsh_delivery
+from koinon import dsh_delivery
 from notify import save
-import platform_support
-import runtime_names
-import notification_health
-import session_observation
+from koinon import platform_support
+from koinon import runtime_names
+from koinon import notification_health
+from koinon import session_observation
 from scripts.install import units, check_owned_unit, start_command_for
 
 
@@ -77,7 +109,10 @@ def notifier_ready(state, bridge):
 
 
 def read_config(prefix):
-    return json.loads((prefix/'install.json').read_text())
+    config = runtime_names.install_config(prefix)
+    if not config:
+        raise runtime_names.NameConflict('invalid_install_configuration', (Path(prefix)/'install.json',))
+    return config
 
 
 def details(prefix, config, thread, repo, agent='codex', model=None):
@@ -225,8 +260,8 @@ def validate_participant_executable(config, agent, action):
 def main():
     os.umask(0o077)
     p=argparse.ArgumentParser(description=__doc__)
-    p.add_argument('action',choices=['ensure','run','status','stop','rename'])
-    p.add_argument('--agent',choices=['codex','deepseek'],default=None,
+    p.add_argument('action',choices=['ensure','stage','run','status','stop','rename','work-policy'])
+    p.add_argument('--agent',choices=['codex','deepseek','claude'],default=None,
                    help='participant kind this instance serves; defaults to the registered kind, '
                         'or is inferred from the session environment, and is codex otherwise')
     p.add_argument('--thread',default=None,
@@ -237,7 +272,25 @@ def main():
     p.add_argument('--repo',default=os.getcwd())
     a=p.parse_args()
     prefix=Path(__file__).resolve().parent
+    if a.action == 'work-policy':
+        if a.agent is None:
+            p.error('work-policy requires --agent')
+        from koinon import work_policy
+        try:
+            policy = work_policy.query(runtime_names.install_config(prefix), a.repo, a.agent)
+        except (ValueError, OSError) as exc:
+            print(json.dumps(dict(ok=False, code=getattr(exc, 'code', 'invalid_install_configuration'),
+                                  error=str(exc), paths=getattr(exc, 'paths', ()))))
+            raise SystemExit(platform_support.CONFIGURATION_EXIT_STATUS) from None
+        print(json.dumps(policy))
+        return
+    if a.agent == 'claude':
+        p.error('claude is supported only by work-policy')
     config=read_config(prefix)
+    if config.get('installation_state') == 'removing' and a.action not in ('stop', 'status'):
+        print(json.dumps(dict(status='unavailable', code='session_configuration_failure',
+                              error='installation removal is in progress; resume uninstall')))
+        raise SystemExit(78)
     repo=str(Path(a.repo).resolve())
     # Keep what was actually requested separate from what gets inferred, because
     # only an explicit request may override a registered identity.
@@ -251,6 +304,45 @@ def main():
     agent=a.agent or 'codex'
     model=a.model or (dsh_delivery.default_model() if agent=='deepseek' else None)
     state,name,key=details(prefix,config,a.thread,repo,agent,model)
+    # An explicit saved native selection owns this path. Never fall through to
+    # legacy ensure/stop or silently rewrite its registered identity.
+    native = state / 'native-service.json'
+    if a.action in ('ensure', 'stage') and config.get('session_backend') in ('systemd', 'launchd'):
+        from koinon import session_install
+        try:
+            validate_participant_executable(config, agent, a.action)
+            session_install.stage(prefix, config, state, a.thread, repo, agent, model, save_registration)
+        except (OSError, ValueError) as exc:
+            from koinon import durable_state
+            temporary = isinstance(exc, durable_state.StateReadBusyError)
+            print(json.dumps(dict(status='unavailable',
+                                  code='session_temporary_failure' if temporary else 'session_configuration_failure',
+                                  error=str(exc), paths=[str(native), str(state / 'session.json')])))
+            raise SystemExit(75 if temporary else 78) from None
+        if a.action == 'stage':
+            print(json.dumps(dict(status='staged', running=False, state_dir=str(state))))
+            return
+    if runtime_names.present(native):
+        from koinon import durable_state
+        import session_service
+        from koinon import session_service_artifacts
+        try:
+            record = session_service_artifacts.load(state)
+            saved = durable_state.read(state / 'session.json')
+            if record is None or saved is None or saved.get('thread') != a.thread:
+                raise session_service.ServiceError(paths=(native,))
+            if a.action == 'rename':
+                raise session_service.ServiceError(paths=(native, state / 'session.json'))
+            return_code = session_service.main([a.action, '--prefix', str(prefix),
+                                                '--state-dir', str(state), '--backend', record['backend']])
+        except durable_state.StateReadBusyError:
+            print(json.dumps(dict(status='unavailable', code='session_temporary_failure')))
+            return_code = 75
+        except (OSError, ValueError) as exc:
+            print(json.dumps(dict(status='unavailable', code='session_configuration_failure',
+                                  paths=[str(path) for path in getattr(exc, 'paths', (native,))])))
+            return_code = 78
+        raise SystemExit(return_code)
     if not (state/'session.json').exists():
         validate_participant_executable(config, agent, a.action)
     private_dir(state)
@@ -278,6 +370,9 @@ def main():
             saved=save_registration(state,Path(config['state_root']),a.thread,repo,agent=agent,model=model)
             name=saved['name']
         validate_participant_executable(config, agent, a.action)
+        if a.action == 'stage':
+            print(json.dumps(dict(status='staged', running=False, state_dir=str(state))))
+            return
         active=bridge_status(prefix,state)
         observed=session_observation.lifecycle(state,active)
         if a.action=='rename':
@@ -308,12 +403,12 @@ def main():
             if unit.exists():
                 check_owned_unit(unit, prefix)
                 try:
-                    available=subprocess.run(['systemctl','--user','show-environment'],stdout=subprocess.DEVNULL,
+                    available=platform_support.user_service_manager('available',stdout=subprocess.DEVNULL,
                         stderr=subprocess.DEVNULL,timeout=5).returncode==0
                 except (OSError,subprocess.TimeoutExpired):
                     available=False
                 if available:
-                    subprocess.run(['systemctl','--user','stop',unit.name],check=True)
+                    platform_support.user_service_manager('stop', [unit.name], check=True)
                 active=bridge_status(prefix,state)
             # Try independently addressable controls even if status could not answer.
             # Never interpret a timeout or a retained endpoint as proof of shutdown.
@@ -334,8 +429,11 @@ def main():
             # systemd's Restart=on-failure does not restart a clean stop.
             return
         if a.action=='ensure':
+            if config.get('session_backend') == 'manual':
+                print(json.dumps(result(prefix,state,name,a.thread,repo,'manual_required',agent,model)))
+                return
             try:
-                available=subprocess.run(['systemctl','--user','show-environment'],stdout=subprocess.DEVNULL,
+                available=platform_support.user_service_manager('available',stdout=subprocess.DEVNULL,
                                          stderr=subprocess.DEVNULL,timeout=5).returncode==0
             except (OSError,subprocess.TimeoutExpired):
                 available=False
@@ -357,9 +455,9 @@ def main():
             # lifecycle lock until both children are ready, so another ensure,
             # stop, or rename cannot change this session during startup.
             fcntl.flock(lock,fcntl.LOCK_UN)
-            subprocess.run(['systemctl','--user','daemon-reload'],check=True)
+            platform_support.user_service_manager('reload', check=True)
             # Per-conversation services start now, not at every login forever.
-            subprocess.run(['systemctl','--user','start',*rendered],check=True)
+            platform_support.user_service_manager('start', rendered, check=True)
             for _ in range(50):
                 if notifier_ready(state,bridge_status(prefix,state)):
                     print(json.dumps(result(prefix,state,name,a.thread,repo,'running',agent,model)))
