@@ -5,6 +5,17 @@ into a dated release section when promoted to `main`.
 
 ## Unreleased
 
+- Correct statements in `README.md` and `AGENTS.md` that the code contradicts. A session
+  job's launchd artifact is published under its own state directory, not in
+  `~/Library/LaunchAgents`, which holds only the memory artifact. `--name` is read on the
+  legacy unit-pair path only and is ignored without warning on the component invocation,
+  where the peer name derives from the repository directory name. Entry garbage collection
+  is not limited to expired entries: finished work-item retention removes that item's stream
+  rows and advances the retained-history floor regardless of expiry. Installed launchd jobs
+  apply the same permanent-failure non-restart rule as systemd, by mapping those exits to
+  zero. `koinon/codex_instructions.py` is a legacy shim; the implementation is
+  `koinon/participant_instructions.py`.
+
 - Support a declared runtime layout migration during upgrade. A release records
   where a shipped file moved to in `koinon/upgrade_layout.py`; replacement publishes the
   new path, confirms it, then retires the old one, and refuses an undeclared removal
