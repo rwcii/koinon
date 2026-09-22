@@ -352,9 +352,15 @@ The [coordinator draft, PR #70](https://github.com/rwcii/koinon/pull/70), stages
 records, immutable evidence, isolated recovery archives, native observations,
 frozen-plan preparation, service admission gates, owned shutdown, guarded backup
 capture, resumable file replacement, and exact memory migration checks. Gated memory
-startup defers search-index initialization until release. The public operation,
-complete preflight, restart orchestration, reporting, and native/manual interruption
-acceptance remain unfinished. Passing helper tests do not complete this queue item.
+startup defers search-index initialization until release. The public operation, complete
+preflight, restart orchestration, reporting, and native and manual interruption acceptance
+are implemented on top of that draft, and were exercised together in the real-host run
+recorded above.
+
+Two operability defects remain open and are limitations of the delivered operation rather
+than missing implementation: #79 and #80, both named above. The manual-backend handoff is a
+property of a selected `manual` backend, not of any platform; launchd hosts upgrade without
+it.
 
 Turn the coordinated upgrade into an executable operation that records its phases,
 performs its own inventory and backup, and verifies recovery. Preserve explicit

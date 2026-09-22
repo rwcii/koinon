@@ -547,16 +547,27 @@ layout change, so a file that moved between releases is retired only after its n
 is published and confirmed; see [WORK-ITEMS-UPGRADE.md](WORK-ITEMS-UPGRADE.md) for the
 retirement rules and the manual-backend handoff.
 
-Without a user service manager, which includes every macOS host, the operation stops at
-the component handoff and returns `manual_handoff_required` with the exact start command.
-Run that command in a persistent managed session, keep it alive, then resume with the plan
-digest. It does not detach the process for you.
+When the memory component's selected backend is `manual`, the operation stops at that
+component and returns `manual_handoff_required` with the exact start command. Run it in a
+persistent managed session, keep it alive, then resume with the plan digest. The operation
+never detaches a process, and a printed command is not readiness.
 
-**Precondition, currently undocumented elsewhere:** every ancestor of the source checkout,
-and the checkout itself, must be owned by this user and must not be group- or
-other-writable. A default `umask 002`, which is the Debian and Ubuntu default, produces
-`0775` directories and the operation refuses with `unsafe manifest ancestor`, naming the
-path but not the mode. The same rule refuses installation through a second check. This is
+This is a property of the selected backend, not of the platform. macOS installs launchd
+components like any other supported host, and they are upgraded without a handoff. An
+unreachable user service manager is a refusal to be corrected, not an automatic fallback to
+`manual`.
+
+**Precondition, currently undocumented elsewhere.** The operation validates the source
+checkout it reads from. Each ancestor must be a directory owned by this user or by root, and
+must not be group- or other-writable — except a root-owned sticky directory such as `/tmp`,
+which is allowed. The checkout itself must be owned by this user and must not be group- or
+other-writable. A default `umask 002`, the Debian and Ubuntu default, produces `0775`
+directories, so the operation refuses with `unsafe manifest ancestor`, naming the path but
+not the mode.
+
+Installation applies the same group- and other-writable rule, through a separate check, to
+the manager registration path it writes into rather than to a source checkout. The two
+checks have different targets and different implementations; both are
 [issue #79](https://github.com/rwcii/koinon/issues/79).
 
 The [stopped-state runbook](WORK-ITEMS-UPGRADE.md) remains for legacy and manual
