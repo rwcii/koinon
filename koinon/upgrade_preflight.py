@@ -69,7 +69,8 @@ def runtime_pair(prefix, source):
         raise PreflightError('source and installed runtime roots must be disjoint')
     old, new = runtime_manifest(prefix), runtime_manifest(source)
     upgrade_replace.preflight(new, old)
-    upgrade_replace.bytecode_paths(prefix, list(new['files']))
+    retired = upgrade_replace.retirements(new, old)
+    upgrade_replace.bytecode_paths(prefix, [*new['files'], *(name for name, _ in retired)])
     return dict(runtime=old, source=new)
 
 

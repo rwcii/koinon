@@ -10,6 +10,7 @@ import sqlite3
 import time
 import uuid
 
+from koinon import PREFIX
 from koinon.database_worker import DatabaseWorker, CapacityError, WorkerFailure
 from koinon import durable_state
 from koinon.inbox_schema import hex_value, InboxSchemaError
@@ -98,7 +99,7 @@ class Runtime:
             os.environ.get('CLAUDE_CONFIG_DIR', str(Path.home() / '.claude'))) / 'sessions'
         self.generation = uuid.uuid4().hex
         from koinon import upgrade_gate
-        self.upgrade = upgrade_gate.select(Path(__file__).parent, 'notifier', self.root, self.generation)
+        self.upgrade = upgrade_gate.select(PREFIX, 'notifier', self.root, self.generation)
         self.stop = asyncio.Event()
         self.admission = Admission()
         self.handlers = set()

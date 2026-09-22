@@ -85,6 +85,30 @@ def inactive_check(selection, kind, registered):
         time.sleep(.05)
 
 
+def previous_layout(prefix):
+    """Turn an installed runtime back into the layout the declared moves came from.
+
+    Without this the fixture could only upgrade a release to itself: the old and new
+    file sets were identical by construction, so no job ever exercised a file set
+    that changes shape. The declaration is the only record of where each path used
+    to live; `tests/test_upgrade_layout.py` checks that record against the shipped
+    manifest, which is what catches a move nobody declared.
+    """
+    from koinon import upgrade_layout
+    retired = []
+    for old, new in sorted(upgrade_layout.MOVES.items()):
+        source, destination = prefix / new, prefix / old
+        if not source.exists():
+            raise RuntimeError('declared move is absent from the installed runtime: ' + new)
+        destination.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
+        shutil.move(str(source), str(destination))
+        retired.append(old)
+    for path in prefix.rglob('*'):
+        if path.is_dir() and not any(path.iterdir()):
+            path.rmdir()
+    return retired
+
+
 def session_case(backend, initial_state, interrupt):
     spec = importlib.util.spec_from_file_location('native_session_fixture', SOURCE / 'scripts/test-native-session.py')
     module = importlib.util.module_from_spec(spec)
@@ -100,6 +124,10 @@ def session_case(backend, initial_state, interrupt):
             target.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
             shutil.copyfile(fixture.prefix / name, target)
             target.chmod(0o600)
+        # The installed runtime becomes the previous layout, so this is a real
+        # cross-layout upgrade: the new source publishes paths the runtime holds
+        # elsewhere, and every retired path must be gone afterwards.
+        retired = previous_layout(fixture.prefix)
         for root in (source, fixture.prefix):
             for path in root.rglob('*'):
                 if path.is_dir():
@@ -122,9 +150,16 @@ def session_case(backend, initial_state, interrupt):
         if (not report['ok'] or after.get('status') != 'running'
                 or before['owner']['generation'] == after['owner']['generation']):
             raise RuntimeError('public session upgrade did not replace the owned pair')
+        present = [name for name in retired if (fixture.prefix / name).exists()]
+        if present:
+            raise RuntimeError('retired runtime paths survived the upgrade: ' + ', '.join(present[:5]))
+        for name in install.FILES:
+            if not (fixture.prefix / name).exists():
+                raise RuntimeError('upgraded runtime is missing a published path: ' + name)
         print(json.dumps(dict(ok=True, backend=backend, initial_state=initial_state, interrupted=interrupt,
             checks=['public_archive_execution', 'owned_native_pair_stop_restart',
-                    'inbox_preservation', 'notifier_gate', 'post_release_readiness'])))
+                    'inbox_preservation', 'notifier_gate', 'layout_migration',
+                    'post_release_readiness'])))
         return 0
     finally:
         import session_service
@@ -150,6 +185,7 @@ def combined_case(backend, interrupt):
         shutil.copytree(fixture.source, source)
         source.chmod(0o700)
         (fixture.prefix / 'LICENSE').write_text('synthetic previous combined release')
+        retired = previous_layout(fixture.prefix)
         fixture.note('note', 'retained combined-fixture note', '--type', 'finding')
         deadline = str(int(time.time()) + 3600)
         created = json.loads(fixture.note('work', 'create', '--title', 'Synthetic upgrade claim',
@@ -182,12 +218,19 @@ def combined_case(backend, interrupt):
             raise RuntimeError('combined upgrade changed memory identity or stream')
         if retained_bindings() != bindings:
             raise RuntimeError('combined upgrade changed explicit memory binding')
+        present = [name for name in retired if (fixture.prefix / name).exists()]
+        if present:
+            raise RuntimeError('retired runtime paths survived the upgrade: ' + ', '.join(present[:5]))
+        for name in install.FILES:
+            if not (fixture.prefix / name).exists():
+                raise RuntimeError('upgraded runtime is missing a published path: ' + name)
         # The original token must still renew against its original claim revision.
         fixture.note('claim', 'renew', created['work_id'], '--claim-generation',
                      str(started['claim']['generation']), '--if-claim-revision', str(started['claim']['revision']))
         print(json.dumps(dict(ok=True, backend=backend, interrupted=interrupt,
             checks=['combined_owned_native_restart', 'active_claim_preserved',
-                    'binding_preserved', 'memory_preserved', 'post_release_readiness'])))
+                    'binding_preserved', 'memory_preserved', 'layout_migration',
+                    'post_release_readiness'])))
         return 0
     finally:
         import session_service

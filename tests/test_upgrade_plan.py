@@ -11,6 +11,8 @@ from koinon import upgrade_plan as plans
 
 
 class PlanTests(unittest.TestCase):
+    legacy = ()
+
     def setUp(self):
         self.temp = tempfile.TemporaryDirectory()
         self.addCleanup(self.temp.cleanup)
@@ -24,8 +26,21 @@ class PlanTests(unittest.TestCase):
             path = directory / 'entry.py'
             path.write_text(text)
             path.chmod(0o600)
-        self.source_manifest = manifest.capture(self.source, ['entry.py'])
-        self.runtime_manifest = manifest.capture(self.prefix, ['entry.py'])
+        published, installed = ['entry.py'], ['entry.py']
+        # A cross-layout upgrade: each pair is a path the installed runtime holds and
+        # the release publishes somewhere else. Without this the fixtures can only
+        # express an upgrade whose file set never changes shape.
+        for retired, destination in getattr(self, 'legacy', ()):
+            for directory, name, text in ((self.prefix, retired, 'print("legacy")\n'),
+                                          (self.source, destination, 'print("moved")\n')):
+                path = directory / name
+                path.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
+                path.write_text(text)
+                path.chmod(0o600)
+            published.append(destination)
+            installed.append(retired)
+        self.source_manifest = manifest.capture(self.source, published)
+        self.runtime_manifest = manifest.capture(self.prefix, installed)
         self.config = dict(state_root=str(self.root / 'state'), unit_dir=str(self.root / 'units'),
                            codex=sys.executable, preserved={'opaque': [1, 2]})
         self.bundle = upgrade_bundle.prepare(self.operation, self.source_manifest, 'entry.py')

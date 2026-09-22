@@ -66,3 +66,23 @@ class FinalizeRemovalTests(unittest.TestCase):
         self.assertNotEqual(result.returncode, 0)
         self.assertTrue((self.prefix / 'first.py').exists())
         self.assertEqual((self.prefix / 'retained-store').read_text(), 'retained')
+
+    def test_absent_or_duplicated_state_sync_marker_refuses_before_publishing(self):
+        """The inlining is a byte replacement, which silently does nothing on a miss.
+
+        A recovery program that kept the package import could not start, because it
+        runs isolated from the prefix. Require exactly one marker instead.
+        """
+        source = Path(removal.__file__).read_bytes()
+        self.assertEqual(source.count(removal.MARKER), 1)
+        published = (self.prefix / removal.RECOVERY).read_bytes()
+        self.assertNotIn(removal.MARKER, published)
+        for corrupted in (source.replace(removal.MARKER, b'import os\n', 1),
+                          source.replace(removal.MARKER, removal.MARKER * 2, 1)):
+            with self.subTest(markers=corrupted.count(removal.MARKER)):
+                (self.prefix / removal.MANIFEST).unlink(missing_ok=True)
+                with patch.object(Path, 'read_bytes', return_value=corrupted), \
+                        self.assertRaises(ValueError) as refusal:
+                    removal.prepare(self.prefix, self.names)
+                self.assertIn('marker', str(refusal.exception))
+                self.assertEqual((self.prefix / removal.RECOVERY).read_bytes(), published)

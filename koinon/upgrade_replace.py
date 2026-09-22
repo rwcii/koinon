@@ -1,7 +1,9 @@
 """Resumable runtime file replacement under retained writer exclusion.
 
-Only the frozen source is published. This initial adapter supports an unchanged
-or expanded runtime file set; removal/layout migration needs a separate adapter.
+Only the frozen source is published. A runtime path the new release no longer
+ships is retired only where `upgrade_layout` declares where it moved to, and only
+after its replacement is published and confirmed, so an interruption always leaves
+a readable runtime and the frozen backup still holds every old path.
 The coordinator must call preflight before shutting down selected services.
 """
 import hashlib
@@ -15,6 +17,7 @@ from koinon import durable_state
 from koinon import platform_support
 from koinon import upgrade_backup
 from koinon.upgrade_documents import Documents
+from koinon import upgrade_layout
 from koinon import upgrade_manifest as manifest
 
 
@@ -22,12 +25,23 @@ class ReplacementError(ValueError):
     pass
 
 
+def retirements(source, runtime):
+    """Old runtime paths this release declares as moved, oldest path first.
+
+    A path the new release does not ship is only ever a declared move. An
+    undeclared disappearance refuses here, before anything is shut down.
+    """
+    try:
+        return upgrade_layout.declared(set(runtime['files']) - set(source['files']), source['files'])
+    except upgrade_layout.LayoutError as error:
+        raise ReplacementError(str(error)) from None
+
+
 def preflight(source, runtime):
     manifest.validate(source)
     manifest.validate(runtime)
-    if not set(runtime['files']) <= set(source['files']):
-        raise ReplacementError('runtime file removal requires a supported layout adapter')
-    for name in source['files']:
+    retired = retirements(source, runtime)
+    for name in (*source['files'], *(old for old, _ in retired)):
         if name == 'install.json' or name == '.install.lock' or Path(name).parts[0] == '.upgrade':
             raise ReplacementError('runtime file selection overlaps upgrade ownership state')
     return manifest.names_checked(list(source['files']))
@@ -161,6 +175,36 @@ def _invalidate_bytecode(guard, root, names):
     guard.verify()
 
 
+def _retire(guard, root, runtime, retired, progress, progress_path):
+    """Remove each declared old path, after its replacement is confirmed.
+
+    The postimage is published and confirmed before the preimage goes away, so an
+    interruption leaves a runtime that still reads. A path already gone is a
+    completed step on resume, not a reason to refuse; a path whose content is
+    neither its frozen preimage nor absent is an operator change and refuses.
+    """
+    if retired:
+        _invalidate_bytecode(guard, root, [old for old, _ in retired])
+    for index in range(progress['retired'], len(retired)):
+        old, new = retired[index]
+        guard.verify()
+        _confirm(root, new, guard.exclusion.loaded['documents']['source']['files'][new])
+        current = _content(root, old)
+        if current is not None and current != runtime['files'].get(old):
+            raise ReplacementError('retired runtime path changed before removal')
+        durable_state.publish(progress_path, dict(progress, retired=index))
+        if current is not None:
+            path = root / old
+            path.unlink()
+            platform_support.sync_state_directory(path.parent)
+        if _content(root, old) is not None:
+            raise ReplacementError('retired runtime path is still present')
+        progress = dict(progress, retired=index + 1)
+        durable_state.publish(progress_path, progress)
+    guard.verify()
+    return progress
+
+
 def replace(guard):
     """Publish or reconfirm every file; never advance the global phase journal."""
     guard.verify()
@@ -170,6 +214,7 @@ def replace(guard):
     loaded = guard.exclusion.loaded
     source, runtime = (loaded['documents'][name] for name in ('source', 'runtime'))
     names = preflight(source, runtime)
+    retired = retirements(source, runtime)
     manifest.verify(source)
     _backup_evidence(guard, phase)
     root = manifest.check_root(runtime['root'])
@@ -180,11 +225,13 @@ def replace(guard):
         for name in names:
             if _content(root, name) != runtime['files'].get(name):
                 raise ReplacementError('runtime preimage changed before replacement intent')
-        progress = dict(version=1, plan=loaded['sha256'], index=0)
-    if (not isinstance(progress, dict) or set(progress) != {'version', 'plan', 'index'}
+        progress = dict(version=1, plan=loaded['sha256'], index=0, retired=0)
+    if (not isinstance(progress, dict) or set(progress) != {'version', 'plan', 'index', 'retired'}
             or type(progress['version']) is not int or progress['version'] != 1
             or progress['plan'] != loaded['sha256'] or type(progress['index']) is not int
-            or not 0 <= progress['index'] <= len(names)):
+            or not 0 <= progress['index'] <= len(names) or type(progress['retired']) is not int
+            or not 0 <= progress['retired'] <= len(retired)
+            or progress['retired'] and progress['index'] != len(names)):
         raise ReplacementError('invalid retained replacement progress')
     # Reconfirm completed postimages. Missing evidence is not permission to
     # overwrite a substituted file or reconstruct earlier completed work.
@@ -222,10 +269,12 @@ def replace(guard):
         durable_state.publish(progress_path, progress)
     guard.verify()
     _invalidate_bytecode(guard, root, names)
+    _retire(guard, root, runtime, retired, progress, progress_path)
     actual = manifest.capture(root, list(names))
     if actual['files'] != source['files']:
         raise ReplacementError('runtime differs from frozen source after replacement')
-    return dict(version=1, plan=loaded['sha256'], runtime=actual)
+    return dict(version=1, plan=loaded['sha256'], runtime=actual,
+                retired=[old for old, _ in retired])
 
 
 def confirm(guard):
@@ -241,8 +290,14 @@ def confirm(guard):
         _confirm(Path(loaded['plan']['canonical_prefix']), name, expected)
     _invalidate_bytecode(guard, Path(loaded['plan']['canonical_prefix']), list(source['files']))
     current = manifest.capture(loaded['plan']['canonical_prefix'], list(source['files']))
+    prefix = Path(loaded['plan']['canonical_prefix'])
+    retired = retirements(source, loaded['documents']['runtime'])
+    for old_name, _ in retired:
+        if _content(prefix, old_name) is not None:
+            raise ReplacementError('retired runtime path is present again')
     receipt = Documents(guard.exclusion.journal.directory).read('replacement', phase['receipts'][4])
-    if receipt != dict(version=1, plan=loaded['sha256'], runtime=current):
+    if receipt != dict(version=1, plan=loaded['sha256'], runtime=current,
+                       retired=[old_name for old_name, _ in retired]):
         raise ReplacementError('replacement completion differs from current runtime')
     guard.verify()
     return receipt

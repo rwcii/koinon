@@ -12,7 +12,9 @@ from koinon.platform_support import sync_state_file, sync_state_directory
 
 # The recovery program is this module's own source with the import above inlined,
 # because it runs isolated and cannot import from the prefix. This marker must stay
-# byte-identical to that line; `prepare` refuses if the replacement finds nothing.
+# byte-identical to that line. `prepare` requires exactly one match before replacing,
+# so a marker that has drifted out of step, or been duplicated, refuses rather than
+# publishing a program that cannot start.
 MARKER = b'from koinon.platform_support import sync_state_file, sync_state_directory\n'
 
 MANIFEST = '.uninstall-files.json'
@@ -86,10 +88,9 @@ def prepare(prefix, names):
     from koinon.platform_support import standalone_state_sync_source
     program = Path(__file__).read_bytes().replace(b'ALLOWED_FILES = ()',
                                                 ('ALLOWED_FILES = ' + repr(tuple(names))).encode(), 1)
-    program = program.replace(
-        MARKER, standalone_state_sync_source().encode(), 1)
-    if program.count(MARKER):
-        raise ValueError('state-sync inlining did not replace the import marker')
+    if program.count(MARKER) != 1:
+        raise ValueError('state-sync import marker is absent or ambiguous')
+    program = program.replace(MARKER, standalone_state_sync_source().encode(), 1)
     current = read_owned(prefix / RECOVERY, private=True)
     if current is not None and current != program:
         raise ValueError('unrelated removal recovery program')

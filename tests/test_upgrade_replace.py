@@ -6,6 +6,7 @@ from unittest.mock import patch
 import test_upgrade_capture as fixtures
 from koinon import upgrade_capture
 from koinon.upgrade_documents import Documents
+from koinon import upgrade_layout
 from koinon import upgrade_replace
 
 
@@ -111,3 +112,72 @@ class ReplacementTests(unittest.TestCase):
                 with self.assertRaises(ValueError):
                     upgrade_replace.replace(guard)
                 self.assertEqual((self.prefix / 'entry.py').read_text(), 'operator changed this file')
+
+
+class RetirementTests(unittest.TestCase):
+    """A cross-layout upgrade: the release publishes a path the runtime holds elsewhere."""
+    legacy = (('legacy.py', 'koinon/legacy.py'),)
+
+    def setUp(self):
+        ReplacementTests.setUp(self)
+
+    def owner(self):
+        return ReplacementTests.owner(self)
+
+    def prepare_backups(self, owner, guard):
+        ReplacementTests.prepare_backups(self, owner, guard)
+
+    def held(self, moves):
+        return (self.owner(),
+                patch('koinon.platform_support.session_manager_observation', return_value=dict(status='absent')),
+                patch.dict(upgrade_layout.MOVES, moves, clear=True))
+
+    def test_declared_move_publishes_then_retires_and_keeps_the_old_bytes_in_backup(self):
+        retired_bytes = (self.prefix / 'legacy.py').read_bytes()
+        owner_context, observation, declaration = self.held({'legacy.py': 'koinon/legacy.py'})
+        with owner_context as owner, observation, declaration:
+            with upgrade_capture.hold(owner) as guard:
+                self.prepare_backups(owner, guard)
+                result = upgrade_replace.replace(guard)
+                self.assertEqual((self.prefix / 'koinon/legacy.py').read_bytes(),
+                                 (self.source / 'koinon/legacy.py').read_bytes())
+                self.assertFalse((self.prefix / 'legacy.py').exists())
+                # The frozen backup still holds the retired path, so recovery stays possible.
+                self.assertEqual((self.runtime_destination / 'legacy.py').read_bytes(), retired_bytes)
+                self.assertEqual(result['retired'], ['legacy.py'])
+                # Repeating the step must not reconstruct the retired path.
+                self.assertEqual(upgrade_replace.replace(guard), result)
+                self.assertFalse((self.prefix / 'legacy.py').exists())
+
+    def test_undeclared_removal_refuses_before_publishing_or_retiring_anything(self):
+        published = (self.prefix / 'entry.py').read_bytes()
+        owner_context, observation, declaration = self.held({})
+        with owner_context as owner, observation, declaration:
+            with upgrade_capture.hold(owner) as guard:
+                self.prepare_backups(owner, guard)
+                with self.assertRaises(upgrade_replace.ReplacementError) as refusal:
+                    upgrade_replace.replace(guard)
+        self.assertIn('undeclared runtime file removal: legacy.py', str(refusal.exception))
+        self.assertTrue((self.prefix / 'legacy.py').exists())
+        self.assertEqual((self.prefix / 'entry.py').read_bytes(), published)
+
+    def test_declared_move_without_a_published_destination_refuses(self):
+        owner_context, observation, declaration = self.held({'legacy.py': 'koinon/absent.py'})
+        with owner_context as owner, observation, declaration:
+            with upgrade_capture.hold(owner) as guard:
+                self.prepare_backups(owner, guard)
+                with self.assertRaises(upgrade_replace.ReplacementError) as refusal:
+                    upgrade_replace.replace(guard)
+        self.assertIn('no published destination', str(refusal.exception))
+        self.assertTrue((self.prefix / 'legacy.py').exists())
+
+    def test_operator_change_to_a_retiring_path_refuses_instead_of_deleting_it(self):
+        owner_context, observation, declaration = self.held({'legacy.py': 'koinon/legacy.py'})
+        with owner_context as owner, observation, declaration:
+            with upgrade_capture.hold(owner) as guard:
+                self.prepare_backups(owner, guard)
+                (self.prefix / 'legacy.py').write_text('operator change\n')
+                with self.assertRaises(upgrade_replace.ReplacementError) as refusal:
+                    upgrade_replace.replace(guard)
+        self.assertIn('retired runtime path changed before removal', str(refusal.exception))
+        self.assertEqual((self.prefix / 'legacy.py').read_text(), 'operator change\n')

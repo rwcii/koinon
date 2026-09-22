@@ -1,10 +1,10 @@
 """Content-free pointers to explicitly selected inbox and memory controls."""
 import hashlib
 import json
-from pathlib import Path
 import shlex
 import sys
 
+from koinon import PREFIX
 from koinon.inbox_schema import MAX_SEQUENCE, hex_value
 from koinon.peer_guidance import PEER_GUIDANCE, MEMORY_POINTER_GUIDANCE
 
@@ -26,7 +26,7 @@ def render(rows, root, participant, bindings):
     if (any(type(seq) is not int or not 1 <= seq <= MAX_SEQUENCE for seq in sequences)
             or sequences != sorted(set(sequences)) or len({row['kind'] for row in rows}) != 1):
         raise ValueError('invalid notice group')
-    scripts = Path(__file__).resolve().parent
+    scripts = PREFIX
     inbox = shlex.join([sys.executable, str(scripts / 'bridge.py'), '--state-dir', str(root),
                         'inbox', '--after', str(sequences[0] - 1)])
     if rows[0]['kind'] == 'peer':

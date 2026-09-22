@@ -6,6 +6,7 @@ from pathlib import Path
 import signal
 import sys
 
+from koinon import PREFIX
 from koinon import dsh_delivery
 
 PROVIDER_TIMEOUT = 15
@@ -62,7 +63,7 @@ class Provider:
             # parent, so the child could not import the package it belongs to.
             argv = [sys.executable, '-m', 'koinon.notification_provider', '--deepseek-child',
                     '--url', a.dsh_url, '--session', a.thread]
-            directory = str(Path(__file__).resolve().parent.parent)
+            directory = str(PREFIX)
             if a.dsh_credentials is not None:
                 argv.extend(['--credentials', str(a.dsh_credentials)])
             payload = text.encode('utf-8')
