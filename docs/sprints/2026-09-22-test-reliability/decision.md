@@ -43,9 +43,9 @@ ten-second restart interval, which the present deadlines cannot cover.
 10. For each of the two observed hangs (#63's `test_work_activation`; `test_upgrade_probe` with
     `test_upgrade_manual`), one bounded reproduction attempt runs under the watchdog, and its
     exact command, revision and result are recorded. A reproduced hang is fixed with a test, or
-    recorded in an issue on this milestone with the watchdog's diagnostics. A hang that does
-    not reproduce is recorded as not reproduced, and its issue stays open while its cause is
-    unknown.
+    recorded in a new issue with the watchdog's diagnostics. A hang that does not reproduce is
+    recorded as not reproduced, and a new issue keeps its cause open. #63 closes on its own
+    acceptance text (criteria 5, 7 and 9), not on a root cause.
 
 ## Constraints
 
