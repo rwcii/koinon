@@ -526,6 +526,27 @@ notifier in another state directory does not hold the new lock and cannot be exc
 by it. Preserve inboxes, checkpoints, registration targets and unrelated bridge instances;
 do not treat installing files with `--no-start` as activating the new exclusion rule.
 
+## Missing state root
+
+Installation reports the **configured** state directory; staging a manual or
+`--no-start` memory component does not initialize its state or database. The
+`installed` selection records staged configuration, not a running service or an
+initialized store.
+
+Upgrade preflight refuses an absent recorded state root with `code: missing_state_root`,
+the configured `path`, and recovery guidance before shutdown, runtime replacement,
+or publication of an upgrade operation. This applies to the installation state root
+and separately selected memory state roots. Upgrade does not create empty state to
+make its inventory pass.
+
+Verify the configured path and any expected mounted storage first. For an installation
+that has never been started, initialize the selected service using the installed
+runtime and the documented native start or manual handoff, then retry the upgrade.
+If state previously existed, recover the original state before retrying. Do not create
+an empty replacement, reset checkpoints, or change the saved selection to bypass the
+refusal. This diagnostic does not establish whether missing state was never created
+or was lost.
+
 ## Upgrades and removal
 
 Ordinary reinstall refuses changed runtime bytes when component selections exist.

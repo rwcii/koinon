@@ -22,6 +22,20 @@ class PreflightError(ValueError):
     pass
 
 
+class MissingStateRootError(PreflightError):
+    def __init__(self, path):
+        self.path = str(path)
+        super().__init__('recorded state root is missing: ' + self.path)
+
+
+def state_root(path):
+    """Validate recorded state without inventing an empty replacement."""
+    try:
+        return manifest.select_root(path)
+    except FileNotFoundError as exc:
+        raise MissingStateRootError(path) from exc
+
+
 class UnownedMemoryError(PreflightError):
     def __init__(self, report):
         self.report = report
@@ -85,11 +99,11 @@ def memory_ownership(config):
     records = config.get('memory_services', {}).get('repositories', {})
     roots = {str(Path(config['state_root']))}
     roots.update(record['state_root'] for record in records.values())
-    selected = {str(manifest.select_root(record['state_root']) / 'memory' / key)
+    selected = {str(state_root(record['state_root']) / 'memory' / key)
                 for key, record in records.items()}
     unowned, scanned = [], []
     for root in sorted(roots):
-        root = manifest.select_root(root)
+        root = state_root(root)
         directory = root / 'memory'
         try:
             info = directory.lstat()

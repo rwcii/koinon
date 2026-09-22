@@ -53,6 +53,33 @@ class ComponentInstallTests(unittest.TestCase):
         self.assertIsNone(record['artifact'])
         self.assertFalse((self.prefix / 'service-artifacts').exists())
 
+    def test_unstarted_install_reports_configured_state_and_upgrade_refuses_missing_root(self):
+        for backend in ('manual', 'systemd'):
+            with self.subTest(backend=backend):
+                self.prefix = self.root / ('app-' + backend)
+                result = self.install(backend)
+                self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+                self.assertIn('Configured state directory (may not exist until service initialization): '
+                              + str(self.state), result.stdout)
+                self.assertFalse(self.state.exists())
+                config = (self.prefix / 'install.json').read_bytes()
+                from contextlib import redirect_stderr
+                import io
+                from koinon import upgrade_command
+                # Use a distinct synthetic source to reach state preflight without
+                # depending on permissions of the developer checkout's ancestors.
+                source = self.root / ('source-' + backend)
+                shutil.copytree(self.prefix, source)
+                stderr = io.StringIO()
+                with redirect_stderr(stderr):
+                    status = upgrade_command.main(['--prefix', str(self.prefix),
+                                                   '--source', str(source)])
+                self.assertEqual(status, 1)
+                self.assertEqual(json.loads(stderr.getvalue())['code'], 'missing_state_root')
+                self.assertEqual((self.prefix / 'install.json').read_bytes(), config)
+                self.assertFalse(self.state.exists())
+                self.assertFalse((self.prefix / '.upgrade').exists())
+
     def test_repository_and_saved_backend_changes_refuse_before_runtime_write(self):
         result = self.install()
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)

@@ -5,6 +5,12 @@ into a dated release section when promoted to `main`.
 
 ## Unreleased
 
+- Report a missing recorded state root during upgrade preflight with
+  `missing_state_root`, its path, and recovery guidance before shutdown or upgrade
+  publication. Preserve state and configuration rather than creating an empty
+  replacement. Installation now labels the state directory as configured, since
+  staging without service initialization may leave it absent (#80).
+
 - Document the coordinated runtime upgrade as the supported operation it is, rather
   than as work in progress with a manual runbook in its place. The installation guide
   now carries the three command forms, the manual-backend handoff, and the permission

@@ -125,6 +125,25 @@ class CommandTests(unittest.TestCase):
         self.assertIsNotNone(upgrade_exclusion.read(self.prefix))
         self.assertFalse((self.prefix / 'koinon/upgrade_command.py').exists())
 
+    def test_missing_state_root_has_domain_refusal_without_recovery_mutations(self):
+        self.state.rmdir()
+        before = (self.prefix / 'install.json').read_bytes()
+        result = self.command('--prefix', self.prefix, '--source', self.source)
+        self.assertEqual(result.returncode, 1, result.stdout)
+        report = json.loads(result.stderr)
+        self.assertFalse(report['ok'])
+        self.assertEqual(report['code'], 'missing_state_root')
+        self.assertEqual(report['path'], str(self.state))
+        self.assertEqual(report['recovery']['code'], 'missing_state_root')
+        self.assertEqual(report['recovery']['phase'], 'refused_before_shutdown')
+        self.assertIn('Do not create', report['recovery']['preserve'])
+        self.assertNotIn('[Errno', report['error'])
+        self.assertFalse(self.state.exists())
+        self.assertFalse((self.prefix / '.upgrade').exists())
+        self.assertIsNone(upgrade_exclusion.read(self.prefix))
+        self.assertEqual((self.prefix / 'install.json').read_bytes(), before)
+        self.assertEqual((self.prefix / 'LICENSE').read_text(), 'synthetic old release license bytes')
+
     def test_unowned_memory_refuses_before_marker_or_runtime_change(self):
         home = self.state / 'memory' / ('a' * 16)
         home.mkdir(parents=True, mode=0o700)
