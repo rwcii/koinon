@@ -110,7 +110,9 @@ git commit -S -s -m "Record <agent-id> handoff <timestamp>" -- handoff/<agent-id
 ```
 
 The path after `--` limits the commit to that one file, even when other changes are staged.
-When step 2 added `_handoff/` to `.gitignore`, add `.gitignore` to both path lists.
+When step 2 added `_handoff/` to `.gitignore`, run `git diff HEAD -- .gitignore`. When that
+line is its only change, add `.gitignore` to both path lists. When it shows other edits, leave
+`.gitignore` out of the commit and report that it holds uncommitted edits.
 Use the human author identity that the repository's contribution rules require. Do not push:
 a push can publish unrelated work on the branch and starts CI. Push only when the task asks
 for it.

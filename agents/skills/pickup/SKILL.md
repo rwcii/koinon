@@ -1,6 +1,6 @@
 ---
 name: pickup
-description: Resume work from this agent's newest committed handoff in its own directory under handoff/, verify its claims against the live repository, and confirm the next action with the user. Use at the start of a session, or when the user asks to pick up, resume or continue. Reads another agent's handoff only when the user names that agent.
+description: Resume work from this agent's newest committed handoff in its own directory under handoff/, verify its claims against the live repository, and continue with the next action within the user's current authorization. Use at the start of a session, or when the user asks to pick up, resume or continue. Reads another agent's handoff only when the user names that agent.
 ---
 
 # Pickup
