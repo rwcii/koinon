@@ -30,22 +30,20 @@ def digest(content):
 def _parents(path):
     """Refuse aliases and writable ancestors, allowing the system temporary root."""
     for parent in reversed(path.parents):
-        info = parent.lstat()
-        if (not stat.S_ISDIR(info.st_mode) or info.st_uid not in (0, os.getuid())
-                or (path_permissions.writable_by_others(info)
-                    and not path_permissions.temporary_root(info))):
-            raise RegistrationPathError(parent, info)
-    info = path.parent.lstat()
-    if info.st_uid != os.getuid() or path_permissions.writable_by_others(info):
-        raise RegistrationPathError(path.parent, info)
+        fault = path_permissions.ancestor_fault(parent, parent.lstat(), os.getuid())
+        if fault is not None:
+            raise RegistrationPathError(parent, fault)
+    fault = path_permissions.target_fault(path.parent, path.parent.lstat(), os.getuid())
+    if fault is not None:
+        raise RegistrationPathError(path.parent, fault)
 
 
 
 class RegistrationPathError(ValueError):
-    def __init__(self, path, info=None):
+    def __init__(self, path, fault=None):
         self.paths = (str(path),)
-        detail = str(path) if info is None else path_permissions.describe(path, info)
-        super().__init__('unsafe or conflicting manager registration path: ' + detail)
+        super().__init__('unsafe or conflicting manager registration path: '
+                         + (str(path) if fault is None else fault))
 
 
 def preflight_registration(record, paths):
@@ -63,15 +61,15 @@ def preflight_registration(record, paths):
                 info = parent.lstat()
             except FileNotFoundError:
                 break
-            if (not stat.S_ISDIR(info.st_mode) or info.st_uid not in (0, os.geteuid())
-                    or (path_permissions.writable_by_others(info)
-                        and not path_permissions.temporary_root(info))):
-                raise RegistrationPathError(parent, info)
+            fault = path_permissions.ancestor_fault(parent, info)
+            if fault is not None:
+                raise RegistrationPathError(parent, fault)
             closest = (parent, info)
         if closest is None:
             raise RegistrationPathError(path.parent)
-        if closest[1].st_uid != os.geteuid() or path_permissions.writable_by_others(closest[1]):
-            raise RegistrationPathError(*closest)
+        fault = path_permissions.target_fault(*closest)
+        if fault is not None:
+            raise RegistrationPathError(closest[0], fault)
         try:
             info = path.lstat()
         except FileNotFoundError:

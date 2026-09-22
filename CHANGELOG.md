@@ -5,17 +5,19 @@ into a dated release section when promoted to `main`.
 
 ## Unreleased
 
-- Say what is wrong when a path is refused for being writable by a second account.
-  Installation and upgrade refuse the source checkout, the prefix, the state directory
-  and the manager registration path when the mode carries group or other write
-  permission, which an account whose `umask` is `002` produces for every directory it
-  creates. The refusals named only the path, so an operator could not see the condition
-  or the remedy; they now name the mode and the remedy as well, through one shared rule
-  in `koinon/path_permissions.py`, and the installation guide states the requirement
-  before the first install. The rule itself is unchanged and still refuses: a group
-  entry omits the accounts whose primary group it is, and account enumeration can be
-  partial or unavailable, so a group that looks exclusive cannot be shown to be
-  exclusive. Nothing repairs permissions or adopts a path.
+- Say what is wrong when a path is refused as unsafe. Installation and upgrade refuse a
+  path that a second account can write, which an account whose `umask` is `002` produces
+  for the directories it creates. The refusals named only the path, so an operator could
+  see neither the condition nor the remedy. The three checks that validate paths an
+  operator creates — the upgrade source checkout, the manager registration path and the
+  parent of a selected guidance file — now name the condition that failed, and give the
+  mode and the remedy when the mode is at fault, through one shared rule in
+  `koinon/path_permissions.py`. A wrong owner and a file where a directory was expected
+  are reported as themselves rather than as a mode to correct. The installation guide
+  states the requirement before the first install. The rule itself is unchanged and still
+  refuses a group-writable path: a group entry omits the accounts whose primary group it
+  is, and account enumeration can be partial or unavailable, so a group that looks
+  exclusive cannot be shown to be exclusive. Nothing repairs permissions or adopts a path.
 
 - Document the coordinated runtime upgrade as the supported operation it is, rather
   than as work in progress with a manual runbook in its place. The installation guide

@@ -53,15 +53,12 @@ def check_root(root):
     if not root.is_absolute() or '..' in root.parts or len(str(root).encode()) > 4096:
         raise ManifestError('absolute manifest root required')
     for parent in (*reversed(root.parents), root):
-        info = parent.lstat()
-        if (not stat.S_ISDIR(info.st_mode) or info.st_uid not in (0, os.geteuid())
-                or path_permissions.writable_by_others(info)
-                and not path_permissions.temporary_root(info)):
-            raise ManifestError('unsafe manifest ancestor: '
-                                + path_permissions.describe(parent, info))
-    info = root.lstat()
-    if info.st_uid != os.geteuid() or path_permissions.writable_by_others(info):
-        raise ManifestError('unsafe manifest root: ' + path_permissions.describe(root, info))
+        fault = path_permissions.ancestor_fault(parent, parent.lstat())
+        if fault is not None:
+            raise ManifestError('unsafe manifest ancestor: ' + fault)
+    fault = path_permissions.target_fault(root, root.lstat())
+    if fault is not None:
+        raise ManifestError('unsafe manifest root: ' + fault)
     return root
 
 

@@ -369,8 +369,9 @@ from the CI fixtures. The real-host run recorded above is a single host with a *
 migration and the preservation report on real hardware, and it establishes nothing about
 native interruption acceptance.
 
-Two operability defects remain open and are limitations of the delivered operation rather
-than missing implementation: #79 and #80, both named above. The manual-backend handoff is a
+One operability defect remains open and is a limitation of the delivered operation rather
+than missing implementation: #80, named above. #79 is resolved as a documented precondition,
+also above. The manual-backend handoff is a
 property of a selected `manual` backend, not of any platform; launchd hosts upgrade without
 it.
 

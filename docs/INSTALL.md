@@ -133,15 +133,20 @@ local shell/queue access are not automatically supported.
 
 ### Directory permissions
 
-Install and upgrade refuse any path that a second account can write. The rule covers the
-source checkout, the installation prefix, the state directory, the manager registration
-path, and every ancestor of each: an ancestor must be a directory owned by this user or by
-root and must not be group- or other-writable, and the target itself must be owned by this
-user and must not be group- or other-writable. A root-owned sticky directory such as `/tmp`
-is the one allowed exception.
+Install and upgrade refuse a path that a second account can write. An ancestor must be a
+directory owned by this user or by root and must not be group- or other-writable; the
+selected path itself must be owned by this user and must not be group- or other-writable.
+A root-owned sticky directory such as `/tmp` is the one place a writable mode is allowed,
+and that exception never applies to the selected path itself.
 
-An account whose `umask` is `002` creates directories with mode `0775`, which the rule
-refuses. Check the paths before the first install:
+Three checks apply this rule to paths an operator creates, and each reports the condition
+that failed, the mode and the remedy: the upgrade source checkout and every ancestor of it,
+the manager registration path and its existing ancestors, and the parent of a selected
+guidance file. The installation prefix is checked too, but it reports the fixed code
+`invalid_install_configuration` without that detail, so read this section when you meet it.
+
+An account whose `umask` is `002` creates directories with mode `0775` unless something
+else sets the mode, which the rule refuses. Check the paths before the first install:
 
 ```sh
 umask                 # 0002 means every new directory is group-writable
@@ -154,7 +159,7 @@ The refusal names the path, its mode and the remedy, so a fault report should qu
 full:
 
 ```
-{"error": "unsafe manifest root: /home/you/koinon (mode 0775): remove group and other write permission, for example chmod go-w", "ok": false}
+{"error": "unsafe manifest ancestor: /home/you/koinon (mode 0775): remove group and other write permission, for example chmod go-w", "ok": false}
 ```
 
 A group-writable directory is refused even when its group appears to hold only the owner.
@@ -595,7 +600,8 @@ be a directory owned by this user or by root, and must not be group- or other-wr
 except a root-owned sticky directory such as `/tmp`, which is allowed. The checkout itself
 must be owned by this user and must not be group- or other-writable. An account using
 `umask 002` creates `0775` directories, so the operation refuses with `unsafe manifest
-ancestor` or `unsafe manifest root`, naming the path, its mode and the remedy.
+ancestor`, naming the path, its mode and the remedy. The selected checkout is validated
+inside the same ancestor walk, so it is reported the same way.
 
 The [stopped-state runbook](WORK-ITEMS-UPGRADE.md) remains for legacy and manual
 deployments that the operation does not cover, preserving the same prefix, state paths
