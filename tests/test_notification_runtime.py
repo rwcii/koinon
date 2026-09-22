@@ -87,6 +87,37 @@ class RuntimeTests(unittest.IsolatedAsyncioTestCase):
                     await self.task
                 await asyncio.sleep(.01)
 
+    async def wait_for_delivery_health(self, state='healthy'):
+        """Poll the public status until delivery health reaches `state`, then return it.
+
+        A health state is strictly stronger than the delivery counter: it also
+        requires confirmed activation, seeded pointers, nothing pending, and no
+        outstanding receipt evidence. Waiting on the counter and then asserting
+        the state leaves those settling in the gap, which a loaded runner can
+        lose. Wait for the condition the test asserts, from the same public
+        status the assertion reads.
+
+        `snapshot` refuses to build a degraded state without reasons, so a
+        timeout reports the last observed reasons rather than discarding them
+        and leaving the next reader to guess which flag fired.
+        """
+        observed = None
+        try:
+            async with asyncio.timeout(5):
+                while True:
+                    if self.task.done():
+                        await self.task
+                    reply = await self.request('status')
+                    observed = reply['result']['delivery_health']
+                    if observed['state'] == state:
+                        return reply
+                    # Polled rather than tight-looped: each check is a control exchange.
+                    await asyncio.sleep(.05)
+        except TimeoutError:
+            self.fail('delivery health stayed %r rather than reaching %r; reasons %r'
+                      % (None if observed is None else observed['state'], state,
+                         None if observed is None else observed.get('reasons')))
+
     async def test_registry_entrypoint_keeps_the_external_literal(self):
         record = self.root / 'registry' / f'{self.runtime.bridge["pid"]}.json'
         self.assertEqual(json.loads(record.read_text())['entrypoint'], 'codex-peer-bridge')
@@ -97,7 +128,7 @@ class RuntimeTests(unittest.IsolatedAsyncioTestCase):
         self.assertNotIn('PRIVATE SYNTHETIC BODY', self.provider.messages[0])
         self.assertIn('through sequence 1', self.provider.messages[0])
         await self.wait_for(lambda: self.runtime.last_status['journal']['counters']['delivered'] == 1)
-        reply = await self.request('status')
+        reply = await self.wait_for_delivery_health()
         self.assertTrue(reply['ok'])
         self.assertEqual(reply['result']['lifecycle'], 'running')
         self.assertEqual(reply['result']['delivery_health']['state'], 'healthy')
