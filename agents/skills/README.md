@@ -10,13 +10,21 @@ read them through symlinks, so there is one copy of each skill. Rules for writin
 | --- | --- |
 | [handoff](handoff/SKILL.md) | Commit a public snapshot of this agent's work to `handoff/<agent>/` at the end of a session. |
 | [pickup](pickup/SKILL.md) | Resume from this agent's newest handoff and verify it against the live repository. |
+| [sprint](sprint/SKILL.md) | Plan a deliverable of more than one pull request: decision, definition of done, ordered chunks, peer review of the plan. |
+| [check](check/SKILL.md) | Run the checks that must pass before a push. |
+| [ship](ship/SKILL.md) | Take one change from a work branch to a squash merge on `develop`. |
+| [peer-review](peer-review/SKILL.md) | Review another agent's frozen commit and record the verdict bound to it. |
+| [release](release/SKILL.md) | Promote `develop` to `main` once the release is shown to install and upgrade. |
+
+A typical change runs `check`, then `ship`, with the other agent family running `peer-review`.
+A larger deliverable starts with `sprint`. `release` promotes the result to `main`.
 
 ## Run a skill
 
 | Agent | Command |
 | --- | --- |
-| Claude Code | `/handoff`, `/pickup` |
-| Codex | `$handoff`, `$pickup`, or select it from `/skills` |
+| Claude Code | `/<name>`, for example `/handoff` |
+| Codex | `$<name>`, for example `$handoff`, or select it from `/skills` |
 | Any other agent | Tell the agent: "Read `agents/skills/<name>/SKILL.md` and follow it." |
 
 ## Handoffs
