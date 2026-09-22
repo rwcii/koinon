@@ -7,8 +7,8 @@ description: Run the checks that must pass before a Koinon branch is pushed - th
 
 Read `agents/skills/AGENTS.md` and the root `AGENTS.md` first.
 
-A CI run takes about an hour, so a failure found here saves one. Run the checks from the root of
-the branch's worktree.
+A CI run takes 10 to 15 minutes and much longer when pushes queue for macOS runners, so a
+failure found here saves one. Run the checks from the root of the branch's worktree.
 
 ## 1. Tests and whitespace
 
