@@ -27,13 +27,14 @@ file=$(git log --all --diff-filter=A --name-only --format= -- "handoff/<agent-id
 if [ -z "$file" ]; then
   echo "no handoff for <agent-id>"
 else
-  ref=$(git log --all -1 --format=%H -- "$file")
+  ref=$(git log --all -1 --diff-filter=A --format=%H -- "$file")
   git branch -a --contains "$ref"
   git show "$ref:$file"
 fi
 ```
 
-File names start with a UTC timestamp, so the last name in sort order is the newest. Note the
+File names start with a UTC timestamp, so the last name in sort order is the newest. The commit
+that added the file holds the snapshot, even if a later commit removed it. Note the
 branch that holds it; that is usually the branch to resume. No handoff is a normal result;
 handle it as step 1 says.
 
