@@ -131,6 +131,45 @@ The bridge targets an existing conversation. A standalone API key or unrelated
 Codex daemon does not provide access to that conversation. Hosted clients without
 local shell/queue access are not automatically supported.
 
+### Directory permissions
+
+Install and upgrade refuse a path that a second account can write. An ancestor must be a
+directory owned by this user or by root and must not be group- or other-writable; the
+selected path itself must be owned by this user and must not be group- or other-writable.
+A root-owned sticky directory such as `/tmp` is the one place a writable mode is allowed,
+and that exception never applies to the selected path itself.
+
+Three checks apply this rule to paths an operator creates, and each reports the condition
+that failed: the upgrade source checkout and every ancestor of it, the manager registration
+path and its existing ancestors, and the parent of a selected guidance file. When the write
+bits are the cause, the report adds the mode and the remedy; a wrong owner, or a file where a
+directory was expected, is reported as itself instead. The installation prefix is checked
+too, but it reports the fixed code `invalid_install_configuration` without that detail, so
+read this section when you meet it.
+
+An account whose `umask` is `002` creates directories with mode `0775` unless something
+else sets the mode, which the rule refuses. Check the paths before the first install:
+
+```sh
+umask                 # 0002 makes a new directory group-writable unless its mode is set
+ls -ld ~/.local ~/.local/share ~/.local/state ~/.config
+chmod go-w ~/.local ~/.local/share ~/.local/state ~/.config
+chmod -R go-w /path/to/checkout
+```
+
+A refusal caused by the mode names the path, that mode and the remedy, so a fault report
+should quote it in full:
+
+```
+{"error": "unsafe manifest ancestor: /home/you/koinon (mode 0775): remove group and other write permission, for example chmod go-w", "ok": false}
+```
+
+A group-writable directory is refused even when its group appears to hold only the owner.
+A group entry does not list the accounts whose primary group it is, and account enumeration
+can be partial or unavailable, so an exclusive-looking group cannot be shown to be
+exclusive. Koinon never repairs permissions and never adopts a path; the operator makes the
+change.
+
 ## Repository components and native supervision
 
 Select a repository to install participant guidance and its shared memory service in
@@ -579,19 +618,14 @@ components like any other supported host, and they are upgraded without a handof
 unreachable user service manager is a refusal to be corrected, not an automatic fallback to
 `manual`.
 
-**Precondition, currently undocumented elsewhere.** The operation validates the source
-checkout it reads from. Each ancestor must be a directory owned by this user or by root, and
-must not be group- or other-writable — except a root-owned sticky directory such as `/tmp`,
-which is allowed. The checkout itself must be owned by this user and must not be group- or
-other-writable. An account using `umask 002` creates `0775` directories, so the operation
-refuses with `unsafe manifest ancestor`, naming the path but not the mode. Check with `umask`
-and `ls -ld <path>` before reporting a fault: a `w` in the group or other position is the
-condition, and the trailing `t` on a root-owned `/tmp` is the exception that is allowed.
-
-Installation applies the same group- and other-writable rule, through a separate check, to
-the manager registration path it writes into rather than to a source checkout. The two
-checks have different targets and different implementations; both are
-[issue #79](https://github.com/rwcii/koinon/issues/79).
+**Precondition.** The operation validates the source checkout it reads from, under the same
+rule as installation; see [Directory permissions](#directory-permissions). Each ancestor must
+be a directory owned by this user or by root, and must not be group- or other-writable —
+except a root-owned sticky directory such as `/tmp`, which is allowed. The checkout itself
+must be owned by this user and must not be group- or other-writable. An account using
+`umask 002` creates `0775` directories, so the operation refuses with `unsafe manifest
+ancestor`, naming the path, its mode and the remedy. The selected checkout is validated
+inside the same ancestor walk, so it is reported the same way.
 
 The [stopped-state runbook](WORK-ITEMS-UPGRADE.md) remains for legacy and manual
 deployments that the operation does not cover, preserving the same prefix, state paths

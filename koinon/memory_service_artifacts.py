@@ -15,6 +15,7 @@ from koinon import durable_state
 from koinon import install_state
 from koinon import memory_service_config as configuration
 from koinon.participant_lock import file_lock, OwnershipError
+from koinon import path_permissions
 from koinon import platform_support
 from koinon import runtime_names
 from koinon.work_policy import absolute_path
@@ -29,21 +30,20 @@ def digest(content):
 def _parents(path):
     """Refuse aliases and writable ancestors, allowing the system temporary root."""
     for parent in reversed(path.parents):
-        info = parent.lstat()
-        if (not stat.S_ISDIR(info.st_mode) or info.st_uid not in (0, os.getuid())
-                or (info.st_mode & 0o022 and not
-                    (info.st_uid == 0 and info.st_mode & stat.S_ISVTX))):
-            raise RegistrationPathError(parent)
-    info = path.parent.lstat()
-    if info.st_uid != os.getuid() or info.st_mode & 0o022:
-        raise RegistrationPathError(path.parent)
+        fault = path_permissions.ancestor_fault(parent, parent.lstat(), os.getuid())
+        if fault is not None:
+            raise RegistrationPathError(parent, fault)
+    fault = path_permissions.target_fault(path.parent, path.parent.lstat(), os.getuid())
+    if fault is not None:
+        raise RegistrationPathError(path.parent, fault)
 
 
 
 class RegistrationPathError(ValueError):
-    def __init__(self, path):
+    def __init__(self, path, fault=None):
         self.paths = (str(path),)
-        super().__init__('unsafe or conflicting manager registration path: ' + str(path))
+        super().__init__('unsafe or conflicting manager registration path: '
+                         + (str(path) if fault is None else fault))
 
 
 def preflight_registration(record, paths):
@@ -61,12 +61,15 @@ def preflight_registration(record, paths):
                 info = parent.lstat()
             except FileNotFoundError:
                 break
-            if (not stat.S_ISDIR(info.st_mode) or info.st_uid not in (0, os.geteuid())
-                    or (info.st_mode & 0o022 and not (info.st_uid == 0 and info.st_mode & stat.S_ISVTX))):
-                raise RegistrationPathError(parent)
-            closest = info
-        if closest is None or closest.st_uid != os.geteuid() or closest.st_mode & 0o022:
+            fault = path_permissions.ancestor_fault(parent, info)
+            if fault is not None:
+                raise RegistrationPathError(parent, fault)
+            closest = (parent, info)
+        if closest is None:
             raise RegistrationPathError(path.parent)
+        fault = path_permissions.target_fault(*closest)
+        if fault is not None:
+            raise RegistrationPathError(closest[0], fault)
         try:
             info = path.lstat()
         except FileNotFoundError:
