@@ -224,8 +224,10 @@ Limits: 8 KiB per body, 5,000 entries, 32 MiB logical and 128 MiB physical stora
 and pages bounded by encoded bytes rather than a row count. Entry slots and bytes are both
 reserved so a withdrawal stays recordable in a full store. Retained snapshots, acknowledgements,
 idempotency keys and idle consumers each have a lifetime, and expiry returns a defined recovery
-result rather than changing a caller's meaning silently. Entry garbage collection currently
-removes only expired entries. Broader history pruning remains planned; semantic memory
+result rather than changing a caller's meaning silently. Entry garbage collection removes
+expired entries, and finished work-item retention additionally removes that item's stream
+rows and advances the retained-history floor, whether or not those rows expire. Broader
+pruning of general entry history remains planned; semantic memory
 consolidation (summarizing related memories) is neither implemented nor specified by this
 programme. Sync snapshots contain records, not generated summaries. See the
 [memory maintenance terminology](docs/PARITY-MEMORY-DESIGN.md#memory-maintenance-terminology).
@@ -367,8 +369,10 @@ structured CLI errors and exit 1. A failed reply does not establish whether a
 mutation committed. The CLI does not automatically repeat that mutation.
 
 On Linux, installed systemd bridge and session services do not restart on exit 70
-(internal software error) or 78 (configuration refusal).
-On macOS, the manual process exits and must be started again after correction; see
+(internal software error) or 78 (configuration refusal). Installed launchd jobs on macOS
+apply the same rule: because launchd's restart predicate is binary, a permanent failure is
+mapped to a zero exit so `KeepAlive` does not restart it, and the reported status is
+preserved. A manual process simply exits and must be started again after correction; see
 [macOS setup](docs/INSTALL.md#macos). For a leftover socket, follow [recovery from a killed instance](docs/INSTALL.md#recovering-from-a-killed-instance).
 Remove a socket only after verifying that its owner is dead. Unsafe startup
 directories also produce a structured ownership refusal with exit 78.
