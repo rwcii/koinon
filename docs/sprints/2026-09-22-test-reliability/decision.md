@@ -5,26 +5,25 @@
 The test suite coordinates with asynchronous services, subprocesses and background tasks by
 waiting for a condition under a fixed wall-clock deadline. About 70 `asyncio.timeout` or
 `asyncio.wait_for` sites and about 60 deadline loops in about 30 files each choose their own
-duration, from 2 to 10 seconds. On macOS runners these deadlines expire before the condition
-holds: `test_notification_runtime` (#48), three `test_session` tests, and one
-`test_session_supervisor` test have failed this way while the same commit passed on another
-job. A timeout usually reports only `TimeoutError` or a fixed message, so a failure does not
-show whether the runner was slow or the code under test was wrong.
+duration. Such deadlines have expired in CI: #48 records `test_notification_runtime` failing on
+a macOS job, and its comment records one commit whose `test (macos-latest, 3.11)` context
+failed in one run (`test_session`) and passed in another. The cause of these expirations is not
+established; runner load and a delivery defect both remain open. A timeout usually reports only
+`TimeoutError` or a fixed message, so a failure does not show which of these it was.
 
-The opposite failure also occurs. A test that waits with no bound can hang indefinitely:
-`test_work_activation` blocked for about nine hours (#63), and on 2026-09-22 a run of
-`test_upgrade_probe` and `test_upgrade_manual` was still blocked after 24 hours. The required
-`Tests` job has no `timeout-minutes`, so a hang holds a runner up to the six-hour platform limit
-and produces no diagnostics.
+The opposite failure also occurs. A test that waits with no bound can hang: #63 records
+`test_work_activation` blocked for about nine hours, and on 2026-09-22 a run of
+`test_upgrade_probe` with `test_upgrade_manual` was observed on this machine still blocked
+after 24 hours. The required `Tests` job has no `timeout-minutes`, so a hang holds a runner up
+to the six-hour platform limit and produces no diagnostics.
 
-Both failures cost a CI run of 10 to 15 minutes or more, and both teach contributors to rerun
-instead of investigating. Planned macOS supervision tests must wait through launchd's
-ten-second restart interval, which the present deadlines cannot cover.
+Both failures cost a CI run, and both teach contributors to rerun instead of investigating.
 
 ## Acceptance criteria
 
 1. Every wait that coordinates a test with asynchronous work goes through one shared helper,
-   and no test file chooses its own coordination deadline.
+   and no test file chooses its own coordination deadline. A coordination deadline bounds how
+   long the test waits; it is not a product deadline that the test asserts (criterion 8).
 2. The helper's deadline has one generous default and one scale factor that CI can raise; a
    wait that must cover a longer interval states that interval at the call.
 3. When a wait times out, the failure names what the test was waiting for and the last state
