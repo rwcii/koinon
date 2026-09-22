@@ -39,7 +39,7 @@ class GuardBehaviourTests(unittest.TestCase):
     """Run real entrypoints from a private copy of the runtime, as an installed prefix."""
 
     def setUp(self):
-        self.root = Path(tempfile.mkdtemp(prefix='koinon-guard-'))
+        self.root = Path(tempfile.mkdtemp(prefix='koinon-guard-')).resolve()
         self.addCleanup(shutil.rmtree, self.root)
         self.root.chmod(0o700)
         self.prefix = self.root / 'prefix'
