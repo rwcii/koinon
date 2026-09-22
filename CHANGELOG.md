@@ -3,7 +3,7 @@
 User-visible changes to Koinon are recorded here. Unreleased entries move
 into a dated release section when promoted to `main`.
 
-## Unreleased
+## 2026-09-22 — Package layout, native supervision, repository memory and runtime upgrade
 
 - Correct four `README.md` statements the code contradicts. The current inbox schema is 4,
   which adds the delivery ledger; startup accepts a store at schema 2, 3 or 4, so describing
