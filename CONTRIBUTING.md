@@ -24,6 +24,8 @@ feature/*  ──(squash PR)──▶  develop  ──(merge PR)──▶  main
 - Review the diff independently for correctness, compatibility, and the documented
   same-user trust boundary. The maintainer owns acceptance.
 - Merged working branches are deleted automatically; long-lived branches are protected.
+- Your clone prunes on fetch, so `git branch -r` reports the branches the remote still holds.
+  The remote is the authority; a local tracking ref is not evidence that a branch exists.
 
 Run `scripts/setup-repo.sh` to apply the local guard and GitHub settings. Server-side
 rulesets depend on the account's support for private-repository protection; the script

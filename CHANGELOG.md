@@ -5,6 +5,10 @@ into a dated release section when promoted to `main`.
 
 ## Unreleased
 
+- Enable `fetch.prune` in `scripts/setup-repo.sh`, so a clone drops tracking refs
+  for branches the remote has already deleted. A stale tracking ref otherwise reads
+  as a live branch.
+
 - Move the test suite into `tests/`, leaving the repository root for modules,
   documents and project metadata. Run the suite with
   `python3 -m unittest discover -v -s tests` from the repository root.
