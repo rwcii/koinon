@@ -102,7 +102,7 @@ selection retain their existing behavior.
 An old regular session unit in a higher-precedence systemd lookup directory can shadow
 an otherwise valid runtime link with the same name. Activation must detect and identify
 that path before manager mutation, preserve it, and require the supported migration
-operation under #43. It must not silently rename the service, remove the old unit, or
+operation. That migration is deferred and not implemented. It must not silently rename the service, remove the old unit, or
 adopt its bytes. Native fresh-install evidence cannot establish upgrade acceptance.
 
 A legacy `supervisor.lock` with permissions such as `0664` is refused before starting
@@ -110,7 +110,7 @@ children. The command reports the exact path and preserves its inode and permiss
 Operator resolution means inspecting ownership and ensuring the old service and both
 children are stopped before an explicit, authorized repair/migration; deleting lock or
 supervisor evidence is not a supported recovery procedure. Automatic permission repair
-is not part of this slice. Installation-wide upgrade reconciliation remains #43 work.
+is not part of this slice. Reconciling legacy sessions during upgrade is deferred and not implemented.
 
 ## Native activation and captured endpoint recovery
 

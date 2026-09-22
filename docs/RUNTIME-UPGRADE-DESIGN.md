@@ -1,8 +1,7 @@
 # Resumable runtime upgrade design
 
-Status: peer-reviewed design for DQ-12 and issue #43; implementation in progress. This describes the next
-operation after the component installer gate; it does not claim an available upgrade
-command or authorize changing a live installation. The current native installer refuses
+Status: peer-reviewed design for DQ-12 and issue #43, delivered as `scripts/upgrade.py`. It
+does not authorize changing a live installation. The current native installer refuses
 different runtime bytes during ordinary repeat installation.
 
 ## Scope and command
@@ -251,8 +250,8 @@ legacy behavior. A lifecycle field cannot protect an absent file. Likewise, a le
 manual session supervisor lacks the native supervisor's complete ownership record.
 Do not infer either into the component upgrade inventory. A supported legacy/manual
 adapter must supply explicit inventory and process-exit evidence before those paths can
-pass preflight; until then they refuse before shutdown. The complete #43 acceptance gate
-still includes manual-process coverage and cannot close on native-only implementation.
+pass preflight; until then they refuse before shutdown. That adapter is deferred and not
+implemented. #43 closes on the delivered operation, which refuses and reports these paths.
 
 After proving owned processes stopped, deactivate only their verified manager
 registrations and retain artifacts and state. Startup exclusion during backup requires

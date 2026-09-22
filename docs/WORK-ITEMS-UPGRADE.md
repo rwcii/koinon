@@ -39,8 +39,8 @@ comparison, then returned to their original stopped and registered/deactivated s
 before release. They are excluded from the release membership and cannot restart while
 the upgrade marker remains active. Manual memory uses the explicit foreground handoff below. Legacy manual sessions
 without saved supervisor ownership still refuse before shutdown; they are not silently
-adopted. Complete #43 acceptance remains outstanding. This command is not a claim that
-#43 or promotion is done.
+adopted. Adopting them is deferred and not implemented; use the legacy maintenance
+procedure below for them.
 
 For manual memory, the command returns exit status 75 with JSON status
 `manual_handoff_required`, the exact `argv`/shell-quoted `command`, operation path,
