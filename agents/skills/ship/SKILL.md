@@ -12,6 +12,8 @@ run.
 
 ## 1. Branch and commit
 
+For an existing pull request, work on its branch in its existing worktree. For new work:
+
 ```sh
 git fetch origin
 git switch -c <feature|fix|chore>/<slug> origin/develop

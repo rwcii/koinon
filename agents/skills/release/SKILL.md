@@ -22,10 +22,18 @@ The evidence counts only for the exact `develop` commit that will merge.
 
 - CI: every workflow under `.github/workflows/` is green on that commit, macOS included.
   Reuse these runs; rerun a workflow only when it did not run on that commit.
-- Upgrade: the CI evidence starts from fixtures. Also upgrade a real install of the current
-  `main` to the release commit, in a scratch prefix with its own state and unit paths and
-  `--no-start`. Use the commands in `docs/INSTALL.md` under "Upgrades and removal", and report
-  what the upgrade preserved and what it refused.
+- Upgrade: the upgrade workflows install the release pinned as `PREVIOUS_RELEASE` in
+  `scripts/test-native-upgrade.py` and upgrade it to the commit under test. When that pin is
+  the release now on `main`, their green runs are the upgrade evidence. Otherwise, upgrade the
+  current `main` yourself:
+  1. Install `main` into a scratch prefix with its own state and unit paths.
+  2. Initialize its state with the documented native start or manual start. A `--no-start`
+     install has no state, and the upgrade refuses it with `missing_state_root`; see
+     "Missing state root" in `docs/INSTALL.md`.
+  3. Upgrade it to the release commit with the commands under "Upgrades and removal", and read
+     `--status`.
+  The upgrade must complete and report what it preserved. A refusal is a failure to fix, not
+  evidence.
 
 ## 3. Open the merge pull request
 

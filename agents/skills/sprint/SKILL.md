@@ -28,12 +28,13 @@ Take the date from the shell (`date -u +%Y-%m-%d`). The sprint home is
 | --- | --- |
 | `decision.md` | Problem, acceptance criteria and constraints, in three separate sections. No design. |
 | `definition-of-done.md` | Tests required, integration points, edge cases, and the commands that prove done. |
-| `sprint.md` | The ordered chunks: outcome, the criteria each satisfies, its done-criteria, its dependencies. |
+| `sprint.md` | The chunks: outcome, the criteria each satisfies, its done-criteria, its dependencies. |
 | `chunks/NN-<slug>.md` | The technical specification for one chunk only. |
 | `review.md` | Each review finding and its disposition: fixed (what changed) or rejected (why). |
 
-A small sprint is one file, `docs/sprints/<date>-<slug>.md`, with the same sections. Use the
-directory only when the chunks need separate specifications.
+A small sprint is one file, `docs/sprints/<date>-<slug>.md`, with one section for each file
+above; each phase below then writes its section instead of a file. Use the directory only when
+the chunks need separate specifications.
 
 ## Phase 0: frame
 
@@ -41,8 +42,8 @@ directory only when the chunks need separate specifications.
    touches.
 2. List the related open issues. When the sprint delivers more than one issue, create a
    GitHub milestone named `<date>-<slug>` and attach them, so `pickup` can find the sprint's
-   open work. Assign each issue to the agent that will do it, so two agents do not take the
-   same issue.
+   open work. Both agents use one GitHub account, so mark each issue with the label
+   `agent:<agent-id>` of the agent that takes it; two agents then do not take the same issue.
 3. State the boundary of the deliverable to the user in one or two sentences and get
    agreement.
 
@@ -73,7 +74,7 @@ Write `definition-of-done.md` before the specification:
 
 ## Phase 3: chunks
 
-Split the acceptance criteria into ordered chunks. Each chunk is one pull request that builds,
+Split the acceptance criteria into chunks, and record which chunks each one depends on. Each chunk is one pull request that builds,
 passes its part of the definition of done and merges on its own. A new session must be able to
 build it after reading only `decision.md`, `definition-of-done.md` and its chunk file. Write
 `sprint.md` and one file per chunk. Both cite the decision and the definition of done; they do
@@ -101,7 +102,7 @@ approval already given counts.
 
 ## Phase 5: build → gate C for each chunk
 
-Build the chunks in order, each with the `ship` skill. Do not start a chunk until the one
-before it has merged. Once a chunk's branch is pushed and CI is running, put further changes on
+Build each chunk with the `ship` skill. Do not start a chunk until the chunks it depends on
+have merged; chunks with no dependency between them may be built at the same time. Once a chunk's branch is pushed and CI is running, put further changes on
 a new branch. File each new deferral as an issue on the milestone when it is decided. When the
 build shows that the plan is wrong, correct the plan file first and gate it again.

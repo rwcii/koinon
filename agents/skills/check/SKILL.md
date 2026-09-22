@@ -41,13 +41,15 @@ tests and internal refactors do not.
 This repository is public. Scan the added lines:
 
 ```sh
-git diff -U0 origin/develop...HEAD | grep '^+' | grep -nE \
-  '/home/[a-z]|/Users/[A-Za-z]|[A-Za-z0-9._%+-]+@[A-Za-z0-9-]+\.[A-Za-z.]{2,}' \
-  | grep -vE 'users\.noreply\.github\.com|@example\.(com|org|net)'
+git diff -U0 origin/develop...HEAD | grep '^+' | grep -oE \
+  '/(home|Users)/[A-Za-z][^[:space:]`"'"'"')]*|[A-Za-z0-9._%+-]+@[A-Za-z0-9-]+\.[A-Za-z.]{2,}' \
+  | grep -vE '@users\.noreply\.github\.com$|@example\.(com|org|net)$' | sort -u
 ```
 
-Read each match. Also read the diff for thread or session IDs, keys, inbox or peer message
-bodies, and memory content; a pattern cannot find all of them. Remove every one before the push.
+The scan prints each matching path or address, not the whole line, so an allowed address on a
+line does not hide another. Find each result in the diff and read it. Also read the diff for
+thread or session IDs, keys, inbox or peer message bodies, and memory content; a pattern cannot
+find all of them. Remove every one before the push.
 
 ## Report
 
