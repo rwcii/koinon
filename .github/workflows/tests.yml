@@ -36,7 +36,7 @@ jobs:
           BASE: ${{ github.event.pull_request.base.sha }}
           HEAD: ${{ github.event.pull_request.head.sha }}
         run: |
-          changed=$(git diff --name-only "$BASE...$HEAD")
+          changed=$(git diff --name-only --no-renames "$BASE...$HEAD")
           others=$(printf '%s\n' "$changed" \
             | grep -vE '^(agents/|handoff/|docs/sprints/|\.claude/|\.agents/|\.codex/)' || true)
           if [ -n "$changed" ] && [ -z "$others" ]; then
