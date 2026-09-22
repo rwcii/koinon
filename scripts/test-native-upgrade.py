@@ -197,9 +197,7 @@ def combined_case(backend, interrupt):
             target.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
             shutil.copyfile(SOURCE / name, target)
             target.chmod(0o600)
-        with (source / 'koinon/platform_support.py').open('a') as stream:
-            stream.write('\nos.environ["CLAUDE_CONFIG_DIR"] = '
-                         + repr(fixture.env['CLAUDE_CONFIG_DIR']) + '\n')
+        fixture.apply_overrides(source)
         source.chmod(0o700)
         (fixture.prefix / 'LICENSE').write_text('synthetic previous combined release')
         retired = sorted(set(module.released_manifest(previous)) - set(install.FILES))

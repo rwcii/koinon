@@ -76,17 +76,25 @@ class Fixture:
             target.parent.mkdir(parents=True, exist_ok=True)
             shutil.copyfile(self.release / name, target)
             target.chmod(0o600)
-        # Isolate synthetic participant locks and peer discovery, while retaining
-        # the real account home and native persistent manager registration paths.
-        self.platform = ('koinon/platform_support.py' if (self.source / 'koinon').is_dir()
-                         else 'platform_support.py')
-        with (self.source / self.platform).open('a') as stream:
-            stream.write('\nos.environ["CLAUDE_CONFIG_DIR"] = ' + repr(self.env['CLAUDE_CONFIG_DIR']) + '\n')
-            stream.write('\ndef participant_lock_dir():\n    return Path(' + repr(str(self.root / 'locks')) + ')\n')
+        self.apply_overrides(self.source)
         self.command(['git', 'init', '-q', str(self.repo)])
         self.command(['git', '-C', str(self.repo), '-c', 'user.name=Synthetic Fixture',
                       '-c', 'user.email=fixture@example.invalid', '-c', 'commit.gpgsign=false',
                       '-c', 'core.hooksPath=/dev/null', 'commit', '--allow-empty', '-qm', 'fixture'])
+
+    def apply_overrides(self, tree):
+        """Isolate synthetic participant locks and peer discovery in a release tree.
+
+        The installed release and the release upgraded to both need every one of
+        these. Omitting one moves that state to the host default after replacement,
+        which is a real leak rather than a fixture detail. The layout differs
+        between releases, so the module is located rather than assumed.
+        """
+        tree = Path(tree)
+        platform = 'koinon/platform_support.py' if (tree / 'koinon').is_dir() else 'platform_support.py'
+        with (tree / platform).open('a') as stream:
+            stream.write('\nos.environ["CLAUDE_CONFIG_DIR"] = ' + repr(self.env['CLAUDE_CONFIG_DIR']) + '\n')
+            stream.write('\ndef participant_lock_dir():\n    return Path(' + repr(str(self.root / 'locks')) + ')\n')
 
     def command(self, argv):
         result = subprocess.run(list(map(str, argv)), env=self.env, capture_output=True, text=True, timeout=90)
