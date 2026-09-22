@@ -18,6 +18,7 @@ import generation_stop
 import os
 from participant_lock import identity
 from peer_transport import control_exchange
+from repo_root import ROOT
 
 
 class SyntheticProvider:
@@ -489,7 +490,7 @@ class ControlPolicyTests(unittest.TestCase):
         from notification_journal import ERROR_POLICY
         raised = set()
         for name in ('notify.py', 'notification_runtime.py'):
-            tree = ast.parse(Path(__file__).with_name(name).read_text())
+            tree = ast.parse((ROOT / name).read_text())
             for node in ast.walk(tree):
                 if isinstance(node, ast.Call) and isinstance(node.func, ast.Name) and node.func.id == 'ControlRefusal':
                     self.assertIsInstance(node.args[0], ast.Constant)

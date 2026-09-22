@@ -8,6 +8,7 @@ import tempfile
 import unittest
 
 import component_install
+from repo_root import ROOT
 
 
 class ComponentInstallTests(unittest.TestCase):
@@ -23,7 +24,7 @@ class ComponentInstallTests(unittest.TestCase):
         self.env = dict(os.environ, PATH=str(self.bin))
 
     def install(self, backend='systemd', *extra):
-        return subprocess.run([sys.executable, str(Path(__file__).parent / 'scripts/install.py'),
+        return subprocess.run([sys.executable, str(ROOT / 'scripts/install.py'),
                                '--configure-memory', '--repo', str(self.repo), '--prefix', str(self.prefix),
                                '--state-dir', str(self.state), '--service-backend', backend, '--no-start', *extra],
                               env=self.env, capture_output=True, text=True, timeout=20)
@@ -80,7 +81,7 @@ class ComponentInstallTests(unittest.TestCase):
         self.assertFalse((selections[0].parent / 'supervisor-owner.json').exists())
 
     def test_fresh_explicit_repository_thread_selects_both_components(self):
-        command = [sys.executable, str(Path(__file__).parent / 'scripts/install.py'),
+        command = [sys.executable, str(ROOT / 'scripts/install.py'),
                    '--repo', str(self.repo), '--thread', 'synthetic-fresh-thread', '--codex', sys.executable,
                    '--prefix', str(self.prefix), '--state-dir', str(self.state),
                    '--service-backend', 'systemd', '--no-start']
@@ -91,7 +92,7 @@ class ComponentInstallTests(unittest.TestCase):
         self.assertEqual(len(list((self.state / 'sessions').glob('*/native-service.json'))), 1)
 
     def test_existing_guidance_install_does_not_silently_add_memory(self):
-        base = [sys.executable, str(Path(__file__).parent / 'scripts/install.py'),
+        base = [sys.executable, str(ROOT / 'scripts/install.py'),
                 '--configure-codex', '--codex', sys.executable, '--codex-home', str(self.root / 'codex'),
                 '--prefix', str(self.prefix), '--state-dir', str(self.state), '--no-start']
         first = subprocess.run(base, env=self.env, capture_output=True, text=True, timeout=20)

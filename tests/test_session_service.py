@@ -19,6 +19,7 @@ from session_supervisor_state import StateError
 import test_session_service_artifacts as artifact_tests
 from scripts.install import FILES
 from test_session import isolate_account_home
+from repo_root import ROOT
 
 
 class NativeSessionServiceTests(unittest.TestCase):
@@ -126,7 +127,7 @@ class NativeSessionServiceTests(unittest.TestCase):
         for filename in FILES:
             target = self.prefix / filename
             target.parent.mkdir(parents=True, exist_ok=True)
-            shutil.copyfile(Path(__file__).parent / filename, target)
+            shutil.copyfile(ROOT / filename, target)
         isolate_account_home(self.prefix, self.root / 'account')
         record, selection = self.record, self.selection
         log = (self.root / 'session.log').open('w')

@@ -9,6 +9,7 @@ import unittest
 import durable_state
 import notification_migration as migration
 from participant_lock import identity
+from repo_root import ROOT
 
 PARTICIPANT = 'synthetic-crash-session'
 TARGET = identity('codex', PARTICIPANT)['digest']
@@ -73,7 +74,7 @@ class ProcessDeathTests(unittest.TestCase):
         self.addCleanup(temp.cleanup)
         root = Path(temp.name)
         result = subprocess.run([sys.executable, '-c', CHILD, str(root), boundary],
-                                cwd=Path(__file__).resolve().parent, capture_output=True,
+                                cwd=ROOT, capture_output=True,
                                 text=True, timeout=15)
         self.assertEqual(result.returncode, 73, result.stderr)
         # Exclusive WAL must not create a shared-memory file, even before recovery.

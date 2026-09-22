@@ -10,6 +10,7 @@ from unittest.mock import patch
 import claims
 import memory
 import work_schema
+from repo_root import ROOT
 
 REPO = '0123456789abcdef'
 WORK = '00000000000000000000000000000001'
@@ -296,7 +297,7 @@ class MigrationTests(unittest.TestCase):
         self.assertEqual(caught.exception.code, 'unsupported_sqlite')
 
     def test_schema_matches_reviewed_ddl_and_rejects_invalid_terminal_state(self):
-        spec = (Path(__file__).parent / 'docs/WORK-ITEMS-SCHEMA.md').read_text()
+        spec = (ROOT / 'docs/WORK-ITEMS-SCHEMA.md').read_text()
         sql = spec.split('```sql\n', 1)[1].split('```', 1)[0]
         self.assertEqual(tuple(s.strip() for s in sql.split(';') if s.strip()),
                          work_schema.MIGRATION_STATEMENTS)

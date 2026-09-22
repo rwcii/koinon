@@ -15,6 +15,7 @@ from scripts.install import FILES
 import session_supervisor as supervisor
 from session_supervisor_state import Records, StateError
 from test_session import isolate_account_home
+from repo_root import ROOT
 
 
 class FailureTests(unittest.TestCase):
@@ -119,7 +120,7 @@ class NativeChildrenTests(unittest.TestCase):
         for filename in FILES:
             target = self.app / filename
             target.parent.mkdir(parents=True, exist_ok=True)
-            shutil.copyfile(Path(__file__).parent / filename, target)
+            shutil.copyfile(ROOT / filename, target)
         isolate_account_home(self.app, self.root / 'account')
         self.home = self.root / 'state'
         self.home.mkdir(mode=0o700)

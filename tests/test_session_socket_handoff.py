@@ -11,6 +11,7 @@ import session_endpoints
 import session_socket_handoff as handoff
 import session_supervisor
 from session_supervisor_state import Records, StateError
+from repo_root import ROOT
 
 
 class SocketHandoffTests(unittest.TestCase):
@@ -111,7 +112,7 @@ class SocketHandoffTests(unittest.TestCase):
                 self.assertIsNone(failed['spawn_pending'])
 
     def test_invalid_bridge_descriptor_refuses_without_database_or_socket(self):
-        result = subprocess.run([sys.executable, str(Path(__file__).parent / 'bridge.py'),
+        result = subprocess.run([sys.executable, str(ROOT / 'bridge.py'),
                                  '--state-dir', str(self.home), 'serve', '--supervisor-control-fd', '99',
                                  '--supervisor-generation', 'a' * 32], capture_output=True, text=True, timeout=10)
         self.assertEqual(result.returncode, 78, result.stderr)
