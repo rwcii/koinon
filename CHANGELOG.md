@@ -5,6 +5,9 @@ into a dated release section when promoted to `main`.
 
 ## Unreleased
 
+- Memory client commands no longer create missing state directories while probing an
+  absent service. Only `serve` initializes them; existing directory safety checks remain.
+
 - Document the coordinated runtime upgrade as the supported operation it is, rather
   than as work in progress with a manual runbook in its place. The installation guide
   now carries the three command forms, the manual-backend handoff, and the permission

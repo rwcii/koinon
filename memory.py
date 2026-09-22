@@ -33,6 +33,7 @@ import math
 import os
 from pathlib import Path
 import signal
+import stat
 import socket
 import sqlite3
 import subprocess
@@ -247,9 +248,18 @@ class MemoryError_(ValueError):
         return CHAINED_DATABASE_FAULTS.get(self.code)
 
 
-def private_state_dir(path):
+def private_state_dir(path, *, create=True):
     try:
-        private_dir(path)
+        if create:
+            private_dir(path)
+        else:
+            try:
+                info = path.lstat()
+            except FileNotFoundError:
+                return
+            if (not stat.S_ISDIR(info.st_mode) or info.st_uid != os.getuid()
+                    or info.st_mode & 0o077):
+                raise ValueError('unsafe state directory')
     except (ValueError, PermissionError, FileExistsError, NotADirectoryError):
         raise MemoryError_('unsafe_state_directory',
                            'the state directory must be a private directory owned by this user') from None
@@ -2510,15 +2520,15 @@ def cli_main():
     selected_root = args.pop('state_dir')
     exact = args.pop('service_dir')
     repo = repo_identity(args.pop('repo_path'))
+    op = args.pop('op')
+    op = work_items.cli_request(op, args)
     if exact is None:
         root = Path(selected_root or runtime_names.default_state_root()).absolute()
-        private_state_dir(root)
+        private_state_dir(root, create=op == 'serve')
         home = state_dir(root, repo)
     else:
         home = Path(exact).absolute()
-    private_state_dir(home)
-    op = args.pop('op')
-    op = work_items.cli_request(op, args)
+    private_state_dir(home, create=op == 'serve')
     if op == 'serve':
         print(json.dumps(serve(home, repo, lambda: Store(home / 'memory.sqlite3', repo),
                                gated_store_factory=lambda gate: Store(home / 'memory.sqlite3', repo, defer_index=True))))

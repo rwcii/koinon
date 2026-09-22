@@ -414,6 +414,12 @@ Run one per repository, from inside that repository:
 python3 memory.py serve
 ```
 
+Only `serve` initializes missing memory state directories. Client commands, including
+`status`, `recall`, and `stop`, leave absent directories absent. A query without a running
+service reports absence (the explicit `--service-dir` form returns
+`service_unavailable`); `stop` reports `not_running`. Existing state
+directories must still be private and owned by the current user.
+
 It prints its status as one JSON line and then serves until stopped. Start it in a persistent
 managed session, as with the manual bridge setup; it holds a socket, so an ordinary background
 command that dies with its shell will leave state behind.
