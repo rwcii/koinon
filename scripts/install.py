@@ -425,7 +425,7 @@ def install(a, p, configuration=None, validate_only=False):
         # Codex session does.
         dsh_guidance = update(a.dsh_home,a.prefix,agent='deepseek') if a.configure_deepseek else None
         print('Installed runtime:',a.prefix)
-        print('State directory:',a.state_dir)
+        print('Configured state directory (may not exist until service initialization):',a.state_dir)
         if guidance is not None:
             print('Managed Codex guidance:',guidance)
         if dsh_guidance is not None:
@@ -480,7 +480,7 @@ def install(a, p, configuration=None, validate_only=False):
         platform_support.user_service_manager('reload', check=True)
         platform_support.user_service_manager('enable', rendered, check=True)
     print('Installed at',a.prefix)
-    print('State directory:',a.state_dir)
+    print('Configured state directory (may not exist until service initialization):',a.state_dir)
     print('Check: systemctl --user status', *selected)
     report_session_restarts(a.prefix, a.unit_dir, no_start=a.no_start)
 

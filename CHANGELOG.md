@@ -15,6 +15,21 @@ into a dated release section when promoted to `main`.
   `idempotency_conflict` is also raised when a key is repeated with the same content and a
   different deadline, not only when the content differs.
 
+- Report a missing recorded state root during upgrade preflight with
+  `missing_state_root`, its path, and recovery guidance before shutdown or upgrade
+  publication. Report a non-directory path component as `invalid_state_root`.
+  Preserve state and configuration rather than creating an empty
+  replacement. Installation now labels the state directory as configured, since
+  staging without service initialization may leave it absent (#80).
+
+- Describe the shipped schema-5 work commands and advisory claims in module
+  documentation and CLI help, removing stale staging language. Document
+  `schema_too_old`, its configuration exit status, and recovery without resetting
+  stored state (#86).
+
+- Memory client commands no longer create missing state directories while probing an
+  absent service. Only `serve` initializes them; existing directory safety checks remain.
+
 - Say what is wrong when a path is refused as unsafe. Installation and upgrade refuse a
   path that a second account can write, which an account whose `umask` is `002` produces
   for the directories it creates. The refusals named only the path, so an operator could

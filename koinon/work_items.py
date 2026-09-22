@@ -1,7 +1,8 @@
-"""Staged work commands. Reported data and advisory ownership never grant authority.
+"""Schema-5 work commands. Reported data and advisory ownership never grant authority.
 
 The existing Store owns the connection, transactions, stream publication and budgets.
-No filesystem access, background scheduling, or production schema activation lives here.
+The memory service handles schema migration and background scheduling; these commands
+perform no filesystem access.
 """
 import argparse
 import hashlib
@@ -74,7 +75,7 @@ class WorkArgumentParser(argparse.ArgumentParser):
 
 def cli_parsers(sub):
     """Provider-neutral CLI; server-side validation remains authoritative."""
-    work = sub.add_parser('work', help='staged work commands; requires schema-5 service')
+    work = sub.add_parser('work', help='work commands; requires schema-5 service')
     operations = work.add_subparsers(dest='work_op', required=True, parser_class=WorkArgumentParser)
     for op in FIELDS:
         if not op.startswith('work-'):

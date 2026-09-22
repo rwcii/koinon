@@ -453,6 +453,12 @@ Run one per repository, from inside that repository:
 python3 memory.py serve
 ```
 
+Only `serve` initializes missing memory state directories. Client commands, including
+`status`, `recall`, and `stop`, leave absent directories absent. A query without a running
+service reports absence (the explicit `--service-dir` form returns
+`service_unavailable`); `stop` reports `not_running`. Existing state
+directories must still be private and owned by the current user.
+
 It prints its status as one JSON line and then serves until stopped. Start it in a persistent
 managed session, as with the manual bridge setup; it holds a socket, so an ordinary background
 command that dies with its shell will leave state behind.
@@ -564,6 +570,28 @@ notifiers that could target the same participant before restarting them. An olde
 notifier in another state directory does not hold the new lock and cannot be excluded
 by it. Preserve inboxes, checkpoints, registration targets and unrelated bridge instances;
 do not treat installing files with `--no-start` as activating the new exclusion rule.
+
+## Missing state root
+
+Installation reports the **configured** state directory; staging a manual or
+`--no-start` memory component does not initialize its state or database. The
+`installed` selection records staged configuration, not a running service or an
+initialized store.
+
+Upgrade preflight refuses an absent recorded state root with `code: missing_state_root`,
+the configured `path`, and recovery guidance before shutdown, runtime replacement,
+or publication of an upgrade operation. This applies to the installation state root
+and separately selected memory state roots. A non-directory component blocking resolution
+of the recorded path instead returns `invalid_state_root`. Upgrade does not create empty
+state or remove an obstructing file to make its inventory pass.
+
+Verify the configured path and any expected mounted storage first. For an installation
+that has never been started, initialize the selected service using the installed
+runtime and the documented native start or manual handoff, then retry the upgrade.
+If state previously existed, recover the original state before retrying. Do not create
+an empty replacement, reset checkpoints, or change the saved selection to bypass the
+refusal. This diagnostic does not establish whether missing state was never created
+or was lost.
 
 ## Upgrades and removal
 

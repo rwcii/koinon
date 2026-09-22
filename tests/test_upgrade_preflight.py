@@ -57,6 +57,21 @@ class PreflightTests(unittest.TestCase):
             with self.assertRaisesRegex(ValueError, 'changed'):
                 preflight.runtime_manifest(self.new)
 
+    def test_missing_recorded_roots_refuse_before_service_observation(self):
+        missing = self.root / 'missing-state'
+        for config in (
+                dict(state_root=str(missing)),
+                dict(state_root=str(self.state), memory_services=dict(repositories={
+                    'b' * 16: dict(state_root=str(missing))}))):
+            with self.subTest(config=config):
+                installed = type('Installed', (), dict(config=config))()
+                with patch('koinon.upgrade_observation.installation_locked') as observation:
+                    with self.assertRaises(preflight.MissingStateRootError) as error:
+                        preflight.observe_locked(self.old, installed)
+                    observation.assert_not_called()
+                self.assertEqual(error.exception.path, str(missing))
+                self.assertFalse(missing.exists())
+
     def test_no_memory_directory_is_reported_without_creation(self):
         report = preflight.memory_ownership(self.config)
         self.assertEqual(report['action'], 'no_unowned_state_found')
