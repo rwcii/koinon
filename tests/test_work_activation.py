@@ -8,7 +8,7 @@ import unittest
 from unittest.mock import patch
 
 import memory
-import work_schema
+from koinon import work_schema
 
 REPO = '0123456789abcdef'
 

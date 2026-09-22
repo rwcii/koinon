@@ -3,10 +3,10 @@ import shlex
 import sys
 import unittest
 from unittest import mock
-from notification_provider import MAX_NOTICE_BYTES
+from koinon.notification_provider import MAX_NOTICE_BYTES
 
-from participant_lock import identity
-import notification_notices as notices
+from koinon.participant_lock import identity
+from koinon import notification_notices as notices
 
 
 class NoticeTests(unittest.TestCase):

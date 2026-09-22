@@ -3,8 +3,8 @@ import tempfile
 import unittest
 from unittest.mock import patch
 
-import durable_state
-import upgrade_documents as documents
+from koinon import durable_state
+from koinon import upgrade_documents as documents
 
 
 class DocumentsTests(unittest.TestCase):
@@ -16,7 +16,7 @@ class DocumentsTests(unittest.TestCase):
 
     def test_concurrent_reader_waits_for_short_metadata_publication(self):
         from concurrent.futures import ThreadPoolExecutor
-        from participant_lock import file_lock
+        from koinon.participant_lock import file_lock
         import threading
         import time
         value = dict(version=1)

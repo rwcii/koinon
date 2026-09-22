@@ -9,7 +9,14 @@ is not implemented.
 
 Read README.md, PROTOCOL.md, and CONTRIBUTING.md before changing it.
 
-Platform differences belong in `platform_support.py`; do not add `sys.platform` checks
+Implementation modules live in the `koinon` package. The executable entrypoints stay beside
+it at the repository root and at the installation prefix — `bridge.py`, `notify.py`,
+`session.py`, `memory.py`, `memory_service.py`, `session_service.py` and `usage_report.py` —
+because installed service definitions name their paths and are compared byte for byte. Add a
+new module to the package, and add a new root entrypoint only when a service definition or a
+documented command must name it. Tests live in `tests/`.
+
+Platform differences belong in `koinon/platform_support.py`; do not add `sys.platform` checks
 elsewhere. Peer addresses and registry socket paths must stay unresolved, because the peer
 key filename is derived from the literal path.
 
@@ -125,7 +132,7 @@ paths, follow the manual removal instructions. Stale files may be removed only a
 verifying ownership and that their old process is dead. Never purge shared socket or
 session-registry directories.
 
-For automatic setup, read `codex_instructions.py` and `session.py`. Test preservation,
+For automatic setup, read `koinon/codex_instructions.py` and `session.py`. Test preservation,
 repeat installation, override precedence, concurrent thread isolation, and complete
 bridge/notifier health. Registration must never claim success based on the bridge
 alone. Run the returned start_command in a managed session when no user systemd manager

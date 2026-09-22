@@ -5,12 +5,12 @@ import tempfile
 import unittest
 from unittest.mock import patch
 
-import install_state
-import runtime_names
-import upgrade_bundle
-import upgrade_exclusion as exclusion
-import upgrade_manifest as manifest
-import upgrade_plan
+from koinon import install_state
+from koinon import runtime_names
+from koinon import upgrade_bundle
+from koinon import upgrade_exclusion as exclusion
+from koinon import upgrade_manifest as manifest
+from koinon import upgrade_plan
 
 
 class ExclusionTests(unittest.TestCase):
@@ -139,8 +139,8 @@ class ExclusionTests(unittest.TestCase):
         self.assertIsNone(exclusion.read(self.prefix))
 
     def test_observation_and_marker_share_one_retained_installation_lock(self):
-        import upgrade_observation
-        from participant_lock import file_lock, OwnershipError
+        from koinon import upgrade_observation
+        from koinon.participant_lock import file_lock, OwnershipError
         Path(self.original['state_root']).mkdir(mode=0o700)
         with install_state.locked(self.prefix) as installed:
             with patch.object(install_state, 'locked', side_effect=AssertionError('nested installation lock')):

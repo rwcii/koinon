@@ -12,7 +12,7 @@ import unittest
 from unittest import mock
 
 import bridge
-import platform_support
+from koinon import platform_support
 
 
 class BridgeStartupTests(unittest.IsolatedAsyncioTestCase):

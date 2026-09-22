@@ -5,7 +5,7 @@ from types import SimpleNamespace
 import unittest
 from unittest.mock import AsyncMock, patch
 
-import upgrade_probe as probe
+from koinon import upgrade_probe as probe
 
 
 class ProbeTests(unittest.TestCase):
@@ -113,7 +113,7 @@ class LiveMemoryHandshakeTests(unittest.IsolatedAsyncioTestCase):
         import os
         import tempfile
         import memory
-        import upgrade_gate
+        from koinon import upgrade_gate
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory).resolve()
             gate = SimpleNamespace(status=lambda: dict(plan='a' * 64,

@@ -5,7 +5,7 @@ import subprocess
 import unittest
 from unittest.mock import patch
 
-import platform_support
+from koinon import platform_support
 
 
 class SystemdObservationTests(unittest.TestCase):
@@ -177,7 +177,7 @@ class NativeMemoryActionTests(unittest.TestCase):
         selected = record()
         with patch.object(platform_support, 'LINUX', True), \
                 patch.object(platform_support, 'memory_registration_paths', return_value=()), \
-                patch('memory_service_artifacts.preflight_registration') as preflight, \
+                patch('koinon.memory_service_artifacts.preflight_registration') as preflight, \
                 patch.object(platform_support.subprocess, 'run') as run:
             platform_support.memory_manager_action(selected, 'activate')
             preflight.assert_called_once()
@@ -186,7 +186,7 @@ class NativeMemoryActionTests(unittest.TestCase):
         selected = dict(record(backend='launchd'), manager_domain=f'gui/{os.geteuid()}')
         with patch.object(platform_support, 'DARWIN', True), \
                 patch.object(platform_support, 'memory_registration_paths', return_value=()), \
-                patch('memory_service_artifacts.preflight_registration') as preflight, \
+                patch('koinon.memory_service_artifacts.preflight_registration') as preflight, \
                 patch.object(platform_support.subprocess, 'run') as run:
             platform_support.memory_manager_action(selected, 'activate')
             preflight.assert_not_called()

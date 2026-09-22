@@ -7,9 +7,9 @@ from unittest.mock import patch
 
 import memory
 import test_work_foundation as released
-import upgrade_backup
-import upgrade_inventory
-import upgrade_migration
+from koinon import upgrade_backup
+from koinon import upgrade_inventory
+from koinon import upgrade_migration
 
 
 class MigrationExpectationTests(unittest.TestCase):
@@ -107,7 +107,7 @@ class InboxExpectationTests(unittest.TestCase):
 
     def test_same_schema_inbox_preserves_ack_allocated_head_and_delivery_identity(self):
         import bridge
-        import delivery_ledger
+        from koinon import delivery_ledger
         home, backup, workspace = self.fixture()
         expected = upgrade_migration.expected_inbox(backup, workspace)
         store = bridge.InboxStore(home)

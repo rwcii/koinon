@@ -8,16 +8,16 @@ from pathlib import Path
 import sys
 import stat
 
-import durable_state
-import generation_stop
-import notification_health
-from peer_transport import control_exchange
-import platform_support
-import session_service_artifacts as artifacts
-import session_service_config as configuration
-import session_supervisor
-from session_supervisor_state import Records, StateError, alive_state
-from work_policy import absolute_path
+from koinon import durable_state
+from koinon import generation_stop
+from koinon import notification_health
+from koinon.peer_transport import control_exchange
+from koinon import platform_support
+from koinon import session_service_artifacts as artifacts
+from koinon import session_service_config as configuration
+from koinon import session_supervisor
+from koinon.session_supervisor_state import Records, StateError, alive_state
+from koinon.work_policy import absolute_path
 
 
 class ServiceError(ValueError):
@@ -31,8 +31,8 @@ class ServiceError(ValueError):
 class Selection:
     def __init__(self, prefix, home, *, backend=None, python=None, removing=False, upgrading=False):
         self.prefix, self.home = absolute_path(str(prefix)), absolute_path(str(home))
-        import runtime_names
-        import upgrade_exclusion
+        from koinon import runtime_names
+        from koinon import upgrade_exclusion
         self.upgrade = upgrade_exclusion.read(self.prefix) if upgrading else None
         installed = (self.upgrade['documents']['installation'] if self.upgrade is not None
                      else runtime_names.install_config(self.prefix))
@@ -164,11 +164,11 @@ def execute(action, selection, *, generation=None, assertion=False):
         selection.validate_programs()
         return session_supervisor.run(selection.records, selection.commands, selection.backend)
     if action in ('ensure', 'status', 'deactivate'):
-        import session_service_manager
+        from koinon import session_service_manager
         return {'ensure': session_service_manager.ensure, 'status': session_service_manager.status,
                 'deactivate': session_service_manager.deactivate}[action](selection)
     if action == 'stop':
-        import session_service_manager
+        from koinon import session_service_manager
         return session_service_manager.stop(selection)
     if action == 'retry':
         selection.recovery()  # Refuse malformed provenance before granting retry.

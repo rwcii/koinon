@@ -9,7 +9,7 @@ import time
 import unittest
 from unittest.mock import patch
 
-import platform_support
+from koinon import platform_support
 
 
 class StartMarkerTests(unittest.TestCase):

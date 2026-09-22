@@ -4,10 +4,10 @@ import tempfile
 import unittest
 from unittest.mock import patch
 
-import session_service_config
-import upgrade_bundle
-import upgrade_manifest as manifest
-import upgrade_plan as plans
+from koinon import session_service_config
+from koinon import upgrade_bundle
+from koinon import upgrade_manifest as manifest
+from koinon import upgrade_plan as plans
 
 
 class PlanTests(unittest.TestCase):

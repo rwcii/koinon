@@ -7,8 +7,8 @@ import unittest
 from unittest.mock import patch
 
 import memory
-import work_items
-import work_schema
+from koinon import work_items
+from koinon import work_schema
 
 
 class WorkCommandsTests(unittest.TestCase):

@@ -5,9 +5,9 @@ import sqlite3
 import tempfile
 import unittest
 
-import durable_state
-from notification_journal import JournalError
-from notification_legacy import LegacyState
+from koinon import durable_state
+from koinon.notification_journal import JournalError
+from koinon.notification_legacy import LegacyState
 
 
 class LegacyCompatibilityTests(unittest.TestCase):

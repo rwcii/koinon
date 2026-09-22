@@ -9,7 +9,7 @@ does not itself restart optional memory or configure participant guidance.
 
 ## Implemented primitives
 
-- `work_schema.py` contains the reviewed DDL, read-only catalog/identity validation,
+- `koinon/work_schema.py` contains the reviewed DDL, read-only catalog/identity validation,
   atomic migration steps from schema 3 or 4, and durable work/claim counter allocation.
   The expected catalog includes SQLite autoindexes and verified FTS shadow definitions.
   A transient in-memory reference database obtains the definitions from the current
@@ -19,7 +19,7 @@ does not itself restart optional memory or configure participant guidance.
   a residual WAL reports recovery required instead of trusting a stale file header.
   Metadata keys and values must satisfy the storage proof's bounds. A store requiring
   unavailable FTS5 reports an unsupported SQLite build.
-- `claims.py` validates logical path and exact-resource keys, compares component
+- `koinon/claims.py` validates logical path and exact-resource keys, compares component
   boundaries without resolving paths, and implements bundle acquisition, owner checks,
   renewal, release, expiry, and separate inactive-bundle reclamation. Same-consumer
   conflicting work is refused. Expired generations cannot renew or release.

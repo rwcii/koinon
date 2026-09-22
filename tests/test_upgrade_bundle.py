@@ -6,8 +6,8 @@ import tempfile
 import unittest
 from unittest.mock import patch
 
-import upgrade_bundle as bundle
-import upgrade_manifest as manifest
+from koinon import upgrade_bundle as bundle
+from koinon import upgrade_manifest as manifest
 
 
 class BundleTests(unittest.TestCase):

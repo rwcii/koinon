@@ -16,9 +16,9 @@ from unittest.mock import patch
 SOURCE = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(SOURCE))
 import memory_service
-import memory_service_artifacts
-import memory_service_config
-import platform_support
+from koinon import memory_service_artifacts
+from koinon import memory_service_config
+from koinon import platform_support
 
 
 def wait_for(predicate, description, timeout=45):

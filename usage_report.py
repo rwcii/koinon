@@ -8,8 +8,8 @@ import os
 from pathlib import Path
 import sys
 
-from usage_selection import self_manifest
-from usage_sources import ADAPTER_VERSION, COMPONENTS, FIELDS, collect, normalize, text, timestamp
+from koinon.usage_selection import self_manifest
+from koinon.usage_sources import ADAPTER_VERSION, COMPONENTS, FIELDS, collect, normalize, text, timestamp
 
 
 def read_json(path):
@@ -40,7 +40,7 @@ def selections(manifest):
         selected['path'] = str(path.resolve())
         child = None
         if selected['provider'] == 'claude':
-            from usage_selection import native_role
+            from koinon.usage_selection import native_role
             if native_role('claude', path, selected['session_id'], {})[0] == 'subagent':
                 child = path.stem
         identity = (selected['provider'], selected['session_id'], child)

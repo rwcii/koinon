@@ -14,7 +14,7 @@ from unittest.mock import patch
 
 SOURCE = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(SOURCE))
-import platform_support
+from koinon import platform_support
 from scripts.install import FILES
 
 
@@ -65,7 +65,7 @@ class Fixture:
             target.chmod(0o600)
         # Isolate synthetic participant locks and peer discovery, while retaining
         # the real account home and native persistent manager registration paths.
-        with (self.source / 'platform_support.py').open('a') as stream:
+        with (self.source / 'koinon/platform_support.py').open('a') as stream:
             stream.write('\nos.environ["CLAUDE_CONFIG_DIR"] = ' + repr(self.env['CLAUDE_CONFIG_DIR']) + '\n')
             stream.write('\ndef participant_lock_dir():\n    return Path(' + repr(str(self.root / 'locks')) + ')\n')
         self.command(['git', 'init', '-q', str(self.repo)])

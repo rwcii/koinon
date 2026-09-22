@@ -13,8 +13,8 @@ from unittest import mock
 import bridge
 import memory
 import notify
-import platform_support
-import runtime_names
+from koinon import platform_support
+from koinon import runtime_names
 from scripts import install
 
 
@@ -48,7 +48,7 @@ class IdentifierMigrationTests(unittest.TestCase):
         self.assertEqual(config['unit_dir'], str(units))
         self.assertEqual(checkpoint.stat().st_ino, inode)
         self.assertEqual(checkpoint.read_bytes(), b'preserve synthetic checkpoint')
-        for module in ('participant_instructions.py', 'codex_instructions.py', 'runtime_names.py'):
+        for module in ('koinon/participant_instructions.py', 'koinon/codex_instructions.py', 'koinon/runtime_names.py'):
             self.assertTrue((app/module).is_file())
         changed = self.install(*args, '--state-dir', self.root/'explicit-state', '--unit-dir', self.root/'explicit-units')
         self.assertEqual(changed.returncode, 0, changed.stderr)

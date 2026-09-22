@@ -9,7 +9,7 @@ import sqlite3
 import tempfile
 import unittest
 import bridge
-import platform_support
+from koinon import platform_support
 
 class BridgeTests(unittest.IsolatedAsyncioTestCase):
     async def asyncSetUp(self):

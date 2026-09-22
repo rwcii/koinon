@@ -1,6 +1,6 @@
 # Portable session runner
 
-`session_supervisor.py` and `session_supervisor_state.py` stage the portable ownership
+`koinon/session_supervisor.py` and `koinon/session_supervisor_state.py` stage the portable ownership
 boundary for one explicitly selected bridge/notifier pair. They are not yet invoked
 by the public session commands or native artifacts. Existing session startup remains
 unchanged until selection, activation and native lifecycle acceptance are integrated.

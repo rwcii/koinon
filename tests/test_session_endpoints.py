@@ -5,9 +5,9 @@ import tempfile
 import unittest
 from unittest.mock import patch
 
-import platform_support
-import session_endpoints
-from session_supervisor_state import Records, StateError
+from koinon import platform_support
+from koinon import session_endpoints
+from koinon.session_supervisor_state import Records, StateError
 
 
 class OwnedEndpointTests(unittest.TestCase):
@@ -29,14 +29,14 @@ class OwnedEndpointTests(unittest.TestCase):
 
     def test_only_captured_socket_of_dead_owned_process_is_removed(self):
         self.sock.close()
-        with patch('session_supervisor_state.alive_state', return_value='dead'):
+        with patch('koinon.session_supervisor_state.alive_state', return_value='dead'):
             session_endpoints.recover(self.records, self.owner)
         self.assertFalse(self.socket_path.exists())
         self.assertEqual(self.records.read(), self.owner)
 
     def test_alive_or_unknown_process_preserves_socket(self):
         for state in ('alive', 'unknown'):
-            with self.subTest(state=state), patch('session_supervisor_state.alive_state', return_value=state):
+            with self.subTest(state=state), patch('koinon.session_supervisor_state.alive_state', return_value=state):
                 with self.assertRaises(StateError):
                     session_endpoints.recover(self.records, self.owner)
             self.assertTrue(self.socket_path.exists())
@@ -49,7 +49,7 @@ class OwnedEndpointTests(unittest.TestCase):
         replacement.bind(str(self.socket_path))
         self.socket_path.chmod(0o600)
         before = self.socket_path.lstat().st_ino
-        with patch('session_supervisor_state.alive_state', return_value='dead'):
+        with patch('koinon.session_supervisor_state.alive_state', return_value='dead'):
             with self.assertRaises(StateError):
                 session_endpoints.recover(self.records, self.owner)
         self.assertEqual(self.socket_path.lstat().st_ino, before)
@@ -58,7 +58,7 @@ class OwnedEndpointTests(unittest.TestCase):
         del self.owner['children']['bridge']['control_endpoint']
         self.records.publish(self.owner)
         before = self.records.owner_path.read_bytes()
-        with patch('session_supervisor_state.alive_state', return_value='dead'):
+        with patch('koinon.session_supervisor_state.alive_state', return_value='dead'):
             with self.assertRaises(StateError):
                 session_endpoints.recover(self.records, self.owner)
         self.assertEqual(self.records.owner_path.read_bytes(), before)
@@ -73,7 +73,7 @@ class OwnedEndpointTests(unittest.TestCase):
         old = copy.deepcopy(self.owner)
         self.owner['generation'] = 'f' * 32
         self.records.publish(self.owner)
-        with patch('session_supervisor_state.alive_state', return_value='dead'):
+        with patch('koinon.session_supervisor_state.alive_state', return_value='dead'):
             with self.assertRaises(StateError):
                 session_endpoints.recover(self.records, old)
         self.assertTrue(self.socket_path.exists())

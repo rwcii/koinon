@@ -13,13 +13,13 @@ import uuid
 
 SOURCE = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(SOURCE))
-import durable_state
-import platform_support
+from koinon import durable_state
+from koinon import platform_support
 from scripts.install import FILES
 import session_service
-import session_service_artifacts
-import session_service_config
-import session_service_manager
+from koinon import session_service_artifacts
+from koinon import session_service_config
+from koinon import session_service_manager
 
 
 def wait_for(predicate, description, timeout=60):
@@ -44,7 +44,7 @@ class Fixture:
             target.chmod(0o600)
         account = self.root / 'account'
         account.mkdir(mode=0o700)
-        with (self.prefix / 'platform_support.py').open('a') as stream:
+        with (self.prefix / 'koinon/platform_support.py').open('a') as stream:
             stream.write('\ndef account_home():\n    return Path(' + repr(str(account)) + ')\n')
         wrapper = self.prefix / 'session_service.py'
         wrapper.write_text('import os as _fixture_os\n_fixture_os.environ["CLAUDE_CONFIG_DIR"] = '

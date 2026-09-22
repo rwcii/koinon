@@ -11,12 +11,12 @@ import tempfile
 import unittest
 from unittest.mock import patch
 
-import install_state
+from koinon import install_state
 import memory
-import runtime_names
+from koinon import runtime_names
 import session
-import work_policy
-import work_guidance
+from koinon import work_policy
+from koinon import work_guidance
 
 
 class PolicyTests(unittest.TestCase):
@@ -161,7 +161,7 @@ class PolicyTests(unittest.TestCase):
                       str(self.root/'absent'/'new'), str(self.root), 'relative'):
             with self.subTest(value=value), self.assertRaises(ValueError):
                 work_policy.guidance_path(value)
-        with patch('work_policy.os.getuid', return_value=os.getuid()+1), self.assertRaises(ValueError):
+        with patch('koinon.work_policy.os.getuid', return_value=os.getuid()+1), self.assertRaises(ValueError):
             work_policy.guidance_path(str(self.guidance))
         self.assertFalse((self.root/'absent').exists())
 
@@ -183,7 +183,7 @@ class PolicyTests(unittest.TestCase):
         self.save()
         before = (self.prefix/'install.json').read_bytes()
         with install_state.locked(self.prefix) as locked:
-            with patch('install_state.os.replace', side_effect=OSError('injected')):
+            with patch('koinon.install_state.os.replace', side_effect=OSError('injected')):
                 with self.assertRaises(OSError):
                     locked.merge({'opaque':False})
         self.assertEqual((self.prefix/'install.json').read_bytes(), before)
@@ -212,7 +212,8 @@ class PolicyTests(unittest.TestCase):
 
     def test_lock_serializes_read_modify_write_and_preserves_both_updates(self):
         self.save()
-        code = '''import install_state,sys
+        code = '''from koinon import install_state
+import sys
 print('started',flush=True)
 with install_state.locked(sys.argv[1]) as state:
  state.merge({'second_writer':2})
@@ -248,7 +249,8 @@ with install_state.locked(sys.argv[1]) as state:
     def test_install_lock_timeout_is_retryable_and_preserves_state(self):
         self.save()
         before = (self.prefix/'install.json').read_bytes()
-        code = """import install_state,runpy,sys
+        code = """from koinon import install_state
+import runpy,sys
 install_state.LOCK_TIMEOUT=.05
 sys.argv=['scripts/install.py',*sys.argv[1:]]
 runpy.run_path('scripts/install.py',run_name='__main__')
@@ -269,7 +271,8 @@ runpy.run_path('scripts/install.py',run_name='__main__')
 
     def test_two_installers_serialize_and_keep_both_participants(self):
         self.save()
-        code = """import contextlib,install_state,runpy,sys
+        code = """import contextlib,runpy,sys
+from koinon import install_state
 real=install_state.locked
 @contextlib.contextmanager
 def waiting(prefix):
@@ -302,7 +305,8 @@ runpy.run_path('scripts/install.py',run_name='__main__')
 
     def test_install_reloads_configuration_after_waiting_for_lock(self):
         self.save()
-        code = """import contextlib,install_state,runpy,sys
+        code = """import contextlib,runpy,sys
+from koinon import install_state
 real=install_state.locked
 @contextlib.contextmanager
 def waiting(prefix):

@@ -22,9 +22,9 @@ a defect in review:
   are recorded here, never inferred from a number the caller supplies.
 """
 import argparse
-import runtime_names
+from koinon import runtime_names
 import asyncio
-import subscriptions
+from koinon import subscriptions
 import contextlib
 import fcntl
 import hashlib
@@ -38,17 +38,17 @@ import sqlite3
 import subprocess
 import time
 import uuid
-import claims
-import work_storage
-import work_items
-import work_maintenance
-import work_schema
+from koinon import claims
+from koinon import work_storage
+from koinon import work_items
+from koinon import work_maintenance
+from koinon import work_schema
 
-from database_worker import DatabaseWorker, CapacityError, WorkerFailure, WorkerClosed
-from service_runtime import Admission, close_writer, drain_handlers, database_status, HANDSHAKE_TIMEOUT
-from peer_transport import LIMIT, credentials, encode, private_dir
-import platform_support
-from peer_transport import control_exchange as transport_exchange, service_path, NoControlReply, UnsafeServiceEndpoint
+from koinon.database_worker import DatabaseWorker, CapacityError, WorkerFailure, WorkerClosed
+from koinon.service_runtime import Admission, close_writer, drain_handlers, database_status, HANDSHAKE_TIMEOUT
+from koinon.peer_transport import LIMIT, credentials, encode, private_dir
+from koinon import platform_support
+from koinon.peer_transport import control_exchange as transport_exchange, service_path, NoControlReply, UnsafeServiceEndpoint
 
 PROTOCOL = 1
 SCHEMA = 5
@@ -1651,7 +1651,7 @@ class MemoryCommands:
         return key.strip()
 
     def upgrade_inventory(self):
-        import upgrade_inventory
+        from koinon import upgrade_inventory
         return upgrade_inventory.capture(self.store.db)
 
     # Operations that must stay reachable when writes cannot proceed. Running cleanup
@@ -1955,7 +1955,7 @@ class Service:
     def __init__(self, root, repo, store_factory, *, gated_store_factory=None):
         self.root, self.repo = Path(root), repo
         self.generation = uuid.uuid4().hex
-        import upgrade_gate
+        from koinon import upgrade_gate
         self.upgrade = upgrade_gate.select(Path(__file__).parent, 'memory', root, self.generation)
         if self.upgrade is not None and gated_store_factory is None:
             raise upgrade_gate.GateError('gated memory startup requires deferred search initialization')

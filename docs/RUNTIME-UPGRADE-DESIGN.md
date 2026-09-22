@@ -187,7 +187,7 @@ or a rewritten manual runbook.
 
 ## Implementation slices
 
-The first internal primitive, `upgrade_inventory.py`, captures a consistent SQLite
+The first internal primitive, `koinon/upgrade_inventory.py`, captures a consistent SQLite
 snapshot from a dedicated connection after the coordinator has established stopped
 ownership (or selected a verified consistent backup). It does not open paths, validate
 service ownership, migrate data or authorize replacement. Every catalog object is
@@ -208,7 +208,7 @@ no migration exceptions. Store-specific identity fields, supported migration ada
 private backup/manifest publication, exclusion gates and the coordinator remain separate
 implementation steps before the proposed public command can become available.
 
-`upgrade_manifest.py` freezes an explicit bounded list of selected source files with
+`koinon/upgrade_manifest.py` freezes an explicit bounded list of selected source files with
 per-file sizes and SHA-256 hashes. Initial root selection resolves aliases once, including
 macOS system paths; the manifest freezes that canonical root. Resume never follows a
 new alias at the frozen root. Reads beneath it refuse symlink components, hardlinks, unsafe
@@ -267,7 +267,7 @@ mid-replacement and demonstrate recovery through that retained bundle, then reje
 changed bundle or source. Ordinary install, uninstall and ensure must refuse incomplete
 upgrade state; status and plan-validated recovery must remain available.
 
-The staged `upgrade_journal.py` records alternating intent and completion for each
+The staged `koinon/upgrade_journal.py` records alternating intent and completion for each
 coordinator phase. Completion carries the digest of separately verified evidence;
 phase records do not establish that the evidence is correct or authorize an action.
 The journal is bound to the frozen plan digest, validates its entire bounded shape,
@@ -284,7 +284,7 @@ cover publication failures before and after atomic replacement, retained lock id
 wrong-plan refusal and monotonic release. They do not replace process-interruption,
 native-manager or complete coordinator acceptance fixtures.
 
-`upgrade_documents.py` retains immutable private JSON manifests and evidence, each
+`koinon/upgrade_documents.py` retains immutable private JSON manifests and evidence, each
 bounded to 1 MiB. Their expected digests belong in the frozen plan or journal; a
 self-reported digest is not authority. Existing service-owner records retain their
 4 KiB default. Exact repeats retain the original document, changed content refuses,
@@ -304,7 +304,7 @@ must not release a service. The shared ordinary state reader remains read-only.
 Synthetic fault tests cover failures after rename and continuing flush failures;
 these do not simulate hardware power loss or prove filesystem/device compliance.
 
-`upgrade_bundle.py` stages the selected source files and explicit Python entrypoint
+`koinon/upgrade_bundle.py` stages the selected source files and explicit Python entrypoint
 as a deterministic private zip application, currently bounded to 4 MiB. Its descriptor
 binds the entire source manifest and archive digest; the coordinator must retain that
 descriptor in its frozen plan and supply a complete import dependency allowlist.
@@ -342,7 +342,7 @@ returns a path, so the later isolated interpreter launch still assumes no hostil
 same-user replacement between verification and execution. Rechecking the path does
 not remove that trust-boundary assumption.
 
-`upgrade_observation.py` captures a validated native selection's manager registration
+`koinon/upgrade_observation.py` captures a validated native selection's manager registration
 and running state separately. Manager observations must agree before and after the
 service probe and match the owned runner when running. An inactive result additionally
 requires confirmed child exit, no retained control endpoint, and no held owner lock.
@@ -351,7 +351,7 @@ installation-wide enumeration or exclusion against a subsequent start; quiescenc
 must revalidate under the appropriate locks. Manual selections require their own
 explicit adapter before they can enter this native observation path.
 
-`upgrade_plan.py` binds source, old runtime, installation configuration, component
+`koinon/upgrade_plan.py` binds source, old runtime, installation configuration, component
 observations and the recovery descriptor through immutable document digests. It
 checks the 128-component bound and reserves directory entries for acknowledgements
 and aggregate evidence before publishing plan documents. Preparation only records
@@ -368,7 +368,7 @@ phase-specific coordinator must decide which current bytes are valid and cannot 
 successful plan loading alone as permission to replace or release anything.
 
 
-`upgrade_backup.py` streams an explicit stopped-state file selection, including
+`koinon/upgrade_backup.py` streams an explicit stopped-state file selection, including
 recorded absent sidecars, into a private destination. Bounds are 256 selected names,
 1 GiB per file, and 4 GiB of selected bytes; reads use at most 1 MiB chunks. JSON
 state/document limits are unchanged. The snapshot records file bytes, hashes and
@@ -392,7 +392,7 @@ or certify that an incomplete caller-supplied selection contains all service dat
 Complete pre-shutdown space checks, ownership revalidation, SQLite logical comparison
 and publication of the plan-bound completed backup remain coordinator integration.
 
-`upgrade_backup_inventory.py` opens only a disposable, byte-verified copy when
+`koinon/upgrade_backup_inventory.py` opens only a disposable, byte-verified copy when
 capturing logical SQLite evidence. The main database, WAL, shared-memory file
 and rollback journal must all be selected explicitly, including absences. This
 allows SQLite recovery and shared-memory bookkeeping to affect the disposable

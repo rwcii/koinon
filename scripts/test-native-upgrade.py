@@ -12,10 +12,10 @@ import time
 
 SOURCE = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(SOURCE))
-import install_state
+from koinon import install_state
 import memory_service
-from participant_lock import file_lock
-import platform_support
+from koinon.participant_lock import file_lock
+from koinon import platform_support
 from scripts import install
 
 
@@ -25,7 +25,7 @@ def public_upgrade(fixture, source, interrupt, handoff=None):
     evidence = fixture.root / 'interruptions'
     evidence.mkdir(mode=0o700)
     if phases:
-        module = source / 'upgrade_journal.py'
+        module = source / 'koinon/upgrade_journal.py'
         with module.open('a') as stream:
             stream.write("\n# Synthetic process-interruption acceptance only.\n")
             stream.write('_fixture_advance = Journal.advance\n')
@@ -70,7 +70,7 @@ def public_upgrade(fixture, source, interrupt, handoff=None):
 
 
 def inactive_check(selection, kind, registered):
-    import upgrade_observation
+    from koinon import upgrade_observation
     observe = upgrade_observation.session if kind == 'session' else upgrade_observation.memory
     deadline = time.monotonic() + 10
     while True:
@@ -106,7 +106,7 @@ def session_case(backend, initial_state, interrupt):
                     path.chmod(0o700)
         (fixture.prefix / 'LICENSE').write_text('synthetic previous release')
         before = fixture.ensure()
-        import session_service_manager
+        from koinon import session_service_manager
         if initial_state != 'running':
             if initial_state == 'stopped':
                 session_service_manager.stop(fixture.selection)
@@ -114,7 +114,7 @@ def session_case(backend, initial_state, interrupt):
                 session_service_manager.deactivate(fixture.selection)
             inactive_check(fixture.selection, 'session', initial_state == 'stopped')
         report = public_upgrade(fixture, source, interrupt)
-        import session_service_manager
+        from koinon import session_service_manager
         if initial_state != 'running':
             inactive_check(fixture.selection, 'session', initial_state == 'stopped')
             fixture.ensure()
@@ -128,11 +128,11 @@ def session_case(backend, initial_state, interrupt):
         return 0
     finally:
         import session_service
-        import session_service_manager
-        import upgrade_exclusion
+        from koinon import session_service_manager
+        from koinon import upgrade_exclusion
         active = upgrade_exclusion.read(fixture.prefix)
         selected = session_service.Selection(fixture.prefix, fixture.home, upgrading=active is not None)
-        import session_service_artifacts
+        from koinon import session_service_artifacts
         with session_service_artifacts.locked(selected.home / 'lifecycle.lock'), \
                 session_service_artifacts.locked(selected.home / 'registration.lock'):
             session_service_manager.deactivate_locked(selected, allow_unstarted=True)
@@ -167,7 +167,7 @@ def combined_case(backend, interrupt):
         # baseline; bind alone leaves observation to asynchronous notifier work.
         fixture.command(bridge + ['refresh-memory', binding])
         def retained_bindings():
-            import memory_bindings
+            from koinon import memory_bindings
             page = json.loads(fixture.command(bridge + ['memory-bindings']))['result']
             if page['more']:
                 raise RuntimeError('synthetic single binding unexpectedly paginated')
@@ -191,9 +191,9 @@ def combined_case(backend, interrupt):
         return 0
     finally:
         import session_service
-        import session_service_artifacts
-        import session_service_manager
-        import upgrade_exclusion
+        from koinon import session_service_artifacts
+        from koinon import session_service_manager
+        from koinon import upgrade_exclusion
         if (fixture.prefix / 'install.json').exists():
             active = upgrade_exclusion.read(fixture.prefix)
             for record in fixture.session_records:
@@ -291,7 +291,7 @@ def main():
         # unrelated unit is discovered, stopped, disabled, or deleted here.
         with install_state.locked(fixture.prefix, validator=lambda value: value):
             with file_lock(fixture.selection.home / 'manager.lock', 'fixture_busy', None):
-                import upgrade_exclusion
+                from koinon import upgrade_exclusion
                 active = upgrade_exclusion.read(fixture.prefix)
                 selected = memory_service.Selection(fixture.prefix, fixture.repo, upgrading=active is not None)
                 memory_service.deactivate_owned(selected)

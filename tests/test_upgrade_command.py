@@ -11,10 +11,10 @@ from unittest.mock import patch
 import os
 
 from scripts import install
-import platform_support
-import upgrade_command
-import upgrade_exclusion
-import upgrade_plan
+from koinon import platform_support
+from koinon import upgrade_command
+from koinon import upgrade_exclusion
+from koinon import upgrade_plan
 from repo_root import ROOT
 
 
@@ -55,8 +55,8 @@ class CommandTests(unittest.TestCase):
         (harness / 'sitecustomize.py').write_text(
             'import sys\n'
             f'sys.path.insert(0, {str(self.source)!r})\n'
-            'import platform_support\n'
-            f'platform_support.upgrade_service_sources = lambda prefix: {sources!r}\n')
+            'import koinon.platform_support\n'
+            f'koinon.platform_support.upgrade_service_sources = lambda prefix: {sources!r}\n')
         self.env = {**os.environ, 'PYTHONPATH': str(harness)}
         self.config = dict(state_root=str(self.state), unit_dir=str(self.root / 'units'), codex=sys.executable)
         (self.prefix / 'install.json').write_text(json.dumps(self.config))
@@ -118,12 +118,12 @@ class CommandTests(unittest.TestCase):
         # The installed dispatcher is intentionally unavailable. Recovery runs
         # from the retained archive; it must still refuse an unexpected runtime
         # preimage rather than silently repair the deletion.
-        (self.prefix / 'upgrade_command.py').unlink()
+        (self.prefix / 'koinon/upgrade_command.py').unlink()
         result = self.command('--resume', loaded['plan']['directory'], '--plan', loaded['sha256'])
         self.assertNotEqual(result.returncode, 0)
         self.assertIn('ok', result.stderr)
         self.assertIsNotNone(upgrade_exclusion.read(self.prefix))
-        self.assertFalse((self.prefix / 'upgrade_command.py').exists())
+        self.assertFalse((self.prefix / 'koinon/upgrade_command.py').exists())
 
     def test_unowned_memory_refuses_before_marker_or_runtime_change(self):
         home = self.state / 'memory' / ('a' * 16)

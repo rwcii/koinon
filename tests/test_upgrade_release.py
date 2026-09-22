@@ -1,7 +1,7 @@
 """Strict selected membership for the immutable global release receipt."""
 import unittest
 
-import upgrade_release
+from koinon import upgrade_release
 
 
 class ReleaseEvidenceTests(unittest.TestCase):

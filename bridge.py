@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Local Claude peer protocol adapter. Python standard library only."""
 import argparse
-import runtime_names
+from koinon import runtime_names
 import asyncio
 import json
 import os
@@ -14,19 +14,19 @@ import subprocess
 import time
 import uuid
 
-from database_worker import DatabaseWorker, CapacityError, WorkerFailure
-from service_runtime import Admission, close_writer, drain_handlers, database_status, HANDSHAKE_TIMEOUT
-from peer_guidance import PEER_GUIDANCE, MEMORY_POINTER_GUIDANCE
-import platform_support
-import generation_stop
-import inbox_schema
-import delivery_ledger
-import durable_state
-import participant_presence
-import subscriptions
-import memory_bindings
+from koinon.database_worker import DatabaseWorker, CapacityError, WorkerFailure
+from koinon.service_runtime import Admission, close_writer, drain_handlers, database_status, HANDSHAKE_TIMEOUT
+from koinon.peer_guidance import PEER_GUIDANCE, MEMORY_POINTER_GUIDANCE
+from koinon import platform_support
+from koinon import generation_stop
+from koinon import inbox_schema
+from koinon import delivery_ledger
+from koinon import durable_state
+from koinon import participant_presence
+from koinon import subscriptions
+from koinon import memory_bindings
 
-from peer_transport import LIMIT, credentials, encode, peer_token, private_dir, target_path, control_exchange, UnsafeServiceEndpoint, NoControlReply
+from koinon.peer_transport import LIMIT, credentials, encode, peer_token, private_dir, target_path, control_exchange, UnsafeServiceEndpoint, NoControlReply
 DEFAULT = str(Path(os.environ.get('XDG_STATE_HOME', str(Path.home() / '.local/state'))) / 'koinon')
 
 
@@ -89,7 +89,7 @@ class InboxStore:
             raise
 
     def upgrade_inventory(self):
-        import upgrade_inventory
+        from koinon import upgrade_inventory
         return upgrade_inventory.capture(self.db)
 
     def close(self):
@@ -268,7 +268,7 @@ class Bridge:
         self.address = f'uds:/tmp/cc-socks/{os.getpid()}.sock'
         self.stop = asyncio.Event()
         self.generation = uuid.uuid4().hex
-        import upgrade_gate
+        from koinon import upgrade_gate
         self.upgrade = upgrade_gate.select(Path(__file__).parent, 'bridge', root, self.generation)
         self.hints = subscriptions.HintHub(self.generation)
         self.binding_health = {}
@@ -537,7 +537,7 @@ class Bridge:
             for path in (control, peer):
                 inherited = path == control and self.control_fd is not None
                 if inherited:
-                    import session_socket_handoff
+                    from koinon import session_socket_handoff
                     try:
                         sock = session_socket_handoff.take(self.control_fd, self.root, 'bridge', self.supervisor_generation)
                     except durable_state.StateReadBusyError:

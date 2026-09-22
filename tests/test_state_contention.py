@@ -6,11 +6,11 @@ import unittest
 from unittest.mock import patch
 
 import bridge
-import durable_state
+from koinon import durable_state
 import memory_service
-import notification_migration
+from koinon import notification_migration
 import session_service
-from session_supervisor_state import Records, StateError
+from koinon.session_supervisor_state import Records, StateError
 
 
 class StateContentionTests(unittest.TestCase):

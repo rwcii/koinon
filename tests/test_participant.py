@@ -7,7 +7,7 @@ import tempfile
 import unittest
 from unittest.mock import patch
 
-import dsh_delivery
+from koinon import dsh_delivery
 import session
 from repo_root import ROOT
 
@@ -117,7 +117,7 @@ class GuidanceTests(unittest.TestCase):
     its own marked section and they must be independently removable."""
 
     def test_deepseek_section_is_distinct_and_names_the_agent(self):
-        import codex_instructions as guidance
+        from koinon import codex_instructions as guidance
         deepseek = guidance.section(Path('/app'), 'deepseek')
         codex = guidance.section(Path('/app'), 'codex')
         self.assertIn(guidance.MARKERS['deepseek'][0], deepseek)
@@ -129,7 +129,7 @@ class GuidanceTests(unittest.TestCase):
         self.assertIn('CODEX_THREAD_ID', codex)
 
     def test_both_sections_coexist_and_remove_independently(self):
-        import codex_instructions as guidance
+        from koinon import codex_instructions as guidance
         with tempfile.TemporaryDirectory() as temp:
             home = Path(temp)
             home.joinpath('AGENTS.md').write_text('Personal guidance.\n')
@@ -147,7 +147,7 @@ class GuidanceTests(unittest.TestCase):
                           'removing one participant must not remove the other')
 
     def test_repeated_deepseek_update_is_idempotent(self):
-        import codex_instructions as guidance
+        from koinon import codex_instructions as guidance
         with tempfile.TemporaryDirectory() as temp:
             home = Path(temp)
             guidance.update(home, Path('/one'), agent='deepseek')
@@ -156,7 +156,7 @@ class GuidanceTests(unittest.TestCase):
             self.assertEqual(home.joinpath('AGENTS.md').read_text(), first)
 
     def test_unknown_participant_is_refused(self):
-        import codex_instructions as guidance
+        from koinon import codex_instructions as guidance
         with tempfile.TemporaryDirectory() as temp:
             with self.assertRaises(ValueError):
                 guidance.update(Path(temp), Path('/app'), agent='not-an-agent')

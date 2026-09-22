@@ -3,9 +3,9 @@ import unittest
 from unittest.mock import patch
 
 import test_upgrade_gate as fixtures
-import upgrade_coordinator
-from upgrade_documents import Documents
-import upgrade_exclusion
+from koinon import upgrade_coordinator
+from koinon.upgrade_documents import Documents
+from koinon import upgrade_exclusion
 
 
 class CoordinatorTests(unittest.TestCase):
@@ -20,7 +20,7 @@ class CoordinatorTests(unittest.TestCase):
 
     def test_prepared_pipeline_stops_at_durable_replacement_with_gate_closed(self):
         old = (self.prefix / 'entry.py').read_bytes()
-        with self.owner() as owner, patch('platform_support.session_manager_observation', return_value=dict(status='absent')):
+        with self.owner() as owner, patch('koinon.platform_support.session_manager_observation', return_value=dict(status='absent')):
             phase = upgrade_coordinator.through_replacement(owner)
             self.assertEqual(phase['step'], 9)
             self.assertEqual((self.prefix / 'entry.py').read_bytes(), (self.source / 'entry.py').read_bytes())
@@ -30,7 +30,7 @@ class CoordinatorTests(unittest.TestCase):
 
     def test_missing_prepared_destination_refuses_before_shutdown(self):
         (self.operation / 'runtime-backup').rmdir()
-        with self.owner() as owner, patch('upgrade_quiescence.stop_phase') as stop:
+        with self.owner() as owner, patch('koinon.upgrade_quiescence.stop_phase') as stop:
             with self.assertRaises((ValueError, OSError)):
                 upgrade_coordinator.through_replacement(owner)
             stop.assert_not_called()
@@ -43,7 +43,7 @@ class CoordinatorTests(unittest.TestCase):
             if name == 'backups':
                 raise OSError('synthetic lost backup completion')
             return digest
-        with self.owner() as owner, patch('platform_support.session_manager_observation', return_value=dict(status='absent')):
+        with self.owner() as owner, patch('koinon.platform_support.session_manager_observation', return_value=dict(status='absent')):
             old = (self.prefix / 'entry.py').read_bytes()
             with patch.object(Documents, 'put', new=interrupt):
                 with self.assertRaises(OSError):
@@ -53,7 +53,7 @@ class CoordinatorTests(unittest.TestCase):
             self.assertEqual(upgrade_coordinator.through_replacement(owner)['step'], 9)
 
     def test_completed_replacement_does_not_hide_a_substituted_runtime(self):
-        with self.owner() as owner, patch('platform_support.session_manager_observation', return_value=dict(status='absent')):
+        with self.owner() as owner, patch('koinon.platform_support.session_manager_observation', return_value=dict(status='absent')):
             upgrade_coordinator.through_replacement(owner)
             (self.prefix / 'entry.py').write_text('unexpected operator edit')
             with self.assertRaises(ValueError):
@@ -67,10 +67,10 @@ class NestedRuntimePipelineTests(unittest.TestCase):
         from pathlib import Path
         import sys
         import tempfile
-        import upgrade_bundle
-        import upgrade_plan
-        import upgrade_preflight
-        import upgrade_replace
+        from koinon import upgrade_bundle
+        from koinon import upgrade_plan
+        from koinon import upgrade_preflight
+        from koinon import upgrade_replace
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary).resolve()
             prefix, source = root / 'prefix', root / 'source'

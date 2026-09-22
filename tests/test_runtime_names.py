@@ -4,7 +4,7 @@ import tempfile
 import unittest
 from unittest import mock
 
-import runtime_names as names
+from koinon import runtime_names as names
 
 
 class RuntimeNameTests(unittest.TestCase):
@@ -82,8 +82,8 @@ class RuntimeNameTests(unittest.TestCase):
 
     def test_configuration_codes_are_closed_and_every_raise_is_classified(self):
         import ast
-        import memory_service_config
-        import memory_service_artifacts
+        from koinon import memory_service_config
+        from koinon import memory_service_artifacts
         raised = set()
         # Keep the vocabulary closed across the explicit configuration emitters.
         for source in (names.__file__, memory_service_config.__file__, memory_service_artifacts.__file__):

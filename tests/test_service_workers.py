@@ -16,7 +16,7 @@ from unittest import mock
 
 import bridge
 import memory
-from service_runtime import close_writer, drain_handlers
+from koinon.service_runtime import close_writer, drain_handlers
 
 REPO = '0123456789abcdef'
 

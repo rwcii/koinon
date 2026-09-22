@@ -2,10 +2,10 @@ from pathlib import Path
 import unittest
 from unittest.mock import patch
 
-import durable_state
-import platform_support
-import session_install
-import session_service_artifacts as artifacts
+from koinon import durable_state
+from koinon import platform_support
+from koinon import session_install
+from koinon import session_service_artifacts as artifacts
 import test_session_service_artifacts as artifact_tests
 
 

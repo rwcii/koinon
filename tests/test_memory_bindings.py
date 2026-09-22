@@ -18,10 +18,10 @@ import unittest
 from unittest import mock
 
 import bridge
-import inbox_schema
+from koinon import inbox_schema
 import memory
-import memory_bindings as bindings
-import subscriptions
+from koinon import memory_bindings as bindings
+from koinon import subscriptions
 
 FRAME = dict(type='user', message=dict(content='synthetic'))
 
@@ -292,7 +292,8 @@ CREATE TABLE memory_binding(binding TEXT PRIMARY KEY,repo_path TEXT,repo_key TEX
 
     def test_inbox_migration_process_death_rolls_back_columns_and_version(self):
         self.legacy_inbox()
-        source = """import os,sys,sqlite3,inbox_schema
+        source = """import os,sys,sqlite3
+from koinon import inbox_schema
 from pathlib import Path
 db=sqlite3.connect(Path(sys.argv[1])/'inbox.sqlite3')
 def trace(sql):
@@ -656,9 +657,9 @@ class BindingPublicTests(unittest.IsolatedAsyncioTestCase):
 
 class BindingRecoveryPolicyTests(unittest.TestCase):
     def test_binding_and_client_deadlines_cover_serial_inner_budgets(self):
-        import platform_support
-        import peer_transport
-        import service_runtime
+        from koinon import platform_support
+        from koinon import peer_transport
+        from koinon import service_runtime
         inner = (bindings.GIT_TIMEOUT + memory.VERIFY_TIMEOUT + bindings.STATUS_TIMEOUT
                  + platform_support.PROCESS_QUERY_TIMEOUT + 2*peer_transport.CONTROL_CLOSE_TIMEOUT)
         self.assertGreater(bindings.REQUEST_TIMEOUT, inner)

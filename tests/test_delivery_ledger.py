@@ -11,10 +11,10 @@ import unittest
 from unittest import mock
 
 import bridge
-import delivery_ledger as ledger
-import inbox_schema
-import notification_journal as journal
-import participant_presence as presence
+from koinon import delivery_ledger as ledger
+from koinon import inbox_schema
+from koinon import notification_journal as journal
+from koinon import participant_presence as presence
 from test_notification_journal import work
 
 FRAME = dict(msgV=1, msg_id='synthetic-message', type='user', priority='next',
@@ -421,8 +421,8 @@ class SocketEvidenceTests(unittest.IsolatedAsyncioTestCase):
 
 class ProviderEvidenceTests(unittest.IsolatedAsyncioTestCase):
     async def test_each_provider_records_acceptance_without_model_handling(self):
-        from notification_state import NotificationState
-        from notification_delivery import DeliveryLoop
+        from koinon.notification_state import NotificationState
+        from koinon.notification_delivery import DeliveryLoop
         for provider in ('codex', 'deepseek'):
             with self.subTest(provider=provider), tempfile.TemporaryDirectory() as folder:
                 root = Path(folder)

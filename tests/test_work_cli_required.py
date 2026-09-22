@@ -11,7 +11,7 @@ import unittest
 from unittest import mock
 
 import memory
-import work_items
+from koinon import work_items
 
 # Cases taken from the documented command table, not generated from REQUIRED.
 CASES = {

@@ -3,8 +3,8 @@ import tempfile
 import unittest
 from unittest.mock import patch
 
-import durable_state
-import upgrade_journal as journal
+from koinon import durable_state
+from koinon import upgrade_journal as journal
 
 
 class JournalTests(unittest.TestCase):
@@ -16,7 +16,7 @@ class JournalTests(unittest.TestCase):
 
     def test_concurrent_reader_waits_for_short_metadata_publication(self):
         from concurrent.futures import ThreadPoolExecutor
-        from participant_lock import file_lock
+        from koinon.participant_lock import file_lock
         import threading
         import time
         value = self.state.initialize()
@@ -126,7 +126,7 @@ class JournalTests(unittest.TestCase):
 
 
     def test_operation_lock_excludes_second_coordinator_but_not_journal_access(self):
-        from participant_lock import OwnershipError
+        from koinon.participant_lock import OwnershipError
         value = self.state.initialize()
         second = journal.Journal(self.root, 'a' * 64)
         with self.state.operation():

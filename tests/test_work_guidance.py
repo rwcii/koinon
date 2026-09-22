@@ -10,12 +10,12 @@ import tempfile
 import unittest
 from unittest.mock import patch
 
-import install_state
+from koinon import install_state
 import memory
-import participant_instructions as instructions
-import runtime_names
-import work_guidance as guidance
-import work_policy
+from koinon import participant_instructions as instructions
+from koinon import runtime_names
+from koinon import work_guidance as guidance
+from koinon import work_policy
 
 
 class GuidanceTests(unittest.TestCase):
@@ -25,7 +25,8 @@ class GuidanceTests(unittest.TestCase):
         self.root = Path(self.temp.name).resolve()
         self.prefix = self.root/'installed runtime'
         self.prefix.mkdir(mode=0o700)
-        for name in ('session.py', 'memory.py', 'work_policy.py', 'work_guidance.py'):
+        for name in ('session.py', 'memory.py', 'koinon/work_policy.py', 'koinon/work_guidance.py'):
+            (self.prefix/name).parent.mkdir(parents=True, exist_ok=True)
             (self.prefix/name).write_text('# synthetic installation\n')
             (self.prefix/name).chmod(0o600)
         self.repo = self.new_repo('repository one')
@@ -118,7 +119,7 @@ class GuidanceTests(unittest.TestCase):
         self.assertEqual(set(instructions.MARKERS), {'codex', 'deepseek'})
 
     def test_missing_installation_and_explicit_path_fail_before_writes(self):
-        (self.prefix/'work_guidance.py').unlink()
+        (self.prefix/'koinon/work_guidance.py').unlink()
         with self.assertRaises(guidance.GuidanceError):
             self.enable()
         self.assertEqual(self.target.read_bytes(), self.original)

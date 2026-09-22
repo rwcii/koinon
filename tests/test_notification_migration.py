@@ -5,10 +5,10 @@ import tempfile
 import unittest
 from unittest import mock
 
-import durable_state
-import notification_journal as journal
-import notification_migration as migration
-from participant_lock import identity
+from koinon import durable_state
+from koinon import notification_journal as journal
+from koinon import notification_migration as migration
+from koinon.participant_lock import identity
 from test_notification_journal import work
 
 PARTICIPANT = 'synthetic-session'

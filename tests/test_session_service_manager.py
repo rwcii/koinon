@@ -3,9 +3,9 @@ import subprocess
 import unittest
 from unittest.mock import patch
 
-import platform_support
+from koinon import platform_support
 import session_service as service
-import session_service_manager as manager
+from koinon import session_service_manager as manager
 import test_session_service as service_tests
 
 

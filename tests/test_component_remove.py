@@ -5,10 +5,10 @@ import tempfile
 import unittest
 from unittest.mock import patch
 
-import component_install
-import component_remove
-import durable_state
-import install_state
+from koinon import component_install
+from koinon import component_remove
+from koinon import durable_state
+from koinon import install_state
 import memory_service
 
 
@@ -73,8 +73,8 @@ class SessionComponentRemoveTests(unittest.TestCase):
     def setUp(self):
         import sys
         import test_session_service_artifacts as fixtures
-        import session_service_config
-        import session_service_artifacts
+        from koinon import session_service_config
+        from koinon import session_service_artifacts
         fixtures.NativeSessionArtifactsTests.setUp(self)
         self.record = session_service_config.selection(self.prefix, sys.executable, self.home,
                                                        self.config, self.registration, 'systemd')
@@ -84,7 +84,7 @@ class SessionComponentRemoveTests(unittest.TestCase):
         self.retained.write_bytes(b'preserved inbox and notification history')
 
     def test_unstarted_session_removal_is_repeatable_and_preserves_data(self):
-        import session_service_manager
+        from koinon import session_service_manager
         with patch.object(session_service_manager, 'observation', return_value=dict(status='absent')), \
                 install_state.locked(self.prefix):
             component_remove.remove_session(self.prefix, self.home)
@@ -94,8 +94,8 @@ class SessionComponentRemoveTests(unittest.TestCase):
         self.assertEqual(self.retained.read_bytes(), b'preserved inbox and notification history')
 
     def test_interrupted_session_artifact_unlink_retains_removal_provenance(self):
-        import platform_support
-        import session_service_manager
+        from koinon import platform_support
+        from koinon import session_service_manager
         sync = platform_support.sync_state_directory
         def interrupted(path):
             if Path(path) == self.artifact.parent:

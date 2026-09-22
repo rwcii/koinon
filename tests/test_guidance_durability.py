@@ -7,8 +7,8 @@ from unittest.mock import patch
 
 import memory
 import notify
-import participant_instructions as guidance
-import platform_support
+from koinon import participant_instructions as guidance
+from koinon import platform_support
 
 
 class GuidanceDurabilityTests(unittest.TestCase):

@@ -5,10 +5,10 @@ import tempfile
 import unittest
 from unittest.mock import patch
 
-import durable_state
-import platform_support
-import session_endpoints
-import upgrade_reservation as reservations
+from koinon import durable_state
+from koinon import platform_support
+from koinon import session_endpoints
+from koinon import upgrade_reservation as reservations
 
 
 class ReservationTests(unittest.TestCase):
@@ -37,7 +37,7 @@ class ReservationTests(unittest.TestCase):
         import sys
         program = """import os, sys
 from pathlib import Path
-import upgrade_reservation
+from koinon import upgrade_reservation
 with upgrade_reservation.hold(Path(sys.argv[1]), Path(sys.argv[2]), sys.argv[3]):
     os._exit(0)
 """

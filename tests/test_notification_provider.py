@@ -6,7 +6,7 @@ import tempfile
 import unittest
 from unittest import mock
 
-from notification_provider import Provider, MAX_NOTICE_BYTES
+from koinon.notification_provider import Provider, MAX_NOTICE_BYTES
 
 
 class ProviderTests(unittest.IsolatedAsyncioTestCase):
@@ -84,7 +84,7 @@ class ProviderTests(unittest.IsolatedAsyncioTestCase):
             entered.set()
             await release.wait()
             return process
-        with mock.patch('notification_provider.asyncio.create_subprocess_exec', delayed_creation):
+        with mock.patch('koinon.notification_provider.asyncio.create_subprocess_exec', delayed_creation):
             task = asyncio.create_task(provider.deliver('notice'))
             try:
                 await asyncio.wait_for(entered.wait(), 3)
@@ -147,14 +147,14 @@ class DeepSeekProviderTests(unittest.IsolatedAsyncioTestCase):
                 await asyncio.to_thread(thread.join)
 
     async def test_private_child_exit_contract_is_not_applied_to_codex(self):
-        from notification_provider import CHILD_INTERNAL, CHILD_REFUSED
+        from koinon.notification_provider import CHILD_INTERNAL, CHILD_REFUSED
         for agent in ('deepseek', 'codex'):
             for code in (0, 1, CHILD_REFUSED, CHILD_INTERNAL):
                 with self.subTest(agent=agent, code=code):
                     process = mock.Mock(returncode=code, communicate=mock.AsyncMock(return_value=(None, None)))
                     options = argparse.Namespace(agent=agent, codex='/synthetic', thread='synthetic',
                                                  dsh_url='http://127.0.0.1:1', dsh_credentials=None)
-                    with mock.patch('notification_provider.asyncio.create_subprocess_exec',
+                    with mock.patch('koinon.notification_provider.asyncio.create_subprocess_exec',
                                     mock.AsyncMock(return_value=process)):
                         if agent == 'deepseek' and code == CHILD_INTERNAL:
                             with self.assertRaisesRegex(RuntimeError, 'internal failure'):
@@ -168,22 +168,22 @@ class DeepSeekProviderTests(unittest.IsolatedAsyncioTestCase):
 class DeepSeekChildTests(unittest.TestCase):
     def child(self, raw):
         import io
-        from notification_provider import deepseek_child
-        with mock.patch('notification_provider.sys.stdin', mock.Mock(buffer=io.BytesIO(raw))):
+        from koinon.notification_provider import deepseek_child
+        with mock.patch('koinon.notification_provider.sys.stdin', mock.Mock(buffer=io.BytesIO(raw))):
             return deepseek_child(['--deepseek-child', '--url', 'http://127.0.0.1:1',
                                   '--session', 'synthetic'])
 
     def test_payload_refusal_precedes_any_adapter_call(self):
-        from notification_provider import CHILD_REFUSED
+        from koinon.notification_provider import CHILD_REFUSED
         for raw in (b'x' * (MAX_NOTICE_BYTES + 1), b'\xff'):
-            with self.subTest(size=len(raw)), mock.patch('notification_provider.dsh_delivery.deliver') as deliver:
+            with self.subTest(size=len(raw)), mock.patch('koinon.notification_provider.dsh_delivery.deliver') as deliver:
                 self.assertEqual(self.child(raw), CHILD_REFUSED)
                 deliver.assert_not_called()
 
     def test_adapter_expected_and_programming_errors_are_distinct(self):
-        import dsh_delivery
-        from notification_provider import CHILD_INTERNAL
+        from koinon import dsh_delivery
+        from koinon.notification_provider import CHILD_INTERNAL
         for fault, code in ((dsh_delivery.DeliveryError('synthetic'), 1),
                             (OSError('synthetic'), 1), (TypeError('synthetic defect'), CHILD_INTERNAL)):
-            with self.subTest(kind=type(fault)), mock.patch('notification_provider.dsh_delivery.deliver', side_effect=fault):
+            with self.subTest(kind=type(fault)), mock.patch('koinon.notification_provider.dsh_delivery.deliver', side_effect=fault):
                 self.assertEqual(self.child(b'notice'), code)

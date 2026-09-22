@@ -138,7 +138,7 @@ the existing systemd escaping rules, `UMask=0077`, `Restart=on-failure`, and per
 exit exclusions from `platform_support.PERMANENT_EXIT_STATUSES`. Unit activation alone
 is insufficient: confirm the runner and memory handshake before returning `running`.
 
-On macOS, add a user LaunchAgent backend selected through `platform_support.py`. Use a
+On macOS, add a user LaunchAgent backend selected through `koinon/platform_support.py`. Use a
 deterministic repository label and `~/Library/LaunchAgents/<label>.plist`, serialized
 with `plistlib`, an exact `ProgramArguments` array, `Umask` integer 63, explicit
 `RunAtLoad: true`, `ThrottleInterval: 10`, and `KeepAlive` with `SuccessfulExit: false`.

@@ -6,8 +6,8 @@ import plistlib
 import unittest
 from unittest.mock import patch
 
-import platform_support
-import session_service_config as configuration
+from koinon import platform_support
+from koinon import session_service_config as configuration
 
 
 class NativeSessionSelectionTests(unittest.TestCase):

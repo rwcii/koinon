@@ -5,8 +5,8 @@ import tempfile
 import threading
 import unittest
 
-from database_worker import DatabaseWorker, CapacityError, WorkerClosed, WorkerFailure
-from service_runtime import drain_handlers
+from koinon.database_worker import DatabaseWorker, CapacityError, WorkerClosed, WorkerFailure
+from koinon.service_runtime import drain_handlers
 
 
 async def reached(event):

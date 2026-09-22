@@ -4,9 +4,9 @@ import tempfile
 import unittest
 from unittest import mock
 
-import durable_state
-import notification_health as health
-from notification_journal import COUNTERS, MAX_WORK
+from koinon import durable_state
+from koinon import notification_health as health
+from koinon.notification_journal import COUNTERS, MAX_WORK
 
 OWNER = dict(owner='a' * 32, bridge_pid=11, notifier_pid=12, proc_start='synthetic-start')
 

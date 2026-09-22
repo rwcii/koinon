@@ -6,11 +6,11 @@ import sys
 import unittest
 from unittest.mock import patch
 
-from participant_lock import file_lock, OwnershipError
+from koinon.participant_lock import file_lock, OwnershipError
 import test_upgrade_gate as fixtures
-import upgrade_backup
-import upgrade_capture
-import upgrade_exclusion
+from koinon import upgrade_backup
+from koinon import upgrade_capture
+from koinon import upgrade_exclusion
 
 
 class CaptureTests(unittest.TestCase):
@@ -24,7 +24,7 @@ class CaptureTests(unittest.TestCase):
         return upgrade_exclusion.operation(self.operation, self.prepared['sha256'])
 
     def test_capture_holds_writer_exclusion_and_records_sidecar_absence(self):
-        with self.owner() as owner, patch('platform_support.session_manager_observation', return_value=dict(status='absent')):
+        with self.owner() as owner, patch('koinon.platform_support.session_manager_observation', return_value=dict(status='absent')):
             with upgrade_capture.hold(owner) as guard:
                 with self.assertRaises(OwnershipError):
                     with file_lock(self.home / 'supervisor.lock', 'busy', None):
@@ -44,7 +44,7 @@ class CaptureTests(unittest.TestCase):
                 self.assertEqual(upgrade_capture.copy_components(retry, [self.destination]), result)
 
     def test_runtime_backup_preserves_frozen_old_bytes_separately(self):
-        with self.owner() as owner, patch('platform_support.session_manager_observation', return_value=dict(status='absent')):
+        with self.owner() as owner, patch('koinon.platform_support.session_manager_observation', return_value=dict(status='absent')):
             with upgrade_capture.hold(owner) as guard:
                 result = upgrade_capture.copy_runtime(guard, self.destination)
                 self.assertEqual((self.destination / 'entry.py').read_bytes(), (self.prefix / 'entry.py').read_bytes())
@@ -62,7 +62,7 @@ class CaptureTests(unittest.TestCase):
 
     def test_changed_runtime_refuses_before_backup(self):
         (self.prefix / 'entry.py').write_text('changed old runtime')
-        with self.owner() as owner, patch('platform_support.session_manager_observation', return_value=dict(status='absent')):
+        with self.owner() as owner, patch('koinon.platform_support.session_manager_observation', return_value=dict(status='absent')):
             with upgrade_capture.hold(owner) as guard:
                 with self.assertRaises(ValueError):
                     upgrade_capture.copy_runtime(guard, self.destination)
@@ -77,7 +77,7 @@ class CaptureTests(unittest.TestCase):
                         "s.bind('unknown.sock'); s.close()"],
                        cwd=self.home, check=True)
         unknown.chmod(0o600)
-        with self.owner() as owner, patch('platform_support.session_manager_observation', return_value=dict(status='absent')):
+        with self.owner() as owner, patch('koinon.platform_support.session_manager_observation', return_value=dict(status='absent')):
             with upgrade_capture.hold(owner) as guard:
                 with self.assertRaises(upgrade_capture.CaptureError):
                     upgrade_capture.copy_components(guard, [self.destination])
@@ -87,7 +87,7 @@ class CaptureTests(unittest.TestCase):
         retained = self.home / 'retained.json'
         retained.write_text('{"synthetic": "must be retained"}')
         retained.chmod(0o600)
-        with self.owner() as owner, patch('platform_support.session_manager_observation', return_value=dict(status='absent')):
+        with self.owner() as owner, patch('koinon.platform_support.session_manager_observation', return_value=dict(status='absent')):
             with upgrade_capture.hold(owner) as guard:
                 upgrade_capture.copy_components(guard, [self.destination])
             retained.unlink()
@@ -97,20 +97,20 @@ class CaptureTests(unittest.TestCase):
         self.assertTrue((self.destination / 'retained.json').exists())
 
     def test_manager_reappearance_invalidates_guard(self):
-        with self.owner() as owner, patch('platform_support.session_manager_observation', return_value=dict(status='absent')):
+        with self.owner() as owner, patch('koinon.platform_support.session_manager_observation', return_value=dict(status='absent')):
             with upgrade_capture.hold(owner) as guard:
-                with patch('platform_support.session_manager_observation', return_value=dict(status='unknown')):
+                with patch('koinon.platform_support.session_manager_observation', return_value=dict(status='unknown')):
                     with self.assertRaises(ValueError):
                         guard.verify()
 
 
 class MemoryCaptureTests(unittest.TestCase):
     def setUp(self):
-        import durable_state
+        from koinon import durable_state
         import test_memory_service_artifacts as artifacts
-        import upgrade_bundle
-        import upgrade_manifest
-        import upgrade_plan
+        from koinon import upgrade_bundle
+        from koinon import upgrade_manifest
+        from koinon import upgrade_plan
         artifacts.MemoryArtifactTests.setUp(self)
         self.key, self.record, content = artifacts.MemoryArtifactTests.desired(self)
         self.config = dict(self.initial, memory_services=dict(version=1, repositories={self.key: self.record}))
@@ -150,13 +150,13 @@ class MemoryCaptureTests(unittest.TestCase):
 
     def test_memory_shutdown_and_capture_hold_start_lock_and_preserve_store(self):
         import sqlite3
-        import upgrade_quiescence
+        from koinon import upgrade_quiescence
         with sqlite3.connect(self.home / 'memory.sqlite3') as database:
             database.execute('CREATE TABLE retained (value TEXT)')
             database.execute('INSERT INTO retained VALUES (?)', ('synthetic retained content',))
         database.close()
         before = (self.home / 'memory.sqlite3').read_bytes()
-        with self.owner() as owner, patch('platform_support.systemd_service_observation', return_value=dict(status='absent')):
+        with self.owner() as owner, patch('koinon.platform_support.systemd_service_observation', return_value=dict(status='absent')):
             self.advance(owner, 4)
             result = upgrade_quiescence.stop_phase(owner, 'memory')
             self.assertFalse(result['components'][0]['running'])
@@ -172,7 +172,7 @@ class MemoryCaptureTests(unittest.TestCase):
 
     def test_memory_deregistration_is_observed_and_repeat_has_no_manager_action(self):
         import memory_service
-        import upgrade_quiescence
+        from koinon import upgrade_quiescence
         observed = dict(status='observed', pid=0)
         def deregister(record):
             self.assertEqual(record, self.record)
@@ -180,7 +180,7 @@ class MemoryCaptureTests(unittest.TestCase):
             observed.update(status='absent')
         with self.owner() as owner, \
                 patch.object(memory_service, 'manager_observation', side_effect=lambda selection: dict(observed)), \
-                patch('platform_support.memory_manager_deregister', side_effect=deregister) as action:
+                patch('koinon.platform_support.memory_manager_deregister', side_effect=deregister) as action:
             self.advance(owner, 4)
             result = upgrade_quiescence.stop_phase(owner, 'memory')
             self.assertFalse(result['components'][0]['registered'])

@@ -5,7 +5,7 @@ import tempfile
 import unittest
 from unittest import mock
 
-import notification_journal as journal
+from koinon import notification_journal as journal
 
 
 class JournalStorageTests(unittest.TestCase):

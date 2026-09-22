@@ -4,9 +4,9 @@ import unittest
 from unittest.mock import patch
 
 import test_upgrade_capture as fixtures
-import upgrade_capture
-from upgrade_documents import Documents
-import upgrade_replace
+from koinon import upgrade_capture
+from koinon.upgrade_documents import Documents
+from koinon import upgrade_replace
 
 
 class ReplacementTests(unittest.TestCase):
@@ -27,7 +27,7 @@ class ReplacementTests(unittest.TestCase):
 
     def test_replace_and_repeat_preserve_backups_and_confirm_all_source_bytes(self):
         old = (self.prefix / 'entry.py').read_bytes()
-        with self.owner() as owner, patch('platform_support.session_manager_observation', return_value=dict(status='absent')):
+        with self.owner() as owner, patch('koinon.platform_support.session_manager_observation', return_value=dict(status='absent')):
             with upgrade_capture.hold(owner) as guard:
                 self.prepare_backups(owner, guard)
                 result = upgrade_replace.replace(guard)
@@ -48,7 +48,7 @@ class ReplacementTests(unittest.TestCase):
         cached.chmod(0o600)
         untouched = cached.parent / 'unrelated.keep'
         untouched.write_text('retained unrelated file')
-        with self.owner() as owner, patch('platform_support.session_manager_observation', return_value=dict(status='absent')):
+        with self.owner() as owner, patch('koinon.platform_support.session_manager_observation', return_value=dict(status='absent')):
             with upgrade_capture.hold(owner) as guard:
                 self.prepare_backups(owner, guard)
                 upgrade_replace.replace(guard)
@@ -67,7 +67,7 @@ class ReplacementTests(unittest.TestCase):
         unrelated.write_text('do not remove')
         cached.symlink_to(unrelated)
         old = (self.prefix / 'entry.py').read_bytes()
-        with self.owner() as owner, patch('platform_support.session_manager_observation', return_value=dict(status='absent')):
+        with self.owner() as owner, patch('koinon.platform_support.session_manager_observation', return_value=dict(status='absent')):
             with upgrade_capture.hold(owner) as guard:
                 self.prepare_backups(owner, guard)
                 with self.assertRaisesRegex(ValueError, 'bytecode'):
@@ -82,7 +82,7 @@ class ReplacementTests(unittest.TestCase):
             if Path(path).name == 'replacement-progress.json' and value['index'] == 1:
                 raise OSError('synthetic completion interruption')
             return publish(path, value, **kwargs)
-        with self.owner() as owner, patch('platform_support.session_manager_observation', return_value=dict(status='absent')):
+        with self.owner() as owner, patch('koinon.platform_support.session_manager_observation', return_value=dict(status='absent')):
             with upgrade_capture.hold(owner) as guard:
                 self.prepare_backups(owner, guard)
                 with patch.object(upgrade_replace.durable_state, 'publish', side_effect=interrupt):
@@ -94,7 +94,7 @@ class ReplacementTests(unittest.TestCase):
 
     def test_missing_backup_receipt_prevents_runtime_mutation(self):
         before = (self.prefix / 'entry.py').read_bytes()
-        with self.owner() as owner, patch('platform_support.session_manager_observation', return_value=dict(status='absent')):
+        with self.owner() as owner, patch('koinon.platform_support.session_manager_observation', return_value=dict(status='absent')):
             with upgrade_capture.hold(owner) as guard:
                 owner.journal.advance(owner.journal.read(), evidence='a' * 64)
                 owner.journal.advance(owner.journal.read())
@@ -103,7 +103,7 @@ class ReplacementTests(unittest.TestCase):
         self.assertEqual((self.prefix / 'entry.py').read_bytes(), before)
 
     def test_substituted_completed_file_is_never_repaired_implicitly(self):
-        with self.owner() as owner, patch('platform_support.session_manager_observation', return_value=dict(status='absent')):
+        with self.owner() as owner, patch('koinon.platform_support.session_manager_observation', return_value=dict(status='absent')):
             with upgrade_capture.hold(owner) as guard:
                 self.prepare_backups(owner, guard)
                 upgrade_replace.replace(guard)

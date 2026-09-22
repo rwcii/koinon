@@ -6,7 +6,7 @@ import unittest
 from unittest.mock import Mock, patch
 
 import memory_service
-import platform_support
+from koinon import platform_support
 from repo_root import ROOT
 
 spec = importlib.util.spec_from_file_location('native_memory_fixture',

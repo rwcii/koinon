@@ -48,7 +48,7 @@ change the literal-path rule for peer socket addresses and key lookup.
 
 ## Managed participant guidance
 
-The implementation moves to `participant_instructions.py`. The old import name
+The implementation moves to `koinon/participant_instructions.py`. The old import name
 remains a compatibility shim to the same implementation. There must not be two
 independent update paths.
 

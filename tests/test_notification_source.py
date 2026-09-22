@@ -6,8 +6,8 @@ import tempfile
 import unittest
 
 import bridge
-import inbox_schema
-import notification_source as source
+from koinon import inbox_schema
+from koinon import notification_source as source
 from test_memory_bindings import record, observation
 
 

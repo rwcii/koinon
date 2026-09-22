@@ -3,7 +3,7 @@ from pathlib import Path
 import unittest
 from unittest.mock import AsyncMock, patch
 
-import generation_stop as guard
+from koinon import generation_stop as guard
 
 
 class StopProtocolTests(unittest.TestCase):

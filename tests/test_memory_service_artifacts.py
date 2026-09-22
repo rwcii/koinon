@@ -11,12 +11,12 @@ import tempfile
 import unittest
 from unittest.mock import patch
 
-import install_state
-import memory_service_artifacts as artifacts
-import memory_service_config as configuration
-from participant_lock import file_lock
-import platform_support
-import runtime_names
+from koinon import install_state
+from koinon import memory_service_artifacts as artifacts
+from koinon import memory_service_config as configuration
+from koinon.participant_lock import file_lock
+from koinon import platform_support
+from koinon import runtime_names
 
 
 class MemoryArtifactTests(unittest.TestCase):

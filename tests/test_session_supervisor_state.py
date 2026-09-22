@@ -4,8 +4,8 @@ import tempfile
 import unittest
 from unittest.mock import patch
 
-import durable_state
-import session_supervisor_state as state
+from koinon import durable_state
+from koinon import session_supervisor_state as state
 
 
 class SessionStateTests(unittest.TestCase):
@@ -17,7 +17,7 @@ class SessionStateTests(unittest.TestCase):
         self.owner = self.records.new_owner()
 
     def test_failure_codes_are_closed_and_all_have_exit_classification(self):
-        import session_supervisor
+        from koinon import session_supervisor
         self.assertEqual(set(session_supervisor.STATUSES), state.CODES)
         with self.assertRaises(ValueError):
             state.StateError('unclassified')

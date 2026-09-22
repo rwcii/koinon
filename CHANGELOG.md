@@ -5,6 +5,12 @@ into a dated release section when promoted to `main`.
 
 ## Unreleased
 
+- Move the implementation modules into a `koinon` package. The executable
+  entrypoints stay at the installation prefix — `bridge.py`, `notify.py`, `session.py`,
+  `memory.py`, `memory_service.py`, `session_service.py` and `usage_report.py` — so
+  installed service definitions and documented commands keep their paths. The shipped
+  file manifest moves with the layout.
+
 - Enable `fetch.prune` in `scripts/setup-repo.sh`, so a clone drops tracking refs
   for branches the remote has already deleted. A stale tracking ref otherwise reads
   as a live branch.

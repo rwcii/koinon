@@ -14,7 +14,7 @@ The peer transport below was observed in Claude Code 2.1.267 on Linux and 2.1.26
 
 ## Platform differences
 
-The wire protocol is identical on both platforms. The local facts around it are not, and each is handled in `platform_support.py`:
+The wire protocol is identical on both platforms. The local facts around it are not, and each is handled in `koinon/platform_support.py`:
 
 - **Peer identity.** Linux returns pid, uid and gid from one `SO_PEERCRED` getsockopt. macOS has no such option: `getpeereid` returns uid and gid only, and the peer pid comes from a separate `LOCAL_PEERPID` socket option. Both are required, and a failure to read them rejects the connection.
 - **Process start marker.** Linux reads field 22 of `/proc/<pid>/stat`, a tick count. macOS reports an asctime string, and Claude writes it in **UTC**, so a reader must force `TZ=UTC` rather than inherit the local zone; a local-time port is six hours off in a US mountain zone.
@@ -48,9 +48,9 @@ an authenticated agent type and cannot replace the bridge-owned guidance.
 
 ## Participant guidance
 
-`participant_instructions.py` manages guidance for both Codex and DeepSeek
+`koinon/participant_instructions.py` manages guidance for both Codex and DeepSeek
 participants, with separate Koinon markers and setup commands. The old
-`codex_instructions.py` import remains a shim. Updates and removal recognize legacy
+`koinon/codex_instructions.py` import remains a shim. Updates and removal recognize legacy
 markers and retain the legacy lock inodes to exclude old updaters. Koinon supplies the
 peer-input guidance in those managed instructions, each inbox result, and each queued
 notice. This does not depend on the participant runtime adding its own peer framing.

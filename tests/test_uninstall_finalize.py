@@ -6,7 +6,7 @@ import tempfile
 import unittest
 from unittest.mock import patch
 
-import uninstall_finalize as removal
+from koinon import uninstall_finalize as removal
 
 
 class FinalizeRemovalTests(unittest.TestCase):

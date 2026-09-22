@@ -1,7 +1,7 @@
 from pathlib import Path
 import tempfile
 import unittest
-import codex_instructions as guidance
+from koinon import codex_instructions as guidance
 
 class GuidanceTests(unittest.TestCase):
     def test_preserve_update_remove(self):

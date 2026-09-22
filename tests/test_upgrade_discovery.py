@@ -8,8 +8,8 @@ from types import SimpleNamespace
 import unittest
 from unittest.mock import patch
 
-import platform_support
-import upgrade_discovery as discovery
+from koinon import platform_support
+from koinon import upgrade_discovery as discovery
 
 
 class DiscoveryTests(unittest.TestCase):

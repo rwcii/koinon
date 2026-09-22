@@ -24,7 +24,7 @@ Source references name functions so the design remains readable after line numbe
 | `maybe_expire` runs at request boundaries | Add one bounded maintenance loop; the existing interval alone cannot wake an idle participant. |
 
 Retain one repository service, SQLite connection, database worker, and control endpoint.
-Add `work_items.py` for record validation, commands, and persistence, and `claims.py` for
+Add `koinon/work_items.py` for record validation, commands, and persistence, and `koinon/claims.py` for
 the reusable advisory lease engine. Neither opens a database or owns a daemon. `memory.py`
 owns transactions, schema migration, admission, stream serialization, and lifecycle;
 pass the existing store into the new components. Keep pure claim conflict functions

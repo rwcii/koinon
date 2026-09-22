@@ -11,12 +11,12 @@ import time
 import unittest
 from unittest.mock import Mock, patch
 
-import durable_state
+from koinon import durable_state
 import memory
 import memory_service
-import memory_service_artifacts
-import memory_service_config
-import platform_support
+from koinon import memory_service_artifacts
+from koinon import memory_service_config
+from koinon import platform_support
 from test_install import installer
 
 

@@ -6,8 +6,8 @@ import threading
 import unittest
 from unittest.mock import patch
 
-import codex_instructions as legacy
-import participant_instructions as guidance
+from koinon import codex_instructions as legacy
+from koinon import participant_instructions as guidance
 
 
 class MigrationTests(unittest.TestCase):
