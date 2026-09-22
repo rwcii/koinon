@@ -5,6 +5,13 @@ into a dated release section when promoted to `main`.
 
 ## Unreleased
 
+- Document the coordinated runtime upgrade as the supported operation it is, rather
+  than as work in progress with a manual runbook in its place. The installation guide
+  now carries the three command forms, the manual-backend handoff, and the permission
+  precondition that refuses a default `umask 002` checkout. The runbook remains for
+  legacy and manual deployments the operation does not cover. Two command forms that
+  the design document proposed do not parse and are corrected.
+
 - Support a declared runtime layout migration during upgrade. A release records
   where a shipped file moved to in `koinon/upgrade_layout.py`; replacement publishes the
   new path, confirms it, then retires the old one, and refuses an undeclared removal

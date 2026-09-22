@@ -529,10 +529,39 @@ do not treat installing files with `--no-start` as activating the new exclusion 
 ## Upgrades and removal
 
 Ordinary reinstall refuses changed runtime bytes when component selections exist.
-The supported coordinated replacement command is being implemented in
-[DQ-12](DELIVERY-QUEUE.md#dq-12--supported-resumable-runtime-upgrades). For legacy/manual
-deployments, use the [stopped-state runbook](WORK-ITEMS-UPGRADE.md), preserving the
-same prefix, state paths and targets. Never silently reset a checkpoint.
+Replacing them is a supported operation, not a runbook. Run it from a complete checkout
+of the new release against the installed prefix:
+
+```sh
+python3 /path/to/new-source/scripts/upgrade.py --prefix /absolute/installed/prefix --source /path/to/new-source
+python3 /path/to/new-source/scripts/upgrade.py --status /absolute/installed/prefix
+python3 /path/to/new-source/scripts/upgrade.py --resume /absolute/installed/prefix/.upgrade/OPERATION --plan PLAN_DIGEST
+```
+
+The three modes are mutually exclusive, and `--resume` requires the plan digest that
+`--status` reports. The operation is resumable from its recorded phase, takes its own
+consistent backup, and produces a before/after verification report naming what it
+preserved and what it found. It reports any memory service the installation does not
+own rather than adopting or passing over it. It also carries a release across a declared
+layout change, so a file that moved between releases is retired only after its new path
+is published and confirmed; see [WORK-ITEMS-UPGRADE.md](WORK-ITEMS-UPGRADE.md) for the
+retirement rules and the manual-backend handoff.
+
+Without a user service manager, which includes every macOS host, the operation stops at
+the component handoff and returns `manual_handoff_required` with the exact start command.
+Run that command in a persistent managed session, keep it alive, then resume with the plan
+digest. It does not detach the process for you.
+
+**Precondition, currently undocumented elsewhere:** every ancestor of the source checkout,
+and the checkout itself, must be owned by this user and must not be group- or
+other-writable. A default `umask 002`, which is the Debian and Ubuntu default, produces
+`0775` directories and the operation refuses with `unsafe manifest ancestor`, naming the
+path but not the mode. The same rule refuses installation through a second check. This is
+[issue #79](https://github.com/rwcii/koinon/issues/79).
+
+The [stopped-state runbook](WORK-ITEMS-UPGRADE.md) remains for legacy and manual
+deployments that the operation does not cover, preserving the same prefix, state paths
+and targets. Never silently reset a checkpoint.
 Do not run session commands from an older runtime during an upgrade. Older commands
 do not use the lifecycle lock that protects session startup. Already-installed code
 that predates upgrade markers may report `invalid_install_configuration` instead of
