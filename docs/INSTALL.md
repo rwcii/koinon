@@ -561,9 +561,9 @@ unreachable user service manager is a refusal to be corrected, not an automatic 
 checkout it reads from. Each ancestor must be a directory owned by this user or by root, and
 must not be group- or other-writable — except a root-owned sticky directory such as `/tmp`,
 which is allowed. The checkout itself must be owned by this user and must not be group- or
-other-writable. A default `umask 002`, the Debian and Ubuntu default, produces `0775`
-directories, so the operation refuses with `unsafe manifest ancestor`, naming the path but
-not the mode.
+other-writable. An account using `umask 002` creates `0775` directories, so the operation
+refuses with `unsafe manifest ancestor`, naming the path but not the mode. Check with
+`umask` and `stat -c '%a %U' <path>` before reporting a fault.
 
 Installation applies the same group- and other-writable rule, through a separate check, to
 the manager registration path it writes into rather than to a source checkout. The two

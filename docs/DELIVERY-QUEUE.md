@@ -354,8 +354,14 @@ frozen-plan preparation, service admission gates, owned shutdown, guarded backup
 capture, resumable file replacement, and exact memory migration checks. Gated memory
 startup defers search-index initialization until release. The public operation, complete
 preflight, restart orchestration, reporting, and native and manual interruption acceptance
-are implemented on top of that draft, and were exercised together in the real-host run
-recorded above.
+are implemented on top of that draft.
+
+The two kinds of evidence are separate and must not be read as one. Native component
+coverage, across both supported service managers and the interruption and resume paths, comes
+from the CI fixtures. The real-host run recorded above is a single host with a **selected
+`manual` memory backend**; it establishes the manual handoff, the resume, the layout
+migration and the preservation report on real hardware, and it establishes nothing about
+native interruption acceptance.
 
 Two operability defects remain open and are limitations of the delivered operation rather
 than missing implementation: #79 and #80, both named above. The manual-backend handoff is a
