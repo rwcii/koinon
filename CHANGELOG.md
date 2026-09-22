@@ -5,6 +5,11 @@ into a dated release section when promoted to `main`.
 
 ## Unreleased
 
+- Describe the shipped schema-5 work commands and advisory claims in module
+  documentation and CLI help, removing stale staging language. Document
+  `schema_too_old`, its configuration exit status, and recovery without resetting
+  stored state (#86).
+
 - Document the coordinated runtime upgrade as the supported operation it is, rather
   than as work in progress with a manual runbook in its place. The installation guide
   now carries the three command forms, the manual-backend handoff, and the permission

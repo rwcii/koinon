@@ -1,8 +1,8 @@
-"""Advisory lease primitives staged for work-items v1.
+"""Advisory lease primitives for work-items v1.
 
 These functions never access the filesystem or grant permission to perform work.
 LeaseEngine uses its caller's transaction and mandatory admission callback. It is
-wired through the staged work commands; public schema-5 activation remains separate.
+used by the schema-5 work commands; the memory service owns schema migration.
 """
 from dataclasses import dataclass
 import math
