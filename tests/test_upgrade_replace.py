@@ -148,6 +148,14 @@ class ReplacementTests(unittest.TestCase):
         self.assertEqual((self.prefix / 'entry.py').read_bytes(), old)
         self.assertEqual((directory / 'notes.txt').read_text(), 'operator data')
 
+    def test_untrusted_cache_from_too_many_interpreters_refuses(self):
+        directory, _ = self.untrusted_cache()
+        cached = next(directory.iterdir())
+        for index in range(upgrade_replace.MAX_CACHE_TAGS):
+            (directory / ('entry.synthetic-%d.pyc' % index)).write_bytes(cached.read_bytes())
+        with self.assertRaisesRegex(ValueError, 'untrusted_cache_contents: .*more than 8 interpreters'):
+            upgrade_replace.untrusted_caches(self.prefix, ['entry.py'])
+
     def test_preflight_reports_the_cache_it_will_quarantine(self):
         directory, _ = self.untrusted_cache()
         self.assertEqual(upgrade_replace.untrusted_caches(self.prefix, ['entry.py']), [str(directory)])

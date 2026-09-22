@@ -237,6 +237,13 @@ def combined_case(backend, interrupt, interactive_umask=0o077):
                 subprocess.run([str(value) for value in argv], check=True, capture_output=True,
                                preexec_fn=lambda: os.umask(interactive_umask))
         if interactive_umask != 0o077:
+            # The fixture's own commands above ran under umask 077 and created the old
+            # release's caches privately, and Python never changes an existing cache
+            # directory's mode. Remove them so the operator's commands are the first
+            # importers, as on an install whose services have not yet imported them.
+            for path in caches:
+                if path.is_dir():
+                    shutil.rmtree(path)
             interactive()
             if not any(path.is_dir() and path.stat().st_mode & 0o022 for path in caches):
                 raise RuntimeError('the previous release left no group-writable cache; '

@@ -7,6 +7,7 @@ a readable runtime and the frozen backup still holds every old path.
 The coordinator must call preflight before shutting down selected services.
 """
 import hashlib
+from itertools import islice
 import os
 from pathlib import Path
 import stat
@@ -132,20 +133,29 @@ def _backup_evidence(guard, phase):
     return value
 
 
-MAX_CACHE_ENTRIES = 64
+# An untrusted directory may hold caches from at most this many interpreter tags
+# (`cpython-313`, `cpython-314`, ...). With three optimization levels, a directory
+# for N selected modules therefore holds at most N * 3 * MAX_CACHE_TAGS entries,
+# a bound derived from the runtime rather than a fixed count.
+MAX_CACHE_TAGS = 8
 _CACHE_OPTIMIZATIONS = ('', '.opt-1', '.opt-2')
 
 
-def _cache_entry(name):
-    """Split `<stem>.<tag>[.opt-N].pyc` into its stem, or return None."""
+def _cache_name(name):
+    """Split `<stem>.<tag>[.opt-N].pyc` into (stem, tag), or return (None, None)."""
     if not name.endswith('.pyc'):
-        return None
+        return None, None
     parts = name[:-4].split('.')
     if parts[-1] in ('opt-1', 'opt-2'):
         parts = parts[:-1]
-    if len(parts) != 2 or not parts[0].isidentifier() or not parts[1]:
-        return None
-    return parts[0]
+    if (len(parts) != 2 or not parts[0].isidentifier() or not parts[1]
+            or not all(char.isalnum() or char in '_-' for char in parts[1])):
+        return None, None
+    return parts[0], parts[1]
+
+
+def _cache_entry(name):
+    return _cache_name(name)[0]
 
 
 def _cache_sources(root, names):
@@ -174,8 +184,8 @@ def _classify(directory, stems):
     A trusted directory is owned and writable only by its owner, and each cache
     for a selected source in it is a private regular file. Unrelated files in a
     trusted directory are preserved, as before. An untrusted directory may hold
-    only caches for selected sources, at most MAX_CACHE_ENTRIES of them, so that
-    quarantine never carries away data the operator did not create by importing.
+    only caches for selected sources, from at most MAX_CACHE_TAGS interpreters, so
+    that quarantine never carries away data the operator did not create by importing.
     """
     try:
         info = directory.lstat()
@@ -184,19 +194,26 @@ def _classify(directory, stems):
     parent = manifest.check_root(directory.parent)
     if not stat.S_ISDIR(info.st_mode) or info.st_uid != os.geteuid():
         raise ReplacementError('untrusted_cache_contents: %s is not an owned directory' % directory)
-    with os.scandir(directory) as scan:
-        entries = sorted(entry.name for entry in scan)
+    # Only the owner can add entries to a directory without group or other write,
+    # so its full listing is bounded by the owner; a writable one is read bounded.
+    limit = len(stems) * len(_CACHE_OPTIMIZATIONS) * MAX_CACHE_TAGS
     trusted = not info.st_mode & 0o022
+    with os.scandir(directory) as scan:
+        entries = sorted(entry.name for entry in (scan if trusted else islice(scan, limit + 1)))
     for name in entries:
-        if _cache_entry(name) in stems:
+        if trusted and _cache_entry(name) in stems:
             value = (directory / name).lstat()
             if not _safe(value, stat.S_ISREG) or value.st_nlink != 1:
                 trusted = False
     if trusted:
         return 'trusted'
-    if len(entries) > MAX_CACHE_ENTRIES:
+    if len(entries) > limit:
         raise ReplacementError('untrusted_cache_contents: %s holds more than %d entries'
-                               % (directory, MAX_CACHE_ENTRIES))
+                               % (directory, limit))
+    tags = {_cache_name(name)[1] for name in entries if _cache_entry(name) in stems}
+    if len(tags) > MAX_CACHE_TAGS:
+        raise ReplacementError('untrusted_cache_contents: %s holds caches for more than %d '
+                               'interpreters' % (directory, MAX_CACHE_TAGS))
     for name in entries:
         value = (directory / name).lstat()
         if (_cache_entry(name) not in stems or not stat.S_ISREG(value.st_mode)

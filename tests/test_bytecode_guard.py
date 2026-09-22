@@ -126,6 +126,21 @@ class GuardBehaviourTests(unittest.TestCase):
         self.assertEqual(self.run_entrypoint('bridge.py').returncode, 0)
         self.assertEqual(set(temporary.glob('koinon-pycache-*')), before)
 
+    def test_ordinary_caches_of_every_entrypoint_and_optimization_are_movable(self):
+        from koinon import upgrade_replace
+        from scripts import install
+        for name in ENTRYPOINTS:
+            for flags in ([], ['-O']):
+                result = subprocess.run([sys.executable, *flags, str(self.prefix / name), '--help'],
+                                        capture_output=True, text=True, cwd=self.root,
+                                        preexec_fn=lambda: os.umask(0o077))
+                self.assertEqual(result.returncode, 0, result.stderr)
+        package = self.prefix / 'koinon' / '__pycache__'
+        count = len(list(package.iterdir()))
+        self.assertGreater(count, 64, 'too few caches to exercise the bound')
+        package.chmod(0o775)
+        self.assertEqual(upgrade_replace.untrusted_caches(self.prefix, install.FILES), [str(package)])
+
     def test_importing_an_entrypoint_as_a_module_has_no_side_effects(self):
         result = subprocess.run([sys.executable, '-c',
             'import os, sys; sys.path.insert(0, sys.argv[1]); os.umask(0o022); '

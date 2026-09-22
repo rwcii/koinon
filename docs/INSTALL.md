@@ -188,8 +188,8 @@ The runtime upgrade reports each untrusted cache directory in its preflight evid
 (`untrusted_caches`) and, after the owned shutdown, moves it whole into the operation
 directory under `untrusted-cache/`. It keeps the directory there unchanged, and removes nothing. It refuses before
 shutdown with `untrusted_cache_contents` when such a directory holds anything other than
-caches for the runtime's own modules, or more than 64 entries, because moving it would
-carry away data that importing did not create. Preserve the reported entry and move it
+caches for the runtime's own modules, or caches from more than eight Python versions,
+because moving it would carry away data that importing did not create. Preserve the reported entry and move it
 yourself if it is yours.
 
 ## Repository components and native supervision
