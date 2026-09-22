@@ -19,7 +19,28 @@ agents of one family work in this repository at the same time, the user assigns 
 role suffix, for example `codex-review`. Use the same ID every session. The directory is
 `handoff/<agent-id>/`.
 
-## 2. Choose the branch
+## 2. Set up the directories
+
+Run this every time from the repository root. A fresh clone or a new worktree has neither
+directory, because `_handoff/` is ignored and `handoff/<agent-id>/` may not exist yet.
+
+```sh
+mkdir -p _handoff "handoff/<agent-id>"
+git check-ignore -q _handoff/ || printf '%s\n' '_handoff/' >> .gitignore
+if git check-ignore -q _handoff/ && git check-ignore -q _handoff/probe/probe.md \
+   && [ -z "$(git ls-files -- _handoff)" ]; then
+  echo "_handoff/ ready"
+else
+  echo "STOP: _handoff/ is not fully ignored, or Git tracks files in it"
+fi
+```
+
+`git check-ignore` asks Git itself, so it confirms that the directory and any file inside it are
+ignored, whatever rule matches. `git ls-files` confirms that Git tracks nothing there; an
+ignore rule does not untrack a file that was committed earlier. When the output is `STOP`, stop
+and tell the user; do not write private notes into a path Git can commit.
+
+## 3. Choose the branch
 
 ```sh
 git rev-parse --abbrev-ref HEAD
@@ -30,7 +51,7 @@ git rev-parse --abbrev-ref HEAD
 - On `main`, `develop` or a detached HEAD: create `chore/handoff-<agent-id>-<timestamp>` from
   the current commit and commit there. Never commit to `main` or `develop`.
 
-## 3. Take the timestamp from the shell
+## 4. Take the timestamp from the shell
 
 ```sh
 date -u +%Y-%m-%d-%H%M%S
@@ -39,16 +60,16 @@ date -u +%Y-%m-%d-%H%M%S
 Use UTC so that every agent's files sort in one order. The file is
 `handoff/<agent-id>/<timestamp>.md`, or `<timestamp>-<label>.md` when the user gives a label.
 
-## 4. Seed from the last handoff of this agent
+## 5. Seed from the last handoff of this agent
 
 Find it with the `pickup` skill's lookup (step 2 there). Carry forward only what is still true
 and still open. Drop work that is finished or abandoned. The new file is a complete snapshot,
 not a difference from the last one.
 
-A private `_handoff/` directory may exist. It is ignored by Git. You may use facts from it that
-are safe to publish; never copy it whole.
+Private notes belong in `_handoff/`, which step 2 verified is ignored. You may use facts from
+it that are safe to publish; never copy it whole.
 
-## 5. Verify, then write
+## 6. Verify, then write
 
 Check each volatile fact with a command before you write it: branch, tip commit, clean or dirty
 state, pull request and issue states, CI state. Write:
@@ -81,7 +102,7 @@ Use commit hashes, branch names, issue and pull request numbers, and repository-
 paths. Leave out a section that has no content. Follow the content rules in
 `agents/skills/AGENTS.md`: this file is public.
 
-## 6. Commit only the handoff file
+## 7. Commit only the handoff file
 
 ```sh
 git add -- handoff/<agent-id>/<file>.md
@@ -89,6 +110,7 @@ git commit -S -s -m "Record <agent-id> handoff <timestamp>" -- handoff/<agent-id
 ```
 
 The path after `--` limits the commit to that one file, even when other changes are staged.
+When step 2 added `_handoff/` to `.gitignore`, add `.gitignore` to both path lists.
 Use the human author identity that the repository's contribution rules require. Do not push:
 a push can publish unrelated work on the branch and starts CI. Push only when the task asks
 for it.
