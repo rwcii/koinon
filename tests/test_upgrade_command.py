@@ -144,6 +144,26 @@ class CommandTests(unittest.TestCase):
         self.assertEqual((self.prefix / 'install.json').read_bytes(), before)
         self.assertEqual((self.prefix / 'LICENSE').read_text(), 'synthetic old release license bytes')
 
+    def test_non_directory_state_ancestor_has_distinct_domain_refusal(self):
+        self.state.rmdir()
+        self.state.write_text('preserve this unrelated file')
+        configured = self.state / 'nested-state'
+        self.config['state_root'] = str(configured)
+        (self.prefix / 'install.json').write_text(json.dumps(self.config))
+        before = (self.prefix / 'install.json').read_bytes()
+        result = self.command('--prefix', self.prefix, '--source', self.source)
+        self.assertEqual(result.returncode, 1, result.stdout)
+        report = json.loads(result.stderr)
+        self.assertEqual(report['code'], 'invalid_state_root')
+        self.assertEqual(report['path'], str(configured))
+        self.assertEqual(report['recovery']['code'], 'invalid_state_root')
+        self.assertEqual(report['recovery']['phase'], 'refused_before_shutdown')
+        self.assertNotIn('[Errno', report['error'])
+        self.assertEqual(self.state.read_text(), 'preserve this unrelated file')
+        self.assertEqual((self.prefix / 'install.json').read_bytes(), before)
+        self.assertFalse((self.prefix / '.upgrade').exists())
+        self.assertIsNone(upgrade_exclusion.read(self.prefix))
+
     def test_unowned_memory_refuses_before_marker_or_runtime_change(self):
         home = self.state / 'memory' / ('a' * 16)
         home.mkdir(parents=True, mode=0o700)

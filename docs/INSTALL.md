@@ -536,8 +536,9 @@ initialized store.
 Upgrade preflight refuses an absent recorded state root with `code: missing_state_root`,
 the configured `path`, and recovery guidance before shutdown, runtime replacement,
 or publication of an upgrade operation. This applies to the installation state root
-and separately selected memory state roots. Upgrade does not create empty state to
-make its inventory pass.
+and separately selected memory state roots. A non-directory component blocking resolution
+of the recorded path instead returns `invalid_state_root`. Upgrade does not create empty
+state or remove an obstructing file to make its inventory pass.
 
 Verify the configured path and any expected mounted storage first. For an installation
 that has never been started, initialize the selected service using the installed

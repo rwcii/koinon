@@ -7,7 +7,7 @@ into a dated release section when promoted to `main`.
 
 - Report a missing recorded state root during upgrade preflight with
   `missing_state_root`, its path, and recovery guidance before shutdown or upgrade
-  publication. Preserve state and configuration rather than creating an empty
+  publication. Report a non-directory path component as `invalid_state_root`. Preserve state and configuration rather than creating an empty
   replacement. Installation now labels the state directory as configured, since
   staging without service initialization may leave it absent (#80).
 

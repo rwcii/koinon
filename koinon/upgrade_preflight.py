@@ -22,10 +22,15 @@ class PreflightError(ValueError):
     pass
 
 
-class MissingStateRootError(PreflightError):
+class StateRootError(PreflightError):
+    def __init__(self, path, code, reason):
+        self.path, self.code = str(path), code
+        super().__init__(reason + ': ' + self.path)
+
+
+class MissingStateRootError(StateRootError):
     def __init__(self, path):
-        self.path = str(path)
-        super().__init__('recorded state root is missing: ' + self.path)
+        super().__init__(path, 'missing_state_root', 'recorded state root is missing')
 
 
 def state_root(path):
@@ -34,6 +39,9 @@ def state_root(path):
         return manifest.select_root(path)
     except FileNotFoundError as exc:
         raise MissingStateRootError(path) from exc
+    except NotADirectoryError as exc:
+        raise StateRootError(path, 'invalid_state_root',
+                             'recorded state root has a non-directory path component') from exc
 
 
 class UnownedMemoryError(PreflightError):
