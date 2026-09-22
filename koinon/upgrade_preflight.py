@@ -92,8 +92,15 @@ def runtime_pair(prefix, source):
     old, new = runtime_manifest(prefix), runtime_manifest(source)
     upgrade_replace.preflight(new, old)
     retired = upgrade_replace.retirements(new, old)
-    upgrade_replace.bytecode_paths(prefix, [*new['files'], *(name for name, _ in retired)])
+    bytecode_caches(prefix, dict(runtime=old, source=new))
     return dict(runtime=old, source=new)
+
+
+def bytecode_caches(prefix, pair):
+    """Name the untrusted caches replacement will quarantine; refuse unmovable ones."""
+    retired = upgrade_replace.retirements(pair['source'], pair['runtime'])
+    return upgrade_replace.untrusted_caches(
+        prefix, [*pair['source']['files'], *(name for name, _ in retired)])
 
 
 def memory_ownership(config):

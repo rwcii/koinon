@@ -1,6 +1,6 @@
-"""Experimental public upgrade dispatcher and retained recovery entrypoint.
+"""Public upgrade dispatcher and retained recovery entrypoint.
 
-Only the explicitly checked native adapter is currently executable.
+Native and manual memory selections and native sessions are executable.
 Unsupported selections refuse before shutdown; never infer adoption or rollback.
 """
 import argparse
@@ -54,6 +54,7 @@ def prepare(prefix, source):
     """Complete native preflight under one installation lock; retain recovery first."""
     prefix = manifest.select_root(prefix)
     pair = upgrade_preflight.runtime_pair(prefix, source)
+    caches = upgrade_preflight.bytecode_caches(prefix, pair)
     with install_state.locked(prefix) as installed:
         previous = _current(prefix)
         if previous is not None and previous['phase']['step'] != 19:
@@ -91,7 +92,8 @@ def prepare(prefix, source):
         documents = Documents(operation)
         documents.put('prepared-checks', dict(version=1, plan=prepared['sha256'],
             memory_ownership=observed['memory_ownership'],
-            service_ownership=observed['service_ownership'], capacity=budget, databases=checks))
+            service_ownership=observed['service_ownership'], capacity=budget, databases=checks,
+            untrusted_caches=caches))
         # Publish a discoverable recovery pointer before the exclusion marker.
         # A crash here resumes phase zero under the original configuration.
         durable_state.publish(parent / 'current.json', dict(version=1,
@@ -124,12 +126,21 @@ def resume(directory, digest):
 def _execute(loaded):
     archive = upgrade_bundle.verify(loaded['documents']['recovery'], loaded['documents']['source'],
                                     require_source=loaded['phase']['step'] != 19)
+    # The bytecode guard's private cache directory stays empty, and execv skips the
+    # exit handler that would remove it. The archive imports from the zip, which
+    # never reads a __pycache__ directory.
+    private = getattr(sys, 'pycache_prefix', None)
+    if private and Path(private).name.startswith('koinon-pycache-'):
+        try:
+            os.rmdir(private)
+        except OSError:
+            pass
     os.execv(sys.executable, [sys.executable, '-I', str(archive), '--resume',
                              loaded['plan']['directory'], '--plan', loaded['sha256'], '--recovery'])
 
 
 def main(argv=None):
-    parser = argparse.ArgumentParser(description='Experimental resumable native runtime upgrade')
+    parser = argparse.ArgumentParser(description='Resumable runtime upgrade of an installed prefix')
     mode = parser.add_mutually_exclusive_group(required=True)
     mode.add_argument('--prefix', help='explicit installed prefix for a new operation')
     mode.add_argument('--resume', metavar='DIRECTORY', help='retained operation directory')
