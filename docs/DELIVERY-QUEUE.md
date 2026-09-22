@@ -329,20 +329,44 @@ Acceptance requirements:
 ## DQ-12 — Supported, resumable runtime upgrades
 
 **Source:** user requirement conveyed by the reviewer and recorded in
-[issue #43](https://github.com/rwcii/koinon/issues/43). **Status:** implementation in progress against the peer-reviewed
+[issue #43](https://github.com/rwcii/koinon/issues/43). **Status:** delivered against the peer-reviewed
 [RUNTIME-UPGRADE-DESIGN.md](RUNTIME-UPGRADE-DESIGN.md). Uses the delivered
-DQ-11 component ownership and lifecycle inventory. The existing manual runbook applies
-to legacy/manual deployments; native runtime replacement remains refused until the
-supported operation is implemented and verified.
+DQ-11 component ownership and lifecycle inventory. Native runtime replacement is performed
+by the operation; the manual runbook applies to legacy and manual deployments it does not
+cover.
+
+The operation has been exercised on a real host, not only in CI: a pinned previous release
+was installed by its own installer and manifest into an isolated prefix, then upgraded to
+the current release through `scripts/upgrade.py`. It crossed the declared layout change,
+completed through the manual-backend handoff and resume, preserved the store identity, and
+returned `release_decision_committed`. Evidence is recorded on issue #43.
+
+Two operability defects remain open against it and are not closed by that evidence:
+[#79](https://github.com/rwcii/koinon/issues/79), where a default `umask 002` account is
+refused by both installation and upgrade, and
+[#80](https://github.com/rwcii/koinon/issues/80), where a recorded state root that was never
+created surfaces as a raw `OSError` rather than a domain refusal.
 
 The read-only inventory/source foundation is merged in [PR #68](https://github.com/rwcii/koinon/pull/68).
 The [coordinator draft, PR #70](https://github.com/rwcii/koinon/pull/70), stages phase
 records, immutable evidence, isolated recovery archives, native observations,
 frozen-plan preparation, service admission gates, owned shutdown, guarded backup
 capture, resumable file replacement, and exact memory migration checks. Gated memory
-startup defers search-index initialization until release. The public operation,
-complete preflight, restart orchestration, reporting, and native/manual interruption
-acceptance remain unfinished. Passing helper tests do not complete this queue item.
+startup defers search-index initialization until release. The public operation, complete
+preflight, restart orchestration, reporting, and native and manual interruption acceptance
+are implemented on top of that draft.
+
+The two kinds of evidence are separate and must not be read as one. Native component
+coverage, across both supported service managers and the interruption and resume paths, comes
+from the CI fixtures. The real-host run recorded above is a single host with a **selected
+`manual` memory backend**; it establishes the manual handoff, the resume, the layout
+migration and the preservation report on real hardware, and it establishes nothing about
+native interruption acceptance.
+
+Two operability defects remain open and are limitations of the delivered operation rather
+than missing implementation: #79 and #80, both named above. The manual-backend handoff is a
+property of a selected `manual` backend, not of any platform; launchd hosts upgrade without
+it.
 
 Turn the coordinated upgrade into an executable operation that records its phases,
 performs its own inventory and backup, and verifies recovery. Preserve explicit

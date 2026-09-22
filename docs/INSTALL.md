@@ -529,10 +529,51 @@ do not treat installing files with `--no-start` as activating the new exclusion 
 ## Upgrades and removal
 
 Ordinary reinstall refuses changed runtime bytes when component selections exist.
-The supported coordinated replacement command is being implemented in
-[DQ-12](DELIVERY-QUEUE.md#dq-12--supported-resumable-runtime-upgrades). For legacy/manual
-deployments, use the [stopped-state runbook](WORK-ITEMS-UPGRADE.md), preserving the
-same prefix, state paths and targets. Never silently reset a checkpoint.
+Replacing them is a supported operation, not a runbook. Run it from a complete checkout
+of the new release against the installed prefix:
+
+```sh
+python3 /path/to/new-source/scripts/upgrade.py --prefix /absolute/installed/prefix --source /path/to/new-source
+python3 /path/to/new-source/scripts/upgrade.py --status /absolute/installed/prefix
+python3 /path/to/new-source/scripts/upgrade.py --resume /absolute/installed/prefix/.upgrade/OPERATION --plan PLAN_DIGEST
+```
+
+The three modes are mutually exclusive, and `--resume` requires the plan digest that
+`--status` reports. The operation is resumable from its recorded phase, takes its own
+consistent backup, and produces a before/after verification report naming what it
+preserved and what it found. It reports any memory service the installation does not
+own rather than adopting or passing over it. It also carries a release across a declared
+layout change, so a file that moved between releases is retired only after its new path
+is published and confirmed; see [WORK-ITEMS-UPGRADE.md](WORK-ITEMS-UPGRADE.md) for the
+retirement rules and the manual-backend handoff.
+
+When the memory component's selected backend is `manual`, the operation stops at that
+component and returns `manual_handoff_required` with the exact start command. Run it in a
+persistent managed session, keep it alive, then resume with the plan digest. The operation
+never detaches a process, and a printed command is not readiness.
+
+This is a property of the selected backend, not of the platform. macOS installs launchd
+components like any other supported host, and they are upgraded without a handoff. An
+unreachable user service manager is a refusal to be corrected, not an automatic fallback to
+`manual`.
+
+**Precondition, currently undocumented elsewhere.** The operation validates the source
+checkout it reads from. Each ancestor must be a directory owned by this user or by root, and
+must not be group- or other-writable — except a root-owned sticky directory such as `/tmp`,
+which is allowed. The checkout itself must be owned by this user and must not be group- or
+other-writable. An account using `umask 002` creates `0775` directories, so the operation
+refuses with `unsafe manifest ancestor`, naming the path but not the mode. Check with `umask`
+and `ls -ld <path>` before reporting a fault: a `w` in the group or other position is the
+condition, and the trailing `t` on a root-owned `/tmp` is the exception that is allowed.
+
+Installation applies the same group- and other-writable rule, through a separate check, to
+the manager registration path it writes into rather than to a source checkout. The two
+checks have different targets and different implementations; both are
+[issue #79](https://github.com/rwcii/koinon/issues/79).
+
+The [stopped-state runbook](WORK-ITEMS-UPGRADE.md) remains for legacy and manual
+deployments that the operation does not cover, preserving the same prefix, state paths
+and targets. Never silently reset a checkpoint.
 Do not run session commands from an older runtime during an upgrade. Older commands
 do not use the lifecycle lock that protects session startup. Already-installed code
 that predates upgrade markers may report `invalid_install_configuration` instead of

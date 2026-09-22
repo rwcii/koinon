@@ -5,6 +5,13 @@ into a dated release section when promoted to `main`.
 
 ## Unreleased
 
+- Document the coordinated runtime upgrade as the supported operation it is, rather
+  than as work in progress with a manual runbook in its place. The installation guide
+  now carries the three command forms, the manual-backend handoff, and the permission
+  precondition that refuses a default `umask 002` checkout. The runbook remains for
+  legacy and manual deployments the operation does not cover. Two command forms that
+  the design document proposed do not parse and are corrected.
+
 - Correct statements in `README.md` and `AGENTS.md` that the code contradicts. A session
   job's launchd artifact is published under its own state directory, not in
   `~/Library/LaunchAgents`, which holds only the memory artifact. `--name` is read on the

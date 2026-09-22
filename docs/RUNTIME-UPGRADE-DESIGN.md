@@ -7,13 +7,18 @@ different runtime bytes during ordinary repeat installation.
 
 ## Scope and command
 
-Proposed entrypoint:
+Entrypoint, as delivered:
 
 ```sh
 python3 scripts/upgrade.py --prefix /selected/runtime --source /selected/release
-python3 scripts/upgrade.py --prefix /selected/runtime --resume
-python3 scripts/upgrade.py --prefix /selected/runtime --status
+python3 scripts/upgrade.py --status /selected/runtime
+python3 scripts/upgrade.py --resume /selected/runtime/.upgrade/OPERATION --plan PLAN_DIGEST
 ```
+
+The three modes are mutually exclusive. `--status` and `--resume` take their target as the
+option's own value, and `--resume` requires the plan digest that `--status` reports. An
+earlier draft of this document proposed `--prefix … --resume` and `--prefix … --status`;
+neither form parses.
 
 The operation is scoped to one installed prefix and every registered component loading
 its files. A runtime is shared by its sessions and selected repositories; upgrading

@@ -11,10 +11,10 @@ bindings reject memory schema versions that do not match their runtime.
 Installing code and configuring work guidance are distinct from starting a repository
 memory service. Memory remains optional; explicit repository component installation can
 start its owned supervisor, but never creates participant bindings automatically.
-Native component selections refuse different runtime bytes during an ordinary reinstall;
-the coordinated replacement operation is tracked separately in DQ-12. The following
-manual runbook applies to legacy/manual deployments, not a bypass for that refusal.
-The development branch also provides an **experimental upgrade coordinator**:
+Native component selections refuse different runtime bytes during an ordinary reinstall.
+The supported coordinated replacement operation performs that replacement; the manual
+runbook below applies to legacy and manual deployments it does not cover, and is not a
+bypass for that refusal. The operation is:
 
 ```sh
 python3 /path/to/new-source/scripts/upgrade.py --prefix /absolute/installed/prefix --source /path/to/new-source
