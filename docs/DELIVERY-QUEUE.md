@@ -341,11 +341,17 @@ the current release through `scripts/upgrade.py`. It crossed the declared layout
 completed through the manual-backend handoff and resume, preserved the store identity, and
 returned `release_decision_committed`. Evidence is recorded on issue #43.
 
-Two operability defects remain open against it and are not closed by that evidence:
-[#79](https://github.com/rwcii/koinon/issues/79), where a default `umask 002` account is
-refused by both installation and upgrade, and
+One operability defect remains open against it and is not closed by that evidence:
 [#80](https://github.com/rwcii/koinon/issues/80), where a recorded state root that was never
 created surfaces as a raw `OSError` rather than a domain refusal.
+
+[#79](https://github.com/rwcii/koinon/issues/79) is resolved as a documented precondition
+rather than as a relaxed rule. An account whose `umask` is `002` creates `0775` directories,
+which installation and upgrade refuse. The refusal stands, because a group-writable directory
+cannot be shown to grant write access to the owner alone: a group entry omits the accounts
+whose primary group it is, and account enumeration can be partial or unavailable. What
+changed is that each refusal now names the mode and the remedy beside the path, and
+`docs/INSTALL.md` states the requirement before the first install.
 
 The read-only inventory/source foundation is merged in [PR #68](https://github.com/rwcii/koinon/pull/68).
 The [coordinator draft, PR #70](https://github.com/rwcii/koinon/pull/70), stages phase
@@ -363,8 +369,9 @@ from the CI fixtures. The real-host run recorded above is a single host with a *
 migration and the preservation report on real hardware, and it establishes nothing about
 native interruption acceptance.
 
-Two operability defects remain open and are limitations of the delivered operation rather
-than missing implementation: #79 and #80, both named above. The manual-backend handoff is a
+One operability defect remains open and is a limitation of the delivered operation rather
+than missing implementation: #80, named above. #79 is resolved as a documented precondition,
+also above. The manual-backend handoff is a
 property of a selected `manual` backend, not of any platform; launchd hosts upgrade without
 it.
 
