@@ -182,6 +182,10 @@ def main(argv=None):
                 next_step='Verify the configured path and any expected mount. For a never-started installation, initialize the selected service with the installed runtime before retrying. If state previously existed, recover it before retrying.',
                 preserve='Do not create an empty replacement or reset configuration to bypass this refusal.',
                 phase='refused_before_shutdown')
+            if exc.code == 'invalid_state_root':
+                result['recovery'].update(
+                    next_step='Inspect the recorded path and its non-directory component. Verify the intended state location and resolve the obstruction explicitly before retrying.',
+                    preserve='Do not delete or overwrite the obstructing file, create replacement state, or reset configuration to bypass this refusal.')
         if isinstance(exc, (upgrade_preflight.UnownedMemoryError, upgrade_preflight.UnownedServiceError)):
             service = isinstance(exc, upgrade_preflight.UnownedServiceError)
             result['service_ownership' if service else 'memory_ownership'] = exc.report

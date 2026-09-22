@@ -157,6 +157,8 @@ class CommandTests(unittest.TestCase):
         self.assertEqual(report['code'], 'invalid_state_root')
         self.assertEqual(report['path'], str(configured))
         self.assertEqual(report['recovery']['code'], 'invalid_state_root')
+        self.assertIn('non-directory component', report['recovery']['next_step'])
+        self.assertIn('Do not delete or overwrite the obstructing file', report['recovery']['preserve'])
         self.assertEqual(report['recovery']['phase'], 'refused_before_shutdown')
         self.assertNotIn('[Errno', report['error'])
         self.assertEqual(self.state.read_text(), 'preserve this unrelated file')
