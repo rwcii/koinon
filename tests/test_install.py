@@ -7,8 +7,9 @@ import subprocess
 import sys
 import tempfile
 import unittest
+from repo_root import ROOT
 
-spec = importlib.util.spec_from_file_location('installer',Path(__file__).parent/'scripts/install.py')
+spec = importlib.util.spec_from_file_location('installer',ROOT/'scripts/install.py')
 installer = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(installer)
 
@@ -103,7 +104,7 @@ class InstallTests(unittest.TestCase):
             self.assertTrue((root/'app/docs/WORK-ITEMS-UPGRADE.md').exists())
 
     def test_memory_local_imports_are_packaged(self):
-        root = Path(__file__).parent
+        root = ROOT
         tree = ast.parse((root/'memory.py').read_text())
         imports = set()
         for node in tree.body:

@@ -5,6 +5,10 @@ into a dated release section when promoted to `main`.
 
 ## Unreleased
 
+- Move the test suite into `tests/`, leaving the repository root for modules,
+  documents and project metadata. Run the suite with
+  `python3 -m unittest discover -v -s tests` from the repository root.
+
 - Report and refuse unowned user-service definitions that directly reference an upgrading runtime, including loaded custom artifacts and definitions outside saved state roots.
 
 - Upgrade saved manual memory through a verified persistent foreground handoff, retaining resumable phases and original stopped state. Legacy manual sessions still require explicit ownership migration.

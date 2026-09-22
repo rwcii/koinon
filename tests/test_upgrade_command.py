@@ -15,6 +15,7 @@ import platform_support
 import upgrade_command
 import upgrade_exclusion
 import upgrade_plan
+from repo_root import ROOT
 
 
 class CommandTests(unittest.TestCase):
@@ -23,7 +24,7 @@ class CommandTests(unittest.TestCase):
         self.addCleanup(temporary.cleanup)
         self.root = Path(temporary.name).resolve()
         self.prefix, self.source, self.state = [self.root / name for name in ('prefix', 'source', 'state')]
-        project = Path(__file__).resolve().parent
+        project = ROOT
         for root in (self.prefix, self.source):
             root.mkdir(mode=0o700)
             for name in install.FILES:

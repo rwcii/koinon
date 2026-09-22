@@ -7,9 +7,10 @@ from unittest.mock import Mock, patch
 
 import memory_service
 import platform_support
+from repo_root import ROOT
 
 spec = importlib.util.spec_from_file_location('native_memory_fixture',
-    Path(__file__).parent / 'scripts/test-native-memory.py')
+    ROOT / 'scripts/test-native-memory.py')
 fixture_module = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(fixture_module)
 

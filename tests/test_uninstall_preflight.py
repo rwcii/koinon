@@ -6,9 +6,10 @@ import tempfile
 from types import SimpleNamespace
 import unittest
 from unittest.mock import patch
+from repo_root import ROOT
 
-with patch.object(sys, 'path', [str(Path(__file__).parent / 'scripts'), *sys.path]):
-    spec = importlib.util.spec_from_file_location('preflight_uninstall', Path(__file__).parent / 'scripts/uninstall.py')
+with patch.object(sys, 'path', [str(ROOT / 'scripts'), *sys.path]):
+    spec = importlib.util.spec_from_file_location('preflight_uninstall', ROOT / 'scripts/uninstall.py')
     uninstall = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(uninstall)
 

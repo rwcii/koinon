@@ -9,9 +9,10 @@ from unittest.mock import patch
 
 import dsh_delivery
 import session
+from repo_root import ROOT
 
 
-PROJECT = Path(__file__).resolve().parent
+PROJECT = ROOT
 
 
 SETTINGS = '''ui-onboarding:
