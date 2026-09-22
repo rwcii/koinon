@@ -10,6 +10,8 @@ import os
 from pathlib import Path, PurePosixPath
 import stat
 
+from koinon import path_permissions
+
 MAX_FILES = 256
 MAX_FILE_BYTES = 4 << 20
 MAX_TOTAL_BYTES = 64 << 20
@@ -52,13 +54,14 @@ def check_root(root):
         raise ManifestError('absolute manifest root required')
     for parent in (*reversed(root.parents), root):
         info = parent.lstat()
-        temporary_root = info.st_uid == 0 and bool(info.st_mode & stat.S_ISVTX)
         if (not stat.S_ISDIR(info.st_mode) or info.st_uid not in (0, os.geteuid())
-                or info.st_mode & 0o022 and not temporary_root):
-            raise ManifestError('unsafe manifest ancestor: ' + str(parent))
+                or path_permissions.writable_by_others(info)
+                and not path_permissions.temporary_root(info)):
+            raise ManifestError('unsafe manifest ancestor: '
+                                + path_permissions.describe(parent, info))
     info = root.lstat()
-    if info.st_uid != os.geteuid() or info.st_mode & 0o022:
-        raise ManifestError('unsafe manifest root: ' + str(root))
+    if info.st_uid != os.geteuid() or path_permissions.writable_by_others(info):
+        raise ManifestError('unsafe manifest root: ' + path_permissions.describe(root, info))
     return root
 
 
