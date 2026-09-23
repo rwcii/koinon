@@ -90,10 +90,11 @@ def prepare(prefix, source):
         prepared = upgrade_plan.prepare(operation, prefix, **pair,
             installation=installed.config, components=observed['components'], recovery=recovery)
         documents = Documents(operation)
+        from koinon import claude_statusline
         documents.put('prepared-checks', dict(version=1, plan=prepared['sha256'],
             memory_ownership=observed['memory_ownership'],
             service_ownership=observed['service_ownership'], capacity=budget, databases=checks,
-            untrusted_caches=caches))
+            untrusted_caches=caches, claude_statusline=claude_statusline.plan(installed.config)))
         # Publish a discoverable recovery pointer before the exclusion marker.
         # A crash here resumes phase zero under the original configuration.
         durable_state.publish(parent / 'current.json', dict(version=1,

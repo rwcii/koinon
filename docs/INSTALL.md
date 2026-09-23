@@ -674,6 +674,11 @@ layout change, so a file that moved between releases is retired only after its n
 is published and confirmed; see [WORK-ITEMS-UPGRADE.md](WORK-ITEMS-UPGRADE.md) for the
 retirement rules and the manual-backend handoff.
 
+After the operation completes, it also sets up the Claude status line unless you declined
+it, and reports the outcome as `claude_statusline` in its result; see
+[Claude status line](#claude-status-line). Do not change Claude settings while it runs: a
+settings change since preflight is reported as a conflict and left unwritten.
+
 When the memory component's selected backend is `manual`, the operation stops at that
 component and returns `manual_handoff_required` with the exact start command. Run it in a
 persistent managed session, keep it alive, then resume with the plan digest. The operation

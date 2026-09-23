@@ -125,8 +125,12 @@ def run(exclusion):
     documents = Documents(exclusion.journal.directory)
     if phase['step'] == 19:
         result = documents.read('complete', phase['receipts'][9])
-        exclusion.finish()
-        return result
+        # finish() requires the frozen configuration. Once the marker is gone the
+        # installation was released, and the status-line step may have added its record.
+        from koinon import upgrade_exclusion
+        if upgrade_exclusion.read(exclusion.prefix) is not None:
+            exclusion.finish()
+        return _claude_statusline(exclusion, documents, phase, result)
     if not 10 <= phase['step'] <= 18:
         raise CompletionError('completion requires migration through final-readiness phase')
     exclusion.verify()
@@ -193,4 +197,23 @@ def run(exclusion):
         phase = exclusion.journal.advance(phase, evidence=digest)
     result = documents.read('complete', phase['receipts'][9])
     exclusion.finish()
-    return result
+    return _claude_statusline(exclusion, documents, phase, result)
+
+
+def _claude_statusline(exclusion, documents, phase, result):
+    """Apply the preflight's Claude status-line plan once ordinary admission is back.
+
+    The upgrade restores the frozen install.json at finish(), so the saved original can be
+    recorded only afterwards. The outcome is reported with the result and kept beside it.
+    """
+    import sys
+    from koinon import claude_statusline
+    retained = durable_state.read(documents.path('claude-statusline'), max_bytes=1024 * 1024)
+    if retained is not None:
+        # A resumed completion reports the first outcome instead of applying the plan again.
+        return dict(result, claude_statusline=retained.get('outcome'))
+    planned = documents.read('prepared-checks', phase['receipts'][0]).get('claude_statusline')
+    outcome = claude_statusline.apply_planned(exclusion.prefix, planned, sys.executable)
+    if outcome is not None:
+        documents.put('claude-statusline', dict(version=1, plan=exclusion.loaded['sha256'], outcome=outcome))
+    return dict(result, claude_statusline=outcome)

@@ -40,9 +40,15 @@ def public_upgrade(fixture, source, interrupt, handoff=None):
             stream.write('    return result\nJournal.advance = _fixture_interrupt\n')
     command = [sys.executable, str(source / 'scripts/upgrade.py'),
                '--prefix', str(fixture.prefix), '--source', str(source)]
+    # The upgrade sets up the Claude status line; give it a private Claude configuration
+    # holding a user status line, never the host's.
+    claude = Path(tempfile.mkdtemp(prefix='koinon-upgrade-claude-'))
+    status_line = dict(type='command', command='echo synthetic-status-line')
+    (claude / 'settings.json').write_text(json.dumps(dict(statusLine=status_line)))
+    environment = dict(os.environ, CLAUDE_CONFIG_DIR=str(claude))
     interrupted = []
     for _ in range(len(phases) + (32 if handoff else 1)):
-        result = subprocess.run(command, capture_output=True, text=True, timeout=120)
+        result = subprocess.run(command, capture_output=True, text=True, timeout=120, env=environment)
         if result.returncode == 75 and handoff is not None:
             pending = json.loads(result.stdout)
             if pending.get('status') != 'manual_handoff_required':
@@ -59,7 +65,15 @@ def public_upgrade(fixture, source, interrupt, handoff=None):
                 raise RuntimeError('public upgrade failed: ' + result.stderr)
             if sorted(interrupted) != phases:
                 raise RuntimeError('not every selected interruption boundary was exercised')
-            return json.loads(result.stdout)
+            report = json.loads(result.stdout)
+            line = json.loads((claude / 'settings.json').read_text())['statusLine']
+            if (report['result'].get('claude_statusline') or {}).get('outcome') not in ('set_up', 'unchanged') \
+                    or str(fixture.prefix / 'statusline.py') not in line.get('command', '') \
+                    or 'synthetic-status-line' not in line['command']:
+                raise RuntimeError('upgrade did not set up the Claude status line: '
+                                   + json.dumps(report['result'].get('claude_statusline')))
+            shutil.rmtree(claude, ignore_errors=True)
+            return report
         pointer = json.loads((fixture.prefix / '.upgrade/current.json').read_text())
         phase = json.loads((Path(pointer['operation']) / 'phase.json').read_text())['step']
         if phase not in phases or phase in interrupted:

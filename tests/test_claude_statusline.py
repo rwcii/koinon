@@ -311,3 +311,64 @@ class InstallerTests(unittest.TestCase):
             result = install.claude_status_line(options, State())
         self.assertEqual((result['outcome'], result['reason']), ('skipped', 'no_start'))
         self.assertEqual((self.config / 'settings.json').read_bytes(), before)
+
+
+class UpgradeTests(unittest.TestCase):
+    def setUp(self):
+        self.temp = tempfile.TemporaryDirectory()
+        self.root = Path(self.temp.name)
+        self.config = self.root / 'claude'
+        self.config.mkdir(mode=0o700)
+        self.path = self.config / 'settings.json'
+        self.path.write_text(json.dumps(dict(statusLine=USER)))
+        self.prefix = self.root / 'prefix'
+        self.prefix.mkdir(mode=0o700)
+        self.install = self.prefix / 'install.json'
+        self.install.write_text(json.dumps(dict(state_root=str(self.root / 'state'), unit_dir=str(self.root / 'units'))))
+        self.install.chmod(0o600)
+
+    def tearDown(self):
+        self.temp.cleanup()
+
+    def plan(self):
+        return settings.plan(json.loads(self.install.read_text()), self.config)
+
+    def record(self):
+        return json.loads(self.install.read_text()).get(settings.KEY)
+
+    def test_an_upgrade_sets_up_the_wrapper_and_saves_the_original(self):
+        planned = self.plan()
+        self.assertEqual(planned['action'], 'set_up')
+        result = settings.apply_planned(self.prefix, planned, PYTHON)
+        self.assertEqual(result['outcome'], 'set_up')
+        self.assertTrue(settings.is_wrapper(json.loads(self.path.read_text())['statusLine'], self.prefix))
+        self.assertEqual(self.record()['original'], USER)
+        self.assertEqual(settings.apply_planned(self.prefix, planned, PYTHON)['outcome'], 'conflict')
+        self.assertEqual(settings.apply_planned(self.prefix, self.plan(), PYTHON)['outcome'], 'unchanged')
+
+    def test_a_settings_change_during_the_upgrade_is_a_conflict_that_writes_nothing(self):
+        planned = self.plan()
+        self.path.write_text(json.dumps(dict(statusLine=USER, model='changed')))
+        before = self.path.read_bytes()
+        result = settings.apply_planned(self.prefix, planned, PYTHON)
+        self.assertEqual((result['outcome'], result['code']), ('conflict', 'settings_conflict'))
+        self.assertIn('--claude-statusline', result['repair'])
+        self.assertEqual(self.path.read_bytes(), before)
+        self.assertIsNone(self.record())
+
+    def test_a_saved_decline_survives_an_upgrade(self):
+        config = json.loads(self.install.read_text())
+        config[settings.KEY] = dict(state='declined', settings_file=str(self.path), original=None, wrapper=None)
+        self.install.write_text(json.dumps(config))
+        planned = self.plan()
+        self.assertEqual(planned['action'], 'declined')
+        self.assertEqual(settings.apply_planned(self.prefix, planned, PYTHON), planned)
+        self.assertEqual(json.loads(self.path.read_text())['statusLine'], USER)
+
+    def test_unreadable_settings_are_skipped_not_a_failed_upgrade(self):
+        self.path.write_text('{not json')
+        planned = self.plan()
+        self.assertEqual((planned['action'], planned['reason']), ('skipped', 'settings_invalid'))
+        self.assertEqual(settings.apply_planned(self.prefix, planned, PYTHON), planned)
+        missing = settings.plan({}, self.root / 'absent')
+        self.assertEqual((missing['action'], missing['reason']), ('skipped', 'claude_config_missing'))
