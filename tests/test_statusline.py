@@ -123,16 +123,41 @@ class StatusLineTests(unittest.TestCase):
         self.wrapped(None, payload(session_id='another-session'))
         self.assertFalse((self.config / 'koinon-status' / 'claude-another-session.json').exists())
 
-    def test_a_cancelled_wrapper_stops_the_user_command(self):
-        marker = self.root / 'started'
-        command = f'touch {shlex.quote(str(marker))}; exec sleep 60'
-        process = subprocess.Popen([sys.executable, str(ROOT / 'statusline.py'), '--command', command],
-                                   stdin=subprocess.PIPE, env=self.env)
+    def cancel(self, argv, *, group):
+        """Start argv, signal it once its background child runs, and report what survives."""
+        marker = self.root / 'background.pid'
+        marker.unlink(missing_ok=True)
+        process = subprocess.Popen(argv, stdin=subprocess.PIPE, env=self.env, start_new_session=True)
         process.stdin.write(payload())
         process.stdin.close()
-        waiting.wait_until_sync(marker.exists, 'the user command to start', process=process)
-        process.send_signal(signal.SIGTERM)
-        self.assertEqual(process.wait(timeout=waiting.timeout()), 128 + signal.SIGTERM)
+        waiting.wait_until_sync(lambda: marker.exists() and marker.read_text().strip(),
+                                'the background child to start', process=process)
+        child = int(marker.read_text())
+        try:
+            if group:
+                os.killpg(process.pid, signal.SIGTERM)
+            else:
+                process.send_signal(signal.SIGTERM)
+            outcome = process.wait(timeout=waiting.timeout())
+            try:
+                waiting.wait_until_sync(lambda: not platform_support.process_alive(child),
+                                        'the background child to stop', seconds=1)
+                alive = False
+            except AssertionError:
+                alive = True
+            return outcome, alive
+        finally:
+            if platform_support.process_alive(child):
+                os.kill(child, signal.SIGKILL)
+
+    def test_cancellation_matches_running_the_command_directly(self):
+        marker = self.root / 'background.pid'
+        command = f'sleep 60 & echo $! > {shlex.quote(str(marker))}; wait'
+        wrapped = [sys.executable, str(ROOT / 'statusline.py'), '--command', command]
+        for group in (False, True):
+            with self.subTest(group=group):
+                self.assertEqual(self.cancel(wrapped, group=group),
+                                 self.cancel(['/bin/sh', '-c', command], group=group))
 
 
 class ClaudeProcessTests(unittest.TestCase):

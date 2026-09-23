@@ -126,7 +126,11 @@ def main(argv):
     if child is None:
         return 0
     status = child.wait()
-    return 128 - status if status < 0 else status
+    if status < 0:
+        # End by the same signal, so the caller sees what running the command directly shows.
+        signal.signal(-status, signal.SIG_DFL)
+        os.kill(os.getpid(), -status)
+    return status
 
 
 if __name__ == '__main__':
