@@ -111,6 +111,35 @@ class Runtime:
             return
         self.status_published = True
 
+    async def participant_status_loop(self):
+        from koinon.codex_status import Reader
+        reader = Reader(self.options.thread, getattr(self.options, 'codex', 'codex'))
+        while not self.stop.is_set():
+            try:
+                sampling = asyncio.create_task(asyncio.to_thread(reader.sample))
+                try:
+                    participant, groups = await asyncio.shield(sampling)
+                except asyncio.CancelledError:
+                    await settled_cleanup(sampling)
+                    raise
+                participant_status.write(
+                    'bridge', self.bridge['pid'],
+                    participant=participant, groups=groups,
+                    identity=dict(proc_start=self.bridge_start, generation=self.generation),
+                    provider='codex', registry=self.registry)
+                self.status_published = True
+            except (OSError, ValueError):
+                self.status_published = False
+                try:
+                    participant_status.remove('bridge', self.bridge['pid'],
+                                              generation=self.generation, registry=self.registry)
+                except OSError:
+                    pass
+            try:
+                await asyncio.wait_for(self.stop.wait(), 2)
+            except TimeoutError:
+                pass
+
     def own_status(self):
         now = int(time.time() * 1000)
         if self.bridge is None or not self.status_published:
@@ -568,6 +597,8 @@ class Runtime:
                         subscriptions_enabled='inbox_subscription' in self.bridge.get('capabilities', []))),
                      asyncio.create_task(self.memory_loop()), asyncio.create_task(self.publish_loop()),
                      asyncio.create_task(self.stop.wait())]
+            if self.options.agent == 'codex':
+                tasks.append(asyncio.create_task(self.participant_status_loop()))
             done, _ = await asyncio.wait(tasks, return_when=asyncio.FIRST_COMPLETED)
             for task in done:
                 task.result()

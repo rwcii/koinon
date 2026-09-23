@@ -180,3 +180,11 @@ class NativeSessionServiceTests(unittest.TestCase):
                 self.assertIn(str(self.home / 'native-service.json'), failure['paths'])
                 artifact.write_bytes(original)
                 artifact.chmod(0o600)
+
+
+def setUpModule():
+    # A synthetic participant must never scan the developer's real rollouts.
+    import tempfile
+    from unittest.mock import patch
+    home = unittest.enterModuleContext(tempfile.TemporaryDirectory())
+    unittest.enterModuleContext(patch.dict('os.environ', CODEX_HOME=home))
