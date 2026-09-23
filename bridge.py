@@ -55,6 +55,7 @@ from koinon import inbox_schema
 from koinon import delivery_ledger
 from koinon import durable_state
 from koinon import participant_presence
+from koinon import participant_status
 from koinon import subscriptions
 from koinon import memory_bindings
 
@@ -89,10 +90,13 @@ def peers():
             address=record.get('messagingSocketPath','')
             target_path('uds:'+address)
             activity = participant_presence.registry_activity(record)
+            reported, status = participant_status.for_registry(record, pid, record.get('procStart'), registry=folder)
+            activity = reported or activity
             found.append(dict(pid=pid,name=record.get('name'),address='uds:'+address,
                               repo=record.get('cwd'),status=activity['state'],
                               presence=dict(service=participant_presence.service('kernel_process_start', 'running'),
                                             model_activity=activity),
+                              **status,
                               implementation=record.get('entrypoint'),protocol=record.get('peerProtocol')))
         except (OSError,ValueError,TypeError,KeyError,IndexError,subprocess.SubprocessError):
             continue

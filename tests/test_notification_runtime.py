@@ -160,6 +160,18 @@ class RuntimeTests(unittest.IsolatedAsyncioTestCase):
         self.assertIn('uncertain_delivery', reply['result']['delivery_health']['reasons'])
         self.assertFalse(self.task.done())
 
+    async def test_status_reports_participant_fields_and_withdraws_its_record(self):
+        record = self.root / 'koinon-status' / f'bridge-{self.runtime.bridge["pid"]}.json'
+        self.assertTrue(record.exists())
+        reply = (await self.request('status'))['result']
+        for view in ('model', 'context', 'work'):
+            self.assertEqual(reply[view]['state'], 'unknown')
+        self.assertEqual(reply['context']['reason'], 'participant_not_associated')
+        self.assertEqual(reply['presence']['model_activity']['reason'], 'participant_not_associated')
+        self.runtime.stop.set()
+        await waiting.settle(self.task, 'the notifier to stop')
+        self.assertFalse(record.exists())
+
     async def test_generation_bound_stop_refuses_stale_request_and_accepts_current(self):
         for target in ('0' * 32, None, 17, [], 'invalid'):
             with self.subTest(target=target):

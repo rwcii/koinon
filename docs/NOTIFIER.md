@@ -53,6 +53,9 @@ It does not acknowledge inbox messages, change memory cursors, reset retry budge
 or clear uncertainty on retained work. Stop commands are for controlled maintenance;
 stop the managing supervisor first to prevent its service policy from restarting a child.
 
+Status also reports the participant's `model`, `context` and `work`, read from its own
+status record; see [model, context and claimed work](DELIVERY.md#model-context-and-claimed-work).
+
 Status separates lifecycle from delivery health. Delivery is degraded while work
 is pending, exhausted or uncertain, or when a storage, compatibility or optional
 memory fault is observed. Pending work can be normal backlog. Unknown health means

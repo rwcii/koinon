@@ -3,6 +3,15 @@
 User-visible changes to Koinon are recorded here. Unreleased entries move
 into a dated release section when promoted to `main`.
 
+## Unreleased
+
+- `bridge.py peers` and the notifier `status` report `model`, `context` and `work` for each
+  participant, next to `presence`. Each value names its source, the time the source recorded
+  it and the time it was read, or is `unknown` with a reason. This release adds the record
+  format and the fields; they report `unknown` until the Claude status-line and Codex
+  session-log sources arrive. Records hold only numbers, identifiers, states and times, in
+  `${CLAUDE_CONFIG_DIR:-~/.claude}/koinon-status` beside the session registry.
+
 ## 2026-09-23 — Bounded test runs
 
 - Run the tests with `python3 tests/run.py -v`. The runner ends a run that stops making

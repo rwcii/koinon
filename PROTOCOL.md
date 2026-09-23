@@ -494,6 +494,8 @@ ID, with a canonical payload fingerprint and bounded retention. Outgoing attempt
 IDs and deadlines are local controls; no new native wire fields are introduced.
 
 Service health and model activity have separate evidence and observation times.
+Model, context and claimed work are reported beside presence from content-free status
+records; they add no wire fields ([delivery contract](docs/DELIVERY.md#model-context-and-claimed-work)).
 Unsupported activity remains unknown. The daemon omits registry activity instead
 of claiming a permanent wait. Native status-omission discovery verification remains
 an open release gate, as documented in the delivery contract.

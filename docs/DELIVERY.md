@@ -144,6 +144,40 @@ semantics are unverified. Native receipt controls also remain disabled despite
 observed parser support. Schema support, endpoint reachability and live
 verification are distinct fields; none substitutes for another.
 
+## Model, context and claimed work
+
+Each `peers` entry and the notifier `status` carry three fields beside `presence`:
+
+- `model`: `{state, source, id, recorded_at_ms, observed_at_ms, freshness_ms, reason}`.
+- `context`: `{state, source, limit_tokens, used_tokens, fill, recorded_at_ms,
+  observed_at_ms, freshness_ms, reason}`, where `fill` is `used_tokens / limit_tokens`.
+- `work`: `{state, source, claims, recorded_at_ms, observed_at_ms, freshness_ms, reason}`.
+
+`state` is `observed` or `unknown`. `recorded_at_ms` is the time the source recorded the
+value; `observed_at_ms` is the read time; consumers expire a cached reading after
+`freshness_ms` (15 seconds) or a disconnect, as for presence. An old value of a live, idle
+participant stays observed on a fresh read. Unknown values name a reason:
+`no_status_record`, `status_record_invalid`, `participant_not_live`,
+`participant_not_associated`, `statusline_missing`, `source_unrecognized`,
+`no_token_usage`, `work_association_missing`, `memory_unavailable` or
+`provider_unsupported`.
+
+The values come from status records in `${CLAUDE_CONFIG_DIR:-~/.claude}/koinon-status`,
+beside the session registry that `peers` reads: `claude-<sessionId>.json` for a Claude
+session and `bridge-<pid>.json` for a Koinon participant, written by its notifier and
+removed at shutdown. The directory is 0700 and each record 0600. A reader refuses a
+record that is not a private regular file owned by the user, is a link, exceeds 16 KiB or
+does not parse. A record names the participant process and its start marker; while that
+process is not live, every value is `unknown` with `participant_not_live`. A bridge record
+is used only for the registry record's bridge process and notifier generation.
+
+Records hold only numbers, identifiers, states and times, checked against an allowlist on
+write and again on read; no transcript, prompt, message or file text is stored or
+reported. A status value grants nothing and triggers nothing: peers read it and decide what
+to suggest. Until their sources exist, Codex values are `participant_not_associated`,
+DeepSeek values are `provider_unsupported`, and claimed work is
+`work_association_missing`.
+
 ## Compatibility and verification limits
 
 Inbox schema 4 adds the persistent identity and ledger atomically. Retained older
