@@ -160,7 +160,7 @@ value; `observed_at_ms` is the read time; consumers expire a cached reading afte
 `freshness_ms` (15 seconds) or a disconnect, as for presence. An old value of a live, idle
 participant stays observed on a fresh read. Unknown values name a reason:
 `no_status_record`, `status_record_invalid`, `participant_not_live`,
-`participant_not_associated`, `statusline_missing`, `source_unrecognized`,
+`participant_not_associated`, `statusline_missing`, `source_unrecognized`, `source_catching_up`,
 `no_token_usage`, `work_association_missing`, `memory_unavailable` or
 `provider_unsupported`.
 
@@ -233,7 +233,8 @@ in this repository.
 
 The notifier locates only the explicitly selected thread under `CODEX_HOME/sessions`
 (default `~/.codex/sessions`) and checks its `session_meta` identity. It reads bounded batches
-incrementally; while catching up or waiting for a complete event it reports unknown. Model,
+incrementally; while catching up it reports `source_catching_up`. A partial trailing
+event keeps the last complete observation until the rest of that event arrives. Model,
 last-request input tokens and context-window size retain their source event timestamps.
 Cumulative usage is not context occupancy. Rollout shapes are internal Codex interfaces;
 unrecognized evidence is unknown rather than inferred.

@@ -127,7 +127,7 @@ class Reader:
                     self.offset = stream.tell()
                     continue
                 if not line.endswith(b'\n'):
-                    return False
+                    return True
                 self.offset = stream.tell()
                 self.event(json.loads(line))
             return self.offset >= os.fstat(stream.fileno()).st_size
@@ -143,8 +143,12 @@ class Reader:
                     return None, unknown('no_status_record')
             if self.owner is not None:
                 pid = self.owner['pid']
-                if not (platform.same_process(self.owner['proc_start'], platform.proc_start(pid))
-                        and platform.holds_open(pid, self.path)):
+                try:
+                    associated = (platform.same_process(self.owner['proc_start'], platform.proc_start(pid))
+                                  and platform.holds_open(pid, self.path))
+                except ProcessLookupError:
+                    associated = False
+                if not associated:
                     self.owner = None
             if self.owner is None:
                 holders = platform.open_file_holders(self.path)
@@ -152,9 +156,11 @@ class Reader:
                     return None, unknown('participant_not_associated')
                 self.owner = dict(pid=holders[0], proc_start=platform.proc_start(holders[0]))
             if not self.consume():
-                return self.owner, unknown('source_unrecognized')
+                return self.owner, unknown('source_catching_up')
             return self.owner, dict(self.groups)
         except (OSError, ValueError, KeyError, TypeError, AttributeError, OverflowError, RecursionError, subprocess.SubprocessError):
             self.groups = unknown('source_unrecognized')
             self.turn = None
+            self.inode = None
+            self.offset = 0
             return None, unknown('source_unrecognized')

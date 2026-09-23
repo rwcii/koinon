@@ -40,7 +40,7 @@ MAX_TEXT = 128
 MAX_INT = 2 ** 53 - 1
 REASONS = frozenset((
     'no_status_record', 'status_record_invalid', 'participant_not_live',
-    'participant_not_associated', 'statusline_missing', 'source_unrecognized',
+    'participant_not_associated', 'statusline_missing', 'source_unrecognized', 'source_catching_up',
     'no_token_usage', 'work_association_missing', 'memory_unavailable',
     'provider_unsupported'))
 

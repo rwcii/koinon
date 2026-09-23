@@ -129,7 +129,12 @@ class Runtime:
                     provider='codex', registry=self.registry)
                 self.status_published = True
             except (OSError, ValueError):
-                pass
+                self.status_published = False
+                try:
+                    participant_status.remove('bridge', self.bridge['pid'],
+                                              generation=self.generation, registry=self.registry)
+                except OSError:
+                    pass
             try:
                 await asyncio.wait_for(self.stop.wait(), 2)
             except TimeoutError:

@@ -451,3 +451,11 @@ session.main()
             self.assertNotEqual(result['state_dir'], str(self.state))
 
         self.start_session(register_other_thread)
+
+
+def setUpModule():
+    # A synthetic participant must never scan the developer's real rollouts.
+    import tempfile
+    from unittest.mock import patch
+    home = unittest.enterModuleContext(tempfile.TemporaryDirectory())
+    unittest.enterModuleContext(patch.dict('os.environ', CODEX_HOME=home))

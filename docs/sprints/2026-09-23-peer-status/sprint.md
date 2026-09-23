@@ -52,5 +52,5 @@ reading its code first.
   original, wrapper}`, where `original` is the saved previous `statusLine` value or `null`.
 - Reason codes used across chunks: `no_status_record`, `status_record_invalid`,
   `participant_not_live`, `participant_not_associated`, `statusline_missing`,
-  `source_unrecognized`, `no_token_usage`, `work_association_missing`,
+  `source_unrecognized`, `source_catching_up`, `no_token_usage`, `work_association_missing`,
   `memory_unavailable`, `provider_unsupported`.

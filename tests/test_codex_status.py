@@ -64,7 +64,7 @@ class ReaderTests(unittest.TestCase):
         raw = json.dumps(event('event_msg', type='task_complete', turn_id='a'))
         with self.path.open('a') as stream:
             stream.write(raw[:20])
-        self.assertEqual(self.reader.sample()[1]['activity']['reason'], 'source_unrecognized')
+        self.assertEqual(self.reader.sample()[1]['activity']['state'], 'busy')
         with self.path.open('a') as stream:
             stream.write(raw[20:] + '\n')
         self.assertEqual(self.reader.sample()[1]['activity']['state'], 'idle')
@@ -77,6 +77,34 @@ class ReaderTests(unittest.TestCase):
             owner, groups = self.reader.sample()
         self.assertIsNone(owner)
         self.assertEqual(groups['activity']['reason'], 'participant_not_associated')
+
+    def test_exited_owner_is_cleared_and_replaced(self):
+        self.append(event('event_msg', type='task_started', turn_id='a'),
+                    event('event_msg', type='task_complete', turn_id='a'))
+        self.reader.sample()
+        with mock.patch.object(platform_support, 'proc_start', side_effect=ProcessLookupError), \
+                mock.patch.object(platform_support, 'open_file_holders', return_value=[]):
+            owner, groups = self.reader.sample()
+        self.assertIsNone(owner)
+        self.assertIsNone(self.reader.owner)
+        self.assertEqual(groups['activity']['reason'], 'participant_not_associated')
+        self.assertEqual(self.reader.sample()[1]['activity']['state'], 'idle')
+
+    def test_transient_probe_failure_replays_consumed_state(self):
+        self.append(event('event_msg', type='task_started', turn_id='a'),
+                    event('event_msg', type='task_complete', turn_id='a'))
+        self.reader.sample()
+        with mock.patch.object(platform_support, 'holds_open', return_value=False), \
+                mock.patch.object(platform_support, 'open_file_holders', side_effect=TimeoutError):
+            self.assertEqual(self.reader.sample()[1]['activity']['reason'], 'source_unrecognized')
+        self.assertEqual(self.reader.sample()[1]['activity']['state'], 'idle')
+
+    def test_backlog_is_catching_up_until_consumed(self):
+        self.append(event('event_msg', type='task_started', turn_id='a'),
+                    event('event_msg', type='task_complete', turn_id='a'))
+        with mock.patch.object(codex_status, 'BATCH_BYTES', 1):
+            self.assertEqual(self.reader.sample()[1]['activity']['reason'], 'source_catching_up')
+        self.assertEqual(self.reader.sample()[1]['activity']['state'], 'idle')
 
     def test_ambiguous_and_non_codex_holders_are_unknown(self):
         for holders in ([], [1, 2]):
