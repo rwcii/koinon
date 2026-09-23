@@ -1,0 +1,14 @@
+# Sprint 2026-09-23 — peer status — Review
+
+The reviewer is the Codex agent; the author is the Claude agent. Each finding is listed with
+its disposition.
+
+## Decision (reviewed at c4a8250)
+
+| Finding | Disposition |
+| --- | --- |
+| Criterion 4 made the same missing terminal event both `busy` and `unknown`. Bridge or notifier liveness is not participant liveness. | Fixed: `busy` and `idle` require the selected participant's own process to be verified live; an unverified or ended process is `unknown`. |
+| Criterion 6 did not separate the source's recording time from Koinon's read time, and so conflicted with the 15-second freshness rule in `docs/DELIVERY.md`. | Fixed: each value carries both times; a fresh read keeps an old context value of a live participant; a cached reading expires after 15 seconds or a disconnect. |
+| Criterion 7 requires a work title and checkpoint, which are free text that criterion 9 excluded. | Fixed: criterion 9 permits the work title and checkpoint explicitly; transcript, message, prompt and file content stay excluded. |
+| Criterion 7 named no memory store, and gave no result for a missing link. | Fixed: the peer is associated with a memory store and a participant session key; a missing association or an unavailable service is `unknown`; a successful empty query is no claimed work. |
+| Criterion 10 could be read as making read-only reviewers claim work, against `docs/WORK-ITEMS-POLICY.md`. | Fixed: the building agent holds the item; a read-only reviewer does not claim work. |

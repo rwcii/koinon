@@ -48,27 +48,37 @@ The sources exist but are not read:
    removes it. An existing status-line command keeps the same input, output and exit status.
    Other Claude settings are unchanged. Removal restores the previous `statusLine` value, and
    uninstall removes the integration.
-4. **Codex activity (#84).** A Codex peer reports `busy` from a `task_started` with no matching
-   `task_complete` or `turn_aborted`, and `idle` when its latest turn has ended. A turn start
-   whose end cannot be observed (for example after a crash of the session process) is
-   `unknown`, not `busy`.
+4. **Codex activity (#84).** A Codex peer reports `busy` while its latest `task_started` has
+   no matching `task_complete` or `turn_aborted` and the selected participant's own process is
+   verified live, and `idle` when its latest turn has ended and that process is verified live.
+   Bridge or notifier liveness is not participant liveness. When the participant process
+   cannot be associated and verified, or has ended, activity is `unknown`.
 5. **Codex context.** A Codex peer reports its model, `model_context_window`, the tokens of the
    last request and the fill level from its session record, with a Codex source name. A missing,
    unreadable or unrecognized record is `unknown` with a typed reason.
-6. **Age.** A context value from a live, idle session stays reported with the time its source
-   recorded it; it does not become `unknown` by age alone. It becomes `unknown` when the
-   session process is no longer live.
+6. **Age.** Each value carries two times: when its source recorded it, and when Koinon read it.
+   A fresh read of a live participant keeps reporting a context value that its source recorded
+   long ago; an idle session's value does not become `unknown` by age alone. A cached reading
+   expires as the existing presence contract requires: after the 15-second freshness window or
+   a disconnect (`docs/DELIVERY.md`, "Presence and priority"). A value becomes `unknown` when
+   the participant process is no longer live.
 7. **Claimed work.** A peer's active work claims appear under `work`, with the work ID, title
-   and checkpoint, through an explicit link from the peer to the session key that holds the
-   claim. No active claim reports as no claimed work, which does not mean idle. A claim whose
-   lease has expired is not shown; the work item itself is not changed.
+   and checkpoint. The listing reads them through an explicit association of the peer with a
+   memory store (its repository) and with the participant session key that holds the claims.
+   A successful query with no active claim reports no claimed work, which does not mean idle.
+   A missing association or an unavailable memory service reports `unknown` with a reason. A
+   claim whose lease has expired is not shown; the work item itself is not changed.
 8. **Both families read.** Run from a Codex session's shell, `bridge.py peers` shows the same
    fields for Claude and Codex peers as it does from a Claude session.
-9. **Content-free.** Only an allowlist of numbers, identifiers, states and times is stored or
-   reported. No transcript text, message text, prompt or file content reaches a stored file or
-   a peer. A test feeds text fields to every source reader and proves that they do not appear.
+9. **Content-free.** Only an allowlist is stored or reported: numbers, identifiers, states and
+   times, plus the work item title and checkpoint of criterion 7, which agents record in the
+   shared memory store for that purpose. No transcript text, message text, prompt or file
+   content reaches a stored file or a peer. A test feeds text fields to every source reader
+   and proves that they do not appear.
 10. **Process.** The `ship` and `sprint` skills tell an agent to start one memory work item for
-    each deliverable issue, linked to the issue and reused through build, review and merge.
+    each deliverable issue, linked to the issue and reused through build, review and merge by
+    the agent that builds it. A read-only reviewer does not claim work
+    (`docs/WORK-ITEMS-POLICY.md`).
 11. Linux and macOS, Python 3.11 to 3.13; the documents that describe presence, installation
     and the peer listing describe the new fields.
 
