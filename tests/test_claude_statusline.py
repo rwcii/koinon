@@ -176,6 +176,26 @@ class SettingsTests(unittest.TestCase):
             self.write(dict(statusLine=dict(type='command', command='echo unrelated')))
             self.assertIsNone(settings.release(self.state, self.prefix))
 
+    def test_uninstall_recognises_an_escaped_non_ascii_wrapper_path(self):
+        prefix = self.root / 'café prefix'
+        self.prefix = prefix
+        self.write(dict(statusLine=USER))
+        self.set_up()
+        self.assertIn(b'\\u00e9', self.path.read_bytes())
+        edited = dict(self.read()['statusLine'], padding=5)
+        self.write(dict(statusLine=edited))
+        with mock.patch.dict(os.environ, CLAUDE_CONFIG_DIR=str(self.config)):
+            with self.assertRaises(settings.SettingsError) as caught:
+                settings.release(self.state, prefix)
+        self.assertEqual(caught.exception.code, 'statusline_references_runtime')
+        self.path.write_text('{"statusLine": ' + json.dumps(edited)[:-1])
+        self.assertTrue(settings.references(prefix, self.path))
+
+    def test_text_outside_the_status_line_does_not_block_uninstall(self):
+        self.write(dict(statusLine=dict(type='command', command='echo mine'),
+                        note=str(self.prefix / 'statusline.py')))
+        self.assertFalse(settings.references(self.prefix, self.path))
+
     def test_uninstall_release_restores_an_untouched_entry(self):
         self.write(dict(statusLine=USER))
         self.set_up()

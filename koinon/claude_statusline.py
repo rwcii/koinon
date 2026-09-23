@@ -234,11 +234,25 @@ def remove(state, prefix, directory=None):
 
 
 def references(prefix, path):
-    """Whether the settings file still names this installation's wrapper, parsed or not."""
+    """Whether the settings' `statusLine` command still names this installation's wrapper.
+
+    A valid settings file is decoded, so an escaped non-ASCII path is recognised and text
+    elsewhere in the file does not count. Only a malformed file is searched as bytes, in both
+    the plain UTF-8 and the JSON-escaped spelling of the path.
+    """
+    wrapper = str(wrapper_path(prefix))
     try:
-        return str(wrapper_path(prefix)).encode() in Path(path).read_bytes()
+        raw = Path(path).read_bytes()
     except FileNotFoundError:
         return False
+    try:
+        value = json.loads(raw)
+    except (ValueError, UnicodeError, RecursionError):
+        spellings = {wrapper.encode(), json.dumps(wrapper)[1:-1].encode()}
+        return any(spelling in raw for spelling in spellings)
+    entry = value.get('statusLine') if isinstance(value, dict) else None
+    command = entry.get('command') if isinstance(entry, dict) else None
+    return isinstance(command, str) and wrapper in command
 
 
 def release(state, prefix):
