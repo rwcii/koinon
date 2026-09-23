@@ -11,6 +11,10 @@ into a dated release section when promoted to `main`.
   format and the fields; they report `unknown` until the Claude status-line and Codex
   session-log sources arrive. Records hold only numbers, identifiers, states and times, in
   `${CLAUDE_CONFIG_DIR:-~/.claude}/koinon-status` beside the session registry.
+- New `statusline.py` wrapper for the Claude Code `statusLine` command. It records a Claude
+  session's model, context limit and tokens used, then runs the user's own status-line
+  command with the same input and returns its output and exit status unchanged. It adds a
+  median of 38 ms per update on Linux. Installation does not set it up yet.
 
 ## 2026-09-23 — Bounded test runs
 

@@ -174,7 +174,17 @@ is used only for the registry record's bridge process and notifier generation.
 Integers are bounded to 2^53 - 1, and a value whose source time is later than the read
 time is `unknown` with `status_record_invalid`. Records hold only numbers, identifiers,
 states and times, checked against an allowlist on write and again on read; no transcript, prompt, message or file text is stored or
-reported. A status value grants nothing and triggers nothing: peers read it and decide what
+reported.
+
+A Claude session's `model` and `context` come from `statusline.py`, run as the Claude Code
+`statusLine` command. On each update it reads the status-line input once, runs the user's
+own status-line command with the same bytes through `/bin/sh -c` (as Claude Code does),
+and returns that command's output and exit status unchanged; the user's command runs even
+when recording fails. It records only `model.id`, `context_window.context_window_size`,
+`context_window.total_input_tokens` and whether `current_usage` is present, for the Claude
+process that the session registry names for the input's `session_id`. Input larger than
+1 MiB is forwarded and not parsed. Before the first response of a session the usage is
+`unknown` with `no_token_usage`, not zero. A status value grants nothing and triggers nothing: peers read it and decide what
 to suggest. Until their sources exist, Codex values are `participant_not_associated`,
 DeepSeek values are `provider_unsupported`, and claimed work is
 `work_association_missing`.
