@@ -35,6 +35,8 @@ FIELDS = {
 }
 ACTIVITY_STATES = ('busy', 'idle')
 MAX_TEXT = 128
+# The largest integer JSON carries exactly; it also keeps every ratio finite.
+MAX_INT = 2 ** 53 - 1
 REASONS = frozenset((
     'no_status_record', 'status_record_invalid', 'participant_not_live',
     'participant_not_associated', 'statusline_missing', 'source_unrecognized',
@@ -78,7 +80,7 @@ def _group(name, value):
     source, stamp = value.get('source'), value.get('recorded_at_ms')
     if not isinstance(source, str) or not source or len(source) > MAX_TEXT:
         raise ValueError('invalid status source')
-    if type(stamp) is not int or stamp < 0:
+    if type(stamp) is not int or not 0 <= stamp <= MAX_INT:
         raise ValueError('invalid status source time')
     reason = value.get('reason')
     if reason is not None:
@@ -90,7 +92,7 @@ def _group(name, value):
         item = value.get(field)
         if item is None:
             continue
-        if type(item) is not kind or (kind is int and item < 0) or (
+        if type(item) is not kind or (kind is int and not 0 <= item <= MAX_INT) or (
                 kind is str and (not item or len(item) > MAX_TEXT)):
             raise ValueError('invalid status field')
         kept[field] = item
@@ -215,7 +217,15 @@ def read(kind, key, *, participant=None, identity=None, now=None, registry=None)
     return dict(groups=stored['groups'], reason=None, provider=provider)
 
 
+def _future(group, now):
+    """A source time after the read time is not evidence, as for registry activity."""
+    return (group is not None and group.get('reason') is None
+            and group.get('recorded_at_ms', 0) > now)
+
+
 def _base(group, reason, now):
+    if reason is None and _future(group, now):
+        reason = 'status_record_invalid'
     if reason is not None or group is None or group.get('reason') is not None:
         return dict(state='unknown', source=None if group is None else group.get('source'),
                     recorded_at_ms=None if group is None else group.get('recorded_at_ms'),
@@ -254,6 +264,8 @@ def activity(result, now):
     group = result['groups'].get('activity')
     if result['reason'] is not None or group is None:
         return None
+    if _future(group, now):
+        return participant_presence.unknown('status_record_invalid')
     if group.get('reason') is not None:
         return participant_presence.unknown(group['reason'])
     return dict(state=group['state'], source=group['source'], observed_at_ms=now,

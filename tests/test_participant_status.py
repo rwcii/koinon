@@ -88,6 +88,27 @@ class StatusRecordTests(unittest.TestCase):
         self.assertEqual(context['observed_at_ms'], now)
         self.assertEqual(context['freshness_ms'], 15000)
 
+    def test_out_of_range_integers_are_refused_not_divided(self):
+        for fields in (dict(limit_tokens=1, used_tokens=10 ** 400), dict(limit_tokens=2 ** 53, used_tokens=1)):
+            with self.subTest(fields):
+                with self.assertRaises(ValueError):
+                    self.claude(context=observed(usage_available=True, **fields))
+                path = self.claude(context=observed(limit_tokens=1, used_tokens=1, usage_available=True))
+                record = json.loads(path.read_text())
+                record['groups']['context'].update(fields)
+                path.write_text(json.dumps(record))
+                result = status.read('claude', 'synthetic-session', participant=me())
+                self.assertEqual(status.views(result)['context']['reason'], 'status_record_invalid')
+
+    def test_a_source_time_after_the_read_time_is_not_observed(self):
+        future = int(time.time() * 1000) + 60_000
+        self.claude(model=dict(observed(id='synthetic-model'), recorded_at_ms=future),
+                    activity=dict(observed(state='busy'), recorded_at_ms=future))
+        result = status.read('claude', 'synthetic-session', participant=me())
+        now = int(time.time() * 1000)
+        self.assertEqual(status.views(result, now)['model']['reason'], 'status_record_invalid')
+        self.assertEqual(status.activity(result, now)['reason'], 'status_record_invalid')
+
     def test_unavailable_usage_is_unknown_not_zero(self):
         self.claude(context=observed(limit_tokens=200000, used_tokens=0, usage_available=False))
         context = status.views(status.read('claude', 'synthetic-session', participant=me()))['context']
@@ -154,7 +175,7 @@ class StatusRecordTests(unittest.TestCase):
                 result = status.read('bridge', 7, identity=identity)
                 views = status.views(result)
                 self.assertEqual({views['model']['reason'], views['context']['reason']}, {reason})
-                self.assertEqual(status.activity(result, 0)['reason'], reason)
+                self.assertEqual(status.activity(result, int(time.time() * 1000))['reason'], reason)
 
     def test_work_is_unknown_until_it_is_associated(self):
         self.assertEqual(status.work_view(0)['reason'], 'work_association_missing')

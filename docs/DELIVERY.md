@@ -171,8 +171,9 @@ does not parse. A record names the participant process and its start marker; whi
 process is not live, every value is `unknown` with `participant_not_live`. A bridge record
 is used only for the registry record's bridge process and notifier generation.
 
-Records hold only numbers, identifiers, states and times, checked against an allowlist on
-write and again on read; no transcript, prompt, message or file text is stored or
+Integers are bounded to 2^53 - 1, and a value whose source time is later than the read
+time is `unknown` with `status_record_invalid`. Records hold only numbers, identifiers,
+states and times, checked against an allowlist on write and again on read; no transcript, prompt, message or file text is stored or
 reported. A status value grants nothing and triggers nothing: peers read it and decide what
 to suggest. Until their sources exist, Codex values are `participant_not_associated`,
 DeepSeek values are `provider_unsupported`, and claimed work is
