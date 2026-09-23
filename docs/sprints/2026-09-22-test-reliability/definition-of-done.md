@@ -47,7 +47,9 @@
 
 - The `check` skill, run with the CI command.
 - `Tests` green on all six jobs of the pull request, and green again on the push to `develop`.
-- At the head of the last converting chunk, one macOS job runs the modules with earlier
-  timing failures (`test_notification_runtime`, `test_session`, `test_session_supervisor`)
-  five times in one bounded invocation, with no timing failure. A full suite is repeated only
+- In the last converting chunk to merge, one macOS job runs the modules with earlier timing
+  failures (`test_notification_runtime`, `test_session`, `test_session_supervisor`) five times
+  in one bounded invocation, with no timing failure. It is a temporary job: one commit of that
+  pull request adds it on top of the converted code, the run is recorded in the pull request,
+  and the next commit removes it before merge. A full suite is repeated only
   to investigate an actual unresolved failure.
