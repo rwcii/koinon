@@ -31,3 +31,9 @@ missing or changed integration reports `statusline_missing` with the repair comm
 | The upgrade edits user settings without preflight, saved evidence or reporting; a retry could wrap the command twice or replace the saved original; a saved decline must survive upgrade. | Fixed in criterion 3: the original is saved once; repeats never nest or replace it; a decline survives upgrade; the upgrade covers the edit in preflight, evidence and its report. |
 | Exact restoration overwrites later user edits; a concurrent Claude Code write could be overwritten; a lock or atomic rename does not coordinate Claude Code. | Fixed in criterion 3: restore only while the entry is still Koinon's command, otherwise keep it and report; compare before and after replacement, a difference is a reported conflict; the remaining race is documented. |
 | The tests must cover a failing user command and a failing Koinon part separately, with the input read once. | Fixed in criterion 3. |
+
+## Criterion 3 wording (reviewed at 22a1dd4)
+
+| Finding | Disposition |
+| --- | --- |
+| "No settings edit silently overwrites a concurrent change" contradicts the acknowledged race: a Claude Code write after the final comparison is replaced and the post-check sees only Koinon's bytes. | Fixed: the criterion claims detection of observable changes only, and the documentation tells the user not to change Claude settings during installation, upgrade or removal. |

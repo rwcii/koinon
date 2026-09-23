@@ -57,10 +57,12 @@ The sources exist but are not read:
      command. An entry that the user changed afterwards is kept, and the result reports it
      with the action that removes Koinon's part. Other Claude settings, and other fields of
      the `statusLine` entry, are unchanged.
-   - No settings edit silently overwrites a concurrent change. The file is compared with what
-     was read immediately before it is replaced and checked again afterwards; a difference is
-     a reported conflict that keeps the user's content. The remaining race with a Claude Code
-     write is documented, not claimed away.
+   - A settings edit detects the concurrent changes it can observe. The file is compared with
+     what was read immediately before it is replaced and checked again afterwards; a
+     difference found there is a reported conflict that keeps the user's content. A Claude Code
+     write between the last comparison and the replacement cannot be detected, so the
+     documentation tells the user not to change Claude settings while Koinon installs,
+     upgrades or removes the integration.
    - The upgrade operation includes the settings edit in its preflight, keeps the saved value
      as evidence, and reports the edit or its conflict in its completion and preservation
      report.
