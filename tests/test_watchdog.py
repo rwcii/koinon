@@ -7,6 +7,7 @@ import textwrap
 import time
 import unittest
 
+import run
 import waiting
 
 RUNNER = Path(__file__).resolve().parent / 'run.py'
@@ -126,6 +127,12 @@ class WatchdogTests(unittest.TestCase):
                     if case == 'stalled worker':
                         self.assertIn('asyncio tasks of the main thread', output)
                         self.assertIn('in asyncTearDown', output)
+
+    def test_invalid_bound_is_a_named_configuration_error(self):
+        for value in ('soon', '0', '-5', 'nan', 'inf', '1e309'):
+            with self.subTest(value=value), self.assertRaisesRegex(ValueError, run.WATCHDOG_VARIABLE):
+                run.read_bound(value)
+        self.assertEqual(run.read_bound('7.5'), 7.5)
 
     def test_a_healthy_run_is_unchanged(self):
         with tempfile.TemporaryDirectory() as tmp:

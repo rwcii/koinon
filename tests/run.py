@@ -12,6 +12,7 @@ the watchdog.
 """
 import asyncio
 import faulthandler
+import math
 import os
 from pathlib import Path
 import sys
@@ -38,9 +39,9 @@ def read_bound(value):
     try:
         bound = float(value)
     except ValueError:
-        raise ValueError(f'{WATCHDOG_VARIABLE} must be a positive number, not {value!r}') from None
-    if not bound > 0:
-        raise ValueError(f'{WATCHDOG_VARIABLE} must be a positive number, not {value!r}')
+        raise ValueError(f'{WATCHDOG_VARIABLE} must be a finite positive number, not {value!r}') from None
+    if not (math.isfinite(bound) and bound > 0):
+        raise ValueError(f'{WATCHDOG_VARIABLE} must be a finite positive number, not {value!r}')
     return bound
 
 

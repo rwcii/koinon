@@ -462,7 +462,7 @@ ENTRIES = [
      'pending-02', ''),
     ('test_subscriptions.py', 'HubBoundTests.test_both_services_outlive_ordinary_request_deadlines.check',
      'await asyncio.wait_for(connection.changed(), 2)',
-     'product-deadline', 'measures that both services outlive the ordinary request deadline'),
+     'pending-02', ''),
     ('test_subscriptions.py', 'HubBoundTests.test_watch_does_not_hide_programming_failure',
      'await asyncio.wait_for(sub.watch_changes(broken, scan, asyncio.Event(), rescan_interval=None), 1)',
      'pending-02', ''),

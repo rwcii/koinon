@@ -20,7 +20,7 @@ class ScaleTests(unittest.TestCase):
             self.assertEqual(waiting.timeout(40), 120)
 
     def test_invalid_scale_names_the_variable(self):
-        for value in ('fast', '0.5', '0', '-2', 'nan'):
+        for value in ('fast', '0.5', '0', '-2', 'nan', 'inf', '1e309'):
             with self.subTest(value=value), self.assertRaisesRegex(ValueError, waiting.SCALE_VARIABLE):
                 waiting.read_scale(value)
 

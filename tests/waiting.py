@@ -10,6 +10,7 @@ The asynchronous helpers keep their own deadline on the event loop's clock. They
 `asyncio.timeout` or `asyncio.wait_for`, which some tests patch while they run.
 """
 import asyncio
+import math
 import os
 import time
 
@@ -24,9 +25,9 @@ def read_scale(value):
     try:
         scale = float(value)
     except ValueError:
-        raise ValueError(f'{SCALE_VARIABLE} must be a number of at least 1, not {value!r}') from None
-    if not scale >= 1:
-        raise ValueError(f'{SCALE_VARIABLE} must be a number of at least 1, not {value!r}')
+        raise ValueError(f'{SCALE_VARIABLE} must be a finite number of at least 1, not {value!r}') from None
+    if not (math.isfinite(scale) and scale >= 1):
+        raise ValueError(f'{SCALE_VARIABLE} must be a finite number of at least 1, not {value!r}')
     return scale
 
 
