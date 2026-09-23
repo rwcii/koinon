@@ -25,6 +25,9 @@ into a dated release section when promoted to `main`.
   declines it, `--claude-statusline` sets it up later, and `--remove-claude-statusline` or
   uninstall restores the previous entry. `--no-start` never changes Claude settings. A
   missing wrapper shows as `statusline_missing` with the repair command.
+- `scripts/upgrade.py` sets up the same wrapper after the upgrade completes, unless it was
+  declined, and reports `claude_statusline` in its result. A settings change during the
+  upgrade is reported as a conflict and not written.
 
 ## 2026-09-23 — Bounded test runs
 

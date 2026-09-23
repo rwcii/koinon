@@ -274,6 +274,65 @@ def release(state, prefix):
     return result
 
 
+def plan(config, directory=None):
+    """The upgrade's planned action, observed at preflight: set_up, declined or skipped."""
+    import hashlib
+    path = settings_path(directory)
+    record = config.get(KEY) or {}
+    if record.get('state') == 'declined':
+        return dict(action='declined', settings_file=str(path), digest=None)
+    if not path.parent.is_dir():
+        return dict(action='skipped', settings_file=str(path), digest=None, reason='claude_config_missing')
+    try:
+        raw, _ = _read(path)
+    except (OSError, SettingsError) as exc:
+        return dict(action='skipped', settings_file=str(path), digest=None,
+                    reason=getattr(exc, 'code', 'settings_unavailable'))
+    return dict(action='set_up', settings_file=str(path),
+                digest=hashlib.sha256(raw or b'').hexdigest())
+
+
+def _own_write(installed, path):
+    """Whether the file's statusLine is exactly the wrapper entry this installation recorded.
+
+    That is Koinon's own earlier write, for example by an upgrade interrupted after set-up
+    and before its outcome was kept; it is not a user's change.
+    """
+    record = installed.config.get(KEY) or {}
+    if record.get('state') not in ('enabled', 'pending') or record.get('settings_file') != str(path):
+        return False
+    try:
+        _, settings = _read(path)
+    except (OSError, SettingsError):
+        return False
+    return settings.get('statusLine') == record.get('wrapper')
+
+
+def apply_planned(prefix, planned, python):
+    """Run the planned upgrade action after ordinary admission is restored.
+
+    The upgrade freezes install.json until it finishes, so the saved original can only be
+    recorded afterwards. A settings file that changed since preflight is a conflict and is
+    not written; set-up is idempotent, so running this again after a crash is safe.
+    """
+    import hashlib
+    from koinon import install_state
+    if planned is None or planned.get('action') != 'set_up':
+        return planned
+    path = Path(planned['settings_file'])
+    failed = dict(action='set_up', repair=repair_command(prefix, python))
+    try:
+        with install_state.locked(prefix) as installed:
+            raw = _current(path)
+            if hashlib.sha256(raw or b'').hexdigest() != planned['digest'] and not _own_write(installed, path):
+                return dict(failed, outcome='conflict', code='settings_conflict',
+                            error='Claude settings changed during the upgrade; not changed')
+            return set_up(installed, prefix, python, directory=path.parent)
+    except (OSError, SettingsError) as exc:
+        return dict(failed, outcome='failed', code=getattr(exc, 'code', 'settings_unavailable'),
+                    error=str(exc))
+
+
 def missing(prefix, directory=None):
     """Whether the wrapper is absent from the settings that a Claude peer reads."""
     try:

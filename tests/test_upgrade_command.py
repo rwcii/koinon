@@ -58,7 +58,12 @@ class CommandTests(unittest.TestCase):
             f'sys.path.insert(0, {str(self.source)!r})\n'
             'import koinon.platform_support\n'
             f'koinon.platform_support.upgrade_service_sources = lambda prefix: {sources!r}\n')
-        self.env = {**os.environ, 'PYTHONPATH': str(harness)}
+        # Each test gets its own Claude configuration: the upgrade sets up the status line.
+        self.claude = self.root / 'claude'
+        self.claude.mkdir(mode=0o700)
+        self.status_line = dict(type='command', command='echo synthetic-status-line')
+        (self.claude / 'settings.json').write_text(json.dumps(dict(statusLine=self.status_line)))
+        self.env = {**os.environ, 'PYTHONPATH': str(harness), 'CLAUDE_CONFIG_DIR': str(self.claude)}
         self.config = dict(state_root=str(self.state), unit_dir=str(self.root / 'units'), codex=sys.executable)
         (self.prefix / 'install.json').write_text(json.dumps(self.config))
         (self.prefix / 'install.json').chmod(0o600)
@@ -90,7 +95,13 @@ class CommandTests(unittest.TestCase):
         value = json.loads(result.stdout)
         self.assertTrue(value['ok'])
         self.assertEqual((self.prefix / 'LICENSE').read_bytes(), (self.source / 'LICENSE').read_bytes())
-        self.assertEqual(json.loads((self.prefix / 'install.json').read_text()), self.config)
+        installed = json.loads((self.prefix / 'install.json').read_text())
+        record = installed.pop('claude_statusline')
+        self.assertEqual(installed, self.config)
+        self.assertEqual((record['state'], record['original']), ('enabled', self.status_line))
+        self.assertEqual(value['result']['claude_statusline']['outcome'], 'set_up')
+        line = json.loads((self.claude / 'settings.json').read_text())['statusLine']
+        self.assertIn(str(self.prefix / 'statusline.py'), line['command'])
         status = self.command('--status', self.prefix)
         self.assertEqual(status.returncode, 0, status.stderr)
         selected = json.loads(status.stdout)['result']
