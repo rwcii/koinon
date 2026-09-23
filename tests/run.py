@@ -157,8 +157,36 @@ def arguments(args):
     return ['discover', '-s', str(TESTS), '-t', str(TESTS), *args]
 
 
+HOMES_VARIABLE = 'KOINON_TEST_HOMES'
+
+
+def isolate_agent_homes():
+    """Point the agent configuration directories at a temporary directory for the whole run.
+
+    Tests that start real installers, notifiers or status-line wrappers would otherwise read
+    or write the developer's Claude settings and Codex sessions. A test that needs its own
+    directories still sets them itself.
+    """
+    import atexit
+    import shutil
+    import tempfile
+    inherited = os.environ.get(HOMES_VARIABLE)
+    if inherited and Path(inherited).is_dir():
+        # A runner started by a test reuses its parent's directories, so a child that
+        # exits without cleanup leaves nothing behind.
+        return Path(inherited)
+    root = Path(tempfile.mkdtemp(prefix='koinon-test-homes-'))
+    atexit.register(shutil.rmtree, root, ignore_errors=True)
+    for variable, name in (('CLAUDE_CONFIG_DIR', 'claude'), ('CODEX_HOME', 'codex')):
+        (root / name).mkdir(mode=0o700)
+        os.environ[variable] = str(root / name)
+    os.environ[HOMES_VARIABLE] = str(root)
+    return root
+
+
 def main(args=None):
     args = sys.argv[1:] if args is None else args
+    isolate_agent_homes()
     watchdog = Watchdog(read_bound(os.environ.get(WATCHDOG_VARIABLE)), sys.__stderr__)
     WatchdogResult.watchdog = watchdog
     watchdog.start()

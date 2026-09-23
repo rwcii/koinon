@@ -44,6 +44,7 @@ from koinon import platform_support
 from koinon import runtime_names
 from koinon import install_state
 from koinon import work_guidance
+from koinon import claude_statusline
 from koinon import component_remove
 import memory_service
 import session_service
@@ -162,6 +163,11 @@ def uninstall(prefix, state):
     for home in native_sessions:
         with session_service_artifacts.locked(home / 'lifecycle.lock'), session_service_artifacts.locked(home / 'registration.lock'):
             session_service_artifacts.archive_removed(session_service_artifacts.load(home))
+    # Restore the Claude status line before the wrapper it names is deleted. A settings
+    # error stops removal here, so a resumed uninstall can finish after it is resolved.
+    result = claude_statusline.release(state, prefix)
+    if result is not None:
+        print('Claude status line:', json.dumps(result), flush=True)
     uninstall_finalize.prepare(prefix, FILES)
     print('If final file cleanup is interrupted, resume with:',
           shlex.join([sys.executable, str(prefix / uninstall_finalize.RECOVERY), '--prefix', str(prefix)]), flush=True)
@@ -176,7 +182,7 @@ if __name__ == '__main__':
         print(json.dumps(dict(ok=False, code=exc.code, paths=exc.paths, error=str(exc))))
         raise SystemExit(75 if exc.code == 'configuration_busy' else
                          platform_support.CONFIGURATION_EXIT_STATUS) from None
-    except work_guidance.GuidanceError as exc:
+    except (work_guidance.GuidanceError, claude_statusline.SettingsError) as exc:
         print(json.dumps(dict(ok=False, code=exc.code, path=exc.path, error=str(exc))))
         raise SystemExit(platform_support.CONFIGURATION_EXIT_STATUS) from None
     except (OSError, ValueError, subprocess.SubprocessError) as exc:

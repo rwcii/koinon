@@ -117,6 +117,15 @@ def validate_install_config(result):
         validate(result['memory_services'])
     if 'session_backend' in result and result['session_backend'] not in ('systemd', 'launchd', 'manual'):
         raise ValueError('invalid session backend selection')
+    if 'claude_statusline' in result:
+        record = result['claude_statusline']
+        if (not isinstance(record, dict) or set(record) != {'state', 'settings_file', 'original', 'wrapper'}
+                or record['state'] not in ('enabled', 'pending', 'declined')
+                or not isinstance(record['settings_file'], str) or not Path(record['settings_file']).is_absolute()
+                or not (record['original'] is None or isinstance(record['original'], dict))
+                or not (record['wrapper'] is None or isinstance(record['wrapper'], dict))
+                or (record['state'] != 'declined' and record['wrapper'] is None)):
+            raise ValueError('invalid Claude status-line selection')
     return result
 
 

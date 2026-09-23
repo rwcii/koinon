@@ -14,7 +14,12 @@ into a dated release section when promoted to `main`.
 - New `statusline.py` wrapper for the Claude Code `statusLine` command. It records a Claude
   session's model, context limit and tokens used, then runs the user's own status-line
   command with the same input and returns its output and exit status unchanged. It adds a
-  median of 38 ms per update on Linux. Installation does not set it up yet.
+  median of 38 ms per update on Linux.
+- Installation sets up that wrapper as the Claude Code `statusLine` command by default,
+  keeping your own status-line command and every other setting. `--no-claude-statusline`
+  declines it, `--claude-statusline` sets it up later, and `--remove-claude-statusline` or
+  uninstall restores the previous entry. `--no-start` never changes Claude settings. A
+  missing wrapper shows as `statusline_missing` with the repair command.
 
 ## 2026-09-23 — Bounded test runs
 

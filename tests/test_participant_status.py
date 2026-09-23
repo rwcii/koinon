@@ -221,7 +221,14 @@ class PeerListingTests(unittest.TestCase):
         self.register(entrypoint='cli', sessionId='synthetic-session')
         [peer] = bridge.peers()
         self.assertEqual({peer[k]['state'] for k in ('model', 'context', 'work')}, {'unknown'})
+        self.assertEqual(peer['context']['reason'], 'statusline_missing')
+        self.assertIn('--claude-statusline', peer['context']['repair'])
+        from koinon import PREFIX, claude_statusline
+        entry = claude_statusline.wrapper_entry(None, PREFIX, sys.executable)
+        (self.config / 'settings.json').write_text(json.dumps(dict(statusLine=entry)))
+        [peer] = bridge.peers()
         self.assertEqual(peer['context']['reason'], 'no_status_record')
+        self.assertNotIn('repair', peer['context'])
 
     def test_koinon_participant_reports_its_record_activity(self):
         start = platform_support.proc_start(os.getpid())

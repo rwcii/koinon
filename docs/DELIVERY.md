@@ -184,7 +184,10 @@ when recording fails. It records only `model.id`, `context_window.context_window
 `context_window.total_input_tokens` and whether `current_usage` is present, for the Claude
 process that the session registry names for the input's `session_id`. Input larger than
 1 MiB is forwarded and not parsed. Before the first response of a session the usage is
-`unknown` with `no_token_usage`, not zero. A status value grants nothing and triggers nothing: peers read it and decide what
+`unknown` with `no_token_usage`, not zero. When a Claude session has no record because the wrapper is not
+the `statusLine` command in the configuration directory that `peers` reads, `model` and
+`context` report `statusline_missing` with a `repair` field holding the installer command that
+sets it up ([Claude status line](INSTALL.md#claude-status-line)). A status value grants nothing and triggers nothing: peers read it and decide what
 to suggest. Until their sources exist, Codex values are `participant_not_associated`,
 DeepSeek values are `provider_unsupported`, and claimed work is
 `work_association_missing`.
