@@ -128,8 +128,13 @@ def main(argv):
     status = child.wait()
     if status < 0:
         # End by the same signal, so the caller sees what running the command directly shows.
-        signal.signal(-status, signal.SIG_DFL)
+        # SIGKILL and SIGSTOP take no handler, and need no reset.
+        try:
+            signal.signal(-status, signal.SIG_DFL)
+        except (OSError, ValueError):
+            pass
         os.kill(os.getpid(), -status)
+        return 128 - status
     return status
 
 

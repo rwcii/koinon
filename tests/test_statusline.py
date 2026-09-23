@@ -82,6 +82,11 @@ class StatusLineTests(unittest.TestCase):
             with self.subTest(command):
                 self.assertSameResult(command, payload())
 
+    def test_a_command_ended_by_a_signal_ends_the_wrapper_the_same_way(self):
+        for command in ('cat >/dev/null; kill -TERM $$', 'cat >/dev/null; kill -KILL $$'):
+            with self.subTest(command):
+                self.assertSameResult(command, payload())
+
     def test_a_failing_user_command_fails_the_same_way(self):
         result = self.assertSameResult('cat >/dev/null; exit 3', payload())
         self.assertEqual((result.returncode, result.stdout), (3, b''))
