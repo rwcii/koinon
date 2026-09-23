@@ -24,6 +24,18 @@ settings edit. This amends `docs/RUNTIME-UPGRADE-DESIGN.md`, which today exclude
   repeat it.
 - `docs/RUNTIME-UPGRADE-DESIGN.md`: state the exception, its reason and its limits.
 
+## Build decisions (recorded during the build)
+
+- The set-up runs after `finish()`, not before the `complete` document. While the operation
+  runs, `install.json` must equal its frozen copy and `finish()` writes that copy back, so the
+  saved original entry could not be recorded earlier. The outcome is returned with the result
+  and kept as the `claude-statusline` document instead of inside `complete`.
+- A completed operation that is run again reports the retained outcome and calls `finish()`
+  only while the upgrade marker is still present, because the status-line record changes
+  `install.json` after release.
+- The native upgrade fixture and `tests/test_upgrade_command.py` give the upgrade a private
+  Claude configuration that holds a user status line, and check the wrapped result.
+
 ## Documents
 
 `docs/RUNTIME-UPGRADE-DESIGN.md`, `docs/INSTALL.md` "Upgrades and removal".
