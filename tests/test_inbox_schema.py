@@ -12,6 +12,7 @@ import unittest
 
 import bridge
 from koinon import inbox_schema as schema
+import waiting
 
 FRAME = {'type':'user', 'message':{'content':'synthetic message'}}
 TARGET, NONCE, NEXT = 'a'*64, 'b'*32, 'c'*32
@@ -204,7 +205,7 @@ else:
 raise SystemExit('crash point not reached')
 '''
         result = subprocess.run([sys.executable,'-c',code,str(self.path),match,operation],
-                                cwd=Path(bridge.__file__).parent,capture_output=True,text=True,timeout=10)
+                                cwd=Path(bridge.__file__).parent,capture_output=True,text=True,timeout=waiting.timeout())
         self.assertEqual(result.returncode, 73, result.stderr)
 
     def test_process_death_mid_ddl_rolls_back_then_retry_migrates(self):
@@ -303,7 +304,7 @@ class SchemaPublicTests(unittest.IsolatedAsyncioTestCase):
             process = await asyncio.create_subprocess_exec(
                 sys.executable, str(Path(bridge.__file__)), '--state-dir', str(self.root), 'serve',
                 stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE)
-            stdout, stderr = await asyncio.wait_for(process.communicate(), 5)
+            stdout, stderr = await waiting.settle(process.communicate(), 'the bridge process to exit')
             self.assertEqual(process.returncode, 78)
             self.assertEqual(json.loads(stdout)['code'], 'storage_error' if corrupt else 'incompatible_inbox')
             self.assertEqual(stderr, b'')
@@ -325,7 +326,7 @@ bridge.main()
             sys.executable, '-c', code, '--state-dir', str(self.root), 'serve',
             cwd=Path(bridge.__file__).parent,
             stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE)
-        stdout, stderr = await asyncio.wait_for(process.communicate(), 5)
+        stdout, stderr = await waiting.settle(process.communicate(), 'the bridge process to exit')
         self.assertEqual(process.returncode, 70)
         self.assertEqual(json.loads(stdout)['code'], 'internal_error')
         self.assertEqual(stderr, b'')

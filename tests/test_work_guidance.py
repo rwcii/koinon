@@ -1,4 +1,5 @@
 """Synthetic guidance publication, recovery and removal; never live agent files."""
+import waiting
 import copy
 import json
 import os
@@ -358,7 +359,7 @@ class GuidanceTests(unittest.TestCase):
         first = subprocess.Popen(command+['codex'], stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
         second = subprocess.Popen(command+['claude'], stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
         for child in (first, second):
-            out, err = child.communicate(timeout=15)
+            out, err = child.communicate(timeout=waiting.timeout())
             self.assertEqual(child.returncode, 0, out+err)
         self.assertTrue(self.query()['enabled'])
         self.assertTrue(self.query('claude')['enabled'])

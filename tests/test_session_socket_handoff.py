@@ -1,3 +1,4 @@
+import waiting
 from pathlib import Path
 import subprocess
 import sys
@@ -35,7 +36,7 @@ class SocketHandoffTests(unittest.TestCase):
                   'sock.close()\n')
         result = subprocess.run([sys.executable, '-c', script, str(endpoint.fileno()), str(self.home),
                                  owner['generation'], captured['path']], pass_fds=(endpoint.fileno(),),
-                                capture_output=True, text=True, timeout=10)
+                                capture_output=True, text=True, timeout=waiting.timeout())
         self.assertEqual(result.returncode, 0, result.stderr)
 
     def test_legacy_owner_read_preserves_version_and_published_evidence(self):
@@ -114,7 +115,7 @@ class SocketHandoffTests(unittest.TestCase):
     def test_invalid_bridge_descriptor_refuses_without_database_or_socket(self):
         result = subprocess.run([sys.executable, str(ROOT / 'bridge.py'),
                                  '--state-dir', str(self.home), 'serve', '--supervisor-control-fd', '99',
-                                 '--supervisor-generation', 'a' * 32], capture_output=True, text=True, timeout=10)
+                                 '--supervisor-generation', 'a' * 32], capture_output=True, text=True, timeout=waiting.timeout())
         self.assertEqual(result.returncode, 78, result.stderr)
         self.assertFalse((self.home / 'inbox.sqlite3').exists())
         self.assertFalse(platform_support.control_socket_path(self.home).exists())

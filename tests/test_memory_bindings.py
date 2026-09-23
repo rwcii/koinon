@@ -22,6 +22,7 @@ from koinon import inbox_schema
 import memory
 from koinon import memory_bindings as bindings
 from koinon import subscriptions
+import waiting
 
 FRAME = dict(type='user', message=dict(content='synthetic'))
 
@@ -250,7 +251,7 @@ connect=sqlite3.connect
 memory.sqlite3.connect=lambda *a,**k: connect(*a,**dict(k,factory=Interrupted))
 memory.Store(Path(sys.argv[1]), 'a'*16)
 """
-        child = subprocess.run([sys.executable, '-c', source, str(path)], timeout=10)
+        child = subprocess.run([sys.executable, '-c', source, str(path)], timeout=waiting.timeout())
         self.assertEqual(child.returncode, 73)
         with closing(sqlite3.connect(path)) as db:
             self.assertEqual(db.execute("SELECT value FROM meta WHERE key='schema'").fetchone()[0], '3')
@@ -301,7 +302,7 @@ def trace(sql):
 db.set_trace_callback(trace)
 inbox_schema.initialize(db)
 """
-        child = subprocess.run([sys.executable, '-c', source, str(self.root)], timeout=10)
+        child = subprocess.run([sys.executable, '-c', source, str(self.root)], timeout=waiting.timeout())
         self.assertEqual(child.returncode, 73)
         with closing(sqlite3.connect(self.root/'inbox.sqlite3')) as db:
             self.assertEqual(db.execute("SELECT value FROM inbox_meta WHERE key='schema'").fetchone()[0], '2')
@@ -335,18 +336,19 @@ class BindingPublicTests(unittest.IsolatedAsyncioTestCase):
         self.redirect = redirect_stdout(self.output)
         self.redirect.__enter__()
         self.running = [asyncio.create_task(self.mem.run(sock)), asyncio.create_task(self.bus.run())]
-        async with asyncio.timeout(3):
-            while len(self.output.getvalue().splitlines()) < 2:
-                for task in self.running:
-                    if task.done():
-                        await task
-                await asyncio.sleep(.001)
+        def ready():
+            for task in self.running:
+                if task.done():
+                    task.result()
+            return len(self.output.getvalue().splitlines()) >= 2
+        await waiting.wait_until(ready, 'both services to report readiness', interval=.001,
+                                 observe=self.output.getvalue)
 
     async def asyncTearDown(self):
         self.mem.stop.set()
         self.bus.stop.set()
         try:
-            await asyncio.wait_for(asyncio.gather(*self.running), 4)
+            await waiting.settle(asyncio.gather(*self.running), 'both services to stop')
         finally:
             self.redirect.__exit__(None, None, None)
             self.temp.cleanup()
@@ -598,7 +600,7 @@ class BindingPublicTests(unittest.IsolatedAsyncioTestCase):
                     memory.release(root, canonical, generation)
             finally:
                 service.stop.set()
-                await asyncio.wait_for(running, 4)
+                await waiting.settle(running, 'the memory service to stop')
                 sock.close()
 
     async def test_owner_control_path_alias_identifies_the_same_service(self):

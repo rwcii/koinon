@@ -19,6 +19,7 @@ import os
 from koinon.participant_lock import identity
 from koinon.peer_transport import control_exchange
 from repo_root import ROOT
+import waiting
 
 
 class SyntheticProvider:
@@ -48,22 +49,18 @@ class RuntimeTests(unittest.IsolatedAsyncioTestCase):
         self.redirect = redirect_stdout(self.capture)
         self.redirect.__enter__()
         self.bus_task = asyncio.create_task(self.bus.run())
-        async with asyncio.timeout(4):
-            while self.bus.worker is None or not self.capture.getvalue():
-                if self.bus_task.done():
-                    await self.bus_task
-                await asyncio.sleep(.001)
+        await waiting.wait_until(lambda: self.bus.worker is not None and self.capture.getvalue(),
+                                 'the bridge to report readiness', task=self.bus_task, interval=.001)
         self.provider = SyntheticProvider()
         options = argparse.Namespace(agent='codex', thread='synthetic-runtime-session', after=0,
                                      name='synthetic-notifier', repo=str(self.root))
         self.runtime = Runtime(options, self.state, identity('codex', options.thread),
                                provider=self.provider, registry=self.root / 'registry')
         self.task = asyncio.create_task(self.runtime.run())
-        async with asyncio.timeout(5):
-            while self.runtime.delivery is None or self.runtime.last_status is None or not (self.state / 'notify-ready.json').exists():
-                if self.task.done():
-                    await self.task
-                await asyncio.sleep(.005)
+        await waiting.wait_until(
+            lambda: (self.runtime.delivery is not None and self.runtime.last_status is not None
+                     and (self.state / 'notify-ready.json').exists()),
+            'the notifier to publish readiness', task=self.task, interval=.005)
 
     async def asyncTearDown(self):
         self.runtime.stop.set()
@@ -71,7 +68,7 @@ class RuntimeTests(unittest.IsolatedAsyncioTestCase):
         if self.provider.release is not None:
             self.provider.release.set()
         try:
-            await asyncio.wait_for(asyncio.gather(self.task, self.bus_task), 6)
+            await waiting.settle(asyncio.gather(self.task, self.bus_task), 'the notifier and bridge to stop')
         finally:
             self.redirect.__exit__(None, None, None)
             self.temp.cleanup()
@@ -80,12 +77,8 @@ class RuntimeTests(unittest.IsolatedAsyncioTestCase):
         reply, _ = await control_exchange(self.state / 'notifier', dict(op=op, **kwargs))
         return reply
 
-    async def wait_for(self, predicate):
-        async with asyncio.timeout(5):
-            while not predicate():
-                if self.task.done():
-                    await self.task
-                await asyncio.sleep(.01)
+    async def wait_for(self, predicate, what='the notifier state the test awaits'):
+        await waiting.wait_until(predicate, what, task=self.task)
 
     async def wait_for_delivery_health(self, state='healthy'):
         """Poll the public status until delivery health reaches `state`, then return it.
@@ -102,18 +95,24 @@ class RuntimeTests(unittest.IsolatedAsyncioTestCase):
         and leaving the next reader to guess which flag fired.
         """
         observed = None
+
+        async def poll():
+            nonlocal observed
+            while True:
+                if self.task.done():
+                    await self.task
+                reply = await self.request('status')
+                observed = reply['result']['delivery_health']
+                if observed['state'] == state:
+                    return reply
+                # Polled rather than tight-looped: each check is a control exchange.
+                await asyncio.sleep(.05)
+
         try:
-            async with asyncio.timeout(5):
-                while True:
-                    if self.task.done():
-                        await self.task
-                    reply = await self.request('status')
-                    observed = reply['result']['delivery_health']
-                    if observed['state'] == state:
-                        return reply
-                    # Polled rather than tight-looped: each check is a control exchange.
-                    await asyncio.sleep(.05)
-        except TimeoutError:
+            return await waiting.settle(poll(), f'delivery health {state!r}')
+        except AssertionError as timeout:
+            if not str(timeout).startswith('timed out'):
+                raise
             self.fail('delivery health stayed %r rather than reaching %r; reasons %r'
                       % (None if observed is None else observed['state'], state,
                          None if observed is None else observed.get('reasons')))
@@ -137,8 +136,8 @@ class RuntimeTests(unittest.IsolatedAsyncioTestCase):
     async def test_control_status_and_health_publish_continue_during_provider_wait(self):
         self.provider.release = asyncio.Event()
         await self.bus.worker.call('store', 7, dict(type='user', message=dict(content='synthetic')))
-        await asyncio.wait_for(self.provider.entered.wait(), 4)
-        reply = await asyncio.wait_for(self.request('status'), 2)
+        await waiting.settle(self.provider.entered.wait(), 'delivery to enter the provider')
+        reply = await waiting.settle(self.request('status'), 'status while delivery is pending')
         self.assertTrue(reply['ok'])
         self.assertEqual(reply['result']['delivery_health']['journal']['pending'], 1)
         def published_pending():
@@ -175,19 +174,19 @@ class RuntimeTests(unittest.IsolatedAsyncioTestCase):
         reply = await generation_stop.request_stop(self.state / 'notifier', self.runtime.generation, os.getpid(),
                                                   platform_support.proc_start(os.getpid()))
         self.assertTrue(reply['stopping'])
-        await asyncio.wait_for(self.task, 4)
+        await waiting.settle(self.task, 'the notifier to stop')
         self.assertFalse((self.state / 'notify-ready.json').exists())
         self.assertFalse(self.bus.stop.is_set())
         reply = await generation_stop.request_stop(self.state, self.bus.generation, os.getpid(),
                                                   platform_support.proc_start(os.getpid()))
         self.assertTrue(reply['stopping'])
-        await asyncio.wait_for(self.bus_task, 4)
+        await waiting.settle(self.bus_task, 'the bridge to stop')
         self.assertTrue((self.state / 'inbox.sqlite3').exists())
 
     async def test_stop_control_settles_and_removes_only_owned_readiness(self):
         reply = await self.request('stop')
         self.assertTrue(reply['ok'])
-        await asyncio.wait_for(self.task, 4)
+        await waiting.settle(self.task, 'the notifier to stop')
         self.assertFalse((self.state / 'notify-ready.json').exists())
         self.assertTrue((self.state / 'notify-journal.sqlite3').exists())
         self.assertTrue((self.state / 'inbox.sqlite3').exists())
@@ -262,7 +261,7 @@ class RuntimeTests(unittest.IsolatedAsyncioTestCase):
             self.assertNotIn('PRIVATE MEMORY CONTENT', self.provider.messages[-1])
         finally:
             service.stop.set()
-            await asyncio.wait_for(task, 4)
+            await waiting.settle(task, 'the memory service to stop')
 
     async def cli(self, *args):
         import notify
@@ -309,7 +308,7 @@ class RuntimeTests(unittest.IsolatedAsyncioTestCase):
             try:
                 # Prevent a successful recovery scan from clearing the transient
                 # fault between the mutation reply and the status observation.
-                await asyncio.wait_for(entered.wait(), 4)
+                await waiting.settle(entered.wait(), 'the recovery scan to be held')
                 reply = await self.request('retry', sequences=[1])
                 self.assertFalse(reply['ok'])
                 self.assertEqual(reply['code'], 'journal_checkpoint_failed')
@@ -358,7 +357,7 @@ class WorkerCreationCancellationTests(unittest.IsolatedAsyncioTestCase):
         class Owned:
             def __init__(self, factory):
                 entered.set()
-                if not release.wait(3):
+                if not release.wait(waiting.timeout()):
                     raise RuntimeError('synthetic creation barrier timed out')
             async def close(self):
                 closing.set()
@@ -367,12 +366,10 @@ class WorkerCreationCancellationTests(unittest.IsolatedAsyncioTestCase):
         with mock.patch('koinon.notification_runtime.DatabaseWorker', Owned):
             task = asyncio.create_task(create_worker(lambda: None))
             try:
-                async with asyncio.timeout(3):
-                    while not entered.is_set():
-                        await asyncio.sleep(.001)
+                await waiting.wait_until(entered.is_set, 'worker creation to begin', interval=.001)
                 task.cancel()
                 release.set()
-                await asyncio.wait_for(closing.wait(), 3)
+                await waiting.settle(closing.wait(), 'the created worker to begin closing')
                 task.cancel()
                 await asyncio.sleep(0)
                 self.assertFalse(task.done())
@@ -429,7 +426,7 @@ class CleanupTests(unittest.IsolatedAsyncioTestCase):
                            'slow': mock.Mock(close=mock.AsyncMock(side_effect=slow_close))}
         task = asyncio.create_task(manager.close())
         try:
-            await asyncio.wait_for(entered.wait(), 1)
+            await waiting.settle(entered.wait(), 'a watcher to enter close')
             await asyncio.sleep(0)
             self.assertFalse(task.done())
             release.set()

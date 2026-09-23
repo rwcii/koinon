@@ -1,3 +1,4 @@
+import waiting
 import os
 from pathlib import Path
 import socket
@@ -42,7 +43,7 @@ with upgrade_reservation.hold(Path(sys.argv[1]), Path(sys.argv[2]), sys.argv[3])
     os._exit(0)
 """
         subprocess.run([sys.executable, '-c', program, str(self.directory), str(self.root), self.plan],
-                       check=True, timeout=10)
+                       check=True, timeout=waiting.timeout())
         previous = session_endpoints.capture(self.root)
         with reservations.hold(self.directory, self.root, self.plan) as current:
             self.assertEqual(current['path'], previous['path'])
