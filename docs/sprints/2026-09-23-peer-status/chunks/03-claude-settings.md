@@ -36,6 +36,22 @@ installation and uninstall. Upgrade is chunk 04.
 - `peers` repair hint: `statusline_missing` carries the exact installer command that sets the
   wrapper up again.
 
+## Build decisions (recorded during the build)
+
+- `--no-start` installations never change Claude settings: `docs/INSTALL.md` defines them as
+  staged previews that activate nothing, and most installer tests use them.
+- `--claude-statusline` and `--remove-claude-statusline` are standalone modes that take only
+  `--prefix`, like the work-item modes; `--no-claude-statusline` is a flag of a normal
+  installation. The legacy explicit-thread unit path does not set the wrapper up.
+- A settings file that is a symbolic link is refused (`settings_symlink`), because an atomic
+  replacement would turn a managed link into a plain file.
+- `install.json` validation covers the `claude_statusline` record, as it covers work items
+  and memory selections.
+- Uninstall restores the status line before it deletes runtime files, and a settings error
+  stops removal there, so the user's status line never names a deleted wrapper.
+- `tests/run.py` points `CLAUDE_CONFIG_DIR` and `CODEX_HOME` at a temporary directory for the
+  whole run, so no test reads or writes the developer's agent configuration.
+
 ## Documents
 
 `docs/INSTALL.md`: the default set-up, the three options, the saved original, conflicts, the
