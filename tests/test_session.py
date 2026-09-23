@@ -1,3 +1,4 @@
+import waiting
 import json
 import io
 import os
@@ -91,12 +92,14 @@ class SessionTests(unittest.TestCase):
                 statuses=[]
                 for thread in ('thread-one','thread-two'):
                     state,_,_=session.details(app,config,thread,'/test-project')
-                    deadline=time.monotonic()+10
-                    while time.monotonic()<deadline:
-                        status=session.bridge_status(app,state)
-                        if status and session.notifier_ready(state,status): break
-                        time.sleep(.05)
-                    else: self.fail('session failed to start')
+                    status = None
+                    def ready():
+                        nonlocal status
+                        status = session.bridge_status(app,state)
+                        return status if status and session.notifier_ready(state,status) else False
+                    status = waiting.wait_until_sync(ready, 'session failed to start',
+                                                     process=processes[len(statuses)],
+                                                     observe=lambda: status)
                     statuses.append(status)
                     self.assertTrue(session.notifier_ready(state,status))
                     result=subprocess.run([sys.executable,str(app/'session.py'),'ensure','--thread',thread],
@@ -117,16 +120,15 @@ class SessionTests(unittest.TestCase):
                     db.execute('INSERT INTO inbox(pid,frame) VALUES(?,?)',
                         (123, json.dumps(dict(type='user', message=dict(content='synthetic test')))))
                     db.commit()
-                deadline=time.monotonic()+10
-                while time.monotonic()<deadline:
+                result = None
+                def delivery_failed():
+                    nonlocal result
                     observed=subprocess.run([sys.executable,str(app/'session.py'),'ensure','--thread','thread-one'],
-                        env=env,capture_output=True,text=True,check=True)
+                        env=env,capture_output=True,text=True,check=True,timeout=waiting.timeout())
                     result=json.loads(observed.stdout)
-                    if 'uncertain_delivery' in result['delivery_health']['reasons']:
-                        break
-                    time.sleep(.05)
-                else:
-                    self.fail('provider failure did not reach delivery health')
+                    return 'uncertain_delivery' in result['delivery_health']['reasons']
+                waiting.wait_until_sync(delivery_failed, 'provider failure did not reach delivery health',
+                                       process=processes[0], observe=lambda: result)
                 self.assertEqual(result['status'],'running')
                 self.assertEqual(result['bridge']['pid'],statuses[0]['pid'])
                 self.assertEqual(json.loads((failed_state/'notify-ready.json').read_text()),ready_before)
@@ -150,7 +152,7 @@ class SessionTests(unittest.TestCase):
                 for process in processes:
                     process.terminate()
                 for process in processes:
-                    process.communicate(timeout=25)
+                    process.communicate(timeout=waiting.timeout())
             self.assertEqual(list((root/'claude/sessions').glob('*.json')),[])
 
 
@@ -203,10 +205,10 @@ class SystemdStartupTests(unittest.TestCase):
                 process.terminate()
         for process in reversed(self.processes):
             try:
-                process.communicate(timeout=25)
+                process.communicate(timeout=waiting.timeout())
             except subprocess.TimeoutExpired:
                 process.kill()
-                process.communicate(timeout=5)
+                process.communicate(timeout=waiting.timeout())
 
     def spawn(self, command):
         process = subprocess.Popen(command, env=self.env, stdout=subprocess.PIPE,
@@ -252,7 +254,7 @@ class SystemdStartupTests(unittest.TestCase):
             script.write_text(source + f"if __name__ == '__main__':\n    import sys\n    if sys.argv[-1] == 'serve':\n        raise SystemExit({exit_code})\n    main()\n")
             process = self.spawn([sys.executable, str(self.app/'session.py'), 'run',
                                   '--thread', self.thread, '--repo', self.repo])
-            stdout, stderr = process.communicate(timeout=20)
+            stdout, stderr = process.communicate(timeout=waiting.timeout())
             self.assertEqual(process.returncode, exit_code, stderr)
             self.assertNotIn('Traceback', stderr)
             self.assertFalse((self.state/'inbox.sqlite3').exists())
@@ -263,7 +265,7 @@ class SystemdStartupTests(unittest.TestCase):
         notifier.write_text(source + "if __name__ == '__main__':\n    raise SystemExit(78)\n")
         process = self.spawn([sys.executable, str(self.app/'session.py'), 'run',
                               '--thread', self.thread, '--repo', self.repo])
-        stdout, stderr = process.communicate(timeout=20)
+        stdout, stderr = process.communicate(timeout=waiting.timeout())
         self.assertEqual(process.returncode, 78, stderr)
         self.assertIn('address', stdout, 'the bridge must start before the child refusal')
         self.assertNotIn('Traceback', stderr)
@@ -297,26 +299,25 @@ raise SystemExit(78)
                               '--thread', self.thread, '--repo', self.repo])
         # Read actual supervisor output until it reports the running state.
         import select
-        deadline = time.monotonic()+15
-        running = False
         buffered = b''
-        while time.monotonic() < deadline:
-            readable, _, _ = select.select([process.stdout], [], [], .2)
+        def reported_running():
+            nonlocal buffered
+            readable, _, _ = select.select([process.stdout], [], [], 0)
             if not readable:
-                continue
+                return False
             chunk = os.read(process.stdout.fileno(), 4096)
             if not chunk:
-                break
+                return False
             buffered += chunk
             while b'\n' in buffered:
                 line, buffered = buffered.split(b'\n', 1)
                 if json.loads(line).get('status') == 'running':
-                    running = True
-            if running:
-                break
-        self.assertTrue(running, 'supervisor did not report running')
+                    return True
+            return False
+        waiting.wait_until_sync(reported_running, 'supervisor did not report running',
+                               process=process, observe=lambda: buffered)
         (self.state/'exit-now').touch()
-        stdout, stderr = process.communicate(timeout=20)
+        stdout, stderr = process.communicate(timeout=waiting.timeout())
         self.assertEqual(process.returncode, 78, stderr)
         self.assertNotIn('Traceback', stderr)
         self.assertIsNone(session.bridge_status(self.app, self.state))
@@ -387,13 +388,8 @@ session.main()
         process = self.spawn([sys.executable, '-c', command, str(self.app), str(attempted),
                               action, '--agent', 'codex', '--thread', self.thread,
                               '--repo', str(self.root/'renamed-project')])
-        deadline = time.monotonic()+5
-        while not attempted.exists():
-            if process.poll() is not None:
-                self.fail(f'competing command exited before its lock attempt: {process.communicate()}')
-            if time.monotonic() >= deadline:
-                self.fail('competing command did not attempt a session lock')
-            time.sleep(.01)
+        waiting.wait_until_sync(attempted.exists, 'competing command did not attempt a session lock',
+                               process=process, observe=lambda: {'lock_attempted': attempted.exists()})
         # There is no supervisor yet. Stop/rename must not act in this gap,
         # and another ensure must wait rather than report manual_required.
         with self.assertRaises(subprocess.TimeoutExpired):
@@ -409,7 +405,7 @@ session.main()
     def test_same_thread_ensure_waits_and_reuses_the_started_session(self):
         competing = []
         self.start_session(lambda: competing.append(self.competing_command('ensure')))
-        stdout, stderr = competing[0].communicate(timeout=15)
+        stdout, stderr = competing[0].communicate(timeout=waiting.timeout())
         self.assertEqual(competing[0].returncode, 0, stderr)
         result = json.loads(stdout)
         self.assertEqual(result['status'], 'running')
@@ -420,14 +416,14 @@ session.main()
     def test_stop_waits_for_start_then_stops_the_session(self):
         competing = []
         self.start_session(lambda: competing.append(self.competing_command('stop')))
-        _, stderr = competing[0].communicate(timeout=15)
+        _, stderr = competing[0].communicate(timeout=waiting.timeout())
         self.assertEqual(competing[0].returncode, 0, stderr)
         self.assertIsNone(session.bridge_status(self.app, self.state))
 
     def test_rename_waits_for_start_then_refuses_a_live_session(self):
         competing = []
         self.start_session(lambda: competing.append(self.competing_command('rename')))
-        _, stderr = competing[0].communicate(timeout=15)
+        _, stderr = competing[0].communicate(timeout=waiting.timeout())
         self.assertNotEqual(competing[0].returncode, 0)
         self.assertIn('stop this thread before explicitly renaming it', stderr)
         self.assertEqual(json.loads((self.state/'session.json').read_text())['repo'], self.repo)
@@ -439,7 +435,7 @@ session.main()
             process = self.spawn([sys.executable, str(self.app/'session.py'), 'ensure',
                                   '--agent', 'codex', '--thread', 'other-startup-thread',
                                   '--repo', self.repo])
-            stdout, stderr = process.communicate(timeout=5)
+            stdout, stderr = process.communicate(timeout=waiting.timeout())
             self.assertEqual(process.returncode, 0, stderr)
             result = json.loads(stdout)
             self.assertEqual(result['status'], 'manual_required')

@@ -1,3 +1,4 @@
+import waiting
 import contextlib
 import io
 import json
@@ -137,19 +138,21 @@ class NativeSessionServiceTests(unittest.TestCase):
         def cleanup():
             if child.poll() is None:
                 child.terminate()
-            child.wait(timeout=45)
+            # Allow two sequential 20s shutdown stages, plus process overhead.
+            child.wait(timeout=waiting.timeout(45))
         self.addCleanup(cleanup)
-        deadline = time.monotonic() + 35
-        while True:
+        observed = None
+        def running():
+            nonlocal observed
             observed = service.status(selection)
-            if observed['status'] == 'running':
-                break
-            if child.poll() is not None or time.monotonic() >= deadline:
-                self.fail((self.root / 'session.log').read_text())
-            time.sleep(.05)
+            return observed if observed['status'] == 'running' else False
+        observed = waiting.wait_until_sync(running, 'session service running', process=child,
+                                          observe=lambda: {'status': observed,
+                                              'log': (self.root / 'session.log').read_text()})
         self.assertEqual(observed['basis'], 'live_pair_identity')
         captured = selection.records.request_stop()
-        self.assertEqual(child.wait(timeout=45), 0, (self.root / 'session.log').read_text())
+        # Allow two sequential 20s shutdown stages, plus process overhead.
+        self.assertEqual(child.wait(timeout=waiting.timeout(45)), 0, (self.root / 'session.log').read_text())
         selection.records.wait_stopped(captured, timeout=0)
         observed = service.status(selection)
         self.assertEqual(observed['status'], 'stopped')

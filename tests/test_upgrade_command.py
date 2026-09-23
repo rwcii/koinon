@@ -1,4 +1,5 @@
 """Public dispatcher executes the retained archive against synthetic installations."""
+import waiting
 import json
 from pathlib import Path
 import shutil
@@ -215,7 +216,7 @@ class CommandTests(unittest.TestCase):
             self.assertFalse((self.prefix / '.upgrade').exists())
         finally:
             job.terminate()
-            job.wait(timeout=5)
+            job.wait(timeout=waiting.timeout())
 
     def test_lost_exclusion_publication_has_discoverable_phase_zero_resume(self):
         activate = upgrade_exclusion.Exclusion.activate_locked

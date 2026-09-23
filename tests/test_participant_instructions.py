@@ -1,4 +1,5 @@
 """Cross-version guidance boundaries; never touch real participant homes."""
+import waiting
 import fcntl
 from pathlib import Path
 import tempfile
@@ -96,7 +97,7 @@ class MigrationTests(unittest.TestCase):
                     worker = threading.Thread(target=update)
                     worker.start()
                     try:
-                        self.assertTrue(reached.wait(5))
+                        self.assertTrue(reached.wait(waiting.timeout()))
                         self.assertFalse(finished.is_set())
                         self.assertFalse((home / 'AGENTS.md').exists())
                     finally:

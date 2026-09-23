@@ -1,4 +1,5 @@
 """Synthetic work-policy records and isolated installation concurrency."""
+import waiting
 import copy
 from contextlib import redirect_stderr
 import io
@@ -224,7 +225,7 @@ with install_state.locked(sys.argv[1]) as state:
             self.assertEqual(process.stdout.readline().strip(), 'started')
             self.assertIsNone(process.poll())
             state.merge({'first_writer':1})
-        out, error = process.communicate(timeout=10)
+        out, error = process.communicate(timeout=waiting.timeout())
         self.assertEqual(process.returncode, 0, error)
         result = runtime_names.install_config(self.prefix)
         self.assertEqual((result['first_writer'],result['second_writer']), (1,2))
@@ -294,7 +295,7 @@ runpy.run_path('scripts/install.py',run_name='__main__')
                 self.assertEqual(process.stdout.readline().strip(), 'waiting')
                 self.assertIsNone(process.poll())
         for process in processes:
-            out, error = process.communicate(timeout=15)
+            out, error = process.communicate(timeout=waiting.timeout())
             self.assertEqual(process.returncode, 0, error)
         config = runtime_names.install_config(self.prefix)
         self.assertEqual(config['participants'], ['codex', 'deepseek'])
@@ -326,7 +327,7 @@ runpy.run_path('scripts/install.py',run_name='__main__')
             changed = copy.deepcopy(self.config['work_items'])
             changed['rules'][self.key+':codex']['digest'] = 'f'*64
             state.merge({'work_items':changed,'concurrent_value':True})
-        out, error = process.communicate(timeout=15)
+        out, error = process.communicate(timeout=waiting.timeout())
         self.assertEqual(process.returncode, 0, error)
         saved = runtime_names.install_config(self.prefix)
         self.assertEqual(saved['work_items'], changed)
