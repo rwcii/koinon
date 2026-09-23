@@ -27,6 +27,7 @@ from koinon.notification_state import NotificationState
 from koinon import platform_support
 from koinon import generation_stop
 from koinon import participant_presence
+from koinon import participant_status
 from koinon.peer_transport import control_exchange, credentials, encode, LIMIT, private_dir
 from koinon.service_runtime import Admission, HANDSHAKE_TIMEOUT, close_writer, drain_handlers
 from koinon import subscriptions
@@ -92,12 +93,41 @@ async def create_worker(factory):
 
 
 class Runtime:
+    STATUS_SOURCE = 'koinon_notifier'
+
+    def publish_status(self):
+        """Publish this participant's status record; values stay unknown until a source exists."""
+        agent = self.options.agent
+        reason = 'participant_not_associated' if agent == 'codex' else 'provider_unsupported'
+        now = int(time.time() * 1000)
+        groups = {name: dict(source=self.STATUS_SOURCE, recorded_at_ms=now, reason=reason)
+                  for name in participant_status.FIELDS}
+        try:
+            participant_status.write('bridge', self.bridge['pid'], participant=None, groups=groups,
+                                     identity=dict(proc_start=self.bridge_start, generation=self.generation),
+                                     provider=agent, registry=self.registry)
+        except (OSError, ValueError):
+            # Status is advisory: a failure leaves the fields unknown and never stops delivery.
+            return
+        self.status_published = True
+
+    def own_status(self):
+        now = int(time.time() * 1000)
+        if self.bridge is None or not self.status_published:
+            return None, participant_status.unknown_views('no_status_record', now)
+        result = participant_status.read(
+            'bridge', self.bridge['pid'],
+            identity=dict(proc_start=self.bridge_start, generation=self.generation), now=now,
+            registry=self.registry)
+        return participant_status.activity(result, now), participant_status.views(result, now)
+
     def __init__(self, options, root, participant, *, provider=None, registry=None):
         self.options, self.root, self.participant = options, Path(root), participant
         self.provider = provider or Provider(options)
         self.registry = Path(registry) if registry is not None else Path(
             os.environ.get('CLAUDE_CONFIG_DIR', str(Path.home() / '.claude'))) / 'sessions'
         self.generation = uuid.uuid4().hex
+        self.status_published = False
         from koinon import upgrade_gate
         self.upgrade = upgrade_gate.select(PREFIX, 'notifier', self.root, self.generation)
         self.stop = asyncio.Event()
@@ -396,12 +426,14 @@ class Runtime:
             return dict(stopping=True, generation=self.generation)
         if op == 'status':
             value = await self.observed_health()
+            activity, status = self.own_status()
             return dict(control_capabilities=[generation_stop.CAPABILITY],
                         **({'upgrade': self.upgrade.status()} if self.upgrade is not None else {}),
                         bridge_generation=(self.bridge or {}).get('generation'),
                         generation=self.generation, pid=os.getpid(), lifecycle='stopping' if self.closing else 'running',
                         presence=dict(service=participant_presence.service('live_notifier_control'),
-                                      model_activity=participant_presence.unknown()),
+                                      model_activity=activity or participant_presence.unknown()),
+                        **status,
                         priority=participant_presence.priority(self.options.agent),
                         receipt_export='supported' if 'delivery_ledger' in (self.bridge or {}).get('capabilities', []) else 'unavailable',
                         delivery_health={key: value[key] for key in ('state', 'reasons', 'journal')})
@@ -529,6 +561,7 @@ class Runtime:
                 raise RuntimeRefusal('notifier_registry_refused', record) from exc
             with os.fdopen(fd, 'w') as stream:
                 json.dump(metadata, stream)
+            self.publish_status()
             durable_state.publish(self.root / 'notify-ready.json', dict(self.owner, participant_lock=self.participant))
             print(json.dumps(dict(registered=self.bridge['address'], name=self.options.name)), flush=True)
             tasks = [asyncio.create_task(subscriptions.watch_changes(self.open_current, self.scan, self.stop,
@@ -568,6 +601,12 @@ class Runtime:
         await asyncio.gather(*(settle(worker.close()) for worker in workers))
         if server is not None:
             await settle(server.wait_closed())
+        if self.status_published:
+            try:
+                participant_status.remove('bridge', self.bridge['pid'], generation=self.generation,
+                                         registry=self.registry)
+            except Exception as exc:
+                failures.append(exc)
         for path, key in ((self.root / 'notify-ready.json', 'owner'), (record, 'bridgeOwner')):
             if path is not None:
                 try:

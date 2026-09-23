@@ -6,11 +6,11 @@ closed with that evidence.
 
 ## Unit and integration tests
 
-All tests use synthetic peers, synthetic source files, a temporary `CLAUDE_CONFIG_DIR`, a
-temporary `CODEX_HOME` and a temporary account namespace. None reads or writes the user's
+All tests use synthetic peers, synthetic source files, a temporary `CLAUDE_CONFIG_DIR` (which
+also holds the status records), a temporary `CODEX_HOME` and a temporary account namespace. None reads or writes the user's
 Claude settings, Codex home, registry or services.
 
-- **Presence records.** Writing and reading a record in the account-local presence directory:
+- **Presence records.** Writing and reading a record in the status directory:
   owner-only modes, refusal of a record owned by another user, a symlink, an oversized file or
   a malformed record; a record that names a dead or recycled process is ignored.
 - **Allowlist (criterion 9).** Every source reader receives input that carries text in every

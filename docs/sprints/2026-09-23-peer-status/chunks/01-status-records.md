@@ -5,14 +5,14 @@
 
 ## Scope
 
-The account-local status directory, the record format with its allowlist, and the three new
+The status directory next to the Claude registry, the record format with its allowlist, and the three new
 fields in `bridge.py peers` and the notifier `status`. No source writes records yet, so every
 new field is `unknown` with a typed reason after this chunk.
 
 ## Approach
 
-- Add `participant_status_dir()` to `koinon/platform_support.py`, derived from
-  `account_home()` like `participant_lock_dir()`. Create it owner-only (0700) on first write.
+- The directory is `participant_status.directory()` (see `sprint.md`), created owner-only
+  (0700) on first write. It is not platform-specific, so `platform_support` does not change.
 - `koinon/participant_status.py`:
   - `write(kind, key, fields)`: validates `fields` against the allowlist for `kind`
     (`claude`, `bridge`) and publishes the file atomically, mode 0600, with `O_NOFOLLOW`.

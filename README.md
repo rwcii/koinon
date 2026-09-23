@@ -91,7 +91,7 @@ python3 notify.py --thread YOUR_CODEX_THREAD_ID --name codex-project --repo /pat
 
 Use the exact thread ID of the session you intend to notify. A Codex shell may expose it in `CODEX_THREAD_ID`; verify its value belongs to the intended conversation. The watcher does not create a replacement conversation.
 
-Claude peers can refresh their agent listing and send to `codex-project`. The registry entry identifies itself as `codex-peer-bridge`, with kind `daemon`. It omits model activity when no verified observation exists. Local status separates adapter health from model activity.
+Claude peers can refresh their agent listing and send to `codex-project`. The registry entry identifies itself as `codex-peer-bridge`, with kind `daemon`. It omits model activity when no verified observation exists. Local status separates adapter health from model activity. `peers` and the notifier `status` also report each participant's `model`, `context` (tokens used, limit and fill) and claimed `work`, each with its source and times or `unknown` with a reason; see [delivery evidence and presence](docs/DELIVERY.md#model-context-and-claimed-work).
 
 ## Read and reply
 
