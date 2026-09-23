@@ -40,14 +40,22 @@ The sources exist but are not read:
    next to the existing `presence`. Each observed value has a source, the time it was read
    and the time the source recorded it. Each unobserved value is `unknown` with a typed
    reason. The same fields appear in the local notifier `status` for its own participant.
-2. **Claude context.** With the Claude status-line integration enabled, a Claude peer reports
+2. **Claude context.** With the Claude status-line integration in place, a Claude peer reports
    its model ID, context limit, tokens used and fill level, taken from the status-line data,
-   with source `claude_statusline`. Without the integration its context is `unknown` with
-   reason `statusline_not_configured`.
-3. **Status-line integration.** An explicit installer option enables it and a matching option
-   removes it. An existing status-line command keeps the same input, output and exit status.
-   Other Claude settings are unchanged. Removal restores the previous `statusLine` value, and
-   uninstall removes the integration.
+   with source `claude_statusline`. When the integration is missing or has been changed, its
+   context is `unknown` with reason `statusline_missing` and the exact command that repairs
+   it. Activity and claimed work do not depend on the integration.
+3. **Status-line integration.** Installation and upgrade for a Claude user set it up by
+   default; an explicit option declines it, and a matching option removes it.
+   - An existing status-line command keeps working unchanged: it receives the same input and
+     its output and exit status are returned unchanged. Koinon adds nothing to the display.
+   - The existing command runs even when Koinon's own part fails.
+   - The previous `statusLine` value is stored and restored exactly on removal and uninstall.
+     Other Claude settings, and other fields of the `statusLine` entry, are unchanged.
+   - The added time per update stays within a bound that the definition of done states and
+     measures.
+   - A test uses a command that reads its whole input and prints a line, and proves identical
+     input and output with and without the integration.
 4. **Codex activity (#84).** A Codex peer reports `busy` while its latest `task_started` has
    no matching `task_complete` or `turn_aborted` and the selected participant's own process is
    verified live, and `idle` when its latest turn has ended and that process is verified live.
@@ -93,8 +101,9 @@ The sources exist but are not read:
   it has no side effects; otherwise the session log is the source.
 - Internal formats are treated as version-specific: an unrecognized format or version is
   `unknown` with a reason, never a guessed value. The Claude transcript is not a source.
-- The Claude settings change happens only through the explicit installer option, preserves all
-  other content and applies to the user's Claude configuration only.
+- The Claude settings change is limited to the `statusLine` entry of the user's own Claude
+  configuration and is part of installation, which a request to install Koinon authorizes
+  (root `AGENTS.md`). The user can decline it at installation.
 - A reported value grants nothing. No automatic alerts, notices or forced handoffs; peers
   read the listing and decide what to suggest.
 - Standard library only. Tests use synthetic peers and synthetic source files and never touch

@@ -12,3 +12,14 @@ its disposition.
 | Criterion 7 requires a work title and checkpoint, which are free text that criterion 9 excluded. | Fixed: criterion 9 permits the work title and checkpoint explicitly; transcript, message, prompt and file content stay excluded. |
 | Criterion 7 named no memory store, and gave no result for a missing link. | Fixed: the peer is associated with a memory store and a participant session key; a missing association or an unavailable service is `unknown`; a successful empty query is no claimed work. |
 | Criterion 10 could be read as making read-only reviewers claim work, against `docs/WORK-ITEMS-POLICY.md`. | Fixed: the building agent holds the item; a read-only reviewer does not claim work. |
+
+Concurrence on the decision at 255b9e7.
+
+## User change after concurrence
+
+The user rejected an opt-in status line: Koinon must not stop reporting Claude context because
+a user forgot an installation step, and a custom status line must keep working. Changed in
+criteria 2 and 3 and the settings constraint: installation and upgrade set the integration up
+by default with an option to decline it; the existing command keeps its input, output and exit
+status and runs even when Koinon's part fails; the previous value is restored exactly; a
+missing or changed integration reports `statusline_missing` with the repair command.
