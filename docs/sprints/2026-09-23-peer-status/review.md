@@ -72,4 +72,8 @@ The user ran read-only checks on a macOS host on 2026-09-23, without Koinon inst
   was not recorded, so the idle question stays with the live check.
 - Claude Code: the direct child of Claude Code was the user's status-line script with `$HOME`
   already expanded, so a shell interpreted the command and replaced itself; this is consistent
-  with `/bin/sh -c`. Chunk 02 records it. The macOS launcher is no longer an unverified limit.
+  with `/bin/sh -c`. Chunk 02 records it.
+
+Review at 94721bf: the process tree does not identify the launcher uniquely. Fixed in chunk 02:
+the macOS launcher is labelled inferred; `/bin/sh -c` stays the implementation, and the
+command-equivalence tests run on macOS.
