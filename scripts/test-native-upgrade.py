@@ -40,11 +40,20 @@ def public_upgrade(fixture, source, interrupt, handoff=None):
             stream.write('    return result\nJournal.advance = _fixture_interrupt\n')
     command = [sys.executable, str(source / 'scripts/upgrade.py'),
                '--prefix', str(fixture.prefix), '--source', str(source)]
-    # The upgrade sets up the Claude status line; give it a private Claude configuration
-    # holding a user status line, never the host's.
+    # The upgrade sets up the Claude status line. The fixture's overrides point the
+    # installed code at the fixture's own Claude configuration; the private directory in
+    # the environment only keeps the host's configuration out of reach if they do not.
+    # Each file without a status line gets a synthetic user one, which must survive.
     claude = Path(tempfile.mkdtemp(prefix='koinon-upgrade-claude-'))
     status_line = dict(type='command', command='echo synthetic-status-line')
-    (claude / 'settings.json').write_text(json.dumps(dict(statusLine=status_line)))
+    before = {}
+    for settings in (claude / 'settings.json', fixture.root / 'claude/settings.json'):
+        settings.parent.mkdir(mode=0o700, exist_ok=True)
+        content = json.loads(settings.read_text()) if settings.exists() else {}
+        if 'statusLine' not in content:
+            content['statusLine'] = status_line
+            settings.write_text(json.dumps(content))
+        before[settings.resolve()] = content['statusLine'].get('command', '')
     environment = dict(os.environ, CLAUDE_CONFIG_DIR=str(claude))
     interrupted = []
     for _ in range(len(phases) + (32 if handoff else 1)):
@@ -66,12 +75,15 @@ def public_upgrade(fixture, source, interrupt, handoff=None):
             if sorted(interrupted) != phases:
                 raise RuntimeError('not every selected interruption boundary was exercised')
             report = json.loads(result.stdout)
-            line = json.loads((claude / 'settings.json').read_text())['statusLine']
-            if (report['result'].get('claude_statusline') or {}).get('outcome') not in ('set_up', 'unchanged') \
-                    or str(fixture.prefix / 'statusline.py') not in line.get('command', '') \
-                    or 'synthetic-status-line' not in line['command']:
-                raise RuntimeError('upgrade did not set up the Claude status line: '
-                                   + json.dumps(report['result'].get('claude_statusline')))
+            outcome = report['result'].get('claude_statusline') or {}
+            settings = Path(outcome.get('settings_file') or '').resolve()
+            command = json.loads(settings.read_text()).get('statusLine', {}).get('command', '') \
+                if settings in before and settings.is_file() else ''
+            if outcome.get('outcome') not in ('set_up', 'unchanged') \
+                    or str(fixture.prefix / 'statusline.py') not in command \
+                    or ('synthetic-status-line' in before[settings]
+                        and 'synthetic-status-line' not in command):
+                raise RuntimeError('upgrade did not set up the Claude status line: ' + json.dumps(outcome))
             shutil.rmtree(claude, ignore_errors=True)
             return report
         pointer = json.loads((fixture.prefix / '.upgrade/current.json').read_text())
