@@ -18,6 +18,7 @@ from koinon import upgrade_exclusion
 from koinon import upgrade_gate
 from koinon.upgrade_journal import Journal
 from koinon import upgrade_plan
+import waiting
 
 
 class GateTests(unittest.TestCase):
@@ -177,12 +178,12 @@ class ClosedGate:
 
 class RuntimeAdmissionTests(unittest.IsolatedAsyncioTestCase):
     async def wait_until(self, predicate, task):
-        async with asyncio.timeout(5):
-            while not predicate():
-                if task.done():
-                    await task
-                    self.fail('service exited before readiness')
-                await asyncio.sleep(.005)
+        def ready():
+            if task.done():
+                task.result()
+                self.fail('service exited before readiness')
+            return predicate()
+        await waiting.wait_until(ready, 'service readiness', interval=.005)
 
     async def test_bridge_listener_opens_after_gate_release(self):
         import contextlib
@@ -209,12 +210,13 @@ class RuntimeAdmissionTests(unittest.IsolatedAsyncioTestCase):
                 try:
                     await self.wait_until(lambda: bool(output.getvalue()), task)
                     gate.release.set()
-                    async with asyncio.timeout(5):
-                        while writer is None:
+                    async def connect():
+                        while True:
                             try:
-                                _, writer = await asyncio.open_unix_connection(str(peer))
+                                return await asyncio.open_unix_connection(str(peer))
                             except ConnectionRefusedError:
                                 await asyncio.sleep(.005)
+                    _, writer = await waiting.settle(connect(), 'the peer listener to accept')
                     writer.close()
                     await writer.wait_closed()
                     # Ordinary control admission is restored by the same decision.
@@ -222,7 +224,7 @@ class RuntimeAdmissionTests(unittest.IsolatedAsyncioTestCase):
                 finally:
                     gate.release.set()
                     service.stop.set()
-                    await asyncio.wait_for(task, 5)
+                    await waiting.settle(task, 'the service to exit')
 
     async def test_peer_listener_waits_for_release_and_gate_fault_drains_worker(self):
         import contextlib
@@ -254,7 +256,7 @@ class RuntimeAdmissionTests(unittest.IsolatedAsyncioTestCase):
                     self.assertFalse(reply['result']['upgrade']['released'])
                     gate.fail.set()
                     with self.assertRaisesRegex(upgrade_gate.GateError, 'missing evidence'):
-                        await asyncio.wait_for(task, 5)
+                        await waiting.settle(task, 'the service to exit')
                     self.assertFalse(peer.exists())
                     self.assertFalse(bridge.platform_support.control_socket_path(root).exists())
                     self.assertTrue(service.closing)
@@ -295,7 +297,7 @@ class RuntimeAdmissionTests(unittest.IsolatedAsyncioTestCase):
                     self.assertFalse((root / 'registry').exists())
                     self.assertEqual(provider.messages, [])
                     notifier.stop.set()
-                    await asyncio.wait_for(notifier_task, 5)
+                    await waiting.settle(notifier_task, 'the notifier to exit')
                     self.assertFalse((state / 'notify-ready.json').exists())
                 finally:
                     notifier.stop.set()
@@ -346,7 +348,7 @@ class RuntimeAdmissionTests(unittest.IsolatedAsyncioTestCase):
                 self.assertEqual(before['head'], after['head'])
                 self.assertFalse(after['upgrade']['released'])
                 service.stop.set()
-                await asyncio.wait_for(maintenance, 2)
+                await waiting.settle(maintenance, 'maintenance to exit')
             finally:
                 maintenance.cancel()
                 await service.worker.close()
@@ -391,7 +393,7 @@ class RuntimeAdmissionTests(unittest.IsolatedAsyncioTestCase):
         class Owner:
             def status(self):
                 entered.set()
-                if not release.wait(5):
+                if not release.wait(waiting.timeout()):
                     raise RuntimeError('synthetic blocker timed out')
             def ordinary(self):
                 return None
@@ -409,23 +411,23 @@ class RuntimeAdmissionTests(unittest.IsolatedAsyncioTestCase):
         pending, maintenance = [], None
         try:
             pending.append(asyncio.create_task(worker.call('status', priority=True)))
-            self.assertTrue(await asyncio.to_thread(entered.wait, 2))
+            self.assertTrue(await asyncio.to_thread(entered.wait, waiting.timeout()))
             pending.extend(asyncio.create_task(worker.call('ordinary')) for _ in range(16))
-            async with asyncio.timeout(2):
-                while worker.snapshot()['ordinary_queued'] != 16:
-                    await asyncio.sleep(.001)
+            await waiting.wait_until(lambda: worker.snapshot()['ordinary_queued'] == 16,
+                                     'sixteen ordinary calls to queue', interval=.001,
+                                     observe=lambda: worker.snapshot()['ordinary_queued'])
             with patch.object(memory.work_maintenance, 'INTERVAL', .001):
                 maintenance = asyncio.create_task(memory.Service.maintain_work(service))
-                async with asyncio.timeout(2):
-                    while state.snapshot()['skipped_submissions'] == 0:
-                        if maintenance.done():
-                            await maintenance
-                            self.fail('maintenance exited before retry')
-                        await asyncio.sleep(.001)
+                def skipped():
+                    if maintenance.done():
+                        maintenance.result()
+                        self.fail('maintenance exited before retry')
+                    return state.snapshot()['skipped_submissions'] > 0
+                await waiting.wait_until(skipped, 'maintenance to skip a full queue', interval=.001)
                 self.assertFalse(service.stop.is_set())
                 release.set()
-                await asyncio.wait_for(asyncio.gather(*pending), 3)
-                await asyncio.wait_for(maintenance, 3)
+                await waiting.settle(asyncio.gather(*pending), 'the queued calls to finish')
+                await waiting.settle(maintenance, 'maintenance to exit')
             self.assertEqual(resumed, [True])
             self.assertFalse(service.stop.is_set())
         finally:

@@ -15,14 +15,13 @@ import memory
 from koinon import subscriptions as sub
 from koinon.database_worker import DatabaseWorker
 from koinon.service_runtime import close_writer, drain_handlers
+import waiting
 
 REPO = 'a'*16
 
 
-async def until(predicate):
-    async with asyncio.timeout(3):
-        while not predicate():
-            await asyncio.sleep(.001)
+async def until(predicate, what='the subscription state the test awaits'):
+    await waiting.wait_until(predicate, what, interval=.001)
 
 
 class SubscriptionTests(unittest.IsolatedAsyncioTestCase):
@@ -55,7 +54,7 @@ class SubscriptionTests(unittest.IsolatedAsyncioTestCase):
                 def store(self, *args):
                     if blocking:
                         entered.set()
-                        if not release.wait(3):
+                        if not release.wait(waiting.timeout()):
                             raise RuntimeError('test barrier expired')
                     return super().store(*args)
             def factory():
@@ -70,7 +69,7 @@ class SubscriptionTests(unittest.IsolatedAsyncioTestCase):
                 def note(self, *args, **kwargs):
                     if blocking:
                         entered.set()
-                        if not release.wait(3):
+                        if not release.wait(waiting.timeout()):
                             raise RuntimeError('test barrier expired')
                     return super().note(*args, **kwargs)
             self.service = memory.Service(self.root, REPO, lambda: Store(self.root/'memory.sqlite3', REPO))
@@ -101,7 +100,7 @@ class SubscriptionTests(unittest.IsolatedAsyncioTestCase):
             write.cancel()
             await asyncio.gather(write, return_exceptions=True)
             self.release.set()
-            await asyncio.wait_for(wake, 2)
+            await waiting.settle(wake, 'the committed wake')
             self.assertEqual(await self.head(kind), 1)
         await until(lambda: len(self.service.hints.queues) == 0)
 
@@ -121,7 +120,7 @@ class SubscriptionTests(unittest.IsolatedAsyncioTestCase):
             self.assertEqual(reply['code'], 'capacity')
             self.assertEqual(self.service.admission.counts['ordinary'], 0)
             self.assertEqual(self.service.admission.counts['handshake'], 0)
-            await asyncio.wait_for(self.write(kind), 2)
+            await waiting.settle(self.write(kind), 'the write to commit')
             reply, _ = await bridge.control_exchange(self.root, dict(op='status'))
             self.assertTrue(reply['ok'])
             stop = dict(op='stop') if kind == 'bridge' else dict(op='stop', repo=REPO, generation=self.service.generation)
@@ -146,11 +145,11 @@ class SubscriptionTests(unittest.IsolatedAsyncioTestCase):
                 request = dict(op='subscribe-inbox', protocol=1, generation=self.service.generation)
                 async with sub.open_hints(self.root, request) as connection:
                     await self.write('bridge')
-                    await asyncio.wait_for(connection.changed(), 2)
+                    await waiting.settle(connection.changed(), 'a change notification')
                     self.assertEqual(await self.head('bridge'), 1)
             finally:
                 self.service.stop.set()
-                await asyncio.wait_for(run, 3)
+                await waiting.settle(run, 'the service to stop')
 
     async def test_wrong_generation_and_repository_do_not_allocate(self):
         request, _ = await self.start('memory')
@@ -164,11 +163,11 @@ class SubscriptionTests(unittest.IsolatedAsyncioTestCase):
         request, _ = await self.start('bridge')
         with mock.patch.object(sub, 'HEARTBEAT', .03):
             async with sub.open_hints(self.root, request) as connection:
-                await asyncio.wait_for(connection.changed(), 1)
+                await waiting.settle(connection.changed(), 'a change notification')
                 for _ in range(100):
                     self.service.hints.publish()
                 self.assertEqual([queue.qsize() for queue in self.service.hints.queues], [1])
-                await asyncio.wait_for(connection.changed(), 1)
+                await waiting.settle(connection.changed(), 'a change notification')
 
     async def test_subscription_only_detects_existing_backlog_and_new_commit(self):
         request, _ = await self.start('bridge')
@@ -182,10 +181,10 @@ class SubscriptionTests(unittest.IsolatedAsyncioTestCase):
                 stop.set()
         watch = asyncio.create_task(sub.watch_changes(lambda: sub.open_hints(self.root, request), scan, stop, rescan_interval=None))
         try:
-            await asyncio.wait_for(scanned.wait(), 2)
+            await waiting.settle(scanned.wait(), 'the first scan')
             self.assertEqual(seen, [1])
             await self.write('bridge')
-            await asyncio.wait_for(watch, 2)
+            await waiting.settle(watch, 'the watch to finish')
             self.assertEqual(seen[-1], 2)
         finally:
             stop.set()
@@ -201,7 +200,8 @@ class SubscriptionTests(unittest.IsolatedAsyncioTestCase):
             stop.set()
         def forbidden():
             raise AssertionError('subscription path must be disabled')
-        await asyncio.wait_for(sub.watch_changes(forbidden, scan, stop, rescan_interval=.03, subscriptions_enabled=False), 1)
+        await waiting.settle(sub.watch_changes(forbidden, scan, stop, rescan_interval=.03, subscriptions_enabled=False),
+                             'the rescan-only watch to finish')
         self.assertEqual(len(self.service.hints.queues), 0)
 
     async def test_reconnect_subscribes_before_recheck_without_fallback(self):
@@ -222,7 +222,8 @@ class SubscriptionTests(unittest.IsolatedAsyncioTestCase):
             scans.append((len(opened), await self.head('bridge')))
             if len(opened) == 2 and scans[-1][1] == 1:
                 stop.set()
-        await asyncio.wait_for(sub.watch_changes(reconnecting, scan, stop, rescan_interval=None, reconnect_delays=(.01,)), 2)
+        await waiting.settle(sub.watch_changes(reconnecting, scan, stop, rescan_interval=None, reconnect_delays=(.01,)),
+                             'the reconnecting watch to finish')
         self.assertEqual(len(set(opened)), 2)
         self.assertEqual(scans[-1], (2,1))
 
@@ -285,7 +286,7 @@ class HubBoundTests(unittest.IsolatedAsyncioTestCase):
                 async with sub.open_hints(fixture.root, request) as connection:
                     await asyncio.sleep(11)
                     await fixture.write(kind)
-                    await asyncio.wait_for(connection.changed(), 2)
+                    await waiting.settle(connection.changed(), 'a change notification')
                     self.assertEqual(await fixture.head(kind), 1)
             finally:
                 await fixture.asyncTearDown()
@@ -299,7 +300,8 @@ class HubBoundTests(unittest.IsolatedAsyncioTestCase):
         async def scan():
             pass
         with self.assertRaisesRegex(RuntimeError, 'synthetic programming failure'):
-            await asyncio.wait_for(sub.watch_changes(broken, scan, asyncio.Event(), rescan_interval=None), 1)
+            await waiting.settle(sub.watch_changes(broken, scan, asyncio.Event(), rescan_interval=None),
+                                 'the broken watch to fail')
 
 
 class CommitHintTests(unittest.TestCase):

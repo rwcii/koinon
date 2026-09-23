@@ -10,6 +10,7 @@ import unittest
 from unittest import mock
 
 import memory
+import waiting
 
 
 class ExactMemoryTargetTests(unittest.IsolatedAsyncioTestCase):
@@ -28,11 +29,8 @@ class ExactMemoryTargetTests(unittest.IsolatedAsyncioTestCase):
         self.redirect = redirect_stdout(self.output)
         self.redirect.__enter__()
         self.running = asyncio.create_task(self.service.run(sock))
-        async with asyncio.timeout(3):
-            while not self.output.getvalue():
-                if self.running.done():
-                    await self.running
-                await asyncio.sleep(.001)
+        await waiting.wait_until(self.output.getvalue, 'the memory service to report readiness',
+                                 task=self.running, interval=.001)
 
     async def test_memory_handshake_keeps_the_old_client_literal(self):
         reply = await memory.request(self.home, dict(op='hello'))
@@ -53,7 +51,7 @@ class ExactMemoryTargetTests(unittest.IsolatedAsyncioTestCase):
     async def asyncTearDown(self):
         self.service.stop.set()
         try:
-            await asyncio.wait_for(self.running, 4)
+            await waiting.settle(self.running, 'the memory service to stop')
         finally:
             self.redirect.__exit__(None, None, None)
             self.temp.cleanup()
@@ -62,7 +60,7 @@ class ExactMemoryTargetTests(unittest.IsolatedAsyncioTestCase):
         process = await asyncio.create_subprocess_exec(sys.executable, 'memory.py',
             '--service-dir', str(self.home), '--repo-path', str(self.repo), *args,
             stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE)
-        stdout, stderr = await asyncio.wait_for(process.communicate(), 10)
+        stdout, stderr = await waiting.settle(process.communicate(), 'the memory command to exit')
         return process.returncode, stdout.decode(), stderr.decode()
 
     async def test_exact_custom_root_sync_does_not_append_another_memory_suffix(self):

@@ -18,6 +18,7 @@ from koinon import work_schema
 from koinon import work_storage
 import test_work_items
 from koinon.database_worker import CapacityError
+import waiting
 
 
 class MaintenanceTests(unittest.TestCase):
@@ -247,10 +248,8 @@ class MaintenanceTests(unittest.TestCase):
         self.assertEqual(tuple(self.store.db.iterdump()), before)
 
 
-async def until(predicate):
-    async with asyncio.timeout(5):
-        while not predicate():
-            await asyncio.sleep(.001)
+async def until(predicate, what='the maintenance state the test awaits'):
+    await waiting.wait_until(predicate, what, interval=.001)
 
 
 class MaintenanceLoopTests(unittest.IsolatedAsyncioTestCase):
@@ -288,7 +287,7 @@ class MaintenanceLoopTests(unittest.IsolatedAsyncioTestCase):
     @patch.object(memory, 'SCHEMA', 4)
     async def test_schema4_exits_disabled_without_fault(self):
         service = self.service(False)
-        await asyncio.wait_for(self.loop(service), 2)
+        await waiting.settle(self.loop(service), 'the maintenance loop to exit')
         state = service.maintenance_state.snapshot()
         self.assertFalse(state['enabled'])
         self.assertIsNone(state['last_successful_sweep'])
@@ -301,7 +300,7 @@ class MaintenanceLoopTests(unittest.IsolatedAsyncioTestCase):
         service = self.service()
         call = AsyncMock(side_effect=[CapacityError(), {'enabled': False}])
         with patch.object(service.worker, 'call', call), patch.object(work_maintenance, 'INTERVAL', .01):
-            await asyncio.wait_for(self.loop(service), 2)
+            await waiting.settle(self.loop(service), 'the maintenance loop to exit')
         self.assertEqual(service.maintenance_state.snapshot()['skipped_submissions'], 1)
         self.assertEqual(call.call_count, 2)
         for args in call.call_args_list:
@@ -314,7 +313,7 @@ class MaintenanceLoopTests(unittest.IsolatedAsyncioTestCase):
         real = memory.MemoryCommands.maintain_work
         def blocked(commands):
             entered.set()
-            if not release.wait(5):
+            if not release.wait(waiting.timeout()):
                 raise RuntimeError('test barrier timed out')
             result = real(commands)
             finished.set()
@@ -346,7 +345,7 @@ class MaintenanceLoopTests(unittest.IsolatedAsyncioTestCase):
         def blocked(commands):
             ready.append(bool(output.getvalue()))
             entered.set()
-            if not release.wait(5):
+            if not release.wait(waiting.timeout()):
                 raise RuntimeError('test barrier timed out')
             return real(commands)
         sock = socket.socket(socket.AF_UNIX)
@@ -360,7 +359,7 @@ class MaintenanceLoopTests(unittest.IsolatedAsyncioTestCase):
                 await asyncio.sleep(.02)
                 self.assertFalse(task.done())
                 release.set()
-                await asyncio.wait_for(task, 2)
+                await waiting.settle(task, 'the service to finish shutdown')
             self.assertEqual(ready, [True])
             self.assertTrue(service.worker.snapshot()['closing'])
         finally:
@@ -388,7 +387,7 @@ class MaintenanceLoopTests(unittest.IsolatedAsyncioTestCase):
                     dict(op='subscribe', protocol=1, generation=service.generation,
                          repo=service.repo, consumer='reader'), legacy_socket=path) as connection:
                 self.loop(service)
-                await asyncio.wait_for(connection.changed(), 2)
+                await waiting.settle(connection.changed(), 'the subscriber to wake')
                 status = await service.command(dict(op='status'), None)
                 self.assertEqual(status['head'], 3)
                 self.assertEqual(status['work_maintenance']['pending_due'], 0)
