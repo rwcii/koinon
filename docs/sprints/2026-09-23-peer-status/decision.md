@@ -50,12 +50,26 @@ The sources exist but are not read:
    - An existing status-line command keeps working unchanged: it receives the same input and
      its output and exit status are returned unchanged. Koinon adds nothing to the display.
    - The existing command runs even when Koinon's own part fails.
-   - The previous `statusLine` value is stored and restored exactly on removal and uninstall.
-     Other Claude settings, and other fields of the `statusLine` entry, are unchanged.
+   - The previous `statusLine` value is saved once, when the integration is first set up. A
+     repeated installation, upgrade or retry never wraps Koinon's command again and never
+     replaces the saved value. A saved decline survives upgrade until the user reverses it.
+   - Removal and uninstall restore the saved value only while the entry still is Koinon's
+     command. An entry that the user changed afterwards is kept, and the result reports it
+     with the action that removes Koinon's part. Other Claude settings, and other fields of
+     the `statusLine` entry, are unchanged.
+   - No settings edit silently overwrites a concurrent change. The file is compared with what
+     was read immediately before it is replaced and checked again afterwards; a difference is
+     a reported conflict that keeps the user's content. The remaining race with a Claude Code
+     write is documented, not claimed away.
+   - The upgrade operation includes the settings edit in its preflight, keeps the saved value
+     as evidence, and reports the edit or its conflict in its completion and preservation
+     report.
    - The added time per update stays within a bound that the definition of done states and
      measures.
    - A test uses a command that reads its whole input and prints a line, and proves identical
-     input and output with and without the integration.
+     input and output with and without the integration. Separate tests fail the user's command
+     and Koinon's part, and prove that the input is read once and given to the user's command
+     unchanged in both cases.
 4. **Codex activity (#84).** A Codex peer reports `busy` while its latest `task_started` has
    no matching `task_complete` or `turn_aborted` and the selected participant's own process is
    verified live, and `idle` when its latest turn has ended and that process is verified live.

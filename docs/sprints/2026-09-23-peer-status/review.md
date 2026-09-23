@@ -23,3 +23,11 @@ criteria 2 and 3 and the settings constraint: installation and upgrade set the i
 by default with an option to decline it; the existing command keeps its input, output and exit
 status and runs even when Koinon's part fails; the previous value is restored exactly; a
 missing or changed integration reports `statusline_missing` with the repair command.
+
+## User change (reviewed at 5809a23)
+
+| Finding | Disposition |
+| --- | --- |
+| The upgrade edits user settings without preflight, saved evidence or reporting; a retry could wrap the command twice or replace the saved original; a saved decline must survive upgrade. | Fixed in criterion 3: the original is saved once; repeats never nest or replace it; a decline survives upgrade; the upgrade covers the edit in preflight, evidence and its report. |
+| Exact restoration overwrites later user edits; a concurrent Claude Code write could be overwritten; a lock or atomic rename does not coordinate Claude Code. | Fixed in criterion 3: restore only while the entry is still Koinon's command, otherwise keep it and report; compare before and after replacement, a difference is a reported conflict; the remaining race is documented. |
+| The tests must cover a failing user command and a failing Koinon part separately, with the input read once. | Fixed in criterion 3. |
