@@ -13,7 +13,7 @@ failure found here saves one. Run the checks from the root of the branch's workt
 ## 1. Tests and whitespace
 
 ```sh
-python3 -m unittest discover -s tests
+python3 tests/run.py
 git diff --check origin/develop...HEAD
 git diff --check
 ```

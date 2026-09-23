@@ -20,6 +20,11 @@ jobs:
         os: [ubuntu-latest, macos-latest]
         python: ['3.11', '3.12', '3.13']
     runs-on: ${{ matrix.os }}
+    # A hang ends at the watchdog bound in tests/run.py; this limit is the last resort.
+    timeout-minutes: 30
+    env:
+      # macOS runners are slower; every test wait budget in tests/waiting.py scales with this.
+      KOINON_TEST_TIMEOUT_SCALE: ${{ matrix.os == 'macos-latest' && '3' || '1' }}
     steps:
       - uses: actions/checkout@v4
         with:
@@ -48,4 +53,4 @@ jobs:
         with:
           python-version: ${{ matrix.python }}
       - if: steps.scope.outputs.exempt != 'true'
-        run: python -m unittest discover -v -s tests
+        run: python tests/run.py -v
