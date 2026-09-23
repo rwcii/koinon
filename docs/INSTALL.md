@@ -573,9 +573,11 @@ python3 PREFIX/scripts/install.py --prefix PREFIX --remove-claude-statusline  # 
 
 - `--no-start` installs stage files only and never change Claude settings.
 - A decline is kept by later installations until `--claude-statusline` is given.
-- Removal and uninstall restore the saved entry only while `statusLine` still runs this
-  installation's wrapper. An entry you changed afterwards is kept and reported, and
-  uninstall stops before deleting the wrapper if the settings cannot be restored.
+- Removal and uninstall restore the saved entry only while `statusLine` is still exactly the
+  entry Koinon set up. An entry you deleted or edited afterwards, including an edited
+  wrapper, is kept and reported; a later installation does not set it up again unless you
+  run `--claude-statusline`. Uninstall stops before deleting the wrapper if the settings
+  cannot be restored.
 - If you replace or remove the wrapper later, Claude peers report context as `unknown` with
   `statusline_missing` and the command that sets it up again.
 - A settings file that is a symbolic link, not owned by you, or not a JSON object is never

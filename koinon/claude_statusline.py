@@ -4,7 +4,8 @@ Installation makes `statusline.py` the Claude Code `statusLine` command, so that
 session's model and context reach `bridge.py peers` (`docs/DELIVERY.md`). Only the
 `statusLine` entry of `<claude config dir>/settings.json` changes; every other setting and
 every other field of that entry is kept. The previous entry is saved once in `install.json`
-under `claude_statusline` and restored on removal while the entry is still the wrapper.
+under `claude_statusline` and restored on removal only while the entry is still exactly the one
+Koinon set up; an entry the user deleted or edited afterwards, the wrapper included, is kept.
 
 The settings file is shared with Claude Code, which takes no Koinon lock. A write therefore
 compares the file with what was read immediately before replacing it and again afterwards;
@@ -66,6 +67,15 @@ def wrapper_entry(original, prefix, python):
         words += ['--command', user]
     entry = {k: v for k, v in original.items() if k not in ('type', 'command')} if isinstance(original, dict) else {}
     return dict(entry, type='command', command=shlex.join(words))
+
+
+def _unwrap(entry):
+    """The entry that a wrapper entry runs, rebuilt from its `--command` argument."""
+    words = shlex.split(entry['command'])
+    fields = {k: v for k, v in entry.items() if k not in ('type', 'command')}
+    if len(words) == 4 and words[2] == '--command':
+        return dict(fields, type='command', command=words[3])
+    return None
 
 
 def repair_command(prefix, python):
@@ -153,16 +163,24 @@ def set_up(state, prefix, python, *, explicit=False, directory=None):
         return _result('set_up', 'declined', path)
     raw, settings = _read(path)
     current = settings.get('statusLine')
-    ours = is_wrapper(current, prefix)
-    if record and record.get('state') in ('enabled', 'pending') and not explicit:
-        if not ours and current != record.get('original'):
-            # The user replaced or removed the wrapper after set-up; keep their choice.
-            return _result('set_up', 'changed', path, reason='statusline_changed',
-                           repair=repair_command(prefix, python))
+    active = record.get('state') if record and record.get('state') in ('enabled', 'pending') else None
+    changed = _result('set_up', 'changed', path, reason='statusline_changed',
+                      repair=repair_command(prefix, python))
+    if active and current == record.get('wrapper'):
+        # Koinon's own entry, untouched: refresh it if the runtime path changed.
         original = record.get('original')
-    elif ours:
-        # Never wrap the wrapper, and keep the original that was saved when it was set up.
-        original = (record or {}).get('original')
+    elif active == 'pending' and current == record.get('original'):
+        # Interrupted before the settings write: finish it with the saved original.
+        original = record.get('original')
+    elif active:
+        # The user replaced, edited or removed the entry after set-up. Keep their choice
+        # unless they ask to set the wrapper up again; never re-wrap an edited wrapper.
+        if not explicit or is_wrapper(current, prefix):
+            return changed
+        original = current
+    elif is_wrapper(current, prefix):
+        # A wrapper without a usable record: recover the command it wraps, never wrap it again.
+        original = _unwrap(current)
     else:
         original = current
     entry = wrapper_entry(original, prefix, python)
@@ -196,10 +214,14 @@ def remove(state, prefix, directory=None):
         return _result('remove', 'not_set_up', path)
     raw, settings = _read(path)
     current = settings.get('statusLine')
-    if not is_wrapper(current, prefix):
+    if record.get('state') == 'pending' and current == record.get('original'):
+        # Set-up was interrupted before the settings write: the original is still in place.
+        state.merge(declined)
+        return _result('remove', 'restored', path)
+    if current != record.get('wrapper'):
         state.merge(declined)
         return _result('remove', 'changed', path, reason='statusline_changed',
-                       action_required='The statusLine entry no longer runs this installation; '
+                       action_required='The statusLine entry differs from the one Koinon set up; '
                                        'it was kept unchanged.')
     restored = dict(settings)
     if record.get('original') is None:

@@ -125,6 +125,42 @@ class SettingsTests(unittest.TestCase):
         self.assertEqual(settings.remove(self.state, self.prefix, directory=self.config)['outcome'], 'changed')
         self.assertEqual(self.read()['statusLine'], mine)
 
+    def test_a_deleted_status_line_stays_deleted(self):
+        self.write(dict(model='synthetic'))
+        self.set_up()
+        self.write(dict(model='synthetic'))
+        self.assertEqual(self.set_up()['outcome'], 'changed')
+        self.assertNotIn('statusLine', self.read())
+        self.assertEqual(settings.remove(self.state, self.prefix, directory=self.config)['outcome'], 'changed')
+        self.assertNotIn('statusLine', self.read())
+
+    def test_an_edited_wrapper_is_kept_by_set_up_and_removal(self):
+        self.write(dict(statusLine=USER))
+        self.set_up()
+        wrapped = self.read()['statusLine']
+        for edited in (dict(wrapped, padding=5),
+                       settings.wrapper_entry(dict(USER, command='echo edited'), self.prefix, PYTHON)):
+            with self.subTest(edited=edited):
+                self.write(dict(statusLine=edited))
+                for explicit in (False, True):
+                    self.assertEqual(self.set_up(explicit=explicit)['outcome'], 'changed')
+                    self.assertEqual(self.read()['statusLine'], edited)
+        self.assertEqual(settings.remove(self.state, self.prefix, directory=self.config)['outcome'], 'changed')
+        self.assertEqual(self.read()['statusLine']['command'],
+                         settings.wrapper_entry(dict(USER, command='echo edited'), self.prefix, PYTHON)['command'])
+
+    def test_an_interrupted_set_up_before_the_write_finishes_with_the_original(self):
+        self.write(dict(statusLine=USER))
+        self.state.config[settings.KEY] = dict(state='pending', settings_file=str(self.path), original=USER,
+                                               wrapper=settings.wrapper_entry(USER, self.prefix, PYTHON))
+        self.assertEqual(self.set_up()['outcome'], 'set_up')
+        self.assertTrue(settings.is_wrapper(self.read()['statusLine'], self.prefix))
+
+    def test_a_wrapper_without_a_record_is_recovered_not_wrapped_again(self):
+        self.write(dict(statusLine=settings.wrapper_entry(USER, self.prefix, PYTHON)))
+        self.assertEqual(self.set_up()['outcome'], 'unchanged')
+        self.assertEqual(self.state.config[settings.KEY]['original'], USER)
+
     def test_a_concurrent_change_is_a_conflict_that_keeps_the_other_content(self):
         self.write(dict(statusLine=USER))
         other = b'{"statusLine": {"type": "command", "command": "echo other"}}\n'
