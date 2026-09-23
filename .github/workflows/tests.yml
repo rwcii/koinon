@@ -1,5 +1,12 @@
 name: Tests
-on: [push, pull_request]
+on:
+  pull_request:
+  push:
+    branches: [develop, main]
+  workflow_dispatch:
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.sha }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 permissions:
   contents: read
 jobs:
@@ -13,13 +20,37 @@ jobs:
         os: [ubuntu-latest, macos-latest]
         python: ['3.11', '3.12', '3.13']
     runs-on: ${{ matrix.os }}
+    # A hang ends at the watchdog bound in tests/run.py; this limit is the last resort.
+    timeout-minutes: 30
+    env:
+      # macOS runners are slower; every test wait budget in tests/waiting.py scales with this.
+      KOINON_TEST_TIMEOUT_SCALE: ${{ matrix.os == 'macos-latest' && '3' || '1' }}
     steps:
       - uses: actions/checkout@v4
         with:
           # The suite checks the layout declaration against the pinned previous
           # release's own file list, which a shallow clone cannot reach.
           fetch-depth: 0
+      # These jobs are required checks, so they always report. A pull request
+      # that changes only agent-process files, which are not installed and no
+      # test reads, passes without the suite; see tests/test_ci_scope.py.
+      - id: scope
+        if: github.event_name == 'pull_request'
+        shell: bash
+        env:
+          BASE: ${{ github.event.pull_request.base.sha }}
+          HEAD: ${{ github.event.pull_request.head.sha }}
+        run: |
+          changed=$(git diff --name-only --no-renames "$BASE...$HEAD")
+          others=$(printf '%s\n' "$changed" \
+            | grep -vE '^(agents/|handoff/|docs/sprints/|\.claude/|\.agents/|\.codex/)' || true)
+          if [ -n "$changed" ] && [ -z "$others" ]; then
+            echo "exempt=true" >> "$GITHUB_OUTPUT"
+            echo "Only agent-process files changed; the suite is not needed."
+          fi
       - uses: actions/setup-python@v5
+        if: steps.scope.outputs.exempt != 'true'
         with:
           python-version: ${{ matrix.python }}
-      - run: python -m unittest discover -v -s tests
+      - if: steps.scope.outputs.exempt != 'true'
+        run: python tests/run.py -v

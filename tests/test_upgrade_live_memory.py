@@ -1,4 +1,5 @@
 """Actual isolated memory entrypoint under a retained upgrade marker."""
+import waiting
 import asyncio
 import shutil
 import subprocess
@@ -35,19 +36,26 @@ class LiveGatedMemoryTests(unittest.TestCase):
             selected = memory_service.Selection(self.prefix, self.repo, upgrading=True)
             process = subprocess.Popen(selected.command(), stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
             try:
-                deadline = time.monotonic() + 10
-                hello = None
-                while time.monotonic() < deadline:
-                    if process.poll() is not None:
-                        self.fail('gated child exited: ' + process.communicate()[1])
+                last = None
+                def reachable():
+                    nonlocal last
                     try:
-                        hello = asyncio.run(memory.verify_running(self.home, self.key))
-                    except (OSError, ValueError):
-                        hello = None
-                    if hello:
-                        break
-                    time.sleep(.02)
-                self.assertIsNotNone(hello)
+                        last = asyncio.run(memory.verify_running(self.home, self.key))
+                        return last
+                    except (OSError, ValueError) as exc:
+                        last = str(exc)
+                        return False
+                try:
+                    hello = waiting.wait_until_sync(reachable, 'gated child readiness', process=process,
+                                                    observe=lambda: last)
+                except AssertionError as exc:
+                    if process is not None and process.poll() is not None:
+                        try:
+                            out, err = process.communicate(timeout=waiting.timeout())
+                        except subprocess.TimeoutExpired:
+                            raise AssertionError(f'{exc}; child output pipes did not close') from exc
+                        raise AssertionError(f'{exc}; stdout={out!r}; stderr={err!r}') from exc
+                    raise
                 self.assertFalse(hello['upgrade']['released'])
                 request = dict(op='upgrade-inventory', plan=self.prepared['sha256'],
                                generation=hello['generation'], repo=self.key)
@@ -67,7 +75,7 @@ class LiveGatedMemoryTests(unittest.TestCase):
                 receipt = Documents(self.operation).put('release', dict(
                     version=1, plan=self.prepared['sha256'], members=[]))
                 owner.journal.advance(owner.journal.read(), evidence=receipt)
-                _, error = process.communicate(timeout=10)
+                _, error = process.communicate(timeout=waiting.timeout())
                 self.assertIn('not verified for upgrade release', error)
                 self.assertNotEqual(process.returncode, 0)
                 self.assertNotIn(process.returncode, platform_support.PERMANENT_EXIT_STATUSES)
@@ -78,7 +86,7 @@ class LiveGatedMemoryTests(unittest.TestCase):
                 if process.poll() is None:
                     process.terminate()
                 try:
-                    process.communicate(timeout=10)
+                    process.communicate(timeout=waiting.timeout())
                 except subprocess.TimeoutExpired:
                     process.kill()
                     process.communicate()

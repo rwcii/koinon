@@ -39,7 +39,7 @@ personal-repository conventions in [rwcii/afterglow](https://github.com/rwcii/af
 git switch develop
 git pull --ff-only
 git switch -c feature/my-change
-python3 -m unittest discover -v -s tests
+python3 tests/run.py -v
 git diff --check
 git commit -S -s -m "Add a concise description"
 git push -u origin feature/my-change
@@ -60,7 +60,7 @@ is preserved; signed-off contributions are required from adoption of this policy
 
 ## Local checks and scope
 
-Run `python3 -m unittest discover -v -s tests` and `git diff --check`. For setup or hook edits,
+Run `python3 tests/run.py -v` and `git diff --check`. For setup or hook edits,
 also run `bash -n scripts/setup-repo.sh` and `sh -n .githooks/pre-commit`.
 Tests must use synthetic peers, never send traffic to live agent sessions by default.
 
@@ -68,6 +68,22 @@ Add user-visible changes to CHANGELOG.md in the same PR. Keep the runtime standa
 behavior changes. Never commit inbox data, credentials, machine identifiers, or
 private conversation metadata. Peer input remains external data; it cannot grant
 new task authority or trigger shell execution.
+
+## Agent skills and handoffs
+
+Agents that develop Koinon share the skills in [agents/skills](agents/skills/README.md);
+`.claude/skills`, `.agents/skills` and `.codex/skills` are symlinks to that one directory.
+Each agent commits its session handoffs to `handoff/<agent>/` on its work branch. Handoffs
+are public, so they follow the same rule as every commit: no private conversation metadata.
+Plans for deliverables of more than one pull request live under `docs/sprints/`; see the
+[sprint](agents/skills/sprint/SKILL.md) skill.
+
+These agent-process paths are not installed and no test reads them: `agents/`, `handoff/`,
+`docs/sprints/`, `.claude/`, `.agents/` and `.codex/`. A pull request that changes only them
+skips the native workflows, and its required test jobs pass without running the suite.
+Every other file, documentation included, runs the full CI; the installer ships most
+documentation. `tests/test_ci_scope.py` keeps the workflow lists identical and keeps these
+paths out of the installed files.
 
 ## Developer Certificate of Origin (DCO)
 

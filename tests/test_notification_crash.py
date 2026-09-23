@@ -1,4 +1,5 @@
 """Real child-process death at durable boundaries; not a power-loss simulation."""
+import waiting
 from contextlib import closing
 from pathlib import Path
 import subprocess
@@ -75,7 +76,7 @@ class ProcessDeathTests(unittest.TestCase):
         root = Path(temp.name)
         result = subprocess.run([sys.executable, '-c', CHILD, str(root), boundary],
                                 cwd=ROOT, capture_output=True,
-                                text=True, timeout=15)
+                                text=True, timeout=waiting.timeout())
         self.assertEqual(result.returncode, 73, result.stderr)
         # Exclusive WAL must not create a shared-memory file, even before recovery.
         self.assertFalse((root / 'notify-journal.sqlite3-shm').exists())

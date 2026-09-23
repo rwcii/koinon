@@ -1,3 +1,4 @@
+import waiting
 import argparse
 from contextlib import ExitStack
 import json
@@ -157,7 +158,7 @@ sys.argv = ['notify.py', '--thread', 'synthetic-session', '--state-dir', sys.arg
 runpy.run_module('notify', run_name='__main__')
 """
         result = subprocess.run([sys.executable, '-c', script, str(self.state)],
-                                capture_output=True, text=True, timeout=10)
+                                capture_output=True, text=True, timeout=waiting.timeout())
         self.assertEqual(result.returncode, platform_support.CONFIGURATION_EXIT_STATUS)
         self.assertEqual(result.stderr, '')
         self.assertEqual(json.loads(result.stdout)['code'], 'account_home_unavailable')
@@ -200,14 +201,14 @@ with notifier_ownership(Path(sys.argv[2]), 'codex', 'a') as owner:
                     pass
             self.assertEqual(caught.exception.code, 'participant_in_use')
             p.kill()
-            p.wait(timeout=10)
+            p.wait(timeout=waiting.timeout())
             os.kill(child, 0)  # The child survives its parent.
             with locks.notifier_ownership(self.state, 'codex', 'a') as replacement:
                 self.assertEqual(replacement, data['owner'])
         finally:
             if p.poll() is None:
                 p.kill()
-                p.wait(timeout=10)
+                p.wait(timeout=waiting.timeout())
             if child:
                 try:
                     os.kill(child, signal.SIGTERM)

@@ -1,4 +1,5 @@
 """Cross-version guidance boundaries; never touch real participant homes."""
+import waiting
 import fcntl
 from pathlib import Path
 import tempfile
@@ -96,12 +97,12 @@ class MigrationTests(unittest.TestCase):
                     worker = threading.Thread(target=update)
                     worker.start()
                     try:
-                        self.assertTrue(reached.wait(5))
+                        self.assertTrue(reached.wait(waiting.timeout()))
                         self.assertFalse(finished.is_set())
                         self.assertFalse((home / 'AGENTS.md').exists())
                     finally:
                         real_flock(held.fileno(), fcntl.LOCK_UN)
-                        worker.join(5)
+                        worker.join(waiting.timeout())
                     self.assertFalse(worker.is_alive())
                     self.assertEqual(errors, [])
                 self.assertEqual({a: p.stat().st_ino for a, p in paths.items()}, inodes)

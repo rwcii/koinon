@@ -1,3 +1,4 @@
+import waiting
 import json
 from pathlib import Path
 import subprocess
@@ -33,7 +34,7 @@ class FinalizeRemovalTests(unittest.TestCase):
         self.assertFalse((self.prefix / 'first.py').exists())
         self.assertTrue((self.prefix / 'second.py').exists())
         result = subprocess.run([sys.executable, '-I', str(self.prefix / removal.RECOVERY),
-                                 '--prefix', str(self.prefix)], cwd=self.prefix, capture_output=True, text=True, timeout=10)
+                                 '--prefix', str(self.prefix)], cwd=self.prefix, capture_output=True, text=True, timeout=waiting.timeout())
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
         self.assertFalse((self.prefix / 'second.py').exists())
         self.assertFalse((self.prefix / 'install.json').exists())
@@ -62,7 +63,7 @@ class FinalizeRemovalTests(unittest.TestCase):
         value['files']['retained-store'] = removal.digest(b'retained')
         path.write_text(json.dumps(value))
         result = subprocess.run([sys.executable, '-I', str(self.prefix / removal.RECOVERY),
-                                 '--prefix', str(self.prefix)], cwd=self.prefix, capture_output=True, text=True, timeout=10)
+                                 '--prefix', str(self.prefix)], cwd=self.prefix, capture_output=True, text=True, timeout=waiting.timeout())
         self.assertNotEqual(result.returncode, 0)
         self.assertTrue((self.prefix / 'first.py').exists())
         self.assertEqual((self.prefix / 'retained-store').read_text(), 'retained')

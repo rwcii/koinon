@@ -1,3 +1,4 @@
+import waiting
 from pathlib import Path
 import tempfile
 import unittest
@@ -27,10 +28,10 @@ class JournalTests(unittest.TestCase):
         with ThreadPoolExecutor(max_workers=1) as executor:
             with file_lock(self.state.lock_path, 'synthetic_busy', None):
                 future = executor.submit(reader)
-                self.assertTrue(entered.wait(1))
+                self.assertTrue(entered.wait(waiting.timeout()))
                 time.sleep(.1)
                 self.assertFalse(future.done(), 'brief contention must not kill a gate reader')
-            self.assertEqual(future.result(timeout=2), value)
+            self.assertEqual(future.result(timeout=waiting.timeout()), value)
 
     def test_resume_never_recreates_a_missing_journal(self):
         with self.assertRaisesRegex(journal.JournalError, 'missing'):

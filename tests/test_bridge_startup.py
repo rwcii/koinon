@@ -13,6 +13,7 @@ from unittest import mock
 
 import bridge
 from koinon import platform_support
+import waiting
 
 
 class BridgeStartupTests(unittest.IsolatedAsyncioTestCase):
@@ -60,7 +61,7 @@ class BridgeStartupTests(unittest.IsolatedAsyncioTestCase):
             process = await asyncio.create_subprocess_exec(
                 sys.executable, str(Path(bridge.__file__)), '--state-dir', str(self.root), 'serve',
                 stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE)
-            stdout, stderr = await asyncio.wait_for(process.communicate(), 5)
+            stdout, stderr = await waiting.settle(process.communicate(), 'the bridge command to exit')
             self.assertEqual(process.returncode, 78)
             self.assertEqual(json.loads(stdout)['code'], 'endpoint_unavailable')
             self.assertEqual(stderr, b'')
@@ -75,7 +76,7 @@ class BridgeStartupTests(unittest.IsolatedAsyncioTestCase):
             process = await asyncio.create_subprocess_exec(
                 sys.executable, str(Path(bridge.__file__)), '--state-dir', str(self.root), 'serve',
                 stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE)
-            stdout, stderr = await asyncio.wait_for(process.communicate(), 5)
+            stdout, stderr = await waiting.settle(process.communicate(), 'the bridge command to exit')
             self.assertEqual(process.returncode, 78)
             self.assertEqual(json.loads(stdout)['code'], 'endpoint_unavailable')
             self.assertIn('unsafe startup directory', json.loads(stdout)['error'])
@@ -92,7 +93,7 @@ class BridgeStartupTests(unittest.IsolatedAsyncioTestCase):
                 process = await asyncio.create_subprocess_exec(
                     sys.executable, str(Path(bridge.__file__)), '--state-dir', str(state), 'serve',
                     stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE)
-                stdout, stderr = await asyncio.wait_for(process.communicate(), 5)
+                stdout, stderr = await waiting.settle(process.communicate(), 'the bridge command to exit')
                 self.assertEqual(process.returncode, 78)
                 reply = json.loads(stdout)
                 self.assertEqual(reply['code'], 'endpoint_unavailable')
@@ -161,11 +162,8 @@ class BridgeStartupTests(unittest.IsolatedAsyncioTestCase):
         with mock.patch.object(bridge, 'InboxStore', Store), redirect_stdout(output):
             running = asyncio.create_task(self.service.run())
             try:
-                async with asyncio.timeout(3):
-                    while not output.getvalue():
-                        if running.done():
-                            await running
-                        await asyncio.sleep(.001)
+                await waiting.wait_until(output.getvalue, 'the bridge to report readiness',
+                                         task=running, interval=.001)
                 reply, _ = await bridge.control_exchange(self.root, {'op':'status'})
                 self.assertTrue(reply['ok'])
                 self.assertEqual(reply['result']['inbox_count'], 0)

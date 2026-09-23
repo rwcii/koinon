@@ -2,9 +2,28 @@ name: Native manager interface evidence
 on:
   pull_request:
     branches: [develop]
+    # Agent-process files are not installed and no test reads them; see
+    # tests/test_ci_scope.py.
+    paths-ignore:
+      - 'agents/**'
+      - 'handoff/**'
+      - 'docs/sprints/**'
+      - '.claude/**'
+      - '.agents/**'
+      - '.codex/**'
   push:
     branches: [develop, main]
+    paths-ignore:
+      - 'agents/**'
+      - 'handoff/**'
+      - 'docs/sprints/**'
+      - '.claude/**'
+      - '.agents/**'
+      - '.codex/**'
   workflow_dispatch:
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.sha }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 permissions:
   contents: read
 jobs:

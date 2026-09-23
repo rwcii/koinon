@@ -15,6 +15,7 @@ import bridge
 import memory
 from koinon import peer_transport as transport
 from koinon import platform_support
+import waiting
 
 
 class ControlTransportTests(unittest.IsolatedAsyncioTestCase):
@@ -126,7 +127,7 @@ class ControlTransportTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(memory.memory_error_exit_status(caught.exception.code), 78)
         result = await asyncio.to_thread(subprocess.run,
             [sys.executable, str(Path(bridge.__file__)), '--state-dir', str(self.root), 'serve'],
-            capture_output=True, text=True, timeout=5)
+            capture_output=True, text=True, timeout=waiting.timeout())
         self.assertEqual(result.returncode, 78, result.stderr)
         diagnostic = json.loads(result.stdout)
         self.assertEqual(diagnostic['code'], 'endpoint_unavailable')
@@ -220,7 +221,7 @@ class ControlTransportTests(unittest.IsolatedAsyncioTestCase):
         with patch('koinon.peer_transport.asyncio.open_unix_connection', connect), \
                 patch('koinon.peer_transport.credentials', return_value=os.getpid()):
             task = asyncio.create_task(transport.control_exchange(self.root, {'op': 'status'}))
-            await asyncio.wait_for(entered.wait(), 1)
+            await waiting.settle(entered.wait(), 'the connection to open')
             task.cancel()
             with self.assertRaises(asyncio.CancelledError):
                 await task
@@ -255,11 +256,8 @@ class ControlTransportTests(unittest.IsolatedAsyncioTestCase):
         await self.server(None)
         with self.assertRaises(TimeoutError):
             await transport.control_exchange(self.root, {'op': 'note'}, timeout=.05)
-        for _ in range(20):
-            if not self.tasks:
-                break
-            await asyncio.sleep(.01)
-        self.assertFalse(self.tasks)
+        await waiting.wait_until(lambda: not self.tasks, 'the server handler tasks to finish',
+                                 observe=lambda: len(self.tasks))
 
     async def test_memory_no_reply_keeps_its_recovery_error(self):
         await self.server(b'')

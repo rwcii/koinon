@@ -1,3 +1,4 @@
+import waiting
 from pathlib import Path
 import tempfile
 import unittest
@@ -28,10 +29,10 @@ class DocumentsTests(unittest.TestCase):
         with ThreadPoolExecutor(max_workers=1) as executor:
             with file_lock(self.root / 'documents.lock', 'synthetic_busy', None):
                 future = executor.submit(reader)
-                self.assertTrue(entered.wait(1))
+                self.assertTrue(entered.wait(waiting.timeout()))
                 time.sleep(.1)
                 self.assertFalse(future.done(), 'brief contention must not kill a gate reader')
-            self.assertEqual(future.result(timeout=2), value)
+            self.assertEqual(future.result(timeout=waiting.timeout()), value)
 
     def test_large_manifest_roundtrip_is_immutable_and_private(self):
         value = dict(files={f'module_{i}.py': dict(sha256=f'{i:064x}', bytes=i)

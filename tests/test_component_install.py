@@ -1,3 +1,4 @@
+import waiting
 import json
 import os
 from pathlib import Path
@@ -27,7 +28,7 @@ class ComponentInstallTests(unittest.TestCase):
         return subprocess.run([sys.executable, str(ROOT / 'scripts/install.py'),
                                '--configure-memory', '--repo', str(self.repo), '--prefix', str(self.prefix),
                                '--state-dir', str(self.state), '--service-backend', backend, '--no-start', *extra],
-                              env=self.env, capture_output=True, text=True, timeout=20)
+                              env=self.env, capture_output=True, text=True, timeout=waiting.timeout())
 
     def test_memory_only_no_start_and_repeat_need_neither_participant_nor_manager(self):
         first = self.install()
@@ -112,7 +113,7 @@ class ComponentInstallTests(unittest.TestCase):
                    '--repo', str(self.repo), '--thread', 'synthetic-fresh-thread', '--codex', sys.executable,
                    '--prefix', str(self.prefix), '--state-dir', str(self.state),
                    '--service-backend', 'systemd', '--no-start']
-        result = subprocess.run(command, env=self.env, capture_output=True, text=True, timeout=20)
+        result = subprocess.run(command, env=self.env, capture_output=True, text=True, timeout=waiting.timeout())
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
         config = json.loads((self.prefix / 'install.json').read_text())
         self.assertEqual(len(config['memory_services']['repositories']), 1)
@@ -122,10 +123,10 @@ class ComponentInstallTests(unittest.TestCase):
         base = [sys.executable, str(ROOT / 'scripts/install.py'),
                 '--configure-codex', '--codex', sys.executable, '--codex-home', str(self.root / 'codex'),
                 '--prefix', str(self.prefix), '--state-dir', str(self.state), '--no-start']
-        first = subprocess.run(base, env=self.env, capture_output=True, text=True, timeout=20)
+        first = subprocess.run(base, env=self.env, capture_output=True, text=True, timeout=waiting.timeout())
         self.assertEqual(first.returncode, 0, first.stdout + first.stderr)
         repeated = subprocess.run(base + ['--repo', str(self.repo)], env=self.env,
-                                  capture_output=True, text=True, timeout=20)
+                                  capture_output=True, text=True, timeout=waiting.timeout())
         self.assertEqual(repeated.returncode, 0, repeated.stdout + repeated.stderr)
         self.assertIn('Existing installation scope retained', repeated.stdout)
         config = json.loads((self.prefix / 'install.json').read_text())
@@ -163,7 +164,7 @@ class ComponentInstallTests(unittest.TestCase):
         record = next(iter(config['memory_services']['repositories'].values()))
         self.assertEqual(record['state'], 'pending')
         self.assertFalse(Path(record['artifact']).exists())
-        resumed = subprocess.run([sys.executable, *command], capture_output=True, text=True, timeout=20)
+        resumed = subprocess.run([sys.executable, *command], capture_output=True, text=True, timeout=waiting.timeout())
         self.assertEqual(resumed.returncode, 0, resumed.stdout + resumed.stderr)
         config = json.loads((self.prefix / 'install.json').read_text())
         record = next(iter(config['memory_services']['repositories'].values()))

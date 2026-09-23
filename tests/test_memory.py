@@ -1,3 +1,4 @@
+import waiting
 import asyncio
 import json
 import os
@@ -802,7 +803,7 @@ class LifecycleTests(unittest.TestCase):
         for p in self.running:
             if p.poll() is None:
                 p.kill()
-                p.wait(timeout=10)
+                p.wait(timeout=waiting.timeout())
             # Close the pipes explicitly; leaving them to the collector produces
             # unclosed-file warnings that hide real ones.
             for stream in (p.stdout, p.stderr):
@@ -817,23 +818,26 @@ class LifecycleTests(unittest.TestCase):
         self.running.append(p)
         return p
 
-    def wait_for_socket(self, timeout=20, pid=None):
+    def wait_for_socket(self, pid=None):
         """Wait until the service actually answers, not merely until a socket exists.
 
         A killed service leaves its socket behind, so an existence check can return
         while connections are still refused.
         """
         control = platform_support.control_socket_path(self.home)
-        deadline = time.monotonic()+timeout
-        while time.monotonic() < deadline:
+        last = None
+        def reachable():
+            nonlocal last
             try:
-                reply = self.client(op='hello')
-                if reply.get('ok') and (pid is None or reply['result']['pid'] == pid):
+                last = self.client(op='hello')
+                if last.get('ok') and (pid is None or last['result']['pid'] == pid):
                     return control
-            except (ConnectionRefusedError, FileNotFoundError, OSError, ValueError):
-                pass
-            time.sleep(.05)
-        self.fail('service did not become reachable')
+            except (OSError, ValueError) as exc:
+                last = str(exc)
+            return False
+        process = next((p for p in self.running if p.pid == pid), None)
+        return waiting.wait_until_sync(reachable, 'service did not become reachable',
+                                       process=process, observe=lambda: last)
 
     def client(self, **payload):
         if payload.get('op') in ('sync', 'ack'):
@@ -850,7 +854,7 @@ class LifecycleTests(unittest.TestCase):
         server = self.spawn('serve')
         self.wait_for_socket(pid=server.pid)
         client = self.spawn('recover')
-        stdout, stderr = client.communicate(timeout=20)
+        stdout, stderr = client.communicate(timeout=waiting.timeout())
         self.assertEqual(client.returncode, 0, stderr)
         reply = json.loads(stdout)
         self.assertTrue(reply.get('ok'), reply)
@@ -865,8 +869,7 @@ class LifecycleTests(unittest.TestCase):
         racers = [self.spawn('serve') for _ in range(3)]
         self.wait_for_socket()
         reused, serving = [], []
-        deadline = time.monotonic()+30
-        while time.monotonic() < deadline and len(reused)+len(serving) < 3:
+        def elected():
             for p in racers:
                 if p in reused or p in serving:
                     continue
@@ -874,7 +877,9 @@ class LifecycleTests(unittest.TestCase):
                     reused.append(p)
                 elif self.client(op='hello')['result']['pid'] == p.pid:
                     serving.append(p)
-            time.sleep(.1)
+            return len(reused) + len(serving) == 3
+        waiting.wait_until_sync(elected, 'one service elected and other starters returned',
+                               observe=lambda: {'serving': len(serving), 'reused': len(reused)})
         self.assertEqual(len(serving), 1, 'exactly one service must serve')
         self.assertEqual(len(reused), 2)
         for p in reused:
@@ -893,7 +898,7 @@ class LifecycleTests(unittest.TestCase):
         self.assertEqual(e.exception.code, 'socket_in_use')
         self.assertTrue(control.exists())
         first.send_signal(signal.SIGKILL)
-        first.wait(timeout=10)
+        first.wait(timeout=waiting.timeout())
         self.assertTrue(control.exists(), 'a killed service leaves its socket behind')
         self.assertTrue(memory.owner_is_dead(memory.read_owner(self.home)))
         second = self.spawn('serve')
@@ -927,7 +932,7 @@ class LifecycleTests(unittest.TestCase):
             self.client(op='note', consumer='cli-1', type='decision',
                         body='committed, never answered', key='k1', deadline=deadline)
         self.assertEqual(e.exception.code, 'no_reply')
-        crasher.wait(timeout=10)
+        crasher.wait(timeout=waiting.timeout())
         self.assertEqual(crasher.returncode, 70)
         control = platform_support.control_socket_path(self.home)
         # No manual cleanup: the replacement must recover through ownership evidence,
@@ -1047,7 +1052,7 @@ class LifecycleTests(unittest.TestCase):
         # that a stop request was accepted.
         self.assertEqual(json.loads(result.stdout)['status'], 'stopped')
         self.assertFalse(control.exists())
-        service.wait(timeout=10)
+        service.wait(timeout=waiting.timeout())
         self.assertEqual(service.returncode, 0)
 
     def test_a_request_in_flight_is_drained_before_the_store_closes(self):
@@ -1069,14 +1074,14 @@ class LifecycleTests(unittest.TestCase):
         worker.start()
         time.sleep(0.5)                                   # let it reach the delay
         result = json.loads(self.cli('stop').stdout)
-        worker.join(timeout=30)
+        worker.join(timeout=waiting.timeout())
         # The accepted request was answered rather than cut off by a closing store.
         self.assertNotIn('error', outcome, outcome.get('error'))
         self.assertTrue(outcome['reply']['ok'], outcome['reply'])
         self.assertEqual(result['status'], 'stopped')
         self.assertEqual(result['generation'], generation)
         self.assertFalse(control.exists())
-        service.wait(timeout=10)
+        service.wait(timeout=waiting.timeout())
         # Restart: the drained write is durable, and the new instance is a new generation.
         successor = self.spawn('serve')
         self.wait_for_socket(pid=successor.pid)
@@ -1132,7 +1137,7 @@ class LifecycleTests(unittest.TestCase):
         result = memory.stop_service(self.home, self.repo, expected_generation=generation)
         self.assertEqual(result['generation'], generation)
         self.assertEqual(result['status'], 'stopped')
-        service.wait(timeout=10)
+        service.wait(timeout=waiting.timeout())
         self.assertEqual(service.returncode, 0)
 
     def test_guarded_stop_refuses_unknown_owner_and_invalid_generation_without_request(self):

@@ -1,4 +1,5 @@
 """Client probes must preserve the absence of an uninitialized service."""
+import waiting
 import json
 from pathlib import Path
 import subprocess
@@ -22,7 +23,7 @@ class MemoryAbsenceTests(unittest.TestCase):
     def cli(self, option, path, *command):
         return subprocess.run([sys.executable, str(ROOT / 'memory.py'),
                                '--repo-path', str(self.repo), option, str(path),
-                               *command], capture_output=True, text=True, timeout=10)
+                               *command], capture_output=True, text=True, timeout=waiting.timeout())
 
     def assert_absent(self, option, result):
         if option == '--service-dir':

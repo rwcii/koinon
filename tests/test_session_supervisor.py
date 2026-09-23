@@ -1,3 +1,4 @@
+import waiting
 import copy
 import json
 import os
@@ -137,7 +138,8 @@ class NativeChildrenTests(unittest.TestCase):
         for child in self.processes:
             if child.poll() is None:
                 child.terminate()
-            child.wait(timeout=45)
+            # Allow two sequential 20s shutdown stages, plus process overhead.
+            child.wait(timeout=waiting.timeout(45))
 
     def start(self, commands=None):
         wrapper = self.app / 'synthetic-runner.py'
@@ -153,28 +155,26 @@ class NativeChildrenTests(unittest.TestCase):
         return child
 
     def wait_phase(self, child, phase):
-        deadline = time.monotonic() + 35
-        while time.monotonic() < deadline:
+        owner = None
+        def reached():
+            nonlocal owner
             owner = self.records.read()
-            if owner and owner['phase'] == phase:
-                return owner
-            if child.poll() is not None:
-                self.fail((self.root / 'runner.log').read_text())
-            time.sleep(.05)
-        self.fail((self.root / 'runner.log').read_text())
+            return owner if owner and owner['phase'] == phase else False
+        return waiting.wait_until_sync(reached, f'supervisor phase {phase}', process=child,
+                                       observe=lambda: {'owner': owner,
+                                                        'log': (self.root / 'runner.log').read_text()})
 
     def test_real_pair_readiness_and_generation_stop_preserve_inbox(self):
         child = self.start()
         owner = self.wait_phase(child, 'running')
         self.assertEqual(set(owner['children']), {'bridge', 'notifier'})
         self.assertTrue(all(record['generation'] for record in owner['children'].values()))
-        deadline = time.monotonic() + 10
-        while not (self.home / 'notify-journal.sqlite3').exists():
-            if time.monotonic() >= deadline or child.poll() is not None:
-                self.fail((self.root / 'runner.log').read_text())
-            time.sleep(.05)
+        waiting.wait_until_sync((self.home / 'notify-journal.sqlite3').exists,
+                               'notifier journal creation', process=child,
+                               observe=lambda: (self.root / 'runner.log').read_text())
         captured = self.records.request_stop()
-        self.assertEqual(child.wait(timeout=45), 0, (self.root / 'runner.log').read_text())
+        # Allow two sequential 20s shutdown stages, plus process overhead.
+        self.assertEqual(child.wait(timeout=waiting.timeout(45)), 0, (self.root / 'runner.log').read_text())
         self.assertEqual(self.records.wait_stopped(captured, timeout=0)['status'], 'stopped')
         self.assertTrue((self.home / 'inbox.sqlite3').exists())
         self.assertTrue((self.home / 'notify-journal.sqlite3').exists())
@@ -202,7 +202,8 @@ class NativeChildrenTests(unittest.TestCase):
         child = self.start()
         owner = self.wait_phase(child, 'running')
         trigger.touch()
-        self.assertEqual(child.wait(timeout=45), 70, (self.root / 'runner.log').read_text())
+        # Allow two sequential 20s shutdown stages, plus process overhead.
+        self.assertEqual(child.wait(timeout=waiting.timeout(45)), 70, (self.root / 'runner.log').read_text())
         refusal = self.records.read(refusal=True)
         self.assertEqual(refusal['primary_code'], 'session_software_failure')
         self.assertIsNone(refusal['shutdown_code'])
@@ -215,7 +216,7 @@ class NativeChildrenTests(unittest.TestCase):
         commands = copy.deepcopy(self.commands)
         commands['bridge'] = [sys.executable, '-c', 'raise SystemExit(78)']
         child = self.start(commands)
-        self.assertEqual(child.wait(timeout=30), 78, (self.root / 'runner.log').read_text())
+        self.assertEqual(child.wait(timeout=waiting.timeout()), 78, (self.root / 'runner.log').read_text())
         refusal = self.records.read(refusal=True)
         self.assertEqual(refusal['primary_code'], 'session_configuration_failure')
         self.assertIsNone(refusal['children']['notifier'])
