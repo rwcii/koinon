@@ -68,6 +68,10 @@ class Fixture:
         self.repo, self.state = self.root / 'repo', self.root / 'state'
         self.thread = 'synthetic-install-' + uuid.uuid4().hex
         self.env = dict(os.environ, CLAUDE_CONFIG_DIR=str(self.root / 'claude'))
+        # A user status line that installation must wrap and uninstall must restore.
+        (self.root / 'claude').mkdir(mode=0o700)
+        self.status_line = dict(type='command', command='echo synthetic-status-line', padding=0)
+        (self.root / 'claude' / 'settings.json').write_text(json.dumps(dict(statusLine=self.status_line)))
         self.records, self.session_records = [], []
         self.removed = False
         manifest = FILES if self.release == SOURCE else released_manifest(self.release)
@@ -113,11 +117,22 @@ class Fixture:
             argv += ['--no-start']
         self.command(argv)
         config = json.loads((self.prefix / 'install.json').read_text())
+        if self.release == SOURCE:
+            line = self.settings()['statusLine']
+            if staged:
+                require(line == self.status_line, 'a staged installation changed Claude settings')
+            else:
+                require(line.get('padding') == 0 and str(self.prefix / 'statusline.py') in line.get('command', '')
+                        and 'synthetic-status-line' in line['command'],
+                        'installation did not wrap the Claude status line: ' + json.dumps(line))
         self.records = list(config['memory_services']['repositories'].values())
         self.session_records = [json.loads(path.read_text())
                                 for path in (self.state / 'sessions').glob('*/native-service.json')]
         self.removed = False
         return config
+
+    def settings(self):
+        return json.loads((self.root / 'claude' / 'settings.json').read_text())
 
     def status(self):
         memory = json.loads(self.command([sys.executable, self.prefix / 'memory_service.py',
@@ -170,6 +185,9 @@ class Fixture:
                     'removed session job is not provably absent')
             require(not Path(record['artifact']).exists(), 'removed session artifact remains')
         require(not (self.prefix / 'install.json').exists(), 'installation configuration remains')
+        if self.release == SOURCE:
+            require(self.settings().get('statusLine') == self.status_line,
+                    'uninstall did not restore the Claude status line')
         require(not (self.prefix / 'session.py').exists(), 'runtime remains')
         self.removed = True
 

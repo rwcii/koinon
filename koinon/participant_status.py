@@ -368,7 +368,13 @@ def for_registry(record, pid, live_start, now=None, registry=None):
             return None, unknown_views('no_status_record', now)
         result = read('claude', session, participant=dict(pid=pid, proc_start=live_start), now=now,
                       registry=registry)
-        return None, views(result, now)
+        found = views(result, now)
+        if result['reason'] == 'no_status_record':
+            repair = _statusline_repair(registry)
+            if repair is not None:
+                for name in ('model', 'context'):
+                    found[name].update(reason='statusline_missing', repair=repair)
+        return None, found
     if entry == runtime_names.REGISTRY_ENTRYPOINT:
         start, generation = record.get('procStart'), record.get('bridgeOwner')
         if not isinstance(start, str) or not isinstance(generation, str):
@@ -377,6 +383,16 @@ def for_registry(record, pid, live_start, now=None, registry=None):
                       registry=registry)
         return activity(result, now), views(result, now)
     return None, unknown_views('provider_unsupported', now)
+
+
+def _statusline_repair(registry):
+    """The command that sets up the wrapper, when this installation's wrapper is not in place."""
+    import sys
+    from koinon import PREFIX, claude_statusline
+    folder = Path(registry) if registry is not None else registry_directory()
+    if not claude_statusline.missing(PREFIX, folder.parent):
+        return None
+    return claude_statusline.repair_command(PREFIX, sys.executable)
 
 
 def views(result, now=None):

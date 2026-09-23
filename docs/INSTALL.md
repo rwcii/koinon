@@ -552,6 +552,41 @@ Thread-only installation without a repository retains the legacy fixed pair. Exi
 prototype or legacy inboxes are never adopted automatically; deliberate migration must
 preserve their ownership and prevent duplicate registration for one conversation.
 
+## Claude status line
+
+A component installation (`--configure-codex`, `--configure-deepseek`, `--configure-memory`
+or `--repo`) also makes `statusline.py` the Claude Code `statusLine` command, when the Claude
+configuration directory (`CLAUDE_CONFIG_DIR`, default `~/.claude`) exists. The wrapper
+records the session's model and context use for `bridge.py peers`
+([model, context and claimed work](DELIVERY.md#model-context-and-claimed-work)) and runs your
+own status-line command with the same input, returning its output and exit status unchanged.
+
+Only the `statusLine` entry of `settings.json` changes; every other setting, and every other
+field of that entry, is kept. The previous entry is saved once in `install.json`, and a
+repeated installation neither wraps the wrapper again nor replaces the saved entry.
+
+```sh
+python3 scripts/install.py ... --no-claude-statusline      # decline during installation
+python3 PREFIX/scripts/install.py --prefix PREFIX --claude-statusline         # set up now
+python3 PREFIX/scripts/install.py --prefix PREFIX --remove-claude-statusline  # restore
+```
+
+- `--no-start` installs stage files only and never change Claude settings.
+- A decline is kept by later installations until `--claude-statusline` is given.
+- Removal and uninstall restore the saved entry only while `statusLine` still runs this
+  installation's wrapper. An entry you changed afterwards is kept and reported, and
+  uninstall stops before deleting the wrapper if the settings cannot be restored.
+- If you replace or remove the wrapper later, Claude peers report context as `unknown` with
+  `statusline_missing` and the command that sets it up again.
+- A settings file that is a symbolic link, not owned by you, or not a JSON object is never
+  changed; the result names the reason.
+
+Claude Code writes the same file and takes no Koinon lock. Koinon compares the file with
+what it read immediately before and after replacing it and reports a difference as
+`settings_conflict`, keeping the other change. A Claude Code write between the last
+comparison and the replacement cannot be detected, so do not change Claude settings while
+Koinon installs, upgrades or removes the status line.
+
 ## Notifier ownership
 
 The notifier takes its state-directory lock first, then a lock for the provider and
