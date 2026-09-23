@@ -25,8 +25,18 @@ The evidence counts only for the exact `develop` commit that will merge.
 - Upgrade: the upgrade workflows install the release pinned as `PREVIOUS_RELEASE` in
   `scripts/test-native-upgrade.py` and upgrade it to the commit under test. When that pin is
   the release now on `main`, their green runs are the upgrade evidence. Otherwise, upgrade the
-  current `main` yourself:
-  1. Install `main` into a scratch prefix with its own state and unit paths.
+  current `main` yourself. Do not move the pin to do so: it is the last release before the
+  `koinon` package layout, and the workflows prove that layout migration from it.
+  1. Install `main` into a scratch prefix with its own state and unit paths. Choose the
+     components and backends by what the release changes. When the installed runtime is
+     unchanged, one component on the manual backend is enough. When the release changes
+     runtime or upgrade code, also cover each affected component on its native backend for
+     each affected platform (systemd on Linux, launchd on macOS). A scratch unit path does not
+     isolate the native manager and is not read by it, so run a native case only on a
+     disposable runner or test account that has its own live user manager. Install with the
+     default unit paths there, so the manager finds the units, and remove only the test
+     services afterwards. Never run a native case in the user's own account. The native
+     upgrade script cannot start from `main`, so it is not a substitute for this step.
   2. Initialize its state with the documented native start or manual start. A `--no-start`
      install has no state, and the upgrade refuses it with `missing_state_root`; see
      "Missing state root" in `docs/INSTALL.md`.
