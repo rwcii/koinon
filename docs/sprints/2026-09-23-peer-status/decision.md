@@ -1,0 +1,100 @@
+# Sprint 2026-09-23 — peer status — Decision
+
+## Problem
+
+A peer cannot see how full another agent's context is, which model it runs, or what it works
+on. `bridge.py peers` and the notifier `status` report service reachability and, for Claude
+peers only, busy or idle activity from the Claude session registry (`docs/DELIVERY.md`,
+"Presence and priority"). Codex activity is `unknown` (#84). Nothing reports the model or
+context use of any peer (#119).
+
+Context use decides when an agent should write a handoff and let a new session pick it up.
+Today only the agent itself can judge that, and it is the party least able to notice its own
+degradation. A peer that can see the numbers can suggest the cycle at the right time. The same
+peer also needs to know whether the other agent is mid-turn, so that a message does not cross
+its work (#84), and what the other agent has claimed, so that two agents do not take the same
+work.
+
+The sources exist but are not read:
+
+- **Claude.** The command named by the Claude Code `statusLine` setting receives, on each
+  update, `model.id`, `context_window.context_window_size` ("200000 by default, or 1000000
+  for models with extended context"), `context_window.total_input_tokens`,
+  `context_window.used_percentage` and `session_id`
+  (<https://code.claude.com/docs/en/statusline.md>). The transcript records the model name but
+  not the context variant, and its format "is internal to Claude Code and changes between
+  versions" (<https://code.claude.com/docs/en/sessions.md>).
+- **Codex.** The session log records `turn_context` (model), `token_count` events with
+  `last_token_usage` and `model_context_window`, and turn events `task_started`,
+  `task_complete` and `turn_aborted`, each with a turn ID. Codex's local state database maps a
+  thread ID to its log path. Both are internal and version-specific. The app-server schema
+  defines token-usage and turn notifications, but a live, side-effect-free subscription is not
+  verified.
+- **Claimed work.** Memory work items record claims with a lease, a checkpoint and a progress
+  deadline (`docs/WORK-ITEMS-POLICY.md`). A claim is held under a participant session key;
+  nothing links that key to a peer in the listing, and agents do not start work items today.
+
+## Acceptance criteria
+
+1. `bridge.py peers` reports, for each Claude and Codex peer, `model`, `context` and `work`
+   next to the existing `presence`. Each observed value has a source, the time it was read
+   and the time the source recorded it. Each unobserved value is `unknown` with a typed
+   reason. The same fields appear in the local notifier `status` for its own participant.
+2. **Claude context.** With the Claude status-line integration enabled, a Claude peer reports
+   its model ID, context limit, tokens used and fill level, taken from the status-line data,
+   with source `claude_statusline`. Without the integration its context is `unknown` with
+   reason `statusline_not_configured`.
+3. **Status-line integration.** An explicit installer option enables it and a matching option
+   removes it. An existing status-line command keeps the same input, output and exit status.
+   Other Claude settings are unchanged. Removal restores the previous `statusLine` value, and
+   uninstall removes the integration.
+4. **Codex activity (#84).** A Codex peer reports `busy` from a `task_started` with no matching
+   `task_complete` or `turn_aborted`, and `idle` when its latest turn has ended. A turn start
+   whose end cannot be observed (for example after a crash of the session process) is
+   `unknown`, not `busy`.
+5. **Codex context.** A Codex peer reports its model, `model_context_window`, the tokens of the
+   last request and the fill level from its session record, with a Codex source name. A missing,
+   unreadable or unrecognized record is `unknown` with a typed reason.
+6. **Age.** A context value from a live, idle session stays reported with the time its source
+   recorded it; it does not become `unknown` by age alone. It becomes `unknown` when the
+   session process is no longer live.
+7. **Claimed work.** A peer's active work claims appear under `work`, with the work ID, title
+   and checkpoint, through an explicit link from the peer to the session key that holds the
+   claim. No active claim reports as no claimed work, which does not mean idle. A claim whose
+   lease has expired is not shown; the work item itself is not changed.
+8. **Both families read.** Run from a Codex session's shell, `bridge.py peers` shows the same
+   fields for Claude and Codex peers as it does from a Claude session.
+9. **Content-free.** Only an allowlist of numbers, identifiers, states and times is stored or
+   reported. No transcript text, message text, prompt or file content reaches a stored file or
+   a peer. A test feeds text fields to every source reader and proves that they do not appear.
+10. **Process.** The `ship` and `sprint` skills tell an agent to start one memory work item for
+    each deliverable issue, linked to the issue and reused through build, review and merge.
+11. Linux and macOS, Python 3.11 to 3.13; the documents that describe presence, installation
+    and the peer listing describe the new fields.
+
+## Constraints
+
+- Same-user boundary: sources are read only when owned by the current user, and stored files
+  are owner-only. Platform differences stay in `koinon/platform_support.py`.
+- No new value is published into the Claude session registry. Data reaches peers through
+  Koinon's own state and the existing listing (`docs/PARITY-MEMORY-DESIGN.md`, Contract 3).
+- No Codex thread is resumed, replaced, loaded or subscribed to observe it
+  (`docs/DELIVERY.md`). The Codex app-server may be a source only if a test shows that reading
+  it has no side effects; otherwise the session log is the source.
+- Internal formats are treated as version-specific: an unrecognized format or version is
+  `unknown` with a reason, never a guessed value. The Claude transcript is not a source.
+- The Claude settings change happens only through the explicit installer option, preserves all
+  other content and applies to the user's Claude configuration only.
+- A reported value grants nothing. No automatic alerts, notices or forced handoffs; peers
+  read the listing and decide what to suggest.
+- Standard library only. Tests use synthetic peers and synthetic source files and never touch
+  live sessions, the user's Claude settings or user services (root `AGENTS.md`).
+- Non-goals: a table of published limits (both families report a measured limit); a DeepSeek
+  source (DeepSeek peers report `unknown` with a reason); changes to Claude Code's own
+  `ListAgents` display.
+
+## Issues
+
+- Delivers #84 and #119.
+- DeepSeek activity and context stay `unknown`; a verified DeepSeek source gets its own issue
+  when one is found.
