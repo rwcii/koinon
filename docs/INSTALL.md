@@ -576,8 +576,9 @@ python3 PREFIX/scripts/install.py --prefix PREFIX --remove-claude-statusline  # 
 - Removal and uninstall restore the saved entry only while `statusLine` is still exactly the
   entry Koinon set up. An entry you deleted or edited afterwards, including an edited
   wrapper, is kept and reported; a later installation does not set it up again unless you
-  run `--claude-statusline`. Uninstall stops before deleting the wrapper if the settings
-  cannot be restored.
+  run `--claude-statusline`. Uninstall stops before deleting the wrapper while the settings
+  file still names this installation's `statusline.py`, for example in an entry you edited;
+  change that entry, then run uninstall again. An unrelated status line does not block it.
 - If you replace or remove the wrapper later, Claude peers report context as `unknown` with
   `statusline_missing` and the command that sets it up again.
 - A settings file that is a symbolic link, not owned by you, or not a JSON object is never

@@ -161,6 +161,28 @@ class SettingsTests(unittest.TestCase):
         self.assertEqual(self.set_up()['outcome'], 'unchanged')
         self.assertEqual(self.state.config[settings.KEY]['original'], USER)
 
+    def test_uninstall_refuses_to_delete_a_wrapper_an_edited_entry_still_runs(self):
+        self.write(dict(statusLine=USER))
+        self.set_up()
+        edited = dict(self.read()['statusLine'], padding=5)
+        self.write(dict(statusLine=edited))
+        with mock.patch.dict(os.environ, CLAUDE_CONFIG_DIR=str(self.config)):
+            for attempt in ('first', 'retry after the record was declined'):
+                with self.subTest(attempt):
+                    with self.assertRaises(settings.SettingsError) as caught:
+                        settings.release(self.state, self.prefix)
+                    self.assertEqual(caught.exception.code, 'statusline_references_runtime')
+                    self.assertEqual(self.read()['statusLine'], edited)
+            self.write(dict(statusLine=dict(type='command', command='echo unrelated')))
+            self.assertIsNone(settings.release(self.state, self.prefix))
+
+    def test_uninstall_release_restores_an_untouched_entry(self):
+        self.write(dict(statusLine=USER))
+        self.set_up()
+        with mock.patch.dict(os.environ, CLAUDE_CONFIG_DIR=str(self.config)):
+            self.assertEqual(settings.release(self.state, self.prefix)['outcome'], 'restored')
+        self.assertEqual(self.read()['statusLine'], USER)
+
     def test_a_concurrent_change_is_a_conflict_that_keeps_the_other_content(self):
         self.write(dict(statusLine=USER))
         other = b'{"statusLine": {"type": "command", "command": "echo other"}}\n'

@@ -233,6 +233,33 @@ def remove(state, prefix, directory=None):
     return _result('remove', 'restored', path)
 
 
+def references(prefix, path):
+    """Whether the settings file still names this installation's wrapper, parsed or not."""
+    try:
+        return str(wrapper_path(prefix)).encode() in Path(path).read_bytes()
+    except FileNotFoundError:
+        return False
+
+
+def release(state, prefix):
+    """Before uninstall deletes the wrapper, restore Koinon's entry and refuse a dangling one.
+
+    Removal keeps an entry the user edited; if that entry still runs this installation's
+    wrapper, deleting the wrapper would break the user's status line. The check reads the
+    settings file itself, so it also holds on a retry after the record was marked declined.
+    """
+    record = state.config.get(KEY) or {}
+    result = None
+    if record.get('state') in ('enabled', 'pending'):
+        result = remove(state, prefix)
+    path = Path(record.get('settings_file') or settings_path())
+    if references(prefix, path):
+        raise SettingsError('statusline_references_runtime',
+                            f'{path} still runs {wrapper_path(prefix)}; edit that statusLine entry so it '
+                            'no longer names this installation, then run uninstall again', path)
+    return result
+
+
 def missing(prefix, directory=None):
     """Whether the wrapper is absent from the settings that a Claude peer reads."""
     try:
