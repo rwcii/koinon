@@ -158,7 +158,10 @@ class ProcessTests(unittest.TestCase):
                 child.communicate('\n', timeout=timeout())
 
     def test_cli_and_wrapper_child_match_without_prompt_arguments(self):
-        with mock.patch.object(platform_support, '_process_command') as command:
+        # This tests argv matching only; synthetic PIDs must not query the host OS.
+        with mock.patch.object(platform_support, 'LINUX', False), \
+                mock.patch.object(platform_support, 'DARWIN', False), \
+                mock.patch.object(platform_support, '_process_command') as command:
             command.side_effect = [(7, ['/vendor/codex']), (1, ['/usr/bin/node', '/synthetic/codex'])]
             with mock.patch('shutil.which', return_value='/synthetic/codex'):
                 self.assertTrue(platform_support.codex_process(8, '/synthetic/codex'))
