@@ -13,13 +13,14 @@ participant that the record names is live with its recorded process-start marker
 import json
 import os
 import re
+import stat
 import time
 from pathlib import Path
 
-from koinon import durable_state
 from koinon import participant_presence
-from koinon import platform_support
-from koinon.peer_transport import private_dir
+
+# The writer runs on every Claude status-line update, so this module imports only what
+# writing needs. Readers import the process and state-file helpers where they use them.
 
 VERSION = 1
 MAX_BYTES = 16 * 1024
@@ -51,7 +52,7 @@ def _now_ms():
 def directory(registry=None):
     """The status directory beside a Claude session registry (`<config>/sessions`)."""
     if registry is None:
-        registry = Path(os.environ.get('CLAUDE_CONFIG_DIR', str(Path.home() / '.claude'))) / 'sessions'
+        registry = registry_directory()
     return Path(registry).parent / 'koinon-status'
 
 
@@ -120,6 +121,40 @@ def build(kind, *, participant, groups, identity=None, provider=None):
     return record
 
 
+def _private_dir(path):
+    """Create the directory 0700 and refuse one that is not private to this user."""
+    missing = [path]
+    while not missing[-1].parent.exists():
+        missing.append(missing[-1].parent)
+    for directory in reversed(missing):
+        directory.mkdir(mode=0o700, exist_ok=True)
+        info = directory.lstat()
+        if not stat.S_ISDIR(info.st_mode) or info.st_uid != os.getuid() or info.st_mode & 0o077:
+            raise ValueError('directory must be owned by this user and mode 0700')
+
+
+def _load(path, limit):
+    """Read a private JSON object without following links, or return None."""
+    try:
+        fd = os.open(path, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK | os.O_CLOEXEC)
+    except OSError:
+        return None
+    try:
+        info = os.fstat(fd)
+        if (not stat.S_ISREG(info.st_mode) or info.st_uid != os.geteuid() or info.st_mode & 0o077
+                or info.st_nlink != 1 or info.st_size > limit):
+            return None
+        with os.fdopen(fd, 'rb') as stream:
+            fd = None
+            value = json.loads(stream.read(limit + 1))
+        return value if isinstance(value, dict) else None
+    except (OSError, ValueError, UnicodeError, RecursionError):
+        return None
+    finally:
+        if fd is not None:
+            os.close(fd)
+
+
 def write(kind, key, *, participant, groups, identity=None, provider=None, registry=None):
     """Publish a record atomically, mode 0600, without following links.
 
@@ -129,7 +164,7 @@ def write(kind, key, *, participant, groups, identity=None, provider=None, regis
     """
     record = build(kind, participant=participant, groups=groups, identity=identity, provider=provider)
     path = _path(kind, key, registry)
-    private_dir(path.parent)
+    _private_dir(path.parent)
     data = json.dumps(record, sort_keys=True, separators=(',', ':'), ensure_ascii=True).encode()
     if len(data) > MAX_BYTES:
         raise ValueError('status record too large')
@@ -150,6 +185,7 @@ def write(kind, key, *, participant, groups, identity=None, provider=None, regis
 
 def remove(kind, key, *, generation=None, registry=None):
     """Remove a record; a bridge record only while it still names this generation."""
+    from koinon import durable_state
     path = _path(kind, key, registry)
     if generation is not None:
         try:
@@ -166,6 +202,7 @@ def remove(kind, key, *, generation=None, registry=None):
 
 
 def _live(process):
+    from koinon import platform_support
     if not isinstance(process, dict) or type(process.get('pid')) is not int:
         return False
     pid = process['pid']
@@ -185,6 +222,7 @@ def read(kind, key, *, participant=None, identity=None, now=None, registry=None)
     record must name the same bridge process and notifier generation. On any failure
     `groups` is empty and `reason` names the failure.
     """
+    from koinon import durable_state, platform_support
     now = _now_ms() if now is None else now
     try:
         path = _path(kind, key, registry)
@@ -283,6 +321,35 @@ def unknown_views(reason, now=None):
     result = dict(groups={}, reason=reason)
     return dict(model=model_view(result, now), context=context_view(result, now),
                 work=work_view(now))
+
+
+def registry_directory():
+    return Path(os.environ.get('CLAUDE_CONFIG_DIR', str(Path.home() / '.claude'))) / 'sessions'
+
+
+def claude_process(session_id, registry=None):
+    """The Claude process that the session registry names for a session, or None.
+
+    The registry record carries the process-start marker in the form this platform
+    uses, so no process query runs here; readers verify liveness when they read.
+    """
+    if not isinstance(session_id, str) or not _KEY.fullmatch(session_id):
+        return None
+    folder = Path(registry) if registry is not None else registry_directory()
+    try:
+        paths = sorted(folder.glob('*.json'))
+    except OSError:
+        return None
+    for path in paths:
+        if not path.stem.isdigit():
+            continue
+        record = _load(path, 65536)
+        if not record or record.get('sessionId') != session_id or record.get('entrypoint') != 'cli':
+            continue
+        start = record.get('procStart')
+        if isinstance(start, (int, str)) and str(start):
+            return dict(pid=int(path.stem), proc_start=str(start))
+    return None
 
 
 def for_registry(record, pid, live_start, now=None, registry=None):
