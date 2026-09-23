@@ -5,7 +5,7 @@ Realizes [decision.md](decision.md) (gate A approved at ba2816e) and is measured
 
 | Chunk | Outcome | Criteria | Depends on |
 | --- | --- | --- | --- |
-| [01 Status records](chunks/01-status-records.md) | The account-local status directory, the record format and allowlist, and the new `model`, `context` and `work` fields in `bridge.py peers` and the notifier `status`, all `unknown` with typed reasons until a source exists. | 1, 6, 8, 9 (framework), 11 (its documents) | — |
+| [01 Status records](chunks/01-status-records.md) | The status directory next to the Claude registry, the record format and allowlist, and the new `model`, `context` and `work` fields in `bridge.py peers` and the notifier `status`, all `unknown` with typed reasons until a source exists. | 1, 6, 8, 9 (framework), 11 (its documents) | — |
 | [02 Claude status line](chunks/02-claude-statusline.md) | The `statusline.py` wrapper that records Claude model and context and runs the user's own command unchanged; `peers` reports Claude context. | 2, 3 (wrapper), 9 | 01 |
 | [03 Claude settings](chunks/03-claude-settings.md) | Installation sets up the wrapper by default, with decline and removal options, saved original, conflict detection and uninstall. | 3 (settings), 11 (its documents) | 02 |
 | [04 Upgrade](chunks/04-upgrade.md) | The upgrade operation sets up the wrapper with preflight, evidence and reporting, and keeps a saved decline. | 3 (upgrade), 11 (its documents) | 03 |
@@ -24,10 +24,12 @@ These names are fixed here so that later chunks can be written against chunk 01 
 reading its code first.
 
 - `koinon/participant_status.py`: the record format, the allowlist, the writer and the reader.
-- `platform_support.participant_status_dir()`: the account-local directory, a sibling of
-  `participant_lock_dir()` derived the same way from the account home (Linux
-  `<account-home>/.local/state/koinon-status`, macOS
-  `<account-home>/Library/Application Support/koinon-status`). Owner-only.
+- `participant_status.directory()`: `${CLAUDE_CONFIG_DIR:-~/.claude}/koinon-status`, next
+  to the Claude session registry that `peers` reads, owner-only. A registry and its status
+  records therefore always come from the same configuration directory, and tests that point
+  `CLAUDE_CONFIG_DIR` at a temporary directory never write into the user's. The notifier
+  derives it from its registry directory in the same way. (Changed during the chunk 01 build
+  from an account-local directory, which subprocess tests could not redirect.)
 - Record files in that directory:
   - `claude-<session id>.json`, written by the status-line wrapper, keyed by the Claude
     `session_id` that the Claude registry record also carries as `sessionId`.
