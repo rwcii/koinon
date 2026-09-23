@@ -77,3 +77,5 @@ The user ran read-only checks on a macOS host on 2026-09-23, without Koinon inst
 Review at 94721bf: the process tree does not identify the launcher uniquely. Fixed in chunk 02:
 the macOS launcher is labelled inferred; `/bin/sh -c` stays the implementation, and the
 command-equivalence tests run on macOS.
+
+Concurrence on the plan at f1afa78. Gate B was approved by the user at f1afa78.
