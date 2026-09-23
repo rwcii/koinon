@@ -51,7 +51,8 @@ Claude settings, Codex home, registry or services.
   typed reason.
 - **Participant association.** The owner of a synthetic log is the one process that holds it
   open; no holder and two holders are `participant_not_associated`; a recycled PID with a
-  different start marker is not live. Runs on Linux and macOS.
+  different start marker is not live; an owner that closes the log while it stays alive loses
+  the association at the next observation. Runs on Linux and macOS.
 - **Claimed work (criterion 7).** Against a synthetic memory store: an active claim held by
   the peer's session key appears with work ID, title and checkpoint; a successful query with
   no claim reports no claimed work; an expired lease is not shown and the work item is
@@ -78,8 +79,10 @@ Claude settings, Codex home, registry or services.
     model, limit and fill appear in `bridge.py peers`, and the user's own status line looks
     unchanged.
   - After chunk 05 merges and the Codex session is restarted on the new runtime: the Codex
-    peer shows `busy` during a turn and `idle` after it, and its context values match the
-    session log.
+    peer shows `busy` during a turn, and its context values match the session log. After the
+    turn, the check records whether the idle, loaded thread keeps its log open and so shows
+    `idle`, or shows `unknown`; either result is correct under criterion 4, and the record
+    names which one holds.
   - After chunk 06 merges: a work item started by an agent appears under that agent's `work`.
 
 ## Edge cases that must have tests

@@ -51,3 +51,11 @@ Concurrence on the decision at ba2816e. Gate A was approved by the user at ba281
 | Chunk 07 created one item per chunk, against one per deliverable issue. | Fixed: chunks reuse the issue's item, and a claim passes between builders by release after merge or lease expiry. |
 | The `work` field had no source time or freshness. | Fixed in the shared names: `recorded_at_ms` is the memory service's query time; `freshness_ms` is 15000. |
 | The live Claude check came after chunk 03, but upgrade support is chunk 04. | Fixed: the check follows chunk 04. |
+
+## Plan fixes (reviewed at c9dabc9)
+
+| Finding | Disposition |
+| --- | --- |
+| After the first association only process liveness was checked; a shared Codex process that unloads the thread stays alive and would keep stale values. Whether an idle loaded thread keeps its log open is unverified. | Fixed in chunk 05: every observation checks that the owner still holds the log open, and a lost association is `unknown`; an idle thread without an open log is `unknown`, never assumed `idle`; the live check records which case holds. |
+| `ship` finished the item after the first merge, although later chunks of the issue reuse it. | Fixed in chunk 07: finish only when the merge completes the issue; otherwise checkpoint and release for the next builder. |
+| The macOS launcher and ownership rule are unverified. | Recorded as explicit, unverified compatibility limits in chunks 02 and 05, not as demonstrated macOS support. |

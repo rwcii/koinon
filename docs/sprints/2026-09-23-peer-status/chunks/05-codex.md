@@ -16,11 +16,17 @@ and publishes activity, model and context in `bridge-<pid>.json`.
   alone does not identify a thread's owner. The notifier finds the owner with
   `platform_support.open_file_holders(path)`: Linux reads `/proc/<pid>/fd` of the user's
   processes, macOS runs `lsof -t -- <path>`. It records the owner's PID and process-start
-  marker, uses only process liveness afterwards, and searches again when that process ends.
-  No holder, several holders, or a holder whose executable is not the installation's Codex
-  CLI gives `participant_not_associated`. The macOS rule is tested with a synthetic process
-  that holds a file open; if the Codex CLI on macOS is found not to hold the log open, macOS
-  reports `participant_not_associated` and the limit is documented.
+  marker. On every observation it checks that this process is live with its start marker and
+  still holds the log open (`platform_support.holds_open(pid, path)`: Linux reads that
+  process's `/proc/<pid>/fd`, macOS runs `lsof -a -p <pid> -- <path>`). A process that
+  unloads the thread while it stays alive for other threads therefore loses the association.
+  A lost association publishes `unknown` with `participant_not_associated` and starts a new
+  search. No holder, several holders, or a holder whose executable is not the installation's
+  Codex CLI gives `participant_not_associated`. Whether an idle, loaded thread keeps its log
+  open is not verified; when it does not, that thread reports `unknown`, never `idle` by
+  assumption, and the live check of the definition of done records which case holds. The macOS rule is tested with a synthetic process
+  that holds a file open. That test proves the mechanism, not compatibility with the Codex CLI
+  on macOS, which stays a documented, unverified limit until checked on a macOS host.
 - Log location: the notifier locates the log once, as `koinon/usage_selection.py` does
   (`CODEX_HOME` or `~/.codex`, `sessions/**/*<thread id>*.jsonl`, first line `session_meta`
   with a matching `payload.id`), and keeps the path in its state directory. It does not read
