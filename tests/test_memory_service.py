@@ -1,4 +1,5 @@
 """Portable supervisor acceptance uses only temporary repositories and child processes."""
+import waiting
 import asyncio
 import json
 import os
@@ -61,26 +62,33 @@ class MemorySupervisorTests(unittest.TestCase):
             if process.poll() is None:
                 process.terminate()
             try:
-                process.communicate(timeout=45)
+                # Allow two sequential 20s shutdown stages, plus process overhead.
+                process.communicate(timeout=waiting.timeout(45))
             except subprocess.TimeoutExpired:
                 process.kill()
-                process.communicate(timeout=5)
+                process.communicate(timeout=waiting.timeout())
 
-    def wait_for(self, predicate, description, process=None, timeout=25):
-        deadline = time.monotonic() + timeout
+    def wait_for(self, predicate, description, process=None):
         last = None
-        while time.monotonic() < deadline:
+        def observed():
+            nonlocal last
             try:
                 last = predicate()
-                if last:
-                    return last
+                return last
             except memory_service.RunnerError as exc:
                 last = exc.code
+                return False
+        try:
+            return waiting.wait_until_sync(observed, description, process=process,
+                                           observe=lambda: last)
+        except AssertionError as exc:
             if process is not None and process.poll() is not None:
-                out, err = process.communicate()
-                self.fail(f'{description}: runner exited {process.returncode}; stdout={out}; stderr={err}')
-            time.sleep(.05)
-        self.fail(f'{description}: deadline exceeded; last observation={last!r}')
+                try:
+                    out, err = process.communicate(timeout=waiting.timeout())
+                except subprocess.TimeoutExpired:
+                    raise AssertionError(f'{exc}; child output pipes did not close') from exc
+                raise AssertionError(f'{exc}; stdout={out!r}; stderr={err!r}') from exc
+            raise
 
     def ready(self, process):
         return self.wait_for(lambda: memory_service.observation(self.selection)['running'],
@@ -94,9 +102,10 @@ class MemorySupervisorTests(unittest.TestCase):
         self.assertNotEqual(owner['child']['pid'], process.pid)
         live = asyncio.run(memory.verify_running(self.selection.home, self.key))
         self.assertEqual(live['pid'], owner['child']['pid'])
-        stopped = subprocess.run(self.command('stop'), capture_output=True, text=True, timeout=50)
+        # Allow two sequential 20s shutdown stages, plus process overhead.
+        stopped = subprocess.run(self.command('stop'), capture_output=True, text=True, timeout=waiting.timeout(50))
         self.assertEqual(stopped.returncode, 0, stopped.stdout + stopped.stderr)
-        process.communicate(timeout=10)
+        process.communicate(timeout=waiting.timeout())
         self.assertEqual(process.returncode, 0)
         self.assertEqual(memory_service.observation(self.selection)['status'], 'stopped')
         self.assertTrue((self.selection.home / 'memory.sqlite3').exists())
@@ -106,21 +115,21 @@ class MemorySupervisorTests(unittest.TestCase):
         self.wait_for(lambda: asyncio.run(memory.verify_running(self.selection.home, self.key)),
                       'external synthetic memory readiness', external)
         runner = self.spawn()
-        out, err = runner.communicate(timeout=25)
+        out, err = runner.communicate(timeout=waiting.timeout())
         self.assertEqual(runner.returncode, 78, out + err)
         self.assertIsNone(external.poll())
         self.assertEqual(memory_service.observation(self.selection)['status'], 'refused')
         owner = memory.read_owner(self.selection.home)
         self.assertEqual(owner['pid'], external.pid)
         memory.stop_service(self.selection.home, self.key, expected_generation=owner['generation'])
-        external.communicate(timeout=10)
+        external.communicate(timeout=waiting.timeout())
 
     def test_second_supervisor_refuses_while_first_keeps_its_child(self):
         first = self.spawn()
         self.ready(first)
         owner = memory_service.read_record(self.selection, self.selection.owner_path)
         second = self.spawn()
-        out, err = second.communicate(timeout=15)
+        out, err = second.communicate(timeout=waiting.timeout())
         self.assertEqual(second.returncode, 78, out + err)
         self.assertIn('supervisor_in_use', out)
         self.assertIsNone(first.poll())
@@ -138,16 +147,16 @@ class MemorySupervisorTests(unittest.TestCase):
     def test_permanent_refusal_survives_restart_until_explicit_retry(self):
         original = self.fail_child(78)
         first = self.spawn()
-        out, err = first.communicate(timeout=25)
+        out, err = first.communicate(timeout=waiting.timeout())
         self.assertEqual(first.returncode, 78, out + err)
         refusal = self.selection.refusal_path.read_bytes()
         second = self.spawn()
-        out, err = second.communicate(timeout=15)
+        out, err = second.communicate(timeout=waiting.timeout())
         self.assertEqual(second.returncode, 78, out + err)
         self.assertIn('recorded_refusal', out)
         self.assertEqual(self.selection.refusal_path.read_bytes(), refusal)
         (self.prefix / 'memory.py').write_text(original)
-        result = subprocess.run(self.command('ensure', '--retry'), capture_output=True, text=True, timeout=15)
+        result = subprocess.run(self.command('ensure', '--retry'), capture_output=True, text=True, timeout=waiting.timeout())
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
         self.assertFalse(self.selection.refusal_path.exists())
         self.assertEqual(json.loads(result.stdout)['status'], 'manual_required')
@@ -172,9 +181,9 @@ class MemorySupervisorTests(unittest.TestCase):
         self.select_launchd()
         self.fail_child(70)
         runner = self.spawn()
-        out, err = runner.communicate(timeout=25)
+        out, err = runner.communicate(timeout=waiting.timeout())
         self.assertEqual(runner.returncode, 0, out + err)
-        status = subprocess.run(self.command('status'), capture_output=True, text=True, timeout=15)
+        status = subprocess.run(self.command('status'), capture_output=True, text=True, timeout=waiting.timeout())
         self.assertEqual(status.returncode, 70, status.stdout + status.stderr)
         result = json.loads(status.stdout)
         self.assertFalse(result['running'])
@@ -190,18 +199,18 @@ class MemorySupervisorTests(unittest.TestCase):
                         f'    Path({str(self.selection.refusal_path)!r}).mkdir()\n'
                         '    raise SystemExit(70)\n' + original)
         runner = self.spawn()
-        out, err = runner.communicate(timeout=25)
+        out, err = runner.communicate(timeout=waiting.timeout())
         self.assertEqual(runner.returncode, 0, out + err)
         self.assertIn('"refusal_recorded": false', err)
         diagnostic = self.selection.home / 'supervisor-diagnostic.json'
         self.assertEqual(diagnostic.stat().st_mode & 0o777, 0o600)
         self.assertEqual(json.loads(diagnostic.read_text())['primary_code'], 'memory_software_failure')
-        status = subprocess.run(self.command('status'), capture_output=True, text=True, timeout=15)
+        status = subprocess.run(self.command('status'), capture_output=True, text=True, timeout=waiting.timeout())
         self.assertNotEqual(status.returncode, 0)
         self.assertEqual(json.loads(status.stdout)['status'], 'unavailable')
         # A later invocation must refuse the unreadable marker before spawning.
         second = self.spawn()
-        out, err = second.communicate(timeout=15)
+        out, err = second.communicate(timeout=waiting.timeout())
         self.assertEqual(second.returncode, 0, out + err)
         self.assertNotIn('FileExistsError', err)
 
@@ -246,18 +255,18 @@ class MemorySupervisorTests(unittest.TestCase):
         self.wait_for(lambda: self.selection.owner_path.exists() and
                       memory_service.read_record(self.selection, self.selection.owner_path)['phase'] == 'backoff',
                       'temporary failure reaches backoff before stop', runner)
-        result = subprocess.run(self.command('stop'), capture_output=True, text=True, timeout=25)
+        result = subprocess.run(self.command('stop'), capture_output=True, text=True, timeout=waiting.timeout())
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
-        runner.communicate(timeout=10)
+        runner.communicate(timeout=waiting.timeout())
         self.assertEqual(runner.returncode, 0)
         self.assertEqual(memory_service.observation(self.selection)['status'], 'stopped')
 
     def test_stale_stop_request_does_not_stop_replacement_supervisor(self):
         first = self.spawn()
         self.ready(first)
-        result = subprocess.run(self.command('stop'), capture_output=True, text=True, timeout=25)
+        result = subprocess.run(self.command('stop'), capture_output=True, text=True, timeout=waiting.timeout())
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
-        first.communicate(timeout=10)
+        first.communicate(timeout=waiting.timeout())
         stale = self.selection.stop_path.read_bytes()
         second = self.spawn()
         self.ready(second)
@@ -267,7 +276,7 @@ class MemorySupervisorTests(unittest.TestCase):
     def test_zero_exit_without_child_readiness_is_not_adopted(self):
         self.fail_child(0)
         runner = self.spawn()
-        out, err = runner.communicate(timeout=25)
+        out, err = runner.communicate(timeout=waiting.timeout())
         self.assertEqual(runner.returncode, 78, out + err)
         self.assertNotIn('"running": true', out)
         self.assertEqual(memory_service.observation(self.selection)['status'], 'refused')
@@ -361,7 +370,7 @@ class MemorySupervisorTests(unittest.TestCase):
         action.assert_not_called()
 
     def test_ensure_is_read_only_and_never_reports_unstarted_service_running(self):
-        result = subprocess.run(self.command('ensure'), capture_output=True, text=True, timeout=15)
+        result = subprocess.run(self.command('ensure'), capture_output=True, text=True, timeout=waiting.timeout())
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
         data = json.loads(result.stdout)
         self.assertEqual(data['status'], 'manual_required')
