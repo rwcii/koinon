@@ -45,8 +45,17 @@ class LiveGatedMemoryTests(unittest.TestCase):
                     except (OSError, ValueError) as exc:
                         last = str(exc)
                         return False
-                hello = waiting.wait_until_sync(reachable, 'gated child readiness', process=process,
-                                                observe=lambda: last)
+                try:
+                    hello = waiting.wait_until_sync(reachable, 'gated child readiness', process=process,
+                                                    observe=lambda: last)
+                except AssertionError as exc:
+                    if process is not None and process.poll() is not None:
+                        try:
+                            out, err = process.communicate(timeout=waiting.timeout())
+                        except subprocess.TimeoutExpired:
+                            raise AssertionError(f'{exc}; child output pipes did not close') from exc
+                        raise AssertionError(f'{exc}; stdout={out!r}; stderr={err!r}') from exc
+                    raise
                 self.assertFalse(hello['upgrade']['released'])
                 request = dict(op='upgrade-inventory', plan=self.prepared['sha256'],
                                generation=hello['generation'], repo=self.key)

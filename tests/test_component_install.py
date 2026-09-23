@@ -28,7 +28,7 @@ class ComponentInstallTests(unittest.TestCase):
         return subprocess.run([sys.executable, str(ROOT / 'scripts/install.py'),
                                '--configure-memory', '--repo', str(self.repo), '--prefix', str(self.prefix),
                                '--state-dir', str(self.state), '--service-backend', backend, '--no-start', *extra],
-                              env=self.env, capture_output=True, text=True, timeout=20)
+                              env=self.env, capture_output=True, text=True, timeout=waiting.timeout())
 
     def test_memory_only_no_start_and_repeat_need_neither_participant_nor_manager(self):
         first = self.install()
@@ -126,7 +126,7 @@ class ComponentInstallTests(unittest.TestCase):
         first = subprocess.run(base, env=self.env, capture_output=True, text=True, timeout=waiting.timeout())
         self.assertEqual(first.returncode, 0, first.stdout + first.stderr)
         repeated = subprocess.run(base + ['--repo', str(self.repo)], env=self.env,
-                                  capture_output=True, text=True, timeout=20)
+                                  capture_output=True, text=True, timeout=waiting.timeout())
         self.assertEqual(repeated.returncode, 0, repeated.stdout + repeated.stderr)
         self.assertIn('Existing installation scope retained', repeated.stdout)
         config = json.loads((self.prefix / 'install.json').read_text())

@@ -1,3 +1,4 @@
+import waiting
 from contextlib import closing
 from pathlib import Path
 import sqlite3
@@ -50,7 +51,7 @@ connection.commit()
 os._exit(0)
 '''
         subprocess.run([sys.executable, '-c', script, str(self.path)], check=True,
-                       timeout=10, capture_output=True)
+                       timeout=waiting.timeout(), capture_output=True)
         snapshot = self.frozen()
         self.assertGreater(snapshot['files']['state.db-wal']['bytes'], 0)
         self.assertIsNotNone(snapshot['files']['state.db-shm'])

@@ -31,7 +31,7 @@ class JournalTests(unittest.TestCase):
                 self.assertTrue(entered.wait(waiting.timeout()))
                 time.sleep(.1)
                 self.assertFalse(future.done(), 'brief contention must not kill a gate reader')
-            self.assertEqual(future.result(timeout=2), value)
+            self.assertEqual(future.result(timeout=waiting.timeout()), value)
 
     def test_resume_never_recreates_a_missing_journal(self):
         with self.assertRaisesRegex(journal.JournalError, 'missing'):

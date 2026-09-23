@@ -1,3 +1,4 @@
+import waiting
 import os
 from pathlib import Path
 import subprocess
@@ -33,7 +34,7 @@ class BundleTests(unittest.TestCase):
         (prefix / 'dependency.py').write_text('raise RuntimeError("partial replacement")\n')
         result = subprocess.run([sys.executable, '-I', str(path)], cwd=prefix,
                                 env=dict(os.environ, PYTHONPATH=str(prefix)),
-                                capture_output=True, text=True, timeout=10)
+                                capture_output=True, text=True, timeout=waiting.timeout())
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertEqual(result.stdout, 'frozen recovery\n')
         before = path.stat().st_ino

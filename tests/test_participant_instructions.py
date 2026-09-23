@@ -102,7 +102,7 @@ class MigrationTests(unittest.TestCase):
                         self.assertFalse((home / 'AGENTS.md').exists())
                     finally:
                         real_flock(held.fileno(), fcntl.LOCK_UN)
-                        worker.join(5)
+                        worker.join(waiting.timeout())
                     self.assertFalse(worker.is_alive())
                     self.assertEqual(errors, [])
                 self.assertEqual({a: p.stat().st_ino for a, p in paths.items()}, inodes)

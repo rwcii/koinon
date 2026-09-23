@@ -32,7 +32,7 @@ class DocumentsTests(unittest.TestCase):
                 self.assertTrue(entered.wait(waiting.timeout()))
                 time.sleep(.1)
                 self.assertFalse(future.done(), 'brief contention must not kill a gate reader')
-            self.assertEqual(future.result(timeout=2), value)
+            self.assertEqual(future.result(timeout=waiting.timeout()), value)
 
     def test_large_manifest_roundtrip_is_immutable_and_private(self):
         value = dict(files={f'module_{i}.py': dict(sha256=f'{i:064x}', bytes=i)

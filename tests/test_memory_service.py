@@ -78,8 +78,17 @@ class MemorySupervisorTests(unittest.TestCase):
             except memory_service.RunnerError as exc:
                 last = exc.code
                 return False
-        return waiting.wait_until_sync(observed, description, process=process,
-                                       observe=lambda: last)
+        try:
+            return waiting.wait_until_sync(observed, description, process=process,
+                                           observe=lambda: last)
+        except AssertionError as exc:
+            if process is not None and process.poll() is not None:
+                try:
+                    out, err = process.communicate(timeout=waiting.timeout())
+                except subprocess.TimeoutExpired:
+                    raise AssertionError(f'{exc}; child output pipes did not close') from exc
+                raise AssertionError(f'{exc}; stdout={out!r}; stderr={err!r}') from exc
+            raise
 
     def ready(self, process):
         return self.wait_for(lambda: memory_service.observation(self.selection)['running'],

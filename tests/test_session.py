@@ -143,7 +143,7 @@ class SessionTests(unittest.TestCase):
                 # Force no systemctl resolution for this subprocess without changing children.
                 stop_env=dict(env,PATH='/nonexistent')
                 stopped=subprocess.run([sys.executable,str(app/'session.py'),'stop','--thread','thread-one'],
-                                       env=stop_env,capture_output=True,text=True,timeout=20)
+                                       env=stop_env,capture_output=True,text=True,timeout=waiting.timeout())
                 self.assertEqual(stopped.returncode,0,stopped.stderr)
                 self.assertIsNone(session.bridge_status(app,state))
                 other_state,_,_=session.details(app,config,'thread-two','/test-project')
@@ -388,8 +388,17 @@ session.main()
         process = self.spawn([sys.executable, '-c', command, str(self.app), str(attempted),
                               action, '--agent', 'codex', '--thread', self.thread,
                               '--repo', str(self.root/'renamed-project')])
-        waiting.wait_until_sync(attempted.exists, 'competing command did not attempt a session lock',
-                               process=process, observe=lambda: {'lock_attempted': attempted.exists()})
+        try:
+            waiting.wait_until_sync(attempted.exists, 'competing command did not attempt a session lock',
+                                   process=process, observe=lambda: {'lock_attempted': attempted.exists()})
+        except AssertionError as exc:
+            if process is not None and process.poll() is not None:
+                try:
+                    out, err = process.communicate(timeout=waiting.timeout())
+                except subprocess.TimeoutExpired:
+                    raise AssertionError(f'{exc}; child output pipes did not close') from exc
+                raise AssertionError(f'{exc}; stdout={out!r}; stderr={err!r}') from exc
+            raise
         # There is no supervisor yet. Stop/rename must not act in this gap,
         # and another ensure must wait rather than report manual_required.
         with self.assertRaises(subprocess.TimeoutExpired):

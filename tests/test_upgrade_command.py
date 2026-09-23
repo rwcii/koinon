@@ -66,7 +66,7 @@ class CommandTests(unittest.TestCase):
 
     def command(self, *args):
         return subprocess.run([sys.executable, str(self.source / 'scripts/upgrade.py'), *map(str, args)],
-                              capture_output=True, text=True, timeout=60, env=self.env)
+                              capture_output=True, text=True, timeout=waiting.timeout(), env=self.env)
 
     def test_subprocess_discovery_reads_the_controlled_sources(self):
         """A patch in this process cannot reach the child, so assert the child's own scope.

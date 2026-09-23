@@ -260,7 +260,7 @@ runpy.run_path('scripts/install.py',run_name='__main__')
             inode = (self.prefix/install_state.LOCK_NAME).stat().st_ino
             result = subprocess.run([sys.executable, '-c', code, '--configure-codex',
                 '--prefix', str(self.prefix), '--codex', sys.executable, '--no-start',
-                '--codex-home', str(self.root/'codex')], capture_output=True, text=True, timeout=5)
+                '--codex-home', str(self.root/'codex')], capture_output=True, text=True, timeout=waiting.timeout())
         self.assertEqual(result.returncode, 75, result.stderr)
         response = json.loads(result.stdout)
         self.assertEqual(response['code'], 'configuration_busy')

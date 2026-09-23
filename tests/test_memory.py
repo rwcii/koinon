@@ -1074,7 +1074,7 @@ class LifecycleTests(unittest.TestCase):
         worker.start()
         time.sleep(0.5)                                   # let it reach the delay
         result = json.loads(self.cli('stop').stdout)
-        worker.join(timeout=30)
+        worker.join(timeout=waiting.timeout())
         # The accepted request was answered rather than cut off by a closing store.
         self.assertNotIn('error', outcome, outcome.get('error'))
         self.assertTrue(outcome['reply']['ok'], outcome['reply'])
