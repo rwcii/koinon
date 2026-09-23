@@ -3,6 +3,13 @@
 User-visible changes to Koinon are recorded here. Unreleased entries move
 into a dated release section when promoted to `main`.
 
+## 2026-09-23 — Bounded test runs
+
+- Run the tests with `python3 tests/run.py -v`. The runner ends a run that stops making
+  progress, with a nonzero exit status, and prints the running test and the stack of every
+  thread. Test waits share one budget that `KOINON_TEST_TIMEOUT_SCALE` multiplies on slow
+  machines, and a timeout names what the test waited for. The installed runtime is unchanged.
+
 ## 2026-09-22 — Package layout, native supervision, repository memory and runtime upgrade
 
 - Correct four `README.md` statements the code contradicts. The current inbox schema is 4,
