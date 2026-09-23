@@ -343,8 +343,14 @@ class UpgradeTests(unittest.TestCase):
         self.assertEqual(result['outcome'], 'set_up')
         self.assertTrue(settings.is_wrapper(json.loads(self.path.read_text())['statusLine'], self.prefix))
         self.assertEqual(self.record()['original'], USER)
-        self.assertEqual(settings.apply_planned(self.prefix, planned, PYTHON)['outcome'], 'conflict')
+        # The same plan again, as after a crash before its outcome was kept: Koinon's own
+        # write is recognised, not reported as a conflict.
+        self.assertEqual(settings.apply_planned(self.prefix, planned, PYTHON)['outcome'], 'unchanged')
         self.assertEqual(settings.apply_planned(self.prefix, self.plan(), PYTHON)['outcome'], 'unchanged')
+        edited = json.loads(self.path.read_text())
+        edited['statusLine'] = dict(edited['statusLine'], padding=9)
+        self.path.write_text(json.dumps(edited))
+        self.assertEqual(settings.apply_planned(self.prefix, planned, PYTHON)['outcome'], 'conflict')
 
     def test_a_settings_change_during_the_upgrade_is_a_conflict_that_writes_nothing(self):
         planned = self.plan()

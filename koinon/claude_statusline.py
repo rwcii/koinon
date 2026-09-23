@@ -292,6 +292,22 @@ def plan(config, directory=None):
                 digest=hashlib.sha256(raw or b'').hexdigest())
 
 
+def _own_write(installed, path):
+    """Whether the file's statusLine is exactly the wrapper entry this installation recorded.
+
+    That is Koinon's own earlier write, for example by an upgrade interrupted after set-up
+    and before its outcome was kept; it is not a user's change.
+    """
+    record = installed.config.get(KEY) or {}
+    if record.get('state') not in ('enabled', 'pending') or record.get('settings_file') != str(path):
+        return False
+    try:
+        _, settings = _read(path)
+    except (OSError, SettingsError):
+        return False
+    return settings.get('statusLine') == record.get('wrapper')
+
+
 def apply_planned(prefix, planned, python):
     """Run the planned upgrade action after ordinary admission is restored.
 
@@ -308,7 +324,7 @@ def apply_planned(prefix, planned, python):
     try:
         with install_state.locked(prefix) as installed:
             raw = _current(path)
-            if hashlib.sha256(raw or b'').hexdigest() != planned['digest']:
+            if hashlib.sha256(raw or b'').hexdigest() != planned['digest'] and not _own_write(installed, path):
                 return dict(failed, outcome='conflict', code='settings_conflict',
                             error='Claude settings changed during the upgrade; not changed')
             return set_up(installed, prefix, python, directory=path.parent)

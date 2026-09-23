@@ -109,3 +109,22 @@ class ClaudeStatusLineCompletionTests(EmptyOperationCompletionTests):
         self.assertEqual((record['state'], record['original']), ('enabled', self.original))
         with self.owner() as owner:
             self.assertEqual(upgrade_complete.run(owner), result)
+
+    def test_an_interrupted_outcome_publication_resumes_without_a_false_conflict(self):
+        import json
+        from koinon import claude_statusline
+        put = Documents.put
+
+        def interrupted(documents, name, value):
+            if name == 'claude-statusline':
+                raise OSError('synthetic lost status-line outcome')
+            return put(documents, name, value)
+        with self.owner() as owner, patch.object(Documents, 'put', new=interrupted):
+            with self.assertRaises(OSError):
+                upgrade_complete.run(owner)
+        line = json.loads((self.claude / 'settings.json').read_text())['statusLine']
+        self.assertTrue(claude_statusline.is_wrapper(line, self.prefix))
+        with self.owner() as owner:
+            result = upgrade_complete.run(owner)
+        self.assertEqual(result['claude_statusline']['outcome'], 'unchanged')
+        self.assertEqual(json.loads((self.claude / 'settings.json').read_text())['statusLine'], line)
