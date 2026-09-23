@@ -17,14 +17,13 @@ from unittest import mock
 import bridge
 import memory
 from koinon.service_runtime import close_writer, drain_handlers
+import waiting
 
 REPO = '0123456789abcdef'
 
 
-async def until(predicate):
-    async with asyncio.timeout(3):
-        while not predicate():
-            await asyncio.sleep(.001)
+async def until(predicate, what='the worker state the test awaits'):
+    await waiting.wait_until(predicate, what, interval=.001)
 
 
 class ServiceWorkerTests(unittest.IsolatedAsyncioTestCase):
@@ -52,7 +51,7 @@ class ServiceWorkerTests(unittest.IsolatedAsyncioTestCase):
         class BlockingStore(memory.Store):
             def note(self, *args, **kwargs):
                 test.entered.set()
-                if not test.release.wait(5):
+                if not test.release.wait(waiting.timeout()):
                     raise RuntimeError('test barrier timed out')
                 return super().note(*args, **kwargs)
         service = memory.Service(self.root, REPO,
@@ -126,7 +125,7 @@ class ServiceWorkerTests(unittest.IsolatedAsyncioTestCase):
                 await asyncio.sleep(.01)
                 self.assertFalse(running.done())
                 self.release.set()
-                await asyncio.wait_for(running, 3)
+                await waiting.settle(running, 'the service to stop')
                 with self.assertRaises(memory.MemoryError_) as caught:
                     await note
                 self.assertEqual(caught.exception.code, 'no_reply')
@@ -191,7 +190,7 @@ class ServiceWorkerTests(unittest.IsolatedAsyncioTestCase):
         class BlockingInbox(bridge.InboxStore):
             def store(self, *args):
                 test.entered.set()
-                if not test.release.wait(5):
+                if not test.release.wait(waiting.timeout()):
                     raise RuntimeError('test barrier timed out')
                 return super().store(*args)
         with mock.patch.object(bridge, 'InboxStore', BlockingInbox):
@@ -239,7 +238,7 @@ class ServiceWorkerTests(unittest.IsolatedAsyncioTestCase):
         result, errors = [], []
         def factory():
             self.entered.set()
-            if not self.release.wait(5):
+            if not self.release.wait(waiting.timeout()):
                 raise RuntimeError('test barrier timed out')
             return memory.Store(self.root/'memory.sqlite3', REPO)
         def start():
@@ -343,7 +342,7 @@ class ServiceWorkerTests(unittest.IsolatedAsyncioTestCase):
                     sys.executable, str(Path(memory.__file__)), '--state-dir', str(self.root/'state'),
                     '--repo-path', str(repo_path), 'serve',
                     stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE)
-                stdout, stderr = await asyncio.wait_for(child.communicate(), 5)
+                stdout, stderr = await waiting.settle(child.communicate(), 'the memory command to exit')
                 self.assertEqual(child.returncode, exit_status, stderr.decode())
                 self.assertEqual(json.loads(stdout)['code'], code)
                 self.assertNotIn(b'Traceback', stderr)
@@ -353,7 +352,7 @@ class ServiceWorkerTests(unittest.IsolatedAsyncioTestCase):
             sys.executable, str(Path(memory.__file__)), '--state-dir', str(self.root/'state'),
             '--repo-path', str(repo_path), 'stop',
             stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE)
-        stdout, stderr = await asyncio.wait_for(child.communicate(), 5)
+        stdout, stderr = await waiting.settle(child.communicate(), 'the memory command to exit')
         self.assertEqual(child.returncode, 78, stderr.decode())
         self.assertEqual(json.loads(stdout)['code'], 'wrong_repository')
         self.assertNotIn(b'Traceback', stderr)
@@ -364,7 +363,7 @@ class ServiceWorkerTests(unittest.IsolatedAsyncioTestCase):
                 sys.executable, str(Path(memory.__file__)), '--state-dir', str(self.root/'state'),
                 '--repo-path', str(repo_path), 'serve',
                 stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE)
-            stdout, stderr = await asyncio.wait_for(child.communicate(), 5)
+            stdout, stderr = await waiting.settle(child.communicate(), 'the memory command to exit')
             self.assertEqual(child.returncode, 78, stderr.decode())
             self.assertEqual(json.loads(stdout)['code'], 'unsafe_state_directory')
             self.assertNotIn(b'Traceback', stderr)
@@ -429,7 +428,7 @@ memory.main()
             sys.executable, '-c', script, '--state-dir', str(self.root/'state'),
             '--repo-path', str(repo_path), 'serve',
             stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE)
-        stdout, stderr = await asyncio.wait_for(child.communicate(), 5)
+        stdout, stderr = await waiting.settle(child.communicate(), 'the memory command to exit')
         self.assertEqual(child.returncode, 70, stderr.decode())
         reply = json.loads(stdout)
         self.assertEqual(reply['code'], 'internal_error')

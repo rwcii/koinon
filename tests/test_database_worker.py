@@ -7,12 +7,11 @@ import unittest
 
 from koinon.database_worker import DatabaseWorker, CapacityError, WorkerClosed, WorkerFailure
 from koinon.service_runtime import drain_handlers
+import waiting
 
 
 async def reached(event):
-    async with asyncio.timeout(3):
-        while not event.is_set():
-            await asyncio.sleep(.001)
+    await waiting.wait_until(event.is_set, 'the worker to reach its barrier', interval=.001)
 
 
 class WorkerTests(unittest.IsolatedAsyncioTestCase):
@@ -33,7 +32,7 @@ class WorkerTests(unittest.IsolatedAsyncioTestCase):
                 test.threads.append(threading.get_ident())
                 if block:
                     test.entered.set()
-                    if not test.release.wait(5):
+                    if not test.release.wait(waiting.timeout()):
                         raise RuntimeError('test barrier timed out')
                 with self.db:
                     self.db.execute('INSERT INTO data VALUES (?)', (value,))

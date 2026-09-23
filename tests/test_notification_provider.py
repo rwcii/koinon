@@ -7,6 +7,7 @@ import unittest
 from unittest import mock
 
 from koinon.notification_provider import Provider, MAX_NOTICE_BYTES
+import waiting
 
 
 class ProviderTests(unittest.IsolatedAsyncioTestCase):
@@ -58,9 +59,7 @@ class ProviderTests(unittest.IsolatedAsyncioTestCase):
         provider = Provider(self.options)
         task = asyncio.create_task(provider.deliver('notice'))
         try:
-            async with asyncio.timeout(3):
-                while not marker.exists():
-                    await asyncio.sleep(.01)
+            await waiting.wait_until(marker.exists, 'the provider to start its invocation', task=task)
             with self.assertRaisesRegex(RuntimeError, 'already active'):
                 await provider.deliver('second notice')
             task.cancel()
@@ -87,7 +86,7 @@ class ProviderTests(unittest.IsolatedAsyncioTestCase):
         with mock.patch('koinon.notification_provider.asyncio.create_subprocess_exec', delayed_creation):
             task = asyncio.create_task(provider.deliver('notice'))
             try:
-                await asyncio.wait_for(entered.wait(), 3)
+                await waiting.settle(entered.wait(), 'subprocess creation to begin')
                 task.cancel()
                 await asyncio.sleep(0)
                 self.assertTrue(provider.active)

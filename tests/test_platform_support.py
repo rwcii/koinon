@@ -10,6 +10,7 @@ import unittest
 from unittest.mock import patch
 
 from koinon import platform_support
+import waiting
 
 
 class StartMarkerTests(unittest.TestCase):
@@ -40,7 +41,7 @@ class ProcessTests(unittest.TestCase):
     def test_self_is_alive_and_reaped_child_is_not(self):
         self.assertTrue(platform_support.process_alive(os.getpid()))
         with subprocess.Popen([sys.executable, '-c', 'pass']) as child:
-            self.assertEqual(child.wait(timeout=5), 0)
+            self.assertEqual(child.wait(timeout=waiting.timeout()), 0)
         self.assertFalse(platform_support.process_alive(child.pid))
 
     def test_a_vanished_process_raises_process_lookup_on_both_platforms(self):
@@ -48,7 +49,7 @@ class ProcessTests(unittest.TestCase):
         # so a stopped bridge must break their loop cleanly rather than raise a
         # platform-specific error out of the notifier.
         with subprocess.Popen([sys.executable, '-c', 'pass']) as child:
-            self.assertEqual(child.wait(timeout=5), 0)
+            self.assertEqual(child.wait(timeout=waiting.timeout()), 0)
         with self.assertRaises(ProcessLookupError):
             platform_support.proc_start(child.pid)
 
@@ -60,17 +61,13 @@ class ProcessTests(unittest.TestCase):
             self.assertEqual(platform_support.process_state(child.pid, marker), 'alive')
             self.assertEqual(platform_support.process_state(child.pid, 'different incarnation'), 'dead')
             child.stdin.close()
-            deadline = time.monotonic() + 10
-            observed = 'alive'
-            while time.monotonic() < deadline:
-                observed = platform_support.process_state(child.pid, marker)
-                if observed == 'dead':
-                    break
-                time.sleep(.05)
-            # No poll/wait before this assertion: it must observe the zombie.
-            self.assertEqual(observed, 'dead')
+            # No poll/wait before this observation: it must observe the zombie, so the child is
+            # not passed to the wait as its process.
+            waiting.wait_until_sync(lambda: platform_support.process_state(child.pid, marker) == 'dead',
+                                    'the unreaped child to be observed dead',
+                                    observe=lambda: platform_support.process_state(child.pid, marker))
         finally:
-            child.wait(timeout=10)
+            child.wait(timeout=waiting.timeout())
 
     def test_unreadable_process_observation_is_unknown(self):
         with patch.object(platform_support, 'LINUX', True), \
@@ -286,15 +283,14 @@ class AsyncProcessProbeTests(unittest.IsolatedAsyncioTestCase):
             nonlocal entered
             with lock:
                 entered += 1
-            if not release.wait(5):
+            if not release.wait(waiting.timeout()):
                 raise RuntimeError('synthetic probe barrier expired')
             return 'synthetic'
         with patch.object(platform_support, 'proc_start', side_effect=blocked):
             tasks = [asyncio.create_task(platform_support.async_proc_start(42)) for _ in range(2)]
             try:
-                async with asyncio.timeout(2):
-                    while entered != 2:
-                        await asyncio.sleep(.001)
+                await waiting.wait_until(lambda: entered == 2, 'both probes to enter the barrier',
+                                         interval=.001, observe=lambda: entered)
                 for task in tasks:
                     task.cancel()
                 await asyncio.gather(*tasks, return_exceptions=True)
@@ -303,13 +299,14 @@ class AsyncProcessProbeTests(unittest.IsolatedAsyncioTestCase):
             finally:
                 release.set()
                 await asyncio.gather(*tasks, return_exceptions=True)
-            async with asyncio.timeout(2):
+            async def probe_when_capacity_returns():
                 while True:
                     try:
-                        self.assertEqual(await platform_support.async_proc_start(42), 'synthetic')
-                        break
+                        return await platform_support.async_proc_start(42)
                     except BlockingIOError:
                         await asyncio.sleep(.001)
+            self.assertEqual(await waiting.settle(probe_when_capacity_returns(),
+                                                  'probe capacity to be released'), 'synthetic')
 
     async def test_async_probe_preserves_current_process_identity(self):
         self.assertEqual(await platform_support.async_proc_start(os.getpid()),

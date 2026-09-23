@@ -16,6 +16,7 @@ from koinon import inbox_schema
 from koinon import notification_journal as journal
 from koinon import participant_presence as presence
 from test_notification_journal import work
+import waiting
 
 FRAME = dict(msgV=1, msg_id='synthetic-message', type='user', priority='next',
              message=dict(role='user', content='synthetic content'), **{'from': 'uds:/tmp/synthetic.sock'})
@@ -335,7 +336,7 @@ class SocketEvidenceTests(unittest.IsolatedAsyncioTestCase):
                 await writer.drain()
                 reply = json.loads(await reader.readline())
                 self.assertTrue(reply['ok'])
-                self.assertEqual(await asyncio.wait_for(reader.read(), 1), b'')
+                self.assertEqual(await waiting.settle(reader.read(), 'the server to close the connection'), b'')
         finally:
             release.set()
             writer.close()
@@ -368,7 +369,7 @@ class SocketEvidenceTests(unittest.IsolatedAsyncioTestCase):
         try:
             with mock.patch.object(bridge, 'target_path', return_value=path), mock.patch.object(bridge, 'peer_token', return_value=None):
                 task = asyncio.create_task(self.bus.send('uds:'+str(path), 'synthetic', 'later', 'one', deadline))
-                await asyncio.wait_for(reached.wait(), 1)
+                await waiting.settle(reached.wait(), 'the send to reach the peer')
                 task.cancel()
                 with self.assertRaises(asyncio.CancelledError):
                     await task

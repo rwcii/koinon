@@ -10,6 +10,7 @@ from koinon.notification_delivery import DeliveryLoop
 from koinon.notification_journal import JournalError
 from koinon.notification_state import NotificationState
 from test_memory_bindings import record, observation
+import waiting
 
 CAPABILITIES = (*inbox_schema.CAPABILITIES, 'memory_binding')
 
@@ -89,8 +90,9 @@ class DeliveryIntegrationTests(unittest.IsolatedAsyncioTestCase):
         self.loop.deliver = deliver
         task = asyncio.create_task(self.loop.step())
         try:
-            await asyncio.wait_for(entered.wait(), 2)
-            state = await asyncio.wait_for(self.worker.call('status', priority=True), 1)
+            await waiting.settle(entered.wait(), 'delivery to enter the provider')
+            state = await waiting.settle(self.worker.call('status', priority=True),
+                                         'status while the provider is busy')
             self.assertEqual(state['journal']['pending'], 1)
             self.assertEqual(state['journal']['counters']['attempts'], 1)
             with self.assertRaisesRegex(RuntimeError, 'concurrent'):
@@ -107,7 +109,7 @@ class DeliveryIntegrationTests(unittest.IsolatedAsyncioTestCase):
             await asyncio.Event().wait()
         self.loop.deliver = deliver
         task = asyncio.create_task(self.loop.step())
-        await asyncio.wait_for(entered.wait(), 2)
+        await waiting.settle(entered.wait(), 'delivery to enter the provider')
         task.cancel()
         with self.assertRaises(asyncio.CancelledError):
             await task
