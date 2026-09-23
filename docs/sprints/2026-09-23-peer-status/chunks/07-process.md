@@ -13,7 +13,10 @@ Criterion 10: the `ship` and `sprint` skills in `agents/skills/`.
   installed `memory.py work` commands, keyed by the agent's native session identity (chunk
   06), link the issue in its title, and reuse it through build, review and merge. Finish it
   after the merge. A read-only reviewer does not claim work.
-- `sprint`, phase 5: one work item per chunk, started by the agent that builds it.
+- `sprint`, phase 5: chunks reuse the work item of the issue they deliver; they do not
+  create one per chunk. When a different agent builds the next chunk of the same issue, the
+  previous holder releases its claim after its pull request merges, and the next builder
+  starts the same item. A lease that expires releases it as well.
 - Follow `agents/skills/AGENTS.md`: shell, `git` and `gh` only; no single-agent tool names.
 
 ## Done-criteria (this chunk's slice)

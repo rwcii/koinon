@@ -9,7 +9,7 @@ Realizes [decision.md](decision.md) (gate A approved at ba2816e) and is measured
 | [02 Claude status line](chunks/02-claude-statusline.md) | The `statusline.py` wrapper that records Claude model and context and runs the user's own command unchanged; `peers` reports Claude context. | 2, 3 (wrapper), 9 | 01 |
 | [03 Claude settings](chunks/03-claude-settings.md) | Installation sets up the wrapper by default, with decline and removal options, saved original, conflict detection and uninstall. | 3 (settings), 11 (its documents) | 02 |
 | [04 Upgrade](chunks/04-upgrade.md) | The upgrade operation sets up the wrapper with preflight, evidence and reporting, and keeps a saved decline. | 3 (upgrade), 11 (its documents) | 03 |
-| [05 Codex activity and context](chunks/05-codex.md) | `session.py ensure` records the participant process; the notifier reads the Codex session log and publishes activity, model and context. | 4, 5, 6, 9 | 01 |
+| [05 Codex activity and context](chunks/05-codex.md) | The notifier finds the process that owns its thread, reads the Codex session log and publishes activity, model and context. | 4, 5, 6, 9 | 01 |
 | [06 Claimed work](chunks/06-claimed-work.md) | `peers` and `status` report each peer's active work claims through an explicit store and session-key association. | 7, 9 | 01 |
 | [07 Process](chunks/07-process.md) | The `ship` and `sprint` skills tell the building agent to start one work item per deliverable issue. | 10 | 06 |
 
@@ -35,12 +35,16 @@ reading its code first.
     while the bridge PID, its process-start marker and the notifier generation match the
     registry record's `pid`, `procStart` and `bridgeOwner`.
 - Output fields next to `presence` in each `peers` entry and in the notifier `status`:
-  - `model`: `{state, source, id, recorded_at_ms, observed_at_ms, reason}`.
+  - `model`: `{state, source, id, recorded_at_ms, observed_at_ms, freshness_ms, reason}`.
   - `context`: `{state, source, limit_tokens, used_tokens, fill, recorded_at_ms,
     observed_at_ms, freshness_ms, reason}`; `fill` is `used_tokens / limit_tokens`.
-  - `work`: `{state, source, claims: [{work_id, title, checkpoint}], observed_at_ms, reason}`.
+  - `work`: `{state, source, claims: [{work_id, title, checkpoint}], recorded_at_ms,
+    observed_at_ms, freshness_ms, reason}`. Work is queried live, so its `recorded_at_ms` is
+    the query's `observed_at` from the memory service.
   - `state` is `observed` or `unknown`; `reason` is a typed code, `null` when observed.
-    `presence.model_activity` keeps its existing shape and gains Codex values in chunk 05.
+    `recorded_at_ms` is the source's time for that value; `observed_at_ms` is Koinon's read
+    time; `freshness_ms` is 15000, as for presence. `presence.model_activity` keeps its
+    existing shape and gains Codex values in chunk 05.
 - `statusline.py`: a new root entrypoint, because Claude settings name its path.
 - `install.json` key `claude_statusline`: `{state: enabled | declined, settings_file,
   original, wrapper}`, where `original` is the saved previous `statusLine` value or `null`.

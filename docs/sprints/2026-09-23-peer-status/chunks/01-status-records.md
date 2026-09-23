@@ -15,11 +15,20 @@ new field is `unknown` with a typed reason after this chunk.
   `account_home()` like `participant_lock_dir()`. Create it owner-only (0700) on first write.
 - `koinon/participant_status.py`:
   - `write(kind, key, fields)`: validates `fields` against the allowlist for `kind`
-    (`claude`, `bridge`), adds `recorded_at_ms`, and publishes the file atomically, mode 0600,
-    with `O_NOFOLLOW`. Unknown or text fields are dropped, never stored.
+    (`claude`, `bridge`) and publishes the file atomically, mode 0600, with `O_NOFOLLOW`.
+    Unknown or text fields are dropped, never stored. Each field group (`model`, `context`,
+    `activity`) carries its own `recorded_at_ms`, the time its source recorded the value
+    (the source event time where the source gives one, otherwise the time the writer
+    observed it). Publishing never replaces a source time with the publication time.
+  - Each record also names the participant process it describes (PID and process-start
+    marker). A writer that loses its source (unreadable, unrecognized, process ended)
+    publishes that field group as `unknown` with the reason; it does not leave the last value.
   - `read_claude(session_id)` and `read_bridge(pid, proc_start, generation)`: refuse a file
     that is not a regular file owned by the user, is a symlink, is larger than 16 KiB, or does
     not parse; return `unknown` with `no_status_record` or `status_record_invalid`.
+    Every read checks that the named participant process is live with its recorded start
+    marker; otherwise every field is `unknown` with `participant_not_live`. A live writer
+    therefore cannot serve a value for a participant that has ended.
   - `model_view`, `context_view`, `work_view`: build the output fields of `sprint.md`, with
     `observed_at_ms` set at read time and the 15-second `freshness_ms` of
     `participant_presence.FRESHNESS_MS`.

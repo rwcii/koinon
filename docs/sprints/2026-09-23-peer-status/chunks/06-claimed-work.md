@@ -9,15 +9,19 @@
 
 ## Approach
 
-- Session key: the claim's `consumer` is the participant's native session identity, as the
-  work guidance already says: `CODEX_THREAD_ID` for Codex, `DSH_SESSION_ID` for DeepSeek, and
-  `CLAUDE_CODE_SESSION_ID` for Claude. `CLAUDE_CODE_SESSION_ID` equals the `sessionId` of the
-  session's Claude registry record (verified on 2026-09-23 on this installation; the build
-  confirms it on macOS). Update `koinon/work_guidance.py` to name the Claude variable.
-- Store association: the repository is the peer's `cwd` (Claude registry) or `repo`
-  (`session.json` for Koinon participants), resolved to its Git common directory with
-  `memory.py`'s `repo_identity`; the state root is the running installation's `state_root`
-  from `install.json`. No repository, no installation or no memory selection for it gives
+- Session key: the work guidance lets a participant choose a stable consumer key. The
+  association is explicit: `session.py work-key --key K` run in the participant's shell
+  records `K` for that session in its status record; without it, the default is the native
+  session identity (`CODEX_THREAD_ID`, `DSH_SESSION_ID`, or `CLAUDE_CODE_SESSION_ID`, which
+  equals the `sessionId` of the Claude registry record: verified on 2026-09-23 on Linux; the
+  build confirms it on macOS). Update `koinon/work_guidance.py` to name the Claude variable
+  and the `work-key` command.
+- Store association: each status record names the peer's repository and the state root of
+  the installation that wrote it (the notifier's installation for a Koinon participant; the
+  installation that set up the wrapper for a Claude peer). The listing queries that store,
+  scoped to that peer, never silently the listing caller's own installation. The repository
+  is resolved to its Git common directory with `memory.py`'s `repo_identity`. A record with
+  no repository or state root, or no memory selection for it, gives
   `work_association_missing`; an unreachable service gives `memory_unavailable`.
 - Query: `work list --owner <key>` for the active claims; `checkpoint` is not in its output, so
   add it to the list item (bounded, as the list output already is) rather than calling `work

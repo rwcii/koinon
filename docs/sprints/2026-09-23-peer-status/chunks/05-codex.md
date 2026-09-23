@@ -5,20 +5,22 @@
 
 ## Scope
 
-Closes #84. `session.py ensure` associates the participant process; the notifier reads the
-Codex session log and publishes activity, model and context in `bridge-<pid>.json`.
+Closes #84. The notifier associates the thread's owner process, reads the Codex session log
+and publishes activity, model and context in `bridge-<pid>.json`.
 
 ## Approach
 
-- `platform_support.parent_pid(pid)`: Linux from `/proc/<pid>/stat`, macOS from
-  `ps -o ppid= -p <pid>`.
-- Association: `session.py ensure` runs in the Codex session's shell. It walks its ancestors
-  and records the nearest ancestor process whose executable is the Codex CLI that the
-  installation names (`codex` in `install.json`), with its PID and process-start marker, in
-  the session's `session.json`. No match: record nothing, and activity is
-  `participant_not_associated`. The build verifies this ancestor rule on Linux and macOS
-  before relying on it; if the Codex CLI runs the shell through a wrapper process, the chunk
-  records the rule it found.
+- Association: the owner of a thread is the user's process that holds the thread's session
+  log open. Observed on 2026-09-23 on Linux with Codex CLI 0.155.1: one `codex` process held
+  five session logs open, so one process can host several threads, and an ancestor process
+  alone does not identify a thread's owner. The notifier finds the owner with
+  `platform_support.open_file_holders(path)`: Linux reads `/proc/<pid>/fd` of the user's
+  processes, macOS runs `lsof -t -- <path>`. It records the owner's PID and process-start
+  marker, uses only process liveness afterwards, and searches again when that process ends.
+  No holder, several holders, or a holder whose executable is not the installation's Codex
+  CLI gives `participant_not_associated`. The macOS rule is tested with a synthetic process
+  that holds a file open; if the Codex CLI on macOS is found not to hold the log open, macOS
+  reports `participant_not_associated` and the limit is documented.
 - Log location: the notifier locates the log once, as `koinon/usage_selection.py` does
   (`CODEX_HOME` or `~/.codex`, `sessions/**/*<thread id>*.jsonl`, first line `session_meta`
   with a matching `payload.id`), and keeps the path in its state directory. It does not read
@@ -32,7 +34,10 @@ Codex session log and publishes activity, model and context in `bridge-<pid>.jso
 - Activity: `busy` while the latest started turn has no matching end, `idle` when it has
   ended; both only while the associated process is live with its recorded start marker;
   otherwise `unknown`. `presence.model_activity` uses source `codex_session_log`.
-- Publish `bridge-<pid>.json` through chunk 01's writer after each change.
+- Publish `bridge-<pid>.json` through chunk 01's writer after each change, with each value's
+  source event time (`timestamp` of the `token_count`, `task_started`, `task_complete` or
+  `turn_aborted` record). When the log becomes unreadable or unrecognized, or the owner
+  process ends, publish that field group as `unknown` with its reason.
 
 ## Documents
 

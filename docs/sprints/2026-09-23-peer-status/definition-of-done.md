@@ -26,8 +26,9 @@ Claude settings, Codex home, registry or services.
   prints one line: identical input and output and exit status with and without the wrapper;
   the user's command fails (nonzero exit, no output) and the wrapper returns the same result;
   Koinon's part fails (unwritable presence directory, malformed input) and the user's command
-  still receives the input unchanged and its output is returned; the input is read once. No
-  user command configured: the wrapper prints nothing and exits 0.
+  still receives the input unchanged and its output is returned; the input is read once; an
+  input larger than 1 MiB reaches the user's command unchanged and is not parsed. No user
+  command configured: the wrapper prints nothing and exits 0.
 - **Settings edit (criterion 3).** Set up on a settings file with and without an existing
   `statusLine`, with other keys and other `statusLine` fields present; repeat set-up does not
   nest the wrapper or replace the saved original; decline is recorded and survives a repeated
@@ -48,12 +49,16 @@ Claude settings, Codex home, registry or services.
   `model_context_window` gives the fill from the last request, not the cumulative total; a log
   with no `token_count`, an unknown record shape or an unreadable file is `unknown` with a
   typed reason.
-- **Participant association.** `session.py ensure` records the participant process and its
-  start marker; a recycled PID with a different start marker is not live.
+- **Participant association.** The owner of a synthetic log is the one process that holds it
+  open; no holder and two holders are `participant_not_associated`; a recycled PID with a
+  different start marker is not live. Runs on Linux and macOS.
 - **Claimed work (criterion 7).** Against a synthetic memory store: an active claim held by
   the peer's session key appears with work ID, title and checkpoint; a successful query with
   no claim reports no claimed work; an expired lease is not shown and the work item is
-  unchanged; no association and an unavailable service are `unknown` with distinct reasons.
+  unchanged; no association and an unavailable service are `unknown` with distinct reasons;
+  a claim held under a custom key declared with `session.py work-key` appears, and a claim
+  under the native key does not appear for a peer that declared a custom key; a peer whose
+  record names another installation's state root is queried in that store.
 - **Freshness (criterion 6).** A cached observation older than 15 seconds or across a
   disconnect is not reused; a fresh read of an old context value of a live participant keeps
   the value with its source time.
@@ -63,13 +68,13 @@ Claude settings, Codex home, registry or services.
 
 ## Integration points exercised for real
 
-- `platform_support` parent-process and process-start functions on Linux and macOS, in the
+- `platform_support` open-file-holder and process-start functions on Linux and macOS, in the
   `Tests` matrix.
 - The native upgrade workflow's memory, session and combined cases on systemd and launchd run
   with the settings step against a temporary `CLAUDE_CONFIG_DIR`.
 - **Live checks, each with the user's authorization and recorded in the pull request that
   closes the chunk:**
-  - After chunk 03 merges and the user's installation is upgraded: this Claude session's
+  - After chunk 04 merges and the user's installation is upgraded: this Claude session's
     model, limit and fill appear in `bridge.py peers`, and the user's own status line looks
     unchanged.
   - After chunk 05 merges and the Codex session is restarted on the new runtime: the Codex

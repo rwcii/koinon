@@ -39,3 +39,15 @@ missing or changed integration reports `statusline_missing` with the repair comm
 | "No settings edit silently overwrites a concurrent change" contradicts the acknowledged race: a Claude Code write after the final comparison is replaced and the post-check sees only Koinon's bytes. | Fixed: the criterion claims detection of observable changes only, and the documentation tells the user not to change Claude settings during installation, upgrade or removal. |
 
 Concurrence on the decision at ba2816e. Gate A was approved by the user at ba2816e.
+
+## Plan (reviewed at d49c993)
+
+| Finding | Disposition |
+| --- | --- |
+| Records replaced source event times with publication time; a live bridge could serve a stale busy or context value after its source failed or its participant ended. | Fixed in chunks 01 and 05 and the shared names: each field group keeps its source time; a lost source is published as `unknown`; every read checks the named participant process and its start marker. |
+| The wrapper bounded all input to 1 MiB while promising identical input; it discarded the `current_usage` null signal. | Fixed in chunk 02 and the definition of done: the whole input is forwarded, only parsing is bounded, oversized input is tested, and `usage_available` is kept. |
+| The Codex participant association was unverified; an ancestor `codex` process may be shared. The status-line shell was unverified. | Verified before the fix: one Linux `codex` process held five session logs open, so the owner is the process that holds the thread's log open (chunk 05, with `open_file_holders`, and macOS tested with a synthetic holder). Claude Code 2.1.280 on Linux launches the status line with `/bin/sh -c`; chunk 02 uses it and leaves the macOS launcher as a documented limit until confirmed on a macOS host. |
+| Claims were assumed to use the native ID, although the guidance permits a custom key; the store lookup defaulted to the caller's installation. | Fixed in chunk 06: an explicit `session.py work-key` association with the native ID as default; each record names its installation's state root and the query is scoped to it; tests cover a custom key and another installation. |
+| Chunk 07 created one item per chunk, against one per deliverable issue. | Fixed: chunks reuse the issue's item, and a claim passes between builders by release after merge or lease expiry. |
+| The `work` field had no source time or freshness. | Fixed in the shared names: `recorded_at_ms` is the memory service's query time; `freshness_ms` is 15000. |
+| The live Claude check came after chunk 03, but upgrade support is chunk 04. | Fixed: the check follows chunk 04. |
