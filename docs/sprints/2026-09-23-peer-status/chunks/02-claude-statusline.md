@@ -28,8 +28,11 @@ Claude context in `peers`. Installing it into the settings is chunk 03.
   quoted `--command` argument. The wrapper runs it with `/bin/sh -c <string>`, which is how
   Claude Code runs a status-line command: observed on 2026-09-23 on Linux with Claude Code
   2.1.280, the parent of the user's script was `/bin/sh -c 'bash $HOME/...'`. Expansions,
-  pipes and quoting therefore keep their meaning. The build confirms the macOS launcher on a
-  macOS host; until then the macOS behaviour is a documented limit. Chunk 03 builds the entry.
+  pipes and quoting therefore keep their meaning. On macOS, observed on 2026-09-23, the direct
+  child of Claude Code was `bash /Users/<user>/.claude/statusline-command.sh`, with `$HOME`
+  already expanded: a shell interpreted the command and replaced itself with `bash`, which
+  the macOS `/bin/sh` does for a single simple command and Linux `dash` does not. Both are
+  consistent with `/bin/sh -c`. Chunk 03 builds the entry.
 - `peers`: a Claude record with `usage_available` false or a zero or missing limit gives
   `unknown` with `no_token_usage`; `fill` uses `total_input_tokens / context_window_size`,
   the formula that the Claude documentation gives for `used_percentage`.

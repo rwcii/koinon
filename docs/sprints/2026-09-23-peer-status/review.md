@@ -59,3 +59,17 @@ Concurrence on the decision at ba2816e. Gate A was approved by the user at ba281
 | After the first association only process liveness was checked; a shared Codex process that unloads the thread stays alive and would keep stale values. Whether an idle loaded thread keeps its log open is unverified. | Fixed in chunk 05: every observation checks that the owner still holds the log open, and a lost association is `unknown`; an idle thread without an open log is `unknown`, never assumed `idle`; the live check records which case holds. |
 | `ship` finished the item after the first merge, although later chunks of the issue reuse it. | Fixed in chunk 07: finish only when the merge completes the issue; otherwise checkpoint and release for the next builder. |
 | The macOS launcher and ownership rule are unverified. | Recorded as explicit, unverified compatibility limits in chunks 02 and 05, not as demonstrated macOS support. |
+
+Concurrence on the plan at 44ce8f8.
+
+## macOS evidence after concurrence
+
+The user ran read-only checks on a macOS host on 2026-09-23, without Koinon installed.
+
+- Codex: the Homebrew `codex` is a Node wrapper; its direct child, the native
+  `codex-darwin-arm64` binary, held the session log open. Chunk 05 now accepts the configured
+  CLI process or its direct child as the owner, and tests that case. The session's turn state
+  was not recorded, so the idle question stays with the live check.
+- Claude Code: the direct child of Claude Code was the user's status-line script with `$HOME`
+  already expanded, so a shell interpreted the command and replaced itself; this is consistent
+  with `/bin/sh -c`. Chunk 02 records it. The macOS launcher is no longer an unverified limit.

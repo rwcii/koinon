@@ -21,12 +21,16 @@ and publishes activity, model and context in `bridge-<pid>.json`.
   process's `/proc/<pid>/fd`, macOS runs `lsof -a -p <pid> -- <path>`). A process that
   unloads the thread while it stays alive for other threads therefore loses the association.
   A lost association publishes `unknown` with `participant_not_associated` and starts a new
-  search. No holder, several holders, or a holder whose executable is not the installation's
-  Codex CLI gives `participant_not_associated`. Whether an idle, loaded thread keeps its log
+  search. No holder, several holders, or a holder that is neither the installation's Codex CLI
+  process nor a direct child of it gives `participant_not_associated`. Observed on 2026-09-23
+  on macOS with the Homebrew Codex CLI: `codex` is a Node wrapper, and its direct child, the
+  native `codex-darwin-arm64` binary, holds the session log open; on Linux the standalone
+  `codex` process holds it itself. Whether an idle, loaded thread keeps its log
   open is not verified; when it does not, that thread reports `unknown`, never `idle` by
-  assumption, and the live check of the definition of done records which case holds. The macOS rule is tested with a synthetic process
-  that holds a file open. That test proves the mechanism, not compatibility with the Codex CLI
-  on macOS, which stays a documented, unverified limit until checked on a macOS host.
+  assumption, and the live check of the definition of done records which case holds.
+  On macOS on 2026-09-23 an open Codex session held its log open; whether it was mid-turn
+  or idle was not recorded. The macOS rule is tested with a synthetic process that holds a file
+  open, and a test covers a holder that is the direct child of the configured CLI process.
 - Log location: the notifier locates the log once, as `koinon/usage_selection.py` does
   (`CODEX_HOME` or `~/.codex`, `sessions/**/*<thread id>*.jsonl`, first line `session_meta`
   with a matching `payload.id`), and keeps the path in its state directory. It does not read
