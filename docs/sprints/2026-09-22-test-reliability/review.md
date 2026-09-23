@@ -30,6 +30,13 @@ approved by the user at 54c1670.
 
 **Verdict:** approved at a093d389bdab5a007569c7bda37aa19e4038aab4, no open findings.
 
+## Build
+
+| Finding | Disposition |
+| --- | --- |
+| The chunk-01 inventory scan read single lines and a few call names. It missed multi-line `subprocess.run(timeout=…)`, `join(…)`, `future.result(timeout=…)` and `to_thread(event.wait, …)` waits. | Fixed in #112 and #113: a broader sweep during review found the misses, and the owning chunk converted them. The inventory at 28f2e0d holds 30 entries, all `product-deadline`. |
+| #113 merged with the temporary macOS repeat job still in `.github/workflows/`, contrary to the definition of done, and its pull request holds no record of the run. | The job ran only for branch `fix/test-process-waits`, so it was inert on `develop`. The close-out pull request removes it, and #48 records the run. |
+
 ## Ownership
 
 Codex builds chunk 03 after chunk 01 merges. Claude builds chunks 01, 02 and 04. Edits to
