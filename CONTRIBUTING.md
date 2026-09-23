@@ -39,7 +39,7 @@ personal-repository conventions in [rwcii/afterglow](https://github.com/rwcii/af
 git switch develop
 git pull --ff-only
 git switch -c feature/my-change
-python3 -m unittest discover -v -s tests
+python3 tests/run.py -v
 git diff --check
 git commit -S -s -m "Add a concise description"
 git push -u origin feature/my-change
@@ -60,7 +60,7 @@ is preserved; signed-off contributions are required from adoption of this policy
 
 ## Local checks and scope
 
-Run `python3 -m unittest discover -v -s tests` and `git diff --check`. For setup or hook edits,
+Run `python3 tests/run.py -v` and `git diff --check`. For setup or hook edits,
 also run `bash -n scripts/setup-repo.sh` and `sh -n .githooks/pre-commit`.
 Tests must use synthetic peers, never send traffic to live agent sessions by default.
 

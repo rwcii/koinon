@@ -24,7 +24,7 @@ Work on feature/fix/chore branches off develop. Squash PRs into develop; promote
 through a merge PR to main. Never commit directly to either long-lived branch.
 Use signed, DCO signed-off commits with the human author and no automated attribution.
 
-Run `python3 -m unittest discover -v -s tests` and `git diff --check` before pushing.
+Run `python3 tests/run.py -v` and `git diff --check` before pushing.
 Review shell edits with `bash -n scripts/setup-repo.sh` and `sh -n .githooks/pre-commit`.
 Keep documentation current. Runtime messages, keys, checkpoints, and private session
 identifiers must not enter the repository. Tests use synthetic peers.

@@ -331,8 +331,12 @@ Ordinary peer limits: 16 active connections, six-second handler deadline, 32 fra
 ## Development
 
 ```sh
-python3 -m unittest discover -v -s tests
+python3 tests/run.py -v
 ```
+
+The runner ends a run that stops making progress, and prints the running test and every stack.
+Test waits take their budgets from `tests/waiting.py`; `KOINON_TEST_TIMEOUT_SCALE` multiplies
+them on slow machines.
 
 Tests cover fragmented and EOF-delimited messages, malformed and oversized input, inert controls, outgoing socket identity, persistent storage, local control requests, notification filtering, checkpoints, platform process and socket facts, participant peer naming, DeepSeek notice delivery, and the memory service: frozen snapshots under concurrent revocation and reclamation, server-tracked page issuance, acknowledgement replay, durable-head and liveness rules, both storage budgets, transaction rollback, serialized start, and recovery from an unclean exit. CI runs on Linux and macOS with Python 3.11–3.13. Tests use synthetic peers and never message live Claude sessions.
 
