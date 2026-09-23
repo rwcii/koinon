@@ -157,6 +157,9 @@ def arguments(args):
     return ['discover', '-s', str(TESTS), '-t', str(TESTS), *args]
 
 
+HOMES_VARIABLE = 'KOINON_TEST_HOMES'
+
+
 def isolate_agent_homes():
     """Point the agent configuration directories at a temporary directory for the whole run.
 
@@ -167,11 +170,17 @@ def isolate_agent_homes():
     import atexit
     import shutil
     import tempfile
+    inherited = os.environ.get(HOMES_VARIABLE)
+    if inherited and Path(inherited).is_dir():
+        # A runner started by a test reuses its parent's directories, so a child that
+        # exits without cleanup leaves nothing behind.
+        return Path(inherited)
     root = Path(tempfile.mkdtemp(prefix='koinon-test-homes-'))
     atexit.register(shutil.rmtree, root, ignore_errors=True)
     for variable, name in (('CLAUDE_CONFIG_DIR', 'claude'), ('CODEX_HOME', 'codex')):
         (root / name).mkdir(mode=0o700)
         os.environ[variable] = str(root / name)
+    os.environ[HOMES_VARIABLE] = str(root)
     return root
 
 
