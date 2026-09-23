@@ -7,12 +7,13 @@ Realizes [decision.md](decision.md) (gate A approved) and is measured by
 | --- | --- | --- | --- |
 | [01 Foundation](chunks/01-foundation.md) | The shared wait helper, the watchdog runner, the CI command and job timeout, the stalled-worker and failed-worker tests, and the wait inventory with its regression guard. | 2, 3, 4, 5, 6, 7 | — |
 | [02 Asynchronous waits](chunks/02-async-waits.md) | Every coordination wait in the files of the asynchronous services uses the helper. | 1, 8, 9 (its files) | 01 |
-| [03 Process and store waits](chunks/03-process-waits.md) | Every coordination wait in the subprocess, session and store files uses the helper; the inventory is empty. | 1, 8, 9 (its files) | 01 |
+| [03 Process and store waits](chunks/03-process-waits.md) | Every coordination wait in the subprocess, session and store files, and in any file not named in 02, uses the helper. | 1, 8, 9 (its files) | 01 |
 | [04 Observed hangs](chunks/04-observed-hangs.md) | One bounded reproduction attempt for each observed hang, recorded, with a fix or a new issue. | 10 | 01 |
 
 Chunks 02, 03 and 04 do not depend on each other and may be built at the same time; they change
-disjoint files. The chunk that merges last among 02 and 03 runs the repeated macOS check of the
-definition of done at its head, and closes #48. #63 closes when chunk 01 merges (criteria 5, 7
+disjoint files, and chunk 04 changes only its record. The chunk that merges last among 02 and 03
+confirms that the inventory holds only `product-deadline` entries, runs the repeated macOS check
+of the definition of done, and closes #48. #63 closes when chunk 01 merges (criteria 5, 7
 and 9).
 
 ## Shared names

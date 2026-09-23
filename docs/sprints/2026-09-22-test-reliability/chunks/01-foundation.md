@@ -19,8 +19,11 @@ guard. No existing test file is converted here, except where a test of this chun
   done, awaits it so that its exception propagates. On timeout it raises `AssertionError` with
   `what`, the budget used, and `observe()` when given (the last observed state).
 - `wait_until_sync(condition, what, *, seconds=None, process=None, observe=None,
-  interval=.05)`: the same for blocking code. When `process` has exited, it raises with the exit
-  status and the process's captured standard error, if any.
+  interval=.05)`: the same for blocking code. Each poll checks `condition()` first and returns
+  when it holds, so a condition that is the process's own exit succeeds. Only when the
+  condition is still false and `process` has exited does it fail, with the exit status and
+  `observe()` when given. It never reads the process's pipes itself; a test that wants the
+  child's standard error passes an `observe` that reads what the test already captured.
 - `async settle(awaitable, what, *, seconds=None)`: awaits one awaitable under the budget, for
   teardown gathers; a timeout raises as above.
 
@@ -37,8 +40,11 @@ records the current activity:
   frames for `setUpClass`, `tearDownClass`, `setUpModule` or `tearDownModule` and prints that
   fixture with its class or module. It then calls `faulthandler.dump_traceback(all_threads=True)`
   and `os._exit(3)`.
-- `faulthandler.dump_traceback_later` is armed at a longer bound as a backstop for a thread that
-  holds the interpreter lock.
+- A backstop for a thread that holds the interpreter lock, where the Python watchdog thread
+  cannot run: `faulthandler.dump_traceback_later(bound + 120, exit=True)`, re-armed at every
+  progress event together with the watchdog, so a healthy long run never reaches it and a
+  blocked run always ends. With the macOS scale of 3 the bounds are 900 and 1020 seconds, both
+  below the job limit of 1800 seconds.
 - Other arguments pass through to `unittest`, so `python tests/run.py -v` and
   `python tests/run.py -v test_session` both work.
 
@@ -50,12 +56,17 @@ root `AGENTS.md`, `CONTRIBUTING.md` and the `check` skill name `python3 tests/ru
 test command.
 
 **Inventory and guard, `tests/wait_inventory.py`.** Built by listing every `asyncio.timeout(`,
-`asyncio.wait_for(` and `monotonic() +`/`time() +` deadline under `tests/`, and every
-`for _ in range(n)` loop that polls with a sleep, then reviewing each one: a coordination wait gets `pending-02` or `pending-03` by the file split in chunks 02 and
-03; a product-deadline assertion gets `product-deadline` and a one-line reason. A test in
+`asyncio.wait_for(` and `monotonic() +`/`time() +` deadline under `tests/`, every
+`for _ in range(n)` loop that polls with a sleep, and every subprocess wait with a timeout
+(`communicate(timeout=`, `wait(timeout=`, `subprocess.run(..., timeout=`), then reviewing each
+one. A coordination wait gets `pending-02` or `pending-03` by the file split in chunks 02 and
+03; a file that neither chunk names goes to 03, and the inventory records that assignment. A
+product-deadline assertion, or a short wait that expects the child still to be running, gets
+`product-deadline` and a one-line reason. A test in
 `tests/test_wait_inventory.py` fails when one of the three text patterns occurs in a test other
-than an inventory entry, or when an entry no longer matches its test. Polling loops are in the
-inventory but not in the guard; the inventory review, not the guard, proves their migration.
+than an inventory entry, or when an entry no longer matches its test. Polling loops and
+subprocess waits are in the inventory but not in the guard; the inventory review, not the
+guard, proves their migration.
 
 ## Done-criteria (this chunk's slice)
 

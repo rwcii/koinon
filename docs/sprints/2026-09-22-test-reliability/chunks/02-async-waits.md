@@ -18,14 +18,16 @@ Every inventory entry marked `pending-02`. Its files are the asynchronous servic
   service task as `task` and a description of the condition as `what`.
 - Replace each teardown `asyncio.wait_for(gather(...), n)` with `settle`.
 - Keep a file's own diagnostic helpers, such as `wait_for_delivery_health` in
-  `test_notification_runtime`, and move their deadline to `timeout()`; keep their messages.
+  `test_notification_runtime`, but rewrite their bodies on `wait_until` with `observe`, so that
+  no `asyncio.timeout` remains in them; keep their messages.
 - Leave `product-deadline` entries unchanged.
 - Remove each converted entry from `tests/wait_inventory.py`.
 
 ## Done-criteria (this chunk's slice)
 
 - Criteria covered: 1, 8 and 9 for these files.
-- No `pending-02` entry remains, and the guard test passes.
+- No `pending-02` entry remains, and the guard test passes. Whichever of 02 and 03 merges
+  last confirms that the inventory holds only `product-deadline` entries.
 - Tests: the converted files pass unchanged in result on all six CI jobs.
 - Gate: `check`, the six-job `Tests` run. When this chunk merges after chunk 03, the repeated
   macOS check of the definition of done runs at its head.
