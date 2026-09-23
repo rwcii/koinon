@@ -37,3 +37,5 @@ missing or changed integration reports `statusline_missing` with the repair comm
 | Finding | Disposition |
 | --- | --- |
 | "No settings edit silently overwrites a concurrent change" contradicts the acknowledged race: a Claude Code write after the final comparison is replaced and the post-check sees only Koinon's bytes. | Fixed: the criterion claims detection of observable changes only, and the documentation tells the user not to change Claude settings during installation, upgrade or removal. |
+
+Concurrence on the decision at ba2816e. Gate A was approved by the user at ba2816e.
