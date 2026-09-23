@@ -1301,3 +1301,97 @@ def _upgrade_launchd_command(text):
     if arguments:
         raise ValueError('unterminated loaded launchd arguments')
     return commands
+
+
+def holds_open(pid, path):
+    """Whether this same-user process currently holds the selected file open."""
+    try:
+        if LINUX:
+            root = Path('/proc') / str(pid)
+            if root.stat().st_uid != os.geteuid():
+                return False
+            wanted = os.stat(path)
+            for fd in (root / 'fd').iterdir():
+                try:
+                    found = fd.stat()
+                    if (found.st_dev, found.st_ino) == (wanted.st_dev, wanted.st_ino):
+                        return True
+                except OSError:
+                    continue
+            return False
+        result = subprocess.run(['lsof', '-a', '-p', str(pid), '-u', str(os.geteuid()),
+                                 '-t', '--', str(path)], capture_output=True, text=True,
+                                timeout=PROCESS_QUERY_TIMEOUT)
+        return result.returncode == 0 and str(pid) in result.stdout.split()
+    except (OSError, subprocess.SubprocessError):
+        return False
+
+
+def open_file_holders(path):
+    """Find same-user holders; an incomplete probe is not proof of a unique owner."""
+    if LINUX:
+        import time
+        deadline = time.monotonic() + PROCESS_QUERY_TIMEOUT
+        result = []
+        for entry in Path('/proc').iterdir():
+            if time.monotonic() > deadline:
+                raise TimeoutError('file-holder observation timed out')
+            if entry.name.isdigit() and holds_open(int(entry.name), path):
+                result.append(int(entry.name))
+        return result
+    result = subprocess.run(['lsof', '-a', '-u', str(os.geteuid()), '-t', '--', str(path)],
+                            capture_output=True, text=True, timeout=PROCESS_QUERY_TIMEOUT)
+    if result.returncode not in (0, 1):
+        raise OSError('file-holder observation failed')
+    return sorted({int(value) for value in result.stdout.split() if value.isdigit()})
+
+
+def _process_command(pid):
+    """Return parent PID and argv for a same-user process, for CLI wrapper matching."""
+    import shlex
+    if LINUX:
+        root = Path('/proc') / str(pid)
+        if root.stat().st_uid != os.geteuid():
+            raise ProcessLookupError('different process owner')
+        parent = int((root / 'stat').read_text().rsplit(')', 1)[1].split()[1])
+        argv = (root / 'cmdline').read_bytes().split(b'\0')
+        return parent, [os.fsdecode(value) for value in argv if value]
+    result = subprocess.run(['ps', '-ww', '-o', 'uid=,ppid=,command=', '-p', str(pid)],
+                            capture_output=True, text=True, check=True, timeout=PROCESS_QUERY_TIMEOUT)
+    uid, parent, command = result.stdout.strip().split(None, 2)
+    if int(uid) != os.geteuid():
+        raise ProcessLookupError('different process owner')
+    return int(parent), shlex.split(command)
+
+
+def codex_process(pid, executable):
+    """Match the configured native CLI or a direct child of its interpreter wrapper."""
+    import shutil
+    selected = shutil.which(executable)
+    if not selected:
+        return False
+    selected = Path(selected).resolve()
+
+    def matches(argv):
+        # Script launchers name their script as argv[1]; never search prompt arguments.
+        candidates = argv[:1]
+        if argv and Path(argv[0]).name in ('node', 'nodejs', 'python3', 'python'):
+            candidates = argv[:2]
+        return any(Path(value).is_absolute() and Path(value).resolve() == selected for value in candidates)
+
+    try:
+        parent, argv = _process_command(pid)
+        if matches(argv):
+            return True
+        if LINUX and Path(f'/proc/{pid}/exe').resolve() == selected:
+            return True
+        if DARWIN:
+            native = subprocess.run(['ps', '-ww', '-o', 'comm=', '-p', str(pid)],
+                                    capture_output=True, text=True,
+                                    timeout=PROCESS_QUERY_TIMEOUT).stdout.strip()
+            if native and Path(native).is_absolute() and Path(native).resolve() == selected:
+                return True
+        _, parent_argv = _process_command(parent)
+        return matches(parent_argv)
+    except (OSError, ValueError, subprocess.SubprocessError):
+        return False

@@ -130,8 +130,10 @@ Koinon's own daemon registry record omits activity instead of permanently assert
 waiting. Claude's UI may display Idle for an absent status; that UI fallback is
 not a Koinon activity claim.
 
-Codex and DeepSeek activity remains unknown: no verified read-only source owned by
-the selected participant is integrated. Codex app-server schemas expose status and
+Codex activity is observed from the selected session log while its same-user Codex owner
+holds that file open with the same process-start marker. A matching turn start means busy;
+a matching completion or abort means idle. Missing, unreadable or unrecognized evidence,
+or loss of the open-file association, means unknown. DeepSeek activity remains unknown. Codex app-server schemas expose status and
 wait flags, but schema availability does not prove that connecting observes the
 actual owning server without side effects. No thread is resumed, replaced, loaded
 or subscribed as part of this feature.
@@ -226,3 +228,18 @@ listing-filter result rests on the driver’s extraction. Both observations are
 limited to version 2.1.276 and do not establish end-to-end native discovery.
 Live discovery remains unverified. Vendor implementation text is not included
 in this repository.
+
+### Codex session-log observation
+
+The notifier locates only the explicitly selected thread under `CODEX_HOME/sessions`
+(default `~/.codex/sessions`) and checks its `session_meta` identity. It reads bounded batches
+incrementally; while catching up or waiting for a complete event it reports unknown. Model,
+last-request input tokens and context-window size retain their source event timestamps.
+Cumulative usage is not context occupancy. Rollout shapes are internal Codex interfaces;
+unrecognized evidence is unknown rather than inferred.
+
+Linux uses same-user `/proc` file holders; macOS uses `lsof`. A configured native Codex CLI
+or its direct wrapper child must hold the log. This association is checked each observation.
+An idle thread that closes its log therefore reports unknown. These are observations, not
+proof that a task completed successfully. No app-server connection, resume or queued probe
+is made. Status polling runs separately from notification delivery, every two seconds.

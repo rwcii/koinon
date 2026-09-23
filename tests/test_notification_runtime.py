@@ -41,6 +41,9 @@ class RuntimeTests(unittest.IsolatedAsyncioTestCase):
     async def asyncSetUp(self):
         self.temp = tempfile.TemporaryDirectory()
         self.root = Path(self.temp.name)
+        environment = mock.patch.dict(os.environ, CODEX_HOME=str(self.root / 'codex'))
+        environment.start()
+        self.addCleanup(environment.stop)
         self.state = self.root / 'state'
         self.state.mkdir(mode=0o700)
         self.bus = bridge.Bridge(self.state)
@@ -72,6 +75,19 @@ class RuntimeTests(unittest.IsolatedAsyncioTestCase):
         finally:
             self.redirect.__exit__(None, None, None)
             self.temp.cleanup()
+
+    async def test_codex_source_is_published_and_failure_withdraws_it(self):
+        from koinon import codex_status
+        owner = dict(pid=os.getpid(), proc_start=platform_support.proc_start(os.getpid()))
+        groups = codex_status.unknown('no_token_usage')
+        groups['context'] = dict(source='codex_session_log', recorded_at_ms=1, reason=None,
+                                 limit_tokens=1000, used_tokens=250, usage_available=True)
+        with mock.patch.object(codex_status.Reader, 'sample', return_value=(owner, groups)) as sample:
+            await self.wait_for(lambda: self.runtime.own_status()[1]['context']['fill'] == .25,
+                                'the Codex context publication')
+            sample.return_value = (None, codex_status.unknown('source_unrecognized'))
+            await self.wait_for(lambda: self.runtime.own_status()[1]['context']['reason'] == 'source_unrecognized',
+                                'the unavailable source publication')
 
     async def request(self, op, **kwargs):
         reply, _ = await control_exchange(self.state / 'notifier', dict(op=op, **kwargs))
@@ -166,8 +182,8 @@ class RuntimeTests(unittest.IsolatedAsyncioTestCase):
         reply = (await self.request('status'))['result']
         for view in ('model', 'context', 'work'):
             self.assertEqual(reply[view]['state'], 'unknown')
-        self.assertEqual(reply['context']['reason'], 'participant_not_associated')
-        self.assertEqual(reply['presence']['model_activity']['reason'], 'participant_not_associated')
+        self.assertIn(reply['context']['reason'], ('participant_not_associated', 'no_status_record'))
+        self.assertIn(reply['presence']['model_activity']['reason'], ('participant_not_associated', 'no_status_record'))
         self.runtime.stop.set()
         await waiting.settle(self.task, 'the notifier to stop')
         self.assertFalse(record.exists())

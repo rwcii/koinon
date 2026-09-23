@@ -499,3 +499,8 @@ records; they add no wire fields ([delivery contract](docs/DELIVERY.md#model-con
 Unsupported activity remains unknown. The daemon omits registry activity instead
 of claiming a permanent wait. Native status-omission discovery verification remains
 an open release gate, as documented in the delivery contract.
+
+Codex `presence.model_activity` may use source `codex_session_log`. Its `since_ms` is the
+matched turn event time; `observed_at_ms` is the observation time. Model and context groups
+retain their own source times. Log ownership loss or unreadable evidence produces unknown,
+without changing delivery or adding any peer control operation.

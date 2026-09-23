@@ -5,6 +5,11 @@ into a dated release section when promoted to `main`.
 
 ## Unreleased
 
+- Codex peers report observed turn activity, model and last-request context usage from the
+  selected session log. The notifier checks that the same Codex process still holds that
+  log open; missing or unrecognized evidence is reported as unknown, without resuming the
+  thread or exporting conversation content.
+
 - `bridge.py peers` and the notifier `status` report `model`, `context` and `work` for each
   participant, next to `presence`. Each value names its source, the time the source recorded
   it and the time it was read, or is `unknown` with a reason. This release adds the record

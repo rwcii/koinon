@@ -128,3 +128,8 @@ An interrupted preparation resumes its recorded nonce and watermark. If preparat
 already reached ready state, normal notifier startup completes any pending activation.
 Do not delete files to force a second rebuild. Restore the normal service arrangement
 after maintenance and verify status and authorized delivery in both directions.
+
+Codex status observes only the selected thread log under `CODEX_HOME` (default `~/.codex`).
+Activity, model and last-request context usage require a live associated Codex log holder;
+missing evidence is unknown. The observer exports no transcript text and does not resume a
+thread. See `docs/DELIVERY.md` for ownership and freshness semantics.
