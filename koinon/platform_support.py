@@ -1360,7 +1360,7 @@ def open_file_holders(path):
     return sorted({int(value) for value in result.stdout.split() if value.isdigit()})
 
 
-def _process_command(pid):
+def process_command(pid):
     """Return parent PID and argv for a same-user process, for CLI wrapper matching."""
     import shlex
     if LINUX:
@@ -1378,34 +1378,81 @@ def _process_command(pid):
     return int(parent), shlex.split(command)
 
 
-def codex_process(pid, executable):
-    """Match the configured native CLI or a direct child of its interpreter wrapper."""
+def ancestor_matching(pid, predicate, limit=64):
+    """The first of pid and its ancestors that predicate accepts, or None.
+
+    The walk stops at pid 1, at a process owned by another user, and after limit
+    steps, so a malformed or cyclic parent chain cannot run unbounded.
+    """
+    for _ in range(limit):
+        if pid <= 1:
+            return None
+        if predicate(pid):
+            return pid
+        try:
+            parent, _ = process_command(pid)
+        except (OSError, ValueError, subprocess.SubprocessError):
+            return None
+        if parent == pid:
+            return None
+        pid = parent
+    return None
+
+
+def _selected_executable(executable):
     import shutil
     selected = shutil.which(executable)
+    return Path(selected).resolve() if selected else None
+
+
+def _launches(argv, selected):
+    # Script launchers name their script as argv[1]; never search prompt arguments.
+    candidates = argv[:1]
+    if argv and Path(argv[0]).name in ('node', 'nodejs', 'python3', 'python'):
+        candidates = argv[:2]
+    return any(Path(value).is_absolute() and Path(value).resolve() == selected for value in candidates)
+
+
+def _is_executable(pid, argv, selected):
+    if _launches(argv, selected):
+        return True
+    if LINUX and Path(f'/proc/{pid}/exe').resolve() == selected:
+        return True
+    if DARWIN:
+        native = subprocess.run(['ps', '-ww', '-o', 'comm=', '-p', str(pid)],
+                                capture_output=True, text=True,
+                                timeout=PROCESS_QUERY_TIMEOUT).stdout.strip()
+        if native and Path(native).is_absolute() and Path(native).resolve() == selected:
+            return True
+    return False
+
+
+def codex_process(pid, executable):
+    """Match the configured native CLI or a direct child of its interpreter wrapper."""
+    selected = _selected_executable(executable)
     if not selected:
         return False
-    selected = Path(selected).resolve()
-
-    def matches(argv):
-        # Script launchers name their script as argv[1]; never search prompt arguments.
-        candidates = argv[:1]
-        if argv and Path(argv[0]).name in ('node', 'nodejs', 'python3', 'python'):
-            candidates = argv[:2]
-        return any(Path(value).is_absolute() and Path(value).resolve() == selected for value in candidates)
-
     try:
-        parent, argv = _process_command(pid)
-        if matches(argv):
+        parent, argv = process_command(pid)
+        if _is_executable(pid, argv, selected):
             return True
-        if LINUX and Path(f'/proc/{pid}/exe').resolve() == selected:
-            return True
-        if DARWIN:
-            native = subprocess.run(['ps', '-ww', '-o', 'comm=', '-p', str(pid)],
-                                    capture_output=True, text=True,
-                                    timeout=PROCESS_QUERY_TIMEOUT).stdout.strip()
-            if native and Path(native).is_absolute() and Path(native).resolve() == selected:
-                return True
-        _, parent_argv = _process_command(parent)
-        return matches(parent_argv)
+        _, parent_argv = process_command(parent)
+        return _launches(parent_argv, selected)
+    except (OSError, ValueError, subprocess.SubprocessError):
+        return False
+
+
+def codex_host(pid, executable):
+    """Match only the configured CLI process itself, never a child it started.
+
+    `codex_process` also accepts a child of a launcher, which would match a shell
+    that the CLI started; the host of a session must be the CLI.
+    """
+    selected = _selected_executable(executable)
+    if not selected:
+        return False
+    try:
+        _, argv = process_command(pid)
+        return _is_executable(pid, argv, selected)
     except (OSError, ValueError, subprocess.SubprocessError):
         return False

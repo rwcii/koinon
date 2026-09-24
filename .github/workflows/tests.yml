@@ -53,5 +53,14 @@ jobs:
           python-version: ${{ matrix.python }}
       - if: steps.scope.outputs.exempt == 'true'
         run: python tests/run.py -v -p test_skills.py
+      # The tmux terminal tests run on both platforms and are never skipped in CI.
+      - if: steps.scope.outputs.exempt != 'true'
+        shell: bash
+        run: |
+          if ! command -v tmux >/dev/null; then
+            if [ "$RUNNER_OS" = macOS ]; then brew install tmux
+            else sudo apt-get update && sudo apt-get install -y tmux; fi
+          fi
+          tmux -V
       - if: steps.scope.outputs.exempt != 'true'
         run: python tests/run.py -v

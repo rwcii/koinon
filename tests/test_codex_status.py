@@ -161,7 +161,7 @@ class ProcessTests(unittest.TestCase):
         # This tests argv matching only; synthetic PIDs must not query the host OS.
         with mock.patch.object(platform_support, 'LINUX', False), \
                 mock.patch.object(platform_support, 'DARWIN', False), \
-                mock.patch.object(platform_support, '_process_command') as command:
+                mock.patch.object(platform_support, 'process_command') as command:
             command.side_effect = [(7, ['/vendor/codex']), (1, ['/usr/bin/node', '/synthetic/codex'])]
             with mock.patch('shutil.which', return_value='/synthetic/codex'):
                 self.assertTrue(platform_support.codex_process(8, '/synthetic/codex'))

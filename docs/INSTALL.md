@@ -449,6 +449,12 @@ units start on registration, not at every subsequent login. No lingering is enab
 native systemd and launchd selections as well as legacy sessions. These fields identify
 the registered session; the lifecycle `status` still determines whether it is healthy.
 
+For a Codex session, `ensure` also records and reports `host` (the Codex CLI process that
+runs the session) and `terminal` (its tmux pane). Both observations need the approved run
+outside the sandbox that `ensure` already requires; inside the sandbox they report
+`unavailable`. `status` reports the last record and whether the host process is still live.
+See PROTOCOL.md, "Host process and terminal records".
+
 Only one `ensure`, `stop`, or `rename` command can operate on a session at a time.
 The supervisor can read its registration while `ensure` waits for both children.
 Commands for other sessions use separate locks.

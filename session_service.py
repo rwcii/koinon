@@ -208,6 +208,9 @@ def execute(action, selection, *, generation=None, assertion=False):
             result = dict(result, name=selection.registration['name'], state_dir=str(selection.home),
                           inbox_command=shlex.join([selection.record['python'],
                               str(selection.prefix / 'bridge.py'), '--state-dir', str(selection.home), 'inbox']))
+            if selection.registration.get('agent', 'codex') == 'codex':
+                from koinon import tmux_terminal
+                result = dict(result, **tmux_terminal.report(selection.home))
         return result
     if action == 'stop':
         from koinon import session_service_manager
