@@ -602,3 +602,33 @@ alias is restarted once, and `ensure` marks the lease `held` when the alias is l
 `bridge.py peers` adds `thread_name`, `alias` and `alias_holder`. `bridge.py send` accepts a
 peer name as well as a `uds:` address: one live match sends; none is `alias_unheld` for a
 reserved alias, else `peer_not_found`; more than one is `peer_ambiguous`.
+
+## Rebind and retirement of a replaced Codex thread
+
+After a Codex `/clear` (or a `/resume` to another thread) in one terminal, the new thread runs
+`ensure`, then `session.py rebind --predecessor OLD`, through the approved run outside the
+sandbox. The evidence is that both registrations recorded the same tmux server and pane
+(`terminal.json`), with this thread's terminal observed again by the rebind itself; or
+`--user-authorized`, the agent's statement that the user named that exact predecessor, which
+skips only the terminal match. The same host process alone refuses (`host_only`), as do
+`terminal_mismatch`, `terminal_not_recorded`, `same_thread`, `same_repository` and
+`predecessor_unknown`. The rebind also refuses unless this thread's lifecycle is confirmed
+`running` (`not_running`, with the observed lifecycle), and when its own terminal cannot be
+observed and recorded now (`terminal_refresh_failed`); an older record never stands in. A
+refusal stops nothing and leaves the lease unchanged.
+
+When the predecessor holds the alias, each step is one lease transition under `names.lock`:
+`moving` from the predecessor to this thread (no notifier publishes the alias at its start,
+and a third thread's take refuses while the rebind runs); the predecessor's stop; `publishing`
+with this thread as holder, once the predecessor has no live record; this thread's `ensure`,
+which restarts its running service and marks the lease `held` when the alias is live. When the
+predecessor does not hold the alias, the rebind still stops it, and the alias follows the take
+rule: a free alias moves to this thread, and a live holder in another terminal keeps it.
+
+The stop keeps the predecessor's inbox, checkpoint and claims; nothing moves. The result
+reports the predecessor's name, `predecessor_stopped` or `already_stopped`, the number of
+records left in its inbox (counted without reading a body), the evidence and the alias. A
+killed rebind is completed by the next `rebind` or `ensure` of its successor; a `moving` lease
+killed before the stop is cancelled by the predecessor's next `ensure` while it still
+publishes the alias. A resumed predecessor registers again with `ensure`, and its own rebind
+takes the alias back.

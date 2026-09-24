@@ -494,6 +494,107 @@ def guide(prefix, a):
     return 0
 
 
+def _session_command(prefix, action, thread):
+    """Run this installation's own `session.py` action for one Codex thread."""
+    completed = subprocess.run([sys.executable, str(prefix / 'session.py'), action, '--agent', 'codex',
+                                '--thread', thread], capture_output=True, text=True, timeout=120)
+    try:
+        reported = json.loads(completed.stdout.strip().splitlines()[-1]) if completed.stdout.strip() else None
+    except ValueError:
+        reported = None
+    return completed.returncode, reported
+
+
+def _inbox_count(state):
+    """Records left in a session's inbox, counted without reading any body."""
+    import sqlite3
+    path = Path(state) / 'inbox.sqlite3'
+    if not path.exists():
+        return 0
+    try:
+        with contextlib.closing(sqlite3.connect(f'file:{path}?mode=ro', uri=True)) as db:
+            return db.execute('SELECT count(*) FROM inbox').fetchone()[0]
+    except sqlite3.Error:
+        return None
+
+
+def rebind(prefix, config, thread, predecessor, user_authorized):
+    """Retire the replaced Codex thread and move the alias to this one (stable-alias chunk 03).
+
+    The evidence is the same tmux server and pane, recorded by both registrations, or the
+    user's direct authorization naming the predecessor. The same host process alone is
+    never enough. The predecessor keeps its inbox, checkpoint and claims.
+    """
+    def refuse(code, **fields):
+        print(json.dumps(dict(status='refused', code=code, **fields)))
+        return 78
+    if not thread or not predecessor:
+        return refuse('rebind_arguments', error='rebind needs CODEX_THREAD_ID or --thread, and --predecessor')
+    state_root = Path(config['state_root'])
+    state, old_state = (state_root / 'sessions' / identity(value) for value in (thread, predecessor))
+    try:
+        saved = durable_state.read(state / 'session.json')
+        old = durable_state.read(old_state / 'session.json')
+    except (OSError, ValueError):
+        return refuse('registration_unreadable')
+    if not isinstance(saved, dict) or saved.get('thread') != thread or saved.get('agent', 'codex') != 'codex':
+        return refuse('not_registered', error='run ensure for this Codex thread first')
+    if state == old_state:
+        return refuse('same_thread')
+    if not isinstance(old, dict) or old.get('thread') != predecessor or old.get('agent', 'codex') != 'codex':
+        return refuse('predecessor_unknown')
+    if old.get('repo') != saved.get('repo'):
+        return refuse('same_repository', error='the predecessor serves another repository')
+    lifecycle = session_observation.lifecycle(state, bridge_status(prefix, state))
+    if lifecycle != 'running':
+        # Only a confirmed running successor may retire its predecessor.
+        return refuse('not_running', lifecycle=lifecycle, error='run ensure for this Codex thread first')
+    # This thread's terminal must be observed now; a failed refresh never falls back to an
+    # older record. The predecessor's terminal is its last record.
+    try:
+        fresh = tmux_terminal.record(state, config['codex'])
+    except (OSError, ValueError) as exc:
+        return refuse('terminal_refresh_failed', error=str(exc))
+    mine, theirs = dict(tmux_terminal.report(state), terminal=fresh['terminal']), tmux_terminal.report(old_state)
+    same_host = (mine['host'].get('state') == 'observed' and theirs['host'].get('state') == 'observed'
+                 and (mine['host']['pid'], mine['host']['proc_start'])
+                 == (theirs['host']['pid'], theirs['host']['proc_start']))
+    evidence = dict(user_authorized=bool(user_authorized), same_host=same_host)
+    if not user_authorized:
+        if mine['terminal'].get('state') != 'observed' or theirs['terminal'].get('state') != 'observed':
+            return refuse('host_only' if same_host else 'terminal_not_recorded', evidence=evidence)
+        if (mine['terminal']['socket'], mine['terminal']['pane_id']) != (theirs['terminal']['socket'],
+                                                                           theirs['terminal']['pane_id']):
+            return refuse('host_only' if same_host else 'terminal_mismatch', evidence=evidence)
+        evidence['same_pane'] = True
+    key, old_key = state.name, old_state.name
+    begun = alias_lease.begin_move(state_root, old_key, key, saved['repo'], peers=peers)
+    if begun['kind'] == 'refused':
+        return refuse(begun['reason'], alias=begun.get('alias'), evidence=evidence)
+    if session_observation.lifecycle(old_state, bridge_status(prefix, old_state)) == 'stopped':
+        predecessor_result = 'already_stopped'
+    else:
+        code, reported = _session_command(prefix, 'stop', predecessor)
+        if code != 0:
+            return refuse('predecessor_stop_failed', stop=reported, evidence=evidence)
+        predecessor_result = 'predecessor_stopped'
+    found = dict(status='rebound', predecessor=dict(name=old.get('name'), result=predecessor_result,
+                                                    inbox_records=_inbox_count(old_state)),
+                 evidence=evidence)
+    if begun['kind'] == 'move':
+        committed = alias_lease.commit_move(state_root, old_key, key, old['name'], peers=peers)
+        if committed['kind'] != 'committed':
+            return refuse(committed['reason'], alias=begun['alias'], evidence=evidence,
+                          predecessor=found['predecessor'])
+    # The lease now names this thread (or the take rule decides); `ensure` restarts this
+    # running service so that its notifier publishes the alias, then confirms it.
+    code, reported = _session_command(prefix, 'ensure', thread)
+    found['ensure'] = reported
+    found['alias'] = (reported or {}).get('alias')
+    print(json.dumps(found))
+    return 0 if code == 0 else code
+
+
 def stop_legacy(prefix, config, state, key):
     """Stop a legacy session's services and wait until its lifecycle is stopped."""
     unit=Path(config['unit_dir'])/runtime_names.selected_service_names(Path(config['unit_dir']), key)[0]
@@ -527,7 +628,10 @@ def stop_legacy(prefix, config, state, key):
 def main():
     os.umask(0o077)
     p=argparse.ArgumentParser(description=__doc__)
-    p.add_argument('action',choices=['ensure','stage','run','status','stop','rename','work-policy','work-key','guide','guide-ack'])
+    p.add_argument('action',choices=['ensure','stage','run','status','stop','rename','rebind','work-policy','work-key','guide','guide-ack'])
+    p.add_argument('--predecessor', help='rebind: the replaced Codex thread')
+    p.add_argument('--user-authorized', action='store_true',
+                   help='rebind: the user named this predecessor; skips only the terminal match')
     p.add_argument('revision', nargs='?', help='guide-ack: the revision actually processed')
     p.add_argument('--agent',choices=['codex','deepseek','claude'],default=None,
                    help='participant kind this instance serves; defaults to the registered kind, '
@@ -610,6 +714,8 @@ def main():
     agent=a.agent or 'codex'
     model=a.model or (dsh_delivery.default_model() if agent=='deepseek' else None)
     state,name,key=details(prefix,config,a.thread,repo,agent,model)
+    if a.action == 'rebind':
+        raise SystemExit(rebind(prefix, config, a.thread, a.predecessor, a.user_authorized))
     # An explicit saved native selection owns this path. Never fall through to
     # legacy ensure/stop or silently rewrite its registered identity.
     native = state / 'native-service.json'

@@ -90,7 +90,13 @@ CATALOG = {
         views=dict(
             codex=('The session ID is CODEX_THREAD_ID. /clear keeps the CLI process and starts a '
                    'new thread. /resume in the same process can return to an older thread, which '
-                   'keeps its own registration.'),
+                   'keeps its own registration. For a Codex predecessor, use the rebind recipe '
+                   'after ensure: it stops the predecessor only when both registrations recorded '
+                   'the same tmux pane, or with --user-authorized when the user named that exact '
+                   'predecessor; the same host process alone is never enough. It moves the '
+                   'repository alias (such as codex-koinon) to this thread when the predecessor '
+                   'held it or it is free; a live holder in another terminal keeps it. It reports '
+                   'the records left in the predecessor\'s inbox.'),
             deepseek='The session ID is DSH_SESSION_ID.',
             claude=('/clear keeps the process and the peer name but changes the session key '
                     '(CLAUDE_CODE_SESSION_ID); claims under the old key stay with it.')),
@@ -101,9 +107,15 @@ CATALOG = {
             dict(id='ensure', argv=('{python}', '{prefix}/session.py', 'ensure', '--agent', 'deepseek'),
                  families=('deepseek',), needs_approval=True,
                  effect='Register this session and start its bridge and notifier.'),
-            dict(id='stop_predecessor', argv=('{python}', '{prefix}/session.py', 'stop', '--thread', '{old_id}'),
+            dict(id='rebind', argv=('{python}', '{prefix}/session.py', 'rebind', '--predecessor', '{old_id}'),
                  families=('codex',), needs_approval=True,
-                 effect='Stop the replaced conversation\'s bridge instance.'),
+                 effect='Stop the replaced conversation after verifying the same tmux pane, and move '
+                        'the alias to this conversation.'),
+            dict(id='rebind_user_authorized',
+                 argv=('{python}', '{prefix}/session.py', 'rebind', '--predecessor', '{old_id}',
+                       '--user-authorized'),
+                 families=('codex',), needs_approval=True,
+                 effect='The same, when the user directly named this predecessor.'),
             dict(id='stop_predecessor',
                  argv=('{python}', '{prefix}/session.py', 'stop', '--agent', 'deepseek', '--thread', '{old_id}'),
                  families=('deepseek',), needs_approval=True,

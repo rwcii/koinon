@@ -213,12 +213,19 @@ class CatalogTests(unittest.TestCase):
                 recipes = {r['id']: r for r in topic['recipes']}
                 self.assertEqual(recipes['ensure']['argv'][1:3], ['/a/session.py', 'ensure'])
                 self.assertTrue(recipes['ensure']['needs_approval'])
-                self.assertTrue(recipes['stop_predecessor']['needs_approval'])
+                stop = recipes['rebind' if family == 'codex' else 'stop_predecessor']
+                self.assertTrue(stop['needs_approval'])
+                if family == 'codex':
+                    self.assertNotIn('stop_predecessor', recipes)
+                    self.assertEqual(stop['argv'][1:5], ['/a/session.py', 'rebind', '--predecessor', '{old_id}'])
+                    self.assertEqual(recipes['rebind_user_authorized']['argv'][-1], '--user-authorized')
                 for fact in ('first Koinon command', 'sandbox topic', 'directly authorized',
                              'same tmux server and pane', 'report the predecessor'):
                     self.assertIn(fact, topic['text'])
         codex = guidance.render('codex', 'reconnect', python='p', prefix='/a')['topics'][0]
         self.assertIn('/resume', codex['view'])
+        for fact in ('same tmux pane', 'same host process alone is never enough', 'live holder'):
+            self.assertIn(fact, codex['view'])
         claude = guidance.render('claude', 'reconnect', python='p', prefix='/a')['topics'][0]
         self.assertEqual(claude['recipes'], [])
 

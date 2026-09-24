@@ -208,6 +208,16 @@ def prepare(state_root, key, repo, name, *, peers, stopped, registry=None):
         running = bool(live_for(records, name))
         names = session_names(state_root)
         holder = lease['holder']
+        if lease['state'] == 'moving' and not operation_live(lease.get('operation')):
+            if lease['to'] == key and not publishes(records, names.get(lease['from']), alias):
+                # A rebind died after its stop: its successor completes the move.
+                _write(state_root, dict(lease, holder=key, state='publishing', operation=operation(),
+                                        **{'from': None}, to=None))
+                return dict(name=alias, held=False, state='publishing', restart=running)
+            if lease['from'] == key and publishes(records, name, alias):
+                # A rebind died before its stop: the predecessor still publishes; cancel.
+                _write(state_root, dict(lease, state='held', operation=None, **{'from': None}, to=None))
+                return dict(name=alias, held=True, state='held', restart=False)
         if holder == key and lease['state'] != 'moving':
             if publishes(records, name, alias):
                 if lease['state'] != 'held':
@@ -236,6 +246,41 @@ def prepare(state_root, key, repo, name, *, peers, stopped, registry=None):
         _write(state_root, dict(lease, holder=key, state='publishing', operation=operation(),
                                 **{'from': None}, to=None))
         return dict(name=alias, held=False, state='publishing', restart=running)
+
+
+def begin_move(state_root, old, new, repo, *, peers):
+    """Rebind step 1: mark the lease `moving` from old to new, when old holds it.
+
+    Returns `move` (the lease now moves), `not_holder` (old does not hold the alias) or a
+    refusal. From here no notifier publishes the alias at its start.
+    """
+    digest = repository_digest(repo)
+    with names_lock(state_root):
+        lease = next((value for value in leases(state_root)
+                      if value['holder'] == old or (digest is not None and value['repository'] == digest)), None)
+        if lease is None or lease['holder'] != old:
+            return dict(kind='not_holder', alias=lease['alias'] if lease else None)
+        if lease['state'] == 'moving' and (lease['from'], lease['to']) != (old, new):
+            if operation_live(lease.get('operation')):
+                return dict(kind='refused', reason='alias_busy', alias=lease['alias'])
+        elif lease['state'] == 'publishing' and operation_live(lease.get('operation')):
+            return dict(kind='refused', reason='alias_busy', alias=lease['alias'])
+        _write(state_root, dict(lease, state='moving', operation=operation(), **{'from': old}, to=new))
+        return dict(kind='move', alias=lease['alias'])
+
+
+def commit_move(state_root, old, new, old_name, *, peers):
+    """Rebind step 3: after old stopped, name new as holder in `publishing`."""
+    with names_lock(state_root):
+        records = peers()
+        for lease in leases(state_root):
+            if lease['state'] == 'moving' and (lease['from'], lease['to']) == (old, new):
+                if publishes(records, old_name, lease['alias']):
+                    return dict(kind='refused', reason='predecessor_live', alias=lease['alias'])
+                _write(state_root, dict(lease, holder=new, state='publishing', operation=operation(),
+                                        **{'from': None}, to=None))
+                return dict(kind='committed', alias=lease['alias'])
+    return dict(kind='refused', reason='move_not_found')
 
 
 def confirm(state_root, key, name, *, peers):
