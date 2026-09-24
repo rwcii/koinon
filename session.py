@@ -165,7 +165,7 @@ def start_command(prefix, thread, repo, agent='codex', model=None):
     return start_command_for(sys.executable, prefix, thread, repo, agent, model)
 
 
-def result(prefix, state, name, thread, repo, status, agent='codex', model=None):
+def result(prefix, state, name, thread, repo, status, agent='codex', model=None, take=None):
     active = bridge_status(prefix, state) if status in ('running', 'repair_required') else None
     fields = revisions.read_fields(prefix, revisions.ack_path(state),
         revisions.service_revision(state, active))
@@ -175,7 +175,16 @@ def result(prefix, state, name, thread, repo, status, agent='codex', model=None)
     if agent == 'codex':
         data.update(tmux_terminal.report(state))
         data['alias'] = alias_report(state, repo, name)
+        if take:
+            data['alias']['take'] = take
     return data
+
+
+def alias_take(prepared):
+    """The refusal of an alias take, for the public result; None when it took or held."""
+    if not prepared or 'reason' not in prepared:
+        return None
+    return {key: prepared[key] for key in ('reason', 'paths', 'holder', 'error') if key in prepared}
 
 
 def alias_report(state, repo, name):
@@ -604,6 +613,7 @@ def main():
     # An explicit saved native selection owns this path. Never fall through to
     # legacy ensure/stop or silently rewrite its registered identity.
     native = state / 'native-service.json'
+    native_take = None
     if a.action in ('ensure', 'stage') and config.get('session_backend') in ('systemd', 'launchd'):
         from koinon import session_install
         try:
@@ -623,8 +633,10 @@ def main():
             record_attachment(state, config)
             from koinon import durable_state
             saved = durable_state.read(state / 'session.json') or {}
-            if saved.get('agent', 'codex') == 'codex' and alias_prepare(
-                    prefix, state, saved.get('repo', repo), saved.get('name')).get('restart'):
+            prepared = (alias_prepare(prefix, state, saved.get('repo', repo), saved.get('name'))
+                        if saved.get('agent', 'codex') == 'codex' else {})
+            native_take = alias_take(prepared)
+            if prepared.get('restart'):
                 # The running notifier chose its registry name at start; restart it so
                 # that it publishes the alias. The stop's own report is not the result.
                 import session_service
@@ -656,8 +668,21 @@ def main():
                 raise session_service.ServiceError(paths=(native,))
             if a.action == 'rename':
                 raise session_service.ServiceError(paths=(native, state / 'session.json'))
-            return_code = session_service.main([a.action, '--prefix', str(prefix),
-                                                '--state-dir', str(state), '--backend', record['backend']])
+            take = native_take if a.action == 'ensure' else None
+            delegated = io.StringIO()
+            with contextlib.redirect_stdout(delegated) if take else contextlib.nullcontext():
+                return_code = session_service.main([a.action, '--prefix', str(prefix),
+                                                    '--state-dir', str(state), '--backend', record['backend']])
+            if take:
+                try:
+                    reported = json.loads(delegated.getvalue())
+                except ValueError:
+                    reported = None
+                if isinstance(reported, dict) and isinstance(reported.get('alias'), dict):
+                    reported['alias']['take'] = take
+                    print(json.dumps(reported), flush=True)
+                else:
+                    sys.stdout.write(delegated.getvalue())
         except durable_state.StateReadBusyError:
             print(json.dumps(dict(status='unavailable', code='session_temporary_failure')))
             return_code = 75
@@ -727,7 +752,7 @@ def main():
         ready=notifier_readiness(state,active)
         healthy=ready is not None
         if a.action=='status' or (a.action=='ensure' and observed != 'stopped'):
-            data=result(prefix,state,name,a.thread,repo,'running' if healthy else ('repair_required' if active else observed),agent,model)
+            data=result(prefix,state,name,a.thread,repo,'running' if healthy else ('repair_required' if active else observed),agent,model,take=alias_take(alias))
             data['bridge']=active
             data['participant_lock']=ready.get('participant_lock') if ready else None
             data['delivery_health']=notification_health.read(state,ready)
@@ -741,7 +766,7 @@ def main():
             return
         if a.action=='ensure':
             if config.get('session_backend') == 'manual':
-                print(json.dumps(result(prefix,state,name,a.thread,repo,'manual_required',agent,model)))
+                print(json.dumps(result(prefix,state,name,a.thread,repo,'manual_required',agent,model,take=alias_take(alias))))
                 return
             try:
                 available=platform_support.user_service_manager('available',stdout=subprocess.DEVNULL,
@@ -749,7 +774,7 @@ def main():
             except (OSError,subprocess.TimeoutExpired):
                 available=False
             if not available:
-                print(json.dumps(result(prefix,state,name,a.thread,repo,'manual_required',agent,model)))
+                print(json.dumps(result(prefix,state,name,a.thread,repo,'manual_required',agent,model,take=alias_take(alias))))
                 return
             unit_dir=Path(config['unit_dir'])
             selected = runtime_names.selected_service_names(unit_dir, key)
@@ -773,7 +798,7 @@ def main():
                 if notifier_ready(state,bridge_status(prefix,state)):
                     if agent == 'codex':
                         alias_confirm(state, name)
-                    print(json.dumps(result(prefix,state,name,a.thread,repo,'running',agent,model)))
+                    print(json.dumps(result(prefix,state,name,a.thread,repo,'running',agent,model,take=alias_take(alias))))
                     return
                 time.sleep(.1)
             raise RuntimeError('service started but bridge is not ready; inspect its journal')

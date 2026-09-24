@@ -379,6 +379,7 @@ class EnsureAliasTests(unittest.TestCase):
                 mock.patch.object(session, 'peers', return_value=[]), \
                 mock.patch.object(platform_support, 'codex_host', return_value=False), \
                 mock.patch.object(platform_support, 'memory_manager_available', return_value=False), \
+                mock.patch.object(platform_support, 'session_manager_observation', return_value={'status': 'unknown'}), \
                 mock.patch.object(platform_support, 'user_service_manager', side_effect=manager), \
                 redirect_stdout(output):
             try:
@@ -428,6 +429,7 @@ class EnsureAliasTests(unittest.TestCase):
                     mock.patch.object(sys, 'argv', args), mock.patch.dict(os.environ, self.env, clear=True), \
                     mock.patch.object(session, 'peers', return_value=running), \
                     mock.patch.object(platform_support, 'codex_host', return_value=False), \
+                    mock.patch.object(platform_support, 'session_manager_observation', return_value={'status': 'unknown'}), \
                     mock.patch.object(platform_support, 'user_service_manager', side_effect=unavailable), \
                     redirect_stdout(output):
                 session.main()
@@ -465,12 +467,26 @@ class EnsureAliasTests(unittest.TestCase):
                     mock.patch.object(sys, 'argv', args), mock.patch.dict(os.environ, self.env, clear=True), \
                     mock.patch.object(session, 'peers', return_value=[]), \
                     mock.patch.object(platform_support, 'codex_host', return_value=False), \
+                    mock.patch.object(platform_support, 'session_manager_observation', return_value={'status': 'unknown'}), \
                     mock.patch.object(platform_support, 'user_service_manager', side_effect=unavailable), \
                     redirect_stdout(output), self.assertRaises(SystemExit) as raised:
                 session.main()
         self.assertEqual((calls, raised.exception.code), (['stop'], 78))
         refused = json.loads(output.getvalue())
         self.assertEqual((refused['code'], refused['stop']['code']), ('alias_restart_failed', 'session_ownership_unknown'))
+
+    def test_public_ensure_reports_a_missing_registry(self):
+        unavailable = lambda *args, **kwargs: subprocess.CompletedProcess([], 1)
+        registry = self.root / 'claude' / 'sessions'
+        registry.rmdir()
+        for backend in (None, 'systemd'):
+            with self.subTest(backend=backend):
+                if backend:
+                    self.config['session_backend'] = backend
+                    durable_state.publish(self.prefix / 'install.json', self.config)
+                reported = self.invoke('codex', f'synthetic-missing-{backend}', unavailable)
+                self.assertEqual(reported['alias']['take'], dict(reason='registry_missing', paths=[str(registry)]))
+                self.assertEqual(reported['alias']['reason'], 'not_reserved')
 
     def test_guide_reports_the_alias_for_codex(self):
         unavailable = lambda *args, **kwargs: subprocess.CompletedProcess([], 1)

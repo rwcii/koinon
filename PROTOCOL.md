@@ -594,7 +594,9 @@ alias refuses the take (`alias_occupied`). A missing registry directory refuses 
 (`registry_missing`), because a record carrying the alias cannot then be ruled out; the next
 `ensure` after a notifier has created the directory takes it. When a restart's stop fails,
 `ensure` reports `alias_restart_failed` with the stop's result and does not start the
-service. A holder whose running notifier does not publish the
+service. When `ensure` did not take or hold the alias, its `alias` result adds `take` with the
+`reason` (`alias_held_by`, `alias_busy`, `alias_occupied`, `registry_missing`,
+`alias_unavailable`, `not_a_repository`) and, where they apply, `holder` and `paths`. A holder whose running notifier does not publish the
 alias is restarted once, and `ensure` marks the lease `held` when the alias is live.
 
 `bridge.py peers` adds `thread_name`, `alias` and `alias_holder`. `bridge.py send` accepts a
