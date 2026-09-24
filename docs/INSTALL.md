@@ -455,6 +455,13 @@ outside the sandbox that `ensure` already requires; inside the sandbox they repo
 `unavailable`. `status` reports the last record and whether the host process is still live.
 See PROTOCOL.md, "Host process and terminal records".
 
+A Codex session also takes its repository's stable alias, such as `codex-koinon`, when no
+other live session holds it. The holder publishes the alias as its peer name, so peers
+address it by that name whatever its per-thread name is; `ensure` and `status` report
+`alias` with `name`, `held` and, when another session holds it, that session's per-thread
+name. A holder that was already running restarts once so that it publishes the alias. See
+PROTOCOL.md, "Stable alias of a Codex participant".
+
 Only one `ensure`, `stop`, or `rename` command can operate on a session at a time.
 The supervisor can read its registration while `ensure` waits for both children.
 Commands for other sessions use separate locks.

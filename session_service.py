@@ -209,8 +209,21 @@ def execute(action, selection, *, generation=None, assertion=False):
                           inbox_command=shlex.join([selection.record['python'],
                               str(selection.prefix / 'bridge.py'), '--state-dir', str(selection.home), 'inbox']))
             if selection.registration.get('agent', 'codex') == 'codex':
-                from koinon import tmux_terminal
+                from koinon import alias_lease, tmux_terminal
                 result = dict(result, **tmux_terminal.report(selection.home))
+                state_root = alias_lease.state_root_of(selection.home)
+                registration = selection.registration
+                if state_root is None:
+                    result['alias'] = dict(state='unavailable', reason='no_session_state_root')
+                else:
+                    from bridge import peers
+                    try:
+                        if action == 'ensure' and result.get('status') == 'running':
+                            alias_lease.confirm(state_root, selection.home.name, registration['name'], peers=peers)
+                        result['alias'] = alias_lease.report(state_root, selection.home.name,
+                                                             registration['repo'], registration['name'])
+                    except (OSError, ValueError):
+                        result['alias'] = dict(state='unavailable', reason='alias_unreadable')
         return result
     if action == 'stop':
         from koinon import session_service_manager

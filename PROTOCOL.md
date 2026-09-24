@@ -562,3 +562,37 @@ and `terminal`; `host` adds `live`, whether the recorded pid still has the recor
 time. A registration without the records reports `state: unknown, reason: not_recorded`.
 The host process is evidence only: one Codex process can switch between threads. DeepSeek
 and Claude sessions have no such records.
+
+## Stable alias of a Codex participant
+
+Each repository reserves one alias for its Codex participants, once, under the installation's
+`names.lock`: `codex-<label>` (the per-thread name without its two-hex suffix), or, when that
+name is reserved for another repository or equals a saved or live name,
+`codex-<label>-<first N hex of the repository digest>` for the first free N in 4, 6, … 64. The
+repository digest is the SHA-256 of the absolute Git common directory. A new per-thread name
+never equals a reserved alias. DeepSeek and Claude sessions have no alias.
+
+The lease `<state_root>/aliases/<alias>.json` (owner-only) is the only source of the holder:
+`{alias, repository, holder, state, from, to, operation, changed_at_ms}`, with `state` `held`,
+`publishing` or `moving` and `operation` the `{pid, proc_start}` of the command that set a
+transient state. It holds no inbox, checkpoint, claim or thread ID.
+
+One-holder rule. A notifier publishes the alias as its registry `name` only when, at its start
+and under `names.lock`, the lease names its own session key as holder in `held` or
+`publishing`; otherwise it publishes its per-thread name. It never rewrites its record in
+place. Every Koinon record also carries `koinonName` (the per-thread name) and, for a Codex
+participant with a reserved alias, `koinonAlias`. The lease leaves a key only when that key
+has no live record, checked under the same lock, and `names.lock` is never held while a
+service starts, stops or waits. At most one live record therefore carries an alias.
+
+`ensure` takes the alias when the lease has no holder, or when the holder is stopped and has no
+live record; a transient state whose `operation` is live refuses (`alias_busy`), and a dead one
+stays reserved for its recorded successor while that successor runs. Before a take from a dead
+holder, `ensure` removes that holder's registry record only when it is Koinon's, of this user,
+of a dead process, and carries the holder's last `bridgeOwner`; any other record named as the
+alias refuses the take (`alias_occupied`). A holder whose running notifier does not publish the
+alias is restarted once, and `ensure` marks the lease `held` when the alias is live.
+
+`bridge.py peers` adds `thread_name`, `alias` and `alias_holder`. `bridge.py send` accepts a
+peer name as well as a `uds:` address: one live match sends; none is `alias_unheld` for a
+reserved alias, else `peer_not_found`; more than one is `peer_ambiguous`.

@@ -150,7 +150,11 @@ class RuntimeTests(unittest.IsolatedAsyncioTestCase):
 
     async def test_registry_entrypoint_keeps_the_external_literal(self):
         record = self.root / 'registry' / f'{self.runtime.bridge["pid"]}.json'
-        self.assertEqual(json.loads(record.read_text())['entrypoint'], 'codex-peer-bridge')
+        published = json.loads(record.read_text())
+        self.assertEqual(published['entrypoint'], 'codex-peer-bridge')
+        # Outside the per-session layout there is no alias; the per-thread name is published.
+        self.assertEqual((published['name'], published['koinonName']), ('synthetic-notifier', 'synthetic-notifier'))
+        self.assertNotIn('koinonAlias', published)
 
     async def test_committed_inbox_hint_delivers_content_free_notice(self):
         await self.bus.worker.call('store', 7, dict(type='user', message=dict(content='PRIVATE SYNTHETIC BODY')))

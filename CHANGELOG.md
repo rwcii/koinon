@@ -5,6 +5,10 @@ into a dated release section when promoted to `main`.
 
 ## Unreleased
 
+- A Codex participant takes its repository's stable alias, such as `codex-koinon`, when no
+  other live session holds it, and publishes it as its peer name, so Claude sessions and
+  `bridge.py send` reach it by that name. `bridge.py send` now accepts a peer name as well as a `uds:` address. `peers`, `ensure`,
+  `status` and the guide report the alias.
 - A Codex `session.py ensure` records the Codex CLI process that runs the session and the
   tmux pane it runs in, and `ensure` and `status` report both as `host` and `terminal`. The
   records are evidence for the stable alias work (#141); they change no behaviour yet.

@@ -95,7 +95,11 @@ def peers():
             for field in ('guide_revision', 'guide_stale', 'runtime_revision'):
                 status.setdefault(field, None)
             activity = reported or activity
+            alias = record.get('koinonAlias') if isinstance(record.get('koinonAlias'), str) else None
+            thread_name = record.get('koinonName') if isinstance(record.get('koinonName'), str) else record.get('name')
             found.append(dict(pid=pid,name=record.get('name'),address='uds:'+address,
+                              thread_name=thread_name, alias=alias,
+                              alias_holder=alias is not None and record.get('name') == alias,
                               repo=record.get('cwd'),status=activity['state'],
                               presence=dict(service=participant_presence.service('kernel_process_start', 'running'),
                                             model_activity=activity),
@@ -104,6 +108,22 @@ def peers():
         except (OSError,ValueError,TypeError,KeyError,IndexError,subprocess.SubprocessError):
             continue
     return found
+
+
+def resolve_name(root, name):
+    """Resolve a peer name, such as a Codex alias, to exactly one live registry address."""
+    from koinon import alias_lease
+    matches = [record for record in peers() if record.get('name') == name]
+    if len(matches) == 1:
+        return dict(address=matches[0]['address'])
+    if matches:
+        return dict(ok=False, code='peer_ambiguous', name=name,
+                    error='more than one live peer has this name; send to its uds: address')
+    state_root = alias_lease.state_root_of(root) or root
+    if alias_lease.reserved(state_root, name):
+        return dict(ok=False, code='alias_unheld', name=name,
+                    error='no live registration holds this alias')
+    return dict(ok=False, code='peer_not_found', name=name, error='no live peer has this name')
 
 
 class BridgeOwnershipError(OSError):
@@ -779,6 +799,12 @@ def cli_main():
         a['deadline'] = a['deadline'] if a['deadline'] is not None else time.time() + 300
     root = Path(a.pop('state_dir') or runtime_names.default_state_root()).absolute()
     startup_directory(root)
+    if a['op'] == 'send' and not a['to'].startswith('uds:'):
+        resolved = resolve_name(root, a['to'])
+        if 'address' not in resolved:
+            print(json.dumps(resolved, indent=2))
+            raise SystemExit(1)
+        a['to'] = resolved['address']
     if a['op'] == 'peers':
         print(json.dumps(peers(), indent=2))
     elif a['op'] == 'serve':
