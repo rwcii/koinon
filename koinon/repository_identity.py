@@ -25,4 +25,3 @@ def repo_common_directory(start=None):
 
 def repo_identity(start=None):
     return hashlib.sha256(str(repo_common_directory(start)).encode()).hexdigest()[:16]
-
