@@ -21,7 +21,9 @@ or services.
   Two repositories with the same directory label (`/a/koinon`, `/b/koinon`) each get their own
   alias, the second with the four-hex repository suffix, and both are reachable at once. A
   saved per-thread name that equals a candidate alias (`codex-foo-ab` against repository
-  `foo-ab`) forces the suffixed form. A reservation survives a restart of every service. A
+  `foo-ab`) forces the suffixed form. Two repositories whose digests share their first four
+  (and six) hex digits, forced with a patched digest, get distinct aliases at the next probe
+  length. A reservation survives a restart of every service. A
   Codex `ensure` with no live holder takes the alias. A second
   Codex thread of the same repository, with a live holder, gets only its per-thread name and a
   report that names the holder. Two concurrent `ensure` runs (two processes, one barrier) leave
@@ -51,8 +53,11 @@ or services.
     process alone: refused, reported, nothing stopped, the alias unchanged;
   - explicit user authorization that names the predecessor: rebind without the pane match;
   - another family or another repository as predecessor: refused;
-  - a predecessor that does not hold the alias: it stops, and the alias follows the take
-    rule;
+  - a predecessor that does not hold the alias, with no live holder: it stops and the
+    successor takes the alias;
+  - a predecessor that does not hold the alias, with a live holder in another terminal: the
+    predecessor stops, the alias and the holder's lifecycle are unchanged, and the result
+    reports both;
   - a third thread's `ensure`, held at a barrier between each pair of rebind steps, never
     takes the alias while the rebind's operation is live, and at every barrier at most one
     live record carries the alias.
@@ -111,8 +116,9 @@ Recorded on #141 without thread IDs:
 - The predecessor's service is already stopped at rebind: the alias moves, the stop reports
   `already_stopped`.
 - A rebind killed after each of its steps: the next `ensure` or `rebind` of the successor
-  completes it, a third thread never takes it over, and the alias has at most one live record
-  at every point.
+  completes it, and the alias has at most one live record at every point. After the kill
+  that follows step 2, a stopped third registration's `ensure` does not take the alias while
+  the successor runs, and does take it once the successor is stopped.
 
 ## Gate
 

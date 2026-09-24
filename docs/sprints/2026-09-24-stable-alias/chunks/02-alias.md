@@ -15,15 +15,18 @@ alias.
 ### Alias name
 
 - One state root and one `names.lock` serve every repository, so the alias is reserved per
-  repository, not derived afresh. The repository key is `repository_identity.repo_identity()`
-  of the registration's repository (the Git common directory).
+  repository, not derived afresh. The repository digest is the SHA-256 hex digest of
+  `repository_identity.repo_common_directory()` of the registration's repository (the
+  absolute Git common directory); `repo_identity()` is its first 16 digits.
 - **Reservation**, under `<state_root>/names.lock`, the first time a Codex registration of a
   repository needs an alias: the candidate is `codex-<label>` (the per-thread name without its
   final `-<two hex>` suffix, as `session.py` `details()` builds it). When the candidate is
   reserved for another repository, or equals any saved per-thread name or live registry name,
-  the alias is `codex-<label>-<first four hex of the repository key>`; when that is also taken,
-  the reservation refuses with `alias_unavailable`. Four hex digits never match a per-thread
-  name, which ends in two.
+  probe `codex-<label>-<first N hex of the repository digest>` for N = 4, 6, 8, … 64 and take
+  the first free name. At least four hex digits never match a per-thread name, which ends in
+  two. Distinct repositories have distinct full digests, so the probe ends with a free name;
+  only a non-Koinon registry record that carries the 64-digit name refuses, with
+  `alias_unavailable`.
 - The reservation is permanent for that repository and is stored in its lease (below). Every
   later registration of the repository uses the stored alias.
 - In `save_registration()`, the occupied set also holds every reserved alias, so a new
@@ -68,9 +71,10 @@ Under `names.lock`, before the service starts, a Codex `ensure` for key K:
   (`session_observation.lifecycle`): take it as above;
 - `state = publishing` or `moving` whose `operation` is live: no take, report
   `alias_busy`;
-- a transient state whose `operation` is dead: only `holder` (for `publishing`) or `to` (for
-  `moving`, chunk 03) completes it; a third key takes it only when that key's registration is
-  also stopped;
+- a transient state whose `operation` is dead stays reserved for its successor: only `holder`
+  (for `publishing`) or `to` (for `moving`, chunk 03) completes it, and `from` may cancel a
+  `moving` (chunk 03). A third key K takes it only when that recorded successor (`holder` or
+  `to`) has a stopped lifecycle and no live record; K's own state does not count;
 - otherwise, a live holder: no take, report `alias_held_by` with the holder's per-thread name.
 
 Before a take from a dead holder, remove its stale record only when all hold: entrypoint

@@ -37,14 +37,20 @@ direct authorization. The `reconnect` guide topic and the `pickup` skill use it 
      live record publishes the alias.
   5. Under the lock, write `state = held, operation = null`.
   Report the number of records in OLD's inbox store, counted without reading any body.
-- **Predecessor not the holder.** When the lease does not name OLD (another key holds the
-  alias, or none does), steps 1 and 3–5 do not apply: stop OLD (step 2), then take the alias
-  only under chunk 02's take rule, and report which rule applied.
+- **Predecessor not the holder.** When the lease does not name OLD, the alias is not OLD's to
+  pass on. Steps 1 and 3–5 do not apply; the rebind still retires OLD (step 2), because the
+  same-pane evidence shows the user left it (decision criterion 3). Then:
+  - no holder, or a holder with a stopped lifecycle and no live record: take the alias under
+    chunk 02's take rule;
+  - a live holder in another terminal: the alias stays with it (decision criterion 4 forbids
+    a move from a session in another terminal); report `alias_held_by` with the holder's
+    per-thread name, and `predecessor_stopped`.
 - **Recovery.** A transient state whose `operation` is dead is completed, never taken over:
   `moving` by the next `rebind` or `ensure` of `to` (from step 2), `publishing` by the next
   `ensure` of `holder` (chunk 02, publication on a running service). `from` cancels a `moving`
   back to `held` only while `from` still has a live record and `operation` is dead. A third key
-  follows chunk 02's take rule.
+  never takes a `moving` or `publishing` lease whose recorded successor is running (chunk 02,
+  take rule).
 - **Already stopped.** OLD not running: skip the stop, report `already_stopped`, move the lease.
 - **Guide.** In `koinon/guidance.py`, the Codex `reconnect` view replaces `stop_predecessor`
   with a `rebind` recipe (`needs_approval`) and states the rule of criteria 3 and 4. DeepSeek

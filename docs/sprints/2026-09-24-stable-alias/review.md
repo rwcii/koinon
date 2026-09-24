@@ -26,3 +26,25 @@
 
 These fixes change the chunks and the definition of done, so the changed plan needs a second
 review.
+
+## Round 2 — Codex, plan commit 22260c6 (PR #146)
+
+The four round-1 findings were confirmed resolved.
+
+1. **P1 — a third thread could take a dead `moving` lease.** The rule tested the third key's
+   own lifecycle, which is stopped before every `ensure`. **Fixed.** Chunk 02 keeps a dead
+   transient lease reserved for its recorded successor; a third key takes it only when that
+   successor is stopped and has no live record. Chunk 03's recovery and the definition of done
+   (a stopped third registration at the kill point after step 2, with the successor running and
+   then stopped) follow.
+2. **P2 — a non-holder predecessor stopped without an alias move.** **Fixed** with an explicit
+   outcome, no criterion change. The same-pane evidence still retires the predecessor
+   (criterion 3). The alias moves only when free; a live holder in another terminal keeps it,
+   because criterion 4 forbids that move, and the result reports `alias_held_by` and
+   `predecessor_stopped`. The definition of done tests both cases for lifecycle and alias
+   state.
+3. **P2 — the four-hex fallback could collide.** **Fixed.** Chunk 02 probes suffix lengths 4,
+   6, … 64 of the full SHA-256 digest of the Git common directory; distinct repositories end at
+   distinct names. The definition of done forces a shared prefix with a patched digest.
+
+Finding 1 changes the take rule, so the changed plan needs a third review.
