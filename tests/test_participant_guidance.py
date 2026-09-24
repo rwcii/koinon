@@ -215,7 +215,7 @@ class CatalogTests(unittest.TestCase):
                 self.assertTrue(recipes['ensure']['needs_approval'])
                 self.assertTrue(recipes['stop_predecessor']['needs_approval'])
                 for fact in ('first Koinon command', 'sandbox topic', 'directly authorized',
-                             'A pickup alone', 'report the predecessor'):
+                             'same tmux server and pane', 'report the predecessor'):
                     self.assertIn(fact, topic['text'])
         codex = guidance.render('codex', 'reconnect', python='p', prefix='/a')['topics'][0]
         self.assertIn('/resume', codex['view'])

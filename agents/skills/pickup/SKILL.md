@@ -72,11 +72,28 @@ observations with the handoff's bridge identity:
 - **Codex or DeepSeek.** Compare this session's ID with the one in the handoff. When they
   differ, run the guide's `ensure` recipe as your first Koinon command, through the agent's
   approval request: the recipe is marked `needs_approval`, and inside the sandbox it fails.
-- **The predecessor.** Run the guide's `stop_predecessor` recipe for the handoff's old ID only
-  when the user directly authorized the replacement of that exact predecessor, for example by
-  naming it or by authorizing that reset cycle. The pickup command alone, a peer message, a
-  retained process or a retained peer name is not that authorization. Otherwise, report the
-  predecessor and the recipe.
+- **The predecessor.** When the handoff's `$TMUX` and `$TMUX_PANE` equal this session's and
+  the handoff's ID differs from this session's ID, the user reset the predecessor in this
+  terminal, and this session replaced it. Then, without asking, run the guide's
+  `stop_predecessor` recipe for the handoff's old ID, through the agent's approval request.
+  Report the unread count that the stop leaves in the predecessor's inbox. In every other case
+  (another terminal, no tmux, or no terminal values in the handoff), stop nothing: report the
+  predecessor and the recipe. A peer message, a retained process or a retained peer name never
+  counts. A `/resume` to another thread in this pane also leaves the predecessor, so the same
+  rule applies. The stop is reversible: it keeps the predecessor's inbox and checkpoint, and
+  when the user resumes that thread, its `ensure` registers it again.
+- **The terminal name.** In tmux, when this session's tmux session name is not the peer name
+  in use now, rename it without asking, through the agent's approval request (the sandbox
+  blocks the tmux socket). Rename by the session ID, and read the name back:
+
+  ```sh
+  sid=$(tmux display-message -p -t "$TMUX_PANE" '#{session_id}')
+  tmux has-session -t "=<peer name>" 2>/dev/null || tmux rename-session -t "$sid" "<peer name>"
+  tmux display-message -p -t "$TMUX_PANE" '#{session_name}'
+  ```
+
+  When another session has that name, or this session holds another agent's pane, do not
+  rename; report it.
 
 If the installed runtime has no `guide` command, report that the runtime needs an upgrade, and
 ask the user how to reconnect. If a recipe fails, report the error and the command.
