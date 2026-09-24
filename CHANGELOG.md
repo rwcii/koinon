@@ -5,6 +5,9 @@ into a dated release section when promoted to `main`.
 
 ## Unreleased
 
+- In tmux, a Codex `ensure` or `rebind` names the agent's own tmux session after its published
+  name (the alias when it holds it), or only its own pane title when the tmux session holds
+  another agent's pane. It never renames another session and reports a name already taken.
 - `session.py rebind --predecessor OLD` retires a replaced Codex thread and moves the alias to
   the new thread, when both registrations recorded the same tmux pane or the user named the
   predecessor (`--user-authorized`). The same host process alone is not enough. The guide's

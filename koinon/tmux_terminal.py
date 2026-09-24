@@ -98,3 +98,59 @@ def report(state):
             live = False
         found['host'] = dict(host, live=bool(live))
     return found
+
+
+def agent_panes(terminal, executable, claude_pids):
+    """The panes of the recorded tmux session whose process tree holds an agent.
+
+    An agent is a Codex CLI process (`platform_support.codex_process`) or a live Claude
+    registry process. Returns None when the session cannot be listed or the process scan is
+    incomplete.
+    """
+    output = tmux(terminal['socket'], 'list-panes', '-s', '-t', terminal['session_id'],
+                  '-F', '#{pane_id}\t#{pane_pid}')
+    if output is None:
+        return None
+    parents = platform_support.process_parents()
+    if parents is None:
+        # Another agent pane cannot be ruled out; never rename the session on that basis.
+        return None
+    panes = []
+    for line in output.splitlines():
+        fields = line.split('\t')
+        if len(fields) != 2 or not fields[1].isdigit():
+            continue
+        tree = platform_support.descendants(int(fields[1]), parents)
+        if any(pid in claude_pids or platform_support.codex_process(pid, executable) for pid in tree):
+            panes.append(fields[0])
+    return panes
+
+
+def name_terminal(terminal, name, executable, claude_pids):
+    """Name the agent's own tmux session, or its own pane in a shared session, after name.
+
+    Only the recorded session and pane are ever targeted, by their IDs. Returns the
+    result for the `tmux` report field.
+    """
+    if terminal.get('state') != 'observed':
+        return dict(result=terminal.get('reason', 'not_recorded'))
+    socket, session_id, pane_id = terminal['socket'], terminal['session_id'], terminal['pane_id']
+    panes = agent_panes(terminal, executable, claude_pids)
+    if panes is None:
+        return dict(result='panes_unknown')
+    if len([pane for pane in panes if pane != pane_id]) > 0:
+        if tmux(socket, 'select-pane', '-t', pane_id, '-T', name) is None:
+            return dict(result='tmux_unreadable')
+        return dict(result='pane_titled', name=name, pane_id=pane_id)
+    current = tmux(socket, 'display-message', '-p', '-t', pane_id, '#{session_name}')
+    if current is None:
+        return dict(result='tmux_unreadable')
+    if current.rstrip('\n') == name:
+        return dict(result='unchanged', name=name)
+    if tmux(socket, 'has-session', '-t', '=' + name) is not None:
+        return dict(result='name_taken', name=name)
+    tmux(socket, 'rename-session', '-t', session_id, name)
+    after = tmux(socket, 'display-message', '-p', '-t', pane_id, '#{session_name}')
+    if after is None or after.rstrip('\n') != name:
+        return dict(result='rename_unconfirmed', name=name)
+    return dict(result='renamed', name=name)

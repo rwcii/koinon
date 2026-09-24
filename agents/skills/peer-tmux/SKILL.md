@@ -31,7 +31,8 @@ shell; look for the agent among its descendants. A Claude peer's bridge PID is t
 process in the pane. A Codex peer's bridge PID is its bridge process, which is not in the pane:
 match a Codex peer by its repository and the `codex` process in the pane. A Codex peer that holds
 its repository's alias (such as `codex-koinon`) lists under the alias, with its per-thread name
-as `thread_name`; address the alias, which follows a `/clear` once the successor rebinds. A
+as `thread_name`; address the alias, which follows a `/clear` once the successor rebinds. Its
+tmux session carries the same name after `ensure` (or its pane title does, in a shared session). A
 matching working directory alone is insufficient when several agents share a repository. If the target is
 ambiguous, ask the user which pane before sending anything.
 

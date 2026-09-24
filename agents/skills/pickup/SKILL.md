@@ -84,9 +84,12 @@ observations with the handoff's bridge identity:
   counts. A `/resume` to another thread in this pane also leaves the predecessor, so the same
   rule applies. The stop is reversible: it keeps the predecessor's inbox and checkpoint, and
   when the user resumes that thread, its `ensure` registers it again.
-- **The terminal name.** In tmux, when this session's tmux session name is not the peer name
-  in use now, rename it without asking, through the agent's approval request (the sandbox
-  blocks the tmux socket). Rename by the session ID, and read the name back:
+- **The terminal name.** For Codex, `ensure` and `rebind` name the agent's own tmux session
+  (or, in a session shared with another agent, its own pane title) after its published name,
+  and report it as `tmux`; report that result and do nothing more. For Claude, in tmux, when
+  this session's tmux session name is not the peer name in use now, rename it without asking,
+  through the agent's approval request (the sandbox blocks the tmux socket). Rename by the
+  session ID, and read the name back:
 
   ```sh
   sid=$(tmux display-message -p -t "$TMUX_PANE" '#{session_id}')

@@ -469,6 +469,12 @@ predecessor only when both registrations recorded the same tmux pane, or with
 The predecessor keeps its inbox; resuming it and running `ensure` registers it again. See
 PROTOCOL.md, "Rebind and retirement of a replaced Codex thread".
 
+In tmux, a Codex `ensure` (and so `rebind`) names the agent's own tmux session after its
+published name: the alias when it holds it, else its per-thread name. When the tmux session
+holds another agent's pane too, it leaves the session name and sets only its own pane title.
+It never renames another session or pane, and it reports `name_taken` when another session
+already has the name. The result is the `tmux` field of `ensure`.
+
 Only one `ensure`, `stop`, or `rename` command can operate on a session at a time.
 The supervisor can read its registration while `ensure` waits for both children.
 Commands for other sessions use separate locks.
