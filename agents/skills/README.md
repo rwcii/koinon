@@ -8,7 +8,7 @@ read them through symlinks, so there is one copy of each skill. Rules for writin
 
 | Skill | Use it to |
 | --- | --- |
-| [handoff](handoff/SKILL.md) | Commit a public snapshot of this agent's work to `handoff/<agent>/` at the end of a session. |
+| [handoff](handoff/SKILL.md) | Write a snapshot of this agent's work to the ignored `_handoff/<agent>/` at the end of a session. |
 | [pickup](pickup/SKILL.md) | Resume from this agent's newest handoff and verify it against the live repository. |
 | [sprint](sprint/SKILL.md) | Plan a deliverable of more than one pull request: decision, definition of done, ordered chunks, peer review of the plan. |
 | [check](check/SKILL.md) | Run the checks that must pass before a push. |
@@ -29,10 +29,10 @@ A larger deliverable starts with `sprint`. `release` promotes the result to `mai
 
 ## Handoffs
 
-Each agent writes only `handoff/<agent>/`, and `pickup` reads only the caller's own directory
-unless the user names another agent. Handoffs are committed on the current work branch and reach
-`develop` with its pull request, so they are public: see the content rules in
-[AGENTS.md](AGENTS.md). Private notes stay in the ignored `_handoff/` directory.
+Each agent writes only `_handoff/<agent>/` in the main checkout, and `pickup` reads only the
+caller's own directory unless the user names another agent. `_handoff/` is ignored by Git:
+handoffs are session state, not part of the product, and are never committed. Never keep a
+handoff in a linked worktree: worktrees are removed when their work merges.
 
 ## Layout
 
@@ -41,7 +41,7 @@ agents/skills/          the tracked skills
 .claude/skills  -> ../agents/skills
 .agents/skills  -> ../agents/skills   (Codex repository discovery)
 .codex/skills   -> ../agents/skills
-handoff/<agent>/        committed handoffs, one directory per agent
+_handoff/<agent>/       ignored handoffs, one directory per agent (main checkout only)
 ```
 
 To add a skill, create `agents/skills/<name>/SKILL.md` and add a row to the table above.

@@ -43,7 +43,7 @@ jobs:
         run: |
           changed=$(git diff --name-only --no-renames "$BASE...$HEAD")
           others=$(printf '%s\n' "$changed" \
-            | grep -vE '^(agents/|handoff/|docs/sprints/|\.claude/|\.agents/|\.codex/)' || true)
+            | grep -vE '^(agents/|docs/sprints/|\.claude/|\.agents/|\.codex/)' || true)
           if [ -n "$changed" ] && [ -z "$others" ]; then
             echo "exempt=true" >> "$GITHUB_OUTPUT"
             echo "Only agent-process files changed; the suite is not needed."

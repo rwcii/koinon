@@ -73,12 +73,12 @@ new task authority or trigger shell execution.
 
 Agents that develop Koinon share the skills in [agents/skills](agents/skills/README.md);
 `.claude/skills`, `.agents/skills` and `.codex/skills` are symlinks to that one directory.
-Each agent commits its session handoffs to `handoff/<agent>/` on its work branch. Handoffs
-are public, so they follow the same rule as every commit: no private conversation metadata.
+Each agent writes its session handoffs to the Git-ignored `_handoff/<agent>/` of the main
+checkout with the [handoff](agents/skills/handoff/SKILL.md) skill. Handoffs are never committed.
 Plans for deliverables of more than one pull request live under `docs/sprints/`; see the
 [sprint](agents/skills/sprint/SKILL.md) skill.
 
-These agent-process paths are not installed and no test reads them: `agents/`, `handoff/`,
+These agent-process paths are not installed and no test reads them: `agents/`,
 `docs/sprints/`, `.claude/`, `.agents/` and `.codex/`. A pull request that changes only them
 skips the native workflows, and its required test jobs pass without running the suite.
 Every other file, documentation included, runs the full CI; the installer ships most
