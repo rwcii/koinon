@@ -266,6 +266,12 @@ class UpgradeTests(Fixture):
         self.assertEqual(claude.apply_planned(self.prefix, planned, PYTHON)['outcome'], 'unchanged')
         self.assertEqual(claude.apply_planned(self.prefix, self.plan(), PYTHON)['outcome'], 'unchanged')
         self.assertEqual(len(self.hooks()), 1)
+        # An independent edit after the interrupted write is still a conflict on resume.
+        changed = dict(self.read(), model='changed after the write')
+        self.write(changed)
+        result = claude.apply_planned(self.prefix, planned, PYTHON)
+        self.assertEqual((result['outcome'], result['code']), ('conflict', 'settings_conflict'))
+        self.assertEqual(self.read(), changed)
 
     def test_a_settings_change_during_the_upgrade_is_a_conflict(self):
         planned = self.plan()
@@ -276,6 +282,22 @@ class UpgradeTests(Fixture):
         self.assertIn('--claude-guidance', result['repair'])
         self.assertEqual(self.settings.read_bytes(), before)
         self.assertFalse(self.claude_md.exists())
+
+    def test_an_existing_hook_is_no_excuse_for_a_change_after_preflight(self):
+        for name, old, new in (('same interpreter', PYTHON, PYTHON),
+                               ('new interpreter', '/old/python3', PYTHON)):
+            with self.subTest(name):
+                self.write(USER_SETTINGS)
+                self.claude_md.unlink(missing_ok=True)
+                state = State(dict(state_root=str(self.root / 'state'), unit_dir=str(self.root / 'units')))
+                claude.set_up(state, self.prefix, old, directory=self.config)
+                self.install.write_text(json.dumps(state.config))
+                planned = claude.plan(state.config, self.config, prefix=self.prefix, python=new)
+                changed = dict(self.read(), model='changed after preflight')
+                self.write(changed)
+                result = claude.apply_planned(self.prefix, planned, new)
+                self.assertEqual((result['outcome'], result['code']), ('conflict', 'settings_conflict'))
+                self.assertEqual(self.read(), changed)
 
     def test_a_saved_decline_survives_an_upgrade(self):
         config = json.loads(self.install.read_text())

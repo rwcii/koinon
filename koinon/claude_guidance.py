@@ -112,6 +112,38 @@ def _result(action, outcome, path, **extra):
     return dict(action=action, outcome=outcome, settings_file=str(path), **extra)
 
 
+def _hook_change(settings, path, record, entry, explicit):
+    """What set-up does to the hook: `(outcome, new settings or None, created containers)`.
+
+    The outcome is `unchanged`, `changed` (the user's entry is kept) or `write`. It depends
+    only on its arguments, so an upgrade plan can compute the settings that set-up will write.
+    """
+    groups = _groups(settings, path)
+    active = record.get('state') in ('enabled', 'pending')
+    recorded = record.get('hook') if active else None
+    created = record.get('created', []) if active else []
+    own = _find(groups, recorded['command']) if recorded else []
+    same = _find(groups, entry['command'])
+    if len(own) == 1 and own[0][2] == recorded:
+        # Koinon's own entry, untouched: refresh it in place if the runtime path changed.
+        if recorded == entry:
+            return 'unchanged', None, created
+        group_index, hook_index, _ = own[0]
+        hooks = dict(settings['hooks'])
+        hooks[EVENT] = [dict(group, hooks=[entry if (g, h) == (group_index, hook_index) else hook
+                                           for h, hook in enumerate(group['hooks'])])
+                        if g == group_index else group for g, group in enumerate(groups)]
+        return 'write', dict(settings, hooks=hooks), created
+    if same:
+        # The current command is already there: adopt an exact copy, never add a duplicate.
+        return ('unchanged' if len(same) == 1 and same[0][2] == entry else 'changed'), None, created
+    if record.get('state') == 'enabled' and not explicit:
+        # The user removed or edited Koinon's entry after set-up; keep their choice.
+        return 'changed', None, created
+    updated, created = _add(settings, entry)
+    return 'write', updated, created
+
+
 def set_up(state, prefix, python, *, explicit=False, directory=None, replace=False, expected=None):
     """Write the block and the hook, keeping a saved decline and every user edit.
 
@@ -126,7 +158,7 @@ def set_up(state, prefix, python, *, explicit=False, directory=None, replace=Fal
     if record.get('state') == 'declined' and not explicit:
         return _result('set_up', 'declined', path)
     raw, settings = claude_statusline._read(path)
-    groups = _groups(settings, path)
+    _groups(settings, path)
     block = _blocks(state).get('claude')
     if explicit and block and block.get('state') == 'missing':
         block = None  # The user asked again for a block they had removed.
@@ -135,35 +167,13 @@ def set_up(state, prefix, python, *, explicit=False, directory=None, replace=Fal
     if block is not None:
         _save_block(state, block)
     entry = hook_entry(prefix, python)
-    active = record.get('state') in ('enabled', 'pending')
-    recorded = record.get('hook') if active else None
-    created = record.get('created', []) if active else []
-    own = _find(groups, recorded['command']) if recorded else []
-    same = _find(groups, entry['command'])
-    changed = _result('set_up', 'changed', path, block=report, reason='hook_changed',
-                      repair=repair_command(prefix, python))
-    if len(own) == 1 and own[0][2] == recorded:
-        # Koinon's own entry, untouched: refresh it in place if the runtime path changed.
-        if recorded == entry:
-            _record(state, 'enabled', path, entry, created)
-            return _result('set_up', 'unchanged', path, block=report)
-        group_index, hook_index, _ = own[0]
-        hooks = dict(settings['hooks'])
-        hooks[EVENT] = [dict(group, hooks=[entry if (g, h) == (group_index, hook_index) else hook
-                                           for h, hook in enumerate(group['hooks'])])
-                        if g == group_index else group for g, group in enumerate(groups)]
-        updated = dict(settings, hooks=hooks)
-    elif same:
-        # The current command is already there: adopt an exact copy, never add a duplicate.
-        if len(same) == 1 and same[0][2] == entry:
-            _record(state, 'enabled', path, entry, created)
-            return _result('set_up', 'unchanged', path, block=report)
-        return changed
-    elif active and record.get('state') == 'enabled' and not explicit:
-        # The user removed or edited Koinon's entry after set-up; keep their choice.
-        return changed
-    else:
-        updated, created = _add(settings, entry)
+    outcome, updated, created = _hook_change(settings, path, record, entry, explicit)
+    if outcome == 'changed':
+        return _result('set_up', 'changed', path, block=report, reason='hook_changed',
+                       repair=repair_command(prefix, python))
+    if outcome == 'unchanged':
+        _record(state, 'enabled', path, entry, created)
+        return _result('set_up', 'unchanged', path, block=report)
     # Record the entry before the settings change, so removal can always find it.
     _record(state, 'pending', path, entry, created)
     claude_statusline._write(path, raw, updated)
@@ -222,8 +232,14 @@ def _settings_digest(settings):
     return hashlib.sha256(json.dumps(rest, sort_keys=True).encode()).hexdigest()
 
 
-def plan(config, directory=None, prefix=None):
-    """The upgrade's planned action, observed at preflight: set_up, declined or skipped."""
+def plan(config, directory=None, prefix=None, python=None):
+    """The upgrade's planned action, observed at preflight: set_up, declined or skipped.
+
+    `digest` is the settings as observed and `written` the settings as set-up will leave
+    them, both without `statusLine`; the apply step accepts nothing else.
+    """
+    import sys
+    python = python or sys.executable
     path = claude_statusline.settings_path(directory)
     record = config.get(KEY) or {}
     if record.get('state') == 'declined':
@@ -232,7 +248,8 @@ def plan(config, directory=None, prefix=None):
         return dict(action='skipped', settings_file=str(path), digest=None, block=[], reason='claude_config_missing')
     try:
         _, settings = claude_statusline._read(path)
-        _groups(settings, path)
+        _, updated, _ = (_hook_change(settings, path, record, hook_entry(prefix, python), False)
+                         if prefix is not None else (None, None, None))
         block = (participant_instructions.classify(
             path.parent, prefix, 'claude',
             ((config.get(participant_instructions.RECORD_KEY) or {}).get('blocks') or {}).get('claude'))
@@ -240,24 +257,17 @@ def plan(config, directory=None, prefix=None):
     except (OSError, ValueError) as exc:
         return dict(action='skipped', settings_file=str(path), digest=None, block=[],
                     reason=getattr(exc, 'code', 'settings_unavailable'))
-    return dict(action='set_up', settings_file=str(path), digest=_settings_digest(settings), block=block)
-
-
-def _own_write(installed, path, settings):
-    """Whether the settings hold exactly the hook this installation recorded (a resumed run)."""
-    record = installed.config.get(KEY) or {}
-    return (record.get('state') in ('enabled', 'pending') and record.get('settings_file') == str(path)
-            and record.get('hook') is not None
-            and [found for *_, found in _find(_groups(settings, path), record['hook']['command'])]
-            == [record['hook']])
+    return dict(action='set_up', settings_file=str(path), digest=_settings_digest(settings),
+                written=None if updated is None else _settings_digest(updated), block=block)
 
 
 def apply_planned(prefix, planned, python):
     """Run the planned upgrade action after ordinary admission is restored.
 
-    A settings file that changed since preflight, other than by the status-line step and by
-    Koinon's own earlier write, is a conflict and is not written. Set-up is idempotent, so
-    running this again after a crash is safe.
+    A settings file that changed since preflight is a conflict and is not written, unless the
+    only differences are the status-line step's `statusLine` and exactly the hook change this
+    plan computed, which is this upgrade's own earlier write before a crash. Set-up is
+    idempotent, so running this again after a crash is safe.
     """
     from koinon import install_state
     if planned is None or planned.get('action') != 'set_up':
@@ -267,7 +277,7 @@ def apply_planned(prefix, planned, python):
     try:
         with install_state.locked(prefix) as installed:
             _, settings = claude_statusline._read(path)
-            if _settings_digest(settings) != planned['digest'] and not _own_write(installed, path, settings):
+            if _settings_digest(settings) not in (planned['digest'], planned.get('written')):
                 return dict(failed, outcome='conflict', code='settings_conflict',
                             error='Claude settings changed during the upgrade; not changed')
             expected = {entry['path']: entry.get('digest') for entry in planned.get('block', [])}
