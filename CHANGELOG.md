@@ -5,6 +5,10 @@ into a dated release section when promoted to `main`.
 
 ## Unreleased
 
+- Native session `ensure` and `status` report the saved peer name, state directory and
+  inbox command. Inspecting an unregistered session now reports `unregistered` without
+  writing files, so a status check no longer blocks subsequent native registration.
+
 - Peer and notifier status show active claimed work with its title and checkpoint from
   each participant’s selected memory store. `session.py work-key --key KEY` associates
   a custom work consumer key with the current session.

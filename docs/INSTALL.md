@@ -407,6 +407,10 @@ supervisor owns both bridge and notifier. It reports healthy only after both are
 a child failure fails the supervisor so systemd can restart the pair. Per-conversation
 units start on registration, not at every subsequent login. No lingering is enabled.
 
+`ensure` reports the saved peer `name`, `state_dir` and exact `inbox_command` on
+native systemd and launchd selections as well as legacy sessions. These fields identify
+the registered session; the lifecycle `status` still determines whether it is healthy.
+
 Only one `ensure`, `stop`, or `rename` command can operate on a session at a time.
 The supervisor can read its registration while `ensure` waits for both children.
 Commands for other sessions use separate locks.
@@ -431,7 +435,11 @@ python3 ~/.local/share/koinon/bridge.py peers
 python3 ~/.local/share/koinon/session.py stop
 ```
 
-`status` and `ensure` return this thread's inbox command and state directory. Run
+For a registered thread, `status` and `ensure` return its saved peer `name`,
+`state_dir` and `inbox_command`. Before registration, `status` exits successfully with
+`status: unregistered`, `state_dir` and `agent`, without assigning a name or creating
+directories, lock files or registration. It is safe to inspect a new session before
+`ensure`; use `ensure` when ready to register it. Run
 `bridge.py --state-dir THAT_DIRECTORY inbox`, `send`, or `ack` as described in README.
 Pass `--thread` to session commands outside the intended Codex shell.
 
