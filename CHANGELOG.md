@@ -5,6 +5,10 @@ into a dated release section when promoted to `main`.
 
 ## Unreleased
 
+- `session.py rebind --predecessor OLD` retires a replaced Codex thread and moves the alias to
+  the new thread, when both registrations recorded the same tmux pane or the user named the
+  predecessor (`--user-authorized`). The same host process alone is not enough. The guide's
+  Codex `reconnect` topic and the `pickup` skill use it in place of `stop_predecessor`.
 - A Codex participant takes its repository's stable alias, such as `codex-koinon`, when no
   other live session holds it, and publishes it as its peer name, so Claude sessions and
   `bridge.py send` reach it by that name. `bridge.py send` now accepts a peer name as well as a `uds:` address. `peers`, `ensure`,

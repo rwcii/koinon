@@ -462,6 +462,13 @@ address it by that name whatever its per-thread name is; `ensure` and `status` r
 name. A holder that was already running restarts once so that it publishes the alias. See
 PROTOCOL.md, "Stable alias of a Codex participant".
 
+After a Codex `/clear` or `/resume` in the same terminal, the new thread runs `ensure` and then
+the guide's `rebind` recipe (`session.py rebind --predecessor OLD_THREAD`). It stops the
+predecessor only when both registrations recorded the same tmux pane, or with
+`--user-authorized` when you named that predecessor, and it moves the alias to the new thread.
+The predecessor keeps its inbox; resuming it and running `ensure` registers it again. See
+PROTOCOL.md, "Rebind and retirement of a replaced Codex thread".
+
 Only one `ensure`, `stop`, or `rename` command can operate on a session at a time.
 The supervisor can read its registration while `ensure` waits for both children.
 Commands for other sessions use separate locks.

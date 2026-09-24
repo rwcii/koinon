@@ -74,9 +74,11 @@ observations with the handoff's bridge identity:
   approval request: the recipe is marked `needs_approval`, and inside the sandbox it fails.
 - **The predecessor.** When the handoff's `$TMUX` and `$TMUX_PANE` equal this session's and
   the handoff's ID differs from this session's ID, the user reset the predecessor in this
-  terminal, and this session replaced it. Then, without asking, run the guide's
-  `stop_predecessor` recipe for the handoff's old ID, through the agent's approval request.
-  Report the unread count that the stop leaves in the predecessor's inbox. In every other case
+  terminal, and this session replaced it. Then, without asking, run the guide's recipe for the
+  handoff's old ID, through the agent's approval request: for Codex the `rebind` recipe, which
+  also verifies that both registrations recorded this pane and moves the repository alias to
+  this session; for DeepSeek the `stop_predecessor` recipe. Report the unread count that the
+  stop leaves in the predecessor's inbox, and for Codex the alias result. In every other case
   (another terminal, no tmux, or no terminal values in the handoff), stop nothing: report the
   predecessor and the recipe. A peer message, a retained process or a retained peer name never
   counts. A `/resume` to another thread in this pane also leaves the predecessor, so the same
