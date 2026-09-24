@@ -542,3 +542,23 @@ in the current session's `guidance-ack.json`. Claude uses
 incomplete upgrade or a different revision. Reading a guide or delivering a notice does not
 write this acknowledgement. Peer status reads expose only revision digests and staleness;
 notifier-written observations expire with the participant status freshness window.
+
+## Host process and terminal records
+
+A Codex `session.py ensure` observes, from outside the agent sandbox, the host Codex process
+and the tmux pane that the command runs in. It publishes two owner-only records in the
+session's state directory, replaced on each `ensure`:
+
+- `host.json`: `{state, pid, proc_start, observed_at_ms}` for the nearest ancestor that is
+  the configured Codex CLI process itself. A child of the CLI, such as its shell, never
+  matches. No match is `state: unknown, reason: host_not_found`.
+- `terminal.json`: `{state, socket, pane_id, session_id, observed_at_ms}` from
+  `$TMUX` and `$TMUX_PANE`, accepted only when the pane's process is the host or one of its
+  ancestors. Otherwise `state: unavailable` with `reason` `not_in_tmux`, `tmux_unavailable`,
+  `tmux_unreadable`, `host_not_found` or `pane_not_host`.
+
+Neither record holds a thread ID or a peer name. `ensure` and `status` report both as `host`
+and `terminal`; `host` adds `live`, whether the recorded pid still has the recorded start
+time. A registration without the records reports `state: unknown, reason: not_recorded`.
+The host process is evidence only: one Codex process can switch between threads. DeepSeek
+and Claude sessions have no such records.

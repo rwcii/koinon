@@ -64,6 +64,7 @@ from koinon import runtime_names
 from koinon import revisions
 from koinon import notification_health
 from koinon import session_observation
+from koinon import tmux_terminal
 from scripts.install import units, check_owned_unit, start_command_for
 
 
@@ -163,9 +164,24 @@ def result(prefix, state, name, thread, repo, status, agent='codex', model=None)
     active = bridge_status(prefix, state) if status in ('running', 'repair_required') else None
     fields = revisions.read_fields(prefix, revisions.ack_path(state),
         revisions.service_revision(state, active))
-    return dict(fields, status=status, name=name, state_dir=str(state),
+    data = dict(fields, status=status, name=name, state_dir=str(state),
                 start_command=shlex.join(start_command(prefix,thread,repo,agent,model)),
                 inbox_command=shlex.join([sys.executable,str(prefix/'bridge.py'),'--state-dir',str(state),'inbox']))
+    if agent == 'codex':
+        data.update(tmux_terminal.report(state))
+    return data
+
+
+def record_attachment(state, config):
+    """Record the host Codex process and tmux pane of this `ensure`; diagnostic only.
+
+    A failed publication must not fail registration: the report then shows the
+    previous record or `not_recorded`.
+    """
+    try:
+        tmux_terminal.record(state, config['codex'])
+    except (OSError, ValueError):
+        pass
 
 
 def notify_command(prefix, config, state, thread, repo, name, agent='codex', model=None):
@@ -530,6 +546,8 @@ def main():
         if a.action == 'stage':
             print(json.dumps(dict(status='staged', running=False, state_dir=str(state))))
             return
+        if agent == 'codex':
+            record_attachment(state, config)
     if runtime_names.present(native):
         from koinon import durable_state
         import session_service
@@ -586,6 +604,8 @@ def main():
         if a.action == 'stage':
             print(json.dumps(dict(status='staged', running=False, state_dir=str(state))))
             return
+        if a.action == 'ensure' and agent == 'codex':
+            record_attachment(state, config)
         active=bridge_status(prefix,state)
         observed=session_observation.lifecycle(state,active)
         if a.action=='rename':

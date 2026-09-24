@@ -5,6 +5,9 @@ into a dated release section when promoted to `main`.
 
 ## Unreleased
 
+- A Codex `session.py ensure` records the Codex CLI process that runs the session and the
+  tmux pane it runs in, and `ensure` and `status` report both as `host` and `terminal`. The
+  records are evidence for the stable alias work (#141); they change no behaviour yet.
 - A refusal of a path owned by the unmapped uid of a Linux user namespace (normally 65534)
   now says that an agent sandbox can show this owner, and names the retry outside the sandbox
   through the agent's approval request. The ownership check itself is unchanged.
