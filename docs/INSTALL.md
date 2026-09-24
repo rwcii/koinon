@@ -716,7 +716,9 @@ as described in [Recommended: configure Codex once](#recommended-configure-codex
 reports each file's state and action as `participant_guidance` in its result. An installation
 from before the runtime guide has no block records; the preflight finds its sections from the
 recorded `participants`, `codex_home` and `dsh_home`, replaces each section that is exactly an
-earlier release's text, and keeps and reports any other content.
+earlier release's text, and keeps and reports any other content. An upgrade never writes an
+`absent` section. While the file the agent now reads has no section, a current section in the
+other file is refreshed where it is instead of removed, so the agent keeps its guidance.
 
 When the memory component's selected backend is `manual`, the operation stops at that
 component and returns `manual_handoff_required` with the exact start command. Run it in a

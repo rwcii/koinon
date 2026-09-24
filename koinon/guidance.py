@@ -98,9 +98,11 @@ CATALOG = {
             dict(id='ack', argv=('{python}', '{prefix}/bridge.py', '--state-dir', '{state}', 'ack', '{through}'),
                  families=('codex', 'deepseek'), needs_approval=False,
                  effect='Remove handled messages through a sequence number.'),
-            dict(id='send', argv=('{python}', '{prefix}/bridge.py', '--state-dir', '{state}', 'send', '{peer}', '{text}'),
+            dict(id='send', argv=('{python}', '{prefix}/bridge.py', '--state-dir', '{state}', 'send', '{address}', '{text}'),
                  families=('codex', 'deepseek'), needs_approval=False,
-                 effect='Send one message to a peer by name.'))),
+                 effect=('Send one message to a peer. {address} is the literal uds:/absolute/path '
+                         'address of that peer in the current peer listing; the bridge does not '
+                         'resolve names.')))),
     'peers': dict(
         summary='See the other sessions: name, activity, model, context and claimed work.',
         text=(

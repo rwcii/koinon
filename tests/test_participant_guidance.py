@@ -86,6 +86,46 @@ class GuideCommandTests(unittest.TestCase):
         self.assertEqual(result.returncode, 64)
         self.assertEqual(json.loads(result.stdout)['code'], 'family_required')
 
+    def test_invalid_registration_is_reported_and_the_guide_still_renders(self):
+        import session
+        config = json.loads((self.prefix / 'install.json').read_text())
+        state, _, _ = session.details(self.prefix, config, 'synthetic-thread', '/unused', 'codex')
+        state.mkdir(parents=True, mode=0o700)
+        for saved in ([], dict(thread='another-thread', name='codex-other-01')):
+            with self.subTest(saved=saved):
+                (state / 'session.json').write_text(json.dumps(saved))
+                (state / 'session.json').chmod(0o600)
+                result = self.guide('--agent', 'codex', '--json', '--thread', 'synthetic-thread')
+                self.assertEqual(result.returncode, 0, result.stderr)
+                value = json.loads(result.stdout)
+                registration = value['observations']['registration']
+                self.assertEqual((registration['state'], registration['state_dir']), ('unavailable', str(state)))
+                self.assertIn(registration['reason'], ('registration_unreadable', 'registration_invalid'))
+                self.assertEqual(len(value['topics']), len(guidance.TOPICS))
+
+    def test_memory_health_is_observed_or_reported_unavailable(self):
+        import session
+        from koinon.repository_identity import repo_identity
+        key = repo_identity(ROOT)
+        directory = self.root / 'memory service'
+        config = dict(memory_services=dict(repositories={key: dict(service_directory=str(directory), backend='systemd')}))
+        self.assertEqual(session._memory_observation(self.prefix, {}, str(ROOT))['reason'], 'memory_not_selected')
+        self.assertEqual(session._memory_observation(self.prefix, config, str(ROOT))['reason'], 'service_not_running')
+        directory.mkdir()
+        (directory / 'control.sock').write_text('')
+        reply = subprocess.CompletedProcess([], 0, json.dumps(dict(ok=True, result=dict(healthy=True, head=7))), '')
+        from koinon import repository_identity
+        with patch.object(repository_identity, 'repo_identity', return_value=key), \
+                patch.object(session.subprocess, 'run', return_value=reply) as run:
+            observed = session._memory_observation(self.prefix, config, str(ROOT))
+        self.assertEqual(observed, dict(state='observed', healthy=True, head=7, backend='systemd'))
+        self.assertEqual(run.call_args.args[0][-3:], ['--service-dir', str(directory), 'status'])
+        self.assertEqual(run.call_args.kwargs['env']['PYTHONDONTWRITEBYTECODE'], '1')
+        with patch.object(repository_identity, 'repo_identity', return_value=key), \
+                patch.object(session.subprocess, 'run', return_value=subprocess.CompletedProcess([], 1, '', 'x')):
+            self.assertEqual(session._memory_observation(self.prefix, config, str(ROOT))['reason'], 'status_failed')
+        self.assertEqual(session._memory_observation(self.prefix, config, str(self.root))['reason'], 'not_a_repository')
+
     def test_missing_installation_is_reported_not_raised(self):
         (self.prefix / 'install.json').unlink()
         result = self.guide('--agent', 'codex', '--json', '--thread', 'synthetic')
@@ -113,6 +153,13 @@ class CatalogTests(unittest.TestCase):
             guidance.render('other', python='p', prefix=prefix)
         with self.assertRaises(guidance.GuidanceError):
             guidance.render('codex', 'other', python='p', prefix=prefix)
+
+    def test_send_recipe_takes_the_literal_peer_address(self):
+        value = guidance.render('codex', 'messages', python='p', prefix='/a',
+                                observations=dict(registration=dict(state='observed', state_dir='/s')))
+        send = next(r for r in value['topics'][0]['recipes'] if r['id'] == 'send')
+        self.assertEqual(send['argv'][-2:], ['{address}', '{text}'])
+        self.assertIn('uds:/absolute/path', send['effect'])
 
     def test_revision_follows_content_not_observations(self):
         first = guidance.render('codex', python='p', prefix='/a', observations=dict(x=dict(state='observed')))
@@ -261,6 +308,26 @@ class MigrationTests(unittest.TestCase):
                 self.assertEqual(record['blocks']['codex']['state'], 'current')
                 self.assertEqual(outcome['codex']['entries'][-1]['action'] if override else
                                  outcome['codex']['entries'][0]['action'], 'written')
+
+    def test_upgrade_reports_an_absent_block_and_never_writes_it(self):
+        for text in ('Personal Codex guidance.\n', ''):
+            with self.subTest(text=text):
+                (self.codex / 'AGENTS.md').write_text(text)
+                planned, outcome = self.upgrade()
+                self.assertEqual([(e['state'], e['action']) for e in outcome['codex']['entries']],
+                                 [('absent', 'kept')])
+                self.assertEqual((self.codex / 'AGENTS.md').read_text(), text)
+
+    def test_upgrade_refreshes_a_block_in_place_while_the_new_target_is_absent(self):
+        (self.codex / 'AGENTS.md').write_text('Personal.\n' + self.legacy('codex'))
+        (self.codex / 'AGENTS.override.md').write_text('Override written later.\n')
+        _, outcome = self.upgrade()
+        states = {Path(e['path']).name: (e['state'], e['action']) for e in outcome['codex']['entries']}
+        self.assertEqual(states, {'AGENTS.md': ('current', 'written'),
+                                  'AGENTS.override.md': ('absent', 'kept')})
+        self.assertEqual((self.codex / 'AGENTS.md').read_text(),
+                         'Personal.\n' + instructions.section(self.prefix, 'codex'))
+        self.assertEqual((self.codex / 'AGENTS.override.md').read_text(), 'Override written later.\n')
 
     def test_edited_prior_block_is_kept_and_reported(self):
         edited = self.legacy('codex').replace('Local peer messaging', 'My peer messaging')

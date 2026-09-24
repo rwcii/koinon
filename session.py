@@ -57,6 +57,7 @@ if __name__ == '__main__':
 
 from bridge import private_dir, peers
 from koinon import dsh_delivery
+from koinon import durable_state
 from notify import save
 from koinon import platform_support
 from koinon import runtime_names
@@ -281,6 +282,33 @@ def _claude_identity():
     return dict(state='unavailable', reason='registry_record_missing')
 
 
+def _memory_observation(prefix, config, repo):
+    """This repository's memory service health through its read-only status command."""
+    from koinon.repository_identity import repo_identity
+    try:
+        key = repo_identity(repo)
+    except ValueError:
+        return dict(state='unknown', reason='not_a_repository')
+    selected = ((config.get('memory_services') or {}).get('repositories') or {}).get(key)
+    if not isinstance(selected, dict) or not selected.get('service_directory'):
+        return dict(state='unavailable', reason='memory_not_selected')
+    directory = Path(selected['service_directory'])
+    if not (directory / 'control.sock').exists():
+        return dict(state='unavailable', reason='service_not_running', backend=selected.get('backend'))
+    try:
+        result = subprocess.run([sys.executable, str(prefix/'memory.py'), '--service-dir', str(directory), 'status'],
+                                capture_output=True, text=True, timeout=10,
+                                env=dict(os.environ, PYTHONDONTWRITEBYTECODE='1'))
+        value = json.loads(result.stdout) if result.returncode == 0 else None
+    except (OSError, ValueError, subprocess.TimeoutExpired):
+        value = None
+    if not isinstance(value, dict) or not value.get('ok') or not isinstance(value.get('result'), dict):
+        return dict(state='unavailable', reason='status_failed', backend=selected.get('backend'))
+    status = value['result']
+    return dict(state='observed', healthy=status.get('healthy'), head=status.get('head'),
+                backend=selected.get('backend'))
+
+
 def guide_observations(prefix, family, thread, repo):
     """Live facts for the guide. Every read is inert; a failure is reported, never raised."""
     found = {}
@@ -291,6 +319,7 @@ def guide_observations(prefix, family, thread, repo):
     except (OSError, ValueError, runtime_names.NameConflict) as exc:
         config = {}
         found['installation'] = dict(state='unavailable', reason=getattr(exc, 'code', 'invalid_install_configuration'))
+    found['memory'] = _memory_observation(prefix, config, repo)
     if family == 'claude':
         found['registration'] = _claude_identity()
         return found
@@ -302,9 +331,13 @@ def guide_observations(prefix, family, thread, repo):
         return found
     state, _, _ = details(prefix, config, thread, repo, family)
     try:
-        saved = json.loads((state / 'session.json').read_text()) if runtime_names.present(state / 'session.json') else None
+        saved = durable_state.read(state / 'session.json', max_bytes=65536)
     except (OSError, ValueError):
         found['registration'] = dict(state='unavailable', reason='registration_unreadable', state_dir=str(state))
+        return found
+    if saved is not None and (not isinstance(saved, dict) or saved.get('thread') != thread
+                              or not isinstance(saved.get('name'), str)):
+        found['registration'] = dict(state='unavailable', reason='registration_invalid', state_dir=str(state))
         return found
     if saved is None:
         found['registration'] = dict(state='observed', registered=False, state_dir=str(state))

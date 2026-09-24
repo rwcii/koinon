@@ -341,13 +341,16 @@ def classify(home, prefix, agent, record=None, python=None):
     return found
 
 
-def reconcile(home, prefix, agent, record=None, *, python=None, replace=False, write=True, expected=None):
+def reconcile(home, prefix, agent, record=None, *, python=None, replace=False, write=True, expected=None,
+              admit_absent=True):
     """Bring one home's managed block to the current bootstrap without losing a user's edit.
 
     Only the target file is written, and an override is never created. A current block is
     replaced, an absent block is added, and an edited or missing block is kept unless the
     user asked for `replace`. In the other file a current block is removed, as before, and
-    an edited one is kept. `expected` maps paths to the digests a plan observed; a file that
+    an edited one is kept. An upgrade passes `admit_absent=False`: it only reports an absent
+    block, and while the target stays absent a current block in the other file is refreshed
+    where it is rather than removed, so the agent keeps its guidance. `expected` maps paths to the digests a plan observed; a file that
     changed since then is a conflict and is not written. Returns the report and new record.
     """
     python = python or sys.executable
@@ -357,6 +360,8 @@ def reconcile(home, prefix, agent, record=None, *, python=None, replace=False, w
     with update_locks(home):
         entries = classify(home, prefix, agent, record, python)
         new_record = dict(record) if record else None
+        target_state = next((entry['state'] for entry in entries if entry['role'] == 'target'), None)
+        target_kept = target_state == 'absent' and not admit_absent and not replace
         for entry in entries:
             path = Path(entry['path'])
             action = 'kept'
@@ -372,6 +377,18 @@ def reconcile(home, prefix, agent, record=None, *, python=None, replace=False, w
             if (expected is not None and expected.get(str(path)) not in (None, entry['digest'])
                     and not own):
                 report.append(dict(entry, action='conflict'))
+                continue
+            if entry['role'] == 'target' and target_kept:
+                report.append(dict(entry, action='kept'))
+                continue
+            if entry['role'] == 'other' and target_kept and entry['state'] == 'current':
+                # The target is not written, so refresh the block where the agent reads it now.
+                result = original[:owned[0]] + block + original[owned[1]:]
+                action = 'unchanged' if result == original else 'written'
+                if write and result != original:
+                    publish_guidance(path, original, result, agent)
+                new_record = dict(path=str(path), digest=_digest(block), state='current')
+                report.append(dict(entry, action=action))
                 continue
             if entry['role'] == 'target':
                 if entry['state'] in ('absent', 'current') or replace:
@@ -422,7 +439,7 @@ def apply_planned(prefix, planned, python):
                 continue
             expected = {entry['path']: entry.get('digest') for entry in home['entries']}
             report, record = reconcile(home['home'], prefix, agent, blocks.get(agent),
-                                       python=python, expected=expected)
+                                       python=python, expected=expected, admit_absent=False)
             if record is not None:
                 blocks[agent] = record
             outcome[agent] = dict(home=home['home'], entries=report)
