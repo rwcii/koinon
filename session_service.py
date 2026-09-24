@@ -36,6 +36,7 @@ import argparse
 import asyncio
 import json
 import os
+import shlex
 from pathlib import Path
 import sys
 import stat
@@ -86,6 +87,7 @@ class Selection:
                 for item in self.upgrade['documents']['components']['items']):
             raise ServiceError(paths=(self.home / 'native-service.json',))
         config, registration = artifacts.inputs(self.record, upgrading=self.upgrade is not None)
+        self.registration = registration
         self.commands = configuration.commands(self.prefix, self.record['python'], self.home, config, registration)
         self.backend = self.record['backend']
         installation = configuration.fingerprint([str(self.prefix), str(self.home), self.record['session_key']])
@@ -197,8 +199,13 @@ def execute(action, selection, *, generation=None, assertion=False):
         return session_supervisor.run(selection.records, selection.commands, selection.backend)
     if action in ('ensure', 'status', 'deactivate'):
         from koinon import session_service_manager
-        return {'ensure': session_service_manager.ensure, 'status': session_service_manager.status,
-                'deactivate': session_service_manager.deactivate}[action](selection)
+        result = {'ensure': session_service_manager.ensure, 'status': session_service_manager.status,
+                  'deactivate': session_service_manager.deactivate}[action](selection)
+        if action in ('ensure', 'status'):
+            result = dict(result, name=selection.registration['name'], state_dir=str(selection.home),
+                          inbox_command=shlex.join([selection.record['python'],
+                              str(selection.prefix / 'bridge.py'), '--state-dir', str(selection.home), 'inbox']))
+        return result
     if action == 'stop':
         from koinon import session_service_manager
         return session_service_manager.stop(selection)

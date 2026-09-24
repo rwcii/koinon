@@ -51,6 +51,10 @@ import subprocess
 import sys
 import time
 
+# Session inspection must not populate the installed package's bytecode cache.
+if __name__ == '__main__':
+    sys.dont_write_bytecode = True
+
 from bridge import private_dir, peers
 from koinon import dsh_delivery
 from notify import save
@@ -355,6 +359,10 @@ def main():
                                   paths=[str(path) for path in getattr(exc, 'paths', (native,))])))
             return_code = 78
         raise SystemExit(return_code)
+    if a.action == 'status' and not runtime_names.present(state / 'session.json'):
+        # Observe absence before creating directories or taking writable locks.
+        print(json.dumps(dict(status='unregistered', state_dir=str(state), agent=agent)))
+        return
     if not (state/'session.json').exists():
         validate_participant_executable(config, agent, a.action)
     private_dir(state)
