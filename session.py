@@ -165,7 +165,7 @@ def start_command(prefix, thread, repo, agent='codex', model=None):
     return start_command_for(sys.executable, prefix, thread, repo, agent, model)
 
 
-def result(prefix, state, name, thread, repo, status, agent='codex', model=None, take=None):
+def result(prefix, state, name, thread, repo, status, agent='codex', model=None, take=None, config=None):
     active = bridge_status(prefix, state) if status in ('running', 'repair_required') else None
     fields = revisions.read_fields(prefix, revisions.ack_path(state),
         revisions.service_revision(state, active))
@@ -177,7 +177,21 @@ def result(prefix, state, name, thread, repo, status, agent='codex', model=None,
         data['alias'] = alias_report(state, repo, name)
         if take:
             data['alias']['take'] = take
+        if config is not None:
+            data['tmux'] = name_own_terminal(state, config, name, data['alias'])
     return data
+
+
+def name_own_terminal(state, config, name, alias):
+    """After `ensure`: name this agent's own tmux session, or pane, after its published name."""
+    target = alias['name'] if alias.get('held') else name
+    try:
+        claude = {record['pid'] for record in peers()
+                  if record.get('implementation') != runtime_names.REGISTRY_ENTRYPOINT}
+        return tmux_terminal.name_terminal(tmux_terminal.report(state)['terminal'], target,
+                                           config['codex'], claude)
+    except (OSError, ValueError, KeyError):
+        return dict(result='tmux_unreadable')
 
 
 def alias_take(prepared):
@@ -775,17 +789,20 @@ def main():
             if a.action == 'rename':
                 raise session_service.ServiceError(paths=(native, state / 'session.json'))
             take = native_take if a.action == 'ensure' else None
+            extend = a.action == 'ensure' and saved.get('agent', 'codex') == 'codex'
             delegated = io.StringIO()
-            with contextlib.redirect_stdout(delegated) if take else contextlib.nullcontext():
+            with contextlib.redirect_stdout(delegated) if extend else contextlib.nullcontext():
                 return_code = session_service.main([a.action, '--prefix', str(prefix),
                                                     '--state-dir', str(state), '--backend', record['backend']])
-            if take:
+            if extend:
                 try:
                     reported = json.loads(delegated.getvalue())
                 except ValueError:
                     reported = None
                 if isinstance(reported, dict) and isinstance(reported.get('alias'), dict):
-                    reported['alias']['take'] = take
+                    if take:
+                        reported['alias']['take'] = take
+                    reported['tmux'] = name_own_terminal(state, config, saved['name'], reported['alias'])
                     print(json.dumps(reported), flush=True)
                 else:
                     sys.stdout.write(delegated.getvalue())
@@ -858,7 +875,7 @@ def main():
         ready=notifier_readiness(state,active)
         healthy=ready is not None
         if a.action=='status' or (a.action=='ensure' and observed != 'stopped'):
-            data=result(prefix,state,name,a.thread,repo,'running' if healthy else ('repair_required' if active else observed),agent,model,take=alias_take(alias))
+            data=result(prefix,state,name,a.thread,repo,'running' if healthy else ('repair_required' if active else observed),agent,model,take=alias_take(alias),config=config if a.action == 'ensure' else None)
             data['bridge']=active
             data['participant_lock']=ready.get('participant_lock') if ready else None
             data['delivery_health']=notification_health.read(state,ready)
@@ -904,7 +921,7 @@ def main():
                 if notifier_ready(state,bridge_status(prefix,state)):
                     if agent == 'codex':
                         alias_confirm(state, name)
-                    print(json.dumps(result(prefix,state,name,a.thread,repo,'running',agent,model,take=alias_take(alias))))
+                    print(json.dumps(result(prefix,state,name,a.thread,repo,'running',agent,model,take=alias_take(alias),config=config if a.action == 'ensure' else None)))
                     return
                 time.sleep(.1)
             raise RuntimeError('service started but bridge is not ready; inspect its journal')

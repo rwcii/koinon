@@ -146,6 +146,72 @@ class PrivateTmuxTests(unittest.TestCase):
         self.assertEqual(tmux_terminal.observe_terminal(host, missing)['reason'], 'tmux_unreadable')
 
 
+class TerminalNameTests(unittest.TestCase):
+    """Naming on a private tmux server; never the user's."""
+
+    AGENT = [sys.executable, '-c', 'import time; time.sleep(60)']
+    OTHER = ['sleep', '60']
+
+    def setUp(self):
+        if shutil.which('tmux') is None:
+            if os.environ.get('CI'):
+                self.fail('tmux must be installed in CI')
+            self.skipTest('tmux is not installed')
+        directory = tempfile.mkdtemp(prefix='kn', dir='/tmp')
+        self.addCleanup(shutil.rmtree, directory, True)
+        self.socket = str(Path(directory) / 's')
+        self.environment = {key: value for key, value in os.environ.items() if key not in ('TMUX', 'TMUX_PANE')}
+        self.addCleanup(subprocess.run, ['tmux', '-S', self.socket, 'kill-server'], capture_output=True, timeout=10)
+
+    def tmux(self, *arguments):
+        return subprocess.run(['tmux', '-S', self.socket, *arguments], capture_output=True, text=True,
+                              env=self.environment, timeout=10).stdout.strip()
+
+    def session(self, name, command):
+        self.tmux('-f', '/dev/null', 'new-session', '-d', '-s', name, *command)
+        pane, session_id = self.tmux('display-message', '-p', '-t', name, '#{pane_id}\t#{session_id}').split('\t')
+        return dict(state='observed', socket=self.socket, pane_id=pane, session_id=session_id)
+
+    def name(self, terminal, target, claude=()):
+        return tmux_terminal.name_terminal(terminal, target, sys.executable, set(claude))
+
+    def test_single_agent_pane_renames_its_session(self):
+        terminal = self.session('agent', self.AGENT)
+        self.assertEqual(self.name(terminal, 'codex-koinon'), dict(result='renamed', name='codex-koinon'))
+        self.assertEqual(self.tmux('display-message', '-p', '-t', terminal['pane_id'], '#{session_name}'),
+                         'codex-koinon')
+        self.assertEqual(self.name(terminal, 'codex-koinon')['result'], 'unchanged')
+
+    def test_a_non_agent_second_pane_does_not_block_the_rename(self):
+        terminal = self.session('agent', self.AGENT)
+        self.tmux('split-window', '-t', terminal['pane_id'], *self.OTHER)
+        self.assertEqual(self.name(terminal, 'codex-koinon')['result'], 'renamed')
+
+    def test_shared_session_titles_only_the_own_pane(self):
+        terminal = self.session('shared', self.AGENT)
+        self.tmux('split-window', '-t', terminal['pane_id'], *self.OTHER)
+        other = [pane for pane in self.tmux('list-panes', '-t', 'shared', '-F', '#{pane_id}\t#{pane_pid}').splitlines()
+                 if not pane.startswith(terminal['pane_id'] + '\t')][0].split('\t')
+        # The second pane holds a live Claude registry process.
+        result = self.name(terminal, 'codex-koinon', claude=[int(other[1])])
+        self.assertEqual(result, dict(result='pane_titled', name='codex-koinon', pane_id=terminal['pane_id']))
+        self.assertEqual(self.tmux('display-message', '-p', '-t', terminal['pane_id'], '#{session_name}'), 'shared')
+        self.assertEqual(self.tmux('display-message', '-p', '-t', terminal['pane_id'], '#{pane_title}'), 'codex-koinon')
+        self.assertNotEqual(self.tmux('display-message', '-p', '-t', other[0], '#{pane_title}'), 'codex-koinon')
+
+    def test_a_taken_name_renames_nothing(self):
+        terminal = self.session('agent', self.AGENT)
+        self.session('codex-koinon', self.OTHER)
+        self.assertEqual(self.name(terminal, 'codex-koinon'), dict(result='name_taken', name='codex-koinon'))
+        self.assertEqual(self.tmux('display-message', '-p', '-t', terminal['pane_id'], '#{session_name}'), 'agent')
+
+    def test_no_observed_terminal_is_a_no_op(self):
+        for record in (dict(state='unavailable', reason='not_in_tmux'),
+                       dict(state='unavailable', reason='tmux_unavailable'),
+                       dict(state='unknown', reason='not_recorded')):
+            self.assertEqual(self.name(record, 'codex-koinon'), dict(result=record['reason']))
+
+
 class EnsureRecordsTests(unittest.TestCase):
     def setUp(self):
         temporary = tempfile.TemporaryDirectory()
@@ -197,6 +263,8 @@ class EnsureRecordsTests(unittest.TestCase):
                 self.assertEqual(durable_state.read(state / 'terminal.json')['reason'], 'not_in_tmux')
                 self.assertEqual(ensured['host']['reason'], 'host_not_found')
                 self.assertEqual(ensured['terminal']['reason'], 'not_in_tmux')
+                if backend != 'manual':
+                    self.assertEqual(ensured.get('tmux', dict(result='not_in_tmux'))['result'], 'not_in_tmux')
                 reported, _ = self.invoke(backend, 'status', 'codex', thread)
                 self.assertEqual(reported['terminal']['reason'], 'not_in_tmux')
                 for path in (state / 'host.json', state / 'terminal.json'):

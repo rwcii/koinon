@@ -632,3 +632,15 @@ killed rebind is completed by the next `rebind` or `ensure` of its successor; a 
 killed before the stop is cancelled by the predecessor's next `ensure` while it still
 publishes the alias. A resumed predecessor registers again with `ensure`, and its own rebind
 takes the alias back.
+
+## Terminal name
+
+After a Codex `ensure`, and so after `rebind`, the agent's own terminal is named after the
+name its registry record publishes (the alias when it holds it, else its per-thread name). The
+input is the `terminal.json` just recorded. When the recorded tmux session holds no other
+agent pane (a pane whose process tree holds a Codex CLI process or a live Claude registry
+process), the session is renamed by its session ID and the name is read back; when another
+session already has the name, nothing is renamed (`name_taken`). When the session holds another
+agent's pane, only the own pane's title is set (`pane_titled`). The `tmux` result is one of
+`renamed`, `unchanged`, `pane_titled`, `name_taken`, `rename_unconfirmed`, `tmux_unreadable` or
+the terminal record's reason. No other session or pane is ever targeted.

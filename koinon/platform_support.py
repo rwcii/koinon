@@ -1399,6 +1399,49 @@ def ancestor_matching(pid, predicate, limit=64):
     return None
 
 
+def process_parents():
+    """Map pid to parent pid for this user's processes; empty when unreadable."""
+    parents = {}
+    if LINUX:
+        uid = os.geteuid()
+        for entry in Path('/proc').iterdir():
+            if not entry.name.isdigit():
+                continue
+            try:
+                if entry.stat().st_uid != uid:
+                    continue
+                parents[int(entry.name)] = int((entry / 'stat').read_text().rsplit(')', 1)[1].split()[1])
+            except (OSError, ValueError, IndexError):
+                continue
+        return parents
+    try:
+        result = subprocess.run(['ps', '-A', '-o', 'pid=,ppid=,uid='], capture_output=True, text=True,
+                                check=True, timeout=PROCESS_QUERY_TIMEOUT)
+    except (OSError, subprocess.SubprocessError):
+        return parents
+    for line in result.stdout.splitlines():
+        fields = line.split()
+        if len(fields) == 3 and all(field.isdigit() for field in fields) and int(fields[2]) == os.geteuid():
+            parents[int(fields[0])] = int(fields[1])
+    return parents
+
+
+def descendants(pid, parents=None):
+    """pid and every process below it, from one parent-map snapshot."""
+    parents = process_parents() if parents is None else parents
+    children = {}
+    for child, parent in parents.items():
+        children.setdefault(parent, []).append(child)
+    found, pending = [], [pid]
+    while pending and len(found) < 4096:
+        current = pending.pop()
+        if current in found:
+            continue
+        found.append(current)
+        pending.extend(children.get(current, ()))
+    return found
+
+
 def _selected_executable(executable):
     import shutil
     selected = shutil.which(executable)
