@@ -53,9 +53,10 @@ for the syntax; do not guess and do not fall back to prose.
 What a reset keeps:
 
 - **Claude `/clear`.** The process, pane and peer name stay; the native session key changes.
-- **Codex `/clear`.** The process and pane stay. Do not use `/new`: it starts a separate
-  session with its own sandbox and asks where to run it. Whether the thread stays after
-  `/clear` is not verified; the pickup's reconnect step handles either case.
+- **Codex `/clear`.** The process and pane stay, and the thread changes: `CODEX_THREAD_ID` is
+  new, and the new thread has no bridge until `ensure` runs. `/resume` in the same process can
+  switch back to the old thread. Do not use `/new`: it starts a separate session with its own
+  sandbox and asks where to run it. The pickup's reconnect step handles the new thread.
 
 Use the verified pane ID explicitly for every operation rather than relying on the active
 window. Shell variables may not survive between tool calls: set `peer_pane` to the verified
@@ -72,7 +73,17 @@ in it. Keep captures, private identifiers and handoff contents out of tracked fi
 
 ## Send authorized input
 
-Before typing, capture the pane again. Confirm the same target is at an **empty, idle agent
+Before typing, check that the pane is not in a tmux mode. In copy mode or view mode, tmux
+does not send `send-keys` input to the program, and the keys are lost:
+
+```sh
+tmux display-message -p -t "${peer_pane:?set the verified pane ID in this shell}" '#{pane_in_mode}'
+```
+
+A result of `1` means the pane is in a mode. Do not press Escape or `q` to leave it: the user
+can be reading or selecting in that pane. Report it and ask the user to leave the mode.
+
+Then capture the pane again. Confirm the same target is at an **empty, idle agent
 input prompt**, with no permission dialog, selection menu or pending text. A running shell
 receives shell input, not an agent prompt. If the pane is busy or shows a dialog, wait for a
 normal prompt or report the blocker; do not interrupt it or press Enter to clear the screen.
