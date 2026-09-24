@@ -42,9 +42,8 @@ direct authorization. The `reconnect` guide topic and the `pickup` skill use it 
   same-pane evidence shows the user left it (decision criterion 3). Then:
   - no holder, or a holder with a stopped lifecycle and no live record: take the alias under
     chunk 02's take rule;
-  - a live holder in another terminal: the alias stays with it (decision criterion 4 forbids
-    a move from a session in another terminal); report `alias_held_by` with the holder's
-    per-thread name, and `predecessor_stopped`.
+  - a live holder in another terminal: the alias stays with it (decision criterion 3); report
+    `alias_held_by` with the holder's per-thread name, and `predecessor_stopped`.
 - **Recovery.** A transient state whose `operation` is dead is completed, never taken over:
   `moving` by the next `rebind` or `ensure` of `to` (from step 2), `publishing` by the next
   `ensure` of `holder` (chunk 02, publication on a running service). `from` cancels a `moving`
