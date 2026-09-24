@@ -15,6 +15,7 @@ sys.path.insert(0, str(ROOT))
 sys.path.insert(0, str(ROOT / 'scripts'))
 
 from install import FILES
+from waiting import wait_until_sync
 from koinon import durable_state, guidance
 from koinon import participant_instructions as instructions
 
@@ -147,7 +148,6 @@ class MemoryServiceObservationTests(unittest.TestCase):
         return process
 
     def test_observes_the_selected_repository_service_from_another_working_directory(self):
-        import time
         import session
         from koinon import platform_support
         from koinon.repository_identity import repo_identity
@@ -164,14 +164,14 @@ class MemoryServiceObservationTests(unittest.TestCase):
                 process = self.serve(directory, repo)
                 config = dict(memory_services=dict(repositories={
                     repo_identity(repo): dict(service_directory=str(directory), backend='manual')}))
-                deadline = time.monotonic() + 20
-                observed = None
-                while time.monotonic() < deadline:
+                last = {}
+
+                def ready():
                     # The test process's own working directory is another repository.
-                    observed = session._memory_observation(ROOT, config, str(repo))
-                    if observed['state'] == 'observed':
-                        break
-                    time.sleep(0.2)
+                    last['value'] = session._memory_observation(ROOT, config, str(repo))
+                    return last['value'] if last['value']['state'] == 'observed' else None
+                observed = wait_until_sync(ready, 'memory service observed', process=process,
+                                           observe=lambda: last.get('value'), interval=0.2)
                 self.assertEqual((observed['state'], observed['healthy']), ('observed', True), observed)
                 process.terminate()
                 process.wait(timeout=20)
