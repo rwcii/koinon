@@ -43,7 +43,7 @@ syntax; a command from another family fails or does something else.
 | Family | Handoff | Reset | Pickup |
 | --- | --- | --- | --- |
 | Claude | `/handoff <scope>` | `/clear` | `/pickup <scope>` |
-| Codex | `$handoff <scope>` | `/new`, then choose "Current checkout" | `$pickup <scope>` |
+| Codex | `$handoff <scope>` | `/clear` | `$pickup <scope>` |
 | DeepSeek | not verified | not verified | not verified |
 
 `<scope>` is one short line, for example `peer <name>: orientation only; remain paused`.
@@ -53,10 +53,9 @@ for the syntax; do not guess and do not fall back to prose.
 What a reset keeps:
 
 - **Claude `/clear`.** The process, pane and peer name stay; the native session key changes.
-- **Codex `/new`.** It opens a menu that asks where the new conversation runs. That menu is part
-  of the authorized reset, not a permission dialog: choose the current checkout. The process
-  stays, but the conversation is a new Codex thread. The Koinon session stays registered to the
-  old thread, so bridge notices keep going there until the new thread registers.
+- **Codex `/clear`.** The process and pane stay. Do not use `/new`: it starts a separate
+  session with its own sandbox and asks where to run it. Whether the thread stays after
+  `/clear` is not verified; the pickup's reconnect step handles either case.
 
 Use the verified pane ID explicitly for every operation rather than relying on the active
 window. Shell variables may not survive between tool calls: set `peer_pane` to the verified
@@ -115,7 +114,7 @@ merely from a high context reading.
    Let the peer write its own handoff; do not substitute another agent's file. If saving
    failed, stop the cycle before clearing anything.
 3. **Reset.** Recheck the target and prompt, then send the family's reset command and handle
-   its menu as the table says. Confirm the reset in the terminal, for example a fresh banner or
+   any menu it opens. Confirm the reset in the terminal, for example a fresh banner or
    a context reading near zero, before the next step. Do not substitute killing or restarting
    the process.
 4. **Pick up.** Send the family's pickup command with the scope again, for example
