@@ -102,8 +102,11 @@ The installed memory command prefix is:
 ```
 
 Replace the placeholder with an explicitly selected stable participant session key,
-never a transient PID. Codex and DeepSeek may use their native exported session
-identities; participants without one need an operator/session-supplied stable key.
+never a transient PID. Defaults are CODEX_THREAD_ID (Codex), DSH_SESSION_ID (DeepSeek),
+and CLAUDE_CODE_SESSION_ID (Claude). If you use a different key, declare it in your
+own session shell with `python3 {shlex.quote(str(prefix/'session.py'))} work-key --key KEY`
+so peer status associates your work with that key. Participants without a native
+identity need an operator/session-supplied stable key.
 A replacement session must not reuse a crashed predecessor's key to bypass its lease.
 Use work get/create/start/update/finish and claim renew as appropriate to the user's
 scope. Checkpoints include the next artifact and progress deadline; renew the lease

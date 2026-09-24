@@ -5,6 +5,10 @@ into a dated release section when promoted to `main`.
 
 ## Unreleased
 
+- Peer and notifier status show active claimed work with its title and checkpoint from
+  each participant’s selected memory store. `session.py work-key --key KEY` associates
+  a custom work consumer key with the current session.
+
 - The Claude status-line wrapper now records a real Claude session. It refused the session
   registry record because Claude Code writes that file with the umask mode (0644 or 0664),
   so every Claude peer showed `no_status_record`.

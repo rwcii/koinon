@@ -504,3 +504,12 @@ Codex `presence.model_activity` may use source `codex_session_log`. Its `since_m
 matched turn event time; `observed_at_ms` is the observation time. Model and context groups
 retain their own source times. Log ownership loss or unreadable evidence produces unknown,
 without changing delivery or adding any peer control operation.
+
+### Claimed-work status
+
+A `work-list` item includes its bounded `checkpoint` alongside the existing summary.
+Peer and notifier status query this list by the associated owner in the writer-selected
+repository store. `work.claims` contains only active-lease `{work_id, title, checkpoint}`
+entries, with source `memory_work_list`, read/source times, and a `truncated` flag.
+An empty successful query remains observed. No selected association and an unavailable
+service report `work_association_missing` and `memory_unavailable` respectively.

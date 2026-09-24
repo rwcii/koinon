@@ -93,7 +93,8 @@ Claude settings, Codex home, registry or services.
   registry reader use the same directory.
 - The status-line input arrives before the first API response (`current_usage` null,
   percentages null): context is `unknown` with a reason, not zero.
-- A DeepSeek peer: every new field is `unknown` with a reason.
+- A DeepSeek peer: model and context are `unknown` with `provider_unsupported`;
+  claimed work follows the same native/custom-key association rule as other peers.
 
 ## Measurement
 

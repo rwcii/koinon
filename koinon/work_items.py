@@ -225,10 +225,10 @@ class WorkItems:
         results, truncated = [], False
         used = len(encoded(dict(items=[], truncated=False, observed_at=now)))
         rows = self.db.execute('SELECT w.work_id,w.revision,w.title,w.lifecycle,'
-            'w.proposed_assignee,w.progress_deadline,b.consumer,b.active,b.expires_at '
+            'w.proposed_assignee,w.progress_deadline,b.consumer,b.active,b.expires_at,w.checkpoint '
             'FROM work_items w LEFT JOIN claim_bundles b ON b.work_id=w.work_id '
             'WHERE w.expires_at IS NULL OR w.expires_at>? ORDER BY w.work_id', (now,))
-        for work_id, revision, title, lifecycle, proposed, deadline, consumer, active, expires in rows:
+        for work_id, revision, title, lifecycle, proposed, deadline, consumer, active, expires, checkpoint in rows:
             live, _, stale = freshness(lifecycle, deadline, active, expires, now)
             owner = consumer if live else None
             tests = dict(owner=owner, lifecycle=lifecycle, proposed_assignee=proposed,
@@ -237,7 +237,7 @@ class WorkItems:
                 continue
             summary = dict(work_id=work_id, revision=revision, title=title, lifecycle=lifecycle,
                 proposed_assignee=proposed, progress_unverified=bool(stale), progress_deadline=deadline,
-                lease_valid=live, owner=owner, observed_at=now)
+                lease_valid=live, owner=owner, observed_at=now, checkpoint=checkpoint)
             size = len(encoded(summary)) + (2 if results else 0)
             if len(results) >= request.get('limit', 100) or used + size > 48 * 1024:
                 truncated = True

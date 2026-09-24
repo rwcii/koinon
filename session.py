@@ -260,7 +260,7 @@ def validate_participant_executable(config, agent, action):
 def main():
     os.umask(0o077)
     p=argparse.ArgumentParser(description=__doc__)
-    p.add_argument('action',choices=['ensure','stage','run','status','stop','rename','work-policy'])
+    p.add_argument('action',choices=['ensure','stage','run','status','stop','rename','work-policy','work-key'])
     p.add_argument('--agent',choices=['codex','deepseek','claude'],default=None,
                    help='participant kind this instance serves; defaults to the registered kind, '
                         'or is inferred from the session environment, and is codex otherwise')
@@ -269,9 +269,21 @@ def main():
     p.add_argument('--model',default=None,
                    help='model id advertised in the peer name; for deepseek it defaults to the '
                         'harness agent-default-model when one can be read')
+    p.add_argument('--key', help='stable work consumer key for this native session')
     p.add_argument('--repo',default=os.getcwd())
     a=p.parse_args()
     prefix=Path(__file__).resolve().parent
+    if a.action == 'work-key':
+        from koinon.participant_work import set_key
+        agent = a.agent or ('codex' if os.environ.get('CODEX_THREAD_ID') else
+                            'deepseek' if os.environ.get('DSH_SESSION_ID') else 'claude')
+        variable = dict(codex='CODEX_THREAD_ID', deepseek='DSH_SESSION_ID',
+                        claude='CLAUDE_CODE_SESSION_ID')[agent]
+        if not os.environ.get(variable) or not a.key:
+            p.error('work-key requires --key and ' + variable)
+        set_key(agent, os.environ[variable], a.key)
+        print(json.dumps(dict(ok=True)))
+        return
     if a.action == 'work-policy':
         if a.agent is None:
             p.error('work-policy requires --agent')
