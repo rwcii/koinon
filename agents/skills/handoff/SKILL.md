@@ -111,13 +111,13 @@ state, pull request and issue states, CI state. Write:
 - <repository paths, issues and pull requests that hold the durable facts>
 ```
 
-Take the bridge identity from the live runtime, not from memory. A Codex or DeepSeek session
-runs the installed `session.py status` from its own shell (DeepSeek adds `--agent deepseek`);
-it prints the peer name and state directory. Run it only in a session that is already
-registered: for an unregistered one it saves a legacy registration that blocks `ensure`. A Claude session finds its peer name with the
-installed `bridge.py peers`. A context reset can start a new native session that the bridge
-does not know yet, and the next session needs these values to register again and to stop the
-old instance.
+Take the bridge identity from the live runtime, not from memory. The state directory is the
+`--state-dir` in the read command of this session's bridge notices. `bridge.py --state-dir
+<state> status` prints the bridge `address`; the entry with that address in `bridge.py peers`
+gives the peer name. The session ID is `CODEX_THREAD_ID` for Codex and `DSH_SESSION_ID` for
+DeepSeek. A Claude session finds its peer name in `bridge.py peers`. Never run `session.py
+status` for this: for an unregistered session it saves a registration that blocks `ensure`.
+The next session needs these values to reconnect after a context reset.
 
 Use commit hashes, branch names, issue and pull request numbers, and repository-relative
 paths. Leave out a section that has no content. The file stays on this machine, but never write
