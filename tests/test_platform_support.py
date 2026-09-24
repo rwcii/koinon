@@ -438,3 +438,17 @@ class StateDirectoryFlushTests(unittest.TestCase):
         target.write_text('{}')
         with self.assertRaises(NotADirectoryError):
             platform_support.sync_state_directory(target)
+
+
+class OverflowUidTests(unittest.TestCase):
+    def test_linux_reads_the_kernel_value_and_macos_has_none(self):
+        with patch.object(platform_support, 'LINUX', True), \
+                patch.object(platform_support.Path, 'read_text', return_value='65534\n'):
+            self.assertEqual(platform_support.overflow_uid(), 65534)
+        with patch.object(platform_support, 'LINUX', False):
+            self.assertIsNone(platform_support.overflow_uid())
+
+    def test_an_unreadable_value_is_unknown_not_guessed(self):
+        with patch.object(platform_support, 'LINUX', True), \
+                patch.object(platform_support.Path, 'read_text', side_effect=OSError):
+            self.assertIsNone(platform_support.overflow_uid())

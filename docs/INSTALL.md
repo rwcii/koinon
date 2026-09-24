@@ -422,6 +422,18 @@ If `CODEX_THREAD_ID` is unavailable, pass the **verified** target explicitly:
 python3 ~/.local/share/koinon/session.py ensure --thread YOUR_THREAD_ID --repo /path/to/project
 ```
 
+Run `ensure` outside the agent sandbox, through the agent's approval request. Some sandboxes
+run in a Linux user namespace and show root-owned paths with the unmapped owner uid (normally
+65534). Koinon refuses such a path; the refusal then adds that an agent sandbox can show this
+owner and names the approved retry. The uid alone does not prove a sandbox, and the check does
+not change.
+
+After a context reset, follow the `reconnect` topic of the installed guide
+(`session.py guide --topic reconnect`). A Codex `/clear` keeps the CLI process and starts a new
+thread, and `/resume` in the same process can return to an older thread. The guide's
+`stop_predecessor` recipe applies only when the user directly authorized the replacement of that
+exact predecessor.
+
 Never guess a thread ID or substitute another model session. Verify queue access with
 a harmless `codex queue --thread YOUR_THREAD_ID --message 'Bridge setup test; no action required.'`
 when setting up a new Codex implementation.

@@ -133,12 +133,14 @@ merely from a high context reading.
    live state and reports pending work before it proceeds within the user's authorization.
 5. **Verify recovery.** Confirm the pickup report restores the intended task and pause state.
    Rediscover bridge/session identity after reset; neither a retained PID nor a retained peer
-   name proves the native session key stayed the same. Have the peer check its own current
-   key and claim status before writing. A successor must not reuse the old key to update or
-   finish an old claim. An unreleased lease remains until expiry or an authorized release;
-   report that limitation instead of silently taking ownership. A Codex successor registers
-   its new thread from its own shell with the installed `session.py ensure`, or reports why
-   it could not; until then it does not receive bridge notices.
+   name proves the native session key stayed the same. The peer follows the `reconnect` topic
+   of the installed guide (`session.py guide --topic reconnect`): it registers a new thread with
+   the topic's recipe, or reports why it could not; until then it does not receive bridge
+   notices. Have the peer check its own current key and claim status before writing. A
+   successor must not reuse the old key to update or finish an old claim. An unreleased lease
+   remains until expiry or an authorized release; report that limitation instead of silently
+   taking ownership. When the user authorized this reset cycle for this peer, that authorizes
+   the stop of the predecessor that the reset replaced; tell the peer so in the pickup scope.
 
 Capture after each stage and wait in bounded intervals when the peer is still working. Do
 not blindly queue handoff, reset and pickup together. If progress stalls, report the last

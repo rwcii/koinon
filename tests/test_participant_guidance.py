@@ -206,6 +206,22 @@ class CatalogTests(unittest.TestCase):
         self.assertEqual(send['argv'][-2:], ['{address}', '{text}'])
         self.assertIn('uds:/absolute/path', send['effect'])
 
+    def test_reconnect_registers_through_approval_and_limits_the_predecessor_stop(self):
+        for family in ('codex', 'deepseek'):
+            with self.subTest(family=family):
+                topic = guidance.render(family, 'reconnect', python='p', prefix='/a')['topics'][0]
+                recipes = {r['id']: r for r in topic['recipes']}
+                self.assertEqual(recipes['ensure']['argv'][1:3], ['/a/session.py', 'ensure'])
+                self.assertTrue(recipes['ensure']['needs_approval'])
+                self.assertTrue(recipes['stop_predecessor']['needs_approval'])
+                for fact in ('first Koinon command', 'sandbox topic', 'directly authorized',
+                             'A pickup alone', 'report the predecessor'):
+                    self.assertIn(fact, topic['text'])
+        codex = guidance.render('codex', 'reconnect', python='p', prefix='/a')['topics'][0]
+        self.assertIn('/resume', codex['view'])
+        claude = guidance.render('claude', 'reconnect', python='p', prefix='/a')['topics'][0]
+        self.assertEqual(claude['recipes'], [])
+
     def test_revision_follows_content_not_observations(self):
         first = guidance.render('codex', python='p', prefix='/a', observations=dict(x=dict(state='observed')))
         second = guidance.render('codex', python='p', prefix='/a', observations=dict(x=dict(state='unknown')))

@@ -389,6 +389,20 @@ def account_home():
         raise AccountHomeUnavailable('account_home_unavailable') from None
 
 
+def overflow_uid():
+    """The owner a Linux user namespace shows for an unmapped uid, or None.
+
+    Agent sandboxes that run in a user namespace show root-owned paths with this
+    uid. macOS has no such mapping.
+    """
+    if not LINUX:
+        return None
+    try:
+        return int(Path('/proc/sys/kernel/overflowuid').read_text())
+    except (OSError, ValueError):
+        return None
+
+
 def participant_lock_dir():
     """Persistent singleton namespace shared by every state root of this account."""
     home = account_home()

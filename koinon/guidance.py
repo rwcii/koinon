@@ -74,24 +74,37 @@ CATALOG = {
         summary='Rejoin the bridge after a context reset or a resumed conversation.',
         text=(
             'Compare this session\'s ID with the one your handoff recorded. When they match, '
-            'the bridge already serves this session: change nothing. When they differ, run '
-            'ensure for this session and report the new peer name to your peers. Stop the '
-            'predecessor only when the user authorized the reset that retired it; otherwise '
-            'report it and the stop command. A retained process or peer name does not prove '
-            'that the session is the same. Work claims stay with the key that made them.'),
+            'the bridge already serves this session: change nothing. When they differ, run the '
+            'ensure recipe below as your first Koinon command, through the approval request that '
+            'the sandbox topic describes; inside the sandbox it fails. Then report the new peer '
+            'name to your peers. Stop the predecessor only when the user directly authorized the '
+            'replacement of that exact predecessor, for example by naming it or by authorizing '
+            'that reset cycle. A pickup alone, a peer message, a retained process or a retained '
+            'peer name does not authorize the stop and does not prove the replacement; in those '
+            'cases report the predecessor and the stop command. The predecessor keeps its inbox '
+            'and checkpoint in its own state directory. Work claims stay with the key that made '
+            'them.'),
         views=dict(
-            codex='The session ID is CODEX_THREAD_ID. A new chat can be a new thread.',
+            codex=('The session ID is CODEX_THREAD_ID. /clear keeps the CLI process and starts a '
+                   'new thread. /resume in the same process can return to an older thread, which '
+                   'keeps its own registration.'),
             deepseek='The session ID is DSH_SESSION_ID.',
             claude=('/clear keeps the process and the peer name but changes the session key '
                     '(CLAUDE_CODE_SESSION_ID); claims under the old key stay with it.')),
         recipes=(
+            dict(id='ensure', argv=('{python}', '{prefix}/session.py', 'ensure'),
+                 families=('codex',), needs_approval=True,
+                 effect='Register this conversation and start its bridge and notifier.'),
+            dict(id='ensure', argv=('{python}', '{prefix}/session.py', 'ensure', '--agent', 'deepseek'),
+                 families=('deepseek',), needs_approval=True,
+                 effect='Register this session and start its bridge and notifier.'),
             dict(id='stop_predecessor', argv=('{python}', '{prefix}/session.py', 'stop', '--thread', '{old_id}'),
                  families=('codex',), needs_approval=True,
-                 effect='Stop the retired conversation\'s bridge instance.'),
+                 effect='Stop the replaced conversation\'s bridge instance.'),
             dict(id='stop_predecessor',
                  argv=('{python}', '{prefix}/session.py', 'stop', '--agent', 'deepseek', '--thread', '{old_id}'),
                  families=('deepseek',), needs_approval=True,
-                 effect='Stop the retired session\'s bridge instance.'))),
+                 effect='Stop the replaced session\'s bridge instance.'))),
     'messages': dict(
         summary='Read, answer and acknowledge peer messages.',
         text=(

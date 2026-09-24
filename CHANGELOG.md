@@ -5,6 +5,13 @@ into a dated release section when promoted to `main`.
 
 ## Unreleased
 
+- A refusal of a path owned by the unmapped uid of a Linux user namespace (normally 65534)
+  now says that an agent sandbox can show this owner, and names the retry outside the sandbox
+  through the agent's approval request. The ownership check itself is unchanged.
+- The guide's `reconnect` topic carries the `ensure` recipe, marked `needs_approval`, as the
+  first command after a reset. It stops a predecessor only on the user's direct authorization
+  for that exact predecessor, and it records that a Codex `/resume` can return to an older
+  thread. The `handoff`, `pickup` and `peer-tmux` skills now point to this topic.
 - Claude sessions get the installed guidance. Installation adds a managed block to the
   Claude `CLAUDE.md` and one `SessionStart` hook that prints
   `session.py guide --agent claude --brief` at startup, resume, `/clear` and compaction.
