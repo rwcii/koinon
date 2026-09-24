@@ -130,7 +130,8 @@ def run(exclusion):
         from koinon import upgrade_exclusion
         if upgrade_exclusion.read(exclusion.prefix) is not None:
             exclusion.finish()
-        return _claude_statusline(exclusion, documents, phase, result)
+        return _participant_guidance(exclusion, documents, phase,
+                                 _claude_statusline(exclusion, documents, phase, result))
     if not 10 <= phase['step'] <= 18:
         raise CompletionError('completion requires migration through final-readiness phase')
     exclusion.verify()
@@ -197,7 +198,8 @@ def run(exclusion):
         phase = exclusion.journal.advance(phase, evidence=digest)
     result = documents.read('complete', phase['receipts'][9])
     exclusion.finish()
-    return _claude_statusline(exclusion, documents, phase, result)
+    return _participant_guidance(exclusion, documents, phase,
+                                 _claude_statusline(exclusion, documents, phase, result))
 
 
 def _claude_statusline(exclusion, documents, phase, result):
@@ -217,3 +219,24 @@ def _claude_statusline(exclusion, documents, phase, result):
     if outcome is not None:
         documents.put('claude-statusline', dict(version=1, plan=exclusion.loaded['sha256'], outcome=outcome))
     return dict(result, claude_statusline=outcome)
+
+
+def _participant_guidance(exclusion, documents, phase, result):
+    """Reconcile the managed guidance blocks that the preflight observed, once.
+
+    Like the status-line step, this runs after finish() restores ordinary admission, and a
+    resumed completion reports the kept outcome instead of reconciling again.
+    """
+    import sys
+    from koinon import participant_instructions
+    retained = durable_state.read(documents.path('participant-guidance'), max_bytes=1024 * 1024)
+    if retained is not None:
+        return dict(result, participant_guidance=retained.get('outcome'))
+    planned = documents.read('prepared-checks', phase['receipts'][0]).get('participant_guidance')
+    try:
+        outcome = participant_instructions.apply_planned(exclusion.prefix, planned, sys.executable)
+    except (OSError, ValueError) as exc:
+        outcome = dict(outcome='failed', error=str(exc))
+    if outcome is not None:
+        documents.put('participant-guidance', dict(version=1, plan=exclusion.loaded['sha256'], outcome=outcome))
+    return dict(result, participant_guidance=outcome)

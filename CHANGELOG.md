@@ -5,6 +5,14 @@ into a dated release section when promoted to `main`.
 
 ## Unreleased
 
+- Participant instructions now come from the installed runtime. The managed section in the
+  Codex and DeepSeek `AGENTS.md` shrinks to a pointer, `session.py guide --agent <family>`,
+  plus the authority limits, and is the same in every release. `guide` prints the current
+  guidance, this session's identity and health, and the next action, writes nothing, and
+  works with no registration or service. Installation, repeated installation and upgrade
+  reconcile the section the same way: an earlier release's exact text is replaced, the
+  user's edits are kept and reported, and `--replace-guidance` overwrites them explicitly.
+
 - Native session `ensure` and `status` report the saved peer name, state directory and
   inbox command. Inspecting an unregistered session now reports `unregistered` without
   writing files, so a status check no longer blocks subsequent native registration.

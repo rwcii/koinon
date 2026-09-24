@@ -126,6 +126,16 @@ def validate_install_config(result):
                 or not (record['wrapper'] is None or isinstance(record['wrapper'], dict))
                 or (record['state'] != 'declined' and record['wrapper'] is None)):
             raise ValueError('invalid Claude status-line selection')
+    if 'participant_guidance' in result:
+        record = result['participant_guidance']
+        blocks = record.get('blocks') if isinstance(record, dict) else None
+        if (not isinstance(record, dict) or record.get('version') != 1 or not isinstance(blocks, dict)
+                or any(agent not in ('codex', 'deepseek', 'claude') or not isinstance(block, dict)
+                       or not isinstance(block.get('path'), str) or not Path(block['path']).is_absolute()
+                       or block.get('state') not in ('current', 'edited', 'missing')
+                       or not (block.get('digest') is None or isinstance(block.get('digest'), str))
+                       for agent, block in blocks.items())):
+            raise ValueError('invalid participant guidance record')
     return result
 
 

@@ -48,12 +48,17 @@ an authenticated agent type and cannot replace the bridge-owned guidance.
 
 ## Participant guidance
 
-`koinon/participant_instructions.py` manages guidance for both Codex and DeepSeek
-participants, with separate Koinon markers and setup commands. The old
-`koinon/codex_instructions.py` import remains a shim. Updates and removal recognize legacy
-markers and retain the legacy lock inodes to exclude old updaters. Koinon supplies the
-peer-input guidance in those managed instructions, each inbox result, and each queued
-notice. This does not depend on the participant runtime adding its own peer framing.
+`koinon/participant_instructions.py` manages a small section for both Codex and DeepSeek
+participants, with separate Koinon markers. The section is the same in every release: it
+names the installed `session.py guide --agent <family>`, when to run it, and the authority
+limits. The operating instructions come from `koinon/guidance.py` through that command, so an
+upgrade replaces them with the runtime. `guide` writes nothing, needs no registration or
+service, and reports each live observation as `observed`, `unavailable` or `unknown`; its
+recipes are argument arrays that it never runs. The old `koinon/codex_instructions.py` import
+remains a shim. Updates and removal recognize legacy markers and retain the legacy lock inodes
+to exclude old updaters. Koinon supplies the peer-input guidance in the guide's `messages`
+topic, each inbox result, and each queued notice. This does not depend on the participant
+runtime adding its own peer framing.
 
 The repository's `CLAUDE.md` includes `AGENTS.md` for agents working on Koinon itself;
 these are separate from guidance installed into a participant's configuration.

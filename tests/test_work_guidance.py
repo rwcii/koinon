@@ -138,7 +138,7 @@ class GuidanceTests(unittest.TestCase):
         samples = [section+section, adjacent, section.rstrip('\n'),
                    section.replace('<!-- END', section+'<!-- END', 1),
                    section.replace('KOINON WORK ITEMS', 'KOINON WORK ITEMS malformed', 1),
-                   peer.replace('## Local peer messaging', section+'## Local peer messaging')]
+                   peer.replace('## Koinon\n', section+'## Koinon\n')]
         for text in samples:
             with self.subTest(text=text[:90]), self.assertRaises(ValueError):
                 guidance.sections(text)
