@@ -106,3 +106,8 @@ Build each chunk with the `ship` skill. Do not start a chunk until the chunks it
 have merged; chunks with no dependency between them may be built at the same time. Once a chunk's branch is pushed and CI is running, put further changes on
 a new branch. File each new deferral as an issue on the milestone when it is decided. When the
 build shows that the plan is wrong, correct the plan file first and gate it again.
+
+A chunk reuses the work item of the issue it delivers (`ship`, step 1); do not create one work
+item per chunk. When a different agent builds the next chunk of the same issue, the previous
+holder releases its claim after its pull request merges (`ship`, step 5), and the next
+builder starts the same item. A lease that expires releases the claim as well.
