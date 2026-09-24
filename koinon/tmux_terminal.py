@@ -104,13 +104,17 @@ def agent_panes(terminal, executable, claude_pids):
     """The panes of the recorded tmux session whose process tree holds an agent.
 
     An agent is a Codex CLI process (`platform_support.codex_process`) or a live Claude
-    registry process. Returns None when the session cannot be listed.
+    registry process. Returns None when the session cannot be listed or the process scan is
+    incomplete.
     """
     output = tmux(terminal['socket'], 'list-panes', '-s', '-t', terminal['session_id'],
                   '-F', '#{pane_id}\t#{pane_pid}')
     if output is None:
         return None
     parents = platform_support.process_parents()
+    if parents is None:
+        # Another agent pane cannot be ruled out; never rename the session on that basis.
+        return None
     panes = []
     for line in output.splitlines():
         fields = line.split('\t')
@@ -133,7 +137,7 @@ def name_terminal(terminal, name, executable, claude_pids):
     socket, session_id, pane_id = terminal['socket'], terminal['session_id'], terminal['pane_id']
     panes = agent_panes(terminal, executable, claude_pids)
     if panes is None:
-        return dict(result='tmux_unreadable')
+        return dict(result='panes_unknown')
     if len([pane for pane in panes if pane != pane_id]) > 0:
         if tmux(socket, 'select-pane', '-t', pane_id, '-T', name) is None:
             return dict(result='tmux_unreadable')

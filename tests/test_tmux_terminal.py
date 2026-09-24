@@ -205,11 +205,54 @@ class TerminalNameTests(unittest.TestCase):
         self.assertEqual(self.name(terminal, 'codex-koinon'), dict(result='name_taken', name='codex-koinon'))
         self.assertEqual(self.tmux('display-message', '-p', '-t', terminal['pane_id'], '#{session_name}'), 'agent')
 
+    def test_an_incomplete_process_scan_renames_nothing(self):
+        terminal = self.session('agent', self.AGENT)
+        self.tmux('split-window', '-t', terminal['pane_id'], *self.AGENT)
+        with patch.object(platform_support, 'process_parents', return_value=None):
+            self.assertEqual(self.name(terminal, 'codex-koinon'), dict(result='panes_unknown'))
+        self.assertEqual(self.tmux('display-message', '-p', '-t', terminal['pane_id'], '#{session_name}'), 'agent')
+
     def test_no_observed_terminal_is_a_no_op(self):
         for record in (dict(state='unavailable', reason='not_in_tmux'),
                        dict(state='unavailable', reason='tmux_unavailable'),
                        dict(state='unknown', reason='not_recorded')):
             self.assertEqual(self.name(record, 'codex-koinon'), dict(result=record['reason']))
+
+
+class ProcessSnapshotTests(unittest.TestCase):
+    def test_a_failed_or_malformed_ps_is_unavailable(self):
+        with patch.object(platform_support, 'LINUX', False):
+            with patch.object(platform_support.subprocess, 'run', side_effect=OSError):
+                self.assertIsNone(platform_support.process_parents())
+            malformed = subprocess.CompletedProcess([], 0, stdout='12 1 501\ngarbage\n')
+            with patch.object(platform_support.subprocess, 'run', return_value=malformed):
+                self.assertIsNone(platform_support.process_parents())
+            good = subprocess.CompletedProcess([], 0, stdout=f'12 1 {os.geteuid()}\n13 12 {os.geteuid()}\n14 1 0\n')
+            with patch.object(platform_support.subprocess, 'run', return_value=good):
+                self.assertEqual(platform_support.process_parents(), {12: 1, 13: 12})
+        with patch.object(platform_support, 'process_parents', return_value=None), self.assertRaises(OSError):
+            platform_support.descendants(1)
+
+    def test_this_process_is_in_the_snapshot(self):
+        parents = platform_support.process_parents()
+        self.assertEqual(parents.get(os.getpid()), os.getppid())
+        self.assertIn(os.getpid(), platform_support.descendants(os.getppid(), parents))
+
+
+class FreshTerminalTests(unittest.TestCase):
+    def test_a_saved_record_never_directs_a_rename(self):
+        with patch.object(tmux_terminal, 'name_terminal') as naming:
+            result = session.name_own_terminal(Path('/unused'), dict(codex=CLI), 'codex-koinon-0a',
+                                               dict(name='codex-koinon', held=True), None)
+        self.assertEqual(result, dict(result='terminal_refresh_failed'))
+        naming.assert_not_called()
+
+    def test_record_attachment_returns_the_fresh_observation_or_none(self):
+        fresh = dict(state='observed', socket='/s', pane_id='%1', session_id='$1')
+        with patch.object(tmux_terminal, 'record', return_value=dict(host={}, terminal=fresh)):
+            self.assertEqual(session.record_attachment(Path('/unused'), dict(codex=CLI)), fresh)
+        with patch.object(tmux_terminal, 'record', side_effect=OSError('publish failed')):
+            self.assertIsNone(session.record_attachment(Path('/unused'), dict(codex=CLI)))
 
 
 class EnsureRecordsTests(unittest.TestCase):

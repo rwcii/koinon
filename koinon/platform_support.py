@@ -1400,28 +1400,41 @@ def ancestor_matching(pid, predicate, limit=64):
 
 
 def process_parents():
-    """Map pid to parent pid for this user's processes; empty when unreadable."""
+    """Map pid to parent pid for this user's processes, or None when the scan is incomplete.
+
+    A process that exits during the scan is skipped; any other unreadable own process, or a
+    failed or malformed `ps`, makes the whole snapshot unavailable, so a caller never mistakes
+    a partial scan for the absence of a process.
+    """
     parents = {}
     if LINUX:
         uid = os.geteuid()
-        for entry in Path('/proc').iterdir():
+        try:
+            entries = list(Path('/proc').iterdir())
+        except OSError:
+            return None
+        for entry in entries:
             if not entry.name.isdigit():
                 continue
             try:
                 if entry.stat().st_uid != uid:
                     continue
                 parents[int(entry.name)] = int((entry / 'stat').read_text().rsplit(')', 1)[1].split()[1])
-            except (OSError, ValueError, IndexError):
+            except (FileNotFoundError, ProcessLookupError):
                 continue
+            except (OSError, ValueError, IndexError):
+                return None
         return parents
     try:
         result = subprocess.run(['ps', '-A', '-o', 'pid=,ppid=,uid='], capture_output=True, text=True,
                                 check=True, timeout=PROCESS_QUERY_TIMEOUT)
     except (OSError, subprocess.SubprocessError):
-        return parents
+        return None
     for line in result.stdout.splitlines():
         fields = line.split()
-        if len(fields) == 3 and all(field.isdigit() for field in fields) and int(fields[2]) == os.geteuid():
+        if len(fields) != 3 or not all(field.isdigit() for field in fields):
+            return None
+        if int(fields[2]) == os.geteuid():
             parents[int(fields[0])] = int(fields[1])
     return parents
 
@@ -1429,6 +1442,8 @@ def process_parents():
 def descendants(pid, parents=None):
     """pid and every process below it, from one parent-map snapshot."""
     parents = process_parents() if parents is None else parents
+    if parents is None:
+        raise OSError('process snapshot unavailable')
     children = {}
     for child, parent in parents.items():
         children.setdefault(parent, []).append(child)

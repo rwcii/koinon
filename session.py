@@ -165,7 +165,8 @@ def start_command(prefix, thread, repo, agent='codex', model=None):
     return start_command_for(sys.executable, prefix, thread, repo, agent, model)
 
 
-def result(prefix, state, name, thread, repo, status, agent='codex', model=None, take=None, config=None):
+def result(prefix, state, name, thread, repo, status, agent='codex', model=None, take=None, config=None,
+           terminal=None):
     active = bridge_status(prefix, state) if status in ('running', 'repair_required') else None
     fields = revisions.read_fields(prefix, revisions.ack_path(state),
         revisions.service_revision(state, active))
@@ -178,18 +179,23 @@ def result(prefix, state, name, thread, repo, status, agent='codex', model=None,
         if take:
             data['alias']['take'] = take
         if config is not None:
-            data['tmux'] = name_own_terminal(state, config, name, data['alias'])
+            data['tmux'] = name_own_terminal(state, config, name, data['alias'], terminal)
     return data
 
 
-def name_own_terminal(state, config, name, alias):
-    """After `ensure`: name this agent's own tmux session, or pane, after its published name."""
+def name_own_terminal(state, config, name, alias, terminal):
+    """After `ensure`: name this agent's own tmux session, or pane, after its published name.
+
+    terminal is the observation this `ensure` just recorded; a saved record from an earlier
+    run never directs a rename, because that session may no longer be this agent's.
+    """
+    if terminal is None:
+        return dict(result='terminal_refresh_failed')
     target = alias['name'] if alias.get('held') else name
     try:
         claude = {record['pid'] for record in peers()
                   if record.get('implementation') != runtime_names.REGISTRY_ENTRYPOINT}
-        return tmux_terminal.name_terminal(tmux_terminal.report(state)['terminal'], target,
-                                           config['codex'], claude)
+        return tmux_terminal.name_terminal(terminal, target, config['codex'], claude)
     except (OSError, ValueError, KeyError):
         return dict(result='tmux_unreadable')
 
@@ -240,12 +246,13 @@ def record_attachment(state, config):
     """Record the host Codex process and tmux pane of this `ensure`; diagnostic only.
 
     A failed publication must not fail registration: the report then shows the
-    previous record or `not_recorded`.
+    previous record or `not_recorded`. Returns the terminal observed now, or None; only
+    that fresh observation may direct a terminal rename.
     """
     try:
-        tmux_terminal.record(state, config['codex'])
+        return tmux_terminal.record(state, config['codex'])['terminal']
     except (OSError, ValueError):
-        pass
+        return None
 
 
 def notify_command(prefix, config, state, thread, repo, name, agent='codex', model=None):
@@ -733,7 +740,7 @@ def main():
     # An explicit saved native selection owns this path. Never fall through to
     # legacy ensure/stop or silently rewrite its registered identity.
     native = state / 'native-service.json'
-    native_take = None
+    native_take = native_terminal = None
     if a.action in ('ensure', 'stage') and config.get('session_backend') in ('systemd', 'launchd'):
         from koinon import session_install
         try:
@@ -750,7 +757,7 @@ def main():
             print(json.dumps(dict(status='staged', running=False, state_dir=str(state))))
             return
         if agent == 'codex':
-            record_attachment(state, config)
+            native_terminal = record_attachment(state, config)
             from koinon import durable_state
             saved = durable_state.read(state / 'session.json') or {}
             prepared = (alias_prepare(prefix, state, saved.get('repo', repo), saved.get('name'))
@@ -802,7 +809,8 @@ def main():
                 if isinstance(reported, dict) and isinstance(reported.get('alias'), dict):
                     if take:
                         reported['alias']['take'] = take
-                    reported['tmux'] = name_own_terminal(state, config, saved['name'], reported['alias'])
+                    reported['tmux'] = name_own_terminal(state, config, saved['name'], reported['alias'],
+                                                         native_terminal)
                     print(json.dumps(reported), flush=True)
                 else:
                     sys.stdout.write(delegated.getvalue())
@@ -850,8 +858,9 @@ def main():
             print(json.dumps(dict(status='staged', running=False, state_dir=str(state))))
             return
         alias = {}
+        fresh_terminal = None
         if a.action == 'ensure' and agent == 'codex':
-            record_attachment(state, config)
+            fresh_terminal = record_attachment(state, config)
             alias = alias_prepare(prefix, state, repo, name)
         active=bridge_status(prefix,state)
         observed=session_observation.lifecycle(state,active)
@@ -875,7 +884,7 @@ def main():
         ready=notifier_readiness(state,active)
         healthy=ready is not None
         if a.action=='status' or (a.action=='ensure' and observed != 'stopped'):
-            data=result(prefix,state,name,a.thread,repo,'running' if healthy else ('repair_required' if active else observed),agent,model,take=alias_take(alias),config=config if a.action == 'ensure' else None)
+            data=result(prefix,state,name,a.thread,repo,'running' if healthy else ('repair_required' if active else observed),agent,model,take=alias_take(alias),config=config if a.action == 'ensure' else None,terminal=fresh_terminal)
             data['bridge']=active
             data['participant_lock']=ready.get('participant_lock') if ready else None
             data['delivery_health']=notification_health.read(state,ready)
@@ -921,7 +930,7 @@ def main():
                 if notifier_ready(state,bridge_status(prefix,state)):
                     if agent == 'codex':
                         alias_confirm(state, name)
-                    print(json.dumps(result(prefix,state,name,a.thread,repo,'running',agent,model,take=alias_take(alias),config=config if a.action == 'ensure' else None)))
+                    print(json.dumps(result(prefix,state,name,a.thread,repo,'running',agent,model,take=alias_take(alias),config=config if a.action == 'ensure' else None,terminal=fresh_terminal)))
                     return
                 time.sleep(.1)
             raise RuntimeError('service started but bridge is not ready; inspect its journal')
