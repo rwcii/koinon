@@ -103,6 +103,7 @@ state, pull request and issue states, CI state. Write:
 ## Bridge identity
 - Agent family, peer name, and the installed guide command
 - Codex or DeepSeek: this session's thread or session ID and its state directory
+- In tmux: the values of `$TMUX` and `$TMUX_PANE`, which identify this terminal
 
 ## Context not recorded elsewhere
 - <findings and rationale that are expensive to find again>

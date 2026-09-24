@@ -431,8 +431,10 @@ not change.
 After a context reset, follow the `reconnect` topic of the installed guide
 (`session.py guide --topic reconnect`). A Codex `/clear` keeps the CLI process and starts a new
 thread, and `/resume` in the same process can return to an older thread. The guide's
-`stop_predecessor` recipe applies only when the user directly authorized the replacement of that
-exact predecessor.
+`stop_predecessor` recipe applies when the handoff recorded the same tmux server and pane as the
+new session (the user reset it in that terminal), or when the user directly authorized the
+replacement of that exact predecessor. In the same-terminal case the pickup also renames the tmux
+session to the new peer name.
 
 Never guess a thread ID or substitute another model session. Verify queue access with
 a harmless `codex queue --thread YOUR_THREAD_ID --message 'Bridge setup test; no action required.'`

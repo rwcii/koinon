@@ -42,12 +42,13 @@ syntax; a command from another family fails or does something else.
 
 | Family | Handoff | Reset | Pickup |
 | --- | --- | --- | --- |
-| Claude | `/handoff <scope>` | `/clear` | `/pickup <scope>` |
-| Codex | `$handoff <scope>` | `/clear` | `$pickup <scope>` |
+| Claude | `/handoff` | `/clear` | `/pickup` |
+| Codex | `$handoff` | `/clear` | `$pickup` |
 | DeepSeek | not verified | not verified | not verified |
 
-`<scope>` is one short line, for example `peer <name>: orientation only; remain paused`.
-For a family marked not verified, or when the target rejects a command, stop and ask the user
+Send the bare command, with no added text: extra prose costs tokens and can make the agent
+refuse. A Codex `$` command opens a completion menu: the first Enter selects the skill and a
+second Enter submits it. Capture the pane between the two. For a family marked not verified, or when the target rejects a command, stop and ask the user
 for the syntax; do not guess and do not fall back to prose.
 
 What a reset keeps:
@@ -116,8 +117,7 @@ Use this sequence when the user authorizes a context cycle for the selected peer
 whether project work was paused or authorized to continue. Do not infer a reset is needed
 merely from a high context reading.
 
-1. **Request handoff.** Send the family's handoff command with the scope, for example
-   `peer <name>: record pause state, then wait for reset`. Do not queue the reset behind an
+1. **Request handoff.** Send the family's handoff command. Do not queue the reset behind an
    unfinished turn. If the peer has active work claims, the handoff records their state; an
    authorized release happens under its current identity before the reset.
 2. **Verify the saved state.** Wait for the completed turn. Check that the reported file
@@ -128,8 +128,7 @@ merely from a high context reading.
    any menu it opens. Confirm the reset in the terminal, for example a fresh banner or
    a context reading near zero, before the next step. Do not substitute killing or restarting
    the process.
-4. **Pick up.** Send the family's pickup command with the scope again, for example
-   `peer <name>: orientation only; remain paused`. The pickup verifies the handoff against
+4. **Pick up.** Send the family's pickup command. The pickup verifies the handoff against
    live state and reports pending work before it proceeds within the user's authorization.
 5. **Verify recovery.** Confirm the pickup report restores the intended task and pause state.
    Rediscover bridge/session identity after reset; neither a retained PID nor a retained peer
@@ -139,14 +138,16 @@ merely from a high context reading.
    notices. Have the peer check its own current key and claim status before writing. A
    successor must not reuse the old key to update or finish an old claim. An unreleased lease
    remains until expiry or an authorized release; report that limitation instead of silently
-   taking ownership. When the user authorized this reset cycle for this peer, that authorizes
-   the stop of the predecessor that the reset replaced; tell the peer so in the pickup scope.
+   taking ownership. The peer cleans up after itself: because the reset occurred in this
+   terminal, its own pickup stops its predecessor, and it renames its tmux session when the
+   name is not its peer name. Do not do either for the
+   peer; verify both in the listing and in `#{session_name}`, and report a missing step.
 
 Capture after each stage and wait in bounded intervals when the peer is still working. Do
 not blindly queue handoff, reset and pickup together. If progress stalls, report the last
 completed stage and leave the saved handoff available rather than repeatedly clearing.
 
-Report the target session/pane, completed stages, saved path, pickup result and remaining
-blockers. Context percentages, when available, are supporting observations; successful
+Report the target session/pane, completed stages, saved path, pickup result, the retired
+predecessor, the tmux name and remaining blockers. Context percentages, when available, are supporting observations; successful
 pickup is the evidence that the task state survived. Do not claim a new process was started
 or that work resumed unless that was observed.
