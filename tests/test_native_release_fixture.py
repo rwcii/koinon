@@ -13,6 +13,7 @@ repeating the overrides inline, which is how one of them came to omit a lock
 directory override.
 """
 import importlib.util
+import sys
 import tempfile
 import unittest
 from pathlib import Path
@@ -39,9 +40,22 @@ class PinnedReleaseFixtureTests(unittest.TestCase):
         self.assertTrue((previous / 'platform_support.py').is_file(),
                         'the pinned release predates the package, so its modules are at its root')
         self.assertFalse((previous / 'koinon').exists())
+        paths, modules = list(sys.path), dict(sys.modules)
         manifest = install_fixture.released_manifest(previous)
+        self.assertEqual(sys.path, paths)
+        self.assertEqual(sys.modules, modules)
         self.assertIn('platform_support.py', manifest)
         self.assertNotIn('koinon/platform_support.py', manifest)
+
+    def test_manifest_read_does_not_execute_installer_code(self):
+        scripts = self.staging / 'scripts'
+        scripts.mkdir()
+        installer = scripts / 'install.py'
+        installer.write_text("raise RuntimeError('installer must not execute')\nFILES = ('session.py',)\n")
+        self.assertEqual(install_fixture.released_manifest(self.staging), ('session.py',))
+        installer.write_text("FILES = tuple(['session.py'])\n")
+        with self.assertRaises(ValueError):
+            install_fixture.released_manifest(self.staging)
 
     def test_an_unavailable_pin_refuses_rather_than_upgrading_a_release_to_itself(self):
         with self.assertRaises(RuntimeError) as refusal:

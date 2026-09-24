@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Exercise public installation and removal in explicitly requested synthetic fixtures."""
 import argparse
-import importlib.util
+import ast
 import json
 import os
 from pathlib import Path
@@ -49,11 +49,20 @@ def require(condition, message):
 
 
 def released_manifest(release):
-    """Read a release's own shipped file list, from that release's installer."""
-    spec = importlib.util.spec_from_file_location('released_installer', release / 'scripts/install.py')
-    module = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(module)
-    return module.FILES
+    """Read shipped data without importing the old runtime into this process."""
+    tree = ast.parse((release / 'scripts/install.py').read_text())
+    assignments = [node for node in tree.body if isinstance(node, ast.Assign)
+                   and any(isinstance(target, ast.Name) and target.id == 'FILES'
+                           for target in node.targets)]
+    if len(assignments) != 1:
+        raise ValueError(f'{release}: expected one literal FILES manifest')
+    try:
+        manifest = ast.literal_eval(assignments[0].value)
+    except (ValueError, TypeError) as exc:
+        raise ValueError(f'{release}: FILES manifest must be literal') from exc
+    if not isinstance(manifest, (tuple, list)) or not all(isinstance(name, str) for name in manifest):
+        raise ValueError(f'{release}: FILES manifest must contain path strings')
+    return manifest
 
 
 class Fixture:
