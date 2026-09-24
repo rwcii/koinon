@@ -175,8 +175,9 @@ is used only for the registry record's bridge process and notifier generation.
 
 Integers are bounded to 2^53 - 1, and a value whose source time is later than the read
 time is `unknown` with `status_record_invalid`. Records hold only numbers, identifiers,
-states and times, checked against an allowlist on write and again on read; no transcript, prompt, message or file text is stored or
-reported.
+states, times and the work-store association, checked against an allowlist on write and
+again on read. No transcript, prompt or message text is stored. Claimed-work titles and
+checkpoints are returned only by the read-only memory query described below.
 
 A Claude session's `model` and `context` come from `statusline.py`, run as the Claude Code
 `statusLine` command. On each update it reads the status-line input once, runs the user's
@@ -193,8 +194,23 @@ the `statusLine` command in the configuration directory that `peers` reads, `mod
 `context` report `statusline_missing` with a `repair` field holding the installer command that
 sets it up ([Claude status line](INSTALL.md#claude-status-line)). A status value grants nothing and triggers nothing: peers read it and decide what
 to suggest. Until their sources exist, Codex values are `participant_not_associated`,
-DeepSeek values are `provider_unsupported`, and claimed work is
-`work_association_missing`.
+DeepSeek model and context are `provider_unsupported`.
+
+Claimed work is queried fresh from the writing installation’s selected memory store,
+using the peer’s repository and consumer key. Active leases appear as `{work_id, title,
+checkpoint}` in `claims`; a successful empty query is `observed` with an empty list.
+Expired leases are omitted without changing the item. `source` is `memory_work_list`;
+`truncated` reports the bounded work-list limit. Missing repository/store association is
+`work_association_missing`; an unreachable service is `memory_unavailable`. No prior
+claim list is reused after a failed query. This applies to Claude, Codex and DeepSeek.
+
+The default consumer key is the native session ID: `CLAUDE_CODE_SESSION_ID`,
+`CODEX_THREAD_ID` or `DSH_SESSION_ID`. Run the installed `session.py work-key --key KEY`
+in that session’s shell when using another key. The private association persists across
+status rewrites and takes effect on the next status publication (the next Claude
+status-line update, or within the notifier’s two-second sampling interval). It does
+not create, acquire or transfer a claim. Work records carry repository paths and a
+consumer identifier; claim titles and checkpoints are read only when status is requested.
 
 ## Compatibility and verification limits
 

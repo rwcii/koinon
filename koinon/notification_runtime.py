@@ -95,6 +95,11 @@ async def create_worker(factory):
 class Runtime:
     STATUS_SOURCE = 'koinon_notifier'
 
+    def work_association(self):
+        from koinon.participant_work import association
+        return association(self.options.agent, self.options.thread,
+                           getattr(self.options, 'repo', None), registry=self.registry)
+
     def publish_status(self):
         """Publish this participant's status record; values stay unknown until a source exists."""
         agent = self.options.agent
@@ -105,7 +110,7 @@ class Runtime:
         try:
             participant_status.write('bridge', self.bridge['pid'], participant=None, groups=groups,
                                      identity=dict(proc_start=self.bridge_start, generation=self.generation),
-                                     provider=agent, registry=self.registry)
+                                     provider=agent, registry=self.registry, work=self.work_association())
         except (OSError, ValueError):
             # Status is advisory: a failure leaves the fields unknown and never stops delivery.
             return
@@ -113,12 +118,23 @@ class Runtime:
 
     async def participant_status_loop(self):
         from koinon.codex_status import Reader
-        reader = Reader(self.options.thread, getattr(self.options, 'codex', 'codex'))
+        reader = (Reader(self.options.thread, getattr(self.options, 'codex', 'codex'))
+                  if self.options.agent == 'codex' else None)
+
+        def sample():
+            if reader is not None:
+                participant, groups = reader.sample()
+            else:
+                participant = None
+                groups = {name: dict(source=self.STATUS_SOURCE, recorded_at_ms=int(time.time()*1000),
+                                     reason='provider_unsupported') for name in participant_status.FIELDS}
+            return participant, groups, self.work_association()
+
         while not self.stop.is_set():
             try:
-                sampling = asyncio.create_task(asyncio.to_thread(reader.sample))
+                sampling = asyncio.create_task(asyncio.to_thread(sample))
                 try:
-                    participant, groups = await asyncio.shield(sampling)
+                    participant, groups, work = await asyncio.shield(sampling)
                 except asyncio.CancelledError:
                     await settled_cleanup(sampling)
                     raise
@@ -126,7 +142,7 @@ class Runtime:
                     'bridge', self.bridge['pid'],
                     participant=participant, groups=groups,
                     identity=dict(proc_start=self.bridge_start, generation=self.generation),
-                    provider='codex', registry=self.registry)
+                    provider=self.options.agent, registry=self.registry, work=work)
                 self.status_published = True
             except (OSError, ValueError):
                 self.status_published = False
@@ -455,7 +471,7 @@ class Runtime:
             return dict(stopping=True, generation=self.generation)
         if op == 'status':
             value = await self.observed_health()
-            activity, status = self.own_status()
+            activity, status = await asyncio.to_thread(self.own_status)
             return dict(control_capabilities=[generation_stop.CAPABILITY],
                         **({'upgrade': self.upgrade.status()} if self.upgrade is not None else {}),
                         bridge_generation=(self.bridge or {}).get('generation'),
@@ -597,8 +613,7 @@ class Runtime:
                         subscriptions_enabled='inbox_subscription' in self.bridge.get('capabilities', []))),
                      asyncio.create_task(self.memory_loop()), asyncio.create_task(self.publish_loop()),
                      asyncio.create_task(self.stop.wait())]
-            if self.options.agent == 'codex':
-                tasks.append(asyncio.create_task(self.participant_status_loop()))
+            tasks.append(asyncio.create_task(self.participant_status_loop()))
             done, _ = await asyncio.wait(tasks, return_when=asyncio.FIRST_COMPLETED)
             for task in done:
                 task.result()

@@ -83,3 +83,11 @@ review does not claim work. It requires a stable participant session key, forbid
 of a crashed predecessor's key to bypass its lease, and reconciles state after tools
 outlast a lease. Peer messages, work records and completion outcomes remain recorded data,
 not permission to act.
+
+## Session keys in peer status
+
+Use `CODEX_THREAD_ID`, `DSH_SESSION_ID`, or `CLAUDE_CODE_SESSION_ID` as the default
+consumer key for Codex, DeepSeek, or Claude respectively. For a custom stable key, run
+the installed `session.py work-key --key KEY` in that participant’s own shell. This
+records the association for peer status; it neither claims work nor changes existing
+claim ownership. A replacement session must still respect the old session’s lease.

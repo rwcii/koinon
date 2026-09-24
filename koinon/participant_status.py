@@ -102,7 +102,7 @@ def _group(name, value):
     return kept
 
 
-def build(kind, *, participant, groups, identity=None, provider=None):
+def build(kind, *, participant, groups, identity=None, provider=None, work=None):
     """Return the stored form of a record, with every non-allowlisted value removed."""
     record = dict(version=VERSION, kind=kind,
                   participant=None if participant is None else _process(participant))
@@ -115,6 +115,9 @@ def build(kind, *, participant, groups, identity=None, provider=None):
         record.update(identity=dict(identity), provider=provider)
     elif identity is not None or provider is not None:
         raise ValueError('identity belongs to bridge records')
+    if work is not None:
+        from koinon.participant_work import validate
+        record['work'] = validate(work)
     record['groups'] = {name: _group(name, value) for name, value in groups.items() if name in FIELDS}
     if record['participant'] is None and any(g['reason'] is None for g in record['groups'].values()):
         raise ValueError('an observed value needs an associated participant')
@@ -158,14 +161,14 @@ def _load(path, limit, shared=0o077):
             os.close(fd)
 
 
-def write(kind, key, *, participant, groups, identity=None, provider=None, registry=None):
+def write(kind, key, *, participant, groups, identity=None, provider=None, registry=None, work=None):
     """Publish a record atomically, mode 0600, without following links.
 
     Records describe live processes and are rebuilt by their writer, so the write is
     atomic but not flushed to disk. A replacement name that a crashed or cancelled
     writer left behind is removed first.
     """
-    record = build(kind, participant=participant, groups=groups, identity=identity, provider=provider)
+    record = build(kind, participant=participant, groups=groups, identity=identity, provider=provider, work=work)
     path = _path(kind, key, registry)
     _private_dir(path.parent)
     data = json.dumps(record, sort_keys=True, separators=(',', ':'), ensure_ascii=True).encode()
@@ -238,7 +241,7 @@ def read(kind, key, *, participant=None, identity=None, now=None, registry=None)
         if record.get('version') != VERSION or record.get('kind') != kind:
             raise ValueError('unsupported status record')
         stored = build(kind, participant=record.get('participant'), groups=record.get('groups') or {},
-                       identity=record.get('identity'), provider=record.get('provider'))
+                       identity=record.get('identity'), provider=record.get('provider'), work=record.get('work'))
         if not all(isinstance(g, dict) for g in (record.get('groups') or {}).values()):
             raise ValueError('invalid status group')
     except (ValueError, TypeError, AttributeError):
@@ -252,10 +255,10 @@ def read(kind, key, *, participant=None, identity=None, now=None, registry=None)
         return dict(groups={}, reason='no_status_record', provider=None)
     if stored['participant'] is None:
         # build() admits only unknown groups here, each with its own reason.
-        return dict(groups=stored['groups'], reason=None, provider=provider)
+        return dict(groups=stored['groups'], reason=None, provider=provider, work=stored.get('work'))
     if not _live(stored['participant']):
         return dict(groups={}, reason='participant_not_live', provider=provider)
-    return dict(groups=stored['groups'], reason=None, provider=provider)
+    return dict(groups=stored['groups'], reason=None, provider=provider, work=stored.get('work'))
 
 
 def _future(group, now):
@@ -314,7 +317,7 @@ def activity(result, now):
 
 
 def work_view(now, reason='work_association_missing'):
-    """Claimed work is queried from the peer's memory store; chunk 06 adds that query."""
+    """Unknown claimed-work observation, without retained claims."""
     return dict(state='unknown', source=None, claims=[], recorded_at_ms=None,
                 observed_at_ms=now, freshness_ms=FRESHNESS_MS, reason=reason)
 
@@ -330,7 +333,7 @@ def registry_directory():
     return Path(os.environ.get('CLAUDE_CONFIG_DIR', str(Path.home() / '.claude'))) / 'sessions'
 
 
-def claude_process(session_id, registry=None):
+def claude_process(session_id, registry=None, *, with_repository=False):
     """The Claude process that the session registry names for a session, or None.
 
     The registry record carries the process-start marker in the form this platform
@@ -353,7 +356,8 @@ def claude_process(session_id, registry=None):
             continue
         start = record.get('procStart')
         if isinstance(start, (int, str)) and str(start):
-            return dict(pid=int(path.stem), proc_start=str(start))
+            process = dict(pid=int(path.stem), proc_start=str(start))
+            return (process, record.get('cwd')) if with_repository else process
     return None
 
 
@@ -401,6 +405,7 @@ def _statusline_repair(registry):
 
 
 def views(result, now=None):
+    from koinon.participant_work import observe
     now = _now_ms() if now is None else now
     return dict(model=model_view(result, now), context=context_view(result, now),
-                work=work_view(now))
+                work=observe(result.get('work') if result['reason'] is None else None, now))

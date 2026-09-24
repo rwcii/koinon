@@ -77,10 +77,13 @@ def record(data):
         return
     from koinon import participant_status
     session, groups = fields(data)
-    participant = participant_status.claude_process(session)
+    registered = participant_status.claude_process(session, with_repository=True)
+    participant, repository = registered if registered else (None, None)
     if participant is None or not groups:
         return
-    participant_status.write('claude', session, participant=participant, groups=groups)
+    from koinon.participant_work import association
+    participant_status.write('claude', session, participant=participant, groups=groups,
+                             work=association('claude', session, repository))
 
 
 USAGE = 'usage: statusline.py [--command COMMAND]\n'

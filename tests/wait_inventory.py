@@ -10,6 +10,12 @@ reason. `test_wait_inventory` checks this list against the source.
 DATA = 'product data: a deadline or expiry value passed to the code under test, not a wait'
 
 ENTRIES = [
+    ('test_participant_work.py', 'ClaimedWorkTests.request',
+     'request = dict(op=op, consumer=self.consumer, key=str(self.counter), deadline=time.time()+300, **fields)',
+     'product-deadline', DATA),
+    ('test_participant_work.py', 'ClaimedWorkTests.claim',
+     'progress_deadline=time.time()+300)',
+     'product-deadline', DATA),
     ('test_delivery_ledger.py', 'LedgerTests.test_outgoing_and_incoming_capacity_are_independent',
      "self.store.outgoing('uds:/tmp/target.sock', 'body', 'next', 'id', time.time()+60)",
      'product-deadline', DATA),
