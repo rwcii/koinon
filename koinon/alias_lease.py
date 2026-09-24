@@ -192,6 +192,9 @@ def prepare(state_root, key, repo, name, *, peers, stopped, registry=None):
     if digest is None:
         return dict(state='unavailable', reason='not_a_repository', restart=False)
     registry = registry_folder() if registry is None else Path(registry)
+    if not registry.is_dir():
+        # Without the registry, a record carrying the alias cannot be ruled out.
+        return dict(state='unavailable', reason='registry_missing', paths=[str(registry)], restart=False)
     with names_lock(state_root):
         records = peers()
         existing = leases(state_root)

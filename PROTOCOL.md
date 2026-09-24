@@ -590,7 +590,11 @@ live record; a transient state whose `operation` is live refuses (`alias_busy`),
 stays reserved for its recorded successor while that successor runs. Before a take from a dead
 holder, `ensure` removes that holder's registry record only when it is Koinon's, of this user,
 of a dead process, and carries the holder's last `bridgeOwner`; any other record named as the
-alias refuses the take (`alias_occupied`). A holder whose running notifier does not publish the
+alias refuses the take (`alias_occupied`). A missing registry directory refuses the take
+(`registry_missing`), because a record carrying the alias cannot then be ruled out; the next
+`ensure` after a notifier has created the directory takes it. When a restart's stop fails,
+`ensure` reports `alias_restart_failed` with the stop's result and does not start the
+service. A holder whose running notifier does not publish the
 alias is restarted once, and `ensure` marks the lease `held` when the alias is live.
 
 `bridge.py peers` adds `thread_name`, `alias` and `alias_holder`. `bridge.py send` accepts a

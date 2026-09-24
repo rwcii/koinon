@@ -38,6 +38,7 @@ def dead_pid():
 def race(arguments):
     """One competing `ensure` take, in its own process, released by a shared barrier."""
     state_root, key, repo, name, barrier = arguments
+    (Path(state_root) / 'registry').mkdir(parents=True, exist_ok=True)
     barrier.wait()
     result = alias_lease.prepare(Path(state_root), key, repo, name, peers=lambda: [],
                                  stopped=lambda other: False, registry=Path(state_root) / 'registry')
@@ -126,6 +127,14 @@ class ReservationTests(Fixture):
             saved = session.save_registration(state, self.state_root, 'synthetic-thread', str(repo))
         self.assertNotEqual(saved['name'], 'codex-koinon')
         self.assertTrue(saved['name'].startswith('codex-koinon-'))
+
+    def test_missing_registry_refuses_the_take(self):
+        repo = git_repo(self.root / 'koinon')
+        self.register('k1', 'codex-koinon-05', repo)
+        self.registry.rmdir()
+        result = self.prepare('k1', repo, 'codex-koinon-05')
+        self.assertEqual((result['reason'], result['paths']), ('registry_missing', [str(self.registry)]))
+        self.assertFalse((self.state_root / 'aliases').exists())
 
     def test_outside_a_repository_no_alias(self):
         plain = self.root / 'plain'
@@ -353,6 +362,7 @@ class EnsureAliasTests(unittest.TestCase):
                 shutil.copyfile(ROOT / name, target)
                 target.chmod(0o600)
         self.repo = git_repo(self.root / 'koinon')
+        (self.root / 'claude' / 'sessions').mkdir(parents=True)
         self.env = dict(os.environ, CODEX_HOME=str(self.root / 'codex'), CLAUDE_CONFIG_DIR=str(self.root / 'claude'))
         for key in ('CODEX_THREAD_ID', 'DSH_SESSION_ID', 'TMUX', 'TMUX_PANE'):
             self.env.pop(key, None)
@@ -438,6 +448,29 @@ class EnsureAliasTests(unittest.TestCase):
                 mock.patch.object(session_service, 'main', side_effect=delegated):
             self.invoke('codex', 'synthetic-native', unavailable)
         self.assertEqual(calls, ['stop', 'ensure'])
+        # A failed stop refuses; the old service is never reported as the publication.
+        calls.clear()
+
+        def failing(argv):
+            calls.append(argv[0])
+            if argv[0] == 'stop':
+                print(json.dumps(dict(status='unavailable', code='session_ownership_unknown')))
+                return 78
+            return 0
+        with mock.patch.object(session, 'alias_prepare', return_value=dict(restart=True)), \
+                mock.patch.object(session_service, 'main', side_effect=failing):
+            output = io.StringIO()
+            args = ['session.py', 'ensure', '--agent', 'codex', '--thread', 'synthetic-native', '--repo', str(self.repo)]
+            with mock.patch.object(session, '__file__', str(self.prefix / 'session.py')), \
+                    mock.patch.object(sys, 'argv', args), mock.patch.dict(os.environ, self.env, clear=True), \
+                    mock.patch.object(session, 'peers', return_value=[]), \
+                    mock.patch.object(platform_support, 'codex_host', return_value=False), \
+                    mock.patch.object(platform_support, 'user_service_manager', side_effect=unavailable), \
+                    redirect_stdout(output), self.assertRaises(SystemExit) as raised:
+                session.main()
+        self.assertEqual((calls, raised.exception.code), (['stop'], 78))
+        refused = json.loads(output.getvalue())
+        self.assertEqual((refused['code'], refused['stop']['code']), ('alias_restart_failed', 'session_ownership_unknown'))
 
     def test_guide_reports_the_alias_for_codex(self):
         unavailable = lambda *args, **kwargs: subprocess.CompletedProcess([], 1)

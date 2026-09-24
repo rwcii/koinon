@@ -631,9 +631,20 @@ def main():
                 from koinon import session_service_artifacts
                 record = session_service_artifacts.load(state)
                 if record is not None:
-                    with contextlib.redirect_stdout(io.StringIO()):
-                        session_service.main(['stop', '--prefix', str(prefix), '--state-dir', str(state),
-                                              '--backend', record['backend']])
+                    stopped = io.StringIO()
+                    with contextlib.redirect_stdout(stopped):
+                        code = session_service.main(['stop', '--prefix', str(prefix), '--state-dir', str(state),
+                                                     '--backend', record['backend']])
+                    if code != 0:
+                        # A failed or unconfirmed stop leaves the old notifier running with
+                        # its per-thread name; never report that as a publication.
+                        try:
+                            reported = json.loads(stopped.getvalue())
+                        except ValueError:
+                            reported = None
+                        print(json.dumps(dict(status='unavailable', code='alias_restart_failed',
+                                              stop=reported, state_dir=str(state))))
+                        raise SystemExit(code)
     if runtime_names.present(native):
         from koinon import durable_state
         import session_service
