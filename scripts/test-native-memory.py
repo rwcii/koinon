@@ -232,6 +232,20 @@ def main():
         return 0
     except Exception as exc:
         evidence['error'] = str(exc)
+        import traceback as _tb
+        evidence['diagnostic_traceback'] = _tb.format_exception(exc)[-12:]
+        chain, cause = [], exc
+        while cause is not None and len(chain) < 6:
+            chain.append(f'{type(cause).__name__}: {cause!r} code={getattr(cause, "code", None)!r}')
+            cause = cause.__cause__ or cause.__context__
+        evidence['diagnostic_chain'] = chain
+        for fixture in fixtures:
+            for name in ('supervisor-diagnostic.json', 'supervisor.json', 'owner.json'):
+                for path in fixture.state.rglob(name):
+                    try:
+                        evidence.setdefault('diagnostic_files', {})[str(path.relative_to(fixture.root))] = path.read_text()[:2000]
+                    except OSError:
+                        pass
         return 1
     finally:
         for fixture in reversed(fixtures):
