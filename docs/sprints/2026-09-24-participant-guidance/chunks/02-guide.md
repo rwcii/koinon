@@ -28,8 +28,14 @@ Criteria 1, 2, 3 (guide), 8 and 10 of [decision.md](../decision.md).
    - **Candidates.** For each participant kind in `install.json` `participants`, its home
      (`codex_home`, `dsh_home`), both `AGENTS.md` and `AGENTS.override.md`. Existing
      installations have no block records; this list comes only from fields they already have.
+   - **Target.** Only one candidate per home is written: for Codex, `AGENTS.override.md` when it
+     exists, otherwise `AGENTS.md`; for DeepSeek, `AGENTS.md`. This is today's `update()`
+     precedence. The reconciliation never creates `AGENTS.override.md`. In the file that is not
+     the target, a `current` block is removed as today and an `edited` block is kept and
+     reported.
    - **Classes**, from the owned span that `spans()` finds:
-     - `absent`: no span and no record. Installation writes the block; upgrade reports it.
+     - `absent`: no span and no record. Installation writes the block only in the target;
+       upgrade reports it.
      - `current`: the span equals the recorded digest, or is exactly a known released rendering
        for that prefix and family (a table in `koinon/guidance.py` holding at least the
        rendering of the release this sprint upgrades from). The span is replaced by the new

@@ -20,3 +20,10 @@
    through `runtime_names.install_config`. The digest check in the definition of done covers
    the installation prefix. (`session.py` `read_config` itself does not lock; the rule keeps a
    later change from adding one.)
+
+## Gate B re-review by Codex at 9bb0729
+
+5. **P2 — Writing every absent candidate creates a shadowing override.** Fixed. Chunk 02 step 4
+   writes only the target (existing `AGENTS.override.md`, otherwise `AGENTS.md`, for Codex;
+   `AGENTS.md` for DeepSeek), keeps today's precedence, and never creates an override. The
+   definition of done adds a fresh and repeated installation with only a user `AGENTS.md`.
