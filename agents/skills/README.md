@@ -13,6 +13,7 @@ read them through symlinks, so there is one copy of each skill. Rules for writin
 | [sprint](sprint/SKILL.md) | Plan a deliverable of more than one pull request: decision, definition of done, ordered chunks, peer review of the plan. |
 | [check](check/SKILL.md) | Run the checks that must pass before a push. |
 | [ship](ship/SKILL.md) | Take one change from a work branch to a squash merge on `develop`. |
+| [peer-tmux](peer-tmux/SKILL.md) | Inspect a peer terminal or run an authorized handoff, context reset and pickup cycle through tmux. |
 | [peer-review](peer-review/SKILL.md) | Review another agent's frozen commit and record the verdict bound to it. |
 | [release](release/SKILL.md) | Promote `develop` to `main` once the release is shown to install and upgrade. |
 
