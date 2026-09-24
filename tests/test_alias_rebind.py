@@ -98,17 +98,24 @@ class RebindFixture(unittest.TestCase):
         self.config = dict(state_root=str(self.state_root), unit_dir=str(self.root / 'units'), codex=sys.executable)
         self.world = World(self)
         self.threads = {}
+        self.fresh = {}
         for patcher in (mock.patch.object(session, 'peers', side_effect=self.world.peers),
                         mock.patch.object(session, 'bridge_status', return_value=None),
                         mock.patch.object(session.session_observation, 'lifecycle', side_effect=self.world.lifecycle),
                         mock.patch.object(session, '_session_command', side_effect=self.world.command),
                         mock.patch.object(session, 'record_attachment'),
+                        mock.patch.object(session.tmux_terminal, 'record', side_effect=self.observe),
                         mock.patch.dict(os.environ, CLAUDE_CONFIG_DIR=str(self.root / 'claude'))):
             patcher.start()
             self.addCleanup(patcher.stop)
 
     def state(self, key):
         return self.state_root / 'sessions' / key
+
+    def observe(self, state, _executable):
+        """A fresh observation: the synthetic terminal this thread runs in now."""
+        return dict(host=durable_state.read(Path(state) / 'host.json'),
+                    terminal=self.fresh.get(Path(state).name, durable_state.read(Path(state) / 'terminal.json')))
 
     def registration(self, key):
         return durable_state.read(self.state(key) / 'session.json')
@@ -196,6 +203,31 @@ class RebindTests(RebindFixture):
                 returned, result = self.rebind('0b', '0a')
                 self.assertEqual((returned, result['code']), (78, code))
                 self.assertEqual((dict(self.world.running), self.lease()), before)
+
+    def test_an_unconfirmed_successor_stops_nothing(self):
+        old, new = self.add('0a'), self.add('0b')
+        self.ensure('0a')
+        self.ensure('0b')
+        before = (dict(self.world.running), self.lease())
+        with mock.patch.object(session.session_observation, 'lifecycle', return_value='unknown'):
+            code, result = self.rebind('0b', '0a')
+        self.assertEqual((code, result['code'], result['lifecycle']), (78, 'not_running', 'unknown'))
+        self.assertEqual((dict(self.world.running), self.lease()), before)
+
+    def test_a_failed_or_changed_terminal_refresh_stops_nothing(self):
+        old, new = self.add('0a'), self.add('0b')
+        self.ensure('0a')
+        self.ensure('0b')
+        before = (dict(self.world.running), self.lease())
+        with mock.patch.object(session.tmux_terminal, 'record', side_effect=OSError('publish failed')):
+            code, result = self.rebind('0b', '0a')
+        self.assertEqual((code, result['code']), (78, 'terminal_refresh_failed'))
+        # The saved record says pane %1, but the terminal observed now is not a tmux pane;
+        # both synthetic sessions share host 1234, so only the host matches.
+        self.fresh[new] = dict(state='unavailable', reason='not_in_tmux')
+        code, result = self.rebind('0b', '0a')
+        self.assertEqual((code, result['code']), (78, 'host_only'))
+        self.assertEqual((dict(self.world.running), self.lease()), before)
 
     def test_user_authorization_skips_only_the_terminal_match(self):
         old, new = self.add('0a', pane='%7'), self.add('0b')

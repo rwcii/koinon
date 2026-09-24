@@ -545,11 +545,17 @@ def rebind(prefix, config, thread, predecessor, user_authorized):
         return refuse('predecessor_unknown')
     if old.get('repo') != saved.get('repo'):
         return refuse('same_repository', error='the predecessor serves another repository')
-    if session_observation.lifecycle(state, bridge_status(prefix, state)) == 'stopped':
-        return refuse('not_running', error='run ensure for this Codex thread first')
-    # This thread's terminal is observed now; the predecessor's is its last record.
-    record_attachment(state, config)
-    mine, theirs = tmux_terminal.report(state), tmux_terminal.report(old_state)
+    lifecycle = session_observation.lifecycle(state, bridge_status(prefix, state))
+    if lifecycle != 'running':
+        # Only a confirmed running successor may retire its predecessor.
+        return refuse('not_running', lifecycle=lifecycle, error='run ensure for this Codex thread first')
+    # This thread's terminal must be observed now; a failed refresh never falls back to an
+    # older record. The predecessor's terminal is its last record.
+    try:
+        fresh = tmux_terminal.record(state, config['codex'])
+    except (OSError, ValueError) as exc:
+        return refuse('terminal_refresh_failed', error=str(exc))
+    mine, theirs = dict(tmux_terminal.report(state), terminal=fresh['terminal']), tmux_terminal.report(old_state)
     same_host = (mine['host'].get('state') == 'observed' and theirs['host'].get('state') == 'observed'
                  and (mine['host']['pid'], mine['host']['proc_start'])
                  == (theirs['host']['pid'], theirs['host']['proc_start']))

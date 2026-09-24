@@ -612,7 +612,10 @@ sandbox. The evidence is that both registrations recorded the same tmux server a
 `--user-authorized`, the agent's statement that the user named that exact predecessor, which
 skips only the terminal match. The same host process alone refuses (`host_only`), as do
 `terminal_mismatch`, `terminal_not_recorded`, `same_thread`, `same_repository` and
-`predecessor_unknown`; a refusal stops nothing and leaves the lease unchanged.
+`predecessor_unknown`. The rebind also refuses unless this thread's lifecycle is confirmed
+`running` (`not_running`, with the observed lifecycle), and when its own terminal cannot be
+observed and recorded now (`terminal_refresh_failed`); an older record never stands in. A
+refusal stops nothing and leaves the lease unchanged.
 
 When the predecessor holds the alias, each step is one lease transition under `names.lock`:
 `moving` from the predecessor to this thread (no notifier publishes the alias at its start,
