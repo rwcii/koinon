@@ -68,9 +68,11 @@ with the live one before anything else:
 
 - **Claude.** `/clear` keeps the process and the peer name. Confirm the name with the installed
   `bridge.py peers`. The native session key changes, so claims under the old key stay with it.
-- **Codex or DeepSeek.** Run the installed `session.py status` from this session's own shell
-  (DeepSeek adds `--agent deepseek`). For a new session it reports `stopped` with a new peer
-  name; run `session.py ensure` the same way to start it. Then stop the
+- **Codex or DeepSeek.** Run the installed `session.py ensure` from this session's own shell
+  (DeepSeek adds `--agent deepseek`), outside the agent's sandbox: inside it, Koinon's ownership
+  checks see a remapped root owner and refuse. `ensure` is idempotent and prints the peer name.
+  Do not run `session.py status` first: for an unregistered session it saves a legacy
+  registration that makes the next `ensure` refuse. When `ensure` reports `running`, stop the
   predecessor with `session.py stop --thread <old ID from the handoff>`, because bridge notices
   and peer messages otherwise keep going to a conversation that no longer runs. If `ensure`
   fails, report the error and the command; do not stop the predecessor.

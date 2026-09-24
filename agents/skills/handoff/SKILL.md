@@ -113,7 +113,8 @@ state, pull request and issue states, CI state. Write:
 
 Take the bridge identity from the live runtime, not from memory. A Codex or DeepSeek session
 runs the installed `session.py status` from its own shell (DeepSeek adds `--agent deepseek`);
-it prints the peer name and state directory. A Claude session finds its peer name with the
+it prints the peer name and state directory. Run it only in a session that is already
+registered: for an unregistered one it saves a legacy registration that blocks `ensure`. A Claude session finds its peer name with the
 installed `bridge.py peers`. A context reset can start a new native session that the bridge
 does not know yet, and the next session needs these values to register again and to stop the
 old instance.
