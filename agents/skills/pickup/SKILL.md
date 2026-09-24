@@ -1,48 +1,49 @@
 ---
 name: pickup
-description: Resume work from this agent's newest committed handoff in its own directory under handoff/, verify its claims against the live repository, and continue with the next action within the user's current authorization. Use at the start of a session, or when the user asks to pick up, resume or continue. Reads another agent's handoff only when the user names that agent.
+description: Resume work from this agent's newest handoff in its own directory under the Git-ignored _handoff/, verify its claims against the live repository, and continue with the next action within the user's current authorization. Use at the start of a session, or when the user asks to pick up, resume or continue. Reads another agent's handoff only when the user names that agent.
 ---
 
 # Pickup
 
 Read `agents/skills/AGENTS.md` and the root `AGENTS.md` first. This skill reads what the
-`handoff` skill writes, and it never changes a file under `handoff/`.
+`handoff` skill writes, and it never changes a file under `_handoff/`.
 
 ## 1. Choose the handoff
 
-Use your own agent ID (see step 1 of the `handoff` skill). Use another agent's ID, a branch, or
-a file path only when the user names it.
+Use your own agent ID (see step 1 of the `handoff` skill). Use another agent's ID or a file path
+only when the user names it.
 
 Do not fall back to another agent's handoff. When you have no handoff of your own, say so, list
 the newest file name in each other agent directory for information, and ask the user what to
 resume.
 
-## 2. Find the newest handoff on any branch
+## 2. Find the newest handoff
 
-Handoffs live on work branches until they merge, so search every ref without a checkout:
+All handoffs are in the `_handoff/` directory of the main checkout, never in a linked
+worktree, which is removed when its work merges. Do not read a relative `_handoff/` path; find
+the main checkout from any worktree:
 
 ```sh
-git fetch --prune origin
-file=$(git log --all --diff-filter=A --name-only --format= -- "handoff/<agent-id>/" | sort | tail -1)
+root=$(dirname "$(git rev-parse --path-format=absolute --git-common-dir)")
+file=$(ls "$root/_handoff/<agent-id>/"*.md 2>/dev/null | sort | tail -1)
 if [ -z "$file" ]; then
   echo "no handoff for <agent-id>"
+  ls "$root/_handoff/"
 else
-  ref=$(git log --all -1 --diff-filter=A --format=%H -- "$file")
-  git branch -a --contains "$ref"
-  git show "$ref:$file"
+  cat "$file"
 fi
 ```
 
-File names start with a UTC timestamp, so the last name in sort order is the newest. The commit
-that added the file holds the snapshot, even if a later commit removed it. Note the
-branch that holds it; that is usually the branch to resume. No handoff is a normal result;
-handle it as step 1 says.
+File names start with a UTC timestamp, so the last name in sort order is the newest. Note the
+branch that the handoff names; that is usually the branch to resume. No handoff is a normal
+result; handle it as step 1 says.
 
 ## 3. Verify, do not trust
 
 The handoff was true when it was written. Check each volatile claim against the live state:
 
 ```sh
+git fetch --prune origin
 git status --short
 git log --oneline -10 <branch>
 gh pr view <number> --json state,mergeable,mergeStateStatus,title
