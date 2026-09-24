@@ -47,8 +47,11 @@ syntax; a command from another family fails or does something else.
 | DeepSeek | not verified | not verified | not verified |
 
 Send the bare command, with no added text: extra prose costs tokens and can make the agent
-refuse. A Codex `$` command opens a completion menu: the first Enter selects the skill and a
-second Enter submits it. Capture the pane between the two. For a family marked not verified, or when the target rejects a command, stop and ask the user
+refuse. After each Enter, capture the pane and validate that the agent received the command
+and is acting on it: a working indicator, or its first step of that command. Do not press Enter
+again by rule. When the command is still in the input field, for example because a completion
+menu took the Enter, read the screen first: a menu, a refusal, an error or a dialog each needs
+its own response, and an Enter can accept the wrong one. For a family marked not verified, or when the target rejects a command, stop and ask the user
 for the syntax; do not guess and do not fall back to prose.
 
 What a reset keeps:
