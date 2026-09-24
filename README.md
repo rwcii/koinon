@@ -109,9 +109,14 @@ python3 bridge.py peers
 python3 bridge.py inbox
 python3 bridge.py inbox --after 10
 python3 bridge.py send uds:/tmp/cc-socks/23456.sock 'Hello from Codex'
+python3 bridge.py send codex-koinon 'Hello by name'
 python3 bridge.py ack 10
 python3 bridge.py stop
 ```
+
+`send` takes a `uds:` address or a peer name. A name must match exactly one live peer in the
+listing; a Codex participant's stable alias, such as `codex-koinon`, is such a name (see
+PROTOCOL.md, "Stable alias of a Codex participant").
 
 `inbox` returns up to ten records, with sequence number, receipt time, kernel peer PID, and the original message envelope. Paginate using the last returned sequence. `ack` deletes stored entries through the given sequence after handling them; it is a local operation and sends no peer receipt. Sending accepts `--priority now`, `next` (default), or `later`; notification adapters preserve these values but cannot map them to provider scheduling.
 

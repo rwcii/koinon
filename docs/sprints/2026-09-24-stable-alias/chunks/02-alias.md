@@ -103,8 +103,13 @@ also carries `koinonName` (the per-thread name) and `koinonAlias` (the alias, ho
 
 ### Send and reporting
 
-- `bridge.py send` resolves names from the registry as today. A name that no live record
-  carries and that equals a reserved alias fails with `alias_unheld` and names the alias.
+- `bridge.py send` accepts only a `uds:` address today (`peer_transport.target_path`); a
+  Koinon sender reads the address from `bridge.py peers`. `send` now also accepts a peer name
+  as its target, resolved in the client before the control request, from the live records
+  that `bridge.peers()` reports: exactly one record with that `name` sends to its address; none
+  fails with `alias_unheld` when the name is a reserved alias, else `peer_not_found`; more than
+  one fails with `peer_ambiguous`. A `uds:` target is unchanged. (Plan correction during the
+  build: the first version said `send` already resolved names.)
 - `bridge.py peers` adds `alias`, `alias_holder` (bool) and `thread_name`.
 - `ensure`, `status` and `guide` add `alias` with `name`, `held`, `state`, and when not held,
   the holder's per-thread name or `none`.

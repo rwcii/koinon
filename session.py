@@ -39,8 +39,10 @@ if __name__ == '__main__':
         _atexit.register(lambda path=_sys.pycache_prefix: _os.path.isdir(path) and _os.rmdir(path))
 # End of bytecode guard.
 import argparse
+import contextlib
 import fcntl
 import hashlib
+import io
 import json
 import os
 from pathlib import Path
@@ -65,6 +67,7 @@ from koinon import revisions
 from koinon import notification_health
 from koinon import session_observation
 from koinon import tmux_terminal
+from koinon import alias_lease
 from scripts.install import units, check_owned_unit, start_command_for
 
 
@@ -143,6 +146,8 @@ def save_registration(state, state_root, thread, repo, rename=False, agent='code
                 continue
             other=json.loads(path.read_text())
             occupied.add(other['name'])
+        # A per-thread name never equals a reserved alias of any repository.
+        occupied |= {lease['alias'] for lease in alias_lease.leases(state_root)}
         _, candidate, key=details(Path('.'),{'state_root':str(state_root)},thread,repo,agent,model)
         base=candidate.rsplit('-',1)[0]
         for offset in range(256):
@@ -160,7 +165,7 @@ def start_command(prefix, thread, repo, agent='codex', model=None):
     return start_command_for(sys.executable, prefix, thread, repo, agent, model)
 
 
-def result(prefix, state, name, thread, repo, status, agent='codex', model=None):
+def result(prefix, state, name, thread, repo, status, agent='codex', model=None, take=None):
     active = bridge_status(prefix, state) if status in ('running', 'repair_required') else None
     fields = revisions.read_fields(prefix, revisions.ack_path(state),
         revisions.service_revision(state, active))
@@ -169,7 +174,52 @@ def result(prefix, state, name, thread, repo, status, agent='codex', model=None)
                 inbox_command=shlex.join([sys.executable,str(prefix/'bridge.py'),'--state-dir',str(state),'inbox']))
     if agent == 'codex':
         data.update(tmux_terminal.report(state))
+        data['alias'] = alias_report(state, repo, name)
+        if take:
+            data['alias']['take'] = take
     return data
+
+
+def alias_take(prepared):
+    """The refusal of an alias take, for the public result; None when it took or held."""
+    if not prepared or 'reason' not in prepared:
+        return None
+    return {key: prepared[key] for key in ('reason', 'paths', 'holder', 'error') if key in prepared}
+
+
+def alias_report(state, repo, name):
+    state_root = alias_lease.state_root_of(state)
+    if state_root is None:
+        return dict(state='unavailable', reason='no_session_state_root')
+    try:
+        return alias_lease.report(state_root, Path(state).name, repo, name)
+    except (OSError, ValueError):
+        return dict(state='unavailable', reason='alias_unreadable')
+
+
+def alias_prepare(prefix, state, repo, name):
+    """Reserve and take this Codex registration's alias before its service starts."""
+    state_root = alias_lease.state_root_of(state)
+    if state_root is None:
+        return dict(state='unavailable', reason='no_session_state_root', restart=False)
+
+    def stopped(other):
+        other_state = state_root / 'sessions' / other
+        return session_observation.lifecycle(other_state, bridge_status(prefix, other_state)) == 'stopped'
+    try:
+        return alias_lease.prepare(state_root, Path(state).name, repo, name, peers=peers, stopped=stopped)
+    except (OSError, ValueError) as exc:
+        return dict(state='unavailable', reason='alias_failed', error=str(exc), restart=False)
+
+
+def alias_confirm(state, name):
+    state_root = alias_lease.state_root_of(state)
+    if state_root is None:
+        return
+    try:
+        alias_lease.confirm(state_root, Path(state).name, name, peers=peers)
+    except (OSError, ValueError):
+        pass
 
 
 def record_attachment(state, config):
@@ -393,6 +443,8 @@ def guide_observations(prefix, family, thread, repo, session_id=None):
     found['registration'] = dict(state='observed', registered=True, name=saved.get('name'), state_dir=str(state),
                                  inbox_command=shlex.join([sys.executable, str(prefix/'bridge.py'),
                                                            '--state-dir', str(state), 'inbox']))
+    if family == 'codex':
+        found['alias'] = alias_report(state, saved.get('repo', repo), saved.get('name'))
     bridge = bridge_status(prefix, state)
     found['bridge'] = (dict(state='observed', pid=bridge.get('pid'), address=bridge.get('address'),
                             runtime_revision=bridge.get('runtime_revision'))
@@ -440,6 +492,36 @@ def guide(prefix, a):
         result['next_action'] = dict(text='Upgrade is incomplete; inspect upgrade status and resume the recorded operation.')
     sys.stdout.write(json.dumps(result) + '\n' if a.json else guidance.text(result))
     return 0
+
+
+def stop_legacy(prefix, config, state, key):
+    """Stop a legacy session's services and wait until its lifecycle is stopped."""
+    unit=Path(config['unit_dir'])/runtime_names.selected_service_names(Path(config['unit_dir']), key)[0]
+    if unit.exists():
+        check_owned_unit(unit, prefix)
+        try:
+            available=platform_support.user_service_manager('available',stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,timeout=5).returncode==0
+        except (OSError,subprocess.TimeoutExpired):
+            available=False
+        if available:
+            platform_support.user_service_manager('stop', [unit.name], check=True)
+    # Try independently addressable controls even if status could not answer.
+    # Never interpret a timeout or a retained endpoint as proof of shutdown.
+    for executable, endpoint in (('notify.py', state/'notifier'), ('bridge.py', state)):
+        if session_observation.endpoint_present(endpoint):
+            try:
+                subprocess.run([sys.executable,str(prefix/executable),'--state-dir',str(state),'stop'],
+                               check=True, capture_output=True, timeout=12)
+            except (OSError,subprocess.SubprocessError):
+                # A lost stop reply is ambiguous; the observation below
+                # decides whether shutdown completed.
+                pass
+    deadline=time.monotonic()+10
+    while session_observation.lifecycle(state,bridge_status(prefix,state)) != 'stopped':
+        if time.monotonic() >= deadline:
+            raise RuntimeError('session stop is unconfirmed; lifecycle remains unknown')
+        time.sleep(.1)
 
 
 def main():
@@ -531,6 +613,7 @@ def main():
     # An explicit saved native selection owns this path. Never fall through to
     # legacy ensure/stop or silently rewrite its registered identity.
     native = state / 'native-service.json'
+    native_take = None
     if a.action in ('ensure', 'stage') and config.get('session_backend') in ('systemd', 'launchd'):
         from koinon import session_install
         try:
@@ -548,6 +631,32 @@ def main():
             return
         if agent == 'codex':
             record_attachment(state, config)
+            from koinon import durable_state
+            saved = durable_state.read(state / 'session.json') or {}
+            prepared = (alias_prepare(prefix, state, saved.get('repo', repo), saved.get('name'))
+                        if saved.get('agent', 'codex') == 'codex' else {})
+            native_take = alias_take(prepared)
+            if prepared.get('restart'):
+                # The running notifier chose its registry name at start; restart it so
+                # that it publishes the alias. The stop's own report is not the result.
+                import session_service
+                from koinon import session_service_artifacts
+                record = session_service_artifacts.load(state)
+                if record is not None:
+                    stopped = io.StringIO()
+                    with contextlib.redirect_stdout(stopped):
+                        code = session_service.main(['stop', '--prefix', str(prefix), '--state-dir', str(state),
+                                                     '--backend', record['backend']])
+                    if code != 0:
+                        # A failed or unconfirmed stop leaves the old notifier running with
+                        # its per-thread name; never report that as a publication.
+                        try:
+                            reported = json.loads(stopped.getvalue())
+                        except ValueError:
+                            reported = None
+                        print(json.dumps(dict(status='unavailable', code='alias_restart_failed',
+                                              stop=reported, state_dir=str(state))))
+                        raise SystemExit(code)
     if runtime_names.present(native):
         from koinon import durable_state
         import session_service
@@ -559,8 +668,21 @@ def main():
                 raise session_service.ServiceError(paths=(native,))
             if a.action == 'rename':
                 raise session_service.ServiceError(paths=(native, state / 'session.json'))
-            return_code = session_service.main([a.action, '--prefix', str(prefix),
-                                                '--state-dir', str(state), '--backend', record['backend']])
+            take = native_take if a.action == 'ensure' else None
+            delegated = io.StringIO()
+            with contextlib.redirect_stdout(delegated) if take else contextlib.nullcontext():
+                return_code = session_service.main([a.action, '--prefix', str(prefix),
+                                                    '--state-dir', str(state), '--backend', record['backend']])
+            if take:
+                try:
+                    reported = json.loads(delegated.getvalue())
+                except ValueError:
+                    reported = None
+                if isinstance(reported, dict) and isinstance(reported.get('alias'), dict):
+                    reported['alias']['take'] = take
+                    print(json.dumps(reported), flush=True)
+                else:
+                    sys.stdout.write(delegated.getvalue())
         except durable_state.StateReadBusyError:
             print(json.dumps(dict(status='unavailable', code='session_temporary_failure')))
             return_code = 75
@@ -604,10 +726,17 @@ def main():
         if a.action == 'stage':
             print(json.dumps(dict(status='staged', running=False, state_dir=str(state))))
             return
+        alias = {}
         if a.action == 'ensure' and agent == 'codex':
             record_attachment(state, config)
+            alias = alias_prepare(prefix, state, repo, name)
         active=bridge_status(prefix,state)
         observed=session_observation.lifecycle(state,active)
+        if alias.get('restart') and observed != 'stopped':
+            # The running notifier chose its registry name at start; restart it.
+            stop_legacy(prefix, config, state, key)
+            active=bridge_status(prefix,state)
+            observed=session_observation.lifecycle(state,active)
         if a.action=='rename':
             if observed != 'stopped':
                 raise ValueError('stop this thread before explicitly renaming it')
@@ -623,7 +752,7 @@ def main():
         ready=notifier_readiness(state,active)
         healthy=ready is not None
         if a.action=='status' or (a.action=='ensure' and observed != 'stopped'):
-            data=result(prefix,state,name,a.thread,repo,'running' if healthy else ('repair_required' if active else observed),agent,model)
+            data=result(prefix,state,name,a.thread,repo,'running' if healthy else ('repair_required' if active else observed),agent,model,take=alias_take(alias))
             data['bridge']=active
             data['participant_lock']=ready.get('participant_lock') if ready else None
             data['delivery_health']=notification_health.read(state,ready)
@@ -632,38 +761,12 @@ def main():
             print(json.dumps(data))
             return
         if a.action=='stop':
-            unit=Path(config['unit_dir'])/runtime_names.selected_service_names(Path(config['unit_dir']), key)[0]
-            if unit.exists():
-                check_owned_unit(unit, prefix)
-                try:
-                    available=platform_support.user_service_manager('available',stdout=subprocess.DEVNULL,
-                        stderr=subprocess.DEVNULL,timeout=5).returncode==0
-                except (OSError,subprocess.TimeoutExpired):
-                    available=False
-                if available:
-                    platform_support.user_service_manager('stop', [unit.name], check=True)
-                active=bridge_status(prefix,state)
-            # Try independently addressable controls even if status could not answer.
-            # Never interpret a timeout or a retained endpoint as proof of shutdown.
-            for executable, endpoint in (('notify.py', state/'notifier'), ('bridge.py', state)):
-                if session_observation.endpoint_present(endpoint):
-                    try:
-                        subprocess.run([sys.executable,str(prefix/executable),'--state-dir',str(state),'stop'],
-                                       check=True, capture_output=True, timeout=12)
-                    except (OSError,subprocess.SubprocessError):
-                        # A lost stop reply is ambiguous; the observation below
-                        # decides whether shutdown completed.
-                        pass
-            deadline=time.monotonic()+10
-            while session_observation.lifecycle(state,bridge_status(prefix,state)) != 'stopped':
-                if time.monotonic() >= deadline:
-                    raise RuntimeError('session stop is unconfirmed; lifecycle remains unknown')
-                time.sleep(.1)
+            stop_legacy(prefix, config, state, key)
             # systemd's Restart=on-failure does not restart a clean stop.
             return
         if a.action=='ensure':
             if config.get('session_backend') == 'manual':
-                print(json.dumps(result(prefix,state,name,a.thread,repo,'manual_required',agent,model)))
+                print(json.dumps(result(prefix,state,name,a.thread,repo,'manual_required',agent,model,take=alias_take(alias))))
                 return
             try:
                 available=platform_support.user_service_manager('available',stdout=subprocess.DEVNULL,
@@ -671,7 +774,7 @@ def main():
             except (OSError,subprocess.TimeoutExpired):
                 available=False
             if not available:
-                print(json.dumps(result(prefix,state,name,a.thread,repo,'manual_required',agent,model)))
+                print(json.dumps(result(prefix,state,name,a.thread,repo,'manual_required',agent,model,take=alias_take(alias))))
                 return
             unit_dir=Path(config['unit_dir'])
             selected = runtime_names.selected_service_names(unit_dir, key)
@@ -693,7 +796,9 @@ def main():
             platform_support.user_service_manager('start', rendered, check=True)
             for _ in range(50):
                 if notifier_ready(state,bridge_status(prefix,state)):
-                    print(json.dumps(result(prefix,state,name,a.thread,repo,'running',agent,model)))
+                    if agent == 'codex':
+                        alias_confirm(state, name)
+                    print(json.dumps(result(prefix,state,name,a.thread,repo,'running',agent,model,take=alias_take(alias))))
                     return
                 time.sleep(.1)
             raise RuntimeError('service started but bridge is not ready; inspect its journal')

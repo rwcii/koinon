@@ -1,5 +1,6 @@
 """Notifier orchestration: private control, journal owner, provider, and health."""
 import asyncio
+import contextlib
 from koinon import runtime_names
 from contextlib import asynccontextmanager
 import json
@@ -609,13 +610,11 @@ class Runtime:
                 startedAt=int(time.time()*1000), procStart=started, kind='daemon',
                 entrypoint=runtime_names.REGISTRY_ENTRYPOINT, pidDomain=platform_support.pid_domain(),
                 messagingSocketPath=self.bridge['address'].removeprefix('uds:'), peerProtocol=1,
-                peerFeatures=['reply_across_default_dirs'], bridgeOwner=self.generation)
-            try:
-                fd = os.open(record, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, 0o600)
-            except OSError as exc:
-                raise RuntimeRefusal('notifier_registry_refused', record) from exc
-            with os.fdopen(fd, 'w') as stream:
-                json.dump(metadata, stream)
+                peerFeatures=['reply_across_default_dirs'], bridgeOwner=self.generation,
+                koinonName=self.options.name)
+            # Synchronous on purpose: a cancelled worker thread could create the record
+            # after cleanup ran. `names.lock` is only ever held briefly.
+            self.create_record(record, metadata)
             self.publish_status()
             durable_state.publish(self.root / 'notify-ready.json', dict(self.owner, participant_lock=self.participant))
             print(json.dumps(dict(registered=self.bridge['address'], name=self.options.name)), flush=True)
@@ -629,6 +628,27 @@ class Runtime:
                 task.result()
         finally:
             await settled_cleanup(asyncio.create_task(self.cleanup(tasks, server, record, control, inode)))
+
+    def create_record(self, record, metadata):
+        """Choose the published name and create the registry record under `names.lock`.
+
+        A Codex holder of its repository's alias publishes the alias; every other
+        participant publishes its per-thread name. The name is chosen once, here.
+        """
+        from koinon import alias_lease
+        publication = (alias_lease.publication(self.root, self.options.name, self.options.repo)
+                       if getattr(self.options, 'agent', 'codex') == 'codex' else contextlib.nullcontext(
+                           (self.options.name, None)))
+        with publication as (name, alias):
+            metadata = dict(metadata, name=name)
+            if alias is not None:
+                metadata['koinonAlias'] = alias
+            try:
+                fd = os.open(record, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, 0o600)
+            except OSError as exc:
+                raise RuntimeRefusal('notifier_registry_refused', record) from exc
+            with os.fdopen(fd, 'w') as stream:
+                json.dump(metadata, stream)
 
     async def cleanup(self, tasks, server, record, control, inode):
         self.closing = True
