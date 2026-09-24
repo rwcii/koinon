@@ -262,3 +262,13 @@ or its direct wrapper child must hold the log. This association is checked each 
 An idle thread that closes its log therefore reports unknown. These are observations, not
 proof that a task completed successfully. No app-server connection, resume or queued probe
 is made. Status polling runs separately from notification delivery, every two seconds.
+
+## Guidance pointers
+
+Guidance notices carry only the installed catalog revision and commands to pull and explicitly
+acknowledge it. They use the notifier's existing serialized provider adapter, separately from
+inbox sequence acknowledgements and the inbox delivery ledger. A durable per-session,
+per-revision reservation prevents repeats across polling, notifier restart or a return to an
+older revision. A failed or uncertain reservation is retained rather than retried automatically;
+reading the guide at startup/resume supplies the independent recovery path. Delivery, fetching,
+and processing remain separate: only `session.py guide-ack REVISION` records processing.

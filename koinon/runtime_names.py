@@ -126,6 +126,10 @@ def validate_install_config(result):
                 or not (record['wrapper'] is None or isinstance(record['wrapper'], dict))
                 or (record['state'] != 'declined' and record['wrapper'] is None)):
             raise ValueError('invalid Claude status-line selection')
+    for field in ('runtime_revision', 'guidance_revision'):
+        if field in result and (not isinstance(result[field], str)
+                                or re.fullmatch(r'[0-9a-f]{64}', result[field]) is None):
+            raise ValueError('invalid installed revision')
     if 'participant_guidance' in result:
         record = result['participant_guidance']
         blocks = record.get('blocks') if isinstance(record, dict) else None

@@ -202,6 +202,9 @@ def execute(action, selection, *, generation=None, assertion=False):
         result = {'ensure': session_service_manager.ensure, 'status': session_service_manager.status,
                   'deactivate': session_service_manager.deactivate}[action](selection)
         if action in ('ensure', 'status'):
+            from koinon import revisions
+            result = dict(result, **revisions.read_fields(selection.prefix, revisions.ack_path(selection.home),
+                                                          revisions.running_owner_revision(selection.home)))
             result = dict(result, name=selection.registration['name'], state_dir=str(selection.home),
                           inbox_command=shlex.join([selection.record['python'],
                               str(selection.prefix / 'bridge.py'), '--state-dir', str(selection.home), 'inbox']))

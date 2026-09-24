@@ -133,3 +133,18 @@ Codex status observes only the selected thread log under `CODEX_HOME` (default `
 Activity, model and last-request context usage require a live associated Codex log holder;
 missing evidence is unknown. The observer exports no transcript text and does not resume a
 thread. See `docs/DELIVERY.md` for ownership and freshness semantics.
+
+## Guidance update notices
+
+The notifier checks installed guidance metadata during its serial delivery scan. A changed
+or never-acknowledged revision produces a content-free pointer to `session.py guide` and
+`guide-ack REVISION`, using this notifier's participant family. It shares the provider with
+ordinary inbox notices; the two never invoke that provider concurrently.
+
+Each session reserves a notice in `notifier/guidance-notices/<revision>.json` before provider
+I/O, and records the outcome afterward. The reservation survives restart and returning to an
+earlier revision. An interrupted, failed or uncertain attempt is not automatically repeated;
+startup/resume guide reads remain the recovery path. This conservative policy prevents a
+provider call accepted before a crash from becoming a duplicate notice. A notice reservation
+is not evidence that the agent processed the guide. Only explicit `guide-ack` records that.
+No notice is attempted while upgrade completion or revision publication remains incomplete.

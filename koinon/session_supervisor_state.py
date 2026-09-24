@@ -71,6 +71,10 @@ class Records:
     def validate(self, value, *, refusal=False):
         fields = {'version', 'installation', 'configuration', 'generation', 'pid', 'proc_start',
                   'phase', 'children', 'spawn_pending', 'exit_status', 'primary_code', 'shutdown_code'}
+        if isinstance(value, dict) and 'runtime_revision' in value:
+            if not hex_value(value['runtime_revision'], 64):
+                raise StateError('invalid_session_state')
+            fields.add('runtime_revision')
         if isinstance(value, dict) and value.get('version') == 2:
             fields |= {'control_endpoints', 'endpoint_pending'}
         if (not isinstance(value, dict) or set(value) != fields or type(value['version']) is not int
@@ -146,7 +150,8 @@ class Records:
             raise StateError('invalid_session_state') from exc
 
     def new_owner(self):
-        return self.validate(dict(version=2, installation=self.installation, configuration=self.configuration,
+        from koinon.revisions import loaded_runtime_revision
+        return self.validate(dict(version=2, runtime_revision=loaded_runtime_revision(), installation=self.installation, configuration=self.configuration,
                                   generation=uuid.uuid4().hex, pid=os.getpid(),
                                   proc_start=platform_support.proc_start(os.getpid()), phase='starting',
                                   children={key: None for key in CHILDREN}, spawn_pending=None, exit_status=None,

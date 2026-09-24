@@ -61,6 +61,7 @@ from koinon import durable_state
 from notify import save
 from koinon import platform_support
 from koinon import runtime_names
+from koinon import revisions
 from koinon import notification_health
 from koinon import session_observation
 from scripts.install import units, check_owned_unit, start_command_for
@@ -159,7 +160,10 @@ def start_command(prefix, thread, repo, agent='codex', model=None):
 
 
 def result(prefix, state, name, thread, repo, status, agent='codex', model=None):
-    return dict(status=status, name=name, state_dir=str(state),
+    active = bridge_status(prefix, state) if status in ('running', 'repair_required') else None
+    fields = revisions.read_fields(prefix, revisions.ack_path(state),
+        revisions.service_revision(state, active))
+    return dict(fields, status=status, name=name, state_dir=str(state),
                 start_command=shlex.join(start_command(prefix,thread,repo,agent,model)),
                 inbox_command=shlex.join([sys.executable,str(prefix/'bridge.py'),'--state-dir',str(state),'inbox']))
 
@@ -348,7 +352,8 @@ def guide_observations(prefix, family, thread, repo):
                                  inbox_command=shlex.join([sys.executable, str(prefix/'bridge.py'),
                                                            '--state-dir', str(state), 'inbox']))
     bridge = bridge_status(prefix, state)
-    found['bridge'] = (dict(state='observed', pid=bridge.get('pid'), address=bridge.get('address'))
+    found['bridge'] = (dict(state='observed', pid=bridge.get('pid'), address=bridge.get('address'),
+                            runtime_revision=bridge.get('runtime_revision'))
                        if bridge else dict(state='unavailable', reason='bridge_not_running'))
     try:
         ready = notifier_readiness(state, bridge)
@@ -378,6 +383,18 @@ def guide(prefix, a):
     except guidance.GuidanceError as exc:
         print(json.dumps(dict(ok=False, code=exc.code, error=str(exc))))
         return 64
+    state = observations.get('registration', {}).get('state_dir')
+    try:
+        path = revisions.ack_path(state, family=family, session_id=os.environ.get('CLAUDE_CODE_SESSION_ID'))
+        running = revisions.service_revision(state, observations.get('bridge'))
+        fields = revisions.read_fields(prefix, path, running)
+    except ValueError:
+        fields = revisions.read_fields(prefix, None)
+    # The rendered catalog identifies what was read; the comparison identifies the install.
+    result.update({k: v for k, v in fields.items() if k != 'guide_revision'})
+    result['observations']['runtime'] = fields['runtime']
+    if fields['runtime']['reason'] == 'upgrade_incomplete':
+        result['next_action'] = dict(text='Upgrade is incomplete; inspect upgrade status and resume the recorded operation.')
     sys.stdout.write(json.dumps(result) + '\n' if a.json else guidance.text(result))
     return 0
 
@@ -385,7 +402,8 @@ def guide(prefix, a):
 def main():
     os.umask(0o077)
     p=argparse.ArgumentParser(description=__doc__)
-    p.add_argument('action',choices=['ensure','stage','run','status','stop','rename','work-policy','work-key','guide'])
+    p.add_argument('action',choices=['ensure','stage','run','status','stop','rename','work-policy','work-key','guide','guide-ack'])
+    p.add_argument('revision', nargs='?', help='guide-ack: the revision actually processed')
     p.add_argument('--agent',choices=['codex','deepseek','claude'],default=None,
                    help='participant kind this instance serves; defaults to the registered kind, '
                         'or is inferred from the session environment, and is codex otherwise')
@@ -403,6 +421,20 @@ def main():
     prefix=Path(__file__).resolve().parent
     if a.action == 'guide':
         raise SystemExit(guide(prefix, a))
+    if a.action == 'guide-ack':
+        family = a.agent or ('codex' if os.environ.get('CODEX_THREAD_ID') else
+                             'deepseek' if os.environ.get('DSH_SESSION_ID') else 'claude')
+        try:
+            config = read_config(prefix)
+            thread = a.thread or os.environ.get('DSH_SESSION_ID' if family == 'deepseek' else 'CODEX_THREAD_ID')
+            state = None if family == 'claude' else details(prefix, config, thread, a.repo, family)[0]
+            path = revisions.ack_path(state, family=family, session_id=os.environ.get('CLAUDE_CODE_SESSION_ID'))
+            revisions.acknowledge(prefix, a.revision, path)
+        except (OSError, ValueError) as exc:
+            print(json.dumps(dict(ok=False, code='guidance_ack_refused', error=str(exc))))
+            raise SystemExit(78) from None
+        print(json.dumps(dict(ok=True, guide_revision=a.revision, guide_stale=False)))
+        return
     if a.action == 'work-key':
         from koinon.participant_work import set_key
         agent = a.agent or ('codex' if os.environ.get('CODEX_THREAD_ID') else
@@ -428,7 +460,14 @@ def main():
         return
     if a.agent == 'claude':
         p.error('claude is supported only by work-policy')
-    config=read_config(prefix)
+    try:
+        config=read_config(prefix)
+    except runtime_names.NameConflict as exc:
+        if a.action not in ('ensure', 'status') or exc.code != 'installation_upgrading':
+            raise
+        print(json.dumps(dict(status='unavailable', code=exc.code, guide_revision=None, guide_stale=None,
+                              runtime_revision=None, runtime=revisions.observe_runtime({}, upgrade=True))))
+        raise SystemExit(78) from None
     if config.get('installation_state') == 'removing' and a.action not in ('stop', 'status'):
         print(json.dumps(dict(status='unavailable', code='session_configuration_failure',
                               error='installation removal is in progress; resume uninstall')))
@@ -487,7 +526,8 @@ def main():
         raise SystemExit(return_code)
     if a.action == 'status' and not runtime_names.present(state / 'session.json'):
         # Observe absence before creating directories or taking writable locks.
-        print(json.dumps(dict(status='unregistered', state_dir=str(state), agent=agent)))
+        print(json.dumps(dict(revisions.read_fields(prefix, revisions.ack_path(state)),
+                                   status='unregistered', state_dir=str(state), agent=agent)))
         return
     if not (state/'session.json').exists():
         validate_participant_executable(config, agent, a.action)

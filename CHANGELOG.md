@@ -5,6 +5,11 @@ into a dated release section when promoted to `main`.
 
 ## Unreleased
 
+- Session guidance, status and peer listings report guidance revisions and acknowledgement
+  staleness. `session.py guide-ack REVISION` records processing for this session only.
+  Codex and DeepSeek receive one content-free notice per session and guidance revision.
+  Runtime revision diagnostics distinguish old services, mismatches and incomplete upgrades.
+
 - Participant instructions now come from the installed runtime. The managed section in the
   Codex and DeepSeek `AGENTS.md` shrinks to a pointer, `session.py guide --agent <family>`,
   plus the authority limits, and is the same in every release. `guide` prints the current
