@@ -268,9 +268,34 @@ def validate_participant_executable(config, agent, action):
                              'rerun install.py --configure-codex --codex PATH')
 
 
-def _claude_identity():
+def _claude_session_id():
+    """This Claude session's key: the environment, or the JSON a hook receives on stdin.
+
+    Claude Code gives a SessionStart hook the session in its input, not necessarily in the
+    environment. Reading stdin is bounded in time and size and never waits on a terminal.
+    """
+    value = os.environ.get('CLAUDE_CODE_SESSION_ID')
+    if value or sys.stdin is None or sys.stdin.isatty():
+        return value
+    import select
+    data, deadline = b'', time.monotonic() + .5
+    try:
+        while len(data) < 65536:
+            if not select.select([sys.stdin], [], [], max(0, deadline - time.monotonic()))[0]:
+                return None
+            chunk = os.read(sys.stdin.fileno(), 65536 - len(data))
+            if not chunk:
+                break
+            data += chunk
+        record = json.loads(data)
+    except (OSError, ValueError):
+        return None
+    value = record.get('session_id') if isinstance(record, dict) else None
+    return value if isinstance(value, str) else None
+
+
+def _claude_identity(session_id):
     """This Claude session's peer name from its own registry record; read only."""
-    session_id = os.environ.get('CLAUDE_CODE_SESSION_ID')
     if not session_id:
         return dict(state='unknown', reason='session_id_missing')
     folder = Path(os.environ.get('CLAUDE_CONFIG_DIR', str(Path.home()/'.claude'))) / 'sessions'
@@ -301,9 +326,10 @@ def _memory_observation(prefix, config, repo):
     if not platform_support.control_socket_path(directory).exists():
         return dict(state='unavailable', reason='service_not_running', backend=selected.get('backend'))
     try:
+        # Stay well inside the 10-second limit of the Claude SessionStart hook that runs guide.
         result = subprocess.run([sys.executable, str(prefix/'memory.py'), '--service-dir', str(directory),
-                                 '--repo-path', str(repo), 'status'],
-                                capture_output=True, text=True, timeout=10,
+                                 '--repo-path', str(repo), 'status'], stdin=subprocess.DEVNULL,
+                                capture_output=True, text=True, timeout=5,
                                 env=dict(os.environ, PYTHONDONTWRITEBYTECODE='1'))
         value = json.loads(result.stdout) if result.returncode == 0 else None
     except (OSError, ValueError, subprocess.TimeoutExpired):
@@ -315,7 +341,7 @@ def _memory_observation(prefix, config, repo):
                 backend=selected.get('backend'))
 
 
-def guide_observations(prefix, family, thread, repo):
+def guide_observations(prefix, family, thread, repo, session_id=None):
     """Live facts for the guide. Every read is inert; a failure is reported, never raised."""
     found = {}
     try:
@@ -327,7 +353,7 @@ def guide_observations(prefix, family, thread, repo):
         found['installation'] = dict(state='unavailable', reason=getattr(exc, 'code', 'invalid_install_configuration'))
     found['memory'] = _memory_observation(prefix, config, repo)
     if family == 'claude':
-        found['registration'] = _claude_identity()
+        found['registration'] = _claude_identity(session_id)
         return found
     if not thread:
         found['registration'] = dict(state='unknown', reason='session_id_missing')
@@ -376,7 +402,8 @@ def guide(prefix, a):
         return 64
     thread = a.thread or os.environ.get('DSH_SESSION_ID' if family == 'deepseek' else 'CODEX_THREAD_ID')
     repo = str(Path(a.repo).absolute())
-    observations = guide_observations(prefix, family, thread, repo)
+    session_id = _claude_session_id() if family == 'claude' else None
+    observations = guide_observations(prefix, family, thread, repo, session_id)
     try:
         result = guidance.render(family, a.topic, python=sys.executable, prefix=prefix,
                                  observations=observations, brief=a.brief, values=dict(repo=repo))
@@ -385,7 +412,7 @@ def guide(prefix, a):
         return 64
     state = observations.get('registration', {}).get('state_dir')
     try:
-        path = revisions.ack_path(state, family=family, session_id=os.environ.get('CLAUDE_CODE_SESSION_ID'))
+        path = revisions.ack_path(state, family=family, session_id=session_id)
         running = revisions.service_revision(state, observations.get('bridge'))
         fields = revisions.read_fields(prefix, path, running)
     except ValueError:

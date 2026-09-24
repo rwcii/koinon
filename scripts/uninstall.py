@@ -44,7 +44,7 @@ from koinon import platform_support
 from koinon import runtime_names
 from koinon import install_state
 from koinon import work_guidance
-from koinon import claude_statusline
+from koinon import claude_guidance, claude_statusline
 from koinon import component_remove
 import memory_service
 import session_service
@@ -163,8 +163,12 @@ def uninstall(prefix, state):
     for home in native_sessions:
         with session_service_artifacts.locked(home / 'lifecycle.lock'), session_service_artifacts.locked(home / 'registration.lock'):
             session_service_artifacts.archive_removed(session_service_artifacts.load(home))
-    # Restore the Claude status line before the wrapper it names is deleted. A settings
-    # error stops removal here, so a resumed uninstall can finish after it is resolved.
+    # Remove the Claude guidance block and hook while they are still Koinon's, and restore
+    # the Claude status line before the wrapper it names is deleted. A settings error stops
+    # removal here, so a resumed uninstall can finish after it is resolved.
+    result = claude_guidance.release(state, prefix)
+    if result is not None:
+        print('Claude guidance:', json.dumps(result), flush=True)
     result = claude_statusline.release(state, prefix)
     if result is not None:
         print('Claude status line:', json.dumps(result), flush=True)

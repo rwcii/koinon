@@ -5,6 +5,15 @@ into a dated release section when promoted to `main`.
 
 ## Unreleased
 
+- Claude sessions get the installed guidance. Installation adds a managed block to the
+  Claude `CLAUDE.md` and one `SessionStart` hook that prints
+  `session.py guide --agent claude --brief` at startup, resume, `/clear` and compaction.
+  The brief names this session's peer name, the peer listing, the session key change after
+  `/clear`, and held incoming messages. `--no-claude-guidance` declines, and
+  `--claude-guidance` and `--remove-claude-guidance` act on an installation. Upgrade and
+  uninstall handle both like the status line: a decline is kept, and entries you edited are
+  kept and reported.
+
 - Session guidance, status and peer listings report guidance revisions and acknowledgement
   staleness. `session.py guide-ack REVISION` records processing for this session only.
   Codex and DeepSeek receive one content-free notice per session and guidance revision.

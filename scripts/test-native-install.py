@@ -129,16 +129,33 @@ class Fixture:
         if self.release == SOURCE:
             line = self.settings()['statusLine']
             if staged:
-                require(line == self.status_line, 'a staged installation changed Claude settings')
+                require(line == self.status_line and 'hooks' not in self.settings()
+                        and not (self.root / 'claude' / 'CLAUDE.md').exists(),
+                        'a staged installation changed Claude settings')
             else:
                 require(line.get('padding') == 0 and str(self.prefix / 'statusline.py') in line.get('command', '')
                         and 'synthetic-status-line' in line['command'],
                         'installation did not wrap the Claude status line: ' + json.dumps(line))
+                self.check_claude_guidance()
         self.records = list(config['memory_services']['repositories'].values())
         self.session_records = [json.loads(path.read_text())
                                 for path in (self.state / 'sessions').glob('*/native-service.json')]
         self.removed = False
         return config
+
+    def check_claude_guidance(self):
+        """The CLAUDE.md block and the one SessionStart hook, run as Claude Code runs it."""
+        groups = self.settings().get('hooks', {}).get('SessionStart', [])
+        hooks = [hook for group in groups for hook in group.get('hooks', [])
+                 if str(self.prefix / 'session.py') in hook.get('command', '')]
+        require(len(hooks) == 1 and hooks[0].get('timeout') == 10,
+                'installation did not add one Claude SessionStart hook: ' + json.dumps(groups))
+        require('<!-- BEGIN KOINON CLAUDE -->' in (self.root / 'claude' / 'CLAUDE.md').read_text(),
+                'installation did not add the Claude guidance block')
+        result = subprocess.run(['/bin/sh', '-c', hooks[0]['command']], input='{"session_id": "synthetic"}',
+                                env=self.env, capture_output=True, text=True, timeout=10)
+        require(result.returncode == 0 and result.stdout.startswith('Koinon guidance for claude'),
+                'the Claude SessionStart hook did not print the guide: ' + result.stdout + result.stderr)
 
     def settings(self):
         return json.loads((self.root / 'claude' / 'settings.json').read_text())
@@ -197,6 +214,9 @@ class Fixture:
         if self.release == SOURCE:
             require(self.settings().get('statusLine') == self.status_line,
                     'uninstall did not restore the Claude status line')
+            require('hooks' not in self.settings()
+                    and 'KOINON CLAUDE' not in (self.root / 'claude' / 'CLAUDE.md').read_text(),
+                    'uninstall did not remove the Claude guidance')
         require(not (self.prefix / 'session.py').exists(), 'runtime remains')
         self.removed = True
 

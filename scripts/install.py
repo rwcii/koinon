@@ -52,7 +52,7 @@ from koinon import install_state
 MARKER = runtime_names.SERVICE_MARKER
 SERVICES = runtime_names.service_names()
 
-FILES = ('koinon/path_permissions.py', 'koinon/upgrade_discovery.py', 'koinon/upgrade_manual.py', 'scripts/upgrade.py', 'koinon/upgrade_command.py', 'koinon/upgrade_complete.py', 'koinon/upgrade_preflight.py', 'koinon/upgrade_release.py', 'koinon/upgrade_coordinator.py', 'koinon/upgrade_probe.py', 'koinon/upgrade_start.py', 'koinon/upgrade_replace.py', 'koinon/upgrade_migration.py', 'koinon/upgrade_capture.py', 'koinon/upgrade_quiescence.py', 'koinon/upgrade_reservation.py', 'koinon/upgrade_backup.py', 'koinon/upgrade_backup_inventory.py', 'koinon/upgrade_bundle.py', 'koinon/upgrade_documents.py', 'koinon/upgrade_exclusion.py', 'koinon/upgrade_gate.py', 'koinon/upgrade_inventory.py', 'koinon/upgrade_journal.py', 'koinon/upgrade_layout.py', 'koinon/upgrade_manifest.py', 'koinon/upgrade_observation.py', 'koinon/upgrade_plan.py', 'koinon/uninstall_finalize.py', 'koinon/component_remove.py', 'koinon/session_install.py', 'koinon/component_install.py', 'koinon/session_socket_handoff.py', 'koinon/session_endpoints.py', 'koinon/session_service_manager.py', 'session_service.py', 'koinon/session_service_artifacts.py', 'koinon/session_service_config.py', 'koinon/session_supervisor.py', 'koinon/session_supervisor_state.py', 'koinon/generation_stop.py', 'memory_service.py', 'koinon/memory_service_artifacts.py', 'koinon/memory_service_config.py', 'docs/WORK-ITEMS-UPGRADE.md', 'koinon/work_guidance.py', 'docs/WORK-ITEMS-POLICY.md', 'koinon/install_state.py', 'koinon/work_policy.py', 'koinon/work_maintenance.py', 'koinon/work_items.py', 'koinon/work_storage.py', 'koinon/__init__.py', 'koinon/claims.py', 'koinon/work_schema.py', 'docs/DELIVERY.md', 'koinon/participant_presence.py', 'koinon/participant_status.py', 'koinon/participant_work.py', 'koinon/repository_identity.py', 'koinon/codex_status.py', 'koinon/claude_statusline.py', 'koinon/delivery_ledger.py', 'usage_report.py', 'statusline.py', 'koinon/usage_sources.py', 'koinon/usage_selection.py', 'docs/USAGE.md', 'koinon/runtime_names.py', 'koinon/participant_instructions.py', 'koinon/guidance.py', 'koinon/revisions.py', 'koinon/session_observation.py', 'koinon/durable_state.py', 'koinon/notification_delivery.py', 'koinon/notification_health.py', 'koinon/notification_journal.py', 'koinon/notification_legacy.py', 'koinon/notification_memory.py', 'koinon/notification_migration.py', 'koinon/notification_notices.py', 'koinon/notification_provider.py', 'koinon/notification_runtime.py', 'koinon/notification_source.py', 'koinon/notification_state.py', 'koinon/subscriptions.py', 'koinon/memory_bindings.py', 'koinon/inbox_schema.py', 'koinon/database_worker.py', 'koinon/service_runtime.py', 'koinon/participant_lock.py', 'koinon/peer_transport.py', 'koinon/peer_guidance.py', 'CHANGELOG.md', 'memory.py', 'session.py', 'koinon/codex_instructions.py', 'koinon/platform_support.py', 'koinon/dsh_delivery.py', 'scripts/install.py', 'scripts/uninstall.py', 'scripts/uninstall.sh', 'bridge.py', 'notify.py', 'README.md', 'PROTOCOL.md', 'LICENSE', 'CONTRIBUTING.md', 'AGENTS.md', 'docs/INSTALL.md', 'docs/NOTIFIER.md', 'docs/IDENTIFIER-MIGRATION.md', 'docs/PARITY-MEMORY-DESIGN.md')
+FILES = ('koinon/path_permissions.py', 'koinon/upgrade_discovery.py', 'koinon/upgrade_manual.py', 'scripts/upgrade.py', 'koinon/upgrade_command.py', 'koinon/upgrade_complete.py', 'koinon/upgrade_preflight.py', 'koinon/upgrade_release.py', 'koinon/upgrade_coordinator.py', 'koinon/upgrade_probe.py', 'koinon/upgrade_start.py', 'koinon/upgrade_replace.py', 'koinon/upgrade_migration.py', 'koinon/upgrade_capture.py', 'koinon/upgrade_quiescence.py', 'koinon/upgrade_reservation.py', 'koinon/upgrade_backup.py', 'koinon/upgrade_backup_inventory.py', 'koinon/upgrade_bundle.py', 'koinon/upgrade_documents.py', 'koinon/upgrade_exclusion.py', 'koinon/upgrade_gate.py', 'koinon/upgrade_inventory.py', 'koinon/upgrade_journal.py', 'koinon/upgrade_layout.py', 'koinon/upgrade_manifest.py', 'koinon/upgrade_observation.py', 'koinon/upgrade_plan.py', 'koinon/uninstall_finalize.py', 'koinon/component_remove.py', 'koinon/session_install.py', 'koinon/component_install.py', 'koinon/session_socket_handoff.py', 'koinon/session_endpoints.py', 'koinon/session_service_manager.py', 'session_service.py', 'koinon/session_service_artifacts.py', 'koinon/session_service_config.py', 'koinon/session_supervisor.py', 'koinon/session_supervisor_state.py', 'koinon/generation_stop.py', 'memory_service.py', 'koinon/memory_service_artifacts.py', 'koinon/memory_service_config.py', 'docs/WORK-ITEMS-UPGRADE.md', 'koinon/work_guidance.py', 'docs/WORK-ITEMS-POLICY.md', 'koinon/install_state.py', 'koinon/work_policy.py', 'koinon/work_maintenance.py', 'koinon/work_items.py', 'koinon/work_storage.py', 'koinon/__init__.py', 'koinon/claims.py', 'koinon/work_schema.py', 'docs/DELIVERY.md', 'koinon/participant_presence.py', 'koinon/participant_status.py', 'koinon/participant_work.py', 'koinon/repository_identity.py', 'koinon/codex_status.py', 'koinon/claude_statusline.py', 'koinon/claude_guidance.py', 'koinon/delivery_ledger.py', 'usage_report.py', 'statusline.py', 'koinon/usage_sources.py', 'koinon/usage_selection.py', 'docs/USAGE.md', 'koinon/runtime_names.py', 'koinon/participant_instructions.py', 'koinon/guidance.py', 'koinon/revisions.py', 'koinon/session_observation.py', 'koinon/durable_state.py', 'koinon/notification_delivery.py', 'koinon/notification_health.py', 'koinon/notification_journal.py', 'koinon/notification_legacy.py', 'koinon/notification_memory.py', 'koinon/notification_migration.py', 'koinon/notification_notices.py', 'koinon/notification_provider.py', 'koinon/notification_runtime.py', 'koinon/notification_source.py', 'koinon/notification_state.py', 'koinon/subscriptions.py', 'koinon/memory_bindings.py', 'koinon/inbox_schema.py', 'koinon/database_worker.py', 'koinon/service_runtime.py', 'koinon/participant_lock.py', 'koinon/peer_transport.py', 'koinon/peer_guidance.py', 'CHANGELOG.md', 'memory.py', 'session.py', 'koinon/codex_instructions.py', 'koinon/platform_support.py', 'koinon/dsh_delivery.py', 'scripts/install.py', 'scripts/uninstall.py', 'scripts/uninstall.sh', 'bridge.py', 'notify.py', 'README.md', 'PROTOCOL.md', 'LICENSE', 'CONTRIBUTING.md', 'AGENTS.md', 'docs/INSTALL.md', 'docs/NOTIFIER.md', 'docs/IDENTIFIER-MIGRATION.md', 'docs/PARITY-MEMORY-DESIGN.md')
 
 
 def unit_arg(value):
@@ -297,6 +297,10 @@ def main():
                            help='set up the Claude Code status-line wrapper now, reversing a saved decline')
     work_mode.add_argument('--remove-claude-statusline', action='store_true',
                            help='restore the previous Claude Code status line and record a decline')
+    work_mode.add_argument('--claude-guidance', action='store_true',
+                           help='set up the Claude CLAUDE.md block and SessionStart hook now, reversing a saved decline')
+    work_mode.add_argument('--remove-claude-guidance', action='store_true',
+                           help='remove the Claude CLAUDE.md block and SessionStart hook and record a decline')
     p.add_argument('--participant', choices=['codex', 'deepseek', 'claude'])
     p.add_argument('--guidance-file', type=Path)
     p.add_argument('--thread', help='exact existing Codex thread ID')
@@ -320,26 +324,42 @@ def main():
                    help='replace a managed guidance block that was edited or removed, after a backup')
     p.add_argument('--no-claude-statusline', action='store_true',
                    help='do not set up the Claude Code status-line wrapper during installation')
+    p.add_argument('--no-claude-guidance', action='store_true',
+                   help='do not set up the Claude CLAUDE.md block and SessionStart hook during installation')
     a = p.parse_args()
     if not platform_support.SUPPORTED or sys.version_info < (3,11):
         p.error('Linux or macOS with Python 3.11+ is required')
-    if a.claude_statusline or a.remove_claude_statusline:
+    if a.claude_statusline or a.remove_claude_statusline or a.claude_guidance or a.remove_claude_guidance:
         if (a.thread or a.configure_codex or a.configure_deepseek or a.configure_memory or a.service_backend
                 or a.name or a.no_start or a.codex_home or a.dsh_home or a.state_dir or a.unit_dir or a.codex
-                or a.repo or a.participant or a.guidance_file or a.no_claude_statusline):
-            p.error('the Claude status-line modes take only --prefix')
+                or a.repo or a.participant or a.guidance_file or a.no_claude_statusline or a.no_claude_guidance
+                or (a.replace_guidance and not a.claude_guidance)):
+            p.error('the Claude integration modes take only --prefix, and --replace-guidance with --claude-guidance')
         prefix = (a.prefix or runtime_names.default_prefix()).expanduser().resolve()
         if not (prefix / 'statusline.py').is_file() or not (prefix / 'install.json').is_file():
             p.error(f'no installed runtime at {prefix}; install first')
+        if (a.claude_guidance or a.remove_claude_guidance) and not (prefix / 'koinon/claude_guidance.py').is_file():
+            p.error(f'the runtime at {prefix} predates Claude guidance; upgrade it first')
         sys.path.insert(0, str(prefix))
-        from koinon import claude_statusline
+        from koinon import claude_guidance, claude_statusline
         os.umask(0o077)
         try:
             with install_state.locked(prefix) as configuration:
-                result = (claude_statusline.set_up(configuration, prefix, sys.executable, explicit=True)
-                          if a.claude_statusline else claude_statusline.remove(configuration, prefix))
-        except claude_statusline.SettingsError as exc:
-            print(json.dumps(dict(ok=False, code=exc.code, error=str(exc), path=exc.path)))
+                if a.claude_statusline:
+                    result = claude_statusline.set_up(configuration, prefix, sys.executable, explicit=True)
+                elif a.remove_claude_statusline:
+                    result = claude_statusline.remove(configuration, prefix)
+                elif a.claude_guidance:
+                    result = claude_guidance.set_up(configuration, prefix, sys.executable, explicit=True,
+                                                    replace=a.replace_guidance)
+                else:
+                    result = claude_guidance.remove(configuration, prefix)
+        except runtime_names.NameConflict:
+            raise
+        except (OSError, ValueError) as exc:
+            # A settings refusal, or a CLAUDE.md block whose markers need manual repair.
+            print(json.dumps(dict(ok=False, code=getattr(exc, 'code', 'guidance_unavailable'), error=str(exc),
+                                  path=getattr(exc, 'path', None))))
             raise SystemExit(platform_support.CONFIGURATION_EXIT_STATUS) from None
         print(json.dumps(dict(ok=True, result=result)))
         return
@@ -408,6 +428,20 @@ def claude_status_line(a, configuration):
     except (OSError, claude_statusline.SettingsError) as exc:
         return dict(action='set_up', outcome='failed', code=getattr(exc, 'code', 'settings_unavailable'),
                     error=str(exc), repair=claude_statusline.repair_command(a.prefix, sys.executable))
+
+
+def claude_guidance_setup(a, configuration):
+    """Set up the Claude CLAUDE.md block and SessionStart hook by default, like the status line."""
+    from koinon import claude_guidance
+    if a.no_start:
+        return dict(action='set_up', outcome='skipped', reason='no_start')
+    try:
+        if a.no_claude_guidance:
+            return claude_guidance.decline(configuration, a.prefix)
+        return claude_guidance.set_up(configuration, a.prefix, sys.executable, replace=a.replace_guidance)
+    except (OSError, ValueError) as exc:
+        return dict(action='set_up', outcome='failed', code=getattr(exc, 'code', 'settings_unavailable'),
+                    error=str(exc), repair=claude_guidance.repair_command(a.prefix, sys.executable))
 
 
 def install(a, p, configuration=None, validate_only=False):
@@ -522,6 +556,7 @@ def install(a, p, configuration=None, validate_only=False):
                 print(f'Managed {label} guidance:', target)
                 print(f'{label} guidance reconciliation:', json.dumps(reports[agent]))
         print('Claude status line:', json.dumps(claude_status_line(a, configuration)))
+        print('Claude guidance:', json.dumps(claude_guidance_setup(a, configuration)))
         if not memory_only:
             print('New sessions run session.py ensure with their own session identity.')
             report_session_restarts(a.prefix, a.unit_dir, no_start=a.no_start)

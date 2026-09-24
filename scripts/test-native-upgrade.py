@@ -84,6 +84,12 @@ def public_upgrade(fixture, source, interrupt, handoff=None):
                     or ('synthetic-status-line' in before[settings]
                         and 'synthetic-status-line' not in command):
                 raise RuntimeError('upgrade did not set up the Claude status line: ' + json.dumps(outcome))
+            guidance = report['result'].get('claude_guidance') or {}
+            hooks = [hook for group in json.loads(settings.read_text()).get('hooks', {}).get('SessionStart', [])
+                     for hook in group.get('hooks', []) if str(fixture.prefix / 'session.py') in hook.get('command', '')]
+            if (guidance.get('outcome') not in ('set_up', 'unchanged') or Path(guidance.get('settings_file') or '').resolve() != settings
+                    or len(hooks) != 1):
+                raise RuntimeError('upgrade did not set up the Claude guidance: ' + json.dumps(guidance))
             shutil.rmtree(claude, ignore_errors=True)
             return report
         pointer = json.loads((fixture.prefix / '.upgrade/current.json').read_text())

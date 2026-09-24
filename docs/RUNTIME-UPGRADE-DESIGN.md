@@ -41,7 +41,7 @@ memory selection, guidance opt-in, traffic test, or rollback is part of upgrade.
 source is an explicitly selected local release tree.
 
 One exception, approved with the peer status sprint: the upgrade sets up the Claude Code
-status-line wrapper ([Claude status line](INSTALL.md#claude-status-line)) unless the user
+status-line wrapper ([Claude integration](INSTALL.md#claude-integration)) unless the user
 declined it, so that an existing installation reports Claude context without a separate
 step. Preflight records the planned action (`set_up`, `declined` or `skipped`) and a digest of
 the settings file in the `prepared-checks` document. The frozen `install.json` cannot record

@@ -30,7 +30,8 @@ CATALOG = {
             codex='Each Codex conversation (thread) has its own bridge instance and peer name.',
             deepseek='Each harness session has its own bridge instance and peer name.',
             claude=('Claude Code lists this session to peers through its own session '
-                    'registry; this session needs no Koinon registration.')),
+                    'registry; this session needs no Koinon registration. Its peer name is the '
+                    'name this session has in its own agent listing; peers address it by that name.')),
         recipes=()),
     'guidance': dict(
         summary='Acknowledge guidance only after processing it.',
@@ -121,7 +122,9 @@ CATALOG = {
             'The peer listing reports observed values with their source and time, and '
             'unknown with a reason when a value cannot be observed. A busy peer is not a '
             'lock and an idle peer is not consent; the listing only helps you time a message.'),
-        views={},
+        views=dict(
+            claude=('A Claude peer\'s model and context come from the Koinon status-line wrapper; '
+                    'without it they are unknown.')),
         recipes=(
             dict(id='peers', argv=('{python}', '{prefix}/bridge.py', 'peers'),
                  families=FAMILIES, needs_approval=False,
@@ -165,6 +168,10 @@ CATALOG = {
 }
 
 TOPICS = tuple(CATALOG)
+
+# The topics of --brief. The Claude brief is what the SessionStart hook prints at startup,
+# resume, /clear and compaction, so it also carries what a reset changes.
+BRIEF_TOPICS = dict(claude=('overview', 'peers', 'reconnect', 'messages'))
 
 
 class GuidanceError(ValueError):
@@ -225,7 +232,7 @@ def render(family, topic=None, *, python, prefix, observations=None, brief=False
     state = observations.get('registration', {}).get('state_dir')
     if state:
         values['state'] = state
-    selected = (topic,) if topic else (('overview',) if brief else TOPICS)
+    selected = (topic,) if topic else (BRIEF_TOPICS.get(family, ('overview',)) if brief else TOPICS)
     topics = []
     for name in selected:
         entry = CATALOG[name]

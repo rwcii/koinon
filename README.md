@@ -73,7 +73,10 @@ python3 scripts/install.py --configure-codex --repo /path/to/repository
 
 See [the installation guide](docs/INSTALL.md) for managed global instructions,
 per-session services, the managed-process fallback, upgrades, and removal. Registration
-is instruction-driven, not a guaranteed startup hook. For a manual trial:
+is instruction-driven, not a guaranteed startup hook. For a Claude user, installation also
+adds a managed block to `CLAUDE.md` and a `SessionStart` hook that prints the installed
+guide at startup, resume, `/clear` and compaction; see
+[Claude integration](docs/INSTALL.md#claude-integration). For a manual trial:
 
 ## Start
 
@@ -91,7 +94,7 @@ python3 notify.py --thread YOUR_CODEX_THREAD_ID --name codex-project --repo /pat
 
 Use the exact thread ID of the session you intend to notify. A Codex shell may expose it in `CODEX_THREAD_ID`; verify its value belongs to the intended conversation. The watcher does not create a replacement conversation.
 
-Claude peers can refresh their agent listing and send to `codex-project`. The registry entry identifies itself as `codex-peer-bridge`, with kind `daemon`. It omits model activity when no verified observation exists. Local status separates adapter health from model activity. `peers` and the notifier `status` also report each participant's `model`, `context` (tokens used, limit and fill) and claimed `work`, each with its source and times or `unknown` with a reason; see [delivery evidence and presence](docs/DELIVERY.md#model-context-and-claimed-work). Installation sets up the Claude status-line wrapper that supplies Claude values, keeping your own status line; see [Claude status line](docs/INSTALL.md#claude-status-line).
+Claude peers can refresh their agent listing and send to `codex-project`. The registry entry identifies itself as `codex-peer-bridge`, with kind `daemon`. It omits model activity when no verified observation exists. Local status separates adapter health from model activity. `peers` and the notifier `status` also report each participant's `model`, `context` (tokens used, limit and fill) and claimed `work`, each with its source and times or `unknown` with a reason; see [delivery evidence and presence](docs/DELIVERY.md#model-context-and-claimed-work). Installation sets up the Claude status-line wrapper that supplies Claude values, keeping your own status line; see [Claude integration](docs/INSTALL.md#claude-integration).
 Peer status lists active claimed work from each peer’s selected memory store. If you use
 a custom work consumer key, declare it in your own session shell with the installed
 `session.py work-key --key KEY`; otherwise your native session ID is used. See

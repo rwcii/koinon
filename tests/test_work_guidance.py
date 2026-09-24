@@ -117,7 +117,7 @@ class GuidanceTests(unittest.TestCase):
         self.assertIn('stable participant session key', section)
         self.assertIn('reconcile current work', section)
         self.assertIn('Configuration never grants permission', section)
-        self.assertEqual(set(instructions.MARKERS), {'codex', 'deepseek'})
+        self.assertEqual(set(instructions.MARKERS), {'codex', 'deepseek', 'claude'})
 
     def test_missing_installation_and_explicit_path_fail_before_writes(self):
         (self.prefix/'koinon/work_guidance.py').unlink()

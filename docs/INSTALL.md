@@ -584,11 +584,17 @@ Thread-only installation without a repository retains the legacy fixed pair. Exi
 prototype or legacy inboxes are never adopted automatically; deliberate migration must
 preserve their ownership and prevent duplicate registration for one conversation.
 
-## Claude status line
+## Claude integration
 
 A component installation (`--configure-codex`, `--configure-deepseek`, `--configure-memory`
-or `--repo`) also makes `statusline.py` the Claude Code `statusLine` command, when the Claude
-configuration directory (`CLAUDE_CONFIG_DIR`, default `~/.claude`) exists. The wrapper
+or `--repo`) also sets up two things in the Claude configuration directory
+(`CLAUDE_CONFIG_DIR`, default `~/.claude`), when it exists: the status-line wrapper and the
+Claude guidance. Each can be declined, set up later and removed on its own. `--no-start`
+installs stage files only and never change Claude files.
+
+### Status line
+
+The installation makes `statusline.py` the Claude Code `statusLine` command. The wrapper
 records the session's model and context use for `bridge.py peers`
 ([model, context and claimed work](DELIVERY.md#model-context-and-claimed-work)) and runs your
 own status-line command with the same input, returning its output and exit status unchanged.
@@ -603,7 +609,6 @@ python3 PREFIX/scripts/install.py --prefix PREFIX --claude-statusline         # 
 python3 PREFIX/scripts/install.py --prefix PREFIX --remove-claude-statusline  # restore
 ```
 
-- `--no-start` installs stage files only and never change Claude settings.
 - A decline is kept by later installations until `--claude-statusline` is given.
 - Removal and uninstall restore the saved entry only while `statusLine` is still exactly the
   entry Koinon set up. An entry you deleted or edited afterwards, including an edited
@@ -620,7 +625,48 @@ Claude Code writes the same file and takes no Koinon lock. Koinon compares the f
 what it read immediately before and after replacing it and reports a difference as
 `settings_conflict`, keeping the other change. A Claude Code write between the last
 comparison and the replacement cannot be detected, so do not change Claude settings while
-Koinon installs, upgrades or removes the status line.
+Koinon installs, upgrades or removes the status line or the guidance.
+
+### Guidance
+
+A Claude session gets the same bootstrap as a Codex or DeepSeek session, and the guide runs
+by itself at each session start:
+
+- **A managed block in `CLAUDE.md`** of the configuration directory, between
+  `<!-- BEGIN KOINON CLAUDE -->` and `<!-- END KOINON CLAUDE -->`. It names
+  `session.py guide --agent claude` and the authority limits, like the Codex section (see
+  [Recommended: configure Codex once](#recommended-configure-codex-once)), and is reconciled
+  the same way: an `edited` block is kept, a `missing` block is not written again, and
+  `--replace-guidance` with `--claude-guidance` replaces an edited block after a backup.
+- **One `SessionStart` command hook** in `settings.json`, with a 10-second `timeout` and no
+  matcher, so it runs at startup, resume, `/clear` and compaction. Claude Code adds its output
+  to the session's context. The command is a POSIX `sh` script:
+
+  ```sh
+  if [ -f '<prefix>/session.py' ]; then '<python>' '<prefix>/session.py' guide --agent claude --brief; else echo 'Koinon guidance unavailable: <prefix>/session.py is missing'; fi; exit 0
+  ```
+
+  The brief guide reports this session's peer name (the name in its own agent listing, read
+  from the session registry for the session ID in the hook input), the peer listing, the
+  session key change after `/clear`, and incoming messages held for your approval, in at most
+  40 lines. When the runtime is gone, the hook prints the message and exits 0.
+
+```sh
+python3 scripts/install.py ... --no-claude-guidance      # decline during installation
+python3 PREFIX/scripts/install.py --prefix PREFIX --claude-guidance         # set up now
+python3 PREFIX/scripts/install.py --prefix PREFIX --remove-claude-guidance  # remove
+```
+
+- Only Koinon's hook entry changes; other hooks and settings are kept. The hook is found by
+  its exact command, so a repeated installation or upgrade adds no second one, and a new
+  runtime path replaces Koinon's entry in place.
+- A decline is kept by later installations and upgrades until `--claude-guidance` is given.
+- Removal and uninstall take out the hook and the block only while each is still exactly
+  what Koinon wrote. A hook or block you edited is kept and reported; a hook you deleted is
+  not added again unless you run `--claude-guidance`. A kept hook is harmless after
+  uninstall, because it reports the missing runtime.
+- A `hooks` value that is not an object, or a `SessionStart` value that is not a list, is
+  never changed; the result names the reason.
 
 ## Notifier ownership
 
@@ -706,10 +752,11 @@ layout change, so a file that moved between releases is retired only after its n
 is published and confirmed; see [WORK-ITEMS-UPGRADE.md](WORK-ITEMS-UPGRADE.md) for the
 retirement rules and the manual-backend handoff.
 
-After the operation completes, it also sets up the Claude status line unless you declined
-it, and reports the outcome as `claude_statusline` in its result; see
-[Claude status line](#claude-status-line). Do not change Claude settings while it runs: a
-settings change since preflight is reported as a conflict and left unwritten.
+After the operation completes, it also sets up the Claude status line and then the Claude
+guidance, unless you declined them, and reports the outcomes as `claude_statusline` and
+`claude_guidance` in its result; see [Claude integration](#claude-integration). Do not change
+Claude settings while it runs: a settings change since preflight, other than the status-line
+step's own `statusLine` change, is reported as a conflict and left unwritten.
 
 It then reconciles the managed participant guidance sections that its preflight observed,
 as described in [Recommended: configure Codex once](#recommended-configure-codex-once), and
