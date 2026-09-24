@@ -21,8 +21,12 @@ permissions or adopts a path.
 import os
 import stat
 
+from koinon import platform_support
+
 WRITABLE_BY_OTHERS = 0o022
 REMEDY = 'remove group and other write permission, for example chmod go-w'
+SANDBOX_HINT = ('; an agent sandbox can show this owner for a path it does not map, so run '
+                'this command outside the sandbox through the agent\'s approval request')
 
 
 def writable_by_others(info):
@@ -33,6 +37,15 @@ def writable_by_others(info):
 def temporary_root(info):
     """True for the sticky root-owned system temporary directory."""
     return info.st_uid == 0 and bool(info.st_mode & stat.S_ISVTX)
+
+
+def _wrong_owner(path, info, allowed):
+    """Name the owner; add the sandbox remedy when the owner is the unmapped uid.
+
+    The unmapped uid alone does not prove a sandbox, so the text says it can be one.
+    """
+    text = '%s is owned by uid %d, not by %s' % (path, info.st_uid, allowed)
+    return text + SANDBOX_HINT if info.st_uid == platform_support.overflow_uid() else text
 
 
 def describe(path, info):
@@ -49,7 +62,7 @@ def ancestor_fault(path, info, owner=None):
     if not stat.S_ISDIR(info.st_mode):
         return '%s is not a directory' % path
     if info.st_uid not in (0, os.geteuid() if owner is None else owner):
-        return '%s is owned by uid %d, not by this user or root' % (path, info.st_uid)
+        return _wrong_owner(path, info, 'this user or root')
     if writable_by_others(info) and not temporary_root(info):
         return describe(path, info)
     return None
@@ -62,7 +75,7 @@ def target_fault(path, info, owner=None):
     exception applies to it.
     """
     if info.st_uid != (os.geteuid() if owner is None else owner):
-        return '%s is owned by uid %d, not by this user' % (path, info.st_uid)
+        return _wrong_owner(path, info, 'this user')
     if writable_by_others(info):
         return describe(path, info)
     return None

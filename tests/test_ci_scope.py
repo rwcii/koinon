@@ -54,6 +54,16 @@ class CiScopeTests(unittest.TestCase):
         installed = [path for path in installer.FILES if path.startswith(prefixes)]
         self.assertEqual(installed, [])
 
+    def test_an_exempt_change_still_runs_every_test_that_reads_agent_files(self):
+        text = (WORKFLOWS/'tests.yml').read_text()
+        self.assertIn("- if: steps.scope.outputs.exempt == 'true'\n"
+                      "        run: python tests/run.py -v -p test_skills.py", text)
+        readers = sorted(path.name for path in (ROOT/'tests').glob('test_*.py')
+                         if path.name != 'test_ci_scope.py'
+                         and re.search(r"ROOT\s*/\s*'(agents|docs/sprints|\.claude|\.codex|\.agents)\b",
+                                       path.read_text()))
+        self.assertEqual(readers, ['test_skills.py'])
+
     def classify(self, change):
         """Run the workflow's scope step on a synthetic pull request."""
         with tempfile.TemporaryDirectory() as tmp:

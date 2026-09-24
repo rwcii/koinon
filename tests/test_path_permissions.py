@@ -11,6 +11,7 @@ from pathlib import Path
 import stat
 import tempfile
 import unittest
+from unittest import mock
 
 from koinon import install_state
 from koinon import memory_service_artifacts as artifacts
@@ -95,6 +96,34 @@ class TargetFaultTests(unittest.TestCase):
     def test_the_sticky_bit_does_not_hide_the_mode(self):
         described = path_permissions.describe('/d', stat_record(stat.S_IFDIR | stat.S_ISVTX | 0o775))
         self.assertIn('1775', described)
+
+
+class SandboxOwnerTests(unittest.TestCase):
+    """An agent sandbox in a user namespace shows root-owned paths as the unmapped uid."""
+
+    def test_the_unmapped_owner_adds_the_sandbox_remedy_to_both_rules(self):
+        record_ = stat_record(stat.S_IFDIR | 0o755, uid=STRANGER)
+        with mock.patch.object(path_permissions.platform_support, 'overflow_uid', return_value=STRANGER):
+            for fault in (path_permissions.ancestor_fault('/', record_, OWNER),
+                          path_permissions.target_fault('/', record_, OWNER)):
+                with self.subTest(fault=fault):
+                    self.assertIn('owned by uid %d' % STRANGER, fault)
+                    self.assertIn('can show this owner', fault)
+                    self.assertIn('outside the sandbox', fault)
+
+    def test_another_owner_and_no_mapping_keep_the_plain_refusal(self):
+        record_ = stat_record(stat.S_IFDIR | 0o755, uid=STRANGER)
+        for unmapped in (None, STRANGER + 1):
+            with self.subTest(unmapped=unmapped), \
+                    mock.patch.object(path_permissions.platform_support, 'overflow_uid', return_value=unmapped):
+                fault = path_permissions.ancestor_fault('/', record_, OWNER)
+                self.assertIn('owned by uid %d' % STRANGER, fault)
+                self.assertNotIn(path_permissions.SANDBOX_HINT, fault)
+
+    def test_the_hint_never_accepts_the_path(self):
+        with mock.patch.object(path_permissions.platform_support, 'overflow_uid', return_value=STRANGER):
+            self.assertIsNotNone(path_permissions.ancestor_fault(
+                '/', stat_record(stat.S_IFDIR | 0o755, uid=STRANGER), OWNER))
 
 
 class RefusalMessageTests(unittest.TestCase):

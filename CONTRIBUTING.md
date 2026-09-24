@@ -78,9 +78,9 @@ checkout with the [handoff](agents/skills/handoff/SKILL.md) skill. Handoffs are 
 Plans for deliverables of more than one pull request live under `docs/sprints/`; see the
 [sprint](agents/skills/sprint/SKILL.md) skill.
 
-These agent-process paths are not installed and no test reads them: `agents/`,
-`docs/sprints/`, `.claude/`, `.agents/` and `.codex/`. A pull request that changes only them
-skips the native workflows, and its required test jobs pass without running the suite.
+These agent-process paths are not installed: `agents/`, `docs/sprints/`, `.claude/`,
+`.agents/` and `.codex/`. Only `tests/test_skills.py` reads them. A pull request that changes
+only them skips the native workflows, and its required test jobs run only that test.
 Every other file, documentation included, runs the full CI; the installer ships most
 documentation. `tests/test_ci_scope.py` keeps the workflow lists identical and keeps these
 paths out of the installed files.

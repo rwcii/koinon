@@ -101,7 +101,7 @@ state, pull request and issue states, CI state. Write:
 - Anything mid-operation: <uncommitted edits, running jobs>
 
 ## Bridge identity
-- Peer name, agent family, and the installed `session.py` path
+- Agent family, peer name, and the installed guide command
 - Codex or DeepSeek: this session's thread or session ID and its state directory
 
 ## Context not recorded elsewhere
@@ -111,13 +111,14 @@ state, pull request and issue states, CI state. Write:
 - <repository paths, issues and pull requests that hold the durable facts>
 ```
 
-Take the bridge identity from the live runtime, not from memory. The state directory is the
-`--state-dir` in the read command of this session's bridge notices. `bridge.py --state-dir
-<state> status` prints the bridge `address`; the entry with that address in `bridge.py peers`
-gives the peer name. The session ID is `CODEX_THREAD_ID` for Codex and `DSH_SESSION_ID` for
-DeepSeek. A Claude session finds its peer name in `bridge.py peers`. Never run `session.py
-status` for this: for an unregistered session it saves a registration that blocks `ensure`.
-The next session needs these values to reconnect after a context reset.
+Take the bridge identity from the live runtime, not from memory. Run the installed
+`session.py guide --agent <family> --topic reconnect --json`; the managed block in your agent
+instruction file names its path. Record `observations.registration.name` as the peer name and,
+for Codex or DeepSeek, `observations.registration.state_dir` as the state directory. The session
+ID is `CODEX_THREAD_ID` for Codex and `DSH_SESSION_ID` for DeepSeek. The guide writes nothing and
+registers nothing. When the installed runtime has no `guide` command, record that fact; the next
+session then reports that the runtime needs an upgrade. The next session needs these values to
+reconnect after a context reset.
 
 Use commit hashes, branch names, issue and pull request numbers, and repository-relative
 paths. Leave out a section that has no content. The file stays on this machine, but never write

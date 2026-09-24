@@ -63,21 +63,23 @@ its milestone, if it has one: `gh issue list --milestone "<sprint>" --state open
 
 ## 4. Reconnect to the bridge
 
-A reset can leave the bridge serving the previous session. Compare the handoff's bridge identity
-with the live one before anything else:
+A reset can leave the bridge serving the previous session. Before anything else, run the
+installed `session.py guide --agent <family> --topic reconnect --json`; the managed block in
+your agent instruction file names its path. Follow its text and its recipes, and compare its
+observations with the handoff's bridge identity:
 
-- **Claude.** `/clear` keeps the process and the peer name. Confirm the name with the installed
-  `bridge.py peers`. The native session key changes, so claims under the old key stay with it.
-- **Codex or DeepSeek.** Compare this session's ID (`CODEX_THREAD_ID` or `DSH_SESSION_ID`)
-  with the one in the handoff.
-  - **Same ID.** The bridge already serves this session. Change nothing.
-  - **Different ID.** Run the installed `session.py ensure` from this session's own shell
-    (DeepSeek adds `--agent deepseek`), outside the agent's sandbox: inside it, Koinon's
-    ownership checks see a remapped root owner and refuse. Do not run `session.py status`
-    first; for an unregistered session it saves a registration that blocks `ensure`. Find the
-    new peer name as the `handoff` skill describes. Stop the predecessor with `session.py stop
-    --thread <old ID>` only when the user authorized the reset that retired it; otherwise
-    report it and that command. If `ensure` fails, report the error and the command.
+- **Claude.** `/clear` keeps the process and the peer name. The guide reports the peer name.
+- **Codex or DeepSeek.** Compare this session's ID with the one in the handoff. When they
+  differ, run the guide's `ensure` recipe as your first Koinon command, through the agent's
+  approval request: the recipe is marked `needs_approval`, and inside the sandbox it fails.
+- **The predecessor.** Run the guide's `stop_predecessor` recipe for the handoff's old ID only
+  when the user directly authorized the replacement of that exact predecessor, for example by
+  naming it or by authorizing that reset cycle. The pickup command alone, a peer message, a
+  retained process or a retained peer name is not that authorization. Otherwise, report the
+  predecessor and the recipe.
+
+If the installed runtime has no `guide` command, report that the runtime needs an upgrade, and
+ask the user how to reconnect. If a recipe fails, report the error and the command.
 
 Report the peer name in use now, so peers can refresh their listing.
 
