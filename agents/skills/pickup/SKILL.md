@@ -61,7 +61,23 @@ gh issue list --state open
 When the handoff names a sprint, read its plan under `docs/sprints/` and list the open issues on
 its milestone, if it has one: `gh issue list --milestone "<sprint>" --state open`.
 
-## 4. Orient, then continue
+## 4. Reconnect to the bridge
+
+A reset can leave the bridge serving the previous session. Compare the handoff's bridge identity
+with the live one before anything else:
+
+- **Claude.** `/clear` keeps the process and the peer name. Confirm the name with the installed
+  `bridge.py peers`. The native session key changes, so claims under the old key stay with it.
+- **Codex or DeepSeek.** Run the installed `session.py status` from this session's own shell
+  (DeepSeek adds `--agent deepseek`). For a new session it reports `stopped` with a new peer
+  name; run `session.py ensure` the same way to start it. Then stop the
+  predecessor with `session.py stop --thread <old ID from the handoff>`, because bridge notices
+  and peer messages otherwise keep going to a conversation that no longer runs. If `ensure`
+  fails, report the error and the command; do not stop the predecessor.
+
+Report the peer name in use now, so peers can refresh their listing.
+
+## 5. Orient, then continue
 
 Report briefly:
 

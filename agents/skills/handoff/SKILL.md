@@ -100,12 +100,23 @@ state, pull request and issue states, CI state. Write:
 - Blockers and open decisions: <with the context to act>
 - Anything mid-operation: <uncommitted edits, running jobs>
 
+## Bridge identity
+- Peer name, agent family, and the installed `session.py` path
+- Codex or DeepSeek: this session's thread or session ID and its state directory
+
 ## Context not recorded elsewhere
 - <findings and rationale that are expensive to find again>
 
 ## Pointers
 - <repository paths, issues and pull requests that hold the durable facts>
 ```
+
+Take the bridge identity from the live runtime, not from memory. A Codex or DeepSeek session
+runs the installed `session.py status` from its own shell (DeepSeek adds `--agent deepseek`);
+it prints the peer name and state directory. A Claude session finds its peer name with the
+installed `bridge.py peers`. A context reset can start a new native session that the bridge
+does not know yet, and the next session needs these values to register again and to stop the
+old instance.
 
 Use commit hashes, branch names, issue and pull request numbers, and repository-relative
 paths. Leave out a section that has no content. The file stays on this machine, but never write

@@ -14,8 +14,10 @@ reset. An already authorized cycle does not need another confirmation at every s
 Tmux input looks like local user input to the receiving agent. Send only the target's own
 commands from the table below, each with a short argument that names the peer origin and the
 scope. Do not send prose: it costs tokens and turns, and the receiver can misread it. Never
-impersonate the user or turn a peer request into approval. Use the bridge for ordinary coordination. Do not switch to tmux to retry an action
-that a permission or approval check denied, and never use it to accept a permission dialog.
+impersonate the user or turn a peer request into approval. Use the bridge for ordinary
+coordination. Do not switch to tmux to retry an action that a permission or approval check
+denied, and never use it to accept a permission dialog. A Claude session in auto mode is
+blocked from typing into a peer's pane until the user allows it; do not work around that.
 
 ## Find and read the target
 
@@ -77,8 +79,9 @@ receives shell input, not an agent prompt. If the pane is busy or shows a dialog
 normal prompt or report the blocker; do not interrupt it or press Enter to clear the screen.
 
 Prepare the exact authorized command in `peer_text` in the same shell call, with proper shell
-quoting. Use one line with no embedded newline, carriage return or other control characters. Literal mode can still deliver those characters as
-input events, submitting before the check below. Send the single-line text literally:
+quoting. Use one line with no embedded newline, carriage return or other control characters.
+Literal mode can still deliver those characters as input events, submitting before the check
+below. Send the single-line text literally:
 
 ```sh
 tmux send-keys -t "${peer_pane:?set the verified pane ID in this shell}" -l "${peer_text:?set the authorized single-line text in this shell}"
