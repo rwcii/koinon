@@ -59,3 +59,11 @@ Round-2 findings 1 and 3 were confirmed resolved.
    holds it or when it is free; a live holder in another terminal keeps it, the predecessor
    still stops, and the result reports both. #141 records the decision. Chunk 03 already
    specifies this outcome.
+
+## Build correction — chunk 02
+
+The chunk said `bridge.py send` resolves names from the registry "as today". It does not: `send`
+accepts only a `uds:` address. Chunk 02 now adds name resolution to `send`, which criterion 1
+("a Koinon sender can send to the alias by name, with no new step") needs. The definition of
+done already tests `send` to the alias and the `alias_unheld` error; it is unchanged. Reviewed
+with the chunk 02 pull request.
