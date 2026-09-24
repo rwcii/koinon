@@ -40,7 +40,7 @@ class StatusLineTests(unittest.TestCase):
                       sessionId=SESSION, entrypoint='cli')
         path = self.registry / f'{os.getpid()}.json'
         path.write_text(json.dumps(record))
-        path.chmod(0o600)
+        path.chmod(0o664)  # Claude Code writes its registry record with the process umask.
         self.record = self.config / 'koinon-status' / f'claude-{SESSION}.json'
 
     def tearDown(self):
@@ -177,3 +177,23 @@ class ClaudeProcessTests(unittest.TestCase):
             self.assertEqual(status.claude_process('s-1', registry), dict(pid=101, proc_start='7'))
             self.assertIsNone(status.claude_process('s-2', registry))
             self.assertIsNone(status.claude_process('../s-1', registry))
+
+    def test_registry_lookup_accepts_the_umask_mode_claude_code_writes(self):
+        for mode in (0o600, 0o644, 0o664):
+            with self.subTest(mode=oct(mode)), tempfile.TemporaryDirectory() as temp:
+                registry = Path(temp)
+                path = registry / '101.json'
+                path.write_text(json.dumps(dict(sessionId='s-1', entrypoint='cli', procStart='7')))
+                path.chmod(mode)
+                self.assertEqual(status.claude_process('s-1', registry), dict(pid=101, proc_start='7'))
+
+    def test_registry_lookup_refuses_a_link_or_a_second_name(self):
+        with tempfile.TemporaryDirectory() as temp:
+            registry = Path(temp)
+            source = registry / 'source'
+            source.write_text(json.dumps(dict(sessionId='s-1', entrypoint='cli', procStart='7')))
+            (registry / '101.json').symlink_to(source)
+            self.assertIsNone(status.claude_process('s-1', registry))
+            (registry / '101.json').unlink()
+            os.link(source, registry / '101.json')
+            self.assertIsNone(status.claude_process('s-1', registry))

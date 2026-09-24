@@ -184,7 +184,9 @@ own status-line command with the same bytes through `/bin/sh -c` (as Claude Code
 and returns that command's output and exit status unchanged; the user's command runs even
 when recording fails. It records only `model.id`, `context_window.context_window_size`,
 `context_window.total_input_tokens` and whether `current_usage` is present, for the Claude
-process that the session registry names for the input's `session_id`. Input larger than
+process that the session registry names for the input's `session_id`. Claude Code writes
+that registry record with the process umask, so the lookup accepts any mode but still
+requires a regular file owned by the user, with one link and at most 64 KiB. Input larger than
 1 MiB is forwarded and not parsed. Before the first response of a session the usage is
 `unknown` with `no_token_usage`, not zero. When a Claude session has no record because the wrapper is not
 the `statusLine` command in the configuration directory that `peers` reads, `model` and

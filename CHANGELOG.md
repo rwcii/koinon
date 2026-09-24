@@ -5,6 +5,9 @@ into a dated release section when promoted to `main`.
 
 ## Unreleased
 
+- The Claude status-line wrapper now records a real Claude session. It refused the session
+  registry record because Claude Code writes that file with the umask mode (0644 or 0664),
+  so every Claude peer showed `no_status_record`.
 - Codex peers report observed turn activity, model and last-request context usage from the
   selected session log. The notifier checks that the same Codex process still holds that
   log open; missing or unrecognized evidence is reported as unknown, without resuming the

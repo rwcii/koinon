@@ -133,15 +133,18 @@ def _private_dir(path):
             raise ValueError('directory must be owned by this user and mode 0700')
 
 
-def _load(path, limit):
-    """Read a private JSON object without following links, or return None."""
+def _load(path, limit, shared=0o077):
+    """Read a JSON object owned by this user without following links, or return None.
+
+    The file must be private unless `shared` clears the mode bits that it may have.
+    """
     try:
         fd = os.open(path, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK | os.O_CLOEXEC)
     except OSError:
         return None
     try:
         info = os.fstat(fd)
-        if (not stat.S_ISREG(info.st_mode) or info.st_uid != os.geteuid() or info.st_mode & 0o077
+        if (not stat.S_ISREG(info.st_mode) or info.st_uid != os.geteuid() or info.st_mode & shared
                 or info.st_nlink != 1 or info.st_size > limit):
             return None
         with os.fdopen(fd, 'rb') as stream:
@@ -332,6 +335,8 @@ def claude_process(session_id, registry=None):
 
     The registry record carries the process-start marker in the form this platform
     uses, so no process query runs here; readers verify liveness when they read.
+    Claude Code writes the record with the process umask (for example 0644 or 0664), so
+    its mode is not checked; the owner, link and size checks still apply.
     """
     if not isinstance(session_id, str) or not _KEY.fullmatch(session_id):
         return None
@@ -343,7 +348,7 @@ def claude_process(session_id, registry=None):
     for path in paths:
         if not path.stem.isdigit():
             continue
-        record = _load(path, 65536)
+        record = _load(path, 65536, shared=0)
         if not record or record.get('sessionId') != session_id or record.get('entrypoint') != 'cli':
             continue
         start = record.get('procStart')
