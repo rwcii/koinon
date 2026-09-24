@@ -13,9 +13,14 @@ repeating the overrides inline, which is how one of them came to omit a lock
 directory override.
 """
 import importlib.util
+import json
+import subprocess
+import sys
 import tempfile
 import unittest
 from pathlib import Path
+from types import SimpleNamespace
+from unittest.mock import patch
 
 from repo_root import ROOT
 
@@ -39,9 +44,22 @@ class PinnedReleaseFixtureTests(unittest.TestCase):
         self.assertTrue((previous / 'platform_support.py').is_file(),
                         'the pinned release predates the package, so its modules are at its root')
         self.assertFalse((previous / 'koinon').exists())
+        paths, modules = list(sys.path), dict(sys.modules)
         manifest = install_fixture.released_manifest(previous)
+        self.assertEqual(sys.path, paths)
+        self.assertEqual(sys.modules, modules)
         self.assertIn('platform_support.py', manifest)
         self.assertNotIn('koinon/platform_support.py', manifest)
+
+    def test_manifest_read_does_not_execute_installer_code(self):
+        scripts = self.staging / 'scripts'
+        scripts.mkdir()
+        installer = scripts / 'install.py'
+        installer.write_text("raise RuntimeError('installer must not execute')\nFILES = ('session.py',)\n")
+        self.assertEqual(install_fixture.released_manifest(self.staging), ('session.py',))
+        installer.write_text("FILES = tuple(['session.py'])\n")
+        with self.assertRaises(ValueError):
+            install_fixture.released_manifest(self.staging)
 
     def test_an_unavailable_pin_refuses_rather_than_upgrading_a_release_to_itself(self):
         with self.assertRaises(RuntimeError) as refusal:
@@ -69,6 +87,27 @@ class PinnedReleaseFixtureTests(unittest.TestCase):
                 after = (upgraded / 'koinon/platform_support.py').read_text()
                 self.assertIn('CLAUDE_CONFIG_DIR', after)
                 self.assertIn('def participant_lock_dir():', after)
+
+
+class InitialBindingRefreshTests(unittest.TestCase):
+    def test_only_concurrent_observation_refusals_retry_with_a_bound(self):
+        def reply(value, code=1):
+            return subprocess.CompletedProcess([], code, json.dumps(value), '')
+        retry = reply(dict(ok=False, code='binding_observation_changed', recovery='retry'))
+        success = reply(dict(ok=True), 0)
+        denied = reply(dict(ok=False, code='binding_changed', recovery='retry'))
+        for responses, succeeds, count in (([retry, success], True, 2),
+                                            ([denied, success], False, 1),
+                                            ([retry] * 3, False, 3)):
+            with self.subTest(succeeds=succeeds, attempts=count), \
+                    patch.object(native.subprocess, 'run', side_effect=responses) as run:
+                if succeeds:
+                    native.refresh_binding(SimpleNamespace(env={}), ['python', 'bridge.py'], 'a' * 64)
+                else:
+                    with self.assertRaises(RuntimeError) as failure:
+                        native.refresh_binding(SimpleNamespace(env={}), ['python', 'bridge.py'], 'a' * 64)
+                    self.assertEqual(str(failure.exception).count('returncode'), count)
+                self.assertEqual(run.call_count, count)
 
 
 if __name__ == '__main__':

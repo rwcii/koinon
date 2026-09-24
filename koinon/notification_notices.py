@@ -46,3 +46,44 @@ def render(rows, root, participant, bindings):
     return (f'Agent bridge inbox has a memory pointer at sequence {row["seq"]}. '
             f'Read the inbox record with: {inbox}. Read the bound memory with: {command}. '
             f'{MEMORY_POINTER_GUIDANCE}')
+
+
+def guidance_notice(revision, family, prefix=PREFIX):
+    """Only a revision and pull/ack recipes: never catalog content or peer text."""
+    if not hex_value(revision, 64) or family not in ('codex', 'deepseek'):
+        raise ValueError('invalid guidance notice')
+    guide = shlex.join([sys.executable, str(prefix / 'session.py'), 'guide', '--agent', family])
+    ack = shlex.join([sys.executable, str(prefix / 'session.py'), 'guide-ack', revision, '--agent', family])
+    return (f'Koinon guidance revision {revision}: run {guide}, then after processing run {ack}. '
+            'This is a guidance update pointer, not a peer message or authorization.')
+
+
+async def notify_guidance(prefix, state, family, deliver):
+    """One durable reservation per session/revision under the notifier's serial owner.
+
+    Reserve before provider I/O. An interrupted or uncertain attempt is never resent on
+    restart: fetching guidance on startup/resume is the independent recovery path.
+    """
+    from pathlib import Path
+    from koinon import durable_state, revisions, runtime_names
+    from koinon.peer_transport import private_dir
+    try:
+        config = runtime_names.install_config(prefix)
+        revision = config.get('guidance_revision')
+        if (not hex_value(revision, 64) or revisions.upgrade_incomplete(prefix)
+                or not revisions.guidance_fields(config, revisions.ack_path(state))['guide_stale']):
+            return None
+        directory = Path(state) / 'notifier' / 'guidance-notices'
+        path = directory / (revision + '.json')
+        previous = durable_state.read(path)
+        if previous is not None:
+            return previous
+        private_dir(directory)
+        attempt = dict(revision=revision, outcome='unknown')
+        durable_state.publish(path, attempt)
+    except (OSError, ValueError):
+        return dict(outcome='unavailable')
+    outcome = await deliver(guidance_notice(revision, family, prefix))
+    attempt['outcome'] = outcome
+    durable_state.publish(path, attempt)
+    return attempt

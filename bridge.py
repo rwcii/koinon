@@ -47,6 +47,7 @@ import time
 import uuid
 
 from koinon.database_worker import DatabaseWorker, CapacityError, WorkerFailure
+from koinon.revisions import loaded_runtime_revision
 from koinon.service_runtime import Admission, close_writer, drain_handlers, database_status, HANDSHAKE_TIMEOUT
 from koinon.peer_guidance import PEER_GUIDANCE, MEMORY_POINTER_GUIDANCE
 from koinon import platform_support
@@ -91,6 +92,8 @@ def peers():
             target_path('uds:'+address)
             activity = participant_presence.registry_activity(record)
             reported, status = participant_status.for_registry(record, pid, record.get('procStart'), registry=folder)
+            for field in ('guide_revision', 'guide_stale', 'runtime_revision'):
+                status.setdefault(field, None)
             activity = reported or activity
             found.append(dict(pid=pid,name=record.get('name'),address='uds:'+address,
                               repo=record.get('cwd'),status=activity['state'],
@@ -301,6 +304,7 @@ class Bridge:
         self.root = root
         self.control_fd = control_fd
         self.supervisor_generation = supervisor_generation
+        self.runtime_revision = loaded_runtime_revision()
         self.address = f'uds:/tmp/cc-socks/{os.getpid()}.sock'
         self.stop = asyncio.Event()
         self.generation = uuid.uuid4().hex
@@ -482,6 +486,7 @@ class Bridge:
             if state['inbox_schema'] == inbox_schema.SCHEMA:
                 state['capabilities'].extend(('inbox_subscription', 'memory_binding'))
             return dict(pid=os.getpid(), address=self.address, generation=self.generation,
+                        runtime_revision=self.runtime_revision,
                         control_capabilities=[generation_stop.CAPABILITY],
                         **state, **diagnostics,
                         **({'upgrade': self.upgrade.status()} if self.upgrade is not None else {}),

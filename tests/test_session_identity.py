@@ -89,8 +89,11 @@ class SessionIdentityTests(unittest.TestCase):
                                              '--agent', agent, '--thread', thread],
                                             capture_output=True, text=True, env=self.env, timeout=15)
                     self.assertEqual(result.returncode, 0, result.stderr + result.stdout)
-                    self.assertEqual(json.loads(result.stdout),
+                    reported = json.loads(result.stdout)
+                    self.assertEqual({k: reported[k] for k in ('status', 'state_dir', 'agent')},
                                      dict(status='unregistered', state_dir=str(state), agent=agent))
+                    self.assertIsNone(reported['guide_stale'])
+                    self.assertEqual(reported['runtime']['state'], 'unknown')
                     self.assertEqual(tree_digest(self.root), before)
                     code, ensured = self.invoke('ensure', agent, thread)
                     self.assertEqual(code, 0, ensured)

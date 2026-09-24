@@ -20,7 +20,7 @@ from koinon.notification_journal import JournalError
 from koinon.notification_legacy import LegacyState
 from koinon.notification_migration import legacy_cursor, present, sqlite_files
 from koinon.notification_memory import MemoryWatches
-from koinon.notification_notices import render
+from koinon.notification_notices import render, notify_guidance
 from koinon.notification_provider import Provider
 from koinon.notification_source import SourceError
 from koinon.notification_state import NotificationState
@@ -100,6 +100,12 @@ class Runtime:
         return association(self.options.agent, self.options.thread,
                            getattr(self.options, 'repo', None), registry=self.registry)
 
+    def guidance_status(self):
+        from koinon import revisions
+        fields = revisions.read_fields(PREFIX, revisions.ack_path(self.root), self.runtime_revision)
+        return dict({key: fields[key] for key in ('guide_revision', 'guide_stale', 'runtime_revision')},
+                    recorded_at_ms=int(time.time() * 1000))
+
     def publish_status(self):
         """Publish this participant's status record; values stay unknown until a source exists."""
         agent = self.options.agent
@@ -110,7 +116,7 @@ class Runtime:
         try:
             participant_status.write('bridge', self.bridge['pid'], participant=None, groups=groups,
                                      identity=dict(proc_start=self.bridge_start, generation=self.generation),
-                                     provider=agent, registry=self.registry, work=self.work_association())
+                                     provider=agent, registry=self.registry, work=self.work_association(), guidance=self.guidance_status())
         except (OSError, ValueError):
             # Status is advisory: a failure leaves the fields unknown and never stops delivery.
             return
@@ -142,7 +148,7 @@ class Runtime:
                     'bridge', self.bridge['pid'],
                     participant=participant, groups=groups,
                     identity=dict(proc_start=self.bridge_start, generation=self.generation),
-                    provider=self.options.agent, registry=self.registry, work=work)
+                    provider=self.options.agent, registry=self.registry, work=work, guidance=self.guidance_status())
                 self.status_published = True
             except (OSError, ValueError):
                 self.status_published = False
@@ -167,6 +173,8 @@ class Runtime:
         return participant_status.activity(result, now), participant_status.views(result, now)
 
     def __init__(self, options, root, participant, *, provider=None, registry=None):
+        from koinon.revisions import loaded_runtime_revision
+        self.runtime_revision = loaded_runtime_revision()
         self.options, self.root, self.participant = options, Path(root), participant
         self.provider = provider or Provider(options)
         self.registry = Path(registry) if registry is not None else Path(
@@ -378,6 +386,8 @@ class Runtime:
                 await self.initialize_journal()
             if self.worker is None:
                 return
+            # Same serial scan as inbox delivery: never race the provider with itself.
+            await notify_guidance(PREFIX, self.root, self.options.agent, self.deliver)
             self.last_status = await self.delivery.step()
             self.reason = self.last_status.get('admission')
         except (Exception,) as exc:

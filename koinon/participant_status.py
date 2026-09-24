@@ -102,7 +102,7 @@ def _group(name, value):
     return kept
 
 
-def build(kind, *, participant, groups, identity=None, provider=None, work=None):
+def build(kind, *, participant, groups, identity=None, provider=None, work=None, guidance=None):
     """Return the stored form of a record, with every non-allowlisted value removed."""
     record = dict(version=VERSION, kind=kind,
                   participant=None if participant is None else _process(participant))
@@ -115,6 +115,8 @@ def build(kind, *, participant, groups, identity=None, provider=None, work=None)
         record.update(identity=dict(identity), provider=provider)
     elif identity is not None or provider is not None:
         raise ValueError('identity belongs to bridge records')
+    if guidance is not None:
+        record['guidance'] = validate_guidance(guidance)
     if work is not None:
         from koinon.participant_work import validate
         record['work'] = validate(work)
@@ -161,14 +163,14 @@ def _load(path, limit, shared=0o077):
             os.close(fd)
 
 
-def write(kind, key, *, participant, groups, identity=None, provider=None, registry=None, work=None):
+def write(kind, key, *, participant, groups, identity=None, provider=None, registry=None, work=None, guidance=None):
     """Publish a record atomically, mode 0600, without following links.
 
     Records describe live processes and are rebuilt by their writer, so the write is
     atomic but not flushed to disk. A replacement name that a crashed or cancelled
     writer left behind is removed first.
     """
-    record = build(kind, participant=participant, groups=groups, identity=identity, provider=provider, work=work)
+    record = build(kind, participant=participant, groups=groups, identity=identity, provider=provider, work=work, guidance=guidance)
     path = _path(kind, key, registry)
     _private_dir(path.parent)
     data = json.dumps(record, sort_keys=True, separators=(',', ':'), ensure_ascii=True).encode()
@@ -241,7 +243,7 @@ def read(kind, key, *, participant=None, identity=None, now=None, registry=None)
         if record.get('version') != VERSION or record.get('kind') != kind:
             raise ValueError('unsupported status record')
         stored = build(kind, participant=record.get('participant'), groups=record.get('groups') or {},
-                       identity=record.get('identity'), provider=record.get('provider'), work=record.get('work'))
+                       identity=record.get('identity'), provider=record.get('provider'), work=record.get('work'), guidance=record.get('guidance'))
         if not all(isinstance(g, dict) for g in (record.get('groups') or {}).values()):
             raise ValueError('invalid status group')
     except (ValueError, TypeError, AttributeError):
@@ -255,10 +257,10 @@ def read(kind, key, *, participant=None, identity=None, now=None, registry=None)
         return dict(groups={}, reason='no_status_record', provider=None)
     if stored['participant'] is None:
         # build() admits only unknown groups here, each with its own reason.
-        return dict(groups=stored['groups'], reason=None, provider=provider, work=stored.get('work'))
+        return dict(groups=stored['groups'], reason=None, provider=provider, work=stored.get('work'), guidance=stored.get('guidance'))
     if not _live(stored['participant']):
         return dict(groups={}, reason='participant_not_live', provider=provider)
-    return dict(groups=stored['groups'], reason=None, provider=provider, work=stored.get('work'))
+    return dict(groups=stored['groups'], reason=None, provider=provider, work=stored.get('work'), guidance=stored.get('guidance'))
 
 
 def _future(group, now):
@@ -383,6 +385,9 @@ def for_registry(record, pid, live_start, now=None, registry=None):
             if repair is not None:
                 for name in ('model', 'context'):
                     found[name].update(reason='statusline_missing', repair=repair)
+        from koinon import PREFIX, revisions
+        fields = revisions.read_fields(PREFIX, revisions.ack_path(family='claude', session_id=session, registry=registry))
+        found.update({key: fields[key] for key in ('guide_revision', 'guide_stale', 'runtime_revision')})
         return None, found
     if entry == runtime_names.REGISTRY_ENTRYPOINT:
         start, generation = record.get('procStart'), record.get('bridgeOwner')
@@ -390,7 +395,9 @@ def for_registry(record, pid, live_start, now=None, registry=None):
             return None, unknown_views('no_status_record', now)
         result = read('bridge', pid, identity=dict(proc_start=start, generation=generation), now=now,
                       registry=registry)
-        return activity(result, now), views(result, now)
+        found = views(result, now)
+        found.update(guidance_view(result, now))
+        return activity(result, now), found
     return None, unknown_views('provider_unsupported', now)
 
 
@@ -409,3 +416,23 @@ def views(result, now=None):
     now = _now_ms() if now is None else now
     return dict(model=model_view(result, now), context=context_view(result, now),
                 work=observe(result.get('work') if result['reason'] is None else None, now))
+
+
+def validate_guidance(value):
+    from koinon.inbox_schema import hex_value
+    if (not isinstance(value, dict)
+            or set(value) != {'guide_revision', 'guide_stale', 'runtime_revision', 'recorded_at_ms'}
+            or any(value[key] is not None and not hex_value(value[key], 64)
+                   for key in ('guide_revision', 'runtime_revision'))
+            or value['guide_stale'] is not None and type(value['guide_stale']) is not bool
+            or type(value['recorded_at_ms']) is not int or value['recorded_at_ms'] < 0):
+        raise ValueError('invalid guidance status')
+    return dict(value)
+
+
+def guidance_view(result, now):
+    value = result.get('guidance')
+    if (result.get('reason') is None and value is not None
+            and 0 <= now - value['recorded_at_ms'] <= FRESHNESS_MS):
+        return {key: value[key] for key in ('guide_revision', 'guide_stale', 'runtime_revision')}
+    return dict(guide_revision=None, guide_stale=None, runtime_revision=None)

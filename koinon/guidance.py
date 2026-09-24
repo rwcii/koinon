@@ -32,6 +32,18 @@ CATALOG = {
             claude=('Claude Code lists this session to peers through its own session '
                     'registry; this session needs no Koinon registration.')),
         recipes=()),
+    'guidance': dict(
+        summary='Acknowledge guidance only after processing it.',
+        text=('The guide_revision identifies this catalog. guide_stale means this session has not '
+              'acknowledged the installed revision. Reading guidance or receiving a notice does '
+              'not acknowledge it. After processing, run guide-ack with this exact revision. '
+              'If it is refused, read guide again. Runtime mismatch and upgrade_incomplete '
+              'are diagnostic states: inspect the upgrade status before attempting recovery.'),
+        views={},
+        recipes=(dict(id='guide_ack', argv=('{python}', '{prefix}/session.py', 'guide-ack', '{revision}',
+                                          '--agent', '{family}'),
+                      families=FAMILIES, needs_approval=True,
+                      effect='Record that this session processed this guidance revision.'),)),
     'register': dict(
         summary='Join the bridge from this session.',
         text=(
@@ -209,7 +221,7 @@ def render(family, topic=None, *, python, prefix, observations=None, brief=False
     if topic is not None and topic not in CATALOG:
         raise GuidanceError('unknown_topic', f'unknown guidance topic: {topic}')
     observations = dict(observations or {})
-    values = dict(values or {}, python=str(python), prefix=str(prefix))
+    values = dict(values or {}, python=str(python), prefix=str(prefix), revision=revision(), family=family)
     state = observations.get('registration', {}).get('state_dir')
     if state:
         values['state'] = state
@@ -227,6 +239,8 @@ def render(family, topic=None, *, python, prefix, observations=None, brief=False
 def text(guide):
     """Compact human-readable form; recipes print as shell-quoted commands."""
     lines = [f"Koinon guidance for {guide['family']} (revision {guide['guide_revision'][:12]})"]
+    if 'guide_stale' in guide:
+        lines.append('Guidance acknowledgement stale: ' + str(guide['guide_stale']))
     for name, value in guide['observations'].items():
         state = value.get('state', 'unknown')
         detail = ', '.join(f'{key}={value[key]}' for key in sorted(value)

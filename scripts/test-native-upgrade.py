@@ -204,6 +204,28 @@ def session_case(backend, initial_state, interrupt):
             session_service_manager.deactivate_locked(selected, allow_unstarted=True)
 
 
+def refresh_binding(fixture, bridge, binding):
+    """Only the documented concurrent-observation refusal is retryable here."""
+    replies = []
+    for _ in range(3):
+        # Each public refresh reads the binding again before observing memory.
+        result = subprocess.run(list(map(str, bridge + ['refresh-memory', binding])),
+                                env=fixture.env, capture_output=True, text=True, timeout=90)
+        replies.append(dict(returncode=result.returncode, stdout=result.stdout, stderr=result.stderr))
+        try:
+            reply = json.loads(result.stdout)
+        except ValueError:
+            break
+        if not isinstance(reply, dict):
+            break
+        if result.returncode == 0 and reply.get('ok') is True:
+            return
+        if (reply.get('ok') is not False or reply.get('code') != 'binding_observation_changed'
+                or reply.get('recovery') != 'retry'):
+            break
+    raise RuntimeError('initial binding refresh failed: ' + json.dumps(replies))
+
+
 def combined_case(backend, interrupt, interactive_umask=0o077):
     spec = importlib.util.spec_from_file_location('native_install_fixture', SOURCE / 'scripts/test-native-install.py')
     module = importlib.util.module_from_spec(spec)
@@ -245,7 +267,7 @@ def combined_case(backend, interrupt, interactive_umask=0o077):
             '--memory-state-dir', fixture.records[0]['service_directory']]))['result']['binding']
         # Finish the explicit initial observation before establishing the fixture
         # baseline; bind alone leaves observation to asynchronous notifier work.
-        fixture.command(bridge + ['refresh-memory', binding])
+        refresh_binding(fixture, bridge, binding)
         def retained_bindings():
             from koinon import memory_bindings
             page = json.loads(fixture.command(bridge + ['memory-bindings']))['result']

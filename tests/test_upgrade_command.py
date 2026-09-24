@@ -97,6 +97,9 @@ class CommandTests(unittest.TestCase):
         self.assertEqual((self.prefix / 'LICENSE').read_bytes(), (self.source / 'LICENSE').read_bytes())
         installed = json.loads((self.prefix / 'install.json').read_text())
         record = installed.pop('claude_statusline')
+        from koinon import revisions, guidance
+        self.assertEqual(installed.pop('runtime_revision'), revisions.runtime_revision(self.source))
+        self.assertEqual(installed.pop('guidance_revision'), guidance.revision())
         self.assertEqual(installed, self.config)
         self.assertEqual((record['state'], record['original']), ('enabled', self.status_line))
         self.assertEqual(value['result']['claude_statusline']['outcome'], 'set_up')

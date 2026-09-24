@@ -518,3 +518,27 @@ repository store. `work.claims` contains only active-lease `{work_id, title, che
 entries, with source `memory_work_list`, read/source times, and a `truncated` flag.
 An empty successful query remains observed. No selected association and an unavailable
 service report `work_association_missing` and `memory_unavailable` respectively.
+
+## Guidance revision observations
+
+Installation records `runtime_revision` (the digest of the shipped Python allowlist) and
+`guidance_revision` (the catalog digest). Services capture their runtime digest once at
+startup; CLI observation does not hash runtime files. These digests do not change or replace
+service ownership fingerprints, process identities or generations. Older owners lacking the
+optional runtime revision remain readable and report `unknown`.
+
+`guide`, session `ensure`/`status`, and `peers` include `guide_revision` and `guide_stale`.
+Null means unavailable evidence; true means the installed revision has not been acknowledged
+by that session. Guide and session status additionally report a runtime observation, with
+`match`, `mismatch`, `runtime_revision_unavailable`, or `upgrade_incomplete`. Revision metadata
+is published after upgrade final readiness and `finish()`, with a retained completion receipt.
+The gap before that receipt is committed remains `upgrade_incomplete`, even though the normal
+installation marker has been cleared. A resume repeats the metadata publication safely.
+
+`session.py guide-ack REVISION` compares the requested digest with the installed revision
+under the installation lock. It atomically records owner-only `{revision, acknowledged_at}`
+in the current session's `guidance-ack.json`. Claude uses
+`guidance-ack-<session id>.json` beside participant status records instead. It refuses an
+incomplete upgrade or a different revision. Reading a guide or delivering a notice does not
+write this acknowledgement. Peer status reads expose only revision digests and staleness;
+notifier-written observations expire with the participant status freshness window.

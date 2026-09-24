@@ -130,8 +130,9 @@ def run(exclusion):
         from koinon import upgrade_exclusion
         if upgrade_exclusion.read(exclusion.prefix) is not None:
             exclusion.finish()
-        return _participant_guidance(exclusion, documents, phase,
-                                 _claude_statusline(exclusion, documents, phase, result))
+        return _runtime_revisions(exclusion, documents, phase,
+            _participant_guidance(exclusion, documents, phase,
+                                 _claude_statusline(exclusion, documents, phase, result)))
     if not 10 <= phase['step'] <= 18:
         raise CompletionError('completion requires migration through final-readiness phase')
     exclusion.verify()
@@ -198,8 +199,9 @@ def run(exclusion):
         phase = exclusion.journal.advance(phase, evidence=digest)
     result = documents.read('complete', phase['receipts'][9])
     exclusion.finish()
-    return _participant_guidance(exclusion, documents, phase,
-                                 _claude_statusline(exclusion, documents, phase, result))
+    return _runtime_revisions(exclusion, documents, phase,
+            _participant_guidance(exclusion, documents, phase,
+                                 _claude_statusline(exclusion, documents, phase, result)))
 
 
 def _claude_statusline(exclusion, documents, phase, result):
@@ -240,3 +242,22 @@ def _participant_guidance(exclusion, documents, phase, result):
     if outcome is not None:
         documents.put('participant-guidance', dict(version=1, plan=exclusion.loaded['sha256'], outcome=outcome))
     return dict(result, participant_guidance=outcome)
+
+
+def _runtime_revisions(exclusion, documents, phase, result):
+    """Publish the frozen new revisions only after finish; retain evidence across resume."""
+    from koinon import install_state
+    retained = durable_state.read(documents.path('runtime-revisions'))
+    if retained is not None:
+        return dict(result, runtime_revisions=retained['outcome'])
+    target = documents.read('prepared-checks', phase['receipts'][0]).get('runtime_revisions')
+    if target is None:
+        return result
+    from koinon import revisions
+    # The recovery archive is the frozen new source, so its catalog is authoritative.
+    target = dict(target)
+    target.setdefault('guidance_revision', revisions.GUIDANCE_REVISION)
+    with install_state.locked(exclusion.prefix) as installed:
+        installed.merge(target)
+    documents.put('runtime-revisions', dict(version=1, plan=exclusion.loaded['sha256'], outcome=target))
+    return dict(result, runtime_revisions=target)
