@@ -30,9 +30,11 @@ harness homes and state roots, and a temporary account namespace.
   `install.json` shape (`participants`, `codex_home`, `dsh_home`, no block records) and the
   pre-sprint rendered block, once in `AGENTS.md` and once in `AGENTS.override.md`: the upgrade
   replaces each exact rendering, seeds the records, and reports an edited copy as `edited`.
-  **No new override:** with only a user `AGENTS.md` and no `AGENTS.override.md`, a fresh and a
-  repeated installation write the block into `AGENTS.md`, keep the user's text, and create no
-  `AGENTS.override.md`.
+  **Target file**, each for a first installation, a repeated installation and a legacy upgrade:
+  a Codex home with only a user `AGENTS.md` gets the block there and no `AGENTS.override.md`; a
+  Codex home with an existing `AGENTS.override.md` gets the block there, keeps its unrelated
+  content, and loses a `current` block in `AGENTS.md`; a DeepSeek home gets the block only in
+  `AGENTS.md`.
 - **Revisions (criterion 5).** The guidance revision changes when catalog content changes and not
   when status values change; `guide`, `ensure`, `status` and `peers` report the revision and
   `guide_stale`; a service that reports no runtime revision is `unknown`; an interrupted upgrade

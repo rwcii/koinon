@@ -26,4 +26,6 @@
 5. **P2 — Writing every absent candidate creates a shadowing override.** Fixed. Chunk 02 step 4
    writes only the target (existing `AGENTS.override.md`, otherwise `AGENTS.md`, for Codex;
    `AGENTS.md` for DeepSeek), keeps today's precedence, and never creates an override. The
-   definition of done adds a fresh and repeated installation with only a user `AGENTS.md`.
+   definition of done tests the target file (user `AGENTS.md` only; existing override with
+   unrelated content; DeepSeek `AGENTS.md` only) for first installation, repeated installation
+   and legacy upgrade.
