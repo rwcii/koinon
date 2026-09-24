@@ -16,10 +16,15 @@ process and the tmux pane that the command runs in. `ensure` and `status` report
   the observations fail; report them as `unavailable` with the reason and continue.
 - **Host process.** Walk the parent chain from `os.getppid()` with
   `platform_support._process_command()` (make it public as `process_command()`), at most 64
-  steps, and select the nearest ancestor that `platform_support.codex_process(pid,
-  config['codex'])` accepts. Record `pid` and `proc_start` (`platform_support.proc_start`).
-  No match: `unknown`, reason `host_not_found`. Put the walk in `platform_support` as
-  `ancestor_matching(pid, predicate, limit)`; no `sys.platform` check elsewhere.
+  steps, and select the nearest ancestor that is the configured Codex CLI process itself. Do
+  not use `platform_support.codex_process()`: it also accepts a child of a CLI launcher, so a
+  shell started by Codex would match. Add `platform_support.codex_host(pid, executable)`: true
+  only when argv[0], or argv[1] under a `node`/`python` launcher, resolves to the configured
+  executable, or when `/proc/<pid>/exe` (Linux) or `ps -o comm=` (macOS) does. A launcher
+  whose child is the native CLI matches at the child, which is the nearer ancestor. Record
+  `pid` and `proc_start` (`platform_support.proc_start`). No match: `unknown`, reason
+  `host_not_found`. Put the walk in `platform_support` as `ancestor_matching(pid, predicate,
+  limit)`; no `sys.platform` check elsewhere.
 - **Terminal.** When `TMUX` and `TMUX_PANE` are both set and a `tmux` executable is found, run
   `tmux -S <socket> display-message -p -t <pane> '#{pane_id}\t#{pane_pid}\t#{session_id}'`,
   where `<socket>` is the first comma-separated field of `TMUX`. Use an argument array and a

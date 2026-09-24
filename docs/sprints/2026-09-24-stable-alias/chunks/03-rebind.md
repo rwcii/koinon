@@ -24,14 +24,27 @@ direct authorization. The `reconnect` guide topic and the `pickup` skill use it 
     A matching `host.json` is reported and never sufficient alone (`host_only`).
   - `--user-authorized` is the agent's statement that the user named this predecessor; the
     command records it in the result and skips the terminal match only.
-- **Sequence.** Under `names.lock`, write the lease `state = moving, from = OLD key, to = this
-  key`. Stop OLD with the existing `stop` path (inbox, checkpoint and claims stay). Confirm that
-  OLD's registry record is gone. Write `holder = this key, state = held`. Restart this thread's
-  service (the `stop` then `ensure` paths), so its notifier publishes the alias at start. Report
-  the number of records in OLD's inbox store, counted without reading any body.
-- **Resume.** A lease in `moving` is completed by the next `rebind` or `ensure` of its `to` key,
-  and is cancelled back to `held` by `from` only while `from` is still live. The alias never
-  has two live holders.
+- **Sequence.** Each step is one read-decide-write of the lease under `names.lock`, and the lock
+  is released before any stop, start or wait (chunk 02, lock boundary):
+  1. Check the lease: `holder = OLD` in `held`, or already `moving` from OLD to this key. Write
+     `state = moving, from = OLD, to = this key, operation = this command`. From now on no
+     notifier publishes the alias, and chunk 02's take refuses (`alias_busy`) while
+     `operation` is live.
+  2. Stop OLD with the existing `stop` path (inbox, checkpoint and claims stay).
+  3. Under the lock, confirm that OLD has no live record carrying the alias; write
+     `holder = this key, state = publishing, operation = this command`.
+  4. Restart this thread's service (the existing stop and start paths) and wait until its
+     live record publishes the alias.
+  5. Under the lock, write `state = held, operation = null`.
+  Report the number of records in OLD's inbox store, counted without reading any body.
+- **Predecessor not the holder.** When the lease does not name OLD (another key holds the
+  alias, or none does), steps 1 and 3–5 do not apply: stop OLD (step 2), then take the alias
+  only under chunk 02's take rule, and report which rule applied.
+- **Recovery.** A transient state whose `operation` is dead is completed, never taken over:
+  `moving` by the next `rebind` or `ensure` of `to` (from step 2), `publishing` by the next
+  `ensure` of `holder` (chunk 02, publication on a running service). `from` cancels a `moving`
+  back to `held` only while `from` still has a live record and `operation` is dead. A third key
+  follows chunk 02's take rule.
 - **Already stopped.** OLD not running: skip the stop, report `already_stopped`, move the lease.
 - **Guide.** In `koinon/guidance.py`, the Codex `reconnect` view replaces `stop_predecessor`
   with a `rebind` recipe (`needs_approval`) and states the rule of criteria 3 and 4. DeepSeek
@@ -44,7 +57,8 @@ direct authorization. The `reconnect` guide topic and the `pickup` skill use it 
 ## Tests
 
 The rebind and no-inheritance tests of `definition-of-done.md`, and the edge cases for an
-already stopped predecessor and an interrupted rebind (kill the command after each step).
+already stopped predecessor, an interrupted rebind (kill the command after each of steps 1–5),
+and a third thread's `ensure` held at a barrier between each pair of steps.
 
 ## Live check 2
 
