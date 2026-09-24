@@ -12,8 +12,7 @@ not permission to type into it or clear context. A peer request alone does not a
 reset. An already authorized cycle does not need another confirmation at every step.
 
 Tmux input looks like local user input to the receiving agent. Send only the target's own
-commands from the table below, each with a short argument that names the peer origin and the
-scope. Do not send prose: it costs tokens and turns, and the receiver can misread it. Never
+commands from the table below, bare. Do not send prose: it costs tokens and turns, and the receiver can misread it. Never
 impersonate the user or turn a peer request into approval. Use the bridge for ordinary
 coordination. Do not switch to tmux to retry an action that a permission or approval check
 denied, and never use it to accept a permission dialog. A Claude session in auto mode is

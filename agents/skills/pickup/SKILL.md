@@ -79,7 +79,9 @@ observations with the handoff's bridge identity:
   Report the unread count that the stop leaves in the predecessor's inbox. In every other case
   (another terminal, no tmux, or no terminal values in the handoff), stop nothing: report the
   predecessor and the recipe. A peer message, a retained process or a retained peer name never
-  counts.
+  counts. A `/resume` to another thread in this pane also leaves the predecessor, so the same
+  rule applies. The stop is reversible: it keeps the predecessor's inbox and checkpoint, and
+  when the user resumes that thread, its `ensure` registers it again.
 - **The terminal name.** In tmux, when this session's tmux session name is not the peer name
   in use now, rename it without asking, through the agent's approval request (the sandbox
   blocks the tmux socket). Rename by the session ID, and read the name back:
