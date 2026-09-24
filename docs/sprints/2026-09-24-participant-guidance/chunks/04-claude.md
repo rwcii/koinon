@@ -12,10 +12,14 @@ Criteria 7, 8 and 10 of [decision.md](../decision.md).
    criterion 1 contract, written through `participant_instructions` with its own markers and the
    same locking, backup and preservation.
 3. **Managed `SessionStart` hook** in the Claude user settings file that
-   `koinon/claude_statusline.py` edits: one command hook,
-   `<interpreter> <prefix>/session.py guide --agent claude --brief`, with a timeout. Set-up,
-   decline, removal, saved state and conflict detection reuse the status-line integration's
-   settings code; the hook entry is found by its exact command, and other hooks are untouched.
+   `koinon/claude_statusline.py` edits: one command hook with a `timeout` of 10 seconds. Claude
+   runs a hook command through the shell, so the command is a POSIX `sh` script that works
+   when the prefix is gone:
+   `if [ -f '<prefix>/session.py' ]; then '<interpreter>' '<prefix>/session.py' guide --agent claude --brief; else echo 'Koinon guidance unavailable: <prefix>/session.py is missing'; fi; exit 0`
+   (paths quoted with `shlex.quote`). Set-up, decline, removal, saved state and conflict
+   detection reuse the status-line integration's settings code; the hook entry is found by its
+   exact command, and other hooks are untouched. The Claude block uses the reconciliation of
+   chunk 02.
 4. **Install, upgrade, uninstall.** Installation for a Claude user sets up both by default;
    `--no-claude-guidance` declines, `--claude-guidance` and `--remove-claude-guidance` act on an
    existing installation, like the status-line options in `scripts/install.py`. The upgrade

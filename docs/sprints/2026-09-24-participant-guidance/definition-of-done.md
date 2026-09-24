@@ -13,18 +13,23 @@ harness homes and state roots, and a temporary account namespace.
   an unregistered session writes no file under the state root and reports `unregistered`;
   `ensure` then registers normally; native `ensure` and `status` print `name`, `state_dir` and
   `inbox_command`. `guide` for every family, with no registration, no bridge, no notifier and no
-  memory service, exits 0, prints the complete overview, and leaves the state root, the agent
-  homes and the Claude configuration byte-identical (compared by a recursive digest).
+  memory service, exits 0, prints the complete overview, and leaves the installation prefix,
+  the state root, the agent homes and the Claude configuration byte-identical (a recursive
+  digest of names, modes and contents). The same digest check applies to `status` for an
+  unregistered session, so no lock file is created either.
 - **Catalog (criterion 2).** Every topic renders for every family; an unknown topic or family is
   a typed error; every recipe is an argument array whose first element is the installed
   interpreter or an installed path; no recipe is run by `guide`; each live observation carries
   `observed`, `unavailable` or `unknown`.
 - **Bootstrap (criteria 1, 8).** The rendered block for a prefix and family is identical across
   two synthetic releases with different catalogs. Install into a file with unrelated content
-  preserves it; a repeated install changes nothing; an edited block is reported and kept; a
-  missing block is reported and not recreated by upgrade; an upgrade replaces a block that is
-  exactly an earlier release's rendering (the pre-sprint `section()` text for that prefix) and
-  reports any other content as a conflict.
+  preserves it. A repeated installation changes nothing for a `current` block and keeps an
+  `edited` block (edit the heading inside the markers, then install again). A `missing` block is
+  reported and not recreated by installation or upgrade. `--replace-guidance` replaces an
+  edited block after a backup. **Migration fixture:** an installation with the pre-sprint
+  `install.json` shape (`participants`, `codex_home`, `dsh_home`, no block records) and the
+  pre-sprint rendered block, once in `AGENTS.md` and once in `AGENTS.override.md`: the upgrade
+  replaces each exact rendering, seeds the records, and reports an edited copy as `edited`.
 - **Revisions (criterion 5).** The guidance revision changes when catalog content changes and not
   when status values change; `guide`, `ensure`, `status` and `peers` report the revision and
   `guide_stale`; a service that reports no runtime revision is `unknown`; an interrupted upgrade
@@ -37,8 +42,9 @@ harness homes and state roots, and a temporary account namespace.
   existing `SessionStart` hooks: set-up adds one block and one hook; a repeated installation or
   upgrade adds no duplicate; decline is recorded and survives upgrade; removal restores only
   Koinon's entries and keeps changed entries with a report; other hooks and settings stay
-  byte-identical; the hook command is bounded in time and exits 0 with a short message when the
-  prefix is missing. Settings edits reuse the conflict detection of `koinon/claude_statusline.py`.
+  byte-identical. The exact command string written to the settings file, run through `sh` with
+  the prefix removed, exits 0 within its timeout and prints the unavailable message. Settings
+  edits reuse the conflict detection of `koinon/claude_statusline.py`.
 - **Skills (criterion 9).** A test fails when `handoff`, `pickup` or `peer-tmux` contain a
   `session.py` or `bridge.py` recipe other than a pointer to `guide`.
 

@@ -21,12 +21,27 @@ Criteria 1, 2, 3 (guide), 8 and 10 of [decision.md](../decision.md).
    and the overview still prints. `--json` prints the structured form.
 3. **Bootstrap.** `participant_instructions.section()` renders the small block of criterion 1 for
    Codex and DeepSeek. The block depends only on the prefix, the interpreter and the family.
-4. **Install and upgrade.** Installation writes the block as today (`update()`, same files, same
-   preservation and backup) and records in `install.json` the path and digest of what it wrote.
-   The upgrade operation verifies each recorded block: a block equal to the recorded digest, or
-   exactly the pre-sprint `section()` rendering for that prefix and family, is replaced by the new
-   block; any other content is kept and reported in the preflight and the completion report as
-   `edited`, `missing` or `conflict`. A missing block is not recreated.
+4. **One reconciliation for install, retry and upgrade.** A single function classifies each
+   candidate file and acts on it. It is used by installation, by a repeated installation, and
+   by the upgrade operation, so a repeated `--configure-codex` no longer replaces edited text
+   inside the markers (today `update()` replaces the whole owned span).
+   - **Candidates.** For each participant kind in `install.json` `participants`, its home
+     (`codex_home`, `dsh_home`), both `AGENTS.md` and `AGENTS.override.md`. Existing
+     installations have no block records; this list comes only from fields they already have.
+   - **Classes**, from the owned span that `spans()` finds:
+     - `absent`: no span and no record. Installation writes the block; upgrade reports it.
+     - `current`: the span equals the recorded digest, or is exactly a known released rendering
+       for that prefix and family (a table in `koinon/guidance.py` holding at least the
+       rendering of the release this sprint upgrades from). The span is replaced by the new
+       block and the record is seeded or updated.
+     - `edited`: a span with any other content. It is kept, reported with its path, and
+       recorded as edited.
+     - `missing`: a record exists but the span is gone. Nothing is written; it is reported.
+     - `malformed`: `spans()` raises. The file is kept and reported, as today.
+   - **Explicit replacement.** `--replace-guidance` replaces an `edited` or `missing` block after
+     the existing backup step (`publish_guidance()`), and is the only path that does.
+   - **Reports.** The installation result, the upgrade preflight and the completion report list
+     every candidate with its class.
 5. **Documents.** `README.md`, `PROTOCOL.md`, `docs/INSTALL.md` ("Recommended: configure Codex
    once", "Enable the current session", "Upgrades and removal") and `CHANGELOG.md`.
 
