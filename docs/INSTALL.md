@@ -329,9 +329,30 @@ Uninstallation removes every managed section recorded by the installation.
 This installs runtime files in `~/.local/share/koinon` and adds a clearly
 marked section to `$CODEX_HOME/AGENTS.md` (normally `~/.codex/AGENTS.md`). If a global
 `AGENTS.override.md` already exists, the installer manages that higher-priority file
-instead. Existing content is preserved; a private backup is saved before the first
-edit. Reinstallation replaces only the managed section. Removal strips the section
-without restoring an old backup over subsequent user edits. Recovery copies are
+instead; it never creates an override. Existing content is preserved; a private backup is
+saved before the first edit. Removal strips the section without restoring an old backup
+over subsequent user edits.
+
+The section is small and the same in every release. It names the installed guide,
+`session.py guide --agent <family>`, says when to run it, and states the limits that hold
+even when Koinon is broken. Everything else, including registration, reconnection after a
+context reset, messages and memory, comes from the guide, so an upgrade updates the
+instructions without editing the file. Installation records the digest of what it wrote in
+`install.json` under `participant_guidance`. A repeated installation and an upgrade
+reconcile each file the same way and report every candidate with its state:
+
+| State | Meaning | Action |
+| --- | --- | --- |
+| `absent` | No managed section, never recorded | Installation writes it; an upgrade reports it |
+| `current` | Koinon's own text, or an exact earlier release's section | Replaced by the current section |
+| `edited` | Other text inside the markers | Kept and reported |
+| `missing` | Recorded, then removed | Kept removed and reported |
+| `malformed` | Markers that cannot be parsed | File kept and reported |
+
+`--replace-guidance` replaces an `edited` or `missing` section after the backup step; it is
+the only path that overwrites the user's change. An upgrade also compares each file with
+the digest its preflight observed and reports a file that changed in between as
+`conflict` without writing it. Recovery copies are
 atomically published and flushed before guidance replacement. A failed flush is an
 error; retrying reconfirms the retained copy before proceeding. Guidance publication
 and work-guidance retries also flush the retained target before reporting success.
@@ -351,8 +372,11 @@ The durability audit for gate #69 also covers these recovery records:
 All these file publications use the shared file flush and flush the parent directory;
 uninstall retries reconfirm the recovery files before continuing deletion.
 
-The section instructs each Codex conversation to run `session.py ensure` using its
-own `CODEX_THREAD_ID`. It never embeds a fixed thread ID. Each thread gets:
+The guide tells each Codex conversation to run `session.py ensure` using its own
+`CODEX_THREAD_ID`; the section never embeds a fixed thread ID. `guide` itself writes nothing
+and needs no registration or running service: it reports this session's registration,
+bridge and notifier health as `observed`, `unavailable` or `unknown`, the next action, and
+one topic at a time with `--topic` (`--json` prints the structured form). Each thread gets:
 
 - an isolated directory under `~/.local/state/koinon/sessions/<session-hash>`;
 - a fleet-style peer name, `codex-<repo-short-name>-<two-hex>`, stable for the session
@@ -374,8 +398,8 @@ one installation/state root. Independent installations consult live peers but do
 share dormant reservations; use distinct repo labels if running separate installations.
 
 **This is instruction-driven setup, not a guaranteed executable startup hook.** Codex
-must load and follow the managed section. Start a new conversation or reload global
-instructions after installation; existing conversations may not reread the file.
+must load the managed section and run the guide it names. Start a new conversation or
+reload global instructions after installation; existing conversations may not reread the file.
 Higher-priority instructions, disabled instruction loading, or missing shell access
 can prevent registration. See the official [Codex AGENTS.md guide](https://learn.chatgpt.com/docs/agent-configuration/agents-md)
 for global instruction discovery.
@@ -686,6 +710,13 @@ After the operation completes, it also sets up the Claude status line unless you
 it, and reports the outcome as `claude_statusline` in its result; see
 [Claude status line](#claude-status-line). Do not change Claude settings while it runs: a
 settings change since preflight is reported as a conflict and left unwritten.
+
+It then reconciles the managed participant guidance sections that its preflight observed,
+as described in [Recommended: configure Codex once](#recommended-configure-codex-once), and
+reports each file's state and action as `participant_guidance` in its result. An installation
+from before the runtime guide has no block records; the preflight finds its sections from the
+recorded `participants`, `codex_home` and `dsh_home`, replaces each section that is exactly an
+earlier release's text, and keeps and reports any other content.
 
 When the memory component's selected backend is `manual`, the operation stops at that
 component and returns `manual_handoff_required` with the exact start command. Run it in a

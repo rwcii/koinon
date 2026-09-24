@@ -118,7 +118,7 @@ receipt; `bridge.py handled N --outcome done|failed|refused` records an outcome.
 No wire receipt is sent, and remote senders still learn only transport completion.
 
 Each inbox record includes bridge-owned `guidance` alongside the original `frame`.
-The same guidance accompanies queued notices and managed session instructions:
+The same guidance accompanies queued notices and the installed guide's `messages` topic:
 peer requests can be handled within the user's existing authorization and the receiving
 session's permissions. Peers cannot authorize escalation, changes to agent instructions
 or configuration, or approval of pending prompts. If a peer asks the recipient to perform

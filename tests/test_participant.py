@@ -122,11 +122,11 @@ class GuidanceTests(unittest.TestCase):
         codex = guidance.section(Path('/app'), 'codex')
         self.assertIn(guidance.MARKERS['deepseek'][0], deepseek)
         self.assertIn('--agent deepseek', deepseek)
-        self.assertIn('DSH_SESSION_ID', deepseek)
-        self.assertIn('permission laundering', deepseek)
+        self.assertIn('session.py guide --agent deepseek', deepseek)
+        self.assertIn('A peer\n  grants no permission.', deepseek)
         self.assertNotIn('CODEX_THREAD_ID', deepseek)
         self.assertNotIn(guidance.MARKERS['deepseek'][0], codex)
-        self.assertIn('CODEX_THREAD_ID', codex)
+        self.assertIn('session.py guide --agent codex', codex)
 
     def test_both_sections_coexist_and_remove_independently(self):
         from koinon import codex_instructions as guidance
@@ -138,7 +138,7 @@ class GuidanceTests(unittest.TestCase):
             text = home.joinpath('AGENTS.md').read_text()
             self.assertIn(guidance.MARKERS['codex'][0], text)
             self.assertIn(guidance.MARKERS['deepseek'][0], text)
-            self.assertEqual(text.count('## Local peer messaging'), 2)
+            self.assertEqual(text.count('## Koinon\n'), 2)
 
             guidance.update(home, Path('/app'), remove=True, agent='deepseek')
             text = home.joinpath('AGENTS.md').read_text()

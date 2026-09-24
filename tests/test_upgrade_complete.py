@@ -128,3 +128,43 @@ class ClaudeStatusLineCompletionTests(EmptyOperationCompletionTests):
             result = upgrade_complete.run(owner)
         self.assertEqual(result['claude_statusline']['outcome'], 'unchanged')
         self.assertEqual(json.loads((self.claude / 'settings.json').read_text())['statusLine'], line)
+
+
+class ParticipantGuidanceCompletionTests(EmptyOperationCompletionTests):
+    """The same completion with a pre-sprint guidance block to migrate."""
+    def checks(self):
+        import tempfile
+        from pathlib import Path
+        from koinon import participant_instructions
+        temporary = tempfile.TemporaryDirectory()
+        self.addCleanup(temporary.cleanup)
+        self.home = Path(temporary.name)
+        self.target = self.home / 'AGENTS.md'
+        self.target.write_text('Personal.\n' + participant_instructions.legacy_section(self.prefix, 'codex', '/old/python3'))
+        config = dict(self.config, codex_home=str(self.home), participants=['codex'])
+        return dict(version=1, participant_guidance=participant_instructions.plan(config, self.prefix))
+
+    def test_completion_migrates_the_block_once_and_resumes_without_a_false_conflict(self):
+        import json
+        import sys
+        from koinon import participant_instructions
+        put = Documents.put
+
+        def interrupted(documents, name, value):
+            if name == 'participant-guidance':
+                raise OSError('synthetic lost guidance outcome')
+            return put(documents, name, value)
+        with self.owner() as owner, patch.object(Documents, 'put', new=interrupted):
+            with self.assertRaises(OSError):
+                upgrade_complete.run(owner)
+        migrated = self.target.read_text()
+        self.assertEqual(migrated, 'Personal.\n' + participant_instructions.section(self.prefix, 'codex', sys.executable))
+        with self.owner() as owner:
+            result = upgrade_complete.run(owner)
+        entries = result['participant_guidance']['codex']['entries']
+        self.assertEqual([(e['state'], e['action']) for e in entries], [('current', 'unchanged')])
+        self.assertEqual(self.target.read_text(), migrated)
+        record = json.loads((self.prefix / 'install.json').read_text())[participant_instructions.RECORD_KEY]
+        self.assertEqual(record['blocks']['codex']['state'], 'current')
+        with self.owner() as owner:
+            self.assertEqual(upgrade_complete.run(owner), result)

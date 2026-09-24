@@ -90,8 +90,10 @@ def peer_base(agent, model, label):
 
 def bridge_status(prefix, state):
     try:
+        # Inspection must not write the installed package's bytecode cache.
         result = subprocess.run([sys.executable,str(prefix/'bridge.py'),'--state-dir',str(state),'status'],
-                                capture_output=True,text=True,timeout=10)
+                                capture_output=True,text=True,timeout=10,
+                                env=dict(os.environ, PYTHONDONTWRITEBYTECODE='1'))
         if result.returncode == 0:
             return json.loads(result.stdout)['result']
     except (OSError,ValueError,subprocess.TimeoutExpired):
@@ -261,10 +263,94 @@ def validate_participant_executable(config, agent, action):
                              'rerun install.py --configure-codex --codex PATH')
 
 
+def _claude_identity():
+    """This Claude session's peer name from its own registry record; read only."""
+    session_id = os.environ.get('CLAUDE_CODE_SESSION_ID')
+    if not session_id:
+        return dict(state='unknown', reason='session_id_missing')
+    folder = Path(os.environ.get('CLAUDE_CONFIG_DIR', str(Path.home()/'.claude'))) / 'sessions'
+    for path in sorted(folder.glob('*.json')):
+        try:
+            if not path.stem.isdigit() or path.is_symlink() or path.stat().st_size > 65536:
+                continue
+            record = json.loads(path.read_text())
+        except (OSError, ValueError):
+            continue
+        if isinstance(record, dict) and record.get('sessionId') == session_id:
+            return dict(state='observed', name=record.get('name'), source='claude_registry')
+    return dict(state='unavailable', reason='registry_record_missing')
+
+
+def guide_observations(prefix, family, thread, repo):
+    """Live facts for the guide. Every read is inert; a failure is reported, never raised."""
+    found = {}
+    try:
+        config = runtime_names.install_config(prefix)
+        found['installation'] = (dict(state='observed', prefix=str(prefix)) if config
+                                 else dict(state='unavailable', reason='install_configuration_missing'))
+    except (OSError, ValueError, runtime_names.NameConflict) as exc:
+        config = {}
+        found['installation'] = dict(state='unavailable', reason=getattr(exc, 'code', 'invalid_install_configuration'))
+    if family == 'claude':
+        found['registration'] = _claude_identity()
+        return found
+    if not thread:
+        found['registration'] = dict(state='unknown', reason='session_id_missing')
+        return found
+    if not config.get('state_root'):
+        found['registration'] = dict(state='unknown', reason='state_root_unknown')
+        return found
+    state, _, _ = details(prefix, config, thread, repo, family)
+    try:
+        saved = json.loads((state / 'session.json').read_text()) if runtime_names.present(state / 'session.json') else None
+    except (OSError, ValueError):
+        found['registration'] = dict(state='unavailable', reason='registration_unreadable', state_dir=str(state))
+        return found
+    if saved is None:
+        found['registration'] = dict(state='observed', registered=False, state_dir=str(state))
+        return found
+    found['registration'] = dict(state='observed', registered=True, name=saved.get('name'), state_dir=str(state),
+                                 inbox_command=shlex.join([sys.executable, str(prefix/'bridge.py'),
+                                                           '--state-dir', str(state), 'inbox']))
+    bridge = bridge_status(prefix, state)
+    found['bridge'] = (dict(state='observed', pid=bridge.get('pid'), address=bridge.get('address'))
+                       if bridge else dict(state='unavailable', reason='bridge_not_running'))
+    try:
+        ready = notifier_readiness(state, bridge)
+    except (OSError, ValueError):
+        ready = None
+    found['notifier'] = (dict(state='observed', ready=True) if ready
+                         else dict(state='unavailable', reason='notifier_not_ready'))
+    return found
+
+
+def guide(prefix, a):
+    """Print the installed guide for one family. Writes nothing and needs no service."""
+    from koinon import guidance
+    family = a.agent or ('codex' if os.environ.get('CODEX_THREAD_ID') else
+                         'deepseek' if os.environ.get('DSH_SESSION_ID') else
+                         'claude' if os.environ.get('CLAUDE_CODE_SESSION_ID') else None)
+    if family is None:
+        print(json.dumps(dict(ok=False, code='family_required',
+                              error='pass --agent codex, deepseek or claude')))
+        return 64
+    thread = a.thread or os.environ.get('DSH_SESSION_ID' if family == 'deepseek' else 'CODEX_THREAD_ID')
+    repo = str(Path(a.repo).absolute())
+    observations = guide_observations(prefix, family, thread, repo)
+    try:
+        result = guidance.render(family, a.topic, python=sys.executable, prefix=prefix,
+                                 observations=observations, brief=a.brief, values=dict(repo=repo))
+    except guidance.GuidanceError as exc:
+        print(json.dumps(dict(ok=False, code=exc.code, error=str(exc))))
+        return 64
+    sys.stdout.write(json.dumps(result) + '\n' if a.json else guidance.text(result))
+    return 0
+
+
 def main():
     os.umask(0o077)
     p=argparse.ArgumentParser(description=__doc__)
-    p.add_argument('action',choices=['ensure','stage','run','status','stop','rename','work-policy','work-key'])
+    p.add_argument('action',choices=['ensure','stage','run','status','stop','rename','work-policy','work-key','guide'])
     p.add_argument('--agent',choices=['codex','deepseek','claude'],default=None,
                    help='participant kind this instance serves; defaults to the registered kind, '
                         'or is inferred from the session environment, and is codex otherwise')
@@ -274,9 +360,14 @@ def main():
                    help='model id advertised in the peer name; for deepseek it defaults to the '
                         'harness agent-default-model when one can be read')
     p.add_argument('--key', help='stable work consumer key for this native session')
+    p.add_argument('--topic', help='guide: print one topic')
+    p.add_argument('--brief', action='store_true', help='guide: print only the overview')
+    p.add_argument('--json', action='store_true', help='guide: print the structured form')
     p.add_argument('--repo',default=os.getcwd())
     a=p.parse_args()
     prefix=Path(__file__).resolve().parent
+    if a.action == 'guide':
+        raise SystemExit(guide(prefix, a))
     if a.action == 'work-key':
         from koinon.participant_work import set_key
         agent = a.agent or ('codex' if os.environ.get('CODEX_THREAD_ID') else
