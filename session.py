@@ -293,10 +293,12 @@ def _memory_observation(prefix, config, repo):
     if not isinstance(selected, dict) or not selected.get('service_directory'):
         return dict(state='unavailable', reason='memory_not_selected')
     directory = Path(selected['service_directory'])
-    if not (directory / 'control.sock').exists():
+    # The platform may place a long endpoint outside the service directory.
+    if not platform_support.control_socket_path(directory).exists():
         return dict(state='unavailable', reason='service_not_running', backend=selected.get('backend'))
     try:
-        result = subprocess.run([sys.executable, str(prefix/'memory.py'), '--service-dir', str(directory), 'status'],
+        result = subprocess.run([sys.executable, str(prefix/'memory.py'), '--service-dir', str(directory),
+                                 '--repo-path', str(repo), 'status'],
                                 capture_output=True, text=True, timeout=10,
                                 env=dict(os.environ, PYTHONDONTWRITEBYTECODE='1'))
         value = json.loads(result.stdout) if result.returncode == 0 else None

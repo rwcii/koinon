@@ -113,13 +113,14 @@ class GuideCommandTests(unittest.TestCase):
         self.assertEqual(session._memory_observation(self.prefix, config, str(ROOT))['reason'], 'service_not_running')
         directory.mkdir()
         (directory / 'control.sock').write_text('')
+        # A synthetic endpoint; the real-service test below exercises the platform selector.
         reply = subprocess.CompletedProcess([], 0, json.dumps(dict(ok=True, result=dict(healthy=True, head=7))), '')
         from koinon import repository_identity
         with patch.object(repository_identity, 'repo_identity', return_value=key), \
                 patch.object(session.subprocess, 'run', return_value=reply) as run:
             observed = session._memory_observation(self.prefix, config, str(ROOT))
         self.assertEqual(observed, dict(state='observed', healthy=True, head=7, backend='systemd'))
-        self.assertEqual(run.call_args.args[0][-3:], ['--service-dir', str(directory), 'status'])
+        self.assertEqual(run.call_args.args[0][-5:], ['--service-dir', str(directory), '--repo-path', str(ROOT), 'status'])
         self.assertEqual(run.call_args.kwargs['env']['PYTHONDONTWRITEBYTECODE'], '1')
         with patch.object(repository_identity, 'repo_identity', return_value=key), \
                 patch.object(session.subprocess, 'run', return_value=subprocess.CompletedProcess([], 1, '', 'x')):
@@ -133,6 +134,50 @@ class GuideCommandTests(unittest.TestCase):
         value = json.loads(result.stdout)
         self.assertEqual(value['observations']['installation']['state'], 'unavailable')
         self.assertIn('not installed', value['next_action']['text'])
+
+
+class MemoryServiceObservationTests(unittest.TestCase):
+    """A real memory service, asked from another repository, at a normal and a long path."""
+
+    def serve(self, directory, repo):
+        process = subprocess.Popen([sys.executable, str(ROOT / 'memory.py'), '--service-dir', str(directory),
+                                    '--repo-path', str(repo), 'serve'],
+                                   stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, cwd=str(ROOT))
+        self.addCleanup(lambda: process.poll() is None and (process.kill(), process.wait()))
+        return process
+
+    def test_observes_the_selected_repository_service_from_another_working_directory(self):
+        import time
+        import session
+        from koinon import platform_support
+        from koinon.repository_identity import repo_identity
+        for deep in (False, True):
+            with self.subTest(long_path=deep), tempfile.TemporaryDirectory() as temp:
+                root = Path(temp).resolve()
+                repo = root / 'selected repo'
+                repo.mkdir()
+                subprocess.run(['git', 'init', '-q', str(repo)], check=True)
+                directory = root / ('d' * 60 if deep else 'm') / ('e' * 40 if deep else 's')
+                directory.parent.mkdir(parents=True, mode=0o700)
+                if deep:
+                    self.assertNotEqual(platform_support.control_socket_path(directory).parent, directory)
+                process = self.serve(directory, repo)
+                config = dict(memory_services=dict(repositories={
+                    repo_identity(repo): dict(service_directory=str(directory), backend='manual')}))
+                deadline = time.monotonic() + 20
+                observed = None
+                while time.monotonic() < deadline:
+                    # The test process's own working directory is another repository.
+                    observed = session._memory_observation(ROOT, config, str(repo))
+                    if observed['state'] == 'observed':
+                        break
+                    time.sleep(0.2)
+                self.assertEqual((observed['state'], observed['healthy']), ('observed', True), observed)
+                process.terminate()
+                process.wait(timeout=20)
+                # This test's own endpoint; its owner has exited.
+                if deep:
+                    platform_support.control_socket_path(directory).unlink(missing_ok=True)
 
 
 class CatalogTests(unittest.TestCase):
