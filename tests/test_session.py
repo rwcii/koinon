@@ -88,7 +88,7 @@ class SessionTests(unittest.TestCase):
             try:
                 for thread in ('thread-one','thread-two'):
                     processes.append(subprocess.Popen([sys.executable,str(app/'session.py'),'run','--thread',thread,
-                                      '--repo','/test-project'],stdout=subprocess.DEVNULL,stderr=subprocess.PIPE,env=env))
+                                      '--repo','/test-project'],stdout=subprocess.PIPE,stderr=subprocess.PIPE,env=env))
                 statuses=[]
                 for thread in ('thread-one','thread-two'):
                     state,_,_=session.details(app,config,thread,'/test-project')
@@ -97,9 +97,17 @@ class SessionTests(unittest.TestCase):
                         nonlocal status
                         status = session.bridge_status(app,state)
                         return status if status and session.notifier_ready(state,status) else False
+                    process = processes[len(statuses)]
+                    def startup_evidence():
+                        if process.poll() is None:
+                            return status
+                        try:
+                            stdout, stderr = process.communicate(timeout=1)
+                        except subprocess.TimeoutExpired as exc:
+                            stdout, stderr = exc.output, exc.stderr
+                        return dict(status=status, stdout=stdout, stderr=stderr)
                     status = waiting.wait_until_sync(ready, 'session failed to start',
-                                                     process=processes[len(statuses)],
-                                                     observe=lambda: status)
+                                                     process=process, observe=startup_evidence)
                     statuses.append(status)
                     self.assertTrue(session.notifier_ready(state,status))
                     result=subprocess.run([sys.executable,str(app/'session.py'),'ensure','--thread',thread],
