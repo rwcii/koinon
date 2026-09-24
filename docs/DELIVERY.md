@@ -192,7 +192,7 @@ requires a regular file owned by the user, with one link and at most 64 KiB. Inp
 `unknown` with `no_token_usage`, not zero. When a Claude session has no record because the wrapper is not
 the `statusLine` command in the configuration directory that `peers` reads, `model` and
 `context` report `statusline_missing` with a `repair` field holding the installer command that
-sets it up ([Claude status line](INSTALL.md#claude-status-line)). A status value grants nothing and triggers nothing: peers read it and decide what
+sets it up ([Claude integration](INSTALL.md#claude-integration)). A status value grants nothing and triggers nothing: peers read it and decide what
 to suggest. Until their sources exist, Codex values are `participant_not_associated`,
 DeepSeek model and context are `provider_unsupported`.
 

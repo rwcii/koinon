@@ -131,8 +131,8 @@ def run(exclusion):
         if upgrade_exclusion.read(exclusion.prefix) is not None:
             exclusion.finish()
         return _runtime_revisions(exclusion, documents, phase,
-            _participant_guidance(exclusion, documents, phase,
-                                 _claude_statusline(exclusion, documents, phase, result)))
+            _participant_guidance(exclusion, documents, phase, _claude_guidance(exclusion, documents, phase,
+                                 _claude_statusline(exclusion, documents, phase, result))))
     if not 10 <= phase['step'] <= 18:
         raise CompletionError('completion requires migration through final-readiness phase')
     exclusion.verify()
@@ -200,8 +200,8 @@ def run(exclusion):
     result = documents.read('complete', phase['receipts'][9])
     exclusion.finish()
     return _runtime_revisions(exclusion, documents, phase,
-            _participant_guidance(exclusion, documents, phase,
-                                 _claude_statusline(exclusion, documents, phase, result)))
+            _participant_guidance(exclusion, documents, phase, _claude_guidance(exclusion, documents, phase,
+                                 _claude_statusline(exclusion, documents, phase, result))))
 
 
 def _claude_statusline(exclusion, documents, phase, result):
@@ -221,6 +221,23 @@ def _claude_statusline(exclusion, documents, phase, result):
     if outcome is not None:
         documents.put('claude-statusline', dict(version=1, plan=exclusion.loaded['sha256'], outcome=outcome))
     return dict(result, claude_statusline=outcome)
+
+
+def _claude_guidance(exclusion, documents, phase, result):
+    """Apply the preflight's Claude guidance plan once, after the status-line step.
+
+    That step may have changed `statusLine`; the plan's settings digest leaves that key out.
+    """
+    import sys
+    from koinon import claude_guidance
+    retained = durable_state.read(documents.path('claude-guidance'), max_bytes=1024 * 1024)
+    if retained is not None:
+        return dict(result, claude_guidance=retained.get('outcome'))
+    planned = documents.read('prepared-checks', phase['receipts'][0]).get('claude_guidance')
+    outcome = claude_guidance.apply_planned(exclusion.prefix, planned, sys.executable)
+    if outcome is not None:
+        documents.put('claude-guidance', dict(version=1, plan=exclusion.loaded['sha256'], outcome=outcome))
+    return dict(result, claude_guidance=outcome)
 
 
 def _participant_guidance(exclusion, documents, phase, result):

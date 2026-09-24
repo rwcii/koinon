@@ -19,6 +19,7 @@ PATH_SELECTION_CODES = frozenset(('ambiguous_default_paths', 'unsafe_default_pat
 CONFIGURATION_CODES = PATH_SELECTION_CODES | {'ambiguous_service_units', 'invalid_install_configuration', 'configuration_busy', 'memory_service_limit', 'installation_upgrading'}
 GUIDANCE_LOCK_NAMES = {'codex': '.codex-peer-bridge.lock',
                        'deepseek': '.deepseek-peer-bridge.lock'}
+CLAUDE_GUIDANCE_LOCK_NAME = '.koinon-claude-guidance.lock'
 
 
 class NameConflict(ValueError):
@@ -126,6 +127,17 @@ def validate_install_config(result):
                 or not (record['wrapper'] is None or isinstance(record['wrapper'], dict))
                 or (record['state'] != 'declined' and record['wrapper'] is None)):
             raise ValueError('invalid Claude status-line selection')
+    if 'claude_guidance' in result:
+        record = result['claude_guidance']
+        if (not isinstance(record, dict) or set(record) != {'state', 'settings_file', 'hook', 'created'}
+                or record['state'] not in ('enabled', 'pending', 'declined')
+                or not isinstance(record['settings_file'], str) or not Path(record['settings_file']).is_absolute()
+                or not (record['hook'] is None or isinstance(record['hook'], dict)
+                        and isinstance(record['hook'].get('command'), str))
+                or (record['state'] != 'declined' and record['hook'] is None)
+                or not isinstance(record['created'], list)
+                or not set(record['created']) <= {'hooks', 'SessionStart'}):
+            raise ValueError('invalid Claude guidance selection')
     for field in ('runtime_revision', 'guidance_revision'):
         if field in result and (not isinstance(result[field], str)
                                 or re.fullmatch(r'[0-9a-f]{64}', result[field]) is None):

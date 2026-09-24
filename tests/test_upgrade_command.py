@@ -97,6 +97,8 @@ class CommandTests(unittest.TestCase):
         self.assertEqual((self.prefix / 'LICENSE').read_bytes(), (self.source / 'LICENSE').read_bytes())
         installed = json.loads((self.prefix / 'install.json').read_text())
         record = installed.pop('claude_statusline')
+        guidance_record = installed.pop('claude_guidance')
+        block = installed.pop('participant_guidance')['blocks']['claude']
         from koinon import revisions, guidance
         self.assertEqual(installed.pop('runtime_revision'), revisions.runtime_revision(self.source))
         self.assertEqual(installed.pop('guidance_revision'), guidance.revision())
@@ -105,6 +107,11 @@ class CommandTests(unittest.TestCase):
         self.assertEqual(value['result']['claude_statusline']['outcome'], 'set_up')
         line = json.loads((self.claude / 'settings.json').read_text())['statusLine']
         self.assertIn(str(self.prefix / 'statusline.py'), line['command'])
+        self.assertEqual(value['result']['claude_guidance']['outcome'], 'set_up')
+        self.assertEqual((guidance_record['state'], block['state']), ('enabled', 'current'))
+        hooks = json.loads((self.claude / 'settings.json').read_text())['hooks']['SessionStart']
+        self.assertEqual(hooks, [dict(hooks=[guidance_record['hook']])])
+        self.assertIn('BEGIN KOINON CLAUDE', (self.claude / 'CLAUDE.md').read_text())
         status = self.command('--status', self.prefix)
         self.assertEqual(status.returncode, 0, status.stderr)
         selected = json.loads(status.stdout)['result']

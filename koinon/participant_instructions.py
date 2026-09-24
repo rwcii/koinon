@@ -13,7 +13,7 @@ import time
 from koinon import platform_support
 from koinon.participant_lock import OwnershipError
 from koinon.peer_guidance import PEER_GUIDANCE
-from koinon.runtime_names import GUIDANCE_LOCK_NAMES
+from koinon.runtime_names import CLAUDE_GUIDANCE_LOCK_NAME, GUIDANCE_LOCK_NAMES
 
 # One managed section per participant kind, each with its own delimiters, so a host
 # that carries guidance for several agents keeps every section independent and
@@ -26,6 +26,7 @@ LEGACY_MARKERS = {
 MARKERS = {
     'codex': ('\n<!-- BEGIN KOINON CODEX -->\n', '<!-- END KOINON CODEX -->\n'),
     'deepseek': ('\n<!-- BEGIN KOINON DEEPSEEK -->\n', '<!-- END KOINON DEEPSEEK -->\n'),
+    'claude': ('\n<!-- BEGIN KOINON CLAUDE -->\n', '<!-- END KOINON CLAUDE -->\n'),
 }
 BEGIN, END = MARKERS['codex']
 
@@ -97,13 +98,16 @@ do not stop, rename, or reconfigure them. No global instructions override the us
 
 
 @contextmanager
-def update_locks(home, *, timeout=None):
+def update_locks(home, *, timeout=None, agent=None):
     # Both agent kinds can share one guidance file. Retain both legacy inodes and
-    # take them in a fixed order, also excluding an old single-agent updater.
+    # take them in a fixed order, also excluding an old single-agent updater. The
+    # Claude configuration directory holds only CLAUDE.md, so it has its own lock.
     deadline = None if timeout is None else time.monotonic() + timeout
+    names = ([CLAUDE_GUIDANCE_LOCK_NAME] if agent == 'claude'
+             else [GUIDANCE_LOCK_NAMES[name] for name in sorted(GUIDANCE_LOCK_NAMES)])
     with ExitStack() as stack:
-        for agent in sorted(GUIDANCE_LOCK_NAMES):
-            fd = os.open(home / GUIDANCE_LOCK_NAMES[agent],
+        for name in names:
+            fd = os.open(home / name,
                          os.O_WRONLY | os.O_CREAT | os.O_APPEND | os.O_NOFOLLOW |
                          os.O_NONBLOCK | os.O_CLOEXEC, 0o600)
             stream = stack.enter_context(os.fdopen(fd, 'a'))
@@ -131,7 +135,7 @@ def spans(text):
     ranges = []
     for agent in MARKERS:
         matches = []
-        for begin, end in (MARKERS[agent], LEGACY_MARKERS[agent]):
+        for begin, end in (MARKERS[agent],) + ((LEGACY_MARKERS[agent],) if agent in LEGACY_MARKERS else ()):
             starts = list(re.finditer(r'(?:\r?\n|\A)' + re.escape(begin.strip()) +
                                        r'\r?\n', text))
             ends = list(re.finditer(r'^' + re.escape(end.strip()) + r'\r?\n',
@@ -277,12 +281,19 @@ RECORD_KEY = 'participant_guidance'
 GUIDANCE_FILES = ('AGENTS.md', 'AGENTS.override.md')
 
 
+def candidate_files(agent):
+    """The files one family reads its global instructions from, in its home."""
+    return dict(codex=GUIDANCE_FILES, claude=('CLAUDE.md',)).get(agent, ('AGENTS.md',))
+
+
 def _digest(text):
     return hashlib.sha256(text.encode()).hexdigest()
 
 
 def target_name(home, agent):
     """The file this family reads: an existing Codex override wins, as it does for Codex."""
+    if agent == 'claude':
+        return 'CLAUDE.md'
     return ('AGENTS.override.md' if agent == 'codex' and (Path(home) / 'AGENTS.override.md').exists()
             else 'AGENTS.md')
 
@@ -305,7 +316,7 @@ def _known(block, prefix, agent, python, record):
         return True
     if block.strip('\r\n') == section(prefix, agent, python).strip('\n'):
         return True
-    previous = _legacy_python(block)
+    previous = _legacy_python(block) if agent in LEGACY_MARKERS else None
     return (previous is not None
             and block.strip('\r\n') == legacy_section(prefix, agent, previous).strip('\n'))
 
@@ -320,7 +331,7 @@ def classify(home, prefix, agent, record=None, python=None):
     home = Path(home).expanduser()
     target = target_name(home, agent)
     found = []
-    for name in GUIDANCE_FILES if agent == 'codex' else ('AGENTS.md',):
+    for name in candidate_files(agent):
         path = home / name
         entry = dict(path=str(path), role='target' if name == target else 'other')
         try:
@@ -357,7 +368,7 @@ def reconcile(home, prefix, agent, record=None, *, python=None, replace=False, w
     home = Path(home).expanduser()
     home.mkdir(parents=True, exist_ok=True)
     report = []
-    with update_locks(home):
+    with update_locks(home, agent=agent):
         entries = classify(home, prefix, agent, record, python)
         new_record = dict(record) if record else None
         target_state = next((entry['state'] for entry in entries if entry['role'] == 'target'), None)
@@ -445,3 +456,26 @@ def apply_planned(prefix, planned, python):
             outcome[agent] = dict(home=home['home'], entries=report)
         installed.merge({RECORD_KEY: dict(version=1, blocks=blocks)})
     return outcome
+
+
+def remove_owned(home, prefix, agent, record=None, *, python=None):
+    """Remove one family's managed block only while it is still the text Koinon wrote.
+
+    An edited block is the user's now: it is kept and reported. Returns the report.
+    """
+    python = python or sys.executable
+    home = Path(home).expanduser()
+    if not home.is_dir():
+        return []
+    report = []
+    with update_locks(home, agent=agent):
+        for entry in classify(home, prefix, agent, record, python):
+            action = 'kept'
+            if entry['state'] == 'current':
+                path = Path(entry['path'])
+                original = read_guidance(path)
+                first, last = spans(original)[agent]
+                publish_guidance(path, original, original[:first] + original[last:], agent)
+                action = 'removed'
+            report.append(dict(entry, action=action))
+    return report

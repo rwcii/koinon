@@ -168,3 +168,45 @@ class ParticipantGuidanceCompletionTests(EmptyOperationCompletionTests):
         self.assertEqual(record['blocks']['codex']['state'], 'current')
         with self.owner() as owner:
             self.assertEqual(upgrade_complete.run(owner), result)
+
+
+class ClaudeGuidanceCompletionTests(EmptyOperationCompletionTests):
+    """The same completion with both Claude plans; the status-line step runs first."""
+    def checks(self):
+        import json
+        import tempfile
+        from pathlib import Path
+        from koinon import claude_guidance, claude_statusline
+        temporary = tempfile.TemporaryDirectory()
+        self.addCleanup(temporary.cleanup)
+        self.claude = Path(temporary.name)
+        (self.claude / 'settings.json').write_text(json.dumps(dict(statusLine=dict(type='command', command='echo s'))))
+        return dict(version=1, claude_statusline=claude_statusline.plan(self.config, self.claude),
+                    claude_guidance=claude_guidance.plan(self.config, self.claude, prefix=self.prefix))
+
+    def test_completion_sets_up_block_and_hook_and_resumes_without_a_false_conflict(self):
+        import json
+        import sys
+        from koinon import claude_guidance
+        put = Documents.put
+
+        def interrupted(documents, name, value):
+            if name == 'claude-guidance':
+                raise OSError('synthetic lost guidance outcome')
+            return put(documents, name, value)
+        with self.owner() as owner, patch.object(Documents, 'put', new=interrupted):
+            with self.assertRaises(OSError):
+                upgrade_complete.run(owner)
+        settings = json.loads((self.claude / 'settings.json').read_text())
+        self.assertEqual(settings['hooks']['SessionStart'],
+                         [dict(hooks=[claude_guidance.hook_entry(self.prefix, sys.executable)])])
+        with self.owner() as owner:
+            result = upgrade_complete.run(owner)
+        self.assertEqual(result['claude_statusline']['outcome'], 'set_up')
+        self.assertEqual(result['claude_guidance']['outcome'], 'unchanged')
+        self.assertEqual([entry['state'] for entry in result['claude_guidance']['block']], ['current'])
+        self.assertEqual(json.loads((self.claude / 'settings.json').read_text()), settings)
+        record = json.loads((self.prefix / 'install.json').read_text())[claude_guidance.KEY]
+        self.assertEqual(record['state'], 'enabled')
+        with self.owner() as owner:
+            self.assertEqual(upgrade_complete.run(owner), result)
