@@ -20,6 +20,64 @@ from koinon import platform_support
 from scripts import install
 
 
+COORDINATOR_TIMEOUT = 120
+EVIDENCE_TAIL = 4000
+
+
+def _tail(value):
+    if isinstance(value, bytes):
+        value = value.decode(errors='replace')
+    return (value or '')[-EVIDENCE_TAIL:]
+
+
+def timeout_evidence(prefix, command, interrupted):
+    """Name where a coordinator that exceeded its timeout stopped, while it still runs.
+
+    A bare TimeoutExpired names only the symptom. This keeps the retained phase, the
+    read-only operation status and the processes running under the fixture prefix, so
+    the next occurrence shows what the coordinator waited on.
+    """
+    evidence = dict(command='resume' if '--resume' in command else 'start',
+                    timeout=COORDINATOR_TIMEOUT, interrupted=list(interrupted))
+    try:
+        pointer = json.loads((prefix / '.upgrade/current.json').read_text())
+        evidence['phase'] = json.loads((Path(pointer['operation']) / 'phase.json').read_text())
+    except (OSError, ValueError, KeyError, TypeError) as error:
+        evidence['phase'] = f'unreadable: {type(error).__name__}'
+    try:
+        listing = subprocess.run(['ps', 'axo', 'pid,ppid,etime,command'], capture_output=True,
+                                 text=True, timeout=10).stdout
+        evidence['processes'] = [line.strip() for line in listing.splitlines() if str(prefix) in line]
+    except (OSError, subprocess.SubprocessError) as error:
+        evidence['processes'] = f'unavailable: {type(error).__name__}'
+    try:
+        status = subprocess.run([sys.executable, command[1], '--status', str(prefix)],
+                                capture_output=True, text=True, timeout=30)
+        evidence['status'] = dict(exit_status=status.returncode, stdout=_tail(status.stdout),
+                                  stderr=_tail(status.stderr))
+    except (OSError, subprocess.SubprocessError) as error:
+        evidence['status'] = f'unavailable: {type(error).__name__}'
+    return evidence
+
+
+def run_coordinator(prefix, command, environment, interrupted):
+    process = subprocess.Popen(command, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True,
+                               env=environment)
+    try:
+        stdout, stderr = process.communicate(timeout=COORDINATOR_TIMEOUT)
+    except subprocess.TimeoutExpired:
+        evidence = timeout_evidence(prefix, command, interrupted)
+        process.kill()
+        try:
+            stdout, stderr = process.communicate(timeout=10)
+        except subprocess.TimeoutExpired as late:
+            # A surviving child can hold the pipes open; keep the partial output.
+            stdout, stderr = late.stdout, late.stderr
+        evidence.update(stdout=_tail(stdout), stderr=_tail(stderr))
+        raise RuntimeError('public coordinator timed out: ' + json.dumps(evidence)) from None
+    return subprocess.CompletedProcess(command, process.returncode, stdout, stderr)
+
+
 def public_upgrade(fixture, source, interrupt, handoff=None):
     """Kill only the isolated coordinator after durable phase publications."""
     phases = list(range(1, 20)) if interrupt == 'all' else ([int(interrupt)] if interrupt else [])
@@ -57,7 +115,7 @@ def public_upgrade(fixture, source, interrupt, handoff=None):
     environment = dict(os.environ, CLAUDE_CONFIG_DIR=str(claude))
     interrupted = []
     for _ in range(len(phases) + (32 if handoff else 1)):
-        result = subprocess.run(command, capture_output=True, text=True, timeout=120, env=environment)
+        result = run_coordinator(fixture.prefix, command, environment, interrupted)
         if result.returncode == 75 and handoff is not None:
             pending = json.loads(result.stdout)
             if pending.get('status') != 'manual_handoff_required':
