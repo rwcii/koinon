@@ -13,6 +13,7 @@ import time
 SOURCE = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(SOURCE))
 import memory_service
+from koinon import platform_support
 from koinon import upgrade_exclusion
 from koinon import upgrade_manual
 
@@ -30,6 +31,7 @@ def main():
     parser.add_argument('--interrupt-phase', choices=['all'] + [str(i) for i in range(1, 20)])
     parser.add_argument('--initial-state', choices=('running', 'stopped'), default='running')
     args = parser.parse_args()
+    platform_support.lift_manager_guard()
     os.umask(0o077)
     install = module('manual_install_fixture', SOURCE / 'scripts/test-native-install.py')
     acceptance = module('manual_upgrade_fixture', SOURCE / 'scripts/test-native-upgrade.py')

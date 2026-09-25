@@ -164,6 +164,7 @@ def main():
     parser.add_argument('--backend', choices=('systemd', 'launchd'), required=True)
     parser.add_argument('--output', type=Path, required=True)
     args = parser.parse_args()
+    platform_support.lift_manager_guard()
     evidence = dict(acceptance='unmet', backend=args.backend, checks=[],
                     registration='runtime' if args.backend == 'systemd' else 'temporary-plist')
     fixtures = []

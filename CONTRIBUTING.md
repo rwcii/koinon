@@ -63,6 +63,15 @@ is preserved; signed-off contributions are required from adoption of this policy
 Run `python3 tests/run.py -v` and `git diff --check`. For setup or hook edits,
 also run `bash -n scripts/setup-repo.sh` and `sh -n .githooks/pre-commit`.
 Tests must use synthetic peers, never send traffic to live agent sessions by default.
+Tests must never reach the real user service manager. `tests/run.py` sets
+`KOINON_TEST_MANAGER_GUARD=1` for the run and its child processes, and `platform_support`
+also reads it at import, so a test that clears the environment keeps it. With it set, any
+`systemctl`, `launchctl` or `busctl` call from `koinon/platform_support.py` raises
+`RealManagerCall`, which names the unpatched function. Patch that function or
+`subprocess.run`, or put a stub executable under the temporary directory ahead on PATH.
+The native CI jobs (`scripts/test-native-*.py`, `scripts/test-manual-upgrade.py`) drive
+the real manager on purpose and call `platform_support.lift_manager_guard()`.
+`python3 -m unittest` runs without the guard.
 
 Add user-visible changes to CHANGELOG.md in the same PR. Keep the runtime standard-library-only. Update README and protocol notes alongside
 behavior changes. Never commit inbox data, credentials, machine identifiers, or

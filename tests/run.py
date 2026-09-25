@@ -158,6 +158,9 @@ def arguments(args):
 
 
 HOMES_VARIABLE = 'KOINON_TEST_HOMES'
+# The same name as platform_support.MANAGER_GUARD_VARIABLE. The runner does not import
+# koinon, because a test may start it from another working directory.
+MANAGER_GUARD_VARIABLE = 'KOINON_TEST_MANAGER_GUARD'
 
 
 def isolate_agent_homes():
@@ -184,9 +187,19 @@ def isolate_agent_homes():
     return root
 
 
+def guard_service_managers():
+    """Make every unpatched call to the real systemd or launchd manager fail its test.
+
+    A test that reaches the real manager can register and start real user services outside
+    its temporary tree. The guard holds for child processes too.
+    """
+    os.environ[MANAGER_GUARD_VARIABLE] = '1'
+
+
 def main(args=None):
     args = sys.argv[1:] if args is None else args
     isolate_agent_homes()
+    guard_service_managers()
     watchdog = Watchdog(read_bound(os.environ.get(WATCHDOG_VARIABLE)), sys.__stderr__)
     WatchdogResult.watchdog = watchdog
     watchdog.start()

@@ -408,6 +408,57 @@ class UserServiceManagerTests(unittest.TestCase):
                 run.assert_not_called()
 
 
+class RealManagerGuardTests(unittest.TestCase):
+    """The runner's guard turns an unpatched real manager call into a named test failure."""
+
+    def guarded(self, value='1'):
+        return patch.dict(os.environ, {platform_support.MANAGER_GUARD_VARIABLE: value})
+
+    def test_the_runner_sets_the_variable_that_the_guard_reads(self):
+        import run
+        self.assertEqual(run.MANAGER_GUARD_VARIABLE, platform_support.MANAGER_GUARD_VARIABLE)
+
+    def test_an_unpatched_caller_fails_with_its_name(self):
+        # memory_manager_available reports False for OSError; the guard must not become that.
+        with self.guarded(), patch.object(platform_support, 'LINUX', True), \
+                patch('shutil.which', return_value='/usr/bin/systemctl'):
+            with self.assertRaises(platform_support.RealManagerCall) as caught:
+                platform_support.memory_manager_available('systemd')
+        self.assertIn('memory_manager_available', str(caught.exception))
+        self.assertIn('systemctl', str(caught.exception))
+
+    def test_the_guard_refuses_only_while_it_is_set(self):
+        with self.guarded(), self.assertRaises(platform_support.RealManagerCall):
+            platform_support._manager_run('synthetic_caller', ['true'])
+        with self.guarded('0'), patch.object(platform_support, '_MANAGER_GUARDED', False):
+            self.assertEqual(platform_support._manager_run('synthetic_caller', ['true']).returncode, 0)
+
+    def test_a_cleared_environment_keeps_the_guard(self):
+        with patch.object(platform_support, '_MANAGER_GUARDED', True), \
+                patch.dict(os.environ, {}, clear=True), \
+                self.assertRaises(platform_support.RealManagerCall):
+            platform_support._manager_run('synthetic_caller', ['/bin/sh', '-c', 'true'])
+
+    def test_a_native_job_lifts_the_guard(self):
+        with self.guarded(), patch.object(platform_support, '_MANAGER_GUARDED', True):
+            platform_support.lift_manager_guard()
+            self.assertNotIn(platform_support.MANAGER_GUARD_VARIABLE, os.environ)
+            self.assertEqual(platform_support._manager_run('synthetic_caller', ['true']).returncode, 0)
+
+    def test_a_patched_run_or_a_temporary_stub_passes_the_guard(self):
+        with self.guarded(), patch.object(platform_support.subprocess, 'run') as run:
+            platform_support._manager_run('synthetic_caller', ['true'], check=True)
+            run.assert_called_once_with(['true'], check=True)
+        with tempfile.TemporaryDirectory() as directory:
+            stub = Path(directory) / 'systemctl'
+            stub.write_text('#!/bin/sh\nexit 3\n')
+            stub.chmod(0o700)
+            path = directory + os.pathsep + os.environ.get('PATH', '')
+            with self.guarded(), patch.dict(os.environ, PATH=path):
+                result = platform_support._manager_run('synthetic_caller', ['systemctl'])
+        self.assertEqual(result.returncode, 3)
+
+
 class StateDirectoryFlushTests(unittest.TestCase):
     """The directory flush must not reach a state directory through a symlink.
 
