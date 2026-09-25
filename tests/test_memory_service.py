@@ -1,6 +1,8 @@
 """Portable supervisor acceptance uses only temporary repositories and child processes."""
 import waiting
 import asyncio
+import contextlib
+import io
 import json
 import os
 from pathlib import Path
@@ -388,3 +390,40 @@ class MemorySupervisorTests(unittest.TestCase):
 
 if __name__ == '__main__':
     unittest.main()
+
+
+class RunnerErrorDetailTests(unittest.TestCase):
+    def test_verify_memory_keeps_the_memory_code_behind_the_class(self):
+        code = sorted(memory.ERROR_EXIT_CLASSES['configuration'])[0]
+        selection = memory_service.Selection.__new__(memory_service.Selection)
+        selection.home, selection.key = Path('/synthetic/home'), 'synthetic'
+        with patch.object(memory, 'verify_running', side_effect=memory.MemoryError_(code, 'synthetic')):
+            with self.assertRaises(memory_service.RunnerError) as caught:
+                memory_service.verify_memory(selection)
+        self.assertEqual(caught.exception.code, 'memory_configuration_failure')
+        self.assertEqual(str(caught.exception), 'memory_configuration_failure')
+        self.assertEqual(caught.exception.detail, dict(memory_code=code))
+
+    def test_child_failure_keeps_exit_status_and_start(self):
+        for status, started, code in ((70, False, 'memory_software_failure'),
+                                      (78, True, 'memory_configuration_failure'),
+                                      (0, False, 'memory_configuration_failure'),
+                                      (1, True, 'memory_temporary_failure')):
+            failure = memory_service.child_failure(status, started=started)
+            self.assertEqual(failure.code, code)
+            self.assertEqual(failure.detail, dict(child_exit_status=status, started=started))
+
+    def test_cli_failure_reports_detail_only_when_present(self):
+        argv = ['memory_service.py', 'status', '--prefix', '/synthetic/prefix', '--repo', '/synthetic/repo']
+        for failure, expected in ((memory_service.RunnerError('memory_configuration_failure',
+                                                              detail=dict(memory_code='synthetic')),
+                                   dict(memory_code='synthetic')),
+                                  (memory_service.RunnerError('configuration_error'), None)):
+            output = io.StringIO()
+            with patch.object(sys, 'argv', argv), patch.object(memory_service, 'Selection', side_effect=failure), \
+                    contextlib.redirect_stdout(output):
+                status = memory_service.main()
+            reply = json.loads(output.getvalue())
+            self.assertEqual(status, failure.exit_status)
+            self.assertEqual(reply['code'], failure.code)
+            self.assertEqual(reply.get('detail'), expected)

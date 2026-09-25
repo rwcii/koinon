@@ -38,6 +38,12 @@ observation remains unavailable. A preopened, private, bounded diagnostic file r
 the original failure and recording failure when the filesystem permits it. A failure
 of both diagnostic sinks still cannot turn a permanent launchd failure into a retry.
 
+A failure code names a class, not a cause. When the supervisor knows the cause, its failure
+output adds a `detail` object: `memory_code` when the memory service refused verification, or
+`child_exit_status` and `started` when the memory child exited. The native fixture writes the
+same object to its evidence as `error_detail`. `detail` is diagnostic data; it adds no code to
+the public vocabulary.
+
 If child exit cannot be confirmed, supervision ends with `shutdown_unconfirmed` (78)
 and preserves both `primary_code` and `shutdown_code`. This deliberately prevents a
 replacement child while the old child may still hold the store, even when the original

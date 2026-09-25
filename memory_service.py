@@ -75,9 +75,12 @@ ERRORS = {
 
 
 class RunnerError(ValueError):
-    def __init__(self, code, *, paths=()):
+    def __init__(self, code, *, paths=(), detail=None):
         self.paths = tuple(paths)
         self.code = code
+        # Diagnostic payload that names the fault behind a class code. It never
+        # adds a code to the public vocabulary.
+        self.detail = detail
         self.exit_status = ERRORS[code]
         self.primary_code = code
         self.shutdown_code = None
@@ -228,7 +231,7 @@ def verify_memory(selection):
         status = memory.memory_error_exit_status(exc.code)
         code = {70: 'memory_software_failure', 75: 'memory_temporary_failure'}.get(
             status, 'memory_configuration_failure')
-        raise RunnerError(code) from exc
+        raise RunnerError(code, detail=dict(memory_code=exc.code)) from exc
 
 
 def process_state(record):
@@ -400,11 +403,12 @@ def ensure_managed(selection, *, upgrade=None):
 
 
 def child_failure(status, *, started=False):
+    detail = dict(child_exit_status=status, started=started)
     if status == 70:
-        return RunnerError('memory_software_failure')
+        return RunnerError('memory_software_failure', detail=detail)
     if status == 78 or status == 0 and not started:
-        return RunnerError('memory_configuration_failure')
-    return RunnerError('memory_temporary_failure')
+        return RunnerError('memory_configuration_failure', detail=detail)
+    return RunnerError('memory_temporary_failure', detail=detail)
 
 
 class StopRequest:
@@ -580,7 +584,9 @@ def run(selection, *, foreground=False):
                             except (OSError, ValueError):
                                 pass  # Preserve the permanent exit even if both sinks fail.
                             print(json.dumps(dict(status='unavailable', running=False,
-                                                  code=failure.code, refusal_recorded=False)), file=sys.stderr, flush=True)
+                                                  code=failure.code, refusal_recorded=False,
+                                                  **({'detail': failure.detail} if failure.detail else {}))),
+                                  file=sys.stderr, flush=True)
                         raise failure
                     if not foreground or stopped.is_set():
                         supervisor.publish('failed', status)
@@ -739,6 +745,7 @@ def main():
         print(json.dumps(dict(ok=False, status='unavailable', running=False, code=exc.code,
                               exit_status=status, primary_code=exc.primary_code,
                               shutdown_code=exc.shutdown_code, paths=list(exc.paths),
+                              **({'detail': exc.detail} if exc.detail else {}),
                               **({'recovery': 'use upgrade status or resume; do not repair or reinstall'}
                                  if exc.code == 'installation_upgrading' else {}))), flush=True)
     except durable_state.StateReadBusyError:

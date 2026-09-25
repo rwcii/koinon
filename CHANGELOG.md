@@ -5,6 +5,10 @@ into a dated release section when promoted to `main`.
 
 ## Unreleased
 
+- A memory supervisor failure now reports the cause behind its class code as `detail`: the
+  memory service's own error code, or the child's exit status and whether it had started.
+  `memory_service.py` failure output and the native fixture's evidence (`error_detail`) carry
+  it. The public error codes are unchanged.
 - In tmux, a Codex `ensure` or `rebind` names the agent's own tmux session after its published
   name (the alias when it holds it), or only its own pane title when the tmux session holds
   another agent's pane. It never renames another session and reports a name already taken.
