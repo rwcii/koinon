@@ -6,6 +6,7 @@ import json
 import os
 from pathlib import Path
 import shutil
+import signal
 import subprocess
 import sys
 import tempfile
@@ -30,12 +31,28 @@ def _tail(value):
     return (value or '')[-EVIDENCE_TAIL:]
 
 
-def timeout_evidence(prefix, command, interrupted):
+def related_processes(listing, prefix, root):
+    """The `ps` lines under the fixture prefix or descended from the coordinator."""
+    rows = []
+    for line in listing.splitlines()[1:]:
+        fields = line.split(None, 3)
+        if len(fields) == 4 and fields[0].isdigit() and fields[1].isdigit():
+            rows.append((int(fields[0]), int(fields[1]), line.strip()))
+    related = {root}
+    while True:
+        more = {pid for pid, parent, _ in rows if parent in related} - related
+        if not more:
+            break
+        related |= more
+    return [line for pid, _, line in rows if pid in related or str(prefix) in line]
+
+
+def timeout_evidence(prefix, command, interrupted, pid):
     """Name where a coordinator that exceeded its timeout stopped, while it still runs.
 
     A bare TimeoutExpired names only the symptom. This keeps the retained phase, the
-    read-only operation status and the processes running under the fixture prefix, so
-    the next occurrence shows what the coordinator waited on.
+    read-only operation status, and the processes under the fixture prefix or descended
+    from the coordinator, so the next occurrence shows what the coordinator waited on.
     """
     evidence = dict(command='resume' if '--resume' in command else 'start',
                     timeout=COORDINATOR_TIMEOUT, interrupted=list(interrupted))
@@ -47,7 +64,7 @@ def timeout_evidence(prefix, command, interrupted):
     try:
         listing = subprocess.run(['ps', 'axo', 'pid,ppid,etime,command'], capture_output=True,
                                  text=True, timeout=10).stdout
-        evidence['processes'] = [line.strip() for line in listing.splitlines() if str(prefix) in line]
+        evidence['processes'] = related_processes(listing, prefix, pid)
     except (OSError, subprocess.SubprocessError) as error:
         evidence['processes'] = f'unavailable: {type(error).__name__}'
     try:
@@ -66,7 +83,10 @@ def run_coordinator(prefix, command, environment, interrupted):
     try:
         stdout, stderr = process.communicate(timeout=COORDINATOR_TIMEOUT)
     except subprocess.TimeoutExpired:
-        evidence = timeout_evidence(prefix, command, interrupted)
+        evidence = timeout_evidence(prefix, command, interrupted, process.pid)
+        # The injected faulthandler writes every thread's stack to stderr on SIGUSR1.
+        process.send_signal(signal.SIGUSR1)
+        time.sleep(1)
         process.kill()
         try:
             stdout, stderr = process.communicate(timeout=10)
@@ -96,6 +116,8 @@ def public_upgrade(fixture, source, interrupt, handoff=None):
             stream.write('        with marker.open("x") as record: record.write("process interruption")\n')
             stream.write('        os.kill(os.getpid(), signal.SIGKILL)\n')
             stream.write('    return result\nJournal.advance = _fixture_interrupt\n')
+            stream.write('import faulthandler as _fixture_faulthandler, signal as _fixture_signal\n')
+            stream.write('_fixture_faulthandler.register(_fixture_signal.SIGUSR1, all_threads=True)\n')
     command = [sys.executable, str(source / 'scripts/upgrade.py'),
                '--prefix', str(fixture.prefix), '--source', str(source)]
     # The upgrade sets up the Claude status line. The fixture's overrides point the

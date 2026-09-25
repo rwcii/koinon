@@ -124,12 +124,15 @@ class CoordinatorTimeoutEvidenceTests(unittest.TestCase):
             (operation / 'phase.json').write_text(json.dumps(dict(step=7)))
             coordinator = root / 'upgrade.py'
             coordinator.write_text(
-                'import sys, time\n'
+                'import faulthandler, signal, sys, time\n'
                 "if '--status' in sys.argv:\n"
                 "    print('{\"synthetic\": \"status\"}')\n"
                 '    raise SystemExit(0)\n'
+                'faulthandler.register(signal.SIGUSR1, all_threads=True)\n'
                 "print('partial output', flush=True)\n"
-                'time.sleep(60)\n')
+                'def replace_step():\n'
+                '    time.sleep(60)\n'
+                'replace_step()\n')
             command = [sys.executable, str(coordinator), '--resume', str(operation), '--plan', str(prefix)]
             with patch.object(native, 'COORDINATOR_TIMEOUT', 1):
                 with self.assertRaises(RuntimeError) as caught:
@@ -144,6 +147,17 @@ class CoordinatorTimeoutEvidenceTests(unittest.TestCase):
         self.assertTrue(any(str(coordinator) in line and '--status' not in line for line in evidence['processes']),
                         evidence['processes'])
         self.assertEqual(evidence['stdout'], 'partial output\n')
+        self.assertIn('replace_step', evidence['stderr'])
+
+    def test_processes_include_descendants_without_the_prefix(self):
+        listing = ('  PID  PPID ELAPSED COMMAND\n'
+                   '  100     1   02:00 python /synthetic/prefix/recovery.pyz --resume\n'
+                   '  200   100   01:59 launchctl bootout gui/501/synthetic\n'
+                   '  300   200   01:58 sleep 5\n'
+                   '  400     1   05:00 unrelated process\n'
+                   '  500     1   01:00 python /synthetic/prefix/memory_service.py run\n')
+        self.assertEqual([line.split()[0] for line in native.related_processes(listing, Path('/synthetic/prefix'), 100)],
+                         ['100', '200', '300', '500'])
 
     def test_a_finished_coordinator_returns_its_result(self):
         command = [sys.executable, '-c', 'import sys; print("done"); sys.exit(3)']
