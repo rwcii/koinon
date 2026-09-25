@@ -6,6 +6,7 @@ import json
 import os
 from pathlib import Path
 import shutil
+import signal
 import subprocess
 import sys
 import tempfile
@@ -18,6 +19,83 @@ import memory_service
 from koinon.participant_lock import file_lock
 from koinon import platform_support
 from scripts import install
+
+
+COORDINATOR_TIMEOUT = 120
+EVIDENCE_TAIL = 4000
+
+
+def _tail(value):
+    if isinstance(value, bytes):
+        value = value.decode(errors='replace')
+    return (value or '')[-EVIDENCE_TAIL:]
+
+
+def related_processes(listing, prefix, root):
+    """The `ps` lines under the fixture prefix or descended from the coordinator."""
+    rows = []
+    for line in listing.splitlines()[1:]:
+        fields = line.split(None, 3)
+        if len(fields) == 4 and fields[0].isdigit() and fields[1].isdigit():
+            rows.append((int(fields[0]), int(fields[1]), line.strip()))
+    related = {root}
+    while True:
+        more = {pid for pid, parent, _ in rows if parent in related} - related
+        if not more:
+            break
+        related |= more
+    return [line for pid, _, line in rows if pid in related or str(prefix) in line]
+
+
+def timeout_evidence(prefix, command, interrupted, pid):
+    """Name where a coordinator that exceeded its timeout stopped, while it still runs.
+
+    A bare TimeoutExpired names only the symptom. This keeps the retained phase, the
+    read-only operation status, and the processes under the fixture prefix or descended
+    from the coordinator, so the next occurrence shows what the coordinator waited on.
+    """
+    evidence = dict(command='resume' if '--resume' in command else 'start',
+                    timeout=COORDINATOR_TIMEOUT, interrupted=list(interrupted))
+    try:
+        pointer = json.loads((prefix / '.upgrade/current.json').read_text())
+        evidence['phase'] = json.loads((Path(pointer['operation']) / 'phase.json').read_text())
+    except (OSError, ValueError, KeyError, TypeError) as error:
+        evidence['phase'] = f'unreadable: {type(error).__name__}'
+    try:
+        listing = subprocess.run(['ps', 'axo', 'pid,ppid,etime,command'], capture_output=True,
+                                 text=True, timeout=10).stdout
+        evidence['processes'] = related_processes(listing, prefix, pid)
+    except (OSError, subprocess.SubprocessError) as error:
+        evidence['processes'] = f'unavailable: {type(error).__name__}'
+    try:
+        status = subprocess.run([sys.executable, command[1], '--status', str(prefix)],
+                                capture_output=True, text=True, timeout=30)
+        evidence['status'] = dict(exit_status=status.returncode, stdout=_tail(status.stdout),
+                                  stderr=_tail(status.stderr))
+    except (OSError, subprocess.SubprocessError) as error:
+        evidence['status'] = f'unavailable: {type(error).__name__}'
+    return evidence
+
+
+def run_coordinator(prefix, command, environment, interrupted):
+    process = subprocess.Popen(command, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True,
+                               env=environment)
+    try:
+        stdout, stderr = process.communicate(timeout=COORDINATOR_TIMEOUT)
+    except subprocess.TimeoutExpired:
+        evidence = timeout_evidence(prefix, command, interrupted, process.pid)
+        # The injected faulthandler writes every thread's stack to stderr on SIGUSR1.
+        process.send_signal(signal.SIGUSR1)
+        time.sleep(1)
+        process.kill()
+        try:
+            stdout, stderr = process.communicate(timeout=10)
+        except subprocess.TimeoutExpired as late:
+            # A surviving child can hold the pipes open; keep the partial output.
+            stdout, stderr = late.stdout, late.stderr
+        evidence.update(stdout=_tail(stdout), stderr=_tail(stderr))
+        raise RuntimeError('public coordinator timed out: ' + json.dumps(evidence)) from None
+    return subprocess.CompletedProcess(command, process.returncode, stdout, stderr)
 
 
 def public_upgrade(fixture, source, interrupt, handoff=None):
@@ -38,6 +116,8 @@ def public_upgrade(fixture, source, interrupt, handoff=None):
             stream.write('        with marker.open("x") as record: record.write("process interruption")\n')
             stream.write('        os.kill(os.getpid(), signal.SIGKILL)\n')
             stream.write('    return result\nJournal.advance = _fixture_interrupt\n')
+            stream.write('import faulthandler as _fixture_faulthandler, signal as _fixture_signal\n')
+            stream.write('_fixture_faulthandler.register(_fixture_signal.SIGUSR1, all_threads=True)\n')
     command = [sys.executable, str(source / 'scripts/upgrade.py'),
                '--prefix', str(fixture.prefix), '--source', str(source)]
     # The upgrade sets up the Claude status line. The fixture's overrides point the
@@ -57,7 +137,7 @@ def public_upgrade(fixture, source, interrupt, handoff=None):
     environment = dict(os.environ, CLAUDE_CONFIG_DIR=str(claude))
     interrupted = []
     for _ in range(len(phases) + (32 if handoff else 1)):
-        result = subprocess.run(command, capture_output=True, text=True, timeout=120, env=environment)
+        result = run_coordinator(fixture.prefix, command, environment, interrupted)
         if result.returncode == 75 and handoff is not None:
             pending = json.loads(result.stdout)
             if pending.get('status') != 'manual_handoff_required':

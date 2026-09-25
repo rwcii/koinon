@@ -110,5 +110,60 @@ class InitialBindingRefreshTests(unittest.TestCase):
                 self.assertEqual(run.call_count, count)
 
 
+
+class CoordinatorTimeoutEvidenceTests(unittest.TestCase):
+    """A coordinator that exceeds its timeout leaves evidence of where it stopped (#158)."""
+
+    def test_timeout_names_the_phase_status_processes_and_output(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            prefix, operation = root / 'prefix', root / 'operation'
+            (prefix / '.upgrade').mkdir(parents=True)
+            operation.mkdir()
+            (prefix / '.upgrade/current.json').write_text(json.dumps(dict(operation=str(operation), plan='0' * 64)))
+            (operation / 'phase.json').write_text(json.dumps(dict(step=7)))
+            coordinator = root / 'upgrade.py'
+            coordinator.write_text(
+                'import faulthandler, signal, sys, time\n'
+                "if '--status' in sys.argv:\n"
+                "    print('{\"synthetic\": \"status\"}')\n"
+                '    raise SystemExit(0)\n'
+                'faulthandler.register(signal.SIGUSR1, all_threads=True)\n'
+                "print('partial output', flush=True)\n"
+                'def replace_step():\n'
+                '    time.sleep(60)\n'
+                'replace_step()\n')
+            command = [sys.executable, str(coordinator), '--resume', str(operation), '--plan', str(prefix)]
+            with patch.object(native, 'COORDINATOR_TIMEOUT', 1):
+                with self.assertRaises(RuntimeError) as caught:
+                    native.run_coordinator(prefix, command, None, [3])
+        message = str(caught.exception)
+        self.assertTrue(message.startswith('public coordinator timed out: '), message)
+        evidence = json.loads(message.split(': ', 1)[1])
+        self.assertEqual((evidence['command'], evidence['timeout'], evidence['interrupted'], evidence['phase']),
+                         ('resume', 1, [3], dict(step=7)))
+        self.assertEqual((evidence['status']['exit_status'], evidence['status']['stdout'].strip()),
+                         (0, '{"synthetic": "status"}'))
+        self.assertTrue(any(str(coordinator) in line and '--status' not in line for line in evidence['processes']),
+                        evidence['processes'])
+        self.assertEqual(evidence['stdout'], 'partial output\n')
+        self.assertIn('replace_step', evidence['stderr'])
+
+    def test_processes_include_descendants_without_the_prefix(self):
+        listing = ('  PID  PPID ELAPSED COMMAND\n'
+                   '  100     1   02:00 python /synthetic/prefix/recovery.pyz --resume\n'
+                   '  200   100   01:59 launchctl bootout gui/501/synthetic\n'
+                   '  300   200   01:58 sleep 5\n'
+                   '  400     1   05:00 unrelated process\n'
+                   '  500     1   01:00 python /synthetic/prefix/memory_service.py run\n')
+        self.assertEqual([line.split()[0] for line in native.related_processes(listing, Path('/synthetic/prefix'), 100)],
+                         ['100', '200', '300', '500'])
+
+    def test_a_finished_coordinator_returns_its_result(self):
+        command = [sys.executable, '-c', 'import sys; print("done"); sys.exit(3)']
+        result = native.run_coordinator(Path('/synthetic/prefix'), command, None, [])
+        self.assertEqual((result.returncode, result.stdout), (3, 'done\n'))
+
+
 if __name__ == '__main__':
     unittest.main()
