@@ -551,7 +551,9 @@ session's state directory, replaced on each `ensure`:
 
 - `host.json`: `{state, pid, proc_start, observed_at_ms}` for the nearest ancestor that is
   the configured Codex CLI process itself. A child of the CLI, such as its shell, never
-  matches. No match is `state: unknown, reason: host_not_found`.
+  matches. A configured executable that is a Python or Node interpreter matches no
+  process, because every script of the user runs in one. No match is
+  `state: unknown, reason: host_not_found`.
 - `terminal.json`: `{state, socket, pane_id, session_id, observed_at_ms}` from
   `$TMUX` and `$TMUX_PANE`, accepted only when the pane's process is the host or one of its
   ancestors. Otherwise `state: unavailable` with `reason` `not_in_tmux`, `tmux_unavailable`,

@@ -12,7 +12,9 @@ import time
 import unittest
 from unittest.mock import patch
 
+import run
 import session
+import waiting
 from koinon import durable_state, platform_support, tmux_terminal
 from scripts.install import FILES
 from repo_root import ROOT
@@ -59,6 +61,16 @@ class HostMatcherTests(unittest.TestCase):
     def test_prompt_arguments_are_never_searched(self):
         with tree({700: 1}, {700: ['/bin/editor', CLI]}):
             self.assertFalse(platform_support.codex_host(700, CLI))
+
+    def test_an_interpreter_is_never_the_host(self):
+        # A test fixture that configures the interpreter as Codex: the test runner (800)
+        # started session.py ensure (900); neither may become the host.
+        for interpreter in ('/usr/bin/python3.12', '/usr/bin/python3', '/usr/local/bin/node'):
+            argvs = {800: [interpreter, 'tests/run.py'], 900: [interpreter, 'session.py', 'ensure']}
+            with tree({900: 800, 800: 1}, argvs):
+                self.assertFalse(platform_support.codex_host(800, interpreter))
+                self.assertIsNone(platform_support.ancestor_matching(
+                    900, lambda pid: platform_support.codex_host(pid, interpreter)))
 
     def test_walk_is_bounded_and_stops_at_cycles_and_gaps(self):
         with tree({10: 11, 11: 10}, {}):
@@ -144,6 +156,58 @@ class PrivateTmuxTests(unittest.TestCase):
         missing = dict(self.environ, TMUX=self.socket + '-missing,1,0')
         host = dict(state='observed', pid=self.pane_pid)
         self.assertEqual(tmux_terminal.observe_terminal(host, missing)['reason'], 'tmux_unreadable')
+
+
+class TmuxGuardTests(unittest.TestCase):
+    """The test run never reaches the tmux server that the tester works in."""
+
+    def test_runner_removes_the_pane_and_sets_the_guard(self):
+        with patch.dict(os.environ, {'TMUX': '/synthetic/tmux-1/default,1,0', 'TMUX_PANE': '%1'}):
+            os.environ.pop(run.AMBIENT_TMUX_VARIABLE, None)
+            run.guard_tmux()
+            self.assertNotIn('TMUX', os.environ)
+            self.assertNotIn('TMUX_PANE', os.environ)
+            self.assertEqual(os.environ[run.AMBIENT_TMUX_VARIABLE], '/synthetic/tmux-1/default')
+            self.assertEqual(os.environ[run.TMUX_GUARD_VARIABLE], '1')
+        self.assertEqual((run.TMUX_GUARD_VARIABLE, run.AMBIENT_TMUX_VARIABLE),
+                         (tmux_terminal.TMUX_GUARD_VARIABLE, tmux_terminal.AMBIENT_TMUX_VARIABLE))
+
+    def test_guard_refuses_the_ambient_and_default_servers_only(self):
+        default = f'/synthetic/tmp/tmux-{os.getuid()}/default'
+        with patch.object(tmux_terminal, '_TMUX_GUARDED', True), \
+                patch.object(tmux_terminal, '_AMBIENT_TMUX', '/synthetic/work/server'), \
+                patch.object(subprocess, 'run', side_effect=AssertionError('tmux ran')):
+            for socket in (default, '/synthetic/work/server'):
+                with self.assertRaises(tmux_terminal.RealTmuxCall):
+                    tmux_terminal.tmux(socket, 'rename-session', '-t', '$0', 'renamed')
+        with patch.object(tmux_terminal, '_TMUX_GUARDED', True), \
+                patch.object(tmux_terminal, '_AMBIENT_TMUX', '/synthetic/work/server'), \
+                patch('shutil.which', return_value='/synthetic/bin/tmux'), \
+                patch.object(subprocess, 'run', return_value=subprocess.CompletedProcess([], 0, 'out', '')):
+            self.assertEqual(tmux_terminal.tmux('/synthetic/private/s', 'list-sessions'), 'out')
+
+    def test_suite_in_a_tmux_pane_leaves_the_session_name(self):
+        # The reproduction of #156: a Codex ensure test run from a pane renamed its session.
+        if shutil.which('tmux') is None:
+            if os.environ.get('CI'):
+                self.fail('tmux must be installed in CI')
+            self.skipTest('tmux is not installed')
+        directory = tempfile.mkdtemp(prefix='kg', dir='/tmp')
+        self.addCleanup(shutil.rmtree, directory, True)
+        socket, done = str(Path(directory) / 's'), Path(directory) / 'done'
+        environment = {key: value for key, value in os.environ.items()
+                       if key not in ('TMUX', 'TMUX_PANE', run.TMUX_GUARD_VARIABLE, run.AMBIENT_TMUX_VARIABLE)}
+        test = 'test_session.SessionTests.test_two_live_sessions_and_idempotence'
+        command = f'{sys.executable} tests/run.py {test} > {directory}/out 2>&1; echo $? > {done}; sleep 60'
+        subprocess.run(['tmux', '-S', socket, '-f', '/dev/null', 'new-session', '-d', '-s', 'tester',
+                        '-c', str(ROOT), 'sh', '-c', command], check=True, env=environment, timeout=10)
+        self.addCleanup(subprocess.run, ['tmux', '-S', socket, 'kill-server'], capture_output=True, timeout=10)
+        waiting.wait_until_sync(done.exists, 'the suite in the pane', seconds=120,
+                                observe=lambda: (Path(directory) / 'out').read_text()[-2000:])
+        self.assertEqual(done.read_text().strip(), '0', (Path(directory) / 'out').read_text()[-2000:])
+        names = subprocess.run(['tmux', '-S', socket, 'list-sessions', '-F', '#{session_name}'],
+                               capture_output=True, text=True, env=environment, timeout=10).stdout.split()
+        self.assertEqual(names, ['tester'])
 
 
 class TerminalNameTests(unittest.TestCase):

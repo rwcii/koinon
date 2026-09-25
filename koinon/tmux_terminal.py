@@ -16,6 +16,31 @@ from koinon import platform_support
 TIMEOUT = 5
 HOST = 'host.json'
 TERMINAL = 'terminal.json'
+# Set by tests/run.py for the whole run. Read once at import as well, so a test that clears
+# os.environ does not lift the guard.
+TMUX_GUARD_VARIABLE = 'KOINON_TEST_TMUX_GUARD'
+AMBIENT_TMUX_VARIABLE = 'KOINON_TEST_AMBIENT_TMUX'
+_TMUX_GUARDED = os.environ.get(TMUX_GUARD_VARIABLE) == '1'
+_AMBIENT_TMUX = os.environ.get(AMBIENT_TMUX_VARIABLE, '')
+
+
+class RealTmuxCall(BaseException):
+    """A guarded test run reached a tmux server that is not a private test server.
+
+    It derives from BaseException so that no tmux-unreadable handler turns it into an
+    ordinary result; the test fails with the socket it reached.
+    """
+
+
+def _guard(socket):
+    if not (_TMUX_GUARDED or os.environ.get(TMUX_GUARD_VARIABLE) == '1'):
+        return
+    ambient = _AMBIENT_TMUX or os.environ.get(AMBIENT_TMUX_VARIABLE, '')
+    path = Path(socket)
+    # tmux keeps the sockets of servers started without -S in tmux-<uid> under TMUX_TMPDIR.
+    if path.parent.name == f'tmux-{os.getuid()}' or ambient and path == Path(ambient):
+        raise RealTmuxCall(f'a test reached the tmux server at {socket}; use a private server '
+                           'under a temporary directory')
 
 
 def _now():
@@ -38,6 +63,7 @@ def observe_host(executable, start=None):
 
 def tmux(socket, *arguments):
     """Run one tmux command on an explicit server; None when it cannot answer."""
+    _guard(socket)
     executable = shutil.which('tmux')
     if executable is None:
         return None

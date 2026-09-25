@@ -71,7 +71,13 @@ also reads it at import, so a test that clears the environment keeps it. With it
 `subprocess.run`, or put a stub executable under the temporary directory ahead on PATH.
 The native CI jobs (`scripts/test-native-*.py`, `scripts/test-manual-upgrade.py`) drive
 the real manager on purpose and call `platform_support.lift_manager_guard()`.
-`python3 -m unittest` runs without the guard.
+Tests must never reach the tmux server that the tester works in. `tests/run.py` removes
+`TMUX` and `TMUX_PANE` for the run and its child processes, and sets
+`KOINON_TEST_TMUX_GUARD=1`. With it set, a tmux call from `koinon/tmux_terminal.py` to the
+server that was in `TMUX`, or to any server in tmux's own `tmux-<uid>` socket directory,
+raises `RealTmuxCall`. A test that exercises tmux starts a private server with `-S` under a
+temporary directory.
+`python3 -m unittest` runs without either guard.
 
 Add user-visible changes to CHANGELOG.md in the same PR. Keep the runtime standard-library-only. Update README and protocol notes alongside
 behavior changes. Never commit inbox data, credentials, machine identifiers, or
