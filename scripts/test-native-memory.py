@@ -233,6 +233,8 @@ def main():
         return 0
     except Exception as exc:
         evidence['error'] = str(exc)
+        if getattr(exc, 'detail', None):
+            evidence['error_detail'] = exc.detail
         return 1
     finally:
         for fixture in reversed(fixtures):
