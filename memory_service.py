@@ -78,7 +78,7 @@ class RunnerError(ValueError):
     def __init__(self, code, *, paths=(), detail=None):
         self.paths = tuple(paths)
         self.code = code
-        # Diagnostic payload that names the fault behind a class code. It never
+        # Diagnostic payload that names the fault behind primary_code. It never
         # adds a code to the public vocabulary.
         self.detail = detail
         self.exit_status = ERRORS[code]
@@ -108,7 +108,7 @@ def diagnostic_sink(selection):
 
 def diagnose(fd, failure, recording_error):
     data = json.dumps(dict(code=failure.code, primary_code=failure.primary_code,
-                           shutdown_code=failure.shutdown_code,
+                           shutdown_code=failure.shutdown_code, detail=failure.detail,
                            recording_error=type(recording_error).__name__)).encode()
     os.lseek(fd, 0, os.SEEK_SET)
     os.ftruncate(fd, 0)
@@ -187,6 +187,19 @@ def _hex(value, length):
     return isinstance(value, str) and len(value) == length and all(c in '0123456789abcdef' for c in value)
 
 
+def valid_detail(value):
+    return (isinstance(value, dict) and value and set(value) in ({'memory_code'}, {'child_exit_status', 'started'})
+            and (isinstance(value.get('memory_code'), str) and 0 < len(value['memory_code']) <= 64
+                 if 'memory_code' in value else
+                 type(value['child_exit_status']) is int and type(value['started']) is bool))
+
+
+def with_detail(result, record):
+    if 'detail' in record:
+        result['detail'] = record['detail']
+    return result
+
+
 def _process(value):
     return (isinstance(value, dict) and type(value.get('pid')) is int and value['pid'] > 0
             and isinstance(value.get('proc_start'), str) and bool(value['proc_start'].strip()))
@@ -199,7 +212,9 @@ def read_record(selection, path, *, refusal=False):
             return None
         fields = {'version', 'installation', 'configuration', 'generation', 'pid', 'proc_start',
                   'phase', 'child', 'exit_status', 'primary_code', 'shutdown_code'}
-        if (set(value) != fields or type(value['version']) is not int or value['version'] != 1
+        # detail is optional so that records written before it existed still read.
+        if (set(value) - {'detail'} != fields or 'detail' in value and not valid_detail(value['detail'])
+                or type(value['version']) is not int or value['version'] != 1
                 or value['installation'] != selection.installation
                 or not _hex(value['configuration'], 64) or not _hex(value['generation'], 32)
                 or not _process(value)
@@ -231,7 +246,8 @@ def verify_memory(selection):
         status = memory.memory_error_exit_status(exc.code)
         code = {70: 'memory_software_failure', 75: 'memory_temporary_failure'}.get(
             status, 'memory_configuration_failure')
-        raise RunnerError(code, detail=dict(memory_code=exc.code)) from exc
+        detail = dict(memory_code=exc.code)
+        raise RunnerError(code, detail=detail if valid_detail(detail) else None) from exc
 
 
 def process_state(record):
@@ -242,9 +258,10 @@ def observation(selection):
     """Read-only evidence. Absent or incomplete supervisor state is unavailable."""
     refusal = read_record(selection, selection.refusal_path, refusal=True)
     if refusal:
-        return dict(status='refused', running=False, exit_status=refusal['exit_status'],
-                    configuration_matches=refusal['configuration'] == selection.configuration,
-                    primary_code=refusal['primary_code'], shutdown_code=refusal['shutdown_code'])
+        return with_detail(dict(status='refused', running=False, exit_status=refusal['exit_status'],
+                                configuration_matches=refusal['configuration'] == selection.configuration,
+                                primary_code=refusal['primary_code'], shutdown_code=refusal['shutdown_code']),
+                           refusal)
     owner = read_record(selection, selection.owner_path)
     if not owner:
         existing = verify_memory(selection)
@@ -254,9 +271,9 @@ def observation(selection):
     if owner['phase'] == 'stopped' and process_state(owner) == 'dead':
         return dict(status='stopped', running=False)
     if process_state(owner) != 'alive':
-        return dict(status='unavailable', running=False)
+        return with_detail(dict(status='unavailable', running=False), owner)
     if owner['phase'] != 'running' or not owner['child']:
-        return dict(status=owner['phase'], running=False)
+        return with_detail(dict(status=owner['phase'], running=False), owner)
     live = verify_memory(selection)
     child = owner['child']
     after = read_record(selection, selection.owner_path)
@@ -488,6 +505,7 @@ class Supervisor:
 
     def attempt(self):
         self.owner.update(child=None, primary_code=None, shutdown_code=None)
+        self.owner.pop('detail', None)
         self.healthy_since = None
         if verify_memory(self.selection):
             raise RunnerError('external_memory_service')
@@ -541,6 +559,7 @@ class Supervisor:
                 # Exit uncertainty forbids another child. Preserve the triggering
                 # failure as well; never hide it behind the shutdown diagnostic.
                 shutdown.primary_code = primary.code if primary else shutdown.code
+                shutdown.detail = primary.detail if primary else None
                 shutdown.shutdown_code = shutdown.code
                 raise
 
@@ -572,6 +591,8 @@ def run(selection, *, foreground=False):
                 except Exception as exc:
                     failure = classify(exc)
                     supervisor.owner.update(primary_code=failure.primary_code, shutdown_code=failure.shutdown_code)
+                    if valid_detail(failure.detail):
+                        supervisor.owner['detail'] = failure.detail
                     status = failure.exit_status
                     if status in platform_support.PERMANENT_EXIT_STATUSES:
                         supervisor.owner.update(phase='failed', exit_status=status)

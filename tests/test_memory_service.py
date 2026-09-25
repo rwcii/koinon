@@ -165,6 +165,24 @@ class MemorySupervisorTests(unittest.TestCase):
         third = self.spawn()
         self.ready(third)
 
+    def test_refusal_records_and_reports_the_child_cause(self):
+        self.fail_child(78)
+        process = self.spawn()
+        out, err = process.communicate(timeout=waiting.timeout())
+        self.assertEqual(process.returncode, 78, out + err)
+        cause = dict(child_exit_status=78, started=False)
+        self.assertEqual(json.loads(out.splitlines()[-1])['detail'], cause)
+        self.assertEqual(memory_service.read_record(self.selection, self.selection.refusal_path, refusal=True)['detail'], cause)
+        observed = memory_service.observation(self.selection)
+        self.assertEqual((observed['status'], observed['primary_code'], observed['detail']),
+                         ('refused', 'memory_configuration_failure', cause))
+        refusal = json.loads(self.selection.refusal_path.read_text())
+        for invalid in (dict(child_exit_status='78', started=False), dict(memory_code=''), dict(other=1), {}):
+            durable_state.publish(self.selection.refusal_path, dict(refusal, detail=invalid))
+            with self.assertRaises(memory_service.RunnerError) as caught:
+                memory_service.observation(self.selection)
+            self.assertEqual(caught.exception.code, 'configuration_error')
+
     def select_launchd(self, backend='launchd'):
         units = self.root / 'units'
         units.mkdir(mode=0o700)
@@ -388,9 +406,6 @@ class MemorySupervisorTests(unittest.TestCase):
         self.assertEqual(result, dict(status='unavailable', running=False))
 
 
-if __name__ == '__main__':
-    unittest.main()
-
 
 class RunnerErrorDetailTests(unittest.TestCase):
     def test_verify_memory_keeps_the_memory_code_behind_the_class(self):
@@ -427,3 +442,7 @@ class RunnerErrorDetailTests(unittest.TestCase):
             self.assertEqual(status, failure.exit_status)
             self.assertEqual(reply['code'], failure.code)
             self.assertEqual(reply.get('detail'), expected)
+
+
+if __name__ == '__main__':
+    unittest.main()
