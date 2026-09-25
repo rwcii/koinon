@@ -5,6 +5,10 @@ into a dated release section when promoted to `main`.
 
 ## Unreleased
 
+- Running the test suite in a tmux pane no longer renames that tmux session. `tests/run.py`
+  removes the pane from the run's environment, and a product tmux call to the tester's own
+  server fails its test. A Codex host record never names a Python or Node interpreter, so a
+  test runner cannot become the host of a synthetic session.
 - A memory supervisor failure now reports the cause behind its class code as `detail`: the
   memory service's own error code, or the child's exit status and whether it had started.
   The supervisor's owner and refusal records keep it, and `memory_service.py` status and

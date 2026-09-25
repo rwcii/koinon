@@ -161,6 +161,9 @@ HOMES_VARIABLE = 'KOINON_TEST_HOMES'
 # The same name as platform_support.MANAGER_GUARD_VARIABLE. The runner does not import
 # koinon, because a test may start it from another working directory.
 MANAGER_GUARD_VARIABLE = 'KOINON_TEST_MANAGER_GUARD'
+# The same names as tmux_terminal.TMUX_GUARD_VARIABLE and tmux_terminal.AMBIENT_TMUX_VARIABLE.
+TMUX_GUARD_VARIABLE = 'KOINON_TEST_TMUX_GUARD'
+AMBIENT_TMUX_VARIABLE = 'KOINON_TEST_AMBIENT_TMUX'
 
 
 def isolate_agent_homes():
@@ -196,10 +199,27 @@ def guard_service_managers():
     os.environ[MANAGER_GUARD_VARIABLE] = '1'
 
 
+def guard_tmux():
+    """Keep the whole run away from the tmux server that the tester works in.
+
+    A test that starts `session.py ensure` from a tmux pane would otherwise record that pane
+    and rename the tester's own session. The runner removes the pane from the environment of
+    the run, children included, and makes every product tmux call to that server or to a
+    server in tmux's own socket directory fail its test. Tests that exercise tmux use a
+    private server under a temporary directory.
+    """
+    ambient = os.environ.pop('TMUX', '')
+    os.environ.pop('TMUX_PANE', None)
+    if ambient and not os.environ.get(AMBIENT_TMUX_VARIABLE):
+        os.environ[AMBIENT_TMUX_VARIABLE] = ambient.split(',', 1)[0]
+    os.environ[TMUX_GUARD_VARIABLE] = '1'
+
+
 def main(args=None):
     args = sys.argv[1:] if args is None else args
     isolate_agent_homes()
     guard_service_managers()
+    guard_tmux()
     watchdog = Watchdog(read_bound(os.environ.get(WATCHDOG_VARIABLE)), sys.__stderr__)
     WatchdogResult.watchdog = watchdog
     watchdog.start()

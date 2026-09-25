@@ -30,6 +30,7 @@ import hashlib
 import threading
 import os
 from pathlib import Path
+import re
 import socket
 import stat
 import subprocess
@@ -1550,7 +1551,9 @@ def codex_host(pid, executable):
     that the CLI started; the host of a session must be the CLI.
     """
     selected = _selected_executable(executable)
-    if not selected:
+    # A script interpreter runs every Python or Node program of this user, so it cannot
+    # identify the CLI: a test runner would become the host of a synthetic session.
+    if not selected or re.fullmatch(r'(python|node|nodejs)[0-9.]*', selected.name.lower()):
         return False
     try:
         _, argv = process_command(pid)
