@@ -565,6 +565,48 @@ def session_service_artifact(record):
 
 
 
+MANAGER_GUARD_VARIABLE = 'KOINON_TEST_MANAGER_GUARD'
+_REAL_RUN = subprocess.run
+# Read once at import as well, so a test that clears os.environ does not lift the guard.
+_MANAGER_GUARDED = os.environ.get(MANAGER_GUARD_VARIABLE) == '1'
+
+
+class RealManagerCall(BaseException):
+    """A guarded test run reached the real user service manager.
+
+    It derives from BaseException so that no manager-unavailable handler turns it into an
+    ordinary refusal; the test fails with the name of the unpatched call.
+    """
+
+
+def lift_manager_guard():
+    """Opt a native job that drives the real user manager on purpose out of the guard."""
+    global _MANAGER_GUARDED
+    _MANAGER_GUARDED = False
+    os.environ.pop(MANAGER_GUARD_VARIABLE, None)
+
+
+def _manager_run(caller, argv, **options):
+    """Run one user-manager command, unless the test runner's guard refuses it.
+
+    `tests/run.py` sets the guard for the whole run, children included. A test that clears
+    the environment keeps it, because it is also read at import. A test passes the
+    guard by patching the caller or `subprocess.run`, or by placing a stub executable under
+    the temporary directory ahead of the real one on PATH.
+    """
+    guarded = _MANAGER_GUARDED or os.environ.get(MANAGER_GUARD_VARIABLE) == '1'
+    if guarded and subprocess.run is _REAL_RUN:
+        import shutil
+        import tempfile
+        found = shutil.which(argv[0])
+        stub = found is not None and Path(found).resolve().is_relative_to(
+            Path(tempfile.gettempdir()).resolve())
+        if found is not None and not stub:
+            raise RealManagerCall(f'{caller} reached the real service manager ({argv[0]}); '
+                                  f'patch platform_support.{caller} or subprocess.run in this test')
+    return subprocess.run(argv, **options)
+
+
 def user_service_manager(operation, names=(), **options):
     """Run one supported user-manager operation, preserving caller I/O policy.
 
@@ -591,7 +633,7 @@ def user_service_manager(operation, names=(), **options):
     arguments = commands[operation]
     if operation in ('start', 'stop', 'enable', 'disable'):
         arguments = [*arguments, *names]
-    return subprocess.run(['systemctl', '--user', *arguments], **options)
+    return _manager_run('user_service_manager', ['systemctl', '--user', *arguments], **options)
 
 
 def managed_service_exit(backend, status):
@@ -632,8 +674,8 @@ def systemd_service_observation(name):
         return result
 
     def query(arguments, signatures):
-        result = subprocess.run(bus + arguments, capture_output=True, text=True,
-                                check=True, timeout=PROCESS_QUERY_TIMEOUT + 1)
+        result = _manager_run('systemd_service_observation', bus + arguments, capture_output=True,
+                              text=True, check=True, timeout=PROCESS_QUERY_TIMEOUT + 1)
         if len(result.stdout) > 65536:
             raise ValueError('manager observation too large')
         rows = result.stdout.splitlines()
@@ -768,8 +810,8 @@ def launchd_service_observation(domain, label):
     target = domain + '/' + label
 
     def query(selected):
-        result = subprocess.run(['launchctl', 'print', selected], capture_output=True,
-                                text=True, timeout=PROCESS_QUERY_TIMEOUT)
+        result = _manager_run('launchd_service_observation', ['launchctl', 'print', selected],
+                              capture_output=True, text=True, timeout=PROCESS_QUERY_TIMEOUT)
         if len(result.stdout) > 65536:
             raise ValueError('manager observation too large')
         return result
@@ -811,8 +853,8 @@ def memory_manager_available(backend, domain=None):
     else:
         raise ValueError('unsupported memory manager backend')
     try:
-        return subprocess.run(argv, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
-                              timeout=PROCESS_QUERY_TIMEOUT).returncode == 0
+        return _manager_run('memory_manager_available', argv, stdout=subprocess.DEVNULL,
+                            stderr=subprocess.DEVNULL, timeout=PROCESS_QUERY_TIMEOUT).returncode == 0
     except (OSError, subprocess.SubprocessError):
         return False
 
@@ -840,8 +882,8 @@ def systemd_registration_layout():
             result[key] = value
         return result
     def query():
-        reply = subprocess.run(command, capture_output=True, text=True, check=True,
-                               timeout=PROCESS_QUERY_TIMEOUT + 1)
+        reply = _manager_run('systemd_registration_layout', command, capture_output=True, text=True,
+                             check=True, timeout=PROCESS_QUERY_TIMEOUT + 1)
         if len(reply.stdout) > 65536:
             raise ValueError('manager paths exceed observation bound')
         value = json.loads(reply.stdout, object_pairs_hook=pairs)
@@ -935,8 +977,8 @@ def memory_manager_deregister(record):
             raise artifacts.RegistrationPathError(path)
         path.unlink()
         sync_state_directory(path.parent)
-    return subprocess.run(['systemctl', '--user', '--no-ask-password', 'daemon-reload'],
-                          capture_output=True, text=True, check=True, timeout=15)
+    return _manager_run('memory_manager_deregister', ['systemctl', '--user', '--no-ask-password',
+                        'daemon-reload'], capture_output=True, text=True, check=True, timeout=15)
 
 def memory_manager_action(record, operation, *, runtime=False):
     """Execute a preflighted owned action; callers supply ownership verification."""
@@ -976,7 +1018,7 @@ def memory_manager_action(record, operation, *, runtime=False):
         argv = ['launchctl', *commands[operation]]
     else:
         raise ValueError('manual selection has no manager operation')
-    return subprocess.run(argv, capture_output=True, text=True, check=True, timeout=15)
+    return _manager_run('memory_manager_action', argv, capture_output=True, text=True, check=True, timeout=15)
 
 def session_manager_observation(record):
     from koinon import session_service_config
@@ -1013,7 +1055,7 @@ def session_manager_action(record, operation):
         argv = ['launchctl', *arguments]
     else:
         raise ValueError('manual selection has no manager action')
-    return subprocess.run(argv, capture_output=True, text=True, check=True, timeout=15)
+    return _manager_run('session_manager_action', argv, capture_output=True, text=True, check=True, timeout=15)
 
 
 
@@ -1042,7 +1084,7 @@ def session_manager_deactivate(record):
         if not DARWIN or domain != f'gui/{os.geteuid()}':
             raise OSError('selected session manager unavailable')
         argv = ['launchctl', 'bootout', domain + '/' + name[:-6]]
-    return subprocess.run(argv, capture_output=True, text=True, check=True, timeout=15)
+    return _manager_run('session_manager_deactivate', argv, capture_output=True, text=True, check=True, timeout=15)
 
 
 OS_DEFINITION_ROOT = '/System/Library/LaunchAgents'
@@ -1078,7 +1120,8 @@ def upgrade_service_sources(prefix):
     home = account_home()
     references, os_definitions = [], []
     def query(argv):
-        result = subprocess.run(argv, capture_output=True, text=True, timeout=PROCESS_QUERY_TIMEOUT + 1)
+        result = _manager_run('upgrade_service_sources', argv, capture_output=True, text=True,
+                              timeout=PROCESS_QUERY_TIMEOUT + 1)
         if len(result.stdout.encode()) > 1024 * 1024:
             raise ValueError('native service discovery exceeds response capacity')
         return result

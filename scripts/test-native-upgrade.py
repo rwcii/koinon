@@ -367,6 +367,7 @@ def main():
     parser.add_argument('--interactive-umask', choices=('077', '002'), default='077',
                         help='umask for operator commands run from the prefix (combined only)')
     args = parser.parse_args()
+    platform_support.lift_manager_guard()
     # Python imports can create caches before a child sets its own umask.
     # All fixture subprocesses must inherit private creation permissions.
     os.umask(0o077)
