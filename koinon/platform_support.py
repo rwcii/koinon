@@ -1559,6 +1559,20 @@ def codex_process(pid, executable):
         return False
 
 
+def codex_app_server(pid):
+    """Whether pid is a Codex app-server process, such as the shared managed daemon.
+
+    Codex CLI 0.157 runs shell-tool commands under one app-server daemon that the first CLI
+    started; every other CLI connects to it. A command's ancestors then lead to that first
+    CLI, whichever CLI the command's thread belongs to.
+    """
+    try:
+        _, argv = process_command(pid)
+    except (OSError, ValueError, subprocess.SubprocessError):
+        return False
+    return len(argv) > 1 and argv[1] == 'app-server'
+
+
 def codex_host(pid, executable):
     """Match only the configured CLI process itself, never a child it started.
 

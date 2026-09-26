@@ -48,14 +48,27 @@ def _now():
 
 
 def observe_host(executable, start=None):
-    """The nearest ancestor that is the configured Codex CLI itself."""
+    """The nearest ancestor that is the configured Codex CLI itself.
+
+    A command that runs under a Codex app-server has that server's CLI as its ancestor,
+    and the server can serve the threads of other CLIs too. Such a host is `host_shared`:
+    it is never recorded, and the terminal inherited from it is never used.
+    """
     start = os.getppid() if start is None else start
+    shared = []
+
+    def host(candidate):
+        if platform_support.codex_app_server(candidate):
+            shared.append(candidate)
+            return False
+        return platform_support.codex_host(candidate, executable)
     try:
-        pid = platform_support.ancestor_matching(
-            start, lambda candidate: platform_support.codex_host(candidate, executable))
-        started = platform_support.proc_start(pid) if pid is not None else None
+        pid = platform_support.ancestor_matching(start, host)
+        started = platform_support.proc_start(pid) if pid is not None and not shared else None
     except (OSError, ValueError, subprocess.SubprocessError):
         pid = started = None
+    if shared:
+        return dict(state='unknown', reason='host_shared', observed_at_ms=_now())
     if pid is None or started is None:
         return dict(state='unknown', reason='host_not_found', observed_at_ms=_now())
     return dict(state='observed', pid=pid, proc_start=started, observed_at_ms=_now())
@@ -90,7 +103,9 @@ def observe_terminal(host, environ=None):
         return dict(state='unavailable', reason='tmux_unreadable', observed_at_ms=_now())
     pane_id, pane_pid, session_id = fields[0], int(fields[1]), fields[2]
     if host.get('state') != 'observed':
-        return dict(state='unavailable', reason='host_not_found', observed_at_ms=_now())
+        # A shared host's pane is another session's; the reason keeps that visible.
+        reason = 'host_shared' if host.get('reason') == 'host_shared' else 'host_not_found'
+        return dict(state='unavailable', reason=reason, observed_at_ms=_now())
     if platform_support.ancestor_matching(host['pid'], lambda candidate: candidate == pane_pid) is None:
         return dict(state='unavailable', reason='pane_not_host', observed_at_ms=_now())
     return dict(state='observed', socket=socket, pane_id=pane_id, session_id=session_id,
