@@ -5,6 +5,7 @@ Messaging paths remain literal for peer-token lookup. Platform differences live
 in platform_support.
 """
 import asyncio
+import errno
 import hashlib
 import json
 import os
@@ -161,6 +162,15 @@ def service_path(root, *, legacy_socket=None):
     return control
 
 
+class ConnectionBlocked(OSError):
+    """The kernel refused the connect call itself (EPERM), before anything was sent.
+
+    File permissions give EACCES; EPERM comes from a policy on the caller, as in an agent
+    sandbox that denies Unix-socket connections. A subclass of OSError, so a caller that
+    does not name it keeps its existing handling.
+    """
+
+
 class NoControlReply(ValueError):
     """The service closed without a response; a mutation may still have committed."""
 
@@ -177,7 +187,12 @@ async def control_exchange(root, payload, timeout=10, *, legacy_socket=None):
     writer = None
     try:
         async with asyncio.timeout(timeout):
-            reader, writer = await asyncio.open_unix_connection(str(path), limit=LIMIT)
+            try:
+                reader, writer = await asyncio.open_unix_connection(str(path), limit=LIMIT)
+            except PermissionError as exc:
+                if exc.errno == errno.EPERM:
+                    raise ConnectionBlocked(exc.errno, f'connection to {path} blocked') from exc
+                raise
             pid = credentials(writer.get_extra_info('socket'))
             writer.write(data)
             await writer.drain()
