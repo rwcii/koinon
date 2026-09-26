@@ -210,8 +210,8 @@ class TmuxGuardTests(unittest.TestCase):
         self.assertEqual(names, ['tester'])
 
 
-class TerminalNameTests(unittest.TestCase):
-    """Naming on a private tmux server; never the user's."""
+class PrivateServer(unittest.TestCase):
+    """A private tmux server; never the user's."""
 
     AGENT = [sys.executable, '-c', 'import time; time.sleep(60)']
     OTHER = ['sleep', '60']
@@ -238,6 +238,10 @@ class TerminalNameTests(unittest.TestCase):
 
     def name(self, terminal, target, claude=()):
         return tmux_terminal.name_terminal(terminal, target, sys.executable, set(claude))
+
+
+class TerminalNameTests(PrivateServer):
+    """Naming on a private tmux server."""
 
     def test_single_agent_pane_renames_its_session(self):
         terminal = self.session('agent', self.AGENT)
@@ -281,6 +285,89 @@ class TerminalNameTests(unittest.TestCase):
                        dict(state='unavailable', reason='tmux_unavailable'),
                        dict(state='unknown', reason='not_recorded')):
             self.assertEqual(self.name(record, 'codex-koinon'), dict(result=record['reason']))
+
+
+class SharedDaemonTests(PrivateServer):
+    """Two Codex CLIs whose commands run under the app-server daemon the first one started (#160)."""
+
+    DAEMON = '/synthetic/daemon/bin/codex'
+
+    def setUp(self):
+        super().setUp()
+        which = shutil.which
+        patcher = patch('shutil.which', side_effect=lambda name: name if name == CLI else which(name))
+        patcher.start()
+        self.addCleanup(patcher.stop)
+        resolve = Path.resolve
+        patcher = patch.object(Path, 'resolve', lambda path, strict=False: path if str(path).startswith('/synthetic/')
+                               else resolve(path, strict))
+        patcher.start()
+        self.addCleanup(patcher.stop)
+        # The first CLI and the second CLI each run in their own tmux session.
+        self.first = self.session('first-peer', self.OTHER)
+        self.second = self.session('second', self.OTHER)
+        self.first_pid = int(self.tmux('display-message', '-p', '-t', self.first['pane_id'], '#{pane_pid}'))
+        self.second_pid = int(self.tmux('display-message', '-p', '-t', self.second['pane_id'], '#{pane_pid}'))
+        directory = tempfile.TemporaryDirectory()
+        self.addCleanup(directory.cleanup)
+        self.first_state, self.second_state = Path(directory.name) / 'first', Path(directory.name) / 'second'
+        self.first_state.mkdir()
+        self.second_state.mkdir()
+
+    def processes(self, daemon=True):
+        """The second session's ensure (9004) runs in the daemon the first CLI started.
+
+        Its environment carries the first CLI's pane, which the daemon inherited.
+        """
+        parents = {self.first_pid: 1, self.second_pid: 1, 9004: 9003, 9003: 9002}
+        argvs = {self.first_pid: [CLI, 'resume'], self.second_pid: [CLI], 9004: ['python3', 'session.py', 'ensure'],
+                 9003: ['/bin/sh'], 9002: [self.DAEMON + '-code-mode-host']}
+        if daemon:
+            parents.update({9002: 9001, 9001: 9000, 9000: self.first_pid})
+            argvs.update({9001: [self.DAEMON, 'app-server', '--listen', 'unix://', '--managed-daemon'],
+                          9000: [self.DAEMON, 'app-server', 'daemon', 'pid-update-loop']})
+        else:
+            parents[9002] = self.first_pid
+        return tree(parents, argvs)
+
+    def ensure(self, state, name, daemon=True):
+        environ = {'TMUX': f'{self.socket},1,0', 'TMUX_PANE': self.first['pane_id']}
+        with self.processes(daemon), patch.object(os, 'getppid', return_value=9004), \
+                patch.object(platform_support, 'proc_start', return_value='synthetic start'), \
+                patch.object(session, 'peers', return_value=[]):
+            records = tmux_terminal.record(state, CLI, environ)
+            named = session.name_own_terminal(state, dict(codex=CLI), name, dict(held=False), records['terminal'])
+        return records, named
+
+    def test_the_second_ensure_leaves_the_first_session_unchanged(self):
+        first = dict(host=dict(state='observed', pid=self.first_pid, proc_start='synthetic start', observed_at_ms=1),
+                     terminal=dict(self.first, observed_at_ms=1))
+        durable_state.publish(self.first_state / 'host.json', first['host'])
+        durable_state.publish(self.first_state / 'terminal.json', first['terminal'])
+        records, named = self.ensure(self.second_state, 'second-peer')
+        self.assertEqual((records['host']['state'], records['host']['reason']), ('unknown', 'host_shared'))
+        self.assertEqual((records['terminal']['state'], records['terminal']['reason']), ('unavailable', 'host_shared'))
+        self.assertEqual(named, dict(result='host_shared'))
+        self.assertEqual(durable_state.read(self.second_state / 'host.json')['reason'], 'host_shared')
+        self.assertEqual(durable_state.read(self.second_state / 'terminal.json')['reason'], 'host_shared')
+        self.assertEqual(self.tmux('list-sessions', '-F', '#{session_name}').split(), ['first-peer', 'second'])
+        self.assertEqual(durable_state.read(self.first_state / 'host.json'), first['host'])
+        self.assertEqual(durable_state.read(self.first_state / 'terminal.json'), first['terminal'])
+
+    def test_the_session_whose_cli_started_the_daemon_is_shared_too(self):
+        # The first session's own command also runs in the daemon; its thread cannot be
+        # matched to its CLI, so the first session records no host and renames nothing.
+        records, named = self.ensure(self.first_state, 'first-renamed')
+        self.assertEqual(records['host']['reason'], 'host_shared')
+        self.assertEqual(named, dict(result='host_shared'))
+        self.assertEqual(self.tmux('list-sessions', '-F', '#{session_name}').split(), ['first-peer', 'second'])
+
+    def test_without_the_daemon_the_same_walk_finds_and_renames(self):
+        # The control: the same process walk without the daemon reaches the first CLI and
+        # renames its session, which is the #160 failure when the daemon is not detected.
+        records, named = self.ensure(self.second_state, 'second-peer', daemon=False)
+        self.assertEqual((records['host']['state'], records['host']['pid']), ('observed', self.first_pid))
+        self.assertEqual(named, dict(result='renamed', name='second-peer'))
 
 
 class ProcessSnapshotTests(unittest.TestCase):

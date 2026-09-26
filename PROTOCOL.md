@@ -581,11 +581,19 @@ session's state directory, replaced on each `ensure`:
   the configured Codex CLI process itself. A child of the CLI, such as its shell, never
   matches. A configured executable that is a Python or Node interpreter matches no
   process, because every script of the user runs in one. No match is
-  `state: unknown, reason: host_not_found`.
+  `state: unknown, reason: host_not_found`. A walk that passes a Codex app-server process
+  (`argv[1]` is `app-server`, such as the managed daemon of Codex CLI 0.157) is
+  `state: unknown, reason: host_shared`: the daemon runs the commands of every CLI connected
+  to it, so its CLI ancestor and the pane in the inherited environment can belong to another
+  session. This holds also for the session whose CLI started the daemon, because a command's
+  thread cannot be matched to its CLI from the process table; with Codex CLI 0.157 every
+  Codex session is `host_shared`.
 - `terminal.json`: `{state, socket, pane_id, session_id, observed_at_ms}` from
   `$TMUX` and `$TMUX_PANE`, accepted only when the pane's process is the host or one of its
   ancestors. Otherwise `state: unavailable` with `reason` `not_in_tmux`, `tmux_unavailable`,
-  `tmux_unreadable`, `host_not_found` or `pane_not_host`.
+  `tmux_unreadable`, `host_not_found`, `host_shared` or `pane_not_host`. Without an observed
+  terminal, `ensure` renames no tmux session and titles no pane, and `rebind` needs
+  `--user-authorized`.
 
 Neither record holds a thread ID or a peer name. `ensure` and `status` report both as `host`
 and `terminal`; `host` adds `live`, whether the recorded pid still has the recorded start

@@ -96,7 +96,10 @@ CATALOG = {
                    'predecessor; the same host process alone is never enough. It moves the '
                    'repository alias (such as codex-koinon) to this thread when the predecessor '
                    'held it or it is free; a live holder in another terminal keeps it. It reports '
-                   'the records left in the predecessor\'s inbox.'),
+                   'the records left in the predecessor\'s inbox. When this thread\'s commands run '
+                   'under a Codex app-server daemon, as every thread\'s do with Codex CLI 0.157, '
+                   'ensure records the host as host_shared and no terminal, names no tmux session, '
+                   'and rebind needs the user\'s direct naming of the predecessor.'),
             deepseek='The session ID is DSH_SESSION_ID.',
             claude=('/clear keeps the process and the peer name but changes the session key '
                     '(CLAUDE_CODE_SESSION_ID); claims under the old key stay with it.')),
