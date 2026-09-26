@@ -18,6 +18,7 @@ HOST = 'host.json'
 # Set by codex_launch.py, through Codex's shell environment policy, in every command of the
 # session: the process ID of that session's own Codex CLI.
 HOST_VARIABLE = 'KOINON_CODEX_HOST'
+HOST_REFUSALS = ('host_shared', 'host_in_codex', 'launcher_mismatch')
 TERMINAL = 'terminal.json'
 # Set by tests/run.py for the whole run. Read once at import as well, so a test that clears
 # os.environ does not lift the guard.
@@ -50,32 +51,19 @@ def _now():
     return int(time.time() * 1000)
 
 
-def _observed(pid, source):
-    started = platform_support.proc_start(pid)
-    if started is None:
-        return None
-    return dict(state='observed', pid=pid, proc_start=started, source=source, observed_at_ms=_now())
-
-
 def observe_host(executable, start=None, environ=None):
-    """This session's own Codex CLI.
+    """This session's own Codex CLI: the nearest ancestor that is the configured CLI itself.
 
-    A session started by codex_launch.py names its CLI in HOST_VARIABLE; it is accepted when
-    that process is the configured Codex CLI. Otherwise the host is the nearest ancestor that
-    is the CLI. A command that runs under a Codex app-server has that server's CLI as its
-    ancestor, and the server can serve the threads of other CLIs too. Such a host is
-    `host_shared`: it is never recorded, and the terminal inherited from it is never used.
+    It is recorded only when nothing else can own the command's pane:
+    - `host_shared`: the walk passes a Codex app-server. Codex CLI 0.157 runs the commands of
+      every CLI in one daemon that the first CLI started, so the CLI above it and the pane in
+      the inherited environment can belong to another session.
+    - `host_in_codex`: another Codex CLI runs above the host, as when a session starts a Codex
+      CLI from a command; both share the outer session's pane.
+    - `launcher_mismatch`: HOST_VARIABLE, which codex_launch.py sets to its CLI's pid in every
+      command, names another process; the command belongs to a CLI that another inherited.
     """
     environ = os.environ if environ is None else environ
-    value = environ.get(HOST_VARIABLE, '')
-    if value.isdigit() and int(value) > 1:
-        try:
-            if platform_support.codex_host(int(value), executable):
-                found = _observed(int(value), 'launcher')
-                if found is not None:
-                    return found
-        except (OSError, ValueError, subprocess.SubprocessError):
-            pass
     start = os.getppid() if start is None else start
     shared = []
 
@@ -86,14 +74,30 @@ def observe_host(executable, start=None, environ=None):
         return platform_support.codex_host(candidate, executable)
     try:
         pid = platform_support.ancestor_matching(start, host)
-        started = platform_support.proc_start(pid) if pid is not None and not shared else None
+        outer = None
+        if pid is not None and not shared:
+            parent, _ = platform_support.process_command(pid)
+            outer = platform_support.ancestor_matching(
+                parent, lambda candidate: platform_support.codex_host(candidate, executable))
     except (OSError, ValueError, subprocess.SubprocessError):
-        pid = started = None
+        pid = outer = None
     if shared:
         return dict(state='unknown', reason='host_shared', observed_at_ms=_now())
-    if pid is None or started is None:
+    if pid is None:
         return dict(state='unknown', reason='host_not_found', observed_at_ms=_now())
-    return dict(state='observed', pid=pid, proc_start=started, source='process_tree', observed_at_ms=_now())
+    if outer is not None:
+        return dict(state='unknown', reason='host_in_codex', observed_at_ms=_now())
+    value = environ.get(HOST_VARIABLE)
+    if value is not None and value != str(pid):
+        return dict(state='unknown', reason='launcher_mismatch', observed_at_ms=_now())
+    try:
+        started = platform_support.proc_start(pid)
+    except (OSError, ValueError, subprocess.SubprocessError):
+        started = None
+    if started is None:
+        return dict(state='unknown', reason='host_not_found', observed_at_ms=_now())
+    return dict(state='observed', pid=pid, proc_start=started,
+                source='process_tree' if value is None else 'launcher', observed_at_ms=_now())
 
 
 def default_socket(environ=None):
@@ -133,30 +137,13 @@ def observe_terminal(host, environ=None):
         return dict(state='unavailable', reason='tmux_unreadable', observed_at_ms=_now())
     pane_id, pane_pid, session_id = fields[0], int(fields[1]), fields[2]
     if host.get('state') != 'observed':
-        # A shared host's pane is another session's; the reason keeps that visible.
-        reason = 'host_shared' if host.get('reason') == 'host_shared' else 'host_not_found'
+        # A shared or nested host's pane is another session's; the reason keeps that visible.
+        reason = host.get('reason') if host.get('reason') in HOST_REFUSALS else 'host_not_found'
         return dict(state='unavailable', reason=reason, observed_at_ms=_now())
     if platform_support.ancestor_matching(host['pid'], lambda candidate: candidate == pane_pid) is None:
-        # A launcher-named host can run under a shared app-server whose environment names
-        # another pane; its own pane is the one whose process is the host or an ancestor.
-        found = _pane_of(socket, host['pid']) if host.get('source') == 'launcher' else None
-        if found is None:
-            return dict(state='unavailable', reason='pane_not_host', observed_at_ms=_now())
-        pane_id, session_id = found
+        return dict(state='unavailable', reason='pane_not_host', observed_at_ms=_now())
     return dict(state='observed', socket=socket, pane_id=pane_id, session_id=session_id,
                 observed_at_ms=_now())
-
-
-def _pane_of(socket, pid):
-    """The one pane of the server whose process is pid or one of its ancestors, or None."""
-    output = tmux(socket, 'list-panes', '-a', '-F', '#{pane_id}\t#{pane_pid}\t#{session_id}')
-    if output is None:
-        return None
-    ancestors = set()
-    platform_support.ancestor_matching(pid, lambda candidate: ancestors.add(candidate))
-    found = [(fields[0], fields[2]) for fields in (line.split('\t') for line in output.splitlines())
-             if len(fields) == 3 and fields[1].isdigit() and int(fields[1]) in ancestors]
-    return found[0] if len(found) == 1 else None
 
 
 def record(state, executable, environ=None):

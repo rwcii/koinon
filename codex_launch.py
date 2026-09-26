@@ -1,7 +1,8 @@
 #!/usr/bin/env python3
 """Start the configured Codex CLI so that `session.py ensure` finds this session's own terminal.
 
-Usage: codex_launch.py [--tmux-session NAME --directory DIR] [CODEX ARGUMENTS...]
+Usage: codex_launch.py [--tmux-session NAME --directory DIR] [--] [CODEX ARGUMENTS...]
+       codex_launch.py --help         (Codex's own help: codex_launch.py -- --help)
 
 Without --tmux-session the launcher replaces itself with Codex in the current terminal,
 keeping its process ID, and passes that ID to every command of the session as
@@ -74,7 +75,11 @@ def command(executable, pid, arguments):
 
 
 def start_in_tmux(name, directory, arguments):
-    """Start this launcher in a new detached tmux session; never reuse or rename one."""
+    """Start this launcher in a new detached tmux session; never reuse or rename one.
+
+    The session is a sibling on the server of this command's environment, or on the user's
+    default server. It is never attached, so tmux is never nested in a pane.
+    """
     socket = tmux_terminal.default_socket()
     if tmux_terminal.tmux(socket, 'has-session', '-t', '=' + name) is not None:
         return dict(ok=False, code='name_taken', session=name)
@@ -90,6 +95,9 @@ def start_in_tmux(name, directory, arguments):
 
 
 def main():
+    if sys.argv[1:2] in (['--help'], ['-h']):
+        print(__doc__.strip())
+        return
     try:
         options, arguments = split(sys.argv[1:])
     except ValueError as exc:

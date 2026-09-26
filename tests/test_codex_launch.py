@@ -24,6 +24,13 @@ class ArgumentTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             codex_launch.split(['--tmux-session'])
 
+    def test_help_needs_no_codex_cli(self):
+        with patch.dict(os.environ, PATH='/nonexistent'):
+            result = subprocess.run([sys.executable, str(Path(codex_launch.__file__)), '--help'],
+                                    capture_output=True, text=True, timeout=30)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn('--tmux-session', result.stdout)
+
     def test_the_command_names_the_cli_process_through_the_shell_policy(self):
         self.assertEqual(codex_launch.command('/synthetic/codex', 42, ['resume', 'x']),
                          ['/synthetic/codex', '-c', 'shell_environment_policy.set.KOINON_CODEX_HOST="42"',
