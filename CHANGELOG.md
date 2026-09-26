@@ -5,6 +5,10 @@ into a dated release section when promoted to `main`.
 
 ## Unreleased
 
+- A Claude session now shows the name of a Codex or DeepSeek sender. `Bridge.send` wraps each
+  message in the sender envelope that Claude sessions write, with the bridge's address and its
+  published name; an alias holder shows as `name (alias)`. Before, every such message arrived
+  with no sender name.
 - Running the test suite in a tmux pane no longer renames that tmux session. `tests/run.py`
   removes the pane from the run's environment, and a product tmux call to the tester's own
   server fails its test. A Codex host record never names a Python or Node interpreter, so a

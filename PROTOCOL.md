@@ -41,6 +41,28 @@ AF_UNIX stream sockets carrying UTF-8 newline-delimited JSON objects. This is no
 
 The content is nonempty text. Priorities are `now`, `next`, and `later`. `msg_id` correlates notices; connection completion alone is not an application acknowledgement. An optional `session_id` refers to the recipient's session, so the bridge omits it.
 
+### Sender envelope
+
+A Claude receiver shows a sender name only from an envelope inside `content`, and the sending
+session writes that envelope itself; the frame's `from` field is not shown. Observed in Claude
+Code 2.1.283, the envelope is:
+
+```text
+<cross-session-message from="uds:/tmp/cc-socks/12345.sock" from-name="codex-sample-86">
+BODY
+</cross-session-message>
+```
+
+`Bridge.send` wraps every body this way, so a Claude receiver names a Codex or DeepSeek sender.
+`from` is the bridge's own address. `from-name` is the per-thread name that the bridge's notifier
+published in the registry; a holder of its repository's alias is labelled `name (alias)`. Before
+the notifier registers, the envelope has `from` only. The receiver reads the fields from the first
+tag and accepts the envelope only when rebuilding it from its parts gives the same text, so a
+body cannot change them. The fields are asserted by the sender, as in every Claude envelope;
+only the receiver's kernel-checked peer pid is verified. The envelope is internal to Claude
+Code: if it changes, a receiver shows the raw text, which still carries the name, and
+`tests/test_bridge.py` pins the observed form. The outgoing ledger keeps the bare body.
+
 Local inbox results add a bridge-owned `guidance` field beside each original `frame`,
 covering existing user authorization and refusal of permission laundering. This does
 not change stored envelopes or the wire format. Sender-provided labels do not establish

@@ -38,6 +38,7 @@ import asyncio
 import json
 import os
 from pathlib import Path
+import re
 import signal
 import socket
 import sqlite3
@@ -108,6 +109,56 @@ def peers():
         except (OSError,ValueError,TypeError,KeyError,IndexError,subprocess.SubprocessError):
             continue
     return found
+
+
+# Claude Code reads the sender of a peer message only from an envelope inside `content`,
+# which the sending Claude session writes (observed in Claude Code 2.1.283). The receiver
+# accepts it only when rebuilding it from its parts gives the same text; otherwise it shows
+# the raw text, which still carries the name. See PROTOCOL.md, "Sender envelope".
+ENVELOPE_TAG = 'cross-session-message'
+ENVELOPE_FROM = re.compile(r'[A-Za-z0-9%:_/.\-]{1,300}')
+ENVELOPE_NAME = re.compile(r'[A-Za-z0-9._-](?:[A-Za-z0-9._() -]{0,62}[A-Za-z0-9._)-])?')
+
+
+def own_name(address):
+    """The name this bridge's notifier published for it, or None before it registers.
+
+    The record is found by this process's pid and must name this bridge's own socket. A
+    holder of its repository's alias is labelled `name (alias)`, because the per-thread name
+    identifies the session and the alias is what peers list it under.
+    """
+    path = participant_status.registry_directory() / f'{os.getpid()}.json'
+    try:
+        info = path.lstat()
+        if not stat.S_ISREG(info.st_mode) or info.st_uid != os.getuid() or info.st_size > 65536:
+            return None
+        record = json.loads(path.read_text())
+    except (OSError, ValueError):
+        return None
+    if not isinstance(record, dict) or 'uds:' + str(record.get('messagingSocketPath')) != address:
+        return None
+    name = record.get('koinonName') if isinstance(record.get('koinonName'), str) else record.get('name')
+    if not isinstance(name, str) or not ENVELOPE_NAME.fullmatch(name):
+        return None
+    alias = record.get('koinonAlias')
+    if isinstance(alias, str) and alias != name and record.get('name') == alias:
+        label = f'{name} ({alias})'
+        if ENVELOPE_NAME.fullmatch(label):
+            return label
+    return name
+
+
+def envelope(address, name, body):
+    """Wrap a message body so that a Claude receiver shows its sender.
+
+    The sender fields are asserted by the sending bridge, as in any Claude envelope; the
+    receiver's kernel-checked peer pid is the only verified identity. A body cannot change
+    the fields, because the receiver reads them from the first tag only.
+    """
+    if not ENVELOPE_FROM.fullmatch(address):
+        return body
+    fields = f' from="{address}"' + (f' from-name="{name}"' if name else '')
+    return f'<{ENVELOPE_TAG}{fields}>\n{body}\n</{ENVELOPE_TAG}>'
 
 
 def resolve_name(root, name):
@@ -346,8 +397,10 @@ class Bridge:
         path = target_path(address)
         msg_id = msg_id or str(uuid.uuid4())
         deadline = deadline if deadline is not None else time.time() + 300
+        # The ledger keeps the bare body; only the frame carries the envelope.
+        content = envelope(self.address, own_name(self.address), message)
         frame = dict(msgV=1, msg_id=msg_id, type='user', priority=priority,
-                     message=dict(role='user', content=message), **{'from': self.address})
+                     message=dict(role='user', content=content), **{'from': self.address})
         data = encode(frame)
         if len(data) > 65536:
             raise ValueError('message exceeds 64 KiB')
