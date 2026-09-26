@@ -97,6 +97,11 @@ or services.
 
 ## Live checks, authorized by the user
 
+Checks 2 and 3 run in a Codex session started through `codex_launch.py` (#160, user decision
+2026-09-26). With Codex CLI 0.157 a session started without it runs its commands in an
+app-server shared with other sessions; `ensure` then records `host_shared` and names no terminal,
+and `rebind` needs `--user-authorized`.
+
 Recorded on #141 without thread IDs:
 
 1. After chunk 02 is installed: a Claude session lists the Codex participant under its alias
