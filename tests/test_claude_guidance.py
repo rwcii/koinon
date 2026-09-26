@@ -430,7 +430,7 @@ class GuideTests(unittest.TestCase):
         text = ' '.join(filter(None, (entry for topic in value['topics'] for entry in (topic['text'], topic['view']))))
         for fact in ('agent listing', '/clear', 'CLAUDE_CODE_SESSION_ID', "user's approval"):
             self.assertIn(fact, text)
-        self.assertEqual([recipe['id'] for topic in value['topics'] for recipe in topic['recipes']], ['peers'])
+        self.assertEqual([recipe['id'] for topic in value['topics'] for recipe in topic['recipes']], ['launch_codex', 'peers'])
 
     def test_an_open_stdin_without_input_does_not_hold_the_guide(self):
         process = subprocess.Popen([sys.executable, str(ROOT / 'session.py'), 'guide', '--agent', 'claude',

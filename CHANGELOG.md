@@ -5,6 +5,9 @@ into a dated release section when promoted to `main`.
 
 ## Unreleased
 
+- The startup guide of every agent family now says to start a Codex session only through
+  `codex_launch.py`, and carries the `launch_codex` recipe in its overview. Before, only the full
+  Codex guide said so, and a Claude session that started a Codex peer used plain `codex`.
 - New `codex_launch.py`: start a Codex session through it, in the current terminal or with
   `--tmux-session NAME --directory DIR` in a new detached tmux session, from a person, a Claude
   session or a Codex session. It passes the CLI's own process ID to every command of the session,
