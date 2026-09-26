@@ -3,8 +3,8 @@
 The executable entrypoints stay beside this package at the installation prefix,
 because installed service definitions name their paths and those definitions are
 compared byte for byte: `bridge.py`, `notify.py`, `session.py`, `memory.py`,
-`memory_service.py`, `session_service.py` and `usage_report.py`. Everything they
-import lives here.
+`memory_service.py`, `session_service.py` and `usage_report.py`, and the documented
+`codex_launch.py` command. Everything they import lives here.
 """
 from pathlib import Path
 

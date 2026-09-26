@@ -15,6 +15,10 @@ from koinon import platform_support
 
 TIMEOUT = 5
 HOST = 'host.json'
+# Set by codex_launch.py, through Codex's shell environment policy, in every command of the
+# session: the process ID of that session's own Codex CLI.
+HOST_VARIABLE = 'KOINON_CODEX_HOST'
+HOST_REFUSALS = ('host_shared', 'host_in_codex', 'launcher_mismatch')
 TERMINAL = 'terminal.json'
 # Set by tests/run.py for the whole run. Read once at import as well, so a test that clears
 # os.environ does not lift the guard.
@@ -47,18 +51,61 @@ def _now():
     return int(time.time() * 1000)
 
 
-def observe_host(executable, start=None):
-    """The nearest ancestor that is the configured Codex CLI itself."""
+def observe_host(executable, start=None, environ=None):
+    """This session's own Codex CLI: the nearest ancestor that is the configured CLI itself.
+
+    It is recorded only when nothing else can own the command's pane:
+    - `host_shared`: the walk passes a Codex app-server. Codex CLI 0.157 runs the commands of
+      every CLI in one daemon that the first CLI started, so the CLI above it and the pane in
+      the inherited environment can belong to another session.
+    - `host_in_codex`: another Codex CLI runs above the host, as when a session starts a Codex
+      CLI from a command; both share the outer session's pane.
+    - `launcher_mismatch`: HOST_VARIABLE, which codex_launch.py sets to its CLI's pid in every
+      command, names another process; the command belongs to a CLI that another inherited.
+    """
+    environ = os.environ if environ is None else environ
     start = os.getppid() if start is None else start
+    shared = []
+
+    def host(candidate):
+        if platform_support.codex_app_server(candidate):
+            shared.append(candidate)
+            return False
+        return platform_support.codex_host(candidate, executable)
     try:
-        pid = platform_support.ancestor_matching(
-            start, lambda candidate: platform_support.codex_host(candidate, executable))
-        started = platform_support.proc_start(pid) if pid is not None else None
+        pid = platform_support.ancestor_matching(start, host)
+        outer = None
+        if pid is not None and not shared:
+            parent, _ = platform_support.process_command(pid)
+            outer = platform_support.ancestor_matching(
+                parent, lambda candidate: platform_support.codex_host(candidate, executable))
     except (OSError, ValueError, subprocess.SubprocessError):
-        pid = started = None
-    if pid is None or started is None:
+        pid = outer = None
+    if shared:
+        return dict(state='unknown', reason='host_shared', observed_at_ms=_now())
+    if pid is None:
         return dict(state='unknown', reason='host_not_found', observed_at_ms=_now())
-    return dict(state='observed', pid=pid, proc_start=started, observed_at_ms=_now())
+    if outer is not None:
+        return dict(state='unknown', reason='host_in_codex', observed_at_ms=_now())
+    value = environ.get(HOST_VARIABLE)
+    if value is not None and value != str(pid):
+        return dict(state='unknown', reason='launcher_mismatch', observed_at_ms=_now())
+    try:
+        started = platform_support.proc_start(pid)
+    except (OSError, ValueError, subprocess.SubprocessError):
+        started = None
+    if started is None:
+        return dict(state='unknown', reason='host_not_found', observed_at_ms=_now())
+    return dict(state='observed', pid=pid, proc_start=started,
+                source='process_tree' if value is None else 'launcher', observed_at_ms=_now())
+
+
+def default_socket(environ=None):
+    """The tmux server of this command's environment, or the user's default server."""
+    environ = os.environ if environ is None else environ
+    if environ.get('TMUX'):
+        return environ['TMUX'].split(',', 1)[0]
+    return str(Path(environ.get('TMUX_TMPDIR') or '/tmp') / f'tmux-{os.getuid()}' / 'default')
 
 
 def tmux(socket, *arguments):
@@ -90,7 +137,9 @@ def observe_terminal(host, environ=None):
         return dict(state='unavailable', reason='tmux_unreadable', observed_at_ms=_now())
     pane_id, pane_pid, session_id = fields[0], int(fields[1]), fields[2]
     if host.get('state') != 'observed':
-        return dict(state='unavailable', reason='host_not_found', observed_at_ms=_now())
+        # A shared or nested host's pane is another session's; the reason keeps that visible.
+        reason = host.get('reason') if host.get('reason') in HOST_REFUSALS else 'host_not_found'
+        return dict(state='unavailable', reason=reason, observed_at_ms=_now())
     if platform_support.ancestor_matching(host['pid'], lambda candidate: candidate == pane_pid) is None:
         return dict(state='unavailable', reason='pane_not_host', observed_at_ms=_now())
     return dict(state='observed', socket=socket, pane_id=pane_id, session_id=session_id,
@@ -99,7 +148,7 @@ def observe_terminal(host, environ=None):
 
 def record(state, executable, environ=None):
     """Observe and publish both records for one Codex `ensure`; returns them."""
-    host = observe_host(executable)
+    host = observe_host(executable, environ=environ)
     terminal = observe_terminal(host, environ)
     durable_state.publish(Path(state) / HOST, host)
     durable_state.publish(Path(state) / TERMINAL, terminal)

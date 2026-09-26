@@ -54,7 +54,11 @@ CATALOG = {
             'repair_required, run its repair_command and then ensure again. If it reports '
             'manual_required, run its start_command in a persistent managed shell.'),
         views=dict(
-            codex='ensure uses CODEX_THREAD_ID. Never pass another conversation\'s ID.',
+            codex=('ensure uses CODEX_THREAD_ID. Never pass another conversation\'s ID. ensure names '
+                   'this session\'s tmux session only when the session was started through '
+                   'codex_launch.py, which names its Codex process to every command; otherwise '
+                   'Codex can run the command in a process shared with other sessions, and ensure '
+                   'reports host_shared and renames nothing.'),
             deepseek='ensure uses DSH_SESSION_ID. Never pass another session\'s ID.',
             claude='Nothing to register. Peers see this session while Claude Code runs.'),
         recipes=(
@@ -64,6 +68,12 @@ CATALOG = {
             dict(id='ensure', argv=('{python}', '{prefix}/session.py', 'ensure', '--agent', 'deepseek'),
                  families=('deepseek',), needs_approval=True,
                  effect='Register this session and start its bridge and notifier.'),
+            dict(id='launch_codex',
+                 argv=('{python}', '{prefix}/codex_launch.py', '--tmux-session', '{session}',
+                       '--directory', '{repo}'),
+                 families=FAMILIES, needs_approval=True,
+                 effect=('Start a Codex peer in a new detached tmux session through the launcher, '
+                         'only when the user asked for one; it prints the session and pane.')),
             dict(id='status', argv=('{python}', '{prefix}/session.py', 'status'),
                  families=('codex',), needs_approval=True,
                  effect='Report this conversation\'s registration and health; writes nothing.'),
@@ -96,7 +106,10 @@ CATALOG = {
                    'predecessor; the same host process alone is never enough. It moves the '
                    'repository alias (such as codex-koinon) to this thread when the predecessor '
                    'held it or it is free; a live holder in another terminal keeps it. It reports '
-                   'the records left in the predecessor\'s inbox.'),
+                   'the records left in the predecessor\'s inbox. A session not started through '
+                   'codex_launch.py can run its commands in a Codex app-server shared with other '
+                   'sessions; ensure then records host_shared and no terminal, and rebind needs the '
+                   'user\'s direct naming of the predecessor.'),
             deepseek='The session ID is DSH_SESSION_ID.',
             claude=('/clear keeps the process and the peer name but changes the session key '
                     '(CLAUDE_CODE_SESSION_ID); claims under the old key stay with it.')),
