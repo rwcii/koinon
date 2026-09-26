@@ -5,13 +5,13 @@ into a dated release section when promoted to `main`.
 
 ## Unreleased
 
-- A Codex `ensure` whose commands run under a Codex app-server daemon no longer records a host
-  process or a tmux pane, and no longer renames a tmux session. It records the host as
-  `host_shared` and no terminal. Before, a second session recorded the process and pane of the
-  CLI that started the daemon and renamed that CLI's tmux session. The rule applies to every
-  session under the daemon, including the one whose CLI started it, because a command's thread
-  cannot be matched to its CLI. With Codex CLI 0.157 that is every Codex session: `ensure` names
-  no Codex tmux session, and `rebind` needs `--user-authorized`.
+- New `codex_launch.py`: start a Codex session through it, in the current terminal or with
+  `--tmux-session NAME --directory DIR` in a new detached tmux session, from a person, a Claude
+  session or a Codex session. It passes the CLI's own process ID to every command of the session,
+  so `ensure` records that session's host and tmux pane and renames that session. Before, a Codex
+  session whose commands ran in the app-server daemon of another CLI recorded that CLI's process
+  and pane and renamed that CLI's tmux session. Without the launcher, such a session now records
+  `host_shared`, renames nothing, and `rebind` needs `--user-authorized`.
 - Inside an agent sandbox, `bridge.py inbox`, `ack`, `send` and `peers` now report `sandboxed`
   with the approval-request remedy. Before, they reported a dead service, `peer_not_found` or an
   empty peer list, and agents concluded that the bridge was down. The Codex and DeepSeek guide

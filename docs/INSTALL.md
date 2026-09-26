@@ -312,6 +312,25 @@ cd koinon
 python3 scripts/install.py --configure-codex
 ```
 
+Start each Codex session through the installed launcher, in a tmux pane or from an agent:
+
+```sh
+python3 ~/.local/share/koinon/codex_launch.py [codex arguments]          # this terminal
+python3 ~/.local/share/koinon/codex_launch.py --tmux-session NAME --directory DIR [codex arguments]
+```
+
+The launcher replaces itself with the configured Codex CLI, keeping its process ID, and adds
+one override: `-c shell_environment_policy.set.KOINON_CODEX_HOST="<that ID>"`. Every command of
+the session, also after `/clear` and `/resume`, then names its own CLI, so `session.py ensure`
+records the right tmux pane and names that session. Without the launcher, Codex CLI 0.157 can
+run the command in an app-server shared with another session; `ensure` then reports
+`host_shared` and renames nothing. The second form starts the session detached in a new tmux
+session and prints its `session_id` and `pane_id`; it refuses a name that is taken. A Claude
+session can run it directly; a Codex agent runs it through its approval request, because the
+sandbox blocks the tmux socket. In a check with `codex sandbox`, the override was added to the
+`shell_environment_policy` of `config.toml` and kept its settings. A session started through the launcher runs its own app-server, which uses
+more memory than the shared one. Add a shell alias if you want a shorter command.
+
 For a DeepSeek (DSH) participant, install the harness guidance instead of, or as well as,
 the Codex guidance:
 

@@ -213,6 +213,9 @@ def guard_tmux():
     if ambient and not os.environ.get(AMBIENT_TMUX_VARIABLE):
         os.environ[AMBIENT_TMUX_VARIABLE] = ambient.split(',', 1)[0]
     os.environ[TMUX_GUARD_VARIABLE] = '1'
+    # A run started from a Codex session that codex_launch.py started would otherwise take
+    # that session's CLI as the host of every synthetic session.
+    os.environ.pop('KOINON_CODEX_HOST', None)
 
 
 def main(args=None):

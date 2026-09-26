@@ -11,8 +11,8 @@ Read README.md, PROTOCOL.md, and CONTRIBUTING.md before changing it.
 
 Implementation modules live in the `koinon` package. The executable entrypoints stay beside
 it at the repository root and at the installation prefix — `bridge.py`, `notify.py`,
-`session.py`, `memory.py`, `memory_service.py`, `session_service.py` and `usage_report.py` —
-because installed service definitions name their paths and are compared byte for byte. Add a
+`session.py`, `memory.py`, `memory_service.py`, `session_service.py`, `usage_report.py` and
+`codex_launch.py` — because installed service definitions or documented commands name their paths. Add a
 new module to the package, and add a new root entrypoint only when a service definition or a
 documented command must name it. Tests live in `tests/`.
 

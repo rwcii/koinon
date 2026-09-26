@@ -11,7 +11,7 @@ import unittest
 
 ROOT = Path(__file__).resolve().parent.parent
 ENTRYPOINTS = ('bridge.py', 'notify.py', 'session.py', 'memory.py', 'memory_service.py',
-               'session_service.py', 'usage_report.py', 'statusline.py', 'scripts/install.py',
+               'session_service.py', 'usage_report.py', 'statusline.py', 'codex_launch.py', 'scripts/install.py',
                'scripts/uninstall.py', 'scripts/upgrade.py')
 START = '# Bytecode guard (docs/INSTALL.md).'
 END = '# End of bytecode guard.\n'
