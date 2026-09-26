@@ -100,6 +100,12 @@ ownership and modes without creating directories. Control replies use the same b
 JSON framing as peer messages; a missing reply does not prove that a mutation rolled back.
 An endpoint that fails its permission or metadata checks reports `unsafe_service_endpoint`;
 it is not treated as an absent memory service or a reason to start a replacement.
+A bridge client whose connect call the kernel refuses with `EPERM`, as an agent sandbox does,
+reports `sandboxed`: nothing was sent, and the bridge is not shown to be down. `bridge.py peers`
+does not judge a registry record from another pid namespace of this machine, because its pid
+names no process there; when such records hide every peer, `peers` reports `sandboxed`
+instead of an empty list, and `send` by name reports it instead of `peer_not_found`. The
+guide marks the Codex and DeepSeek bridge, status and memory recipes `needs_approval`.
 Memory reuse likewise distinguishes `service_busy`, `service_unresponsive`,
 `service_unavailable`, `service_refused` and `invalid_service_response` from an absent
 listener. A connected service with another identity is `foreign_service`. These results

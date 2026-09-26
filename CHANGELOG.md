@@ -5,6 +5,11 @@ into a dated release section when promoted to `main`.
 
 ## Unreleased
 
+- Inside an agent sandbox, `bridge.py inbox`, `ack`, `send` and `peers` now report `sandboxed`
+  with the approval-request remedy. Before, they reported a dead service, `peer_not_found` or an
+  empty peer list, and agents concluded that the bridge was down. The Codex and DeepSeek guide
+  marks the inbox, ack, send, peers, status and memory recipes `needs_approval`, and the
+  `sandbox` and `troubleshoot` topics explain these results.
 - A Claude session now shows the name of a Codex or DeepSeek sender. `Bridge.send` wraps each
   message in the sender envelope that Claude sessions write, with the bridge's address and its
   published name; an alias holder shows as `name (alias)`. Before, every such message arrived

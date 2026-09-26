@@ -199,6 +199,26 @@ class CatalogTests(unittest.TestCase):
         with self.assertRaises(guidance.GuidanceError):
             guidance.render('codex', 'other', python='p', prefix=prefix)
 
+    def test_sandboxed_commands_go_through_approval(self):
+        # A Codex or DeepSeek sandbox blocks every command that reaches a service or reads
+        # the peer registry; a Claude session runs them directly.
+        blocked = dict(register=('status',), messages=('inbox', 'ack', 'send'), peers=('peers',),
+                       memory=('sync', 'memory_status'))
+        for family in ('codex', 'deepseek', 'claude'):
+            for topic, ids in blocked.items():
+                recipes = {r['id']: r for r in guidance.render(family, topic, python='p', prefix='/a')
+                           ['topics'][0]['recipes']}
+                for recipe in ids:
+                    if recipe not in recipes:
+                        continue
+                    with self.subTest(family=family, recipe=recipe):
+                        self.assertEqual(recipes[recipe]['needs_approval'], family != 'claude')
+        sandbox = guidance.render('codex', 'sandbox', python='p', prefix='/a')['topics'][0]['text']
+        trouble = guidance.render('codex', 'troubleshoot', python='p', prefix='/a')['topics'][0]['text']
+        self.assertIn('code sandboxed', sandbox)
+        for fact in ('sandboxed', 'service_unavailable', 'peer_not_found', 'never run ensure again'):
+            self.assertIn(fact, trouble)
+
     def test_send_recipe_takes_the_literal_peer_address(self):
         value = guidance.render('codex', 'messages', python='p', prefix='/a',
                                 observations=dict(registration=dict(state='observed', state_dir='/s')))

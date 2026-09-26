@@ -263,6 +263,21 @@ def pid_domain():
             + os.readlink('/proc/self/ns/pid'))
 
 
+def foreign_pid_namespace(domain):
+    """Whether a registry pid domain is this machine seen from another pid namespace.
+
+    A pid from another namespace names no process here, so its liveness cannot be judged.
+    An agent sandbox with its own pid namespace sees every registry record this way.
+    """
+    if DARWIN or not isinstance(domain, str):
+        return False
+    try:
+        own = pid_domain()
+    except OSError:
+        return False
+    return domain != own and domain.startswith(own.rsplit(':pid:', 1)[0] + ':pid:')
+
+
 def allowed_socket_dirs():
     """Directories a peer address may live in, canonicalized.
 

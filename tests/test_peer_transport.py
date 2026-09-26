@@ -1,5 +1,6 @@
 import asyncio
 import contextlib
+import errno
 import io
 import json
 import os
@@ -166,6 +167,57 @@ class ControlTransportTests(unittest.IsolatedAsyncioTestCase):
         (records/f'{os.getpid()}.json').write_text(json.dumps(record))
         with patch.dict(os.environ, CLAUDE_CONFIG_DIR=str(claude)):
             self.assertEqual(bridge.peers(), [])
+
+    async def test_a_blocked_connection_reports_the_sandbox_not_a_dead_service(self):
+        # An agent sandbox refuses the connect call itself with EPERM. A file permission
+        # refusal is EACCES and keeps its existing report.
+        await self.server()
+        for code, expected in ((errno.EPERM, 'sandboxed'), (errno.EACCES, 'service_unavailable')):
+            with self.subTest(code=code):
+                refused = PermissionError(code, os.strerror(code))
+                with patch.object(asyncio, 'open_unix_connection', side_effect=refused):
+                    output = io.StringIO()
+                    with contextlib.redirect_stdout(output):
+                        self.assertEqual(await bridge.client(self.root, {'op': 'inbox'}), 1)
+                reply = json.loads(output.getvalue())
+                self.assertEqual(reply['code'], expected)
+                if code == errno.EPERM:
+                    self.assertIn('approval request', reply['error'])
+                    self.assertIn('Nothing was sent', reply['error'])
+
+    async def test_registry_records_from_another_pid_namespace_are_not_judged(self):
+        claude = self.root/'claude'
+        records = claude/'sessions'
+        records.mkdir(parents=True)
+        own, foreign = 'linux:synthetic:pid:[10]', 'linux:synthetic:pid:[11]'
+        record = dict(pid=os.getpid(), procStart=platform_support.proc_start(os.getpid()),
+                      messagingSocketPath='/tmp/cc-socks/1.sock', name='synthetic-peer',
+                      peerProtocol=1, pidDomain=foreign)
+        (records/f'{os.getpid()}.json').write_text(json.dumps(record))
+        with patch.dict(os.environ, CLAUDE_CONFIG_DIR=str(claude)), \
+                patch.object(platform_support, 'DARWIN', False), \
+                patch.object(platform_support, 'pid_domain', return_value=own):
+            self.assertEqual(bridge.scan_peers(), ([], 1))
+            refused = bridge.resolve_name(self.root, 'synthetic-peer')
+            self.assertEqual(refused['code'], 'sandboxed')
+            output = io.StringIO()
+            with contextlib.redirect_stdout(output), \
+                    patch.object(sys, 'argv', ['bridge.py', '--state-dir', str(self.root), 'peers']), \
+                    self.assertRaises(SystemExit) as stopped:
+                bridge.cli_main()
+            self.assertEqual(stopped.exception.code, 1)
+            self.assertEqual(json.loads(output.getvalue())['code'], 'sandboxed')
+
+    def test_foreign_pid_namespace_needs_this_machine_and_another_namespace(self):
+        own = 'linux:m1:pid:[10]'
+        with patch.object(platform_support, 'DARWIN', False), \
+                patch.object(platform_support, 'pid_domain', return_value=own):
+            self.assertTrue(platform_support.foreign_pid_namespace('linux:m1:pid:[11]'))
+            for domain in (own, 'linux:m2:pid:[11]', 'darwin', None, 7):
+                with self.subTest(domain=domain):
+                    self.assertFalse(platform_support.foreign_pid_namespace(domain))
+        with patch.object(platform_support, 'DARWIN', True):
+            self.assertFalse(platform_support.foreign_pid_namespace('linux:m1:pid:[11]'))
 
     async def test_private_control_socket_and_object_response_are_required(self):
         path = await self.server(b'[]\n')

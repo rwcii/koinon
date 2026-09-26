@@ -61,21 +61,35 @@ from koinon import participant_status
 from koinon import subscriptions
 from koinon import memory_bindings
 
-from koinon.peer_transport import LIMIT, credentials, encode, peer_token, private_dir, target_path, control_exchange, UnsafeServiceEndpoint, NoControlReply
+from koinon.peer_transport import LIMIT, credentials, encode, peer_token, private_dir, target_path, control_exchange, UnsafeServiceEndpoint, NoControlReply, ConnectionBlocked
 DEFAULT = str(Path(os.environ.get('XDG_STATE_HOME', str(Path.home() / '.local/state'))) / 'koinon')
 
 
+SANDBOXED = ('this process cannot reach the bridge from here; an agent sandbox blocks it. '
+             'Nothing was sent or changed. Run this command through the agent\'s approval request')
+
+
 def peers():
-    """Allowlisted live registry metadata; never read authentication keys.
+    """Allowlisted live registry metadata; never read authentication keys."""
+    return scan_peers()[0]
+
+
+def scan_peers():
+    """Live registry metadata, and the count of records whose liveness cannot be judged.
 
     A record is only reported when its pid is still alive and its published
     start marker still matches the live process, which is what distinguishes a
     live peer from a recycled pid. On macOS the marker is an asctime string read
     through `ps`; a failure to read it is treated as a stale record rather than
-    an error, so one unreadable entry never hides the others.
+    an error, so one unreadable entry never hides the others. Authentication keys
+    are never read.
+
+    A record from another pid namespace of this machine is not judged: its pid names no
+    process here. Inside an agent sandbox with its own pid namespace every record is so.
     """
     folder = Path(os.environ.get('CLAUDE_CONFIG_DIR', str(Path.home()/'.claude'))) / 'sessions'
     found=[]
+    unjudged = 0
     for path in sorted(folder.glob('*.json')):
         if not path.stem.isdigit() or path.is_symlink():
             continue
@@ -85,6 +99,9 @@ def peers():
                 continue
             record=json.loads(path.read_text())
             pid=int(path.stem)
+            if platform_support.foreign_pid_namespace(record.get('pidDomain')):
+                unjudged += 1
+                continue
             if not platform_support.process_alive(pid):
                 continue
             if not platform_support.same_process(record.get('procStart'), platform_support.proc_start(pid)):
@@ -108,7 +125,7 @@ def peers():
                               implementation=record.get('entrypoint'),protocol=record.get('peerProtocol')))
         except (OSError,ValueError,TypeError,KeyError,IndexError,subprocess.SubprocessError):
             continue
-    return found
+    return found, unjudged
 
 
 # Claude Code reads the sender of a peer message only from an envelope inside `content`,
@@ -164,7 +181,10 @@ def envelope(address, name, body):
 def resolve_name(root, name):
     """Resolve a peer name, such as a Codex alias, to exactly one live registry address."""
     from koinon import alias_lease
-    matches = [record for record in peers() if record.get('name') == name]
+    found, unjudged = scan_peers()
+    matches = [record for record in found if record.get('name') == name]
+    if unjudged and not found:
+        return dict(ok=False, code='sandboxed', name=name, error=SANDBOXED)
     if len(matches) == 1:
         return dict(address=matches[0]['address'])
     if matches:
@@ -764,6 +784,9 @@ async def client(root, request):
     except UnsafeServiceEndpoint as exc:
         emit(dict(ok=False, code='unsafe_service_endpoint', error=str(exc)))
         return 1
+    except ConnectionBlocked:
+        emit(dict(ok=False, code='sandboxed', error=SANDBOXED))
+        return 1
     except (ConnectionRefusedError, FileNotFoundError) as exc:
         # Keep the existing CLI diagnostic for a missing or stale endpoint.
         raise SystemExit(f'no bridge is running for {root} (no control endpoint is listening)') from exc
@@ -859,7 +882,11 @@ def cli_main():
             raise SystemExit(1)
         a['to'] = resolved['address']
     if a['op'] == 'peers':
-        print(json.dumps(peers(), indent=2))
+        found, unjudged = scan_peers()
+        if unjudged and not found:
+            print(json.dumps(dict(ok=False, code='sandboxed', error=SANDBOXED), indent=2))
+            raise SystemExit(1)
+        print(json.dumps(found, indent=2))
     elif a['op'] == 'serve':
         if (a['supervisor_control_fd'] is None) != (a['supervisor_generation'] is None):
             p.error('supervisor descriptor and generation must be supplied together')

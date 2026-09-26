@@ -65,10 +65,10 @@ CATALOG = {
                  families=('deepseek',), needs_approval=True,
                  effect='Register this session and start its bridge and notifier.'),
             dict(id='status', argv=('{python}', '{prefix}/session.py', 'status'),
-                 families=('codex',), needs_approval=False,
+                 families=('codex',), needs_approval=True,
                  effect='Report this conversation\'s registration and health; writes nothing.'),
             dict(id='status', argv=('{python}', '{prefix}/session.py', 'status', '--agent', 'deepseek'),
-                 families=('deepseek',), needs_approval=False,
+                 families=('deepseek',), needs_approval=True,
                  effect='Report this session\'s registration and health; writes nothing.'))),
     'reconnect': dict(
         summary='Rejoin the bridge after a context reset or a resumed conversation.',
@@ -134,13 +134,13 @@ CATALOG = {
                     'the user, and never change the inbound setting yourself.')),
         recipes=(
             dict(id='inbox', argv=('{python}', '{prefix}/bridge.py', '--state-dir', '{state}', 'inbox'),
-                 families=('codex', 'deepseek'), needs_approval=False,
+                 families=('codex', 'deepseek'), needs_approval=True,
                  effect='List unacknowledged messages.'),
             dict(id='ack', argv=('{python}', '{prefix}/bridge.py', '--state-dir', '{state}', 'ack', '{through}'),
-                 families=('codex', 'deepseek'), needs_approval=False,
+                 families=('codex', 'deepseek'), needs_approval=True,
                  effect='Remove handled messages through a sequence number.'),
             dict(id='send', argv=('{python}', '{prefix}/bridge.py', '--state-dir', '{state}', 'send', '{address}', '{text}'),
-                 families=('codex', 'deepseek'), needs_approval=False,
+                 families=('codex', 'deepseek'), needs_approval=True,
                  effect=('Send one message to a peer. {address} is the literal uds:/absolute/path '
                          'address of that peer in the current peer listing; the bridge does not '
                          'resolve names.')))),
@@ -155,8 +155,11 @@ CATALOG = {
                     'without it they are unknown.')),
         recipes=(
             dict(id='peers', argv=('{python}', '{prefix}/bridge.py', 'peers'),
-                 families=FAMILIES, needs_approval=False,
-                 effect='List live peers without reading keys.'),)),
+                 families=('codex', 'deepseek'), needs_approval=True,
+                 effect='List live peers without reading keys.'),
+            dict(id='peers', argv=('{python}', '{prefix}/bridge.py', 'peers'),
+                 families=('claude',), needs_approval=False,
+                 effect='List live peers without reading keys.'))),
     'memory': dict(
         summary='Use the shared memory store of this repository.',
         text=(
@@ -167,19 +170,29 @@ CATALOG = {
         views={},
         recipes=(
             dict(id='sync', argv=('{python}', '{prefix}/memory.py', '--repo-path', '{repo}', '--consumer', '{key}', 'sync'),
-                 families=FAMILIES, needs_approval=False,
+                 families=('codex', 'deepseek'), needs_approval=True,
+                 effect='Read the next snapshot page or delta.'),
+            dict(id='sync', argv=('{python}', '{prefix}/memory.py', '--repo-path', '{repo}', '--consumer', '{key}', 'sync'),
+                 families=('claude',), needs_approval=False,
                  effect='Read the next snapshot page or delta.'),
             dict(id='memory_status', argv=('{python}', '{prefix}/memory.py', '--repo-path', '{repo}', 'status'),
-                 families=FAMILIES, needs_approval=False,
+                 families=('codex', 'deepseek'), needs_approval=True,
+                 effect='Report the store\'s health.'),
+            dict(id='memory_status', argv=('{python}', '{prefix}/memory.py', '--repo-path', '{repo}', 'status'),
+                 families=('claude',), needs_approval=False,
                  effect='Report the store\'s health.'))),
     'sandbox': dict(
         summary='Run Koinon commands from an agent sandbox.',
         text=(
-            'Koinon refuses paths that are not owned by this user or root. Inside some agent '
-            'sandboxes the root directory appears owned by another user, so registration '
-            'fails there. Run a recipe marked needs_approval through the agent\'s normal '
-            'approval request. Never weaken sandbox or approval settings for Koinon; when '
-            'approval is not available, report that limitation to the user.'),
+            'An agent sandbox can block every Koinon command that reaches a service or reads '
+            'the peer registry: it refuses the connection to the bridge and memory sockets, '
+            'it runs in its own process-ID namespace so that every peer looks stopped, and '
+            'the root directory can appear owned by another user, so registration and status '
+            'fail. A blocked command reports code sandboxed; it sent and changed nothing, and '
+            'it does not mean that the bridge is down or that a peer is gone. Run a recipe '
+            'marked needs_approval through the agent\'s normal approval request. Never weaken '
+            'sandbox or approval settings for Koinon; when approval is not available, report '
+            'that limitation to the user.'),
         views={},
         recipes=()),
     'troubleshoot': dict(
@@ -189,8 +202,13 @@ CATALOG = {
             'then ensure. manual_required: run the start_command in a persistent managed '
             'shell. "existing legacy session requires explicit upgrade": a registration '
             'written by an older release blocks native registration; report the path to '
-            'the user. Any other failure: report the full result to the user and do not '
-            'improvise a Koinon procedure.'),
+            'the user. sandboxed: run the same command through the agent\'s approval request. '
+            'Inside an agent sandbox an older runtime reports the same cause as '
+            'service_unavailable, an empty peer list, peer_not_found, or a session '
+            'configuration failure that names "/"; run the command through the approval '
+            'request before you conclude that a service or a peer is down, and never run '
+            'ensure again only because of these results. Any other failure: report the full '
+            'result to the user and do not improvise a Koinon procedure.'),
         views={},
         recipes=()),
 }
