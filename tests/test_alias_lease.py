@@ -306,13 +306,19 @@ class SendResolutionTests(Fixture):
         self.register('a', 'codex-koinon-0a', repo)
         self.prepare('a', repo, 'codex-koinon-0a')
         root = self.state_root / 'sessions' / 'a'
-        with mock.patch.object(bridge, 'peers', return_value=records):
+        with mock.patch.object(bridge, 'scan_peers', return_value=(records, 0)):
             self.assertEqual(bridge.resolve_name(root, 'codex-koinon'), dict(address='uds:/synthetic/one'))
             self.assertEqual(bridge.resolve_name(root, 'twin')['code'], 'peer_ambiguous')
             self.assertEqual(bridge.resolve_name(root, 'nobody')['code'], 'peer_not_found')
-        with mock.patch.object(bridge, 'peers', return_value=[]):
+        with mock.patch.object(bridge, 'scan_peers', return_value=([], 0)):
             unheld = bridge.resolve_name(root, 'codex-koinon')
         self.assertEqual((unheld['code'], unheld['name']), ('alias_unheld', 'codex-koinon'))
+        # An unjudged record, such as one left by a container that shares this machine,
+        # reports the sandbox only when it hides every peer.
+        with mock.patch.object(bridge, 'scan_peers', return_value=(records, 1)):
+            self.assertEqual(bridge.resolve_name(root, 'nobody')['code'], 'peer_not_found')
+        with mock.patch.object(bridge, 'scan_peers', return_value=([], 1)):
+            self.assertEqual(bridge.resolve_name(root, 'nobody')['code'], 'sandboxed')
 
     def test_send_cli_refuses_an_unheld_alias_before_any_control_request(self):
         repo = git_repo(self.root / 'koinon')
@@ -321,7 +327,7 @@ class SendResolutionTests(Fixture):
         root = self.state_root / 'sessions' / 'a'
         output = io.StringIO()
         with mock.patch.object(sys, 'argv', ['bridge.py', '--state-dir', str(root), 'send', 'codex-koinon', 'hello']), \
-                mock.patch.object(bridge, 'peers', return_value=[]), \
+                mock.patch.object(bridge, 'scan_peers', return_value=([], 0)), \
                 mock.patch.object(bridge, 'client', side_effect=AssertionError('no control request')), \
                 redirect_stdout(output), self.assertRaises(SystemExit) as raised:
             bridge.cli_main()

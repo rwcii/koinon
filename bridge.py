@@ -181,8 +181,9 @@ def envelope(address, name, body):
 def resolve_name(root, name):
     """Resolve a peer name, such as a Codex alias, to exactly one live registry address."""
     from koinon import alias_lease
-    matches = [record for record in peers() if record.get('name') == name]
-    if not matches and scan_peers()[1]:
+    found, unjudged = scan_peers()
+    matches = [record for record in found if record.get('name') == name]
+    if unjudged and not found:
         return dict(ok=False, code='sandboxed', name=name, error=SANDBOXED)
     if len(matches) == 1:
         return dict(address=matches[0]['address'])
