@@ -219,6 +219,18 @@ class CatalogTests(unittest.TestCase):
         for fact in ('sandboxed', 'service_unavailable', 'peer_not_found', 'never run ensure again'):
             self.assertIn(fact, trouble)
 
+    def test_every_brief_starts_codex_only_through_the_launcher(self):
+        # The startup brief is all that many sessions read; a Codex peer started with plain
+        # codex gets no own tmux pane or name (#160).
+        for family in ('claude', 'codex', 'deepseek'):
+            with self.subTest(family=family):
+                brief = guidance.render(family, python='p', prefix='/a', brief=True)
+                text = guidance.text(brief)
+                self.assertIn('only through codex_launch.py, never with plain codex', text)
+                recipe = next(r for topic in brief['topics'] for r in topic['recipes'] if r['id'] == 'launch_codex')
+                self.assertEqual(recipe['argv'][1:4], ['/a/codex_launch.py', '--tmux-session', '{session}'])
+                self.assertTrue(recipe['needs_approval'])
+
     def test_send_recipe_takes_the_literal_peer_address(self):
         value = guidance.render('codex', 'messages', python='p', prefix='/a',
                                 observations=dict(registration=dict(state='observed', state_dir='/s')))
