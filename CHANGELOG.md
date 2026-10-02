@@ -5,6 +5,9 @@ into a dated release section when promoted to `main`.
 
 ## Unreleased
 
+- `codex_launch.py` now refuses a start folder that holds another repository (a `.git` below the
+  folder other than its own). Codex's sandbox protects only the start folder's own `.git`, so a
+  session started above another repository could change that repository's git configuration.
 - The startup guide of every agent family now says to start a Codex session only through
   `codex_launch.py`, and carries the `launch_codex` recipe in its overview. Before, only the full
   Codex guide said so, and a Claude session that started a Codex peer used plain `codex`.

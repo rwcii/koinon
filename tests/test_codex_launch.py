@@ -37,6 +37,62 @@ class ArgumentTests(unittest.TestCase):
                           'resume', 'x'])
 
 
+class NestedRepositoryTests(unittest.TestCase):
+    """The sandbox keeps only the start folder's own .git read-only."""
+
+    def setUp(self):
+        self.top = Path(tempfile.mkdtemp())
+        self.addCleanup(shutil.rmtree, self.top, True)
+
+    def test_a_folder_with_only_its_own_git_folder_is_accepted(self):
+        (self.top / '.git').mkdir()
+        (self.top / 'src' / 'deep').mkdir(parents=True)
+        self.assertIsNone(codex_launch.nested_repository(self.top))
+        codex_launch.refuse_nested(self.top)
+
+    def test_a_linked_worktree_s_git_file_is_its_own(self):
+        (self.top / '.git').write_text('gitdir: /elsewhere/.git/worktrees/w\n')
+        self.assertIsNone(codex_launch.nested_repository(self.top))
+
+    def test_a_repository_one_level_down_is_refused(self):
+        (self.top / 'child' / '.git').mkdir(parents=True)
+        self.assertEqual(codex_launch.nested_repository(self.top), self.top / 'child' / '.git')
+        with self.assertRaises(SystemExit) as refused:
+            codex_launch.refuse_nested(self.top)
+        self.assertIn('holds another repository', str(refused.exception))
+
+    def test_a_repository_deeper_down_is_refused(self):
+        (self.top / 'a' / 'b' / '.git').mkdir(parents=True)
+        self.assertEqual(codex_launch.nested_repository(self.top), self.top / 'a' / 'b' / '.git')
+
+    def test_a_nested_worktree_s_git_file_is_refused(self):
+        (self.top / 'wt').mkdir()
+        (self.top / 'wt' / '.git').write_text('gitdir: /elsewhere\n')
+        self.assertEqual(codex_launch.nested_repository(self.top), self.top / 'wt' / '.git')
+
+    def test_a_symbolic_link_is_not_followed(self):
+        outside = Path(tempfile.mkdtemp())
+        self.addCleanup(shutil.rmtree, outside, True)
+        (outside / '.git').mkdir()
+        (self.top / 'link').symlink_to(outside, target_is_directory=True)
+        self.assertIsNone(codex_launch.nested_repository(self.top))
+
+    def test_the_launcher_refuses_before_it_starts_codex(self):
+        (self.top / 'child' / '.git').mkdir(parents=True)
+        bin_dir = Path(tempfile.mkdtemp())
+        self.addCleanup(shutil.rmtree, bin_dir, True)
+        marker = bin_dir / 'started'
+        fake = bin_dir / 'codex'
+        fake.write_text(f'#!/bin/sh\ntouch {marker}\n')
+        fake.chmod(0o700)
+        environment = dict(os.environ, PATH=f'{bin_dir}{os.pathsep}{os.environ.get("PATH", "")}')
+        result = subprocess.run([sys.executable, str(Path(codex_launch.__file__)), '--directory', str(self.top)],
+                                capture_output=True, text=True, timeout=30, env=environment)
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn('holds another repository', result.stderr)
+        self.assertFalse(marker.exists())
+
+
 class TmuxStartTests(unittest.TestCase):
     """The real launcher on a private tmux server, with a synthetic `codex` on PATH."""
 
