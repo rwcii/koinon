@@ -331,6 +331,13 @@ sandbox blocks the tmux socket. In a check with `codex sandbox`, the override wa
 `shell_environment_policy` of `config.toml` and kept its settings. A session started through the launcher runs its own app-server, which uses
 more memory than the shared one. Add a shell alias if you want a shorter command.
 
+The launcher refuses a start folder that holds another repository: a `.git` folder or file
+anywhere below it other than its own. Codex's `workspace-write` sandbox keeps the `.git` of its
+start folder read-only, but not a `.git` further down the tree, so a session started above
+another repository could change that repository's git configuration, which every later git
+command there obeys. Start Codex in the repository itself, or in a linked worktree of it. A
+session started with plain `codex` is not checked.
+
 For a DeepSeek (DSH) participant, install the harness guidance instead of, or as well as,
 the Codex guidance:
 

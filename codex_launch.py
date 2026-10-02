@@ -74,6 +74,39 @@ def command(executable, pid, arguments):
             *arguments]
 
 
+def nested_repository(directory):
+    """The first git folder under `directory` other than its own `.git`, or None.
+
+    Codex's workspace-write sandbox keeps the `.git` of its start folder read-only, but not a
+    `.git` further down the tree. A session started above another repository could change
+    that repository's configuration, which every later git command in it obeys. The walk does
+    not follow symbolic links and does not enter a git folder.
+    """
+    top = Path(directory)
+    pending = [top]
+    while pending:
+        folder = pending.pop()
+        try:
+            entries = list(os.scandir(folder))
+        except OSError:
+            continue
+        for entry in entries:
+            if entry.name == '.git':
+                if folder != top:
+                    return Path(entry.path)
+            elif entry.is_dir(follow_symlinks=False):
+                pending.append(Path(entry.path))
+    return None
+
+
+def refuse_nested(directory):
+    found = nested_repository(directory)
+    if found is not None:
+        raise SystemExit(f'codex_launch.py: {directory} holds another repository ({found}); the '
+                         'sandbox does not protect its git folder, so start Codex in that '
+                         'repository or in a folder that holds no other repository')
+
+
 def start_in_tmux(name, directory, arguments):
     """Start this launcher in a new detached tmux session; never reuse or rename one.
 
@@ -114,11 +147,13 @@ def main():
         directory = Path(options.get('--directory', os.getcwd())).expanduser()
         if not directory.is_dir():
             raise SystemExit(f'codex_launch.py: {directory} is not a directory')
+        refuse_nested(directory.resolve())
         result = start_in_tmux(options['--tmux-session'], directory.resolve(), arguments)
         print(json.dumps(result))
         raise SystemExit(0 if result['ok'] else 1)
     if '--directory' in options:
         os.chdir(Path(options['--directory']).expanduser())
+    refuse_nested(Path.cwd())
     os.execv(executable, command(executable, os.getpid(), arguments))
 
 
