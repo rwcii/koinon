@@ -108,7 +108,7 @@ CATALOG = {
                    'after ensure: it stops the predecessor only when both registrations recorded '
                    'the same tmux pane, or with --user-authorized when the user named that exact '
                    'predecessor; the same host process alone is never enough. It moves the '
-                   'repository alias (such as codex-koinon) to this thread when the predecessor '
+                   'checkout\'s alias (such as codex-koinon) to this thread when the predecessor '
                    'held it or it is free; a live holder in another terminal keeps it. It reports '
                    'the records left in the predecessor\'s inbox. A session not started through '
                    'codex_launch.py can run its commands in a Codex app-server shared with other '

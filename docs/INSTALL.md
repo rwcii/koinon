@@ -481,12 +481,14 @@ outside the sandbox that `ensure` already requires; inside the sandbox they repo
 `unavailable`. `status` reports the last record and whether the host process is still live.
 See PROTOCOL.md, "Host process and terminal records".
 
-A Codex session also takes its repository's stable alias, such as `codex-koinon`, when no
+A Codex session also takes its checkout's stable alias, such as `codex-koinon`, when no
 other live session holds it. The holder publishes the alias as its peer name, so peers
 address it by that name whatever its per-thread name is; `ensure` and `status` report
 `alias` with `name`, `held` and, when another session holds it, that session's per-thread
-name. A holder that was already running restarts once so that it publishes the alias. See
-PROTOCOL.md, "Stable alias of a Codex participant".
+name. A holder that was already running restarts once so that it publishes the alias. Each
+worktree of a repository is its own checkout with its own alias, named after its folder, so
+the Codex sessions of two worktrees never take each other's alias. See PROTOCOL.md, "Stable
+alias of a Codex participant".
 
 After a Codex `/clear` or `/resume` in the same terminal, the new thread runs `ensure` and then
 the guide's `rebind` recipe (`session.py rebind --predecessor OLD_THREAD`). It stops the

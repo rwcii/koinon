@@ -632,7 +632,7 @@ class Runtime:
     def create_record(self, record, metadata):
         """Choose the published name and create the registry record under `names.lock`.
 
-        A Codex holder of its repository's alias publishes the alias; every other
+        A Codex holder of its checkout's alias publishes the alias; every other
         participant publishes its per-thread name. The name is chosen once, here.
         """
         from koinon import alias_lease

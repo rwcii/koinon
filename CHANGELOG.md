@@ -5,6 +5,13 @@ into a dated release section when promoted to `main`.
 
 ## Unreleased
 
+- Each checkout now has its own stable alias. Before, the Codex sessions of all worktrees of one
+  repository shared one alias, named after the folder of the first worktree that reserved it.
+  After the holder stopped, the session that ran `ensure` first took it, so the order of a
+  restart could give a session the alias of another worktree. A lease of an earlier version is
+  adopted by the checkout it was named after, a session that publishes the alias of another
+  checkout restarts at its next `ensure` and publishes its own, and a lease that no checkout
+  adopts is removed once nothing publishes it.
 - `codex_launch.py` now refuses a start folder that holds another repository (a `.git` below the
   folder other than its own). Codex's sandbox protects only the start folder's own `.git`, so a
   session started above another repository could change that repository's git configuration.

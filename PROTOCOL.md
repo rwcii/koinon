@@ -55,7 +55,7 @@ BODY
 
 `Bridge.send` wraps every body this way, so a Claude receiver names a Codex or DeepSeek sender.
 `from` is the bridge's own address. `from-name` is the per-thread name that the bridge's notifier
-published in the registry; a holder of its repository's alias is labelled `name (alias)`. Before
+published in the registry; a holder of its checkout's alias is labelled `name (alias)`. Before
 the notifier registers, the envelope has `from` only. The receiver reads the fields from the first
 tag and accepts the envelope only when rebuilding it from its parts gives the same text, so a
 body cannot change them. The fields are asserted by the sender, as in every Claude envelope;
@@ -613,17 +613,32 @@ and Claude sessions have no such records.
 
 ## Stable alias of a Codex participant
 
-Each repository reserves one alias for its Codex participants, once, under the installation's
+Each checkout reserves one alias for its Codex participants, once, under the installation's
 `names.lock`: `codex-<label>` (the per-thread name without its two-hex suffix), or, when that
-name is reserved for another repository or equals a saved or live name,
-`codex-<label>-<first N hex of the repository digest>` for the first free N in 4, 6, … 64. The
-repository digest is the SHA-256 of the absolute Git common directory. A new per-thread name
-never equals a reserved alias. DeepSeek and Claude sessions have no alias.
+name is reserved for another checkout or equals a saved or live name,
+`codex-<label>-<first N hex of the checkout digest>` for the first free N in 4, 6, … 64. The
+checkout digest is the SHA-256 of the absolute top folder of the checkout
+(`git rev-parse --show-toplevel`). The worktrees of one repository share a Git common
+directory, but each is its own checkout with its own alias, named after its own folder, so
+their Codex participants never compete for one alias. A new per-thread name never equals a
+reserved alias. DeepSeek and Claude sessions have no alias.
 
 The lease `<state_root>/aliases/<alias>.json` (owner-only) is the only source of the holder:
-`{alias, repository, holder, state, from, to, operation, changed_at_ms}`, with `state` `held`,
-`publishing` or `moving` and `operation` the `{pid, proc_start}` of the command that set a
-transient state. It holds no inbox, checkpoint, claim or thread ID.
+`{alias, checkout, repository, holder, state, from, to, operation, changed_at_ms}`, with
+`repository` the SHA-256 of the absolute Git common directory, `state` `held`, `publishing` or
+`moving` and `operation` the `{pid, proc_start}` of the command that set a transient state. It
+holds no inbox, checkpoint, claim or thread ID.
+
+A lease of an earlier version has no `checkout`: it was keyed by the repository only, so one
+alias served every worktree. The checkout of that repository whose per-thread name base equals
+the alias adopts it at its next `ensure`, which writes its `checkout` and keeps its holder and
+state. `ensure` of any checkout of that repository removes a lease that no checkout adopts,
+while no live record publishes its alias and no registry record that cannot be removed carries
+it. A notifier never publishes the alias of another checkout, even when the lease names it as
+holder. When a key's live record still publishes the alias of another checkout, its `ensure`
+restarts its service, so that it publishes its own name or alias. A holder of a `held` lease
+whose saved repository is another checkout, and whose live record does not publish the alias,
+does not keep it: the checkout's own participant takes it.
 
 One-holder rule. A notifier publishes the alias as its registry `name` only when, at its start
 and under `names.lock`, the lease names its own session key as holder in `held` or
