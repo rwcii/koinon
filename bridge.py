@@ -141,7 +141,7 @@ def own_name(address):
     """The name this bridge's notifier published for it, or None before it registers.
 
     The record is found by this process's pid and must name this bridge's own socket. A
-    holder of its repository's alias is labelled `name (alias)`, because the per-thread name
+    holder of its checkout's alias is labelled `name (alias)`, because the per-thread name
     identifies the session and the alias is what peers list it under.
     """
     path = participant_status.registry_directory() / f'{os.getpid()}.json'

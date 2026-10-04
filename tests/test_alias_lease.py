@@ -29,6 +29,20 @@ def git_repo(path):
     return path
 
 
+def git_worktrees(root, *names):
+    """A repository with one commit and a linked worktree per name: [main, *worktrees]."""
+    main = git_repo(root / 'repo')
+    subprocess.run(['git', '-C', str(main), '-c', 'user.name=Synthetic', '-c', 'user.email=synthetic@example.invalid',
+                    '-c', 'commit.gpgsign=false', 'commit', '-q', '--allow-empty', '-m', 'init'],
+                   check=True, timeout=30)
+    trees = [main]
+    for name in names:
+        subprocess.run(['git', '-C', str(main), 'worktree', 'add', '-q', '--detach', str(root / name)],
+                       check=True, timeout=30)
+        trees.append(root / name)
+    return trees
+
+
 def dead_pid():
     process = subprocess.Popen([sys.executable, '-c', 'pass'])
     process.wait()
@@ -92,7 +106,7 @@ class ReservationTests(Fixture):
         self.register('k2', 'codex-koinon-06', second)
         one = self.prepare('k1', first, 'codex-koinon-05')['name']
         two = self.prepare('k2', second, 'codex-koinon-06')['name']
-        digest = alias_lease.repository_digest(str(second))
+        digest = alias_lease.checkout_digest(str(second))
         self.assertEqual((one, two), ('codex-koinon', 'codex-koinon-' + digest[:4]))
         self.assertEqual(self.lease(two)['holder'], 'k2')
 
@@ -101,7 +115,7 @@ class ReservationTests(Fixture):
         self.register('k1', 'codex-foo-ab', foo)
         self.register('k2', 'codex-foo-ab-3c', foo_ab)
         name = self.prepare('k2', foo_ab, 'codex-foo-ab-3c')['name']
-        self.assertEqual(name, 'codex-foo-ab-' + alias_lease.repository_digest(str(foo_ab))[:4])
+        self.assertEqual(name, 'codex-foo-ab-' + alias_lease.checkout_digest(str(foo_ab))[:4])
 
     def test_shared_digest_prefix_probes_a_longer_suffix(self):
         first, second = git_repo(self.root / 'a' / 'x'), git_repo(self.root / 'b' / 'x')
@@ -111,7 +125,7 @@ class ReservationTests(Fixture):
             durable_state.publish(self.state_root / 'aliases' / (alias + '.json'),
                                   dict(alias=alias, repository=digest, holder=None, state='held',
                                        **{'from': None}, to=None, operation=None))
-        with mock.patch.object(alias_lease, 'repository_digest', side_effect=lambda repo: digests[repo]):
+        with mock.patch.object(alias_lease, 'checkout_digest', side_effect=lambda repo: digests[repo]):
             one = self.prepare('k1', first, 'codex-x-02')['name']
             two = self.prepare('k2', second, 'codex-x-03')['name']
         self.assertEqual((one, two), ('codex-x-abcdef', 'codex-x-abcdef11'))
@@ -139,7 +153,7 @@ class ReservationTests(Fixture):
     def test_outside_a_repository_no_alias(self):
         plain = self.root / 'plain'
         plain.mkdir()
-        with mock.patch.object(alias_lease.repository_identity, 'repo_common_directory', side_effect=ValueError):
+        with mock.patch.object(alias_lease.repository_identity, 'checkout_directory', side_effect=ValueError):
             self.assertEqual(self.prepare('k1', plain, 'codex-plain-01')['reason'], 'not_a_repository')
 
 
@@ -258,6 +272,100 @@ class TakeTests(Fixture):
         self.assertEqual(results[holder]['state'], 'publishing')
         self.assertIn(results[loser].get('reason'), ('alias_busy', 'alias_held_by'))
         self.assertEqual(len(list((self.state_root / 'aliases').glob('*.json'))), 1)
+
+
+class WorktreeTests(Fixture):
+    """Each checkout of one repository has its own alias (two worktrees share a common directory)."""
+
+    def setUp(self):
+        super().setUp()
+        self.main, self.wt_a, self.wt_b = git_worktrees(self.root, 'wt-a', 'wt-b')
+        self.register('a', 'codex-wt-a-0a', self.wt_a)
+        self.register('b', 'codex-wt-b-0b', self.wt_b)
+
+    def legacy(self, alias, holder, state='held'):
+        """A lease of an earlier version: keyed by the repository only, no checkout."""
+        (self.state_root / 'aliases').mkdir(parents=True, exist_ok=True)
+        durable_state.publish(self.state_root / 'aliases' / (alias + '.json'),
+                              dict(alias=alias, repository=alias_lease.repository_digest(str(self.wt_a)),
+                                   holder=holder, state=state, **{'from': None}, to=None, operation=None))
+
+    def test_two_worktrees_get_their_own_aliases(self):
+        one = self.prepare('a', self.wt_a, 'codex-wt-a-0a')
+        two = self.prepare('b', self.wt_b, 'codex-wt-b-0b', stopped=lambda other: False)
+        self.assertEqual((one['name'], one['state']), ('codex-wt-a', 'publishing'))
+        self.assertEqual((two['name'], two['state']), ('codex-wt-b', 'publishing'))
+        self.assertEqual((self.lease('codex-wt-a')['holder'], self.lease('codex-wt-b')['holder']), ('a', 'b'))
+        self.assertNotEqual(self.lease('codex-wt-a')['checkout'], self.lease('codex-wt-b')['checkout'])
+
+    def test_restart_order_does_not_move_an_alias_to_another_worktree(self):
+        # The holder of wt-a's alias stopped; the agent of wt-b comes back first.
+        self.prepare('a', self.wt_a, 'codex-wt-a-0a')
+        self.settle('codex-wt-a')
+        result = self.prepare('b', self.wt_b, 'codex-wt-b-0b')
+        self.assertEqual(result['name'], 'codex-wt-b')
+        self.assertEqual(self.lease('codex-wt-a')['holder'], 'a')
+        self.assertEqual(self.prepare('a', self.wt_a, 'codex-wt-a-0a')['name'], 'codex-wt-a')
+
+    def test_earlier_lease_is_adopted_by_the_checkout_it_names(self):
+        # A holder that runs across the upgrade keeps its alias, with no restart.
+        self.legacy('codex-wt-a', 'a')
+        self.live('codex-wt-a-0a', 'codex-wt-a')
+        result = self.prepare('a', self.wt_a, 'codex-wt-a-0a')
+        self.assertEqual(result, dict(name='codex-wt-a', held=True, state='held', restart=False))
+        self.assertEqual(self.lease('codex-wt-a')['checkout'], alias_lease.checkout_digest(str(self.wt_a)))
+
+    def test_earlier_lease_held_from_another_worktree_returns_to_its_checkout(self):
+        # Before the upgrade, the agent of wt-b took wt-a's alias and publishes it.
+        self.legacy('codex-wt-a', 'b')
+        self.live('codex-wt-b-0b', 'codex-wt-a')
+        self.assertEqual(self.prepare('a', self.wt_a, 'codex-wt-a-0a', stopped=lambda other: False)['reason'],
+                         'alias_held_by')
+        released = self.prepare('b', self.wt_b, 'codex-wt-b-0b', stopped=lambda other: False)
+        self.assertEqual(released['name'], 'codex-wt-b')
+        self.assertTrue(released['restart'])
+        # After its restart b publishes its own alias; a takes its alias while b runs.
+        self.records = []
+        self.live('codex-wt-b-0b', 'codex-wt-b')
+        taken = self.prepare('a', self.wt_a, 'codex-wt-a-0a', stopped=lambda other: False)
+        self.assertEqual((taken['name'], taken['state']), ('codex-wt-a', 'publishing'))
+        self.assertEqual(self.lease('codex-wt-a')['holder'], 'a')
+
+    def test_a_holder_publishing_another_checkouts_alias_restarts_without_a_take(self):
+        self.legacy('codex-wt-a', 'b')
+        self.live('codex-wt-b-0b', 'codex-wt-a')
+        self.register('c', 'codex-wt-b-0c', self.wt_b)
+        self.prepare('c', self.wt_b, 'codex-wt-b-0c')
+        self.settle('codex-wt-b')
+        self.live('codex-wt-b-0c', 'codex-wt-b')
+        result = self.prepare('b', self.wt_b, 'codex-wt-b-0b', stopped=lambda other: False)
+        self.assertEqual(result['reason'], 'alias_held_by')
+        self.assertTrue(result['restart'])
+
+    def test_another_checkouts_alias_is_never_published(self):
+        self.legacy('codex-wt-a', 'b')
+        with alias_lease.publication(self.state_root / 'sessions' / 'b', 'codex-wt-b-0b', str(self.wt_b)) as found:
+            self.assertEqual(found, ('codex-wt-b-0b', None))
+        self.prepare('a', self.wt_a, 'codex-wt-a-0a')  # adopts the lease for wt-a
+        with alias_lease.publication(self.state_root / 'sessions' / 'b', 'codex-wt-b-0b', str(self.wt_b)) as found:
+            self.assertEqual(found, ('codex-wt-b-0b', None))
+        report = alias_lease.report(self.state_root, 'b', str(self.wt_b), 'codex-wt-b-0b')
+        self.assertEqual(report['reason'], 'not_reserved')
+
+    def test_unclaimed_earlier_lease_is_removed_only_when_unpublished(self):
+        self.legacy('codex-old', 'b')
+        self.live('codex-wt-b-0b', 'codex-old')
+        self.prepare('a', self.wt_a, 'codex-wt-a-0a')
+        self.assertTrue(alias_lease.reserved(self.state_root, 'codex-old'))
+        self.records = []
+        self.prepare('a', self.wt_a, 'codex-wt-a-0a')
+        self.assertFalse(alias_lease.reserved(self.state_root, 'codex-old'))
+
+    def test_unclaimed_earlier_lease_with_a_foreign_record_is_kept(self):
+        self.legacy('codex-old', None)
+        (self.registry / '1.json').write_text(json.dumps(dict(name='codex-old', entrypoint='other')))
+        self.prepare('a', self.wt_a, 'codex-wt-a-0a')
+        self.assertTrue(alias_lease.reserved(self.state_root, 'codex-old'))
 
 
 class PublicationTests(Fixture):

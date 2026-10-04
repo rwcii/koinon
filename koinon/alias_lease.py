@@ -1,7 +1,12 @@
 """Stable alias of a Codex participant: reservation, lease and the one-holder rule.
 
-One state root and one `names.lock` serve every repository, so each repository reserves
-its alias once, in its lease `<state_root>/aliases/<alias>.json`. The lease is the only
+One state root and one `names.lock` serve every repository, so each checkout reserves
+its alias once, in its lease `<state_root>/aliases/<alias>.json`. A checkout is one
+worktree: the worktrees of one repository share a Git common directory but each has its
+own alias, named after its own folder, so their Codex participants never compete for one
+name. A lease of an earlier version is keyed by the repository only; the checkout whose
+per-thread name it was derived from adopts it, and any other one is removed once no
+record carries it. The lease is the only
 source of the holder. A notifier publishes the alias as its registry name only when, at
 its start and under `names.lock`, the lease names its own key as holder in state `held`
 or `publishing`; it never rewrites its record in place. The lease leaves a key only
@@ -47,6 +52,38 @@ def repository_digest(repo):
         return None
 
 
+def checkout_digest(repo):
+    """SHA-256 of the absolute top folder of the checkout; None outside a repository."""
+    try:
+        return hashlib.sha256(str(repository_identity.checkout_directory(repo)).encode()).hexdigest()
+    except ValueError:
+        return None
+
+
+def for_checkout(lease, checkout, repository, base):
+    """Whether lease is the alias lease of this checkout.
+
+    A lease of an earlier version carries no `checkout`: it counts for the checkout of its
+    repository whose per-thread name base is its alias, the checkout it was named after.
+    """
+    if lease.get('checkout') is not None:
+        return lease['checkout'] == checkout
+    return repository is not None and lease['repository'] == repository and lease['alias'] == base
+
+
+def _session_checkouts(state_root, keys):
+    """The checkout digest of each key's saved repository; None when it cannot be resolved."""
+    found = {}
+    for key in keys:
+        try:
+            value = durable_state.read(Path(state_root) / 'sessions' / key / 'session.json', max_bytes=65536)
+        except (OSError, ValueError):
+            value = None
+        repo = value.get('repo') if isinstance(value, dict) else None
+        found[key] = checkout_digest(repo) if isinstance(repo, str) and Path(repo).is_dir() else None
+    return found
+
+
 def base_name(name):
     """The per-thread name without its two-hex suffix: `codex-<label>`."""
     return _SUFFIX.sub('', name)
@@ -80,7 +117,8 @@ def leases(state_root):
         except (OSError, ValueError):
             continue
         if (isinstance(value, dict) and value.get('alias') == path.stem
-                and value.get('state') in STATES and isinstance(value.get('repository'), str)):
+                and value.get('state') in STATES and isinstance(value.get('repository'), str)
+                and isinstance(value.get('checkout', ''), str)):
             found.append(value)
     return found
 
@@ -132,16 +170,41 @@ def publishes(records, name, alias):
     return any(record.get('name') == alias for record in live_for(records, name))
 
 
-def _reserve(state_root, digest, name, records, existing):
+def _reserve(state_root, checkout, repository, name, records, existing):
     base = base_name(name)
     taken = {lease['alias'] for lease in existing}
     taken |= set(session_names(state_root).values())
     taken |= {record.get('name') for record in records}
-    for candidate in [base] + [f'{base}-{digest[:n]}' for n in range(4, 65, 2)]:
+    for candidate in [base] + [f'{base}-{checkout[:n]}' for n in range(4, 65, 2)]:
         if candidate not in taken:
-            return dict(alias=candidate, repository=digest, holder=None, state='held',
-                        **{'from': None}, to=None, operation=None)
+            return dict(alias=candidate, checkout=checkout, repository=repository, holder=None,
+                        state='held', **{'from': None}, to=None, operation=None)
     return None
+
+
+def _remove_unclaimed(state_root, registry, existing, checkout, repository, base, records):
+    """Remove each lease of an earlier version of this repository that no checkout adopted.
+
+    Such a lease is removed only while no live record publishes its alias and no registry
+    record that cannot be removed carries it. Returns the leases that remain.
+    """
+    kept = []
+    for lease in existing:
+        if (lease.get('checkout') is not None or lease['repository'] != repository
+                or for_checkout(lease, checkout, repository, base)
+                or any(record.get('name') == lease['alias'] for record in records)
+                or (lease['state'] in TRANSIENT and operation_live(lease.get('operation')))):
+            kept.append(lease)
+            continue
+        holder_state = Path(state_root) / 'sessions' / lease['holder'] if lease['holder'] else None
+        removable, blockers = _stale_records(registry, lease['alias'], holder_state)
+        if blockers:
+            kept.append(lease)
+            continue
+        for path in removable:
+            path.unlink()
+        (_directory(state_root) / (lease['alias'] + '.json')).unlink()
+    return kept
 
 
 def _stale_records(registry, alias, holder_state):
@@ -188,64 +251,86 @@ def prepare(state_root, key, repo, name, *, peers, stopped, registry=None):
     lifecycle is stopped. Returns a report with `restart` true when this key must restart
     its running service so that its notifier publishes the alias.
     """
-    digest = repository_digest(repo)
-    if digest is None:
+    checkout = checkout_digest(repo)
+    if checkout is None:
         return dict(state='unavailable', reason='not_a_repository', restart=False)
+    repository, base = repository_digest(repo), base_name(name)
     registry = registry_folder() if registry is None else Path(registry)
     if not registry.is_dir():
         # Without the registry, a record carrying the alias cannot be ruled out.
         return dict(state='unavailable', reason='registry_missing', paths=[str(registry)], restart=False)
     with names_lock(state_root):
         records = peers()
-        existing = leases(state_root)
-        lease = next((value for value in existing if value['repository'] == digest), None)
+        existing = _remove_unclaimed(state_root, registry, leases(state_root), checkout, repository, base, records)
+        # A lease of an earlier version can leave this key publishing the alias of another
+        # checkout. Its service restarts, so that it publishes its own name or alias.
+        release = any(lease['holder'] == key and not for_checkout(lease, checkout, repository, base)
+                      and publishes(records, name, lease['alias']) for lease in existing)
+        result = _take(state_root, key, checkout, repository, name, registry, records, existing, stopped)
+        if release:
+            result['restart'] = True
+        return result
+
+
+def _take(state_root, key, checkout, repository, name, registry, records, existing, stopped):
+    """The decision of `prepare` for this checkout's lease, under `names.lock`."""
+    base = base_name(name)
+    lease = next((value for value in existing if for_checkout(value, checkout, repository, base)), None)
+    if lease is None:
+        lease = _reserve(state_root, checkout, repository, name, records, existing)
         if lease is None:
-            lease = _reserve(state_root, digest, name, records, existing)
-            if lease is None:
-                return dict(state='unavailable', reason='alias_unavailable', restart=False)
-            _write(state_root, lease)
-        alias = lease['alias']
-        running = bool(live_for(records, name))
-        names = session_names(state_root)
-        holder = lease['holder']
-        if lease['state'] == 'moving' and not operation_live(lease.get('operation')):
-            if lease['to'] == key and not publishes(records, names.get(lease['from']), alias):
-                # A rebind died after its stop: its successor completes the move.
-                _write(state_root, dict(lease, holder=key, state='publishing', operation=operation(),
-                                        **{'from': None}, to=None))
-                return dict(name=alias, held=False, state='publishing', restart=running)
-            if lease['from'] == key and publishes(records, name, alias):
-                # A rebind died before its stop: the predecessor still publishes; cancel.
-                _write(state_root, dict(lease, state='held', operation=None, **{'from': None}, to=None))
-                return dict(name=alias, held=True, state='held', restart=False)
-        if holder == key and lease['state'] != 'moving':
-            if publishes(records, name, alias):
-                if lease['state'] != 'held':
-                    _write(state_root, dict(lease, state='held', operation=None))
-                return dict(name=alias, held=True, state='held', restart=False)
-            _write(state_root, dict(lease, state='publishing', operation=operation()))
+            return dict(state='unavailable', reason='alias_unavailable', restart=False)
+        _write(state_root, lease)
+    elif lease.get('checkout') is None:
+        # This checkout adopts the lease of an earlier version that was named after it.
+        lease = _write(state_root, dict(lease, checkout=checkout))
+    alias = lease['alias']
+    running = bool(live_for(records, name))
+    names = session_names(state_root)
+    holder = lease['holder']
+    if lease['state'] == 'moving' and not operation_live(lease.get('operation')):
+        if lease['to'] == key and not publishes(records, names.get(lease['from']), alias):
+            # A rebind died after its stop: its successor completes the move.
+            _write(state_root, dict(lease, holder=key, state='publishing', operation=operation(),
+                                    **{'from': None}, to=None))
             return dict(name=alias, held=False, state='publishing', restart=running)
-        if holder is not None and holder != key:
-            successor = lease['to'] if lease['state'] == 'moving' else holder
-            if lease['state'] in TRANSIENT and operation_live(lease.get('operation')):
-                return dict(name=alias, held=False, state=lease['state'], reason='alias_busy', restart=False)
-            if live_for(records, names.get(successor)) or not stopped(successor):
-                reason = 'alias_busy' if lease['state'] in TRANSIENT else 'alias_held_by'
-                return dict(name=alias, held=False, state=lease['state'], reason=reason,
-                            holder=names.get(successor), restart=False)
-        elif holder == key:
-            # A `moving` lease is completed by the rebind of chunk 03, never here.
-            return dict(name=alias, held=False, state='moving', reason='alias_busy', restart=False)
-        holder_state = Path(state_root) / 'sessions' / holder if holder else None
-        removable, blockers = _stale_records(registry, alias, holder_state)
-        if blockers:
-            return dict(name=alias, held=False, state=lease['state'], reason='alias_occupied',
-                        paths=[str(path) for path in blockers], restart=False)
-        for path in removable:
-            path.unlink()
-        _write(state_root, dict(lease, holder=key, state='publishing', operation=operation(),
-                                **{'from': None}, to=None))
+        if lease['from'] == key and publishes(records, name, alias):
+            # A rebind died before its stop: the predecessor still publishes; cancel.
+            _write(state_root, dict(lease, state='held', operation=None, **{'from': None}, to=None))
+            return dict(name=alias, held=True, state='held', restart=False)
+    if holder == key and lease['state'] != 'moving':
+        if publishes(records, name, alias):
+            if lease['state'] != 'held':
+                _write(state_root, dict(lease, state='held', operation=None))
+            return dict(name=alias, held=True, state='held', restart=False)
+        _write(state_root, dict(lease, state='publishing', operation=operation()))
         return dict(name=alias, held=False, state='publishing', restart=running)
+    if holder is not None and holder != key:
+        successor = lease['to'] if lease['state'] == 'moving' else holder
+        if lease['state'] in TRANSIENT and operation_live(lease.get('operation')):
+            return dict(name=alias, held=False, state=lease['state'], reason='alias_busy', restart=False)
+        # A holder whose own checkout is another one, and that does not publish the
+        # alias, holds it only through a lease of an earlier version: it is free.
+        elsewhere = (lease['state'] == 'held'
+                     and _session_checkouts(state_root, [holder])[holder] != checkout
+                     and not publishes(records, names.get(holder), alias))
+        if not elsewhere and (live_for(records, names.get(successor)) or not stopped(successor)):
+            reason = 'alias_busy' if lease['state'] in TRANSIENT else 'alias_held_by'
+            return dict(name=alias, held=False, state=lease['state'], reason=reason,
+                        holder=names.get(successor), restart=False)
+    elif holder == key:
+        # A `moving` lease is completed by the rebind of chunk 03, never here.
+        return dict(name=alias, held=False, state='moving', reason='alias_busy', restart=False)
+    holder_state = Path(state_root) / 'sessions' / holder if holder else None
+    removable, blockers = _stale_records(registry, alias, holder_state)
+    if blockers:
+        return dict(name=alias, held=False, state=lease['state'], reason='alias_occupied',
+                    paths=[str(path) for path in blockers], restart=False)
+    for path in removable:
+        path.unlink()
+    _write(state_root, dict(lease, holder=key, state='publishing', operation=operation(),
+                            **{'from': None}, to=None))
+    return dict(name=alias, held=False, state='publishing', restart=running)
 
 
 def begin_move(state_root, old, new, repo, *, peers):
@@ -254,10 +339,11 @@ def begin_move(state_root, old, new, repo, *, peers):
     Returns `move` (the lease now moves), `not_holder` (old does not hold the alias) or a
     refusal. From here no notifier publishes the alias at its start.
     """
-    digest = repository_digest(repo)
+    checkout, repository = checkout_digest(repo), repository_digest(repo)
     with names_lock(state_root):
+        base = base_name(session_names(state_root).get(old, ''))
         lease = next((value for value in leases(state_root)
-                      if value['holder'] == old or (digest is not None and value['repository'] == digest)), None)
+                      if for_checkout(value, checkout, repository, base)), None)
         if lease is None or lease['holder'] != old:
             return dict(kind='not_holder', alias=lease['alias'] if lease else None)
         if lease['state'] == 'moving' and (lease['from'], lease['to']) != (old, new):
@@ -308,23 +394,25 @@ def publication(state, name, repo):
         yield name, None
         return
     key = Path(state).name
-    digest = repository_digest(repo)
+    checkout, repository, base = checkout_digest(repo), repository_digest(repo), base_name(name)
     with names_lock(state_root):
         chosen, alias = name, None
         for lease in leases(state_root):
+            if not for_checkout(lease, checkout, repository, base):
+                # The alias of another checkout is never published, even by its holder.
+                continue
+            alias = lease['alias']
             if lease['holder'] == key and lease['state'] in ('held', 'publishing'):
-                chosen = alias = lease['alias']
-                break
-            if lease['repository'] == digest:
-                alias = lease['alias']
+                chosen = alias
+            break
         yield chosen, alias
 
 
 def report(state_root, key, repo, name):
     """Read-only alias state of one Codex registration for `ensure`, `status` and `guide`."""
-    digest = repository_digest(repo)
+    checkout, repository = checkout_digest(repo), repository_digest(repo)
     lease = next((value for value in leases(state_root)
-                  if value['holder'] == key or (digest is not None and value['repository'] == digest)), None)
+                  if for_checkout(value, checkout, repository, base_name(name or ''))), None)
     if lease is None:
         return dict(state='unknown', reason='not_reserved')
     held = lease['holder'] == key and lease['state'] == 'held'

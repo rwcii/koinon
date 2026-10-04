@@ -76,7 +76,7 @@ observations with the handoff's bridge identity:
   the handoff's ID differs from this session's ID, the user reset the predecessor in this
   terminal, and this session replaced it. Then, without asking, run the guide's recipe for the
   handoff's old ID, through the agent's approval request: for Codex the `rebind` recipe, which
-  also verifies that both registrations recorded this pane and moves the repository alias to
+  also verifies that both registrations recorded this pane and moves the checkout's alias to
   this session; for DeepSeek the `stop_predecessor` recipe. Report the unread count that the
   stop leaves in the predecessor's inbox, and for Codex the alias result. In every other case
   (another terminal, no tmux, or no terminal values in the handoff), stop nothing: report the

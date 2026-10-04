@@ -23,5 +23,22 @@ def repo_common_directory(start=None):
     return Path(path).resolve()
 
 
+def checkout_directory(start=None):
+    """The top folder of the checkout that holds start, absolute and resolved.
+
+    Each worktree of one repository has its own top folder, while all of them share the
+    Git common directory.
+    """
+    try:
+        out = subprocess.run(['git', 'rev-parse', '--show-toplevel'],
+                             cwd=str(start or Path.cwd()), capture_output=True, text=True, timeout=10)
+    except (OSError, subprocess.SubprocessError) as exc:
+        raise ValueError('cannot resolve the checkout') from exc
+    path = out.stdout.strip()
+    if out.returncode or not path or not Path(path).is_absolute():
+        raise ValueError('not inside a Git checkout')
+    return Path(path).resolve()
+
+
 def repo_identity(start=None):
     return hashlib.sha256(str(repo_common_directory(start)).encode()).hexdigest()[:16]
