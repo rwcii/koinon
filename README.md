@@ -343,6 +343,40 @@ Ordinary peer limits: 16 active connections, six-second handler deadline, 32 fra
 
 ## Development
 
+The Go daemon core is available alongside the Python runtime. It is an early sprint chunk:
+it has status and session records; messaging, MCP and installation arrive in later chunks.
+The Python installation commands still install the Python runtime.
+
+With Go 1.26.6 or newer:
+
+```sh
+CGO_ENABLED=0 go build -o bin/koinon ./cmd/koinon
+go vet ./...
+go test -race ./...
+```
+
+The [pure-Go SQLite driver](https://pkg.go.dev/modernc.org/sqlite) is pinned in `go.mod`.
+The binary does not need Python or a language runtime. Run it in the foreground:
+
+```sh
+bin/koinon serve
+bin/koinon status
+```
+
+`serve` binds `127.0.0.1:47671` and `[::1]:47671` and prints its listener addresses once ready.
+It refuses a non-loopback listener. `--listen` and `--listen-v6` select other loopback addresses
+and ports; port zero selects an ephemeral port. Use `status --address ADDRESS` for such a port.
+Go state defaults to `$XDG_STATE_HOME/koinon/go` or `~/.local/state/koinon/go` on both platforms.
+`--state-dir` selects an absolute private root for an isolated development instance; use the
+same root for `serve` and `status`. The daemon locks that root for its lifetime; a process exit
+releases the lock, preserving the permanent lock file. It creates a mode-0600 user secret and
+SQLite state without changing Python files. Existing unsafe files are refused, not repaired.
+Status reads the secret privately and sends it only to a literal loopback address, without
+proxies or redirects. Stop the foreground daemon with Ctrl-C or SIGTERM.
+
+See [the Go core API](PROTOCOL.md#go-daemon-core) for session registration and expiry.
+Continue running the Python regression suite until the runtime retirement chunk:
+
 ```sh
 python3 tests/run.py -v
 ```

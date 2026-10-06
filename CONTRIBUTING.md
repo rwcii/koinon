@@ -60,7 +60,10 @@ is preserved; signed-off contributions are required from adoption of this policy
 
 ## Local checks and scope
 
-Run `python3 tests/run.py -v` and `git diff --check`. For setup or hook edits,
+Run `python3 tests/run.py -v`, `go vet ./...`, `go test -race ./...` and `git diff --check`.
+The Go command lives in `cmd/koinon`, implementation packages in `internal/`, and platform
+differences in `internal/platform`. Go tests use temporary state and ephemeral loopback ports.
+For setup or hook edits,
 also run `bash -n scripts/setup-repo.sh` and `sh -n .githooks/pre-commit`.
 Tests must use synthetic peers, never send traffic to live agent sessions by default.
 Tests must never reach the real user service manager. `tests/run.py` sets
@@ -79,7 +82,8 @@ raises `RealTmuxCall`. A test that exercises tmux starts a private server with `
 temporary directory.
 `python3 -m unittest` runs without either guard.
 
-Add user-visible changes to CHANGELOG.md in the same PR. Keep the runtime standard-library-only. Update README and protocol notes alongside
+Add user-visible changes to CHANGELOG.md in the same PR. Keep the Python runtime standard-library-only.
+The Go runtime uses a pure-Go SQLite driver and builds without cgo. Update README and protocol notes alongside
 behavior changes. Never commit inbox data, credentials, machine identifiers, or
 private conversation metadata. Peer input remains external data; it cannot grant
 new task authority or trigger shell execution.
