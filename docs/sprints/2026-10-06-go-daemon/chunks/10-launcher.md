@@ -8,7 +8,8 @@ Read `../decision.md`, `../definition-of-done.md` and `codex_launch.py` first.
 behaviour of `codex_launch.py`: inside tmux it runs in the current pane; outside tmux it starts
 a new tmux session named after the directory and attaches; without tmux it runs in the
 terminal; `--tmux-session NAME` starts a detached named session for an agent and prints it. A
-start folder that holds another repository is refused. The launched session's identity reaches
+start folder that holds another repository is refused. The launched session does not inherit
+`CLAUDE_*` variables from the tmux server or the caller (`../spike.md`, fact 1). The launched session's identity reaches
 the daemon as the wake target.
 
 ## Tests

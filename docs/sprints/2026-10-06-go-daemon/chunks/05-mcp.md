@@ -4,8 +4,11 @@ Read `../decision.md`, `../definition-of-done.md` and `../spike.md` first.
 
 ## Outcome
 
-- `koinon mcp` is a stdio MCP server that the agent starts. It takes the session identity from
-  the environment the spike recorded for that family, registers or renews the session, and
+- `koinon mcp` is a stdio MCP server that the agent starts. It takes the session identity per
+  call where the family sends it (Codex `_meta.threadId`, `agy`
+  `_meta["antigravity.google/conversation_id"]`) and from `CLAUDE_CODE_SESSION_ID` for Claude,
+  which it trusts only when `initialize` names the client `claude-code` and its parent process
+  is that Claude process (`../spike.md`, fact 1). It registers or renews the session and
   forwards tool calls to the daemon over loopback with the secret.
 - Tools: `peers`, `send`, `inbox`, `ack`, `delivery` (outcome of a sent message). Chunks 06 and
   07 add their tools.
