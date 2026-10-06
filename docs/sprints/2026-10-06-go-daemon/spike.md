@@ -30,11 +30,11 @@ Consequences for the plan:
   `CLAUDE_CODE_SESSION_ID` from its environment.
 - Environment identity is not trustworthy on its own. The default tmux server on the probe host
   carries one Claude session's `CLAUDE_CODE_SESSION_ID`, `CLAUDE_CODE_MESSAGING_SOCKET` and
-  `CLAUDE_CODE_MESSAGING_TOKEN` in its global environment: the server process was started by a
-  `tmux new-session -d` command that ran with that Claude session's environment, two days before
-  the probe. That Claude process has since ended. Every tmux session created on the server
-  afterwards inherits the variables, also a session a person starts from a plain shell, and also
-  non-Claude agents, so they report the identity of a session that no longer exists. `koinon mcp`
+  `CLAUDE_CODE_MESSAGING_TOKEN` in its global environment. They are in the tmux server process's
+  own environment, so the shell that started the server had them. That Claude process has since
+  ended. Every tmux session created on the server afterwards inherits the variables, also a
+  session a person starts with `tmux new -s <name>`, and also non-Claude agents, so they report
+  the identity of a session that no longer exists. `koinon mcp`
   accepts a Claude session identifier only when the MCP client is Claude Code (`clientInfo.name`
   `claude-code` in `initialize`) and its parent process is that Claude process. The launcher of
   chunk 10 removes inherited `CLAUDE_*` variables from the sessions it starts.
