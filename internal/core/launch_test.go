@@ -121,6 +121,10 @@ func TestLaunchAuthenticationAndCredentialPrivacy(t *testing.T) {
 	if err != nil || response.StatusCode != 200 || strings.Contains(string(data), target.Password) || strings.Contains(string(data), `"password"`) {
 		t.Fatal("session list leaked credential")
 	}
+	peers, err := Call(context.Background(), d.Addresses()[0], secret, "/v1/peers", map[string]any{"caller": Key{"opencode", "synthetic-private-target"}})
+	if err != nil || strings.Contains(string(peers), target.Password) || strings.Contains(string(peers), `"password"`) || strings.Contains(string(peers), `"wake_target"`) {
+		t.Fatal("peer list leaked credential or target")
+	}
 	for _, address := range []string{"0.0.0.0:12345", "[::]:12345", "example.com:12345", "127.0.0.1:0/path"} {
 		target.Address = address
 		if _, err := d.store.CreateLaunch(context.Background(), target); !errors.Is(err, ErrInvalid) {
@@ -144,7 +148,15 @@ func TestLaunchMigrationPreservesSessions(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := s.db.Exec("DROP TABLE launches; PRAGMA user_version=1"); err != nil {
+	message, err := s.Send(context.Background(), Key{r.Family, r.ID}, before.Name, "synthetic preserved inbox")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.Ack(context.Background(), Key{r.Family, r.ID}, message.Seq); err != nil {
+		t.Fatal(err)
+	}
+	// Schema 2 is the merged message runtime, with no launch table.
+	if _, err := s.db.Exec("DROP TABLE launches; PRAGMA user_version=2"); err != nil {
 		t.Fatal(err)
 	}
 	s.db.Close()
@@ -154,8 +166,12 @@ func TestLaunchMigrationPreservesSessions(t *testing.T) {
 	}
 	t.Cleanup(func() { s.db.Close() })
 	items, _, err := s.List(context.Background())
-	if err != nil || len(items) != 1 || items[0].Revision != before.Revision || items[0].ID != before.ID {
+	if err != nil || len(items) != 1 || items[0].Revision != before.Revision || items[0].ID != before.ID || items[0].Name != before.Name || items[0].Alias != before.Alias {
 		t.Fatal("migration changed session")
+	}
+	inbox, err := s.ReadInbox(context.Background(), Key{r.Family, r.ID}, 0, 100)
+	if err != nil || inbox.LastSeq != 1 || inbox.AckedThrough != 1 || len(inbox.Messages) != 1 || !inbox.Messages[0].Acknowledged || inbox.Messages[0].Body != "synthetic preserved inbox" {
+		t.Fatal("migration changed inbox or acknowledgement")
 	}
 	if _, err := s.CreateLaunch(context.Background(), LaunchTarget{Family: "codex", Directory: r.Directory, CLI: filepath.Join(r.Directory, "synthetic-cli"), HostPID: 123}); err != nil {
 		t.Fatal(err)
