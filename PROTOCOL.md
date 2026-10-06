@@ -16,6 +16,11 @@ Never put a secret, runtime session identifier or response body in a repository.
 | `POST /v1/sessions/register` | Register or reactivate one session identified by `(family, id)`. |
 | `POST /v1/sessions/renew` | Renew an active session's expiry. |
 | `POST /v1/sessions/retire` | Mark an active session retired, retaining its record. |
+| `POST /v1/peers` | Each session's `name`, held `alias`, `family`, `state` and `repository`, for an active caller; never a wake target, directory or session ID. |
+| `POST /v1/messages/send` | Store one message for the session that a peer name or alias names. |
+| `POST /v1/inbox/read` | Read the caller's own inbox after a sequence number. |
+| `POST /v1/inbox/ack` | Acknowledge the caller's own inbox through a sequence number. |
+| `POST /v1/messages/outcome` | Read the delivery and acknowledgement state of a message the caller sent. |
 
 POST requests use `Content-Type: application/json`, at most 16 KiB, with unknown fields refused.
 Registration fields are `family` (`claude`, `codex`, `deepseek`, `agy`, `opencode`), `id` (1–256
@@ -34,11 +39,53 @@ registrations update one row, never create two records for the same key. Times a
 milliseconds. Expiry is computed from the current wall clock; clock jumps can change effective
 expiry, never remove records or imply a model stopped. Restart preserves records and revisions.
 
+Each session record carries its peer `name` and, while it is active and holds one, its `alias`.
+The daemon gives each session a permanent peer name `<family>-<label>-<2 hex>`. The label is the
+repository directory name (the folder that holds `.git`, or a bare `NAME.git` without `.git`),
+or the working directory name for a session without a repository: lower case, characters other
+than `a-z`, `0-9` and `-` replaced with `-`, at most 32 characters, `session` when empty. The two
+hex digits start at the first byte of SHA-256 of `family NUL id` and take the next free value;
+when all 256 are taken, the name takes 4, 6, … hex digits of that digest. A renewal or a new
+registration of the same key keeps the name. Each family and repository reserves one alias
+`<family>-<label>`; when another name already uses it, `<family>-<label>-<first N hex of SHA-256
+of the Git common directory>` for N = 4, 6, …. The reservation is permanent. Peer names and
+aliases share one namespace, so a peer name never equals an alias. The alias names at most one
+holder: an active session of that family whose repository is the alias's repository. When the
+holder expires, retires or registers for another repository, the next registration or renewal
+of the same family and repository takes it. A session without a repository has no alias.
+
+Message calls name their `caller` as `{"family": ..., "id": ...}`; the caller must be an active
+session, or the call fails with `caller_inactive`. A caller reads and acknowledges only its own
+inbox and reads only the outcome of its own messages; another sender's message reads as
+`message_not_found`.
+
+- Send takes `caller`, `to` (a peer name or alias) and `body` (1–65,536 bytes of UTF-8; the
+  request may be up to 6 × 64 KiB + 4 KiB, for JSON escaping). The message, the sender's session
+  and peer name, and the next sequence number of the receiving inbox are stored in one
+  transaction; sequence numbers per inbox are gapless and ordered. The reply's `message` carries
+  `id`, the receiving `recipient` peer name, `seq` and `delivery_state`. Errors:
+  `peer_not_found` (404) for an unknown name, `alias_unheld` (409) for an alias with no active
+  holder, `recipient_inactive` (409) for an expired or retired recipient.
+- Read takes `caller`, `after` (default 0) and `limit` (1–100, default 50). The reply's `inbox`
+  holds `messages` in sequence order, `last_seq`, `acked_through` and `more`; a page stops after
+  about 1 MiB of bodies. Each message has `id`, `seq`, `sender_family`, `sender_name`, `body`,
+  `created_at`, `delivery_state`, `delivery_reason` and `acknowledged`.
+- Acknowledge takes `caller` and `through`. Acknowledgement only moves forward: an earlier
+  sequence leaves `acked_through` unchanged, and a sequence beyond the last fails with
+  `ack_beyond_last` (409). A message is acknowledged when its `seq` is at most `acked_through`.
+- Outcome takes `caller` and `message_id` and returns `id`, `recipient`, `seq`, `delivery_state`,
+  `delivery_reason`, `updated_at` and `acknowledged` (#82).
+
+Each message has exactly one delivery state: `waiting`, `notified`, `uncertain`, or `failed` with
+a reason. This version stores every message as `waiting`; wake adapters, which change the
+state, are a later sprint chunk. Inboxes are independent of wake notices.
+
 Replies include `ok`. Success returns `session` or `sessions`; failures report a fixed `code`:
 `unauthorized` (401), `foreign_origin` (403), `invalid_request` (400), `session_not_found` (404),
-`session_conflict` (409), or `storage_error` (500). Mutations commit before replying. A lost
-reply does not prove rollback; read the retained record before retrying. Wake, inbox and memory
-commands are later sprint chunks. The Python protocol below continues to apply to Python.
+`session_conflict` (409), the message codes above, or `storage_error` (500). Mutations commit
+before replying. A lost reply does not prove rollback; read the retained record before
+retrying. Wake and memory commands are later sprint chunks. The Python protocol below continues
+to apply to Python.
 
 The [work command interface](docs/WORK-ITEMS-COMMANDS.md) provides schema-5
 work records, advisory claims and immutable events. Startup creates schema 5 or

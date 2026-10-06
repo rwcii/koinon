@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"net/url"
 	"os"
 	"os/exec"
@@ -32,6 +33,8 @@ type Session struct {
 	RetiredAt    int64           `json:"retired_at"`
 	Revision     int64           `json:"revision"`
 	State        string          `json:"state"`
+	Name         string          `json:"name"`
+	Alias        string          `json:"alias,omitempty"`
 }
 
 type Registration struct {
@@ -92,28 +95,11 @@ func openStore(root string) (*Store, error) {
 		db.Close()
 		return nil, err
 	}
-	if version != 0 && version != 1 {
+	if version < 0 || version > schemaVersion {
 		db.Close()
 		return nil, errors.New("unsupported Go state schema")
 	}
-	tx, err := db.Begin()
-	if err != nil {
-		db.Close()
-		return nil, err
-	}
-	_, err = tx.Exec(`CREATE TABLE IF NOT EXISTS sessions (
-		family TEXT NOT NULL, id TEXT NOT NULL, repository TEXT NOT NULL,
-		directory TEXT NOT NULL, wake_target TEXT NOT NULL,
-		registered_at INTEGER NOT NULL, renewed_at INTEGER NOT NULL,
-		expires_at INTEGER NOT NULL, retired_at INTEGER NOT NULL DEFAULT 0,
-		revision INTEGER NOT NULL, PRIMARY KEY (family,id)
-	); PRAGMA user_version=1;`)
-	if err == nil {
-		err = tx.Commit()
-	} else {
-		tx.Rollback()
-	}
-	if err != nil {
+	if err := migrate(db, version); err != nil {
 		db.Close()
 		return nil, err
 	}
@@ -122,6 +108,86 @@ func openStore(root string) (*Store, error) {
 		return nil, err
 	}
 	return &Store{db: db, now: time.Now}, nil
+}
+
+const schemaVersion = 2
+
+// migrate brings the state schema to schemaVersion in one transaction, so a crash
+// leaves either the old or the new schema. Each step starts from the version before it.
+func migrate(db *sql.DB, version int) error {
+	tx, err := db.Begin()
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+	if version < 1 {
+		if _, err := tx.Exec(`CREATE TABLE sessions (
+			family TEXT NOT NULL, id TEXT NOT NULL, repository TEXT NOT NULL,
+			directory TEXT NOT NULL, wake_target TEXT NOT NULL,
+			registered_at INTEGER NOT NULL, renewed_at INTEGER NOT NULL,
+			expires_at INTEGER NOT NULL, retired_at INTEGER NOT NULL DEFAULT 0,
+			revision INTEGER NOT NULL, PRIMARY KEY (family,id)
+		)`); err != nil {
+			return err
+		}
+	}
+	if version < 2 {
+		// Version 2: daemon-held names, inboxes and delivery state (sprint chunk 03).
+		// Peer names and aliases share one namespace, so a peer name never equals an alias.
+		if _, err := tx.Exec(`
+			ALTER TABLE sessions ADD COLUMN last_seq INTEGER NOT NULL DEFAULT 0;
+			ALTER TABLE sessions ADD COLUMN acked_through INTEGER NOT NULL DEFAULT 0;
+			CREATE TABLE names (
+				name TEXT PRIMARY KEY, kind TEXT NOT NULL CHECK (kind IN ('peer','alias')),
+				family TEXT NOT NULL, session_id TEXT NOT NULL DEFAULT '',
+				repository TEXT NOT NULL DEFAULT '', holder_id TEXT NOT NULL DEFAULT ''
+			);
+			CREATE UNIQUE INDEX names_peer ON names(family, session_id) WHERE kind='peer';
+			CREATE UNIQUE INDEX names_alias ON names(family, repository) WHERE kind='alias';
+			CREATE TABLE messages (
+				id INTEGER PRIMARY KEY AUTOINCREMENT,
+				recipient_family TEXT NOT NULL, recipient_id TEXT NOT NULL, seq INTEGER NOT NULL,
+				sender_family TEXT NOT NULL, sender_id TEXT NOT NULL, sender_name TEXT NOT NULL,
+				body TEXT NOT NULL, created_at INTEGER NOT NULL,
+				delivery_state TEXT NOT NULL DEFAULT 'waiting'
+					CHECK (delivery_state IN ('waiting','notified','uncertain','failed')),
+				delivery_reason TEXT NOT NULL DEFAULT '', delivery_updated_at INTEGER NOT NULL,
+				UNIQUE (recipient_family, recipient_id, seq)
+			);
+			CREATE INDEX messages_sender ON messages(sender_family, sender_id, id);
+		`); err != nil {
+			return err
+		}
+		// Sessions recorded by schema 1 get their names now.
+		rows, err := tx.Query(`SELECT family,id,repository,directory FROM sessions ORDER BY registered_at,family,id`)
+		if err != nil {
+			return err
+		}
+		type key struct{ family, id, repository, directory string }
+		var existing []key
+		for rows.Next() {
+			var k key
+			if err := rows.Scan(&k.family, &k.id, &k.repository, &k.directory); err != nil {
+				rows.Close()
+				return err
+			}
+			existing = append(existing, k)
+		}
+		rows.Close()
+		if err := rows.Err(); err != nil {
+			return err
+		}
+		now := time.Now().UnixMilli()
+		for _, k := range existing {
+			if err := assignNames(context.Background(), tx, now, k.family, k.id, k.repository, k.directory); err != nil {
+				return err
+			}
+		}
+	}
+	if _, err := tx.Exec(fmt.Sprintf("PRAGMA user_version=%d", schemaVersion)); err != nil {
+		return err
+	}
+	return tx.Commit()
 }
 
 func validKey(family, id string) bool {
@@ -208,7 +274,7 @@ func (s *Store) Register(ctx context.Context, r Registration) (Session, error) {
 		return Session{}, err
 	}
 	defer tx.Rollback()
-	_, err = tx.ExecContext(ctx, `INSERT INTO sessions VALUES (?,?,?,?,?,?,?,?,0,1)
+	_, err = tx.ExecContext(ctx, `INSERT INTO sessions(`+sessionColumns+`) VALUES (?,?,?,?,?,?,?,?,0,1)
 		ON CONFLICT(family,id) DO UPDATE SET repository=excluded.repository,
 		directory=excluded.directory,wake_target=excluded.wake_target,renewed_at=excluded.renewed_at,
 		expires_at=excluded.expires_at,retired_at=0,revision=sessions.revision+1`,
@@ -216,7 +282,10 @@ func (s *Store) Register(ctx context.Context, r Registration) (Session, error) {
 	if err != nil {
 		return Session{}, err
 	}
-	result, err := scanSession(tx.QueryRowContext(ctx, `SELECT `+sessionColumns+` FROM sessions WHERE family=? AND id=?`, r.Family, r.ID), now)
+	if err := assignNames(ctx, tx, now, r.Family, r.ID, common, directory); err != nil {
+		return Session{}, err
+	}
+	result, err := scanSession(tx.QueryRowContext(ctx, sessionQuery+` WHERE s.family=? AND s.id=?`, r.Family, r.ID), now)
 	if err != nil {
 		return Session{}, err
 	}
@@ -225,12 +294,20 @@ func (s *Store) Register(ctx context.Context, r Registration) (Session, error) {
 
 const sessionColumns = `family,id,repository,directory,wake_target,registered_at,renewed_at,expires_at,retired_at,revision`
 
+// sessionQuery reads a session with its peer name and the alias it is recorded to hold;
+// scanSession shows the alias only while the session is active.
+const sessionQuery = `SELECT s.family,s.id,s.repository,s.directory,s.wake_target,s.registered_at,s.renewed_at,
+	s.expires_at,s.retired_at,s.revision,
+	COALESCE((SELECT name FROM names WHERE kind='peer' AND family=s.family AND session_id=s.id),''),
+	COALESCE((SELECT name FROM names WHERE kind='alias' AND family=s.family AND repository=s.repository
+		AND s.repository!='' AND holder_id=s.id),'') FROM sessions s`
+
 type scanner interface{ Scan(...any) error }
 
 func scanSession(row scanner, now int64) (Session, error) {
 	var result Session
 	var target string
-	err := row.Scan(&result.Family, &result.ID, &result.Repository, &result.Directory, &target, &result.RegisteredAt, &result.RenewedAt, &result.ExpiresAt, &result.RetiredAt, &result.Revision)
+	err := row.Scan(&result.Family, &result.ID, &result.Repository, &result.Directory, &target, &result.RegisteredAt, &result.RenewedAt, &result.ExpiresAt, &result.RetiredAt, &result.Revision, &result.Name, &result.Alias)
 	if errors.Is(err, sql.ErrNoRows) {
 		return result, ErrMissing
 	}
@@ -244,6 +321,9 @@ func scanSession(row scanner, now int64) (Session, error) {
 	}
 	if result.RetiredAt != 0 {
 		result.State = "retired"
+	}
+	if result.State != "active" {
+		result.Alias = ""
 	}
 	return result, nil
 }
@@ -262,7 +342,7 @@ func (s *Store) Mutate(ctx context.Context, r Mutation, retire bool) (Session, e
 		return Session{}, err
 	}
 	defer tx.Rollback()
-	current, err := scanSession(tx.QueryRowContext(ctx, `SELECT `+sessionColumns+` FROM sessions WHERE family=? AND id=?`, r.Family, r.ID), now)
+	current, err := scanSession(tx.QueryRowContext(ctx, sessionQuery+` WHERE s.family=? AND s.id=?`, r.Family, r.ID), now)
 	if err != nil {
 		return Session{}, err
 	}
@@ -273,11 +353,15 @@ func (s *Store) Mutate(ctx context.Context, r Mutation, retire bool) (Session, e
 		_, err = tx.ExecContext(ctx, `UPDATE sessions SET retired_at=?,revision=revision+1 WHERE family=? AND id=?`, now, r.Family, r.ID)
 	} else {
 		_, err = tx.ExecContext(ctx, `UPDATE sessions SET renewed_at=?,expires_at=?,revision=revision+1 WHERE family=? AND id=?`, now, now+duration, r.Family, r.ID)
+		if err == nil {
+			// A renewal takes the repository's alias when its holder expired or retired.
+			err = assignNames(ctx, tx, now, r.Family, r.ID, current.Repository, current.Directory)
+		}
 	}
 	if err != nil {
 		return Session{}, err
 	}
-	result, err := scanSession(tx.QueryRowContext(ctx, `SELECT `+sessionColumns+` FROM sessions WHERE family=? AND id=?`, r.Family, r.ID), now)
+	result, err := scanSession(tx.QueryRowContext(ctx, sessionQuery+` WHERE s.family=? AND s.id=?`, r.Family, r.ID), now)
 	if err != nil {
 		return Session{}, err
 	}
@@ -285,7 +369,7 @@ func (s *Store) Mutate(ctx context.Context, r Mutation, retire bool) (Session, e
 }
 
 func (s *Store) List(ctx context.Context) ([]Session, bool, error) {
-	rows, err := s.db.QueryContext(ctx, `SELECT `+sessionColumns+` FROM sessions ORDER BY family,id LIMIT 1001`)
+	rows, err := s.db.QueryContext(ctx, sessionQuery+` ORDER BY s.family,s.id LIMIT 1001`)
 	if err != nil {
 		return nil, false, err
 	}

@@ -9,6 +9,10 @@ into a dated release section when promoted to `main`.
   loopback API, durable session registration/renewal/retirement, and `koinon status`.
   Sessions can register from plain directories without selecting a Git repository.
   Go state is separate; Python installation and messaging remain available during the sprint.
+- The Go daemon now holds peer names, aliases and inboxes: each session gets a permanent peer name
+  and each family and repository one alias, and `koinon peers`, `send`, `inbox` and `ack` send,
+  read and acknowledge messages with gapless sequence numbers. A sender can read the delivery
+  outcome of its own message. Wake notices are not yet added; a stored message stays `waiting`.
 - Each checkout now has its own stable alias. Before, the Codex sessions of all worktrees of one
   repository shared one alias, named after the folder of the first worktree that reserved it.
   After the holder stopped, the session that ran `ensure` first took it, so the order of a
