@@ -4,10 +4,8 @@ Read `../decision.md`, `../definition-of-done.md` and `../spike.md` first.
 
 ## Outcome
 
-First settle the open spike facts 3, 4 and 5 (`../spike.md`): the Claude wake on macOS, the
-`agy` `hooks.json` schema with a scratch plugin (including a text-only reply), and whether a
-hook command receives `ANTIGRAVITY_LS_ADDRESS` and `ANTIGRAVITY_CSRF_TOKEN`. Record the results in
-`../spike.md` in this pull request.
+First verify the Claude wake on macOS (`../spike.md`, fact 3) and record it in `../spike.md`
+in this pull request.
 
 
 One adapter per family turns a `waiting` message into a content-free notice and records the
@@ -18,9 +16,9 @@ result:
   settled in the spike.
 - **DeepSeek:** the harness loopback RPC (`session/prompt`, `mode: "queue"`), with the existing
   credential and loopback checks of `README.md`.
-- **Antigravity:** a stop hook that asks the daemon for waiting messages and continues the turn
-  with the notice; plus, only if a hook receives the language-server address and token, a
-  session-start hook that hands them to the daemon so it can wake an idle conversation.
+- **Antigravity:** a `Stop` handler in the workspace `.agents/hooks.json` (`../spike.md`,
+  fact 4) asks the daemon for waiting messages of its `conversationId` and, when there are any,
+  returns `{"decision": "continue", "reason": <notice>}`; otherwise it lets the agent stop.
 
 A notice names only the inbox and the sequence range. A busy or unreachable receiver leaves the
 message `waiting` and retries with backoff; a handled sequence is never notified again.

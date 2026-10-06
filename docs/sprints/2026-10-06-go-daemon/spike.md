@@ -60,16 +60,22 @@ applies until chunk 04 verifies it.
 
 ## 4. Antigravity turn boundary
 
-Partly verified, from the binary's symbols and the `agy` built-in plugin documentation:
+Verified in an interactive `agy` 1.3.0 session (Gemini 3.8 Flash) with a scratch workspace hook,
+following `agy`'s built-in `agy-customizations/docs/hooks.md`:
 
-- A user customization stop hook exists (`customization/hooks.NewStopHook`), loaded from a JSON
-  hook specification (`jsonhook.JSONHookSpec`); plugins carry it as `hooks.json`.
-- The hook receives `FullyIdle`, `ExecutionNum`, `TerminationReason`, `FinalModelOutput` and
-  returns `Decision` and `Reason`; the runtime can inject a user message step
-  (`injectUserMessageStep`) and limits continuations (`MaxStopHookContinuations`).
-
-Open: the exact `hooks.json` schema and whether the hook fires after a text-only reply. This is
-settled at the start of chunk 04 with a scratch plugin before the adapter is written.
+- Hooks live in `<workspace>/.agents/hooks.json`, keyed by hook name; a `Stop` handler is
+  `{"type": "command", "command": "...", "timeout": N}`. `agy` loaded a new file without a
+  restart.
+- The `Stop` handler fired after a text-only reply (`terminationReason: NO_TOOL_CALL`,
+  `fullyIdle: true`) with `conversationId`, `workspacePaths`, `transcriptPath`, `modelName` and
+  `executionNum` on stdin.
+- Returning `{"decision": "continue", "reason": "..."}` made the agent take one more turn and act
+  on the reason (it answered the test word). The next `Stop` call had `executionNum: 1`;
+  returning `{}` let it stop.
+- `PreInvocation` handlers can inject `{"userMessage": "..."}` before a model call (documented,
+  not tested).
+- The hook's environment has `ANTIGRAVITY_CONVERSATION_ID`, not the language-server address or
+  token.
 
 ## 5. Antigravity language-server RPC
 
@@ -77,22 +83,25 @@ settled at the start of chunk 04 with a scratch plugin before the adapter is wri
 gRPC port, random each start), with methods such as
 `LanguageServerService/SendUserCascadeMessage` and `StartCascade`, protected by an
 `x-codeium-csrf-token` header. Its built-in plugin documentation tells the agent to call this
-endpoint and says that `ANTIGRAVITY_LS_ADDRESS` and `ANTIGRAVITY_CSRF_TOKEN` are in the agent's
-shell environment. Results:
+endpoint. Results:
 
-- The token is in no file and not in the `agy` process environment.
-- The MCP server's environment does not contain either variable (`agy -p`).
+- The agent's own command shell has `ANTIGRAVITY_LS_ADDRESS`, `ANTIGRAVITY_CSRF_TOKEN`,
+  `ANTIGRAVITY_CONVERSATION_ID` and `ANTIGRAVITY_TRAJECTORY_ID` (names checked, values not read).
+- The token is in no file and not in the `agy` process environment; MCP servers (`agy -p`) and
+  hook commands do not receive the address or the token.
 
-So the daemon cannot obtain the address and token without reading another process's memory,
-and under chunk 01's rule this path is not usable as found. One path remains to test in chunk 04:
-whether a hook command receives the two variables, so that a session-start hook could pass them
-to the daemon. Until that is shown, Antigravity delivery is at the turn boundary only, as
-criterion 6 allows.
+So only a command that the agent itself runs can hand the address and token to the daemon, with
+the agent's command approval. That makes an idle wake possible but not automatic. It stays out
+of this sprint: Antigravity delivery is at the turn boundary, as criterion 6 allows.
+
+While approving the test command by typing into the terminal, an `Enter` moved the selection
+instead of choosing it, and the dialog saved a permanent allow rule (since reverted). This
+confirms the decision not to type into agent terminals.
 
 ## Plan changes
 
 None to the criteria or the chunk order. Chunk 05 takes identity per call and checks the MCP
 client before trusting an environment identity (fact 1). Chunk 10 clears inherited `CLAUDE_*`
-variables. Chunk 04 starts with the `hooks.json` schema test and the hook-environment test
-(facts 4 and 5) and verifies the Claude wake on macOS (fact 3). Fact 2 stays open with the
+variables. Chunk 04 uses the verified `Stop` hook for Antigravity and
+verifies the Claude wake on macOS (fact 3). Fact 2 stays open with the
 fallback stated above.
