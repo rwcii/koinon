@@ -5,6 +5,10 @@ into a dated release section when promoted to `main`.
 
 ## Unreleased
 
+- Added Go launchers for Codex, Antigravity and OpenCode, with configured CLI paths,
+  current or new tmux terminals, nested repository refusal and inherited Claude environment
+  cleanup. OpenCode receives a loopback listener and generated password; launch targets are
+  retained in private daemon state for session registration.
 - Added the Go daemon core alongside Python: a CGO-free binary, authenticated IPv4/IPv6
   loopback API, durable session registration/renewal/retirement, and `koinon status`.
   Sessions can register from plain directories without selecting a Git repository.

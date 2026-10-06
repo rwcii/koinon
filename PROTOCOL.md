@@ -21,12 +21,15 @@ Never put a secret, runtime session identifier or response body in a repository.
 | `POST /v1/inbox/read` | Read the caller's own inbox after a sequence number. |
 | `POST /v1/inbox/ack` | Acknowledge the caller's own inbox through a sequence number. |
 | `POST /v1/messages/outcome` | Read the delivery and acknowledgement state of a message the caller sent. |
+| `POST /v1/launches` | Retain a launcher target and return its generated launch ID. |
 
 POST requests use `Content-Type: application/json`, at most 16 KiB, with unknown fields refused.
 Registration fields are `family` (`claude`, `codex`, `deepseek`, `agy`, `opencode`), `id` (1–256
 bytes), an absolute `directory` path, an optional absolute `repository` path,
 optional `wake_target` JSON (up to 8 KiB),
-and optional `ttl_seconds` (60–3,600, default 900). The daemon derives the canonical absolute
+optional `launch_id`, and optional `ttl_seconds` (60–3,600, default 900). A `launch_id` selects
+the daemon-held target and refuses a simultaneous `wake_target` override. Its family and
+canonical directory must match the registering session. The daemon derives the canonical absolute
 Git common directory when a repository is selected; the working directory must then belong
 to that repository. Worktrees share the repository identity. A session in a plain directory
 can omit `repository`; its stored repository is empty. Repository-dependent memory and work
@@ -86,6 +89,15 @@ Replies include `ok`. Success returns `session` or `sessions`; failures report a
 before replying. A lost reply does not prove rollback; read the retained record before
 retrying. Wake and memory commands are later sprint chunks. The Python protocol below continues
 to apply to Python.
+
+Launch creation takes `family` (`codex`, `agy`, `opencode`), absolute `directory` and `cli`,
+and positive `host_pid`. OpenCode also requires `address` (literal loopback with a nonzero
+port) and `password` (64 hex characters). Other families refuse those credential fields.
+The response returns `ok` and `launch_id`, never the credential. Launch records survive a
+restart, and can bind successive native session identities from one CLI process, such as a
+Codex context reset. They are inert state until the agent registers and later wake adapters
+use its target. All launch calls use the existing bearer authentication, request limits and
+origin checks; a launch ID is an association key, not a replacement authentication secret.
 
 The [work command interface](docs/WORK-ITEMS-COMMANDS.md) provides schema-5
 work records, advisory claims and immutable events. Startup creates schema 5 or

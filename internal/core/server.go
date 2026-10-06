@@ -213,6 +213,19 @@ func (d *Daemon) handler() http.Handler {
 		}
 		respond(w, 200, map[string]any{"ok": true, "sessions": items, "truncated": truncated})
 	})
+	mux.HandleFunc("POST /v1/launches", func(w http.ResponseWriter, r *http.Request) {
+		var target LaunchTarget
+		if err := decode(w, r, &target); err != nil {
+			failure(w, err)
+			return
+		}
+		id, err := d.store.CreateLaunch(r.Context(), target)
+		if err != nil {
+			failure(w, err)
+			return
+		}
+		respond(w, 200, map[string]any{"ok": true, "launch_id": id})
+	})
 	mux.HandleFunc("POST /v1/sessions/register", func(w http.ResponseWriter, r *http.Request) {
 		var request Registration
 		if err := decode(w, r, &request); err != nil {

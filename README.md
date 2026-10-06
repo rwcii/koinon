@@ -344,7 +344,7 @@ Ordinary peer limits: 16 active connections, six-second handler deadline, 32 fra
 ## Development
 
 The Go daemon core is available alongside the Python runtime. It is an early sprint chunk:
-it has status, session records, peer names and inboxes; wake notices, MCP and installation
+it has status, session records, peer names, inboxes and launchers; wake notices, MCP and installation
 arrive in later chunks.
 The Python installation commands still install the Python runtime.
 
@@ -390,6 +390,37 @@ message stays `waiting` until the wake chunk adds notices.
 
 See [the Go core API](PROTOCOL.md#go-daemon-core) for session registration and expiry, names and
 messages.
+
+The Go launchers use a configured absolute CLI path, never the first agent executable on
+`PATH`. Pass `--cli /absolute/path/to/cli`, or create a user-owned mode-0600 `launchers.json`
+in the Go state directory with keys `codex`, `agy` and `opencode` and absolute path values:
+
+```sh
+bin/koinon codex --cli /absolute/path/to/codex --directory PROJECT -- CLI_ARGUMENTS
+bin/koinon agy --cli /absolute/path/to/agy --tmux-session agent-work --directory PROJECT
+bin/koinon opencode --cli /absolute/path/to/opencode --directory PROJECT
+```
+
+The daemon must be running. Inside tmux, the launcher replaces itself with the agent in the
+current pane. Outside tmux, it creates a session named after the directory and attaches;
+without tmux, it runs in the current terminal. `--tmux-session NAME` creates a detached session
+and prints its session/pane identity, refusing an occupied name. A new session uses the caller's
+tmux server when inside tmux, or the default server otherwise. Arguments after `--` pass
+unchanged to the CLI. A start directory containing another repository is refused, including
+nested worktree `.git` files; directory symlinks are not followed during the scan.
+
+Every final agent launch strips inherited `CLAUDE_*` variables, including those inherited
+from a tmux server. Codex receives its own host process ID through the shell environment
+override. OpenCode receives `--hostname 127.0.0.1`, a generated port, disabled mDNS, and a
+random `OPENCODE_SERVER_PASSWORD`. User arguments that override these server options or hide
+them behind another `--` are refused. Port allocation precedes agent startup; if another
+process takes that port in between, OpenCode must refuse its bind rather than share a listener.
+
+The daemon stores the launch target privately, including the OpenCode credential, and the child
+receives `KOINON_LAUNCH_ID`, `KOINON_STATE_DIR` and `KOINON_DAEMON_ADDRESS`. Session registration
+uses `launch_id` to bind the real family/session ID to that target. The MCP chunk supplies the
+family's native session identity; launcher records alone do not claim an agent session exists.
+
 Continue running the Python regression suite until the runtime retirement chunk:
 
 ```sh
