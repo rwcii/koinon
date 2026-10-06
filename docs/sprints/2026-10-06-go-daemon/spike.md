@@ -98,10 +98,35 @@ While approving the test command by typing into the terminal, an `Enter` moved t
 instead of choosing it, and the dialog saved a permanent allow rule (since reverted). This
 confirms the decision not to type into agent terminals.
 
+## 6. OpenCode
+
+Verified with OpenCode 1.18.35 on a scratch `opencode serve` (loopback, own workspace
+`opencode.json`, no user configuration changed); the user's own OpenCode session was not used.
+
+- **Server API.** `opencode serve` and the terminal UI with `--port` expose a documented HTTP API
+  (OpenAPI at `/doc`): `POST /session/{id}/prompt_async`, `GET /session/status`, `GET /event`,
+  and also permission and question reply endpoints. Without `OPENCODE_SERVER_PASSWORD` the API
+  has no authentication; with it, a request without basic authentication gets 401.
+- **Wake.** `prompt_async` on an idle session returned 204, and the session took a turn on the
+  message (called the requested MCP tool, then answered). Status went `busy`, then idle.
+- **MCP.** The local MCP server ran unsandboxed (`Seccomp 0`; loopback TCP connect succeeded) and
+  inherited the server's environment. Its `tools/call` `_meta` held only `progressToken`: no
+  session identifier.
+- **Session shell.** A session's command shell has `OPENCODE`, `OPENCODE_PID` and
+  `OPENCODE_SERVER_PASSWORD`, and no session identifier. An agent can therefore reach its own
+  server's API; this stays inside the same-user boundary.
+
+Consequence: the wake path is the supported API, with a loopback server and a password that the
+Koinon launcher sets. Session identity for MCP calls is not given by OpenCode; chunk 05 must
+supply it, first through an OpenCode plugin that adds the calling session's identifier to Koinon
+tool calls (OpenCode plugin hooks receive the session identifier; not verified here), else by
+treating one launched OpenCode server as one participant.
+
 ## Plan changes
 
 None to the criteria or the chunk order. Chunk 05 takes identity per call and checks the MCP
 client before trusting an environment identity (fact 1). Chunk 10 clears inherited `CLAUDE_*`
 variables. Chunk 04 uses the verified `Stop` hook for Antigravity and
 verifies the Claude wake on macOS (fact 3). Fact 2 stays open with the
-fallback stated above.
+fallback stated above. OpenCode (fact 6) adds one wake adapter (chunk 04), one setup with the
+identity plugin (chunk 05) and one launcher (chunk 10).

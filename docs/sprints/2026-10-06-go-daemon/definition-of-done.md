@@ -8,7 +8,7 @@ documented path.
 ## Unit and integration tests
 
 All tests use synthetic peers, temporary state roots, temporary `CLAUDE_CONFIG_DIR`,
-`CODEX_HOME` and `agy` configuration directories, ephemeral loopback ports and a private tmux
+`CODEX_HOME`, `agy` and OpenCode configuration directories, ephemeral loopback ports and a private tmux
 server. No test reads or writes the user's registry, sessions, terminals, services or agent
 configuration. A test that needs a service manager patches every manager call, except in the
 native workflows below.
@@ -47,7 +47,9 @@ native workflows below.
   the state it names and writes one audit record. A request without a login session, with a
   wrong `Host`, with a foreign `Origin`, or a state-changing request without a valid CSRF token
   is refused. A login link works once and expires.
-- **Launcher (criterion 10).** Inside tmux, outside tmux, and without tmux, for Codex and `agy`.
+- **Launcher (criterion 10).** Inside tmux, outside tmux, and without tmux, for Codex, `agy` and
+  OpenCode.
+  For OpenCode also: the server binds loopback only and refuses a request without its password.
   A start folder that holds another repository is refused. The configured CLI path is used, not
   the first match on `PATH`.
 - **Import (criterion 11).** A Python-era state tree built by the Python runtime's own
@@ -63,7 +65,7 @@ native workflows below.
   after a kill, upgrade, uninstall with state preserved.
 - **Live checks on the user's host, each with the user's authorization:**
   1. MCP from inside each family's default sandbox: Claude Code, Codex `workspace-write`,
-     DeepSeek harness, `agy` (chunk 01, then again with the real server in chunk 05).
+     DeepSeek harness, `agy`, OpenCode (chunk 01, then again with the real server in chunk 05).
   2. Wake of an idle session of each family, and Antigravity delivery at its turn boundary
      (chunk 04).
   3. A message from one Claude session to another through Koinon (chunk 05).

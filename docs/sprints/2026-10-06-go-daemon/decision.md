@@ -20,7 +20,8 @@ agents sent, what arrived and what was handled.
 The user has no oversight view. Session state, delivery state, memory heads and work claims are
 visible only through separate commands of each agent.
 
-Google replaced the Gemini CLI with the Antigravity CLI (`agy`). Koinon does not support it.
+Google replaced the Gemini CLI with the Antigravity CLI (`agy`). Koinon does not support it, and
+it does not support OpenCode either. The user added both families to this sprint on 2026-10-06.
 
 The user prefers Go to the Python constraint, and wants one binary that listens on local ports.
 
@@ -34,14 +35,14 @@ The user prefers Go to the Python constraint, and wants one binary that listens 
 3. **Loopback only.** The daemon listens only on loopback addresses and refuses a configuration
    that names any other address. A caller without the user's secret, which only that user can
    read, is refused.
-4. **All agent messages go through Koinon.** A Claude, Codex, DeepSeek or Antigravity session
-   sends every message to another agent through Koinon. The daemon stores each message and
+4. **All agent messages go through Koinon.** A Claude, Codex, DeepSeek, Antigravity or OpenCode
+   session sends every message to another agent through Koinon. The daemon stores each message and
    records its delivery and acknowledgement state. Claude sessions use Koinon for coordination
    messages, also to other Claude sessions.
 5. **Agent access without per-command approval.** Each agent family uses Koinon through MCP
    from inside its default sandbox, with no approval for each command beyond the agent's own
    tool approval. A family that cannot use MCP keeps a documented command path.
-6. **Wake.** A content-free notice reaches an idle Claude, Codex or DeepSeek session through
+6. **Wake.** A content-free notice reaches an idle Claude, Codex, DeepSeek or OpenCode session through
    that family's channel after a message arrives for it. An Antigravity session gets its waiting
    messages at its next turn boundary, or sooner through a wake path that the spike proves.
    Nothing types into a terminal. Peer text never travels in a notice.
@@ -53,11 +54,11 @@ The user prefers Go to the Python constraint, and wants one binary that listens 
    context, activity, terminal), the messages with their bodies and their delivery and
    acknowledgement state, the memory heads, the work claims, the service health and an audit
    log. From it the user can retire a session, release a claim, acknowledge or clear an inbox,
-   send a message to an agent and start a Codex or Antigravity session through the launcher.
+   send a message to an agent and start a Codex, Antigravity or OpenCode session through the launcher.
    Every action is recorded in the audit log. The dashboard is reachable only after a login
    through a link that the `koinon` command prints, and it refuses requests whose `Host` or
    `Origin` is not its own loopback address.
-10. **Launcher.** `koinon` starts Codex and Antigravity sessions with the guarantees of
+10. **Launcher.** `koinon` starts Codex, Antigravity and OpenCode sessions with the guarantees of
     `codex_launch.py` today, including the refusal of a start folder that holds another
     repository.
 11. **Upgrade.** An upgrade from the current `main` release moves every inbox, memory store, work
@@ -76,7 +77,9 @@ The user prefers Go to the Python constraint, and wants one binary that listens 
 - **Security boundary:** the same-user boundary stays. Loopback plus a secret readable only by
   the user replaces the file permissions of Unix sockets. Peer content is data, notices stay
   content-free, peer controls stay inert, thread targeting stays explicit, and a peer grants no
-  permission. Message bodies appear only in the user's own dashboard.
+  permission. Message bodies appear only in the user's own dashboard. An OpenCode server that
+  Koinon starts or uses binds loopback only and requires a password, and Koinon calls only its
+  prompt and status endpoints, never its permission or question endpoints.
 - **Known limit:** an agent runs as the user and can do what the user can do. The audit log
   records administrative actions; the daemon does not try to tell an agent from the user.
 - **Claude Code's peer protocol is Claude Code's.** The daemon follows the Unix socket protocol
@@ -85,9 +88,10 @@ The user prefers Go to the Python constraint, and wants one binary that listens 
 - **Platforms:** Linux and macOS are both required for every chunk, with real systemd and launchd
   checks where a chunk touches them. Platform differences live in one Go package.
 - **Unverified facts that the first chunk must settle before any other chunk starts:** MCP use
-  from inside the Codex, Claude, DeepSeek and Antigravity sandboxes; DeepSeek harness support for
+  from inside the Codex, Claude, DeepSeek, Antigravity and OpenCode sandboxes; DeepSeek harness support for
   MCP; the Claude wake path from a Go sender; the Antigravity stop hook format and behaviour in
-  `agy` 1.3.0, and its local language-server RPC as a possible wake path.
+  `agy` 1.3.0, and its local language-server RPC as a possible wake path; the OpenCode session
+  identity in MCP calls and its `prompt_async` API as the wake path.
 - **Order:** the Python runtime stays installable and upgradable on `main` until the release that
   carries the upgrade of criterion 11. Every release must install and upgrade through its
   documented path.

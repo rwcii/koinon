@@ -12,9 +12,11 @@ Read `../decision.md`, `../definition-of-done.md` and `../spike.md` first.
   forwards tool calls to the daemon over loopback with the secret.
 - Tools: `peers`, `send`, `inbox`, `ack`, `delivery` (outcome of a sent message). Chunks 06 and
   07 add their tools.
-- `koinon setup <claude|codex|deepseek|agy>` adds the MCP server to that agent's configuration
-  through the agent's own command (`claude mcp add`, `codex mcp add`, `agy mcp add`, or the
-  path the spike recorded for DeepSeek), and installs the `agy` stop hook. It preserves all
+- `koinon setup <claude|codex|deepseek|agy|opencode>` adds the MCP server to that agent's configuration
+  through the agent's own command (`claude mcp add`, `codex mcp add`, `agy mcp add`, `opencode mcp`, or the
+  path the spike recorded for DeepSeek), installs the `agy` stop hook, and installs an OpenCode plugin
+  that adds the calling session's identifier to Koinon tool calls (`../spike.md`, fact 6; verify
+  first, else one launched OpenCode server is one participant). It preserves all
   other configuration and reports what it changed.
 - `koinon guide --agent <family>` replaces `session.py guide`: it tells each family to use the
   Koinon tools for every agent message, Claude included, and keeps the existing rules on peer

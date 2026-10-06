@@ -19,6 +19,9 @@ result:
 - **Antigravity:** a `Stop` handler in the workspace `.agents/hooks.json` (`../spike.md`,
   fact 4) asks the daemon for waiting messages of its `conversationId` and, when there are any,
   returns `{"decision": "continue", "reason": <notice>}`; otherwise it lets the agent stop.
+- **OpenCode:** `POST /session/{id}/prompt_async` on the session's loopback server with the
+  server password (`../spike.md`, fact 6), only when `GET /session/status` shows the session idle;
+  never the permission or question endpoints.
 
 A notice names only the inbox and the sequence range. A busy or unreachable receiver leaves the
 message `waiting` and retries with backoff; a handled sequence is never notified again.
