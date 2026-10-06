@@ -42,8 +42,9 @@ type Registration struct {
 	ID         string          `json:"id"`
 	Repository string          `json:"repository"`
 	Directory  string          `json:"directory"`
-	WakeTarget json.RawMessage `json:"wake_target"`
+	WakeTarget json.RawMessage `json:"wake_target,omitempty"`
 	TTLSeconds int64           `json:"ttl_seconds"`
+	LaunchID   string          `json:"launch_id,omitempty"`
 }
 
 type Mutation struct {
@@ -110,7 +111,7 @@ func openStore(root string) (*Store, error) {
 	return &Store{db: db, now: time.Now}, nil
 }
 
-const schemaVersion = 2
+const schemaVersion = 3
 
 // migrate brings the state schema to schemaVersion in one transaction, so a crash
 // leaves either the old or the new schema. Each step starts from the version before it.
@@ -182,6 +183,15 @@ func migrate(db *sql.DB, version int) error {
 			if err := assignNames(context.Background(), tx, now, k.family, k.id, k.repository, k.directory); err != nil {
 				return err
 			}
+		}
+	}
+	if version < 3 {
+		// Version 3: private launch targets (sprint chunk 10).
+		if _, err := tx.Exec(`CREATE TABLE launches (
+			id TEXT PRIMARY KEY, family TEXT NOT NULL, directory TEXT NOT NULL,
+			target TEXT NOT NULL, created_at INTEGER NOT NULL
+		)`); err != nil {
+			return err
 		}
 	}
 	if _, err := tx.Exec(fmt.Sprintf("PRAGMA user_version=%d", schemaVersion)); err != nil {
@@ -274,6 +284,15 @@ func (s *Store) Register(ctx context.Context, r Registration) (Session, error) {
 		return Session{}, err
 	}
 	defer tx.Rollback()
+	if r.LaunchID != "" {
+		if len(r.WakeTarget) != 0 && string(r.WakeTarget) != "{}" {
+			return Session{}, ErrInvalid
+		}
+		r.WakeTarget, err = launchTarget(ctx, tx, r.LaunchID, r.Family, directory)
+		if err != nil {
+			return Session{}, err
+		}
+	}
 	_, err = tx.ExecContext(ctx, `INSERT INTO sessions(`+sessionColumns+`) VALUES (?,?,?,?,?,?,?,?,0,1)
 		ON CONFLICT(family,id) DO UPDATE SET repository=excluded.repository,
 		directory=excluded.directory,wake_target=excluded.wake_target,renewed_at=excluded.renewed_at,

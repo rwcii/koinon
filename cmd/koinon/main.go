@@ -16,6 +16,7 @@ import (
 	"syscall"
 
 	"github.com/rwcii/koinon/internal/core"
+	"github.com/rwcii/koinon/internal/launcher"
 	"github.com/rwcii/koinon/internal/platform"
 )
 
@@ -23,6 +24,13 @@ func run(ctx context.Context, args []string, in io.Reader, out io.Writer) error 
 	if len(args) == 0 || args[0] == "--help" || args[0] == "help" {
 		_, err := fmt.Fprintln(out, usage)
 		return err
+	}
+	if args[0] == "codex" || args[0] == "agy" || args[0] == "opencode" {
+		o, err := launcher.Parse(args[0], args[1:])
+		if err != nil {
+			return err
+		}
+		return launcher.Run(ctx, o, out)
 	}
 	root, err := platform.DefaultStateDir()
 	if err != nil {
@@ -78,6 +86,7 @@ func run(ctx context.Context, args []string, in io.Reader, out io.Writer) error 
 
 const usage = `Usage: koinon serve [--state-dir DIR] [--listen 127.0.0.1:PORT] [--listen-v6 [::1]:PORT]
        koinon status [--state-dir DIR] [--address 127.0.0.1:PORT]
+       koinon <codex|agy|opencode> [--state-dir DIR] [--address HOST:PORT] [--cli ABS_PATH] [--directory DIR] [--tmux-session NAME] [--] [CLI arguments...]
        koinon peers --as FAMILY:ID [--state-dir DIR] [--address 127.0.0.1:PORT]
        koinon send --as FAMILY:ID [--state-dir DIR] [--address 127.0.0.1:PORT] NAME BODY
        koinon inbox --as FAMILY:ID [--after SEQ] [--limit N] [--state-dir DIR] [--address 127.0.0.1:PORT]
