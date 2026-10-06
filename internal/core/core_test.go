@@ -27,7 +27,50 @@ func testRepo(t *testing.T) string {
 	if out, err := cmd.CombinedOutput(); err != nil {
 		t.Fatalf("git init: %v: %s", err, out)
 	}
+	// Filesystem repository identity is canonical, including macOS's temporary
+	// directory aliases. Peer/wake addresses remain literal metadata.
+	repo, err := filepath.EvalSymlinks(repo)
+	if err != nil {
+		t.Fatal(err)
+	}
 	return repo
+}
+
+func TestPlainDirectorySession(t *testing.T) {
+	d, root := startTestDaemon(t)
+	directory := t.TempDir()
+	secret, err := ReadSecret(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, family := range []string{"claude", "codex", "deepseek", "agy", "opencode"} {
+		body, err := json.Marshal(Registration{Family: family, ID: "plain-synthetic", Directory: directory})
+		if err != nil {
+			t.Fatal(err)
+		}
+		response := request(t, d, "/v1/sessions/register", string(body), secret)
+		if response.StatusCode != 200 {
+			data, _ := io.ReadAll(response.Body)
+			t.Fatalf("plain register: %s", data)
+		}
+		var result struct {
+			Session Session `json:"session"`
+		}
+		if err := json.NewDecoder(response.Body).Decode(&result); err != nil {
+			t.Fatal(err)
+		}
+		if result.Session.Repository != "" || result.Session.State != "active" {
+			t.Fatalf("plain session: %+v", result.Session)
+		}
+		mutation, _ := json.Marshal(Mutation{Family: family, ID: result.Session.ID, IfRevision: result.Session.Revision})
+		if response = request(t, d, "/v1/sessions/renew", string(mutation), secret); response.StatusCode != 200 {
+			t.Fatalf("plain renew: %d", response.StatusCode)
+		}
+	}
+	counts, err := d.store.Counts(context.Background())
+	if err != nil || counts["active"] != 5 {
+		t.Fatalf("plain count: %+v %v", counts, err)
+	}
 }
 
 func testStore(t *testing.T) (*Store, string) {

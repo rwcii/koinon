@@ -19,10 +19,13 @@ Never put a secret, runtime session identifier or response body in a repository.
 
 POST requests use `Content-Type: application/json`, at most 16 KiB, with unknown fields refused.
 Registration fields are `family` (`claude`, `codex`, `deepseek`, `agy`, `opencode`), `id` (1–256
-bytes), absolute `repository` and `directory` paths, optional `wake_target` JSON (up to 8 KiB),
+bytes), an absolute `directory` path, an optional absolute `repository` path,
+optional `wake_target` JSON (up to 8 KiB),
 and optional `ttl_seconds` (60–3,600, default 900). The daemon derives the canonical absolute
-Git common directory; the working directory must belong to that repository. Worktrees share
-the repository identity. Wake targets are inert metadata until the wake adapter chunk.
+Git common directory when a repository is selected; the working directory must then belong
+to that repository. Worktrees share the repository identity. A session in a plain directory
+can omit `repository`; its stored repository is empty. Repository-dependent memory and work
+operations arrive in later chunks. Wake targets are inert metadata until the wake adapter chunk.
 
 Renew/retire take `family`, `id`, and `if_revision`; renew also accepts `ttl_seconds`. A stale
 revision, expired session or retired session is refused with `session_conflict`. Re-register

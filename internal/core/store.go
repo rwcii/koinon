@@ -175,17 +175,26 @@ func (s *Store) Register(ctx context.Context, r Registration) (Session, error) {
 	if err != nil {
 		return Session{}, err
 	}
-	common, err := repository(ctx, r.Repository)
-	if err != nil {
-		return Session{}, err
-	}
 	directory, err := filepath.EvalSymlinks(r.Directory)
 	if err != nil || !filepath.IsAbs(r.Directory) {
 		return Session{}, ErrInvalid
 	}
-	dirCommon, err := repository(ctx, directory)
-	if err != nil || common != dirCommon {
+	info, err := os.Stat(directory)
+	if err != nil || !info.IsDir() || len(directory) > 4096 || strings.ContainsAny(directory, "\x00\r\n") {
 		return Session{}, ErrInvalid
+	}
+	// A session need not select a repository. Plain scratch sessions can register
+	// without Git; repository-dependent operations are added in later chunks.
+	common := ""
+	if r.Repository != "" {
+		common, err = repository(ctx, r.Repository)
+		if err != nil {
+			return Session{}, err
+		}
+		dirCommon, err := repository(ctx, directory)
+		if err != nil || common != dirCommon {
+			return Session{}, ErrInvalid
+		}
 	}
 	if len(r.WakeTarget) == 0 {
 		r.WakeTarget = json.RawMessage(`{}`)

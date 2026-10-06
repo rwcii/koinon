@@ -7,6 +7,7 @@ into a dated release section when promoted to `main`.
 
 - Added the Go daemon core alongside Python: a CGO-free binary, authenticated IPv4/IPv6
   loopback API, durable session registration/renewal/retirement, and `koinon status`.
+  Sessions can register from plain directories without selecting a Git repository.
   Go state is separate; Python installation and messaging remain available during the sprint.
 - Each checkout now has its own stable alias. Before, the Codex sessions of all worktrees of one
   repository shared one alias, named after the folder of the first worktree that reserved it.
