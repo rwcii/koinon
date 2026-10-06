@@ -15,8 +15,9 @@ Read `../decision.md`, `../definition-of-done.md` and `../spike.md` first.
 - `koinon setup <claude|codex|deepseek|agy|opencode>` adds the MCP server to that agent's configuration
   through the agent's own command (`claude mcp add`, `codex mcp add`, `agy mcp add`, `opencode mcp`, or the
   path the spike recorded for DeepSeek), installs the `agy` stop hook, and installs an OpenCode plugin
-  that adds the calling session's identifier to Koinon tool calls (`../spike.md`, fact 6; verify
-  first, else one launched OpenCode server is one participant). It preserves all
+  that adds the calling session's identifier to Koinon tool calls. Prove that per-call
+  identity first (`../spike.md`, fact 6); if it cannot be proven, stop and take the OpenCode
+  scope back to the user before building OpenCode setup. It preserves all
   other configuration and reports what it changed.
 - `koinon guide --agent <family>` replaces `session.py guide`: it tells each family to use the
   Koinon tools for every agent message, Claude included, and keeps the existing rules on peer

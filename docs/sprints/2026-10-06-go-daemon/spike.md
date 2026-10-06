@@ -117,10 +117,11 @@ Verified with OpenCode 1.18.35 on a scratch `opencode serve` (loopback, own work
   server's API; this stays inside the same-user boundary.
 
 Consequence: the wake path is the supported API, with a loopback server and a password that the
-Koinon launcher sets. Session identity for MCP calls is not given by OpenCode; chunk 05 must
-supply it, first through an OpenCode plugin that adds the calling session's identifier to Koinon
-tool calls (OpenCode plugin hooks receive the session identifier; not verified here), else by
-treating one launched OpenCode server as one participant.
+Koinon launcher sets. Session identity for MCP calls is not given by OpenCode. Chunk 05 must
+prove a per-call source, such as an OpenCode plugin that adds the calling session's identifier to
+Koinon tool calls; a first attempt with a `tool.execute.before` plugin in
+`.opencode/plugin/` did not change the MCP arguments. Without a proven source, OpenCode scope
+returns to the user.
 
 ## Plan changes
 

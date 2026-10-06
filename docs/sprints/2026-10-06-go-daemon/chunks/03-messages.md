@@ -5,7 +5,7 @@ Read `../decision.md`, `../definition-of-done.md` and `../spike.md` first.
 ## Outcome
 
 - The daemon stores messages per receiving session with gapless sequence numbers, a delivery
-  state (waiting, notified, failed with reason) and an acknowledgement state.
+  state (waiting, notified, uncertain, failed with reason) and an acknowledgement state.
 - Loopback API for: list peers, send by session name or alias, read inbox from a sequence,
   acknowledge through a sequence, read the delivery outcome of a sent message. Every call
   authenticates with the secret and names the caller's session.

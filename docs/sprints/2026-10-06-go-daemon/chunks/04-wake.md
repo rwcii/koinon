@@ -24,7 +24,9 @@ result:
   never the permission or question endpoints.
 
 A notice names only the inbox and the sequence range. A busy or unreachable receiver leaves the
-message `waiting` and retries with backoff; a handled sequence is never notified again.
+message `waiting` and retries with backoff. An outcome the daemon cannot confirm is recorded
+as `uncertain` and retried while the sequence is unacknowledged (at least once); an acknowledged
+sequence is never notified.
 
 ## Tests
 
