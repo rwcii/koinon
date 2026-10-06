@@ -93,7 +93,9 @@ to apply to Python.
 Launch creation takes `family` (`codex`, `agy`, `opencode`), absolute `directory` and `cli`,
 and positive `host_pid`. OpenCode also requires `address` (literal loopback with a nonzero
 port) and `password` (64 hex characters). Other families refuse those credential fields.
-The response returns `ok` and `launch_id`, never the credential. Launch records survive a
+The response returns `ok` and `launch_id`. The credential stays only in private launch storage;
+session responses contain a `launch_id` reference and target metadata with no password field.
+Launch records survive a
 restart, and can bind successive native session identities from one CLI process, such as a
 Codex context reset. They are inert state until the agent registers and later wake adapters
 use its target. All launch calls use the existing bearer authentication, request limits and

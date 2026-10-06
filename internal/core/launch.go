@@ -16,6 +16,7 @@ import (
 // LaunchTarget is supplied by the local launcher, never by peer message content.
 // The credential stays in private daemon state and is not returned by launch APIs.
 type LaunchTarget struct {
+	LaunchID  string `json:"launch_id,omitempty"`
 	Family    string `json:"family"`
 	Directory string `json:"directory"`
 	CLI       string `json:"cli"`
@@ -25,6 +26,9 @@ type LaunchTarget struct {
 }
 
 func (s *Store) CreateLaunch(ctx context.Context, target LaunchTarget) (string, error) {
+	if target.LaunchID != "" {
+		return "", ErrInvalid
+	}
 	if target.Family != "codex" && target.Family != "agy" && target.Family != "opencode" {
 		return "", ErrInvalid
 	}
@@ -83,5 +87,11 @@ func launchTarget(ctx context.Context, tx *sql.Tx, id, family, directory string)
 	if storedFamily != family || storedDirectory != directory {
 		return nil, ErrInvalid
 	}
-	return json.RawMessage(target), nil
+	var public LaunchTarget
+	if err := json.Unmarshal([]byte(target), &public); err != nil {
+		return nil, err
+	}
+	public.Password = ""
+	public.LaunchID = id
+	return json.Marshal(public)
 }

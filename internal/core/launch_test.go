@@ -30,8 +30,19 @@ func TestLaunchBindingAndRestart(t *testing.T) {
 			t.Fatal(err)
 		}
 		var stored LaunchTarget
-		if json.Unmarshal(session.WakeTarget, &stored) != nil || stored != target {
+		public := target
+		public.Password = ""
+		public.LaunchID = id
+		if json.Unmarshal(session.WakeTarget, &stored) != nil || stored != public {
 			t.Fatal("launch target not bound")
+		}
+		var private string
+		if err := s.db.QueryRow("SELECT target FROM launches WHERE id=?", id).Scan(&private); err != nil {
+			t.Fatal(err)
+		}
+		stored = LaunchTarget{}
+		if json.Unmarshal([]byte(private), &stored) != nil || stored != target {
+			t.Fatal("private launch target was changed")
 		}
 		// One live CLI can serve another native identity after a context reset.
 		r.ID = "synthetic-next-session"
@@ -86,6 +97,30 @@ func TestLaunchAuthenticationAndCredentialPrivacy(t *testing.T) {
 	if err != nil || response.StatusCode != 200 || strings.Contains(string(data), target.Password) {
 		t.Fatal("launch failed or response leaked credential")
 	}
+	var launch struct {
+		ID string `json:"launch_id"`
+	}
+	if json.Unmarshal(data, &launch) != nil || launch.ID == "" {
+		t.Fatal("missing launch id")
+	}
+	registration, _ := json.Marshal(Registration{Family: "opencode", ID: "synthetic-private-target", Directory: target.Directory, LaunchID: launch.ID})
+	response = request(t, d, "/v1/sessions/register", string(registration), secret)
+	data, err = io.ReadAll(response.Body)
+	response.Body.Close()
+	if err != nil || response.StatusCode != 200 || strings.Contains(string(data), target.Password) || strings.Contains(string(data), `"password"`) {
+		t.Fatal("registration response leaked credential")
+	}
+	request, _ := http.NewRequest("GET", "http://"+d.Addresses()[0]+"/v1/sessions", nil)
+	request.Header.Set("Authorization", "Bearer "+secret)
+	response, err = http.DefaultClient.Do(request)
+	if err != nil {
+		t.Fatal(err)
+	}
+	data, err = io.ReadAll(response.Body)
+	response.Body.Close()
+	if err != nil || response.StatusCode != 200 || strings.Contains(string(data), target.Password) || strings.Contains(string(data), `"password"`) {
+		t.Fatal("session list leaked credential")
+	}
 	for _, address := range []string{"0.0.0.0:12345", "[::]:12345", "example.com:12345", "127.0.0.1:0/path"} {
 		target.Address = address
 		if _, err := d.store.CreateLaunch(context.Background(), target); !errors.Is(err, ErrInvalid) {
@@ -97,7 +132,7 @@ func TestLaunchAuthenticationAndCredentialPrivacy(t *testing.T) {
 		t.Fatal("unknown launch accepted")
 	}
 	counts, err := d.store.Counts(context.Background())
-	if err != nil || counts["total"] != 0 {
+	if err != nil || counts["total"] != 1 {
 		t.Fatal("partial registration inserted")
 	}
 }
