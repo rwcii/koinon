@@ -26,17 +26,23 @@ native workflows below.
   concurrent registration.
 - **Messages (criterion 4).** For each pair of families: send, store, deliver, read, acknowledge.
   Each message has exactly one delivery state and one acknowledgement state at every point. A
-  message to an unknown or retired session fails with a typed error. A crash between store and
-  delivery delivers after restart; a crash after delivery does not deliver twice. Sequence
+  message to an unknown or retired session fails with a typed error. A stored message survives a
+  crash at any point; storage in the inbox is separate from the wake notice. Sequence
   numbers per inbox are gapless and ordered. A sender can read the delivery outcome of its own
   message (#82).
 - **Wake (criterion 6).** Each wake adapter, against a synthetic receiver: the notice carries no
   peer text; a busy or unreachable receiver leaves the message waiting and reports it; a notice
-  for a handled sequence is not sent again (#90). The Claude adapter follows `PROTOCOL.md`
+  for an acknowledged sequence is never sent (#90). Notices are at least once: an outcome the
+  daemon cannot confirm (for example a crash after the provider accepted the notice) is recorded
+  as uncertain and retried while the sequence is unacknowledged, so a duplicate notice is
+  possible and a lost wake is not. The Claude adapter follows `PROTOCOL.md`
   (newline-delimited JSON, unresolved socket path, peer credentials on Linux and macOS).
-- **MCP (criterion 5).** The `koinon mcp` stdio server lists its tools, takes the session
-  identity only from the environment of the agent that started it, and refuses a call that
-  names another session as the caller.
+- **MCP (criterion 5).** The `koinon mcp` stdio server lists its tools and takes the caller's
+  identity from the family source in `spike.md` (per-call metadata for Codex and `agy`; the
+  environment for Claude, only when the client is Claude Code; the proven per-call source for
+  OpenCode). One server receiving two successive Codex thread IDs registers and serves two
+  sessions. A caller identity in model-supplied tool arguments is refused. For OpenCode, two
+  sessions on one server are attributed and woken separately.
 - **Memory (criterion 7).** The memory tests of the Python runtime, ported: snapshot pages,
   deltas, acknowledgement only after processing, record format 2, one store per Git common
   directory including worktrees, and the error codes of `PROTOCOL.md`.
