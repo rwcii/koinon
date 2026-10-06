@@ -1,6 +1,7 @@
 package core
 
 import (
+	"bytes"
 	"context"
 	"crypto/subtle"
 	"encoding/json"
@@ -156,16 +157,34 @@ func failure(w http.ResponseWriter, err error) {
 		status, code = http.StatusNotFound, "session_not_found"
 	case errors.Is(err, ErrConflict):
 		status, code = http.StatusConflict, "session_conflict"
+	case errors.Is(err, ErrPeerNotFound):
+		status, code = http.StatusNotFound, "peer_not_found"
+	case errors.Is(err, ErrAliasUnheld):
+		status, code = http.StatusConflict, "alias_unheld"
+	case errors.Is(err, ErrRecipientInactive):
+		status, code = http.StatusConflict, "recipient_inactive"
+	case errors.Is(err, ErrCallerInactive):
+		status, code = http.StatusForbidden, "caller_inactive"
+	case errors.Is(err, ErrAckBeyondLast):
+		status, code = http.StatusConflict, "ack_beyond_last"
+	case errors.Is(err, ErrMessageNotFound):
+		status, code = http.StatusNotFound, "message_not_found"
 	}
 	// Do not return database paths, credentials or submitted session content.
 	respond(w, status, map[string]any{"ok": false, "code": code})
 }
 
 func decode(w http.ResponseWriter, r *http.Request, value any) error {
+	return decodeLimit(w, r, value, 16384)
+}
+
+// decodeLimit bounds one route's request. A send carries a body of up to maxBody bytes,
+// which JSON escaping can grow to six times its size.
+func decodeLimit(w http.ResponseWriter, r *http.Request, value any, limit int64) error {
 	if r.Header.Get("Content-Type") != "application/json" {
 		return ErrInvalid
 	}
-	dec := json.NewDecoder(http.MaxBytesReader(w, r.Body, 16384))
+	dec := json.NewDecoder(http.MaxBytesReader(w, r.Body, limit))
 	dec.DisallowUnknownFields()
 	if err := dec.Decode(value); err != nil {
 		return ErrInvalid
@@ -184,7 +203,7 @@ func (d *Daemon) handler() http.Handler {
 			failure(w, err)
 			return
 		}
-		respond(w, 200, map[string]any{"ok": true, "daemon": "running", "listeners": d.Addresses(), "sessions": counts, "schema": 1})
+		respond(w, 200, map[string]any{"ok": true, "daemon": "running", "listeners": d.Addresses(), "sessions": counts, "schema": schemaVersion})
 	})
 	mux.HandleFunc("GET /v1/sessions", func(w http.ResponseWriter, r *http.Request) {
 		items, truncated, err := d.store.List(r.Context())
@@ -222,6 +241,7 @@ func (d *Daemon) handler() http.Handler {
 			respond(w, 200, map[string]any{"ok": true, "session": result})
 		})
 	}
+	d.messageRoutes(mux)
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		// This API uses only bearer authentication. Browser origins are refused;
 		// dashboard cookies and CSRF checks belong to the later dashboard chunk.
@@ -238,33 +258,64 @@ func (d *Daemon) handler() http.Handler {
 	})
 }
 
-// GetStatus never uses environment proxies or follows a redirect with the secret.
+// GetStatus reads the daemon status.
 func GetStatus(ctx context.Context, address, secret string) (json.RawMessage, error) {
+	return Call(ctx, address, secret, "/v1/status", nil)
+}
+
+// RefusedError carries the daemon's typed code for a refused request.
+type RefusedError struct{ Code string }
+
+func (e RefusedError) Error() string { return "daemon refused request: " + e.Code }
+
+// Call sends one authenticated request: GET without a body, POST with one. It never uses
+// environment proxies or follows a redirect with the secret.
+func Call(ctx context.Context, address, secret, path string, body any) (json.RawMessage, error) {
 	if !validAddress(address) {
 		return nil, ErrInvalid
 	}
+	method, reader := http.MethodGet, io.Reader(nil)
+	if body != nil {
+		data, err := json.Marshal(body)
+		if err != nil {
+			return nil, err
+		}
+		method, reader = http.MethodPost, bytes.NewReader(data)
+	}
 	transport := &http.Transport{Proxy: nil}
 	defer transport.CloseIdleConnections()
-	client := &http.Client{Transport: transport, Timeout: 5 * time.Second, CheckRedirect: func(_ *http.Request, _ []*http.Request) error { return http.ErrUseLastResponse }}
-	r, err := http.NewRequestWithContext(ctx, http.MethodGet, "http://"+address+"/v1/status", nil)
+	client := &http.Client{Transport: transport, Timeout: 10 * time.Second, CheckRedirect: func(_ *http.Request, _ []*http.Request) error { return http.ErrUseLastResponse }}
+	r, err := http.NewRequestWithContext(ctx, method, "http://"+address+path, reader)
 	if err != nil {
 		return nil, err
 	}
 	r.Header.Set("Authorization", "Bearer "+secret)
+	if body != nil {
+		r.Header.Set("Content-Type", "application/json")
+	}
 	response, err := client.Do(r)
 	if err != nil {
 		return nil, errors.New("daemon unavailable")
 	}
 	defer response.Body.Close()
-	if response.StatusCode != 200 {
-		return nil, errors.New("daemon refused status request")
-	}
-	data, err := io.ReadAll(io.LimitReader(response.Body, 65537))
+	// An inbox page holds about one MiB of bodies, which JSON escaping can grow sixfold.
+	data, err := io.ReadAll(io.LimitReader(response.Body, maxResponse+1))
 	if err != nil {
 		return nil, err
 	}
-	if len(data) > 65536 || !json.Valid(data) {
+	if len(data) > maxResponse || !json.Valid(data) {
 		return nil, errors.New("invalid daemon response")
+	}
+	if response.StatusCode != 200 {
+		var refusal struct {
+			Code string `json:"code"`
+		}
+		if json.Unmarshal(data, &refusal) != nil || refusal.Code == "" || len(refusal.Code) > 64 {
+			return nil, errors.New("daemon refused request")
+		}
+		return nil, RefusedError{refusal.Code}
 	}
 	return data, nil
 }
+
+const maxResponse = 8 << 20

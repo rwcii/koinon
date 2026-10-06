@@ -344,7 +344,8 @@ Ordinary peer limits: 16 active connections, six-second handler deadline, 32 fra
 ## Development
 
 The Go daemon core is available alongside the Python runtime. It is an early sprint chunk:
-it has status and session records; messaging, MCP and installation arrive in later chunks.
+it has status, session records, peer names and inboxes; wake notices, MCP and installation
+arrive in later chunks.
 The Python installation commands still install the Python runtime.
 
 With Go 1.26.6 or newer:
@@ -374,7 +375,21 @@ SQLite state without changing Python files. Existing unsafe files are refused, n
 Status reads the secret privately and sends it only to a literal loopback address, without
 proxies or redirects. Stop the foreground daemon with Ctrl-C or SIGTERM.
 
-See [the Go core API](PROTOCOL.md#go-daemon-core) for session registration and expiry.
+A registered session reaches its peers through the same API. `--as FAMILY:ID` names the calling
+session, which must be active; each command prints the daemon's JSON reply:
+
+```sh
+bin/koinon peers --as codex:ID
+bin/koinon send --as codex:ID NAME 'message text'
+bin/koinon inbox --as codex:ID [--after SEQ] [--limit N]
+bin/koinon ack --as codex:ID SEQ
+```
+
+`NAME` is a peer name or an alias. A body of `-` reads the message from standard input. A stored
+message stays `waiting` until the wake chunk adds notices.
+
+See [the Go core API](PROTOCOL.md#go-daemon-core) for session registration and expiry, names and
+messages.
 Continue running the Python regression suite until the runtime retirement chunk:
 
 ```sh
