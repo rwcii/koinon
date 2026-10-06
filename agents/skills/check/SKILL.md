@@ -14,11 +14,14 @@ failure found here saves one. Run the checks from the root of the branch's workt
 
 ```sh
 python3 tests/run.py
+go vet ./...
+go test -race ./...
 git diff --check origin/develop...HEAD
 git diff --check
 ```
 
-A passing test run on the same commit counts; do not run the suite again when only prose changed
+Run the Go commands when `go.mod` is present. Both runtime suites remain required until the
+Python retirement chunk. A passing test run on the same commit counts; do not run the suite again when only prose changed
 since then. Name the commit the tests ran on when you report.
 
 ## 2. Shell syntax, for shell edits only

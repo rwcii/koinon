@@ -1,5 +1,45 @@
 # Koinon protocols
 
+## Go daemon core
+
+The Go daemon is currently a development runtime alongside Python. Its HTTP API uses a
+private user secret from the selected Go state root, passed in `Authorization: Bearer SECRET`.
+No API endpoint is anonymous. Each listener must be a literal loopback address; foreign
+browser origins and non-loopback Host headers are refused. The API accepts no browser cookies.
+The secret and state files are user-owned regular files, mode 0600; the state root is private.
+Never put a secret, runtime session identifier or response body in a repository.
+
+| Route | Operation |
+| --- | --- |
+| `GET /v1/status` | Daemon readiness, listener addresses, schema and counts of active/expired/retired sessions. |
+| `GET /v1/sessions` | Up to 1,000 records ordered by family and ID; `truncated` reports more records. |
+| `POST /v1/sessions/register` | Register or reactivate one session identified by `(family, id)`. |
+| `POST /v1/sessions/renew` | Renew an active session's expiry. |
+| `POST /v1/sessions/retire` | Mark an active session retired, retaining its record. |
+
+POST requests use `Content-Type: application/json`, at most 16 KiB, with unknown fields refused.
+Registration fields are `family` (`claude`, `codex`, `deepseek`, `agy`, `opencode`), `id` (1–256
+bytes), an absolute `directory` path, an optional absolute `repository` path,
+optional `wake_target` JSON (up to 8 KiB),
+and optional `ttl_seconds` (60–3,600, default 900). The daemon derives the canonical absolute
+Git common directory when a repository is selected; the working directory must then belong
+to that repository. Worktrees share the repository identity. A session in a plain directory
+can omit `repository`; its stored repository is empty. Repository-dependent memory and work
+operations arrive in later chunks. Wake targets are inert metadata until the wake adapter chunk.
+
+Renew/retire take `family`, `id`, and `if_revision`; renew also accepts `ttl_seconds`. A stale
+revision, expired session or retired session is refused with `session_conflict`. Re-register
+to return an expired/retired session to active without deleting its retained data. Concurrent
+registrations update one row, never create two records for the same key. Times are Unix
+milliseconds. Expiry is computed from the current wall clock; clock jumps can change effective
+expiry, never remove records or imply a model stopped. Restart preserves records and revisions.
+
+Replies include `ok`. Success returns `session` or `sessions`; failures report a fixed `code`:
+`unauthorized` (401), `foreign_origin` (403), `invalid_request` (400), `session_not_found` (404),
+`session_conflict` (409), or `storage_error` (500). Mutations commit before replying. A lost
+reply does not prove rollback; read the retained record before retrying. Wake, inbox and memory
+commands are later sprint chunks. The Python protocol below continues to apply to Python.
+
 The [work command interface](docs/WORK-ITEMS-COMMANDS.md) provides schema-5
 work records, advisory claims and immutable events. Startup creates schema 5 or
 atomically migrates schema 3/4 after validating the complete catalog. Transport remains

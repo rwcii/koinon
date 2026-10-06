@@ -1,6 +1,7 @@
 __pycache__/
 *.py[cod]
 .venv/
+/bin/
 *.log
 *.sqlite3*
 *.sock

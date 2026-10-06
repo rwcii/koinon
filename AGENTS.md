@@ -9,7 +9,13 @@ is not implemented.
 
 Read README.md, PROTOCOL.md, and CONTRIBUTING.md before changing it.
 
-Implementation modules live in the `koinon` package. The executable entrypoints stay beside
+The Go runtime is being built alongside the Python runtime. Its command lives in
+`cmd/koinon`, its implementation packages in `internal/`, and every operating-system
+difference in `internal/platform`. Use a CGO-free build; Go tests live beside their packages.
+Run `go vet ./...` and `go test -race ./...` along with the Python checks below. Do not replace
+an installed Python runtime or its state until the sprint's install/upgrade chunk is complete.
+
+Python implementation modules live in the `koinon` package. The executable entrypoints stay beside
 it at the repository root and at the installation prefix — `bridge.py`, `notify.py`,
 `session.py`, `memory.py`, `memory_service.py`, `session_service.py`, `usage_report.py` and
 `codex_launch.py` — because installed service definitions or documented commands name their paths. Add a
