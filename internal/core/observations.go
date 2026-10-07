@@ -24,6 +24,13 @@ var observationSources = map[string][]string{
 	"terminal": {"tmux_env"},
 }
 
+// terminalNaming lists the results that `koinon mcp` reports for naming a terminal.
+var terminalNaming = map[string]bool{
+	"renamed": true, "unchanged": true, "pane_titled": true, "name_taken": true, "rename_unconfirmed": true,
+	"pane_not_host": true, "nested_agent": true, "panes_unknown": true, "tmux_unreadable": true,
+	"process_table_unreadable": true, "invalid_name": true,
+}
+
 var maxObservedSessions = 4096 // a variable only so that tests can lower it
 
 // ObservedValue is one observed group: its allowlisted fields, its source and the time the
@@ -43,6 +50,9 @@ type ObservedValue struct {
 	Socket  string `json:"socket,omitempty"`
 	Pane    string `json:"pane,omitempty"`
 	Session string `json:"session,omitempty"`
+	// Naming is the result of the last attempt to name the terminal after the session's
+	// published name (#156).
+	Naming string `json:"naming,omitempty"`
 }
 
 // Observation is one report. Absent groups are left as they were.
@@ -111,17 +121,18 @@ func (v *ObservedValue) valid(group string, now int64) bool {
 	switch group {
 	case "model":
 		return modelID.MatchString(v.ID) && v.LimitTokens == nil && v.UsedTokens == nil && v.UsageAvailable == nil &&
-			v.State == "" && v.Socket == "" && v.Pane == "" && v.Session == ""
+			v.State == "" && v.Socket == "" && v.Pane == "" && v.Session == "" && v.Naming == ""
 	case "context":
 		ok := func(p *int64) bool { return p == nil || *p >= 0 && *p <= maxSafeInt }
 		return ok(v.LimitTokens) && ok(v.UsedTokens) && (v.LimitTokens == nil) == (v.UsedTokens == nil) &&
-			v.ID == "" && v.State == "" && v.Socket == "" && v.Pane == "" && v.Session == ""
+			v.ID == "" && v.State == "" && v.Socket == "" && v.Pane == "" && v.Session == "" && v.Naming == ""
 	case "activity":
 		return activityKind[v.State] && v.ID == "" && v.LimitTokens == nil && v.UsedTokens == nil &&
-			v.UsageAvailable == nil && v.Socket == "" && v.Pane == "" && v.Session == ""
+			v.UsageAvailable == nil && v.Socket == "" && v.Pane == "" && v.Session == "" && v.Naming == ""
 	case "terminal":
 		return len(v.Socket) > 0 && len(v.Socket) <= 4096 && !strings.ContainsAny(v.Socket, "\x00\r\n") &&
 			tmuxPane.MatchString(v.Pane) && (v.Session == "" || tmuxSession.MatchString(v.Session)) &&
+			(v.Naming == "" || terminalNaming[v.Naming]) &&
 			v.ID == "" && v.State == "" && v.LimitTokens == nil && v.UsedTokens == nil && v.UsageAvailable == nil
 	}
 	return false

@@ -284,12 +284,27 @@ comes. A session that is not active shows `unknown` with `session_expired` or
 | Model | `claude_statusline`; `codex_rollout` (the session's own rollout under `CODEX_HOME`) and `codex_mcp_meta` (`x-codex-turn-metadata.model` of a tool call); `agy_hook` (`modelName` of the Stop hook) |
 | Context | `claude_statusline` (`context_window_size`, `total_input_tokens`); `codex_rollout` (`model_context_window`, `last_token_usage.input_tokens`) |
 | Activity | `claude_registry` (the parent Claude process's registry record for this session, `entrypoint: cli`); `codex_rollout` (task started and completed); `agy_hook` (idle at Stop) and `mcp_call` (an agy tool call); `opencode_status` (`GET /session/status` on a launched OpenCode server, with its password, cached 5 seconds) |
-| Terminal | `tmux_env`: the MCP server's `TMUX` and `TMUX_PANE` and the pane's session name |
+| Terminal | `tmux_env`: the MCP server's `TMUX` and `TMUX_PANE`, the pane's session name and the last terminal naming result |
 
 One MCP server can serve several sessions, so its environment proves nothing about a session.
 The daemon accepts a terminal only for a session registered with a verified launch ID or a
 Claude session, whose server is the child of that Claude process; any other terminal report is
-refused with `terminal_unverified`, and the view shows that reason. `koinon mcp` checks its
+refused with `terminal_unverified`, and the view shows that reason.
+
+For those same sessions, `koinon mcp` names the terminal after the session's published name
+(the alias while the session holds one, else the peer name) after a registration or a renewal
+in which that name changed. `TMUX` and `TMUX_PANE` only select the tmux server and a candidate
+pane. The pane counts as the session's own only when its process is the session's host
+process from the wake target (the Claude process, or the launched CLI) or an ancestor of it,
+with no Claude Code, Codex, `agy` or OpenCode process between them (`pane_not_host`,
+`nested_agent`). When another pane of the same tmux session holds an agent process, only this
+pane is titled (`pane_titled`); otherwise the session is renamed by its ID (`renamed`), unless
+it already has the name (`unchanged`) or another session has it (`name_taken`), and the name is
+read back (`rename_unconfirmed`). A tmux or process-table failure (`tmux_unreadable`,
+`process_table_unreadable`, `panes_unknown`) changes nothing and is tried again at the next
+renewal; the other results wait for the next change of the published name. Every tmux call
+has a one-second timeout, and naming never delays or fails a tool call. The terminal
+observation carries the last result as `naming`. `koinon mcp` checks its
 pulled sources every 5 seconds for the 8 sessions it registered last and reports a group when it
 changed, or once a minute to confirm it. It reads metadata only: a rollout's first record must
 name the session, at most 4 MiB are read per check, records longer than 1 MiB are discarded in

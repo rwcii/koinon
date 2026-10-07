@@ -42,6 +42,8 @@ func TestObservationValidationAndAttribution(t *testing.T) {
 		"half a context":      {Caller: Key{"codex", "synthetic-codex"}, Context: &ObservedValue{Source: "codex_rollout", At: now, LimitTokens: int64p(10)}},
 		"pane form":           {Caller: Key{"claude", "synthetic-claude"}, Terminal: &ObservedValue{Source: "tmux_env", At: now, Socket: "/tmp/s", Pane: "3"}},
 		"terminal without it": {Caller: Key{"claude", "synthetic-claude"}, Terminal: &ObservedValue{Source: "tmux_env", At: now, Pane: "%3"}},
+		"unknown naming":      {Caller: Key{"claude", "synthetic-claude"}, Terminal: &ObservedValue{Source: "tmux_env", At: now, Socket: "/tmp/s", Pane: "%3", Naming: "renamed<b>"}},
+		"naming elsewhere":    {Caller: Key{"codex", "synthetic-codex"}, Activity: &ObservedValue{Source: "codex_rollout", At: now, State: "busy", Naming: "renamed"}},
 	} {
 		if err := s.Observe(context.Background(), o); !errors.Is(err, ErrInvalid) {
 			t.Fatalf("%s: %v", name, err)
