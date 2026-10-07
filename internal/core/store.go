@@ -69,8 +69,12 @@ type Store struct {
 	wake     wakeState
 }
 
-func openStore(root string) (*Store, error) {
-	path := filepath.Join(root, "state.sqlite3")
+func openStore(root string) (*Store, error) { return openStoreFile(root, "state.sqlite3") }
+
+// openStoreFile opens the state database file name in root; an import stages its
+// database under another name and renames it into place (sprint chunk 11).
+func openStoreFile(root, name string) (*Store, error) {
+	path := filepath.Join(root, name)
 	f, err := platform.OpenPrivate(path, os.O_RDWR|os.O_CREATE)
 	if err != nil {
 		return nil, err
@@ -195,7 +199,7 @@ func checkFormat(db *sql.DB, path string) error {
 	return nil
 }
 
-const schemaVersion = 7
+const schemaVersion = 8
 
 // migrate brings the state schema from version to target in one transaction, so a crash
 // leaves either the old or the new schema. Each step starts from the version before it.
@@ -385,6 +389,16 @@ func migrate(db *sql.DB, version, target int) error {
 			INSERT INTO sessions(family,id,repository,directory,wake_target,registered_at,renewed_at,expires_at,retired_at,revision)
 				VALUES ('maintainer','maintainer','','','{}',0,0,9007199254740991,0,1);
 			INSERT INTO names(name,kind,family,session_id) VALUES ('maintainer','peer','maintainer','maintainer');`); err != nil {
+			return err
+		}
+	}
+	if version < 8 && target >= 8 {
+		// Version 8: the record of each Python-era source imported into this database
+		// (sprint chunk 11). A source imports once; its digest detects a changed source.
+		if _, err := tx.Exec(`CREATE TABLE imports (
+			source TEXT PRIMARY KEY, kind TEXT NOT NULL CHECK (kind IN ('inbox','memory')),
+			digest TEXT NOT NULL, cutoff TEXT NOT NULL, counts TEXT NOT NULL, at INTEGER NOT NULL
+		)`); err != nil {
 			return err
 		}
 	}
