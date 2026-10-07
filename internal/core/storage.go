@@ -119,6 +119,9 @@ type writeTx struct {
 	class writeClass
 	done  bool
 	after []func()
+	// audited marks the transaction of a dashboard action's own change; only it carries the
+	// action's audit record, never a maintenance write that runs first under the same context.
+	audited bool
 }
 
 // begin enters the storage boundary: it refuses writes while blocked, proves the log

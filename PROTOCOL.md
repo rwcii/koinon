@@ -336,12 +336,18 @@ from elsewhere. Peer message bodies appear here, escaped, and nowhere else outsi
     argument is accepted. The action never waits for the agent to register.
 - **Audit log.** A request that fails the session, host, origin or CSRF check writes no record.
   After those checks, each action writes one record: time, action, target, result (`accepted`,
-  `refused`, or `started` while a launch runs) and a fixed reason code. A record never holds a
-  message body, a credential or a secret; a send records the recipient, the body size and the
-  message ID. An accepted change and its record commit in one transaction of the change's write
-  class, so a record that does not fit refuses the change. A refusal is recorded only when
-  storage can hold it. A launch writes its record first and sets the result when the launcher
-  returns. The maintenance sweep keeps 90 days and at most 10,000 records.
+  `refused`, `started` while a launch runs, or `unknown`) and a fixed reason code. A record never
+  holds a message body, a credential or a secret; a send records the peer name of the session
+  that received it, the body size, the message ID and, for a send to an alias, `via ALIAS`. An
+  accepted change and its record commit in the transaction that makes the change, in its write
+  class; maintenance writes that run first in the same request (memory expiry, work
+  reconciliation) never carry the record. A record that does not fit refuses the change. A
+  refusal is recorded only when storage can hold it. A launch writes its record first and sets
+  the result when the launcher returns; when that update cannot be written, the notice says
+  `launched_unrecorded` or `launch_refused_unrecorded`, and the maintenance loop writes the
+  result later without starting anything again. A daemon start sets every launch record still
+  `started` to `unknown` with `daemon_restarted`. The maintenance sweep keeps 90 days and at
+  most 10,000 records.
 
 Observations are memory-only, allowlisted values: a model ID (at most 128 printable characters),
 context limit and used tokens, an activity state (`busy`, `idle` or `waiting`) and a tmux socket,

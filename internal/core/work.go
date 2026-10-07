@@ -953,6 +953,8 @@ func (s *Store) workMutation(ctx context.Context, m MemoryCaller, r *workRequest
 	}
 	var result map[string]any
 	err = s.workWrite(ctx, m.Repository, class, func(tx *writeTx, store string) error {
+		// The operation's own change; the expiry and reconciliation above are not.
+		tx.audited = true
 		var err error
 		result, err = s.apply(ctx, tx, store, m, r, now, print, advanced)
 		return err

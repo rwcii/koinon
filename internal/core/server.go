@@ -41,6 +41,10 @@ type Daemon struct {
 	// (sprint chunk 09), replaced in tests.
 	root   string
 	launch func(ctx context.Context, args []string) ([]byte, error)
+	// unfinished holds launch results whose audit update failed, by record ID; the
+	// maintenance loop writes them when storage allows. A launch never runs again.
+	launchMu   sync.Mutex
+	unfinished map[int64][2]string
 }
 
 func validAddress(address string) bool {
@@ -90,6 +94,9 @@ func Start(c Config) (*Daemon, error) {
 	}
 	d.started = d.store.now()
 	d.store.observed.extras = d.store.openCodeActivity
+	d.unfinished = map[int64][2]string{}
+	// A launch whose result a previous daemon never recorded stays visibly open no longer.
+	d.store.closeStartedLaunches(context.Background())
 	d.store.wake.send = d.store.providerWake
 	if d.auth, err = newDashboardAuth(func() time.Time { return d.store.now() }); err != nil {
 		return nil, err

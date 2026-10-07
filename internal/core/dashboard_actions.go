@@ -38,29 +38,31 @@ var (
 
 // noticeText is every notice a view can show; any other code shows nothing.
 var noticeText = map[string]string{
-	"retired":            "The session was retired.",
-	"released":           "The claim was released.",
-	"acknowledged":       "The inbox was acknowledged.",
-	"cleared":            "The inbox was cleared: every message is acknowledged.",
-	"sent":               "The message was sent as maintainer.",
-	"launched":           "The session was started in a new tmux session.",
-	"invalid_request":    "Refused: the request was not valid.",
-	"maintainer_session": "Refused: the maintainer session cannot be retired.",
-	"revision_changed":   "Refused: the session changed since the page was loaded. Reload and try again.",
-	"session_not_active": "Refused: the session is not active.",
-	"session_not_found":  "Refused: no such session.",
-	"peer_not_found":     "Refused: no session has that name.",
-	"alias_unheld":       "Refused: no active session holds that alias.",
-	"recipient_inactive": "Refused: the recipient is expired or retired.",
-	"ack_beyond_last":    "Refused: that sequence is beyond the last message.",
-	"capacity":           "Refused: storage capacity reached. Nothing was changed.",
-	"storage_blocked":    "Refused: writes wait for koinon recover.",
-	"launch_refused":     "Refused: the launcher did not start the session.",
-	"revision_conflict":  "Refused: the work item changed since the page was loaded. Reload and try again.",
-	"stale_claim":        "Refused: the claim changed since the page was loaded. Reload and try again.",
-	"invalid_transition": "Refused: the work item is not in a state that can be released.",
-	"work_not_found":     "Refused: the work item is gone.",
-	"storage_error":      "Refused: the daemon could not complete the action.",
+	"retired":                   "The session was retired.",
+	"released":                  "The claim was released.",
+	"acknowledged":              "The inbox was acknowledged.",
+	"cleared":                   "The inbox was cleared: every message is acknowledged.",
+	"sent":                      "The message was sent as maintainer.",
+	"launched":                  "The session was started in a new tmux session.",
+	"invalid_request":           "Refused: the request was not valid.",
+	"maintainer_session":        "Refused: the maintainer session cannot be retired.",
+	"revision_changed":          "Refused: the session changed since the page was loaded. Reload and try again.",
+	"session_not_active":        "Refused: the session is not active.",
+	"session_not_found":         "Refused: no such session.",
+	"peer_not_found":            "Refused: no session has that name.",
+	"alias_unheld":              "Refused: no active session holds that alias.",
+	"recipient_inactive":        "Refused: the recipient is expired or retired.",
+	"ack_beyond_last":           "Refused: that sequence is beyond the last message.",
+	"capacity":                  "Refused: storage capacity reached. Nothing was changed.",
+	"storage_blocked":           "Refused: writes wait for koinon recover.",
+	"launch_refused":            "Refused: the launcher did not start the session.",
+	"launched_unrecorded":       "The session was started, but its audit result is not written yet; the daemon writes it when storage allows.",
+	"launch_refused_unrecorded": "Refused: the launcher did not start the session. The audit result is not written yet; the daemon writes it when storage allows.",
+	"revision_conflict":         "Refused: the work item changed since the page was loaded. Reload and try again.",
+	"stale_claim":               "Refused: the claim changed since the page was loaded. Reload and try again.",
+	"invalid_transition":        "Refused: the work item is not in a state that can be released.",
+	"work_not_found":            "Refused: the work item is gone.",
+	"storage_error":             "Refused: the daemon could not complete the action.",
 }
 
 var noticeCode = regexp.MustCompile(`^[a-z_]{1,40}$`)
@@ -240,17 +242,44 @@ func (d *Daemon) dashboardActions(mux *http.ServeMux, authed func(int64, func(ht
 			PaneID    string `json:"pane_id"`
 		}
 		if err != nil || json.Unmarshal(output, &reply) != nil || !reply.OK {
-			d.store.finishLaunch(r.Context(), id, "refused", "launch_refused")
-			done(w, r, "sessions", nil, "launch_refused")
+			done(w, r, "sessions", nil, d.recordLaunch(r.Context(), id, "refused", "launch_refused", "launch_refused"))
 			return
 		}
 		reason := "tmux " + reply.SessionID + " " + reply.PaneID
 		if len(reason) > 64 || strings.ContainsAny(reason, "\x00\r\n") {
 			reason = "tmux"
 		}
-		d.store.finishLaunch(r.Context(), id, "accepted", reason)
-		done(w, r, "sessions", nil, "launched")
+		done(w, r, "sessions", nil, d.recordLaunch(r.Context(), id, "accepted", reason, "launched"))
 	}))
+}
+
+// recordLaunch writes a launch's result and returns the notice. When the update cannot be
+// written, the result waits in memory for the maintenance loop, and the notice says so.
+func (d *Daemon) recordLaunch(ctx context.Context, id int64, result, reason, notice string) string {
+	if err := d.store.finishLaunch(ctx, id, result, reason); err == nil {
+		return notice
+	}
+	d.launchMu.Lock()
+	d.unfinished[id] = [2]string{result, reason}
+	d.launchMu.Unlock()
+	return notice + "_unrecorded"
+}
+
+// finishLaunches writes the launch results that recordLaunch could not.
+func (d *Daemon) finishLaunches(ctx context.Context) {
+	d.launchMu.Lock()
+	pending := make(map[int64][2]string, len(d.unfinished))
+	for id, v := range d.unfinished {
+		pending[id] = v
+	}
+	d.launchMu.Unlock()
+	for id, v := range pending {
+		if d.store.finishLaunch(ctx, id, v[0], v[1]) == nil {
+			d.launchMu.Lock()
+			delete(d.unfinished, id)
+			d.launchMu.Unlock()
+		}
+	}
 }
 
 // launchAddress is the daemon's IPv4 loopback listener, which the launcher reaches.

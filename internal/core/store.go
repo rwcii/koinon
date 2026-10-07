@@ -621,6 +621,7 @@ func (s *Store) Mutate(ctx context.Context, r Mutation, retire bool) (Session, e
 		return Session{}, err
 	}
 	defer tx.Rollback()
+	tx.audited = true
 	current, err := scanSession(tx.QueryRowContext(ctx, sessionQuery+` WHERE s.family=? AND s.id=?`, r.Family, r.ID), now)
 	if err != nil {
 		return Session{}, err

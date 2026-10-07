@@ -142,6 +142,7 @@ func (s *Store) send(ctx context.Context, caller Key, to, body string, dashboard
 		return Outcome{}, err
 	}
 	defer tx.Rollback()
+	tx.audited = true
 	if err := activeCaller(ctx, tx.Tx, now, caller, dashboard); err != nil {
 		return Outcome{}, err
 	}
@@ -190,13 +191,18 @@ func (s *Store) send(ctx context.Context, caller Key, to, body string, dashboard
 	if err != nil {
 		return Outcome{}, err
 	}
-	if p, _ := ctx.Value(auditContextKey{}).(*pendingAudit); p != nil && dashboard {
-		p.target += " message " + strconv.FormatInt(id, 10)
-	}
+	submitted := to
 	// The outcome names the receiving session by its peer name, also for a send to an alias.
 	if err := tx.QueryRowContext(ctx, `SELECT name FROM names WHERE kind='peer' AND family=? AND session_id=?`,
 		family, sessionID).Scan(&to); err != nil {
 		return Outcome{}, err
+	}
+	if p, _ := ctx.Value(auditContextKey{}).(*pendingAudit); p != nil && dashboard {
+		// The record names the session that received it: an alias can move later.
+		p.target = "to " + to + " bytes " + strconv.Itoa(len(body)) + " message " + strconv.FormatInt(id, 10)
+		if submitted != to {
+			p.target += " via " + submitted
+		}
 	}
 	return Outcome{ID: id, Recipient: to, Seq: seq, DeliveryState: "waiting", UpdatedAt: now}, tx.Commit()
 }
@@ -273,6 +279,7 @@ func (s *Store) ack(ctx context.Context, caller Key, through int64, dashboard bo
 		return 0, err
 	}
 	defer tx.Rollback()
+	tx.audited = true
 	if !dashboard {
 		if err := active(ctx, tx.Tx, s.now().UnixMilli(), caller); err != nil {
 			return 0, err

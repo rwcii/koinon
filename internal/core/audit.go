@@ -46,12 +46,12 @@ func noAudit(ctx context.Context) context.Context {
 	return context.WithValue(context.WithoutCancel(ctx), auditContextKey{}, (*pendingAudit)(nil))
 }
 
-// writeAudit inserts the pending accepted record of the transaction's context, if any.
-// It runs inside Commit, before the page check, so a record that does not fit refuses
-// the whole transaction.
+// writeAudit inserts the pending accepted record of the transaction's context into the
+// transaction that the operation marked as its own change. It runs inside Commit, before
+// the page check, so a record that does not fit refuses the whole transaction.
 func (t *writeTx) writeAudit() (*pendingAudit, error) {
 	p, _ := t.ctx.Value(auditContextKey{}).(*pendingAudit)
-	if p == nil || p.written {
+	if p == nil || p.written || !t.audited {
 		return nil, nil
 	}
 	_, err := t.Tx.ExecContext(t.ctx, `INSERT INTO audit(at,action,target,result) VALUES (?,?,?,'accepted')`,
@@ -111,6 +111,21 @@ func (s *Store) finishLaunch(ctx context.Context, id int64, result, reason strin
 	}
 	defer tx.Rollback()
 	if _, err := tx.ExecContext(ctx, `UPDATE audit SET result=?,reason=? WHERE id=?`, result, reason, id); err != nil {
+		return tx.fail(err)
+	}
+	return tx.Commit()
+}
+
+// closeStartedLaunches marks the launch records that a previous daemon left `started`:
+// their result is unknown. A failure leaves them as they are.
+func (s *Store) closeStartedLaunches(ctx context.Context) error {
+	ctx = noAudit(ctx)
+	tx, err := s.begin(ctx, control)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+	if _, err := tx.ExecContext(ctx, `UPDATE audit SET result='unknown',reason='daemon_restarted' WHERE action='launch' AND result='started'`); err != nil {
 		return tx.fail(err)
 	}
 	return tx.Commit()

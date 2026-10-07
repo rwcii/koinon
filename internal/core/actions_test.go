@@ -573,3 +573,123 @@ func TestDashboardAckSharesTheWakeBoundary(t *testing.T) {
 		t.Fatalf("wake after clear: %d %v", calls, err)
 	}
 }
+
+// releaseFields are the fields the dashboard sends for a release.
+func releaseFields(id string, rev, generation int64) map[string]json.RawMessage {
+	fields := map[string]json.RawMessage{}
+	for k, v := range map[string]any{"work_id": id, "if_revision": rev, "claim_generation": generation,
+		"checkpoint": "Released by the maintainer from the dashboard"} {
+		fields[k], _ = json.Marshal(v)
+	}
+	return fields
+}
+
+// A maintenance write that commits before the release never takes the release's record
+// (review finding F1 on #202).
+func TestReleaseAuditIgnoresMaintenanceWrites(t *testing.T) {
+	s, clock, owner := workStore(t)
+	// Refused: the lease is due for expiry, and the generation is stale.
+	id := create(t, s, owner, "Synthetic refused release")
+	generation := mustStart(t, s, owner, id, map[string]any{"lease_seconds": 60})
+	rev := revision(t, s, owner, id)
+	*clock = clock.Add(61 * time.Second)
+	ctx, pending := withAudit(context.Background(), "release", id)
+	_, err := s.Work(ctx, owner, "work-release", releaseFields(id, rev, generation+1))
+	if err == nil {
+		t.Fatal("stale generation released")
+	}
+	s.auditRefusal(ctx, pending, errorCode(err))
+	if records := auditAll(t, s); len(records) != 1 || records[0].Result != "refused" || records[0].Reason != errorCode(err) {
+		t.Fatalf("refused release audited as %+v", records)
+	}
+	// Accepted: memory expiry is due and runs first inside the same call; the record joins
+	// the release's own transaction.
+	id = create(t, s, owner, "Synthetic accepted release")
+	generation = mustStart(t, s, owner, id, nil)
+	rev = revision(t, s, owner, id)
+	s.memory.mu.Lock()
+	s.memory.lastExpiry = nil
+	s.memory.mu.Unlock()
+	ctx, pending = withAudit(context.Background(), "release", id)
+	if _, err := s.Work(ctx, owner, "work-release", releaseFields(id, rev, generation)); err != nil {
+		t.Fatalf("release: %v", err)
+	}
+	if records := auditAll(t, s); !pending.written || len(records) != 2 || records[0].Result != "accepted" || records[0].Target != id {
+		t.Fatalf("accepted release audited as %+v", records)
+	}
+	// A write that the operation did not mark never takes the record.
+	ctx, pending = withAudit(context.Background(), "release", "unmarked")
+	tx, err := s.begin(ctx, ordinary)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := tx.Commit(); err != nil {
+		t.Fatal(err)
+	}
+	if records := auditAll(t, s); pending.written || len(records) != 2 {
+		t.Fatalf("an unmarked write took the record: %+v", records)
+	}
+}
+
+// A launch result that cannot be written is reported and written later; the launch never
+// runs twice, and a restart closes a record that stayed open (review finding F2 on #202).
+func TestLaunchResultWrittenAfterRecovery(t *testing.T) {
+	d, root := startTestDaemon(t)
+	client := newActionClient(t, d, root)
+	runs := 0
+	d.launch = func(context.Context, []string) ([]byte, error) {
+		runs++
+		d.store.storage.mu.Lock()
+		d.store.storage.blocked = "synthetic concurrent checkpoint failure"
+		d.store.storage.mu.Unlock()
+		return []byte(`{"ok":true,"session_id":"$7","pane_id":"%9"}`), nil
+	}
+	if got := client.do("launch", url.Values{"family": {"codex"}, "directory": {t.TempDir()}, "name": {"synthetic"}}); got != "launched_unrecorded" {
+		t.Fatalf("notice: %s", got)
+	}
+	if records := auditAll(t, d.store); len(records) != 1 || records[0].Result != "started" {
+		t.Fatalf("before recovery: %+v", records)
+	}
+	if _, err := d.store.Recover(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	d.finishLaunches(context.Background())
+	if records := auditAll(t, d.store); len(records) != 1 || records[0].Result != "accepted" || records[0].Reason != "tmux $7 %9" {
+		t.Fatalf("after recovery: %+v", records)
+	}
+	if len(d.unfinished) != 0 || runs != 1 {
+		t.Fatalf("unfinished %d, launches %d", len(d.unfinished), runs)
+	}
+	// A record a previous daemon left started is closed at the next start.
+	id, err := d.store.auditLaunch(context.Background(), "codex /synthetic tmux left-open")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := d.store.closeStartedLaunches(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	var result, reason string
+	d.store.db.QueryRow(`SELECT result,reason FROM audit WHERE id=?`, id).Scan(&result, &reason)
+	if result != "unknown" || reason != "daemon_restarted" {
+		t.Fatalf("left-open record: %s %s", result, reason)
+	}
+}
+
+// A send to an alias records the session that received it (review finding F3 on #202).
+func TestAliasSendAuditNamesTheRecipient(t *testing.T) {
+	d, root := startTestDaemon(t)
+	b := join(t, d.store, "claude", "synthetic-recipient", namedRepo(t, "audit-alias"))
+	if b.Alias == "" || b.Alias == b.Name {
+		t.Fatal("the fixture needs a distinct peer name and alias")
+	}
+	client := newActionClient(t, d, root)
+	if got := client.do("send", url.Values{"to": {b.Alias}, "body": {"synthetic"}}); got != "sent" {
+		t.Fatal(got)
+	}
+	var id int64
+	d.store.db.QueryRow(`SELECT id FROM messages WHERE sender_family='maintainer'`).Scan(&id)
+	want := "to " + b.Name + " bytes 9 message " + strconv.FormatInt(id, 10) + " via " + b.Alias
+	if record := auditAll(t, d.store)[0]; record.Target != want {
+		t.Fatalf("target %q, want %q", record.Target, want)
+	}
+}
