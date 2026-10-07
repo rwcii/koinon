@@ -27,9 +27,12 @@ if __name__ == '__main__':
             return True
         if not _owned(info, _stat.S_ISDIR):
             return False
-        with _os.scandir(path) as entries:
-            return all(_owned(entry.stat(follow_symlinks=False), _stat.S_ISREG)
-                       and entry.stat(follow_symlinks=False).st_nlink == 1 for entry in entries)
+        try:
+            with _os.scandir(path) as entries:
+                return all(_owned(entry.stat(follow_symlinks=False), _stat.S_ISREG)
+                           and entry.stat(follow_symlinks=False).st_nlink == 1 for entry in entries)
+        except FileNotFoundError:
+            return False
 
     if _script or not all(_trusted(_os.path.join(_root, part, '__pycache__'))
                             for part in ('', 'koinon', 'scripts')):

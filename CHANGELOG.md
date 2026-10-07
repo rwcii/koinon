@@ -5,6 +5,9 @@ into a dated release section when promoted to `main`.
 
 ## Unreleased
 
+- A Koinon command no longer crashes at start when another process of the same installation
+  compiles a module while the command checks its bytecode caches; it runs from source for
+  that run instead.
 - Added the Go daemon dashboard: `koinon dashboard` prints a one-time login link to a loopback,
   read-only web view of the sessions, every message with its body and delivery and
   acknowledgement state, the memory stores, the work items and the daemon's health, refreshed in
