@@ -1,5 +1,5 @@
-// Command koinon provides the Go daemon core and its message commands. Other sprint
-// commands are added only after their prerequisite chunks merge.
+// Command koinon provides the Go daemon, its client and agent commands, and its
+// installation, upgrade and import commands.
 package main
 
 import (
@@ -47,6 +47,10 @@ func run(ctx context.Context, args []string, in io.Reader, out io.Writer) error 
 		return workCommand(ctx, args, out)
 	case "dashboard":
 		return dashboardCommand(ctx, args[1:], out)
+	case "version":
+		return versionCommand(out)
+	case "install", "uninstall", "import", "upgrade":
+		return lifecycleCommand(ctx, args, out)
 	}
 	root, err := platform.DefaultStateDir()
 	if err != nil {
@@ -121,7 +125,13 @@ func run(ctx context.Context, args []string, in io.Reader, out io.Writer) error 
 	}
 }
 
-const usage = `Usage: koinon serve [--state-dir DIR] [--listen 127.0.0.1:PORT] [--listen-v6 [::1]:PORT]
+const usage = `Usage: koinon install [--prefix DIR] [--state-dir DIR] [--agent FAMILY]... [--no-start]
+       koinon uninstall [--prefix DIR] [--state-dir DIR] [--agent FAMILY]...
+       koinon upgrade --from-python [--python-prefix DIR] [--prefix DIR] [--state-dir DIR] [--agent FAMILY]... [--repository KEY=PATH]... [--python PATH]
+       koinon upgrade --status [--state-dir DIR]
+       koinon import [--from DIR] [--python-prefix DIR] [--state-dir DIR] [--repository KEY=PATH]... [--verify]
+       koinon version
+       koinon serve [--state-dir DIR] [--listen 127.0.0.1:PORT] [--listen-v6 [::1]:PORT]
        koinon register --as deepseek:ID [--directory DIR] [--repository DIR] [--dsh-url URL] [--dsh-credentials FILE] [--state-dir DIR] [--address HOST:PORT]
        koinon status [--state-dir DIR] [--address 127.0.0.1:PORT]
        koinon dashboard [--state-dir DIR] [--address 127.0.0.1:PORT] [--no-open]
