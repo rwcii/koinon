@@ -10,6 +10,7 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+	"syscall"
 	"testing"
 	"time"
 
@@ -330,5 +331,139 @@ func TestImportedStateServes(t *testing.T) {
 	live := c.call("/v1/work/work-get", map[string]any{"caller": me, "work_id": f.m.Stores["a"]["live_work"]})
 	if view, _ := live["result"].(map[string]any); view["title"] != "#1: live claim" {
 		t.Fatalf("imported work item %v", live)
+	}
+}
+
+func TestCaptureRefusesARunningWriter(t *testing.T) {
+	f := newFixture(t)
+	p := Paths{Root: f.root, Attempt: "w"}
+	codex := filepath.Join(f.state, "sessions", f.m.Sessions["codex"].Directory)
+	// A Python process holds its session's notifier lock.
+	lock, err := os.OpenFile(filepath.Join(codex, "notifier.lock"), os.O_RDWR|os.O_CREATE, 0600)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := syscall.Flock(int(lock.Fd()), syscall.LOCK_EX); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := CaptureAll(context.Background(), f.state, f.install(t), f.overrides(), p); err == nil || !strings.Contains(err.Error(), "python_running") {
+		t.Fatalf("held lock: %v", err)
+	}
+	lock.Close()
+	// A writer that holds a source database's write lock blocks the capture.
+	db, err := sql.Open("sqlite", "file:"+filepath.Join(codex, "inbox.sqlite3"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	conn, err := db.Conn(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := conn.ExecContext(context.Background(), "BEGIN IMMEDIATE"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := CaptureAll(context.Background(), f.state, f.install(t), f.overrides(), p); err == nil || !strings.Contains(err.Error(), "python_running") {
+		t.Fatalf("held database: %v", err)
+	}
+	conn.ExecContext(context.Background(), "ROLLBACK")
+	conn.Close()
+	if _, err := CaptureAll(context.Background(), f.state, f.install(t), f.overrides(), p); err != nil {
+		t.Fatalf("after release: %v", err)
+	}
+}
+
+// TestCaptureIncludesTheLog: rows committed only to the write-ahead log, never
+// checkpointed into the database file, are in the capture.
+func TestCaptureIncludesTheLog(t *testing.T) {
+	f := newFixture(t)
+	path := filepath.Join(f.state, "memory", f.m.Repositories["a"].Key, "memory.sqlite3")
+	db, err := sql.Open("sqlite", "file:"+path+"?_pragma=wal_autocheckpoint(0)")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	db.SetMaxOpenConns(1)
+	var before int64
+	db.QueryRow(`SELECT COUNT(*) FROM entries`).Scan(&before)
+	for i := 0; i < 50; i++ {
+		if _, err := db.Exec(`INSERT INTO entries(seq,ts,type,scope,body,consumer,revision) VALUES ((SELECT MAX(seq)+1 FROM entries),1.0,'finding','repo','log row','consumer-alpha',1)`); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if info, err := os.Stat(path + "-wal"); err != nil || info.Size() == 0 {
+		t.Fatalf("rows are not in the log: %v", err)
+	}
+	captures, err := Capture(context.Background(), []Source{{Kind: "memory", Path: path}}, filepath.Join(f.root, "log"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	capture, err := sql.Open("sqlite", "file:"+captures[0]+"?mode=ro")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer capture.Close()
+	if n := scalar(t, capture, `SELECT COUNT(*) FROM entries`); n != before+50 {
+		t.Fatalf("capture has %d entries, want %d", n, before+50)
+	}
+}
+
+func TestStageResumesAndRefuses(t *testing.T) {
+	f := newFixture(t)
+	ctx := context.Background()
+	p := Paths{Root: f.root, Attempt: "r"}
+	prepared, err := CaptureAll(ctx, f.state, f.install(t), f.overrides(), p)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// An attempt interrupted after three sources resumes at the fourth.
+	if _, err := Stage(ctx, prepared[:3], p); err != nil {
+		t.Fatal(err)
+	}
+	r, err := Stage(ctx, prepared, p)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for i, line := range r.Sources {
+		if want := map[bool]string{true: "resumed", false: "imported"}[i < 3]; line.Status != want {
+			t.Fatalf("source %d status %s", i, line.Status)
+		}
+	}
+	// A failure inside a source rolls that source back and leaves the others.
+	broken := append([]Prepared{}, prepared...)
+	src := broken[0].Import
+	src.Path += ".copy"
+	src.Tables = append([]core.ImportTable{}, src.Tables...)
+	if _, err := Stage(ctx, append(broken, Prepared{Source: broken[0].Source, Import: src}), p); err == nil || !strings.Contains(err.Error(), "source_conflict") {
+		t.Fatalf("conflicting source: %v", err)
+	}
+	// A source that changed after it was staged is refused.
+	changed := append([]Prepared{}, prepared...)
+	changed[0].Import.Digest = strings.Repeat("0", 64)
+	if _, err := Stage(ctx, changed, p); err == nil || !strings.Contains(err.Error(), "source_changed") {
+		t.Fatalf("changed source: %v", err)
+	}
+	if err := Swap(p); err != nil {
+		t.Fatal(err)
+	}
+	// Another tree is refused over the non-empty target.
+	other := newFixture(t)
+	q := Paths{Root: f.root, Attempt: "o"}
+	more, err := CaptureAll(ctx, other.state, other.install(t), other.overrides(), q)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := Stage(ctx, more, q); err == nil || !strings.Contains(err.Error(), "target_not_empty") {
+		t.Fatalf("non-empty target: %v", err)
+	}
+	if err := q.Discard(); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(q.Staging()); !os.IsNotExist(err) {
+		t.Fatalf("discarded staging remains: %v", err)
+	}
+	// Verification compares the target with the sources.
+	if r, err := Verify(ctx, prepared, p); err != nil || r.Result != "verified" {
+		t.Fatalf("verify %+v %v", r, err)
 	}
 }
