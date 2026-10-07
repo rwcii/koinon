@@ -180,7 +180,9 @@ directory that a command creates is private whatever the operator's umask is.
 A cache directory that is already group- or other-writable, or that holds a writable cache
 file, is not trusted: another account could have replaced a cache with code that Python
 would run. A command that finds one never reads any cache for that run, and runs correctly
-from source. `scripts/install.py`, `scripts/uninstall.py` and `scripts/upgrade.py` never read
+from source. A cache directory, or an entry in it, that disappears while a command checks
+it (another process of the same installation is compiling at that moment) is also treated
+as untrusted for that run. `scripts/install.py`, `scripts/uninstall.py` and `scripts/upgrade.py` never read
 a cache at all, because they also run from a source checkout whose caches Koinon does not
 validate. No command changes the mode of, or removes, a cache directory.
 

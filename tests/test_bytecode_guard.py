@@ -111,6 +111,47 @@ class GuardBehaviourTests(unittest.TestCase):
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertFalse(self.sentinel.exists())
 
+    def test_cache_entry_that_vanishes_during_the_scan_is_untrusted(self):
+        # A concurrent compile renames its NAME.pyc.<id> temporary into place
+        # between the directory listing and the stat of each entry.
+        cache = self.prefix / 'koinon' / '__pycache__'
+        cache.mkdir(mode=0o700)
+        temporary = cache / 'participant_work.cpython-312.pyc.140147599339440'
+        temporary.write_bytes(b'')
+        temporary.chmod(0o600)
+        target = self.prefix / 'notify.py'
+        code = '\n'.join((
+            'import os, runpy, sys',
+            'real = os.scandir',
+            'class Vanishing:',
+            '    def __init__(self, path):',
+            '        with real(path) as entries:',
+            '            self.entries = list(entries)',
+            '        for entry in self.entries:',
+            '            if entry.path == %r:' % str(temporary),
+            '                os.unlink(entry.path)',
+            '    def __enter__(self):',
+            '        return iter(self.entries)',
+            '    def __exit__(self, *details):',
+            '        return False',
+            '    def __iter__(self):',
+            '        return iter(self.entries)',
+            'os.scandir = Vanishing',
+            'sys.path.insert(0, %r)' % str(self.prefix),
+            'sys.argv = [%r, "--help"]' % str(target),
+            'try:',
+            '    runpy.run_path(%r, run_name="__main__")' % str(target),
+            'finally:',
+            '    print("private cache:", sys.pycache_prefix is not None, file=sys.stderr)',
+        ))
+        result = subprocess.run([sys.executable, '-c', code], capture_output=True, text=True,
+                                cwd=self.root,
+                                env={key: value for key, value in os.environ.items()
+                                     if not key.startswith('PYTHON')})
+        self.assertFalse(temporary.exists(), 'the entry did not vanish, so nothing was tested')
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn('private cache: True', result.stderr)
+
     def test_g1_scripts_never_read_any_cache_even_a_trusted_one(self):
         self.poison('koinon/platform_support.py', 0o700)
         for name in ('scripts/install.py', 'scripts/uninstall.py', 'scripts/upgrade.py'):
