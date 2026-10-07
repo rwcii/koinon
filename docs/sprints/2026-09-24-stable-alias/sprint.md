@@ -16,7 +16,7 @@ Criterion 9 (Linux and macOS, Python 3.11–3.13) applies to every chunk.
 
 Each chunk passes the gate in `definition-of-done.md` and the tests listed in its own file.
 Chunk 02 ends with live check 1, chunk 03 with live check 2, chunk 04 with live check 3; each
-live check needs the user's authorization and an authorized runtime upgrade to the merged
+live check needs the maintainer's authorization and an authorized runtime upgrade to the merged
 commit. The sprint closes #141 after chunk 04 and all three live checks.
 
 ## Assumptions to verify in the build

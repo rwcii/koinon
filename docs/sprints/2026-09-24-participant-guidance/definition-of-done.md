@@ -58,7 +58,7 @@ harness homes and state roots, and a temporary account namespace.
 - The native installation and upgrade workflows on systemd and launchd, with the bootstrap
   migration and the Claude hook against temporary agent homes and a temporary
   `CLAUDE_CONFIG_DIR`.
-- **Live checks, each with the user's authorization and recorded in the pull request that
+- **Live checks, each with the maintainer's authorization and recorded in the pull request that
   closes the chunk:**
   - After chunk 01: a Codex context reset, then `ensure` from the new conversation through the
     approval mechanism, prints the new peer name; `status` before it writes nothing.

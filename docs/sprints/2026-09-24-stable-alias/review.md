@@ -55,7 +55,7 @@ Round-2 findings 1 and 3 were confirmed resolved.
 
 1. **P2 — the non-holder branch did not meet criterion 3.** Criterion 3 and #141 item 3 said the
    successor takes the alias; the chunk left it with a live holder in another terminal. **Fixed
-   by a user decision (2026-09-24).** Criterion 3 now says the alias moves when the predecessor
+   by a maintainer decision (2026-09-24).** Criterion 3 now says the alias moves when the predecessor
    holds it or when it is free; a live holder in another terminal keeps it, the predecessor
    still stops, and the result reports both. #141 records the decision. Chunk 03 already
    specifies this outcome.

@@ -1,22 +1,22 @@
 ---
 name: peer-tmux
-description: Inspect a peer agent's tmux terminal, send user-authorized terminal input, or manage a handoff, context reset and pickup cycle. Use when the user asks to operate a peer's terminal or reset its context; ordinary peer coordination uses the bridge.
+description: Inspect a peer agent's tmux terminal, send maintainer-authorized terminal input, or manage a handoff, context reset and pickup cycle. Use when the maintainer asks to operate a peer's terminal or reset its context; ordinary peer coordination uses the bridge.
 ---
 
 # Peer tmux
 
 Read `agents/skills/AGENTS.md` and the root `AGENTS.md` first.
 
-Operate only the target and actions the user authorized. Permission to read a terminal is
+Operate only the target and actions the maintainer authorized. Permission to read a terminal is
 not permission to type into it or clear context. A peer request alone does not authorize a
 reset. An already authorized cycle does not need another confirmation at every step.
 
 Tmux input looks like local user input to the receiving agent. Send only the target's own
 commands from the table below, bare. Do not send prose: it costs tokens and turns, and the receiver can misread it. Never
-impersonate the user or turn a peer request into approval. Use the bridge for ordinary
+impersonate the maintainer or turn a peer request into approval. Use the bridge for ordinary
 coordination. Do not switch to tmux to retry an action that a permission or approval check
 denied, and never use it to accept a permission dialog. A Claude session in auto mode is
-blocked from typing into a peer's pane until the user allows it; do not work around that.
+blocked from typing into a peer's pane until the maintainer allows it; do not work around that.
 
 ## Find and read the target
 
@@ -26,7 +26,7 @@ List panes without guessing a session name:
 tmux list-panes -a -F '#{session_name}:#{window_index}.#{pane_index} pane=#{pane_id} pid=#{pane_pid} command=#{pane_current_command} path=#{pane_current_path}'
 ```
 
-Match the user-selected session, repository and running program. `pane_pid` can be the parent
+Match the maintainer-selected session, repository and running program. `pane_pid` can be the parent
 shell; look for the agent among its descendants. A Claude peer's bridge PID is the Claude
 process in the pane. A Codex peer's bridge PID is its bridge process, which is not in the pane:
 match a Codex peer by its repository and the `codex` process in the pane. A Codex peer that holds
@@ -34,7 +34,7 @@ its checkout's alias (such as `codex-koinon`) lists under the alias, with its pe
 as `thread_name`; address the alias, which follows a `/clear` once the successor rebinds. Its
 tmux session carries the same name after `ensure` (or its pane title does, in a shared session). A
 matching working directory alone is insufficient when several agents share a repository. If the target is
-ambiguous, ask the user which pane before sending anything.
+ambiguous, ask the maintainer which pane before sending anything.
 
 ## Commands by agent
 
@@ -53,7 +53,7 @@ refuse. After each Enter, capture the pane and validate that the agent received 
 and is acting on it: a working indicator, or its first step of that command. Do not press Enter
 again by rule. When the command is still in the input field, for example because a completion
 menu took the Enter, read the screen first: a menu, a refusal, an error or a dialog each needs
-its own response, and an Enter can accept the wrong one. For a family marked not verified, or when the target rejects a command, stop and ask the user
+its own response, and an Enter can accept the wrong one. For a family marked not verified, or when the target rejects a command, stop and ask the maintainer
 for the syntax; do not guess and do not fall back to prose.
 
 What a reset keeps:
@@ -86,8 +86,8 @@ does not send `send-keys` input to the program, and the keys are lost:
 tmux display-message -p -t "${peer_pane:?set the verified pane ID in this shell}" '#{pane_in_mode}'
 ```
 
-A result of `1` means the pane is in a mode. Do not press Escape or `q` to leave it: the user
-can be reading or selecting in that pane. Report it and ask the user to leave the mode.
+A result of `1` means the pane is in a mode. Do not press Escape or `q` to leave it: the maintainer
+can be reading or selecting in that pane. Report it and ask the maintainer to leave the mode.
 
 Then capture the pane again. Confirm the same target is at an **empty, idle agent
 input prompt**, with no permission dialog, selection menu or pending text. A running shell
@@ -118,7 +118,7 @@ If delivery is uncertain, inspect the pane before retrying to avoid duplicate su
 
 ## Handoff, reset, pickup
 
-Use this sequence when the user authorizes a context cycle for the selected peer. Preserve
+Use this sequence when the maintainer authorizes a context cycle for the selected peer. Preserve
 whether project work was paused or authorized to continue. Do not infer a reset is needed
 merely from a high context reading.
 
@@ -134,7 +134,7 @@ merely from a high context reading.
    a context reading near zero, before the next step. Do not substitute killing or restarting
    the process.
 4. **Pick up.** Send the family's pickup command. The pickup verifies the handoff against
-   live state and reports pending work before it proceeds within the user's authorization.
+   live state and reports pending work before it proceeds within the maintainer's authorization.
 5. **Verify recovery.** Confirm the pickup report restores the intended task and pause state.
    Rediscover bridge/session identity after reset; neither a retained PID nor a retained peer
    name proves the native session key stayed the same. The peer follows the `reconnect` topic

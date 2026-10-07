@@ -7,7 +7,7 @@
 
 The runtime upgrade sets up the wrapper by default, keeps a saved decline, and reports the
 settings edit. This amends `docs/RUNTIME-UPGRADE-DESIGN.md`, which today excludes any
-"guidance opt-in" from upgrade; the user approved this exception at gate A.
+"guidance opt-in" from upgrade; the maintainer approved this exception at gate A.
 
 ## Approach
 

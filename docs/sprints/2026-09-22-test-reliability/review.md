@@ -16,7 +16,7 @@ its disposition.
 | Criterion 1 did not separate coordination budgets from product deadlines. | Fixed in 54c1670. |
 
 Concurrence on `decision.md` at 54c1670 and on `definition-of-done.md` at a4c5bc8. Gate A was
-approved by the user at 54c1670.
+approved by the maintainer at 54c1670.
 
 ## Chunk plan (reviewed at e360f1d)
 

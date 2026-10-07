@@ -21,9 +21,9 @@ The user has no oversight view. Session state, delivery state, memory heads and 
 visible only through separate commands of each agent.
 
 Google replaced the Gemini CLI with the Antigravity CLI (`agy`). Koinon does not support it, and
-it does not support OpenCode either. The user added both families to this sprint on 2026-10-06.
+it does not support OpenCode either. The maintainer added both families to this sprint on 2026-10-06.
 
-The user prefers Go to the Python constraint, and wants one binary that listens on local ports.
+The maintainer prefers Go to the Python constraint, and wants one binary that listens on local ports.
 
 ## Acceptance criteria
 
