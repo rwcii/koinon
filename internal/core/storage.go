@@ -60,6 +60,24 @@ func (s *Store) ceiling(class writeClass) int64 {
 	return s.storage.maxPages - reservePages - commitSlack
 }
 
+// Page credits of one claim bundle (docs/WORK-ITEMS-GO-STORAGE.md): what one overdue
+// or expiry control and one release or finish control can allocate.
+const (
+	overdueCreditPages = 576
+	endCreditPages     = 768
+)
+
+// debtPages is the page debt of every store's funded work obligations, read from the
+// durable credit flags. Every write class keeps it free, so a promised control can end.
+func debtPages(ctx context.Context, q interface {
+	QueryRowContext(context.Context, string, ...any) *sql.Row
+}) (int64, error) {
+	var pages int64
+	err := q.QueryRowContext(ctx, `SELECT COALESCE(SUM(overdue_credit),0)*?+COALESCE(SUM(end_credit),0)*? FROM claim_bundles`,
+		overdueCreditPages, endCreditPages).Scan(&pages)
+	return pages, err
+}
+
 // resetLog proves the write-ahead log empty: a truncating checkpoint that reports nothing
 // busy and nothing left, and a log file that is absent or empty. Only absence counts as
 // absent; any other failure is a failed proof.
@@ -129,14 +147,18 @@ func (s *Store) enter(ctx context.Context, class writeClass) (*sql.Tx, error) {
 		if err != nil {
 			return nil, err
 		}
-		if pages > s.ceiling(ordinary)-appendAllowance {
+		debt, err := debtPages(ctx, s.db)
+		if err != nil {
+			return nil, err
+		}
+		if pages > s.ceiling(ordinary)-debt-appendAllowance {
 			if err := s.reclaim(ctx); err != nil {
 				return nil, err
 			}
 			if pages, err = s.pages(ctx, s.db); err != nil {
 				return nil, err
 			}
-			if pages > s.ceiling(ordinary)-appendAllowance {
+			if pages > s.ceiling(ordinary)-debt-appendAllowance {
 				return nil, ErrCapacity
 			}
 		}
@@ -165,8 +187,14 @@ func (t *writeTx) Commit() error {
 		return sql.ErrTxDone
 	}
 	t.done = true
+	// The debt is read after the mutation: a work control has cleared the credit it
+	// spends, and a start has added the credits it promises.
 	pages, err := t.s.pages(t.ctx, t.Tx)
-	if err == nil && pages > t.s.ceiling(t.class) {
+	var debt int64
+	if err == nil {
+		debt, err = debtPages(t.ctx, t.Tx)
+	}
+	if err == nil && pages > t.s.ceiling(t.class)-debt {
 		err = ErrCapacity
 	}
 	if err == nil {
@@ -268,6 +296,7 @@ type StorageStatus struct {
 	ReservePages     int64   `json:"reserve_pages"`
 	PageBytes        int64   `json:"page_bytes"`
 	LogBytes         int64   `json:"log_bytes"`
+	WorkDebtPages    int64   `json:"work_debt_pages"`
 	Blocked          *string `json:"blocked"`
 }
 
@@ -276,8 +305,12 @@ func (s *Store) StorageStatus(ctx context.Context) (StorageStatus, error) {
 	if err != nil {
 		return StorageStatus{}, err
 	}
+	debt, err := debtPages(ctx, s.db)
+	if err != nil {
+		return StorageStatus{}, err
+	}
 	result := StorageStatus{Pages: pages, MaxPages: s.storage.maxPages, OrdinaryMaxPages: s.storage.maxPages - reservePages,
-		ReservePages: reservePages, PageBytes: pageSize}
+		ReservePages: reservePages, PageBytes: pageSize, WorkDebtPages: debt}
 	if info, err := os.Stat(s.storage.path + "-wal"); err == nil {
 		result.LogBytes = info.Size()
 	}

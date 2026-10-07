@@ -160,7 +160,10 @@ func (s *server) call(ctx context.Context, raw json.RawMessage) map[string]any {
 			err = errors.New("missing argument")
 		}
 	default:
-		return failure("unknown_tool")
+		var known bool
+		if path, known, err = workCall(p.Name, p.Arguments, body); !known {
+			return failure("unknown_tool")
+		}
 	}
 	if err != nil {
 		return failure("invalid_arguments")
@@ -177,6 +180,10 @@ func (s *server) call(ctx context.Context, raw json.RawMessage) map[string]any {
 		}
 	}
 	if err != nil {
+		var refused core.RefusedError
+		if errors.As(err, &refused) && len(refused.Details) > 0 {
+			return result(map[string]any{"ok": false, "code": refused.Code, "details": refused.Details}, true)
+		}
 		return failure(code(err))
 	}
 	return map[string]any{"content": []map[string]any{{"type": "text", "text": string(data)}}, "isError": false}

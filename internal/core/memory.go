@@ -27,6 +27,8 @@ type memoryLimits struct {
 	body, entries, reservedEntries, idem, consumers, retired, snapshotsPerConsumer int64
 	logical, reservedBytes, frameBudget, rowWindow                                 int64
 	snapshotTTL, ackRetention, idemTTL, consumerTTL, retiredTTL, expiryInterval    float64
+	// Work limits (docs/WORK-ITEMS-IMPLEMENTATION-DESIGN.md, "Capacity").
+	workLogical, workEvents, workItems, workScopes, workScopesPerItem, creditBytes int64
 }
 
 var defaultMemoryLimits = memoryLimits{
@@ -34,6 +36,7 @@ var defaultMemoryLimits = memoryLimits{
 	snapshotsPerConsumer: 4, logical: 32 << 20, reservedBytes: 64 * 8192, frameBudget: 262144 - 8192,
 	rowWindow: 500, snapshotTTL: 3600, ackRetention: 86400, idemTTL: 86400, consumerTTL: 30 * 86400,
 	retiredTTL: 90 * 86400, expiryInterval: 30,
+	workLogical: 12 << 20, workEvents: 2048, workItems: 128, workScopes: 1024, workScopesPerItem: 64, creditBytes: 48 << 10,
 }
 
 const entryOverhead = 512
@@ -82,6 +85,10 @@ type MemoryEntry struct {
 	RevokedBy     *int64   `json:"revoked_by"`
 	ConflictsWith *int64   `json:"conflicts_with"`
 	Expires       *float64 `json:"expires"`
+	// A work event carries its kind, work ID and immutable payload.
+	EventKind string          `json:"event_kind,omitempty"`
+	WorkID    string          `json:"work_id,omitempty"`
+	Payload   json.RawMessage `json:"payload,omitempty"`
 }
 
 const entryColumns = `seq,ts,type,scope,scope_target,path,body,author,writer_family,writer_name,consumer,revision,
@@ -159,7 +166,31 @@ type memoryUsage struct {
 	Retired   int64 `json:"retired"`
 	Snapshots int64 `json:"snapshots"`
 	Consumers int64 `json:"consumers"`
+	// Work usage: the logical bytes of work rows, work stream entries and replays, and the
+	// retained row counts that have their own ceilings.
+	WorkLogical       int64 `json:"work_logical"`
+	WorkItems         int64 `json:"work_items"`
+	WorkScopes        int64 `json:"work_scope_revisions"`
+	WorkScopesPerItem int64 `json:"work_scopes_per_item"`
+	ClaimBundles      int64 `json:"claim_bundles"`
+	ClaimResources    int64 `json:"claim_resources"`
+	WorkEvents        int64 `json:"work_events"`
+	WorkReplays       int64 `json:"work_replays"`
 }
+
+// textBytes is the SQL charge of text columns: their UTF-8 bytes, NULL as zero.
+func textBytes(columns ...string) string {
+	terms := make([]string, len(columns))
+	for i, c := range columns {
+		terms[i] = "COALESCE(length(CAST(" + c + " AS BLOB)),0)"
+	}
+	return strings.Join(terms, "+")
+}
+
+const (
+	workRowOverhead    = 512
+	workReplayOverhead = 192 // the 64 of a note replay row plus 128 of work metadata
+)
 
 func usage(ctx context.Context, q querier, repo string) (memoryUsage, error) {
 	var u memoryUsage
@@ -180,34 +211,121 @@ func usage(ctx context.Context, q querier, repo string) (memoryUsage, error) {
 		(SELECT COALESCE(SUM(length(id)+length(CAST(consumer AS BLOB))+96),0) FROM memory_snapshots WHERE repository=?1)`,
 		repo, entryOverhead).Scan(&u.Entries, &entryBytes, &itemBytes, &u.Idem, &idemBytes, &u.Consumers, &cursorBytes,
 		&u.Retired, &retiredBytes, &u.Snapshots, &snapshotBytes)
+	if err != nil {
+		return u, err
+	}
 	u.Logical = entryBytes + itemBytes + idemBytes + cursorBytes + retiredBytes + snapshotBytes
+	var store string
+	err = q.QueryRowContext(ctx, `SELECT store_id FROM memory_stores WHERE repository=?`, repo).Scan(&store)
+	if errors.Is(err, sql.ErrNoRows) {
+		return u, nil
+	}
+	if err != nil {
+		return u, err
+	}
+	var tableBytes, replayBytes, eventEntryBytes int64
+	err = q.QueryRowContext(ctx, `SELECT
+		(SELECT COUNT(*) FROM work_items WHERE store=?1),
+		(SELECT COUNT(*) FROM work_scope_revisions WHERE store=?1),
+		(SELECT COALESCE(MAX(n),0) FROM (SELECT COUNT(*) n FROM work_scope_revisions WHERE store=?1 GROUP BY work_id)),
+		(SELECT COUNT(*) FROM claim_bundles WHERE store=?1),
+		(SELECT COUNT(*) FROM claim_resources WHERE store=?1),
+		(SELECT COUNT(*) FROM work_events WHERE store=?1),
+		(SELECT COUNT(*) FROM work_replays WHERE store=?1),
+		(SELECT COALESCE(SUM(?2+`+textBytes("store", "work_id", "lifecycle", "title", "criteria", "non_goals", "proposed_assignee",
+		"created_consumer", "progress", "checkpoint", "next_artifact", "blocker", "last_writer", "outcome", "reason",
+		"references_json")+`),0) FROM work_items WHERE store=?1)+
+		(SELECT COALESCE(SUM(?2+`+textBytes("store", "work_id", "consumer", "author", "title", "criteria", "non_goals")+`),0)
+			FROM work_scope_revisions WHERE store=?1)+
+		(SELECT COALESCE(SUM(?2+`+textBytes("store", "work_id", "consumer")+`),0) FROM claim_bundles WHERE store=?1)+
+		(SELECT COALESCE(SUM(?2+`+textBytes("store", "kind", "resource")+`),0) FROM claim_resources WHERE store=?1)+
+		(SELECT COALESCE(SUM(?2+`+textBytes("store", "work_id", "kind", "payload")+`),0) FROM work_events WHERE store=?1),
+		(SELECT COALESCE(SUM(?3+`+textBytes("key", "consumer", "operation", "result")+`),0) FROM work_replays WHERE store=?1),
+		(SELECT COALESCE(SUM(?4+`+textBytes("body", "path", "author", "scope_target", "consumer")+`),0) FROM memory_entries
+			WHERE repository=?5 AND type='work-event')`,
+		store, workRowOverhead, workReplayOverhead, entryOverhead, repo).Scan(&u.WorkItems, &u.WorkScopes, &u.WorkScopesPerItem,
+		&u.ClaimBundles, &u.ClaimResources, &u.WorkEvents, &u.WorkReplays, &tableBytes, &replayBytes, &eventEntryBytes)
+	// Work stream entries are already in the entry charge above.
+	u.Logical += tableBytes + replayBytes
+	u.Idem += u.WorkReplays
+	u.WorkLogical = tableBytes + replayBytes + eventEntryBytes
 	return u, err
 }
 
-// caps are one store's logical ceilings; ordinary writes leave the reserve for withdrawals
-// and progress.
-func (l memoryLimits) caps(class writeClass) (entries, logical int64) {
-	if class == control {
-		return l.entries, l.logical
+// workDebt is a store's funded work obligations, from the durable credit flags of its
+// retained bundles: each credit reserves one event and entry slot and its logical
+// bytes; an end credit also reserves one replay slot (docs/WORK-ITEMS-STORAGE.md).
+type workDebt struct{ overdue, end int64 }
+
+func storeDebt(ctx context.Context, q querier, repo string) (workDebt, error) {
+	var d workDebt
+	err := q.QueryRowContext(ctx, `SELECT COALESCE(SUM(b.overdue_credit),0),COALESCE(SUM(b.end_credit),0) FROM claim_bundles b
+		JOIN memory_stores s ON s.store_id=b.store WHERE s.repository=?`, repo).Scan(&d.overdue, &d.end)
+	return d, err
+}
+
+// caps are one store's ceilings for a write class after keeping its work debt free:
+// ordinary writes also leave the note reserve for withdrawals and progress.
+type storeCaps struct{ entries, logical, idem, workLogical, workEvents int64 }
+
+func (l memoryLimits) caps(class writeClass, d workDebt) storeCaps {
+	slots, bytes := d.overdue+d.end, (d.overdue+d.end)*l.creditBytes
+	c := storeCaps{entries: l.entries - slots, logical: l.logical - bytes, idem: l.idem - d.end,
+		workLogical: l.workLogical - bytes, workEvents: l.workEvents - slots}
+	if class != control {
+		c.entries -= l.reservedEntries
+		c.logical -= l.reservedBytes
 	}
-	return l.entries - l.reservedEntries, l.logical - l.reservedBytes
+	return c
+}
+
+// exceeded names the first ceiling that usage u passes, after need bytes and slots more.
+func (l memoryLimits) exceeded(u memoryUsage, c storeCaps, need, slots int64) error {
+	switch {
+	case u.Entries+slots > c.entries || u.Logical+need > c.logical || u.WorkLogical > c.workLogical || u.WorkEvents > c.workEvents:
+		return memoryError("capacity", "this store's capacity is reached after keeping promised work controls; nothing was written and stored data is intact")
+	case u.Idem > c.idem:
+		return memoryError("idem_capacity", "the idempotency window is full; nothing was written")
+	case u.WorkItems > l.workItems || u.WorkScopes > l.workScopes || u.WorkScopesPerItem > l.workScopesPerItem ||
+		u.ClaimBundles > maxBundles || u.ClaimResources > maxBundles*(maxResources+1):
+		return memoryError("capacity", "a work row limit is reached; nothing was written and stored data is intact")
+	}
+	return nil
+}
+
+// enforce checks a store's usage inside a transaction, after its mutation.
+func (s *Store) enforce(ctx context.Context, tx *writeTx, repo string) error {
+	l := s.limits()
+	u, err := usage(ctx, tx, repo)
+	if err != nil {
+		return err
+	}
+	d, err := storeDebt(ctx, tx, repo)
+	if err != nil {
+		return err
+	}
+	return l.exceeded(u, l.caps(tx.class, d), 0, 0)
 }
 
 // memoryWrite runs one store mutation: logical admission (expiring once on a refusal),
 // the storage boundary, the body, and enforcement inside the transaction.
 func (s *Store) memoryWrite(ctx context.Context, repo string, class writeClass, need, slots int64, body func(*writeTx) error) error {
 	l := s.limits()
-	entryCap, logicalCap := l.caps(class)
 	for attempt := 0; ; attempt++ {
 		u, err := usage(ctx, s.db, repo)
 		if err != nil {
 			return err
 		}
-		if u.Entries+slots <= entryCap && u.Logical+need <= logicalCap {
+		d, err := storeDebt(ctx, s.db, repo)
+		if err != nil {
+			return err
+		}
+		refused := l.exceeded(u, l.caps(class, d), need, slots)
+		if refused == nil {
 			break
 		}
 		if attempt > 0 {
-			return memoryError("capacity", "this store's capacity is reached; nothing was written and stored data is intact")
+			return refused
 		}
 		if err := s.expireMemory(ctx, repo, true); err != nil {
 			return err
@@ -224,17 +342,9 @@ func (s *Store) memoryWrite(ctx context.Context, repo string, class writeClass, 
 	if err := body(tx); err != nil {
 		return tx.fail(err)
 	}
-	u, err := usage(ctx, tx, repo)
-	if err != nil {
-		return tx.fail(err)
-	}
-	if u.Entries > entryCap || u.Logical > logicalCap {
+	if err := s.enforce(ctx, tx, repo); err != nil {
 		tx.Rollback()
-		return memoryError("capacity", "this mutation would exceed the store's capacity; it was rolled back and stored data is intact")
-	}
-	if u.Idem > l.idem {
-		tx.Rollback()
-		return memoryError("idem_capacity", "the idempotency window is full; nothing was written")
+		return err
 	}
 	return tx.Commit()
 }
@@ -320,6 +430,7 @@ func (s *Store) expireMemory(ctx context.Context, repo string, reclaim bool) err
 			{`DELETE FROM memory_snapshots WHERE repository=? AND ((acked=0 AND created<?) OR (acked=1 AND acked_at<?))`,
 				[]any{repo, now - l.snapshotTTL, now - l.ackRetention}},
 			{`DELETE FROM memory_idem WHERE repository=? AND deadline<?`, []any{repo, now}},
+			{`DELETE FROM work_replays WHERE store=(SELECT store_id FROM memory_stores WHERE repository=?) AND deadline<?`, []any{repo, now}},
 			{`DELETE FROM memory_retired WHERE repository=? AND at<?`, []any{repo, now - l.retiredTTL}},
 			{`INSERT OR REPLACE INTO memory_retired(repository,consumer,seq,at) SELECT repository,consumer,seq,? FROM
 				memory_cursors WHERE repository=? AND updated<?`, []any{now, repo, now - l.consumerTTL}},
@@ -476,13 +587,17 @@ func (s *Store) MemoryRecord(ctx context.Context, m MemoryCaller, r MemoryRecord
 		revision := int64(1)
 		if target != nil {
 			var superseded, revoked sql.NullInt64
-			err := tx.QueryRowContext(ctx, `SELECT revision,superseded_by,revoked_by FROM memory_entries WHERE repository=? AND seq=?`,
-				m.Repository, *target).Scan(&revision, &superseded, &revoked)
+			var kind string
+			err := tx.QueryRowContext(ctx, `SELECT revision,superseded_by,revoked_by,type FROM memory_entries WHERE repository=? AND seq=?`,
+				m.Repository, *target).Scan(&revision, &superseded, &revoked, &kind)
 			if errors.Is(err, sql.ErrNoRows) {
 				return memoryError("no_such_entry", fmt.Sprintf("entry %d does not exist", *target))
 			}
 			if err != nil {
 				return err
+			}
+			if kind == workEventType {
+				return memoryError("invalid_request", "notes cannot replace work events")
 			}
 			revision++
 			// A competing replacement is retained and reported; only the first one marks the target.
@@ -712,7 +827,7 @@ func (s *Store) freeze(ctx context.Context, m MemoryCaller) (string, error) {
 		return "", err
 	}
 	rows, err := s.db.QueryContext(ctx, `SELECT `+entryColumns+` FROM memory_entries WHERE repository=? AND seq<=? AND
-		(superseded_by IS NULL OR superseded_by>?) AND (revoked_by IS NULL OR revoked_by>?) AND (expires IS NULL OR expires>?)`,
+		type<>'work-event' AND (superseded_by IS NULL OR superseded_by>?) AND (revoked_by IS NULL OR revoked_by>?) AND (expires IS NULL OR expires>?)`,
 		m.Repository, head, head, head, now)
 	if err != nil {
 		return "", err
@@ -745,19 +860,32 @@ func (s *Store) freeze(ctx context.Context, m MemoryCaller) (string, error) {
 	}
 	id := randomID()
 	payloads := make([][]byte, len(kept))
+	seqs := make([]int64, len(kept))
 	need := int64(len(id)+len(m.Consumer)) + 96
 	for i, e := range kept {
 		payloads[i], _ = json.Marshal(e)
+		seqs[i] = e.Seq
 		need += int64(len(payloads[i]) + 1)
+	}
+	// One frozen current view per retained work item follows the notes, ordered by ID;
+	// its ownership and deadlines describe this moment, not a later page read.
+	views, err := s.workViews(ctx, m.Repository, now)
+	if err != nil {
+		return "", err
+	}
+	for _, v := range views {
+		payload, _ := json.Marshal(v)
+		payloads, seqs = append(payloads, payload), append(seqs, v.Seq)
+		need += int64(len(payload) + 1)
 	}
 	err = s.memoryWrite(ctx, m.Repository, ordinary, need, 0, func(tx *writeTx) error {
 		if _, err := tx.ExecContext(ctx, `INSERT INTO memory_snapshots(id,repository,consumer,head,created,items,issued,acked)
-			VALUES (?,?,?,?,?,?,0,0)`, id, m.Repository, m.Consumer, head, now, len(kept)); err != nil {
+			VALUES (?,?,?,?,?,?,0,0)`, id, m.Repository, m.Consumer, head, now, len(payloads)); err != nil {
 			return err
 		}
 		for i, payload := range payloads {
 			if _, err := tx.ExecContext(ctx, `INSERT INTO memory_snapshot_items(id,position,seq,payload,bytes) VALUES (?,?,?,?,?)`,
-				id, i, kept[i].Seq, string(payload), len(payload)+1); err != nil {
+				id, i, seqs[i], string(payload), len(payload)+1); err != nil {
 				return err
 			}
 		}
@@ -853,19 +981,26 @@ func (s *Store) delta(ctx context.Context, m MemoryCaller, c memoryCursor) (map[
 	if err != nil {
 		return nil, err
 	}
-	var entries []json.RawMessage
-	var sizes []int64
-	var seqs []int64
+	var batch []MemoryEntry
 	for rows.Next() {
 		e, err := scanEntry(rows)
 		if err != nil {
 			rows.Close()
 			return nil, err
 		}
+		batch = append(batch, e)
+	}
+	rows.Close()
+	if err := s.workPayloads(ctx, m.Repository, batch); err != nil {
+		return nil, err
+	}
+	var entries []json.RawMessage
+	var sizes []int64
+	var seqs []int64
+	for _, e := range batch {
 		data, _ := json.Marshal(e)
 		entries, sizes, seqs = append(entries, data), append(sizes, int64(len(data)+1)), append(seqs, e.Seq)
 	}
-	rows.Close()
 	n, err := bounded(sizes, l.frameBudget)
 	if err != nil {
 		return nil, err
@@ -985,7 +1120,7 @@ func (s *Store) MemoryRecall(ctx context.Context, m MemoryCaller, query string, 
 	}
 	escaped := strings.NewReplacer(`\`, `\\`, `%`, `\%`, `_`, `\_`).Replace(query)
 	rows, err := s.db.QueryContext(ctx, `SELECT `+entryColumns+` FROM memory_entries WHERE repository=? AND
-		superseded_by IS NULL AND revoked_by IS NULL AND (expires IS NULL OR expires>?) AND seq<? AND
+		type<>'work-event' AND superseded_by IS NULL AND revoked_by IS NULL AND (expires IS NULL OR expires>?) AND seq<? AND
 		body LIKE ? ESCAPE '\' ORDER BY seq DESC LIMIT ?`, m.Repository, s.clock(), before, "%"+escaped+"%", l.rowWindow+1)
 	if err != nil {
 		return nil, err
@@ -1077,12 +1212,24 @@ func (s *Store) MemoryStatus(ctx context.Context, m MemoryCaller, after string) 
 	if err != nil {
 		return nil, err
 	}
-	return map[string]any{
+	maintenance, err := s.workMaintenanceStatus(ctx, m.Repository)
+	if err != nil {
+		return nil, err
+	}
+	debt, err := storeDebt(ctx, s.db, m.Repository)
+	if err != nil {
+		return nil, err
+	}
+	return map[string]any{"work_maintenance": maintenance,
+		"work_debt":  map[string]any{"overdue_credits": debt.overdue, "end_credits": debt.end},
 		"repository": m.Repository, "store_id": storeID, "head": head, "floor": floor, "usage": u, "fts": false, "indexed": false,
 		"record_format": 2, "storage": storage, "consumers": page, "more": more, "next_after": next,
 		"limits": map[string]any{"entries": l.entries, "logical_bytes": l.logical, "body": l.body, "reserved_entries": l.reservedEntries,
 			"reserved_bytes": l.reservedBytes, "idempotency_rows": l.idem, "consumers": l.consumers, "retired": l.retired,
-			"snapshots_per_consumer": l.snapshotsPerConsumer, "page_bytes": l.frameBudget},
+			"snapshots_per_consumer": l.snapshotsPerConsumer, "page_bytes": l.frameBudget, "work_logical_bytes": l.workLogical,
+			"work_events": l.workEvents, "work_items": l.workItems, "work_scope_revisions": l.workScopes,
+			"work_scopes_per_item": l.workScopesPerItem, "claim_bundles": maxBundles, "daemon_claim_bundles": maxDaemonBundles,
+			"credit_bytes": l.creditBytes},
 		"lifetimes": map[string]any{"snapshot": l.snapshotTTL, "acknowledgement": l.ackRetention, "idempotency": l.idemTTL,
 			"consumer": l.consumerTTL, "retired": l.retiredTTL, "expiry_interval": l.expiryInterval},
 	}, nil

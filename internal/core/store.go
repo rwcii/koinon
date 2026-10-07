@@ -3,9 +3,11 @@ package core
 import (
 	"context"
 	"database/sql"
+	"encoding/binary"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"net/url"
 	"os"
 	"os/exec"
@@ -59,6 +61,7 @@ type Store struct {
 	now     func() time.Time
 	storage storage
 	memory  memoryState
+	work    workState
 }
 
 func openStore(root string) (*Store, error) {
@@ -114,6 +117,10 @@ func openStore(root string) (*Store, error) {
 		db.Close()
 		return nil, err
 	}
+	if err := checkFormat(db, path); err != nil {
+		db.Close()
+		return nil, err
+	}
 	if err := platform.SyncDir(root); err != nil {
 		db.Close()
 		return nil, err
@@ -151,7 +158,30 @@ func configure(db *sql.DB) error {
 	return nil
 }
 
-const schemaVersion = 4
+// checkFormat refuses a database whose header schema format is not 4. Claim controls
+// overwrite 0/1 flags in place, and only format 4 stores those integers in equal-size
+// records that need no new page (docs/WORK-ITEMS-GO-STORAGE.md).
+func checkFormat(db *sql.DB, path string) error {
+	// The header is read from the file, so the log is checkpointed into it first.
+	if _, err := db.Exec("PRAGMA wal_checkpoint(TRUNCATE)"); err != nil {
+		return err
+	}
+	f, err := os.Open(path)
+	if err != nil {
+		return err
+	}
+	defer f.Close()
+	header := make([]byte, 48)
+	if _, err := io.ReadFull(f, header); err != nil {
+		return err
+	}
+	if format := binary.BigEndian.Uint32(header[44:48]); format != 4 {
+		return fmt.Errorf("unsupported_runtime: database schema format is %d, not 4", format)
+	}
+	return nil
+}
+
+const schemaVersion = 5
 
 // migrate brings the state schema to schemaVersion in one transaction, so a crash
 // leaves either the old or the new schema. Each step starts from the version before it.
@@ -260,6 +290,60 @@ func migrate(db *sql.DB, version int) error {
 			CREATE INDEX memory_snapshots_owner ON memory_snapshots(repository, consumer);
 			CREATE TABLE memory_snapshot_items (id TEXT NOT NULL, position INTEGER NOT NULL, seq INTEGER NOT NULL,
 				payload TEXT NOT NULL, bytes INTEGER NOT NULL, PRIMARY KEY (id, position));
+		`); err != nil {
+			return err
+		}
+	}
+	if version < 5 {
+		// Version 5: work items, advisory claims and work events (sprint chunk 07), keyed by
+		// the store's 32-character store_id so that row and index sizes stay bounded
+		// (docs/WORK-ITEMS-GO-STORAGE.md). The counters never decrease.
+		if _, err := tx.Exec(`
+			ALTER TABLE memory_stores ADD COLUMN work_counter INTEGER NOT NULL DEFAULT 0;
+			ALTER TABLE memory_stores ADD COLUMN claim_counter INTEGER NOT NULL DEFAULT 0;
+			CREATE TABLE work_items (store TEXT NOT NULL, work_id TEXT NOT NULL CHECK (length(work_id)=32),
+				revision INTEGER NOT NULL CHECK (revision>0),
+				lifecycle TEXT NOT NULL CHECK (lifecycle IN ('open','active','blocked','finished')),
+				title TEXT NOT NULL, criteria TEXT NOT NULL, non_goals TEXT NOT NULL, proposed_assignee TEXT,
+				created_at REAL NOT NULL, created_consumer TEXT NOT NULL, first_start_revision INTEGER,
+				scope_revision INTEGER NOT NULL CHECK (scope_revision>0),
+				progress_epoch INTEGER NOT NULL DEFAULT 0 CHECK (progress_epoch>=0), last_progress_at REAL,
+				progress_deadline REAL, progress TEXT NOT NULL DEFAULT '', checkpoint TEXT NOT NULL DEFAULT '',
+				next_artifact TEXT NOT NULL DEFAULT '', blocker TEXT NOT NULL DEFAULT '', last_writer TEXT,
+				last_generation INTEGER, last_lease_expires REAL,
+				lease_expired INTEGER NOT NULL DEFAULT 0 CHECK (lease_expired IN (0,1)),
+				outcome TEXT CHECK (outcome IN ('completed','withdrawn')), reason TEXT NOT NULL DEFAULT '',
+				references_json TEXT NOT NULL DEFAULT '[]', finished_at REAL, expires_at REAL,
+				latest_seq INTEGER NOT NULL CHECK (latest_seq>0),
+				CHECK ((lifecycle='finished' AND outcome IS NOT NULL AND finished_at IS NOT NULL AND expires_at IS NOT NULL)
+					OR (lifecycle<>'finished' AND outcome IS NULL AND finished_at IS NULL AND expires_at IS NULL)),
+				PRIMARY KEY (store, work_id));
+			CREATE TABLE work_scope_revisions (store TEXT NOT NULL, work_id TEXT NOT NULL,
+				revision INTEGER NOT NULL CHECK (revision>0), ts REAL NOT NULL, consumer TEXT NOT NULL, author TEXT,
+				title TEXT NOT NULL, criteria TEXT NOT NULL, non_goals TEXT NOT NULL,
+				PRIMARY KEY (store, work_id, revision));
+			CREATE TABLE claim_bundles (store TEXT NOT NULL, generation INTEGER NOT NULL CHECK (generation>0),
+				work_id TEXT NOT NULL, consumer TEXT NOT NULL, revision INTEGER NOT NULL CHECK (revision>0),
+				issued_at REAL NOT NULL, renewed_at REAL NOT NULL, expires_at REAL NOT NULL,
+				progress_epoch INTEGER NOT NULL CHECK (progress_epoch>0),
+				overdue_recorded INTEGER NOT NULL DEFAULT 0 CHECK (overdue_recorded IN (0,1)),
+				active INTEGER NOT NULL DEFAULT 1 CHECK (active IN (0,1)),
+				overdue_credit INTEGER NOT NULL DEFAULT 1 CHECK (overdue_credit IN (0,1)),
+				end_credit INTEGER NOT NULL DEFAULT 1 CHECK (end_credit IN (0,1)),
+				PRIMARY KEY (store, generation), UNIQUE (store, work_id));
+			CREATE TABLE claim_resources (store TEXT NOT NULL, generation INTEGER NOT NULL,
+				ordinal INTEGER NOT NULL CHECK (ordinal BETWEEN 0 AND 8),
+				kind TEXT NOT NULL CHECK (kind IN ('writer','path','exact')), resource TEXT NOT NULL,
+				PRIMARY KEY (store, generation, ordinal));
+			CREATE TABLE work_events (store TEXT NOT NULL, seq INTEGER NOT NULL CHECK (seq>0), work_id TEXT NOT NULL,
+				revision INTEGER NOT NULL CHECK (revision>0),
+				kind TEXT NOT NULL CHECK (kind IN ('created','proposed','edited','started','updated','released',
+					'finished','progress-overdue','lease-expired')),
+				payload TEXT NOT NULL, PRIMARY KEY (store, seq));
+			CREATE INDEX work_events_item ON work_events(store, work_id, seq);
+			CREATE TABLE work_replays (store TEXT NOT NULL, consumer TEXT NOT NULL, key TEXT NOT NULL,
+				operation TEXT NOT NULL, scheme TEXT NOT NULL, fingerprint TEXT NOT NULL, seq INTEGER, ts REAL NOT NULL,
+				deadline REAL NOT NULL, result TEXT NOT NULL, PRIMARY KEY (store, consumer, key));
 		`); err != nil {
 			return err
 		}
