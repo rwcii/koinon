@@ -417,6 +417,76 @@ Follow the [runtime upgrade procedure](docs/WORK-ITEMS-UPGRADE.md) for existing 
 
 The peer transport below was observed in Claude Code 2.1.267 on Linux and 2.1.268 on macOS. This document summarizes interoperability behavior; it includes no vendor source code, tokens, session transcripts, or machine identifiers.
 
+### Import of Python-era state
+
+Schema 8 adds the `imports` table. Each Python-era source that a database imported has one row
+there, with these columns:
+
+- `source`: the database path;
+- `kind`: `inbox` or `memory`;
+- `digest`: the SHA-256 of the mapped rows;
+- `cutoff`: the head sequence and counters at capture;
+- `counts`;
+- `at`: the import time.
+
+`koinon import` and `koinon upgrade --from-python` write the records of each source in the
+representation below. They read every source back in that representation before the record
+commits. A source with a recorded digest is skipped. A different digest is `source_changed`.
+A row that collides with an imported row is `source_conflict`. A read-back mismatch is
+`verify_failed`, and a database or memory ceiling is `capacity`. The capture, the staging and
+the recovery rules are in [the installation guide](docs/INSTALL.md#import).
+
+**Inbox.** An inbox becomes a session and its messages.
+
+- **The session.** Its family is the Python agent (`codex` or `deepseek`) and its ID is the
+  thread or session ID. A legacy single-thread inbox is the Codex thread that its notifier
+  checkpoint names. The session imports expired, with no repository, directory or wake target.
+  Its times are the newest message time, so a capture of the same source maps to the same rows.
+  Its next registration with the same family and ID gets the same inbox.
+- **The peer name.** The Python peer name is kept. When two sources hold one name, the first
+  source by path keeps it, and the other session gets a new name at registration (`renamed`).
+- **The sequences.** `last_seq` is the inbox's AUTOINCREMENT head, and `acked_through` is its
+  `ack_through`. A Python acknowledgement deleted the rows it covered, so an imported inbox
+  holds only unacknowledged messages. It can have gaps where Python held control frames or
+  memory pointers. Each message keeps its `seq`.
+- **The body.** The body is `frame.message.content`. When the content is a sender envelope
+  whose fields rebuild it exactly, the body is the envelope's inner text, and the envelope's
+  `from` and `from-name` give the sender. Otherwise the sender is the frame's `from`.
+- **The sender family.** It is `legacy`: a Python-era sender is identified only by what it
+  asserted, and no session has that family.
+- **Times.** `created_at` is `received` in milliseconds.
+- **The delivery state.** It is `notified` when the delivery ledger recorded a delivered notice,
+  or when the notifier checkpoint covers the sequence. It is `uncertain` when the outcome was
+  unknown, and `waiting` otherwise. An unacknowledged `waiting` message is woken after its
+  session registers again.
+
+**Memory store.** A store becomes the memory and work rows of its repository, keyed by its
+Python `store_id`.
+
+- **The store row.** `head`, `floor`, `store_id`, `work_id_counter` and `claim_generation` keep
+  their source values in `memory_stores` (`work_counter` and `claim_counter`). They are never
+  rebuilt from the kept records.
+- **Entries.** Entries keep every column. `writer_family` is `legacy`, and `writer_name` is the
+  reported `author`, otherwise the consumer. A missing consumer becomes the empty string.
+- **Snapshots.** A pending snapshot's `acked = NULL` becomes `acked = 0`. Its consumer continues
+  and acknowledges it as before.
+- **Replays.** A note replay key `repository NUL consumer NUL key` is split into its columns. A
+  work replay key is a digest of the repository, the consumer and the key, so it is kept with an
+  empty consumer. Both get the fingerprint scheme `py1`. They hold their place in the
+  idempotency window until their deadline, and no Go request matches them.
+- **Work.** Work items, scope revisions, claim bundles, resources and events map column for
+  column. Leases and consumer strings are unchanged.
+
+**Not imported.** The report counts these by kind as skipped:
+
+- control frames and memory pointers;
+- the notifier journal, migration and health records;
+- the delivery ledger's internals;
+- memory bindings;
+- alias leases, which registration creates again;
+- the full-text index;
+- supervisor and service records, locks and sockets.
+
 ## Platform differences
 
 The wire protocol is identical on both platforms. The local facts around it are not, and each is handled in `koinon/platform_support.py`:

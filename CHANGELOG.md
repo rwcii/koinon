@@ -5,6 +5,21 @@ into a dated release section when promoted to `main`.
 
 ## Unreleased
 
+- Added the Go runtime's installation commands:
+  - `koinon install` places the binary, writes and starts a systemd user unit (Linux) or a
+    launchd agent (macOS), and sets up the agents you name.
+  - `koinon uninstall` removes them again and keeps the state.
+  - `koinon upgrade --from-python` moves a `main`-release installation to the Go runtime. It
+    takes the Python runtime's own upgrade marker, stops the Python services, and imports every
+    inbox, memory store, work item and claim. It verifies the import before it removes the
+    Python services. A failure before that point restores the Python runtime. A failure after
+    it resumes when you run the command again.
+  - `koinon import` imports a Python-era state tree on its own, and `--verify` compares the tree
+    with the imported state.
+  - `koinon version` prints the build.
+
+  Releases attach four CGO-free binaries with a `SHA256SUMS` file. The state schema is now 8.
+
 - The Go daemon dashboard now has actions: retire a session, release a claim on its owner's
   behalf, acknowledge or clear an inbox, send a message as the built-in `maintainer` session
   (agents can reply to it), and start a Codex, `agy` or OpenCode session in a new tmux session.
