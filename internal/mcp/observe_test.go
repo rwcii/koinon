@@ -263,3 +263,95 @@ func TestAgyCallIsBusy(t *testing.T) {
 		t.Fatalf("agy call: %+v", reports)
 	}
 }
+
+func TestRolloutLongRecordsAndBatchBound(t *testing.T) {
+	o := newObserveHarness(t, "codex-mcp-client", "/opt/agent/bin/codex")
+	home := t.TempDir()
+	o.env["CODEX_HOME"] = home
+	dir := filepath.Join(home, "sessions", "2026", "10", "07")
+	os.MkdirAll(dir, 0700)
+	path := filepath.Join(dir, "rollout-synthetic-thread-1.jsonl")
+	event := func(at, kind, turn string) map[string]any {
+		return map[string]any{"timestamp": "2026-10-07T00:00:" + at + ".000Z", "type": "event_msg", "payload": map[string]any{"type": kind, "turn_id": turn}}
+	}
+	long := func(n int) string {
+		return `{"timestamp":"2026-10-07T00:00:02.500Z","type":"response_item","payload":{"text":"` + strings.Repeat("x", n) + `"}}` + "\n"
+	}
+	// Normal records, a 70 KiB record, a record over the 1 MiB line limit, then the turn's end.
+	writeLines(t, path,
+		map[string]any{"timestamp": "2026-10-07T00:00:00.000Z", "type": "session_meta", "payload": map[string]any{"id": "synthetic-thread-1"}},
+		event("01", "task_started", "turn-a"), long(70<<10), long(rolloutLine+10), event("03", "task_complete", "turn-a"))
+	o.tool("peers", map[string]any{}, map[string]any{"threadId": "synthetic-thread-1"})
+	size := func() int64 { info, _ := os.Stat(path); return info.Size() }
+	reader := func() *rollout { return o.s.obs.rollouts["synthetic-thread-1"] }
+	o.s.observeOnce(context.Background())
+	if r := reader(); r.offset != size() || r.activity == nil || r.activity.State != "idle" || r.skipping {
+		t.Fatalf("after long records: offset %d of %d, %+v", r.offset, size(), r.activity)
+	}
+	// A later turn is read from the exact offset.
+	writeLines(t, path, event("04", "task_started", "turn-b"), long(10))
+	o.s.observeOnce(context.Background())
+	if r := reader(); r.offset != size() || r.activity.State != "busy" {
+		t.Fatalf("next turn: offset %d of %d, %+v", r.offset, size(), r.activity)
+	}
+	// A record longer than one batch is skipped over several calls, each bounded, without
+	// passing the end of the file; an unfinished long record keeps being skipped.
+	writeLines(t, path, long(rolloutBatch+rolloutBatch/2))
+	before := reader().offset
+	o.s.observeOnce(context.Background())
+	if r := reader(); r.offset-before > rolloutBatch+rolloutLine+1 || r.offset > size() || !r.skipping {
+		t.Fatalf("first batch: moved %d, at %d of %d", r.offset-before, r.offset, size())
+	}
+	o.s.observeOnce(context.Background())
+	if r := reader(); r.offset != size() || r.skipping {
+		t.Fatalf("second batch: at %d of %d", r.offset, size())
+	}
+	writeLines(t, path, `{"timestamp":"2026-10-07T00:00:05.000Z","type":"response_item","payload":{"text":"`+strings.Repeat("y", rolloutLine+10))
+	o.s.observeOnce(context.Background())
+	if r := reader(); r.offset != size() || !r.skipping {
+		t.Fatalf("unfinished long record: at %d of %d", r.offset, size())
+	}
+	writeLines(t, path, `"}}`+"\n", event("06", "task_complete", "turn-b"))
+	o.s.observeOnce(context.Background())
+	if r := reader(); r.offset != size() || r.skipping || r.activity.State != "idle" {
+		t.Fatalf("after the long record ends: at %d of %d, %+v", r.offset, size(), r.activity)
+	}
+}
+
+func TestUnchangedValuesAreConfirmedAndUnreadableSourcesAreNot(t *testing.T) {
+	o := newObserveHarness(t, "claude-code", "/opt/agent/bin/claude")
+	clock := time.Now()
+	o.s.c.Now = func() time.Time { return clock }
+	config := t.TempDir()
+	o.env["CLAUDE_CONFIG_DIR"] = config
+	o.env["CLAUDE_CODE_SESSION_ID"] = "synthetic-claude"
+	os.MkdirAll(filepath.Join(config, "sessions"), 0700)
+	record := filepath.Join(config, "sessions", "4242.json")
+	data, _ := json.Marshal(map[string]any{"pid": 4242, "sessionId": "synthetic-claude", "status": "idle",
+		"statusUpdatedAt": clock.Add(-time.Second).UnixMilli(), "entrypoint": "cli"})
+	os.WriteFile(record, data, 0600)
+	o.tool("peers", map[string]any{}, nil)
+	o.s.observeOnce(context.Background())
+	if reports := o.taken(1); len(reports) != 1 || reports[0].Activity == nil {
+		t.Fatalf("first: %+v", reports)
+	}
+	clock = clock.Add(confirmEvery - time.Second)
+	o.s.observeOnce(context.Background())
+	if reports := o.taken(0); len(reports) != 0 {
+		t.Fatalf("resent within a minute: %+v", reports)
+	}
+	clock = clock.Add(time.Second)
+	o.s.observeOnce(context.Background())
+	if reports := o.taken(1); len(reports) != 1 || reports[0].Activity == nil || reports[0].Activity.State != "idle" {
+		t.Fatalf("confirmation: %+v", reports)
+	}
+	// An unreadable source is not confirmed, so the daemon lets its value go stale.
+	os.Remove(record)
+	clock = clock.Add(2 * confirmEvery)
+	o.s.observeOnce(context.Background())
+	for _, r := range o.taken(0) {
+		if r.Activity != nil {
+			t.Fatalf("unreadable source confirmed: %+v", r)
+		}
+	}
+}

@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"path/filepath"
@@ -212,5 +213,101 @@ func TestObservationCapPrunesEndedSessions(t *testing.T) {
 	}
 	if _, found := s.observed.byKey[Key{"codex", "synthetic-a"}]; found {
 		t.Fatal("ended session kept")
+	}
+}
+
+func TestObservationFreshness(t *testing.T) {
+	s, _ := testStore(t)
+	clock := time.Unix(1_800_000_000, 0)
+	s.now = func() time.Time { return clock }
+	ctx := context.Background()
+	session := join(t, s, "codex", "synthetic-fresh", "")
+	at := clock.UnixMilli()
+	busy := &ObservedValue{Source: "codex_rollout", At: at, State: "busy"}
+	model := &ObservedValue{Source: "codex_rollout", At: at, ID: "gpt-synthetic"}
+	if err := s.Observe(ctx, Observation{Caller: Key{"codex", "synthetic-fresh"}, Activity: busy, Model: model}); err != nil {
+		t.Fatal(err)
+	}
+	// The session stays active through renewals, but an unconfirmed activity goes stale
+	// after two minutes, while the model is still fresh.
+	advance := func(d time.Duration) Session {
+		t.Helper()
+		for step := 30 * time.Second; d > 0; d -= step {
+			clock = clock.Add(min(step, d))
+			renewed, err := s.Mutate(ctx, Mutation{Family: "codex", ID: "synthetic-fresh", IfRevision: session.Revision}, false)
+			if err != nil {
+				t.Fatal(err)
+			}
+			session = renewed
+		}
+		return session
+	}
+	views := s.sessionObservations(ctx, advance(2*time.Minute))
+	if views["activity"].Value == nil {
+		t.Fatalf("fresh at the boundary: %+v", views["activity"])
+	}
+	views = s.sessionObservations(ctx, advance(time.Second))
+	if views["activity"].Value != nil || views["activity"].Reason != "observation_stale" || views["model"].Value == nil {
+		t.Fatalf("after the boundary: %+v %+v", views["activity"], views["model"])
+	}
+	// The same content confirms the value and keeps its source time; an older, different
+	// report changes nothing.
+	if err := s.Observe(ctx, Observation{Caller: Key{"codex", "synthetic-fresh"}, Activity: &ObservedValue{Source: "codex_rollout", At: at, State: "busy"}}); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.Observe(ctx, Observation{Caller: Key{"codex", "synthetic-fresh"}, Activity: &ObservedValue{Source: "codex_rollout", At: at - 1, State: "idle"}}); err != nil {
+		t.Fatal(err)
+	}
+	views = s.sessionObservations(ctx, session)
+	if v := views["activity"].Value; v == nil || v.State != "busy" || v.At != at {
+		t.Fatalf("confirmed: %+v", views["activity"])
+	}
+	// Without confirmation the model goes stale after thirty minutes.
+	views = s.sessionObservations(ctx, advance(30*time.Minute+time.Second))
+	if views["model"].Reason != "observation_stale" {
+		t.Fatalf("model: %+v", views["model"])
+	}
+}
+
+func TestDashboardSessionPaging(t *testing.T) {
+	s, _ := testStore(t)
+	ctx := context.Background()
+	want := map[Key]bool{}
+	for i := range 2*dashboardSessionPage + 37 {
+		family := []string{"claude", "codex", "agy"}[i%3]
+		id := fmt.Sprintf("synthetic-%04d", i)
+		session := join(t, s, family, id, "")
+		if i%5 == 0 {
+			if _, err := s.Mutate(ctx, Mutation{Family: family, ID: id, IfRevision: session.Revision}, true); err != nil {
+				t.Fatal(err)
+			}
+		}
+		want[Key{family, id}] = true
+	}
+	seen := map[Key]bool{}
+	var after *Key
+	var previous string
+	for pages := 0; ; pages++ {
+		page, next, err := s.dashboardSessions(ctx, after)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if len(page) > dashboardSessionPage || pages > 10 {
+			t.Fatalf("page of %d at %d", len(page), pages)
+		}
+		for _, r := range page {
+			k, order := Key{r.Family, r.ID}, r.Family+"\x00"+r.ID
+			if seen[k] || order <= previous {
+				t.Fatalf("duplicate or out of order: %v", k)
+			}
+			seen[k], previous = true, order
+		}
+		if next == nil {
+			break
+		}
+		after = next
+	}
+	if len(seen) != len(want) {
+		t.Fatalf("listed %d of %d", len(seen), len(want))
 	}
 }

@@ -3,9 +3,12 @@ package core
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"io"
 	"net/http"
 	"net/url"
+	"os"
+	"path/filepath"
 	"regexp"
 	"strings"
 	"testing"
@@ -328,6 +331,18 @@ func TestDashboardViewsRenderSyntheticState(t *testing.T) {
 	if _, err := s.Mutate(ctx, Mutation{Family: "agy", ID: "synthetic-gone", IfRevision: retired.Revision}, true); err != nil {
 		t.Fatal(err)
 	}
+	// A session whose working directory differs from its repository.
+	sub := filepath.Join(repo, "sub")
+	if err := os.Mkdir(sub, 0700); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.Register(ctx, Registration{Family: "claude", ID: "synthetic-sub", Directory: sub, TTLSeconds: 60}); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.Observe(ctx, Observation{Caller: Key{"claude", "synthetic-sub"}, Terminal: &ObservedValue{Source: "tmux_env",
+		At: s.now().UnixMilli(), Socket: "/tmp/tmux-synthetic/default", Pane: "%5", Session: "synthetic-work"}}); err != nil {
+		t.Fatal(err)
+	}
 	hostile := `<script>alert("x")</script> <a href="javascript:alert(1)">link</a> 'quote' & more`
 	for i, body := range []string{"first message", hostile, "third message"} {
 		if _, err := s.Send(ctx, Key{"codex", "synthetic-a"}, b.Name, body); err != nil {
@@ -362,7 +377,14 @@ func TestDashboardViewsRenderSyntheticState(t *testing.T) {
 		}
 	}
 	sessions := page("/dashboard/sessions")
-	contains(sessions, a.Name, b.Name, retired.Name, "state-retired", repo, "Synthetic held item &lt;b&gt;bold&lt;/b&gt;", held)
+	contains(sessions, a.Name, b.Name, retired.Name, "state-retired", repo, "Synthetic held item &lt;b&gt;bold&lt;/b&gt;", held,
+		"directory "+sub, "synthetic-work <code>%5</code>", "tmux_env, ", "unknown: terminal_unverified")
+	if strings.Contains(sessions, "More sessions") {
+		t.Fatal("a single page links to more")
+	}
+	if r := dashboardDo(t, d, "GET", "/dashboard/sessions?after=nofamily", cookie, nil, nil); r.status != 400 {
+		t.Fatalf("bad session cursor: %d", r.status)
+	}
 	if strings.Contains(sessions, "<b>bold</b>") {
 		t.Fatal("work title not escaped")
 	}
@@ -401,6 +423,19 @@ func TestDashboardViewsRenderSyntheticState(t *testing.T) {
 	}
 	if r := dashboardDo(t, d, "POST", "/dashboard/sessions", cookie, nil, nil); r.status == 200 {
 		t.Fatal("POST to a view accepted")
+	}
+	// More sessions than one page: the page links to the next one.
+	for i := range dashboardSessionPage {
+		join(t, s, "codex", fmt.Sprintf("synthetic-many-%03d", i), "")
+	}
+	first := page("/dashboard/sessions")
+	link := regexp.MustCompile(`href="/dashboard/sessions\?after=([^"]+)"`).FindStringSubmatch(first)
+	if link == nil {
+		t.Fatal("no link to the next page")
+	}
+	cursor, _ := url.QueryUnescape(strings.ReplaceAll(link[1], "&amp;", "&"))
+	if second := page("/dashboard/sessions?after=" + url.QueryEscape(cursor)); !strings.Contains(second, "<tr") {
+		t.Fatal("next page empty")
 	}
 }
 

@@ -28,6 +28,7 @@ import (
 
 const (
 	observeEvery      = 5 * time.Second
+	confirmEvery      = time.Minute // an unchanged value is sent again, to keep it fresh
 	terminalEvery     = time.Minute
 	rolloutSearch     = 15 * time.Second
 	rolloutBatch      = 4 << 20
@@ -38,9 +39,15 @@ const (
 
 var threadKey = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$`)
 
+// sentValue is the last report of a group and when it was sent.
+type sentValue struct {
+	value core.ObservedValue
+	at    time.Time
+}
+
 type observer struct {
 	mu       sync.Mutex
-	sent     map[core.Key]map[string]core.ObservedValue
+	sent     map[core.Key]map[string]sentValue
 	rollouts map[string]*rollout
 	terminal *core.ObservedValue
 	checked  time.Time
@@ -80,16 +87,18 @@ func codexMetaModel(raw json.RawMessage) string {
 	return meta.Model
 }
 
-// report sends the groups of o that changed since the last report for the caller.
+// report sends the groups of o that changed since the last report for the caller, and
+// unchanged groups once a minute, so that the daemon knows the source is still readable.
 func (s *server) report(ctx context.Context, o core.Observation) {
+	now := s.c.Now()
 	s.obs.mu.Lock()
 	if s.obs.sent == nil || len(s.obs.sent) > 4*maxObserved {
 		// Forgetting only costs one repeated report per session.
-		s.obs.sent = map[core.Key]map[string]core.ObservedValue{}
+		s.obs.sent = map[core.Key]map[string]sentValue{}
 	}
 	last := s.obs.sent[o.Caller]
 	if last == nil {
-		last = map[string]core.ObservedValue{}
+		last = map[string]sentValue{}
 		s.obs.sent[o.Caller] = last
 	}
 	changed := false
@@ -98,7 +107,7 @@ func (s *server) report(ctx context.Context, o core.Observation) {
 			continue
 		}
 		previous, found := last[group]
-		if found && sameObservation(group, previous, **field) {
+		if found && sameObservation(group, previous.value, **field) && now.Sub(previous.at) < confirmEvery {
 			*field = nil
 			continue
 		}
@@ -117,7 +126,7 @@ func (s *server) report(ctx context.Context, o core.Observation) {
 	defer s.obs.mu.Unlock()
 	for group, v := range map[string]*core.ObservedValue{"model": o.Model, "context": o.Context, "activity": o.Activity, "terminal": o.Terminal} {
 		if v != nil {
-			last[group] = *v
+			last[group] = sentValue{*v, now}
 		}
 	}
 }
@@ -293,6 +302,7 @@ type rollout struct {
 	searched     time.Time
 	device, node uint64
 	offset       int64
+	skipping     bool // inside a record longer than rolloutLine
 	turn         string
 	model        *core.ObservedValue
 	context      *core.ObservedValue
@@ -380,7 +390,8 @@ func (r *rollout) consume(thread string) error {
 	if err != nil {
 		return err
 	}
-	reader := bufio.NewReaderSize(f, 64<<10)
+	// A buffer one byte longer than the longest record that is read.
+	reader := bufio.NewReaderSize(f, rolloutLine+1)
 	if device != r.device || node != r.node || size < r.offset {
 		line, err := readRecord(reader)
 		if err != nil {
@@ -403,30 +414,30 @@ func (r *rollout) consume(thread string) error {
 	} else {
 		reader.Reset(f)
 	}
+	// Each byte read is counted once toward the batch, and the offset moves once per byte
+	// that is processed or discarded. A record longer than rolloutLine is discarded in
+	// batch-bounded pieces, across calls if need be, without keeping its text.
 	consumed := int64(0)
 	for consumed < rolloutBatch {
 		line, err := reader.ReadSlice('\n')
-		if errors.Is(err, bufio.ErrBufferFull) || len(line) > rolloutLine {
-			// An oversized record is skipped without keeping its text.
-			for errors.Is(err, bufio.ErrBufferFull) {
-				var more []byte
-				more, err = reader.ReadSlice('\n')
-				consumed += int64(len(more))
+		switch {
+		case errors.Is(err, bufio.ErrBufferFull):
+			r.offset, consumed, r.skipping = r.offset+int64(len(line)), consumed+int64(len(line)), true
+		case err != nil:
+			// The end of the file inside a record: a record being discarded can move on,
+			// any other waits for its end.
+			if r.skipping {
+				r.offset += int64(len(line))
 			}
-			if err != nil {
-				return nil // Wait for the rest of the record.
+			return nil
+		default:
+			r.offset, consumed = r.offset+int64(len(line)), consumed+int64(len(line))
+			if r.skipping {
+				r.skipping = false // The tail of a discarded record.
+				continue
 			}
-			consumed += int64(len(line))
-			r.offset += consumed
-			consumed = 0
-			continue
+			r.event(line)
 		}
-		if err != nil {
-			return nil // A partial last record waits for its end.
-		}
-		consumed += int64(len(line))
-		r.offset += int64(len(line))
-		r.event(line)
 	}
 	return nil
 }

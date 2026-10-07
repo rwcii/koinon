@@ -253,8 +253,9 @@ from elsewhere. Peer message bodies appear here, escaped, and nowhere else outsi
   `X-Frame-Options: DENY`, `nosniff`, `Referrer-Policy: no-referrer`, `Cache-Control: no-store`
   and `Cross-Origin-Opener-Policy: same-origin`. The dashboard cookie never authorizes `/v1/`, and
   the bearer secret never authorizes `/dashboard/`.
-- **Views.** `sessions` (names, family, repository, state and times, the observations below, and
-  the live claims held under the session key `FAMILY:ID`), `messages` (every inbox, newest first
+- **Views.** `sessions` (100 per page in family and ID order, `after=FAMILY:ID` for the next page;
+  names, family, repository and working directory, state and times, the observations below with
+  their source and time, and the live claims held under the session key `FAMILY:ID`), `messages` (every inbox, newest first
   by message ID, 50 per page and about 1 MiB of bodies, `before=ID` for older pages, `to=NAME` for
   one recipient; delivery state and reason, acknowledgement), `memory` (per store: head, floor,
   entries and logical bytes against their ceilings, consumers, work debt and maintenance), `work`
@@ -267,8 +268,14 @@ from elsewhere. Peer message bodies appear here, escaped, and nowhere else outsi
 Observations are memory-only, allowlisted values: a model ID (at most 128 printable characters),
 context limit and used tokens, an activity state (`busy`, `idle` or `waiting`) and a tmux socket,
 pane (`%N`) and session name, each with its source and the time the source recorded it. The
-daemon keeps the newest report per group for active sessions; an older report never replaces a
-newer one, and a session that is not active shows `unknown` with `session_expired` or
+daemon keeps the newest report per group for active sessions, with the time it last received a
+report that confirms it: a newer report replaces the value, a report of the same content
+confirms it and keeps its source time, and an older, different report changes nothing. A value
+that no report confirmed within its window shows `unknown` with `observation_stale`: 2 minutes
+for activity and terminal, 30 minutes for model and context. Polled sources are confirmed every
+minute while they stay readable; hooks and tool calls confirm only by their next event, so an
+agy session's idle state and a Claude session's status-line values go stale when no new event
+comes. A session that is not active shows `unknown` with `session_expired` or
 `session_retired`. A group without a value shows `no_source` when the family has none, else
 `not_observed`.
 
@@ -283,9 +290,10 @@ One MCP server can serve several sessions, so its environment proves nothing abo
 The daemon accepts a terminal only for a session registered with a verified launch ID or a
 Claude session, whose server is the child of that Claude process; any other terminal report is
 refused with `terminal_unverified`, and the view shows that reason. `koinon mcp` checks its
-pulled sources every 5 seconds for the 8 sessions it registered last and reports a group only
-when it changed. It reads metadata only: a rollout's first record must name the session, records
-longer than 1 MiB are skipped, and no conversation text is kept or sent.
+pulled sources every 5 seconds for the 8 sessions it registered last and reports a group when it
+changed, or once a minute to confirm it. It reads metadata only: a rollout's first record must
+name the session, at most 4 MiB are read per check, records longer than 1 MiB are discarded in
+pieces across checks, and no conversation text is kept or sent.
 
 `koinon hook claude-status [--command COMMAND]` is the Claude Code `statusLine` command. It runs
 `COMMAND` through `/bin/sh -c` with the same input and returns its output and exit status, or

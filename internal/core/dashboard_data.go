@@ -41,6 +41,41 @@ func (s *Store) sessionClaims(ctx context.Context) (map[string][]SessionWork, er
 	return result, rows.Err()
 }
 
+const dashboardSessionPage = 100
+
+// dashboardSessions lists sessions in (family, id) order after a key (nil for the first
+// page); next is the last listed key when more follow.
+func (s *Store) dashboardSessions(ctx context.Context, after *Key) ([]Session, *Key, error) {
+	query, args := sessionQuery, []any{}
+	if after != nil {
+		query += ` WHERE (s.family,s.id)>(?,?)`
+		args = append(args, after.Family, after.ID)
+	}
+	rows, err := s.db.QueryContext(ctx, query+` ORDER BY s.family,s.id LIMIT `+strconv.Itoa(dashboardSessionPage+1), args...)
+	if err != nil {
+		return nil, nil, err
+	}
+	defer rows.Close()
+	result := []Session{}
+	now := s.now().UnixMilli()
+	for rows.Next() {
+		r, err := scanSession(rows, now)
+		if err != nil {
+			return nil, nil, err
+		}
+		result = append(result, r)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, nil, err
+	}
+	if len(result) <= dashboardSessionPage {
+		return result, nil, nil
+	}
+	result = result[:dashboardSessionPage]
+	last := result[len(result)-1]
+	return result, &Key{last.Family, last.ID}, nil
+}
+
 // MessageRecord is one message as the dashboard lists it.
 type MessageRecord struct {
 	Message

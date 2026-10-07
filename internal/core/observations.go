@@ -4,9 +4,11 @@ import (
 	"context"
 	"encoding/json"
 	"net/http"
+	"reflect"
 	"regexp"
 	"strings"
 	"sync"
+	"time"
 )
 
 // Session observations (sprint chunk 08): the newest model, context, activity and terminal
@@ -52,9 +54,32 @@ type Observation struct {
 	Terminal *ObservedValue `json:"terminal,omitempty"`
 }
 
+// storedValue keeps the time the daemon last received a report that confirms the value,
+// separate from the time its source recorded it.
+type storedValue struct {
+	ObservedValue
+	seen int64
+}
+
+// Freshness windows: a value that no report confirmed within its window is shown as
+// unknown with observation_stale. Reporters that poll a source confirm an unchanged value
+// every minute; event sources (hooks, tool calls) confirm only by their next event.
+var observationFreshness = map[string]time.Duration{
+	"model":    30 * time.Minute,
+	"context":  30 * time.Minute,
+	"activity": 2 * time.Minute,
+	"terminal": 2 * time.Minute,
+}
+
+// sameContent compares the observed fields, not their source or time.
+func sameContent(a, b ObservedValue) bool {
+	a.Source, a.At, b.Source, b.At = "", 0, "", 0
+	return reflect.DeepEqual(a, b)
+}
+
 type observations struct {
 	mu     sync.Mutex
-	byKey  map[Key]map[string]ObservedValue
+	byKey  map[Key]map[string]storedValue
 	extras func(context.Context, Session) map[string]ObservedValue
 }
 
@@ -157,20 +182,29 @@ func (s *Store) Observe(ctx context.Context, o Observation) error {
 	s.observed.mu.Lock()
 	defer s.observed.mu.Unlock()
 	if s.observed.byKey == nil {
-		s.observed.byKey = map[Key]map[string]ObservedValue{}
+		s.observed.byKey = map[Key]map[string]storedValue{}
 	}
 	current, found := s.observed.byKey[o.Caller]
 	if !found {
 		if len(s.observed.byKey) >= maxObservedSessions {
 			return Refusal{Code: "capacity", Message: "too many observed sessions"}
 		}
-		current = map[string]ObservedValue{}
+		current = map[string]storedValue{}
 		s.observed.byKey[o.Caller] = current
 	}
 	for group, v := range groups {
-		// An older report never replaces a newer one.
-		if v != nil && v.At >= current[group].At {
-			current[group] = *v
+		if v == nil {
+			continue
+		}
+		// A newer report replaces the value; a report of the same content confirms it; an
+		// older, different report changes nothing.
+		previous, found := current[group]
+		switch {
+		case !found || v.At > previous.At:
+			current[group] = storedValue{*v, now}
+		case sameContent(*v, previous.ObservedValue):
+			previous.seen = now
+			current[group] = previous
 		}
 	}
 	return nil
@@ -221,8 +255,9 @@ func (s *Store) sessionObservations(ctx context.Context, session Session) map[st
 		return result
 	}
 	key := Key{session.Family, session.ID}
+	now := s.now().UnixMilli()
 	s.observed.mu.Lock()
-	current := map[string]ObservedValue{}
+	current := map[string]storedValue{}
 	for group, v := range s.observed.byKey[key] {
 		current[group] = v
 	}
@@ -231,7 +266,7 @@ func (s *Store) sessionObservations(ctx context.Context, session Session) map[st
 	if extras != nil {
 		for group, v := range extras(ctx, session) {
 			if v.At >= current[group].At {
-				current[group] = v
+				current[group] = storedValue{v, now}
 			}
 		}
 	}
@@ -240,8 +275,11 @@ func (s *Store) sessionObservations(ctx context.Context, session Session) map[st
 		switch {
 		case group == "terminal" && !terminalVerified(session):
 			result[group] = SessionView{Reason: "terminal_unverified"}
+		case found && now-v.seen > observationFreshness[group].Milliseconds():
+			result[group] = SessionView{Reason: "observation_stale"}
 		case found:
-			result[group] = SessionView{Value: &v}
+			value := v.ObservedValue
+			result[group] = SessionView{Value: &value}
 		default:
 			result[group] = SessionView{Reason: unobserved(group, session.Family)}
 		}

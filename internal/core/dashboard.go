@@ -208,6 +208,11 @@ type sessionRow struct {
 	Observed map[string]SessionView
 }
 
+type sessionsData struct {
+	Rows []sessionRow
+	Next string
+}
+
 type messagesData struct {
 	Recipient string
 	Messages  []MessageRecord
@@ -234,7 +239,15 @@ func (d *Daemon) dashboardData(r *http.Request, view string) (any, error) {
 	ctx, q := r.Context(), r.URL.Query()
 	switch view {
 	case "sessions":
-		sessions, truncated, err := d.store.List(ctx)
+		var after *Key
+		if v := q.Get("after"); v != "" {
+			family, id, found := strings.Cut(v, ":")
+			if !found || !validKey(family, id) {
+				return nil, ErrInvalid
+			}
+			after = &Key{family, id}
+		}
+		sessions, next, err := d.store.dashboardSessions(ctx, after)
 		if err != nil {
 			return nil, err
 		}
@@ -242,23 +255,23 @@ func (d *Daemon) dashboardData(r *http.Request, view string) (any, error) {
 		if err != nil {
 			return nil, err
 		}
-		rows := make([]sessionRow, 0, len(sessions))
-		active := map[Key]bool{}
+		// Observations of ended sessions are dropped here too, whatever page is shown.
+		active, err := d.store.activeKeys(ctx)
+		if err != nil {
+			return nil, err
+		}
+		d.store.forget(active)
 		// Pulled observations share one short budget, so unreachable agents cannot stall the page.
 		pull, cancel := context.WithTimeout(ctx, 2*time.Second)
 		defer cancel()
+		result := sessionsData{Rows: make([]sessionRow, 0, len(sessions))}
+		if next != nil {
+			result.Next = next.Family + ":" + next.ID
+		}
 		for _, s := range sessions {
-			if s.State == "active" {
-				active[Key{s.Family, s.ID}] = true
-			}
-			rows = append(rows, sessionRow{Session: s, Work: claims[s.Family+":"+s.ID], Observed: d.store.sessionObservations(pull, s)})
+			result.Rows = append(result.Rows, sessionRow{Session: s, Work: claims[s.Family+":"+s.ID], Observed: d.store.sessionObservations(pull, s)})
 		}
-		// The listing holds every session up to its cap; only then is it safe to forget
-		// observations of the sessions it does not show as active.
-		if !truncated {
-			d.store.forget(active)
-		}
-		return rows, nil
+		return result, nil
 	case "messages":
 		var before int64
 		if v := q.Get("before"); v != "" {
