@@ -746,3 +746,117 @@ func TestMemoryAPIAndMigration(t *testing.T) {
 		t.Fatalf("daemon status: %s %v", data, err)
 	}
 }
+
+// Review regressions: each check holds until its write commits, and the boundary is free
+// when the change hook runs.
+func TestMemoryConcurrentChecksHold(t *testing.T) {
+	ctx := context.Background()
+	race := func(s *Store, n int, f func(i int) error) []error {
+		s.storage.mu.Lock() // queue every request behind the boundary, then release them together
+		results := make(chan error, n)
+		for i := 0; i < n; i++ {
+			go func() { results <- f(i) }()
+		}
+		time.Sleep(200 * time.Millisecond)
+		s.storage.mu.Unlock()
+		var errs []error
+		for i := 0; i < n; i++ {
+			errs = append(errs, <-results)
+		}
+		return errs
+	}
+	s, _, m := memoryStore(t)
+	s.memory.limits.consumers = 2
+	note(t, s, m, MemoryRecordRequest{})
+	race(s, 16, func(i int) error {
+		c := m
+		c.Consumer = fmt.Sprintf("concurrent-%02d", i)
+		_, err := s.MemorySync(ctx, c, MemorySyncRequest{})
+		return err
+	})
+	if u, _ := usage(ctx, s.db, m.Repository); u.Consumers > 2 {
+		t.Fatalf("consumer bound exceeded: %d", u.Consumers)
+	}
+	s, _, m = memoryStore(t)
+	note(t, s, m, MemoryRecordRequest{})
+	race(s, 16, func(int) error { _, err := s.MemorySync(ctx, m, MemorySyncRequest{}); return err })
+	var snapshots int64
+	s.db.QueryRow(`SELECT COUNT(*) FROM memory_snapshots WHERE consumer=?`, m.Consumer).Scan(&snapshots)
+	if snapshots != 1 {
+		t.Fatalf("concurrent syncs froze %d snapshots", snapshots)
+	}
+	s, _, m = memoryStore(t)
+	drain(t, s, m)
+	for i := 0; i < 32; i++ {
+		note(t, s, m, MemoryRecordRequest{})
+	}
+	if page, err := s.MemorySync(ctx, m, MemorySyncRequest{}); err != nil || page["next_cursor"] != int64(32) {
+		t.Fatalf("delta: %v %v", page, err)
+	}
+	for _, err := range race(s, 32, func(i int) error {
+		through := int64(i + 1)
+		_, err := s.MemoryAck(ctx, m, MemoryAckRequest{Through: &through})
+		return err
+	}) {
+		if err != nil {
+			t.Fatal(err)
+		}
+	}
+	var cursor int64
+	s.db.QueryRow(`SELECT seq FROM memory_cursors WHERE consumer=?`, m.Consumer).Scan(&cursor)
+	if cursor != 32 {
+		t.Fatalf("acknowledgement through 32 regressed to %d", cursor)
+	}
+}
+
+func TestMemoryHookRunsOutsideTheBoundary(t *testing.T) {
+	s, _, m := memoryStore(t)
+	ctx := context.Background()
+	reads := make(chan error, 1)
+	s.OnMemoryChange(func(string) {
+		done := make(chan error, 1)
+		go func() {
+			_, err := s.StorageStatus(ctx)
+			if err == nil {
+				_, err = s.MemorySync(ctx, m, MemorySyncRequest{})
+			}
+			done <- err
+		}()
+		select {
+		case err := <-done:
+			reads <- err
+		case <-time.After(2 * time.Second):
+			reads <- errors.New("the hook ran inside a lock")
+		}
+	})
+	note(t, s, m, MemoryRecordRequest{})
+	if err := <-reads; err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestEngineFullOnReservedWriteBlocksInsideTheBoundary(t *testing.T) {
+	s, _, m := memoryStore(t)
+	ctx := context.Background()
+	first := note(t, s, m, MemoryRecordRequest{})
+	pages, _ := s.pages(ctx, s.db)
+	s.db.Exec(fmt.Sprintf("PRAGMA max_page_count=%d", pages))
+	done, stopped := make(chan struct{}), make(chan struct{})
+	go func() {
+		defer close(stopped)
+		for {
+			select {
+			case <-done:
+				return
+			default:
+			}
+			s.StorageStatus(ctx)
+		}
+	}()
+	_, err := s.MemoryRecord(ctx, m, MemoryRecordRequest{Type: "finding", Body: strings.Repeat("x", 8000), Revokes: &first})
+	close(done)
+	<-stopped
+	if code(err) != "storage_blocked" {
+		t.Fatalf("reserved engine-full write: %v", err)
+	}
+}

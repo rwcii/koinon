@@ -165,7 +165,6 @@ func (t *writeTx) Commit() error {
 		return sql.ErrTxDone
 	}
 	t.done = true
-	defer t.s.storage.mu.Unlock()
 	pages, err := t.s.pages(t.ctx, t.Tx)
 	if err == nil && pages > t.s.ceiling(t.class) {
 		err = ErrCapacity
@@ -175,8 +174,14 @@ func (t *writeTx) Commit() error {
 	}
 	if err != nil {
 		t.Tx.Rollback()
-		return t.s.full(err, t.class)
+		// Classify while still inside the boundary, so no writer or recovery runs between
+		// the rollback and a recorded block.
+		err = t.s.full(err, t.class)
+		t.s.storage.mu.Unlock()
+		return err
 	}
+	t.s.storage.mu.Unlock()
+	// Hooks run outside the boundary; they may read status or start other writes.
 	for _, f := range t.after {
 		f()
 	}
@@ -210,8 +215,11 @@ func (s *Store) full(err error, class writeClass) error {
 // fail wraps an error from a write body: the transaction rolls back and an engine-full
 // error becomes a refusal.
 func (t *writeTx) fail(err error) error {
+	if !t.done {
+		err = t.s.full(err, t.class)
+	}
 	t.Rollback()
-	return t.s.full(err, t.class)
+	return err
 }
 
 // Recover proves the log empty again, returns free pages, and clears a blocked state.

@@ -43,6 +43,9 @@ const entryOverhead = 512
 const fingerprintScheme = "go1"
 
 type memoryState struct {
+	// op serializes the operations that read a cursor, snapshot or bound and then write
+	// it (record, sync, acknowledgement), so each check holds until its write commits.
+	op         sync.Mutex
 	mu         sync.Mutex
 	lastExpiry map[string]float64
 	limits     memoryLimits
@@ -382,6 +385,15 @@ func fingerprint(r MemoryRecordRequest) string {
 }
 
 func (s *Store) MemoryRecord(ctx context.Context, m MemoryCaller, r MemoryRecordRequest) (MemoryRecordResult, error) {
+	s.memory.op.Lock()
+	advanced := false
+	defer func() {
+		s.memory.op.Unlock()
+		// The hook runs after the commit and outside every lock, so it may start any operation.
+		if advanced {
+			s.changed(m.Repository)
+		}
+	}()
 	l := s.limits()
 	now := s.clock()
 	if r.Scope == "" {
@@ -507,7 +519,7 @@ func (s *Store) MemoryRecord(ctx context.Context, m MemoryCaller, r MemoryRecord
 		result.Seq, result.Deadline = seq, r.Deadline
 		horizon := l.idemTTL
 		result.IdempotencyHorizon = &horizon
-		tx.onCommit(func() { s.changed(m.Repository) })
+		tx.onCommit(func() { advanced = true })
 		return nil
 	})
 	if err != nil {
@@ -634,6 +646,8 @@ type MemorySyncRequest struct {
 
 // MemorySync returns a snapshot page or a delta batch and never moves the cursor.
 func (s *Store) MemorySync(ctx context.Context, m MemoryCaller, r MemorySyncRequest) (map[string]any, error) {
+	s.memory.op.Lock()
+	defer s.memory.op.Unlock()
 	l := s.limits()
 	if err := s.maybeExpire(ctx, m.Repository); err != nil {
 		return nil, err
@@ -889,6 +903,8 @@ type MemoryAckRequest struct {
 // MemoryAck moves the cursor: through a fully issued snapshot, or monotonically through
 // an issued delta.
 func (s *Store) MemoryAck(ctx context.Context, m MemoryCaller, r MemoryAckRequest) (map[string]any, error) {
+	s.memory.op.Lock()
+	defer s.memory.op.Unlock()
 	l := s.limits()
 	if err := s.maybeExpire(ctx, m.Repository); err != nil {
 		return nil, err
