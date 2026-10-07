@@ -106,6 +106,17 @@ func daemonPID(t *testing.T) int {
 	return pid
 }
 
+// tempDir is a resolved temporary directory: macOS's /var is a symlink to /private/var,
+// and the main release refuses a state path that passes through a symlink.
+func tempDir(t *testing.T) string {
+	t.Helper()
+	dir, err := filepath.EvalSymlinks(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	return dir
+}
+
 func waitFor(t *testing.T, what string, check func() bool) {
 	t.Helper()
 	deadline := time.Now().Add(60 * time.Second)
@@ -160,7 +171,7 @@ func gitRepo(t *testing.T, dir string) string {
 // TestGoLifecycle installs, starts, kills, uninstalls and reinstalls the daemon; the
 // state survives the uninstall.
 func TestGoLifecycle(t *testing.T) {
-	dir := t.TempDir()
+	dir := tempDir(t)
 	prefix, state := filepath.Join(dir, "prefix space"), filepath.Join(dir, "state")
 	report := must(t, "install", "--prefix", prefix, "--state-dir", state)
 	if report["service"] != "running" {
@@ -308,7 +319,7 @@ func managerState() string {
 // by the marker, a failure before the swap restores Python, a failure after it resumes,
 // and the imported state reads back through the Go daemon.
 func TestUpgradeFromMain(t *testing.T) {
-	dir := t.TempDir()
+	dir := tempDir(t)
 	p := pythonRelease{t: t, source: filepath.Join(dir, "main-release"), prefix: filepath.Join(dir, "python prefix"),
 		state: filepath.Join(dir, "python-state"), repo: filepath.Join(dir, "repo"), claude: filepath.Join(dir, "claude")}
 	extract(t, p.source)
@@ -381,10 +392,12 @@ func TestUpgradeFromMain(t *testing.T) {
 	if after, _ := os.ReadFile(filepath.Join(p.prefix, "install.json")); !bytes.Equal(after, original) {
 		t.Fatal("install.json was not restored after the failed attempt")
 	}
-	memory := p.must(filepath.Join(p.prefix, "memory_service.py"), "status", "--prefix", p.prefix, "--repo", p.repo)
-	if !strings.Contains(memory, `"running": true`) {
-		t.Fatalf("the memory service did not restart: %s", memory)
-	}
+	// The restored service needs a moment to start; its status answers once it runs.
+	memory := ""
+	waitFor(t, "the restored memory service", func() bool {
+		memory, _ = p.run(filepath.Join(p.prefix, "memory_service.py"), "status", "--prefix", p.prefix, "--repo", p.repo)
+		return strings.Contains(memory, `"running": true`)
+	})
 	p.must(filepath.Join(p.prefix, "memory.py"), "--state-dir", p.state, "--repo-path", p.repo, "--consumer", "native-fixture",
 		"note", "Written after the restore.")
 
