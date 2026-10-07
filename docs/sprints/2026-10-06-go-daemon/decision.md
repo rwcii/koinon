@@ -17,7 +17,7 @@ Claude session through Claude Code's own peer sockets, and Koinon never sees tha
 carries only messages that involve a Codex or DeepSeek session. No single record shows what the
 agents sent, what arrived and what was handled.
 
-The user has no oversight view. Session state, delivery state, memory heads and work claims are
+The maintainer has no oversight view. Session state, delivery state, memory heads and work claims are
 visible only through separate commands of each agent.
 
 Google replaced the Gemini CLI with the Antigravity CLI (`agy`). Koinon does not support it, and
@@ -53,7 +53,7 @@ The maintainer prefers Go to the Python constraint, and wants one binary that li
 9. **Dashboard.** A loopback web dashboard shows the sessions (name, family, repository, model,
    context, activity, terminal), the messages with their bodies and their delivery and
    acknowledgement state, the memory heads, the work claims, the service health and an audit
-   log. From it the user can retire a session, release a claim, acknowledge or clear an inbox,
+   log. From it the maintainer can retire a session, release a claim, acknowledge or clear an inbox,
    send a message to an agent and start a Codex, Antigravity or OpenCode session through the launcher.
    Every action is recorded in the audit log. The dashboard is reachable only after a login
    through a link that the `koinon` command prints, and it refuses requests whose `Host` or

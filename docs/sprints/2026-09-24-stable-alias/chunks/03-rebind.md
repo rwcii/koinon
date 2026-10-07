@@ -22,7 +22,7 @@ direct authorization. The `reconnect` guide topic and the `pickup` skill use it 
     chunk 01, with equal `socket` and `pane_id` (`terminal_mismatch` or
     `terminal_not_recorded`), and this thread's record is fresh from the `ensure` just run.
     A matching `host.json` is reported and never sufficient alone (`host_only`).
-  - `--user-authorized` is the agent's statement that the user named this predecessor; the
+  - `--user-authorized` is the agent's statement that the maintainer named this predecessor; the
     command records it in the result and skips the terminal match only.
 - **Sequence.** Each step is one read-decide-write of the lease under `names.lock`, and the lock
   is released before any stop, start or wait (chunk 02, lock boundary):
