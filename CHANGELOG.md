@@ -11,7 +11,7 @@ into a dated release section when promoted to `main`.
   of finished work and a bounded maintenance sweep, through the `work_*` and `claim_renew` MCP
   tools and `koinon work` / `koinon claim renew`. Funded release, finish and expiry controls keep
   their storage reserved against every other write, and the daemon refuses a database whose
-  header schema format is not 4.
+  header schema format is not 4 or whose schema objects differ from the ones it creates.
 - The Go daemon now holds one shared memory store per repository, with the record format 2,
   snapshot, delta, acknowledgement, idempotency, retention and capacity rules of the memory
   protocol, through the `memory_*` MCP tools and `koinon memory`. Its database has a fixed

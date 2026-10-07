@@ -1127,3 +1127,142 @@ func TestWorkAPIConsumerAndRefusalDetails(t *testing.T) {
 		t.Fatalf("unknown operation: %d", response.StatusCode)
 	}
 }
+
+// Review regressions for PR 190.
+
+// An admitted item always leaves room for its funded due events and later observations.
+func TestWorkAdmittedViewKeepsRoomForDueEvents(t *testing.T) {
+	s, clock, m := workStore(t)
+	out := mustWork(t, s, m, "work-create", map[string]any{"title": "size", "criteria": strings.Repeat("c", 4096),
+		"non_goals": strings.Repeat("n", 2048), "key": key(), "deadline": now(s) + 600})
+	id := out["work_id"].(string)
+	resources := [][]string{}
+	for i := 0; i < 8; i++ {
+		resources = append(resources, []string{"exact", strings.Repeat(string(rune('a'+i)), 512)})
+	}
+	generation := mustStart(t, s, m, id, map[string]any{"resources": resources, "checkpoint": strings.Repeat("k", 1024),
+		"next_artifact": strings.Repeat("a", 1024), "progress_deadline": now(s) + 60, "lease_seconds": 120})
+	// The largest progress that is still admitted, escaped to its longest JSON spelling.
+	lo, hi := 0, 2048
+	for lo < hi {
+		n := (lo + hi + 1) / 2
+		_, err := update(s, m, id, revision(t, s, m, id), generation, map[string]any{"progress": strings.Repeat(`"`, n),
+			"checkpoint": strings.Repeat("k", 1024), "next_artifact": strings.Repeat("a", 1024), "progress_deadline": now(s) + 60})
+		switch wcode(err) {
+		case "":
+			lo = n
+		case "record_too_large":
+			hi = n - 1
+		default:
+			t.Fatal(err)
+		}
+	}
+	if lo == 0 {
+		t.Fatal("no progress admitted")
+	}
+	*clock = clock.Add(61 * time.Second)
+	if err := s.MaintainWork(context.Background()); err != nil {
+		t.Fatalf("funded overdue event refused: %v", err)
+	}
+	*clock = clock.Add(120 * time.Second)
+	if err := s.MaintainWork(context.Background()); err != nil {
+		t.Fatalf("funded expiry event refused: %v", err)
+	}
+	if kinds := events(t, s, m, id); kinds[len(kinds)-2] != "progress-overdue" || kinds[len(kinds)-1] != "lease-expired" {
+		t.Fatalf("events: %v", kinds)
+	}
+	if debt := mustDebt(t, s); debt != 0 {
+		t.Fatalf("debt left: %d", debt)
+	}
+	get(t, s, m, id)
+	drain(t, s, other(m, "reader"))
+}
+
+// A request that waits for the serialized operation is judged at its processing time.
+func TestWorkQueuedRenewalCannotReviveExpiredLease(t *testing.T) {
+	s, clock, m := workStore(t)
+	id := create(t, s, m, "queued renewal")
+	generation := mustStart(t, s, m, id, map[string]any{"lease_seconds": 60, "progress_deadline": now(s) + 3600})
+	var current atomic.Int64
+	current.Store(clock.Unix())
+	sampled := make(chan struct{}, 1)
+	s.now = func() time.Time {
+		select {
+		case sampled <- struct{}{}:
+		default:
+		}
+		return time.Unix(current.Load(), 0)
+	}
+	s.memory.op.Lock()
+	done := make(chan error, 1)
+	go func() {
+		_, err := work(s, m, "claim-renew", map[string]any{"work_id": id, "claim_generation": generation, "if_claim_revision": 1})
+		done <- err
+	}()
+	// Let the request reach the lock, then let the lease lapse while it waits.
+	time.Sleep(50 * time.Millisecond)
+	current.Add(120)
+	s.memory.op.Unlock()
+	if err := <-done; wcode(err) != "stale_claim" {
+		t.Fatalf("queued renewal: %v", err)
+	}
+	if item := get(t, s, m, id); item["current_claim"] != nil || item["lease_expired"] != true {
+		t.Fatalf("expired claim revived: %v", item)
+	}
+}
+
+// Schema objects that this runtime does not create are refused before any write.
+func TestWorkCatalogRefusesExtraObjects(t *testing.T) {
+	for name, statement := range map[string]string{
+		"index":   `CREATE INDEX unexpected_credit_index ON claim_bundles(active,overdue_credit,end_credit)`,
+		"trigger": `CREATE TRIGGER unexpected_claim_trigger AFTER UPDATE OF active ON claim_bundles BEGIN SELECT RAISE(ABORT,'x'); END`,
+		"view":    `CREATE VIEW unexpected_view AS SELECT 1`,
+	} {
+		t.Run(name, func(t *testing.T) {
+			s, root := testStore(t)
+			if _, err := s.db.Exec(statement); err != nil {
+				t.Fatal(err)
+			}
+			s.db.Close()
+			if reopened, err := openStore(root); err == nil || !strings.Contains(err.Error(), "schema objects") {
+				if reopened != nil {
+					reopened.db.Close()
+				}
+				t.Fatalf("extra %s accepted: %v", name, err)
+			}
+		})
+	}
+	// An extra object in an older schema is refused before its migration.
+	s, root := testStore(t)
+	if _, err := s.db.Exec(`DROP TABLE work_items; DROP TABLE work_scope_revisions; DROP TABLE claim_bundles; DROP TABLE claim_resources;
+		DROP TABLE work_events; DROP TABLE work_replays; ALTER TABLE memory_stores DROP COLUMN work_counter;
+		ALTER TABLE memory_stores DROP COLUMN claim_counter; CREATE INDEX unexpected ON memory_stores(head); PRAGMA user_version=4`); err != nil {
+		t.Fatal(err)
+	}
+	s.db.Close()
+	if reopened, err := openStore(root); err == nil {
+		reopened.db.Close()
+		t.Fatal("extra object in schema 4 accepted")
+	}
+}
+
+// Equivalent JSON spellings of one request replay instead of conflicting.
+func TestWorkReplayUsesDecodedContent(t *testing.T) {
+	s, _, m := workStore(t)
+	fields := map[string]json.RawMessage{"title": json.RawMessage(`"t"`), "criteria": json.RawMessage(`"c"`), "non_goals": json.RawMessage(`"n"`),
+		"key": json.RawMessage(`"canonical-key"`), "deadline": json.RawMessage(`1800000600`), "proposed_assignee": json.RawMessage(`null`)}
+	first, err := s.Work(context.Background(), m, "work-create", fields)
+	if err != nil {
+		t.Fatal(err)
+	}
+	fields["title"], fields["deadline"] = json.RawMessage(`"t"`), json.RawMessage(`1800000600.0`)
+	again, err := s.Work(context.Background(), m, "work-create", fields)
+	if err != nil || again.(map[string]any)["duplicate"] != true || fmt.Sprint(again.(map[string]any)["work_id"]) != first.(map[string]any)["work_id"] {
+		t.Fatalf("equivalent retry: %v %v", again, err)
+	}
+	// An explicit null and an absent field stay distinct.
+	delete(fields, "proposed_assignee")
+	if _, err := s.Work(context.Background(), m, "work-create", fields); wcode(err) != "idempotency_conflict" {
+		t.Fatalf("absent field replayed as null: %v", err)
+	}
+}

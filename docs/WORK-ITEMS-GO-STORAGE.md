@@ -18,6 +18,10 @@ repository, and keys the memory rows by the repository path.
   the flag-only `UPDATE` of `claim_bundles` (no key or indexed column in its `SET` list) rewrites
   a cell of equal size and allocates no page. The daemon reads the format at offset 44 of the
   database header when it opens the database and refuses any other value.
+- The published tables and indexes and nothing else. At start the daemon compares every schema
+  object with those it creates for the database's schema version, before and after a
+  migration, and refuses an extra index, trigger or view: an index on a flag column would make
+  the flag overwrite allocate, and a trigger could refuse a funded control.
 - The work tables key a store by its 32-character `store_id`, not by the repository path, so
   their rows and indexes have bounded keys. The memory stream rows (`memory_entries`, its
   primary-key index and its live index) and the store row keep the repository path, at most
@@ -67,7 +71,9 @@ unspent credit, one entry and one event slot and 48 KiB of logical bytes, and fo
 one replay slot, in the ceilings of every memory and work write of that store. The Go row charges
 are the UTF-8 bytes of the text columns plus 512 per work row, and key, consumer, operation and
 result plus 192 per replay row; one control writes at most a 16 KiB image increase, a 16 KiB
-event, a 2 KiB result and about 2 KiB of keys and provenance, within the 48 KiB.
+event, a 2 KiB result and about 2 KiB of keys and provenance, within the 48 KiB. A mutation's
+view must leave 1 KiB of the 16 KiB free, which covers what a later observation adds (overdue
+and expiry reasons, longer counters and times), so a funded due event is never refused for size.
 
 ## Evidence
 

@@ -18,9 +18,13 @@ import (
 // proposal, claim or completion grants no authority and fences no file.
 
 const (
-	workEventType  = "work-event"
-	workRetention  = 30 * 86400
-	maxWorkRecord  = 16 * 1024
+	workEventType = "work-event"
+	workRetention = 30 * 86400
+	maxWorkRecord = 16 * 1024
+	// A mutation's view leaves this much of maxWorkRecord free, so a later observation
+	// (overdue and expiry reasons, longer counters and times) and the funded due event
+	// that records it always fit.
+	viewHeadroom   = 1024
 	maxWorkScope   = 8 * 1024
 	maxWorkResult  = 2 * 1024
 	maxWorkRowCost = 16857 // the stored item row charge the physical proof assumes
@@ -74,7 +78,6 @@ func workRead(op string) bool { return op == "work-get" || op == "work-list" }
 type workRequest struct {
 	op      string
 	present map[string]bool
-	raw     map[string]json.RawMessage
 	text    map[string]string
 	nulls   map[string]bool
 	ints    map[string]int64
@@ -131,7 +134,7 @@ func parseWork(op string, fields map[string]json.RawMessage) (*workRequest, erro
 	if !workRead(op) {
 		allowed["author"], allowed["key"], allowed["deadline"] = true, true, true
 	}
-	r := &workRequest{op: op, present: map[string]bool{}, raw: fields, text: map[string]string{}, nulls: map[string]bool{},
+	r := &workRequest{op: op, present: map[string]bool{}, text: map[string]string{}, nulls: map[string]bool{},
 		ints: map[string]int64{}, numbers: map[string]float64{}, bools: map[string]bool{}}
 	for name, raw := range fields {
 		if !allowed[name] {
@@ -308,12 +311,33 @@ func (r *workRequest) keyed() bool { return !workRead(r.op) && r.has("key") }
 // fingerprint binds a replay key to the operation, the consumer and the canonical
 // request content, so a retry with any other content conflicts.
 func (r *workRequest) fingerprint(consumer string) string {
-	content := map[string]json.RawMessage{}
-	for name, raw := range r.raw {
-		content[name] = raw
+	// The decoded values are hashed, not their spelling: "\u0074" and "t", or 1 and 1.0,
+	// are one request. An explicit null stays distinct from an absent field.
+	content := map[string]any{"op": r.op, "consumer": consumer}
+	for name := range r.present {
+		switch {
+		case r.nulls[name]:
+			content[name] = nil
+		case name == "references":
+			content[name] = r.refs
+		case name == "resources":
+			pairs := [][]string{}
+			for _, res := range r.res {
+				pairs = append(pairs, []string{res.Kind, res.Key})
+			}
+			content[name] = pairs
+		default:
+			if v, ok := r.text[name]; ok {
+				content[name] = v
+			} else if v, ok := r.ints[name]; ok {
+				content[name] = v
+			} else if v, ok := r.numbers[name]; ok {
+				content[name] = v
+			} else if v, ok := r.bools[name]; ok {
+				content[name] = v
+			}
+		}
 	}
-	content["op"], _ = json.Marshal(r.op)
-	content["consumer"], _ = json.Marshal(consumer)
 	data, _ := json.Marshal(content)
 	sum := sha256.Sum256(data)
 	return hex.EncodeToString(sum[:])
@@ -522,13 +546,7 @@ func view(ctx context.Context, q querier, store string, w workItem, now float64)
 		}
 		previous = scope
 	}
-	if err := rows.Err(); err != nil {
-		return v, err
-	}
-	if data, _ := json.Marshal(v); len(data) > maxWorkRecord {
-		return v, workError("record_too_large", "the encoded work view exceeds its byte bound")
-	}
-	return v, nil
+	return v, rows.Err()
 }
 
 // workViews returns the current view of every retained item of a repository's store,
@@ -646,6 +664,15 @@ func (s *Store) event(ctx context.Context, tx *writeTx, store string, m MemoryCa
 		return err
 	}
 	data, _ := json.Marshal(payload)
+	limit := maxWorkRecord - viewHeadroom
+	if kind == "progress-overdue" || kind == "lease-expired" {
+		// A funded due transition is never refused for size: its item was admitted with
+		// the headroom that its observation needs.
+		limit = maxWorkRecord
+	}
+	if len(data) > limit {
+		return workError("record_too_large", "the encoded work view exceeds its byte bound")
+	}
 	family, name := m.Family, m.Name
 	if family == "" {
 		// A due transition that maintenance records has no calling session.
@@ -684,9 +711,8 @@ func (s *Store) Work(ctx context.Context, m MemoryCaller, op string, fields map[
 	if err != nil {
 		return nil, err
 	}
-	now := s.clock()
 	if workRead(op) {
-		return s.workRead(ctx, m, r, now)
+		return s.workRead(ctx, m, r, s.clock())
 	}
 	s.memory.op.Lock()
 	advanced := false
@@ -696,7 +722,9 @@ func (s *Store) Work(ctx context.Context, m MemoryCaller, op string, fields map[
 			s.changed(m.Repository)
 		}
 	}()
-	return s.workMutation(ctx, m, r, now, &advanced)
+	// The time is read once the operation is serialized: a request that waited for the
+	// lock is judged at its processing time, so a lease that lapsed meanwhile stays lapsed.
+	return s.workMutation(ctx, m, r, s.clock(), &advanced)
 }
 
 func (s *Store) workRead(ctx context.Context, m MemoryCaller, r *workRequest, now float64) (any, error) {

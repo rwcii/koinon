@@ -184,8 +184,12 @@ scope revisions per item and 1,024 in all, 2,048 events, 12 MiB of work usage in
 the daemon. Every retained bundle holds an overdue and an end credit until it spends them; the
 pages, logical bytes, entry, event and replay slots that those credits reserve
 (`docs/WORK-ITEMS-GO-STORAGE.md`) are kept free by every other write of the daemon, so a promised
-release, finish or expiry can still commit when ordinary writes refuse. The daemon refuses a
-database whose header schema format is not 4.
+release, finish or expiry can still commit when ordinary writes refuse. A mutation's item view
+must leave 1 KiB of its 16 KiB bound free, so that its later due events and observations always
+fit. Replay compares the decoded request, so equivalent JSON spellings are one request. The
+daemon refuses a database whose header schema format is not 4, or whose schema objects (tables,
+indexes, triggers, views) differ from those it creates for the database's schema version, checked
+before and after a migration.
 
 ### MCP server
 
