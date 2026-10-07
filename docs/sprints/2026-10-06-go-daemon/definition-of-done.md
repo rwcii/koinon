@@ -69,11 +69,14 @@ native workflows below.
 - **Service managers.** The native workflows under `.github/workflows/` run the Go daemon under a
   real systemd user manager (Ubuntu) and a real launchd agent (macOS): install, start, restart
   after a kill, upgrade, uninstall with state preserved.
-- **Live checks on the user's host, each with the user's authorization:**
+- **Live checks on the maintainer's host, each with the maintainer's authorization:**
   1. MCP from inside each family's default sandbox: Claude Code, Codex `workspace-write`,
      DeepSeek harness, `agy`, OpenCode (chunk 01, then again with the real server in chunk 05).
   2. Wake of an idle session of each family, and Antigravity delivery at its turn boundary
-     (chunk 04).
+     (chunk 04). The maintainer approved a 2026-10-07 exception for DeepSeek: run this check for
+     Codex, Claude, Antigravity and OpenCode now, and track DeepSeek's unverified live receipt
+     under #199 until an approved sandboxed method is available. Synthetic DeepSeek checks
+     remain required, and the sprint's release must name the outstanding proof.
   3. A message from one Claude session to another through Koinon (chunk 05).
   4. Upgrade of this host from the `main` release to the Go release, with the import verified by
      counts and by reading a known message, memory entry and claim (chunk 11).

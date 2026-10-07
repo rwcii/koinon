@@ -42,7 +42,7 @@ Consequences for the plan:
 ## 2. DeepSeek MCP support
 
 Open. The harness is not installed on the probe host. Needs a host with the DeepSeek harness, or
-the user's confirmation of its MCP support. Until settled, criterion 5 for DeepSeek uses the
+the maintainer's confirmation of its MCP support. Until settled, criterion 5 for DeepSeek uses the
 documented command path, run with the agent's approval as today.
 
 ## 3. Claude wake from Go
@@ -57,7 +57,7 @@ criterion 4 replaces with MCP. A reply socket path longer than the AF_UNIX limit
 `bind: invalid argument`, which the edge case in `definition-of-done.md` covers.
 
 Chunk 04 verified the Go sender on macOS 26.6.2 (arm64), Claude Code 2.1.290 and Go 1.26.8
-on 2026-10-07. The user ran a standalone `CGO_ENABLED=0` probe from a scratch Claude session's
+on 2026-10-07. The maintainer ran a standalone `CGO_ENABLED=0` probe from a scratch Claude session's
 Bash tool. It selected that session's native messaging socket, checked the socket and its
 directory's ownership and private modes, and verified the connected peer's same-user
 `LOCAL_PEERCRED` and `LOCAL_PEERPID`. The socket path stayed literal. A private reply listener
