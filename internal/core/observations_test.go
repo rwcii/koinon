@@ -183,3 +183,34 @@ func TestLaunchedTerminalsAndOpenCodeStatus(t *testing.T) {
 		t.Fatal("unlaunched OpenCode session queried")
 	}
 }
+
+func TestObservationCapPrunesEndedSessions(t *testing.T) {
+	s, _ := testStore(t)
+	saved := maxObservedSessions
+	maxObservedSessions = 2
+	defer func() { maxObservedSessions = saved }()
+	ctx := context.Background()
+	now := s.now().UnixMilli()
+	report := func(id string) error {
+		return s.Observe(ctx, Observation{Caller: Key{"codex", id}, Model: &ObservedValue{Source: "codex_rollout", At: now, ID: "m"}})
+	}
+	a := join(t, s, "codex", "synthetic-a", "")
+	join(t, s, "codex", "synthetic-b", "")
+	join(t, s, "codex", "synthetic-c", "")
+	if report("synthetic-a") != nil || report("synthetic-b") != nil {
+		t.Fatal("reports under the cap refused")
+	}
+	if err := report("synthetic-c"); code(err) != "capacity" {
+		t.Fatalf("over the cap with every session active: %v", err)
+	}
+	// An ended session's observations make room without a dashboard view.
+	if _, err := s.Mutate(ctx, Mutation{Family: "codex", ID: "synthetic-a", IfRevision: a.Revision}, true); err != nil {
+		t.Fatal(err)
+	}
+	if err := report("synthetic-c"); err != nil {
+		t.Fatalf("after an ended session: %v", err)
+	}
+	if _, found := s.observed.byKey[Key{"codex", "synthetic-a"}]; found {
+		t.Fatal("ended session kept")
+	}
+}

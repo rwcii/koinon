@@ -83,7 +83,8 @@ func codexMetaModel(raw json.RawMessage) string {
 // report sends the groups of o that changed since the last report for the caller.
 func (s *server) report(ctx context.Context, o core.Observation) {
 	s.obs.mu.Lock()
-	if s.obs.sent == nil {
+	if s.obs.sent == nil || len(s.obs.sent) > 4*maxObserved {
+		// Forgetting only costs one repeated report per session.
 		s.obs.sent = map[core.Key]map[string]core.ObservedValue{}
 	}
 	last := s.obs.sent[o.Caller]
@@ -341,8 +342,14 @@ func (s *server) codexRollout(thread string) (model, context, activity *core.Obs
 func findRollout(root, thread string) string {
 	var found []string
 	filepath.WalkDir(root, func(path string, d fs.DirEntry, err error) error {
-		if err != nil || len(found) > 1 {
-			return filepath.SkipDir
+		if len(found) > 1 {
+			return filepath.SkipAll
+		}
+		if err != nil {
+			if d != nil && d.IsDir() {
+				return filepath.SkipDir
+			}
+			return nil
 		}
 		if d.Type().IsRegular() && strings.HasSuffix(d.Name(), ".jsonl") && strings.Contains(d.Name(), thread) {
 			found = append(found, path)

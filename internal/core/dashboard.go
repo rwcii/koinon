@@ -151,6 +151,11 @@ func (d *Daemon) dashboardHandler() (http.Handler, error) {
 	mux := http.NewServeMux()
 	mux.Handle("GET /dashboard/static/", http.StripPrefix("/dashboard/static/", http.FileServerFS(static)))
 	mux.HandleFunc("GET /dashboard/login", func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodGet {
+			// A HEAD request, such as a link preview, never uses the token.
+			w.WriteHeader(http.StatusMethodNotAllowed)
+			return
+		}
 		id, ok, err := d.auth.login(r.URL.Query().Get("token"))
 		if err != nil {
 			http.Error(w, "login failed", http.StatusInternalServerError)

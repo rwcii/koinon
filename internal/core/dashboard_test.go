@@ -98,8 +98,11 @@ func TestDashboardLoginAndRequestProtection(t *testing.T) {
 	if r := dashboardDo(t, d, "GET", "/dashboard/static/app.js", "", nil, nil); r.status != 200 {
 		t.Fatalf("static: %d", r.status)
 	}
-	// A link works once.
+	// A link works once; a HEAD request, such as a link preview, does not use it.
 	link := dashboardLink(t, d, secret)
+	if r := dashboardDo(t, d, "HEAD", link, "", nil, nil); r.status != http.StatusMethodNotAllowed || r.header.Get("Set-Cookie") != "" {
+		t.Fatalf("HEAD login: %d", r.status)
+	}
 	first := dashboardDo(t, d, "GET", link, "", nil, nil)
 	if first.status != http.StatusSeeOther {
 		t.Fatalf("first use: %d", first.status)

@@ -22,7 +22,7 @@ var observationSources = map[string][]string{
 	"terminal": {"tmux_env"},
 }
 
-const maxObservedSessions = 4096
+var maxObservedSessions = 4096 // a variable only so that tests can lower it
 
 // ObservedValue is one observed group: its allowlisted fields, its source and the time the
 // source recorded it (milliseconds).
@@ -144,6 +144,17 @@ func (s *Store) Observe(ctx context.Context, o Observation) error {
 		return Refusal{Code: "terminal_unverified", Message: "this session's terminal cannot be attributed to it"}
 	}
 	s.observed.mu.Lock()
+	full := len(s.observed.byKey) >= maxObservedSessions
+	s.observed.mu.Unlock()
+	if full {
+		// Drop the observations of sessions that ended, without waiting for a dashboard view.
+		active, err := s.activeKeys(ctx)
+		if err != nil {
+			return err
+		}
+		s.forget(active)
+	}
+	s.observed.mu.Lock()
 	defer s.observed.mu.Unlock()
 	if s.observed.byKey == nil {
 		s.observed.byKey = map[Key]map[string]ObservedValue{}
@@ -163,6 +174,23 @@ func (s *Store) Observe(ctx context.Context, o Observation) error {
 		}
 	}
 	return nil
+}
+
+func (s *Store) activeKeys(ctx context.Context) (map[Key]bool, error) {
+	rows, err := s.db.QueryContext(ctx, `SELECT family,id FROM sessions WHERE retired_at=0 AND expires_at>?`, s.now().UnixMilli())
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	active := map[Key]bool{}
+	for rows.Next() {
+		var k Key
+		if err := rows.Scan(&k.Family, &k.ID); err != nil {
+			return nil, err
+		}
+		active[k] = true
+	}
+	return active, rows.Err()
 }
 
 // forget drops the observations of sessions that are no longer active.
