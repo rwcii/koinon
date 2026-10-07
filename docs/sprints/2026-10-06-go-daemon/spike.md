@@ -157,7 +157,7 @@ state root on Linux amd64. No installed runtime, service or maintainer configura
 Only synthetic inbox messages were stored; native notices carried inbox identity and sequence
 range. Each confirmed range was acknowledged after receipt.
 
-- **Claude Code 2.1.292:** the native registry showed the selected session idle before storage.
+- **Claude Code 2.1.290:** the native registry showed the selected session idle before storage.
   The Go adapter verified the socket's same-user kernel PID and preserved its literal path.
   The receiving model confirmed range 1–1 in the intended native session. Duplicate notices
   occurred before acknowledgement because this transport provides no queue receipt;
