@@ -117,3 +117,17 @@ func TestDefaultStateDir(t *testing.T) {
 		t.Fatal(err)
 	}
 }
+
+func TestProcessCommand(t *testing.T) {
+	executable, args, err := ProcessCommand(os.Getpid())
+	if err != nil || len(args) == 0 {
+		t.Fatalf("own process: %q %v %v", executable, args, err)
+	}
+	self, _ := os.Executable()
+	if filepath.Base(executable) != filepath.Base(self) {
+		t.Fatalf("executable %q, want %q", executable, self)
+	}
+	if _, _, err := ProcessCommand(1 << 30); err == nil {
+		t.Fatal("missing process reported")
+	}
+}

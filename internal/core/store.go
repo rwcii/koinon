@@ -226,12 +226,7 @@ func repository(ctx context.Context, path string) (string, error) {
 	ctx, cancel := context.WithTimeout(ctx, 3*time.Second)
 	defer cancel()
 	cmd := exec.CommandContext(ctx, "git", "-C", path, "rev-parse", "--path-format=absolute", "--git-common-dir")
-	// A caller's inherited Git overrides must not retarget repository discovery.
-	for _, entry := range os.Environ() {
-		if !strings.HasPrefix(entry, "GIT_") {
-			cmd.Env = append(cmd.Env, entry)
-		}
-	}
+	cmd.Env = CleanGitEnvironment()
 	data, err := cmd.Output()
 	if err != nil {
 		return "", ErrInvalid
@@ -241,6 +236,18 @@ func repository(ctx context.Context, path string) (string, error) {
 		return "", ErrInvalid
 	}
 	return common, nil
+}
+
+// CleanGitEnvironment is this process's environment without GIT_ variables, so a caller's
+// inherited Git overrides never retarget repository discovery.
+func CleanGitEnvironment() []string {
+	env := []string{}
+	for _, entry := range os.Environ() {
+		if !strings.HasPrefix(entry, "GIT_") {
+			env = append(env, entry)
+		}
+	}
+	return env
 }
 
 func (s *Store) Register(ctx context.Context, r Registration) (Session, error) {

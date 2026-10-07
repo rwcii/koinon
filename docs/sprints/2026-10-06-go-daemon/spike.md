@@ -116,6 +116,15 @@ Verified with OpenCode 1.18.35 on a scratch `opencode serve` (loopback, own work
   `OPENCODE_SERVER_PASSWORD`, and no session identifier. An agent can therefore reach its own
   server's API; this stays inside the same-user boundary.
 
+Chunk 05 proved the per-call source with OpenCode 1.18.35 on a scratch `opencode serve`
+(loopback, password, own workspace): a plugin in `.opencode/plugins/` whose `tool.execute.before`
+sets `output.args.koinon_session = input.sessionID` for the MCP server's tools. OpenCode passes the
+same argument object to the hook and to the MCP call, so the field reaches the server. Two
+sessions on one server each called a probe tool and arrived with their own session IDs; the MCP
+client names itself `opencode` in `initialize`. Why the spike's first attempt left the arguments
+unchanged is not known; the directory is not the cause, since OpenCode loads both `plugin/` and
+`plugins/`.
+
 Consequence: the wake path is the supported API, with a loopback server and a password that the
 Koinon launcher sets. Session identity for MCP calls is not given by OpenCode. Chunk 05 must
 prove a per-call source, such as an OpenCode plugin that adds the calling session's identifier to

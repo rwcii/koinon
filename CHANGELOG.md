@@ -5,6 +5,12 @@ into a dated release section when promoted to `main`.
 
 ## Unreleased
 
+- Added `koinon mcp`, a stdio MCP server with the tools `peers`, `send`, `inbox`, `ack` and
+  `delivery`. It takes the calling session from the agent on every call (Codex thread, Antigravity
+  conversation, Claude Code session, OpenCode session through a plugin) and never from tool
+  arguments. `koinon setup <family>` adds it to Claude, Codex, Antigravity or OpenCode through the
+  agent's own command and changes nothing on a repeated run; `koinon guide --agent <family>`
+  prints the guidance.
 - Added Go launchers for Codex, Antigravity and OpenCode, with configured CLI paths,
   current or new tmux terminals, nested repository refusal and inherited Claude environment
   cleanup. OpenCode receives a loopback listener and generated password; launch targets are

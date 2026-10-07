@@ -157,3 +157,23 @@ func TestMessageCommands(t *testing.T) {
 		t.Fatal(err)
 	}
 }
+
+func TestAgentCommands(t *testing.T) {
+	var out bytes.Buffer
+	if err := run(context.Background(), []string{"guide", "--agent", "codex"}, nil, &out); err != nil || !strings.Contains(out.String(), "## Codex") {
+		t.Fatalf("guide: %v %s", err, out.String())
+	}
+	out.Reset()
+	if err := run(context.Background(), []string{"hook", "agy-stop"}, strings.NewReader(`{}`), &out); err != nil || out.String() != "{}\n" {
+		t.Fatalf("hook: %v %q", err, out.String())
+	}
+	out.Reset()
+	if err := run(context.Background(), []string{"setup", "deepseek"}, nil, &out); err != nil || !strings.Contains(out.String(), `"changed":[]`) {
+		t.Fatalf("setup: %v %s", err, out.String())
+	}
+	for _, args := range [][]string{{"guide"}, {"guide", "--agent", "x"}, {"hook", "other"}, {"setup"}, {"setup", "codex", "--cli", "relative"}} {
+		if err := run(context.Background(), args, nil, &out); err == nil {
+			t.Fatalf("accepted: %v", args)
+		}
+	}
+}
