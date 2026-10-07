@@ -193,9 +193,16 @@ func TestGoLifecycle(t *testing.T) {
 		t.Fatalf("uninstall removed the state: %v", err)
 	}
 	must(t, "install", "--prefix", prefix, "--state-dir", state)
-	sessions := call(t, state, "/v1/status", map[string]any{})["sessions"].(map[string]any)
-	if sessions["total"] != float64(1) {
-		t.Fatalf("state lost across reinstall: %v", sessions)
+	secret, err := core.ReadSecret(state)
+	if err != nil {
+		t.Fatal(err)
+	}
+	data, err := core.GetStatus(context.Background(), "127.0.0.1:47671", secret)
+	var health struct {
+		Sessions map[string]float64 `json:"sessions"`
+	}
+	if err != nil || json.Unmarshal(data, &health) != nil || health.Sessions["total"] != 1 {
+		t.Fatalf("state lost across reinstall: %s %v", data, err)
 	}
 }
 
@@ -271,6 +278,31 @@ func (p pythonRelease) must(args ...string) string {
 	return out
 }
 
+// managerReady waits until the systemd user manager answers on its D-Bus interface, which
+// the main release reads through busctl; systemctl can answer earlier, over the manager's
+// private socket. launchd needs no wait.
+func managerReady(t *testing.T) {
+	t.Helper()
+	if services(t).Backend != "systemd" {
+		return
+	}
+	waitFor(t, "the systemd user manager's D-Bus interface", func() bool {
+		return exec.Command("busctl", "--user", "--auto-start=no", "get-property", "org.freedesktop.systemd1",
+			"/org/freedesktop/systemd1", "org.freedesktop.systemd1.Manager", "Version").Run() == nil
+	})
+}
+
+// managerState describes the user manager for a failure report.
+func managerState() string {
+	var b strings.Builder
+	for _, argv := range [][]string{{"busctl", "--user", "--auto-start=no", "get-property", "org.freedesktop.systemd1",
+		"/org/freedesktop/systemd1", "org.freedesktop.systemd1.Manager", "Version"}, {"systemctl", "--user", "--no-pager", "list-units", "koinon*"}} {
+		out, err := exec.Command(argv[0], argv[1:]...).CombinedOutput()
+		fmt.Fprintf(&b, "$ %s\n%s(%v)\n", strings.Join(argv, " "), out, err)
+	}
+	return b.String()
+}
+
 // TestUpgradeFromMain installs the main release with a running memory service, adds the
 // committed fixture inboxes and stores, and upgrades: a racing Python start is refused
 // by the marker, a failure before the swap restores Python, a failure after it resumes,
@@ -284,8 +316,11 @@ func TestUpgradeFromMain(t *testing.T) {
 	os.MkdirAll(p.claude, 0700)
 	p.env = append(os.Environ(), "CLAUDE_CONFIG_DIR="+p.claude, "PYTHONDONTWRITEBYTECODE=1")
 	backend := services(t).Backend
-	p.must(filepath.Join(p.source, "scripts", "install.py"), "--configure-memory", "--repo", p.repo, "--prefix", p.prefix,
-		"--state-dir", p.state, "--unit-dir", filepath.Join(dir, "legacy-units"), "--service-backend", backend)
+	managerReady(t)
+	if out, err := p.run(filepath.Join(p.source, "scripts", "install.py"), "--configure-memory", "--repo", p.repo, "--prefix", p.prefix,
+		"--state-dir", p.state, "--unit-dir", filepath.Join(dir, "legacy-units"), "--service-backend", backend); err != nil {
+		t.Fatalf("main-release install: %v\n%s\n%s", err, out, managerState())
+	}
 	defer p.run(filepath.Join(p.prefix, "scripts", "uninstall.py"), "--prefix", p.prefix)
 	p.must(filepath.Join(p.prefix, "memory.py"), "--state-dir", p.state, "--repo-path", p.repo, "--consumer", "native-fixture",
 		"note", "A known entry written by the main release.")
@@ -315,7 +350,15 @@ func TestUpgradeFromMain(t *testing.T) {
 	original, _ := os.ReadFile(filepath.Join(p.prefix, "install.json"))
 	// The marker makes the main release's own commands refuse.
 	operation := filepath.Join(dir, "probe-operation")
-	if err := legacy.PublishMarker(p.prefix, operation, strings.Repeat("ab", 32)); err != nil {
+	installed, err := legacy.ReadInstall(p.prefix)
+	if err != nil || installed == nil {
+		t.Fatalf("main-release install.json: %v", err)
+	}
+	expected, err := installed.Digest()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := legacy.PublishMarker(p.prefix, operation, strings.Repeat("ab", 32), expected); err != nil {
 		t.Fatal(err)
 	}
 	if out, err := p.run(filepath.Join(p.prefix, "memory_service.py"), "ensure", "--prefix", p.prefix, "--repo", p.repo); err == nil {

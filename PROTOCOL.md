@@ -449,9 +449,9 @@ the recovery rules are in [the installation guide](docs/INSTALL.md#import).
   `ack_through`. A Python acknowledgement deleted the rows it covered, so an imported inbox
   holds only unacknowledged messages. It can have gaps where Python held control frames or
   memory pointers. Each message keeps its `seq`.
-- **The body.** The body is `frame.message.content`. When the content is a sender envelope
-  whose fields rebuild it exactly, the body is the envelope's inner text, and the envelope's
-  `from` and `from-name` give the sender. Otherwise the sender is the frame's `from`.
+- **The body.** The body is `frame.message.content`, unchanged. When the content is a sender
+  envelope whose fields rebuild it exactly, the envelope's `from` and `from-name` give the
+  sender. Otherwise the sender is the frame's `from`.
 - **The sender family.** It is `legacy`: a Python-era sender is identified only by what it
   asserted, and no session has that family.
 - **Times.** `created_at` is `received` in milliseconds.

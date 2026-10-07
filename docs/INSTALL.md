@@ -63,9 +63,13 @@ refused with `python_install_present`. Use the upgrade instead.
    database is absent or empty, and no Go daemon runs on it.
 2. **Exclude and stop.** The upgrade writes the Python runtime's own upgrade marker
    (`installation_state: upgrading`) under its `.install.lock`. While the marker is present,
-   the Python install, `ensure`, uninstall, upgrade and memory-service start all refuse. Then
-   the upgrade stops each Python service: the session supervisors, the memory services and the
-   legacy pair. It does not remove them.
+   the Python install, `ensure`, uninstall, upgrade and memory-service start all refuse. The
+   marker is written only while `install.json` is still the configuration that the preflight
+   inspected. Under the marker, the state root and the list of Python services must still
+   equal the preflight's; otherwise the result is `source_changed`. Then the upgrade stops each
+   Python service: the session supervisors, the memory services and the legacy pair. It does
+   not remove them. It records each service as its own to restart before its stop begins, and
+   it waits until the manager reports the service stopped.
 3. **Import.** This is the import that `koinon import` describes below, into a staging database.
    Only a fully verified set replaces the Go state database.
 4. **Remove Python.** The upgrade changes the marker to `installation_state: removing`. In that
@@ -83,8 +87,9 @@ The upgrade recovers as follows:
   starts again. The Python runtime runs as before, and the report names the phase and the
   `code`. Run the command again for a fresh attempt. It takes a fresh copy, so messages and
   memory that Python received in the meantime are included.
-- **A failure in steps 4–5.** The verified import stays. Fix the cause named in the report,
-  then run the same command again to resume.
+- **A failure after the rename.** This covers steps 4–5, and also a failure just after the
+  verified import replaced the state database. The import stays, and the Python runtime stays
+  excluded. Fix the cause named in the report, then run the same command again to resume.
 - **A crash.** A crashed run is resumed by running the same command again. A resume first
   observes each recorded action again. It refuses with `source_changed` when `install.json`
   (apart from the marker) or the list of Python services changed after the attempt began.
@@ -101,7 +106,10 @@ After the upgrade, an instruction file that you wrote yourself may still name th
 [--verify]` runs the import on its own. It stops nothing. While a Python installation exists, it
 holds the upgrade marker for the duration of the import, then gives `install.json` its original
 bytes back. It refuses with `python_running` while any Python service runs. It refuses with
-`daemon_running` while a Go daemon runs on the state directory.
+`daemon_running` while a Go daemon runs on the state directory. It records each attempt in
+`<state>/import/journal.json` before it writes the marker. After an interruption, the next
+`koinon import` first restores `install.json` from that record and removes the attempt's
+staging files.
 
 - **Sources.** The import reads every Codex and DeepSeek session inbox, a legacy single-thread
   inbox, and every memory store with its work items and claims. Each source's writer locks are
@@ -130,13 +138,16 @@ bytes back. It refuses with `python_running` while any Python service runs. It r
 `koinon uninstall [--prefix DIR] [--state-dir DIR] [--agent FAMILY]...` removes these:
 
 - What `koinon setup` added for each agent (all families by default):
-  - the MCP entry, through the agent's own CLI, only while it still runs this binary;
+  - the MCP entry, through the agent's own CLI, only while it still runs this binary,
+    whether it is enabled or disabled;
   - for OpenCode, which has no remove command, the `mcp.koinon` entry in `opencode.json` or
     `opencode.jsonc`;
   - the `agy` Stop hook;
   - the OpenCode identity plugin;
   - the Claude status line, whose saved original is restored.
-- The service file that carries the marker, after stopping the service.
+- The service file that carries the marker. It is removed only after the manager reports the
+  service stopped. When the manager refuses the stop, or still reports the service running,
+  uninstall refuses with `service_stop_failed` and keeps the service file and the binary.
 - The binary.
 
 It keeps the state directory and reports its path. A repeated uninstall changes nothing.

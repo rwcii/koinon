@@ -26,7 +26,13 @@ func TestMarkerMatchesTheBaselineContract(t *testing.T) {
 	original := `{"state_root": "/s", "unit_dir": "/u", "memory_services": {"version": 1, "repositories": {}}, "big": 9007199254740993}` + "\n"
 	prefix := writeInstall(t, original)
 	plan := strings.Repeat("ab", 32)
-	if err := PublishMarker(prefix, "/state/upgrade/1", plan); err != nil {
+	i, _ := ReadInstall(prefix)
+	expected, _ := i.Digest()
+	// A configuration other than the one inspected is refused.
+	if err := PublishMarker(prefix, "/state/upgrade/1", plan, strings.Repeat("0", 64)); err == nil || !strings.Contains(err.Error(), "source_changed") {
+		t.Fatalf("stale configuration: %v", err)
+	}
+	if err := PublishMarker(prefix, "/state/upgrade/1", plan, expected); err != nil {
 		t.Fatal(err)
 	}
 	data, _ := os.ReadFile(filepath.Join(prefix, "install.json"))
@@ -44,10 +50,10 @@ func TestMarkerMatchesTheBaselineContract(t *testing.T) {
 		t.Fatalf("other fields lost: %s", data)
 	}
 	// The same marker again is accepted; another operation's is refused.
-	if err := PublishMarker(prefix, "/state/upgrade/1", plan); err != nil {
+	if err := PublishMarker(prefix, "/state/upgrade/1", plan, expected); err != nil {
 		t.Fatal(err)
 	}
-	if err := PublishMarker(prefix, "/state/upgrade/2", plan); err == nil {
+	if err := PublishMarker(prefix, "/state/upgrade/2", plan, expected); err == nil {
 		t.Fatal("a second operation took the marker")
 	}
 	if err := ReplaceWithRemoving(prefix, "/state/upgrade/2"); err == nil {
@@ -59,7 +65,7 @@ func TestMarkerMatchesTheBaselineContract(t *testing.T) {
 	if data, _ := os.ReadFile(filepath.Join(prefix, "install.json")); string(data) != original {
 		t.Fatalf("restore is not byte-identical: %s", data)
 	}
-	PublishMarker(prefix, "/state/upgrade/1", plan)
+	PublishMarker(prefix, "/state/upgrade/1", plan, expected)
 	if err := ReplaceWithRemoving(prefix, "/state/upgrade/1"); err != nil {
 		t.Fatal(err)
 	}

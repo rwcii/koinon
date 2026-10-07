@@ -66,7 +66,7 @@ func Remove(ctx context.Context, o Options) (Report, error) {
 		remove := map[string][]string{"claude": {"mcp", "remove", "--scope", "user", serverName},
 			"codex": {"mcp", "remove", serverName}, "agy": {"mcp", "remove", serverName}}[o.Family]
 		current, getErr := run(get...)
-		if getErr == nil && configured(o.Family, current, o.Binary) {
+		if getErr == nil && owned(o.Family, current, o.Binary) {
 			if out, err := run(remove...); err != nil {
 				return report, fmt.Errorf("%s mcp remove failed: %s", o.Family, strings.TrimSpace(out))
 			}

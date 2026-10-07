@@ -269,6 +269,17 @@ func Run(ctx context.Context, o Options) (Result, error) {
 	if err == nil || errors.Is(err, ErrCrash) {
 		return result, err
 	}
+	if r.j.Phase == phaseStopped {
+		// The swap is decided by the files, not by the phase: a failure after the rename,
+		// before its phase was saved, keeps the import and resumes.
+		if empty, terr := targetEmpty(ctx, r.o.StateDir); terr != nil || !empty {
+			r.j.Phase, r.j.Intent = phaseSwapped, ""
+			r.save()
+			result = r.result()
+			result.Resume = "koinon upgrade --from-python"
+			return result, fmt.Errorf("%w; the import is in place and kept: rerun koinon upgrade --from-python to resume", err)
+		}
+	}
 	if r.j.Phase == phasePreflight || r.j.Phase == phaseExcluded || r.j.Phase == phaseStopped {
 		// Before the swap: end the attempt and give the Python runtime back.
 		if rerr := r.end(ctx, err); rerr != nil {
@@ -322,14 +333,14 @@ func (r *run) begin(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
-	without, err := i.Without()
+	installDigest, err := i.Digest()
 	if err != nil {
 		return err
 	}
 	attempt := randomID()
 	r.j = &Journal{Version: 1, Attempt: attempt, Operation: filepath.Join(r.dir, attempt), PythonPrefix: o.PythonPrefix,
 		StateRoot: stateRoot, GoPrefix: o.GoPrefix, Agents: o.Agents, Repositories: o.Repositories,
-		InstallDigest: digest(string(without)), Raw: i.Raw, Units: units, Stopped: []string{}, Phase: phasePreflight}
+		InstallDigest: installDigest, Raw: i.Raw, Units: units, Stopped: []string{}, Phase: phasePreflight}
 	r.j.Plan = digest(map[string]any{"python_prefix": o.PythonPrefix, "state_root": stateRoot, "go_prefix": o.GoPrefix,
 		"agents": o.Agents, "install": r.j.InstallDigest, "units": units})
 	if err := os.MkdirAll(r.j.Operation, 0700); err != nil {
@@ -347,7 +358,13 @@ func (r *run) recheck(ctx context.Context) error {
 	if err != nil || i == nil {
 		return fmt.Errorf("source_changed: the Python installation cannot be read again: %v", err)
 	}
-	without, err := i.Without()
+	return r.sameSource(ctx, i)
+}
+
+// sameSource requires the configuration, state root and service inventory that this
+// attempt inspected.
+func (r *run) sameSource(ctx context.Context, i *legacy.Install) error {
+	installDigest, err := i.Digest()
 	if err != nil {
 		return err
 	}
@@ -355,8 +372,12 @@ func (r *run) recheck(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
-	if digest(string(without)) != r.j.InstallDigest || digest(units) != digest(r.j.Units) {
-		return errors.New("source_changed: the Python installation or its services changed since this attempt began; nothing was changed")
+	root, err := i.StateRoot()
+	if err != nil {
+		return err
+	}
+	if installDigest != r.j.InstallDigest || root != r.j.StateRoot || digest(units) != digest(r.j.Units) {
+		return errors.New("source_changed: the Python installation or its services changed since this attempt began")
 	}
 	return nil
 }
@@ -366,11 +387,22 @@ func (r *run) advance(ctx context.Context) (Result, error) {
 	for {
 		switch j.Phase {
 		case phasePreflight:
-			if err := r.act("marker", func() error { return legacy.PublishMarker(j.PythonPrefix, j.Operation, j.Plan) }); err != nil {
+			if err := r.act("marker", func() error {
+				return legacy.PublishMarker(j.PythonPrefix, j.Operation, j.Plan, j.InstallDigest)
+			}); err != nil {
 				return r.result(), err
 			}
 			j.Phase = phaseExcluded
 		case phaseExcluded:
+			// Under the marker nothing can change the selection; the inventory is frozen
+			// here and must equal the one the attempt inspected.
+			i, err := legacy.ReadInstall(j.PythonPrefix)
+			if err != nil || i == nil || i.Operation() != j.Operation {
+				return r.result(), fmt.Errorf("source_changed: the Python installation lost this attempt's marker: %v", err)
+			}
+			if err := r.sameSource(ctx, i); err != nil {
+				return r.result(), err
+			}
 			for _, u := range j.Units {
 				active, err := o.Services.Active(ctx, u)
 				if err != nil {
@@ -379,18 +411,15 @@ func (r *run) advance(ctx context.Context) (Result, error) {
 				if !active {
 					continue
 				}
-				if err := r.act("stop:"+u.Name, func() error {
-					if err := o.Services.Stop(ctx, u); err != nil {
-						return err
-					}
-					for _, name := range j.Stopped {
-						if name == u.Name {
-							return nil
-						}
-					}
+				// The unit is this attempt's to restart from the moment its stop may begin.
+				owned := false
+				for _, name := range j.Stopped {
+					owned = owned || name == u.Name
+				}
+				if !owned {
 					j.Stopped = append(j.Stopped, u.Name)
-					return nil
-				}); err != nil {
+				}
+				if err := r.act("stop:"+u.Name, func() error { return o.Services.Stop(ctx, u) }); err != nil {
 					return r.result(), err
 				}
 			}
@@ -469,14 +498,15 @@ func (r *run) importState(ctx context.Context) (*importer.Report, error) {
 	}
 	defer platform.Unlock(lock)
 	p := r.paths()
-	if j.Intent == "swap" {
-		// A previous run stopped at the swap; observe which side of it the files are on.
-		if _, err := os.Lstat(p.Staging()); errors.Is(err, os.ErrNotExist) {
-			if empty, err := targetEmpty(ctx, o.StateDir); err == nil && !empty {
-				j.Intent = ""
-				return j.Report, r.save()
-			}
-		}
+	// The preflight found the target empty and this attempt holds the daemon lock, so a
+	// non-empty target is this attempt's swapped import, whatever the journal says.
+	empty, err := targetEmpty(ctx, o.StateDir)
+	if err != nil {
+		return nil, err
+	}
+	if !empty {
+		j.Intent = ""
+		return j.Report, nil
 	}
 	i, err := legacy.ReadInstall(j.PythonPrefix)
 	if err != nil {
@@ -490,17 +520,27 @@ func (r *run) importState(ctx context.Context) (*importer.Report, error) {
 	if err != nil {
 		return &report, err
 	}
-	j.Report = &report
-	if err := r.act("swap", func() error {
-		if report.Result != "staged" {
-			return fmt.Errorf("target_not_empty: the target changed during the attempt (%s)", report.Result)
-		}
-		return importer.Swap(p)
-	}); err != nil {
-		return &report, err
+	if report.Result != "staged" {
+		return &report, fmt.Errorf("target_not_empty: the target changed during the attempt (%s)", report.Result)
 	}
 	report.Result = "imported"
-	return &report, nil
+	j.Report = &report
+	j.Intent = "swap"
+	if err := r.save(); err != nil {
+		return &report, err
+	}
+	if err := o.Hook("before:swap"); err != nil {
+		return &report, err
+	}
+	if err := importer.Swap(p); err != nil {
+		return &report, err
+	}
+	// The outcome is saved before anything else can fail.
+	j.Phase, j.Intent = phaseSwapped, ""
+	if err := r.save(); err != nil {
+		return &report, err
+	}
+	return &report, o.Hook("after:swap")
 }
 
 // end ends an attempt that failed before its swap: the staging files go, install.json

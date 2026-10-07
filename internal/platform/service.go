@@ -11,6 +11,7 @@ import (
 	"runtime"
 	"strconv"
 	"strings"
+	"time"
 )
 
 // The user service manager: a systemd user unit on Linux, a launchd agent on macOS
@@ -46,6 +47,8 @@ type Services struct {
 	UID     int
 	// Run runs a manager command and returns its combined output.
 	Run func(ctx context.Context, argv ...string) ([]byte, error)
+	// StopWait bounds the wait for a stopped unit; zero is 30 seconds.
+	StopWait time.Duration
 }
 
 // NewServices returns the manager of this host and user.
@@ -210,7 +213,8 @@ func (s Services) StartDaemon(ctx context.Context) error {
 }
 
 // RemoveDaemon stops the daemon and removes its artifact when it carries the marker.
-// An absent artifact is a no-op; it returns whether anything was removed.
+// The artifact stays when the manager refuses the stop or the daemon is still running
+// afterwards. An absent artifact is a no-op; it returns whether anything was removed.
 func (s Services) RemoveDaemon(ctx context.Context) (bool, error) {
 	path := s.DaemonArtifact()
 	present, marked, err := Marked(path)
@@ -220,20 +224,59 @@ func (s Services) RemoveDaemon(ctx context.Context) (bool, error) {
 	if !marked {
 		return false, fmt.Errorf("service_artifact_unowned: %s exists without the Koinon marker", path)
 	}
-	if s.Available(ctx) {
+	available := s.Available(ctx)
+	if available {
+		unit := Unit{Name: DaemonUnit}
+		var out []byte
+		var stopErr error
 		if s.Backend == "launchd" {
-			s.Run(ctx, "launchctl", "bootout", s.domain()+"/"+DaemonLabel)
-		} else {
-			s.Run(ctx, "systemctl", "--user", "disable", "--now", DaemonUnit)
+			unit = Unit{Name: DaemonLabel}
+			// An agent that is not loaded makes bootout fail; the observation below decides.
+			out, stopErr = s.Run(ctx, "launchctl", "bootout", s.domain()+"/"+DaemonLabel)
+		} else if out, stopErr = s.Run(ctx, "systemctl", "--user", "disable", "--now", DaemonUnit); stopErr != nil {
+			return false, fmt.Errorf("service_stop_failed: systemctl disable --now %s: %s", DaemonUnit, strings.TrimSpace(string(out)))
+		}
+		if err := s.waitStopped(ctx, unit); err != nil {
+			if stopErr != nil {
+				err = fmt.Errorf("%w (%s)", err, strings.TrimSpace(string(out)))
+			}
+			return false, err
 		}
 	}
 	if err := os.Remove(path); err != nil && !errors.Is(err, os.ErrNotExist) {
 		return false, err
 	}
-	if s.Backend == "systemd" && s.Available(ctx) {
+	if s.Backend == "systemd" && available {
 		s.Run(ctx, "systemctl", "--user", "daemon-reload")
 	}
 	return true, nil
+}
+
+// waitStopped waits until a unit is observed stopped; launchd unloads asynchronously.
+// An unknown observation or a unit still running at the deadline is service_stop_failed.
+func (s Services) waitStopped(ctx context.Context, u Unit) error {
+	wait := s.StopWait
+	if wait == 0 {
+		wait = 30 * time.Second
+	}
+	deadline := time.Now().Add(wait)
+	for {
+		active, err := s.Active(ctx, u)
+		if err != nil {
+			return fmt.Errorf("service_stop_failed: cannot observe %s: %w", u.Name, err)
+		}
+		if !active {
+			return nil
+		}
+		if time.Now().After(deadline) {
+			return fmt.Errorf("service_stop_failed: %s is still running after its stop", u.Name)
+		}
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-time.After(200 * time.Millisecond):
+		}
+	}
 }
 
 // Unit is another program's service, such as a Python-era one: its systemd unit name,
@@ -262,7 +305,8 @@ func (s Services) Active(ctx context.Context, u Unit) (bool, error) {
 	return false, fmt.Errorf("cannot observe %s: %s", u.Name, state)
 }
 
-// Stop stops a unit without removing it; launchd unloads the agent.
+// Stop stops a unit without removing it, and waits until it is observed stopped;
+// launchd unloads the agent.
 func (s Services) Stop(ctx context.Context, u Unit) error {
 	if s.Backend == "launchd" {
 		if active, _ := s.Active(ctx, u); !active {
@@ -271,12 +315,12 @@ func (s Services) Stop(ctx context.Context, u Unit) error {
 		if out, err := s.Run(ctx, "launchctl", "bootout", s.domain()+"/"+u.Name); err != nil {
 			return fmt.Errorf("launchctl bootout %s failed: %s", u.Name, strings.TrimSpace(string(out)))
 		}
-		return nil
+		return s.waitStopped(ctx, u)
 	}
 	if out, err := s.Run(ctx, "systemctl", "--user", "stop", u.Name); err != nil {
 		return fmt.Errorf("systemctl stop %s failed: %s", u.Name, strings.TrimSpace(string(out)))
 	}
-	return nil
+	return s.waitStopped(ctx, u)
 }
 
 // Start starts a unit again; launchd loads its agent file.

@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 )
 
 func fakeServices(t *testing.T, backend string, fail func([]string) ([]byte, error)) (Services, *[]string) {
@@ -18,6 +19,73 @@ func fakeServices(t *testing.T, backend string, fail func([]string) ([]byte, err
 		}
 		return nil, nil
 	}}, calls
+}
+
+// managerFake is a stateful manager: units run after a start and stop after a stop.
+// refuse makes the named command fail and leaves the state unchanged.
+func managerFake(t *testing.T, backend string, refuse string) (Services, *[]string) {
+	running := map[string]bool{}
+	return fakeServices(t, backend, func(argv []string) ([]byte, error) {
+		command := strings.Join(argv, " ")
+		if refuse != "" && strings.Contains(command, refuse) {
+			return []byte("refused"), errors.New("exit 1")
+		}
+		last := argv[len(argv)-1]
+		switch {
+		case argv[0] == "launchctl" && argv[1] == "print" && strings.Count(last, "/") == 1:
+			return nil, nil
+		case argv[0] == "launchctl" && argv[1] == "print":
+			if running[strings.TrimPrefix(last, "gui/501/")] {
+				return nil, nil
+			}
+			return nil, errors.New("113")
+		case argv[0] == "launchctl" && argv[1] == "bootstrap":
+			running[DaemonLabel] = true
+		case argv[0] == "launchctl" && argv[1] == "bootout":
+			if !running[strings.TrimPrefix(last, "gui/501/")] {
+				return []byte("No such process"), errors.New("3")
+			}
+			running[strings.TrimPrefix(last, "gui/501/")] = false
+		case argv[0] == "systemctl" && argv[2] == "is-active":
+			if running[last] {
+				return []byte("active"), nil
+			}
+			return []byte("inactive"), errors.New("exit 3")
+		case argv[0] == "systemctl" && (argv[2] == "restart" || argv[2] == "start"):
+			running[last] = true
+		case argv[0] == "systemctl" && (argv[2] == "stop" || argv[2] == "disable"):
+			running[last] = false
+		}
+		return nil, nil
+	})
+}
+
+func TestRemoveDaemonRefusesAFailedStop(t *testing.T) {
+	for backend, refuse := range map[string]string{"systemd": "disable --now", "launchd": "bootout"} {
+		s, _ := managerFake(t, backend, refuse)
+		s.StopWait = time.Millisecond
+		s.WriteDaemon("/opt/koinon", "/state")
+		if err := s.StartDaemon(context.Background()); err != nil {
+			t.Fatal(err)
+		}
+		if removed, err := s.RemoveDaemon(context.Background()); err == nil || removed || !strings.Contains(err.Error(), "service_stop_failed") {
+			t.Fatalf("%s: a refused stop removed the service: %v %v", backend, removed, err)
+		}
+		if _, err := os.Stat(s.DaemonArtifact()); err != nil {
+			t.Fatalf("%s: the artifact of a running service was removed: %v", backend, err)
+		}
+	}
+	// An unknown observation is a failure, never a stopped service.
+	s, _ := fakeServices(t, "systemd", func(argv []string) ([]byte, error) {
+		if argv[2] == "is-active" {
+			return []byte("garbled"), errors.New("exit 4")
+		}
+		return nil, nil
+	})
+	s.WriteDaemon("/opt/koinon", "/state")
+	if _, err := s.RemoveDaemon(context.Background()); err == nil || !strings.Contains(err.Error(), "service_stop_failed") {
+		t.Fatalf("unknown observation: %v", err)
+	}
 }
 
 func TestRenderDaemonQuotes(t *testing.T) {
@@ -35,7 +103,7 @@ func TestRenderDaemonQuotes(t *testing.T) {
 }
 
 func TestDaemonManagerCalls(t *testing.T) {
-	s, calls := fakeServices(t, "launchd", nil)
+	s, calls := managerFake(t, "launchd", "")
 	if changed, err := s.WriteDaemon("/opt/koinon", "/state"); err != nil || !changed {
 		t.Fatal(changed, err)
 	}
@@ -79,7 +147,10 @@ func TestUnitStates(t *testing.T) {
 	if _, err := s.Active(context.Background(), Unit{Name: "d.service"}); err == nil {
 		t.Fatal("an unreadable state was accepted")
 	}
-	s.Stop(context.Background(), Unit{Name: "a.service"})
+	s.StopWait = time.Millisecond
+	if err := s.Stop(context.Background(), Unit{Name: "a.service"}); err == nil || !strings.Contains(err.Error(), "still running") {
+		t.Fatalf("a unit that keeps running after its stop: %v", err)
+	}
 	s.Start(context.Background(), Unit{Name: "a.service"})
 	if joined := strings.Join(*calls, "\n"); !strings.Contains(joined, "systemctl --user stop a.service") || !strings.Contains(joined, "systemctl --user start a.service") {
 		t.Fatalf("calls %v", *calls)

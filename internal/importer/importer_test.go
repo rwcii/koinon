@@ -146,6 +146,29 @@ func TestImportFixture(t *testing.T) {
 	if name != f.m.Sessions["codex"].Name || last != 5 || acked != 2 {
 		t.Fatalf("codex session %s %d %d", name, last, acked)
 	}
+	// The bodies are the source frames' content, unchanged.
+	bodies := map[int64]string{}
+	inbox, err := sql.Open("sqlite", "file:"+filepath.Join(f.state, "sessions", f.m.Sessions["codex"].Directory, "inbox.sqlite3")+"?mode=ro")
+	if err != nil {
+		t.Fatal(err)
+	}
+	frames, err := inbox.Query(`SELECT seq,frame FROM inbox`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for frames.Next() {
+		var seq int64
+		var text string
+		var frame struct{ Message struct{ Content string } }
+		frames.Scan(&seq, &text)
+		json.Unmarshal([]byte(text), &frame)
+		bodies[seq] = frame.Message.Content
+	}
+	frames.Close()
+	inbox.Close()
+	if !strings.HasPrefix(bodies[4], "<cross-session-message") {
+		t.Fatalf("fixture message 4 has no envelope: %q", bodies[4])
+	}
 	states := map[int64]string{}
 	rows, err := db.Query(`SELECT seq,delivery_state,sender_name,body FROM messages WHERE recipient_id=? ORDER BY seq`, codex)
 	if err != nil {
@@ -156,11 +179,11 @@ func TestImportFixture(t *testing.T) {
 		var state, sender, body string
 		rows.Scan(&seq, &state, &sender, &body)
 		states[seq] = state
-		if strings.Contains(body, "cross-session-message") {
-			t.Fatalf("envelope kept in body: %q", body)
+		if seq == 4 && (sender != "codex-repo-c-91" || body != bodies[4]) {
+			t.Fatalf("message 4: sender %q body %q, want the frame content %q", sender, body, bodies[4])
 		}
-		if seq == 4 && sender != "codex-repo-c-91" {
-			t.Fatalf("sender of 4 is %q", sender)
+		if seq == 3 && body != bodies[3] {
+			t.Fatalf("message 3 body %q, want %q", body, bodies[3])
 		}
 	}
 	rows.Close()

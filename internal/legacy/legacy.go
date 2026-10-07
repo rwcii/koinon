@@ -7,6 +7,8 @@ package legacy
 import (
 	"bytes"
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -189,14 +191,33 @@ func pythonJSON(config map[string]any) ([]byte, error) {
 	return b.Bytes(), nil
 }
 
+// Digest is the SHA-256 of the configuration apart from any upgrade marker, so an
+// attempt can bind itself to the exact configuration it inspected.
+func (i *Install) Digest() (string, error) {
+	data, err := i.Without()
+	if err != nil {
+		return "", err
+	}
+	sum := sha256.Sum256(data)
+	return hex.EncodeToString(sum[:]), nil
+}
+
 // PublishMarker sets the baseline's upgrading marker, which makes the Python runtime's
-// install, ensure, uninstall, upgrade and memory-service start refuse. The installation
-// must be installed, or already carry this same marker.
-func PublishMarker(prefix, operation, plan string) error {
+// install, ensure, uninstall, upgrade and memory-service start refuse. Under the
+// installation lock, the configuration must still be the one the caller inspected
+// (expected, from Digest), and installed or already carrying this same marker.
+func PublishMarker(prefix, operation, plan, expected string) error {
 	if !filepath.IsAbs(operation) || !planDigest.MatchString(plan) {
 		return errors.New("invalid upgrade marker")
 	}
 	return update(prefix, func(i *Install) error {
+		digest, err := i.Digest()
+		if err != nil {
+			return err
+		}
+		if digest != expected {
+			return errors.New("source_changed: install.json changed after it was inspected; nothing was changed")
+		}
 		if i.State() == "upgrading" && i.Operation() == operation {
 			return nil
 		}

@@ -16,14 +16,26 @@ import (
 // recorder is a patched service manager: it logs every command and answers with the
 // outcome its fail function chooses. No test reaches a real manager.
 type recorder struct {
-	calls []string
-	fail  func(argv []string) bool
+	calls   []string
+	fail    func(argv []string) bool
+	running bool
 }
 
 func (r *recorder) run(_ context.Context, argv ...string) ([]byte, error) {
 	r.calls = append(r.calls, strings.Join(argv, " "))
 	if r.fail != nil && r.fail(argv) {
 		return []byte("refused"), errors.New("exit 1")
+	}
+	command := strings.Join(argv, " ")
+	switch {
+	case strings.Contains(command, "restart") || strings.Contains(command, "bootstrap"):
+		r.running = true
+	case strings.Contains(command, "disable --now") || strings.Contains(command, "bootout"):
+		r.running = false
+	case strings.Contains(command, "is-active") || strings.HasPrefix(command, "launchctl print gui/501/"):
+		if !r.running {
+			return []byte("inactive"), errors.New("exit 3")
+		}
 	}
 	return nil, nil
 }

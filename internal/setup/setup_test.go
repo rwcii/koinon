@@ -322,3 +322,28 @@ func TestRemoveLeavesOtherEntries(t *testing.T) {
 		t.Fatalf("edited plugin removed: %v", err)
 	}
 }
+
+// TestRemoveDisabledEntries (review F7): a disabled entry that still runs this binary is
+// removed; a disabled entry of another binary stays.
+func TestRemoveDisabledEntries(t *testing.T) {
+	binary := "/opt/koinon/bin/koinon"
+	for _, c := range []struct {
+		family, output string
+		removed        bool
+	}{
+		{"codex", `{"name":"koinon","enabled":false,"transport":{"type":"stdio","command":"` + binary + `","args":["mcp"]}}`, true},
+		{"codex", `{"name":"koinon","enabled":false,"transport":{"type":"stdio","command":"/other/koinon","args":["mcp"]}}`, false},
+		{"agy", "NAME    TYPE   STATUS   COMMAND/URL\nkoinon  stdio  disabled  " + binary + " mcp", true},
+	} {
+		dir := t.TempDir()
+		log := filepath.Join(dir, "calls")
+		cli := filepath.Join(dir, c.family)
+		script := "#!/bin/sh\nprintf '%s\\n' \"$*\" >> '" + log + "'\ncase \"$2\" in get|list) cat <<'OUT'\n" + c.output + "\nOUT\n;; esac\nexit 0\n"
+		os.WriteFile(cli, []byte(script), 0700)
+		report, err := Remove(context.Background(), Options{Family: c.family, CLI: cli, Binary: binary, AgyRoot: filepath.Join(dir, "agy-config")})
+		removed := strings.Contains(strings.Join(calls(t, log), "\n"), "mcp remove")
+		if err != nil || removed != c.removed || (len(report.Changed) > 0) != c.removed {
+			t.Fatalf("%s %q: removed %v report %+v %v", c.family, c.output, removed, report, err)
+		}
+	}
+}

@@ -2,6 +2,7 @@ package upgrade
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"os"
@@ -20,13 +21,52 @@ type ImportOptions struct {
 	Repositories map[string]string
 	Verify       bool
 	Services     platform.Services
+	// Hook is called after the marker is published ("after:marker"); tests stop there.
+	Hook func(point string) error
+}
+
+// importAttempt is a standalone import's durable record. It is written before the
+// marker and removed after the original configuration is back, so a later run can give
+// back a marker that an interrupted import left behind.
+type importAttempt struct {
+	Attempt   string `json:"attempt"`
+	Operation string `json:"operation"`
+	Prefix    string `json:"python_prefix"`
+	Raw       []byte `json:"install_raw"`
+}
+
+// recoverImport restores what an interrupted standalone import left: its marker, its
+// staging database and its captures. An import that was already swapped into place stays.
+func recoverImport(root string) error {
+	path := filepath.Join(root, "import", "journal.json")
+	data, err := os.ReadFile(path)
+	if errors.Is(err, os.ErrNotExist) {
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+	var a importAttempt
+	if err := json.Unmarshal(data, &a); err != nil {
+		return fmt.Errorf("import_journal_invalid: %w", err)
+	}
+	if i, err := legacy.ReadInstall(a.Prefix); err != nil {
+		return err
+	} else if i != nil && i.Operation() == a.Operation {
+		if err := legacy.RestoreRaw(a.Prefix, a.Operation, a.Raw); err != nil {
+			return fmt.Errorf("import_recovery_failed: cannot restore install.json after an interrupted import: %w", err)
+		}
+	}
+	if err := (importer.Paths{Root: root, Attempt: a.Attempt}).Discard(); err != nil {
+		return err
+	}
+	return os.Remove(path)
 }
 
 // Import runs `koinon import` on its own. It stops nothing: while a Python installation
 // exists it holds the upgrade marker, refuses with python_running while any Python
 // service runs, and gives install.json its original bytes back afterwards.
-func Import(ctx context.Context, o ImportOptions) (importer.Report, error) {
-	var err error
+func Import(ctx context.Context, o ImportOptions) (report importer.Report, err error) {
 	if o.PythonPrefix == "" {
 		if o.PythonPrefix, err = legacy.DefaultPrefix(); err != nil {
 			return importer.Report{}, err
@@ -65,6 +105,15 @@ func Import(ctx context.Context, o ImportOptions) (importer.Report, error) {
 		return importer.Report{}, errors.New("daemon_running: a Go daemon runs on this state directory; stop it first")
 	}
 	defer platform.Unlock(lock)
+	if o.Hook == nil {
+		o.Hook = func(string) error { return nil }
+	}
+	if err := recoverImport(root); err != nil {
+		return importer.Report{}, err
+	}
+	if i, err = legacy.ReadInstall(o.PythonPrefix); err != nil {
+		return importer.Report{}, err
+	}
 	p := importer.Paths{Root: root, Attempt: randomID()}
 	defer os.RemoveAll(p.Captures())
 	if i != nil {
@@ -80,11 +129,32 @@ func Import(ctx context.Context, o ImportOptions) (importer.Report, error) {
 				return importer.Report{}, fmt.Errorf("python_running: %s runs; stop it, or use koinon upgrade --from-python", u.Name)
 			}
 		}
-		operation := filepath.Join(root, "import-"+p.Attempt)
-		if err := legacy.PublishMarker(o.PythonPrefix, operation, digest(map[string]string{"import": p.Attempt, "from": o.From})); err != nil {
+		installDigest, err := i.Digest()
+		if err != nil {
 			return importer.Report{}, err
 		}
-		defer legacy.RestoreRaw(o.PythonPrefix, operation, i.Raw)
+		operation := filepath.Join(root, "import", p.Attempt)
+		record, _ := json.Marshal(importAttempt{Attempt: p.Attempt, Operation: operation, Prefix: o.PythonPrefix, Raw: i.Raw})
+		if err := os.MkdirAll(filepath.Dir(operation), 0700); err != nil {
+			return importer.Report{}, err
+		}
+		if err := platform.WriteAtomic(filepath.Join(root, "import", "journal.json"), record, 0600); err != nil {
+			return importer.Report{}, err
+		}
+		if err := legacy.PublishMarker(o.PythonPrefix, operation, digest(map[string]string{"import": p.Attempt, "from": o.From}), installDigest); err != nil {
+			os.Remove(filepath.Join(root, "import", "journal.json"))
+			return importer.Report{}, err
+		}
+		if err := o.Hook("after:marker"); err != nil {
+			return importer.Report{}, err
+		}
+		// The original configuration comes back whatever the import's outcome; a failure to
+		// restore it keeps the record for the next run.
+		defer func() {
+			if rerr := recoverImport(root); rerr != nil && err == nil {
+				err = rerr
+			}
+		}()
 	}
 	prepared, err := importer.CaptureAll(ctx, o.From, i, o.Repositories, p)
 	if err != nil {
@@ -93,7 +163,7 @@ func Import(ctx context.Context, o ImportOptions) (importer.Report, error) {
 	if o.Verify {
 		return importer.Verify(ctx, prepared, p)
 	}
-	report, err := importer.Stage(ctx, prepared, p)
+	report, err = importer.Stage(ctx, prepared, p)
 	if err != nil || report.Result != "staged" {
 		p.Discard()
 		return report, err

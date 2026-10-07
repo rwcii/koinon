@@ -169,9 +169,10 @@ func mapInbox(ctx context.Context, db *sql.DB, s Source) (core.ImportSource, Ski
 			skipped[frameKind(frame.Type)]++
 			continue
 		}
+		// The body is the content unchanged; an envelope only names the sender.
 		body, id, name := *frame.Message.Content, frame.From, ""
 		if m := envelope.FindStringSubmatch(body); m != nil {
-			id, name, body = m[1], m[2], m[3]
+			id, name = m[1], m[2]
 		}
 		if id == "" {
 			id = "unknown"

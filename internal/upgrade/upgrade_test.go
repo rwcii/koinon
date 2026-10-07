@@ -12,6 +12,7 @@ import (
 	"syscall"
 	"testing"
 
+	"github.com/rwcii/koinon/internal/importer"
 	"github.com/rwcii/koinon/internal/install"
 	"github.com/rwcii/koinon/internal/legacy"
 	"github.com/rwcii/koinon/internal/platform"
@@ -30,6 +31,8 @@ type fixture struct {
 	keys       map[string]string // a, b, c → store key
 	paths      map[string]string // a, b, c → repository path
 	codex      string            // the Codex session's inbox
+	// activeFailures makes that many next unit observations fail.
+	activeFailures int
 }
 
 func copyTree(t *testing.T, from, to string) {
@@ -100,6 +103,10 @@ func (f *fixture) services() platform.Services {
 		unit := argv[3]
 		switch argv[2] {
 		case "is-active":
+			if f.activeFailures > 0 {
+				f.activeFailures--
+				return []byte("garbled"), errors.New("exit 4")
+			}
 			if f.active[unit] {
 				return []byte("active"), nil
 			}
@@ -319,5 +326,158 @@ func TestStandaloneImport(t *testing.T) {
 	o.Verify = false
 	if r, err := Import(context.Background(), o); err != nil || r.Result != "unchanged" {
 		t.Fatalf("repeat %+v %v", r, err)
+	}
+}
+
+// TestMarkerRefusesAChangedConfiguration (review F1): install.json changes between the
+// preflight and the marker; the marker is refused and nothing is stopped or imported.
+func TestMarkerRefusesAChangedConfiguration(t *testing.T) {
+	f := newFixture(t)
+	o := f.options(f.good())
+	o.Hook = func(p string) error {
+		if p == "before:marker" {
+			var config map[string]any
+			data, _ := os.ReadFile(filepath.Join(f.prefix, "install.json"))
+			json.Unmarshal(data, &config)
+			config["state_root"] = filepath.Join(t.TempDir(), "newer-root")
+			data, _ = json.Marshal(config)
+			os.WriteFile(filepath.Join(f.prefix, "install.json"), data, 0600)
+		}
+		return nil
+	}
+	if _, err := Run(context.Background(), o); err == nil || !strings.Contains(err.Error(), "source_changed") {
+		t.Fatalf("changed configuration: %v", err)
+	}
+	if len(f.stops) != 0 || f.uninstalls != 0 {
+		t.Fatalf("acted on a changed configuration: stops %v uninstalls %d", f.stops, f.uninstalls)
+	}
+	if i, _ := legacy.ReadInstall(f.prefix); i == nil || i.State() != "installed" {
+		t.Fatalf("installation left excluded: %+v", i)
+	}
+}
+
+// TestInventoryFrozenUnderTheMarker (review F1): a service record that appears after the
+// preflight is found under the marker; the attempt ends and Python is restored.
+func TestInventoryFrozenUnderTheMarker(t *testing.T) {
+	f := newFixture(t)
+	original, _ := os.ReadFile(filepath.Join(f.prefix, "install.json"))
+	o := f.options(f.good())
+	o.Hook = func(p string) error {
+		if p == "after:marker" {
+			home := filepath.Join(f.state, "sessions", strings.Repeat("e", 64))
+			os.MkdirAll(home, 0700)
+			record, _ := json.Marshal(map[string]string{"backend": "systemd", "artifact": filepath.Join(home, "native-service", "koinon-session-eeeeeeeeeeeeeeee.service")})
+			os.WriteFile(filepath.Join(home, "native-service.json"), record, 0600)
+		}
+		return nil
+	}
+	if _, err := Run(context.Background(), o); err == nil || !strings.Contains(err.Error(), "source_changed") {
+		t.Fatalf("changed inventory: %v", err)
+	}
+	if after, _ := os.ReadFile(filepath.Join(f.prefix, "install.json")); string(after) != string(original) || len(f.stops) != 0 {
+		t.Fatalf("not restored: %s stops %v", after, f.stops)
+	}
+}
+
+// TestCrashedStopIsRestored (review F2): a crash after a stop, before its completion was
+// saved, then a failed observation on resume; the restore starts the stopped unit.
+func TestCrashedStopIsRestored(t *testing.T) {
+	f := newFixture(t)
+	o := f.options(f.good())
+	unit := ""
+	for name := range f.active {
+		unit = name
+	}
+	o.Hook = func(p string) error {
+		if p == "after:stop:"+unit {
+			return ErrCrash
+		}
+		return nil
+	}
+	if _, err := Run(context.Background(), o); !errors.Is(err, ErrCrash) {
+		t.Fatal(err)
+	}
+	f.activeFailures = 1
+	if _, err := Run(context.Background(), f.options(f.good())); err == nil {
+		t.Fatal("a failed observation did not fail the attempt")
+	}
+	if !f.active[unit] || len(f.starts) != 1 {
+		t.Fatalf("the stopped unit was not restarted: active %v starts %v", f.active, f.starts)
+	}
+}
+
+// TestFailureAfterTheSwapResumes (review F3): an error after the rename keeps the import
+// and the exclusion; Python is not restored, and the next run completes.
+func TestFailureAfterTheSwapResumes(t *testing.T) {
+	f := newFixture(t)
+	o := f.options(f.good())
+	o.Hook = func(p string) error {
+		if p == "after:swap" {
+			return errors.New("injected completion failure")
+		}
+		return nil
+	}
+	result, err := Run(context.Background(), o)
+	if err == nil || result.Phase != phaseSwapped || result.Resume == "" || len(f.starts) != 0 {
+		t.Fatalf("failure after the swap: %+v %v starts %v", result, err, f.starts)
+	}
+	if result, err := Run(context.Background(), f.options(f.good())); err != nil || result.Phase != phaseComplete || len(f.starts) != 0 {
+		t.Fatalf("resume %+v %v", result, err)
+	}
+}
+
+// TestRenameWithoutJournalResumes (review F3): the rename happened but the journal still
+// says the swap is pending; the target decides, and Python is not restored.
+func TestRenameWithoutJournalResumes(t *testing.T) {
+	f := newFixture(t)
+	o := f.options(f.good())
+	o.Hook = func(p string) error {
+		if p == "before:swap" {
+			return ErrCrash
+		}
+		return nil
+	}
+	result, err := Run(context.Background(), o)
+	if !errors.Is(err, ErrCrash) {
+		t.Fatal(err)
+	}
+	root, _ := filepath.EvalSymlinks(f.goState)
+	if err := importer.Swap(importer.Paths{Root: root, Attempt: result.Attempt}); err != nil {
+		t.Fatal(err)
+	}
+	if result, err := Run(context.Background(), f.options(f.good())); err != nil || result.Phase != phaseComplete || len(f.starts) != 0 {
+		t.Fatalf("resume after an unjournaled rename: %+v %v starts %v", result, err, f.starts)
+	}
+	if len(f.messages(t)) != 5 {
+		t.Fatalf("messages %v", f.messages(t))
+	}
+}
+
+// TestInterruptedImportRecovers (review F4): a standalone import killed after its marker
+// leaves a record; the next run restores install.json and imports.
+func TestInterruptedImportRecovers(t *testing.T) {
+	f := newFixture(t)
+	for unit := range f.active {
+		f.active[unit] = false
+	}
+	original, _ := os.ReadFile(filepath.Join(f.prefix, "install.json"))
+	o := ImportOptions{PythonPrefix: f.prefix, StateDir: f.goState, Repositories: f.good(), Services: f.services(),
+		Hook: func(p string) error { return ErrCrash }}
+	if _, err := Import(context.Background(), o); !errors.Is(err, ErrCrash) {
+		t.Fatal(err)
+	}
+	if i, _ := legacy.ReadInstall(f.prefix); i == nil || i.State() != "upgrading" {
+		t.Fatalf("the interruption left no marker: %+v", i)
+	}
+	o.Hook = nil
+	r, err := Import(context.Background(), o)
+	if err != nil || r.Result != "imported" {
+		t.Fatalf("recovered import %+v %v", r, err)
+	}
+	if after, _ := os.ReadFile(filepath.Join(f.prefix, "install.json")); string(after) != string(original) {
+		t.Fatalf("install.json not restored: %s", after)
+	}
+	if _, err := os.Stat(filepath.Join(f.goState, "import", "journal.json")); !os.IsNotExist(err) {
+		t.Fatalf("import record left: %v", err)
 	}
 }
