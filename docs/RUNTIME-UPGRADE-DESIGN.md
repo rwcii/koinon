@@ -1,5 +1,9 @@
 # Resumable runtime upgrade design
 
+> Historical Python-era design and evidence. The implementation and commands described
+> here are retired from this checkout. See [INSTALL.md](INSTALL.md), [USAGE.md](USAGE.md)
+> and [PROTOCOL.md](../PROTOCOL.md) for the Go runtime. Retained for migration and storage provenance.
+
 Status: peer-reviewed design for DQ-12 and issue #43, delivered as `scripts/upgrade.py`. It
 does not authorize changing a live installation. The current native installer refuses
 different runtime bytes during ordinary repeat installation.

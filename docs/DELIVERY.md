@@ -1,5 +1,9 @@
 # Delivery evidence and presence
 
+> Historical Python-era design and evidence. The implementation and commands described
+> here are retired from this checkout. See [INSTALL.md](INSTALL.md), [USAGE.md](USAGE.md)
+> and [PROTOCOL.md](../PROTOCOL.md) for the Go runtime. Retained for migration and storage provenance.
+
 Delivery records are local to one bridge installation. A sender can inspect its
 transport attempt; the receiving installation can inspect stored, notified,
 fetched and handled evidence. This release sends no native wire receipts, so a
@@ -180,9 +184,9 @@ again on read. No transcript, prompt or message text is stored. Claimed-work tit
 checkpoints are returned only by the read-only memory query described below.
 
 A Claude session's `model` and `context` come from `statusline.py`, run as the Claude Code
-`statusLine` command. On each update it reads the status-line input once, runs the user's
+`statusLine` command. On each update it reads the status-line input once, runs the maintainer's
 own status-line command with the same bytes through `/bin/sh -c` (as Claude Code does),
-and returns that command's output and exit status unchanged; the user's command runs even
+and returns that command's output and exit status unchanged; the maintainer's command runs even
 when recording fails. It records only `model.id`, `context_window.context_window_size`,
 `context_window.total_input_tokens` and whether `current_usage` is present, for the Claude
 process that the session registry names for the input's `session_id`. Claude Code writes

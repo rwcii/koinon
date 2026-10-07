@@ -7,7 +7,7 @@ closed with that evidence.
 ## Unit and integration tests
 
 All tests use synthetic peers, synthetic source files, a temporary `CLAUDE_CONFIG_DIR` (which
-also holds the status records), a temporary `CODEX_HOME` and a temporary account namespace. None reads or writes the user's
+also holds the status records), a temporary `CODEX_HOME` and a temporary account namespace. None reads or writes the maintainer's
 Claude settings, Codex home, registry or services.
 
 - **Presence records.** Writing and reading a record in the status directory:
@@ -24,17 +24,17 @@ Claude settings, Codex home, registry or services.
   record of an ended Claude process gives `unknown`.
 - **Status-line wrapper (criterion 3).** With a user command that reads its whole input and
   prints one line: identical input and output and exit status with and without the wrapper;
-  the user's command fails (nonzero exit, no output) and the wrapper returns the same result;
-  Koinon's part fails (unwritable presence directory, malformed input) and the user's command
+  the maintainer's command fails (nonzero exit, no output) and the wrapper returns the same result;
+  Koinon's part fails (unwritable presence directory, malformed input) and the maintainer's command
   still receives the input unchanged and its output is returned; the input is read once; an
-  input larger than 1 MiB reaches the user's command unchanged and is not parsed. No user
+  input larger than 1 MiB reaches the maintainer's command unchanged and is not parsed. No user
   command configured: the wrapper prints nothing and exits 0.
 - **Settings edit (criterion 3).** Set up on a settings file with and without an existing
   `statusLine`, with other keys and other `statusLine` fields present; repeat set-up does not
   nest the wrapper or replace the saved original; decline is recorded and survives a repeated
   installation and an upgrade; removal restores the saved original only while the entry is
   still the wrapper; a changed entry is kept and reported with its removal action; a file that
-  changes between read and replacement is a reported conflict and keeps the user's content;
+  changes between read and replacement is a reported conflict and keeps the maintainer's content;
   malformed JSON is refused without a write.
 - **Upgrade (criterion 3).** An upgrade of an installation without the integration sets it up
   and reports the edit in its preflight, evidence and completion report; an upgrade with a
@@ -75,8 +75,8 @@ Claude settings, Codex home, registry or services.
   with the settings step against a temporary `CLAUDE_CONFIG_DIR`.
 - **Live checks, each with the maintainer's authorization and recorded in the pull request that
   closes the chunk:**
-  - After chunk 04 merges and the user's installation is upgraded: this Claude session's
-    model, limit and fill appear in `bridge.py peers`, and the user's own status line looks
+  - After chunk 04 merges and the maintainer's installation is upgraded: this Claude session's
+    model, limit and fill appear in `bridge.py peers`, and the maintainer's own status line looks
     unchanged.
   - After chunk 05 merges and the Codex session is restarted on the new runtime: the Codex
     peer shows `busy` during a turn, and its context values match the session log. After the

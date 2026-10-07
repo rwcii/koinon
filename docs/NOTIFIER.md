@@ -1,5 +1,9 @@
 # Notifier operation and recovery
 
+> Historical Python-era design and evidence. The implementation and commands described
+> here are retired from this checkout. See [INSTALL.md](INSTALL.md), [USAGE.md](USAGE.md)
+> and [PROTOCOL.md](../PROTOCOL.md) for the Go runtime. Retained for migration and storage provenance.
+
 The notifier serves one explicitly selected participant. Its state-directory and
 account-local participant locks remain held until shutdown finishes. A provider
 failure changes delivery health; it does not remove lifecycle readiness or authorize

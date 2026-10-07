@@ -1,5 +1,9 @@
 # Work maintenance
 
+> Historical Python-era design and evidence. The implementation and commands described
+> here are retired from this checkout. See [INSTALL.md](INSTALL.md), [USAGE.md](USAGE.md)
+> and [PROTOCOL.md](../PROTOCOL.md) for the Go runtime. Retained for migration and storage provenance.
+
 The schema-5 maintenance implementation runs after public service startup.
 Schema-3/4 stores migrate atomically before readiness; see the
 [upgrade procedure](WORK-ITEMS-UPGRADE.md). Guidance opt-in remains independent

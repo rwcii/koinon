@@ -1,5 +1,9 @@
 # Derivation: the write-ahead log produced by one transaction
 
+> Historical Python-era design and evidence. The implementation and commands described
+> here are retired from this checkout. See [INSTALL.md](INSTALL.md), [USAGE.md](USAGE.md)
+> and [PROTOCOL.md](../PROTOCOL.md) for the Go runtime. Retained for migration and storage provenance.
+
 This note answers one question: **what is the largest write-ahead log a single admitted
 transaction can produce?** Every storage budget in `PARITY-MEMORY-DESIGN.md` rests on
 that figure, so it is derived from the SQLite sources, against pinned versions, before

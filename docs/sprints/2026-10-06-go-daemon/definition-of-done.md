@@ -9,7 +9,7 @@ documented path.
 
 All tests use synthetic peers, temporary state roots, temporary `CLAUDE_CONFIG_DIR`,
 `CODEX_HOME`, `agy` and OpenCode configuration directories, ephemeral loopback ports and a private tmux
-server. No test reads or writes the user's registry, sessions, terminals, services or agent
+server. No test reads or writes the maintainer's registry, sessions, terminals, services or agent
 configuration. A test that needs a service manager patches every manager call, except in the
 native workflows below.
 

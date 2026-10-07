@@ -62,7 +62,7 @@ harness homes and state roots, and a temporary account namespace.
   closes the chunk:**
   - After chunk 01: a Codex context reset, then `ensure` from the new conversation through the
     approval mechanism, prints the new peer name; `status` before it writes nothing.
-  - After chunk 03: an upgrade of the user's installation produces one guidance notice in the
+  - After chunk 03: an upgrade of the maintainer's installation produces one guidance notice in the
     Codex session; `guide-ack` stops further notices.
   - After chunk 04: `/clear` in a Claude session loads the brief guide through the hook, and the
     user's status line and other hooks are unchanged.

@@ -1,5 +1,9 @@
 # Staged memory-service configuration
 
+> Historical Python-era design and evidence. The implementation and commands described
+> here are retired from this checkout. See [INSTALL.md](INSTALL.md), [USAGE.md](USAGE.md)
+> and [PROTOCOL.md](../PROTOCOL.md) for the Go runtime. Retained for migration and storage provenance.
+
 This is the configuration foundation for DQ-11 and issue #42. It supplies validation, pure admission helpers, and staged artifact publication,
 not a supported service installation or supervision command. No CLI creates
 these records yet. Do not edit live configuration to activate the unfinished feature.

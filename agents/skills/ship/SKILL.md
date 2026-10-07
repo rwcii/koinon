@@ -26,23 +26,27 @@ co-author trailer, no tool signature, no model name, in commits or in the pull r
 ### Hold the issue's work item
 
 When the change delivers an issue, hold one memory work item for that issue from the first
-commit to the merge, so peers see in `bridge.py peers` who builds it. Reuse the same item
+commit to the merge, so peers see through Koinon discovery who builds it. Reuse the same item
 through build, review fixes and merge; never create a second item for the same issue. A
 reviewer that only reads does not claim work. The commands are in
 `docs/WORK-ITEMS-COMMANDS.md`.
 
-Use the installed `memory.py` (the default prefix is `~/.local/share/koinon`) with your native
-session identity as the consumer key: `CLAUDE_CODE_SESSION_ID` for claude, `CODEX_THREAD_ID`
-for codex, `DSH_SESSION_ID` for deepseek. When you use another stable key, declare it once
-with the installed `session.py work-key --key <key>`. Never write the key into a commit, a
-pull request or a handoff.
+Use configured MCP work tools when available; they obtain the calling identity from the
+native session. Otherwise use the installed Go command with the exact current identity and a
+stable consumer, as described in `docs/WORK-ITEMS-COMMANDS.md`. Never guess a session identity
+or publish its private key in Git or a pull request.
+
+For the command path, define `mem` to invoke `koinon` with each operation's options:
 
 ```sh
-KEY=${CLAUDE_CODE_SESSION_ID:-${CODEX_THREAD_ID:-$DSH_SESSION_ID}}   # or your declared key
-mem() { python3 ~/.local/share/koinon/memory.py \
-  --repo-path "$(git rev-parse --show-toplevel)" --consumer "$KEY" "$@"; }
+# Set caller to this family's exact current FAMILY:ID, obtained from trusted metadata.
+mem() { koinon "$@" --as "${caller:?set the current native identity}"; }
 soon() { echo $(( $(date +%s) + $1 )); }
 ```
+
+Use a matching custom state/address when needed. During a transition, an installed predecessor
+uses its own supported work interface until an authorized upgrade. Do not install a different
+runtime just to hold a work claim.
 
 1. Find the item: `mem work list` and look for the title `#<issue>: ...`. When there is none,
    create it:
@@ -56,8 +60,7 @@ soon() { echo $(( $(date +%s) + $1 )); }
    When the lease has expired, read the item again and start it again.
 4. Close it in step 5.
 
-When a work command refuses because the repository has no memory service or its store is too
-old, say so in the pull request and continue. Do not create another store to get around it.
+When a work command refuses because the repository has no reachable daemon/store or its schema is unsupported, say so in the pull request and continue. Do not create another store to get around it.
 
 ## 2. Check, then push once
 

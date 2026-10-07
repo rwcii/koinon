@@ -1,5 +1,9 @@
 # Managed memory installation design
 
+> Historical Python-era design and evidence. The implementation and commands described
+> here are retired from this checkout. See [INSTALL.md](INSTALL.md), [USAGE.md](USAGE.md)
+> and [PROTOCOL.md](../PROTOCOL.md) for the Go runtime. Retained for migration and storage provenance.
+
 Status: implementation candidate for
 [DQ-11](DELIVERY-QUEUE.md#dq-11--install-and-manage-every-runtime-component) and [issue
 #42](https://github.com/rwcii/koinon/issues/42). This document does not claim installed
@@ -148,7 +152,7 @@ system-service guarantee across logout or reboot. The launchd agent uses the sel
 login/service domain; the systemd backend preserves existing user-manager policy without
 enabling lingering. This is the supported boundary on both platforms.
 
-Apple documents per-user agents loaded from the user's Library and the foreground
+Apple documents per-user agents loaded from the maintainer's Library and the foreground
 process lifecycle in its [launchd
 guide](https://developer.apple.com/library/archive/documentation/MacOSX/Conceptual/BPSystemStartup/Chapters/CreatingLaunchdJobs.html).
 Its [published plist

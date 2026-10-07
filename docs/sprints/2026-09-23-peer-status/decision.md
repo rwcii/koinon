@@ -59,7 +59,7 @@ The sources exist but are not read:
      the `statusLine` entry, are unchanged.
    - A settings edit detects the concurrent changes it can observe. The file is compared with
      what was read immediately before it is replaced and checked again afterwards; a
-     difference found there is a reported conflict that keeps the user's content. A Claude Code
+     difference found there is a reported conflict that keeps the maintainer's content. A Claude Code
      write between the last comparison and the replacement cannot be detected, so the
      documentation tells the user not to change Claude settings while Koinon installs,
      upgrades or removes the integration.
@@ -69,8 +69,8 @@ The sources exist but are not read:
    - The added time per update stays within a bound that the definition of done states and
      measures.
    - A test uses a command that reads its whole input and prints a line, and proves identical
-     input and output with and without the integration. Separate tests fail the user's command
-     and Koinon's part, and prove that the input is read once and given to the user's command
+     input and output with and without the integration. Separate tests fail the maintainer's command
+     and Koinon's part, and prove that the input is read once and given to the maintainer's command
      unchanged in both cases.
 4. **Codex activity (#84).** A Codex peer reports `busy` while its latest `task_started` has
    no matching `task_complete` or `turn_aborted` and the selected participant's own process is
@@ -117,13 +117,13 @@ The sources exist but are not read:
   it has no side effects; otherwise the session log is the source.
 - Internal formats are treated as version-specific: an unrecognized format or version is
   `unknown` with a reason, never a guessed value. The Claude transcript is not a source.
-- The Claude settings change is limited to the `statusLine` entry of the user's own Claude
+- The Claude settings change is limited to the `statusLine` entry of the maintainer's own Claude
   configuration and is part of installation, which a request to install Koinon authorizes
   (root `AGENTS.md`). The user can decline it at installation.
 - A reported value grants nothing. No automatic alerts, notices or forced handoffs; peers
   read the listing and decide what to suggest.
 - Standard library only. Tests use synthetic peers and synthetic source files and never touch
-  live sessions, the user's Claude settings or user services (root `AGENTS.md`).
+  live sessions, the maintainer's Claude settings or user services (root `AGENTS.md`).
 - Non-goals: a table of published limits (both families report a measured limit); a DeepSeek
   source (DeepSeek peers report `unknown` with a reason); changes to Claude Code's own
   `ListAgents` display.

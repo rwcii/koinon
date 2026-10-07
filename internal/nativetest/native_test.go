@@ -168,12 +168,48 @@ func gitRepo(t *testing.T, dir string) string {
 	return common
 }
 
+// installWithoutPython runs the real fresh install with only the service manager on
+// PATH. The installed daemon is addressed by its absolute path; no Python interpreter
+// or shell fallback can be discovered by this command.
+func installWithoutPython(t *testing.T, prefix, state string) map[string]any {
+	t.Helper()
+	manager := "systemctl"
+	if runtime.GOOS == "darwin" {
+		manager = "launchctl"
+	}
+	path, err := exec.LookPath(manager)
+	if err != nil {
+		t.Fatal(err)
+	}
+	tools := t.TempDir()
+	if err := os.Symlink(path, filepath.Join(tools, manager)); err != nil {
+		t.Fatal(err)
+	}
+	cmd := exec.Command(binary, "install", "--prefix", prefix, "--state-dir", state)
+	env := []string{}
+	for _, entry := range os.Environ() {
+		if !strings.HasPrefix(entry, "PATH=") {
+			env = append(env, entry)
+		}
+	}
+	cmd.Env = append(env, "PATH="+tools)
+	out, err := cmd.CombinedOutput()
+	if err != nil {
+		t.Fatalf("install without Python: %v\n%s", err, out)
+	}
+	var report map[string]any
+	if err := json.Unmarshal(out, &report); err != nil {
+		t.Fatal(err)
+	}
+	return report
+}
+
 // TestGoLifecycle installs, starts, kills, uninstalls and reinstalls the daemon; the
 // state survives the uninstall.
 func TestGoLifecycle(t *testing.T) {
 	dir := tempDir(t)
 	prefix, state := filepath.Join(dir, "prefix space"), filepath.Join(dir, "state")
-	report := must(t, "install", "--prefix", prefix, "--state-dir", state)
+	report := installWithoutPython(t, prefix, state)
 	if report["service"] != "running" {
 		t.Fatalf("install %v", report)
 	}

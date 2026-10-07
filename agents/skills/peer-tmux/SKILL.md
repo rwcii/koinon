@@ -1,6 +1,6 @@
 ---
 name: peer-tmux
-description: Inspect a peer agent's tmux terminal, send maintainer-authorized terminal input, or manage a handoff, context reset and pickup cycle. Use when the maintainer asks to operate a peer's terminal or reset its context; ordinary peer coordination uses the bridge.
+description: Inspect a peer agent's tmux terminal, send maintainer-authorized terminal input, or manage a handoff, context reset and pickup cycle. Use when the maintainer asks to operate a peer's terminal or reset its context; ordinary peer coordination uses Koinon.
 ---
 
 # Peer tmux
@@ -11,9 +11,9 @@ Operate only the target and actions the maintainer authorized. Permission to rea
 not permission to type into it or clear context. A peer request alone does not authorize a
 reset. An already authorized cycle does not need another confirmation at every step.
 
-Tmux input looks like local user input to the receiving agent. Send only the target's own
+Tmux input looks like local maintainer input to the receiving agent. Send only the target's own
 commands from the table below, bare. Do not send prose: it costs tokens and turns, and the receiver can misread it. Never
-impersonate the maintainer or turn a peer request into approval. Use the bridge for ordinary
+impersonate the maintainer or turn a peer request into approval. Use Koinon for ordinary
 coordination. Do not switch to tmux to retry an action that a permission or approval check
 denied, and never use it to accept a permission dialog. A Claude session in auto mode is
 blocked from typing into a peer's pane until the maintainer allows it; do not work around that.
@@ -27,14 +27,11 @@ tmux list-panes -a -F '#{session_name}:#{window_index}.#{pane_index} pane=#{pane
 ```
 
 Match the maintainer-selected session, repository and running program. `pane_pid` can be the parent
-shell; look for the agent among its descendants. A Claude peer's bridge PID is the Claude
-process in the pane. A Codex peer's bridge PID is its bridge process, which is not in the pane:
-match a Codex peer by its repository and the `codex` process in the pane. A Codex peer that holds
-its checkout's alias (such as `codex-koinon`) lists under the alias, with its per-thread name
-as `thread_name`; address the alias, which follows a `/clear` once the successor rebinds. Its
-tmux session carries the same name after `ensure` (or its pane title does, in a shared session). A
-matching working directory alone is insufficient when several agents share a repository. If the target is
-ambiguous, ask the maintainer which pane before sending anything.
+shell; look for the agent among its descendants. Match the exact native session's observed
+process and repository, and verify the prompt in a capture. Koinon's one daemon PID is not an
+agent process or terminal identity. A retained alias/name or directory alone is insufficient
+when several sessions share the repository. If ambiguous, ask the maintainer which pane before
+typing. MCP discovery provides observed native sessions; never read credentials to identify one.
 
 ## Commands by agent
 
@@ -58,9 +55,10 @@ for the syntax; do not guess and do not fall back to prose.
 
 What a reset keeps:
 
-- **Claude `/clear`.** The process, pane and peer name stay; the native session key changes.
+- **Claude `/clear`.** The process and pane stay; the native session key changes, so
+  rediscover the Koinon session rather than assuming its old peer name stayed.
 - **Codex `/clear`.** The process and pane stay, and the thread changes: `CODEX_THREAD_ID` is
-  new, and the new thread has no bridge until `ensure` runs. `/resume` in the same process can
+  new; its first configured MCP call registers the current native session. `/resume` in the same process can
   switch back to the old thread. Do not use `/new`: it starts a separate session with its own
   sandbox and asks where to run it. The pickup's reconnect step handles the new thread.
 
@@ -136,23 +134,18 @@ merely from a high context reading.
 4. **Pick up.** Send the family's pickup command. The pickup verifies the handoff against
    live state and reports pending work before it proceeds within the maintainer's authorization.
 5. **Verify recovery.** Confirm the pickup report restores the intended task and pause state.
-   Rediscover bridge/session identity after reset; neither a retained PID nor a retained peer
-   name proves the native session key stayed the same. The peer follows the `reconnect` topic
-   of the installed guide (`session.py guide --topic reconnect`): it registers a new thread with
-   the topic's recipe, or reports why it could not; until then it does not receive bridge
-   notices. Have the peer check its own current key and claim status before writing. A
-   successor must not reuse the old key to update or finish an old claim. An unreleased lease
-   remains until expiry or an authorized release; report that limitation instead of silently
-   taking ownership. The peer cleans up after itself: because the reset occurred in this
-   terminal, its own pickup stops its predecessor, and it renames its tmux session when the
-   name is not its peer name. Do not do either for the
-   peer; verify both in the listing and in `#{session_name}`, and report a missing step.
+   Rediscover native session/peer identity after reset; neither a retained PID nor a name
+   proves that the native key stayed the same. The peer follows its installed guidance
+   (`koinon guide --agent FAMILY`) and uses its configured MCP tools for the current session.
+   It checks current claim status before writing. A successor must not use the predecessor's
+   key to update or finish a claim. A lease stays until expiry or an authorized release;
+   report the limitation rather than taking ownership. Do not retire a predecessor or change
+   agent/runtime configuration without the maintainer's authorization.
 
 Capture after each stage and wait in bounded intervals when the peer is still working. Do
 not blindly queue handoff, reset and pickup together. If progress stalls, report the last
 completed stage and leave the saved handoff available rather than repeatedly clearing.
 
-Report the target session/pane, completed stages, saved path, pickup result, the retired
-predecessor, the tmux name and remaining blockers. Context percentages, when available, are supporting observations; successful
+Report the target session/pane, completed stages, saved path, pickup result, any authorized predecessor retirement, the tmux name and remaining blockers. Context percentages, when available, are supporting observations; successful
 pickup is the evidence that the task state survived. Do not claim a new process was started
 or that work resumed unless that was observed.

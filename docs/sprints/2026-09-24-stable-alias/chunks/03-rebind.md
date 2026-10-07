@@ -6,7 +6,7 @@ retirement parts of 8. Depends on chunk 02.
 ## Outcome
 
 `session.py rebind --predecessor <old thread>` moves the alias from the predecessor to this
-Codex thread and stops the predecessor, on verified same-pane evidence or on the user's
+Codex thread and stops the predecessor, on verified same-pane evidence or on the maintainer's
 direct authorization. The `reconnect` guide topic and the `pickup` skill use it in place of
 `stop_predecessor`.
 

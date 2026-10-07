@@ -1,5 +1,9 @@
 # Work items v1 implementation design
 
+> Historical Python-era design and evidence. The implementation and commands described
+> here are retired from this checkout. See [INSTALL.md](INSTALL.md), [USAGE.md](USAGE.md)
+> and [PROTOCOL.md](../PROTOCOL.md) for the Go runtime. Retained for migration and storage provenance.
+
 Status: implementation-design candidate for review. The [behavioral contract](WORK-ITEMS-V1.md)
 is approved; this document does not claim an implementation or completed validation.
 The schema, reserve derivation and configuration specification are linked below.

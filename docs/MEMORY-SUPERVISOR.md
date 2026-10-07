@@ -1,5 +1,9 @@
 # Repository memory supervisor (staged)
 
+> Historical Python-era design and evidence. The implementation and commands described
+> here are retired from this checkout. See [INSTALL.md](INSTALL.md), [USAGE.md](USAGE.md)
+> and [PROTOCOL.md](../PROTOCOL.md) for the Go runtime. Retained for migration and storage provenance.
+
 `memory_service.py` implements the portable lifecycle portion of DQ-11 slice 3.
 It requires a validated saved memory-service selection. The installer copies it but
 still does not create selections or activate memory services. Native memory manager activation and loaded-job ownership checks are available

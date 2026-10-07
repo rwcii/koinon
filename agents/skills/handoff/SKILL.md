@@ -39,7 +39,7 @@ if ! git -C "$root" check-ignore -q "_handoff/<agent-id>/probe.md"; then
   printf '%s\n' '/_handoff/' >> "$common/info/exclude"
 fi
 
-# 2. Create the directory, private to this user, when it does not exist.
+# 2. Create the directory, private to this account, when it does not exist.
 [ -d "$dir" ] || (umask 077 && mkdir -p "$dir")
 
 # 3. Verify.
@@ -112,14 +112,16 @@ state, pull request and issue states, CI state. Write:
 - <repository paths, issues and pull requests that hold the durable facts>
 ```
 
-Take the bridge identity from the live runtime, not from memory. Run the installed
-`session.py guide --agent <family> --topic reconnect --json`; the managed block in your agent
-instruction file names its path. Record `observations.registration.name` as the peer name and,
-for Codex or DeepSeek, `observations.registration.state_dir` as the state directory. The session
-ID is `CODEX_THREAD_ID` for Codex and `DSH_SESSION_ID` for DeepSeek. The guide writes nothing and
-registers nothing. When the installed runtime has no `guide` command, record that fact; the next
-session then reports that the runtime needs an upgrade. The next session needs these values to
-reconnect after a context reset.
+Obtain current guidance with the installed `koinon guide --agent <family>`. Use MCP
+discovery to observe this session's peer name and repository; guidance itself does not
+register a session or return live observations. Record only values actually observed, with
+unknown values stated as unknown. In a not-yet-upgraded installation, follow that installed
+runtime's guidance instead; never replace runtime state merely to write a handoff.
+
+Record the native session ID from the family's trusted environment or the MCP caller metadata
+when available: CODEX_THREAD_ID, CLAUDE_CODE_SESSION_ID, DSH_SESSION_ID, or the native
+Antigravity/OpenCode identity. Record TMUX and TMUX_PANE when present. Never infer a native
+session from a retained peer name or PID. These private values stay only in the ignored file.
 
 Use commit hashes, branch names, issue and pull request numbers, and repository-relative
 paths. Leave out a section that has no content. The file stays on this machine, but never write

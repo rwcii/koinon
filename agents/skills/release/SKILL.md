@@ -8,7 +8,7 @@ description: Promote develop to main with a merge pull request once the release 
 Read `agents/skills/AGENTS.md`, the root `AGENTS.md`, `CONTRIBUTING.md` and
 `docs/INSTALL.md` first.
 
-Green CI alone is not a release. A release is ready when a user can install it and upgrade to
+Green CI alone is not a release. A release is ready when the maintainer can install it and upgrade to
 it with the documented commands.
 
 ## 1. Prepare on a work branch
@@ -22,28 +22,23 @@ The evidence counts only for the exact `develop` commit that will merge.
 
 - CI: every workflow under `.github/workflows/` is green on that commit, macOS included.
   Reuse these runs; rerun a workflow only when it did not run on that commit.
-- Upgrade: the upgrade workflows install the release pinned as `PREVIOUS_RELEASE` in
-  `scripts/test-native-upgrade.py` and upgrade it to the commit under test. When that pin is
-  the release now on `main`, their green runs are the upgrade evidence. Otherwise, upgrade the
-  current `main` yourself. Do not move the pin to do so: it is the last release before the
-  `koinon` package layout, and the workflows prove that layout migration from it.
-  1. Install `main` into a scratch prefix with its own state and unit paths. Choose the
-     components and backends by what the release changes. When the installed runtime is
-     unchanged, one component on the manual backend is enough. When the release changes
-     runtime or upgrade code, also cover each affected component on its native backend for
-     each affected platform (systemd on Linux, launchd on macOS). A scratch unit path does not
-     isolate the native manager and is not read by it, so run a native case only on a
-     disposable runner or test account that has its own live user manager. Install with the
-     default unit paths there, so the manager finds the units, and remove only the test
-     services afterwards. Never run a native case in the maintainer's own account. The native
-     upgrade script cannot start from `main`, so it is not a substitute for this step.
-  2. Initialize its state with the documented native start or manual start. A `--no-start`
-     install has no state, and the upgrade refuses it with `missing_state_root`; see
-     "Missing state root" in `docs/INSTALL.md`.
-  3. Upgrade it to the release commit with the commands under "Upgrades and removal", and read
-     `--status`.
-  The upgrade must complete and report what it preserved. A refusal is a failure to fix, not
-  evidence.
+- Upgrade: `internal/nativetest/native_test.go` pins the previous main release and obtains
+  it with `git archive`. The native Go lifecycle workflow installs that baseline with its own
+  code, seeds committed fixtures, upgrades through `koinon upgrade --from-python`, verifies
+  preservation and tests interruption/resume on both platforms. When its pin equals current
+  main, its successful exact-commit runs are the legacy upgrade evidence.
+- If main has moved beyond that supported legacy baseline, do not pretend the pinned test
+  proves the newer upgrade. Identify the actual supported path and test it in isolated state
+  on a disposable runner/account before release. A normal workstation is not a native test
+  account. Do not change a baseline pin merely to hide missing upgrade coverage.
+- Fresh installation needs no Python interpreter. Verify the four binaries/checksums and the
+  no-interpreter installation test. State-preserving uninstall and native restart must pass.
+- Record the sprint's maintainer-authorized live checks. Name the deferred DeepSeek proof
+  under #199 as an outstanding limit; synthetic coverage is not live receipt.
+
+The upgrade must complete and report preserved counts/cursors. A refusal is a failure to fix,
+not upgrade evidence. Do not operate on the maintainer's installed runtime without direct
+scope for that exact change.
 
 ## 3. Open the merge pull request
 

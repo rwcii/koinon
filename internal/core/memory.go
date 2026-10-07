@@ -16,8 +16,8 @@ import (
 	"unicode/utf8"
 )
 
-// Memory follows the protocol of PROTOCOL.md ("Memory control protocol") and
-// docs/PARITY-MEMORY-DESIGN.md contract 4, with the limits of memory.py.
+// Memory follows the protocol of PROTOCOL.md ("Memory stores") and
+// docs/PARITY-MEMORY-DESIGN.md contract 4, with the retained memory contract limits.
 
 var memoryTypes = map[string]int{"directive": 0, "decision": 1, "gotcha": 2, "handoff": 3, "finding": 4, "status": 5}
 var memoryTails = map[string]int{"finding": 25, "handoff": 25, "status": 10}

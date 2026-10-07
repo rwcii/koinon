@@ -5,6 +5,11 @@ into a dated release section when promoted to `main`.
 
 ## Unreleased
 
+- Retire the Python runtime, its entrypoints, runtime tests and obsolete native jobs. The
+  Go daemon is the sole checkout runtime; committed legacy fixtures and the pinned previous
+  release retain import/upgrade coverage. Port contributor checks and repository setup to
+  Go/shell, and update active guides and shared skills for the one-daemon commands.
+
 - Added the Go runtime's installation commands:
   - `koinon install` places the binary, writes and starts a systemd user unit (Linux) or a
     launchd agent (macOS), and sets up the agents you name.

@@ -1,5 +1,9 @@
 # Upgrading repository memory for work items
 
+> Historical Python-era design and evidence. The implementation and commands described
+> here are retired from this checkout. See [INSTALL.md](INSTALL.md), [USAGE.md](USAGE.md)
+> and [PROTOCOL.md](../PROTOCOL.md) for the Go runtime. Retained for migration and storage provenance.
+
 The current memory runtime creates schema-5 stores and upgrades schema 3 or 4 on
 startup. Transport protocol remains 1. It advertises `work_items_v1` and
 `memory_record_format_2`; every sync and acknowledgement requires integer

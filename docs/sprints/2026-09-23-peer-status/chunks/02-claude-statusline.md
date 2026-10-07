@@ -13,7 +13,7 @@ Claude context in `peers`. Installing it into the settings is chunk 03.
 - `statusline.py [--command STRING]`, installed with the other entrypoints (add it to
   `scripts/install.py` `FILES` and `koinon/upgrade_layout.py`).
   1. Read standard input once, as bytes, completely, with no size limit; these bytes are what
-     the user's command receives.
+     the maintainer's command receives.
   2. In a `try` that catches every exception, and only when the input is at most 1 MiB:
      parse the JSON; take `session_id`, `model.id`, `context_window.context_window_size`,
      `context_window.total_input_tokens`, `context_window.used_percentage`, and whether
@@ -27,7 +27,7 @@ Claude context in `peers`. Installing it into the settings is chunk 03.
 - The user command is the original `statusLine` command string, unchanged, passed as one
   quoted `--command` argument. The wrapper runs it with `/bin/sh -c <string>`, which is how
   Claude Code runs a status-line command: observed on 2026-09-23 on Linux with Claude Code
-  2.1.280, the parent of the user's script was `/bin/sh -c 'bash $HOME/...'`. Expansions,
+  2.1.280, the parent of the maintainer's script was `/bin/sh -c 'bash $HOME/...'`. Expansions,
   pipes and quoting therefore keep their meaning. On macOS, observed on 2026-09-23, the direct
   child of Claude Code was `bash /Users/<user>/.claude/statusline-command.sh`, with `$HOME`
   already expanded: a shell interpreted the command and replaced itself with `bash`, which
