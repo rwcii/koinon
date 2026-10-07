@@ -20,6 +20,9 @@ import (
 // Dashboard action tests (sprint chunk 09): a real daemon on ephemeral loopback ports,
 // temporary state, synthetic sessions and a patched launcher.
 
+// undoSchemaEight turns a schema 8 database back into schema 7 for migration tests.
+const undoSchemaEight = `DROP TABLE imports; `
+
 // undoSchemaSeven turns a schema 7 database back into schema 6 for migration tests.
 const undoSchemaSeven = `DELETE FROM names WHERE family='maintainer'; DELETE FROM sessions WHERE family='maintainer';
 	DROP INDEX audit_at; DROP TABLE audit; ALTER TABLE messages DROP COLUMN maintainer_ack; `
@@ -443,7 +446,7 @@ func TestSchemaSixMigrationAndRollback(t *testing.T) {
 	}
 	// A schema 6 database that already holds the name maintainer cannot migrate: the
 	// whole step rolls back and the database stays at 6.
-	if _, err := s.db.Exec(undoSchemaSeven + `INSERT INTO names(name,kind,family,session_id) VALUES ('maintainer','peer','codex','x'); PRAGMA user_version=6`); err != nil {
+	if _, err := s.db.Exec(undoSchemaEight + undoSchemaSeven + `INSERT INTO names(name,kind,family,session_id) VALUES ('maintainer','peer','codex','x'); PRAGMA user_version=6`); err != nil {
 		t.Fatal(err)
 	}
 	s.db.Close()

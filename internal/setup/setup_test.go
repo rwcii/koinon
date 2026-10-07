@@ -31,7 +31,7 @@ show() { while read -r n c a; do [ -z "$1" ] || [ "$n" = "$1" ] || continue; ` +
 case "$1 $2" in
 "mcp get") command grep -q "^$3 " '` + state + `' && show "$3" && exit 0; echo "No MCP server named $3"; exit 1 ;;
 "mcp list") [ "` + family + `" = agy ] && echo "NAME    TYPE   STATUS   COMMAND/URL"; show ""; exit 0 ;;
-"mcp remove") command grep -v "^$3 " '` + state + `' > '` + state + `.new'; mv '` + state + `.new' '` + state + `'; exit 0 ;;
+"mcp remove") for name; do :; done; command grep -v "^$name " '` + state + `' > '` + state + `.new'; mv '` + state + `.new' '` + state + `'; exit 0 ;;
 "mcp add") shift 2; while [ "$1" != "--" ]; do name=$1; shift; done; shift
   command grep -v "^$name " '` + state + `' > '` + state + `.new'; mv '` + state + `.new' '` + state + `'
   printf '%s %s\n' "$name" "$*" >> '` + state + `'; exit 0 ;;
@@ -237,5 +237,113 @@ func TestGuideAndHook(t *testing.T) {
 	}, Now: time.Now}
 	if err := AgyStop(strings.NewReader(`{"conversationId":"synthetic"}`), &out, noDaemon); err != nil || out.String() != "{}\n" {
 		t.Fatalf("hook: %q %v", out.String(), err)
+	}
+}
+
+func TestRemoveEachFamily(t *testing.T) {
+	binary := "/opt/koinon/bin/koinon"
+	for _, family := range []string{"claude", "codex", "agy", "opencode"} {
+		t.Run(family, func(t *testing.T) {
+			cli, state, _ := syntheticCLI(t, family)
+			dir := t.TempDir()
+			o := Options{Family: family, CLI: cli, Binary: binary, AgyRoot: filepath.Join(dir, "agy"), Opencode: filepath.Join(dir, "opencode"),
+				StateDir: filepath.Join(dir, "state"), ClaudeConfig: filepath.Join(dir, "claude")}
+			os.MkdirAll(o.StateDir, 0700)
+			if family == "agy" {
+				os.MkdirAll(o.AgyRoot, 0700)
+				os.WriteFile(filepath.Join(o.AgyRoot, "hooks.json"), []byte(`{"other": {"Stop": []}}`), 0600)
+			}
+			if _, err := Run(context.Background(), o); err != nil {
+				t.Fatal(err)
+			}
+			if family == "opencode" {
+				// opencode mcp add writes its configuration file; it has no remove command.
+				os.WriteFile(filepath.Join(o.Opencode, "opencode.json"), []byte(`{"$schema": "https://opencode.ai/config.json",
+  "mcp": {"other": {"type": "local", "command": ["x"]}, "koinon": {"type": "local", "command": ["`+binary+`", "mcp"]}}, "model": "m"}`), 0600)
+			}
+			report, err := Remove(context.Background(), o)
+			if err != nil || len(report.Changed) == 0 {
+				t.Fatalf("remove: %+v %v", report, err)
+			}
+			if entries, _ := os.ReadFile(state); family != "opencode" && strings.Contains(string(entries), "koinon ") {
+				t.Fatalf("entry left: %q", entries)
+			}
+			switch family {
+			case "claude":
+				if report.StatusLine == nil {
+					t.Fatal("status line not removed")
+				}
+			case "agy":
+				hooks, _ := os.ReadFile(filepath.Join(o.AgyRoot, "hooks.json"))
+				if strings.Contains(string(hooks), "agy-stop") || !strings.Contains(string(hooks), `"other"`) {
+					t.Fatalf("hooks: %s", hooks)
+				}
+			case "opencode":
+				config, _ := os.ReadFile(filepath.Join(o.Opencode, "opencode.json"))
+				var parsed map[string]any
+				if json.Unmarshal(config, &parsed) != nil || parsed["model"] != "m" || parsed["$schema"] == nil {
+					t.Fatalf("config damaged: %s", config)
+				}
+				if servers := parsed["mcp"].(map[string]any); servers["koinon"] != nil || servers["other"] == nil {
+					t.Fatalf("mcp servers: %s", config)
+				}
+				if _, err := os.Stat(filepath.Join(o.Opencode, "plugins", "koinon-identity.js")); !os.IsNotExist(err) {
+					t.Fatalf("plugin left: %v", err)
+				}
+			}
+			again, err := Remove(context.Background(), o)
+			if err != nil || len(again.Changed) != 0 {
+				t.Fatalf("repeat removed something: %+v %v", again, err)
+			}
+		})
+	}
+}
+
+func TestRemoveLeavesOtherEntries(t *testing.T) {
+	cli, state, _ := syntheticCLI(t, "codex")
+	os.WriteFile(state, []byte("koinon /other/koinon mcp\n"), 0600)
+	report, err := Remove(context.Background(), Options{Family: "codex", CLI: cli, Binary: "/opt/koinon/bin/koinon"})
+	if err != nil || len(report.Changed) != 0 {
+		t.Fatalf("remove: %+v %v", report, err)
+	}
+	if entries, _ := os.ReadFile(state); string(entries) != "koinon /other/koinon mcp\n" {
+		t.Fatalf("another binary's entry removed: %q", entries)
+	}
+	dir := t.TempDir()
+	plugin := filepath.Join(dir, "plugins", "koinon-identity.js")
+	os.MkdirAll(filepath.Dir(plugin), 0700)
+	os.WriteFile(plugin, []byte("// edited"), 0600)
+	os.WriteFile(filepath.Join(dir, "opencode.jsonc"), []byte("// comment\n{}"), 0600)
+	report, err = Remove(context.Background(), Options{Family: "opencode", Binary: "/opt/koinon/bin/koinon", Opencode: dir})
+	if err != nil || len(report.Changed) != 0 {
+		t.Fatalf("opencode remove: %+v %v", report, err)
+	}
+	if _, err := os.Stat(plugin); err != nil {
+		t.Fatalf("edited plugin removed: %v", err)
+	}
+}
+
+// TestRemoveDisabledEntries (review F7): a disabled entry that still runs this binary is
+// removed; a disabled entry of another binary stays.
+func TestRemoveDisabledEntries(t *testing.T) {
+	binary := "/opt/koinon/bin/koinon"
+	for _, c := range []struct {
+		family, output string
+		removed        bool
+	}{
+		{"codex", `{"name":"koinon","enabled":false,"transport":{"type":"stdio","command":"` + binary + `","args":["mcp"]}}`, true},
+		{"codex", `{"name":"koinon","enabled":false,"transport":{"type":"stdio","command":"/other/koinon","args":["mcp"]}}`, false},
+		{"agy", "NAME    TYPE   STATUS   COMMAND/URL\nkoinon  stdio  disabled  " + binary + " mcp", true},
+	} {
+		dir := t.TempDir()
+		log := filepath.Join(dir, "calls")
+		cli := filepath.Join(dir, c.family)
+		script := "#!/bin/sh\nprintf '%s\\n' \"$*\" >> '" + log + "'\ncase \"$2\" in get|list) cat <<'OUT'\n" + c.output + "\nOUT\n;; esac\nexit 0\n"
+		os.WriteFile(cli, []byte(script), 0700)
+		report, err := Remove(context.Background(), Options{Family: c.family, CLI: cli, Binary: binary, AgyRoot: filepath.Join(dir, "agy-config")})
+		removed := strings.Contains(strings.Join(calls(t, log), "\n"), "mcp remove")
+		if err != nil || removed != c.removed || (len(report.Changed) > 0) != c.removed {
+			t.Fatalf("%s %q: removed %v report %+v %v", c.family, c.output, removed, report, err)
+		}
 	}
 }

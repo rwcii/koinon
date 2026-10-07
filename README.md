@@ -71,6 +71,9 @@ Configure Codex once so each session registers itself with its own inbox and pee
 python3 scripts/install.py --configure-codex --repo /path/to/repository
 ```
 
+The Go runtime installs with `koinon install`. A Python-era installation moves to it with
+`koinon upgrade --from-python`. See [the Go runtime](docs/INSTALL.md#the-go-runtime).
+
 See [the installation guide](docs/INSTALL.md) for managed global instructions,
 per-session services, the managed-process fallback, upgrades, and removal. Registration
 is instruction-driven, not a guaranteed startup hook. For a Claude user, installation also
@@ -343,10 +346,17 @@ Ordinary peer limits: 16 active connections, six-second handler deadline, 32 fra
 
 ## Development
 
-The Go daemon core is available alongside the Python runtime. It is an early sprint chunk:
-it has status, session records, peer names, inboxes, launchers, the MCP server, repository
-memory and work items; wake notices and installation arrive in later chunks.
-The Python installation commands still install the Python runtime.
+The Go runtime is built alongside the Python runtime. It has these parts:
+
+- status, session records, peer names and inboxes;
+- wake notices and launchers;
+- the MCP server;
+- repository memory and work items;
+- the dashboard;
+- its own install, upgrade, import and uninstall commands.
+
+The `main` release is still the Python runtime. For `koinon install` and
+`koinon upgrade --from-python`, see [the Go runtime](docs/INSTALL.md#the-go-runtime).
 
 With Go 1.26.6 or newer:
 

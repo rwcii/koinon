@@ -1,5 +1,162 @@
 # Install and enable Koinon
 
+## The Go runtime
+
+The Go runtime is one `koinon` binary and one daemon per user. It needs no Python. Until the
+release that carries it, the `main` release stays the Python runtime that the rest of this guide
+describes. Every command prints a JSON report; a refusal prints `ok: false` with a fixed `code`.
+
+### Download and check
+
+Each release attaches four binaries, `koinon-linux-amd64`, `koinon-linux-arm64`,
+`koinon-darwin-amd64` and `koinon-darwin-arm64`, and a `SHA256SUMS` file. Check the binary
+before you run it:
+
+```sh
+sha256sum --check --ignore-missing SHA256SUMS      # macOS: shasum -a 256 --check --ignore-missing SHA256SUMS
+chmod +x koinon-linux-amd64 && ./koinon-linux-amd64 version
+```
+
+### Install
+
+```sh
+./koinon-linux-amd64 install --agent claude --agent codex
+```
+
+`koinon install [--prefix DIR] [--state-dir DIR] [--agent FAMILY]... [--no-start]` does this:
+
+1. It copies the running binary to `<prefix>/bin/koinon`. The default prefix is
+   `$XDG_DATA_HOME/koinon/go`, which is `~/.local/share/koinon/go`. The copy is atomic, and it is
+   checked against the source's SHA-256.
+2. It writes one service that runs `<prefix>/bin/koinon serve --state-dir <state>`, then enables
+   and (re)starts it:
+   - on Linux, the systemd user unit `~/.config/systemd/user/koinon.service`, enabled for login;
+   - on macOS, the launchd agent
+     `~/Library/LaunchAgents/io.github.rwcii.koinon.daemon.plist`, bootstrapped in `gui/<uid>`.
+
+   The file carries the marker `koinon-go-daemon-v1`. An existing file at that path without the
+   marker is refused (`service_artifact_unowned`), never replaced.
+3. It waits until the daemon answers `status`.
+4. It runs `koinon setup` for each `--agent`, with the installed path.
+
+When no user service manager answers, the report says `"service": "manual_required"` and gives
+the `start_command` to run in a managed session. Koinon never uses sudo, system services,
+lingering or permission changes. `--no-start` writes the binary and the service file and starts
+nothing. A repeated install replaces the binary in place and restarts the service. The Go state
+defaults to `$XDG_STATE_HOME/koinon/go`, which is `~/.local/state/koinon/go`.
+
+When a Python-era installation is present (`~/.local/share/koinon/install.json`), the install is
+refused with `python_install_present`. Use the upgrade instead.
+
+### Upgrade from the Python runtime
+
+```sh
+./koinon-linux-amd64 upgrade --from-python --agent claude --agent codex
+```
+
+`koinon upgrade --from-python [--python-prefix DIR] [--prefix DIR] [--state-dir DIR]
+[--agent FAMILY]... [--repository KEY=PATH]... [--python PATH]` is the supported path from the
+`main` release. It records one attempt in `<state>/upgrade/journal.json` and runs these steps:
+
+1. **Preflight.** The Python `install.json` is readable and in the `installed` state. The
+   installed runtime honours the upgrade marker and has `scripts/uninstall.py`. The Go state
+   database is absent or empty, and no Go daemon runs on it.
+2. **Exclude and stop.** The upgrade writes the Python runtime's own upgrade marker
+   (`installation_state: upgrading`) under its `.install.lock`. While the marker is present,
+   the Python install, `ensure`, uninstall, upgrade and memory-service start all refuse. The
+   marker is written only while `install.json` is still the configuration that the preflight
+   inspected. Under the marker, the state root and the list of Python services must still
+   equal the preflight's; otherwise the result is `source_changed`. Then the upgrade stops each
+   Python service: the session supervisors, the memory services and the legacy pair. It does
+   not remove them. It records each service as its own to restart before its stop begins, and
+   it waits until the manager reports the service stopped.
+3. **Import.** This is the import that `koinon import` describes below, into a staging database.
+   Only a fully verified set replaces the Go state database.
+4. **Remove Python.** The upgrade changes the marker to `installation_state: removing`. In that
+   state the Python install, `ensure` and memory-service start still refuse. Then it runs the
+   installed `uninstall.py`. That script removes the Python services, the Python-managed Codex
+   and DeepSeek guidance sections, and the Claude guidance and status line. It keeps the Python
+   state tree, which stays as a backup.
+5. **Start Go.** The upgrade installs and starts the Go service, as `koinon install` does, and
+   runs `koinon setup` for each `--agent`.
+
+The upgrade recovers as follows:
+
+- **A failure in steps 1–3.** The attempt ends. The staging database is deleted,
+  `install.json` gets its original bytes back, and every service that the attempt stopped
+  starts again. The Python runtime runs as before, and the report names the phase and the
+  `code`. Run the command again for a fresh attempt. It takes a fresh copy, so messages and
+  memory that Python received in the meantime are included.
+- **A failure after the rename.** This covers steps 4–5, and also a failure just after the
+  verified import replaced the state database. The import stays, and the Python runtime stays
+  excluded. Fix the cause named in the report, then run the same command again to resume.
+- **A crash.** A crashed run is resumed by running the same command again. A resume first
+  observes each recorded action again. It refuses with `source_changed` when `install.json`
+  (apart from the marker) or the list of Python services changed after the attempt began.
+  A state database counts as this attempt's import only when two things hold: its import
+  records equal the source digests that the attempt recorded before the rename, and a fresh
+  capture of the excluded sources verifies against it. Records from any other writer end the
+  attempt with `target_not_empty`, and the Python runtime is restored. When that check cannot
+  be completed, the Python runtime stays excluded until the next run.
+
+`koinon upgrade --status [--state-dir DIR]` prints the journal. The upgrade does not roll back
+a completed attempt. The Python state tree is never deleted.
+
+After the upgrade, an instruction file that you wrote yourself may still name the Python
+`session.py`. Change it to `koinon guide --agent FAMILY`.
+
+### Import
+
+`koinon import [--from DIR] [--python-prefix DIR] [--state-dir DIR] [--repository KEY=PATH]...
+[--verify]` runs the import on its own. It stops nothing. While a Python installation exists, it
+holds the upgrade marker for the duration of the import, then gives `install.json` its original
+bytes back. It refuses with `python_running` while any Python service runs. It refuses with
+`daemon_running` while a Go daemon runs on the state directory. It records each attempt in
+`<state>/import/journal.json` before it writes the marker. After an interruption, the next
+`koinon import` first restores `install.json` from that record and removes the attempt's
+staging files.
+
+- **Sources.** The import reads every Codex and DeepSeek session inbox, a legacy single-thread
+  inbox, and every memory store with its work items and claims. Each source's writer locks are
+  held, and each database is captured with `VACUUM INTO` inside a held write lock. The capture
+  includes the write-ahead log. The sources are never written.
+- **Staging.** The captures are mapped and staged in `state.sqlite3.import-<attempt>`, one
+  transaction per source. Each source is verified by count and by canonical digest. The staging
+  database then replaces the state database by an atomic rename.
+- **Repeats.** The import writes only into an absent or empty state database. A second run with
+  the same sources reports `"result": "unchanged"`. Any other non-empty target is refused with
+  `target_not_empty`.
+- **`--verify`.** This option compares the sources with the state database and changes nothing.
+- **Repositories.** A memory store's repository is taken, in this order, from the saved memory
+  selection, then an inbox memory binding, then a session's repository through Git. The
+  recorded path must hash to the store's key. When no source names it, the import is refused
+  with `repository_unresolved` and the key. Supply the path with `--repository KEY=PATH`.
+
+[PROTOCOL.md](../PROTOCOL.md#import-of-python-era-state) defines how each record maps.
+
+### Uninstall
+
+```sh
+~/.local/share/koinon/go/bin/koinon uninstall
+```
+
+`koinon uninstall [--prefix DIR] [--state-dir DIR] [--agent FAMILY]...` removes these:
+
+- What `koinon setup` added for each agent (all families by default):
+  - the MCP entry, through the agent's own CLI, only while it still runs this binary,
+    whether it is enabled or disabled;
+  - for OpenCode, which has no remove command, the `mcp.koinon` entry in `opencode.json` or
+    `opencode.jsonc`;
+  - the `agy` Stop hook;
+  - the OpenCode identity plugin;
+  - the Claude status line, whose saved original is restored.
+- The service file that carries the marker. It is removed only after the manager reports the
+  service stopped. When the manager refuses the stop, or still reports the service running,
+  uninstall refuses with `service_stop_failed` and keeps the service file and the binary.
+- The binary.
+
+It keeps the state directory and reports its path. A repeated uninstall changes nothing.
+
 ## Work-item capacity planning
 
 Memory startup now uses schema 5. Follow the [upgrade procedure](WORK-ITEMS-UPGRADE.md)

@@ -411,7 +411,7 @@ func TestDashboardViewsRenderSyntheticState(t *testing.T) {
 	work := page("/dashboard/work")
 	contains(work, open, held, "codex:synthetic-a", "internal/core", "db:schema", "valid until", "open", "active")
 	health := page("/dashboard/health")
-	contains(health, "running since", "schema 7", d.Addresses()[0], "1 retired")
+	contains(health, "running since", "schema 8", d.Addresses()[0], "1 retired")
 	// A fragment is the list alone, for the in-place refresh.
 	fragment := page("/dashboard/work?fragment=1")
 	if strings.Contains(fragment, "<html") || !strings.Contains(fragment, held) {

@@ -160,13 +160,19 @@ func Run(ctx context.Context, o Options) (Report, error) {
 
 var (
 	ansi     = regexp.MustCompile(`\x1b\[[0-9;]*[A-Za-z]`)
-	agyRow   = regexp.MustCompile(`^koinon\s+stdio\s+enabled\s+(.+)$`)
+	agyRow   = regexp.MustCompile(`^koinon\s+stdio\s+(enabled|disabled)\s+(.+)$`)
 	openCode = regexp.MustCompile(`^\S+\s+\S+\s+(\S+)(\s|$)`)
 )
 
-// configured reports whether the agent's own output shows the server named koinon running
-// exactly `binary mcp`. Another entry that names this binary does not count.
-func configured(family, output, binary string) bool {
+// configured reports whether the agent's own output shows the server named koinon, enabled,
+// running exactly `binary mcp`. Another entry that names this binary does not count.
+func configured(family, output, binary string) bool { return matches(family, output, binary, true) }
+
+// owned reports whether the server named koinon runs exactly `binary mcp`, enabled or not:
+// the entry that setup added for this binary, which removal takes out.
+func owned(family, output, binary string) bool { return matches(family, output, binary, false) }
+
+func matches(family, output, binary string, enabled bool) bool {
 	want := binary + " mcp"
 	lines := strings.Split(ansi.ReplaceAllString(output, ""), "\n")
 	switch family {
@@ -180,7 +186,7 @@ func configured(family, output, binary string) bool {
 				Args    []string
 			}
 		}
-		return json.Unmarshal([]byte(output), &entry) == nil && entry.Name == serverName && entry.Enabled &&
+		return json.Unmarshal([]byte(output), &entry) == nil && entry.Name == serverName && (entry.Enabled || !enabled) &&
 			entry.Transport.Type == "stdio" && entry.Transport.Command == binary &&
 			len(entry.Transport.Args) == 1 && entry.Transport.Args[0] == "mcp"
 	case "claude":
@@ -202,7 +208,8 @@ func configured(family, output, binary string) bool {
 	case "agy":
 		// `agy mcp list` prints one table row per server: NAME TYPE STATUS COMMAND/URL.
 		for _, line := range lines {
-			if m := agyRow.FindStringSubmatch(strings.TrimSpace(line)); m != nil && strings.TrimSpace(m[1]) == want {
+			if m := agyRow.FindStringSubmatch(strings.TrimSpace(line)); m != nil && strings.TrimSpace(m[2]) == want &&
+				(m[1] == "enabled" || !enabled) {
 				return true
 			}
 		}
