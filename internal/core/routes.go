@@ -7,6 +7,27 @@ import (
 // messageRoutes adds the message API. Every request names its caller, which must be an
 // active session; a caller reads and acknowledges only its own inbox.
 func (d *Daemon) messageRoutes(mux *http.ServeMux) {
+	mux.HandleFunc("POST /v1/wake/agy-stop", func(w http.ResponseWriter, r *http.Request) {
+		var request struct {
+			Caller Key `json:"caller"`
+		}
+		if err := decode(w, r, &request); err != nil {
+			failure(w, err)
+			return
+		}
+		if request.Caller.Family != "agy" || !validKey(request.Caller.Family, request.Caller.ID) {
+			failure(w, ErrInvalid)
+			return
+		}
+		d.store.wake.mu.Lock()
+		defer d.store.wake.mu.Unlock()
+		notice, err := d.store.submitWake(r.Context(), request.Caller, true)
+		if err != nil {
+			failure(w, err)
+			return
+		}
+		respond(w, 200, map[string]any{"ok": true, "notice": notice})
+	})
 	mux.HandleFunc("POST /v1/peers", func(w http.ResponseWriter, r *http.Request) {
 		var request struct {
 			Caller Key `json:"caller"`

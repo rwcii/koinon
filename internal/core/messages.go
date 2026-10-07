@@ -223,6 +223,8 @@ func (s *Store) ReadInbox(ctx context.Context, caller Key, after, limit int64) (
 // Ack acknowledges the caller's own inbox through a sequence. Acknowledgement only moves
 // forward; an earlier sequence leaves it unchanged.
 func (s *Store) Ack(ctx context.Context, caller Key, through int64) (int64, error) {
+	s.wake.mu.Lock()
+	defer s.wake.mu.Unlock()
 	if through < 0 {
 		return 0, ErrInvalid
 	}

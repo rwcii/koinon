@@ -42,7 +42,7 @@ Consequences for the plan:
 ## 2. DeepSeek MCP support
 
 Open. The harness is not installed on the probe host. Needs a host with the DeepSeek harness, or
-the user's confirmation of its MCP support. Until settled, criterion 5 for DeepSeek uses the
+the maintainer's confirmation of its MCP support. Until settled, criterion 5 for DeepSeek uses the
 documented command path, run with the agent's approval as today.
 
 ## 3. Claude wake from Go
@@ -54,9 +54,17 @@ envelope, and the session showed it with the sender name `koinon`. No token was 
 same-user sender. The sender needs no registry entry to wake a Claude session; a registry entry
 is needed only for Claude sessions to send to Koinon through Claude's own peer feature, which
 criterion 4 replaces with MCP. A reply socket path longer than the AF_UNIX limit failed with
-`bind: invalid argument`, which the edge case in `definition-of-done.md` covers. macOS is not
-verified (no macOS host with Claude Code); the Python runtime's macOS behaviour in `PROTOCOL.md`
-applies until chunk 04 verifies it.
+`bind: invalid argument`, which the edge case in `definition-of-done.md` covers.
+
+Chunk 04 verified the Go sender on macOS 26.6.2 (arm64), Claude Code 2.1.290 and Go 1.26.8
+on 2026-10-07. The maintainer ran a standalone `CGO_ENABLED=0` probe from a scratch Claude session's
+Bash tool. It selected that session's native messaging socket, checked the socket and its
+directory's ownership and private modes, and verified the connected peer's same-user
+`LOCAL_PEERCRED` and `LOCAL_PEERPID`. The socket path stayed literal. A private reply listener
+in the sender process stayed alive while it wrote one newline-delimited `msgV: 1` user frame
+with the `koinon` envelope. No sender registry entry or token was needed. Claude displayed the
+notice from `koinon` and confirmed its synthetic inbox label and sequence range. This proves
+receiver processing as well as the socket write; it is not the full adapter live check 2.
 
 ## 4. Antigravity turn boundary
 
@@ -101,7 +109,8 @@ confirms the decision not to type into agent terminals.
 ## 6. OpenCode
 
 Verified with OpenCode 1.18.35 on a scratch `opencode serve` (loopback, own workspace
-`opencode.json`, no user configuration changed); the user's own OpenCode session was not used.
+`opencode.json`, no maintainer configuration changed); the maintainer's own OpenCode session
+was not used.
 
 - **Server API.** `opencode serve` and the terminal UI with `--port` expose a documented HTTP API
   (OpenAPI at `/doc`): `POST /session/{id}/prompt_async`, `GET /session/status`, `GET /event`,
@@ -109,6 +118,14 @@ Verified with OpenCode 1.18.35 on a scratch `opencode serve` (loopback, own work
   has no authentication; with it, a request without basic authentication gets 401.
 - **Wake.** `prompt_async` on an idle session returned 204, and the session took a turn on the
   message (called the requested MCP tool, then answered). Status went `busy`, then idle.
+  Chunk 04 checked native idle-status semantics on 2026-10-07 with OpenCode 1.18.35: an
+  authenticated scratch loopback server with isolated home, configuration, state and cache
+  directories created a fresh session without a model call. Two `GET /session/status` reads
+  returned `{}`, while `GET /session/{id}` confirmed that the exact session existed. Idle
+  sessions are therefore omitted. The adapter treats an absent status entry as idle only
+  after that exact session's existence is confirmed; an absent or invalid session remains
+  unknown. An explicit busy/retry entry is never treated as idle. No maintainer configuration or
+  live model session was used; the scratch server and its state were removed.
 - **MCP.** The local MCP server ran unsandboxed (`Seccomp 0`; loopback TCP connect succeeded) and
   inherited the server's environment. Its `tools/call` `_meta` held only `progressToken`: no
   session identifier.
@@ -130,12 +147,49 @@ Koinon launcher sets. Session identity for MCP calls is not given by OpenCode. C
 prove a per-call source, such as an OpenCode plugin that adds the calling session's identifier to
 Koinon tool calls; a first attempt with a `tool.execute.before` plugin in
 `.opencode/plugin/` did not change the MCP arguments. Without a proven source, OpenCode scope
-returns to the user.
+returns to the maintainer.
+
+## Chunk 04 full-adapter live check 2
+
+On 2026-10-07 the maintainer authorized this check for Codex, Claude, Antigravity and OpenCode.
+The compiled Go adapter implementation, after the busy-polling fix, ran in a separate scratch
+state root on Linux amd64. No installed runtime, service or maintainer configuration was changed.
+Only synthetic inbox messages were stored; native notices carried inbox identity and sequence
+range. Each confirmed range was acknowledged after receipt.
+
+- **Claude Code 2.1.290:** the native registry showed the selected session idle before storage.
+  The Go adapter verified the socket's same-user kernel PID and preserved its literal path.
+  The receiving model confirmed range 1–1 in the intended native session. Duplicate notices
+  occurred before acknowledgement because this transport provides no queue receipt;
+  acknowledgement stopped further retries.
+- **Antigravity 1.3.0:** a scratch workspace Stop handler passed real native hook input to
+  the compiled `koinon hook agy-stop` command. With `fullyIdle: true` and `executionNum: 0`,
+  the handler returned `continue` and the receiving model confirmed range 1–1. After
+  acknowledgement, the next Stop call (`executionNum: 1`) returned an empty result and
+  the session stopped. This proves delivery at the turn boundary.
+- **OpenCode 1.18.35:** a password-authenticated scratch loopback server, with isolated home,
+  configuration, state and cache directories, first completed a model turn and became idle.
+  The Go adapter submitted the notice through `prompt_async`. The native model read only its
+  synthetic inbox's sequence metadata through a prepared scratch command, confirmed range
+  1–1, and stopped. The controller acknowledged that range and stopped its owned server.
+  An earlier attempt searched for an unavailable inbox client; a receipt-only attempt with
+  tools denied was rejected by the free model provider. Those attempts were not counted as
+  receipt proof; the completed check used the native agent and normal permission handling.
+- **Codex 0.160.0:** native rollout metadata confirmed the selected conversation idle before
+  the scratch controller stored range 1–1. The Go adapter queued the content-free notice
+  through the configured absolute CLI path for that exact native thread. The notice arrived
+  in the intended model conversation, which confirmed range 1–1 before its synthetic inbox
+  was acknowledged. Delayed, already-handled bridge notices were not counted as this receipt.
+
+DeepSeek has synthetic adapter coverage but no live receipt proof. The maintainer approved its
+exclusion from this run until an approved sandboxed test method is available. Follow-up #199
+stays open on the sprint milestone, and the release must name the outstanding proof.
 
 ## Plan changes
 
-None to the criteria or the chunk order. Chunk 05 takes identity per call and checks the MCP
-client before trusting an environment identity (fact 1). Chunk 10 clears inherited `CLAUDE_*`
+The chunk order is unchanged. The maintainer-approved DeepSeek live-check exception is tracked
+in #199; all synthetic wake criteria remain required. Chunk 05 takes identity per call and
+checks the MCP client before trusting an environment identity (fact 1). Chunk 10 clears inherited `CLAUDE_*`
 variables. Chunk 04 uses the verified `Stop` hook for Antigravity and
 verifies the Claude wake on macOS (fact 3). Fact 2 stays open with the
 fallback stated above. OpenCode (fact 6) adds one wake adapter (chunk 04), one setup with the

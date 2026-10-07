@@ -742,7 +742,7 @@ func TestMemoryAPIAndMigration(t *testing.T) {
 		t.Fatalf("recover: %d %v", status, result)
 	}
 	data, err := GetStatus(context.Background(), address, secret)
-	if err != nil || !strings.Contains(string(data), `"schema":5`) || !strings.Contains(string(data), `"max_pages"`) {
+	if err != nil || !strings.Contains(string(data), `"schema":6`) || !strings.Contains(string(data), `"max_pages"`) {
 		t.Fatalf("daemon status: %s %v", data, err)
 	}
 }

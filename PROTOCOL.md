@@ -11,7 +11,7 @@ Never put a secret, runtime session identifier or response body in a repository.
 
 | Route | Operation |
 | --- | --- |
-| `GET /v1/status` | Daemon readiness, listener addresses, schema and counts of active/expired/retired sessions. |
+| `GET /v1/status` | Daemon readiness, listeners, schema, session counts, storage and content-free wake health. |
 | `GET /v1/sessions` | Up to 1,000 records ordered by family and ID; `truncated` reports more records. |
 | `POST /v1/sessions/register` | Register or reactivate one session identified by `(family, id)`. |
 | `POST /v1/sessions/renew` | Renew an active session's expiry. |
@@ -21,6 +21,7 @@ Never put a secret, runtime session identifier or response body in a repository.
 | `POST /v1/inbox/read` | Read the caller's own inbox after a sequence number. |
 | `POST /v1/inbox/ack` | Acknowledge the caller's own inbox through a sequence number. |
 | `POST /v1/messages/outcome` | Read the delivery and acknowledgement state of a message the caller sent. |
+| `POST /v1/wake/agy-stop` | Offer a due notice for this Antigravity conversation at its native Stop boundary. |
 | `POST /v1/launches` | Retain a launcher target and return its generated launch ID. |
 | `POST /v1/memory/record` | Record an entry in the caller's repository memory store. |
 | `POST /v1/memory/sync` | Read a snapshot page or a delta batch; never moves a cursor. |
@@ -40,8 +41,8 @@ the daemon-held target and refuses a simultaneous `wake_target` override. Its fa
 canonical directory must match the registering session. The daemon derives the canonical absolute
 Git common directory when a repository is selected; the working directory must then belong
 to that repository. Worktrees share the repository identity. A session in a plain directory
-can omit `repository`; its stored repository is empty. Repository-dependent memory and work
-operations arrive in later chunks. Wake targets are inert metadata until the wake adapter chunk.
+can omit `repository`; its stored repository is empty. Memory and work operations require a
+selected repository. Wake targets are local registration metadata used by the adapters below.
 
 Renew/retire take `family`, `id`, and `if_revision`; renew also accepts `ttl_seconds`. A stale
 revision, expired session or retired session is refused with `session_conflict`. Re-register
@@ -88,14 +89,14 @@ inbox and reads only the outcome of its own messages; another sender's message r
   `delivery_reason`, `updated_at` and `acknowledged` (#82).
 
 Each message has exactly one delivery state: `waiting`, `notified`, `uncertain`, or `failed` with
-a reason. This version stores every message as `waiting`; wake adapters, which change the
-state, are a later sprint chunk. Inboxes are independent of wake notices.
+a reason. Messages are stored as `waiting`; the adapters below update delivery independently
+of inbox storage and acknowledgement.
 
 Replies include `ok`. Success returns `session` or `sessions`; failures report a fixed `code`:
 `unauthorized` (401), `foreign_origin` (403), `invalid_request` (400), `session_not_found` (404),
 `session_conflict` (409), the message codes above, or `storage_error` (500). Mutations commit
 before replying. A lost reply does not prove rollback; read the retained record before
-retrying. Wake and memory commands are later sprint chunks. The Python protocol below continues
+retrying. The Python protocol below continues
 to apply to Python.
 
 Launch creation takes `family` (`codex`, `agy`, `opencode`), absolute `directory` and `cli`,
@@ -105,9 +106,49 @@ The response returns `ok` and `launch_id`. The credential stays only in private 
 session responses contain a `launch_id` reference and target metadata with no password field.
 Launch records survive a
 restart, and can bind successive native session identities from one CLI process, such as a
-Codex context reset. They are inert state until the agent registers and later wake adapters
+Codex context reset. They are inert state until the agent registers and wake adapters
 use its target. All launch calls use the existing bearer authentication, request limits and
 origin checks; a launch ID is an association key, not a replacement authentication secret.
+
+### Wake delivery
+
+Schema 6 adds durable attempt counts, retry deadlines and fixed wake reason codes to messages
+in the same atomic migration as `user_version`, preserving sessions, inboxes, memory and work.
+Unknown future schemas are refused before migration.
+
+The worker polls once per second and handles at most 16 due inboxes per pass. Before any
+provider side effect, it commits `uncertain` with `attempt_in_progress`. Busy or unreachable
+results become `waiting`; confirmed queue acceptance becomes `notified`; ambiguous results
+remain `uncertain`. Busy receivers are rechecked every 3 seconds without increasing the failed
+attempt count. Other waiting and uncertain messages retry after 1, 2, 4, ... seconds, capped at
+5 minutes. Attempts survive restart; a backward clock jump cannot strand a retry more than
+the maximum backoff ahead. Acknowledgement and withdrawal share the submission boundary:
+an acknowledgement committed before submission is never included. Provider calls have a
+3-second deadline bounded by session expiry. No peer body or provider output enters a notice.
+
+Each notice names only the quoted native family/ID inbox and its sequence range. Codex uses
+the configured absolute CLI with `queue --thread ID --message NOTICE`. Claude requires a
+same-user registry record matching its native session ID and CLI entrypoint, idle status,
+an owned private socket/directory, and the connected kernel UID/PID. Key filenames hash the
+literal unresolved socket path. The daemon's private same-process reply listener accepts no
+commands and needs no registry entry. A Claude write remains `uncertain` because the socket
+protocol provides no verifiable queue receipt; a duplicate notice is possible until inbox ack.
+
+DeepSeek validates a canonical HTTP(S) loopback authority and pins all resolved addresses
+before reading its private same-user browser-session credential. An authority-bound signed
+cookie accompanies `session/prompt`, `mode: queue`, for the exact session. No proxy or redirect
+is permitted. Only `ok: true` with `value.accepted: true` confirms queue acceptance. OpenCode
+uses the launcher's private password on its literal loopback server. A fresh `/session/status`
+read precedes `/session/ID/prompt_async`; an omitted status counts as idle only when read-only
+`GET /session/ID` confirms this exact ID exists. Busy/retry and unknown sessions are not woken.
+
+`POST /v1/wake/agy-stop` takes `caller` with family `agy` and the hook's native conversation ID.
+It offers a due unacknowledged notice at that turn boundary, leaving delivery uncertain. The
+Stop hook returns `{"decision":"continue","reason":NOTICE}` only for that offer; otherwise `{}`,
+including when the daemon is unavailable. `GET /v1/status` and dashboard health expose `wake`
+counts, grouped fixed reason codes and a storage fault, without message bodies or credentials.
+Queue acceptance does not prove model processing. Expired/retired sessions keep their inboxes
+and receive no new wake until registered again.
 
 ### Memory stores
 

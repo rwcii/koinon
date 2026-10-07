@@ -31,8 +31,14 @@ sequence is never notified.
 ## Tests
 
 The wake cases of the definition of done, each adapter against a synthetic receiver. Live check
-2 with the user's authorization.
+2 with the maintainer's authorization.
+
+On 2026-10-07 the maintainer approved running live check 2 for Codex, Claude, Antigravity and
+OpenCode without DeepSeek. The DeepSeek live receipt proof is deferred to #199 until a sandboxed
+method is approved. Its synthetic adapter tests remain required; its live behavior remains
+unverified. No DeepSeek harness runs on the core machine for this check.
 
 ## Done
 
-Gate passes; live check 2 recorded on the pull request.
+Gate passes; live check 2 for the four authorized families recorded on the pull request, with
+the DeepSeek deferral and #199 named explicitly.
