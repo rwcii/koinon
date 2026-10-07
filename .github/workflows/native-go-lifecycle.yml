@@ -1,0 +1,54 @@
+name: Native Go lifecycle evidence
+on:
+  pull_request:
+    branches: [develop]
+    # Agent-process files are not installed and no test reads them; see
+    # tests/test_ci_scope.py.
+    paths-ignore:
+      - 'agents/**'
+      - 'docs/sprints/**'
+      - '.claude/**'
+      - '.agents/**'
+      - '.codex/**'
+  push:
+    branches: [develop, main]
+    paths-ignore:
+      - 'agents/**'
+      - 'docs/sprints/**'
+      - '.claude/**'
+      - '.agents/**'
+      - '.codex/**'
+  workflow_dispatch:
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.sha }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+permissions:
+  contents: read
+jobs:
+  go-lifecycle:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-latest
+            backend: systemd
+          - os: macos-latest
+            backend: launchd
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # The upgrade starts from the pinned main release, read from history.
+          fetch-depth: 0
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+      # Python runs only the pinned main release that the upgrade starts from.
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+      - name: Install, restart, upgrade from main and uninstall under ${{ matrix.backend }}
+        env:
+          KOINON_NATIVE_JOB: '1'
+        run: go test -tags native -count=1 -v -timeout 15m ./internal/nativetest/

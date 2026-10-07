@@ -1,0 +1,59 @@
+name: Release binaries
+on:
+  push:
+    tags: ['v*']
+  pull_request:
+    paths: ['.github/workflows/release.yml', 'cmd/koinon/lifecycle.go']
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+      - name: Build the four CGO-free binaries and their checksums
+        shell: bash
+        run: |
+          version="$GITHUB_REF_NAME"
+          [ "$GITHUB_REF_TYPE" = tag ] || version="dev-${GITHUB_SHA::12}"
+          mkdir dist
+          for target in linux/amd64 linux/arm64 darwin/amd64 darwin/arm64; do
+            GOOS="${target%/*}" GOARCH="${target#*/}" CGO_ENABLED=0 go build -trimpath \
+              -ldflags "-s -w -X main.version=$version -X main.commit=$GITHUB_SHA" \
+              -o "dist/koinon-${target//\//-}" ./cmd/koinon
+          done
+          (cd dist && sha256sum koinon-* > SHA256SUMS)
+          cat dist/SHA256SUMS
+      - name: Check the build's own version
+        run: dist/koinon-linux-amd64 version
+      - uses: actions/upload-artifact@v4
+        with:
+          name: koinon-binaries
+          path: dist/
+          if-no-files-found: error
+  publish:
+    needs: build
+    if: github.ref_type == 'tag'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: koinon-binaries
+          path: dist
+      - name: Attach the binaries and checksums to the release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          if gh release view "$GITHUB_REF_NAME" >/dev/null 2>&1; then
+            gh release upload "$GITHUB_REF_NAME" dist/* --clobber
+          else
+            gh release create "$GITHUB_REF_NAME" dist/* --verify-tag --title "$GITHUB_REF_NAME" --notes "See CHANGELOG.md."
+          fi
