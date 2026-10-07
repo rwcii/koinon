@@ -344,8 +344,8 @@ Ordinary peer limits: 16 active connections, six-second handler deadline, 32 fra
 ## Development
 
 The Go daemon core is available alongside the Python runtime. It is an early sprint chunk:
-it has status, session records, peer names, inboxes, launchers, the MCP server and repository
-memory; wake notices and installation arrive in later chunks.
+it has status, session records, peer names, inboxes, launchers, the MCP server, repository
+memory and work items; wake notices and installation arrive in later chunks.
 The Python installation commands still install the Python runtime.
 
 With Go 1.26.6 or newer:
@@ -454,6 +454,26 @@ Page a snapshot to the end before acknowledging it, and acknowledge a delta thro
 `next_cursor` after processing it. The daemon's database has a fixed storage ceiling with a
 reserve for progress; when it cannot prove its write-ahead log empty it refuses writes until
 `koinon recover`.
+
+The same store holds work items: a record with acceptance criteria and non-goals, an advisory
+writer lease with optional path or exact resource claims, progress reports and an immutable
+event history. Agents use the `work_*` and `claim_renew` MCP tools; the command path is:
+
+```sh
+bin/koinon work create --as deepseek:ID --title T --criteria C --non-goals N --key K --deadline EPOCH
+bin/koinon work list --as deepseek:ID [--lifecycle active] [--owner KEY] [--stale] [--blocked]
+bin/koinon work start WORK_ID --as deepseek:ID --if-revision N --checkpoint C --next-artifact A \
+  --progress-deadline EPOCH --key K --deadline EPOCH [--path-resource PATH] [--exact-resource KEY]
+bin/koinon work update WORK_ID --as deepseek:ID --if-revision N --claim-generation G --progress P \
+  --checkpoint C --next-artifact A --progress-deadline EPOCH
+bin/koinon claim renew WORK_ID --as deepseek:ID --claim-generation G --if-claim-revision N
+bin/koinon work finish WORK_ID --as deepseek:ID --if-revision N --claim-generation G \
+  --outcome completed --reference REF
+```
+
+A lease belongs to the session key (`FAMILY:ID`) unless `--consumer` names a stable key, so a
+replacement session must respect its predecessor's lease. A lease and a completion are
+reported data: they grant no permission and fence no file.
 
 Continue running the Python regression suite until the runtime retirement chunk:
 

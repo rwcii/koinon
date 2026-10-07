@@ -117,7 +117,7 @@ func TestProtocol(t *testing.T) {
 			}
 		}
 	}
-	if strings.Join(names, ",") != "peers,send,inbox,ack,delivery,memory_status,memory_sync,memory_ack,memory_record,memory_recall" {
+	if strings.Join(names, ",") != "peers,send,inbox,ack,delivery,memory_status,memory_sync,memory_ack,memory_record,memory_recall,work_create,work_get,work_list,work_propose,work_edit,work_start,work_update,work_release,work_finish,claim_renew" {
 		t.Fatalf("tools: %v", names)
 	}
 	if reply := h.request("ping", nil); reply["result"] == nil {
@@ -420,5 +420,46 @@ func TestMemoryTools(t *testing.T) {
 	}
 	if reply, isError := h.tool("memory_record", map[string]any{"type": "finding", "body": 5}, meta); !isError || reply["code"] != "invalid_request" {
 		t.Fatalf("wrong type: %v", reply)
+	}
+}
+
+func TestWorkTools(t *testing.T) {
+	h := newHarness(t, "codex-mcp-client")
+	meta := map[string]any{"threadId": "synthetic-thread"}
+	if out, err := exec.Command("git", "init", "-q", h.s.c.Directory).CombinedOutput(); err != nil {
+		t.Fatalf("git init: %v %s", err, out)
+	}
+	deadline := float64(time.Now().Unix() + 600)
+	created, isError := h.tool("work_create", map[string]any{"title": "synthetic", "criteria": "c", "non_goals": "n", "key": "k",
+		"deadline": deadline}, meta)
+	if isError {
+		t.Fatalf("create: %v", created)
+	}
+	id := created["result"].(map[string]any)["work_id"].(string)
+	started, isError := h.tool("work_start", map[string]any{"work_id": id, "if_revision": 1, "checkpoint": "c", "next_artifact": "a",
+		"progress_deadline": deadline, "key": "s", "deadline": deadline, "resources": [][]string{{"path", "docs"}}}, meta)
+	if isError {
+		t.Fatalf("start: %v", started)
+	}
+	item, _ := h.tool("work_get", map[string]any{"work_id": id}, meta)
+	// The default consumer is the session key, not the peer name.
+	if claim := item["result"].(map[string]any)["current_claim"].(map[string]any); claim["consumer"] != "codex:synthetic-thread" {
+		t.Fatalf("claim: %v", claim)
+	}
+	other := map[string]any{"threadId": "synthetic-other"}
+	second, _ := h.tool("work_create", map[string]any{"title": "t", "criteria": "c", "non_goals": "n", "key": "k2", "deadline": deadline}, other)
+	conflict, isError := h.tool("work_start", map[string]any{"work_id": second["result"].(map[string]any)["work_id"], "if_revision": 1,
+		"checkpoint": "c", "next_artifact": "a", "progress_deadline": deadline, "key": "s2", "deadline": deadline,
+		"resources": [][]string{{"path", "docs/x"}}}, other)
+	if !isError || conflict["code"] != "claim_conflict" || conflict["details"].(map[string]any)["consumer"] != "codex:synthetic-thread" {
+		t.Fatalf("conflict: %v", conflict)
+	}
+	for name, args := range map[string]map[string]any{
+		"work_get": {}, "work_list": {"work_id": id}, "work_create": {"title": "t", "criteria": "c", "non_goals": "n", "key": "k"},
+		"claim_renew": {"work_id": id, "claim_generation": 1}, "work_list ": {},
+	} {
+		if reply, isError := h.tool(name, args, meta); !isError || reply["code"] != "invalid_arguments" && reply["code"] != "unknown_tool" {
+			t.Fatalf("%s %v: %v", name, args, reply)
+		}
 	}
 }

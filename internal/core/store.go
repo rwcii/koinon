@@ -3,13 +3,16 @@ package core
 import (
 	"context"
 	"database/sql"
+	"encoding/binary"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"net/url"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"time"
 
@@ -59,6 +62,7 @@ type Store struct {
 	now     func() time.Time
 	storage storage
 	memory  memoryState
+	work    workState
 }
 
 func openStore(root string) (*Store, error) {
@@ -106,11 +110,24 @@ func openStore(root string) (*Store, error) {
 		db.Close()
 		return nil, errors.New("unsupported Go state schema")
 	}
-	if err := migrate(db, version); err != nil {
+	// The catalog is checked as found and again after the migration, before any write.
+	if err := checkCatalog(db, version); err != nil {
+		db.Close()
+		return nil, err
+	}
+	if err := migrate(db, version, schemaVersion); err != nil {
+		db.Close()
+		return nil, err
+	}
+	if err := checkCatalog(db, schemaVersion); err != nil {
 		db.Close()
 		return nil, err
 	}
 	if err := configure(db); err != nil {
+		db.Close()
+		return nil, err
+	}
+	if err := checkFormat(db, path); err != nil {
 		db.Close()
 		return nil, err
 	}
@@ -151,17 +168,40 @@ func configure(db *sql.DB) error {
 	return nil
 }
 
-const schemaVersion = 4
+// checkFormat refuses a database whose header schema format is not 4. Claim controls
+// overwrite 0/1 flags in place, and only format 4 stores those integers in equal-size
+// records that need no new page (docs/WORK-ITEMS-GO-STORAGE.md).
+func checkFormat(db *sql.DB, path string) error {
+	// The header is read from the file, so the log is checkpointed into it first.
+	if _, err := db.Exec("PRAGMA wal_checkpoint(TRUNCATE)"); err != nil {
+		return err
+	}
+	f, err := os.Open(path)
+	if err != nil {
+		return err
+	}
+	defer f.Close()
+	header := make([]byte, 48)
+	if _, err := io.ReadFull(f, header); err != nil {
+		return err
+	}
+	if format := binary.BigEndian.Uint32(header[44:48]); format != 4 {
+		return fmt.Errorf("unsupported_runtime: database schema format is %d, not 4", format)
+	}
+	return nil
+}
 
-// migrate brings the state schema to schemaVersion in one transaction, so a crash
+const schemaVersion = 5
+
+// migrate brings the state schema from version to target in one transaction, so a crash
 // leaves either the old or the new schema. Each step starts from the version before it.
-func migrate(db *sql.DB, version int) error {
+func migrate(db *sql.DB, version, target int) error {
 	tx, err := db.Begin()
 	if err != nil {
 		return err
 	}
 	defer tx.Rollback()
-	if version < 1 {
+	if version < 1 && target >= 1 {
 		if _, err := tx.Exec(`CREATE TABLE sessions (
 			family TEXT NOT NULL, id TEXT NOT NULL, repository TEXT NOT NULL,
 			directory TEXT NOT NULL, wake_target TEXT NOT NULL,
@@ -172,7 +212,7 @@ func migrate(db *sql.DB, version int) error {
 			return err
 		}
 	}
-	if version < 2 {
+	if version < 2 && target >= 2 {
 		// Version 2: daemon-held names, inboxes and delivery state (sprint chunk 03).
 		// Peer names and aliases share one namespace, so a peer name never equals an alias.
 		if _, err := tx.Exec(`
@@ -225,7 +265,7 @@ func migrate(db *sql.DB, version int) error {
 			}
 		}
 	}
-	if version < 3 {
+	if version < 3 && target >= 3 {
 		// Version 3: private launch targets (sprint chunk 10).
 		if _, err := tx.Exec(`CREATE TABLE launches (
 			id TEXT PRIMARY KEY, family TEXT NOT NULL, directory TEXT NOT NULL,
@@ -234,7 +274,7 @@ func migrate(db *sql.DB, version int) error {
 			return err
 		}
 	}
-	if version < 4 {
+	if version < 4 && target >= 4 {
 		// Version 4: one memory store per Git common directory (sprint chunk 06). Every table
 		// is keyed by the repository the daemon records for a session.
 		if _, err := tx.Exec(`
@@ -264,10 +304,114 @@ func migrate(db *sql.DB, version int) error {
 			return err
 		}
 	}
-	if _, err := tx.Exec(fmt.Sprintf("PRAGMA user_version=%d", schemaVersion)); err != nil {
+	if version < 5 && target >= 5 {
+		// Version 5: work items, advisory claims and work events (sprint chunk 07), keyed by
+		// the store's 32-character store_id so that row and index sizes stay bounded
+		// (docs/WORK-ITEMS-GO-STORAGE.md). The counters never decrease.
+		if _, err := tx.Exec(`
+			ALTER TABLE memory_stores ADD COLUMN work_counter INTEGER NOT NULL DEFAULT 0;
+			ALTER TABLE memory_stores ADD COLUMN claim_counter INTEGER NOT NULL DEFAULT 0;
+			CREATE TABLE work_items (store TEXT NOT NULL, work_id TEXT NOT NULL CHECK (length(work_id)=32),
+				revision INTEGER NOT NULL CHECK (revision>0),
+				lifecycle TEXT NOT NULL CHECK (lifecycle IN ('open','active','blocked','finished')),
+				title TEXT NOT NULL, criteria TEXT NOT NULL, non_goals TEXT NOT NULL, proposed_assignee TEXT,
+				created_at REAL NOT NULL, created_consumer TEXT NOT NULL, first_start_revision INTEGER,
+				scope_revision INTEGER NOT NULL CHECK (scope_revision>0),
+				progress_epoch INTEGER NOT NULL DEFAULT 0 CHECK (progress_epoch>=0), last_progress_at REAL,
+				progress_deadline REAL, progress TEXT NOT NULL DEFAULT '', checkpoint TEXT NOT NULL DEFAULT '',
+				next_artifact TEXT NOT NULL DEFAULT '', blocker TEXT NOT NULL DEFAULT '', last_writer TEXT,
+				last_generation INTEGER, last_lease_expires REAL,
+				lease_expired INTEGER NOT NULL DEFAULT 0 CHECK (lease_expired IN (0,1)),
+				outcome TEXT CHECK (outcome IN ('completed','withdrawn')), reason TEXT NOT NULL DEFAULT '',
+				references_json TEXT NOT NULL DEFAULT '[]', finished_at REAL, expires_at REAL,
+				latest_seq INTEGER NOT NULL CHECK (latest_seq>0),
+				CHECK ((lifecycle='finished' AND outcome IS NOT NULL AND finished_at IS NOT NULL AND expires_at IS NOT NULL)
+					OR (lifecycle<>'finished' AND outcome IS NULL AND finished_at IS NULL AND expires_at IS NULL)),
+				PRIMARY KEY (store, work_id));
+			CREATE TABLE work_scope_revisions (store TEXT NOT NULL, work_id TEXT NOT NULL,
+				revision INTEGER NOT NULL CHECK (revision>0), ts REAL NOT NULL, consumer TEXT NOT NULL, author TEXT,
+				title TEXT NOT NULL, criteria TEXT NOT NULL, non_goals TEXT NOT NULL,
+				PRIMARY KEY (store, work_id, revision));
+			CREATE TABLE claim_bundles (store TEXT NOT NULL, generation INTEGER NOT NULL CHECK (generation>0),
+				work_id TEXT NOT NULL, consumer TEXT NOT NULL, revision INTEGER NOT NULL CHECK (revision>0),
+				issued_at REAL NOT NULL, renewed_at REAL NOT NULL, expires_at REAL NOT NULL,
+				progress_epoch INTEGER NOT NULL CHECK (progress_epoch>0),
+				overdue_recorded INTEGER NOT NULL DEFAULT 0 CHECK (overdue_recorded IN (0,1)),
+				active INTEGER NOT NULL DEFAULT 1 CHECK (active IN (0,1)),
+				overdue_credit INTEGER NOT NULL DEFAULT 1 CHECK (overdue_credit IN (0,1)),
+				end_credit INTEGER NOT NULL DEFAULT 1 CHECK (end_credit IN (0,1)),
+				PRIMARY KEY (store, generation), UNIQUE (store, work_id));
+			CREATE TABLE claim_resources (store TEXT NOT NULL, generation INTEGER NOT NULL,
+				ordinal INTEGER NOT NULL CHECK (ordinal BETWEEN 0 AND 8),
+				kind TEXT NOT NULL CHECK (kind IN ('writer','path','exact')), resource TEXT NOT NULL,
+				PRIMARY KEY (store, generation, ordinal));
+			CREATE TABLE work_events (store TEXT NOT NULL, seq INTEGER NOT NULL CHECK (seq>0), work_id TEXT NOT NULL,
+				revision INTEGER NOT NULL CHECK (revision>0),
+				kind TEXT NOT NULL CHECK (kind IN ('created','proposed','edited','started','updated','released',
+					'finished','progress-overdue','lease-expired')),
+				payload TEXT NOT NULL, PRIMARY KEY (store, seq));
+			CREATE INDEX work_events_item ON work_events(store, work_id, seq);
+			CREATE TABLE work_replays (store TEXT NOT NULL, consumer TEXT NOT NULL, key TEXT NOT NULL,
+				operation TEXT NOT NULL, scheme TEXT NOT NULL, fingerprint TEXT NOT NULL, seq INTEGER, ts REAL NOT NULL,
+				deadline REAL NOT NULL, result TEXT NOT NULL, PRIMARY KEY (store, consumer, key));
+		`); err != nil {
+			return err
+		}
+	}
+	if _, err := tx.Exec(fmt.Sprintf("PRAGMA user_version=%d", target)); err != nil {
 		return err
 	}
 	return tx.Commit()
+}
+
+var punctuationSpace = regexp.MustCompile(`\s*([(),;])\s*`)
+
+// catalog lists a database's schema objects with their normalized definitions.
+func catalog(db *sql.DB) ([]string, error) {
+	rows, err := db.Query(`SELECT type,name,tbl_name,COALESCE(sql,'') FROM sqlite_master ORDER BY type,name`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var objects []string
+	for rows.Next() {
+		var kind, name, table, definition string
+		if err := rows.Scan(&kind, &name, &table, &definition); err != nil {
+			return nil, err
+		}
+		// Layout is not part of a definition: whitespace collapses, and none is kept next
+		// to punctuation.
+		definition = punctuationSpace.ReplaceAllString(strings.Join(strings.Fields(definition), " "), "$1")
+		objects = append(objects, kind+" "+name+" "+table+" "+definition)
+	}
+	return objects, rows.Err()
+}
+
+// checkCatalog refuses a database whose schema objects differ from those this runtime
+// creates for version: an extra index or trigger would break the storage proof, whose
+// claim controls assume the published tables and indexes and nothing else.
+func checkCatalog(db *sql.DB, version int) error {
+	reference, err := sql.Open("sqlite", "file::memory:")
+	if err != nil {
+		return err
+	}
+	defer reference.Close()
+	reference.SetMaxOpenConns(1)
+	if err := migrate(reference, 0, version); err != nil {
+		return err
+	}
+	want, err := catalog(reference)
+	if err != nil {
+		return err
+	}
+	got, err := catalog(db)
+	if err != nil {
+		return err
+	}
+	if strings.Join(got, "\n") != strings.Join(want, "\n") {
+		return fmt.Errorf("unsupported_runtime: the state database's schema objects differ from schema %d", version)
+	}
+	return nil
 }
 
 func validKey(family, id string) bool {

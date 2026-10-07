@@ -40,6 +40,8 @@ func run(ctx context.Context, args []string, in io.Reader, out io.Writer) error 
 		return agentCommand(ctx, args, in, out)
 	case "memory", "recover":
 		return memoryCommand(ctx, args, in, out)
+	case "work", "claim":
+		return workCommand(ctx, args, out)
 	}
 	root, err := platform.DefaultStateDir()
 	if err != nil {
@@ -119,6 +121,9 @@ const usage = `Usage: koinon serve [--state-dir DIR] [--listen 127.0.0.1:PORT] [
        koinon guide --agent <claude|codex|agy|opencode|deepseek>
        koinon hook agy-stop
        koinon memory <status|sync|ack|record|recall> --as FAMILY:ID [--consumer KEY] [options]
+       koinon work <create|list> --as FAMILY:ID [--consumer KEY] [options]
+       koinon work <get|propose|edit|start|update|release|finish> WORK_ID --as FAMILY:ID [--consumer KEY] [options]
+       koinon claim renew WORK_ID --as FAMILY:ID --claim-generation N --if-claim-revision N [--lease-seconds S]
        koinon recover [--state-dir DIR] [--address 127.0.0.1:PORT]
        koinon <codex|agy|opencode> [--state-dir DIR] [--address HOST:PORT] [--cli ABS_PATH] [--directory DIR] [--tmux-session NAME] [--] [CLI arguments...]
        koinon peers --as FAMILY:ID [--state-dir DIR] [--address 127.0.0.1:PORT]
@@ -315,11 +320,21 @@ func main() {
 	if err := run(ctx, os.Args[1:], os.Stdin, os.Stdout); err != nil {
 		// Startup errors must never include the authentication secret.
 		code := "daemon_error"
+		report := map[string]any{"ok": false, "detail": err.Error()}
 		var refused core.RefusedError
-		if errors.As(err, &refused) {
+		var usage usageError
+		switch {
+		case errors.As(err, &usage):
+			code, report["error"] = usage.code, usage.message
+			delete(report, "detail")
+		case errors.As(err, &refused):
 			code = refused.Code
+			if len(refused.Details) > 0 {
+				report["details"] = refused.Details
+			}
 		}
-		json.NewEncoder(os.Stderr).Encode(map[string]any{"ok": false, "code": code, "detail": err.Error()})
+		report["code"] = code
+		json.NewEncoder(os.Stderr).Encode(report)
 		os.Exit(1)
 	}
 }

@@ -142,7 +142,54 @@ page issuance, supersession, revocation and expiry). A write the ceiling refuses
 whole as `capacity`. A failed proof, or a reserved write that the engine still refuses, blocks
 writes with `storage_blocked` while status and reads keep working, until `koinon recover`
 (`POST /v1/storage/recover`) proves the log empty again. `GET /v1/status` reports `storage`:
-pages, ceilings, the log size and the blocked state.
+pages, ceilings, the log size, the work debt and the blocked state.
+
+### Work items
+
+The memory store of a repository also holds its work items, with the contract of
+`docs/WORK-ITEMS-V1.md` and the commands of `docs/WORK-ITEMS-COMMANDS.md`. Each wire operation
+is a route: `POST /v1/work/work-create`, `work-get`, `work-list`, `work-propose`, `work-edit`,
+`work-start`, `work-update`, `work-release`, `work-finish` and `claim-renew`. A request names
+its `caller` and the fields of the commands table; unknown fields are refused, and types are
+strict (a boolean is not an integer, times are finite numbers). The optional `consumer` (1–128
+characters) names a stable key; without it the consumer is the caller's session key
+`FAMILY:ID`, not its peer name, which a successor can inherit, so a replacement session must
+respect its predecessor's lease. Results are `{"ok": true, "result": ...}`; a refusal carries
+its code and, for `claim_conflict` (holder, generation, expiry, resource) and
+`revision_conflict` (current revision), bounded `details`.
+
+Work IDs are 32 lowercase hexadecimal characters from a per-store counter that never
+decreases. Every observable mutation and due transition writes, in one transaction, the item,
+its scope history when the scope changes, one stream entry of type `work-event` (empty body,
+scope target the work ID, the caller's provenance), the immutable event payload (the item view
+at that moment), the advanced head and the replay result, and calls the change hook after the
+commit. Renewal writes no event. Deltas carry `event_kind`, `work_id` and `payload`; a snapshot
+adds one frozen `work-item` view per retained item, ordered by ID after the notes. Recall and
+note snapshots exclude work entries, and a note cannot supersede or revoke one. Replay rows
+are kept apart from note idempotency rows, carry their fingerprint scheme, and return the
+original result with `duplicate: true` before any precondition or due transition.
+
+At a statically valid request for a known target, the daemon first records at most one due
+transition of that target (`lease-expired` wins over `progress-overdue`); malformed requests,
+unknown targets and replays never cause one. A maintenance sweep runs at start and 30 seconds
+after each sweep ends, never overlapping: per store at most 32 due transitions, then at most one
+inactive claim bundle and one finished item past its 30-day retention. Memory status reports
+`work_maintenance` (`enabled`, `last_successful_sweep`, `observed_at`, `pending_due`,
+`expired_items`, `inactive_bundles`, `fault`, `fault_at`, `skipped_submissions`) and
+`work_debt`.
+
+The limits are those of the implementation design per store (128 items, 16 claim bundles, 64
+scope revisions per item and 1,024 in all, 2,048 events, 12 MiB of work usage inside the shared
+32 MiB, work entries counted in the 5,000 entries) and at most 32 retained claim bundles across
+the daemon. Every retained bundle holds an overdue and an end credit until it spends them; the
+pages, logical bytes, entry, event and replay slots that those credits reserve
+(`docs/WORK-ITEMS-GO-STORAGE.md`) are kept free by every other write of the daemon, so a promised
+release, finish or expiry can still commit when ordinary writes refuse. A mutation's item view
+must leave 1 KiB of its 16 KiB bound free, so that its later due events and observations always
+fit. Replay compares the decoded request, so equivalent JSON spellings are one request. The
+daemon refuses a database whose header schema format is not 4, or whose schema objects (tables,
+indexes, triggers, views) differ from those it creates for the database's schema version, checked
+before and after a migration.
 
 ### MCP server
 
@@ -151,10 +198,13 @@ versions `2025-06-18`, `2025-03-26` and `2024-11-05`; another requested version 
 `2025-06-18`), `ping`, `tools/list` and `tools/call`. Other methods get error -32601; a message
 longer than 1 MiB gets -32700. Its tools are `peers`, `send` (`to`, `body`), `inbox` (`after`,
 `limit`), `ack` (`through`) and `delivery` (`message_id`), and `memory_status`, `memory_sync`,
-`memory_ack`, `memory_record` and `memory_recall` with the fields of the memory routes, which call
+`memory_ack`, `memory_record` and `memory_recall` with the fields of the memory routes, and
+`work_create`, `work_get`, `work_list`, `work_propose`, `work_edit`, `work_start`, `work_update`,
+`work_release`, `work_finish` and `claim_renew` with the fields of the work routes, which call
 the routes above. A tool
 error is a result with `isError` and a JSON text `{"ok": false, "code": ...}`: the daemon's code,
-`daemon_unavailable`, `identity_unavailable`, `invalid_arguments` or `unknown_tool`. The server
+`daemon_unavailable`, `identity_unavailable`, `invalid_arguments` or `unknown_tool`, with the
+`details` of a work refusal. The server
 writes only protocol messages to stdout and never logs a secret, session ID or message body.
 
 The calling session comes from the agent on every call, never from model-supplied arguments; a

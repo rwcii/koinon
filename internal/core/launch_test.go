@@ -156,7 +156,7 @@ func TestLaunchMigrationPreservesSessions(t *testing.T) {
 		t.Fatal(err)
 	}
 	// Schema 2 is the merged message runtime, with no launch table.
-	if _, err := s.db.Exec("DROP TABLE launches; DROP TABLE memory_stores; DROP TABLE memory_entries; DROP TABLE memory_idem; DROP TABLE memory_cursors; DROP TABLE memory_retired; DROP TABLE memory_snapshots; DROP TABLE memory_snapshot_items; PRAGMA user_version=2"); err != nil {
+	if _, err := s.db.Exec("DROP TABLE launches; DROP TABLE work_items; DROP TABLE work_scope_revisions; DROP TABLE claim_bundles; DROP TABLE claim_resources; DROP TABLE work_events; DROP TABLE work_replays; DROP TABLE memory_stores; DROP TABLE memory_entries; DROP TABLE memory_idem; DROP TABLE memory_cursors; DROP TABLE memory_retired; DROP TABLE memory_snapshots; DROP TABLE memory_snapshot_items; PRAGMA user_version=2"); err != nil {
 		t.Fatal(err)
 	}
 	s.db.Close()

@@ -5,6 +5,8 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
+	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -249,6 +251,112 @@ func TestMemoryCommands(t *testing.T) {
 		if err := run(context.Background(), args, nil, &out); err == nil {
 			t.Fatalf("accepted: %v", args)
 		}
+	}
+	cancel()
+	<-done
+}
+
+func TestWorkCommands(t *testing.T) {
+	root := filepath.Join(t.TempDir(), "state")
+	// Missing required options are refused before any daemon contact or state creation.
+	for args, missing := range map[string]string{
+		"work create --as codex:x":                              "--criteria, --deadline, --key, --non-goals, --title",
+		"work start --as codex:x":                               "--checkpoint, --deadline, --if-revision, --key, --next-artifact, --progress-deadline, WORK_ID",
+		"work update 00000000000000000000000000000001 --as c:x": "--checkpoint, --claim-generation, --if-revision, --next-artifact, --progress, --progress-deadline",
+		"work release --if-revision 1 --as c:x":                 "--checkpoint, --claim-generation, WORK_ID",
+		"work finish x --as c:x --if-revision 1":                "--claim-generation, --outcome",
+		"claim renew x --as c:x":                                "--claim-generation, --if-claim-revision",
+	} {
+		err := run(context.Background(), append(strings.Fields(args), "--state-dir", root), nil, io.Discard)
+		var usage usageError
+		if !errors.As(err, &usage) || usage.code != "invalid_request" || !strings.HasSuffix(usage.message, missing) {
+			t.Fatalf("%s: %v", args, err)
+		}
+	}
+	for _, args := range []string{"work", "work unknown", "claim release x", "work propose x --as c:x --if-revision 1",
+		"work propose x --as c:x --if-revision 1 --proposed-assignee a --clear-assignee", "work get x --as c:x --if-revision 1",
+		"work get x y --as c:x"} {
+		if err := run(context.Background(), append(strings.Fields(args), "--state-dir", root), nil, io.Discard); err == nil {
+			t.Fatalf("accepted: %s", args)
+		}
+	}
+	if _, err := os.Stat(root); !errors.Is(err, os.ErrNotExist) {
+		t.Fatal("refused commands created state")
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	ready := make(chan []byte, 1)
+	done := make(chan error, 1)
+	go func() {
+		done <- run(ctx, []string{"serve", "--state-dir", root, "--listen", "127.0.0.1:0", "--listen-v6", "[::1]:0"}, nil, output{ready})
+	}()
+	var status struct {
+		Listeners []string `json:"listeners"`
+	}
+	select {
+	case body := <-ready:
+		json.Unmarshal(body, &status)
+	case err := <-done:
+		t.Fatalf("startup: %v", err)
+	case <-time.After(15 * time.Second):
+		t.Fatal("startup deadline")
+	}
+	address := status.Listeners[0]
+	secret, _ := core.ReadSecret(root)
+	repo := t.TempDir()
+	if out, err := exec.Command("git", "init", "-q", repo).CombinedOutput(); err != nil {
+		t.Fatalf("git init: %v %s", err, out)
+	}
+	if _, err := core.Call(context.Background(), address, secret, "/v1/sessions/register", core.Registration{Family: "deepseek", ID: "synthetic-d", Repository: repo, Directory: repo}); err != nil {
+		t.Fatal(err)
+	}
+	work := func(args ...string) (map[string]any, error) {
+		var out bytes.Buffer
+		args = append(append([]string{}, args...), "--state-dir", root, "--address", address, "--as", "deepseek:synthetic-d")
+		if err := run(context.Background(), args, nil, &out); err != nil {
+			return nil, err
+		}
+		var result map[string]any
+		json.Unmarshal(out.Bytes(), &result)
+		return result["result"].(map[string]any), nil
+	}
+	deadline := fmt.Sprint(time.Now().Unix() + 600)
+	created, err := work("work", "create", "--title", "t", "--criteria", "c", "--non-goals", "n", "--key", "k", "--deadline", deadline,
+		"--proposed-assignee", "codex:x", "--reference", "r1", "--reference", "r2")
+	if err != nil {
+		t.Fatal(err)
+	}
+	id := created["work_id"].(string)
+	if _, err := work("work", "propose", id, "--if-revision", "1", "--clear-assignee"); err != nil {
+		t.Fatal(err)
+	}
+	if item, err := work("work", "get", id); err != nil || item["proposed_assignee"] != nil || len(item["references"].([]any)) != 2 {
+		t.Fatalf("propose clear: %v %v", item, err)
+	}
+	started, err := work("work", "start", id, "--if-revision", "2", "--checkpoint", "c", "--next-artifact", "a",
+		"--progress-deadline", deadline, "--key", "s", "--deadline", deadline, "--path-resource", "docs", "--exact-resource", "db")
+	if err != nil {
+		t.Fatal(err)
+	}
+	generation := fmt.Sprint(started["claim"].(map[string]any)["generation"])
+	if item, err := work("work", "get", id); err != nil || len(item["current_claim"].(map[string]any)["resources"].([]any)) != 3 ||
+		item["current_claim"].(map[string]any)["consumer"] != "deepseek:synthetic-d" {
+		t.Fatalf("resources: %v %v", item, err)
+	}
+	if r, err := work("claim", "renew", id, "--claim-generation", generation, "--if-claim-revision", "1"); err != nil || r["seq"] != nil {
+		t.Fatalf("renew: %v %v", r, err)
+	}
+	if r, err := work("work", "list", "--lifecycle", "active"); err != nil || len(r["items"].([]any)) != 1 {
+		t.Fatalf("list: %v %v", r, err)
+	}
+	var refused core.RefusedError
+	if _, err := work("work", "start", id, "--if-revision", "3", "--checkpoint", "c", "--next-artifact", "a", "--progress-deadline",
+		deadline, "--key", "s2", "--deadline", deadline, "--consumer", "other"); !errors.As(err, &refused) || refused.Code != "claim_conflict" || len(refused.Details) == 0 {
+		t.Fatalf("conflict: %v", err)
+	}
+	if _, err := work("work", "finish", id, "--if-revision", "3", "--claim-generation", generation, "--outcome", "completed",
+		"--reference", "synthetic-pr"); err != nil {
+		t.Fatal(err)
 	}
 	cancel()
 	<-done

@@ -33,6 +33,7 @@ type Daemon struct {
 	closeOnce sync.Once
 	closeErr  error
 	errors    chan error
+	stop      chan struct{}
 }
 
 func validAddress(address string) bool {
@@ -66,7 +67,7 @@ func Start(c Config) (*Daemon, error) {
 	if err != nil {
 		return nil, err
 	}
-	d := &Daemon{lock: lock, errors: make(chan error, 2)}
+	d := &Daemon{lock: lock, errors: make(chan error, 2), stop: make(chan struct{})}
 	defer func() {
 		if err != nil {
 			d.Close()
@@ -93,6 +94,8 @@ func Start(c Config) (*Daemon, error) {
 		}
 		d.listeners = append(d.listeners, listener)
 	}
+	d.wg.Add(1)
+	go d.maintainWork()
 	for _, listener := range d.listeners {
 		server := &http.Server{Handler: d.handler(), ReadHeaderTimeout: 5 * time.Second, ReadTimeout: 10 * time.Second, WriteTimeout: 10 * time.Second, IdleTimeout: 30 * time.Second, MaxHeaderBytes: 8192}
 		d.servers = append(d.servers, server)
@@ -119,6 +122,7 @@ func (d *Daemon) Errors() <-chan error { return d.errors }
 
 func (d *Daemon) Close() error {
 	d.closeOnce.Do(func() {
+		close(d.stop)
 		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 		defer cancel()
 		for _, s := range d.servers {
@@ -149,6 +153,19 @@ func respond(w http.ResponseWriter, status int, value any) {
 }
 
 func failure(w http.ResponseWriter, err error) {
+	var work WorkRefusal
+	if errors.As(err, &work) {
+		status := http.StatusConflict
+		if work.Code == "invalid_request" {
+			status = http.StatusBadRequest
+		}
+		body := map[string]any{"ok": false, "code": work.Code, "error": work.Message}
+		if work.Details != nil {
+			body["details"] = work.Details
+		}
+		respond(w, status, body)
+		return
+	}
 	var refusal Refusal
 	if errors.As(err, &refusal) {
 		status := http.StatusConflict
@@ -271,6 +288,7 @@ func (d *Daemon) handler() http.Handler {
 	}
 	d.messageRoutes(mux)
 	d.memoryRoutes(mux)
+	d.workRoutes(mux)
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		// This API uses only bearer authentication. Browser origins are refused;
 		// dashboard cookies and CSRF checks belong to the later dashboard chunk.
@@ -295,8 +313,12 @@ func GetStatus(ctx context.Context, address, secret string) (json.RawMessage, er
 // ErrUnavailable reports that no daemon answered at the address.
 var ErrUnavailable = errors.New("daemon unavailable")
 
-// RefusedError carries the daemon's typed code for a refused request.
-type RefusedError struct{ Code string }
+// RefusedError carries the daemon's typed code for a refused request, and the bounded
+// details of a work refusal, such as the holder of a conflicting claim.
+type RefusedError struct {
+	Code    string
+	Details json.RawMessage
+}
 
 func (e RefusedError) Error() string { return "daemon refused request: " + e.Code }
 
@@ -340,12 +362,13 @@ func Call(ctx context.Context, address, secret, path string, body any) (json.Raw
 	}
 	if response.StatusCode != 200 {
 		var refusal struct {
-			Code string `json:"code"`
+			Code    string          `json:"code"`
+			Details json.RawMessage `json:"details"`
 		}
 		if json.Unmarshal(data, &refusal) != nil || refusal.Code == "" || len(refusal.Code) > 64 {
 			return nil, errors.New("daemon refused request")
 		}
-		return nil, RefusedError{refusal.Code}
+		return nil, RefusedError{Code: refusal.Code, Details: refusal.Details}
 	}
 	return data, nil
 }
