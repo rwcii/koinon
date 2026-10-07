@@ -32,7 +32,11 @@ func (r *recorder) run(_ context.Context, argv ...string) ([]byte, error) {
 		r.running = true
 	case strings.Contains(command, "disable --now") || strings.Contains(command, "bootout"):
 		r.running = false
-	case strings.Contains(command, "is-active") || strings.HasPrefix(command, "launchctl print gui/501/"):
+	case strings.HasPrefix(command, "launchctl print gui/501/"):
+		if !r.running {
+			return []byte("Could not find service"), errors.New("exit status 113")
+		}
+	case strings.Contains(command, "is-active"):
 		if !r.running {
 			return []byte("inactive"), errors.New("exit 3")
 		}

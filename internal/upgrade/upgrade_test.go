@@ -12,6 +12,7 @@ import (
 	"syscall"
 	"testing"
 
+	"github.com/rwcii/koinon/internal/core"
 	"github.com/rwcii/koinon/internal/importer"
 	"github.com/rwcii/koinon/internal/install"
 	"github.com/rwcii/koinon/internal/legacy"
@@ -479,5 +480,45 @@ func TestInterruptedImportRecovers(t *testing.T) {
 	}
 	if _, err := os.Stat(filepath.Join(f.goState, "import", "journal.json")); !os.IsNotExist(err) {
 		t.Fatalf("import record left: %v", err)
+	}
+}
+
+// TestResumeRejectsAnUnrelatedTarget (review F3 follow-up): after a crash before the
+// swap, another Go writer fills the target; the resume imports nothing, never removes
+// Python, and gives the Python runtime back.
+func TestResumeRejectsAnUnrelatedTarget(t *testing.T) {
+	f := newFixture(t)
+	original, _ := os.ReadFile(filepath.Join(f.prefix, "install.json"))
+	o := f.options(f.good())
+	o.Hook = func(p string) error {
+		if p == "before:swap" {
+			return ErrCrash
+		}
+		return nil
+	}
+	if _, err := Run(context.Background(), o); !errors.Is(err, ErrCrash) {
+		t.Fatal(err)
+	}
+	root, _ := filepath.EvalSymlinks(f.goState)
+	other, err := core.OpenImportStore(root, "state.sqlite3")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := other.Register(context.Background(), core.Registration{Family: "claude", ID: "unrelated", Directory: t.TempDir(), TTLSeconds: 60}); err != nil {
+		t.Fatal(err)
+	}
+	other.Close()
+	result, err := Run(context.Background(), f.options(f.good()))
+	if err == nil || !strings.Contains(err.Error(), "target_not_empty") || result.Phase != phaseEnded {
+		t.Fatalf("unrelated target: %+v %v", result, err)
+	}
+	if f.uninstalls != 0 || len(f.installs) != 0 || len(f.starts) != 1 {
+		t.Fatalf("acted on an unrelated target: uninstalls %d installs %d starts %v", f.uninstalls, len(f.installs), f.starts)
+	}
+	if after, _ := os.ReadFile(filepath.Join(f.prefix, "install.json")); string(after) != string(original) {
+		t.Fatalf("install.json not restored: %s", after)
+	}
+	if n := len(f.messages(t)); n != 0 {
+		t.Fatalf("the unrelated target received %d imported messages", n)
 	}
 }

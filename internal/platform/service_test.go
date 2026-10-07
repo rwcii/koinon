@@ -75,7 +75,8 @@ func TestRemoveDaemonRefusesAFailedStop(t *testing.T) {
 			t.Fatalf("%s: the artifact of a running service was removed: %v", backend, err)
 		}
 	}
-	// An unknown observation is a failure, never a stopped service.
+	// An unknown observation is a failure, never a stopped service, on both managers: a
+	// refused stop followed by an observation that fails for another reason.
 	s, _ := fakeServices(t, "systemd", func(argv []string) ([]byte, error) {
 		if argv[2] == "is-active" {
 			return []byte("garbled"), errors.New("exit 4")
@@ -85,6 +86,24 @@ func TestRemoveDaemonRefusesAFailedStop(t *testing.T) {
 	s.WriteDaemon("/opt/koinon", "/state")
 	if _, err := s.RemoveDaemon(context.Background()); err == nil || !strings.Contains(err.Error(), "service_stop_failed") {
 		t.Fatalf("unknown observation: %v", err)
+	}
+	l, _ := fakeServices(t, "launchd", func(argv []string) ([]byte, error) {
+		switch {
+		case argv[1] == "print" && strings.Count(argv[2], "/") == 1:
+			return nil, nil
+		case argv[1] == "bootout":
+			return []byte("Boot-out failed: 5: Input/output error"), errors.New("exit status 5")
+		case argv[1] == "print":
+			return []byte("IPC error"), errors.New("exit status 5")
+		}
+		return nil, nil
+	})
+	l.WriteDaemon("/opt/koinon", "/state")
+	if removed, err := l.RemoveDaemon(context.Background()); err == nil || removed || !strings.Contains(err.Error(), "service_stop_failed") {
+		t.Fatalf("launchd unknown observation: %v %v", removed, err)
+	}
+	if _, err := os.Stat(l.DaemonArtifact()); err != nil {
+		t.Fatalf("launchd artifact removed after an unconfirmed stop: %v", err)
 	}
 }
 

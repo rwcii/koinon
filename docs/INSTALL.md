@@ -93,6 +93,11 @@ The upgrade recovers as follows:
 - **A crash.** A crashed run is resumed by running the same command again. A resume first
   observes each recorded action again. It refuses with `source_changed` when `install.json`
   (apart from the marker) or the list of Python services changed after the attempt began.
+  A state database counts as this attempt's import only when two things hold: its import
+  records equal the source digests that the attempt recorded before the rename, and a fresh
+  capture of the excluded sources verifies against it. Records from any other writer end the
+  attempt with `target_not_empty`, and the Python runtime is restored. When that check cannot
+  be completed, the Python runtime stays excluded until the next run.
 
 `koinon upgrade --status [--state-dir DIR]` prints the journal. The upgrade does not roll back
 a completed attempt. The Python state tree is never deleted.

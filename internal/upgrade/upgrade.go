@@ -270,9 +270,15 @@ func Run(ctx context.Context, o Options) (Result, error) {
 		return result, err
 	}
 	if r.j.Phase == phaseStopped {
-		// The swap is decided by the files, not by the phase: a failure after the rename,
-		// before its phase was saved, keeps the import and resumes.
-		if empty, terr := targetEmpty(ctx, r.o.StateDir); terr != nil || !empty {
+		// The swap is decided by the files, not by the phase. A failure after the rename,
+		// before its phase was saved, keeps the import and resumes; a target that cannot
+		// be shown to be this attempt's import, or not at all, keeps the exclusion.
+		state, terr := r.lockedTargetState(ctx)
+		switch {
+		case terr != nil:
+			result = r.result()
+			return result, fmt.Errorf("%w; the Go state could not be checked (%v), so the Python runtime stays excluded: rerun koinon upgrade --from-python", err, terr)
+		case state == "ours":
 			r.j.Phase, r.j.Intent = phaseSwapped, ""
 			r.save()
 			result = r.result()
@@ -295,6 +301,76 @@ func (r *run) result() Result {
 	res := Result{Phase: r.j.Phase, Attempt: r.j.Attempt, Import: r.j.Report}
 	res.OK = r.j.Phase == phaseComplete
 	return res
+}
+
+// lockedTargetState is targetState under the daemon lock.
+func (r *run) lockedTargetState(ctx context.Context) (string, error) {
+	lock, err := platform.Lock(filepath.Join(r.o.StateDir, "daemon.lock"))
+	if err != nil {
+		return "", errors.New("daemon_running: a Go daemon runs on this state directory")
+	}
+	defer platform.Unlock(lock)
+	return r.targetState(ctx)
+}
+
+// targetState says what the Go state database holds: "empty"; "ours", exactly this
+// attempt's verified import; or "other". A target is ours only when its import records
+// equal the source digests this attempt recorded before its rename, and a fresh capture
+// of the excluded sources verifies against it. The caller holds the daemon lock.
+func (r *run) targetState(ctx context.Context) (string, error) {
+	empty, err := targetEmpty(ctx, r.o.StateDir)
+	if err != nil {
+		return "", err
+	}
+	if empty {
+		return "empty", nil
+	}
+	if r.j.Report == nil {
+		return "other", nil
+	}
+	want := map[string]string{}
+	for _, line := range r.j.Report.Sources {
+		want[line.Path] = line.Digest
+	}
+	target, err := core.OpenImportStore(r.o.StateDir, "state.sqlite3")
+	if err != nil {
+		return "", err
+	}
+	records, err := target.ImportRecords(ctx)
+	if err = errors.Join(err, target.Close()); err != nil {
+		return "", err
+	}
+	if len(records) != len(want) {
+		return "other", nil
+	}
+	for _, record := range records {
+		if want[record.Source] != record.Digest {
+			return "other", nil
+		}
+	}
+	i, err := legacy.ReadInstall(r.j.PythonPrefix)
+	if err != nil {
+		return "", err
+	}
+	p := importer.Paths{Root: r.o.StateDir, Attempt: r.j.Attempt + "-check"}
+	defer os.RemoveAll(p.Captures())
+	prepared, err := importer.CaptureAll(ctx, r.j.StateRoot, i, r.j.Repositories, p)
+	if err != nil {
+		return "", err
+	}
+	for _, item := range prepared {
+		if want[item.Import.Path] != item.Import.Digest {
+			return "other", nil
+		}
+	}
+	if _, err := importer.Verify(ctx, prepared, p); err != nil {
+		var refusal core.Refusal
+		if errors.As(err, &refusal) && (refusal.Code == "verify_failed" || refusal.Code == "source_changed" || refusal.Code == "not_imported") {
+			return "other", nil
+		}
+		return "", err
+	}
+	return "ours", nil
 }
 
 // begin runs the preflight and records a new attempt.
@@ -498,15 +574,16 @@ func (r *run) importState(ctx context.Context) (*importer.Report, error) {
 	}
 	defer platform.Unlock(lock)
 	p := r.paths()
-	// The preflight found the target empty and this attempt holds the daemon lock, so a
-	// non-empty target is this attempt's swapped import, whatever the journal says.
-	empty, err := targetEmpty(ctx, o.StateDir)
-	if err != nil {
+	// A previous run of this attempt may have renamed its import into place without
+	// recording it; any other records in the target were written by someone else.
+	switch state, err := r.targetState(ctx); {
+	case err != nil:
 		return nil, err
-	}
-	if !empty {
+	case state == "ours":
 		j.Intent = ""
 		return j.Report, nil
+	case state == "other":
+		return nil, errors.New("target_not_empty: another writer put records in the Go state during this attempt; nothing was imported")
 	}
 	i, err := legacy.ReadInstall(j.PythonPrefix)
 	if err != nil {

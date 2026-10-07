@@ -286,11 +286,19 @@ type Unit struct {
 	Artifact string `json:"artifact,omitempty"`
 }
 
-// Active reports whether a unit is running (systemd) or loaded (launchd).
+// Active reports whether a unit is running (systemd) or loaded (launchd). Only the
+// manager's own answer that the unit is absent counts as stopped; any other failure to
+// observe it is an error.
 func (s Services) Active(ctx context.Context, u Unit) (bool, error) {
 	if s.Backend == "launchd" {
-		_, err := s.Run(ctx, "launchctl", "print", s.domain()+"/"+u.Name)
-		return err == nil, nil
+		out, err := s.Run(ctx, "launchctl", "print", s.domain()+"/"+u.Name)
+		switch {
+		case err == nil:
+			return true, nil
+		case launchdAbsent(out, err):
+			return false, nil
+		}
+		return false, fmt.Errorf("cannot observe %s: %v: %s", u.Name, err, strings.TrimSpace(string(out)))
 	}
 	out, err := s.Run(ctx, "systemctl", "--user", "is-active", u.Name)
 	state := strings.TrimSpace(string(out))
@@ -305,11 +313,21 @@ func (s Services) Active(ctx context.Context, u Unit) (bool, error) {
 	return false, fmt.Errorf("cannot observe %s: %s", u.Name, state)
 }
 
+// launchdAbsent recognizes launchctl's answer for a service that is not loaded: exit
+// status 113, "Could not find service".
+func launchdAbsent(out []byte, err error) bool {
+	return strings.Contains(string(out), "Could not find service") || strings.HasSuffix(err.Error(), "exit status 113") || err.Error() == "113"
+}
+
 // Stop stops a unit without removing it, and waits until it is observed stopped;
 // launchd unloads the agent.
 func (s Services) Stop(ctx context.Context, u Unit) error {
 	if s.Backend == "launchd" {
-		if active, _ := s.Active(ctx, u); !active {
+		active, err := s.Active(ctx, u)
+		if err != nil {
+			return err
+		}
+		if !active {
 			return nil
 		}
 		if out, err := s.Run(ctx, "launchctl", "bootout", s.domain()+"/"+u.Name); err != nil {
@@ -326,7 +344,11 @@ func (s Services) Stop(ctx context.Context, u Unit) error {
 // Start starts a unit again; launchd loads its agent file.
 func (s Services) Start(ctx context.Context, u Unit) error {
 	if s.Backend == "launchd" {
-		if active, _ := s.Active(ctx, u); !active {
+		active, err := s.Active(ctx, u)
+		if err != nil {
+			return err
+		}
+		if !active {
 			if u.Artifact == "" {
 				return fmt.Errorf("no agent file to load %s", u.Name)
 			}
