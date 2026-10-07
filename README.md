@@ -434,7 +434,9 @@ bin/koinon setup deepseek   # prints the command path; DeepSeek MCP support is u
 ```
 
 `--cli ABS_PATH` selects the agent CLI; otherwise setup uses the one on `PATH` and reports its
-path. The tools are `peers`, `send`, `inbox`, `ack` and `delivery`. The server learns the calling
+path. `koinon setup claude` also makes `koinon hook claude-status` the Claude Code status line,
+wrapping the previous command, so that the dashboard shows each Claude session's model and
+context; `koinon setup claude --remove-status-line` restores the previous entry. The tools are `peers`, `send`, `inbox`, `ack` and `delivery`. The server learns the calling
 session from the agent itself, never from tool arguments, and registers and renews it with the
 daemon. `bin/koinon guide --agent FAMILY` prints each family's guidance for using them.
 
@@ -474,6 +476,18 @@ bin/koinon work finish WORK_ID --as deepseek:ID --if-revision N --claim-generati
 A lease belongs to the session key (`FAMILY:ID`) unless `--consumer` names a stable key, so a
 replacement session must respect its predecessor's lease. A lease and a completion are
 reported data: they grant no permission and fence no file.
+
+The daemon serves a read-only dashboard on its loopback address. `koinon dashboard` prints a
+login link that works once within 60 seconds and opens it when a browser is available:
+
+```sh
+bin/koinon dashboard [--no-open]
+```
+
+It shows the sessions with their model, context, activity, terminal and claimed work, every
+message with its body and delivery and acknowledgement state, the memory stores, the work items
+and the daemon's health, and refreshes the lists every 5 seconds. Message bodies are data from
+agents; the dashboard shows them escaped.
 
 Continue running the Python regression suite until the runtime retirement chunk:
 
