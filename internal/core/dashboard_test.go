@@ -394,7 +394,7 @@ func TestDashboardViewsRenderSyntheticState(t *testing.T) {
 	if strings.Contains(messages, "<script>alert") || strings.Contains(messages, `href="javascript:`) {
 		t.Fatal("message body not escaped")
 	}
-	if got := strings.Count(messages, "<td>yes</td>"); got != 1 {
+	if got := strings.Count(messages, "<td>yes<br><small>by recipient</small></td>"); got != 1 {
 		t.Fatalf("acknowledged messages: %d", got)
 	}
 	contains(page("/dashboard/messages?to="+b.Name), "first message")
@@ -411,7 +411,7 @@ func TestDashboardViewsRenderSyntheticState(t *testing.T) {
 	work := page("/dashboard/work")
 	contains(work, open, held, "codex:synthetic-a", "internal/core", "db:schema", "valid until", "open", "active")
 	health := page("/dashboard/health")
-	contains(health, "running since", "schema 6", d.Addresses()[0], "1 retired")
+	contains(health, "running since", "schema 7", d.Addresses()[0], "1 retired")
 	// A fragment is the list alone, for the in-place refresh.
 	fragment := page("/dashboard/work?fragment=1")
 	if strings.Contains(fragment, "<html") || !strings.Contains(fragment, held) {

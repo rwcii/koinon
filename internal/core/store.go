@@ -195,7 +195,7 @@ func checkFormat(db *sql.DB, path string) error {
 	return nil
 }
 
-const schemaVersion = 6
+const schemaVersion = 7
 
 // migrate brings the state schema from version to target in one transaction, so a crash
 // leaves either the old or the new schema. Each step starts from the version before it.
@@ -372,6 +372,22 @@ func migrate(db *sql.DB, version, target int) error {
 			return err
 		}
 	}
+	if version < 7 && target >= 7 {
+		// Version 7: dashboard actions (sprint chunk 09). The audit log; a 0/1 flag for a
+		// message that the maintainer acknowledged, which format 4 rewrites in place; and
+		// the built-in maintainer session, which has an inbox and never expires.
+		if _, err := tx.Exec(`ALTER TABLE messages ADD COLUMN maintainer_ack INTEGER NOT NULL DEFAULT 0;
+			CREATE TABLE audit (
+				id INTEGER PRIMARY KEY AUTOINCREMENT, at INTEGER NOT NULL, action TEXT NOT NULL,
+				target TEXT NOT NULL, result TEXT NOT NULL, reason TEXT NOT NULL DEFAULT ''
+			);
+			CREATE INDEX audit_at ON audit(at);
+			INSERT INTO sessions(family,id,repository,directory,wake_target,registered_at,renewed_at,expires_at,retired_at,revision)
+				VALUES ('maintainer','maintainer','','','{}',0,0,9007199254740991,0,1);
+			INSERT INTO names(name,kind,family,session_id) VALUES ('maintainer','peer','maintainer','maintainer');`); err != nil {
+			return err
+		}
+	}
 	if _, err := tx.Exec(fmt.Sprintf("PRAGMA user_version=%d", target)); err != nil {
 		return err
 	}
@@ -427,6 +443,10 @@ func checkCatalog(db *sql.DB, version int) error {
 	}
 	return nil
 }
+
+// maintainerKey is the built-in session of the maintainer (sprint chunk 09). Only the
+// dashboard acts as it; validKey refuses it, so no /v1/ caller can.
+var maintainerKey = Key{Family: "maintainer", ID: "maintainer"}
 
 func validKey(family, id string) bool {
 	switch family {
@@ -628,7 +648,8 @@ func (s *Store) Mutate(ctx context.Context, r Mutation, retire bool) (Session, e
 }
 
 func (s *Store) List(ctx context.Context) ([]Session, bool, error) {
-	rows, err := s.db.QueryContext(ctx, sessionQuery+` ORDER BY s.family,s.id LIMIT 1001`)
+	// The built-in maintainer session is not an agent session; Peers adds it.
+	rows, err := s.db.QueryContext(ctx, sessionQuery+` WHERE s.family!='maintainer' ORDER BY s.family,s.id LIMIT 1001`)
 	if err != nil {
 		return nil, false, err
 	}
@@ -655,7 +676,7 @@ func (s *Store) List(ctx context.Context) ([]Session, bool, error) {
 func (s *Store) Counts(ctx context.Context) (map[string]int64, error) {
 	counts := map[string]int64{"total": 0, "active": 0, "expired": 0, "retired": 0}
 	rows, err := s.db.QueryContext(ctx, `SELECT CASE WHEN retired_at!=0 THEN 'retired'
-		WHEN expires_at<=? THEN 'expired' ELSE 'active' END,COUNT(*) FROM sessions GROUP BY 1`, s.now().UnixMilli())
+		WHEN expires_at<=? THEN 'expired' ELSE 'active' END,COUNT(*) FROM sessions WHERE family!='maintainer' GROUP BY 1`, s.now().UnixMilli())
 	if err != nil {
 		return nil, err
 	}

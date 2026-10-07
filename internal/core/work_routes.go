@@ -56,6 +56,8 @@ func (d *Daemon) maintainWork() {
 	for {
 		ctx, cancel := contextUntil(d.stop, time.Minute)
 		d.store.MaintainWork(ctx)
+		// The audit log keeps 90 days and at most auditMax records (sprint chunk 09).
+		d.store.trimAudit(ctx)
 		cancel()
 		select {
 		case <-d.stop:

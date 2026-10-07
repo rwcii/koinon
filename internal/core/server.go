@@ -37,6 +37,10 @@ type Daemon struct {
 	closeErr  error
 	errors    chan error
 	stop      chan struct{}
+	// root is the private state directory; launch runs the launcher for a dashboard start
+	// (sprint chunk 09), replaced in tests.
+	root   string
+	launch func(ctx context.Context, args []string) ([]byte, error)
 }
 
 func validAddress(address string) bool {
@@ -70,7 +74,7 @@ func Start(c Config) (*Daemon, error) {
 	if err != nil {
 		return nil, err
 	}
-	d := &Daemon{lock: lock, errors: make(chan error, 2), stop: make(chan struct{})}
+	d := &Daemon{lock: lock, errors: make(chan error, 2), stop: make(chan struct{}), root: root, launch: runLauncher}
 	defer func() {
 		if err != nil {
 			d.Close()
@@ -190,6 +194,26 @@ func failure(w http.ResponseWriter, err error) {
 		respond(w, status, map[string]any{"ok": false, "code": refusal.Code, "error": refusal.Message})
 		return
 	}
+	status, code := plainError(err)
+	// Do not return database paths, credentials or submitted session content.
+	respond(w, status, map[string]any{"ok": false, "code": code})
+}
+
+// errorCode is the stable code of any store error, as failure reports it.
+func errorCode(err error) string {
+	var work WorkRefusal
+	if errors.As(err, &work) {
+		return work.Code
+	}
+	var refusal Refusal
+	if errors.As(err, &refusal) {
+		return refusal.Code
+	}
+	_, code := plainError(err)
+	return code
+}
+
+func plainError(err error) (int, string) {
 	status, code := http.StatusInternalServerError, "storage_error"
 	switch {
 	case errors.Is(err, ErrInvalid):
@@ -211,8 +235,7 @@ func failure(w http.ResponseWriter, err error) {
 	case errors.Is(err, ErrMessageNotFound):
 		status, code = http.StatusNotFound, "message_not_found"
 	}
-	// Do not return database paths, credentials or submitted session content.
-	respond(w, status, map[string]any{"ok": false, "code": code})
+	return status, code
 }
 
 func decode(w http.ResponseWriter, r *http.Request, value any) error {

@@ -138,7 +138,7 @@ func (s *Store) wakeStep(ctx context.Context) error {
 	rows, err := s.db.QueryContext(ctx, `SELECT DISTINCT m.recipient_family,m.recipient_id FROM messages m
  JOIN sessions s ON s.family=m.recipient_family AND s.id=m.recipient_id
  WHERE m.delivery_state IN ('waiting','uncertain') AND m.seq>s.acked_through AND s.retired_at=0 AND s.expires_at>?
- AND s.family<>'agy' AND (m.wake_next_at<=? OR m.wake_next_at>?) ORDER BY m.recipient_family,m.recipient_id LIMIT 16`, s.now().UnixMilli(), s.now().UnixMilli(), s.now().UnixMilli()+wakeBackoffMax.Milliseconds())
+ AND s.family NOT IN ('agy','maintainer') AND (m.wake_next_at<=? OR m.wake_next_at>?) ORDER BY m.recipient_family,m.recipient_id LIMIT 16`, s.now().UnixMilli(), s.now().UnixMilli(), s.now().UnixMilli()+wakeBackoffMax.Milliseconds())
 	if err != nil {
 		return err
 	}
@@ -205,7 +205,8 @@ func (d *Daemon) maintainWake() {
 func (s *Store) WakeHealth(ctx context.Context) (map[string]any, error) {
 	var waiting, uncertain, notified int64
 	err := s.db.QueryRowContext(ctx, `SELECT COALESCE(SUM(m.delivery_state='waiting'),0),COALESCE(SUM(m.delivery_state='uncertain'),0),COALESCE(SUM(m.delivery_state='notified'),0)
- FROM messages m JOIN sessions s ON s.family=m.recipient_family AND s.id=m.recipient_id WHERE m.seq>s.acked_through`).Scan(&waiting, &uncertain, &notified)
+ FROM messages m JOIN sessions s ON s.family=m.recipient_family AND s.id=m.recipient_id WHERE m.seq>s.acked_through
+ AND s.family!='maintainer'`).Scan(&waiting, &uncertain, &notified)
 	if err != nil {
 		return nil, err
 	}

@@ -5,6 +5,11 @@ into a dated release section when promoted to `main`.
 
 ## Unreleased
 
+- The Go daemon dashboard now has actions: retire a session, release a claim on its owner's
+  behalf, acknowledge or clear an inbox, send a message as the built-in `maintainer` session
+  (agents can reply to it), and start a Codex, `agy` or OpenCode session in a new tmux session.
+  Each action writes one record to an audit log (90 days, at most 10,000 records), shown in the
+  new audit view. Acknowledged messages report `acknowledged_by`. The state schema is now 7.
 - The Go runtime's `koinon mcp` now names a Claude session's or a launched session's own tmux
   session after its published name (its alias, such as `claude-koinon`, else its peer name). It
   renames only a session that it proves to be that agent's own and titles only its own pane in

@@ -509,8 +509,8 @@ A lease belongs to the session key (`FAMILY:ID`) unless `--consumer` names a sta
 replacement session must respect its predecessor's lease. A lease and a completion are
 reported data: they grant no permission and fence no file.
 
-The daemon serves a read-only dashboard on its loopback address. `koinon dashboard` prints a
-login link that works once within 60 seconds and opens it when a browser is available:
+The daemon serves a dashboard on its loopback address. `koinon dashboard` prints a login link
+that works once within 60 seconds and opens it when a browser is available:
 
 ```sh
 bin/koinon dashboard [--no-open]
@@ -519,7 +519,10 @@ bin/koinon dashboard [--no-open]
 It shows the sessions with their model, context, activity, terminal and claimed work, every
 message with its body and delivery and acknowledgement state, the memory stores, the work items
 and the daemon's health, and refreshes the lists every 5 seconds. Message bodies are data from
-agents; the dashboard shows them escaped.
+agents; the dashboard shows them escaped. From it you can retire a session, release a
+claim, acknowledge or clear an inbox (nothing is deleted), send a message as `maintainer`, and
+start a Codex, `agy` or OpenCode session in a new tmux session. Agents can reply to
+`maintainer`; the replies show on the messages view. Each action is recorded in the audit view.
 
 Continue running the Python regression suite until the runtime retirement chunk:
 

@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"errors"
+	"strconv"
 	"unicode/utf8"
 )
 
@@ -35,6 +36,8 @@ type Message struct {
 	DeliveryState  string `json:"delivery_state"`
 	DeliveryReason string `json:"delivery_reason,omitempty"`
 	Acknowledged   bool   `json:"acknowledged"`
+	// AcknowledgedBy is recipient or maintainer for an acknowledged message (chunk 09).
+	AcknowledgedBy string `json:"acknowledged_by,omitempty"`
 }
 
 type Inbox struct {
@@ -52,11 +55,29 @@ type Outcome struct {
 	DeliveryReason string `json:"delivery_reason,omitempty"`
 	UpdatedAt      int64  `json:"updated_at"`
 	Acknowledged   bool   `json:"acknowledged"`
+	AcknowledgedBy string `json:"acknowledged_by,omitempty"`
+}
+
+// acknowledgedBy names who acknowledged a message: the maintainer when the dashboard
+// marked it, otherwise the recipient.
+func acknowledgedBy(acknowledged, maintainer bool) string {
+	switch {
+	case !acknowledged:
+		return ""
+	case maintainer:
+		return "maintainer"
+	}
+	return "recipient"
 }
 
 // active confirms in tx that the caller is an active session.
 func active(ctx context.Context, tx *sql.Tx, now int64, caller Key) error {
-	if !validKey(caller.Family, caller.ID) {
+	return activeCaller(ctx, tx, now, caller, false)
+}
+
+// activeCaller also accepts the built-in maintainer session when the dashboard calls.
+func activeCaller(ctx context.Context, tx *sql.Tx, now int64, caller Key, dashboard bool) error {
+	if !validKey(caller.Family, caller.ID) && !(dashboard && caller == maintainerKey) {
 		return ErrInvalid
 	}
 	var found int
@@ -95,10 +116,12 @@ func (s *Store) Peers(ctx context.Context, caller Key) ([]Peer, bool, error) {
 	if err != nil {
 		return nil, false, err
 	}
-	peers := make([]Peer, 0, len(items))
+	peers := make([]Peer, 0, len(items)+1)
 	for _, item := range items {
 		peers = append(peers, Peer{Name: item.Name, Alias: item.Alias, Family: item.Family, State: item.State, Repository: item.Repository})
 	}
+	// Agents can send to the maintainer, who reads the inbox in the dashboard (chunk 09).
+	peers = append(peers, Peer{Name: "maintainer", Family: maintainerKey.Family, State: "active"})
 	return peers, truncated, nil
 }
 
@@ -106,6 +129,10 @@ func (s *Store) Peers(ctx context.Context, caller Key) ([]Peer, bool, error) {
 // sequence number and the message are written in one transaction, so a crash leaves
 // either both or neither, and sequence numbers stay gapless.
 func (s *Store) Send(ctx context.Context, caller Key, to, body string) (Outcome, error) {
+	return s.send(ctx, caller, to, body, false)
+}
+
+func (s *Store) send(ctx context.Context, caller Key, to, body string, dashboard bool) (Outcome, error) {
 	if to == "" || len(to) > 256 || body == "" || len(body) > maxBody || !utf8.ValidString(body) {
 		return Outcome{}, ErrInvalid
 	}
@@ -115,7 +142,7 @@ func (s *Store) Send(ctx context.Context, caller Key, to, body string) (Outcome,
 		return Outcome{}, err
 	}
 	defer tx.Rollback()
-	if err := active(ctx, tx.Tx, now, caller); err != nil {
+	if err := activeCaller(ctx, tx.Tx, now, caller, dashboard); err != nil {
 		return Outcome{}, err
 	}
 	var kind, family, sessionID, repository, holder string
@@ -163,6 +190,9 @@ func (s *Store) Send(ctx context.Context, caller Key, to, body string) (Outcome,
 	if err != nil {
 		return Outcome{}, err
 	}
+	if p, _ := ctx.Value(auditContextKey{}).(*pendingAudit); p != nil && dashboard {
+		p.target += " message " + strconv.FormatInt(id, 10)
+	}
 	// The outcome names the receiving session by its peer name, also for a send to an alias.
 	if err := tx.QueryRowContext(ctx, `SELECT name FROM names WHERE kind='peer' AND family=? AND session_id=?`,
 		family, sessionID).Scan(&to); err != nil {
@@ -193,7 +223,7 @@ func (s *Store) ReadInbox(ctx context.Context, caller Key, after, limit int64) (
 		caller.Family, caller.ID).Scan(&result.LastSeq, &result.AckedThrough); err != nil {
 		return Inbox{}, err
 	}
-	rows, err := tx.QueryContext(ctx, `SELECT id,seq,sender_family,sender_name,body,created_at,delivery_state,delivery_reason
+	rows, err := tx.QueryContext(ctx, `SELECT id,seq,sender_family,sender_name,body,created_at,delivery_state,delivery_reason,maintainer_ack
 		FROM messages WHERE recipient_family=? AND recipient_id=? AND seq>? ORDER BY seq LIMIT ?`,
 		caller.Family, caller.ID, after, limit+1)
 	if err != nil {
@@ -203,7 +233,8 @@ func (s *Store) ReadInbox(ctx context.Context, caller Key, after, limit int64) (
 	size := 0
 	for rows.Next() {
 		var m Message
-		if err := rows.Scan(&m.ID, &m.Seq, &m.SenderFamily, &m.SenderName, &m.Body, &m.CreatedAt, &m.DeliveryState, &m.DeliveryReason); err != nil {
+		var maintainer bool
+		if err := rows.Scan(&m.ID, &m.Seq, &m.SenderFamily, &m.SenderName, &m.Body, &m.CreatedAt, &m.DeliveryState, &m.DeliveryReason, &maintainer); err != nil {
 			return Inbox{}, err
 		}
 		if int64(len(result.Messages)) == limit || (len(result.Messages) > 0 && size+len(m.Body) > 1<<20) {
@@ -212,6 +243,7 @@ func (s *Store) ReadInbox(ctx context.Context, caller Key, after, limit int64) (
 		}
 		size += len(m.Body)
 		m.Acknowledged = m.Seq <= result.AckedThrough
+		m.AcknowledgedBy = acknowledgedBy(m.Acknowledged, maintainer)
 		result.Messages = append(result.Messages, m)
 	}
 	if err := rows.Err(); err != nil {
@@ -223,9 +255,16 @@ func (s *Store) ReadInbox(ctx context.Context, caller Key, after, limit int64) (
 // Ack acknowledges the caller's own inbox through a sequence. Acknowledgement only moves
 // forward; an earlier sequence leaves it unchanged.
 func (s *Store) Ack(ctx context.Context, caller Key, through int64) (int64, error) {
+	return s.ack(ctx, caller, through, false)
+}
+
+// ack acknowledges an inbox through a sequence. The dashboard acknowledges any existing
+// inbox as the maintainer, also of an expired or retired session, and marks the newly
+// acknowledged messages; a negative through means the newest sequence at this moment.
+func (s *Store) ack(ctx context.Context, caller Key, through int64, dashboard bool) (int64, error) {
 	s.wake.mu.Lock()
 	defer s.wake.mu.Unlock()
-	if through < 0 {
+	if through < 0 && !dashboard {
 		return 0, ErrInvalid
 	}
 	// Acknowledgement is progress; it may use the reserve.
@@ -234,13 +273,22 @@ func (s *Store) Ack(ctx context.Context, caller Key, through int64) (int64, erro
 		return 0, err
 	}
 	defer tx.Rollback()
-	if err := active(ctx, tx.Tx, s.now().UnixMilli(), caller); err != nil {
-		return 0, err
+	if !dashboard {
+		if err := active(ctx, tx.Tx, s.now().UnixMilli(), caller); err != nil {
+			return 0, err
+		}
 	}
 	var last, acked int64
-	if err := tx.QueryRowContext(ctx, `SELECT last_seq,acked_through FROM sessions WHERE family=? AND id=?`,
-		caller.Family, caller.ID).Scan(&last, &acked); err != nil {
+	err = tx.QueryRowContext(ctx, `SELECT last_seq,acked_through FROM sessions WHERE family=? AND id=?`,
+		caller.Family, caller.ID).Scan(&last, &acked)
+	if dashboard && errors.Is(err, sql.ErrNoRows) {
+		return 0, ErrMissing
+	}
+	if err != nil {
 		return 0, err
+	}
+	if through < 0 {
+		through = last
 	}
 	if through > last {
 		return 0, ErrAckBeyondLast
@@ -249,6 +297,13 @@ func (s *Store) Ack(ctx context.Context, caller Key, through int64) (int64, erro
 		if _, err := tx.ExecContext(ctx, `UPDATE sessions SET acked_through=? WHERE family=? AND id=?`,
 			through, caller.Family, caller.ID); err != nil {
 			return 0, tx.fail(err)
+		}
+		if dashboard {
+			// 0 becomes 1: format 4 stores both without a payload byte, so no page grows.
+			if _, err := tx.ExecContext(ctx, `UPDATE messages SET maintainer_ack=1 WHERE recipient_family=? AND recipient_id=?
+				AND seq>? AND seq<=?`, caller.Family, caller.ID, acked, through); err != nil {
+				return 0, tx.fail(err)
+			}
 		}
 		acked = through
 	}
@@ -267,15 +322,17 @@ func (s *Store) MessageOutcome(ctx context.Context, caller Key, id int64) (Outco
 		return Outcome{}, err
 	}
 	var result Outcome
+	var maintainer bool
 	err = tx.QueryRowContext(ctx, `SELECT m.id,COALESCE(n.name,''),m.seq,m.delivery_state,m.delivery_reason,
-		m.delivery_updated_at,m.seq<=s.acked_through FROM messages m
+		m.delivery_updated_at,m.seq<=s.acked_through,m.maintainer_ack FROM messages m
 		JOIN sessions s ON s.family=m.recipient_family AND s.id=m.recipient_id
 		LEFT JOIN names n ON n.kind='peer' AND n.family=m.recipient_family AND n.session_id=m.recipient_id
 		WHERE m.id=? AND m.sender_family=? AND m.sender_id=?`, id, caller.Family, caller.ID).
-		Scan(&result.ID, &result.Recipient, &result.Seq, &result.DeliveryState, &result.DeliveryReason, &result.UpdatedAt, &result.Acknowledged)
+		Scan(&result.ID, &result.Recipient, &result.Seq, &result.DeliveryState, &result.DeliveryReason, &result.UpdatedAt, &result.Acknowledged, &maintainer)
 	if errors.Is(err, sql.ErrNoRows) {
 		return Outcome{}, ErrMessageNotFound
 	}
+	result.AcknowledgedBy = acknowledgedBy(result.Acknowledged, maintainer)
 	return result, err
 }
 
