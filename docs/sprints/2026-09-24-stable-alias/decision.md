@@ -46,7 +46,7 @@ Claude Code, not Koinon, owns that name.
    another thread in that pane counts the same way. On that evidence the successor stops the
    predecessor, without asking. The alias moves to the successor when the predecessor holds it
    or when it is free. A live holder in another terminal keeps it; the predecessor still stops,
-   and the result reports both (user decision, 2026-09-24). Direct user authorization that
+   and the result reports both (maintainer decision, 2026-09-24). Direct user authorization that
    names the predecessor also allows the stop and the move.
 4. **Host process is evidence only.** `ensure` records the host agent process (pid and kernel
    start time) of each registration and reports it. The same host process alone never moves
@@ -91,7 +91,7 @@ Claude Code, not Koinon, owns that name.
 - Tests use synthetic peers, temporary registry, state and tmux servers, and never touch the
   user's sessions, terminals or services.
 - The live CLI behaviour cited above is the evidence base. A change of Codex behaviour
-  that the build meets needs a new live test authorized by the user, not skill prose.
+  that the build meets needs a new live test authorized by the maintainer, not skill prose.
 - Non-goals: an alias for Claude or DeepSeek sessions; detection of a host's active thread
   (no supported signal exists); role routing of work items (#140); the adoption package
   (#145); a release to `main`.

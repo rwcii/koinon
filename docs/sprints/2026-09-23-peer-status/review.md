@@ -15,16 +15,16 @@ its disposition.
 
 Concurrence on the decision at 255b9e7.
 
-## User change after concurrence
+## Maintainer change after concurrence
 
-The user rejected an opt-in status line: Koinon must not stop reporting Claude context because
+The maintainer rejected an opt-in status line: Koinon must not stop reporting Claude context because
 a user forgot an installation step, and a custom status line must keep working. Changed in
 criteria 2 and 3 and the settings constraint: installation and upgrade set the integration up
 by default with an option to decline it; the existing command keeps its input, output and exit
 status and runs even when Koinon's part fails; the previous value is restored exactly; a
 missing or changed integration reports `statusline_missing` with the repair command.
 
-## User change (reviewed at 5809a23)
+## Maintainer change (reviewed at 5809a23)
 
 | Finding | Disposition |
 | --- | --- |
@@ -36,9 +36,9 @@ missing or changed integration reports `statusline_missing` with the repair comm
 
 | Finding | Disposition |
 | --- | --- |
-| "No settings edit silently overwrites a concurrent change" contradicts the acknowledged race: a Claude Code write after the final comparison is replaced and the post-check sees only Koinon's bytes. | Fixed: the criterion claims detection of observable changes only, and the documentation tells the user not to change Claude settings during installation, upgrade or removal. |
+| "No settings edit silently overwrites a concurrent change" contradicts the acknowledged race: a Claude Code write after the final comparison is replaced and the post-check sees only Koinon's bytes. | Fixed: the criterion claims detection of observable changes only, and the documentation tells the maintainer not to change Claude settings during installation, upgrade or removal. |
 
-Concurrence on the decision at ba2816e. Gate A was approved by the user at ba2816e.
+Concurrence on the decision at ba2816e. Gate A was approved by the maintainer at ba2816e.
 
 ## Plan (reviewed at d49c993)
 
@@ -64,7 +64,7 @@ Concurrence on the plan at 44ce8f8.
 
 ## macOS evidence after concurrence
 
-The user ran read-only checks on a macOS host on 2026-09-23, without Koinon installed.
+The maintainer ran read-only checks on a macOS host on 2026-09-23, without Koinon installed.
 
 - Codex: the Homebrew `codex` is a Node wrapper; its direct child, the native
   `codex-darwin-arm64` binary, held the session log open. Chunk 05 now accepts the configured
@@ -78,4 +78,4 @@ Review at 94721bf: the process tree does not identify the launcher uniquely. Fix
 the macOS launcher is labelled inferred; `/bin/sh -c` stays the implementation, and the
 command-equivalence tests run on macOS.
 
-Concurrence on the plan at f1afa78. Gate B was approved by the user at f1afa78.
+Concurrence on the plan at f1afa78. Gate B was approved by the maintainer at f1afa78.

@@ -1,6 +1,6 @@
 ---
 name: release
-description: Promote develop to main with a merge pull request once the release is shown to install and upgrade - dated changelog, CI evidence on the exact commit, an upgrade from the current main in a scratch prefix, and the user's approval before the merge. Use when the user asks to release, promote or ship to main.
+description: Promote develop to main with a merge pull request once the release is shown to install and upgrade - dated changelog, CI evidence on the exact commit, an upgrade from the current main in a scratch prefix, and the maintainer's approval before the merge. Use when the maintainer asks to release, promote or ship to main.
 ---
 
 # Release
@@ -35,7 +35,7 @@ The evidence counts only for the exact `develop` commit that will merge.
      isolate the native manager and is not read by it, so run a native case only on a
      disposable runner or test account that has its own live user manager. Install with the
      default unit paths there, so the manager finds the units, and remove only the test
-     services afterwards. Never run a native case in the user's own account. The native
+     services afterwards. Never run a native case in the maintainer's own account. The native
      upgrade script cannot start from `main`, so it is not a substitute for this step.
   2. Initialize its state with the documented native start or manual start. A `--no-start`
      install has no state, and the upgrade refuses it with `missing_state_root`; see
@@ -52,13 +52,13 @@ gh pr create --base main --head develop --title "<release title>"
 gh pr view <number> --json mergeStateStatus
 ```
 
-`main` accepts only merge commits. When the pull request is `BEHIND`, stop and tell the user:
+`main` accepts only merge commits. When the pull request is `BEHIND`, stop and tell the maintainer:
 bringing `main` into `develop` needs a merge commit, which the `develop` ruleset does not allow.
 
-## 4. Stop for the user
+## 4. Stop for the maintainer
 
 Report the release commit, the CI runs, the upgrade result and any known limits. Merge only
-after the user approves this release. An approval for earlier work does not cover it.
+after the maintainer approves this release. An approval for earlier work does not cover it.
 
 ```sh
 gh pr merge <number> --merge --match-head-commit <sha> \

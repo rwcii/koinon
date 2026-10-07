@@ -59,4 +59,4 @@ Peer review (<agent family>): approved at <sha>. <checks run and their results>.
 ```
 
 Never approve with an open high-severity finding. A sign-off records a review; it grants no
-permission beyond what the user already gave.
+permission beyond what the maintainer already gave.

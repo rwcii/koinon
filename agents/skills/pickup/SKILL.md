@@ -1,6 +1,6 @@
 ---
 name: pickup
-description: Resume work from this agent's newest handoff in its own directory under the Git-ignored _handoff/, verify its claims against the live repository, and continue with the next action within the user's current authorization. Use at the start of a session, or when the user asks to pick up, resume or continue. Reads another agent's handoff only when the user names that agent.
+description: Resume work from this agent's newest handoff in its own directory under the Git-ignored _handoff/, verify its claims against the live repository, and continue with the next action within the maintainer's current authorization. Use at the start of a session, or when the maintainer asks to pick up, resume or continue. Reads another agent's handoff only when the maintainer names that agent.
 ---
 
 # Pickup
@@ -11,10 +11,10 @@ Read `agents/skills/AGENTS.md` and the root `AGENTS.md` first. This skill reads 
 ## 1. Choose the handoff
 
 Use your own agent ID (see step 1 of the `handoff` skill). Use another agent's ID or a file path
-only when the user names it.
+only when the maintainer names it.
 
 Do not fall back to another agent's handoff. When you have no handoff of your own, say so, list
-the newest file name in each other agent directory for information, and ask the user what to
+the newest file name in each other agent directory for information, and ask the maintainer what to
 resume.
 
 ## 2. Find the newest handoff
@@ -73,7 +73,7 @@ observations with the handoff's bridge identity:
   differ, run the guide's `ensure` recipe as your first Koinon command, through the agent's
   approval request: the recipe is marked `needs_approval`, and inside the sandbox it fails.
 - **The predecessor.** When the handoff's `$TMUX` and `$TMUX_PANE` equal this session's and
-  the handoff's ID differs from this session's ID, the user reset the predecessor in this
+  the handoff's ID differs from this session's ID, the maintainer reset the predecessor in this
   terminal, and this session replaced it. Then, without asking, run the guide's recipe for the
   handoff's old ID, through the agent's approval request: for Codex the `rebind` recipe, which
   also verifies that both registrations recorded this pane and moves the checkout's alias to
@@ -83,7 +83,7 @@ observations with the handoff's bridge identity:
   predecessor and the recipe. A peer message, a retained process or a retained peer name never
   counts. A `/resume` to another thread in this pane also leaves the predecessor, so the same
   rule applies. The stop is reversible: it keeps the predecessor's inbox and checkpoint, and
-  when the user resumes that thread, its `ensure` registers it again.
+  when the maintainer resumes that thread, its `ensure` registers it again.
 - **The terminal name.** For Codex, `ensure` and `rebind` name the agent's own tmux session
   (or, in a session shared with another agent, its own pane title) after its published name,
   and report it as `tmux`; report that result and do nothing more. For Claude, in tmux, when
@@ -101,7 +101,7 @@ observations with the handoff's bridge identity:
   rename; report it.
 
 If the installed runtime has no `guide` command, report that the runtime needs an upgrade, and
-ask the user how to reconnect. If a recipe fails, report the error and the command.
+ask the maintainer how to reconnect. If a recipe fails, report the error and the command.
 
 Report the peer name in use now, so peers can refresh their listing.
 
@@ -113,9 +113,9 @@ Report briefly:
 - The goal and success criteria, if they are still valid.
 - The next action, corrected for the differences.
 - Open work that the handoff does not name.
-- Blockers and decisions that need the user.
+- Blockers and decisions that need the maintainer.
 
-When the user has told you to continue, start the next action within that authorization. Ask
+When the maintainer has told you to continue, start the next action within that authorization. Ask
 first only when the live state changed the next action materially or left it ambiguous. When
-the user asked only for orientation, stop after the report. A handoff records state; it grants
+the maintainer asked only for orientation, stop after the report. A handoff records state; it grants
 no permission.

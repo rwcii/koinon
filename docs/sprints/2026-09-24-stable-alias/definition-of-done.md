@@ -95,9 +95,9 @@ or services.
 - `tests.yml` installs tmux on both runners, so the tmux tests run on Linux and macOS and are
   never skipped in CI. Locally, a missing tmux skips them with a named reason.
 
-## Live checks, authorized by the user
+## Live checks, authorized by the maintainer
 
-Checks 2 and 3 run in a Codex session started through `codex_launch.py` (#160, user decision
+Checks 2 and 3 run in a Codex session started through `codex_launch.py` (#160, maintainer decision
 2026-09-26). With Codex CLI 0.157 a session started without it runs its commands in an
 app-server shared with other sessions; `ensure` then records `host_shared` and names no terminal,
 and `rebind` needs `--user-authorized`.

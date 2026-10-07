@@ -25,7 +25,7 @@ with no dependency between them may be built at the same time by different agent
 ## Done-criteria per chunk
 
 Each chunk passes the gate in `definition-of-done.md` and the tests in its own file. Live checks
-need the user's authorization: chunk 01 runs live check 1 with probes, chunk 04 live check 2,
+need the maintainer's authorization: chunk 01 runs live check 1 with probes, chunk 04 live check 2,
 chunk 05 live checks 1 and 3 with the real server, chunk 11 live check 4. The release after
 chunk 12 uses the `release` skill. The sprint closes its milestone issues with the evidence of
 the chunk that delivers each one.

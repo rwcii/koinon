@@ -32,7 +32,7 @@ A larger deliverable starts with `sprint`. `release` promotes the result to `mai
 ## Handoffs
 
 Each agent writes only `_handoff/<agent>/` in the main checkout, and `pickup` reads only the
-caller's own directory unless the user names another agent. `_handoff/` is ignored by Git:
+caller's own directory unless the maintainer names another agent. `_handoff/` is ignored by Git:
 handoffs are session state, not part of the product, and are never committed. Never keep a
 handoff in a linked worktree: worktrees are removed when their work merges.
 

@@ -1,6 +1,6 @@
 ---
 name: handoff
-description: Write a timestamped snapshot of this agent's current work to its own directory under the Git-ignored _handoff/ so the next session of the same agent can resume it. Use at the end of a session, before a long or risky operation, when context is nearly full, or when the user asks to hand off or save state. Each run adds a new file; it never edits an earlier one, and it never commits.
+description: Write a timestamped snapshot of this agent's current work to its own directory under the Git-ignored _handoff/ so the next session of the same agent can resume it. Use at the end of a session, before a long or risky operation, when context is nearly full, or when the maintainer asks to hand off or save state. Each run adds a new file; it never edits an earlier one, and it never commits.
 ---
 
 # Handoff
@@ -16,7 +16,7 @@ in the ignored `_handoff/` directory and never enter Git.
 ## 1. Name the agent
 
 The agent ID is the agent family in lower case: `claude`, `codex` or `deepseek`. When two
-agents of one family work in this repository at the same time, the user assigns each a role
+agents of one family work in this repository at the same time, the maintainer assigns each a role
 suffix, for example `codex-review`. Use the same ID every session.
 
 ## 2. Create and check the directory
@@ -60,7 +60,7 @@ fi
   whatever rule matches. `git ls-files` confirms that Git tracks nothing there; an ignore rule
   does not untrack a file that was committed earlier.
 
-When the output is `STOP`, stop and tell the user; do not write a handoff into a path Git can
+When the output is `STOP`, stop and tell the maintainer; do not write a handoff into a path Git can
 commit.
 
 ## 3. Take the timestamp from the shell
@@ -70,7 +70,7 @@ date -u +%Y-%m-%d-%H%M%S
 ```
 
 Use UTC so that every agent's files sort in one order. The file is
-`$dir/<timestamp>.md`, or `<timestamp>-<label>.md` when the user gives a label.
+`$dir/<timestamp>.md`, or `<timestamp>-<label>.md` when the maintainer gives a label.
 
 ## 4. Seed from the last handoff of this agent
 

@@ -73,7 +73,7 @@ Claude settings, Codex home, registry or services.
   `Tests` matrix.
 - The native upgrade workflow's memory, session and combined cases on systemd and launchd run
   with the settings step against a temporary `CLAUDE_CONFIG_DIR`.
-- **Live checks, each with the user's authorization and recorded in the pull request that
+- **Live checks, each with the maintainer's authorization and recorded in the pull request that
   closes the chunk:**
   - After chunk 04 merges and the user's installation is upgraded: this Claude session's
     model, limit and fill appear in `bridge.py peers`, and the user's own status line looks
