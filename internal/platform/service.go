@@ -158,9 +158,9 @@ func (s Services) Available(ctx context.Context) bool {
 	return err == nil
 }
 
-// InstallDaemon writes the daemon's artifact for binary and starts it. An existing
-// artifact without the marker is refused. It returns whether the artifact changed.
-func (s Services) InstallDaemon(ctx context.Context, binary string) (bool, error) {
+// WriteDaemon writes the daemon's artifact for binary. An existing artifact without the
+// marker is refused. It returns whether the artifact changed.
+func (s Services) WriteDaemon(binary string) (bool, error) {
 	path := s.DaemonArtifact()
 	present, marked, err := Marked(path)
 	if err != nil {
@@ -171,40 +171,40 @@ func (s Services) InstallDaemon(ctx context.Context, binary string) (bool, error
 	}
 	want := s.RenderDaemon(binary)
 	current, _ := os.ReadFile(path)
-	changed := !bytes.Equal(current, want)
-	if changed {
-		if err := os.MkdirAll(filepath.Dir(path), 0755); err != nil {
-			return false, err
-		}
-		if err := WriteAtomic(path, want, 0644); err != nil {
-			return false, err
-		}
+	if bytes.Equal(current, want) {
+		return false, nil
 	}
+	if err := os.MkdirAll(filepath.Dir(path), 0755); err != nil {
+		return false, err
+	}
+	return true, WriteAtomic(path, want, 0644)
+}
+
+// StartDaemon enables and (re)starts the daemon from its written artifact, so a replaced
+// binary or artifact takes effect. Without a reachable manager it is ErrManualRequired.
+func (s Services) StartDaemon(ctx context.Context) error {
 	if !s.Available(ctx) {
-		return changed, ErrManualRequired
+		return ErrManualRequired
 	}
 	if s.Backend == "launchd" {
-		if changed {
-			// A changed agent is loaded again; an absent one makes bootout fail harmlessly.
-			s.Run(ctx, "launchctl", "bootout", s.domain()+"/"+DaemonLabel)
-		}
-		if _, err := s.Run(ctx, "launchctl", "print", s.domain()+"/"+DaemonLabel); err != nil {
-			if out, err := s.Run(ctx, "launchctl", "bootstrap", s.domain(), path); err != nil {
-				return changed, fmt.Errorf("launchctl bootstrap failed: %s", strings.TrimSpace(string(out)))
-			}
+		// The agent is loaded again, so a changed file takes effect; an absent one makes
+		// bootout fail harmlessly.
+		s.Run(ctx, "launchctl", "bootout", s.domain()+"/"+DaemonLabel)
+		if out, err := s.Run(ctx, "launchctl", "bootstrap", s.domain(), s.DaemonArtifact()); err != nil {
+			return fmt.Errorf("launchctl bootstrap failed: %s", strings.TrimSpace(string(out)))
 		}
 		if out, err := s.Run(ctx, "launchctl", "kickstart", s.domain()+"/"+DaemonLabel); err != nil {
-			return changed, fmt.Errorf("launchctl kickstart failed: %s", strings.TrimSpace(string(out)))
+			return fmt.Errorf("launchctl kickstart failed: %s", strings.TrimSpace(string(out)))
 		}
-		return changed, nil
+		return nil
 	}
 	for _, argv := range [][]string{{"systemctl", "--user", "daemon-reload"},
 		{"systemctl", "--user", "enable", DaemonUnit}, {"systemctl", "--user", "restart", DaemonUnit}} {
 		if out, err := s.Run(ctx, argv...); err != nil {
-			return changed, fmt.Errorf("%s failed: %s", strings.Join(argv, " "), strings.TrimSpace(string(out)))
+			return fmt.Errorf("%s failed: %s", strings.Join(argv, " "), strings.TrimSpace(string(out)))
 		}
 	}
-	return changed, nil
+	return nil
 }
 
 // RemoveDaemon stops the daemon and removes its artifact when it carries the marker.
