@@ -1,0 +1,13 @@
+{{define "list"}}{{range .Data.Stores}}{{if .Work}}<h2>{{.Repository}}</h2><table>
+<thead><tr><th>Work</th><th>Title</th><th>Lifecycle</th><th>Proposed</th><th>Owner</th><th>Lease</th><th>Resources</th><th>Progress</th></tr></thead>
+<tbody>{{range .Work}}<tr>
+<td><code>{{.WorkID}}</code><br><small>revision {{.Revision}}</small></td>
+<td>{{.Title}}{{if .Checkpoint}}<br><small>{{.Checkpoint}}</small>{{end}}</td>
+<td>{{.Lifecycle}}</td>
+<td>{{with .ProposedAssignee}}{{.}}{{else}}—{{end}}</td>
+<td>{{with .CurrentClaim}}{{.Consumer}}<br><small>generation {{.Generation}}</small>{{else}}—{{end}}</td>
+<td>{{if .LeaseValid}}valid until {{secs .CurrentClaim.ExpiresAt}}{{else}}none{{end}}</td>
+<td>{{with .CurrentClaim}}{{range .Resources}}<div><small>{{index . 0}}</small> <code>{{index . 1}}</code></div>{{end}}{{else}}—{{end}}</td>
+<td>{{if .ProgressOverdue}}overdue{{else}}on time{{end}}{{if .ProgressUnverified}}<br><small>unverified: {{range $i, $r := .ProgressUnverifiedReasons}}{{if $i}}, {{end}}{{$r}}{{end}}</small>{{end}}<br><small>deadline {{secs .ProgressDeadline}}</small></td>
+</tr>{{end}}</tbody></table>{{end}}{{else}}<p class="empty">No memory stores.</p>{{end}}
+{{if .Data.Next}}<p><a href="/dashboard/work{{query "after" .Data.Next}}">More stores</a></p>{{end}}{{end}}

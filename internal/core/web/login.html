@@ -1,0 +1,2 @@
+{{define "list"}}<p class="notice">{{if eq .Data "logout"}}You are logged out.{{else if eq .Data "link"}}This login link was used already or has expired.{{else if eq .Data "csrf"}}The request was refused: its form token is missing or wrong. Reload the page and try again.{{else if eq .Data "request"}}The request was not valid.{{else}}You are not logged in, or your login has expired.{{end}}</p>
+<p>Run <code>koinon dashboard</code> to get a new login link.</p>{{end}}

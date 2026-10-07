@@ -42,6 +42,8 @@ func run(ctx context.Context, args []string, in io.Reader, out io.Writer) error 
 		return memoryCommand(ctx, args, in, out)
 	case "work", "claim":
 		return workCommand(ctx, args, out)
+	case "dashboard":
+		return dashboardCommand(ctx, args[1:], out)
 	}
 	root, err := platform.DefaultStateDir()
 	if err != nil {
@@ -116,6 +118,7 @@ func run(ctx context.Context, args []string, in io.Reader, out io.Writer) error 
 
 const usage = `Usage: koinon serve [--state-dir DIR] [--listen 127.0.0.1:PORT] [--listen-v6 [::1]:PORT]
        koinon status [--state-dir DIR] [--address 127.0.0.1:PORT]
+       koinon dashboard [--state-dir DIR] [--address 127.0.0.1:PORT] [--no-open]
        koinon mcp [--state-dir DIR] [--address 127.0.0.1:PORT]
        koinon setup <claude|codex|agy|opencode|deepseek> [--cli ABS_PATH] [--binary ABS_PATH]
        koinon guide --agent <claude|codex|agy|opencode|deepseek>
