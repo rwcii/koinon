@@ -117,7 +117,7 @@ func TestProtocol(t *testing.T) {
 			}
 		}
 	}
-	if strings.Join(names, ",") != "peers,send,inbox,ack,delivery" {
+	if strings.Join(names, ",") != "peers,send,inbox,ack,delivery,memory_status,memory_sync,memory_ack,memory_record,memory_recall" {
 		t.Fatalf("tools: %v", names)
 	}
 	if reply := h.request("ping", nil); reply["result"] == nil {
@@ -375,5 +375,50 @@ func TestCommandBinary(t *testing.T) {
 	lines := strings.Split(strings.TrimSpace(stdout.String()), "\n")
 	if len(lines) != 2 || !strings.Contains(lines[1], "daemon_unavailable") || stderr.Len() != 0 {
 		t.Fatalf("stdout %q stderr %q", stdout.String(), stderr.String())
+	}
+}
+
+func TestMemoryTools(t *testing.T) {
+	h := newHarness(t, "codex-mcp-client")
+	meta := map[string]any{"threadId": "synthetic-thread"}
+	if reply, isError := h.tool("memory_status", map[string]any{}, meta); !isError || reply["code"] != "repo_unresolved" {
+		t.Fatalf("no repository: %v", reply)
+	}
+	if out, err := exec.Command("git", "init", "-q", h.s.c.Directory).CombinedOutput(); err != nil {
+		t.Fatalf("git init: %v %s", err, out)
+	}
+	h.s.sessions = map[core.Key]registered{} // register again, now inside a repository
+	recorded, isError := h.tool("memory_record", map[string]any{"type": "decision", "body": "synthetic decision", "scope": "task", "scope_target": "t1"}, meta)
+	if isError || recorded["result"].(map[string]any)["seq"] != float64(1) {
+		t.Fatalf("record: %v", recorded)
+	}
+	page, isError := h.tool("memory_sync", map[string]any{"consumer": "stable-cursor"}, meta)
+	result := page["result"].(map[string]any)
+	if isError || result["kind"] != "snapshot" || len(result["entries"].([]any)) != 1 {
+		t.Fatalf("sync: %v", page)
+	}
+	entry := result["entries"].([]any)[0].(map[string]any)
+	if entry["writer_family"] != "codex" || entry["consumer"] != entry["writer_name"] {
+		t.Fatalf("provenance: %v", entry)
+	}
+	if acked, isError := h.tool("memory_ack", map[string]any{"consumer": "stable-cursor", "snapshot_id": result["snapshot_id"]}, meta); isError {
+		t.Fatalf("ack: %v", acked)
+	}
+	if found, isError := h.tool("memory_recall", map[string]any{"query": "decision"}, meta); isError || len(found["result"].(map[string]any)["entries"].([]any)) != 1 {
+		t.Fatalf("recall: %v", found)
+	}
+	status, _ := h.tool("memory_status", map[string]any{}, meta)
+	if consumers := status["result"].(map[string]any)["consumers"].([]any); len(consumers) != 1 || consumers[0].(map[string]any)["consumer"] != "stable-cursor" {
+		t.Fatalf("status: %v", status)
+	}
+	for name, args := range map[string]map[string]any{
+		"memory_record": {"type": "finding"}, "memory_recall": {"consumer": "x", "query": "q"}, "memory_sync": {"record_format": 2},
+	} {
+		if reply, isError := h.tool(name, args, meta); !isError || reply["code"] != "invalid_arguments" {
+			t.Fatalf("%s %v: %v", name, args, reply)
+		}
+	}
+	if reply, isError := h.tool("memory_record", map[string]any{"type": "finding", "body": 5}, meta); !isError || reply["code"] != "invalid_request" {
+		t.Fatalf("wrong type: %v", reply)
 	}
 }

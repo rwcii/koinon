@@ -38,6 +38,8 @@ func run(ctx context.Context, args []string, in io.Reader, out io.Writer) error 
 	switch args[0] {
 	case "setup", "guide", "hook":
 		return agentCommand(ctx, args, in, out)
+	case "memory", "recover":
+		return memoryCommand(ctx, args, in, out)
 	}
 	root, err := platform.DefaultStateDir()
 	if err != nil {
@@ -116,6 +118,8 @@ const usage = `Usage: koinon serve [--state-dir DIR] [--listen 127.0.0.1:PORT] [
        koinon setup <claude|codex|agy|opencode|deepseek> [--cli ABS_PATH] [--binary ABS_PATH]
        koinon guide --agent <claude|codex|agy|opencode|deepseek>
        koinon hook agy-stop
+       koinon memory <status|sync|ack|record|recall> --as FAMILY:ID [--consumer KEY] [options]
+       koinon recover [--state-dir DIR] [--address 127.0.0.1:PORT]
        koinon <codex|agy|opencode> [--state-dir DIR] [--address HOST:PORT] [--cli ABS_PATH] [--directory DIR] [--tmux-session NAME] [--] [CLI arguments...]
        koinon peers --as FAMILY:ID [--state-dir DIR] [--address 127.0.0.1:PORT]
        koinon send --as FAMILY:ID [--state-dir DIR] [--address 127.0.0.1:PORT] NAME BODY
@@ -164,6 +168,105 @@ func call(ctx context.Context, command, state, address string, as *string, after
 		return errors.New("cannot read private daemon secret")
 	}
 	result, err := core.Call(ctx, address, secret, path, body)
+	if err != nil {
+		return err
+	}
+	_, err = fmt.Fprintln(out, string(result))
+	return err
+}
+
+// memoryCommand runs the memory operations and storage recovery through the daemon's API.
+func memoryCommand(ctx context.Context, args []string, in io.Reader, out io.Writer) error {
+	root, err := platform.DefaultStateDir()
+	if err != nil {
+		return err
+	}
+	op, rest := "", args[1:]
+	if args[0] == "memory" {
+		if len(args) < 2 {
+			return errors.New("use koinon memory <status|sync|ack|record|recall>")
+		}
+		op, rest = args[1], args[2:]
+	}
+	flags := flag.NewFlagSet(args[0], flag.ContinueOnError)
+	flags.SetOutput(io.Discard)
+	state := flags.String("state-dir", root, "private Go state directory")
+	address := flags.String("address", "127.0.0.1:47671", "daemon loopback address")
+	as := flags.String("as", "", "calling session as FAMILY:ID")
+	consumer := flags.String("consumer", "", "stable consumer key")
+	body := map[string]any{}
+	texts := map[string]*string{}
+	numbers := map[string]*float64{}
+	integers := map[string]*int64{}
+	positional := 0
+	switch op {
+	case "":
+	case "status":
+		texts["after"] = flags.String("after", "", "continue after this consumer")
+	case "sync":
+		texts["snapshot-id"] = flags.String("snapshot-id", "", "snapshot to continue")
+		integers["page-token"] = flags.Int64("page-token", 0, "page token to continue from")
+	case "ack":
+		texts["snapshot-id"] = flags.String("snapshot-id", "", "snapshot to acknowledge")
+		integers["through"] = flags.Int64("through", 0, "delta cursor to acknowledge through")
+	case "record":
+		positional = 1
+		texts["type"] = flags.String("type", "finding", "entry type")
+		for _, name := range []string{"scope", "scope-target", "path", "author", "key"} {
+			texts[name] = flags.String(name, "", name)
+		}
+		integers["supersedes"] = flags.Int64("supersedes", 0, "entry this one replaces")
+		integers["revokes"] = flags.Int64("revokes", 0, "entry this one withdraws")
+		numbers["expires"] = flags.Float64("expires", 0, "absolute expiry, epoch seconds")
+		numbers["deadline"] = flags.Float64("deadline", 0, "retry deadline, epoch seconds")
+	case "recall":
+		positional = 1
+		integers["before"] = flags.Int64("before", 0, "continue before this sequence")
+	default:
+		return errors.New("unknown memory operation")
+	}
+	if err := flags.Parse(rest); err != nil || flags.NArg() != positional {
+		return errors.New("invalid memory options; use koinon --help")
+	}
+	path := "/v1/storage/recover"
+	if op != "" {
+		path = "/v1/memory/" + op
+		family, id, found := strings.Cut(*as, ":")
+		if !found || family == "" || id == "" {
+			return errors.New("--as must name the calling session as FAMILY:ID")
+		}
+		body["caller"] = core.Key{Family: family, ID: id}
+		if *consumer != "" {
+			body["consumer"] = *consumer
+		}
+		// Only options that were given are sent, so absent and zero stay distinct.
+		flags.Visit(func(f *flag.Flag) {
+			name := strings.ReplaceAll(f.Name, "-", "_")
+			if value, ok := texts[f.Name]; ok {
+				body[name] = *value
+			}
+			if value, ok := numbers[f.Name]; ok {
+				body[name] = *value
+			}
+			if value, ok := integers[f.Name]; ok {
+				body[name] = *value
+			}
+		})
+		if op == "record" {
+			body["body"] = flags.Arg(0)
+			if _, given := body["type"]; !given {
+				body["type"] = "finding"
+			}
+		}
+		if op == "recall" {
+			body["query"] = flags.Arg(0)
+		}
+	}
+	secret, err := core.ReadSecret(*state)
+	if err != nil {
+		return errors.New("cannot read private daemon secret")
+	}
+	result, err := core.Call(ctx, *address, secret, path, body)
 	if err != nil {
 		return err
 	}

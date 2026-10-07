@@ -55,8 +55,10 @@ type Mutation struct {
 }
 
 type Store struct {
-	db  *sql.DB
-	now func() time.Time
+	db      *sql.DB
+	now     func() time.Time
+	storage storage
+	memory  memoryState
 }
 
 func openStore(root string) (*Store, error) {
@@ -82,7 +84,11 @@ func openStore(root string) (*Store, error) {
 	}
 	u := url.URL{Scheme: "file", Path: path}
 	q := url.Values{}
-	for _, pragma := range []string{"busy_timeout(5000)", "journal_mode(WAL)", "synchronous(FULL)"} {
+	// Exclusive locking keeps the log index in process memory, so no shared-memory file
+	// exists; page size and incremental auto-vacuum must precede the first table.
+	for _, pragma := range []string{"locking_mode(EXCLUSIVE)", "page_size(4096)", "auto_vacuum(INCREMENTAL)",
+		"busy_timeout(5000)", "journal_mode(WAL)", "synchronous(FULL)", "cache_spill(0)", "temp_store(MEMORY)",
+		fmt.Sprintf("max_page_count(%d)", defaultMaxPages)} {
 		q.Add("_pragma", pragma)
 	}
 	u.RawQuery = q.Encode()
@@ -104,14 +110,48 @@ func openStore(root string) (*Store, error) {
 		db.Close()
 		return nil, err
 	}
+	if err := configure(db); err != nil {
+		db.Close()
+		return nil, err
+	}
 	if err := platform.SyncDir(root); err != nil {
 		db.Close()
 		return nil, err
 	}
-	return &Store{db: db, now: time.Now}, nil
+	return &Store{db: db, now: time.Now, storage: storage{path: path, maxPages: defaultMaxPages}}, nil
 }
 
-const schemaVersion = 3
+// configure reads back every setting the storage bound depends on. A database created
+// before incremental auto-vacuum is converted once; any other mismatch refuses it.
+func configure(db *sql.DB) error {
+	var vacuum int
+	if err := db.QueryRow("PRAGMA auto_vacuum").Scan(&vacuum); err != nil {
+		return err
+	}
+	if vacuum != 2 {
+		if _, err := db.Exec("PRAGMA auto_vacuum=INCREMENTAL"); err != nil {
+			return err
+		}
+		if _, err := db.Exec("VACUUM"); err != nil {
+			return err
+		}
+	}
+	for _, c := range []struct{ pragma, want string }{
+		{"locking_mode", "exclusive"}, {"journal_mode", "wal"}, {"page_size", "4096"}, {"auto_vacuum", "2"},
+		{"cache_spill", "0"}, {"temp_store", "2"}, {"synchronous", "2"}, {"max_page_count", fmt.Sprint(defaultMaxPages)},
+	} {
+		var got string
+		if err := db.QueryRow("PRAGMA " + c.pragma).Scan(&got); err != nil {
+			return err
+		}
+		if got != c.want {
+			return fmt.Errorf("unsupported_runtime: %s is %s, not %s", c.pragma, got, c.want)
+		}
+	}
+	return nil
+}
+
+const schemaVersion = 4
 
 // migrate brings the state schema to schemaVersion in one transaction, so a crash
 // leaves either the old or the new schema. Each step starts from the version before it.
@@ -191,6 +231,36 @@ func migrate(db *sql.DB, version int) error {
 			id TEXT PRIMARY KEY, family TEXT NOT NULL, directory TEXT NOT NULL,
 			target TEXT NOT NULL, created_at INTEGER NOT NULL
 		)`); err != nil {
+			return err
+		}
+	}
+	if version < 4 {
+		// Version 4: one memory store per Git common directory (sprint chunk 06). Every table
+		// is keyed by the repository the daemon records for a session.
+		if _, err := tx.Exec(`
+			CREATE TABLE memory_stores (repository TEXT PRIMARY KEY, store_id TEXT NOT NULL,
+				head INTEGER NOT NULL DEFAULT 0, floor INTEGER NOT NULL DEFAULT 0);
+			CREATE TABLE memory_entries (repository TEXT NOT NULL, seq INTEGER NOT NULL, ts REAL NOT NULL,
+				type TEXT NOT NULL, scope TEXT NOT NULL, scope_target TEXT, path TEXT, body TEXT NOT NULL,
+				author TEXT, writer_family TEXT NOT NULL, writer_name TEXT NOT NULL, consumer TEXT NOT NULL,
+				revision INTEGER NOT NULL, supersedes INTEGER, revokes INTEGER, superseded_by INTEGER,
+				revoked_by INTEGER, conflicts_with INTEGER, expires REAL, PRIMARY KEY (repository, seq));
+			CREATE INDEX memory_entries_live ON memory_entries(repository, superseded_by, revoked_by, expires);
+			CREATE TABLE memory_idem (repository TEXT NOT NULL, consumer TEXT NOT NULL, key TEXT NOT NULL,
+				scheme TEXT NOT NULL, fingerprint TEXT NOT NULL, seq INTEGER NOT NULL, ts REAL NOT NULL,
+				deadline REAL NOT NULL, PRIMARY KEY (repository, consumer, key));
+			CREATE TABLE memory_cursors (repository TEXT NOT NULL, consumer TEXT NOT NULL, seq INTEGER NOT NULL,
+				issued INTEGER NOT NULL, snapshot TEXT, bootstrapped INTEGER NOT NULL, resnapshot INTEGER NOT NULL,
+				updated REAL NOT NULL, PRIMARY KEY (repository, consumer));
+			CREATE TABLE memory_retired (repository TEXT NOT NULL, consumer TEXT NOT NULL, seq INTEGER NOT NULL,
+				at REAL NOT NULL, PRIMARY KEY (repository, consumer));
+			CREATE TABLE memory_snapshots (id TEXT PRIMARY KEY, repository TEXT NOT NULL, consumer TEXT NOT NULL,
+				head INTEGER NOT NULL, created REAL NOT NULL, items INTEGER NOT NULL, issued INTEGER NOT NULL,
+				acked INTEGER NOT NULL DEFAULT 0, acked_at REAL);
+			CREATE INDEX memory_snapshots_owner ON memory_snapshots(repository, consumer);
+			CREATE TABLE memory_snapshot_items (id TEXT NOT NULL, position INTEGER NOT NULL, seq INTEGER NOT NULL,
+				payload TEXT NOT NULL, bytes INTEGER NOT NULL, PRIMARY KEY (id, position));
+		`); err != nil {
 			return err
 		}
 	}
@@ -286,7 +356,7 @@ func (s *Store) Register(ctx context.Context, r Registration) (Session, error) {
 		return Session{}, ErrInvalid
 	}
 	now := s.now().UnixMilli()
-	tx, err := s.db.BeginTx(ctx, nil)
+	tx, err := s.begin(ctx, ordinary)
 	if err != nil {
 		return Session{}, err
 	}
@@ -295,7 +365,7 @@ func (s *Store) Register(ctx context.Context, r Registration) (Session, error) {
 		if len(r.WakeTarget) != 0 && string(r.WakeTarget) != "{}" {
 			return Session{}, ErrInvalid
 		}
-		r.WakeTarget, err = launchTarget(ctx, tx, r.LaunchID, r.Family, directory)
+		r.WakeTarget, err = launchTarget(ctx, tx.Tx, r.LaunchID, r.Family, directory)
 		if err != nil {
 			return Session{}, err
 		}
@@ -306,10 +376,10 @@ func (s *Store) Register(ctx context.Context, r Registration) (Session, error) {
 		expires_at=excluded.expires_at,retired_at=0,revision=sessions.revision+1`,
 		r.Family, r.ID, common, directory, string(r.WakeTarget), now, now, now+duration)
 	if err != nil {
-		return Session{}, err
+		return Session{}, tx.fail(err)
 	}
-	if err := assignNames(ctx, tx, now, r.Family, r.ID, common, directory); err != nil {
-		return Session{}, err
+	if err := assignNames(ctx, tx.Tx, now, r.Family, r.ID, common, directory); err != nil {
+		return Session{}, tx.fail(err)
 	}
 	result, err := scanSession(tx.QueryRowContext(ctx, sessionQuery+` WHERE s.family=? AND s.id=?`, r.Family, r.ID), now)
 	if err != nil {
@@ -363,7 +433,8 @@ func (s *Store) Mutate(ctx context.Context, r Mutation, retire bool) (Session, e
 		return Session{}, err
 	}
 	now := s.now().UnixMilli()
-	tx, err := s.db.BeginTx(ctx, nil)
+	// Renewal and retirement keep existing records current; they may use the reserve.
+	tx, err := s.begin(ctx, control)
 	if err != nil {
 		return Session{}, err
 	}
@@ -381,11 +452,11 @@ func (s *Store) Mutate(ctx context.Context, r Mutation, retire bool) (Session, e
 		_, err = tx.ExecContext(ctx, `UPDATE sessions SET renewed_at=?,expires_at=?,revision=revision+1 WHERE family=? AND id=?`, now, now+duration, r.Family, r.ID)
 		if err == nil {
 			// A renewal takes the repository's alias when its holder expired or retired.
-			err = assignNames(ctx, tx, now, r.Family, r.ID, current.Repository, current.Directory)
+			err = assignNames(ctx, tx.Tx, now, r.Family, r.ID, current.Repository, current.Directory)
 		}
 	}
 	if err != nil {
-		return Session{}, err
+		return Session{}, tx.fail(err)
 	}
 	result, err := scanSession(tx.QueryRowContext(ctx, sessionQuery+` WHERE s.family=? AND s.id=?`, r.Family, r.ID), now)
 	if err != nil {

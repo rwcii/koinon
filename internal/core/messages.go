@@ -110,12 +110,12 @@ func (s *Store) Send(ctx context.Context, caller Key, to, body string) (Outcome,
 		return Outcome{}, ErrInvalid
 	}
 	now := s.now().UnixMilli()
-	tx, err := s.db.BeginTx(ctx, nil)
+	tx, err := s.begin(ctx, ordinary)
 	if err != nil {
 		return Outcome{}, err
 	}
 	defer tx.Rollback()
-	if err := active(ctx, tx, now, caller); err != nil {
+	if err := active(ctx, tx.Tx, now, caller); err != nil {
 		return Outcome{}, err
 	}
 	var kind, family, sessionID, repository, holder string
@@ -130,7 +130,7 @@ func (s *Store) Send(ctx context.Context, caller Key, to, body string) (Outcome,
 	if kind == "alias" {
 		held := false
 		if holder != "" {
-			if held, err = holds(ctx, tx, now, family, holder, repository); err != nil {
+			if held, err = holds(ctx, tx.Tx, now, family, holder, repository); err != nil {
 				return Outcome{}, err
 			}
 		}
@@ -157,7 +157,7 @@ func (s *Store) Send(ctx context.Context, caller Key, to, body string) (Outcome,
 		sender_id,sender_name,body,created_at,delivery_updated_at) VALUES (?,?,?,?,?,?,?,?,?)`,
 		family, sessionID, seq, caller.Family, caller.ID, sender, body, now, now)
 	if err != nil {
-		return Outcome{}, err
+		return Outcome{}, tx.fail(err)
 	}
 	id, err := result.LastInsertId()
 	if err != nil {
@@ -226,12 +226,13 @@ func (s *Store) Ack(ctx context.Context, caller Key, through int64) (int64, erro
 	if through < 0 {
 		return 0, ErrInvalid
 	}
-	tx, err := s.db.BeginTx(ctx, nil)
+	// Acknowledgement is progress; it may use the reserve.
+	tx, err := s.begin(ctx, control)
 	if err != nil {
 		return 0, err
 	}
 	defer tx.Rollback()
-	if err := active(ctx, tx, s.now().UnixMilli(), caller); err != nil {
+	if err := active(ctx, tx.Tx, s.now().UnixMilli(), caller); err != nil {
 		return 0, err
 	}
 	var last, acked int64
@@ -245,7 +246,7 @@ func (s *Store) Ack(ctx context.Context, caller Key, through int64) (int64, erro
 	if through > acked {
 		if _, err := tx.ExecContext(ctx, `UPDATE sessions SET acked_through=? WHERE family=? AND id=?`,
 			through, caller.Family, caller.ID); err != nil {
-			return 0, err
+			return 0, tx.fail(err)
 		}
 		acked = through
 	}
@@ -286,13 +287,19 @@ func (s *Store) SetDelivery(ctx context.Context, id int64, state, reason string)
 	default:
 		return ErrInvalid
 	}
-	result, err := s.db.ExecContext(ctx, `UPDATE messages SET delivery_state=?,delivery_reason=?,delivery_updated_at=? WHERE id=?`,
-		state, reason, s.now().UnixMilli(), id)
+	// Delivery state is progress on a stored message; it may use the reserve.
+	tx, err := s.begin(ctx, control)
 	if err != nil {
 		return err
+	}
+	defer tx.Rollback()
+	result, err := tx.ExecContext(ctx, `UPDATE messages SET delivery_state=?,delivery_reason=?,delivery_updated_at=? WHERE id=?`,
+		state, reason, s.now().UnixMilli(), id)
+	if err != nil {
+		return tx.fail(err)
 	}
 	if n, err := result.RowsAffected(); err != nil || n != 1 {
 		return errors.Join(err, ErrMessageNotFound)
 	}
-	return nil
+	return tx.Commit()
 }
