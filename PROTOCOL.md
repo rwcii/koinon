@@ -22,6 +22,12 @@ Never put a secret, runtime session identifier or response body in a repository.
 | `POST /v1/inbox/ack` | Acknowledge the caller's own inbox through a sequence number. |
 | `POST /v1/messages/outcome` | Read the delivery and acknowledgement state of a message the caller sent. |
 | `POST /v1/launches` | Retain a launcher target and return its generated launch ID. |
+| `POST /v1/memory/record` | Record an entry in the caller's repository memory store. |
+| `POST /v1/memory/sync` | Read a snapshot page or a delta batch; never moves a cursor. |
+| `POST /v1/memory/ack` | Acknowledge a fully issued snapshot or a delta through a sequence. |
+| `POST /v1/memory/recall` | Find live entries whose body contains a query, newest first. |
+| `POST /v1/memory/status` | Report the store's head, floor, usage, limits, lifetimes and consumers. |
+| `POST /v1/storage/recover` | Prove the write-ahead log empty again, return free pages and clear a blocked state. |
 
 POST requests use `Content-Type: application/json`, at most 16 KiB, with unknown fields refused.
 Registration fields are `family` (`claude`, `codex`, `deepseek`, `agy`, `opencode`), `id` (1–256
@@ -101,13 +107,52 @@ Codex context reset. They are inert state until the agent registers and later wa
 use its target. All launch calls use the existing bearer authentication, request limits and
 origin checks; a launch ID is an association key, not a replacement authentication secret.
 
+### Memory stores
+
+The daemon holds one memory store per Git common directory: the store of a request is the
+repository that the daemon recorded for the calling session, so every worktree and
+subdirectory of a repository share one store. A session without a repository gets
+`repo_unresolved`. Each request names its `caller`, which must be active, and an optional
+`consumer` (1–128 characters, a stable cursor name that defaults to the caller's peer name; it
+names a cursor, never an identity). Provenance is the caller's family and peer name
+(`writer_family`, `writer_name`).
+
+The operations keep the behaviour of the memory control protocol below: `record` is `note`
+with the same fields, types, scopes, limits, supersession, revocation, `conflicts_with`,
+idempotency key and deadline; `sync`, `ack`, `recall` and `status` take the same fields and
+return the same results and codes, as `{"ok": true, "result": ...}`. Every result is record
+format 2, and `record_format` is not a request field; unknown fields are refused. Recall is the
+complete substring scan (`indexed: false`); there is no full-text index. Idempotency rows carry
+the scheme of their fingerprint and are compared only by that scheme, so rows imported from
+another runtime keep their own. A committed head change calls one content-free hook with the
+repository only; synchronization, acknowledgement and a rolled-back write never call it.
+
+The per-repository socket service of the Python runtime (`hello`, `stop`, owner records,
+generations, the subscription socket) has no equivalent: the daemon serves every store. Its
+storage bound applies to the daemon's one database instead. The database runs with 4,096-byte
+pages, a write-ahead log with exclusive locking (no shared-memory file), cache spill off,
+in-memory temporary storage, incremental auto-vacuum and full synchronization; every setting is
+read back at start and a mismatch refuses the database. Every write of the daemon first proves
+the log empty (a truncating checkpoint reports nothing busy and nothing left, and the log file
+is absent or empty), so the log never holds more than one transaction. The database stays below
+a page ceiling derived from 1 GiB for the database and its log; ordinary writes (registration,
+messages, launches, memory records, consumers and snapshots) stop 2,048 pages earlier, and that
+reserve serves progress and withdrawal (renewal, retirement, acknowledgement, delivery state,
+page issuance, supersession, revocation and expiry). A write the ceiling refuses rolls back
+whole as `capacity`. A failed proof, or a reserved write that the engine still refuses, blocks
+writes with `storage_blocked` while status and reads keep working, until `koinon recover`
+(`POST /v1/storage/recover`) proves the log empty again. `GET /v1/status` reports `storage`:
+pages, ceilings, the log size and the blocked state.
+
 ### MCP server
 
 `koinon mcp` is a stdio MCP server: newline-delimited JSON-RPC 2.0 with `initialize` (protocol
 versions `2025-06-18`, `2025-03-26` and `2024-11-05`; another requested version gets
 `2025-06-18`), `ping`, `tools/list` and `tools/call`. Other methods get error -32601; a message
 longer than 1 MiB gets -32700. Its tools are `peers`, `send` (`to`, `body`), `inbox` (`after`,
-`limit`), `ack` (`through`) and `delivery` (`message_id`), which call the routes above. A tool
+`limit`), `ack` (`through`) and `delivery` (`message_id`), and `memory_status`, `memory_sync`,
+`memory_ack`, `memory_record` and `memory_recall` with the fields of the memory routes, which call
+the routes above. A tool
 error is a result with `isError` and a JSON text `{"ok": false, "code": ...}`: the daemon's code,
 `daemon_unavailable`, `identity_unavailable`, `invalid_arguments` or `unknown_tool`. The server
 writes only protocol messages to stdout and never logs a secret, session ID or message body.

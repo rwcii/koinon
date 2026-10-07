@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -176,4 +177,79 @@ func TestAgentCommands(t *testing.T) {
 			t.Fatalf("accepted: %v", args)
 		}
 	}
+}
+
+func TestMemoryCommands(t *testing.T) {
+	root := filepath.Join(t.TempDir(), "state")
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	ready := make(chan []byte, 1)
+	done := make(chan error, 1)
+	go func() {
+		done <- run(ctx, []string{"serve", "--state-dir", root, "--listen", "127.0.0.1:0", "--listen-v6", "[::1]:0"}, nil, output{ready})
+	}()
+	var status struct {
+		Listeners []string `json:"listeners"`
+	}
+	select {
+	case body := <-ready:
+		json.Unmarshal(body, &status)
+	case err := <-done:
+		t.Fatalf("startup: %v", err)
+	case <-time.After(15 * time.Second):
+		t.Fatal("startup deadline")
+	}
+	address := status.Listeners[0]
+	secret, _ := core.ReadSecret(root)
+	repo := t.TempDir()
+	if out, err := exec.Command("git", "init", "-q", repo).CombinedOutput(); err != nil {
+		t.Fatalf("git init: %v %s", err, out)
+	}
+	if _, err := core.Call(context.Background(), address, secret, "/v1/sessions/register", core.Registration{Family: "deepseek", ID: "synthetic-d", Repository: repo, Directory: repo}); err != nil {
+		t.Fatal(err)
+	}
+	memory := func(args ...string) (map[string]any, error) {
+		var out bytes.Buffer
+		args = append([]string{"memory", args[0], "--state-dir", root, "--address", address, "--as", "deepseek:synthetic-d"}, args[1:]...)
+		if err := run(context.Background(), args, nil, &out); err != nil {
+			return nil, err
+		}
+		var result map[string]any
+		json.Unmarshal(out.Bytes(), &result)
+		return result["result"].(map[string]any), nil
+	}
+	if r, err := memory("record", "--type", "gotcha", "--scope", "task", "--scope-target", "t1", "synthetic gotcha"); err != nil || r["seq"] != float64(1) {
+		t.Fatalf("record: %v %v", r, err)
+	}
+	page, err := memory("sync", "--consumer", "cli")
+	if err != nil || page["kind"] != "snapshot" {
+		t.Fatalf("sync: %v %v", page, err)
+	}
+	if r, err := memory("ack", "--consumer", "cli", "--snapshot-id", page["snapshot_id"].(string)); err != nil || r["complete"] != true {
+		t.Fatalf("ack: %v %v", r, err)
+	}
+	if r, err := memory("ack", "--consumer", "cli", "--through", "1"); err != nil || r["cursor"] != float64(1) {
+		t.Fatalf("numeric ack: %v %v", r, err)
+	}
+	if r, err := memory("recall", "gotcha"); err != nil || len(r["entries"].([]any)) != 1 {
+		t.Fatalf("recall: %v %v", r, err)
+	}
+	if r, err := memory("status"); err != nil || r["head"] != float64(1) {
+		t.Fatalf("status: %v %v", r, err)
+	}
+	var refused core.RefusedError
+	if _, err := memory("ack", "--consumer", "fresh", "--through", "1"); !errors.As(err, &refused) || refused.Code != "not_bootstrapped" {
+		t.Fatalf("refusal: %v", err)
+	}
+	var out bytes.Buffer
+	if err := run(context.Background(), []string{"recover", "--state-dir", root, "--address", address}, nil, &out); err != nil || !strings.Contains(out.String(), `"blocked":null`) {
+		t.Fatalf("recover: %v %s", err, out.String())
+	}
+	for _, args := range [][]string{{"memory"}, {"memory", "unknown"}, {"memory", "status"}, {"memory", "record", "--as", "deepseek:synthetic-d"}} {
+		if err := run(context.Background(), args, nil, &out); err == nil {
+			t.Fatalf("accepted: %v", args)
+		}
+	}
+	cancel()
+	<-done
 }

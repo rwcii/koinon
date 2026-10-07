@@ -68,8 +68,15 @@ func (s *Store) CreateLaunch(ctx context.Context, target LaunchTarget) (string, 
 	if err != nil {
 		return "", err
 	}
-	_, err = s.db.ExecContext(ctx, `INSERT INTO launches (id,family,directory,target,created_at) VALUES (?,?,?,?,?)`, id, target.Family, dir, string(data), s.now().UnixMilli())
-	return id, err
+	tx, err := s.begin(ctx, ordinary)
+	if err != nil {
+		return "", err
+	}
+	defer tx.Rollback()
+	if _, err := tx.ExecContext(ctx, `INSERT INTO launches (id,family,directory,target,created_at) VALUES (?,?,?,?,?)`, id, target.Family, dir, string(data), s.now().UnixMilli()); err != nil {
+		return "", tx.fail(err)
+	}
+	return id, tx.Commit()
 }
 
 func launchTarget(ctx context.Context, tx *sql.Tx, id, family, directory string) (json.RawMessage, error) {

@@ -149,6 +149,15 @@ func respond(w http.ResponseWriter, status int, value any) {
 }
 
 func failure(w http.ResponseWriter, err error) {
+	var refusal Refusal
+	if errors.As(err, &refusal) {
+		status := http.StatusConflict
+		if refusal.Code == "invalid_request" {
+			status = http.StatusBadRequest
+		}
+		respond(w, status, map[string]any{"ok": false, "code": refusal.Code, "error": refusal.Message})
+		return
+	}
 	status, code := http.StatusInternalServerError, "storage_error"
 	switch {
 	case errors.Is(err, ErrInvalid):
@@ -203,7 +212,13 @@ func (d *Daemon) handler() http.Handler {
 			failure(w, err)
 			return
 		}
-		respond(w, 200, map[string]any{"ok": true, "daemon": "running", "listeners": d.Addresses(), "sessions": counts, "schema": schemaVersion})
+		storage, err := d.store.StorageStatus(r.Context())
+		if err != nil {
+			failure(w, err)
+			return
+		}
+		respond(w, 200, map[string]any{"ok": true, "daemon": "running", "listeners": d.Addresses(), "sessions": counts,
+			"schema": schemaVersion, "storage": storage})
 	})
 	mux.HandleFunc("GET /v1/sessions", func(w http.ResponseWriter, r *http.Request) {
 		items, truncated, err := d.store.List(r.Context())
@@ -255,6 +270,7 @@ func (d *Daemon) handler() http.Handler {
 		})
 	}
 	d.messageRoutes(mux)
+	d.memoryRoutes(mux)
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		// This API uses only bearer authentication. Browser origins are refused;
 		// dashboard cookies and CSRF checks belong to the later dashboard chunk.

@@ -5,6 +5,11 @@ into a dated release section when promoted to `main`.
 
 ## Unreleased
 
+- The Go daemon now holds one shared memory store per repository, with the record format 2,
+  snapshot, delta, acknowledgement, idempotency, retention and capacity rules of the memory
+  protocol, through the `memory_*` MCP tools and `koinon memory`. Its database has a fixed
+  storage ceiling with a reserve for progress and withdrawal, proves its write-ahead log empty
+  before every write, and refuses writes until `koinon recover` when it cannot.
 - Added `koinon mcp`, a stdio MCP server with the tools `peers`, `send`, `inbox`, `ack` and
   `delivery`. It takes the calling session from the agent on every call (Codex thread, Antigravity
   conversation, Claude Code session, OpenCode session through a plugin) and never from tool

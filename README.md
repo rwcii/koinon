@@ -344,8 +344,8 @@ Ordinary peer limits: 16 active connections, six-second handler deadline, 32 fra
 ## Development
 
 The Go daemon core is available alongside the Python runtime. It is an early sprint chunk:
-it has status, session records, peer names, inboxes, launchers and the MCP server; wake notices
-and installation arrive in later chunks.
+it has status, session records, peer names, inboxes, launchers, the MCP server and repository
+memory; wake notices and installation arrive in later chunks.
 The Python installation commands still install the Python runtime.
 
 With Go 1.26.6 or newer:
@@ -437,6 +437,23 @@ bin/koinon setup deepseek   # prints the command path; DeepSeek MCP support is u
 path. The tools are `peers`, `send`, `inbox`, `ack` and `delivery`. The server learns the calling
 session from the agent itself, never from tool arguments, and registers and renews it with the
 daemon. `bin/koinon guide --agent FAMILY` prints each family's guidance for using them.
+
+The daemon keeps one shared memory store per repository. Agents use the `memory_*` MCP tools;
+the command path is the same operations with `--as`:
+
+```sh
+bin/koinon memory record --as deepseek:ID --type decision 'text'
+bin/koinon memory sync --as deepseek:ID [--consumer KEY] [--snapshot-id ID --page-token N]
+bin/koinon memory ack --as deepseek:ID [--consumer KEY] (--snapshot-id ID | --through SEQ)
+bin/koinon memory recall --as deepseek:ID QUERY
+bin/koinon memory status --as deepseek:ID
+bin/koinon recover
+```
+
+Page a snapshot to the end before acknowledging it, and acknowledge a delta through its
+`next_cursor` after processing it. The daemon's database has a fixed storage ceiling with a
+reserve for progress; when it cannot prove its write-ahead log empty it refuses writes until
+`koinon recover`.
 
 Continue running the Python regression suite until the runtime retirement chunk:
 
