@@ -3,15 +3,14 @@ package core
 import (
 	"context"
 	"encoding/json"
-	"io"
-	"net/http"
 	"sync"
 	"time"
 )
 
 // OpenCode activity comes from `GET /session/status` on the session's own loopback server,
-// with the password that the launcher set (spike fact 6). It is the only OpenCode endpoint
-// the dashboard calls. A result is kept for a few seconds so that refreshes do not repeat it.
+// with the password that the launcher set (spike fact 6). An absent status requires
+// confirming that exact session through its read-only endpoint. The dashboard
+// keeps a result for a few seconds; wake submissions always read fresh status.
 
 const openCodeStatusTTL = 5 * time.Second
 
@@ -56,41 +55,14 @@ func (s *Store) openCodeActivity(ctx context.Context, session Session) map[strin
 }
 
 func (s *Store) queryOpenCode(ctx context.Context, launchID, sessionID string) *ObservedValue {
-	var raw string
-	if s.db.QueryRowContext(ctx, `SELECT target FROM launches WHERE id=?`, launchID).Scan(&raw) != nil {
-		return nil
-	}
-	var target LaunchTarget
-	if json.Unmarshal([]byte(raw), &target) != nil || target.Password == "" || !validAddress(target.Address) {
+	target, err := s.openCodeTarget(ctx, launchID)
+	if err != nil {
 		return nil
 	}
 	ctx, cancel := context.WithTimeout(ctx, time.Second)
 	defer cancel()
-	r, err := http.NewRequestWithContext(ctx, http.MethodGet, "http://"+target.Address+"/session/status", nil)
+	state, err := openCodeStatus(ctx, target, sessionID)
 	if err != nil {
-		return nil
-	}
-	r.SetBasicAuth("opencode", target.Password)
-	transport := &http.Transport{Proxy: nil}
-	defer transport.CloseIdleConnections()
-	client := &http.Client{Transport: transport, CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}
-	response, err := client.Do(r)
-	if err != nil {
-		return nil
-	}
-	defer response.Body.Close()
-	if response.StatusCode != http.StatusOK {
-		return nil
-	}
-	var statuses map[string]struct {
-		Type string `json:"type"`
-	}
-	if json.NewDecoder(io.LimitReader(response.Body, 1<<20)).Decode(&statuses) != nil {
-		return nil
-	}
-	status, found := statuses[sessionID]
-	state := map[string]string{"idle": "idle", "busy": "busy", "retry": "busy"}[status.Type]
-	if !found || state == "" {
 		return nil
 	}
 	return &ObservedValue{Source: "opencode_status", At: s.now().UnixMilli(), State: state}

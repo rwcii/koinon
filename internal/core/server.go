@@ -86,6 +86,7 @@ func Start(c Config) (*Daemon, error) {
 	}
 	d.started = d.store.now()
 	d.store.observed.extras = d.store.openCodeActivity
+	d.store.wake.send = d.store.providerWake
 	if d.auth, err = newDashboardAuth(func() time.Time { return d.store.now() }); err != nil {
 		return nil, err
 	}
@@ -107,6 +108,8 @@ func Start(c Config) (*Daemon, error) {
 	}
 	d.wg.Add(1)
 	go d.maintainWork()
+	d.wg.Add(1)
+	go d.maintainWake()
 	for _, listener := range d.listeners {
 		server := &http.Server{Handler: d.handler(), ReadHeaderTimeout: 5 * time.Second, ReadTimeout: 10 * time.Second, WriteTimeout: 10 * time.Second, IdleTimeout: 30 * time.Second, MaxHeaderBytes: 8192}
 		d.servers = append(d.servers, server)
@@ -146,6 +149,7 @@ func (d *Daemon) Close() error {
 		}
 		d.wg.Wait()
 		if d.store != nil {
+			d.store.closeWake()
 			d.closeErr = errors.Join(d.closeErr, d.store.db.Close())
 		}
 		if d.lock != nil {
@@ -245,8 +249,13 @@ func (d *Daemon) handler() http.Handler {
 			failure(w, err)
 			return
 		}
+		wake, err := d.store.WakeHealth(r.Context())
+		if err != nil {
+			failure(w, err)
+			return
+		}
 		respond(w, 200, map[string]any{"ok": true, "daemon": "running", "listeners": d.Addresses(), "sessions": counts,
-			"schema": schemaVersion, "storage": storage})
+			"schema": schemaVersion, "storage": storage, "wake": wake})
 	})
 	mux.HandleFunc("GET /v1/sessions", func(w http.ResponseWriter, r *http.Request) {
 		items, truncated, err := d.store.List(r.Context())

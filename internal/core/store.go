@@ -66,6 +66,7 @@ type Store struct {
 	// observed and openCode hold session observations, memory-only (sprint chunk 08).
 	observed observations
 	openCode openCodeCache
+	wake     wakeState
 }
 
 func openStore(root string) (*Store, error) {
@@ -194,7 +195,7 @@ func checkFormat(db *sql.DB, path string) error {
 	return nil
 }
 
-const schemaVersion = 5
+const schemaVersion = 6
 
 // migrate brings the state schema from version to target in one transaction, so a crash
 // leaves either the old or the new schema. Each step starts from the version before it.
@@ -361,6 +362,16 @@ func migrate(db *sql.DB, version, target int) error {
 			return err
 		}
 	}
+	if version < 6 && target >= 6 {
+		// Version 6: bounded durable wake retries. Attempts are persisted before any
+		// provider call, so a crash after acceptance cannot lose a wake.
+		if _, err := tx.Exec(`ALTER TABLE messages ADD COLUMN wake_attempts INTEGER NOT NULL DEFAULT 0;
+            ALTER TABLE messages ADD COLUMN wake_next_at INTEGER NOT NULL DEFAULT 0;
+            ALTER TABLE messages ADD COLUMN wake_reason TEXT NOT NULL DEFAULT '';
+            CREATE INDEX messages_wake ON messages(delivery_state, wake_next_at, recipient_family, recipient_id);`); err != nil {
+			return err
+		}
+	}
 	if _, err := tx.Exec(fmt.Sprintf("PRAGMA user_version=%d", target)); err != nil {
 		return err
 	}
@@ -468,6 +479,8 @@ func CleanGitEnvironment() []string {
 }
 
 func (s *Store) Register(ctx context.Context, r Registration) (Session, error) {
+	s.wake.mu.Lock()
+	defer s.wake.mu.Unlock()
 	if !validKey(r.Family, r.ID) || len(r.WakeTarget) > 8192 {
 		return Session{}, ErrInvalid
 	}
@@ -572,6 +585,8 @@ func scanSession(row scanner, now int64) (Session, error) {
 }
 
 func (s *Store) Mutate(ctx context.Context, r Mutation, retire bool) (Session, error) {
+	s.wake.mu.Lock()
+	defer s.wake.mu.Unlock()
 	if !validKey(r.Family, r.ID) || r.IfRevision < 1 {
 		return Session{}, ErrInvalid
 	}

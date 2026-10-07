@@ -29,11 +29,14 @@ type HookEnv struct {
 }
 
 func (e HookEnv) report(o core.Observation) {
+	e.call("/v1/sessions/observe", o)
+}
+func (e HookEnv) call(path string, body any) (json.RawMessage, error) {
 	state := e.Getenv("KOINON_STATE_DIR")
 	if state == "" {
 		var err error
 		if state, err = platform.DefaultStateDir(); err != nil {
-			return
+			return nil, err
 		}
 	}
 	address := e.Getenv("KOINON_DAEMON_ADDRESS")
@@ -42,11 +45,11 @@ func (e HookEnv) report(o core.Observation) {
 	}
 	secret, err := core.ReadSecret(state)
 	if err != nil {
-		return
+		return nil, err
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
 	defer cancel()
-	core.Call(ctx, address, secret, "/v1/sessions/observe", o)
+	return core.Call(ctx, address, secret, path, body)
 }
 
 // claudeStatus reads the model and context use from one Claude Code status-line input, as

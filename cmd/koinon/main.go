@@ -11,6 +11,7 @@ import (
 	"io"
 	"os"
 	"os/signal"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"syscall"
@@ -38,6 +39,8 @@ func run(ctx context.Context, args []string, in io.Reader, out io.Writer) error 
 	switch args[0] {
 	case "setup", "guide", "hook":
 		return agentCommand(ctx, args, in, out)
+	case "register":
+		return registerDeepSeek(ctx, args[1:], out)
 	case "memory", "recover":
 		return memoryCommand(ctx, args, in, out)
 	case "work", "claim":
@@ -119,6 +122,7 @@ func run(ctx context.Context, args []string, in io.Reader, out io.Writer) error 
 }
 
 const usage = `Usage: koinon serve [--state-dir DIR] [--listen 127.0.0.1:PORT] [--listen-v6 [::1]:PORT]
+       koinon register --as deepseek:ID [--directory DIR] [--repository DIR] [--dsh-url URL] [--dsh-credentials FILE] [--state-dir DIR] [--address HOST:PORT]
        koinon status [--state-dir DIR] [--address 127.0.0.1:PORT]
        koinon dashboard [--state-dir DIR] [--address 127.0.0.1:PORT] [--no-open]
        koinon mcp [--state-dir DIR] [--address 127.0.0.1:PORT]
@@ -138,6 +142,50 @@ const usage = `Usage: koinon serve [--state-dir DIR] [--listen 127.0.0.1:PORT] [
        koinon inbox --as FAMILY:ID [--after SEQ] [--limit N] [--state-dir DIR] [--address 127.0.0.1:PORT]
        koinon ack --as FAMILY:ID [--state-dir DIR] [--address 127.0.0.1:PORT] SEQ
 A BODY of - reads the message body from standard input.`
+
+// DeepSeek's MCP support remains unverified. The harness's command path registers
+// its exact native session and wake metadata explicitly, without creating a session.
+func registerDeepSeek(ctx context.Context, args []string, out io.Writer) error {
+	root, err := platform.DefaultStateDir()
+	if err != nil {
+		return err
+	}
+	directory, err := os.Getwd()
+	if err != nil {
+		return err
+	}
+	flags := flag.NewFlagSet("register", flag.ContinueOnError)
+	flags.SetOutput(io.Discard)
+	state := flags.String("state-dir", root, "private Go state directory")
+	address := flags.String("address", "127.0.0.1:47671", "daemon loopback address")
+	as := flags.String("as", "deepseek:"+os.Getenv("DSH_SESSION_ID"), "exact harness session")
+	dir := flags.String("directory", directory, "session directory")
+	repo := flags.String("repository", "", "selected repository")
+	base := flags.String("dsh-url", os.Getenv("DSH_WEB_URL"), "harness loopback origin")
+	credentialDefault := ""
+	if home := os.Getenv("DSH_HOME"); home != "" {
+		credentialDefault = filepath.Join(home, ".credentials.yaml")
+	}
+	credential := flags.String("dsh-credentials", credentialDefault, "private harness credential file")
+	if flags.Parse(args) != nil || flags.NArg() != 0 {
+		return errors.New("invalid register options")
+	}
+	family, id, ok := strings.Cut(*as, ":")
+	if !ok || family != "deepseek" || id == "" || *base == "" || !filepath.IsAbs(*credential) {
+		return errors.New("register requires an exact DeepSeek session, harness URL and absolute credential path")
+	}
+	wake, _ := json.Marshal(map[string]string{"dsh_url": *base, "dsh_credentials": *credential})
+	secret, err := core.ReadSecret(*state)
+	if err != nil {
+		return errors.New("cannot read private daemon secret")
+	}
+	data, err := core.Call(ctx, *address, secret, "/v1/sessions/register", core.Registration{Family: family, ID: id, Directory: *dir, Repository: *repo, WakeTarget: wake})
+	if err != nil {
+		return err
+	}
+	_, err = fmt.Fprintln(out, string(data))
+	return err
+}
 
 // call runs one client command against the daemon's API and prints its JSON response.
 func call(ctx context.Context, command, state, address string, as *string, after, limit *int64, args []string, in io.Reader, out io.Writer) error {

@@ -54,9 +54,17 @@ envelope, and the session showed it with the sender name `koinon`. No token was 
 same-user sender. The sender needs no registry entry to wake a Claude session; a registry entry
 is needed only for Claude sessions to send to Koinon through Claude's own peer feature, which
 criterion 4 replaces with MCP. A reply socket path longer than the AF_UNIX limit failed with
-`bind: invalid argument`, which the edge case in `definition-of-done.md` covers. macOS is not
-verified (no macOS host with Claude Code); the Python runtime's macOS behaviour in `PROTOCOL.md`
-applies until chunk 04 verifies it.
+`bind: invalid argument`, which the edge case in `definition-of-done.md` covers.
+
+Chunk 04 verified the Go sender on macOS 26.6.2 (arm64), Claude Code 2.1.290 and Go 1.26.8
+on 2026-10-07. The user ran a standalone `CGO_ENABLED=0` probe from a scratch Claude session's
+Bash tool. It selected that session's native messaging socket, checked the socket and its
+directory's ownership and private modes, and verified the connected peer's same-user
+`LOCAL_PEERCRED` and `LOCAL_PEERPID`. The socket path stayed literal. A private reply listener
+in the sender process stayed alive while it wrote one newline-delimited `msgV: 1` user frame
+with the `koinon` envelope. No sender registry entry or token was needed. Claude displayed the
+notice from `koinon` and confirmed its synthetic inbox label and sequence range. This proves
+receiver processing as well as the socket write; it is not the full adapter live check 2.
 
 ## 4. Antigravity turn boundary
 
@@ -109,6 +117,14 @@ Verified with OpenCode 1.18.35 on a scratch `opencode serve` (loopback, own work
   has no authentication; with it, a request without basic authentication gets 401.
 - **Wake.** `prompt_async` on an idle session returned 204, and the session took a turn on the
   message (called the requested MCP tool, then answered). Status went `busy`, then idle.
+  Chunk 04 checked native idle-status semantics on 2026-10-07 with OpenCode 1.18.35: an
+  authenticated scratch loopback server with isolated home, configuration, state and cache
+  directories created a fresh session without a model call. Two `GET /session/status` reads
+  returned `{}`, while `GET /session/{id}` confirmed that the exact session existed. Idle
+  sessions are therefore omitted. The adapter treats an absent status entry as idle only
+  after that exact session's existence is confirmed; an absent or invalid session remains
+  unknown. An explicit busy/retry entry is never treated as idle. No user configuration or
+  live model session was used; the scratch server and its state were removed.
 - **MCP.** The local MCP server ran unsandboxed (`Seccomp 0`; loopback TCP connect succeeded) and
   inherited the server's environment. Its `tools/call` `_meta` held only `progressToken`: no
   session identifier.

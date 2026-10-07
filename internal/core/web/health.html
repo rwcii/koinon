@@ -4,4 +4,5 @@
 <dt>Sessions</dt><dd>{{index .Data.Sessions "active"}} active, {{index .Data.Sessions "expired"}} expired, {{index .Data.Sessions "retired"}} retired</dd>
 <dt>Storage</dt><dd>{{.Data.Storage.Pages}} of {{.Data.Storage.MaxPages}} pages ({{pct .Data.Storage.Pages .Data.Storage.MaxPages}}), work debt {{.Data.Storage.WorkDebtPages}} pages, log {{.Data.Storage.LogBytes}} bytes{{with .Data.Storage.Blocked}}<br><strong>writes blocked: {{.}}</strong>{{end}}</dd>
 <dt>Work maintenance</dt><dd>last successful sweep {{secs (index .Data.Sweep "last_successful_sweep")}}{{with index .Data.Sweep "fault"}}<br><strong>fault {{.}}</strong> at {{secs (index $.Data.Sweep "fault_at")}}{{end}}</dd>
+<dt>Wake delivery</dt><dd>{{index .Data.Wake "waiting"}} waiting, {{index .Data.Wake "uncertain"}} uncertain, {{index .Data.Wake "notified"}} notified{{range $reason, $count := index .Data.Wake "reasons"}}<br><code>{{$reason}}</code>: {{$count}}{{end}}{{with index .Data.Wake "fault"}}<br><strong>fault {{.}}</strong>{{end}}</dd>
 </dl>{{end}}

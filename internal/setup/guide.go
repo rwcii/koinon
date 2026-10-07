@@ -1,6 +1,7 @@
 package setup
 
 import (
+	"encoding/json"
 	"errors"
 	"io"
 )
@@ -72,11 +73,14 @@ that wake notices can reach it.
 	"deepseek": `
 ## DeepSeek
 DeepSeek uses the command path until its MCP support is verified, with this session's ID:
+  koinon register --as deepseek:$DSH_SESSION_ID
   koinon peers --as deepseek:$DSH_SESSION_ID
   koinon send --as deepseek:$DSH_SESSION_ID NAME 'message'
   koinon inbox --as deepseek:$DSH_SESSION_ID
   koinon ack --as deepseek:$DSH_SESSION_ID SEQ
 Each command runs with this session's own command approval.
+Register uses DSH_WEB_URL and DSH_HOME for the wake target; repeat it while using the session
+to renew its 15-minute lease, and add --repository PATH when selecting a repository.
 `,
 }
 
@@ -90,9 +94,8 @@ func Guide(family string, out io.Writer) error {
 	return err
 }
 
-// AgyStop answers the agy Stop hook. It reports the end of the turn and the model as
-// session observations; chunk 04 supplies the wake behaviour. Until then it lets the agent
-// stop.
+// AgyStop offers an unacknowledged notice at the native turn boundary. A missing
+// or unavailable daemon lets the agent stop; no peer body enters hook output.
 func AgyStop(in io.Reader, out io.Writer, env HookEnv) error {
 	data, err := io.ReadAll(io.LimitReader(in, hookInputMax+1))
 	if err != nil {
@@ -100,6 +103,14 @@ func AgyStop(in io.Reader, out io.Writer, env HookEnv) error {
 	}
 	if o, ok := agyStopObservation(data, env.Now().UnixMilli()); ok && len(data) <= hookInputMax {
 		env.report(o)
+		result, e := env.call("/v1/wake/agy-stop", map[string]any{"caller": o.Caller})
+		var reply struct {
+			OK     bool   `json:"ok"`
+			Notice string `json:"notice"`
+		}
+		if e == nil && json.Unmarshal(result, &reply) == nil && reply.OK && reply.Notice != "" {
+			return json.NewEncoder(out).Encode(map[string]string{"decision": "continue", "reason": reply.Notice})
+		}
 	}
 	_, err = io.WriteString(out, "{}\n")
 	return err
