@@ -78,8 +78,11 @@ func ReadInstall(prefix string) (*Install, error) {
 	if err != nil {
 		return nil, err
 	}
+	// Numbers stay exact, so a rewrite under the marker never changes another field.
 	var config map[string]any
-	if err := json.Unmarshal(raw, &config); err != nil || config == nil {
+	dec := json.NewDecoder(bytes.NewReader(raw))
+	dec.UseNumber()
+	if err := dec.Decode(&config); err != nil || config == nil {
 		return nil, fmt.Errorf("invalid_install_configuration: %s is not a JSON object", path)
 	}
 	return &Install{Prefix: prefix, Raw: raw, Config: config}, nil
