@@ -14,10 +14,13 @@ import (
 	"strconv"
 	"strings"
 	"syscall"
+	"time"
 
 	"github.com/rwcii/koinon/internal/core"
 	"github.com/rwcii/koinon/internal/launcher"
+	"github.com/rwcii/koinon/internal/mcp"
 	"github.com/rwcii/koinon/internal/platform"
+	"github.com/rwcii/koinon/internal/setup"
 )
 
 func run(ctx context.Context, args []string, in io.Reader, out io.Writer) error {
@@ -32,6 +35,10 @@ func run(ctx context.Context, args []string, in io.Reader, out io.Writer) error 
 		}
 		return launcher.Run(ctx, o, out)
 	}
+	switch args[0] {
+	case "setup", "guide", "hook":
+		return agentCommand(ctx, args, in, out)
+	}
 	root, err := platform.DefaultStateDir()
 	if err != nil {
 		return err
@@ -43,6 +50,17 @@ func run(ctx context.Context, args []string, in io.Reader, out io.Writer) error 
 	var after, limit *int64
 	positional := 0
 	switch args[0] {
+	case "mcp":
+		// An agent starts this server; a launched agent passes the launcher's state root
+		// and daemon address through its environment.
+		if v := os.Getenv("KOINON_STATE_DIR"); v != "" {
+			flags.Set("state-dir", v)
+		}
+		value := os.Getenv("KOINON_DAEMON_ADDRESS")
+		if value == "" {
+			value = "127.0.0.1:47671"
+		}
+		address = flags.String("address", value, "daemon loopback address")
 	case "serve":
 		listen = flags.String("listen", "127.0.0.1:47671", "IPv4 loopback listener")
 		listen6 = flags.String("listen-v6", "[::1]:47671", "IPv6 loopback listener")
@@ -65,6 +83,14 @@ func run(ctx context.Context, args []string, in io.Reader, out io.Writer) error 
 	if flags.NArg() != positional {
 		return errors.New("wrong number of command arguments; use koinon --help")
 	}
+	if args[0] == "mcp" {
+		directory, err := os.Getwd()
+		if err != nil {
+			return err
+		}
+		return mcp.Serve(ctx, mcp.Config{StateDir: *state, Address: *address, Getenv: os.Getenv,
+			ParentPID: os.Getppid(), Command: platform.ProcessCommand, Directory: directory, Now: time.Now}, in, out)
+	}
 	if args[0] != "serve" {
 		return call(ctx, args[0], *state, *address, as, after, limit, flags.Args(), in, out)
 	}
@@ -86,6 +112,10 @@ func run(ctx context.Context, args []string, in io.Reader, out io.Writer) error 
 
 const usage = `Usage: koinon serve [--state-dir DIR] [--listen 127.0.0.1:PORT] [--listen-v6 [::1]:PORT]
        koinon status [--state-dir DIR] [--address 127.0.0.1:PORT]
+       koinon mcp [--state-dir DIR] [--address 127.0.0.1:PORT]
+       koinon setup <claude|codex|agy|opencode|deepseek> [--cli ABS_PATH] [--binary ABS_PATH]
+       koinon guide --agent <claude|codex|agy|opencode|deepseek>
+       koinon hook agy-stop
        koinon <codex|agy|opencode> [--state-dir DIR] [--address HOST:PORT] [--cli ABS_PATH] [--directory DIR] [--tmux-session NAME] [--] [CLI arguments...]
        koinon peers --as FAMILY:ID [--state-dir DIR] [--address 127.0.0.1:PORT]
        koinon send --as FAMILY:ID [--state-dir DIR] [--address 127.0.0.1:PORT] NAME BODY
@@ -139,6 +169,41 @@ func call(ctx context.Context, command, state, address string, as *string, after
 	}
 	_, err = fmt.Fprintln(out, string(result))
 	return err
+}
+
+// agentCommand runs the commands that configure and guide agents.
+func agentCommand(ctx context.Context, args []string, in io.Reader, out io.Writer) error {
+	flags := flag.NewFlagSet(args[0], flag.ContinueOnError)
+	flags.SetOutput(io.Discard)
+	switch args[0] {
+	case "hook":
+		if len(args) != 2 || args[1] != "agy-stop" {
+			return errors.New("unknown hook; use koinon hook agy-stop")
+		}
+		return setup.AgyStop(in, out)
+	case "guide":
+		agent := flags.String("agent", "", "agent family")
+		if err := flags.Parse(args[1:]); err != nil || flags.NArg() != 0 || *agent == "" {
+			return errors.New("use koinon guide --agent FAMILY")
+		}
+		return setup.Guide(*agent, out)
+	}
+	if len(args) < 2 {
+		return errors.New("use koinon setup FAMILY")
+	}
+	o := setup.Options{Family: args[1]}
+	flags.StringVar(&o.CLI, "cli", "", "absolute agent CLI path")
+	flags.StringVar(&o.Binary, "binary", "", "absolute koinon binary path")
+	flags.StringVar(&o.AgyRoot, "agy-config", "", "agy global customization root")
+	flags.StringVar(&o.Opencode, "opencode-config", "", "OpenCode global configuration directory")
+	if err := flags.Parse(args[2:]); err != nil || flags.NArg() != 0 {
+		return errors.New("invalid setup options; use koinon --help")
+	}
+	report, err := setup.Run(ctx, o)
+	if err != nil {
+		return err
+	}
+	return json.NewEncoder(out).Encode(report)
 }
 
 func main() {

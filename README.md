@@ -344,8 +344,8 @@ Ordinary peer limits: 16 active connections, six-second handler deadline, 32 fra
 ## Development
 
 The Go daemon core is available alongside the Python runtime. It is an early sprint chunk:
-it has status, session records, peer names, inboxes and launchers; wake notices, MCP and installation
-arrive in later chunks.
+it has status, session records, peer names, inboxes, launchers and the MCP server; wake notices
+and installation arrive in later chunks.
 The Python installation commands still install the Python runtime.
 
 With Go 1.26.6 or newer:
@@ -420,6 +420,23 @@ The daemon stores the launch target privately, including the OpenCode credential
 receives `KOINON_LAUNCH_ID`, `KOINON_STATE_DIR` and `KOINON_DAEMON_ADDRESS`. Session registration
 uses `launch_id` to bind the real family/session ID to that target. The MCP chunk supplies the
 family's native session identity; launcher records alone do not claim an agent session exists.
+
+Agents reach the daemon through `koinon mcp`, a stdio MCP server that each agent starts. Add it
+once per agent family; each command uses the agent's own MCP command, changes only the `koinon`
+entry, prints what it changed, and changes nothing when run again:
+
+```sh
+bin/koinon setup claude     # claude mcp add --scope user koinon -- /path/to/koinon mcp
+bin/koinon setup codex      # codex mcp add koinon -- /path/to/koinon mcp
+bin/koinon setup agy        # agy mcp add, and the Stop hook in ~/.gemini/config/hooks.json
+bin/koinon setup opencode   # opencode mcp add, and the identity plugin in ~/.config/opencode/plugins/
+bin/koinon setup deepseek   # prints the command path; DeepSeek MCP support is unverified
+```
+
+`--cli ABS_PATH` selects the agent CLI; otherwise setup uses the one on `PATH` and reports its
+path. The tools are `peers`, `send`, `inbox`, `ack` and `delivery`. The server learns the calling
+session from the agent itself, never from tool arguments, and registers and renews it with the
+daemon. `bin/koinon guide --agent FAMILY` prints each family's guidance for using them.
 
 Continue running the Python regression suite until the runtime retirement chunk:
 

@@ -71,9 +71,15 @@ func Parse(family string, args []string) (Options, error) {
 }
 
 func configuredCLI(o Options) (string, error) {
-	path := o.CLI
+	return ConfiguredCLI(o.StateDir, o.Family, o.CLI)
+}
+
+// ConfiguredCLI returns the absolute agent CLI path: the override when given, else the
+// family's entry in private launchers.json. It never searches PATH.
+func ConfiguredCLI(stateDir, family, override string) (string, error) {
+	path := override
 	if path == "" {
-		f, err := platform.OpenPrivate(filepath.Join(o.StateDir, "launchers.json"), os.O_RDONLY)
+		f, err := platform.OpenPrivate(filepath.Join(stateDir, "launchers.json"), os.O_RDONLY)
 		if err != nil {
 			return "", errors.New("configure an absolute CLI path in private launchers.json or use --cli")
 		}
@@ -86,7 +92,7 @@ func configuredCLI(o Options) (string, error) {
 		if json.Unmarshal(data, &config) != nil {
 			return "", errors.New("invalid launcher configuration")
 		}
-		path = config[o.Family]
+		path = config[family]
 	}
 	if !filepath.IsAbs(path) {
 		return "", errors.New("configured CLI path must be absolute")

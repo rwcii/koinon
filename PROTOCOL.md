@@ -101,6 +101,36 @@ Codex context reset. They are inert state until the agent registers and later wa
 use its target. All launch calls use the existing bearer authentication, request limits and
 origin checks; a launch ID is an association key, not a replacement authentication secret.
 
+### MCP server
+
+`koinon mcp` is a stdio MCP server: newline-delimited JSON-RPC 2.0 with `initialize` (protocol
+versions `2025-06-18`, `2025-03-26` and `2024-11-05`; another requested version gets
+`2025-06-18`), `ping`, `tools/list` and `tools/call`. Other methods get error -32601; a message
+longer than 1 MiB gets -32700. Its tools are `peers`, `send` (`to`, `body`), `inbox` (`after`,
+`limit`), `ack` (`through`) and `delivery` (`message_id`), which call the routes above. A tool
+error is a result with `isError` and a JSON text `{"ok": false, "code": ...}`: the daemon's code,
+`daemon_unavailable`, `identity_unavailable`, `invalid_arguments` or `unknown_tool`. The server
+writes only protocol messages to stdout and never logs a secret, session ID or message body.
+
+The calling session comes from the agent on every call, never from model-supplied arguments; a
+call whose arguments hold `caller`, `family`, `id`, `as`, `session` or `session_id` is refused:
+
+| Family | Identity source |
+| --- | --- |
+| Codex | `_meta.threadId`, from a client whose name starts with `codex`; one server serves each thread as its own session. |
+| Antigravity | `_meta["antigravity.google/conversation_id"]`. |
+| Claude | `CLAUDE_CODE_SESSION_ID` in the server's environment, only when `initialize` names the client `claude-code` and the server's parent process is a Claude Code executable. |
+| OpenCode | The `koinon_session` argument that the Koinon plugin sets from the calling session's ID; accepted only from the `opencode` client. |
+
+DeepSeek has no MCP identity source yet and uses the `koinon` commands with `--as`. The server
+registers a session at its first call, with the working directory and, inside Git, its
+repository, and registers it again after five minutes or when the daemon reports it inactive.
+Every five minutes it renews the session it served last. Registration carries wake data for the
+wake adapters: Claude `{"claude_pid": PID}`; Codex `{"cli": PATH}` from `launchers.json`, else
+the parent Codex executable, never a `PATH` search; a launched Codex, Antigravity or OpenCode
+agent passes `KOINON_LAUNCH_ID` as `launch_id`. `KOINON_STATE_DIR` and `KOINON_DAEMON_ADDRESS`
+select the state root and address.
+
 The [work command interface](docs/WORK-ITEMS-COMMANDS.md) provides schema-5
 work records, advisory claims and immutable events. Startup creates schema 5 or
 atomically migrates schema 3/4 after validating the complete catalog. Transport remains

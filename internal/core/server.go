@@ -276,6 +276,9 @@ func GetStatus(ctx context.Context, address, secret string) (json.RawMessage, er
 	return Call(ctx, address, secret, "/v1/status", nil)
 }
 
+// ErrUnavailable reports that no daemon answered at the address.
+var ErrUnavailable = errors.New("daemon unavailable")
+
 // RefusedError carries the daemon's typed code for a refused request.
 type RefusedError struct{ Code string }
 
@@ -308,7 +311,7 @@ func Call(ctx context.Context, address, secret, path string, body any) (json.Raw
 	}
 	response, err := client.Do(r)
 	if err != nil {
-		return nil, errors.New("daemon unavailable")
+		return nil, ErrUnavailable
 	}
 	defer response.Body.Close()
 	// An inbox page holds about one MiB of bodies, which JSON escaping can grow sixfold.
