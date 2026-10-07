@@ -72,8 +72,8 @@ func (s Services) DaemonArtifact() string {
 	return filepath.Join(s.Home, ".config", "systemd", "user", DaemonUnit)
 }
 
-// RenderDaemon is the daemon's unit or agent for binary.
-func (s Services) RenderDaemon(binary string) []byte {
+// RenderDaemon is the daemon's unit or agent: binary serves the state directory state.
+func (s Services) RenderDaemon(binary, state string) []byte {
 	if s.Backend == "launchd" {
 		var b bytes.Buffer
 		b.WriteString(`<?xml version="1.0" encoding="UTF-8"?>
@@ -88,6 +88,8 @@ func (s Services) RenderDaemon(binary string) []byte {
 	<array>
 		<string>` + xmlEscape(binary) + `</string>
 		<string>serve</string>
+		<string>--state-dir</string>
+		<string>` + xmlEscape(state) + `</string>
 	</array>
 	<key>RunAtLoad</key>
 	<true/>
@@ -106,7 +108,7 @@ func (s Services) RenderDaemon(binary string) []byte {
 		return b.Bytes()
 	}
 	return []byte("# " + ServiceMarker + "\n[Unit]\nDescription=Koinon daemon\n\n[Service]\nExecStart=" +
-		systemdQuote(binary) + " serve\nRestart=on-failure\nRestartSec=5\nUMask=0077\n\n[Install]\nWantedBy=default.target\n")
+		systemdQuote(binary) + " serve --state-dir " + systemdQuote(state) + "\nRestart=on-failure\nRestartSec=5\nUMask=0077\n\n[Install]\nWantedBy=default.target\n")
 }
 
 func xmlEscape(s string) string {
@@ -160,7 +162,7 @@ func (s Services) Available(ctx context.Context) bool {
 
 // WriteDaemon writes the daemon's artifact for binary. An existing artifact without the
 // marker is refused. It returns whether the artifact changed.
-func (s Services) WriteDaemon(binary string) (bool, error) {
+func (s Services) WriteDaemon(binary, state string) (bool, error) {
 	path := s.DaemonArtifact()
 	present, marked, err := Marked(path)
 	if err != nil {
@@ -169,7 +171,7 @@ func (s Services) WriteDaemon(binary string) (bool, error) {
 	if present && !marked {
 		return false, fmt.Errorf("service_artifact_unowned: %s exists without the Koinon marker", path)
 	}
-	want := s.RenderDaemon(binary)
+	want := s.RenderDaemon(binary, state)
 	current, _ := os.ReadFile(path)
 	if bytes.Equal(current, want) {
 		return false, nil

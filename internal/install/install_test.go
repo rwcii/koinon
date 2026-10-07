@@ -138,7 +138,7 @@ func TestInstallRefusals(t *testing.T) {
 	// Without a reachable manager the install reports the start command.
 	e.r.fail = func(argv []string) bool { return argv[0] == "systemctl" }
 	r, err := Install(context.Background(), e.o)
-	if err != nil || r.Service != "manual_required" || r.StartCommand != r.Binary+" serve" {
+	if err != nil || r.Service != "manual_required" || r.StartCommand != r.Binary+" serve --state-dir "+e.o.StateDir {
 		t.Fatalf("manual %+v %v", r, err)
 	}
 	// --no-start stages without any manager call.

@@ -206,14 +206,14 @@ func Install(ctx context.Context, o Options) (Report, error) {
 	if r.BinaryResult, err = place(o.Source, r.Binary); err != nil {
 		return r, err
 	}
-	if _, err := o.Services.WriteDaemon(r.Binary); err != nil {
+	if _, err := o.Services.WriteDaemon(r.Binary, o.StateDir); err != nil {
 		return r, err
 	}
 	r.Service = "staged"
 	if !o.NoStart {
 		switch err := o.Services.StartDaemon(ctx); {
 		case errors.Is(err, platform.ErrManualRequired):
-			r.Service, r.StartCommand = "manual_required", r.Binary+" serve"
+			r.Service, r.StartCommand = "manual_required", r.Binary+" serve --state-dir "+o.StateDir
 		case err != nil:
 			return r, err
 		default:
