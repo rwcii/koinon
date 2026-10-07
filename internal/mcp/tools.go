@@ -272,6 +272,7 @@ func (s *server) register(ctx context.Context, caller core.Key) error {
 	s.mu.Lock()
 	s.sessions[caller] = registered{revision: reply.Session.Revision, at: s.c.Now()}
 	s.mu.Unlock()
+	s.nameAfterRegistration(caller, reply.Session)
 	return nil
 }
 
@@ -300,17 +301,20 @@ func (s *server) renew(ctx context.Context) {
 		return
 	}
 	data, err := s.daemon(ctx, "/v1/sessions/renew", core.Mutation{Family: caller.Family, ID: caller.ID, IfRevision: current.revision})
-	s.mu.Lock()
-	defer s.mu.Unlock()
 	var reply struct {
 		Session core.Session `json:"session"`
 	}
+	s.mu.Lock()
 	if err != nil || json.Unmarshal(data, &reply) != nil {
 		// Expired, retired or unreachable: the next tool call registers again.
 		delete(s.sessions, caller)
+		s.mu.Unlock()
 		return
 	}
 	s.sessions[caller] = registered{revision: reply.Session.Revision, at: s.c.Now()}
+	s.mu.Unlock()
+	// A renewal can give the session its alias.
+	s.nameAfterRegistration(caller, reply.Session)
 }
 
 func gitRepository(ctx context.Context, directory string) bool {

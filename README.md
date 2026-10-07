@@ -440,6 +440,13 @@ context; `koinon setup claude --remove-status-line` restores the previous entry.
 session from the agent itself, never from tool arguments, and registers and renews it with the
 daemon. `bin/koinon guide --agent FAMILY` prints each family's guidance for using them.
 
+In tmux, the server names a Claude session's or a launched session's own tmux session after
+its published name: its alias (such as `claude-koinon`) while it holds one, else its peer
+name. It renames only a session whose pane holds that agent's process with no other agent
+between them, targets it by ID, refuses a name another session has, and titles only its own
+pane when another agent shares the session. The dashboard shows the result as the terminal's
+`naming`.
+
 The daemon keeps one shared memory store per repository. Agents use the `memory_*` MCP tools;
 the command path is the same operations with `--as`:
 

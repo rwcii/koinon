@@ -51,6 +51,7 @@ type observer struct {
 	rollouts map[string]*rollout
 	terminal *core.ObservedValue
 	checked  time.Time
+	naming   map[core.Key]string // the last terminal naming result of each session
 }
 
 // observeCall reports what one tool call shows: the model of a Codex turn, and that an
@@ -192,7 +193,11 @@ func (s *server) observeOnce(ctx context.Context) {
 		// server offers it only for those, so that a shared server's environment is not
 		// reported as another session's terminal.
 		if terminal != nil && (c.key.Family == "claude" && claude || s.c.Getenv("KOINON_LAUNCH_ID") != "") {
-			o.Terminal = terminal
+			v := *terminal
+			s.obs.mu.Lock()
+			v.Naming = s.obs.naming[c.key]
+			s.obs.mu.Unlock()
+			o.Terminal = &v
 		}
 		s.report(ctx, o)
 	}

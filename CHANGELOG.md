@@ -5,6 +5,10 @@ into a dated release section when promoted to `main`.
 
 ## Unreleased
 
+- The Go runtime's `koinon mcp` now names a Claude session's or a launched session's own tmux
+  session after its published name (its alias, such as `claude-koinon`, else its peer name). It
+  renames only a session that it proves to be that agent's own and titles only its own pane in
+  a session shared with another agent. The dashboard shows the result.
 - A Koinon command no longer crashes at start when another process of the same installation
   compiles a module while the command checks its bytecode caches; it runs from source for
   that run instead.

@@ -34,6 +34,10 @@ type Config struct {
 	Now       func() time.Time
 	// TmuxSession names the tmux session of a pane; nil reports the pane without a name.
 	TmuxSession func(ctx context.Context, socket, pane string) (string, error)
+	// Tmux runs one command on a tmux server, and Parents reads the process table; the
+	// terminal is named only when both are set.
+	Tmux    func(ctx context.Context, socket string, args ...string) (string, error)
+	Parents func() (map[int]int, error)
 }
 
 type rpcRequest struct {
@@ -60,6 +64,10 @@ type server struct {
 	sessions map[core.Key]registered
 	latest   core.Key
 	obs      observer
+	// named is the published name each session's terminal was last named after, with a
+	// final result; naming marks an attempt in progress.
+	named  map[core.Key]string
+	naming map[core.Key]bool
 }
 
 type registered struct {
@@ -69,7 +77,8 @@ type registered struct {
 
 // Serve runs the server until the input ends or ctx is cancelled.
 func Serve(ctx context.Context, c Config, in io.Reader, out io.Writer) error {
-	s := &server{c: c, out: json.NewEncoder(out), sessions: map[core.Key]registered{}}
+	s := &server{c: c, out: json.NewEncoder(out), sessions: map[core.Key]registered{},
+		named: map[core.Key]string{}, naming: map[core.Key]bool{}}
 	ctx, cancel := context.WithCancel(ctx)
 	defer cancel()
 	go s.renewLoop(ctx)

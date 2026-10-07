@@ -8,7 +8,7 @@
 <td>{{with index .Observed "model"}}{{if .Value}}{{.Value.ID}}<br><small>{{.Value.Source}}, {{ms .Value.At}}</small>{{else}}<small>unknown: {{.Reason}}</small>{{end}}{{end}}</td>
 <td>{{with index .Observed "context"}}{{if .Value}}{{tokens .Value}}<br><small>{{.Value.Source}}, {{ms .Value.At}}</small>{{else}}<small>unknown: {{.Reason}}</small>{{end}}{{end}}</td>
 <td>{{with index .Observed "activity"}}{{if .Value}}{{.Value.State}}<br><small>{{.Value.Source}}, since {{ms .Value.At}}</small>{{else}}<small>unknown: {{.Reason}}</small>{{end}}{{end}}</td>
-<td>{{with index .Observed "terminal"}}{{if .Value}}tmux {{if .Value.Session}}{{.Value.Session}} {{end}}<code>{{.Value.Pane}}</code><br><small>{{.Value.Socket}}</small><br><small>{{.Value.Source}}, {{ms .Value.At}}</small>{{else}}<small>unknown: {{.Reason}}</small>{{end}}{{end}}</td>
+<td>{{with index .Observed "terminal"}}{{if .Value}}tmux {{if .Value.Session}}{{.Value.Session}} {{end}}<code>{{.Value.Pane}}</code><br><small>{{.Value.Socket}}</small><br><small>{{.Value.Source}}, {{ms .Value.At}}</small>{{if .Value.Naming}}<br><small>naming: {{.Value.Naming}}</small>{{end}}{{else}}<small>unknown: {{.Reason}}</small>{{end}}{{end}}</td>
 <td>{{ms .RegisteredAt}}</td><td>{{ms .RenewedAt}}</td><td>{{ms .ExpiresAt}}</td>
 <td>{{range .Work}}<div><code>{{.WorkID}}</code> {{.Title}} <small>generation {{.Generation}}, until {{secs .ExpiresAt}}</small></div>{{else}}—{{end}}</td>
 </tr>{{end}}</tbody></table>{{end}}

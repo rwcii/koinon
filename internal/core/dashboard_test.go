@@ -340,7 +340,7 @@ func TestDashboardViewsRenderSyntheticState(t *testing.T) {
 		t.Fatal(err)
 	}
 	if err := s.Observe(ctx, Observation{Caller: Key{"claude", "synthetic-sub"}, Terminal: &ObservedValue{Source: "tmux_env",
-		At: s.now().UnixMilli(), Socket: "/tmp/tmux-synthetic/default", Pane: "%5", Session: "synthetic-work"}}); err != nil {
+		At: s.now().UnixMilli(), Socket: "/tmp/tmux-synthetic/default", Pane: "%5", Session: "synthetic-work", Naming: "name_taken"}}); err != nil {
 		t.Fatal(err)
 	}
 	hostile := `<script>alert("x")</script> <a href="javascript:alert(1)">link</a> 'quote' & more`
@@ -378,7 +378,7 @@ func TestDashboardViewsRenderSyntheticState(t *testing.T) {
 	}
 	sessions := page("/dashboard/sessions")
 	contains(sessions, a.Name, b.Name, retired.Name, "state-retired", repo, "Synthetic held item &lt;b&gt;bold&lt;/b&gt;", held,
-		"directory "+sub, "synthetic-work <code>%5</code>", "tmux_env, ", "unknown: terminal_unverified")
+		"directory "+sub, "synthetic-work <code>%5</code>", "tmux_env, ", "naming: name_taken", "unknown: terminal_unverified")
 	if strings.Contains(sessions, "More sessions") {
 		t.Fatal("a single page links to more")
 	}
