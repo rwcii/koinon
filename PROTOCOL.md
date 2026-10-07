@@ -27,6 +27,8 @@ Never put a secret, runtime session identifier or response body in a repository.
 | `POST /v1/memory/ack` | Acknowledge a fully issued snapshot or a delta through a sequence. |
 | `POST /v1/memory/recall` | Find live entries whose body contains a query, newest first. |
 | `POST /v1/memory/status` | Report the store's head, floor, usage, limits, lifetimes and consumers. |
+| `POST /v1/sessions/observe` | Record allowlisted observations (model, context, activity, terminal) for an active session; see "Dashboard and session observations". |
+| `POST /v1/dashboard/links` | Issue a one-time dashboard login link (`path`, `expires_in`). |
 | `POST /v1/storage/recover` | Prove the write-ahead log empty again, return free pages and clear a blocked state. |
 
 POST requests use `Content-Type: application/json`, at most 16 KiB, with unknown fields refused.
@@ -225,6 +227,84 @@ wake adapters: Claude `{"claude_pid": PID}`; Codex `{"cli": PATH}` from `launche
 the parent Codex executable, never a `PATH` search; a launched Codex, Antigravity or OpenCode
 agent passes `KOINON_LAUNCH_ID` as `launch_id`. `KOINON_STATE_DIR` and `KOINON_DAEMON_ADDRESS`
 select the state root and address.
+
+### Dashboard and session observations
+
+The daemon serves a read-only dashboard under `/dashboard/` on its loopback listeners. Pages are
+rendered on the server and their CSS and script are embedded in the binary; nothing is fetched
+from elsewhere. Peer message bodies appear here, escaped, and nowhere else outside the inboxes.
+
+- **Login.** `koinon dashboard [--state-dir DIR] [--address ADDR] [--no-open]` asks
+  `POST /v1/dashboard/links` for a link, prints `http://ADDR/dashboard/login?token=TOKEN` and
+  opens it when a browser is available (macOS `open`, Linux `xdg-open` with `DISPLAY` or
+  `WAYLAND_DISPLAY`; never in an SSH session). A token has 256 random bits, works once within 60
+  seconds, and at most 8 are outstanding. Its use starts a session: the cookie `koinon_dashboard`
+  is `HttpOnly`, `SameSite=Strict`, `Path=/dashboard/` and has no `Domain`. A session ends after 30
+  idle minutes, after 12 hours, at logout, when 16 newer sessions exist, or when the daemon
+  restarts. The daemon keeps only SHA-256 hashes of tokens and session IDs, in memory.
+- **Request protection.** Every dashboard request must name the literal address of the listener
+  that accepted it in `Host` (`127.0.0.1:PORT` or `[::1]:PORT`; `localhost` is refused); an
+  `Origin`, when present, must be `http://` plus that host. A request other than `GET` or `HEAD`
+  needs that `Origin` and the session's CSRF token in `X-Koinon-CSRF` or the form field `csrf`.
+  The token is HMAC-SHA256 of the session ID under a key made at each daemon start; pages carry it
+  in a hidden field, so the cookie stays unreadable to scripts. A wrong host, origin or token is
+  403; no session is 401. Every response carries a `default-src 'none'` content security policy
+  that allows only the dashboard's own script, style and fetches, `frame-ancestors 'none'`,
+  `X-Frame-Options: DENY`, `nosniff`, `Referrer-Policy: no-referrer`, `Cache-Control: no-store`
+  and `Cross-Origin-Opener-Policy: same-origin`. The dashboard cookie never authorizes `/v1/`, and
+  the bearer secret never authorizes `/dashboard/`.
+- **Views.** `sessions` (100 per page in family and ID order, `after=FAMILY:ID` for the next page;
+  names, family, repository and working directory, state and times, the observations below with
+  their source and time, and the live claims held under the session key `FAMILY:ID`), `messages` (every inbox, newest first
+  by message ID, 50 per page and about 1 MiB of bodies, `before=ID` for older pages, `to=NAME` for
+  one recipient; delivery state and reason, acknowledgement), `memory` (per store: head, floor,
+  entries and logical bytes against their ceilings, consumers, work debt and maintenance), `work`
+  (per store, every unfinished item with its claim, resources, lease and progress state computed
+  at read time) and `health` (start time, revision, schema, listeners, session counts, storage and
+  the work maintenance sweep). Stores page by repository, 50 at a time. With `fragment=1` a view
+  returns its list alone; the page script fetches it every 5 seconds while the page is visible.
+  Views never write. Actions and their audit log are not part of this chunk.
+
+Observations are memory-only, allowlisted values: a model ID (at most 128 printable characters),
+context limit and used tokens, an activity state (`busy`, `idle` or `waiting`) and a tmux socket,
+pane (`%N`) and session name, each with its source and the time the source recorded it. The
+daemon keeps the newest report per group for active sessions, with the time it last received a
+report that confirms it: a newer report replaces the value, a report of the same content
+confirms it and keeps its source time, and an older, different report changes nothing. A value
+that no report confirmed within its window shows `unknown` with `observation_stale`: 2 minutes
+for activity and terminal, 30 minutes for model and context. Polled sources are confirmed every
+minute while they stay readable; hooks and tool calls confirm only by their next event, so an
+agy session's idle state and a Claude session's status-line values go stale when no new event
+comes. A session that is not active shows `unknown` with `session_expired` or
+`session_retired`. A group without a value shows `no_source` when the family has none, else
+`not_observed`.
+
+| Group | Sources |
+| --- | --- |
+| Model | `claude_statusline`; `codex_rollout` (the session's own rollout under `CODEX_HOME`) and `codex_mcp_meta` (`x-codex-turn-metadata.model` of a tool call); `agy_hook` (`modelName` of the Stop hook) |
+| Context | `claude_statusline` (`context_window_size`, `total_input_tokens`); `codex_rollout` (`model_context_window`, `last_token_usage.input_tokens`) |
+| Activity | `claude_registry` (the parent Claude process's registry record for this session, `entrypoint: cli`); `codex_rollout` (task started and completed); `agy_hook` (idle at Stop) and `mcp_call` (an agy tool call); `opencode_status` (`GET /session/status` on a launched OpenCode server, with its password, cached 5 seconds) |
+| Terminal | `tmux_env`: the MCP server's `TMUX` and `TMUX_PANE` and the pane's session name |
+
+One MCP server can serve several sessions, so its environment proves nothing about a session.
+The daemon accepts a terminal only for a session registered with a verified launch ID or a
+Claude session, whose server is the child of that Claude process; any other terminal report is
+refused with `terminal_unverified`, and the view shows that reason. `koinon mcp` checks its
+pulled sources every 5 seconds for the 8 sessions it registered last and reports a group when it
+changed, or once a minute to confirm it. It reads metadata only: a rollout's first record must
+name the session, at most 4 MiB are read per check, records longer than 1 MiB are discarded in
+pieces across checks, and no conversation text is kept or sent.
+
+`koinon hook claude-status [--command COMMAND]` is the Claude Code `statusLine` command. It runs
+`COMMAND` through `/bin/sh -c` with the same input and returns its output and exit status, or
+prints the model's display name without one, and reports the model and context of the input's
+`session_id`. `koinon setup claude` makes it the `statusLine` entry, keeping the entry's other
+fields and wrapping its previous command. The previous entry is saved once, before the settings
+change, in `claude-statusline.json` in the Go state root. `koinon setup claude --remove-status-line`
+restores it while the entry is still Koinon's, and keeps an entry the user changed. Only the
+`statusLine` member changes; member order and the file mode are kept; a symbolic link, a file
+not owned by the user, a file over 1 MiB or invalid JSON is refused, and a file that changes
+while Koinon edits it is a `settings_conflict` that keeps the other change.
 
 The [work command interface](docs/WORK-ITEMS-COMMANDS.md) provides schema-5
 work records, advisory claims and immutable events. Startup creates schema 5 or

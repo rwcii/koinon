@@ -5,6 +5,13 @@ into a dated release section when promoted to `main`.
 
 ## Unreleased
 
+- Added the Go daemon dashboard: `koinon dashboard` prints a one-time login link to a loopback,
+  read-only web view of the sessions, every message with its body and delivery and
+  acknowledgement state, the memory stores, the work items and the daemon's health, refreshed in
+  place. Requests must name the listener's literal address and origin; state changes need a CSRF
+  token. Sessions show their model, context, activity and terminal, from Codex call metadata and
+  rollouts, the Claude Code registry and the new `koinon hook claude-status` status line (set up by
+  `koinon setup claude`), the Antigravity Stop hook and the OpenCode session status.
 - The Go daemon now holds work items in each repository's memory store: records with criteria
   and non-goals, advisory writer leases with path and exact resource claims, progress and
   due-transition events in the memory stream, idempotent retries, list filters, 30-day retention

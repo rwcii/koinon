@@ -63,6 +63,9 @@ type Store struct {
 	storage storage
 	memory  memoryState
 	work    workState
+	// observed and openCode hold session observations, memory-only (sprint chunk 08).
+	observed observations
+	openCode openCodeCache
 }
 
 func openStore(root string) (*Store, error) {

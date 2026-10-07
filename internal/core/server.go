@@ -26,6 +26,9 @@ type Config struct {
 type Daemon struct {
 	store     *Store
 	secret    string
+	auth      *dashboardAuth
+	dashboard http.Handler
+	started   time.Time
 	lock      *os.File
 	listeners []net.Listener
 	servers   []*http.Server
@@ -79,6 +82,14 @@ func Start(c Config) (*Daemon, error) {
 	}
 	d.store, err = openStore(root)
 	if err != nil {
+		return nil, err
+	}
+	d.started = d.store.now()
+	d.store.observed.extras = d.store.openCodeActivity
+	if d.auth, err = newDashboardAuth(func() time.Time { return d.store.now() }); err != nil {
+		return nil, err
+	}
+	if d.dashboard, err = d.dashboardHandler(); err != nil {
 		return nil, err
 	}
 	for _, address := range c.Listen {
@@ -289,9 +300,26 @@ func (d *Daemon) handler() http.Handler {
 	d.messageRoutes(mux)
 	d.memoryRoutes(mux)
 	d.workRoutes(mux)
+	d.observationRoutes(mux)
+	mux.HandleFunc("POST /v1/dashboard/links", func(w http.ResponseWriter, r *http.Request) {
+		if err := decode(w, r, &struct{}{}); err != nil {
+			failure(w, err)
+			return
+		}
+		token, err := d.auth.link()
+		if err != nil {
+			failure(w, err)
+			return
+		}
+		respond(w, 200, map[string]any{"ok": true, "path": "/dashboard/login?token=" + token, "expires_in": int(linkLifetime.Seconds())})
+	})
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		// This API uses only bearer authentication. Browser origins are refused;
-		// dashboard cookies and CSRF checks belong to the later dashboard chunk.
+		// The dashboard has its own login, host, origin and CSRF checks; a dashboard cookie
+		// never reaches this API, which uses only bearer authentication and refuses browsers.
+		if r.URL.Path == "/dashboard" || strings.HasPrefix(r.URL.Path, "/dashboard/") {
+			d.dashboard.ServeHTTP(w, r)
+			return
+		}
 		if r.Header.Get("Origin") != "" || !validAddress(r.Host) {
 			respond(w, 403, map[string]any{"ok": false, "code": "foreign_origin"})
 			return

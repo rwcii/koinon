@@ -1,0 +1,22 @@
+{{define "page"}}<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Koinon · {{.Title}}</title>
+<link rel="stylesheet" href="/dashboard/static/app.css">
+<script src="/dashboard/static/app.js" defer></script>
+</head>
+<body>
+<header>
+<span class="brand">Koinon</span>
+{{if .CSRF}}<nav>{{range .Views}}<a href="/dashboard/{{.}}"{{if eq . $.View}} aria-current="page"{{end}}>{{.}}</a>{{end}}</nav>
+<form method="post" action="/dashboard/logout"><input type="hidden" name="csrf" value="{{.CSRF}}"><button type="submit">Log out</button></form>{{end}}
+</header>
+<main>
+<h1>{{.Title}}</h1>
+<div id="list"{{if .CSRF}} data-refresh="5000"{{end}}>{{template "list" .}}</div>
+</main>
+</body>
+</html>
+{{end}}

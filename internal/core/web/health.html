@@ -1,0 +1,7 @@
+{{define "list"}}<dl>
+<dt>Daemon</dt><dd>running since {{.Data.Started.UTC.Format "2006-01-02 15:04:05Z"}}, revision <code>{{.Data.Revision}}</code>, schema {{.Data.Schema}}</dd>
+<dt>Listeners</dt><dd>{{range $i, $l := .Data.Listeners}}{{if $i}}, {{end}}<code>{{$l}}</code>{{end}}</dd>
+<dt>Sessions</dt><dd>{{index .Data.Sessions "active"}} active, {{index .Data.Sessions "expired"}} expired, {{index .Data.Sessions "retired"}} retired</dd>
+<dt>Storage</dt><dd>{{.Data.Storage.Pages}} of {{.Data.Storage.MaxPages}} pages ({{pct .Data.Storage.Pages .Data.Storage.MaxPages}}), work debt {{.Data.Storage.WorkDebtPages}} pages, log {{.Data.Storage.LogBytes}} bytes{{with .Data.Storage.Blocked}}<br><strong>writes blocked: {{.}}</strong>{{end}}</dd>
+<dt>Work maintenance</dt><dd>last successful sweep {{secs (index .Data.Sweep "last_successful_sweep")}}{{with index .Data.Sweep "fault"}}<br><strong>fault {{.}}</strong> at {{secs (index $.Data.Sweep "fault_at")}}{{end}}</dd>
+</dl>{{end}}

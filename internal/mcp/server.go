@@ -32,6 +32,8 @@ type Config struct {
 	Command   func(pid int) (string, []string, error)
 	Directory string
 	Now       func() time.Time
+	// TmuxSession names the tmux session of a pane; nil reports the pane without a name.
+	TmuxSession func(ctx context.Context, socket, pane string) (string, error)
 }
 
 type rpcRequest struct {
@@ -57,6 +59,7 @@ type server struct {
 	secret   string
 	sessions map[core.Key]registered
 	latest   core.Key
+	obs      observer
 }
 
 type registered struct {
@@ -70,6 +73,7 @@ func Serve(ctx context.Context, c Config, in io.Reader, out io.Writer) error {
 	ctx, cancel := context.WithCancel(ctx)
 	defer cancel()
 	go s.renewLoop(ctx)
+	go s.observeLoop(ctx)
 	reader := bufio.NewReaderSize(in, 64*1024)
 	for {
 		line, err := readLine(reader)
