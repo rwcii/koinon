@@ -1,5 +1,5 @@
 {{define "list"}}{{if not .Data.Rows}}<p class="empty">No sessions.</p>{{else}}<table>
-<thead><tr><th>Name</th><th>Family</th><th>Repository and directory</th><th>State</th><th>Model</th><th>Context</th><th>Activity</th><th>Terminal</th><th>Registered</th><th>Renewed</th><th>Expires</th><th>Claimed work</th></tr></thead>
+<thead><tr><th>Name</th><th>Family</th><th>Repository and directory</th><th>State</th><th>Model</th><th>Context</th><th>Activity</th><th>Terminal</th><th>Registered</th><th>Renewed</th><th>Expires</th><th>Claimed work</th><th>Actions</th></tr></thead>
 <tbody>{{range .Data.Rows}}<tr class="state-{{.State}}">
 <td>{{.Name}}{{if .Alias}}<br><small>alias {{.Alias}}</small>{{end}}</td>
 <td>{{.Family}}</td>
@@ -11,5 +11,13 @@
 <td>{{with index .Observed "terminal"}}{{if .Value}}tmux {{if .Value.Session}}{{.Value.Session}} {{end}}<code>{{.Value.Pane}}</code><br><small>{{.Value.Socket}}</small><br><small>{{.Value.Source}}, {{ms .Value.At}}</small>{{if .Value.Naming}}<br><small>naming: {{.Value.Naming}}</small>{{end}}{{else}}<small>unknown: {{.Reason}}</small>{{end}}{{end}}</td>
 <td>{{ms .RegisteredAt}}</td><td>{{ms .RenewedAt}}</td><td>{{ms .ExpiresAt}}</td>
 <td>{{range .Work}}<div><code>{{.WorkID}}</code> {{.Title}} <small>generation {{.Generation}}, until {{secs .ExpiresAt}}</small></div>{{else}}—{{end}}</td>
+<td>{{if eq .Family "maintainer"}}<small>built-in</small>{{else if eq .State "active"}}<form method="post" action="/dashboard/actions/retire" class="inline"><input type="hidden" name="csrf" value="{{$.CSRF}}"><input type="hidden" name="family" value="{{.Family}}"><input type="hidden" name="id" value="{{.ID}}"><input type="hidden" name="revision" value="{{.Revision}}"><button type="submit">Retire</button></form>{{else}}—{{end}}</td>
 </tr>{{end}}</tbody></table>{{end}}
 {{if .Data.Next}}<p><a href="/dashboard/sessions{{query "after" .Data.Next}}">More sessions</a></p>{{end}}{{end}}
+{{define "actions"}}<details class="action"><summary>Start a session</summary>
+<form method="post" action="/dashboard/actions/launch"><input type="hidden" name="csrf" value="{{.CSRF}}">
+<label>Agent <select name="family"><option value="codex">Codex</option><option value="agy">Antigravity</option><option value="opencode">OpenCode</option></select></label>
+<label>Start directory <input name="directory" required maxlength="4096" placeholder="/absolute/path"></label>
+<label>tmux session <input name="name" maxlength="80" pattern="[A-Za-z0-9_-]{1,80}" placeholder="optional"></label>
+<button type="submit">Start</button></form>
+<p><small>The agent starts detached in a new tmux session with its configured command, and registers with the daemon on its first tool call.</small></p></details>{{end}}

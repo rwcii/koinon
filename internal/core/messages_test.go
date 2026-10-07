@@ -298,7 +298,8 @@ func TestMessagesBetweenEveryFamilyPair(t *testing.T) {
 		}
 	}
 	status, listing := post(t, address, secret, "/v1/peers", map[string]any{"caller": Key{"codex", "synthetic-codex"}})
-	if status != 200 || len(listing["peers"].([]any)) != len(families) {
+	// Every family, and the built-in maintainer, which agents can send to.
+	if status != 200 || len(listing["peers"].([]any)) != len(families)+1 {
 		t.Fatalf("peers: %d %v", status, listing)
 	}
 	// Peers see names, aliases, families, states and repositories, never another

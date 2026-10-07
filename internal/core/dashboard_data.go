@@ -46,9 +46,10 @@ const dashboardSessionPage = 100
 // dashboardSessions lists sessions in (family, id) order after a key (nil for the first
 // page); next is the last listed key when more follow.
 func (s *Store) dashboardSessions(ctx context.Context, after *Key) ([]Session, *Key, error) {
-	query, args := sessionQuery, []any{}
+	// Agent sessions only; the maintainer's inbox is on the messages view.
+	query, args := sessionQuery+` WHERE s.family!='maintainer'`, []any{}
 	if after != nil {
-		query += ` WHERE (s.family,s.id)>(?,?)`
+		query += ` AND (s.family,s.id)>(?,?)`
 		args = append(args, after.Family, after.ID)
 	}
 	rows, err := s.db.QueryContext(ctx, query+` ORDER BY s.family,s.id LIMIT `+strconv.Itoa(dashboardSessionPage+1), args...)
@@ -97,7 +98,7 @@ func (s *Store) dashboardMessages(ctx context.Context, recipient *Key, before in
 	query := `SELECT m.id,m.seq,m.sender_family,m.sender_name,m.body,m.created_at,m.delivery_state,m.delivery_reason,
 		m.delivery_updated_at,m.recipient_family,m.recipient_id,
 		COALESCE((SELECT name FROM names WHERE kind='peer' AND family=m.recipient_family AND session_id=m.recipient_id),''),
-		m.seq<=COALESCE(s.acked_through,0)
+		m.seq<=COALESCE(s.acked_through,0),m.maintainer_ack
 		FROM messages m LEFT JOIN sessions s ON s.family=m.recipient_family AND s.id=m.recipient_id
 		WHERE (?1=0 OR m.id<?1)`
 	args := []any{before}
@@ -114,10 +115,12 @@ func (s *Store) dashboardMessages(ctx context.Context, recipient *Key, before in
 	size, next := 0, int64(0)
 	for rows.Next() {
 		var m MessageRecord
+		var maintainer bool
 		if err := rows.Scan(&m.ID, &m.Seq, &m.SenderFamily, &m.SenderName, &m.Body, &m.CreatedAt, &m.DeliveryState,
-			&m.DeliveryReason, &m.UpdatedAt, &m.RecipientFamily, &m.RecipientID, &m.RecipientName, &m.Acknowledged); err != nil {
+			&m.DeliveryReason, &m.UpdatedAt, &m.RecipientFamily, &m.RecipientID, &m.RecipientName, &m.Acknowledged, &maintainer); err != nil {
 			return nil, 0, err
 		}
+		m.AcknowledgedBy = acknowledgedBy(m.Acknowledged, maintainer)
 		if len(result) == dashboardMessagePage || (len(result) > 0 && size+len(m.Body) > 1<<20) {
 			next = result[len(result)-1].ID
 			break

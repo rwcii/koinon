@@ -81,12 +81,19 @@ inbox and reads only the outcome of its own messages; another sender's message r
 - Read takes `caller`, `after` (default 0) and `limit` (1–100, default 50). The reply's `inbox`
   holds `messages` in sequence order, `last_seq`, `acked_through` and `more`; a page stops after
   about 1 MiB of bodies. Each message has `id`, `seq`, `sender_family`, `sender_name`, `body`,
-  `created_at`, `delivery_state`, `delivery_reason` and `acknowledged`.
+  `created_at`, `delivery_state`, `delivery_reason`, `acknowledged` and, for an acknowledged
+  message, `acknowledged_by`: `recipient` or `maintainer`.
 - Acknowledge takes `caller` and `through`. Acknowledgement only moves forward: an earlier
   sequence leaves `acked_through` unchanged, and a sequence beyond the last fails with
   `ack_beyond_last` (409). A message is acknowledged when its `seq` is at most `acked_through`.
 - Outcome takes `caller` and `message_id` and returns `id`, `recipient`, `seq`, `delivery_state`,
-  `delivery_reason`, `updated_at` and `acknowledged` (#82).
+  `delivery_reason`, `updated_at`, `acknowledged` and `acknowledged_by` (#82).
+
+The daemon has one built-in session, family `maintainer` and peer name `maintainer` (schema 7).
+It has an inbox, never expires, has no repository, alias or wake target, and is never woken.
+`peers` lists it last, so agents can send to `maintainer`; the session list and the session
+counts leave it out. No `/v1/` caller can act as it, register it, renew it or retire it
+(`invalid_request`); only the dashboard sends, reads and acknowledges as the maintainer.
 
 Each message has exactly one delivery state: `waiting`, `notified`, `uncertain`, or `failed` with
 a reason. Messages are stored as `waiting`; the adapters below update delivery independently
@@ -304,7 +311,43 @@ from elsewhere. Peer message bodies appear here, escaped, and nowhere else outsi
   at read time) and `health` (start time, revision, schema, listeners, session counts, storage and
   the work maintenance sweep). Stores page by repository, 50 at a time. With `fragment=1` a view
   returns its list alone; the page script fetches it every 5 seconds while the page is visible.
-  Views never write. Actions and their audit log are not part of this chunk.
+  `audit` lists the audit log, newest first, 100 per page, with `before=ID`. Views never write.
+- **Actions.** Each action is a `POST` under `/dashboard/actions/` with the request protection
+  above, and answers `303` to the view it changed with a fixed `notice` code, so a reload never
+  repeats it. Forms are limited to 4 KiB; the send form takes up to 3 × 65,536 + 4,096 bytes of
+  URL-encoded input, and its decoded body must be 1–65,536 bytes of UTF-8.
+  - `retire` (`family`, `id`, `revision`): the existing retirement; a changed revision is
+    `revision_changed`, a session that is not active `session_not_active`, and the maintainer
+    session `maintainer_session`.
+  - `release` (`repository`, `work_id`, `revision`, `generation`, `consumer`): the work release
+    of the claim's owner, with the checkpoint `Released by the maintainer from the dashboard`;
+    the work event names family and name `maintainer`. Stale values get the work refusal codes.
+  - `acknowledge` (`family`, `id`, `through`) and `clear` (`family`, `id`): acknowledge any
+    existing inbox, also of an expired or retired session, through a sequence or through the
+    newest sequence at the request. Both only move forward and share the wake submission
+    boundary, so no notice is sent for a sequence they cover. The messages they newly
+    acknowledge carry `acknowledged_by: maintainer`. Nothing is deleted.
+  - `send` (`to`, `body`): a message from `maintainer`; the recipient's wake works as for any
+    message.
+  - `launch` (`family` `codex`, `agy` or `opencode`; `directory`; optional `name`): the daemon runs
+    its own executable as the launcher with `--tmux-session`, so the agent starts detached in a
+    new tmux session with its configured CLI. The directory must be an existing absolute path; the
+    name uses letters, digits, `_` and `-`, and defaults to `FAMILY-FOLDER-XXXX`. No other
+    argument is accepted. The action never waits for the agent to register.
+- **Audit log.** A request that fails the session, host, origin or CSRF check writes no record.
+  After those checks, each action writes one record: time, action, target, result (`accepted`,
+  `refused`, `started` while a launch runs, or `unknown`) and a fixed reason code. A record never
+  holds a message body, a credential or a secret; a send records the peer name of the session
+  that received it, the body size, the message ID and, for a send to an alias, `via ALIAS`. An
+  accepted change and its record commit in the transaction that makes the change, in its write
+  class; maintenance writes that run first in the same request (memory expiry, work
+  reconciliation) never carry the record. A record that does not fit refuses the change. A
+  refusal is recorded only when storage can hold it. A launch writes its record first and sets
+  the result when the launcher returns; when that update cannot be written, the notice says
+  `launched_unrecorded` or `launch_refused_unrecorded`, and the maintenance loop writes the
+  result later without starting anything again. A daemon start sets every launch record still
+  `started` to `unknown` with `daemon_restarted`. The maintenance sweep keeps 90 days and at
+  most 10,000 records.
 
 Observations are memory-only, allowlisted values: a model ID (at most 128 printable characters),
 context limit and used tokens, an activity state (`busy`, `idle` or `waiting`) and a tmux socket,

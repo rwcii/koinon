@@ -119,6 +119,9 @@ type writeTx struct {
 	class writeClass
 	done  bool
 	after []func()
+	// audited marks the transaction of a dashboard action's own change; only it carries the
+	// action's audit record, never a maintenance write that runs first under the same context.
+	audited bool
 }
 
 // begin enters the storage boundary: it refuses writes while blocked, proves the log
@@ -187,10 +190,14 @@ func (t *writeTx) Commit() error {
 		return sql.ErrTxDone
 	}
 	t.done = true
+	// A dashboard action's audit record joins the transaction that makes its change.
+	audit, err := t.writeAudit()
 	// The debt is read after the mutation: a work control has cleared the credit it
 	// spends, and a start has added the credits it promises.
-	pages, err := t.s.pages(t.ctx, t.Tx)
-	var debt int64
+	var pages, debt int64
+	if err == nil {
+		pages, err = t.s.pages(t.ctx, t.Tx)
+	}
 	if err == nil {
 		debt, err = debtPages(t.ctx, t.Tx)
 	}
@@ -209,6 +216,9 @@ func (t *writeTx) Commit() error {
 		return err
 	}
 	t.s.storage.mu.Unlock()
+	if audit != nil {
+		audit.written = true
+	}
 	// Hooks run outside the boundary; they may read status or start other writes.
 	for _, f := range t.after {
 		f()

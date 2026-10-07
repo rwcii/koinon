@@ -48,3 +48,13 @@ dd { margin: 0; }
 .filter { margin-bottom: 10px; }
 input { font: inherit; padding: 2px 6px; border: 1px solid var(--line); border-radius: 4px; background: var(--bg); color: var(--fg); }
 .notice { font-size: 15px; }
+.notice { margin: 0 0 12px; padding: 6px 10px; border-left: 3px solid var(--accent); background: var(--row); }
+details.action { margin: 0 0 12px; padding: 6px 10px; border: 1px solid var(--line); border-radius: 4px; }
+details.action summary { cursor: pointer; font-weight: 600; }
+details.action form { display: flex; flex-wrap: wrap; align-items: flex-end; gap: 8px 14px; margin: 8px 0; }
+details.action label { display: flex; flex-direction: column; gap: 2px; color: var(--muted); }
+details.action label.wide { flex: 1 1 100%; }
+input, select, textarea { font: inherit; color: var(--fg); background: var(--bg); border: 1px solid var(--line); border-radius: 4px; padding: 3px 6px; }
+textarea { width: 100%; resize: vertical; }
+form.inline { display: inline-flex; gap: 6px; margin: 4px 0 0; }
+tr.result-refused { color: var(--warn); }

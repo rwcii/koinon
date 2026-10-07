@@ -22,15 +22,16 @@ import (
 //go:embed web
 var webFiles embed.FS
 
-var dashboardViews = []string{"sessions", "messages", "memory", "work", "health"}
+var dashboardViews = []string{"sessions", "messages", "memory", "work", "health", "audit"}
 
 type dashboardPage struct {
-	View  string
-	Title string
-	CSRF  string
-	Views []string
-	Data  any
-	Now   time.Time
+	View   string
+	Title  string
+	CSRF   string
+	Views  []string
+	Data   any
+	Now    time.Time
+	Notice string
 }
 
 func dashboardTemplates() (map[string]*template.Template, error) {
@@ -113,6 +114,9 @@ func (d *Daemon) dashboardHandler() (http.Handler, error) {
 			name = "list"
 		}
 		page.Views, page.Now = dashboardViews, d.store.now()
+		if page.CSRF != "" {
+			page.Notice = notice(r.URL.Query().Get("notice"))
+		}
 		if err := pages[page.View].ExecuteTemplate(&out, name, page); err != nil {
 			http.Error(w, "dashboard render failed", http.StatusInternalServerError)
 			return
@@ -124,8 +128,9 @@ func (d *Daemon) dashboardHandler() (http.Handler, error) {
 	refuse := func(w http.ResponseWriter, r *http.Request, status int, reason string) {
 		render(w, r, status, dashboardPage{View: "login", Title: "Not signed in", Data: reason})
 	}
-	// authed requires a live login session and, for a state-changing request, its CSRF token.
-	authed := func(next func(http.ResponseWriter, *http.Request, string)) http.HandlerFunc {
+	// authedLimit requires a live login session and, for a state-changing request, its
+	// CSRF token; it reads a form body of at most limit bytes.
+	authedLimit := func(limit int64, next func(http.ResponseWriter, *http.Request, string)) http.HandlerFunc {
 		return func(w http.ResponseWriter, r *http.Request) {
 			id, ok := d.auth.session(r)
 			if !ok {
@@ -133,20 +138,26 @@ func (d *Daemon) dashboardHandler() (http.Handler, error) {
 				return
 			}
 			if r.Method != http.MethodGet && r.Method != http.MethodHead {
+				r.Body = http.MaxBytesReader(w, r.Body, limit)
+				parsed := r.ParseForm() == nil
 				token := r.Header.Get(dashboardCSRF)
-				if token == "" {
-					r.Body = http.MaxBytesReader(w, r.Body, 4096)
-					if r.ParseForm() == nil {
-						token = r.PostForm.Get("csrf")
-					}
+				if token == "" && parsed {
+					token = r.PostForm.Get("csrf")
 				}
 				if !d.auth.validCSRF(id, token) {
 					refuse(w, r, http.StatusForbidden, "csrf")
 					return
 				}
+				if !parsed {
+					refuse(w, r, http.StatusBadRequest, "request")
+					return
+				}
 			}
 			next(w, r, id)
 		}
+	}
+	authed := func(next func(http.ResponseWriter, *http.Request, string)) http.HandlerFunc {
+		return authedLimit(actionFormLimit, next)
 	}
 	mux := http.NewServeMux()
 	mux.Handle("GET /dashboard/static/", http.StripPrefix("/dashboard/static/", http.FileServerFS(static)))
@@ -173,6 +184,7 @@ func (d *Daemon) dashboardHandler() (http.Handler, error) {
 		http.SetCookie(w, &http.Cookie{Name: dashboardCookie, Value: "", Path: "/dashboard/", MaxAge: -1, HttpOnly: true, SameSite: http.SameSiteStrictMode})
 		refuse(w, r, http.StatusOK, "logout")
 	}))
+	d.dashboardActions(mux, authedLimit)
 	mux.HandleFunc("GET /dashboard/{$}", authed(func(w http.ResponseWriter, r *http.Request, _ string) {
 		http.Redirect(w, r, "/dashboard/sessions", http.StatusSeeOther)
 	}))
@@ -214,9 +226,15 @@ type sessionsData struct {
 }
 
 type messagesData struct {
-	Recipient string
-	Messages  []MessageRecord
-	Next      int64
+	Recipient    string
+	RecipientKey *Key
+	Messages     []MessageRecord
+	Next         int64
+}
+
+type auditData struct {
+	Records []AuditRecord
+	Next    int64
 }
 
 type storesData struct {
@@ -288,10 +306,21 @@ func (d *Daemon) dashboardData(r *http.Request, view string) (any, error) {
 			if recipient, err = d.store.sessionByName(ctx, result.Recipient); err != nil {
 				return result, nil
 			}
+			result.RecipientKey = recipient
 		}
 		var err error
 		result.Messages, result.Next, err = d.store.dashboardMessages(ctx, recipient, before)
 		return result, err
+	case "audit":
+		var before int64
+		if v := q.Get("before"); v != "" {
+			var err error
+			if before, err = strconv.ParseInt(v, 10, 64); err != nil || before < 1 {
+				return nil, ErrInvalid
+			}
+		}
+		records, next, err := d.store.AuditPage(ctx, before)
+		return auditData{Records: records, Next: next}, err
 	case "memory", "work":
 		stores, next, err := d.store.dashboardStores(ctx, q.Get("after"), view == "work")
 		return storesData{Stores: stores, Next: next}, err
