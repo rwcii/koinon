@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 )
 
 // syntheticCLI writes an agent CLI that keeps MCP entries in a state file, one
@@ -228,7 +229,13 @@ func TestGuideAndHook(t *testing.T) {
 		t.Fatal("unknown family guide")
 	}
 	var out bytes.Buffer
-	if err := AgyStop(strings.NewReader(`{"conversationId":"synthetic"}`), &out); err != nil || out.String() != "{}\n" {
+	noDaemon := HookEnv{Getenv: func(k string) string {
+		if k == "KOINON_STATE_DIR" {
+			return t.TempDir()
+		}
+		return ""
+	}, Now: time.Now}
+	if err := AgyStop(strings.NewReader(`{"conversationId":"synthetic"}`), &out, noDaemon); err != nil || out.String() != "{}\n" {
 		t.Fatalf("hook: %q %v", out.String(), err)
 	}
 }

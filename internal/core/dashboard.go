@@ -2,6 +2,7 @@ package core
 
 import (
 	"bytes"
+	"context"
 	"embed"
 	"html/template"
 	"io/fs"
@@ -60,6 +61,16 @@ func dashboardTemplates() (map[string]*template.Template, error) {
 				return "—"
 			}
 			return strconv.FormatFloat(100*float64(used)/float64(limit), 'f', 1, 64) + "%"
+		},
+		"tokens": func(v *ObservedValue) string {
+			if v.UsedTokens == nil || v.LimitTokens == nil {
+				return "no token usage"
+			}
+			text := strconv.FormatInt(*v.UsedTokens, 10) + " of " + strconv.FormatInt(*v.LimitTokens, 10) + " tokens"
+			if *v.LimitTokens > 0 {
+				text += " (" + strconv.FormatFloat(100*float64(*v.UsedTokens)/float64(*v.LimitTokens), 'f', 0, 64) + "%)"
+			}
+			return text
 		},
 		"query": func(pairs ...string) template.URL {
 			v := url.Values{}
@@ -188,7 +199,8 @@ func (d *Daemon) dashboardHandler() (http.Handler, error) {
 
 type sessionRow struct {
 	Session
-	Work []SessionWork
+	Work     []SessionWork
+	Observed map[string]SessionView
 }
 
 type messagesData struct {
@@ -217,7 +229,7 @@ func (d *Daemon) dashboardData(r *http.Request, view string) (any, error) {
 	ctx, q := r.Context(), r.URL.Query()
 	switch view {
 	case "sessions":
-		sessions, _, err := d.store.List(ctx)
+		sessions, truncated, err := d.store.List(ctx)
 		if err != nil {
 			return nil, err
 		}
@@ -226,8 +238,20 @@ func (d *Daemon) dashboardData(r *http.Request, view string) (any, error) {
 			return nil, err
 		}
 		rows := make([]sessionRow, 0, len(sessions))
+		active := map[Key]bool{}
+		// Pulled observations share one short budget, so unreachable agents cannot stall the page.
+		pull, cancel := context.WithTimeout(ctx, 2*time.Second)
+		defer cancel()
 		for _, s := range sessions {
-			rows = append(rows, sessionRow{Session: s, Work: claims[s.Family+":"+s.ID]})
+			if s.State == "active" {
+				active[Key{s.Family, s.ID}] = true
+			}
+			rows = append(rows, sessionRow{Session: s, Work: claims[s.Family+":"+s.ID], Observed: d.store.sessionObservations(pull, s)})
+		}
+		// The listing holds every session up to its cap; only then is it safe to forget
+		// observations of the sessions it does not show as active.
+		if !truncated {
+			d.store.forget(active)
 		}
 		return rows, nil
 	case "messages":

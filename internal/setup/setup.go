@@ -15,6 +15,8 @@ import (
 	"regexp"
 	"strings"
 	"time"
+
+	"github.com/rwcii/koinon/internal/platform"
 )
 
 // Options select the agent family and, for tests and nonstandard installations, the
@@ -25,6 +27,11 @@ type Options struct {
 	Binary   string // absolute koinon binary; default: this executable
 	AgyRoot  string // agy global customization root; default ~/.gemini/config
 	Opencode string // OpenCode global configuration directory; default $XDG_CONFIG_HOME/opencode
+	// Claude status line: the Go state directory that keeps the saved entry, the Claude
+	// configuration directory (default $CLAUDE_CONFIG_DIR, else ~/.claude), and a removal.
+	StateDir         string
+	ClaudeConfig     string
+	RemoveStatusLine bool
 }
 
 // Report lists what setup changed and what it found already in place.
@@ -35,6 +42,8 @@ type Report struct {
 	Changed   []string `json:"changed"`
 	Unchanged []string `json:"unchanged"`
 	Note      string   `json:"note,omitempty"`
+	// StatusLine reports the Claude status-line set-up or removal.
+	StatusLine *StatusLineResult `json:"status_line,omitempty"`
 }
 
 const serverName = "koinon"
@@ -60,6 +69,24 @@ func Run(ctx context.Context, o Options) (Report, error) {
 	}
 	if !filepath.IsAbs(o.Binary) {
 		return report, errors.New("the koinon binary path must be absolute")
+	}
+	if o.Family == "claude" {
+		if o.ClaudeConfig == "" {
+			o.ClaudeConfig = claudeConfigDir(os.Getenv)
+		}
+		if o.StateDir == "" {
+			if o.StateDir, err = platform.DefaultStateDir(); err != nil {
+				return report, err
+			}
+		}
+	}
+	if o.RemoveStatusLine {
+		if o.Family != "claude" {
+			return report, errors.New("--remove-status-line applies to claude only")
+		}
+		result, err := ClaudeStatusLine(o.Binary, o.StateDir, o.ClaudeConfig, true)
+		report.StatusLine = &result
+		return report, err
 	}
 	cli := o.CLI
 	if cli == "" {
@@ -116,6 +143,13 @@ func Run(ctx context.Context, o Options) (Report, error) {
 		report.Changed = append(report.Changed, "mcp server "+serverName)
 	}
 	switch o.Family {
+	case "claude":
+		var result StatusLineResult
+		result, err = ClaudeStatusLine(o.Binary, o.StateDir, o.ClaudeConfig, false)
+		report.StatusLine = &result
+		if err == nil && result.Outcome == "changed" {
+			report.Note = "The Claude statusLine entry runs an edited Koinon hook; it was left unchanged."
+		}
 	case "agy":
 		err = agyHook(o, &report)
 	case "opencode":

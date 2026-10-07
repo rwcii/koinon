@@ -1,10 +1,14 @@
 {{define "list"}}{{if not .Data}}<p class="empty">No sessions.</p>{{else}}<table>
-<thead><tr><th>Name</th><th>Family</th><th>Repository</th><th>State</th><th>Registered</th><th>Renewed</th><th>Expires</th><th>Claimed work</th></tr></thead>
+<thead><tr><th>Name</th><th>Family</th><th>Repository</th><th>State</th><th>Model</th><th>Context</th><th>Activity</th><th>Terminal</th><th>Registered</th><th>Renewed</th><th>Expires</th><th>Claimed work</th></tr></thead>
 <tbody>{{range .Data}}<tr class="state-{{.State}}">
 <td>{{.Name}}{{if .Alias}}<br><small>alias {{.Alias}}</small>{{end}}</td>
 <td>{{.Family}}</td>
 <td>{{if .Repository}}{{.Repository}}{{else}}<small>{{.Directory}}</small>{{end}}</td>
 <td>{{.State}}</td>
+<td>{{with index .Observed "model"}}{{if .Value}}{{.Value.ID}}<br><small>{{.Value.Source}}, {{ms .Value.At}}</small>{{else}}<small>unknown: {{.Reason}}</small>{{end}}{{end}}</td>
+<td>{{with index .Observed "context"}}{{if .Value}}{{tokens .Value}}<br><small>{{.Value.Source}}, {{ms .Value.At}}</small>{{else}}<small>unknown: {{.Reason}}</small>{{end}}{{end}}</td>
+<td>{{with index .Observed "activity"}}{{if .Value}}{{.Value.State}}<br><small>{{.Value.Source}}, since {{ms .Value.At}}</small>{{else}}<small>unknown: {{.Reason}}</small>{{end}}{{end}}</td>
+<td>{{with index .Observed "terminal"}}{{if .Value}}tmux {{if .Value.Session}}{{.Value.Session}} {{end}}<code>{{.Value.Pane}}</code><br><small>{{.Value.Socket}}</small>{{else}}<small>unknown: {{.Reason}}</small>{{end}}{{end}}</td>
 <td>{{ms .RegisteredAt}}</td><td>{{ms .RenewedAt}}</td><td>{{ms .ExpiresAt}}</td>
 <td>{{range .Work}}<div><code>{{.WorkID}}</code> {{.Title}} <small>generation {{.Generation}}, until {{secs .ExpiresAt}}</small></div>{{else}}—{{end}}</td>
 </tr>{{end}}</tbody></table>{{end}}{{end}}

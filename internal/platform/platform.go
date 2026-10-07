@@ -109,3 +109,40 @@ func SyncDir(path string) error {
 	defer f.Close()
 	return f.Sync()
 }
+
+// OpenOwned opens a regular file owned by this user for reading, without following a final
+// symlink. Unlike OpenPrivate it accepts any permission bits, for files that another
+// program of this user writes, such as an agent's own session records.
+func OpenOwned(path string) (*os.File, error) {
+	fd, err := syscall.Open(path, syscall.O_RDONLY|syscall.O_NOFOLLOW|syscall.O_CLOEXEC|syscall.O_NONBLOCK, 0)
+	if err != nil {
+		return nil, err
+	}
+	f := os.NewFile(uintptr(fd), path)
+	info, err := f.Stat()
+	if err == nil {
+		stat, ok := info.Sys().(*syscall.Stat_t)
+		if !ok || !info.Mode().IsRegular() || stat.Uid != uint32(os.Geteuid()) {
+			err = errors.New("not a regular file owned by this user")
+		}
+	}
+	if err != nil {
+		f.Close()
+		return nil, err
+	}
+	return f, nil
+}
+
+// FileIdentity returns an open file's device, inode and size, so that a reader notices a
+// replaced or shortened file.
+func FileIdentity(f *os.File) (device, inode uint64, size int64, err error) {
+	info, err := f.Stat()
+	if err != nil {
+		return 0, 0, 0, err
+	}
+	stat, ok := info.Sys().(*syscall.Stat_t)
+	if !ok {
+		return 0, 0, 0, errors.New("no file identity")
+	}
+	return uint64(stat.Dev), uint64(stat.Ino), info.Size(), nil
+}

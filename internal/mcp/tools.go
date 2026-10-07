@@ -171,6 +171,7 @@ func (s *server) call(ctx context.Context, raw json.RawMessage) map[string]any {
 	if err := s.ensure(ctx, caller); err != nil {
 		return failure(code(err))
 	}
+	s.observeCall(caller, p.Meta)
 	data, err := s.daemon(ctx, path, body)
 	if code(err) == "caller_inactive" {
 		// The record expired or was retired since this server registered it; a call

@@ -90,12 +90,17 @@ func Guide(family string, out io.Writer) error {
 	return err
 }
 
-// AgyStop answers the agy Stop hook. Chunk 04 supplies its behaviour; until then it
-// reads the hook input and lets the agent stop.
-func AgyStop(in io.Reader, out io.Writer) error {
-	if _, err := io.Copy(io.Discard, io.LimitReader(in, 1<<20)); err != nil {
+// AgyStop answers the agy Stop hook. It reports the end of the turn and the model as
+// session observations; chunk 04 supplies the wake behaviour. Until then it lets the agent
+// stop.
+func AgyStop(in io.Reader, out io.Writer, env HookEnv) error {
+	data, err := io.ReadAll(io.LimitReader(in, hookInputMax+1))
+	if err != nil {
 		return err
 	}
-	_, err := io.WriteString(out, "{}\n")
+	if o, ok := agyStopObservation(data, env.Now().UnixMilli()); ok && len(data) <= hookInputMax {
+		env.report(o)
+	}
+	_, err = io.WriteString(out, "{}\n")
 	return err
 }

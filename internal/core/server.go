@@ -85,6 +85,7 @@ func Start(c Config) (*Daemon, error) {
 		return nil, err
 	}
 	d.started = d.store.now()
+	d.store.observed.extras = d.store.openCodeActivity
 	if d.auth, err = newDashboardAuth(func() time.Time { return d.store.now() }); err != nil {
 		return nil, err
 	}
@@ -299,6 +300,7 @@ func (d *Daemon) handler() http.Handler {
 	d.messageRoutes(mux)
 	d.memoryRoutes(mux)
 	d.workRoutes(mux)
+	d.observationRoutes(mux)
 	mux.HandleFunc("POST /v1/dashboard/links", func(w http.ResponseWriter, r *http.Request) {
 		if err := decode(w, r, &struct{}{}); err != nil {
 			failure(w, err)

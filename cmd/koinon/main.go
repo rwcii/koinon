@@ -95,7 +95,8 @@ func run(ctx context.Context, args []string, in io.Reader, out io.Writer) error 
 			return err
 		}
 		return mcp.Serve(ctx, mcp.Config{StateDir: *state, Address: *address, Getenv: os.Getenv,
-			ParentPID: os.Getppid(), Command: platform.ProcessCommand, Directory: directory, Now: time.Now}, in, out)
+			ParentPID: os.Getppid(), Command: platform.ProcessCommand, Directory: directory, Now: time.Now,
+			TmuxSession: mcp.TmuxSessionName}, in, out)
 	}
 	if args[0] != "serve" {
 		return call(ctx, args[0], *state, *address, as, after, limit, flags.Args(), in, out)
@@ -121,8 +122,10 @@ const usage = `Usage: koinon serve [--state-dir DIR] [--listen 127.0.0.1:PORT] [
        koinon dashboard [--state-dir DIR] [--address 127.0.0.1:PORT] [--no-open]
        koinon mcp [--state-dir DIR] [--address 127.0.0.1:PORT]
        koinon setup <claude|codex|agy|opencode|deepseek> [--cli ABS_PATH] [--binary ABS_PATH]
+       koinon setup claude --remove-status-line [--claude-config DIR] [--state-dir DIR]
        koinon guide --agent <claude|codex|agy|opencode|deepseek>
        koinon hook agy-stop
+       koinon hook claude-status [--command COMMAND]
        koinon memory <status|sync|ack|record|recall> --as FAMILY:ID [--consumer KEY] [options]
        koinon work <create|list> --as FAMILY:ID [--consumer KEY] [options]
        koinon work <get|propose|edit|start|update|release|finish> WORK_ID --as FAMILY:ID [--consumer KEY] [options]
@@ -289,9 +292,9 @@ func agentCommand(ctx context.Context, args []string, in io.Reader, out io.Write
 	switch args[0] {
 	case "hook":
 		if len(args) != 2 || args[1] != "agy-stop" {
-			return errors.New("unknown hook; use koinon hook agy-stop")
+			return errors.New("unknown hook; use koinon hook agy-stop or koinon hook claude-status")
 		}
-		return setup.AgyStop(in, out)
+		return setup.AgyStop(in, out, setup.HookEnv{Getenv: os.Getenv, Now: time.Now})
 	case "guide":
 		agent := flags.String("agent", "", "agent family")
 		if err := flags.Parse(args[1:]); err != nil || flags.NArg() != 0 || *agent == "" {
@@ -307,6 +310,9 @@ func agentCommand(ctx context.Context, args []string, in io.Reader, out io.Write
 	flags.StringVar(&o.Binary, "binary", "", "absolute koinon binary path")
 	flags.StringVar(&o.AgyRoot, "agy-config", "", "agy global customization root")
 	flags.StringVar(&o.Opencode, "opencode-config", "", "OpenCode global configuration directory")
+	flags.StringVar(&o.ClaudeConfig, "claude-config", "", "Claude configuration directory")
+	flags.StringVar(&o.StateDir, "state-dir", "", "private Go state directory")
+	flags.BoolVar(&o.RemoveStatusLine, "remove-status-line", false, "restore the Claude status line that setup replaced")
 	if err := flags.Parse(args[2:]); err != nil || flags.NArg() != 0 {
 		return errors.New("invalid setup options; use koinon --help")
 	}
@@ -318,6 +324,11 @@ func agentCommand(ctx context.Context, args []string, in io.Reader, out io.Write
 }
 
 func main() {
+	// The status-line command returns the user's own command's output and exit status
+	// unchanged, never a Koinon error report.
+	if len(os.Args) >= 3 && os.Args[1] == "hook" && os.Args[2] == "claude-status" {
+		os.Exit(setup.ClaudeStatus(os.Args[3:], os.Stdin, os.Stdout, os.Stderr, setup.HookEnv{Getenv: os.Getenv, Now: time.Now}))
+	}
 	ctx, cancel := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer cancel()
 	if err := run(ctx, os.Args[1:], os.Stdin, os.Stdout); err != nil {
