@@ -158,7 +158,7 @@ func TestWakeAdaptersBoundary(t *testing.T) {
 				if err := s.wakeStep(ctx); err != nil || calls != 1 {
 					t.Fatalf("backoff calls=%d %v", calls, err)
 				}
-				*clock = clock.Add(time.Second)
+				*clock = clock.Add(3 * time.Second)
 				s.wake.send = func(context.Context, Session, string) wakeResult { calls++; return wakeResult{"notified", "accepted"} }
 				if err := s.wakeStep(ctx); err != nil || calls != 2 {
 					t.Fatalf("retry calls=%d %v", calls, err)
@@ -186,6 +186,47 @@ func TestWakeAcknowledgedBeforeSubmission(t *testing.T) {
 	}
 	if err := s.wakeStep(context.Background()); err != nil {
 		t.Fatal(err)
+	}
+}
+func TestWakeBusyThenIdleIsPrompt(t *testing.T) {
+	for _, family := range []string{"codex", "claude", "deepseek", "opencode"} {
+		t.Run(family, func(t *testing.T) {
+			s, _, sender, receiver, message, clock := wakeFixture(t, family)
+			ctx := context.Background()
+			for _, session := range []Session{sender, receiver} {
+				if _, err := s.Register(ctx, Registration{Family: session.Family, ID: session.ID, Repository: session.Repository, Directory: session.Directory, TTLSeconds: 900}); err != nil {
+					t.Fatal(err)
+				}
+			}
+			idleAt := clock.Add(10*time.Minute + time.Second)
+			var notifiedAt time.Time
+			s.wake.send = func(context.Context, Session, string) wakeResult {
+				if clock.Before(idleAt) {
+					return waiting("receiver_busy")
+				}
+				notifiedAt = *clock
+				return accepted()
+			}
+			for clock.Before(idleAt.Add(5 * time.Second)) {
+				if err := s.wakeStep(ctx); err != nil {
+					t.Fatal(err)
+				}
+				if !notifiedAt.IsZero() {
+					break
+				}
+				*clock = clock.Add(time.Second)
+			}
+			if notifiedAt.IsZero() || notifiedAt.Sub(idleAt) > 3*time.Second {
+				t.Fatalf("busy-to-idle wake delayed: idle=%v notified=%v", idleAt, notifiedAt)
+			}
+			got, err := s.MessageOutcome(ctx, Key{sender.Family, sender.ID}, message.ID)
+			if err != nil || got.DeliveryState != "notified" {
+				t.Fatalf("idle outcome: %+v %v", got, err)
+			}
+			if _, err = s.Ack(ctx, Key{receiver.Family, receiver.ID}, message.Seq); err != nil {
+				t.Fatal(err)
+			}
+		})
 	}
 }
 func TestWakeUncertaintySurvivesRestart(t *testing.T) {

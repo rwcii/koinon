@@ -28,7 +28,10 @@ type wakeBatch struct {
 	Attempts    int64
 }
 
-const wakeBackoffMax = 5 * time.Minute
+const (
+	wakeBackoffMax = 5 * time.Minute
+	wakeBusyPoll   = 3 * time.Second
+)
 
 func wakeBackoff(attempts int64) time.Duration {
 	if attempts < 1 {
@@ -80,10 +83,17 @@ func (s *Store) recordWake(ctx context.Context, b wakeBatch, result wakeResult, 
 	}
 	defer tx.Rollback()
 	now := s.now().UnixMilli()
+	delay := wakeBackoff(attempts)
+	if result.State == "waiting" && result.Reason == "receiver_busy" {
+		// An observed busy receiver has not failed a submission. Keep its prior
+		// attempt count and poll promptly so the next idle turn is not delayed.
+		attempts = b.Attempts
+		delay = wakeBusyPoll
+	}
 	_, err = tx.ExecContext(ctx, `UPDATE messages SET delivery_state=?,delivery_reason='',delivery_updated_at=?,
  wake_reason=?,wake_attempts=?,wake_next_at=? WHERE recipient_family=? AND recipient_id=? AND seq BETWEEN ? AND ?
  AND seq>(SELECT acked_through FROM sessions WHERE family=? AND id=?) AND delivery_state IN ('waiting','uncertain')`,
-		result.State, now, result.Reason, attempts, now+wakeBackoff(attempts).Milliseconds(), b.Session.Family, b.Session.ID, b.First, b.Last, b.Session.Family, b.Session.ID)
+		result.State, now, result.Reason, attempts, now+delay.Milliseconds(), b.Session.Family, b.Session.ID, b.First, b.Last, b.Session.Family, b.Session.ID)
 	if err != nil {
 		return tx.fail(err)
 	}

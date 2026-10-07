@@ -13,8 +13,9 @@ into a dated release section when promoted to `main`.
   compiles a module while the command checks its bytecode caches; it runs from source for
   that run instead.
 - The Go daemon now wakes Codex, Claude Code, DeepSeek and idle OpenCode sessions with
-  content-free inbox notices, and offers Antigravity notices at its Stop boundary. Busy and
-  unconfirmed attempts retry with bounded backoff across restarts; acknowledged sequences are
+  content-free inbox notices, and offers Antigravity notices at its Stop boundary. Busy sessions
+  are rechecked every three seconds; failed and unconfirmed attempts retry with bounded backoff
+  across restarts. Acknowledged sequences are
   suppressed. Health reports delivery counts and adapter reasons. Added `koinon register` for
   DeepSeek's native command path, with private credentials and pinned loopback delivery.
 - Added the Go daemon dashboard: `koinon dashboard` prints a one-time login link to a loopback,

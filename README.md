@@ -391,7 +391,8 @@ The daemon uses the configured absolute Codex CLI and exact thread, Claude's ver
 Unix socket, DeepSeek's authenticated loopback queue RPC, Antigravity's Stop continuation, and
 the launched OpenCode server's password and `prompt_async` endpoint. OpenCode is woken only
 after a fresh idle check; an omitted status needs confirmation that this exact session exists.
-Busy or unreachable recipients stay `waiting`. Unconfirmed attempts stay `uncertain` and retry
+Busy or unreachable recipients stay `waiting`; busy sessions are rechecked every three seconds.
+Unconfirmed attempts stay `uncertain` and retry
 with backoff from one second to five minutes, across restarts, until acknowledged. Claude socket
 writes have no verifiable queue receipt and remain uncertain; duplicate notices are possible.
 `notified` proves queue acceptance, not model processing. Acknowledged sequences are never

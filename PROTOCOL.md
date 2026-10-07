@@ -119,7 +119,8 @@ Unknown future schemas are refused before migration.
 The worker polls once per second and handles at most 16 due inboxes per pass. Before any
 provider side effect, it commits `uncertain` with `attempt_in_progress`. Busy or unreachable
 results become `waiting`; confirmed queue acceptance becomes `notified`; ambiguous results
-remain `uncertain`. Waiting and uncertain messages retry after 1, 2, 4, ... seconds, capped at
+remain `uncertain`. Busy receivers are rechecked every 3 seconds without increasing the failed
+attempt count. Other waiting and uncertain messages retry after 1, 2, 4, ... seconds, capped at
 5 minutes. Attempts survive restart; a backward clock jump cannot strand a retry more than
 the maximum backoff ahead. Acknowledgement and withdrawal share the submission boundary:
 an acknowledgement committed before submission is never included. Provider calls have a
