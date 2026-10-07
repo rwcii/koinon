@@ -12,6 +12,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"time"
 )
@@ -100,7 +101,7 @@ func Run(ctx context.Context, o Options) (Report, error) {
 		add = []string{"mcp", "add", serverName, "--", o.Binary, "mcp"}
 	}
 	current, getErr := run(get...)
-	if getErr == nil && strings.Contains(current, o.Binary) {
+	if getErr == nil && configured(o.Family, current, o.Binary) {
 		report.Unchanged = append(report.Unchanged, "mcp server "+serverName)
 	} else {
 		if remove != nil && getErr == nil {
@@ -121,6 +122,73 @@ func Run(ctx context.Context, o Options) (Report, error) {
 		err = openCodePlugin(o, &report)
 	}
 	return report, err
+}
+
+var (
+	ansi     = regexp.MustCompile(`\x1b\[[0-9;]*[A-Za-z]`)
+	agyRow   = regexp.MustCompile(`^koinon\s+stdio\s+enabled\s+(.+)$`)
+	openCode = regexp.MustCompile(`^\S+\s+\S+\s+(\S+)(\s|$)`)
+)
+
+// configured reports whether the agent's own output shows the server named koinon running
+// exactly `binary mcp`. Another entry that names this binary does not count.
+func configured(family, output, binary string) bool {
+	want := binary + " mcp"
+	lines := strings.Split(ansi.ReplaceAllString(output, ""), "\n")
+	switch family {
+	case "codex":
+		var entry struct {
+			Name      string
+			Enabled   bool
+			Transport struct {
+				Type    string
+				Command string
+				Args    []string
+			}
+		}
+		return json.Unmarshal([]byte(output), &entry) == nil && entry.Name == serverName && entry.Enabled &&
+			entry.Transport.Type == "stdio" && entry.Transport.Command == binary &&
+			len(entry.Transport.Args) == 1 && entry.Transport.Args[0] == "mcp"
+	case "claude":
+		// `claude mcp get koinon` prints the entry's fields under its name.
+		if len(lines) == 0 || strings.TrimSpace(lines[0]) != serverName+":" {
+			return false
+		}
+		command, args := "", ""
+		for _, line := range lines[1:] {
+			line = strings.TrimSpace(line)
+			if value, found := strings.CutPrefix(line, "Command: "); found {
+				command = value
+			}
+			if value, found := strings.CutPrefix(line, "Args: "); found {
+				args = value
+			}
+		}
+		return command == binary && args == "mcp"
+	case "agy":
+		// `agy mcp list` prints one table row per server: NAME TYPE STATUS COMMAND/URL.
+		for _, line := range lines {
+			if m := agyRow.FindStringSubmatch(strings.TrimSpace(line)); m != nil && strings.TrimSpace(m[1]) == want {
+				return true
+			}
+		}
+	case "opencode":
+		// `opencode mcp list` prints a block per server: a line with its status mark and
+		// name, then indented lines, one of them its command line.
+		inside := false
+		for _, line := range lines {
+			trimmed := strings.TrimSpace(strings.TrimLeft(line, "│ "))
+			if strings.HasPrefix(line, "●") {
+				m := openCode.FindStringSubmatch(line)
+				inside = m != nil && m[1] == serverName
+				continue
+			}
+			if inside && trimmed == want {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 func agyHook(o Options, report *Report) error {

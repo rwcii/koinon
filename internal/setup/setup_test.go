@@ -10,19 +10,30 @@ import (
 	"testing"
 )
 
-// syntheticCLI writes an agent CLI that keeps one MCP entry in a state file and logs
+// syntheticCLI writes an agent CLI that keeps MCP entries in a state file, one
+// "NAME COMMAND ARGS" line each, prints them in the family's real output format, and logs
 // every invocation; it reads nothing from the user's real agent configuration.
 func syntheticCLI(t *testing.T, family string) (cli, state, log string) {
 	t.Helper()
 	dir := t.TempDir()
-	cli, state, log = filepath.Join(dir, family), filepath.Join(dir, "entry"), filepath.Join(dir, "calls")
+	cli, state, log = filepath.Join(dir, family), filepath.Join(dir, "entries"), filepath.Join(dir, "calls")
+	formats := map[string]string{
+		"codex":    `printf '{"name":"%s","enabled":true,"transport":{"type":"stdio","command":"%s","args":["%s"]}}\n' "$n" "$c" "$a"`,
+		"claude":   `printf '%s:\n  Scope: User config\n  Type: stdio\n  Command: %s\n  Args: %s\n' "$n" "$c" "$a"`,
+		"agy":      `printf '%s  stdio  enabled  %s %s\n' "$n" "$c" "$a"`,
+		"opencode": `printf '\033[0m●  ✓ %s \033[90mconnected\n│      \033[90m%s %s\n│\n' "$n" "$c" "$a"`,
+	}
 	script := `#!/bin/sh
 printf '%s\n' "$*" >> '` + log + `'
+touch '` + state + `'
+show() { while read -r n c a; do [ -z "$1" ] || [ "$n" = "$1" ] || continue; ` + formats[family] + `; done < '` + state + `'; }
 case "$1 $2" in
-"mcp get") [ -f '` + state + `' ] && cat '` + state + `' && exit 0; echo "No MCP server named $3"; exit 1 ;;
-"mcp list") [ -f '` + state + `' ] && cat '` + state + `'; exit 0 ;;
-"mcp remove") rm -f '` + state + `'; exit 0 ;;
-"mcp add") shift 2; while [ "$1" != "--" ]; do shift; done; shift; printf 'koinon: %s\n' "$*" > '` + state + `'; exit 0 ;;
+"mcp get") command grep -q "^$3 " '` + state + `' && show "$3" && exit 0; echo "No MCP server named $3"; exit 1 ;;
+"mcp list") [ "` + family + `" = agy ] && echo "NAME    TYPE   STATUS   COMMAND/URL"; show ""; exit 0 ;;
+"mcp remove") command grep -v "^$3 " '` + state + `' > '` + state + `.new'; mv '` + state + `.new' '` + state + `'; exit 0 ;;
+"mcp add") shift 2; while [ "$1" != "--" ]; do name=$1; shift; done; shift
+  command grep -v "^$name " '` + state + `' > '` + state + `.new'; mv '` + state + `.new' '` + state + `'
+  printf '%s %s\n' "$name" "$*" >> '` + state + `'; exit 0 ;;
 esac
 exit 2
 `
@@ -48,7 +59,7 @@ func TestSetupEachFamilyAndRepeat(t *testing.T) {
 				t.Fatalf("first run: %+v %v", report, err)
 			}
 			entry, _ := os.ReadFile(state)
-			if string(entry) != "koinon: "+binary+" mcp\n" {
+			if string(entry) != "koinon "+binary+" mcp\n" {
 				t.Fatalf("entry: %q", entry)
 			}
 			added := calls(t, log)
@@ -72,13 +83,58 @@ func TestSetupEachFamilyAndRepeat(t *testing.T) {
 
 func TestSetupReplacesOnlyItsOwnEntry(t *testing.T) {
 	cli, state, log := syntheticCLI(t, "codex")
-	os.WriteFile(state, []byte("koinon: /old/koinon mcp\n"), 0600)
+	os.WriteFile(state, []byte("koinon /old/koinon mcp\n"), 0600)
 	if _, err := Run(context.Background(), Options{Family: "codex", CLI: cli, Binary: "/new/koinon"}); err != nil {
 		t.Fatal(err)
 	}
 	got := calls(t, log)
 	if len(got) != 3 || got[1] != "mcp remove koinon" || got[2] != "mcp add koinon -- /new/koinon mcp" {
 		t.Fatalf("calls: %v", got)
+	}
+}
+
+func TestSetupIdentifiesItsOwnEntry(t *testing.T) {
+	for _, family := range []string{"claude", "codex", "agy", "opencode"} {
+		for _, entries := range []string{"other /opt/k/koinon mcp\n", "koinon /opt/k/koinon status\n"} {
+			cli, state, _ := syntheticCLI(t, family)
+			os.WriteFile(state, []byte(entries), 0600)
+			report, err := Run(context.Background(), Options{Family: family, CLI: cli, Binary: "/opt/k/koinon", AgyRoot: t.TempDir(), Opencode: t.TempDir()})
+			data, _ := os.ReadFile(state)
+			if err != nil || len(report.Changed) == 0 || !strings.Contains(string(data), "koinon /opt/k/koinon mcp\n") {
+				t.Fatalf("%s with %q: %+v %v %q", family, entries, report, err, data)
+			}
+			if strings.HasPrefix(entries, "other") && !strings.Contains(string(data), "other /opt/k/koinon mcp") {
+				t.Fatalf("%s removed another entry: %q", family, data)
+			}
+		}
+	}
+}
+
+// Output captured from the real CLIs (Codex 0.160.0, Claude Code 2.1.290, agy 1.3.0,
+// OpenCode 1.18.35) against scratch configuration directories.
+func TestConfiguredMatchesRealOutput(t *testing.T) {
+	const binary = "/opt/synthetic/koinon"
+	codex := `{"name":"koinon","enabled":true,"disabled_reason":null,"transport":{"type":"stdio","command":"/opt/synthetic/koinon","args":["mcp"],"env":null,"env_vars":[],"cwd":null},"enabled_tools":null}`
+	claude := "koinon:\n  Scope: User config (available in all your projects)\n  Status: ✘ Failed to connect\n  Type: stdio\n  Command: /opt/synthetic/koinon\n  Args: mcp\n  Environment:\n\nTo remove this server, run: claude mcp remove koinon -s user\n"
+	agy := "NAME    TYPE   STATUS   COMMAND/URL\nkoinon  stdio  enabled  /opt/synthetic/koinon mcp\nother   stdio  enabled  /opt/synthetic/koinon status\n"
+	opencode := "\x1b[0m\n┌  MCP Servers\n│\n●  ✗ koinon \x1b[90mfailed\n│      ENOENT: no such file or directory, posix_spawn '/opt/synthetic/koinon'\n│      \x1b[90m/opt/synthetic/koinon mcp\n│\n●  ✗ other \x1b[90mfailed\n│      \x1b[90m/opt/synthetic/koinon status\n│\n└  2 server(s)\n"
+	for family, output := range map[string]string{"codex": codex, "claude": claude, "agy": agy, "opencode": opencode} {
+		if !configured(family, output, binary) {
+			t.Fatalf("%s: own entry not found", family)
+		}
+		if configured(family, output, "/opt/other/koinon") {
+			t.Fatalf("%s: another binary matched", family)
+		}
+	}
+	swapped := strings.NewReplacer("koinon  stdio", "x  stdio", "other   stdio", "koinon   stdio").Replace(agy)
+	if configured("agy", swapped, binary) {
+		t.Fatal("agy: another server's command matched")
+	}
+	if configured("opencode", strings.Replace(opencode, "✗ koinon", "✗ renamed", 1), binary) {
+		t.Fatal("opencode: another server's command matched")
+	}
+	if configured("codex", strings.Replace(codex, `"args":["mcp"]`, `"args":["status"]`, 1), binary) || configured("claude", strings.Replace(claude, "Args: mcp", "Args: status", 1), binary) {
+		t.Fatal("other arguments matched")
 	}
 }
 
