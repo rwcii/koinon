@@ -66,6 +66,16 @@ var noticeText = map[string]string{
 	"invalid_transition":        "Refused: the work item is not in a state that can be released.",
 	"work_not_found":            "Refused: the work item is gone.",
 	"storage_error":             "Refused: the daemon could not complete the action.",
+	"memory_recorded":           "The entry was recorded as maintainer.",
+	"memory_superseded":         "The edit was recorded as a new entry that replaces the old one; the old entry stays readable.",
+	"memory_revoked":            "The entry was revoked; it stays readable with its revocation.",
+	"memory_conflict":           "Recorded, but another entry had already replaced or revoked that entry; both are kept and the new entry names the conflict.",
+	"reason_required":           "Refused: a revocation needs a reason.",
+	"store_not_found":           "Refused: no memory store has that repository.",
+	"no_such_entry":             "Refused: that entry does not exist.",
+	"entry_too_large":           "Refused: the entry is too large.",
+	"idempotency_conflict":      "Refused: that form was already submitted with other content. Reload and try again.",
+	"retry_deadline_expired":    "Refused: the form is too old. Reload and try again.",
 }
 
 var noticeCode = regexp.MustCompile(`^[a-z_]{1,40}$`)
@@ -244,6 +254,8 @@ func (d *Daemon) dashboardActions(mux *http.ServeMux, authed func(int64, func(ht
 			return err
 		}, "sent", nil)
 	}))
+
+	d.memoryActions(mux, authed)
 
 	mux.HandleFunc("POST /dashboard/actions/launch", authed(actionFormLimit, func(w http.ResponseWriter, r *http.Request, _ string) {
 		family, directory, name := r.PostForm.Get("family"), r.PostForm.Get("directory"), r.PostForm.Get("name")

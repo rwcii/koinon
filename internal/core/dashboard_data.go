@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"errors"
+	"path/filepath"
 	"sort"
 	"strconv"
 	"strings"
@@ -74,6 +75,12 @@ const dashboardSearchMax = 256
 // in the text match literally.
 func likePattern(text string) string {
 	return "%" + strings.NewReplacer(`\`, `\\`, "%", `\%`, "_", `\_`).Replace(text) + "%"
+}
+
+// validRepository accepts a repository path from a dashboard form or query: absolute, at
+// most 4,096 bytes, without NUL or line breaks.
+func validRepository(repository string) bool {
+	return filepath.IsAbs(repository) && len(repository) <= 4096 && !strings.ContainsAny(repository, "\x00\r\n")
 }
 
 // dashboardSessions lists agent sessions in the sort's order after its cursor, those that

@@ -313,12 +313,17 @@ func (d *Daemon) dashboardData(r *http.Request, view string) (any, error) {
 		records, next, err := d.store.dashboardAudit(ctx, order)
 		return auditData{Records: records, Sort: order, Next: next}, err
 	case "memory":
-		order, err := parseSort(&storeSort, path, q)
+		// Sort links keep the selected store and its filters.
+		order, err := parseSort(&storeSort, path, q, "store", "q", "type", "all")
 		if err != nil {
 			return nil, err
 		}
 		stores, next, err := d.store.dashboardMemory(ctx, order)
-		return storesData{Stores: stores, Sort: order, Next: next}, err
+		if err != nil {
+			return nil, err
+		}
+		selected, err := d.selectedEntries(ctx, q)
+		return memoryData{storesData: storesData{Stores: stores, Sort: order, Next: next}, Selected: selected}, err
 	case "work":
 		// Stores page by repository; the sort orders the work rows in each store.
 		after := q.Get("after")
