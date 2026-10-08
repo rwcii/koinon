@@ -89,6 +89,12 @@ koinon status
 ```
 
 The launchers use configured native CLIs, exact repositories and private launch records.
+A launcher refuses a start directory that holds another repository, before any agent starts:
+a nested `.git` directory or symlink, or a `.git` file of another repository. It accepts the
+`.git` files of the start repository's own work: a submodule that its enclosing repository
+records (a gitlink, with its Git directory under that repository's `modules/`), and a linked
+worktree of the start repository inside the checkout. It never follows directory symlinks,
+and a directory it cannot read is a refusal.
 OpenCode's wake server requires the launcher. The dashboard link is single-use and expires;
 keep it out of logs, Git and messages. Administrative actions require CSRF protection and are
 audited. Health reports unknown observations explicitly; a failure is not permission to

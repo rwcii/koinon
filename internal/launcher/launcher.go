@@ -16,6 +16,7 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/rwcii/koinon/internal/core"
 	"github.com/rwcii/koinon/internal/platform"
@@ -104,8 +105,10 @@ func ConfiguredCLI(stateDir, family, override string) (string, error) {
 	return path, nil
 }
 
-// CheckDirectory refuses nested repositories, including worktree .git files.
-// A scan failure is a refusal, since an unreadable subtree cannot be verified.
+// CheckDirectory refuses a start directory that holds another repository: a nested .git
+// directory or symlink, or a .git file of any repository other than a linked worktree of the
+// start repository or a submodule that its enclosing repository records. A scan failure is a
+// refusal, since an unreadable subtree cannot be verified.
 func CheckDirectory(path string) (string, error) {
 	if path == "" {
 		var err error
@@ -126,12 +129,13 @@ func CheckDirectory(path string) (string, error) {
 	if err != nil || !info.IsDir() {
 		return "", errors.New("start directory is not a directory")
 	}
+	start, _ := gitPath(abs, "--git-common-dir")
 	err = filepath.WalkDir(abs, func(path string, entry fs.DirEntry, err error) error {
 		if err != nil {
 			return errors.New("cannot verify start directory")
 		}
 		if entry.Name() == ".git" {
-			if filepath.Dir(path) != abs {
+			if filepath.Dir(path) != abs && !(entry.Type().IsRegular() && sameRepository(start, filepath.Dir(path))) {
 				return errors.New("start directory holds another repository; start in that repository instead")
 			}
 			if entry.IsDir() {
@@ -141,6 +145,51 @@ func CheckDirectory(path string) (string, error) {
 		return nil
 	})
 	return abs, err
+}
+
+// sameRepository reports whether the checkout in dir, which holds a .git file, is part of
+// the start repository's work: a linked worktree with the start repository's common
+// directory (start), or a submodule whose Git directory lies under its enclosing
+// repository's modules/ and which that repository records as a gitlink in its index.
+func sameRepository(start, dir string) bool {
+	common, err := gitPath(dir, "--git-common-dir")
+	if err != nil {
+		return false
+	}
+	if start != "" && common == start {
+		return true
+	}
+	enclosing, err := gitPath(filepath.Dir(dir), "--git-common-dir")
+	if err != nil {
+		return false
+	}
+	gitDir, err := gitPath(dir, "--git-dir")
+	if err != nil || !strings.HasPrefix(gitDir, filepath.Join(enclosing, "modules")+string(filepath.Separator)) {
+		return false
+	}
+	out, err := git(filepath.Dir(dir), "ls-files", "--stage", "--", filepath.Base(dir))
+	return err == nil && strings.HasPrefix(out, "160000 ")
+}
+
+// gitPath returns an absolute rev-parse path for the repository at dir, with symlinks
+// resolved so that paths compare on macOS too.
+func gitPath(dir, flag string) (string, error) {
+	out, err := git(dir, "rev-parse", "--path-format=absolute", flag)
+	if err != nil {
+		return "", err
+	}
+	return filepath.EvalSymlinks(strings.TrimSpace(out))
+}
+
+// git runs one read-only Git command in dir without inherited GIT_ variables and with the
+// file-system monitor off, so no repository configuration runs a command.
+func git(dir string, args ...string) (string, error) {
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	defer cancel()
+	cmd := exec.CommandContext(ctx, "git", append([]string{"-c", "core.fsmonitor=false", "-C", dir}, args...)...)
+	cmd.Env = core.CleanGitEnvironment()
+	out, err := cmd.Output()
+	return string(out), err
 }
 
 func cleanEnvironment(env []string) []string {
