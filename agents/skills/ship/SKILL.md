@@ -97,7 +97,9 @@ Freeze only a head that contains the latest `origin/develop`: run `git fetch ori
 `git merge-base --is-ancestor origin/develop HEAD` just before you freeze it, and when
 `develop` moved, update the branch (step 2, items 2 and 3) first.
 One account holds both agents, so the sign-off is a pull request comment that names the head
-commit, not a formal approval. A new commit needs a new sign-off.
+commit, not a formal approval, and the reviewer records it as the `peer-review` commit status of
+that commit (`peer-review`, step 4). The `develop` ruleset requires that status, so a new commit
+needs a new sign-off before it can merge.
 
 ## 4. When CI or review fails
 
@@ -113,7 +115,7 @@ the sign-off to the new head. The reviewer verifies that the update brings only 
 reviews a conflict resolution or any other change as a change. Do not leave the update to the
 maintainer's update button on GitHub.
 
-When CI is green on the signed-off head commit and the rulesets allow it:
+When CI is green, `peer-review` is `success` on the head commit and the rulesets allow it:
 
 ```sh
 gh pr merge <number> --squash --match-head-commit <sha> \

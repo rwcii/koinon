@@ -25,7 +25,9 @@ feature/*  ──(squash PR)──▶  develop  ──(merge PR)──▶  main
 - The `develop` ruleset requires an up-to-date branch. Merge the latest `develop` into your
   branch before you open its PR, and again when `develop` moves before the merge; never
   rewrite a pushed branch.
-- Tests must pass and review conversations must be resolved before merging.
+- Tests must pass, review conversations must be resolved, and the head commit must carry a
+  `success` commit status named `peer-review`, which the reviewer records with the sign-off,
+  before a PR merges into `develop`.
 - Review the diff independently for correctness, compatibility, and the documented
   same-user trust boundary. The maintainer owns acceptance.
 - Merged working branches are deleted automatically; long-lived branches are protected.

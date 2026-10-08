@@ -297,12 +297,17 @@ esac
 				}
 			}
 		}
-		for _, name := range []string{"go (ubuntu-latest)", "go (macos-latest)", "go-lifecycle (ubuntu-latest, systemd)", "go-lifecycle (macos-latest, launchd)"} {
+		required := []string{"go (ubuntu-latest)", "go (macos-latest)", "go-lifecycle (ubuntu-latest, systemd)", "go-lifecycle (macos-latest, launchd)"}
+		// develop also requires the reviewer's sign-off on the head; main takes develop heads.
+		if branch == "develop" {
+			required = append(required, "peer-review")
+		}
+		for _, name := range required {
 			if !checks[name] {
 				t.Errorf("missing required check %s", name)
 			}
 		}
-		if len(checks) != 4 || !rules["non_fast_forward"] || !rules["deletion"] || !rules["pull_request"] {
+		if len(checks) != len(required) || !rules["non_fast_forward"] || !rules["deletion"] || !rules["pull_request"] {
 			t.Fatalf("protection changed: %s", data)
 		}
 	}

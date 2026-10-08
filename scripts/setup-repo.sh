@@ -15,14 +15,16 @@ gh api --method PATCH "repos/$repo" \
   -f merge_commit_title=PR_TITLE -f merge_commit_message=PR_BODY >/dev/null
 
 # Update our named rulesets in place; never delete another rule or weaken protection
-# temporarily. Required checks match the Go and native lifecycle matrices. develop requires
-# branches to be up to date. main does not: it receives only merge commits of develop heads
+# temporarily. Required checks match the Go and native lifecycle matrices. develop also
+# requires the reviewer's peer-review commit status on the head, and requires branches to be
+# up to date. main does not: it receives only merge commits of develop heads
 # that passed the required checks, and its earlier merge commits never reach develop, so an
 # up-to-date rule would hold every release as behind.
 for branch in develop main; do
   method=squash
   strict=true
-  if [[ "$branch" == main ]]; then method=merge; strict=false; fi
+  review=', {"context": "peer-review"}'
+  if [[ "$branch" == main ]]; then method=merge; strict=false; review=''; fi
   payload="$(cat <<JSON
 {
   "name": "$branch branch policy", "target": "branch", "enforcement": "active",
@@ -38,7 +40,7 @@ for branch in develop main; do
       "required_status_checks": [
         {"context": "go (ubuntu-latest)"}, {"context": "go (macos-latest)"},
         {"context": "go-lifecycle (ubuntu-latest, systemd)"},
-        {"context": "go-lifecycle (macos-latest, launchd)"}]}},
+        {"context": "go-lifecycle (macos-latest, launchd)"}$review]}},
     {"type": "non_fast_forward"}, {"type": "deletion"}
   ]
 }
@@ -56,5 +58,5 @@ JSON
     echo "Ruleset configuration failed; check account support and permissions: $result" >&2
     exit 1
   fi
-  echo "$branch: PR + $method, Go and native lifecycle checks, no force-push or deletion"
+  echo "$branch: PR + $method, Go and native lifecycle checks${review:+, peer-review}, no force-push or deletion"
 done
