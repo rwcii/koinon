@@ -17,6 +17,7 @@ Never put a secret, runtime session identifier or response body in a repository.
 | `POST /v1/sessions/renew` | Renew an active session's expiry. |
 | `POST /v1/sessions/retire` | Mark an active session retired, retaining its record. |
 | `POST /v1/peers` | Each session's `name`, held `alias`, `family`, `state` and `repository`, for an active caller; never a wake target, directory or session ID. |
+| `POST /v1/peers/status` | Resolve a published peer name or held alias and read public identity plus observed model, context and activity for an active caller. |
 | `POST /v1/messages/send` | Store one message for the session that a peer name or alias names. |
 | `POST /v1/inbox/read` | Read the caller's own inbox after a sequence number. |
 | `POST /v1/inbox/ack` | Acknowledge the caller's own inbox through a sequence number. |
@@ -400,6 +401,24 @@ agy session's idle state and a Claude session's status-line values go stale when
 comes. A session that is not active shows `unknown` with `session_expired` or
 `session_retired`. A group without a value shows `no_source` when the family has none, else
 `not_observed`.
+
+Agents read these same observations without a dashboard login through `peer_status` with
+`peer: NAME`, or `koinon peer-status --as FAMILY:ID NAME`. The authenticated
+`POST /v1/peers/status` request takes `caller` and `peer` and returns `ok: true` with a `peer`
+object: the discovery fields (`name`, held `alias`, `family`, registration `state`,
+`repository`), `observed_at` in Unix milliseconds, and `model`, `context`, `activity`.
+Each group has `known` and `stale_after_ms`; an unknown group has `reason` and no value fields.
+A known group carries `source`, source timestamp `at`, last confirmation timestamp
+`confirmed_at`, and its allowlisted value fields: model `id`; context `limit_tokens`,
+`used_tokens`, `usage_available` when reported; activity `state`. Source time may be old while
+confirmations remain fresh. Activity expires after 120,000 ms without confirmation; model
+and context after 1,800,000 ms. Reads share the dashboard projection and a two-second budget
+for provider reads. No native session ID, terminal target, wake metadata or credentials are
+returned. An expired or retired peer name remains readable with unknown observations;
+an unheld alias refuses with `alias_unheld`, an unknown name with `peer_not_found`.
+After a daemon restart the memory-only reports are unknown until fresh reports or provider
+reads arrive. Registration `active` means a current lease; it says nothing about busy/idle
+activity. Message delivery and acknowledgement do not establish activity or inbox readership.
 
 | Group | Sources |
 | --- | --- |
