@@ -1,6 +1,6 @@
-{{define "list"}}<form method="get" action="/dashboard/messages" class="filter"><label>Recipient <input name="to" value="{{.Data.Recipient}}" maxlength="128"></label> <button type="submit">Filter</button></form>
+{{define "list"}}<form method="get" action="/dashboard/messages" class="filter"><label>Recipient <input name="to" value="{{.Data.Recipient}}" maxlength="128"></label><input type="hidden" name="sort" value="{{.Data.Sort.Key}}"><input type="hidden" name="dir" value="{{.Data.Sort.Dir}}"> <button type="submit">Filter</button></form>
 {{if not .Data.Messages}}<p class="empty">No messages.</p>{{else}}<table>
-<thead><tr><th>ID</th><th>To</th><th>Seq</th><th>From</th><th>Sent</th><th>Delivery</th><th>Acknowledged</th><th>Body</th></tr></thead>
+<thead><tr>{{template "th" (.Data.Sort.Column "id" "ID")}}{{template "th" (.Data.Sort.Column "to" "To")}}{{template "th" (.Data.Sort.Column "seq" "Seq")}}{{template "th" (.Data.Sort.Column "from" "From")}}{{template "th" (.Data.Sort.Column "sent" "Sent")}}{{template "th" (.Data.Sort.Column "delivery" "Delivery")}}{{template "th" (.Data.Sort.Column "acknowledged" "Acknowledged")}}<th>Body</th></tr></thead>
 <tbody>{{range .Data.Messages}}<tr>
 <td>{{.ID}}</td>
 <td>{{if .RecipientName}}{{.RecipientName}}{{else}}{{.RecipientFamily}}:{{.RecipientID}}{{end}}</td>
@@ -11,7 +11,7 @@
 <td>{{if .Acknowledged}}yes<br><small>by {{.AcknowledgedBy}}</small>{{else}}no{{end}}</td>
 <td><pre class="body">{{.Body}}</pre></td>
 </tr>{{end}}</tbody></table>{{end}}
-{{if .Data.Next}}<p><a href="/dashboard/messages{{query "to" .Data.Recipient "before" (printf "%d" .Data.Next)}}">Older messages</a></p>{{end}}{{end}}
+{{if .Data.Next}}<p><a href="{{.Data.Sort.Next .Data.Next}}">Older messages</a></p>{{end}}{{end}}
 {{define "actions"}}<details class="action" open><summary>Send as maintainer</summary>
 <form method="post" action="/dashboard/actions/send"><input type="hidden" name="csrf" value="{{.CSRF}}">
 <label>To <input name="to" required maxlength="256" placeholder="peer name or alias"></label>

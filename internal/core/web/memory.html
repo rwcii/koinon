@@ -1,5 +1,5 @@
 {{define "list"}}{{if not .Data.Stores}}<p class="empty">No memory stores.</p>{{else}}<table>
-<thead><tr><th>Repository</th><th>Store</th><th>Head</th><th>Entries</th><th>Logical bytes</th><th>Consumers</th><th>Work debt</th><th>Maintenance</th></tr></thead>
+<thead><tr>{{template "th" (.Data.Sort.Column "repository" "Repository")}}{{template "th" (.Data.Sort.Column "store" "Store")}}{{template "th" (.Data.Sort.Column "head" "Head")}}{{template "th" (.Data.Sort.Column "entries" "Entries")}}{{template "th" (.Data.Sort.Column "logical" "Logical bytes")}}{{template "th" (.Data.Sort.Column "consumers" "Consumers")}}{{template "th" (.Data.Sort.Column "debt" "Work debt")}}<th>Maintenance</th></tr></thead>
 <tbody>{{range .Data.Stores}}<tr>
 <td>{{.Repository}}</td><td><code>{{.StoreID}}</code></td><td>{{.Head}}<br><small>floor {{.Floor}}</small></td>
 <td>{{.Usage.Entries}} / {{.MaxEntries}} <small>{{pct .Usage.Entries .MaxEntries}}</small></td>
@@ -8,4 +8,4 @@
 <td>{{.OverdueDebt}} overdue, {{.EndDebt}} end credits</td>
 <td><small>last sweep {{secs (index .Maintenance "last_successful_sweep")}}{{with index .Maintenance "fault"}}<br>fault {{.}}{{end}}<br>pending {{index .Maintenance "pending_due"}}, inactive bundles {{index .Maintenance "inactive_bundles"}}</small></td>
 </tr>{{end}}</tbody></table>{{end}}
-{{if .Data.Next}}<p><a href="/dashboard/memory{{query "after" .Data.Next}}">More stores</a></p>{{end}}{{end}}
+{{if .Data.Next}}<p><a href="{{.Data.Sort.Next .Data.Next}}">More stores</a></p>{{end}}{{end}}

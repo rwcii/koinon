@@ -323,17 +323,33 @@ from elsewhere. Peer message bodies appear here, escaped, and nowhere else outsi
   `Origin: null` with a same-origin `POST`, which the origin check refuses), `Cache-Control: no-store`
   and `Cross-Origin-Opener-Policy: same-origin`. The dashboard cookie never authorizes `/v1/`, and
   the bearer secret never authorizes `/dashboard/`.
-- **Views.** `sessions` (100 per page in family and ID order, `after=FAMILY:ID` for the next page;
-  names, family, repository and working directory, state and times, the observations below with
-  their source and time, and the live claims held under the session key `FAMILY:ID`), `messages` (every inbox, newest first
-  by message ID, 50 per page and about 1 MiB of bodies, `before=ID` for older pages, `to=NAME` for
-  one recipient; delivery state and reason, acknowledgement), `memory` (per store: head, floor,
-  entries and logical bytes against their ceilings, consumers, work debt and maintenance), `work`
-  (per store, every unfinished item with its claim, resources, lease and progress state computed
-  at read time) and `health` (start time, revision, schema, listeners, session counts, storage and
-  the work maintenance sweep). Stores page by repository, 50 at a time. With `fragment=1` a view
-  returns its list alone; the page script fetches it every 5 seconds while the page is visible.
-  `audit` lists the audit log, newest first, 100 per page, with `before=ID`. Views never write.
+- **Views.** `sessions` (100 per page, with the counts of active, expired and retired
+  sessions; names, family, repository and working directory, state and times, the
+  observations below with their source and time, and the live claims held under the session
+  key `FAMILY:ID`), `messages` (every inbox, 50 per page and about 1 MiB of bodies,
+  `to=NAME` for one recipient; delivery state and reason, acknowledgement), `memory` (per store:
+  head, floor, entries and logical bytes against their ceilings, consumers, work debt and
+  maintenance, 50 stores per page), `work` (per store, every unfinished item with its claim,
+  resources, lease and progress state computed at read time; stores page by repository, 50 at a
+  time, with `after=REPOSITORY`), `audit` (the audit log, 100 per page) and `health` (start time,
+  revision, schema, listeners, session counts, storage and the work maintenance sweep). With
+  `fragment=1` a view returns its list alone; the page script fetches it every 5 seconds while the
+  page is visible, with the page's own query. Views never write.
+- **Sorting and paging.** Each table header with a sortable value links to `sort=COLUMN&dir=asc`
+  or `dir=desc`; the current column carries `aria-sort` and its link reverses the direction.
+  Columns: sessions `state` (default, ascending: active, then expired, then retired, each with
+  the latest renewal first, so active sessions are on the first page however many expired
+  sessions are kept), `name`, `family`, `repository` (then directory), `registered`,
+  `renewed`, `expires`; messages `id` (default, descending), `to`, `seq`,
+  `from`, `sent`, `delivery`, `acknowledged`; memory `repository` (default), `store`, `head`,
+  `entries`, `logical`, `consumers`, `debt`; work `work` (default), `title`, `lifecycle`,
+  `proposed`, `owner`, `lease`, `progress`, within each store; audit `id` (default, descending),
+  `time`, `action`, `target`, `result`. Observations, bodies, resources and actions do not sort.
+  An unknown column gives the default order; a column is only ever a key into a fixed list of SQL
+  expressions. Every order ends with a unique tie-breaker (sessions family and ID, messages and
+  audit ID, stores repository, work items work ID). Pages follow a keyset: `after` is an opaque
+  cursor of the last listed row's sort values, so a page neither repeats nor skips a row when
+  rows are added; a malformed cursor is 400. Next-page links keep `sort`, `dir` and `to`.
 - **Actions.** Each action is a `POST` under `/dashboard/actions/` with the request protection
   above, and answers `303` to the view it changed with a fixed `notice` code, so a reload never
   repeats it. Forms are limited to 4 KiB; the send form takes up to 3 × 65,536 + 4,096 bytes of

@@ -1,5 +1,5 @@
 {{define "list"}}{{range $store := .Data.Stores}}{{if .Work}}<h2>{{.Repository}}</h2><table>
-<thead><tr><th>Work</th><th>Title</th><th>Lifecycle</th><th>Proposed</th><th>Owner</th><th>Lease</th><th>Resources</th><th>Progress</th></tr></thead>
+<thead><tr>{{template "th" ($.Data.Sort.Column "work" "Work")}}{{template "th" ($.Data.Sort.Column "title" "Title")}}{{template "th" ($.Data.Sort.Column "lifecycle" "Lifecycle")}}{{template "th" ($.Data.Sort.Column "proposed" "Proposed")}}{{template "th" ($.Data.Sort.Column "owner" "Owner")}}{{template "th" ($.Data.Sort.Column "lease" "Lease")}}<th>Resources</th>{{template "th" ($.Data.Sort.Column "progress" "Progress")}}</tr></thead>
 <tbody>{{range .Work}}<tr>
 <td><code>{{.WorkID}}</code><br><small>revision {{.Revision}}</small></td>
 <td>{{.Title}}{{if .Checkpoint}}<br><small>{{.Checkpoint}}</small>{{end}}</td>
@@ -10,4 +10,4 @@
 <td>{{with .CurrentClaim}}{{range .Resources}}<div><small>{{index . 0}}</small> <code>{{index . 1}}</code></div>{{end}}{{else}}—{{end}}</td>
 <td>{{if .ProgressOverdue}}overdue{{else}}on time{{end}}{{if .ProgressUnverified}}<br><small>unverified: {{range $i, $r := .ProgressUnverifiedReasons}}{{if $i}}, {{end}}{{$r}}{{end}}</small>{{end}}<br><small>deadline {{secs .ProgressDeadline}}</small></td>
 </tr>{{end}}</tbody></table>{{end}}{{else}}<p class="empty">No memory stores.</p>{{end}}
-{{if .Data.Next}}<p><a href="/dashboard/work{{query "after" .Data.Next}}">More stores</a></p>{{end}}{{end}}
+{{if .Data.Next}}<p><a href="{{.Data.Sort.Next .Data.Next}}">More stores</a></p>{{end}}{{end}}

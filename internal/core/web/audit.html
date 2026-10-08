@@ -1,7 +1,7 @@
 {{define "list"}}{{if not .Data.Records}}<p class="empty">No audit records.</p>{{else}}<table>
-<thead><tr><th>ID</th><th>Time</th><th>Action</th><th>Target</th><th>Result</th></tr></thead>
+<thead><tr>{{template "th" (.Data.Sort.Column "id" "ID")}}{{template "th" (.Data.Sort.Column "time" "Time")}}{{template "th" (.Data.Sort.Column "action" "Action")}}{{template "th" (.Data.Sort.Column "target" "Target")}}{{template "th" (.Data.Sort.Column "result" "Result")}}</tr></thead>
 <tbody>{{range .Data.Records}}<tr class="result-{{.Result}}">
 <td>{{.ID}}</td><td>{{ms .At}}</td><td>{{.Action}}</td><td><code>{{.Target}}</code></td>
 <td>{{.Result}}{{if .Reason}}<br><small>{{.Reason}}</small>{{end}}</td>
 </tr>{{end}}</tbody></table>{{end}}
-{{if .Data.Next}}<p><a href="/dashboard/audit{{query "before" (printf "%d" .Data.Next)}}">Older records</a></p>{{end}}{{end}}
+{{if .Data.Next}}<p><a href="{{.Data.Sort.Next .Data.Next}}">Older records</a></p>{{end}}{{end}}

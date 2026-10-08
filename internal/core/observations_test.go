@@ -287,10 +287,9 @@ func TestDashboardSessionPaging(t *testing.T) {
 		want[Key{family, id}] = true
 	}
 	seen := map[Key]bool{}
-	var after *Key
-	var previous string
+	var after, previous string
 	for pages := 0; ; pages++ {
-		page, next, err := s.dashboardSessions(ctx, after)
+		page, next, err := s.dashboardSessions(ctx, sortOrder(t, &sessionSort, "family", "asc", after))
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -304,7 +303,7 @@ func TestDashboardSessionPaging(t *testing.T) {
 			}
 			seen[k], previous = true, order
 		}
-		if next == nil {
+		if next == "" {
 			break
 		}
 		after = next

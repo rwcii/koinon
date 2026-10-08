@@ -5,6 +5,12 @@ into a dated release section when promoted to `main`.
 
 ## Unreleased
 
+- Every dashboard table sorts by its column headers. A click sorts the whole list on the
+  server, a second click reverses it, and the order stays in the URL, so a sorted view can be
+  reloaded, linked and refreshed. Paging keeps the order and the messages recipient filter.
+- The dashboard's sessions view lists active sessions first by default and shows how many
+  sessions are active, expired and retired. Before, it listed sessions by family and ID, so
+  active sessions could be pages behind the expired ones.
 - Dashboard actions work from a browser again. Every page sent `Referrer-Policy: no-referrer`,
   which makes a browser send `Origin: null` with a form `POST`, so retire, release, acknowledge,
   clear, send, launch and logout were refused with "foreign origin". The pages now send
