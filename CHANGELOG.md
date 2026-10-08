@@ -8,8 +8,8 @@ into a dated release section when promoted to `main`.
 - `koinon claude`, `koinon codex`, `koinon agy` and `koinon opencode` start in a directory
   that holds other repositories, such as a checkout with submodules, worktrees of other
   repositories or separate clones, and list them instead of refusing the start. The list
-  (path and kind, at most 64 entries, marked incomplete after 3 seconds or at an unreadable
-  directory) is printed before the agent starts and kept with the launch. The dashboard shows
+  (path and kind, at most 64 entries, marked incomplete after 3 seconds, at an unreadable
+  directory or at a path with a control character, which is left out) is printed before the agent starts and kept with the launch. The dashboard shows
   it with each session that registers with its launch record (Codex, Antigravity and
   OpenCode). The session's repository is still the start directory's.
 - Agents sharing a checkout can derive one advisory checkout resource, inspect its writer,
