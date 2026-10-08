@@ -104,8 +104,10 @@ agent starts: each nested checkout, with its path relative to the start director
 `worktree` for a linked worktree of another repository; `repository` for any other, such as a
 separate clone). A linked worktree of the start repository is part of it and is not listed. The
 scan goes into submodules and the start repository's worktrees, but not into another
-repository, never follows directory symlinks, and stops after 3 seconds or 64 entries; a stop
-or an unreadable directory marks the list incomplete and never refuses the start. The
+repository, never follows directory symlinks, and stops after 3 seconds (Git queries
+included) or 64 entries. A stop, an unreadable directory or a path that the launch record cannot
+hold (longer than 256 bytes, or with a control character such as a newline) marks the list
+incomplete and never refuses the start. The
 session's Koinon repository, memory and work store stay the start directory's repository. The
 launch record keeps the list, and the dashboard shows it with each session that registers with
 its launch record (Codex, Antigravity and OpenCode).
