@@ -243,11 +243,17 @@ func TestClaudeRegistryActivity(t *testing.T) {
 	if reports := o.taken(1); len(reports) != 1 || reports[0].Activity.State != "waiting" {
 		t.Fatalf("waiting: %+v", reports)
 	}
+	// shell is the prompt with a background shell task running: idle, not busy.
+	write(map[string]any{"pid": 4242, "sessionId": "synthetic-claude", "status": "shell", "statusUpdatedAt": stamp + 3, "entrypoint": "cli"})
+	o.s.observeOnce(context.Background())
+	if reports := o.taken(1); len(reports) != 1 || reports[0].Activity.State != "idle" {
+		t.Fatalf("shell: %+v", reports)
+	}
 	// A symlinked record is not followed.
 	target := filepath.Join(t.TempDir(), "elsewhere.json")
 	os.Rename(record, target)
 	os.Symlink(target, record)
-	write(map[string]any{"pid": 4242, "sessionId": "synthetic-claude", "status": "idle", "statusUpdatedAt": stamp + 3, "entrypoint": "cli"})
+	write(map[string]any{"pid": 4242, "sessionId": "synthetic-claude", "status": "idle", "statusUpdatedAt": stamp + 4, "entrypoint": "cli"})
 	o.s.observeOnce(context.Background())
 	for _, r := range o.taken(0) {
 		if r.Activity != nil {

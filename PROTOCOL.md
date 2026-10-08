@@ -392,7 +392,7 @@ comes. A session that is not active shows `unknown` with `session_expired` or
 | --- | --- |
 | Model | `claude_statusline`; `codex_rollout` (the session's own rollout under `CODEX_HOME`) and `codex_mcp_meta` (`x-codex-turn-metadata.model` of a tool call); `agy_hook` (`modelName` of the Stop hook) |
 | Context | `claude_statusline` (`context_window_size`, `total_input_tokens`); `codex_rollout` (`model_context_window`, `last_token_usage.input_tokens`) |
-| Activity | `claude_registry` (the parent Claude process's registry record for this session, `entrypoint: cli`); `codex_rollout` (task started and completed); `agy_hook` (idle at Stop) and `mcp_call` (an agy tool call); `opencode_status` (`GET /session/status` on a launched OpenCode server, with its password, cached 5 seconds) |
+| Activity | `claude_registry` (the parent Claude process's registry record for this session, `entrypoint: cli`; `shell`, the prompt with a background shell task running, is idle); `codex_rollout` (task started and completed); `agy_hook` (idle at Stop) and `mcp_call` (an agy tool call); `opencode_status` (`GET /session/status` on a launched OpenCode server, with its password, cached 5 seconds) |
 | Terminal | `tmux_env`: the MCP server's `TMUX` and `TMUX_PANE`, the pane's session name and the last terminal naming result |
 
 One MCP server can serve several sessions, so its environment proves nothing about a session.
