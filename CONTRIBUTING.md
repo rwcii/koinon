@@ -20,6 +20,11 @@ feature/*  ──(squash PR)──▶  develop  ──(merge PR)──▶  main
 - Create `feature/*`, `fix/*`, or `chore/*` branches from `develop`.
 - No direct commits or pushes to either long-lived branch after bootstrap.
 - Squash feature PRs into `develop`; promote `develop` to `main` with a merge PR.
+- Keep one open PR per target branch, drafts included. Open the next one after the open one
+  merges or closes.
+- The `develop` ruleset requires an up-to-date branch. Merge the latest `develop` into your
+  branch before you open its PR, and again when `develop` moves before the merge; never
+  rewrite a pushed branch.
 - Tests must pass and review conversations must be resolved before merging.
 - Review the diff independently for correctness, compatibility, and the documented
   same-user trust boundary. The maintainer owns acceptance.
@@ -43,6 +48,9 @@ go vet ./...
 go test -race ./...
 git diff --check
 git commit -S -s -m "Add a concise description"
+gh pr list --base develop --state open   # wait until it lists none
+git fetch origin && git merge --no-edit origin/develop
+go test -race ./...
 git push -u origin feature/my-change
 gh pr create --base develop
 ```

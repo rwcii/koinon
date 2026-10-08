@@ -64,13 +64,28 @@ When a work command refuses because the repository has no reachable daemon/store
 
 ## 2. Check, then push once
 
-Run the `check` skill. Push when it passes, and open the pull request against `develop`. Say in
-the body what changed, why, and which checks ran on which commit. Name the issues it delivers;
+The root `AGENTS.md` allows one open pull request per target branch. Publish only when the
+target is free and the branch is current:
+
+1. **Wait for the target.** `gh pr list --base develop --state open` lists drafts too. When it
+   shows a pull request other than this branch's own, do not push or open this one. Keep working
+   in the worktree and wait until that pull request merges or closes.
+2. **Update.** Run `git fetch origin`, then `git merge --no-edit origin/develop`. A branch that
+   was never pushed or reviewed may rebase onto `origin/develop` instead. Never rewrite a pushed
+   branch: its reviewed commits must stay reachable.
+3. **Check.** Run the `check` skill on the resulting head.
+4. **Publish.** Run the `gh pr list` of item 1 again just before you push, then push and open
+   the pull request against `develop`. When a race still leaves two pull requests open, the one
+   opened later waits: its author asks for no review until the other merges, then repeats items
+   2 and 3 and pushes once.
+
+Say in the pull request body what changed, why, and which checks ran on which commit. Name the issues it delivers;
 `develop` is not the default branch, so `Closes #N` does not close them.
 
 ## 3. Review
 
 Freeze the head commit and ask the other agent family to review it with the `peer-review` skill.
+Freeze only a head that contains the latest `origin/develop`; the `check` skill tests this.
 One account holds both agents, so the sign-off is a pull request comment that names the head
 commit, not a formal approval. A new commit needs a new sign-off.
 
@@ -81,6 +96,12 @@ Collect every failing check and every open finding first. Fix them together on t
 is running, the branch is frozen for new work; put unrelated follow-ups on a new branch.
 
 ## 5. Merge
+
+The `develop` ruleset requires an up-to-date branch. When `develop` moved after the sign-off,
+the author updates the branch (step 2, items 2 and 3), pushes once and asks the reviewer to bind
+the sign-off to the new head. The reviewer verifies that the update brings only `develop`, and
+reviews a conflict resolution or any other change as a change. Do not leave the update to the
+maintainer's update button on GitHub.
 
 When CI is green on the signed-off head commit and the rulesets allow it:
 

@@ -42,6 +42,9 @@ scope for that exact change.
 
 ## 3. Open the merge pull request
 
+The root `AGENTS.md` allows one open pull request per target branch: open the merge pull
+request only when `gh pr list --base main --state open` lists none.
+
 ```sh
 gh pr create --base main --head develop --title "<release title>"
 gh pr view <number> --json mergeStateStatus

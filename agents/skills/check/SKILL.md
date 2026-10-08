@@ -1,6 +1,6 @@
 ---
 name: check
-description: Run the checks that must pass before a Koinon branch is pushed - the test suite, whitespace, shell syntax for shell edits, the changelog rule and a scan for private content in the diff. Use before every push, and as the gate that the ship and sprint skills name.
+description: Run the checks that must pass before a Koinon branch is pushed - that it contains the latest develop, the test suite, whitespace, shell syntax for shell edits, the changelog rule and a scan for private content in the diff. Use before every push, and as the gate that the ship and sprint skills name.
 ---
 
 # Check
@@ -10,7 +10,18 @@ Read `agents/skills/AGENTS.md` and the root `AGENTS.md` first.
 A CI run takes 10 to 15 minutes and much longer when pushes queue for macOS runners, so a
 failure found here saves one. Run the checks from the root of the branch's worktree.
 
-## 1. Tests and whitespace
+## 1. Current with develop
+
+```sh
+git fetch origin
+git merge-base --is-ancestor origin/develop HEAD
+```
+
+A failure, or a failed fetch, means that the branch is behind `develop`. Merge
+`origin/develop` into it (`ship`, step 2) and run the checks again. A release pull request's
+head is `develop` itself, so it passes.
+
+## 2. Tests and whitespace
 
 ```sh
 go vet ./...
@@ -25,7 +36,7 @@ only prose changed since then. Report the commit tested. For runtime/install cha
 four CGO-free builds and compile/vet native-tagged tests without enabling real services locally.
 Native lifecycle evidence runs only on disposable CI runners.
 
-## 2. Shell syntax, for shell edits only
+## 3. Shell syntax, for shell edits only
 
 When the branch changes `scripts/setup-repo.sh` or `.githooks/pre-commit`:
 
@@ -34,13 +45,13 @@ bash -n scripts/setup-repo.sh
 sh -n .githooks/pre-commit
 ```
 
-## 3. Changelog
+## 4. Changelog
 
 A change that a Koinon participant can see (runtime behaviour, commands, installation, messages, the
 documented interfaces) needs an entry in `CHANGELOG.md` in the same branch. Contributor tooling,
 tests and internal refactors do not.
 
-## 4. Private content
+## 5. Private content
 
 This repository is public. Scan the added lines:
 
