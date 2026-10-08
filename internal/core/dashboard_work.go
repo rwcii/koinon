@@ -3,8 +3,10 @@ package core
 import (
 	"context"
 	"crypto/rand"
+	"database/sql"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"net/url"
 	"strconv"
@@ -173,7 +175,7 @@ func (d *Daemon) workActions(mux *http.ServeMux, authed func(int64, func(http.Re
 		c.revision, err1 = strconv.ParseInt(r.PostForm.Get("revision"), 10, 64)
 		c.deadline, err2 = strconv.ParseFloat(r.PostForm.Get("deadline"), 64)
 		c.valid = err1 == nil && err2 == nil && c.revision > 0 && validRepository(c.repository) && len(c.workID) == 32 &&
-			c.key != "" && len(c.key) <= 256
+			c.key != "" && len(c.key) <= 250 // a finish adds "-start" for the claim it takes
 		return c
 	}
 	page := func(c common) url.Values {
@@ -272,51 +274,136 @@ func (d *Daemon) workActions(mux *http.ServeMux, authed func(int64, func(http.Re
 	mux.HandleFunc("POST /dashboard/actions/work-finish", authed(workFormLimit, func(w http.ResponseWriter, r *http.Request, _ string) {
 		c := read(r)
 		outcome, reason := r.PostForm.Get("outcome"), r.PostForm.Get("reason")
-		// The outcome's own requirement is checked first, so an unclaimed item is never
-		// claimed for a finish that would be refused.
-		valid := c.valid && utf8.ValidString(reason+r.PostForm.Get("references")) &&
-			(outcome == "completed" && len(lines(r.PostForm.Get("references"))) > 0 ||
-				outcome == "withdrawn" && strings.TrimSpace(reason) != "")
+		valid := c.valid && utf8.ValidString(reason+r.PostForm.Get("references"))
 		run(w, r, "work-finish", target(c, " "+outcome), "work", page(c), valid, func(ctx context.Context) error {
-			claim, err := liveClaim(ctx, c)
-			if err != nil {
-				return err
-			}
-			consumer, revision := maintainerConsumer, c.revision
-			var generation int64
-			if claim != nil {
-				// A live claim is finished on behalf of its owner, as the release action
-				// releases one; the work event names the maintainer.
-				consumer, generation = claim.Consumer, claim.Generation
-			} else {
-				// An unclaimed item is claimed by the maintainer and finished at once. The
-				// start carries no audit record; the finish does.
-				result, err := d.store.Work(noAudit(ctx), maintainerWork(c.repository, maintainerConsumer), "work-start", workFieldsOf(map[string]any{
-					"work_id": c.workID, "if_revision": c.revision, "checkpoint": "Started by the maintainer to finish it from the dashboard",
-					"next_artifact": "the finish", "progress_deadline": d.store.clock() + 3600, "key": c.key + "-start", "deadline": c.deadline}))
-				if err != nil {
-					return err
-				}
-				// A replayed start returns its stored JSON, so the result is read as JSON.
-				var started struct {
-					Revision int64 `json:"revision"`
-					Claim    struct {
-						Generation int64 `json:"generation"`
-					} `json:"claim"`
-				}
-				data, _ := json.Marshal(result)
-				if err := json.Unmarshal(data, &started); err != nil {
-					return err
-				}
-				revision, generation = started.Revision, started.Claim.Generation
-			}
-			values := map[string]any{"work_id": c.workID, "if_revision": revision, "claim_generation": generation, "outcome": outcome,
+			values := map[string]any{"work_id": c.workID, "if_revision": c.revision, "outcome": outcome,
 				"key": c.key, "deadline": c.deadline, "references": lines(r.PostForm.Get("references"))}
 			if reason != "" {
 				values["reason"] = reason
 			}
-			_, err = d.store.Work(ctx, maintainerWork(c.repository, consumer), "work-finish", workFieldsOf(values))
+			// A resubmitted form repeats its first request, under that request's consumer, so
+			// it replays the first result whatever the item's state is now.
+			first, generation, err := d.store.finishReplay(ctx, c.repository, c.workID, c.key)
+			if err != nil {
+				return err
+			}
+			if first == maintainerConsumer {
+				_, err = d.store.claimAndFinish(ctx, maintainerWork(c.repository, maintainerConsumer), workFieldsOf(values))
+				return err
+			}
+			if first != "" {
+				values["claim_generation"] = generation
+				_, err = d.store.Work(ctx, maintainerWork(c.repository, first), "work-finish", workFieldsOf(values))
+				return err
+			}
+			claim, err := liveClaim(ctx, c)
+			if err != nil {
+				return err
+			}
+			if claim == nil {
+				// An unclaimed item is claimed by the maintainer and finished in one
+				// transaction, so a refused finish changes nothing.
+				_, err = d.store.claimAndFinish(ctx, maintainerWork(c.repository, maintainerConsumer), workFieldsOf(values))
+				return err
+			}
+			// A live claim is finished on behalf of its owner, as the release action
+			// releases one; the work event names the maintainer.
+			values["claim_generation"] = claim.Generation
+			_, err = d.store.Work(ctx, maintainerWork(c.repository, claim.Consumer), "work-finish", workFieldsOf(values))
 			return err
 		}, "work_finished", nil)
 	}))
+}
+
+// finishReplay finds the consumer under which a finish with this key was recorded, and
+// the claim generation it finished: the item's last generation, which a finish keeps.
+func (s *Store) finishReplay(ctx context.Context, repository, workID, key string) (string, int64, error) {
+	store, err := storeOf(ctx, s.db, repository)
+	if err != nil || store == "" {
+		return "", 0, err
+	}
+	var consumer string
+	var generation sql.NullInt64
+	err = s.db.QueryRowContext(ctx, `SELECT r.consumer,w.last_generation FROM work_replays r
+		LEFT JOIN work_items w ON w.store=r.store AND w.work_id=? WHERE r.store=? AND r.key=? AND r.operation='work-finish'
+		ORDER BY r.consumer=? DESC LIMIT 1`, workID, store, key, maintainerConsumer).Scan(&consumer, &generation)
+	if errors.Is(err, sql.ErrNoRows) {
+		return "", 0, nil
+	}
+	return consumer, generation.Int64, err
+}
+
+// claimAndFinish claims an unclaimed item as m's consumer and finishes it in one
+// transaction, so a refused finish leaves the item as it was. The finish request carries the
+// form's key and fields, without a claim generation; its replay record binds them, so a
+// resubmitted form returns the first result.
+func (s *Store) claimAndFinish(ctx context.Context, m MemoryCaller, fields map[string]json.RawMessage) (any, error) {
+	if _, ok := fields["claim_generation"]; ok {
+		return nil, invalid("a claim and finish takes no claim generation")
+	}
+	// The request is validated with a placeholder generation, which is then removed: the
+	// fingerprint binds the form's fields, and the start supplies the generation.
+	fields["claim_generation"] = json.RawMessage("1")
+	r, err := parseWork("work-finish", fields)
+	delete(fields, "claim_generation")
+	if err != nil {
+		return nil, err
+	}
+	delete(r.present, "claim_generation")
+	delete(r.ints, "claim_generation")
+	if !r.keyed() {
+		return nil, invalid("a claim and finish takes a key")
+	}
+	s.memory.op.Lock()
+	advanced := false
+	defer func() {
+		s.memory.op.Unlock()
+		if advanced {
+			s.changed(m.Repository)
+		}
+	}()
+	now := s.clock()
+	print, original, err := s.replay(ctx, m, r, now)
+	if err != nil || original != nil {
+		return original, err
+	}
+	workID := r.text["work_id"]
+	store, err := storeOf(ctx, s.db, m.Repository)
+	if err != nil {
+		return nil, err
+	}
+	if _, err := current(ctx, s.db, store, workID, now); err != nil {
+		return nil, err
+	}
+	if err := s.maybeExpire(ctx, m.Repository); err != nil {
+		return nil, err
+	}
+	if err := s.reconcile(ctx, m.Repository, workID, now, &advanced); err != nil {
+		return nil, err
+	}
+	if err := s.reclaimInactive(ctx, m.Repository, workID); err != nil {
+		return nil, err
+	}
+	start, err := parseWork("work-start", workFieldsOf(map[string]any{"work_id": workID, "if_revision": r.ints["if_revision"],
+		"checkpoint": "Started by the maintainer to finish it from the dashboard", "next_artifact": "the finish",
+		"progress_deadline": now + 3600, "key": r.text["key"] + "-start", "deadline": r.numbers["deadline"]}))
+	if err != nil {
+		return nil, err
+	}
+	var result map[string]any
+	err = s.workWrite(ctx, m.Repository, ordinary, func(tx *writeTx, store string) error {
+		tx.audited = true
+		started, err := s.apply(ctx, tx, store, m, start, now, "", &advanced)
+		if err != nil {
+			return err
+		}
+		claim, ok := started["claim"].(lease)
+		if !ok {
+			return workError("storage_error", "the start returned no claim")
+		}
+		r.ints["if_revision"], r.ints["claim_generation"], r.present["claim_generation"] = started["revision"].(int64), claim.Generation, true
+		result, err = s.apply(ctx, tx, store, m, r, now, print, &advanced)
+		return err
+	})
+	return result, err
 }

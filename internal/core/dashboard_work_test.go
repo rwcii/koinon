@@ -1,6 +1,7 @@
 package core
 
 import (
+	"fmt"
 	"net/url"
 	"strconv"
 	"strings"
@@ -164,5 +165,69 @@ func TestDashboardWorkActions(t *testing.T) {
 		if r := dashboardDo(t, d, "GET", "/dashboard/work?"+bad, client.cookie, nil, nil); r.status != 400 {
 			t.Fatalf("%s: %d", bad, r.status)
 		}
+	}
+}
+
+// Review regressions on #244 (F1): a finish that Work refuses leaves an unclaimed item as
+// it was, with no claim and no event.
+func TestDashboardRefusedFinishLeavesItemUnclaimed(t *testing.T) {
+	d, root := startTestDaemon(t)
+	m := MemoryCaller{Repository: "/synthetic/refused-finish/.git", Family: "codex", Name: "synthetic-peer", Consumer: "codex:synthetic-peer"}
+	id := create(t, d.store, m, "synthetic item")
+	client := newActionClient(t, d, root)
+	deadline := strconv.FormatInt(int64(d.store.clock())+3600, 10)
+	for i, form := range []url.Values{
+		{"outcome": {"completed"}, "references": {strings.Repeat("x", 513)}},
+		{"outcome": {"withdrawn"}, "reason": {strings.Repeat("x", 2000)}},
+		{"outcome": {"withdrawn"}},
+		{"outcome": {"abandoned"}, "reason": {"r"}},
+	} {
+		for k, v := range map[string]string{"repository": m.Repository, "work_id": id, "revision": "1", "deadline": deadline,
+			"key": "refused-" + strconv.Itoa(i)} {
+			form.Set(k, v)
+		}
+		if got := client.do("work-finish", form); got != "invalid_request" {
+			t.Fatalf("finish %v: %s", form, got)
+		}
+	}
+	if item := get(t, d.store, m, id); item["current_claim"] != nil || item["lifecycle"] != "open" || item["revision"] != float64(1) {
+		t.Fatalf("a refused finish changed the item: %+v", item)
+	}
+	if kinds := strings.Join(events(t, d.store, m, id), ","); kinds != "created" {
+		t.Fatalf("events: %s", kinds)
+	}
+}
+
+// Review regressions on #244 (F2): the same finish form again replays the first result,
+// for an item that was claimed and one that was not, with no new event or audit record.
+func TestDashboardFinishReplay(t *testing.T) {
+	for _, claimed := range []bool{false, true} {
+		t.Run(fmt.Sprintf("claimed-%v", claimed), func(t *testing.T) {
+			d, root := startTestDaemon(t)
+			m := MemoryCaller{Repository: "/synthetic/finish-replay/.git", Family: "codex", Name: "synthetic-peer", Consumer: "codex:synthetic-peer"}
+			id := create(t, d.store, m, "synthetic item")
+			if claimed {
+				mustStart(t, d.store, m, id, nil)
+			}
+			client := newActionClient(t, d, root)
+			form := url.Values{"repository": {m.Repository}, "work_id": {id}, "revision": {strconv.FormatInt(revision(t, d.store, m, id), 10)},
+				"key": {"finish-replay"}, "deadline": {strconv.FormatInt(int64(d.store.clock())+3600, 10)}, "outcome": {"completed"},
+				"references": {"synthetic evidence"}}
+			if got := client.do("work-finish", form); got != "work_finished" {
+				t.Fatalf("first finish: %s", got)
+			}
+			kinds, audits := strings.Join(events(t, d.store, m, id), ","), len(auditAll(t, d.store))
+			if got := client.do("work-finish", form); got != "work_finished" {
+				t.Fatalf("replayed finish: %s", got)
+			}
+			if again := strings.Join(events(t, d.store, m, id), ","); again != kinds || len(auditAll(t, d.store)) != audits {
+				t.Fatalf("the replay wrote: %s -> %s, audit %d -> %d", kinds, again, audits, len(auditAll(t, d.store)))
+			}
+			// The same key with other content conflicts.
+			form.Set("references", "other evidence")
+			if got := client.do("work-finish", form); got != "idempotency_conflict" {
+				t.Fatalf("changed form: %s", got)
+			}
+		})
 	}
 }
