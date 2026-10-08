@@ -9,6 +9,16 @@ into a dated release section when promoted to `main`.
   private `launchers.json`, preserving other families' entries. Launchers work without
   `--cli` after setup, keep explicit overrides and never search `PATH` at launch time.
 
+- Agents can read a peer's observed model, context and activity through `peer_status` and
+  `koinon peer-status`, by name or held alias, with source and confirmation timestamps,
+  freshness windows and explicit unknown reasons. Registration and acknowledgement remain
+  separate signals, and private runtime/terminal targets are excluded.
+
+- `koinon install` links `~/.local/bin/koinon` to the installed binary, so the documented
+  `koinon ...` commands run it. The report names the `koinon` that `PATH` runs and, when that is
+  not the installed copy, the step that makes it so; it never edits shell startup files.
+  `koinon uninstall` removes the link only when the install created it and it still points at
+  the installed binary.
 - Dashboard actions work from a browser again. Every page sent `Referrer-Policy: no-referrer`,
   which makes a browser send `Origin: null` with a form `POST`, so retire, release, acknowledge,
   clear, send, launch and logout were refused with "foreign origin". The pages now send

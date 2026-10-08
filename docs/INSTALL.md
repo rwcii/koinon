@@ -44,7 +44,15 @@ chmod +x koinon-linux-amd64 && ./koinon-linux-amd64 version
 1. It copies the running binary to `<prefix>/bin/koinon`. The default prefix is
    `$XDG_DATA_HOME/koinon/go`, which is `~/.local/share/koinon/go`. The copy is atomic, and it is
    checked against the source's SHA-256.
-2. It writes one service that runs `<prefix>/bin/koinon serve --state-dir <state>`, then enables
+2. It links `~/.local/bin/koinon` to that copy, on Linux and macOS, and records the link in
+   `<prefix>/link`. An existing link to the copy is kept; any other file or link at that path
+   is never replaced (`"link_result": "occupied"`). The report names the `koinon` that `PATH`
+   runs (`on_path`). When that is not the installed copy, `path_step` names the one step that
+   makes it so, for example adding `~/.local/bin` to `PATH` in the shell's startup file; on
+   macOS that directory is not on `PATH` by default. When another `koinon`, such as the
+   Homebrew copy, comes first on `PATH`, the report names it. The install never edits shell
+   startup files.
+3. It writes one service that runs `<prefix>/bin/koinon serve --state-dir <state>`, then enables
    and (re)starts it:
    - on Linux, the systemd user unit `~/.config/systemd/user/koinon.service`, enabled for login;
    - on macOS, the launchd agent
@@ -52,8 +60,8 @@ chmod +x koinon-linux-amd64 && ./koinon-linux-amd64 version
 
    The file carries the marker `koinon-go-daemon-v1`. An existing file at that path without the
    marker is refused (`service_artifact_unowned`), never replaced.
-3. It waits until the daemon answers `status`.
-4. It runs `koinon setup` for each `--agent`, with the installed path.
+4. It waits until the daemon answers `status`.
+5. It runs `koinon setup` for each `--agent`, with the installed path.
 
 When no user service manager answers, the report says `"service": "manual_required"` and gives
 the `start_command` to run in a managed session. Koinon never uses sudo, system services,
@@ -170,6 +178,8 @@ staging files.
   service stopped. When the manager refuses the stop, or still reports the service running,
   uninstall refuses with `service_stop_failed` and keeps the service file and the binary.
 - The binary.
+- The `~/.local/bin/koinon` link, only when the install created it (`<prefix>/link`) and it still
+  points at the installed binary. Any other link or file there is kept (`"link_result": "kept"`).
 
 It keeps the state directory and reports its path. A repeated uninstall changes nothing.
 

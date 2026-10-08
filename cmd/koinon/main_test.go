@@ -129,6 +129,14 @@ func TestMessageCommands(t *testing.T) {
 			recipient = p["name"].(string)
 		}
 	}
+	peerStatus, err := command("", "peer-status", "--as", "codex:synthetic-a", recipient)
+	if err != nil {
+		t.Fatal(err)
+	}
+	peer := peerStatus["peer"].(map[string]any)
+	if peer["name"] != recipient || peer["state"] != "active" || peer["context"].(map[string]any)["reason"] != "no_source" || peer["activity"].(map[string]any)["known"] != false {
+		t.Fatalf("peer-status: %v", peerStatus)
+	}
 	if _, err := command("", "send", "--as", "codex:synthetic-a", recipient, "first synthetic"); err != nil {
 		t.Fatal(err)
 	}
@@ -150,7 +158,7 @@ func TestMessageCommands(t *testing.T) {
 	if _, err := command("", "ack", "--as", "opencode:synthetic-b", "3"); !errors.As(err, &refused) || refused.Code != "ack_beyond_last" {
 		t.Fatalf("ack beyond last: %v", err)
 	}
-	for _, args := range [][]string{{"peers"}, {"peers", "--as", "codex"}, {"send", "--as", "codex:synthetic-a", recipient}, {"ack", "--as", "codex:synthetic-a", "two"}} {
+	for _, args := range [][]string{{"peers"}, {"peers", "--as", "codex"}, {"peer-status", "--as", "codex:synthetic-a"}, {"peer-status", recipient}, {"send", "--as", "codex:synthetic-a", recipient}, {"ack", "--as", "codex:synthetic-a", "two"}} {
 		if _, err := command("", args...); err == nil || errors.As(err, &refused) {
 			t.Fatalf("invalid command accepted: %v %v", args, err)
 		}
