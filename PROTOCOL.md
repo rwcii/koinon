@@ -396,7 +396,10 @@ from elsewhere. Peer message bodies appear here, escaped, and nowhere else outsi
   substring, ignoring ASCII case; `type=TYPE` filters; without `all=1` only live entries are
   listed), `work` (per store, every unfinished item with its claim,
   resources, lease and progress state computed at read time; stores page by repository, 50 at a
-  time, with `after=REPOSITORY`), `audit` (the audit log, 100 per page) and `health` (start time,
+  time, with `after=REPOSITORY`; `lifecycle=open|active|blocked|finished|all` filters, and
+  finished items are listed while their retention lasts; `store=REPOSITORY&item=WORK_ID` opens
+  one item with its full scope, checkpoint, progress, references, outcome and its newest 200
+  events with their writers), `audit` (the audit log, 100 per page) and `health` (start time,
   revision, schema, listeners, session counts, storage and the work maintenance sweep). With
   `fragment=1` a view returns its list alone; the page script fetches it every 5 seconds while the
   page is visible, with the page's own query. The search and recipient filter forms sit outside
@@ -457,6 +460,20 @@ from elsewhere. Peer message bodies appear here, escaped, and nowhere else outsi
     `reason_required`.
     The form is up to 3 × 8,192 + 4,096 bytes for `memory-record`. The audit target names the
     repository, the type or the entry replaced or revoked, and the body size, never the body.
+  - `work-create` (`repository`, `title`, `criteria`, `non_goals`, optional `proposed_assignee`,
+    `references` one per line, `key`, `deadline`), `work-propose` (`repository`, `work_id`,
+    `revision`, `proposed_assignee`, empty to clear, `key`, `deadline`), `work-edit` (the same
+    with `title`, `criteria`, `non_goals`) and `work-finish` (the same with `outcome`
+    `completed` and `references`, or `withdrawn` and `reason`): the work operations as consumer
+    `maintainer`, through the same revision checks, limits, idempotency and refusal codes as an
+    agent's request; each work event names family and name `maintainer`. An edit of an item
+    with a live claim is refused with `work_claimed`: release the claim first. A finish of a
+    live claim runs on behalf of its owner, as `release` does; an unclaimed item is claimed by
+    `maintainer` and finished in one transaction, with one audit record, so a refused finish
+    changes nothing. The same finish form again repeats its first request under that request's
+    consumer, so it replays the first result whatever the item's state is now; a form key is at
+    most 250 bytes. A store that does not exist is
+    `store_not_found`. Each form of a rendered page carries its own idempotency key.
   - `send` (`to`, `body`): a message from `maintainer`; the recipient's wake works as for any
     message.
   - `launch` (`family` `claude`, `codex`, `agy` or `opencode`; `directory`; optional `name`): the daemon runs

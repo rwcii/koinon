@@ -376,7 +376,7 @@ func workSortKey(key string, v WorkView) []any {
 // dashboardWork lists stores in repository order after a repository ("" for the first
 // page), each with its unfinished work in the sort's order; next is the cursor for the
 // following page, or "".
-func (s *Store) dashboardWork(ctx context.Context, after string, order dashboardSort) ([]StoreSummary, string, error) {
+func (s *Store) dashboardWork(ctx context.Context, after, lifecycle string, order dashboardSort) ([]StoreSummary, string, error) {
 	result, err := s.storeList(ctx, after, dashboardStorePage+1)
 	if err != nil {
 		return nil, "", err
@@ -394,7 +394,7 @@ func (s *Store) dashboardWork(ctx context.Context, after string, order dashboard
 			return nil, "", err
 		}
 		for _, v := range views {
-			if v.Lifecycle != "finished" {
+			if keepLifecycle(lifecycle, v.Lifecycle) {
 				item.Work = append(item.Work, v)
 			}
 		}

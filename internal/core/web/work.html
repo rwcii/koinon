@@ -1,13 +1,43 @@
-{{define "list"}}{{range $store := .Data.Stores}}{{if .Work}}<h2>{{.Repository}}</h2><table>
+{{define "list"}}{{with .Data.Open}}{{$item := .Item}}<h2>Work item <code>{{$item.WorkID}}</code> in {{.Repository}}</h2>
+<dl>
+<dt>Title</dt><dd>{{$item.Title}}</dd>
+<dt>Lifecycle</dt><dd>{{$item.Lifecycle}}{{with $item.Outcome}}, {{.}}{{end}}{{if $item.Reason}}: {{$item.Reason}}{{end}}{{with $item.FinishedAt}}<br><small>finished {{secs .}}</small>{{end}}</dd>
+<dt>Revision</dt><dd>{{$item.Revision}}<small>, scope revision {{$item.ScopeRevision}}{{if $item.CriteriaChangedAfterStart}}, criteria changed after the start{{end}}</small></dd>
+<dt>Criteria</dt><dd><pre class="body">{{$item.Criteria}}</pre></dd>
+<dt>Non-goals</dt><dd><pre class="body">{{$item.NonGoals}}</pre></dd>
+<dt>Proposed</dt><dd>{{with $item.ProposedAssignee}}{{.}}{{else}}—{{end}}</dd>
+<dt>Claim</dt><dd>{{with $item.CurrentClaim}}{{.Consumer}}<small>, generation {{.Generation}}{{if $item.LeaseValid}}, valid until {{secs .ExpiresAt}}{{else}}, lease lapsed{{end}}</small>{{else}}—{{end}}</dd>
+<dt>Checkpoint</dt><dd>{{if $item.Checkpoint}}{{$item.Checkpoint}}{{else}}—{{end}}</dd>
+<dt>Progress</dt><dd>{{if $item.Progress}}{{$item.Progress}}{{else}}—{{end}}{{if $item.NextArtifact}}<br><small>next {{$item.NextArtifact}}</small>{{end}}{{if $item.Blocker}}<br><strong>blocked: {{$item.Blocker}}</strong>{{end}}</dd>
+<dt>References</dt><dd>{{range $item.References}}<div><code>{{.}}</code></div>{{else}}—{{end}}</dd>
+<dt>Created</dt><dd>{{secs $item.CreatedAt}} <small>by {{$item.CreatedConsumer}}</small></dd>
+</dl>
+{{if ne $item.Lifecycle "finished"}}<details class="action"><summary>Propose an assignee</summary><form method="post" action="/dashboard/actions/work-propose"><input type="hidden" name="csrf" value="{{$.CSRF}}"><input type="hidden" name="repository" value="{{.Repository}}"><input type="hidden" name="work_id" value="{{$item.WorkID}}"><input type="hidden" name="revision" value="{{$item.Revision}}"><input type="hidden" name="key" value="{{$.Data.Key}}-propose"><input type="hidden" name="deadline" value="{{$.Data.Deadline}}"><label>Assignee <input name="proposed_assignee" maxlength="128" value="{{with $item.ProposedAssignee}}{{.}}{{end}}" placeholder="empty clears it"></label><button type="submit">Propose</button></form></details>
+<details class="action"><summary>Edit the scope</summary>{{if $item.LeaseValid}}<p><small>The item has a live claim. Release it first; an edit needs no live claim.</small></p>{{end}}<form method="post" action="/dashboard/actions/work-edit"><input type="hidden" name="csrf" value="{{$.CSRF}}"><input type="hidden" name="repository" value="{{.Repository}}"><input type="hidden" name="work_id" value="{{$item.WorkID}}"><input type="hidden" name="revision" value="{{$item.Revision}}"><input type="hidden" name="key" value="{{$.Data.Key}}-edit"><input type="hidden" name="deadline" value="{{$.Data.Deadline}}"><label class="wide">Title <input name="title" maxlength="8192" value="{{$item.Title}}" required></label><label class="wide">Criteria <textarea name="criteria" rows="4" required>{{$item.Criteria}}</textarea></label><label class="wide">Non-goals <textarea name="non_goals" rows="3" required>{{$item.NonGoals}}</textarea></label><button type="submit">Record the edit</button></form></details>
+<details class="action"><summary>Finish</summary><form method="post" action="/dashboard/actions/work-finish"><input type="hidden" name="csrf" value="{{$.CSRF}}"><input type="hidden" name="repository" value="{{.Repository}}"><input type="hidden" name="work_id" value="{{$item.WorkID}}"><input type="hidden" name="revision" value="{{$item.Revision}}"><input type="hidden" name="key" value="{{$.Data.Key}}-finish"><input type="hidden" name="deadline" value="{{$.Data.Deadline}}"><label>Outcome <select name="outcome"><option value="completed">completed</option><option value="withdrawn">withdrawn</option></select></label><label>Reason <input name="reason" maxlength="1024" placeholder="needed to withdraw"></label><label class="wide">References <textarea name="references" rows="2" placeholder="one per line; needed to complete"></textarea></label><button type="submit">Finish</button></form><p><small>{{if $item.LeaseValid}}The live claim of {{$item.CurrentClaim.Consumer}} is finished on its behalf; the event names the maintainer.{{else}}The maintainer claims the item and finishes it at once.{{end}} Finished is final.</small></p></details>{{end}}
+<h2>History</h2>{{if .Events}}<table><thead><tr><th>Seq</th><th>Event</th><th>Revision</th><th>Writer</th><th>Time</th></tr></thead><tbody>{{range .Events}}<tr><td><code>{{.Seq}}</code></td><td>{{.Kind}}</td><td>{{.Revision}}</td><td>{{.WriterFamily}} {{.WriterName}}{{if .Consumer}}<br><small>consumer {{.Consumer}}</small>{{end}}</td><td>{{secs .At}}</td></tr>{{end}}</tbody></table>{{else}}<p class="empty">No events.</p>{{end}}
+<p><a href="/dashboard/work{{if $.Data.Lifecycle}}?lifecycle={{$.Data.Lifecycle}}{{end}}">All work items</a></p>{{end}}
+{{range $store := .Data.Stores}}{{if .Work}}<h2>{{.Repository}}</h2><table>
 <thead><tr>{{template "th" ($.Data.Sort.Column "work" "Work")}}{{template "th" ($.Data.Sort.Column "title" "Title")}}{{template "th" ($.Data.Sort.Column "lifecycle" "Lifecycle")}}{{template "th" ($.Data.Sort.Column "proposed" "Proposed")}}{{template "th" ($.Data.Sort.Column "owner" "Owner")}}{{template "th" ($.Data.Sort.Column "lease" "Lease")}}<th>Resources</th>{{template "th" ($.Data.Sort.Column "progress" "Progress")}}</tr></thead>
 <tbody>{{range .Work}}<tr>
 <td><code>{{.WorkID}}</code><br><small>revision {{.Revision}}</small></td>
-<td>{{.Title}}{{if .Checkpoint}}<br><small>{{.Checkpoint}}</small>{{end}}</td>
-<td>{{.Lifecycle}}</td>
+<td><a href="/dashboard/work?store={{$store.Repository}}&amp;item={{.WorkID}}{{if $.Data.Lifecycle}}&amp;lifecycle={{$.Data.Lifecycle}}{{end}}">{{.Title}}</a>{{if .Checkpoint}}<br><small>{{.Checkpoint}}</small>{{end}}</td>
+<td>{{.Lifecycle}}{{with .Outcome}}<br><small>{{.}}</small>{{end}}</td>
 <td>{{with .ProposedAssignee}}{{.}}{{else}}—{{end}}</td>
 <td>{{with .CurrentClaim}}{{.Consumer}}<br><small>generation {{.Generation}}</small>{{else}}—{{end}}{{if .CurrentClaim}}<form method="post" action="/dashboard/actions/release" class="inline"><input type="hidden" name="csrf" value="{{$.CSRF}}"><input type="hidden" name="repository" value="{{$store.Repository}}"><input type="hidden" name="work_id" value="{{.WorkID}}"><input type="hidden" name="revision" value="{{.Revision}}"><input type="hidden" name="generation" value="{{.CurrentClaim.Generation}}"><input type="hidden" name="consumer" value="{{.CurrentClaim.Consumer}}"><button type="submit">Release</button></form>{{end}}</td>
 <td>{{if .LeaseValid}}valid until {{secs .CurrentClaim.ExpiresAt}}{{else}}none{{end}}</td>
 <td>{{with .CurrentClaim}}{{range .Resources}}<div><small>{{index . 0}}</small> <code>{{index . 1}}</code></div>{{end}}{{else}}—{{end}}</td>
 <td>{{if .ProgressOverdue}}overdue{{else}}on time{{end}}{{if .ProgressUnverified}}<br><small>unverified: {{range $i, $r := .ProgressUnverifiedReasons}}{{if $i}}, {{end}}{{$r}}{{end}}</small>{{end}}<br><small>deadline {{secs .ProgressDeadline}}</small></td>
-</tr>{{end}}</tbody></table>{{end}}{{else}}<p class="empty">No memory stores.</p>{{end}}
+</tr>{{end}}</tbody></table>{{end}}{{else}}<p class="empty">No memory stores.</p>{{end}}{{if .Data.Stores}}{{if not (anyWork .Data.Stores)}}<p class="empty">No work item matches.</p>{{end}}{{end}}
 {{if .Data.Next}}<p><a href="{{.Data.Sort.Next .Data.Next}}">More stores</a></p>{{end}}{{end}}
+{{define "filter"}}<form method="get" action="/dashboard/work" class="filter"><label>Lifecycle <select name="lifecycle">{{$l := .Data.Lifecycle}}<option value=""{{if eq $l ""}} selected{{end}}>unfinished</option>{{range $v := list "open" "active" "blocked" "finished" "all"}}<option value="{{$v}}"{{if eq $l $v}} selected{{end}}>{{$v}}</option>{{end}}</select></label>{{with .Data.Open}}<input type="hidden" name="store" value="{{.Repository}}"><input type="hidden" name="item" value="{{.Item.WorkID}}">{{end}} <button type="submit">Show</button></form>{{end}}
+{{define "actions"}}{{if .Data.Repositories}}<details class="action"><summary>Create a work item</summary>
+<form method="post" action="/dashboard/actions/work-create"><input type="hidden" name="csrf" value="{{.CSRF}}"><input type="hidden" name="key" value="{{.Data.Key}}-create"><input type="hidden" name="deadline" value="{{.Data.Deadline}}">
+<label>Repository <select name="repository">{{range .Data.Repositories}}<option value="{{.}}">{{.}}</option>{{end}}</select></label>
+<label class="wide">Title <input name="title" maxlength="8192" required></label>
+<label class="wide">Criteria <textarea name="criteria" rows="4" required></textarea></label>
+<label class="wide">Non-goals <textarea name="non_goals" rows="3" required></textarea></label>
+<label>Proposed assignee <input name="proposed_assignee" maxlength="128" placeholder="optional"></label>
+<label class="wide">References <textarea name="references" rows="2" placeholder="one per line, optional"></textarea></label>
+<button type="submit">Create</button></form>
+<p><small>The item is created by maintainer. Agents read it as recorded data; a proposal is not an assignment until an agent starts it.</small></p></details>{{end}}{{end}}

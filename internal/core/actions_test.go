@@ -378,8 +378,14 @@ func TestDashboardActionsAtTheStorageCeiling(t *testing.T) {
 	}
 	client := newActionClient(t, d, root)
 	pages, _ := s.pages(ctx, s.db)
-	s.storage.maxPages = pages + reservePages + commitSlack + appendAllowance - 1
-	defer func() { s.storage.maxPages = defaultMaxPages }()
+	// The daemon's maintenance writes too, so the limit changes under the storage lock.
+	setMaxPages := func(n int64) {
+		s.storage.mu.Lock()
+		s.storage.maxPages = n
+		s.storage.mu.Unlock()
+	}
+	setMaxPages(pages + reservePages + commitSlack + appendAllowance - 1)
+	defer setMaxPages(defaultMaxPages)
 	// An ordinary action that cannot write is refused, changes nothing and has no record.
 	if got := client.do("send", url.Values{"to": {b.Name}, "body": {"no room"}}); got != "capacity" {
 		t.Fatalf("send at the ceiling: %s", got)

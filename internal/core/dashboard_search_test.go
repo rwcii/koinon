@@ -95,7 +95,11 @@ func TestDashboardSearchAndSuggestionPages(t *testing.T) {
 	repo := namedRepo(t, "suggest")
 	active := join(t, s, "codex", "synthetic-active", repo)
 	expired := join(t, s, "agy", "synthetic-expired", "")
-	if _, err := s.db.ExecContext(ctx, `UPDATE sessions SET expires_at=1 WHERE family=? AND id=?`, expired.Family, expired.ID); err != nil {
+	// A recent expiry: retention deletes sessions that expired more than 30 days ago.
+	if _, err := s.db.ExecContext(ctx, `UPDATE sessions SET expires_at=? WHERE family=? AND id=?`, s.now().UnixMilli()-1000, expired.Family, expired.ID); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.Cull(ctx); err != nil {
 		t.Fatal(err)
 	}
 	cookie := dashboardLogin(t, d, secret)

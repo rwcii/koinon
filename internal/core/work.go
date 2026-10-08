@@ -921,30 +921,8 @@ func (s *Store) workMutation(ctx context.Context, m MemoryCaller, r *workRequest
 		}
 	}
 	if r.op == "work-start" {
-		// The target's inactive bundle is reclaimed under ordinary admission first; a
-		// start never overwrites it to avoid paying for the deletion.
-		store, err := storeOf(ctx, s.db, m.Repository)
-		if err != nil {
+		if err := s.reclaimInactive(ctx, m.Repository, workID); err != nil {
 			return nil, err
-		}
-		held, err := bundleFor(ctx, s.db, store, workID)
-		if err != nil {
-			return nil, err
-		}
-		if held != nil && !held.Active {
-			if err := s.workWrite(ctx, m.Repository, ordinary, func(tx *writeTx, store string) error {
-				held, err := bundleFor(ctx, tx, store, workID)
-				if err != nil || held == nil || held.Active {
-					return err
-				}
-				if _, err := tx.ExecContext(ctx, `DELETE FROM claim_resources WHERE store=? AND generation=?`, store, held.Generation); err != nil {
-					return err
-				}
-				_, err = tx.ExecContext(ctx, `DELETE FROM claim_bundles WHERE store=? AND generation=? AND active=0`, store, held.Generation)
-				return err
-			}); err != nil {
-				return nil, err
-			}
 		}
 	}
 	class := ordinary
@@ -960,6 +938,30 @@ func (s *Store) workMutation(ctx context.Context, m MemoryCaller, r *workRequest
 		return err
 	})
 	return result, err
+}
+
+// reclaimInactive deletes the target's inactive bundle under ordinary admission before a
+// start; a start never overwrites it to avoid paying for the deletion.
+func (s *Store) reclaimInactive(ctx context.Context, repo, workID string) error {
+	store, err := storeOf(ctx, s.db, repo)
+	if err != nil {
+		return err
+	}
+	held, err := bundleFor(ctx, s.db, store, workID)
+	if err != nil || held == nil || held.Active {
+		return err
+	}
+	return s.workWrite(ctx, repo, ordinary, func(tx *writeTx, store string) error {
+		held, err := bundleFor(ctx, tx, store, workID)
+		if err != nil || held == nil || held.Active {
+			return err
+		}
+		if _, err := tx.ExecContext(ctx, `DELETE FROM claim_resources WHERE store=? AND generation=?`, store, held.Generation); err != nil {
+			return err
+		}
+		_, err = tx.ExecContext(ctx, `DELETE FROM claim_bundles WHERE store=? AND generation=? AND active=0`, store, held.Generation)
+		return err
+	})
 }
 
 // apply runs a validated mutation inside its transaction.
