@@ -14,7 +14,7 @@ import (
 func TestLaunchBindingAndRestart(t *testing.T) {
 	s, root := testStore(t)
 	directory := testRepo(t)
-	for _, family := range []string{"codex", "agy", "opencode"} {
+	for _, family := range []string{"claude", "codex", "agy", "opencode"} {
 		target := LaunchTarget{Family: family, Directory: directory, CLI: "/synthetic/cli", HostPID: 123}
 		if family == "opencode" {
 			target.Address = "127.0.0.1:12345"
@@ -49,7 +49,10 @@ func TestLaunchBindingAndRestart(t *testing.T) {
 		if _, err := s.Register(context.Background(), r); err != nil {
 			t.Fatal(err)
 		}
-		r.Family = "claude"
+		r.Family = "agy"
+		if family == "agy" {
+			r.Family = "codex"
+		}
 		if _, err := s.Register(context.Background(), r); !errors.Is(err, ErrInvalid) {
 			t.Fatal("wrong launch family accepted")
 		}

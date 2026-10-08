@@ -46,6 +46,8 @@ type report struct {
 	Directory     string
 	Args          []string
 	ClaudeNames   []string
+	Nested        bool
+	ConfigDir     *string
 	Host          string
 	LaunchID      string
 	Session       core.Session
@@ -79,7 +81,12 @@ func TestFakeCLI(t *testing.T) {
 	if err != nil {
 		os.Exit(11)
 	}
-	r := report{PID: os.Getpid(), Directory: directory, Args: args, Host: os.Getenv("KOINON_CODEX_HOST"), LaunchID: os.Getenv("KOINON_LAUNCH_ID")}
+	_, nested := os.LookupEnv("CLAUDECODE")
+	var config *string
+	if value, ok := os.LookupEnv("CLAUDE_CONFIG_DIR"); ok {
+		config = &value
+	}
+	r := report{PID: os.Getpid(), Directory: directory, Args: args, Host: os.Getenv("KOINON_CODEX_HOST"), LaunchID: os.Getenv("KOINON_LAUNCH_ID"), Nested: nested, ConfigDir: config}
 	for _, entry := range os.Environ() {
 		name, _, _ := strings.Cut(entry, "=")
 		if strings.HasPrefix(name, "CLAUDE_") {
@@ -184,6 +191,8 @@ func fixture(t *testing.T) (string, string, string, string) {
 	t.Setenv("CLAUDE_CODE_SESSION_ID", "synthetic-stale-caller")
 	t.Setenv("CLAUDE_CODE_MESSAGING_TOKEN", "synthetic-token")
 	t.Setenv("CLAUDE_OTHER_TEST", "synthetic-other")
+	t.Setenv("CLAUDE_CONFIG_DIR", filepath.Join(root, "claude-config"))
+	t.Setenv("CLAUDECODE", "1")
 	t.Setenv("KOINON_LAUNCH_ID", "synthetic-stale-launch")
 	return root, d.Addresses()[0], cli, directory
 }
@@ -212,7 +221,13 @@ func checkReport(t *testing.T, r report, family, directory string) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if r.Directory != canonical || len(r.ClaudeNames) != 0 || len(r.LaunchID) != 64 || r.Session.ID != "synthetic-"+family {
+	// Only a started Claude keeps its user's configuration directory; no agent inherits
+	// another Claude session's variables or nesting marker.
+	kept := len(r.ClaudeNames) == 0
+	if family == "claude" {
+		kept = len(r.ClaudeNames) == 1 && r.ClaudeNames[0] == "CLAUDE_CONFIG_DIR"
+	}
+	if r.Directory != canonical || !kept || r.Nested || len(r.LaunchID) != 64 || r.Session.ID != "synthetic-"+family {
 		t.Fatalf("invalid launch association or environment: %+v", r)
 	}
 	var target core.LaunchTarget
@@ -247,7 +262,7 @@ func arguments(root, address, cli, directory, family, result string) []string {
 }
 
 func TestCurrentTerminalAndNoTmux(t *testing.T) {
-	for _, family := range []string{"codex", "agy", "opencode"} {
+	for _, family := range []string{"claude", "codex", "agy", "opencode"} {
 		for _, inside := range []bool{true, false} {
 			t.Run(fmt.Sprintf("%s-inside-%v", family, inside), func(t *testing.T) {
 				root, address, cli, directory := fixture(t)
@@ -280,7 +295,7 @@ func TestPrivateTmuxDetachedAndOutside(t *testing.T) {
 		}
 		t.Skip("tmux not installed")
 	}
-	for _, family := range []string{"codex", "agy", "opencode"} {
+	for _, family := range []string{"claude", "codex", "agy", "opencode"} {
 		for _, detached := range []bool{true, false} {
 			t.Run(fmt.Sprintf("%s-detached-%v", family, detached), func(t *testing.T) {
 				root, address, cli, directory := fixture(t)
@@ -413,3 +428,67 @@ func TestConfiguredPathAndFailures(t *testing.T) {
 		t.Fatal("unsafe launch succeeded")
 	}
 }
+
+// An existing tmux server has its own environment: a started Claude gets the caller's
+// CLAUDE_CONFIG_DIR, exactly, or none when the caller has none (#242 review).
+func TestTmuxCarriesClaudeConfiguration(t *testing.T) {
+	realTmux, err := exec.LookPath("tmux")
+	if err != nil {
+		if os.Getenv("CI") != "" {
+			t.Fatal("tmux required in CI")
+		}
+		t.Skip("tmux not installed")
+	}
+	for _, caller := range []*string{ptr("/synthetic/caller config $(touch x) 'q'"), nil} {
+		t.Run(fmt.Sprintf("caller-set-%v", caller != nil), func(t *testing.T) {
+			root, address, cli, directory := fixture(t)
+			socketDir, err := os.MkdirTemp("", "kl-tmux-")
+			if err != nil {
+				t.Fatal(err)
+			}
+			socket := filepath.Join(socketDir, "s")
+			t.Cleanup(func() { exec.Command(realTmux, "-S", socket, "kill-server").Run(); os.RemoveAll(socketDir) })
+			// The server starts with another configuration directory than the caller's.
+			server := exec.Command(realTmux, "-S", socket, "-f", "/dev/null", "new-session", "-d", "-s", "guard", "sleep 60")
+			server.Env = append(os.Environ(), "CLAUDE_CONFIG_DIR=/synthetic/server-config")
+			if out, err := server.CombinedOutput(); err != nil {
+				t.Fatalf("private tmux: %v %s", err, out)
+			}
+			wrapperDir := filepath.Join(root, "tools")
+			os.Mkdir(wrapperDir, 0700)
+			wrapper := "#!/bin/sh\nexec " + quote(realTmux) + " -S " + quote(socket) + " -f /dev/null \"$@\"\n"
+			os.WriteFile(filepath.Join(wrapperDir, "tmux"), []byte(wrapper), 0700)
+			t.Setenv("PATH", wrapperDir)
+			t.Setenv("TMUX", socket+",1,0")
+			if caller != nil {
+				t.Setenv("CLAUDE_CONFIG_DIR", *caller)
+			} else {
+				os.Unsetenv("CLAUDE_CONFIG_DIR")
+			}
+			result := filepath.Join(root, "result.json")
+			args := arguments(root, address, cli, directory, "claude", result)
+			args = append(args[:9], append([]string{"--tmux-session", "carried"}, args[9:]...)...)
+			if out, err := exec.Command(launcherBinary, args...).CombinedOutput(); err != nil {
+				t.Fatalf("tmux launch: %v %s", err, out)
+			}
+			r := readReport(t, result)
+			switch {
+			case caller == nil && r.ConfigDir != nil:
+				t.Fatalf("the server's configuration reached Claude: %q", *r.ConfigDir)
+			case caller != nil && (r.ConfigDir == nil || *r.ConfigDir != *caller):
+				got := "none"
+				if r.ConfigDir != nil {
+					got = *r.ConfigDir
+				}
+				t.Fatalf("Claude did not get the caller's configuration: %q", got)
+			}
+			for _, name := range r.ClaudeNames {
+				if name != "CLAUDE_CONFIG_DIR" {
+					t.Fatalf("Claude variable %s reached Claude", name)
+				}
+			}
+		})
+	}
+}
+
+func ptr(value string) *string { return &value }

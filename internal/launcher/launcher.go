@@ -22,6 +22,11 @@ import (
 	"github.com/rwcii/koinon/internal/platform"
 )
 
+// Families are the agent families that the launcher starts. A started Claude session
+// registers through its own MCP server with its Claude Code session ID, as one started by
+// hand does; its launch record documents the start.
+var Families = map[string]bool{"claude": true, "codex": true, "agy": true, "opencode": true}
+
 type Options struct {
 	Family    string
 	StateDir  string
@@ -211,14 +216,37 @@ func git(dir string, args ...string) (string, error) {
 	return string(out), err
 }
 
-func cleanEnvironment(env []string) []string {
+// carriedConfig carries the caller's CLAUDE_CONFIG_DIR into a new tmux pane, whose
+// environment otherwise comes from the tmux server; an empty value means the caller had none.
+const carriedConfig = "KOINON_CLAUDE_CONFIG_DIR"
+
+// cleanEnvironment drops the variables that would tie the started agent to another session:
+// Claude Code's session variables and nesting marker, Koinon's launch variables and the
+// OpenCode credential. A started Claude keeps CLAUDE_CONFIG_DIR, its user's configuration;
+// in a pane that the launcher created, the carried value of the caller replaces the server's.
+func cleanEnvironment(env []string, family string) []string {
 	result := []string{}
+	carried, isCarried := "", false
+	for _, entry := range env {
+		if value, ok := strings.CutPrefix(entry, carriedConfig+"="); ok {
+			carried, isCarried = value, true
+		}
+	}
 	for _, entry := range env {
 		key, _, _ := strings.Cut(entry, "=")
-		if strings.HasPrefix(key, "CLAUDE_") || strings.HasPrefix(key, "KOINON_") || key == "OPENCODE_SERVER_PASSWORD" || key == "OPENCODE_SERVER_USERNAME" {
+		if family == "claude" && key == "CLAUDE_CONFIG_DIR" {
+			if !isCarried {
+				result = append(result, entry)
+			}
+			continue
+		}
+		if strings.HasPrefix(key, "CLAUDE_") || key == "CLAUDECODE" || strings.HasPrefix(key, "KOINON_") || key == "OPENCODE_SERVER_PASSWORD" || key == "OPENCODE_SERVER_USERNAME" {
 			continue
 		}
 		result = append(result, entry)
+	}
+	if family == "claude" && carried != "" {
+		result = append(result, "CLAUDE_CONFIG_DIR="+carried)
 	}
 	return result
 }
@@ -294,8 +322,13 @@ func startTmux(ctx context.Context, tmux, cli, directory string, o Options, out 
 	for i, value := range args {
 		quoted[i] = quote(value)
 	}
-	cmd := exec.CommandContext(ctx, tmux, tmuxArgs(socket, "new-session", "-d", "-P", "-F", "#{session_id}\t#{pane_id}", "-s", name, "-c", directory, "exec "+strings.Join(quoted, " "))...)
-	cmd.Env = cleanEnvironment(os.Environ())
+	session := []string{"new-session", "-d", "-P", "-F", "#{session_id}\t#{pane_id}", "-s", name, "-c", directory}
+	if o.Family == "claude" {
+		// tmux sets it in the new session only, as one literal argument, never through a shell.
+		session = append(session, "-e", carriedConfig+"="+os.Getenv("CLAUDE_CONFIG_DIR"))
+	}
+	cmd := exec.CommandContext(ctx, tmux, tmuxArgs(socket, append(session, "exec "+strings.Join(quoted, " "))...)...)
+	cmd.Env = cleanEnvironment(os.Environ(), o.Family)
 	data, err := cmd.Output()
 	if err != nil {
 		return errors.New("tmux did not create a new session; name may be taken or server unavailable")
@@ -307,7 +340,7 @@ func startTmux(ctx context.Context, tmux, cli, directory string, o Options, out 
 	if o.Session != "" {
 		return json.NewEncoder(out).Encode(map[string]any{"ok": true, "session": name, "session_id": fields[0], "pane_id": fields[1], "socket": socket})
 	}
-	return platform.Exec(tmux, append([]string{tmux}, tmuxArgs(socket, "attach-session", "-t", fields[0])...), cleanEnvironment(os.Environ()))
+	return platform.Exec(tmux, append([]string{tmux}, tmuxArgs(socket, "attach-session", "-t", fields[0])...), cleanEnvironment(os.Environ(), o.Family))
 }
 
 func validateOpenCodeArgs(args []string) error {
@@ -344,7 +377,7 @@ func openCodeTarget(args []string) (string, string, error) {
 }
 
 func Run(ctx context.Context, o Options, out io.Writer) error {
-	if o.Family != "codex" && o.Family != "agy" && o.Family != "opencode" {
+	if !Families[o.Family] {
 		return errors.New("unsupported launcher family")
 	}
 	directory, err := CheckDirectory(o.Directory)
@@ -382,7 +415,7 @@ func Run(ctx context.Context, o Options, out io.Writer) error {
 	}
 	target := core.LaunchTarget{Family: o.Family, Directory: directory, CLI: cli, HostPID: os.Getpid()}
 	args := append([]string{cli}, o.Args...)
-	env := cleanEnvironment(os.Environ())
+	env := cleanEnvironment(os.Environ(), o.Family)
 	if o.Family == "opencode" {
 		target.Address, target.Password, err = openCodeTarget(o.Args)
 		if err != nil {

@@ -156,7 +156,7 @@ func Run(ctx context.Context, o Options) (Report, error) {
 	case "opencode":
 		err = openCodePlugin(o, &report)
 	}
-	if err == nil && o.Family != "claude" {
+	if err == nil {
 		var changed bool
 		changed, err = launcher.RecordCLI(ctx, o.StateDir, o.Family, cli)
 		if err != nil {
