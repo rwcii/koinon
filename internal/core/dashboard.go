@@ -56,6 +56,16 @@ func dashboardTemplates() (map[string]*template.Template, error) {
 			}
 			return time.Unix(0, int64(f*1e9)).UTC().Format("2006-01-02 15:04:05Z")
 		},
+		"list": func(values ...string) []string { return values },
+		// anyWork reports whether a page of stores lists at least one work item.
+		"anyWork": func(stores []StoreSummary) bool {
+			for _, s := range stores {
+				if len(s.Work) > 0 {
+					return true
+				}
+			}
+			return false
+		},
 		"pct": func(used, limit int64) string {
 			if limit <= 0 {
 				return "—"
@@ -323,12 +333,33 @@ func (d *Daemon) dashboardData(r *http.Request, view string) (any, error) {
 		// Stores page by repository; the sort orders the work rows in each store.
 		after := q.Get("after")
 		q.Del("after")
-		order, err := parseSort(&workSort, path, q)
+		// Sort links keep the lifecycle filter and the open item.
+		order, err := parseSort(&workSort, path, q, "lifecycle", "store", "item")
 		if err != nil {
 			return nil, err
 		}
-		stores, next, err := d.store.dashboardWork(ctx, after, order)
-		return storesData{Stores: stores, Sort: order, Next: next}, err
+		lifecycle := q.Get("lifecycle")
+		if !workLifecycles[lifecycle] {
+			return nil, ErrInvalid
+		}
+		stores, next, err := d.store.dashboardWork(ctx, after, lifecycle, order)
+		if err != nil {
+			return nil, err
+		}
+		data := workData{storesData: storesData{Stores: stores, Sort: order, Next: next}, Lifecycle: lifecycle}
+		if data.Open, err = d.openItem(ctx, q); err != nil {
+			return nil, err
+		}
+		if data.Key, err = formKey(); err != nil {
+			return nil, err
+		}
+		// The deadline leaves a minute of the idempotency horizon for the submission.
+		data.Deadline = int64(d.store.clock() + d.store.limits().idemTTL - 60)
+		all, err := d.store.storeList(ctx, "", -1)
+		for _, item := range all {
+			data.Repositories = append(data.Repositories, item.Repository)
+		}
+		return data, err
 	default:
 		counts, err := d.store.Counts(ctx)
 		if err != nil {

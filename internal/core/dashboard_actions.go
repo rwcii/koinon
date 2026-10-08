@@ -66,6 +66,14 @@ var noticeText = map[string]string{
 	"invalid_transition":        "Refused: the work item is not in a state that can be released.",
 	"work_not_found":            "Refused: the work item is gone.",
 	"storage_error":             "Refused: the daemon could not complete the action.",
+	"work_created":              "The work item was created as maintainer.",
+	"work_proposed":             "The proposed assignee was recorded.",
+	"work_edited":               "The scope was edited; the earlier revision stays in the history.",
+	"work_finished":             "The work item was finished.",
+	"work_claimed":              "Refused: the item has a live claim. Release the claim first, then edit.",
+	"store_not_found":           "Refused: no memory store has that repository.",
+	"idempotency_conflict":      "Refused: that form was already submitted with other content. Reload and try again.",
+	"retry_deadline_expired":    "Refused: the form is too old. Reload and try again.",
 }
 
 var noticeCode = regexp.MustCompile(`^[a-z_]{1,40}$`)
@@ -244,6 +252,8 @@ func (d *Daemon) dashboardActions(mux *http.ServeMux, authed func(int64, func(ht
 			return err
 		}, "sent", nil)
 	}))
+
+	d.workActions(mux, authed, run)
 
 	mux.HandleFunc("POST /dashboard/actions/launch", authed(actionFormLimit, func(w http.ResponseWriter, r *http.Request, _ string) {
 		family, directory, name := r.PostForm.Get("family"), r.PostForm.Get("directory"), r.PostForm.Get("name")

@@ -5,6 +5,11 @@ into a dated release section when promoted to `main`.
 
 ## Unreleased
 
+- The dashboard's work view can show finished items and filter by lifecycle, and opens one
+  item with its scope, progress, references and history. The maintainer can create an item,
+  propose or clear an assignee, edit the scope of an item without a live claim and finish an
+  item as completed or withdrawn. Each change is audited and recorded as `maintainer`, with the
+  same revision checks and refusals as an agent's request.
 - The daemon deletes old records in its maintenance sweep. Acknowledged messages go 30 to 60
   days after their acknowledgement, and expired or retired sessions, with their peer names,
   30 days after their activity ended, unless they still hold unacknowledged messages or a
