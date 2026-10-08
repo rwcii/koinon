@@ -15,10 +15,14 @@ gh api --method PATCH "repos/$repo" \
   -f merge_commit_title=PR_TITLE -f merge_commit_message=PR_BODY >/dev/null
 
 # Update our named rulesets in place; never delete another rule or weaken protection
-# temporarily. Required checks match the Go and native lifecycle matrices.
+# temporarily. Required checks match the Go and native lifecycle matrices. develop requires
+# branches to be up to date. main does not: it receives only merge commits of develop heads
+# that passed the required checks, and its earlier merge commits never reach develop, so an
+# up-to-date rule would hold every release as behind.
 for branch in develop main; do
   method=squash
-  if [[ "$branch" == main ]]; then method=merge; fi
+  strict=true
+  if [[ "$branch" == main ]]; then method=merge; strict=false; fi
   payload="$(cat <<JSON
 {
   "name": "$branch branch policy", "target": "branch", "enforcement": "active",
@@ -30,7 +34,7 @@ for branch in develop main; do
       "require_last_push_approval": false, "required_review_thread_resolution": true,
       "allowed_merge_methods": ["$method"]}},
     {"type": "required_status_checks", "parameters": {
-      "strict_required_status_checks_policy": true,
+      "strict_required_status_checks_policy": $strict,
       "required_status_checks": [
         {"context": "go (ubuntu-latest)"}, {"context": "go (macos-latest)"},
         {"context": "go-lifecycle (ubuntu-latest, systemd)"},

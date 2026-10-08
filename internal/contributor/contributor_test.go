@@ -283,8 +283,9 @@ esac
 			for _, check := range rule.Parameters.Checks {
 				checks[check.Context] = true
 			}
-			if rule.Type == "required_status_checks" && !rule.Parameters.Strict {
-				t.Error("required checks are not strict")
+			// develop must be up to date; main takes merge commits of tested develop heads.
+			if rule.Type == "required_status_checks" && rule.Parameters.Strict != (branch == "develop") {
+				t.Errorf("%s: strict required checks = %v", branch, rule.Parameters.Strict)
 			}
 			if rule.Type == "pull_request" {
 				method := "squash"
