@@ -74,13 +74,16 @@ target is free and the branch is current:
    was never pushed or reviewed may rebase onto `origin/develop` instead. Never rewrite a pushed
    branch: its reviewed commits must stay reachable.
 3. **Check.** Run the `check` skill on the resulting head.
-4. **Publish.** Run the `gh pr list` of item 1 again just before you push, then push and open
-   the pull request against `develop`. When a race still leaves two pull requests open, the one
-   opened later waits: its author asks for no review until the other merges, then repeats items
-   2 and 3 and pushes once.
+4. **Agree the order.** Before a new pull request, when another agent holds an active work
+   claim in this repository (`mem work list`, step 1), agree with it
+   through Koinon which of you opens next. A fix to your own open pull request needs no slot.
+5. **Publish.** Run the `gh pr list` of item 1 again just before you push, then push and open
+   the pull request against `develop`. When a race still leaves two pull requests open, the
+   author of the one opened later closes it at once, and reopens and updates it (items 2 and 3)
+   after the other merges or closes.
 
-Say in the pull request body what changed, why, and which checks ran on which commit. Name the issues it delivers;
-`develop` is not the default branch, so `Closes #N` does not close them.
+Say in the pull request body what changed, why, and which checks ran on which commit. Name the
+issues it delivers; `develop` is not the default branch, so `Closes #N` does not close them.
 
 ## 3. Review
 
