@@ -55,7 +55,8 @@ var guideFamily = map[string]string{
 ## Claude
 Use the Koinon tools for every agent message, also to another Claude session; do not use
 Claude Code's own cross-session messages for coordination. Koinon knows this session by its
-Claude Code session ID. Run koinon setup claude once to add the server.
+Claude Code session ID. Run koinon setup claude once to add the server. koinon claude, or
+the dashboard's start action, starts a new Claude Code session with the CLI that setup recorded.
 `,
 	"codex": `
 ## Codex

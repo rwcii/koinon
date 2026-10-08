@@ -17,7 +17,7 @@
 {{if .Data.Next}}<p><a href="{{.Data.Sort.Next .Data.Next}}">More sessions</a></p>{{end}}{{end}}
 {{define "actions"}}<details class="action"><summary>Start a session</summary>
 <form method="post" action="/dashboard/actions/launch"><input type="hidden" name="csrf" value="{{.CSRF}}">
-<label>Agent <select name="family"><option value="codex">Codex</option><option value="agy">Antigravity</option><option value="opencode">OpenCode</option></select></label>
+<label>Agent <select name="family"><option value="claude">Claude Code</option><option value="codex">Codex</option><option value="agy">Antigravity</option><option value="opencode">OpenCode</option></select></label>
 <label>Start directory <input name="directory" required maxlength="4096" placeholder="/absolute/path"></label>
 <label>tmux session <input name="name" maxlength="80" pattern="[A-Za-z0-9_-]{1,80}" placeholder="optional"></label>
 <button type="submit">Start</button></form>

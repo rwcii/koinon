@@ -16,7 +16,7 @@ import (
 // RecordCLI records the resolved CLI during setup. Cooperating writers hold one private
 // lock, preserve other entries and replace the file atomically. Launches only read it.
 func RecordCLI(ctx context.Context, stateDir, family, cli string) (bool, error) {
-	if family != "codex" && family != "agy" && family != "opencode" {
+	if !Families[family] {
 		return false, errors.New("unsupported launcher family")
 	}
 	cli, err := ConfiguredCLI(stateDir, family, cli)
