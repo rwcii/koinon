@@ -39,7 +39,17 @@ maintainer's sessions, Codex or Claude configuration, or services.
   key, through MCP, HTTP and the command line, and as a keyed retry of a request first made before
   the change. A fenced session that registers again gets only its peer name. The change of
   holder and the retirement of the former holder commit in one transaction; an injected failure
-  after the first write leaves both unchanged.
+  after the first write leaves both unchanged. The fence persists: after a daemon restart, after
+  repeated registration of the fenced session, and after the successor expires, the fenced
+  session is not a qualifier and does not become the holder; a delayed call of the fenced session
+  inside the 30-second guard is refused; only same-host succession (a `/resume` back) or the
+  maintainer's choice makes it the holder again, and either removes the fence.
+- **Checkout roles (#83) with participants.** Before and after a succession: checkout status
+  shows the current holder's exact peer for a `participant:<address>` writer; another agent's
+  request reaches that holder and never the fenced former holder; the holder's own request is
+  refused as a self-request; a `work_release` handoff followed by the requester's `work_start`
+  creates a new generation. A custom consumer that is not a participant key stays
+  `writer_unaddressable`.
 - **Succession (criterion 3).** Accept: same host process with a new native session ID; same
   tmux server and pane with the former host process ended. Refuse and report: same host process
   with a sub-agent thread; same host process while the former holder made a tool call in the last

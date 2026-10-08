@@ -37,12 +37,25 @@ Criteria 4, 5 and 10 of `decision.md`. Depends on chunk 02.
    returns a stored result.
 5. **Holder change.** Every change of holder (chunk 02's rules, the maintainer's choice, chunk
    04's succession) retires the former holder in the same transaction, when it is still active.
-   A retired session that registers again is active again with its own peer name, but it is not
-   the holder; only chunk 02's rules or chunk 04's succession can make it the holder again.
+   The change also records a **fence**: a persistent row (participant, fenced native session,
+   time, reason) that survives daemon restarts and repeated registration. A retired session that
+   registers again is active again with its own peer name, but it is not the holder, and a fenced
+   session never counts as a qualifier in chunk 02's rules. Only two things lift a fence and make
+   the session the holder again: verified same-host succession of chunk 04 (a `/resume` back to
+   that thread, as the maintainer decided on 2026-09-24), or the maintainer's dashboard choice.
+   Both remove the fence row in the holder-change transaction.
 6. **Provenance.** `work_events`, the participant inbox acknowledgement and the participant's
    memory cursor record the native session (`FAMILY:ID`) that made each change, next to the
    participant key.
-7. **Upgrade.** Messages, claims and cursors that exist before the upgrade keep their current
+7. **Checkout roles (#83).** A writer whose claim consumer is `participant:<address>` is
+   addressable: `CheckoutStatus` resolves a participant consumer of the same repository to its
+   current holder's peer name, and to no peer when the participant has no active holder (never a
+   guess for any other custom consumer). `RequestCheckout` refuses a request from the current
+   holder of that participant as a self-request, and re-reads the holder inside the send
+   transaction, so a request never reaches a fenced former holder. A handoff by `work_release`
+   with `handoff_to` from the holder works as before; the requester's `work_start` creates a new
+   generation.
+8. **Upgrade.** Messages, claims and cursors that exist before the upgrade keep their current
    owners, as `decision.md` requires: a session's existing inbox, its `FAMILY:ID` claims and its
    peer-name cursor stay its own. Participant ownership applies to what is written after the
    upgrade. The upgrade note in `CHANGELOG.md` says so.
@@ -52,7 +65,7 @@ Criteria 4, 5 and 10 of `decision.md`. Depends on chunk 02.
 - The tests of `definition-of-done.md`, "Participant state" and "Fencing", for every path in
   item 4, including MCP, HTTP and the command line, a keyed retry made before a holder change, a
   custom consumer, re-registration of a fenced session and the injected failure inside the holder
-  change.
+  change; the persistent fence tests; and the "Checkout roles (#83) with participants" tests.
 - `PROTOCOL.md` (participant inbox, `inbox` and `ack` fields, `stale_holder`, sender name),
   `docs/USAGE.md`, `docs/WORK-ITEMS-POLICY.md` (participant claims replace the successor waiting
   rule), the installed `koinon guide` text, `CHANGELOG.md`.

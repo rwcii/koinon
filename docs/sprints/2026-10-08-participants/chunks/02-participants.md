@@ -34,7 +34,8 @@ Criteria 1, 2, 9 and 10 of `decision.md`, and the upgrade constraint.
    - When the participant's holder is this session, nothing changes.
    - When another active session holds it, nothing changes (chunk 04 adds succession).
    - When it has no active holder, count the active, non-retired, non-sub-agent sessions of the
-     same family, repository and role. When this session is the only one, it becomes the holder.
+     same family, repository and role that the participant has not fenced (chunk 03 adds the
+     fence; until then none is fenced). When this session is the only one, it becomes the holder.
      Otherwise the holder stays empty and the participant records `conflict` with the qualifying
      peer names.
    - A participant event records every change.
