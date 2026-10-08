@@ -74,13 +74,18 @@ target is free and the branch is current:
    was never pushed or reviewed may rebase onto `origin/develop` instead. Never rewrite a pushed
    branch: its reviewed commits must stay reachable.
 3. **Check.** Run the `check` skill on the resulting head.
-4. **Agree the order.** Before a new pull request, when another agent holds an active work
-   claim in this repository (`mem work list`, step 1), agree with it
-   through Koinon which of you opens next. A fix to your own open pull request needs no slot.
-5. **Publish.** Run the `gh pr list` of item 1 again just before you push, then push and open
-   the pull request against `develop`. When a race still leaves two pull requests open, the
-   author of the one opened later closes it at once, and reopens and updates it (items 2 and 3)
-   after the other merges or closes.
+4. **Take the turn.** Before a new pull request, send each other active session of this
+   repository (the Koinon `peers` list) one line through Koinon: you are about to open a pull
+   request against `develop`. This does not depend on a work claim. When a peer announced a
+   pull request first and has not yet opened it or given up the turn, wait for it. A fix to your
+   own open pull request needs no turn.
+5. **Publish.** Just before you push, run `git fetch origin`, the `gh pr list` of item 1 and
+   `git merge-base --is-ancestor origin/develop HEAD`. When `develop` moved, repeat items 2 and 3
+   first. Then push and open the pull request against `develop`.
+6. **Lose a race.** When two pull requests are still open, the author of the one opened later
+   closes it at once and keeps it closed while it repeats items 2 and 3 and pushes the updated
+   head. It reopens the pull request only after the other one merges or closes and item 5
+   passes, so that no CI runs on a stale head.
 
 Say in the pull request body what changed, why, and which checks ran on which commit. Name the
 issues it delivers; `develop` is not the default branch, so `Closes #N` does not close them.
@@ -88,7 +93,9 @@ issues it delivers; `develop` is not the default branch, so `Closes #N` does not
 ## 3. Review
 
 Freeze the head commit and ask the other agent family to review it with the `peer-review` skill.
-Freeze only a head that contains the latest `origin/develop`; the `check` skill tests this.
+Freeze only a head that contains the latest `origin/develop`: run `git fetch origin` and
+`git merge-base --is-ancestor origin/develop HEAD` just before you freeze it, and when
+`develop` moved, update the branch (step 2, items 2 and 3) first.
 One account holds both agents, so the sign-off is a pull request comment that names the head
 commit, not a formal approval. A new commit needs a new sign-off.
 

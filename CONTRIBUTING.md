@@ -51,6 +51,9 @@ git commit -S -s -m "Add a concise description"
 gh pr list --base develop --state open   # wait until it lists none
 git fetch origin && git merge --no-edit origin/develop
 go test -race ./...
+# Just before the push: develop has not moved and no pull request opened meanwhile.
+git fetch origin && git merge-base --is-ancestor origin/develop HEAD
+gh pr list --base develop --state open
 git push -u origin feature/my-change
 gh pr create --base develop
 ```
