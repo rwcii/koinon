@@ -306,3 +306,57 @@ esac
 		}
 	}
 }
+
+// TestHomebrewFormula renders the tap formula from synthetic checksums, as the release
+// workflow does on a tag, and checks the refusals that keep a broken formula out of the tap.
+func TestHomebrewFormula(t *testing.T) {
+	bash, err := exec.LookPath("bash")
+	if err != nil {
+		t.Fatal(err)
+	}
+	script := filepath.Join(root(t), "scripts/homebrew-formula.sh")
+	dir := t.TempDir()
+	targets := []string{"koinon-darwin-arm64", "koinon-darwin-amd64", "koinon-linux-arm64", "koinon-linux-amd64"}
+	var sums strings.Builder
+	for i, name := range targets {
+		sums.WriteString(strings.Repeat(string(rune('a'+i)), 64) + "  " + name + "\n")
+	}
+	full := filepath.Join(dir, "SHA256SUMS")
+	os.WriteFile(full, []byte(sums.String()), 0600)
+	out, err := exec.Command(bash, script, "v1.2.3", full).CombinedOutput()
+	if err != nil {
+		t.Fatalf("render: %v %s", err, out)
+	}
+	formula := string(out)
+	for i, name := range targets {
+		for _, want := range []string{
+			`url "https://github.com/rwcii/koinon/releases/download/v1.2.3/` + name + `"`,
+			`sha256 "` + strings.Repeat(string(rune('a'+i)), 64) + `"`,
+		} {
+			if !strings.Contains(formula, want) {
+				t.Errorf("formula lacks %s", want)
+			}
+		}
+	}
+	for _, want := range []string{`version "1.2.3"`, `license "MIT"`, `=> "koinon"`, "koinon install", `#{bin}/koinon version`} {
+		if !strings.Contains(formula, want) {
+			t.Errorf("formula lacks %s", want)
+		}
+	}
+	if strings.Contains(formula, "service do") {
+		t.Error("the formula must not define a brew service; koinon install manages the service")
+	}
+	partial := filepath.Join(dir, "partial")
+	os.WriteFile(partial, []byte(strings.SplitAfter(sums.String(), "\n")[0]), 0600)
+	for _, args := range [][]string{{"1.2.3", full}, {"v1.2", full}, {"v1.2.3", partial}} {
+		if out, err := exec.Command(bash, script, args[0], args[1]).CombinedOutput(); err == nil {
+			t.Errorf("%v accepted: %s", args, out)
+		}
+	}
+	workflow := read(t, ".github/workflows/release.yml")
+	for _, want := range []string{"homebrew:", "needs: publish", "scripts/homebrew-formula.sh \"$GITHUB_REF_NAME\" dist/SHA256SUMS", "secrets.HOMEBREW_TAP_DEPLOY_KEY", "rwcii/homebrew-koinon"} {
+		if !strings.Contains(workflow, want) {
+			t.Errorf("release workflow lacks %s", want)
+		}
+	}
+}
