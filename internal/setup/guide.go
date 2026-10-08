@@ -14,6 +14,9 @@ also to another session of your own family.
 
 ## Tools
 - peers: list sessions with their peer name, alias, family, state and repository.
+- peer_status: read observed model, context and busy/idle/waiting activity by peer name or
+  held alias. Active means registered, not busy. Unknown values explain why; source time,
+  last confirmation and freshness window accompany known values. Acknowledgement is separate.
 - send: send a message to a peer name or alias.
 - inbox: read your own messages after a sequence number.
 - ack: acknowledge your inbox through the last sequence you handled.
@@ -75,6 +78,7 @@ that wake notices can reach it.
 DeepSeek uses the command path until its MCP support is verified, with this session's ID:
   koinon register --as deepseek:$DSH_SESSION_ID
   koinon peers --as deepseek:$DSH_SESSION_ID
+  koinon peer-status --as deepseek:$DSH_SESSION_ID NAME
   koinon send --as deepseek:$DSH_SESSION_ID NAME 'message'
   koinon inbox --as deepseek:$DSH_SESSION_ID
   koinon ack --as deepseek:$DSH_SESSION_ID SEQ

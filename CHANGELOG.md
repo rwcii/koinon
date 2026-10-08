@@ -9,6 +9,11 @@ into a dated release section when promoted to `main`.
   notices. Claude Code reports such a session as `shell` while it waits at the prompt, and
   the wake treated that like a turn in progress, so no notice arrived until every background
   task ended. The dashboard also shows such a session as idle, not busy.
+- Agents can read a peer's observed model, context and activity through `peer_status` and
+  `koinon peer-status`, by name or held alias, with source and confirmation timestamps,
+  freshness windows and explicit unknown reasons. Registration and acknowledgement remain
+  separate signals, and private runtime/terminal targets are excluded.
+
 - `koinon install` links `~/.local/bin/koinon` to the installed binary, so the documented
   `koinon ...` commands run it. The report names the `koinon` that `PATH` runs and, when that is
   not the installed copy, the step that makes it so; it never edits shell startup files.

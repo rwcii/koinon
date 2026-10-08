@@ -117,7 +117,7 @@ func TestProtocol(t *testing.T) {
 			}
 		}
 	}
-	if strings.Join(names, ",") != "peers,send,inbox,ack,delivery,memory_status,memory_sync,memory_ack,memory_record,memory_recall,work_create,work_get,work_list,work_propose,work_edit,work_start,work_update,work_release,work_finish,claim_renew" {
+	if strings.Join(names, ",") != "peers,peer_status,send,inbox,ack,delivery,memory_status,memory_sync,memory_ack,memory_record,memory_recall,work_create,work_get,work_list,work_propose,work_edit,work_start,work_update,work_release,work_finish,claim_renew" {
 		t.Fatalf("tools: %v", names)
 	}
 	if reply := h.request("ping", nil); reply["result"] == nil {
@@ -131,6 +131,59 @@ func TestProtocol(t *testing.T) {
 	h.s.handle(context.Background(), []byte(`not json`))
 	if !strings.Contains(h.out.String(), "-32700") || strings.Count(h.out.String(), "\n") != 1 {
 		t.Fatalf("notification or parse error: %q", h.out.String())
+	}
+}
+
+func TestPeerStatusTool(t *testing.T) {
+	h := newHarness(t, "codex")
+	reader := map[string]any{"threadId": "synthetic-reader"}
+	targetMeta := map[string]any{"threadId": "synthetic-status-target"}
+	h.tool("peers", map[string]any{}, reader)
+	h.tool("peers", map[string]any{}, targetMeta)
+	var target core.Session
+	for _, session := range h.sessions() {
+		if session.ID == "synthetic-status-target" {
+			target = session
+		}
+	}
+	secret, _ := core.ReadSecret(h.root)
+	_, err := core.Call(context.Background(), h.d.Addresses()[0], secret, "/v1/sessions/observe", core.Observation{
+		Caller:   core.Key{Family: target.Family, ID: target.ID},
+		Activity: &core.ObservedValue{Source: "codex_rollout", At: time.Now().UnixMilli(), State: "busy"},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	got, isError := h.tool("peer_status", map[string]any{"peer": target.Name}, reader)
+	if isError || got["peer"].(map[string]any)["activity"].(map[string]any)["state"] != "busy" {
+		t.Fatalf("peer status: %v", got)
+	}
+	data, err := core.Call(context.Background(), h.d.Addresses()[0], secret, "/v1/peers/status",
+		map[string]any{"caller": core.Key{Family: "codex", ID: "synthetic-reader"}, "peer": target.Name})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var api map[string]any
+	if err := json.Unmarshal(data, &api); err != nil {
+		t.Fatal(err)
+	}
+	delete(api["peer"].(map[string]any), "observed_at")
+	delete(got["peer"].(map[string]any), "observed_at")
+	wantJSON, _ := json.Marshal(api)
+	gotJSON, _ := json.Marshal(got)
+	if !bytes.Equal(wantJSON, gotJSON) {
+		t.Fatalf("API/MCP differ: %s %s", wantJSON, gotJSON)
+	}
+	for _, args := range []map[string]any{{}, {"peer": ""}, {"peer": target.Name, "extra": true}} {
+		if result, isError := h.tool("peer_status", args, reader); !isError || result["code"] != "invalid_arguments" {
+			t.Fatalf("invalid status args: %v %v", args, result)
+		}
+	}
+	if result, isError := h.tool("peer_status", map[string]any{"peer": "codex-unknown-aa"}, reader); !isError || result["code"] != "peer_not_found" {
+		t.Fatalf("unknown peer: %v", result)
+	}
+	if result, isError := h.tool("peer_status", map[string]any{"peer": target.Name, "caller": core.Key{Family: "codex", ID: target.ID}}, reader); !isError || result["code"] != "identity_unavailable" {
+		t.Fatalf("model-supplied caller: %v", result)
 	}
 }
 
