@@ -11,8 +11,10 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"io/fs"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
 
 	"github.com/rwcii/koinon/internal/core"
@@ -34,6 +36,8 @@ type Options struct {
 	// Upgrade is set by `koinon upgrade`, which removed the Python installation itself.
 	Upgrade  bool
 	Source   string // the binary to install; default this executable
+	LinkDir  string // the directory of the koinon link; default ~/.local/bin
+	Path     string // the search path that the report resolves koinon on; default $PATH
 	Address  string // the daemon address to wait for
 	Services platform.Services
 	Setup    func(context.Context, setup.Options) (setup.Report, error)
@@ -52,6 +56,10 @@ type Report struct {
 	Service      string         `json:"service"`
 	StartCommand string         `json:"start_command,omitempty"`
 	StateDir     string         `json:"state_dir"`
+	Link         string         `json:"link"`
+	LinkResult   string         `json:"link_result"`
+	OnPath       string         `json:"on_path,omitempty"`
+	PathStep     string         `json:"path_step,omitempty"`
 	Agents       []setup.Report `json:"agents"`
 }
 
@@ -94,6 +102,12 @@ func (o *Options) defaults() error {
 			return err
 		}
 	}
+	if o.LinkDir == "" {
+		o.LinkDir = filepath.Join(o.Services.Home, ".local", "bin")
+	}
+	if o.Path == "" {
+		o.Path = os.Getenv("PATH")
+	}
 	if o.Setup == nil {
 		o.Setup = setup.Run
 	}
@@ -106,7 +120,7 @@ func (o *Options) defaults() error {
 	if o.Wait == 0 {
 		o.Wait = 20 * time.Second
 	}
-	for _, path := range []string{o.Prefix, o.StateDir, o.PythonPrefix, o.Source} {
+	for _, path := range []string{o.Prefix, o.StateDir, o.PythonPrefix, o.Source, o.LinkDir} {
 		if !filepath.IsAbs(path) {
 			return errors.New("installation paths must be absolute")
 		}
@@ -125,6 +139,82 @@ func (o *Options) defaults() error {
 
 // Binary is the installed binary's path under prefix.
 func Binary(prefix string) string { return filepath.Join(prefix, "bin", "koinon") }
+
+// linkMarker records, in the prefix, the link that the install created.
+func linkMarker(prefix string) string { return filepath.Join(prefix, "link") }
+
+// link puts a koinon link to binary in dir, so that koinon on PATH runs the installed
+// copy. Another file or link there is never replaced: the result is then "occupied".
+func link(binary, dir, marker string) (string, string, error) {
+	path := filepath.Join(dir, "koinon")
+	info, err := os.Lstat(path)
+	switch {
+	case errors.Is(err, fs.ErrNotExist):
+		if err := os.MkdirAll(dir, 0755); err != nil {
+			return path, "", err
+		}
+		// The marker comes first, so a link is never left unrecorded.
+		if err := os.WriteFile(marker, []byte(path+"\n"), 0600); err != nil {
+			return path, "", err
+		}
+		if err := os.Symlink(binary, path); err != nil {
+			os.Remove(marker)
+			return path, "", err
+		}
+		return path, "created", nil
+	case err != nil:
+		return path, "", err
+	case info.Mode()&fs.ModeSymlink != 0:
+		if target, err := os.Readlink(path); err == nil && target == binary {
+			return path, "unchanged", nil
+		}
+	}
+	return path, "occupied", nil
+}
+
+// lookPath returns the koinon that the search path runs, or "".
+func lookPath(path string) string {
+	for _, dir := range filepath.SplitList(path) {
+		if !filepath.IsAbs(dir) {
+			continue
+		}
+		candidate := filepath.Join(dir, "koinon")
+		if info, err := os.Stat(candidate); err == nil && info.Mode().IsRegular() && info.Mode().Perm()&0111 != 0 {
+			return candidate
+		}
+	}
+	return ""
+}
+
+func sameFile(a, b string) bool {
+	x, err := os.Stat(a)
+	if err != nil {
+		return false
+	}
+	y, err := os.Stat(b)
+	return err == nil && os.SameFile(x, y)
+}
+
+// pathStep names the step that makes koinon on PATH run the installed binary, or "" when
+// it already does. The install never edits shell startup files.
+func pathStep(r Report, dir, path string) string {
+	if r.OnPath != "" && sameFile(r.OnPath, r.Binary) {
+		return ""
+	}
+	listed := false
+	for _, entry := range filepath.SplitList(path) {
+		listed = listed || filepath.Clean(entry) == filepath.Clean(dir)
+	}
+	switch {
+	case r.LinkResult == "occupied":
+		return fmt.Sprintf("%s is not a link to the installed binary; replace it with ln -sf %s %s, or run %s", r.Link, r.Binary, r.Link, r.Binary)
+	case !listed:
+		return fmt.Sprintf("add %s to PATH in your shell's startup file: export PATH=\"%s:$PATH\"", dir, dir)
+	case r.OnPath != "":
+		return fmt.Sprintf("PATH runs %s first; put %s before its directory in PATH, or run %s", r.OnPath, dir, r.Binary)
+	}
+	return "run " + r.Binary
+}
 
 func digest(path string) ([]byte, error) {
 	f, err := os.Open(path)
@@ -206,6 +296,11 @@ func Install(ctx context.Context, o Options) (Report, error) {
 	if r.BinaryResult, err = place(o.Source, r.Binary); err != nil {
 		return r, err
 	}
+	if r.Link, r.LinkResult, err = link(r.Binary, o.LinkDir, linkMarker(o.Prefix)); err != nil {
+		return r, err
+	}
+	r.OnPath = lookPath(o.Path)
+	r.PathStep = pathStep(r, o.LinkDir, o.Path)
 	if _, err := o.Services.WriteDaemon(r.Binary, o.StateDir); err != nil {
 		return r, err
 	}
@@ -256,7 +351,8 @@ func waitForDaemon(ctx context.Context, o Options) error {
 
 // Uninstall removes what setup added for each named agent (every family by default),
 // stops and removes the service artifact that carries the marker, and removes the
-// binary. It keeps the state directory. A repeated uninstall changes nothing.
+// binary and the link that the install created while it still points at the binary. It
+// keeps the state directory. A repeated uninstall changes nothing.
 func Uninstall(ctx context.Context, o Options) (Report, error) {
 	if err := o.defaults(); err != nil {
 		return Report{}, err
@@ -289,8 +385,46 @@ func Uninstall(ctx context.Context, o Options) (Report, error) {
 		}
 		r.BinaryResult = "removed"
 	}
+	if r.Link, r.LinkResult, err = unlink(r.Binary, o.LinkDir, linkMarker(o.Prefix)); err != nil {
+		return r, err
+	}
 	// Empty directories of the prefix go too; anything else in them stays.
 	os.Remove(filepath.Dir(r.Binary))
 	os.Remove(o.Prefix)
 	return r, nil
+}
+
+// unlink removes the link that the marker records while it still points at binary, then
+// the marker. A link the install did not create, or one that now points elsewhere, is
+// kept.
+func unlink(binary, dir, marker string) (string, string, error) {
+	path := filepath.Join(dir, "koinon")
+	data, err := os.ReadFile(marker)
+	switch {
+	case errors.Is(err, fs.ErrNotExist):
+	case err != nil:
+		return path, "", err
+	default:
+		recorded := strings.TrimSpace(string(data))
+		if !filepath.IsAbs(recorded) || filepath.Base(recorded) != "koinon" {
+			return path, "", errors.New("link_marker_invalid: " + marker + " does not name a koinon link")
+		}
+		path = recorded
+		if target, err := os.Readlink(path); err == nil && target == binary {
+			if err := os.Remove(path); err != nil {
+				return path, "", err
+			}
+			if err := os.Remove(marker); err != nil {
+				return path, "", err
+			}
+			return path, "removed", nil
+		}
+		if err := os.Remove(marker); err != nil {
+			return path, "", err
+		}
+	}
+	if _, err := os.Lstat(path); err == nil {
+		return path, "kept", nil
+	}
+	return path, "absent", nil
 }

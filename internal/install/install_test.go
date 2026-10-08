@@ -67,6 +67,7 @@ func newEnv(t *testing.T, backend string) *env {
 	}
 	e := &env{r: &recorder{}}
 	e.o = Options{Prefix: filepath.Join(dir, "prefix"), StateDir: state, PythonPrefix: filepath.Join(dir, "python"), Source: source,
+		Path:     filepath.Join(dir, "empty-path"),
 		Services: platform.Services{Backend: backend, Home: filepath.Join(dir, "home"), UID: 501, Run: e.r.run},
 		Setup: func(_ context.Context, o setup.Options) (setup.Report, error) {
 			e.setups = append(e.setups, o.Family+" "+o.Binary)
@@ -162,5 +163,91 @@ func TestInstallRefusals(t *testing.T) {
 	e.o.NoStart = true
 	if r, err := Install(context.Background(), e.o); err != nil || r.Service != "staged" || len(e.r.calls) != 0 {
 		t.Fatalf("staged %+v %v %v", r, err, e.r.calls)
+	}
+}
+
+func TestInstallPathLink(t *testing.T) {
+	ctx := context.Background()
+	e := newEnv(t, "systemd")
+	home := e.o.Services.Home
+	linkDir := filepath.Join(home, ".local", "bin")
+	link := filepath.Join(linkDir, "koinon")
+
+	// The link directory is not on PATH: the link is made and the report names the step.
+	r, err := Install(ctx, e.o)
+	if err != nil || r.Link != link || r.LinkResult != "created" || r.OnPath != "" ||
+		r.PathStep != `add `+linkDir+` to PATH in your shell's startup file: export PATH="`+linkDir+`:$PATH"` {
+		t.Fatalf("not on PATH %+v %v", r, err)
+	}
+	if target, err := os.Readlink(link); err != nil || target != r.Binary {
+		t.Fatalf("link %q %v", target, err)
+	}
+
+	// On PATH, koinon runs the installed binary and no step is needed.
+	e.o.Path = "relative:" + linkDir
+	if r, err = Install(ctx, e.o); err != nil || r.LinkResult != "unchanged" || r.OnPath != link || r.PathStep != "" {
+		t.Fatalf("on PATH %+v %v", r, err)
+	}
+
+	// Another koinon earlier on PATH, such as the Homebrew copy, is named.
+	brew := filepath.Join(home, "brew", "bin")
+	os.MkdirAll(brew, 0755)
+	os.WriteFile(filepath.Join(brew, "koinon"), []byte("other"), 0755)
+	e.o.Path = brew + string(filepath.ListSeparator) + linkDir
+	if r, err = Install(ctx, e.o); err != nil || r.OnPath != filepath.Join(brew, "koinon") ||
+		r.PathStep != "PATH runs "+r.OnPath+" first; put "+linkDir+" before its directory in PATH, or run "+r.Binary {
+		t.Fatalf("other on PATH %+v %v", r, err)
+	}
+
+	// Uninstall removes the link it made; a repeat finds nothing.
+	if u, err := Uninstall(ctx, e.o); err != nil || u.LinkResult != "removed" {
+		t.Fatalf("uninstall %+v %v", u, err)
+	}
+	if _, err := os.Lstat(link); !os.IsNotExist(err) {
+		t.Fatalf("link left: %v", err)
+	}
+	if u, err := Uninstall(ctx, e.o); err != nil || u.LinkResult != "absent" {
+		t.Fatalf("repeat uninstall %+v %v", u, err)
+	}
+
+	// A link the install did not make is used but never removed.
+	os.Symlink(Binary(e.o.Prefix), link)
+	if r, err = Install(ctx, e.o); err != nil || r.LinkResult != "unchanged" {
+		t.Fatalf("existing link %+v %v", r, err)
+	}
+	if u, err := Uninstall(ctx, e.o); err != nil || u.LinkResult != "kept" {
+		t.Fatalf("existing link uninstall %+v %v", u, err)
+	}
+	os.Remove(link)
+
+	// A made link that now points elsewhere is kept.
+	if r, err = Install(ctx, e.o); err != nil || r.LinkResult != "created" {
+		t.Fatalf("relink %+v %v", r, err)
+	}
+	os.Remove(link)
+	os.Symlink(filepath.Join(brew, "koinon"), link)
+	if u, err := Uninstall(ctx, e.o); err != nil || u.LinkResult != "kept" {
+		t.Fatalf("retargeted uninstall %+v %v", u, err)
+	}
+	if target, _ := os.Readlink(link); target != filepath.Join(brew, "koinon") {
+		t.Fatalf("retargeted link changed: %q", target)
+	}
+	os.Remove(link)
+
+	// Another file at the link's path is never replaced.
+	os.WriteFile(link, []byte("mine"), 0755)
+	e.o.Path = linkDir
+	if r, err = Install(ctx, e.o); err != nil || r.LinkResult != "occupied" || r.OnPath != link ||
+		r.PathStep != link+" is not a link to the installed binary; replace it with ln -sf "+r.Binary+" "+link+", or run "+r.Binary {
+		t.Fatalf("occupied %+v %v", r, err)
+	}
+	if u, err := Uninstall(ctx, e.o); err != nil || u.LinkResult != "kept" {
+		t.Fatalf("occupied uninstall %+v %v", u, err)
+	}
+	if data, _ := os.ReadFile(link); string(data) != "mine" {
+		t.Fatalf("occupied file changed: %q", data)
+	}
+	if _, err := os.Stat(e.o.Prefix); !os.IsNotExist(err) {
+		t.Fatalf("prefix left: %v", err)
 	}
 }
