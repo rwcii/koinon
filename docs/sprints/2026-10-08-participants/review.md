@@ -34,3 +34,7 @@ Approved at `c6e5081`: bounded verification of `84f90ab` (peer-only registration
 session, the dashboard recovery test) and `c6e5081` (Claude nested list in chunk 02) found no
 open finding. P1, P1a, P2 and L1 to L3 dispositions verified; the earlier review carries
 forward. Docs only; `git diff --check` passed.
+
+## Gate B
+
+Approved by the maintainer on 2026-10-08, for the plan at `c6e5081` with the review above.
