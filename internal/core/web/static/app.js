@@ -7,8 +7,15 @@
     return;
   }
   var interval = Number(list.dataset.refresh);
+  // A refresh replaces the list, which would close an open disclosure (a purge
+  // confirmation) and drop what was typed in a form inside it, so it waits meanwhile.
+  function busy() {
+    var active = document.activeElement;
+    return list.querySelector("details[open]") !== null ||
+      (active !== null && list.contains(active) && /^(INPUT|TEXTAREA|SELECT)$/.test(active.tagName));
+  }
   function refresh() {
-    if (document.visibilityState !== "visible") {
+    if (document.visibilityState !== "visible" || busy()) {
       return;
     }
     var url = new URL(window.location.href);

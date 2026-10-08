@@ -389,7 +389,12 @@ from elsewhere. Peer message bodies appear here, escaped, and nowhere else outsi
   sessions with their family and state, and with `peers=all` of every session, active first,
   never a session ID or directory), `memory` (per store:
   head, floor, entries and logical bytes against their ceilings, consumers, work debt and
-  maintenance, 50 stores per page), `work` (per store, every unfinished item with its claim,
+  maintenance, 50 stores per page; with `store=REPOSITORY`, that store's entries, newest first,
+  50 per page with `before=SEQ`: sequence, time, type, scope, path, writer, author, body, state
+  `live`, `superseded`, `revoked` or `expired`, and the supersession, revocation and conflict
+  links; work events are not listed. `q=TEXT` (at most 256 bytes) matches the body or path as a
+  substring, ignoring ASCII case; `type=TYPE` filters; without `all=1` only live entries are
+  listed), `work` (per store, every unfinished item with its claim,
   resources, lease and progress state computed at read time; stores page by repository, 50 at a
   time, with `after=REPOSITORY`; `lifecycle=open|active|blocked|finished|all` filters, and
   finished items are listed while their retention lasts; `store=REPOSITORY&item=WORK_ID` opens
@@ -398,7 +403,9 @@ from elsewhere. Peer message bodies appear here, escaped, and nowhere else outsi
   revision, schema, listeners, session counts, storage and the work maintenance sweep). With
   `fragment=1` a view returns its list alone; the page script fetches it every 5 seconds while the
   page is visible, with the page's own query. The search and recipient filter forms sit outside
-  the list, so a refresh never resets them. Views never write.
+  the list, so a refresh never resets them. A refresh also waits while a disclosure in the list is
+  open or a form field in it has focus, so an open confirmation or edit form stays as it is.
+  Views never write.
 - **Sorting and paging.** Each table header with a sortable value links to `sort=COLUMN&dir=asc`
   or `dir=desc`; the current column carries `aria-sort` and its link reverses the direction.
   Columns: sessions `state` (default, ascending: active, then expired, then retired, each with
@@ -439,6 +446,20 @@ from elsewhere. Peer message bodies appear here, escaped, and nowhere else outsi
     boundary, so no notice is sent for a sequence they cover. The messages they newly
     acknowledge carry `acknowledged_by: maintainer`. They delete nothing; retention deletes the
     acknowledged messages later.
+  - `memory-record` (`repository`, `type`, `scope`, optional `scope_target` and `path`, `body`,
+    optional `supersedes`, `key`, `deadline`): records a memory entry in an existing store as
+    writer family and name `maintainer` (consumer `maintainer`), through the same path, limits,
+    idempotency and capacity refusals as an agent's `record`. With `supersedes` it is an edit: a
+    new entry that replaces the old one, which stays readable with its link. An edit of an entry
+    that another writer replaced or revoked meanwhile is recorded with `conflicts_with` and
+    answers `memory_conflict`. Each form of a rendered page carries its own idempotency key and
+    a deadline one minute inside the idempotency horizon, so a resubmitted form is a duplicate.
+    A repository without a store is `store_not_found`.
+  - `memory-revoke` (`repository`, `seq`, `reason`, `key`, `deadline`): revokes an entry with a
+    revocation of the same type and scope whose body is the reason; an empty reason is
+    `reason_required`.
+    The form is up to 3 × 8,192 + 4,096 bytes for `memory-record`. The audit target names the
+    repository, the type or the entry replaced or revoked, and the body size, never the body.
   - `work-create` (`repository`, `title`, `criteria`, `non_goals`, optional `proposed_assignee`,
     `references` one per line, `key`, `deadline`), `work-propose` (`repository`, `work_id`,
     `revision`, `proposed_assignee`, empty to clear, `key`, `deadline`), `work-edit` (the same

@@ -577,6 +577,8 @@ func (s *Store) MemoryRecord(ctx context.Context, m MemoryCaller, r MemoryRecord
 	}
 	var result MemoryRecordResult
 	err := s.memoryWrite(ctx, m.Repository, class, need, 1, func(tx *writeTx) error {
+		// A dashboard record's audit record joins the transaction that writes the entry.
+		tx.audited = true
 		if r.Key != nil {
 			// A retry that raced the first attempt finds its row here.
 			if found, ok, err := s.duplicate(ctx, tx, m, r, print); ok || err != nil {
