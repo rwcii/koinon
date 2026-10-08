@@ -49,7 +49,7 @@ Facts: `live-checks.md`, F1, F2 and F5.
    `not_launched` text never names a DeepSeek launcher.
 5. **Launch binding.** The daemon admits a launch only for its own host. Foreground: the
    launch's `HostPID` (the CLI process, which the launcher's `exec` keeps) must be an ancestor of
-   the caller's `koinon mcp`, with the start time recorded at launch; for Claude it must also be
+   the caller's `koinon mcp`; for Claude it must also be
    `claude_pid`. With `--no-daemon`, a Codex `koinon mcp` is a child of that process (F1). Background:
    the caller must be the Claude session whose job ID the launcher recorded with the launch; a
    registration before that record exists is refused with `launch_pending` and nothing is
