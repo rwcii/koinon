@@ -74,6 +74,11 @@ var noticeText = map[string]string{
 	"store_not_found":           "Refused: no memory store has that repository.",
 	"no_such_entry":             "Refused: that entry does not exist.",
 	"entry_too_large":           "Refused: the entry is too large.",
+	"work_created":              "The work item was created as maintainer.",
+	"work_proposed":             "The proposed assignee was recorded.",
+	"work_edited":               "The scope was edited; the earlier revision stays in the history.",
+	"work_finished":             "The work item was finished.",
+	"work_claimed":              "Refused: the item has a live claim. Release the claim first, then edit.",
 	"idempotency_conflict":      "Refused: that form was already submitted with other content. Reload and try again.",
 	"retry_deadline_expired":    "Refused: the form is too old. Reload and try again.",
 }
@@ -256,6 +261,7 @@ func (d *Daemon) dashboardActions(mux *http.ServeMux, authed func(int64, func(ht
 	}))
 
 	d.memoryActions(mux, authed)
+	d.workActions(mux, authed, run)
 
 	mux.HandleFunc("POST /dashboard/actions/launch", authed(actionFormLimit, func(w http.ResponseWriter, r *http.Request, _ string) {
 		family, directory, name := r.PostForm.Get("family"), r.PostForm.Get("directory"), r.PostForm.Get("name")

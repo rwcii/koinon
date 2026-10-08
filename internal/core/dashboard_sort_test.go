@@ -263,7 +263,7 @@ func TestDashboardStoreAndWorkSortEveryColumn(t *testing.T) {
 	}
 	for _, c := range workSort.columns {
 		for _, dir := range []string{"asc", "desc"} {
-			list, _, err := s.dashboardWork(ctx, "/synthetic/sort-vv", sortOrder(t, &workSort, c.key, dir, ""))
+			list, _, err := s.dashboardWork(ctx, "/synthetic/sort-vv", "", sortOrder(t, &workSort, c.key, dir, ""))
 			if err != nil || len(list) != 1 || list[0].Repository != m.Repository {
 				t.Fatalf("work stores: %v %v", list, err)
 			}

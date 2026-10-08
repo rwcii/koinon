@@ -5,6 +5,11 @@ into a dated release section when promoted to `main`.
 
 ## Unreleased
 
+- The dashboard's work view can show finished items and filter by lifecycle, and opens one
+  item with its scope, progress, references and history. The maintainer can create an item,
+  propose or clear an assignee, edit the scope of an item without a live claim and finish an
+  item as completed or withdrawn. Each change is audited and recorded as `maintainer`, with the
+  same revision checks and refusals as an agent's request.
 - The dashboard's memory view lists the entries of a store: newest first, with paging, a text
   search, a type filter and, on request, replaced, revoked and expired entries with their
   links. The maintainer can record an entry of any type and scope, edit an entry (recorded as a
