@@ -22,3 +22,4 @@
 </body>
 </html>
 {{end}}
+{{define "th"}}<th{{with .Sort}} aria-sort="{{.}}"{{end}}><a href="{{.Href}}">{{.Label}}</a>{{if eq .Sort "ascending"}} ▲{{else if eq .Sort "descending"}} ▼{{end}}</th>{{end}}

@@ -404,7 +404,7 @@ func TestDashboardViewsRenderSyntheticState(t *testing.T) {
 	if body := page("/dashboard/messages?to=nobody"); !strings.Contains(body, "No messages.") {
 		t.Fatal("unknown recipient listed messages")
 	}
-	if r := dashboardDo(t, d, "GET", "/dashboard/messages?before=x", cookie, nil, nil); r.status != 400 {
+	if r := dashboardDo(t, d, "GET", "/dashboard/messages?after=x", cookie, nil, nil); r.status != 400 {
 		t.Fatalf("bad cursor: %d", r.status)
 	}
 	contains(page("/dashboard/memory"), "/synthetic/view/.git", "overdue, ")
@@ -429,12 +429,11 @@ func TestDashboardViewsRenderSyntheticState(t *testing.T) {
 		join(t, s, "codex", fmt.Sprintf("synthetic-many-%03d", i), "")
 	}
 	first := page("/dashboard/sessions")
-	link := regexp.MustCompile(`href="/dashboard/sessions\?after=([^"]+)"`).FindStringSubmatch(first)
+	link := regexp.MustCompile(`href="(/dashboard/sessions\?after=[^"]+)"`).FindStringSubmatch(first)
 	if link == nil {
 		t.Fatal("no link to the next page")
 	}
-	cursor, _ := url.QueryUnescape(strings.ReplaceAll(link[1], "&amp;", "&"))
-	if second := page("/dashboard/sessions?after=" + url.QueryEscape(cursor)); !strings.Contains(second, "<tr") {
+	if second := page(strings.ReplaceAll(link[1], "&amp;", "&")); !strings.Contains(second, "<tr") {
 		t.Fatal("next page empty")
 	}
 }
@@ -466,9 +465,9 @@ func TestDashboardMessagePagingAcrossInboxes(t *testing.T) {
 	}
 	_ = sender
 	seen := map[int64]bool{}
-	previous, before, pages := int64(1<<62), int64(0), 0
+	previous, after, pages := int64(1<<62), "", 0
 	for {
-		page, next, err := s.dashboardMessages(ctx, nil, before)
+		page, next, err := s.dashboardMessages(ctx, nil, sortOrder(t, &messageSort, "", "", after))
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -482,13 +481,13 @@ func TestDashboardMessagePagingAcrossInboxes(t *testing.T) {
 			}
 			seen[m.ID], previous = true, m.ID
 		}
-		if next == 0 {
+		if next == "" {
 			break
 		}
-		if next != page[len(page)-1].ID {
-			t.Fatalf("cursor %d is not the last listed ID", next)
+		if want := sortOrder(t, &messageSort, "", "", "").cursor([]any{page[len(page)-1].ID, page[len(page)-1].ID}); next != want {
+			t.Fatalf("cursor %s is not the last listed ID", next)
 		}
-		before = next
+		after = next
 	}
 	if len(seen) != total || pages < 2 {
 		t.Fatalf("listed %d of %d in %d pages", len(seen), total, pages)
@@ -498,9 +497,9 @@ func TestDashboardMessagePagingAcrossInboxes(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	count, before := 0, int64(0)
+	count, after := 0, ""
 	for {
-		page, next, err := s.dashboardMessages(ctx, k, before)
+		page, next, err := s.dashboardMessages(ctx, k, sortOrder(t, &messageSort, "", "", after))
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -510,10 +509,10 @@ func TestDashboardMessagePagingAcrossInboxes(t *testing.T) {
 			}
 		}
 		count += len(page)
-		if next == 0 {
+		if next == "" {
 			break
 		}
-		before = next
+		after = next
 	}
 	if count != 47 {
 		t.Fatalf("recipient listed %d of 47", count)
@@ -525,9 +524,9 @@ func TestDashboardMessagePagingAcrossInboxes(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	page, next, err := s.dashboardMessages(ctx, nil, 0)
-	if err != nil || next == 0 || len(page) == 0 {
-		t.Fatalf("large page: %d %d %v", len(page), next, err)
+	page, next, err := s.dashboardMessages(ctx, nil, sortOrder(t, &messageSort, "", "", ""))
+	if err != nil || next == "" || len(page) == 0 {
+		t.Fatalf("large page: %d %q %v", len(page), next, err)
 	}
 	size := 0
 	for _, m := range page {
@@ -536,7 +535,15 @@ func TestDashboardMessagePagingAcrossInboxes(t *testing.T) {
 	if size > 1<<20 && len(page) > 1 {
 		t.Fatalf("page of %d bytes", size)
 	}
-	if _, _, err := s.dashboardMessages(ctx, nil, -1); err != ErrInvalid {
-		t.Fatalf("negative cursor: %v", err)
+}
+
+// sortOrder is a view's order as a request names it: a column key ("" for the default),
+// a direction ("" for the column's first direction) and a cursor.
+func sortOrder(t *testing.T, spec *sortSpec, key, dir, after string) dashboardSort {
+	t.Helper()
+	order, err := parseSort(spec, "/dashboard/test", url.Values{"sort": {key}, "dir": {dir}, "after": {after}})
+	if err != nil {
+		t.Fatal(err)
 	}
+	return order
 }

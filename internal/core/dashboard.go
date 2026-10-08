@@ -7,7 +7,6 @@ import (
 	"html/template"
 	"io/fs"
 	"net/http"
-	"net/url"
 	"runtime/debug"
 	"strconv"
 	"strings"
@@ -72,15 +71,6 @@ func dashboardTemplates() (map[string]*template.Template, error) {
 				text += " (" + strconv.FormatFloat(100*float64(*v.UsedTokens)/float64(*v.LimitTokens), 'f', 0, 64) + "%)"
 			}
 			return text
-		},
-		"query": func(pairs ...string) template.URL {
-			v := url.Values{}
-			for i := 0; i+1 < len(pairs); i += 2 {
-				if pairs[i+1] != "" {
-					v.Set(pairs[i], pairs[i+1])
-				}
-			}
-			return template.URL("?" + v.Encode())
 		},
 	}
 	layout, err := template.New("layout.html").Funcs(funcs).ParseFS(webFiles, "web/layout.html")
@@ -221,24 +211,29 @@ type sessionRow struct {
 }
 
 type sessionsData struct {
-	Rows []sessionRow
-	Next string
+	Rows   []sessionRow
+	Counts map[string]int64
+	Sort   dashboardSort
+	Next   string
 }
 
 type messagesData struct {
 	Recipient    string
 	RecipientKey *Key
 	Messages     []MessageRecord
-	Next         int64
+	Sort         dashboardSort
+	Next         string
 }
 
 type auditData struct {
 	Records []AuditRecord
-	Next    int64
+	Sort    dashboardSort
+	Next    string
 }
 
 type storesData struct {
 	Stores []StoreSummary
+	Sort   dashboardSort
 	Next   string
 }
 
@@ -255,18 +250,14 @@ type healthData struct {
 
 // dashboardData reads one view's state. Every query is bounded and read-only.
 func (d *Daemon) dashboardData(r *http.Request, view string) (any, error) {
-	ctx, q := r.Context(), r.URL.Query()
+	ctx, q, path := r.Context(), r.URL.Query(), "/dashboard/"+view
 	switch view {
 	case "sessions":
-		var after *Key
-		if v := q.Get("after"); v != "" {
-			family, id, found := strings.Cut(v, ":")
-			if !found || !validKey(family, id) {
-				return nil, ErrInvalid
-			}
-			after = &Key{family, id}
+		order, err := parseSort(&sessionSort, path, q)
+		if err != nil {
+			return nil, err
 		}
-		sessions, next, err := d.store.dashboardSessions(ctx, after)
+		sessions, next, err := d.store.dashboardSessions(ctx, order)
 		if err != nil {
 			return nil, err
 		}
@@ -283,47 +274,54 @@ func (d *Daemon) dashboardData(r *http.Request, view string) (any, error) {
 		// Pulled observations share one short budget, so unreachable agents cannot stall the page.
 		pull, cancel := context.WithTimeout(ctx, 2*time.Second)
 		defer cancel()
-		result := sessionsData{Rows: make([]sessionRow, 0, len(sessions))}
-		if next != nil {
-			result.Next = next.Family + ":" + next.ID
+		counts, err := d.store.Counts(ctx)
+		if err != nil {
+			return nil, err
 		}
+		result := sessionsData{Rows: make([]sessionRow, 0, len(sessions)), Counts: counts, Sort: order, Next: next}
 		for _, s := range sessions {
 			result.Rows = append(result.Rows, sessionRow{Session: s, Work: claims[s.Family+":"+s.ID], Observed: d.store.sessionObservations(pull, s)})
 		}
 		return result, nil
 	case "messages":
-		var before int64
-		if v := q.Get("before"); v != "" {
-			var err error
-			if before, err = strconv.ParseInt(v, 10, 64); err != nil || before < 1 {
-				return nil, ErrInvalid
-			}
+		order, err := parseSort(&messageSort, path, q, "to")
+		if err != nil {
+			return nil, err
 		}
-		result := messagesData{Recipient: q.Get("to")}
+		result := messagesData{Recipient: q.Get("to"), Sort: order}
 		var recipient *Key
 		if result.Recipient != "" {
-			var err error
 			if recipient, err = d.store.sessionByName(ctx, result.Recipient); err != nil {
 				return result, nil
 			}
 			result.RecipientKey = recipient
 		}
-		var err error
-		result.Messages, result.Next, err = d.store.dashboardMessages(ctx, recipient, before)
+		result.Messages, result.Next, err = d.store.dashboardMessages(ctx, recipient, order)
 		return result, err
 	case "audit":
-		var before int64
-		if v := q.Get("before"); v != "" {
-			var err error
-			if before, err = strconv.ParseInt(v, 10, 64); err != nil || before < 1 {
-				return nil, ErrInvalid
-			}
+		order, err := parseSort(&auditSort, path, q)
+		if err != nil {
+			return nil, err
 		}
-		records, next, err := d.store.AuditPage(ctx, before)
-		return auditData{Records: records, Next: next}, err
-	case "memory", "work":
-		stores, next, err := d.store.dashboardStores(ctx, q.Get("after"), view == "work")
-		return storesData{Stores: stores, Next: next}, err
+		records, next, err := d.store.dashboardAudit(ctx, order)
+		return auditData{Records: records, Sort: order, Next: next}, err
+	case "memory":
+		order, err := parseSort(&storeSort, path, q)
+		if err != nil {
+			return nil, err
+		}
+		stores, next, err := d.store.dashboardMemory(ctx, order)
+		return storesData{Stores: stores, Sort: order, Next: next}, err
+	case "work":
+		// Stores page by repository; the sort orders the work rows in each store.
+		after := q.Get("after")
+		q.Del("after")
+		order, err := parseSort(&workSort, path, q)
+		if err != nil {
+			return nil, err
+		}
+		stores, next, err := d.store.dashboardWork(ctx, after, order)
+		return storesData{Stores: stores, Sort: order, Next: next}, err
 	default:
 		counts, err := d.store.Counts(ctx)
 		if err != nil {

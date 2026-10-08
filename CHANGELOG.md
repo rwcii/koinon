@@ -5,6 +5,12 @@ into a dated release section when promoted to `main`.
 
 ## Unreleased
 
+- Every dashboard table sorts by its column headers. A click sorts the whole list on the
+  server, a second click reverses it, and the order stays in the URL, so a sorted view can be
+  reloaded, linked and refreshed. Paging keeps the order and the messages recipient filter.
+- The dashboard's sessions view lists active sessions first by default and shows how many
+  sessions are active, expired and retired. Before, it listed sessions by family and ID, so
+  active sessions could be pages behind the expired ones.
 - Setup for Codex, Antigravity and OpenCode records the resolved absolute CLI path in
   private `launchers.json`, preserving other families' entries. Launchers work without
   `--cli` after setup, keep explicit overrides and never search `PATH` at launch time.

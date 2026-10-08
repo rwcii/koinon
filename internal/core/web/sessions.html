@@ -1,5 +1,6 @@
-{{define "list"}}{{if not .Data.Rows}}<p class="empty">No sessions.</p>{{else}}<table>
-<thead><tr><th>Name</th><th>Family</th><th>Repository and directory</th><th>State</th><th>Model</th><th>Context</th><th>Activity</th><th>Terminal</th><th>Registered</th><th>Renewed</th><th>Expires</th><th>Claimed work</th><th>Actions</th></tr></thead>
+{{define "list"}}<p class="counts">{{index .Data.Counts "active"}} active, {{index .Data.Counts "expired"}} expired, {{index .Data.Counts "retired"}} retired</p>
+{{if not .Data.Rows}}<p class="empty">No sessions.</p>{{else}}<table>
+<thead><tr>{{template "th" (.Data.Sort.Column "name" "Name")}}{{template "th" (.Data.Sort.Column "family" "Family")}}{{template "th" (.Data.Sort.Column "repository" "Repository and directory")}}{{template "th" (.Data.Sort.Column "state" "State")}}<th>Model</th><th>Context</th><th>Activity</th><th>Terminal</th>{{template "th" (.Data.Sort.Column "registered" "Registered")}}{{template "th" (.Data.Sort.Column "renewed" "Renewed")}}{{template "th" (.Data.Sort.Column "expires" "Expires")}}<th>Claimed work</th><th>Actions</th></tr></thead>
 <tbody>{{range .Data.Rows}}<tr class="state-{{.State}}">
 <td>{{.Name}}{{if .Alias}}<br><small>alias {{.Alias}}</small>{{end}}</td>
 <td>{{.Family}}</td>
@@ -13,7 +14,7 @@
 <td>{{range .Work}}<div><code>{{.WorkID}}</code> {{.Title}} <small>generation {{.Generation}}, until {{secs .ExpiresAt}}</small></div>{{else}}—{{end}}</td>
 <td>{{if eq .Family "maintainer"}}<small>built-in</small>{{else if eq .State "active"}}<form method="post" action="/dashboard/actions/retire" class="inline"><input type="hidden" name="csrf" value="{{$.CSRF}}"><input type="hidden" name="family" value="{{.Family}}"><input type="hidden" name="id" value="{{.ID}}"><input type="hidden" name="revision" value="{{.Revision}}"><button type="submit">Retire</button></form>{{else}}—{{end}}</td>
 </tr>{{end}}</tbody></table>{{end}}
-{{if .Data.Next}}<p><a href="/dashboard/sessions{{query "after" .Data.Next}}">More sessions</a></p>{{end}}{{end}}
+{{if .Data.Next}}<p><a href="{{.Data.Sort.Next .Data.Next}}">More sessions</a></p>{{end}}{{end}}
 {{define "actions"}}<details class="action"><summary>Start a session</summary>
 <form method="post" action="/dashboard/actions/launch"><input type="hidden" name="csrf" value="{{.CSRF}}">
 <label>Agent <select name="family"><option value="codex">Codex</option><option value="agy">Antigravity</option><option value="opencode">OpenCode</option></select></label>

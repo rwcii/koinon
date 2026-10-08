@@ -67,7 +67,7 @@ func (c *actionClient) do(action string, form url.Values) string {
 
 func auditAll(t *testing.T, s *Store) []AuditRecord {
 	t.Helper()
-	records, _, err := s.AuditPage(context.Background(), 0)
+	records, _, err := s.dashboardAudit(context.Background(), sortOrder(t, &auditSort, "", "", ""))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -414,9 +414,9 @@ func TestAuditRetentionAndCap(t *testing.T) {
 		t.Fatalf("after trim: %d records, oldest %q", count, oldest)
 	}
 	// Pages of 100, newest first, with no omission or duplicate.
-	seen, before := map[int64]bool{}, int64(0)
+	seen, after := map[int64]bool{}, ""
 	for {
-		page, next, err := s.AuditPage(ctx, before)
+		page, next, err := s.dashboardAudit(ctx, sortOrder(t, &auditSort, "", "", after))
 		if err != nil || len(page) > auditPage {
 			t.Fatal(err)
 		}
@@ -426,10 +426,10 @@ func TestAuditRetentionAndCap(t *testing.T) {
 			}
 			seen[r.ID] = true
 		}
-		if next == 0 {
+		if next == "" {
 			break
 		}
-		before = next
+		after = next
 	}
 	if len(seen) != auditMax {
 		t.Fatalf("paged %d", len(seen))
