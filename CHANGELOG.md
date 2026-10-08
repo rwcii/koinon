@@ -5,6 +5,8 @@ into a dated release section when promoted to `main`.
 
 ## Unreleased
 
+## 2026-10-08 — Go runtime: one daemon, MCP access, install and upgrade from Python
+
 - Retire the Python runtime, its entrypoints, runtime tests and obsolete native jobs. The
   Go daemon is the sole checkout runtime; committed legacy fixtures and the pinned previous
   release retain import/upgrade coverage. Port contributor checks and repository setup to
