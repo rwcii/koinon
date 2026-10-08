@@ -10,7 +10,7 @@ depends on have merged. One pull request is in flight at a time. Each chunk pass
 | [02 Participants](chunks/02-participants.md) | Participants with optional roles, one holder chosen never by order, the maintainer's choice in the dashboard, upgrade of existing aliases, reporting. | 1, 2, 9, 10 | 01 |
 | [03 Participant state](chunks/03-participant-state.md) | The participant owns its address inbox, memory cursor and claims; fencing refuses every stale holder path. | 4, 5, 10 | 02 |
 | [04 Succession](chunks/04-succession.md) | Verified succession changes the holder and retires the former holder atomically; the skills describe it. | 3, 10 | 03 |
-| [05 Terminal naming](chunks/05-terminal-naming.md) | Names follow the address, a taken name is retried, a directly started agent of any family is named when its process serves one session, a Claude background job is named through its attached client's pane. | 7, 8, 9, 10 | 02 |
+| [05 Terminal naming](chunks/05-terminal-naming.md) | Names follow the address, a taken name is retried, a Claude background job is named through its attached client's pane. | 7, 8, 9, 10 | 02 |
 
 Chunk 05 needs only 02, but it is built after 04 under the one-pull-request rule. The final live
 check of `definition-of-done.md` runs before the last chunk's sign-off.

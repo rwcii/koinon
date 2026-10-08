@@ -25,18 +25,7 @@ Facts: `live-checks.md`, F4. Delivers #147; closes #228.
    client in place of the host for the ancestor check. No match: `attach_pane_not_found`, tried
    again at the next renewal. More than one: `attach_pane_ambiguous`, nothing renamed. Panes on a
    private tmux server outside the socket directory are not searched.
-4. **Direct starts.** Today a non-Claude session is named only when its server has
-   `KOINON_LAUNCH_ID` (`nameAfterRegistration`). On 2026-10-08 an OpenCode 1.18.35 and an
-   Antigravity 1.3.1 session started directly from a shell each had a `koinon mcp` whose parent
-   was the agent process in the pane, with `TMUX` and `TMUX_PANE` set, and neither was named. The
-   attribution rule becomes the same for every family: the session's terminal is named when the
-   server's parent is the session's agent process (Claude, Codex with `--no-daemon`, OpenCode,
-   Antigravity), the pane holds that process by the existing ancestor check, and that process
-   serves exactly one active Koinon session. When the process serves more than one active
-   session (an OpenCode server, or Antigravity with several conversations), nothing is renamed
-   and the result is `host_shared`. A launched session keeps its launch record as the host. A
-   session under the shared Codex daemon stays `codex_shared_daemon` (chunk 01).
-5. **Reporting.** The naming result and its reason text are in the session view and in `peers`
+4. **Reporting.** The naming result and its reason text are in the session view and in `peers`
    (chunk 02, item 6).
 
 ## Done
