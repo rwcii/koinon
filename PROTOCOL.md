@@ -89,8 +89,8 @@ inbox and reads only the outcome of its own messages; another sender's message r
   `ack_beyond_last` (409). A message is acknowledged when its `seq` is at most `acked_through`.
 - Outcome takes `caller` and `message_id` and returns `id`, `recipient`, `seq`, `delivery_state`,
   `delivery_reason`, `updated_at`, `acknowledged` and `acknowledged_by` (#82). For a message that
-  retention or a purge deleted, it returns `ok: true` with only `id` and `delivery_state`
-  `deleted`. Any issued ID that the daemon no longer holds reads as `deleted`, also when another
+  retention or a purge deleted, it returns `ok: true` with `id` and `delivery_state` `deleted`;
+  the other fields are empty, zero or false. Any issued ID that the daemon no longer holds reads as `deleted`, also when another
   session sent it; a held message of another sender stays `message_not_found`.
 
 The daemon has one built-in session, family `maintainer` and peer name `maintainer` (schema 7).
