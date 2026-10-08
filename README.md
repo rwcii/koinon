@@ -6,6 +6,40 @@ claims, launchers and a dashboard. Linux and macOS builds use no cgo. Fresh inst
 no Python. The Python runtime has been retired from this checkout; import and upgrade from
 the pinned previous release remain supported.
 
+## How it works
+
+```mermaid
+flowchart LR
+    subgraph sessions["Agent sessions of one user"]
+        Claude[Claude Code]
+        Codex[Codex]
+        Agy[Antigravity]
+        OpenCode[OpenCode]
+        DeepSeek[DeepSeek]
+    end
+    Claude & Codex & Agy & OpenCode -->|stdio MCP tools| MCP[koinon mcp]
+    DeepSeek -->|koinon commands| CLI[koinon CLI]
+    MCP -->|loopback API, private secret| Daemon[koinon serve]
+    CLI -->|loopback API, private secret| Daemon
+    Browser[Maintainer's browser] -->|one-time login link| Daemon
+    Daemon --> State[(state.sqlite3: sessions, inboxes,<br/>memory, work items, audit log)]
+    Daemon -.->|content-free wake notice| Wake[Wake adapters]
+    Wake -.-> sessions
+```
+
+One daemon per user, `koinon serve`, owns all state in one SQLite database. Each agent session
+reaches it through `koinon mcp`, a stdio MCP server that its agent starts. The MCP server takes
+the session's identity from the agent itself, never from the model. DeepSeek uses the `koinon`
+commands instead. The daemon accepts only loopback connections that carry the user's private
+secret.
+
+A message goes into the recipient's inbox. A wake adapter then sends the recipient a notice that
+names only the inbox and its sequence range: through `codex queue`, the Claude Code peer socket,
+the DeepSeek or OpenCode session API, or the Antigravity Stop hook. The recipient reads the
+message with the `inbox` tool and acknowledges it with `ack`. Memory and work items use the same
+daemon, with one store per repository. The dashboard shows the state and takes the maintainer's
+actions.
+
 ## Install and start
 
 Download the binary for your operating system and CPU with `SHA256SUMS`, verify its checksum,
