@@ -60,7 +60,7 @@ var sessionSort = sortSpec{columns: []sortColumn{
 // dashboardSessionView names the columns that sessions sort by; state is computed at now (?1).
 const dashboardSessionView = `SELECT s.family AS family,s.id AS id,s.repository AS repository,s.directory AS directory,
 	s.wake_target AS wake_target,s.registered_at AS registered_at,s.renewed_at AS renewed_at,s.expires_at AS expires_at,
-	s.retired_at AS retired_at,s.revision AS revision,
+	s.retired_at AS retired_at,s.purge_at AS purge_at,s.revision AS revision,
 	COALESCE((SELECT name FROM names WHERE kind='peer' AND family=s.family AND session_id=s.id),'') AS name,
 	COALESCE((SELECT name FROM names WHERE kind='alias' AND family=s.family AND repository=s.repository
 		AND s.repository!='' AND holder_id=s.id),'') AS alias,
@@ -95,7 +95,7 @@ func (s *Store) dashboardSessions(ctx context.Context, order dashboardSort, sear
 		}
 	}
 	rows, err := s.db.QueryContext(ctx, `SELECT family,id,repository,directory,wake_target,registered_at,renewed_at,expires_at,
-		retired_at,revision,name,alias,`+order.selectList()+` FROM (`+dashboardSessionView+`) WHERE `+where+
+		retired_at,purge_at,revision,name,alias,`+order.selectList()+` FROM (`+dashboardSessionView+`) WHERE `+where+
 		` ORDER BY `+by+` LIMIT `+strconv.Itoa(dashboardSessionPage+1), args...)
 	if err != nil {
 		return nil, "", err

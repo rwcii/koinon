@@ -39,13 +39,16 @@ var (
 // noticeText is every notice a view can show; any other code shows nothing.
 var noticeText = map[string]string{
 	"retired":                   "The session was retired.",
+	"purge_marked":              "The session is marked for purge. An active session was retired; the next maintenance sweep deletes it with its whole inbox.",
+	"purge_unmarked":            "The purge mark was removed. The session stays as it is.",
+	"confirmation_required":     "Refused: confirm the purge first.",
 	"released":                  "The claim was released.",
 	"acknowledged":              "The inbox was acknowledged.",
 	"cleared":                   "The inbox was cleared: every message is acknowledged.",
 	"sent":                      "The message was sent as maintainer.",
 	"launched":                  "The session was started in a new tmux session.",
 	"invalid_request":           "Refused: the request was not valid.",
-	"maintainer_session":        "Refused: the maintainer session cannot be retired.",
+	"maintainer_session":        "Refused: the maintainer session cannot be retired or purged.",
 	"revision_changed":          "Refused: the session changed since the page was loaded. Reload and try again.",
 	"session_not_active":        "Refused: the session is not active.",
 	"session_not_found":         "Refused: no such session.",
@@ -149,6 +152,41 @@ func (d *Daemon) dashboardActions(mux *http.ServeMux, authed func(int64, func(ht
 			return "revision_changed"
 		})
 	}))
+
+	// purge marks a session for the maintenance sweep to delete with its whole inbox, after an
+	// explicit confirmation (#216); unpurge removes the mark before the sweep runs.
+	purge := func(mark bool) func(http.ResponseWriter, *http.Request, string) {
+		action, accepted := "purge", "purge_marked"
+		if !mark {
+			action, accepted = "unpurge", "purge_unmarked"
+		}
+		return func(w http.ResponseWriter, r *http.Request, _ string) {
+			k, valid := sessionKey(r)
+			revision, ok := formInt(r, "revision")
+			target := k.Family + ":" + k.ID
+			ctx, pending := withAudit(r.Context(), action, target)
+			if valid && k == maintainerKey {
+				d.store.auditRefusal(ctx, pending, "maintainer_session")
+				done(w, r, "sessions", nil, "maintainer_session")
+				return
+			}
+			if valid && ok && mark && r.PostForm.Get("confirm") != "purge" {
+				d.store.auditRefusal(ctx, pending, "confirmation_required")
+				done(w, r, "sessions", nil, "confirmation_required")
+				return
+			}
+			run(w, r, action, target, "sessions", nil, valid && ok && revision > 0, func(ctx context.Context) error {
+				return d.store.markPurge(ctx, k, revision, mark)
+			}, accepted, func(err error) string {
+				if errors.Is(err, ErrConflict) {
+					return "revision_changed"
+				}
+				return errorCode(err)
+			})
+		}
+	}
+	mux.HandleFunc("POST /dashboard/actions/purge", authed(actionFormLimit, purge(true)))
+	mux.HandleFunc("POST /dashboard/actions/unpurge", authed(actionFormLimit, purge(false)))
 
 	mux.HandleFunc("POST /dashboard/actions/release", authed(actionFormLimit, func(w http.ResponseWriter, r *http.Request, _ string) {
 		repository, workID, consumer := r.PostForm.Get("repository"), r.PostForm.Get("work_id"), r.PostForm.Get("consumer")

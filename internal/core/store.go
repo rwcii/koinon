@@ -34,10 +34,12 @@ type Session struct {
 	RenewedAt    int64           `json:"renewed_at"`
 	ExpiresAt    int64           `json:"expires_at"`
 	RetiredAt    int64           `json:"retired_at"`
-	Revision     int64           `json:"revision"`
-	State        string          `json:"state"`
-	Name         string          `json:"name"`
-	Alias        string          `json:"alias,omitempty"`
+	// PurgeAt is the time of the maintainer's purge mark (#216), or 0.
+	PurgeAt  int64  `json:"purge_at,omitempty"`
+	Revision int64  `json:"revision"`
+	State    string `json:"state"`
+	Name     string `json:"name"`
+	Alias    string `json:"alias,omitempty"`
 }
 
 type Registration struct {
@@ -67,6 +69,8 @@ type Store struct {
 	observed observations
 	openCode openCodeCache
 	wake     wakeState
+	// retention holds the last retention sweep's results (#216).
+	retention retentionState
 }
 
 func openStore(root string) (*Store, error) { return openStoreFile(root, "state.sqlite3") }
@@ -199,7 +203,7 @@ func checkFormat(db *sql.DB, path string) error {
 	return nil
 }
 
-const schemaVersion = 8
+const schemaVersion = 9
 
 // migrate brings the state schema from version to target in one transaction, so a crash
 // leaves either the old or the new schema. Each step starts from the version before it.
@@ -402,6 +406,16 @@ func migrate(db *sql.DB, version, target int) error {
 			return err
 		}
 	}
+	if version < 9 && target >= 9 {
+		// Version 9: retention (#216). The sweep's acknowledgement mark: every message of a
+		// session with a sequence at or below ack_mark was acknowledged by ack_mark_at, which
+		// is 0 while no mark waits. purge_at is the time of the maintainer's purge mark, or 0.
+		if _, err := tx.Exec(`ALTER TABLE sessions ADD COLUMN ack_mark INTEGER NOT NULL DEFAULT 0;
+			ALTER TABLE sessions ADD COLUMN ack_mark_at INTEGER NOT NULL DEFAULT 0;
+			ALTER TABLE sessions ADD COLUMN purge_at INTEGER NOT NULL DEFAULT 0;`); err != nil {
+			return err
+		}
+	}
 	if _, err := tx.Exec(fmt.Sprintf("PRAGMA user_version=%d", target)); err != nil {
 		return err
 	}
@@ -587,7 +601,7 @@ const sessionColumns = `family,id,repository,directory,wake_target,registered_at
 // sessionQuery reads a session with its peer name and the alias it is recorded to hold;
 // scanSession shows the alias only while the session is active.
 const sessionQuery = `SELECT s.family,s.id,s.repository,s.directory,s.wake_target,s.registered_at,s.renewed_at,
-	s.expires_at,s.retired_at,s.revision,
+	s.expires_at,s.retired_at,s.purge_at,s.revision,
 	COALESCE((SELECT name FROM names WHERE kind='peer' AND family=s.family AND session_id=s.id),''),
 	COALESCE((SELECT name FROM names WHERE kind='alias' AND family=s.family AND repository=s.repository
 		AND s.repository!='' AND holder_id=s.id),'') FROM sessions s`
@@ -597,7 +611,7 @@ type scanner interface{ Scan(...any) error }
 func scanSession(row scanner, now int64) (Session, error) {
 	var result Session
 	var target string
-	err := row.Scan(&result.Family, &result.ID, &result.Repository, &result.Directory, &target, &result.RegisteredAt, &result.RenewedAt, &result.ExpiresAt, &result.RetiredAt, &result.Revision, &result.Name, &result.Alias)
+	err := row.Scan(&result.Family, &result.ID, &result.Repository, &result.Directory, &target, &result.RegisteredAt, &result.RenewedAt, &result.ExpiresAt, &result.RetiredAt, &result.PurgeAt, &result.Revision, &result.Name, &result.Alias)
 	if errors.Is(err, sql.ErrNoRows) {
 		return result, ErrMissing
 	}

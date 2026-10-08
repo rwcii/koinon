@@ -5,6 +5,13 @@ into a dated release section when promoted to `main`.
 
 ## Unreleased
 
+- The daemon deletes old records in its maintenance sweep. Acknowledged messages go 30 to 60
+  days after their acknowledgement, and expired or retired sessions, with their peer names,
+  30 days after their activity ended, unless they still hold unacknowledged messages or a
+  live claim. The dashboard can mark a session for purge, after a confirmation: the next sweep
+  releases its claims and deletes it with its whole inbox, and the mark can be removed until
+  then. `koinon status` and dashboard health report what each sweep deleted and kept, and
+  `delivery` reports a deleted message as `deleted`. The state schema is now 9.
 - `koinon codex`, `koinon agy` and `koinon opencode` start in a repository that has
   submodules or a linked worktree of itself inside its checkout, also a submodule inside a
   linked worktree. They still refuse any other nested repository, including a directory that

@@ -88,7 +88,10 @@ inbox and reads only the outcome of its own messages; another sender's message r
   sequence leaves `acked_through` unchanged, and a sequence beyond the last fails with
   `ack_beyond_last` (409). A message is acknowledged when its `seq` is at most `acked_through`.
 - Outcome takes `caller` and `message_id` and returns `id`, `recipient`, `seq`, `delivery_state`,
-  `delivery_reason`, `updated_at`, `acknowledged` and `acknowledged_by` (#82).
+  `delivery_reason`, `updated_at`, `acknowledged` and `acknowledged_by` (#82). For a message that
+  retention or a purge deleted, it returns `ok: true` with `id` and `delivery_state` `deleted`;
+  the other fields are empty, zero or false. Any issued ID that the daemon no longer holds reads as `deleted`, also when another
+  session sent it; a held message of another sender stays `message_not_found`.
 
 The daemon has one built-in session, family `maintainer` and peer name `maintainer` (schema 7).
 It has an inbox, never expires, has no repository, alias or wake target, and is never woken.
@@ -157,8 +160,49 @@ It offers a due unacknowledged notice at that turn boundary, leaving delivery un
 Stop hook returns `{"decision":"continue","reason":NOTICE}` only for that offer; otherwise `{}`,
 including when the daemon is unavailable. `GET /v1/status` and dashboard health expose `wake`
 counts, grouped fixed reason codes and a storage fault, without message bodies or credentials.
-Queue acceptance does not prove model processing. Expired/retired sessions keep their inboxes
-and receive no new wake until registered again.
+Queue acceptance does not prove model processing. Expired/retired sessions keep their inboxes,
+until retention deletes them, and receive no new wake until registered again.
+
+### Retention
+
+The maintenance loop runs a retention sweep after each work sweep (#216). Schema 9 adds three
+session columns for it: `ack_mark` and `ack_mark_at`, the sweep's acknowledgement mark, and
+`purge_at`, the time of the maintainer's purge mark (0 when unmarked). The periods are fixed:
+
+- **Acknowledged messages: 30 days.** When an inbox has acknowledged messages and no mark waits,
+  the sweep records a mark: every message at or below the acknowledged sequence was
+  acknowledged by that time. Thirty days after the mark, the sweep deletes those messages. A
+  message is therefore deleted between 30 and 60 days after its acknowledgement, never sooner.
+  An unacknowledged message is never deleted by retention.
+- **Inactive sessions: 30 days** after their activity ended: the retirement time of a retired
+  session, otherwise the expiry time (0 for an imported session without one). The sweep deletes
+  such a session with its peer name when it holds no message and no active claim bundle owned
+  by its consumer key `FAMILY:ID`. A session with unacknowledged messages stays until they are
+  acknowledged, by the recipient or by the dashboard `clear`, and their own retention has
+  passed. The deleting transaction reads every condition again, so a session that registered
+  again meanwhile stays. The alias that it held stays reserved for its repository and goes to
+  the next active session of that family and repository. Its released peer name is free at once,
+  so a later session can receive the same name; a default memory consumer, which is the peer
+  name, then continues the earlier cursor.
+- **Purge.** A session that the maintainer marked for purge is deleted by the next sweep with its
+  whole inbox, unacknowledged messages included, and its names, without a retention period.
+  Its live claims are released first, each as the owner's release with the checkpoint
+  `Released by the maintainer's purge of the session` and a work event that names family and
+  name `maintainer`. A claim whose lease expired waits for the work sweep's reconciliation; a
+  claim that cannot be released keeps the session until a later sweep. Removing the mark stops
+  the purge; once the sweep has begun to delete the inbox, the deleted messages stay deleted.
+
+A send to a deleted peer name is `peer_not_found`. Each deletion is a control write (it may use
+the storage reserve) in its own transaction: at most 500 messages per transaction, 10,000
+messages per sweep and 100 sessions per rule and sweep, so a sweep holds the storage boundary no longer
+than the work sweep does. Memory entries, work items and audit records keep their own retention.
+
+`GET /v1/status` (and `koinon status`) and dashboard health report `retention`:
+`message_retention_days`, `session_retention_days`, `marked_for_purge`, `last_sweep` (Unix
+milliseconds), `last` with the counts of the last completed sweep (`messages_by_retention`,
+`messages_by_purge`, `sessions_by_retention`, `sessions_by_purge`, and the sessions past their
+period that it kept: `held_unacknowledged`, `held_claims`), and a `fault` code with `fault_at`
+when the last sweep failed.
 
 ### Memory stores
 
@@ -367,6 +411,15 @@ from elsewhere. Peer message bodies appear here, escaped, and nowhere else outsi
   - `retire` (`family`, `id`, `revision`): the existing retirement; a changed revision is
     `revision_changed`, a session that is not active `session_not_active`, and the maintainer
     session `maintainer_session`.
+  - `purge` (`family`, `id`, `revision`, `confirm`): marks an agent session for purge (see
+    Retention). The page shows the consequences behind a Purge disclosure, and its Confirm purge
+    button sends `confirm=purge`; without it the action is `confirmation_required`. An active
+    session is retired in the same write. A changed revision or an existing mark is
+    `revision_changed`; the maintainer session is `maintainer_session`. The sessions view shows
+    a marked session with its mark time.
+  - `unpurge` (`family`, `id`, `revision`): removes the mark before the sweep; the session stays
+    as it is (a session that the mark retired stays retired). A changed revision or a session
+    without a mark is `revision_changed`.
   - `release` (`repository`, `work_id`, `revision`, `generation`, `consumer`): the work release
     of the claim's owner, with the checkpoint `Released by the maintainer from the dashboard`;
     the work event names family and name `maintainer`. Stale values get the work refusal codes.
@@ -374,7 +427,8 @@ from elsewhere. Peer message bodies appear here, escaped, and nowhere else outsi
     existing inbox, also of an expired or retired session, through a sequence or through the
     newest sequence at the request. Both only move forward and share the wake submission
     boundary, so no notice is sent for a sequence they cover. The messages they newly
-    acknowledge carry `acknowledged_by: maintainer`. Nothing is deleted.
+    acknowledge carry `acknowledged_by: maintainer`. They delete nothing; retention deletes the
+    acknowledged messages later.
   - `send` (`to`, `body`): a message from `maintainer`; the recipient's wake works as for any
     message.
   - `launch` (`family` `codex`, `agy` or `opencode`; `directory`; optional `name`): the daemon runs

@@ -284,8 +284,13 @@ func (d *Daemon) handler() http.Handler {
 			failure(w, err)
 			return
 		}
+		retention, err := d.store.RetentionStatus(r.Context())
+		if err != nil {
+			failure(w, err)
+			return
+		}
 		respond(w, 200, map[string]any{"ok": true, "daemon": "running", "listeners": d.Addresses(), "sessions": counts,
-			"schema": schemaVersion, "storage": storage, "wake": wake})
+			"schema": schemaVersion, "storage": storage, "wake": wake, "retention": retention})
 	})
 	mux.HandleFunc("GET /v1/sessions", func(w http.ResponseWriter, r *http.Request) {
 		items, truncated, err := d.store.List(r.Context())
