@@ -93,3 +93,24 @@ OpenCode's wake server requires the launcher. The dashboard link is single-use a
 keep it out of logs, Git and messages. Administrative actions require CSRF protection and are
 audited. Health reports unknown observations explicitly; a failure is not permission to
 replace state, kill an unrelated process, or change agent settings.
+
+## Launcher paths in launchers.json
+
+Authorized `koinon setup codex|agy|opencode` records its resolved absolute CLI path in
+`launchers.json` under the Go state root, so subsequent launches need no `--cli`:
+
+```sh
+koinon setup codex --cli /opt/agents/bin/codex
+koinon codex --directory /path/to/repository
+```
+
+The default file is `~/.local/state/koinon/go/launchers.json`, or
+`$XDG_STATE_HOME/koinon/go/launchers.json`; setup and launch can select the same custom
+root with `--state-dir DIR`. Its format is a JSON object mapping family to absolute path,
+such as `{"codex":"/opt/agents/bin/codex","agy":"/opt/agents/bin/agy"}`. The file must
+be owned by the current user, a regular file with one link, mode 0600 and at most 16 KiB,
+in a private user-owned directory. Unsafe files are refused, with permissions left intact.
+
+Repeat setup with `--cli /new/absolute/path` to update one family while preserving the
+others. A launch's `--cli` overrides the stored path without changing it. Launchers never
+search `PATH`; only setup does so when `--cli` is omitted. Uninstall retains the file.

@@ -9,6 +9,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/rwcii/koinon/internal/launcher"
 )
 
 // syntheticCLI writes an agent CLI that keeps MCP entries in a state file, one
@@ -54,7 +56,8 @@ func TestSetupEachFamilyAndRepeat(t *testing.T) {
 	for _, family := range []string{"claude", "codex", "agy", "opencode"} {
 		t.Run(family, func(t *testing.T) {
 			cli, state, log := syntheticCLI(t, family)
-			o := Options{Family: family, CLI: cli, Binary: binary, AgyRoot: filepath.Join(t.TempDir(), "agy"), Opencode: filepath.Join(t.TempDir(), "opencode")}
+			o := Options{Family: family, CLI: cli, Binary: binary, StateDir: filepath.Join(t.TempDir(), "state"),
+				ClaudeConfig: filepath.Join(t.TempDir(), "claude"), AgyRoot: filepath.Join(t.TempDir(), "agy"), Opencode: filepath.Join(t.TempDir(), "opencode")}
 			report, err := Run(context.Background(), o)
 			if err != nil || len(report.Changed) == 0 || report.CLI != cli {
 				t.Fatalf("first run: %+v %v", report, err)
@@ -70,6 +73,11 @@ func TestSetupEachFamilyAndRepeat(t *testing.T) {
 			}
 			if family == "claude" && !strings.Contains(last, "--scope user") {
 				t.Fatalf("claude scope: %s", last)
+			}
+			if family != "claude" {
+				if path, err := launcher.ConfiguredCLI(o.StateDir, family, ""); err != nil || path != cli {
+					t.Fatalf("setup did not record CLI: %q %v", path, err)
+				}
 			}
 			again, err := Run(context.Background(), o)
 			if err != nil || len(again.Changed) != 0 || len(again.Unchanged) != len(report.Changed) {
@@ -91,6 +99,19 @@ func TestSetupReplacesOnlyItsOwnEntry(t *testing.T) {
 	got := calls(t, log)
 	if len(got) != 3 || got[1] != "mcp remove koinon" || got[2] != "mcp add koinon -- /new/koinon mcp" {
 		t.Fatalf("calls: %v", got)
+	}
+}
+
+func TestSetupRecordsDiscoveredCLI(t *testing.T) {
+	cli, _, _ := syntheticCLI(t, "codex")
+	t.Setenv("PATH", filepath.Dir(cli)+string(filepath.ListSeparator)+os.Getenv("PATH"))
+	state := filepath.Join(t.TempDir(), "state")
+	report, err := Run(context.Background(), Options{Family: "codex", Binary: "/opt/koinon/bin/koinon", StateDir: state})
+	if err != nil || report.CLI != cli {
+		t.Fatalf("resolved CLI: %+v %v", report, err)
+	}
+	if path, err := launcher.ConfiguredCLI(state, "codex", ""); err != nil || path != cli {
+		t.Fatalf("discovered path not recorded: %q %v", path, err)
 	}
 }
 

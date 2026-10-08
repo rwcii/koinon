@@ -5,6 +5,10 @@ into a dated release section when promoted to `main`.
 
 ## Unreleased
 
+- Setup for Codex, Antigravity and OpenCode records the resolved absolute CLI path in
+  private `launchers.json`, preserving other families' entries. Launchers work without
+  `--cli` after setup, keep explicit overrides and never search `PATH` at launch time.
+
 - A Claude session that has a background shell task running now receives Koinon wake
   notices. Claude Code reports such a session as `shell` while it waits at the prompt, and
   the wake treated that like a turn in progress, so no notice arrived until every background
