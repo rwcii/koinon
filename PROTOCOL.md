@@ -2,7 +2,7 @@
 
 ## Go daemon core
 
-The Go daemon is currently a development runtime alongside Python. Its HTTP API uses a
+The Go daemon is the Koinon runtime. Its HTTP API uses a
 private user secret from the selected Go state root, passed in `Authorization: Bearer SECRET`.
 No API endpoint is anonymous. Each listener must be a literal loopback address; foreign
 browser origins and non-loopback Host headers are refused. The API accepts no browser cookies.
@@ -103,8 +103,7 @@ Replies include `ok`. Success returns `session` or `sessions`; failures report a
 `unauthorized` (401), `foreign_origin` (403), `invalid_request` (400), `session_not_found` (404),
 `session_conflict` (409), the message codes above, or `storage_error` (500). Mutations commit
 before replying. A lost reply does not prove rollback; read the retained record before
-retrying. The Python protocol below continues
-to apply to Python.
+retrying.
 
 Launch creation takes `family` (`codex`, `agy`, `opencode`), absolute `directory` and `cli`,
 and positive `host_pid`. OpenCode also requires `address` (literal loopback with a nonzero
@@ -167,11 +166,33 @@ subdirectory of a repository share one store. A session without a repository get
 names a cursor, never an identity). Provenance is the caller's family and peer name
 (`writer_family`, `writer_name`).
 
-The operations keep the behaviour of the memory control protocol below: `record` is `note`
-with the same fields, types, scopes, limits, supersession, revocation, `conflicts_with`,
-idempotency key and deadline; `sync`, `ack`, `recall` and `status` take the same fields and
-return the same results and codes, as `{"ok": true, "result": ...}`. Every result is record
-format 2, and `record_format` is not a request field; unknown fields are refused. Recall is the
+The operations are `record`, `sync`, `ack`, `recall` and `status`. Entry fields, types, scopes,
+limits, supersession and revocation follow contract 4 of
+[PARITY-MEMORY-DESIGN.md](docs/PARITY-MEMORY-DESIGN.md). A response is `{"ok": true, "result":
+...}` or `{"ok": false, "code": ...}`, and the `code` names the recovery path:
+`snapshot_expired` and `stale_page_token` require restarting `sync`; `snapshot_incomplete`
+requires paging to the end before acknowledging; `consumer_retired` requires a new consumer
+key; `capacity`, `entry_too_large`, `idempotency_conflict`, `retry_deadline_expired`,
+`not_issued`, `foreign_snapshot`, `snapshot_open` and `not_bootstrapped` describe a refused
+request that changed nothing. A second replacement of the same entry is a successful write whose
+result carries `conflicts_with`, naming the replacement it competes with; both stay live.
+
+A `record` carrying `key` must also carry `deadline`, an absolute epoch second fixed before the
+first send and repeated on every retry. Within it a repeat returns the original sequence with
+`duplicate` true; past it the request is refused with `retry_deadline_expired`, because the
+daemon cannot tell whether the first attempt landed. The result echoes `deadline` and reports
+`idempotency_horizon`, the longest deadline the daemon accepts.
+
+A `sync` returns either `kind: snapshot` with `snapshot_id`, `entries`, `page_token`, `total` and
+`more`, or `kind: delta` with `entries`, `cursor`, `next_cursor`, `head` and `more`, and never
+advances a cursor; only `ack` does. Continuing a snapshot requires both `snapshot_id` and
+`page_token`. An `ack` carries `snapshot_id` once every page has been issued, or `through` for a
+delta. `recall` and `status` return `more` with `next_before` and `next_after`, null when nothing
+remains. Pages are bounded by encoded bytes. Sequence numbers come from a durable head that only
+advances; reclaiming entries moves the retained-history `floor`, and a consumer below the floor
+gets a fresh snapshot instead of a gap. A snapshot holds stored records, not a summary.
+
+Every result is record format 2, and `record_format` is not a request field; unknown fields are refused. Recall is the
 complete substring scan (`indexed: false`); there is no full-text index. Idempotency rows carry
 the scheme of their fingerprint and are compared only by that scheme, so rows imported from
 another runtime keep their own. A committed head change calls one content-free hook with the
@@ -278,7 +299,7 @@ select the state root and address.
 
 ### Dashboard and session observations
 
-The daemon serves a read-only dashboard under `/dashboard/` on its loopback listeners. Pages are
+The daemon serves a dashboard under `/dashboard/` on its loopback listeners. Pages are
 rendered on the server and their CSS and script are embedded in the binary; nothing is fetched
 from elsewhere. Peer message bodies appear here, escaped, and nowhere else outside the inboxes.
 
@@ -405,18 +426,6 @@ restores it while the entry is still Koinon's, and keeps an entry the user chang
 not owned by the user, a file over 1 MiB or invalid JSON is refused, and a file that changes
 while Koinon edits it is a `settings_conflict` that keeps the other change.
 
-The [work command interface](docs/WORK-ITEMS-COMMANDS.md) provides schema-5
-work records, advisory claims and immutable events. Startup creates schema 5 or
-atomically migrates schema 3/4 after validating the complete catalog. Transport remains
-protocol 1; hello/status advertise `work_items_v1` and `memory_record_format_2`.
-Every sync and ack requires integer `record_format: 2`, refused before maintenance or
-cursor mutation if missing or incompatible. New readers retain legacy snapshot shapes.
-[Maintenance](docs/WORK-ITEMS-MAINTENANCE.md) bounds reclamation and reports timestamped
-diagnostics. [Policy and guidance](docs/WORK-ITEMS-POLICY.md) remain explicit opt-in.
-Follow the [runtime upgrade procedure](docs/WORK-ITEMS-UPGRADE.md) for existing services.
-
-The peer transport below was observed in Claude Code 2.1.267 on Linux and 2.1.268 on macOS. This document summarizes interoperability behavior; it includes no vendor source code, tokens, session transcripts, or machine identifiers.
-
 ### Import of Python-era state
 
 Schema 8 adds the `imports` table. Each Python-era source that a database imported has one row
@@ -488,6 +497,10 @@ Python `store_id`.
 - supervisor and service records, locks and sockets.
 
 ## Claude socket compatibility
+
+The peer transport below was observed in Claude Code 2.1.267 on Linux and 2.1.268 on macOS.
+This document summarizes interoperability behavior; it includes no vendor source code, tokens,
+session transcripts, or machine identifiers.
 
 The Claude wake adapter uses the same-user socket protocol below. This is a provider
 transport, not a second Koinon coordination service. Socket paths remain literal so that

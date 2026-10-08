@@ -5,199 +5,70 @@ into a dated release section when promoted to `main`.
 
 ## Unreleased
 
-- Retire the Python runtime, its entrypoints, runtime tests and obsolete native jobs. The
-  Go daemon is the sole checkout runtime; committed legacy fixtures and the pinned previous
-  release retain import/upgrade coverage. Port contributor checks and repository setup to
-  Go/shell, and update active guides and shared skills for the one-daemon commands.
+## 2026-10-08 — Go runtime: one daemon, MCP access, install and upgrade from Python
 
-- Added the Go runtime's installation commands:
-  - `koinon install` places the binary, writes and starts a systemd user unit (Linux) or a
-    launchd agent (macOS), and sets up the agents you name.
-  - `koinon uninstall` removes them again and keeps the state.
-  - `koinon upgrade --from-python` moves a `main`-release installation to the Go runtime. It
-    takes the Python runtime's own upgrade marker, stops the Python services, and imports every
-    inbox, memory store, work item and claim. It verifies the import before it removes the
-    Python services. A failure before that point restores the Python runtime. A failure after
-    it resumes when you run the command again.
-  - `koinon import` imports a Python-era state tree on its own, and `--verify` compares the tree
-    with the imported state.
-  - `koinon version` prints the build.
+This release replaces the Python runtime with one Go binary, `koinon`, and one daemon for each
+user. Linux and macOS builds use no cgo, and a fresh installation needs no Python.
 
-  Releases attach four CGO-free binaries with a `SHA256SUMS` file. The state schema is now 8.
-
-- The Go daemon dashboard now has actions: retire a session, release a claim on its owner's
-  behalf, acknowledge or clear an inbox, send a message as the built-in `maintainer` session
-  (agents can reply to it), and start a Codex, `agy` or OpenCode session in a new tmux session.
-  Each action writes one record to an audit log (90 days, at most 10,000 records), shown in the
-  new audit view. Acknowledged messages report `acknowledged_by`. The state schema is now 7.
-- The Go runtime's `koinon mcp` now names a Claude session's or a launched session's own tmux
-  session after its published name (its alias, such as `claude-koinon`, else its peer name). It
-  renames only a session that it proves to be that agent's own and titles only its own pane in
-  a session shared with another agent. The dashboard shows the result.
-- A Koinon command no longer crashes at start when another process of the same installation
-  compiles a module while the command checks its bytecode caches; it runs from source for
-  that run instead.
-- The Go daemon now wakes Codex, Claude Code, DeepSeek and idle OpenCode sessions with
+- **Installation.** `koinon install` places the binary, writes and starts a systemd user unit
+  (Linux) or a launchd agent (macOS), and sets up the agents you name. `koinon uninstall`
+  removes them again and keeps the state. `koinon version` prints the build. Releases attach
+  four CGO-free binaries (Linux and macOS, amd64 and arm64) with a `SHA256SUMS` file.
+  Homebrew installs the release binary with `brew install rwcii/koinon/koinon` on macOS and
+  Linux; run `koinon install` again after each `brew upgrade`.
+- **Upgrade from the Python release.** `koinon upgrade --from-python` moves a `main`-release
+  installation to the Go runtime. It takes the Python runtime's own upgrade marker, stops the
+  Python services, and imports every inbox, memory store, work item and claim. It verifies the
+  import before it removes the Python services. A failure before that point restores the
+  Python runtime. A failure after it resumes when you run the command again. The Python state
+  tree stays as a backup. `koinon import` imports a Python-era state tree on its own, and
+  `--verify` compares the tree with the imported state.
+- **Daemon core.** An authenticated IPv4 and IPv6 loopback API, durable session registration,
+  renewal and retirement, and `koinon status`. Each session gets a permanent peer name, and
+  each family and repository one alias. `koinon peers`, `send`, `inbox` and `ack` send, read and
+  acknowledge messages with gapless sequence numbers, and a sender can read the delivery
+  outcome of its own message. A built-in `maintainer` session receives messages from agents.
+  Sessions can register from plain directories. The state schema is 8.
+- **MCP access.** `koinon mcp` is a stdio MCP server with the messaging tools `peers`, `send`,
+  `inbox`, `ack` and `delivery`, the `memory_*` tools, and the `work_*` and `claim_renew` tools.
+  It takes the calling session from the agent on every call (Codex thread, Antigravity
+  conversation, Claude Code session, OpenCode session through a plugin) and never from tool
+  arguments. `koinon setup <family>` adds it to Claude, Codex, Antigravity or OpenCode through
+  the agent's own command and changes nothing on a repeated run. `koinon guide --agent <family>`
+  prints the guidance. DeepSeek uses the command path with `koinon register`.
+- **Wake.** The daemon wakes Codex, Claude Code, DeepSeek and idle OpenCode sessions with
   content-free inbox notices, and offers Antigravity notices at its Stop boundary. Busy sessions
   are rechecked every three seconds; failed and unconfirmed attempts retry with bounded backoff
-  across restarts. Acknowledged sequences are
-  suppressed. Health reports delivery counts and adapter reasons. Added `koinon register` for
-  DeepSeek's native command path, with private credentials and pinned loopback delivery.
-- Added the Go daemon dashboard: `koinon dashboard` prints a one-time login link to a loopback,
-  read-only web view of the sessions, every message with its body and delivery and
-  acknowledgement state, the memory stores, the work items and the daemon's health, refreshed in
-  place. Requests must name the listener's literal address and origin; state changes need a CSRF
-  token. Sessions show their model, context, activity and terminal, from Codex call metadata and
-  rollouts, the Claude Code registry and the new `koinon hook claude-status` status line (set up by
-  `koinon setup claude`), the Antigravity Stop hook and the OpenCode session status.
-- The Go daemon now holds work items in each repository's memory store: records with criteria
-  and non-goals, advisory writer leases with path and exact resource claims, progress and
-  due-transition events in the memory stream, idempotent retries, list filters, 30-day retention
-  of finished work and a bounded maintenance sweep, through the `work_*` and `claim_renew` MCP
-  tools and `koinon work` / `koinon claim renew`. Funded release, finish and expiry controls keep
-  their storage reserved against every other write, and the daemon refuses a database whose
-  header schema format is not 4 or whose schema objects differ from the ones it creates.
-- The Go daemon now holds one shared memory store per repository, with the record format 2,
-  snapshot, delta, acknowledgement, idempotency, retention and capacity rules of the memory
-  protocol, through the `memory_*` MCP tools and `koinon memory`. Its database has a fixed
-  storage ceiling with a reserve for progress and withdrawal, proves its write-ahead log empty
-  before every write, and refuses writes until `koinon recover` when it cannot.
-- Added `koinon mcp`, a stdio MCP server with the tools `peers`, `send`, `inbox`, `ack` and
-  `delivery`. It takes the calling session from the agent on every call (Codex thread, Antigravity
-  conversation, Claude Code session, OpenCode session through a plugin) and never from tool
-  arguments. `koinon setup <family>` adds it to Claude, Codex, Antigravity or OpenCode through the
-  agent's own command and changes nothing on a repeated run; `koinon guide --agent <family>`
-  prints the guidance.
-- Added Go launchers for Codex, Antigravity and OpenCode, with configured CLI paths,
-  current or new tmux terminals, nested repository refusal and inherited Claude environment
-  cleanup. OpenCode receives a loopback listener and generated password; launch targets are
-  retained in private daemon state for session registration.
-- Added the Go daemon core alongside Python: a CGO-free binary, authenticated IPv4/IPv6
-  loopback API, durable session registration/renewal/retirement, and `koinon status`.
-  Sessions can register from plain directories without selecting a Git repository.
-  Go state is separate; Python installation and messaging remain available during the sprint.
-- The Go daemon now holds peer names, aliases and inboxes: each session gets a permanent peer name
-  and each family and repository one alias, and `koinon peers`, `send`, `inbox` and `ack` send,
-  read and acknowledge messages with gapless sequence numbers. A sender can read the delivery
-  outcome of its own message. Wake notices are not yet added; a stored message stays `waiting`.
-- Each checkout now has its own stable alias. Before, the Codex sessions of all worktrees of one
-  repository shared one alias, named after the folder of the first worktree that reserved it.
-  After the holder stopped, the session that ran `ensure` first took it, so the order of a
-  restart could give a session the alias of another worktree. A lease of an earlier version is
-  adopted by the checkout it was named after, a session that publishes the alias of another
-  checkout restarts at its next `ensure` and publishes its own, and a lease that no checkout
-  adopts is removed once nothing publishes it.
-- `codex_launch.py` now refuses a start folder that holds another repository (a `.git` below the
-  folder other than its own). Codex's sandbox protects only the start folder's own `.git`, so a
-  session started above another repository could change that repository's git configuration.
-- The startup guide of every agent family now says to start a Codex session only through
-  `codex_launch.py`, and carries the `launch_codex` recipe in its overview. Before, only the full
-  Codex guide said so, and a Claude session that started a Codex peer used plain `codex`.
-- New `codex_launch.py`: start a Codex session through it, in the current terminal or with
-  `--tmux-session NAME --directory DIR` in a new detached tmux session, from a person, a Claude
-  session or a Codex session. It passes the CLI's own process ID to every command of the session,
-  so `ensure` records that session's host and tmux pane and renames that session. Before, a Codex
-  session whose commands ran in the app-server daemon of another CLI recorded that CLI's process
-  and pane and renamed that CLI's tmux session. Without the launcher, such a session now records
-  `host_shared`, renames nothing, and `rebind` needs `--user-authorized`. A Codex CLI started by a
-  command of another Codex session records `host_in_codex` and renames nothing.
-- Inside an agent sandbox, `bridge.py inbox`, `ack`, `send` and `peers` now report `sandboxed`
-  with the approval-request remedy. Before, they reported a dead service, `peer_not_found` or an
-  empty peer list, and agents concluded that the bridge was down. The Codex and DeepSeek guide
-  marks the inbox, ack, send, peers, status and memory recipes `needs_approval`, and the
-  `sandbox` and `troubleshoot` topics explain these results.
-- A Claude session now shows the name of a Codex or DeepSeek sender. `Bridge.send` wraps each
-  message in the sender envelope that Claude sessions write, with the bridge's address and its
-  published name; an alias holder shows as `name (alias)`. Before, every such message arrived
-  with no sender name.
-- Running the test suite in a tmux pane no longer renames that tmux session. `tests/run.py`
-  removes the pane from the run's environment, and a product tmux call to the tester's own
-  server fails its test. A Codex host record never names a Python or Node interpreter, so a
-  test runner cannot become the host of a synthetic session.
-- A memory supervisor failure now reports the cause behind its class code as `detail`: the
-  memory service's own error code, or the child's exit status and whether it had started.
-  The supervisor's owner and refusal records keep it, and `memory_service.py` status and
-  failure output and the native fixture's evidence carry it. The public error codes are
-  unchanged.
-- In tmux, a Codex `ensure` or `rebind` names the agent's own tmux session after its published
-  name (the alias when it holds it), or only its own pane title when the tmux session holds
-  another agent's pane. It never renames another session and reports a name already taken.
-- `session.py rebind --predecessor OLD` retires a replaced Codex thread and moves the alias to
-  the new thread, when both registrations recorded the same tmux pane or the user named the
-  predecessor (`--user-authorized`). The same host process alone is not enough. The guide's
-  Codex `reconnect` topic and the `pickup` skill use it in place of `stop_predecessor`.
-- A Codex participant takes its repository's stable alias, such as `codex-koinon`, when no
-  other live session holds it, and publishes it as its peer name, so Claude sessions and
-  `bridge.py send` reach it by that name. `bridge.py send` now accepts a peer name as well as a `uds:` address. `peers`, `ensure`,
-  `status` and the guide report the alias.
-- A Codex `session.py ensure` records the Codex CLI process that runs the session and the
-  tmux pane it runs in, and `ensure` and `status` report both as `host` and `terminal`. The
-  records are evidence for the stable alias work (#141); they change no behaviour yet.
-- A refusal of a path owned by the unmapped uid of a Linux user namespace (normally 65534)
-  now says that an agent sandbox can show this owner, and names the retry outside the sandbox
-  through the agent's approval request. The ownership check itself is unchanged.
-- The guide's `reconnect` topic carries the `ensure` recipe, marked `needs_approval`, as the
-  first command after a reset. It stops a predecessor when the reset occurred in the same tmux
-  pane, or on the user's direct authorization for that exact predecessor, and it records that a Codex `/resume` can return to an older
-  thread. The `handoff`, `pickup` and `peer-tmux` skills now point to this topic. A handoff records
-  the tmux pane, and a pickup in that same pane retires the predecessor and renames the tmux
-  session to the new peer name without a question.
-- Claude sessions get the installed guidance. Installation adds a managed block to the
-  Claude `CLAUDE.md` and one `SessionStart` hook that prints
-  `session.py guide --agent claude --brief` at startup, resume, `/clear` and compaction.
-  The brief names this session's peer name, the peer listing, the session key change after
-  `/clear`, and held incoming messages. `--no-claude-guidance` declines, and
-  `--claude-guidance` and `--remove-claude-guidance` act on an installation. Upgrade and
-  uninstall handle both like the status line: a decline is kept, and entries you edited are
-  kept and reported.
-
-- Session guidance, status and peer listings report guidance revisions and acknowledgement
-  staleness. `session.py guide-ack REVISION` records processing for this session only.
-  Codex and DeepSeek receive one content-free notice per session and guidance revision.
-  Runtime revision diagnostics distinguish old services, mismatches and incomplete upgrades.
-
-- Participant instructions now come from the installed runtime. The managed section in the
-  Codex and DeepSeek `AGENTS.md` shrinks to a pointer, `session.py guide --agent <family>`,
-  plus the authority limits, and is the same in every release. `guide` prints the current
-  guidance, this session's identity and health, and the next action, writes nothing, and
-  works with no registration or service. Installation, repeated installation and upgrade
-  reconcile the section the same way: an earlier release's exact text is replaced, the
-  user's edits are kept and reported, and `--replace-guidance` overwrites them explicitly.
-
-- Native session `ensure` and `status` report the saved peer name, state directory and
-  inbox command. Inspecting an unregistered session now reports `unregistered` without
-  writing files, so a status check no longer blocks subsequent native registration.
-
-- Peer and notifier status show active claimed work with its title and checkpoint from
-  each participant’s selected memory store. `session.py work-key --key KEY` associates
-  a custom work consumer key with the current session.
-
-- The Claude status-line wrapper now records a real Claude session. It refused the session
-  registry record because Claude Code writes that file with the umask mode (0644 or 0664),
-  so every Claude peer showed `no_status_record`.
-- Codex peers report observed turn activity, model and last-request context usage from the
-  selected session log. The notifier checks that the same Codex process still holds that
-  log open; missing or unrecognized evidence is reported as unknown, without resuming the
-  thread or exporting conversation content.
-
-- `bridge.py peers` and the notifier `status` report `model`, `context` and `work` for each
-  participant, next to `presence`. Each value names its source, the time the source recorded
-  it and the time it was read, or is `unknown` with a reason. This release adds the record
-  format and the fields; they report `unknown` until the Claude status-line and Codex
-  session-log sources arrive. Records hold only numbers, identifiers, states and times, in
-  `${CLAUDE_CONFIG_DIR:-~/.claude}/koinon-status` beside the session registry.
-- New `statusline.py` wrapper for the Claude Code `statusLine` command. It records a Claude
-  session's model, context limit and tokens used, then runs the user's own status-line
-  command with the same input and returns its output and exit status unchanged. It adds a
-  median of 38 ms per update on Linux.
-- Installation sets up that wrapper as the Claude Code `statusLine` command by default,
-  keeping your own status-line command and every other setting. `--no-claude-statusline`
-  declines it, `--claude-statusline` sets it up later, and `--remove-claude-statusline` or
-  uninstall restores the previous entry. `--no-start` never changes Claude settings. A
-  missing wrapper shows as `statusline_missing` with the repair command.
-- `scripts/upgrade.py` sets up the same wrapper after the upgrade completes, unless it was
-  declined, and reports `claude_statusline` in its result. A settings change during the
-  upgrade is reported as a conflict and not written.
+  across restarts. Acknowledged sequences are suppressed. Health reports delivery counts and
+  adapter reasons.
+- **Launchers.** `koinon codex`, `koinon agy` and `koinon opencode` start sessions with
+  configured CLI paths, in the current terminal or a new tmux session, refuse a start folder
+  that holds another repository, and clean the inherited Claude environment. OpenCode receives
+  a loopback listener and a generated password. `koinon mcp` names a Claude session's or a
+  launched session's own tmux session after its published name.
+- **Memory.** One shared memory store per repository, with the record format 2, snapshot,
+  delta, acknowledgement, idempotency, retention and capacity rules of the memory protocol,
+  through the `memory_*` tools and `koinon memory`. The database has a fixed storage ceiling
+  with a reserve for progress and withdrawal, proves its write-ahead log empty before every
+  write, and refuses writes until `koinon recover` when it cannot.
+- **Work items.** Records with criteria and non-goals, advisory writer leases with path and
+  exact resource claims, progress and due-transition events in the memory stream, idempotent
+  retries, list filters, 30-day retention of finished work and a bounded maintenance sweep,
+  through the work tools, `koinon work` and `koinon claim renew`.
+- **Dashboard.** `koinon dashboard` prints a one-time login link to a loopback web view of the
+  sessions, every message with its body and delivery and acknowledgement state, the memory
+  stores, the work items, the audit log and the daemon's health. Sessions show their model,
+  context, activity and terminal, from Codex call metadata and rollouts, the Claude Code
+  registry and the `koinon hook claude-status` status line, the Antigravity Stop hook and the
+  OpenCode session status. Actions retire a session, release a claim on its owner's behalf,
+  acknowledge or clear an inbox, send a message as `maintainer`, and start a Codex, `agy` or
+  OpenCode session. Each action needs the login, the listener's literal address and origin and
+  a CSRF token, and writes one audit record (90 days, at most 10,000 records).
+- **Python runtime removed.** The Python runtime, its entrypoints, its tests and its CI jobs are
+  removed. The design documents of the Python subsystems are marked historical. Committed
+  fixtures and the pinned previous release keep the import and upgrade coverage.
+- **Known limit.** The live proof that a DeepSeek session receives and processes a wake notice
+  is deferred ([#199](https://github.com/rwcii/koinon/issues/199)); synthetic tests pass.
 
 ## 2026-09-23 — Bounded test runs
 
