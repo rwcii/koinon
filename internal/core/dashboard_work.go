@@ -283,11 +283,11 @@ func (d *Daemon) workActions(mux *http.ServeMux, authed func(int64, func(http.Re
 			}
 			// A resubmitted form repeats its first request, under that request's consumer, so
 			// it replays the first result whatever the item's state is now.
-			first, generation, err := d.store.finishReplay(ctx, c.repository, c.workID, c.key)
+			first, generation, combined, err := d.store.finishReplay(ctx, c.repository, c.workID, c.key)
 			if err != nil {
 				return err
 			}
-			if first == maintainerConsumer {
+			if combined {
 				_, err = d.store.claimAndFinish(ctx, maintainerWork(c.repository, maintainerConsumer), workFieldsOf(values))
 				return err
 			}
@@ -315,22 +315,27 @@ func (d *Daemon) workActions(mux *http.ServeMux, authed func(int64, func(http.Re
 	}))
 }
 
-// finishReplay finds the consumer under which a finish with this key was recorded, and
-// the claim generation it finished: the item's last generation, which a finish keeps.
-func (s *Store) finishReplay(ctx context.Context, repository, workID, key string) (string, int64, error) {
+// finishReplay finds the consumer under which a finish with this key was recorded, the
+// claim generation it finished (the item's last generation, which a finish keeps), and
+// whether claimAndFinish made it: only that path also records the key's "-start" claim. A
+// maintainer finish of a claim it already held is replayed as an ordinary finish.
+func (s *Store) finishReplay(ctx context.Context, repository, workID, key string) (string, int64, bool, error) {
 	store, err := storeOf(ctx, s.db, repository)
 	if err != nil || store == "" {
-		return "", 0, err
+		return "", 0, false, err
 	}
 	var consumer string
 	var generation sql.NullInt64
-	err = s.db.QueryRowContext(ctx, `SELECT r.consumer,w.last_generation FROM work_replays r
-		LEFT JOIN work_items w ON w.store=r.store AND w.work_id=? WHERE r.store=? AND r.key=? AND r.operation='work-finish'
-		ORDER BY r.consumer=? DESC LIMIT 1`, workID, store, key, maintainerConsumer).Scan(&consumer, &generation)
+	var combined bool
+	err = s.db.QueryRowContext(ctx, `SELECT r.consumer,w.last_generation,EXISTS(SELECT 1 FROM work_replays s
+		WHERE s.store=r.store AND s.consumer=r.consumer AND s.key=r.key||'-start' AND s.operation='work-start')
+		FROM work_replays r LEFT JOIN work_items w ON w.store=r.store AND w.work_id=?
+		WHERE r.store=? AND r.key=? AND r.operation='work-finish'
+		ORDER BY r.consumer=? DESC LIMIT 1`, workID, store, key, maintainerConsumer).Scan(&consumer, &generation, &combined)
 	if errors.Is(err, sql.ErrNoRows) {
-		return "", 0, nil
+		return "", 0, false, nil
 	}
-	return consumer, generation.Int64, err
+	return consumer, generation.Int64, combined, err
 }
 
 // claimAndFinish claims an unclaimed item as m's consumer and finishes it in one

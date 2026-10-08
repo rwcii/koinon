@@ -1,7 +1,6 @@
 package core
 
 import (
-	"fmt"
 	"net/url"
 	"strconv"
 	"strings"
@@ -198,16 +197,20 @@ func TestDashboardRefusedFinishLeavesItemUnclaimed(t *testing.T) {
 	}
 }
 
-// Review regressions on #244 (F2): the same finish form again replays the first result,
-// for an item that was claimed and one that was not, with no new event or audit record.
+// Review regressions on #244 (F2) and #245: the same finish form again replays the first
+// result, for an unclaimed item, one a peer claimed and one the maintainer claimed, with no
+// new event or audit record.
 func TestDashboardFinishReplay(t *testing.T) {
-	for _, claimed := range []bool{false, true} {
-		t.Run(fmt.Sprintf("claimed-%v", claimed), func(t *testing.T) {
+	for _, holder := range []string{"none", "peer", "maintainer"} {
+		t.Run(holder, func(t *testing.T) {
 			d, root := startTestDaemon(t)
 			m := MemoryCaller{Repository: "/synthetic/finish-replay/.git", Family: "codex", Name: "synthetic-peer", Consumer: "codex:synthetic-peer"}
 			id := create(t, d.store, m, "synthetic item")
-			if claimed {
+			switch holder {
+			case "peer":
 				mustStart(t, d.store, m, id, nil)
+			case "maintainer":
+				mustStart(t, d.store, maintainerWork(m.Repository, maintainerConsumer), id, nil)
 			}
 			client := newActionClient(t, d, root)
 			form := url.Values{"repository": {m.Repository}, "work_id": {id}, "revision": {strconv.FormatInt(revision(t, d.store, m, id), 10)},
