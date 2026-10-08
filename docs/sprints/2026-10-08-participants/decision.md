@@ -49,12 +49,21 @@ Maintainer decisions that this sprint carries into the Go runtime:
 - 2026-10-08: additional participants of one family get maintainer-assigned role suffixes.
 - 2026-10-08: a successor takes the place of its predecessor, so the participant's state
   continues: "the old process is gone; a new process exists in its place and is registering".
-- 2026-10-08: a Koinon session is an agent session started with `koinon <family>`, for every
-  family. `koinon codex` starts Codex with `--no-daemon`. A direct start (`claude`, `codex`,
+- 2026-10-08: a Koinon session is an agent session started with `koinon <family>`, for the
+  launcher families Claude, Codex, OpenCode and Antigravity. `koinon codex` starts Codex with `--no-daemon`. A direct start (`claude`, `codex`,
   `opencode`, `agy` without `koinon`) is an **islanded instance**: it does not register, it is not
   listed among peers or in the dashboard, and the Koinon tools refuse its calls with
   `not_launched` and the launcher command. Isolation of an agent is a supported use. This replaces
   #228's requirement that naming must not depend on the launcher alone.
+- 2026-10-08 (gate B): DeepSeek is not a launcher family. It keeps its explicit command
+  registration (`koinon register --as deepseek:ID`) as the one admission without a launch
+  record, until #199 settles its MCP path. This sprint adds no DeepSeek launcher, and no
+  refusal recommends one.
+- 2026-10-08 (gate B): a fenced session takes its participant again only on verified resume
+  evidence. No resume evidence is verified today: a retained old thread that calls after a quiet
+  period looks the same as an intentional `/resume`. So only the maintainer's dashboard choice
+  lifts a fence; the normal path back is a new `koinon <family>` start. This replaces, for
+  fenced sessions, criterion 3 of the 2026-09-24 decision (`/resume` takes the alias again).
 
 ## Acceptance criteria
 
@@ -75,7 +84,8 @@ Maintainer decisions that this sprint carries into the Go runtime:
    on one of this evidence:
    - The new session runs under the same host process as the holder, with another native session
      ID: a launched Codex session after `/clear` or `/resume` starts a new user thread under the
-     same Codex process.
+     same Codex process. A session that the participant has fenced never qualifies this way
+     (criterion 5).
    - The new session's host process runs in the same tmux server and pane as the holder's host
      process, and the holder's host process has ended: a new agent process started in that pane.
    - The maintainer chooses the new session in the dashboard.
@@ -94,15 +104,22 @@ Maintainer decisions that this sprint carries into the Go runtime:
    cursor) is refused unless the caller is the current holder; this includes a custom consumer
    key, a registration retry and the command-line paths. A fenced session that calls again cannot
    register itself back into the participant; it gets only its own peer name, and the result says
-   why.
-6. **Launched sessions only.** Every Koinon session is started with `koinon <family>`, which
-   records a launch and passes its launch ID to the session's `koinon mcp`: through the
-   environment for Claude, OpenCode and Antigravity; through the Codex MCP configuration with
-   `--no-daemon` for Codex (#247); through `--settings` for a Claude background job
-   (`koinon claude --bg`, `live-checks.md`, F5). A launched session registers with its launch
-   record, names its own terminal and qualifies for criterion 3. A direct start is islanded: it
-   never registers, is never listed, and every Koinon tool call returns `not_launched` with the
-   launcher command.
+   why. Only the maintainer's dashboard choice lifts a fence.
+6. **Launched sessions only.** Every Claude, Codex, OpenCode and Antigravity session of Koinon is
+   started with `koinon <family>`, which records a launch and passes its launch ID to the
+   session's `koinon mcp`: through the environment for Claude, OpenCode and Antigravity; through
+   the Codex MCP configuration with `--no-daemon` for Codex (#247); through `--settings` for a
+   Claude background job (`koinon claude --bg`, `live-checks.md`, F5). A launched session
+   registers with its launch record, names its own terminal and qualifies for criterion 3. A
+   direct start is islanded: it never registers, is never listed, and every Koinon tool call
+   returns `not_launched` with the launcher command.
+   - **The daemon admits.** The daemon, not only `koinon mcp`, refuses a registration and a
+     renewal without a launch record, on every path (MCP, HTTP, command line). DeepSeek's
+     explicit command registration is the one exception (maintainer decision, gate B).
+   - **A launch is bound.** A launch admits only the sessions of its own host: a foreground
+     launch only callers whose host process is the launch's host; a background launch only the
+     Claude job whose ID the launcher recorded for it. A session that carries another launch's ID
+     is refused with `not_launched`.
 7. **Naming rules.** One agent pane in a tmux session: rename the session to the participant's
    address, or the peer name without one. More than one agent pane: set only the agent's own pane
    title. Never rename another session or pane; a nested agent or a shared MCP server never renames
@@ -129,7 +146,9 @@ Maintainer decisions that this sprint carries into the Go runtime:
 - An upgraded store keeps every existing alias and its holder. An existing alias becomes the
   address of the participant without a role, so no recipient changes at the upgrade. Existing
   claims, inboxes and cursors keep their current owners. A session that was started directly
-  keeps its registration until it expires, then it is islanded; a session started again with
+  keeps its registration until the expiry it had at the upgrade; the daemon refuses its renewals
+  (`not_launched`), so it then expires and is islanded, and its inbox, cursor and claims stay as
+  they are; a session started again with
   `koinon <family>` becomes the holder under criterion 2 when it is the only qualifier, or by the
   maintainer's choice.
 - Process and tmux observations run in `koinon mcp` and the daemon, outside the agent sandbox.

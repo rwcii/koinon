@@ -21,6 +21,19 @@ maintainer's sessions, Codex or Claude configuration, or services.
   with the conflict reported, and the result is the same whichever session renews first
   (renewal order reversed). Concurrent registrations of two qualifiers leave at most one holder.
   The maintainer's dashboard choice sets the holder and is audited.
+- **Daemon admission (criterion 6).** `Store.Register` through HTTP, MCP and `koinon register`
+  for each launcher family: no launch ID, an unknown launch ID, and a launch of another family or
+  directory are refused with `not_launched`, and nothing is registered. `koinon register --as
+  deepseek:ID` still registers. Upgrade: a session that a develop `f88a42c` store holds without a
+  launch record is refused at each renewal (repeated renewals through `/v1/sessions/renew`, as an
+  old `koinon mcp` would make them), expires at the expiry it had at the upgrade, and keeps its
+  inbox, acknowledgements, cursor and claims.
+- **Launch binding (criterion 6).** A foreground launch: a caller whose host process is not the
+  launch's host is refused. A background launch, in the order of F5: job A started with launch
+  L1, then job B started directly in the same directory, which inherits L1 from the service: B is
+  refused with `not_launched` and A registers. A job that registers before the launcher records
+  its job ID is refused with `launch_pending`, registers nothing, and registers at its next tool
+  call after the record; a launch whose `claude --bg` failed is retired and admits nothing.
 - **Upgrade (constraint).** A store written by develop `f88a42c` with aliases, holders, inbox
   messages, acknowledgements, memory cursors and claims opens after the schema migration with
   every alias held by the same session, every message, acknowledgement, cursor and claim
@@ -42,8 +55,9 @@ maintainer's sessions, Codex or Claude configuration, or services.
   after the first write leaves both unchanged. The fence persists: after a daemon restart, after
   repeated registration of the fenced session, and after the successor expires, the fenced
   session is not a qualifier and does not become the holder; a delayed call of the fenced session
-  inside the 30-second guard is refused; only same-host succession (a `/resume` back) or the
-  maintainer's choice makes it the holder again, and either removes the fence.
+  inside the 30-second guard is refused; a same-host registration of the fenced session after the
+  guard is refused with `fenced` and changes nothing; only the maintainer's choice makes it the
+  holder again and removes the fence.
 - **Checkout roles (#83) with participants.** Before and after a succession: checkout status
   shows the current holder's exact peer for a `participant:<address>` writer; another agent's
   request reaches that holder and never the fenced former holder; the holder's own request is
@@ -61,7 +75,7 @@ maintainer's sessions, Codex or Claude configuration, or services.
 
 ### MCP server and terminal naming (`internal/mcp`)
 
-- **Launched sessions only (criterion 6).** For each family, a `koinon mcp` with a known launch
+- **Launched sessions only (criterion 6).** For each launcher family, a `koinon mcp` with a known launch
   ID registers with its launch record; with no launch ID, or an unknown one, every tool call
   returns `not_launched` with the launcher command, and nothing is registered or listed. A
   launched Codex session (`--no-daemon`, launch variables through `env_vars`) and a

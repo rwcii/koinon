@@ -40,10 +40,9 @@ Criteria 4, 5 and 10 of `decision.md`. Depends on chunk 02.
    The change also records a **fence**: a persistent row (participant, fenced native session,
    time, reason) that survives daemon restarts and repeated registration. A retired session that
    registers again is active again with its own peer name, but it is not the holder, and a fenced
-   session never counts as a qualifier in chunk 02's rules. Only two things lift a fence and make
-   the session the holder again: verified same-host succession of chunk 04 (a `/resume` back to
-   that thread, as the maintainer decided on 2026-09-24), or the maintainer's dashboard choice.
-   Both remove the fence row in the holder-change transaction.
+   session never counts as a qualifier in chunk 02's rules. Only the maintainer's dashboard choice
+   lifts a fence and makes the session the holder again (`decision.md`, gate B decision); it
+   removes the fence row in the holder-change transaction.
 6. **Provenance.** `work_events`, the participant inbox acknowledgement and the participant's
    memory cursor record the native session (`FAMILY:ID`) that made each change, next to the
    participant key.

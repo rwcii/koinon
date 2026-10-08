@@ -23,7 +23,7 @@ Criteria 1, 2, 9 and 10 of `decision.md`, and the upgrade constraint.
 2. **Role.** `koinon <family> --role <role>` validates the role (lower-case letters, digits and
    hyphens, 1 to 24 characters, starts with a letter, not made only of hexadecimal digits so it
    can never equal a peer-name suffix) and stores it in the launch record. `koinon mcp` sends the
-   launch ID for every family; for Claude the store reads only the role from the launch record and
+   launch ID for every launcher family; for Claude the store reads only the role from the launch record and
    keeps the Claude wake target. The registration carries no role from tool arguments.
 3. **Address.** A participant's address is `<family>-<label>` without a role and
    `<family>-<label>-<role>` with one. When that name is taken, the existing `lengths` fallback

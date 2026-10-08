@@ -27,14 +27,15 @@ Facts: `live-checks.md`, F1 and F3. Delivers #141.
      process with H's start time no longer exists (checked by the daemon with
      `ProcessStart`). Case: a new agent process in the pane where the old one ended.
 
-   A session that the participant has fenced (chunk 03, item 5) is checked only for **same
-   host**; that is how a `/resume` back to a former thread takes the participant again, and the
-   change removes its fence. It never qualifies through **same pane, host ended** or through
-   chunk 02's rules.
+   A session that the participant has fenced (chunk 03, item 5) never qualifies: its registration
+   is refused with `fenced`, also with same-host evidence after the guard, because a retained old
+   thread and an intentional `/resume` look the same (`decision.md`, gate B decision). Only the
+   maintainer's dashboard choice lifts the fence.
 
    With either, S becomes the holder and H is retired (chunk 03, item 5). Without both, H keeps
    the participant and the registration result reports `succession_refused` with the reason:
-   `no_host`, `host_running`, `other_pane`, `subagent`, `holder_active` or `other_participant`.
+   `no_host`, `host_running`, `other_pane`, `subagent`, `holder_active`, `fenced` or
+   `other_participant`.
 
    Succession is evaluated only for a registration that S's own tool call caused. The server's
    renewal timer never registers a session (`tools.go`, `renew`: a failed renewal waits for the
