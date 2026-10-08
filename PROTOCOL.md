@@ -342,7 +342,10 @@ repository, and registers it again after five minutes or when the daemon reports
 Every five minutes it renews the session it served last. Registration carries wake data for the
 wake adapters: Claude `{"claude_pid": PID}`; Codex `{"cli": PATH}` from `launchers.json`, else
 the parent Codex executable, never a `PATH` search; a launched Codex, Antigravity or OpenCode
-agent passes `KOINON_LAUNCH_ID` as `launch_id`. `KOINON_STATE_DIR` and `KOINON_DAEMON_ADDRESS`
+agent passes `KOINON_LAUNCH_ID` as `launch_id`. A Claude session that `koinon claude` started
+registers with `claude_pid` like any Claude session; its launch record documents the start, and
+the launcher keeps `CLAUDE_CONFIG_DIR` but removes the other `CLAUDE_` variables and `CLAUDECODE`
+of the session that ran it. `KOINON_STATE_DIR` and `KOINON_DAEMON_ADDRESS`
 select the state root and address.
 
 ### Dashboard and session observations
@@ -431,7 +434,7 @@ from elsewhere. Peer message bodies appear here, escaped, and nowhere else outsi
     acknowledged messages later.
   - `send` (`to`, `body`): a message from `maintainer`; the recipient's wake works as for any
     message.
-  - `launch` (`family` `codex`, `agy` or `opencode`; `directory`; optional `name`): the daemon runs
+  - `launch` (`family` `claude`, `codex`, `agy` or `opencode`; `directory`; optional `name`): the daemon runs
     its own executable as the launcher with `--tmux-session`, so the agent starts detached in a
     new tmux session with its configured CLI. The directory must be an existing absolute path; the
     name uses letters, digits, `_` and `-`, and defaults to `FAMILY-FOLDER-XXXX`. No other

@@ -220,13 +220,13 @@ the maintainer's authorization, separate from repository development.
 
 ## Launcher paths in launchers.json
 
-After successful `koinon setup codex`, `agy` or `opencode`, setup records the absolute
+After successful `koinon setup claude`, `codex`, `agy` or `opencode`, setup records the absolute
 native CLI path it resolved in `launchers.json` under the selected Go state root:
 `~/.local/state/koinon/go/launchers.json`, or `$XDG_STATE_HOME/koinon/go/launchers.json`.
 `--state-dir DIR` selects a different root. The file is a JSON object, for example:
 
 ```json
-{"codex": "/opt/agents/bin/codex", "agy": "/opt/agents/bin/agy", "opencode": "/opt/agents/bin/opencode"}
+{"claude": "/opt/agents/bin/claude", "codex": "/opt/agents/bin/codex", "agy": "/opt/agents/bin/agy", "opencode": "/opt/agents/bin/opencode"}
 ```
 
 The root must be owned by the current user and private (normally mode 0700); the file

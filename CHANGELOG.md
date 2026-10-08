@@ -5,6 +5,12 @@ into a dated release section when promoted to `main`.
 
 ## Unreleased
 
+- `koinon claude` starts Claude Code like the other launchers: with the absolute CLI path
+  from `--cli` or `launchers.json`, in a start folder that holds no other repository, in the
+  current terminal or a new tmux session, with a private launch record. The dashboard's start
+  action offers Claude Code too. `koinon setup claude` now records the Claude CLI path. A
+  started Claude keeps `CLAUDE_CONFIG_DIR` but not the `CLAUDE_` variables or `CLAUDECODE` of
+  the session that started it.
 - The daemon deletes old records in its maintenance sweep. Acknowledged messages go 30 to 60
   days after their acknowledgement, and expired or retired sessions, with their peer names,
   30 days after their activity ended, unless they still hold unacknowledged messages or a

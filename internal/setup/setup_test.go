@@ -74,10 +74,8 @@ func TestSetupEachFamilyAndRepeat(t *testing.T) {
 			if family == "claude" && !strings.Contains(last, "--scope user") {
 				t.Fatalf("claude scope: %s", last)
 			}
-			if family != "claude" {
-				if path, err := launcher.ConfiguredCLI(o.StateDir, family, ""); err != nil || path != cli {
-					t.Fatalf("setup did not record CLI: %q %v", path, err)
-				}
+			if path, err := launcher.ConfiguredCLI(o.StateDir, family, ""); err != nil || path != cli {
+				t.Fatalf("setup did not record CLI: %q %v", path, err)
 			}
 			again, err := Run(context.Background(), o)
 			if err != nil || len(again.Changed) != 0 || len(again.Unchanged) != len(report.Changed) {

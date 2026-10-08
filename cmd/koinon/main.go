@@ -29,7 +29,7 @@ func run(ctx context.Context, args []string, in io.Reader, out io.Writer) error 
 		_, err := fmt.Fprintln(out, usage)
 		return err
 	}
-	if args[0] == "codex" || args[0] == "agy" || args[0] == "opencode" {
+	if launcher.Families[args[0]] {
 		o, err := launcher.Parse(args[0], args[1:])
 		if err != nil {
 			return err
@@ -146,7 +146,7 @@ const usage = `Usage: koinon install [--prefix DIR] [--state-dir DIR] [--agent F
        koinon work <get|propose|edit|start|update|release|finish> WORK_ID --as FAMILY:ID [--consumer KEY] [options]
        koinon claim renew WORK_ID --as FAMILY:ID --claim-generation N --if-claim-revision N [--lease-seconds S]
        koinon recover [--state-dir DIR] [--address 127.0.0.1:PORT]
-       koinon <codex|agy|opencode> [--state-dir DIR] [--address HOST:PORT] [--cli ABS_PATH] [--directory DIR] [--tmux-session NAME] [--] [CLI arguments...]
+       koinon <claude|codex|agy|opencode> [--state-dir DIR] [--address HOST:PORT] [--cli ABS_PATH] [--directory DIR] [--tmux-session NAME] [--] [CLI arguments...]
        koinon peers --as FAMILY:ID [--state-dir DIR] [--address 127.0.0.1:PORT]
        koinon peer-status --as FAMILY:ID [--state-dir DIR] [--address 127.0.0.1:PORT] NAME
        koinon send --as FAMILY:ID [--state-dir DIR] [--address 127.0.0.1:PORT] NAME BODY

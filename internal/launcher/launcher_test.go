@@ -46,6 +46,7 @@ type report struct {
 	Directory     string
 	Args          []string
 	ClaudeNames   []string
+	Nested        bool
 	Host          string
 	LaunchID      string
 	Session       core.Session
@@ -79,7 +80,8 @@ func TestFakeCLI(t *testing.T) {
 	if err != nil {
 		os.Exit(11)
 	}
-	r := report{PID: os.Getpid(), Directory: directory, Args: args, Host: os.Getenv("KOINON_CODEX_HOST"), LaunchID: os.Getenv("KOINON_LAUNCH_ID")}
+	_, nested := os.LookupEnv("CLAUDECODE")
+	r := report{PID: os.Getpid(), Directory: directory, Args: args, Host: os.Getenv("KOINON_CODEX_HOST"), LaunchID: os.Getenv("KOINON_LAUNCH_ID"), Nested: nested}
 	for _, entry := range os.Environ() {
 		name, _, _ := strings.Cut(entry, "=")
 		if strings.HasPrefix(name, "CLAUDE_") {
@@ -184,6 +186,8 @@ func fixture(t *testing.T) (string, string, string, string) {
 	t.Setenv("CLAUDE_CODE_SESSION_ID", "synthetic-stale-caller")
 	t.Setenv("CLAUDE_CODE_MESSAGING_TOKEN", "synthetic-token")
 	t.Setenv("CLAUDE_OTHER_TEST", "synthetic-other")
+	t.Setenv("CLAUDE_CONFIG_DIR", filepath.Join(root, "claude-config"))
+	t.Setenv("CLAUDECODE", "1")
 	t.Setenv("KOINON_LAUNCH_ID", "synthetic-stale-launch")
 	return root, d.Addresses()[0], cli, directory
 }
@@ -212,7 +216,13 @@ func checkReport(t *testing.T, r report, family, directory string) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if r.Directory != canonical || len(r.ClaudeNames) != 0 || len(r.LaunchID) != 64 || r.Session.ID != "synthetic-"+family {
+	// Only a started Claude keeps its user's configuration directory; no agent inherits
+	// another Claude session's variables or nesting marker.
+	kept := len(r.ClaudeNames) == 0
+	if family == "claude" {
+		kept = len(r.ClaudeNames) == 1 && r.ClaudeNames[0] == "CLAUDE_CONFIG_DIR"
+	}
+	if r.Directory != canonical || !kept || r.Nested || len(r.LaunchID) != 64 || r.Session.ID != "synthetic-"+family {
 		t.Fatalf("invalid launch association or environment: %+v", r)
 	}
 	var target core.LaunchTarget
@@ -247,7 +257,7 @@ func arguments(root, address, cli, directory, family, result string) []string {
 }
 
 func TestCurrentTerminalAndNoTmux(t *testing.T) {
-	for _, family := range []string{"codex", "agy", "opencode"} {
+	for _, family := range []string{"claude", "codex", "agy", "opencode"} {
 		for _, inside := range []bool{true, false} {
 			t.Run(fmt.Sprintf("%s-inside-%v", family, inside), func(t *testing.T) {
 				root, address, cli, directory := fixture(t)
@@ -280,7 +290,7 @@ func TestPrivateTmuxDetachedAndOutside(t *testing.T) {
 		}
 		t.Skip("tmux not installed")
 	}
-	for _, family := range []string{"codex", "agy", "opencode"} {
+	for _, family := range []string{"claude", "codex", "agy", "opencode"} {
 		for _, detached := range []bool{true, false} {
 			t.Run(fmt.Sprintf("%s-detached-%v", family, detached), func(t *testing.T) {
 				root, address, cli, directory := fixture(t)
