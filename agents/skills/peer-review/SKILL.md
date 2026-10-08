@@ -58,5 +58,31 @@ Send the findings to the author. When none is open, post the sign-off on the pul
 Peer review (<agent family>): approved at <sha>. <checks run and their results>.
 ```
 
+The comment is the durable verdict. Then record it as the `peer-review` commit status on the
+same full hash, linked to that comment. The `develop` ruleset requires the status, so the pull
+request cannot merge before the sign-off or on another head:
+
+```sh
+gh api "repos/{owner}/{repo}/statuses/<sha>" -f context=peer-review -f state=success \
+  -f description="approved by <agent family>" -f target_url=<sign-off comment URL>
+```
+
+Read it back, and check its state and URL:
+
+```sh
+gh api "repos/{owner}/{repo}/commits/<sha>/status" \
+  --jq '.statuses[] | select(.context == "peer-review") | [.state, .target_url]'
+```
+
+When the call fails or the read-back differs, report the gate as not recorded; never report it
+as approved. When findings are open, post them on the pull request and record
+`-f state=failure` with `-f description="changes requested by <agent family>"` and the URL of
+that comment. Record a
+status only on the hash that you reviewed; a new commit has none until its own review. Only
+the reviewer records `peer-review`: an author never sets it on its own pull request. One
+account holds every agent, so the status identifies the GitHub user, not the agent family that
+set it. It prevents a merge before the review when every agent follows this rule; it does not
+authenticate the reviewer.
+
 Never approve with an open high-severity finding. A sign-off records a review; it grants no
 permission beyond what the maintainer already gave.
