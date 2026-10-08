@@ -1,11 +1,34 @@
 {{define "list"}}{{if not .Data.Stores}}<p class="empty">No memory stores.</p>{{else}}<table>
 <thead><tr>{{template "th" (.Data.Sort.Column "repository" "Repository")}}{{template "th" (.Data.Sort.Column "store" "Store")}}{{template "th" (.Data.Sort.Column "head" "Head")}}{{template "th" (.Data.Sort.Column "entries" "Entries")}}{{template "th" (.Data.Sort.Column "logical" "Logical bytes")}}{{template "th" (.Data.Sort.Column "consumers" "Consumers")}}{{template "th" (.Data.Sort.Column "debt" "Work debt")}}<th>Maintenance</th></tr></thead>
 <tbody>{{range .Data.Stores}}<tr>
-<td>{{.Repository}}</td><td><code>{{.StoreID}}</code></td><td>{{.Head}}<br><small>floor {{.Floor}}</small></td>
+<td><a href="/dashboard/memory?store={{.Repository}}">{{.Repository}}</a></td><td><code>{{.StoreID}}</code></td><td>{{.Head}}<br><small>floor {{.Floor}}</small></td>
 <td>{{.Usage.Entries}} / {{.MaxEntries}} <small>{{pct .Usage.Entries .MaxEntries}}</small></td>
 <td>{{.Usage.Logical}} / {{.MaxLogical}} <small>{{pct .Usage.Logical .MaxLogical}}</small></td>
 <td>{{.Usage.Consumers}}</td>
 <td>{{.OverdueDebt}} overdue, {{.EndDebt}} end credits</td>
 <td><small>last sweep {{secs (index .Maintenance "last_successful_sweep")}}{{with index .Maintenance "fault"}}<br>fault {{.}}{{end}}<br>pending {{index .Maintenance "pending_due"}}, inactive bundles {{index .Maintenance "inactive_bundles"}}</small></td>
 </tr>{{end}}</tbody></table>{{end}}
-{{if .Data.Next}}<p><a href="{{.Data.Sort.Next .Data.Next}}">More stores</a></p>{{end}}{{end}}
+{{if .Data.Next}}<p><a href="{{.Data.Sort.Next .Data.Next}}">More stores</a></p>{{end}}
+{{with .Data.Selected}}<h2>Entries of {{.Repository}}</h2>
+{{if not .Entries}}<p class="empty">{{if or .Search .Type}}No entry matches.{{else}}No entries.{{end}}</p>{{else}}<table>
+<thead><tr><th>Entry</th><th>Type and scope</th><th>Writer</th><th>Body</th><th>State</th><th>Actions</th></tr></thead>
+<tbody>{{range .Entries}}<tr class="state-{{.State}}">
+<td><code>{{.Seq}}</code><br><small>{{secs .TS}}</small>{{with .Path}}<br><small>path {{.}}</small>{{end}}</td>
+<td>{{.Type}}<br><small>{{.Scope}}{{with .ScopeTarget}} {{.}}{{end}}</small></td>
+<td>{{.WriterFamily}}<br><small>{{.WriterName}}{{with .Author}}, author {{.}}{{end}}</small></td>
+<td><pre class="body">{{.Body}}</pre></td>
+<td>{{.State}}{{with .Supersedes}}<br><small>replaces {{.}}</small>{{end}}{{with .Revokes}}<br><small>revokes {{.}}</small>{{end}}{{with .SupersededBy}}<br><small>replaced by {{.}}</small>{{end}}{{with .RevokedBy}}<br><small>revoked by {{.}}</small>{{end}}{{with .ConflictsWith}}<br><strong>conflicts with {{.}}</strong>{{end}}{{with .Expires}}<br><small>expires {{secs .}}</small>{{end}}</td>
+<td>{{if eq .State "live"}}<details class="edit"><summary>Edit</summary><form method="post" action="/dashboard/actions/memory-record"><input type="hidden" name="csrf" value="{{$.CSRF}}"><input type="hidden" name="repository" value="{{$.Data.Selected.Repository}}"><input type="hidden" name="supersedes" value="{{.Seq}}"><input type="hidden" name="key" value="{{$.Data.Selected.Key}}-edit-{{.Seq}}"><input type="hidden" name="deadline" value="{{$.Data.Selected.Deadline}}"><input type="hidden" name="type" value="{{.Type}}"><input type="hidden" name="scope" value="{{.Scope}}">{{with .ScopeTarget}}<input type="hidden" name="scope_target" value="{{.}}">{{end}}{{with .Path}}<input type="hidden" name="path" value="{{.}}">{{end}}<textarea name="body" rows="6" maxlength="8192" required>{{.Body}}</textarea><button type="submit">Record the edit</button></form><p><small>The edit is a new entry from maintainer that replaces this one; this entry stays readable.</small></p></details>
+<details class="revoke"><summary>Revoke</summary><form method="post" action="/dashboard/actions/memory-revoke"><input type="hidden" name="csrf" value="{{$.CSRF}}"><input type="hidden" name="repository" value="{{$.Data.Selected.Repository}}"><input type="hidden" name="seq" value="{{.Seq}}"><input type="hidden" name="key" value="{{$.Data.Selected.Key}}-revoke-{{.Seq}}"><input type="hidden" name="deadline" value="{{$.Data.Selected.Deadline}}"><label>Reason <input name="reason" maxlength="1024" required></label><button type="submit">Revoke</button></form></details>{{else}}—{{end}}</td>
+</tr>{{end}}</tbody></table>{{end}}
+{{if .Next}}<p><a href="/dashboard/memory?store={{.Repository}}{{if .Search}}&q={{.Search}}{{end}}{{if .Type}}&type={{.Type}}{{end}}{{if .All}}&all=1{{end}}&before={{.Next}}">Older entries</a></p>{{end}}{{end}}{{end}}
+{{define "filter"}}{{with .Data.Selected}}<form method="get" action="/dashboard/memory" class="filter" role="search"><input type="hidden" name="store" value="{{.Repository}}"><label>Search <input type="search" name="q" value="{{.Search}}" maxlength="256" placeholder="text in the body or path"></label> <label>Type <select name="type"><option value="">any</option>{{$type := .Type}}{{range .Types}}<option value="{{.}}"{{if eq . $type}} selected{{end}}>{{.}}</option>{{end}}</select></label> <label><input type="checkbox" name="all" value="1"{{if .All}} checked{{end}}> also replaced, revoked and expired</label> <button type="submit">Search</button> <a href="/dashboard/memory?store={{.Repository}}">Clear</a> <a href="/dashboard/memory">All stores</a></form>{{end}}{{end}}
+{{define "actions"}}{{with .Data.Selected}}<details class="action"><summary>Record an entry</summary>
+<form method="post" action="/dashboard/actions/memory-record"><input type="hidden" name="csrf" value="{{$.CSRF}}"><input type="hidden" name="repository" value="{{.Repository}}"><input type="hidden" name="key" value="{{.Key}}-add"><input type="hidden" name="deadline" value="{{.Deadline}}">
+<label>Type <select name="type">{{range .Types}}<option value="{{.}}">{{.}}</option>{{end}}</select></label>
+<label>Scope <select name="scope"><option value="repo">repo</option><option value="task">task</option><option value="session">session</option></select></label>
+<label>Scope target <input name="scope_target" maxlength="256" placeholder="for task or session"></label>
+<label>Path <input name="path" maxlength="1024" placeholder="optional"></label>
+<label class="wide">Body <textarea name="body" rows="5" maxlength="8192" required></textarea></label>
+<button type="submit">Record</button></form>
+<p><small>The entry is recorded in {{.Repository}} with writer maintainer. Agents read it as recorded data, like every entry.</small></p></details>{{end}}{{end}}

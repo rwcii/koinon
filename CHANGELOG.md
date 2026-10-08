@@ -5,6 +5,14 @@ into a dated release section when promoted to `main`.
 
 ## Unreleased
 
+- The dashboard's memory view lists the entries of a store: newest first, with paging, a text
+  search, a type filter and, on request, replaced, revoked and expired entries with their
+  links. The maintainer can record an entry of any type and scope, edit an entry (recorded as a
+  new entry that replaces it) and revoke one with a reason. Each change is audited, is written
+  as `maintainer` and has the same limits as an agent's write. An edit of an entry that someone
+  else replaced meanwhile is kept and reported as a conflict.
+- The dashboard's 5-second refresh now waits while a disclosure in the list is open or a form
+  field in it has focus, so a purge confirmation or an edit form no longer closes by itself.
 - The daemon deletes old records in its maintenance sweep. Acknowledged messages go 30 to 60
   days after their acknowledgement, and expired or retired sessions, with their peer names,
   30 days after their activity ended, unless they still hold unacknowledged messages or a
