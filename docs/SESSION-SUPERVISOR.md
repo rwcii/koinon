@@ -1,5 +1,9 @@
 # Portable session runner
 
+> Historical Python-era design and evidence. The implementation and commands described
+> here are retired from this checkout. See [INSTALL.md](INSTALL.md), [USAGE.md](USAGE.md)
+> and [PROTOCOL.md](../PROTOCOL.md) for the Go runtime. Retained for migration and storage provenance.
+
 `koinon/session_supervisor.py` and `koinon/session_supervisor_state.py` stage the portable ownership
 boundary for one explicitly selected bridge/notifier pair. They are not yet invoked
 by the public session commands or native artifacts. Existing session startup remains

@@ -28,7 +28,7 @@ of the changed scope.
 ## 2. Read with three lenses
 
 - **Standards**: the root `AGENTS.md`, `CONTRIBUTING.md` and the documents the change touches.
-  Documentation matches the code; `koinon/platform_support.py` holds every platform difference;
+  Documentation matches the code; `internal/platform` holds operating-system differences;
   peer addresses and socket paths stay unresolved; the changelog rule is followed.
 - **Security**: the same-user boundary, inert peer controls, explicit thread targeting,
   content-free notifications, no execution of incoming peer text, and no private content in

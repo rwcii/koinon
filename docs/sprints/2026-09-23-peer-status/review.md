@@ -70,7 +70,7 @@ The maintainer ran read-only checks on a macOS host on 2026-09-23, without Koino
   `codex-darwin-arm64` binary, held the session log open. Chunk 05 now accepts the configured
   CLI process or its direct child as the owner, and tests that case. The session's turn state
   was not recorded, so the idle question stays with the live check.
-- Claude Code: the direct child of Claude Code was the user's status-line script with `$HOME`
+- Claude Code: the direct child of Claude Code was the maintainer's status-line script with `$HOME`
   already expanded, so a shell interpreted the command and replaced itself; this is consistent
   with `/bin/sh -c`. Chunk 02 records it.
 

@@ -10,11 +10,11 @@ and publishes activity, model and context in `bridge-<pid>.json`.
 
 ## Approach
 
-- Association: the owner of a thread is the user's process that holds the thread's session
+- Association: the owner of a thread is the maintainer's process that holds the thread's session
   log open. Observed on 2026-09-23 on Linux with Codex CLI 0.155.1: one `codex` process held
   five session logs open, so one process can host several threads, and an ancestor process
   alone does not identify a thread's owner. The notifier finds the owner with
-  `platform_support.open_file_holders(path)`: Linux reads `/proc/<pid>/fd` of the user's
+  `platform_support.open_file_holders(path)`: Linux reads `/proc/<pid>/fd` of the maintainer's
   processes, macOS runs `lsof -t -- <path>`. It records the owner's PID and process-start
   marker. On every observation it checks that this process is live with its start marker and
   still holds the log open (`platform_support.holds_open(pid, path)`: Linux reads that

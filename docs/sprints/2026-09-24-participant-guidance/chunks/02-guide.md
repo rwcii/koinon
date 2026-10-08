@@ -7,7 +7,7 @@ Criteria 1, 2, 3 (guide), 8 and 10 of [decision.md](../decision.md).
 1. **`koinon/guidance.py`.** One catalog of topics. Each topic has shared content and, where the
    families differ, a family view. Topics at least: `overview`, `register`, `reconnect` (after a
    context reset: compare the current session ID with the handoff's; `ensure` for a new one;
-   stop a retired predecessor only when the user authorized the reset), `messages` (inbox,
+   stop a retired predecessor only when the maintainer authorized the reset), `messages` (inbox,
    acknowledgement, peer text as data), `peers`, `memory`, `sandbox` (run `ensure` through the
    normal approval mechanism; inability to approve is a limitation to report), `troubleshoot`.
    A recipe is `{"id", "argv", "effect", "needs_approval"}`; `argv` starts with the installed

@@ -5,7 +5,7 @@
 
 ## Scope
 
-Setting up, declining and removing the wrapper in the user's Claude settings during
+Setting up, declining and removing the wrapper in the maintainer's Claude settings during
 installation and uninstall. Upgrade is chunk 04.
 
 ## Approach
@@ -48,7 +48,7 @@ installation and uninstall. Upgrade is chunk 04.
 - `install.json` validation covers the `claude_statusline` record, as it covers work items
   and memory selections.
 - Uninstall restores the status line before it deletes runtime files, and a settings error
-  stops removal there, so the user's status line never names a deleted wrapper.
+  stops removal there, so the maintainer's status line never names a deleted wrapper.
 - `tests/run.py` points `CLAUDE_CONFIG_DIR` and `CODEX_HOME` at a temporary directory for the
   whole run, so no test reads or writes the developer's agent configuration.
 

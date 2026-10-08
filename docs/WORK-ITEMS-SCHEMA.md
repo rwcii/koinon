@@ -1,5 +1,9 @@
 # Work items v1 schema and transaction specification
 
+> Historical Python-era design and evidence. The implementation and commands described
+> here are retired from this checkout. See [INSTALL.md](INSTALL.md), [USAGE.md](USAGE.md)
+> and [PROTOCOL.md](../PROTOCOL.md) for the Go runtime. Retained for migration and storage provenance.
+
 Design companion to [the implementation design](WORK-ITEMS-IMPLEMENTATION-DESIGN.md).
 These statements describe the proposed schema-5 migration; they are not executed by
 the current runtime. Existing schema-4 tables retain their definitions except for

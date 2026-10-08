@@ -1,5 +1,9 @@
 # Parent-owned session control sockets
 
+> Historical Python-era design and evidence. The implementation and commands described
+> here are retired from this checkout. See [INSTALL.md](INSTALL.md), [USAGE.md](USAGE.md)
+> and [PROTOCOL.md](../PROTOCOL.md) for the Go runtime. Retained for migration and storage provenance.
+
 The owned runner binds and records control sockets before spawning bridge and
 notifier children. The implementation retains uncertainty if the wrapper itself dies
 between binding and durable inode publication.

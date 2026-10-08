@@ -37,7 +37,7 @@ gate B again before chunk 02 starts.
 ## Tests
 
 None in the suite. Each live probe needs the maintainer's authorization and runs in scratch
-directories with scratch agent sessions, never in the user's working sessions.
+directories with scratch agent sessions, never in the maintainer's working sessions.
 
 ## Done
 

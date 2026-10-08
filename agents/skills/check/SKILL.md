@@ -13,16 +13,17 @@ failure found here saves one. Run the checks from the root of the branch's workt
 ## 1. Tests and whitespace
 
 ```sh
-python3 tests/run.py
 go vet ./...
 go test -race ./...
 git diff --check origin/develop...HEAD
 git diff --check
 ```
 
-Run the Go commands when `go.mod` is present. Both runtime suites remain required until the
-Python retirement chunk. A passing test run on the same commit counts; do not run the suite again when only prose changed
-since then. Name the commit the tests ran on when you report.
+The Python runtime and suite are retired. Go contributor checks also cover skill/layout
+and CI consistency. A passing test run on the same commit counts; do not repeat a suite when
+only prose changed since then. Report the commit tested. For runtime/install changes run the
+four CGO-free builds and compile/vet native-tagged tests without enabling real services locally.
+Native lifecycle evidence runs only on disposable CI runners.
 
 ## 2. Shell syntax, for shell edits only
 
@@ -35,7 +36,7 @@ sh -n .githooks/pre-commit
 
 ## 3. Changelog
 
-A change that a Koinon user can see (runtime behaviour, commands, installation, messages, the
+A change that a Koinon participant can see (runtime behaviour, commands, installation, messages, the
 documented interfaces) needs an entry in `CHANGELOG.md` in the same branch. Contributor tooling,
 tests and internal refactors do not.
 

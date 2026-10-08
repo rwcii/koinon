@@ -1,5 +1,9 @@
 # Work items v1 explicit configuration
 
+> Historical Python-era design and evidence. The implementation and commands described
+> here are retired from this checkout. See [INSTALL.md](INSTALL.md), [USAGE.md](USAGE.md)
+> and [PROTOCOL.md](../PROTOCOL.md) for the Go runtime. Retained for migration and storage provenance.
+
 Implementation specification, not instructions to configure the current development
 session. See [the approved contract](WORK-ITEMS-V1.md) and
 [implementation design](WORK-ITEMS-IMPLEMENTATION-DESIGN.md).

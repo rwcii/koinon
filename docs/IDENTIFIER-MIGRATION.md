@@ -1,5 +1,9 @@
 # Koinon identifier migration
 
+> Historical Python-era design and evidence. The implementation and commands described
+> here are retired from this checkout. See [INSTALL.md](INSTALL.md), [USAGE.md](USAGE.md)
+> and [PROTOCOL.md](../PROTOCOL.md) for the Go runtime. Retained for migration and storage provenance.
+
 This source change gives new installations Koinon names. It preserves existing
 installation paths, state, participant targets and registered peer names. It does
 not rename a checkout or deploy a runtime.

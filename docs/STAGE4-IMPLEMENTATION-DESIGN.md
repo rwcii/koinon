@@ -1,5 +1,9 @@
 # Stage 4 implementation design for review
 
+> Historical Python-era design and evidence. The implementation and commands described
+> here are retired from this checkout. See [INSTALL.md](INSTALL.md), [USAGE.md](USAGE.md)
+> and [PROTOCOL.md](../PROTOCOL.md) for the Go runtime. Retained for migration and storage provenance.
+
 Status: all five concrete design gates accepted in independent review. Shared transport, participant ownership, database workers and startup exclusion are implemented and reviewed. Inbox schema-2 migration, acknowledgement metadata and activation evidence are implemented and reviewed. Subscriptions and the shared reconnect/rescan helper are implemented and reviewed. Explicit bindings/pointers, store identity migrations, and private control alias compatibility are implemented, independently reviewed, and verified on Linux and macOS. The journal storage and serial delivery core are independently reviewed and verified on Linux and macOS. CLI/provider, health and subscription integration is independently reviewed and verified on Linux and macOS. Identifier migration is implemented. Independent review and exact-commit CI gate promotion. No stage 4 runtime changes are deployed.
 Baseline: develop 84f35e727b0f17a9469de182db9a843e7a28d092, integrated by signed merge 7503dc1.
 Codex is the sole driver. Claude is the reviewer. The merged baseline was independently verified. Implementation branch: feature/shared-transport-delivery.

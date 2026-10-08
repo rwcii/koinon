@@ -8,7 +8,7 @@ that evidence.
 
 All tests use synthetic peers, synthetic Codex host processes, temporary `CLAUDE_CONFIG_DIR`,
 `CODEX_HOME` and state roots, and a private tmux server (`tmux -L <temporary socket>`, or
-`-S` with a temporary path). No test reads or writes the user's registry, sessions, terminals
+`-S` with a temporary path). No test reads or writes the maintainer's registry, sessions, terminals
 or services.
 
 - **Host process (criterion 4).** `ensure` run from a synthetic process tree records the nearest

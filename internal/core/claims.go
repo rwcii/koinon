@@ -94,7 +94,7 @@ func checkResource(r claimResource) error {
 }
 
 // overlaps compares keys by kind and path components, without resolving anything:
-// auth overlaps auth/session.py but not authorization.
+// auth overlaps auth/session.go but not authorization.
 func overlaps(a, b claimResource) bool {
 	if a.Kind != b.Kind {
 		return false

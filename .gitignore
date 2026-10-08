@@ -12,5 +12,5 @@ install.json
 session.json
 _handoff/
 .claude/settings.local.json
-# The synthetic Python-era state trees that the import tests read (scripts/make-import-fixtures.py).
+# Committed synthetic Python-era state trees; import tests need no generator.
 !/internal/importer/testdata/python-state/**

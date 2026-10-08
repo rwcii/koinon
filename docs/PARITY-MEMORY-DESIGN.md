@@ -1,5 +1,9 @@
 # Koinon peer parity and shared memory
 
+> Retained semantic contract. Python-specific services, file layouts and recipes below
+> describe the previous implementation; the Go routes and storage are defined in
+> [PROTOCOL.md](../PROTOCOL.md) and [WORK-ITEMS-GO-STORAGE.md](WORK-ITEMS-GO-STORAGE.md).
+
 Design and acceptance contract for one programme of work. Two agent sessions, one Claude
 participant and one Codex participant, agreed this contract with the maintainer before any
 implementation started. It states what the programme must deliver, what it must refuse to

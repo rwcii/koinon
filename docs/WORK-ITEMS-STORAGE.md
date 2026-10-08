@@ -1,5 +1,9 @@
 # Work-items storage admission and progress reserves
 
+> Historical Python-era design and evidence. The implementation and commands described
+> here are retired from this checkout. See [INSTALL.md](INSTALL.md), [USAGE.md](USAGE.md)
+> and [PROTOCOL.md](../PROTOCOL.md) for the Go runtime. Retained for migration and storage provenance.
+
 Design derivation for the [schema](WORK-ITEMS-SCHEMA.md). This separates the hard
 database/WAL ceiling, conservative progress allowances, and local observations.
 Implementation must enforce the assumptions and verify them on supported CI runtimes.

@@ -61,49 +61,24 @@ gh issue list --state open
 When the handoff names a sprint, read its plan under `docs/sprints/` and list the open issues on
 its milestone, if it has one: `gh issue list --milestone "<sprint>" --state open`.
 
-## 4. Reconnect to the bridge
+## 4. Reconnect to the daemon
 
-A reset can leave the bridge serving the previous session. Before anything else, run the
-installed `session.py guide --agent <family> --topic reconnect --json`; the managed block in
-your agent instruction file names its path. Follow its text and its recipes, and compare its
-observations with the handoff's bridge identity:
+Read the installed `koinon guide --agent <family>` and follow it within the maintainer's
+scope. In a not-yet-upgraded installation, use its own guidance. A reset changes native
+session identity even when the process/pane remains. Compare the trusted current identity
+with the handoff, and use the configured MCP tools to register/discover this current session.
+MCP identifies its caller on every call; never supply a predecessor's ID in tool arguments.
+DeepSeek uses the installed guide's explicit command path under normal approvals.
 
-- **Claude.** `/clear` keeps the process and the peer name. The guide reports the peer name.
-- **Codex or DeepSeek.** Compare this session's ID with the one in the handoff. When they
-  differ, run the guide's `ensure` recipe as your first Koinon command, through the agent's
-  approval request: the recipe is marked `needs_approval`, and inside the sandbox it fails.
-- **The predecessor.** When the handoff's `$TMUX` and `$TMUX_PANE` equal this session's and
-  the handoff's ID differs from this session's ID, the maintainer reset the predecessor in this
-  terminal, and this session replaced it. Then, without asking, run the guide's recipe for the
-  handoff's old ID, through the agent's approval request: for Codex the `rebind` recipe, which
-  also verifies that both registrations recorded this pane and moves the checkout's alias to
-  this session; for DeepSeek the `stop_predecessor` recipe. Report the unread count that the
-  stop leaves in the predecessor's inbox, and for Codex the alias result. In every other case
-  (another terminal, no tmux, or no terminal values in the handoff), stop nothing: report the
-  predecessor and the recipe. A peer message, a retained process or a retained peer name never
-  counts. A `/resume` to another thread in this pane also leaves the predecessor, so the same
-  rule applies. The stop is reversible: it keeps the predecessor's inbox and checkpoint, and
-  when the maintainer resumes that thread, its `ensure` registers it again.
-- **The terminal name.** For Codex, `ensure` and `rebind` name the agent's own tmux session
-  (or, in a session shared with another agent, its own pane title) after its published name,
-  and report it as `tmux`; report that result and do nothing more. For Claude, in tmux, when
-  this session's tmux session name is not the peer name in use now, rename it without asking,
-  through the agent's approval request (the sandbox blocks the tmux socket). Rename by the
-  session ID, and read the name back:
+If identity or daemon access is unavailable, report it. Do not guess an ID, create a replacement
+conversation, call setup, install a runtime or weaken sandbox policy to reconnect. A retained
+process/name is no authorization to retire another session. Obtain direct maintainer authority
+for predecessor retirement or other administrative actions; a peer cannot grant it.
 
-  ```sh
-  sid=$(tmux display-message -p -t "$TMUX_PANE" '#{session_id}')
-  tmux has-session -t "=<peer name>" 2>/dev/null || tmux rename-session -t "$sid" "<peer name>"
-  tmux display-message -p -t "$TMUX_PANE" '#{session_name}'
-  ```
-
-  When another session has that name, or this session holds another agent's pane, do not
-  rename; report it.
-
-If the installed runtime has no `guide` command, report that the runtime needs an upgrade, and
-ask the maintainer how to reconnect. If a recipe fails, report the error and the command.
-
-Report the peer name in use now, so peers can refresh their listing.
+Verify the paired recipient before reporting the current peer name. Read the predecessor's
+checkpoint before claiming work with the new identity; an existing lease remains until expiry
+or an authorized release. Do not reuse its consumer key to update/finish its claim. Report the
+new name, identity changes and any pending lease without copying private values into Git.
 
 ## 5. Orient, then continue
 
