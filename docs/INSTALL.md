@@ -218,6 +218,30 @@ and acknowledge only messages already handled. Use MCP when available; command e
 and memory/work operations are in [USAGE.md](USAGE.md). Setup and runtime replacement require
 the maintainer's authorization, separate from repository development.
 
+## Launcher paths in launchers.json
+
+After successful `koinon setup codex`, `agy` or `opencode`, setup records the absolute
+native CLI path it resolved in `launchers.json` under the selected Go state root:
+`~/.local/state/koinon/go/launchers.json`, or `$XDG_STATE_HOME/koinon/go/launchers.json`.
+`--state-dir DIR` selects a different root. The file is a JSON object, for example:
+
+```json
+{"codex": "/opt/agents/bin/codex", "agy": "/opt/agents/bin/agy", "opencode": "/opt/agents/bin/opencode"}
+```
+
+The root must be owned by the current user and private (normally mode 0700); the file
+must be owned by that user, be a regular file with one link, have mode 0600 and fit within
+16 KiB. Symbolic links and unsafe existing files are refused without changing permissions.
+Setup preserves other families' entries, uses a private `launchers.lock` for concurrent
+updates and replaces the JSON atomically. Repeat setup with the same path leaves it unchanged.
+
+To change a recorded path, rerun the authorized setup operation with
+`koinon setup codex --cli /absolute/path/to/codex` (or the other family). Setup resolves
+`PATH` only when selecting a CLI; launchers use the recorded absolute path and never search
+`PATH` at launch time. `koinon codex --cli /absolute/path/to/codex` overrides it for that
+launch without editing the file. Match `--state-dir` between setup and launches. Uninstall
+preserves this state-root configuration along with other retained state.
+
 ## State, recovery and compatibility
 
 The Go default state root is `~/.local/state/koinon/go` (or `$XDG_STATE_HOME/koinon/go`). It
