@@ -190,11 +190,13 @@ session columns for it: `ack_mark` and `ack_mark_at`, the sweep's acknowledgemen
   `Released by the maintainer's purge of the session` and a work event that names family and
   name `maintainer`. A claim whose lease expired waits for the work sweep's reconciliation; a
   claim that cannot be released keeps the session until a later sweep. Removing the mark stops
-  the purge; once the sweep has begun to delete the inbox, the deleted messages stay deleted.
+  the purge: the sweep reads the mark again before it releases each claim, under the lock that
+  removing a mark also takes, and in each transaction that deletes messages or the session.
+  Claims released and messages deleted before the removal stay so.
 
 A send to a deleted peer name is `peer_not_found`. Each deletion is a control write (it may use
 the storage reserve) in its own transaction: at most 500 messages per transaction, 10,000
-messages per sweep and 100 sessions per rule and sweep, so a sweep holds the storage boundary no longer
+messages per sweep for both rules together and 100 sessions per rule and sweep, so a sweep holds the storage boundary no longer
 than the work sweep does. Memory entries, work items and audit records keep their own retention.
 
 `GET /v1/status` (and `koinon status`) and dashboard health report `retention`:
