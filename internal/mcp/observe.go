@@ -294,7 +294,8 @@ func (s *server) claudeActivity(session string) *core.ObservedValue {
 	if json.Unmarshal(data, &record) != nil || record.PID != s.c.ParentPID || record.SessionID != session || record.Entrypoint != "cli" {
 		return nil
 	}
-	state := map[string]string{"busy": "busy", "shell": "busy", "idle": "idle", "waiting": "waiting"}[record.Status]
+	// shell is the prompt with a background shell task running, so the agent is idle.
+	state := map[string]string{"busy": "busy", "shell": "idle", "idle": "idle", "waiting": "waiting"}[record.Status]
 	if state == "" || record.StatusUpdatedAt <= 0 || record.StatusUpdatedAt > s.c.Now().UnixMilli() {
 		return nil
 	}

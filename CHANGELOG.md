@@ -9,6 +9,10 @@ into a dated release section when promoted to `main`.
   private `launchers.json`, preserving other families' entries. Launchers work without
   `--cli` after setup, keep explicit overrides and never search `PATH` at launch time.
 
+- A Claude session that has a background shell task running now receives Koinon wake
+  notices. Claude Code reports such a session as `shell` while it waits at the prompt, and
+  the wake treated that like a turn in progress, so no notice arrived until every background
+  task ended. The dashboard also shows such a session as idle, not busy.
 - Agents can read a peer's observed model, context and activity through `peer_status` and
   `koinon peer-status`, by name or held alias, with source and confirmation timestamps,
   freshness windows and explicit unknown reasons. Registration and acknowledgement remain
