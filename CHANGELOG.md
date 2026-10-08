@@ -5,6 +5,10 @@ into a dated release section when promoted to `main`.
 
 ## Unreleased
 
+- Setup for Codex, Antigravity and OpenCode records the resolved absolute CLI path in
+  private `launchers.json`, preserving other families' entries. Launchers work without
+  `--cli` after setup, keep explicit overrides and never search `PATH` at launch time.
+
 - Dashboard actions work from a browser again. Every page sent `Referrer-Policy: no-referrer`,
   which makes a browser send `Origin: null` with a form `POST`, so retire, release, acknowledge,
   clear, send, launch and logout were refused with "foreign origin". The pages now send
