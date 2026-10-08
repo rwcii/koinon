@@ -148,8 +148,47 @@ func TestDashboardSearchAndSuggestionPages(t *testing.T) {
 			t.Fatalf("datalist holds %q", private)
 		}
 	}
+	// The recipient filter resolves a held alias to its holder, as a send does.
+	sender := join(t, s, "agy", "synthetic-sender", "")
+	if _, err := s.Send(ctx, Key{sender.Family, sender.ID}, active.Name, "synthetic alias filter body"); err != nil {
+		t.Fatal(err)
+	}
+	for _, to := range []string{active.Name, active.Alias} {
+		if body := page("/dashboard/messages?to=" + to); !strings.Contains(body, "synthetic alias filter body") || !strings.Contains(body, "Inbox of "+to) {
+			t.Fatalf("filter %s:\n%s", to, body)
+		}
+	}
 	// The recipient filter keeps the suggestion choice and the order.
 	if !strings.Contains(all, `<input type="hidden" name="peers" value="all">`) || !strings.Contains(messages, `list="peer-names"`) {
 		t.Fatal("filter form")
+	}
+}
+
+// TestDashboardPeerOptionsBound: more expired sessions than the bound, all with keys that sort
+// before the active one, never push the active session out of the suggestions.
+func TestDashboardPeerOptionsBound(t *testing.T) {
+	s, _ := testStore(t)
+	ctx := context.Background()
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for i := range dashboardPeerOptionMax + 1 {
+		if _, err := tx.ExecContext(ctx, `INSERT INTO sessions (family,id,repository,directory,wake_target,registered_at,renewed_at,expires_at,revision)
+			VALUES ('agy',?,'','/synthetic','{}',1,1,2,1)`, fmt.Sprintf("synthetic-%04d", i)); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := tx.Commit(); err != nil {
+		t.Fatal(err)
+	}
+	active := join(t, s, "codex", "synthetic-active", "")
+	options, err := s.dashboardPeerOptions(ctx, false)
+	if err != nil || len(options) != 1 || options[0].Name != active.Name {
+		t.Fatalf("active options: %v %v", options, err)
+	}
+	options, err = s.dashboardPeerOptions(ctx, true)
+	if err != nil || len(options) != dashboardPeerOptionMax || options[0].Name != active.Name || options[1].Label != "agy, expired" {
+		t.Fatalf("all options: %d %v %v", len(options), options[:2], err)
 	}
 }

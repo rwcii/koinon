@@ -9,8 +9,9 @@ into a dated release section when promoted to `main`.
   by peer name, alias, family, repository, directory or state, and the search stays in the
   URL, across pages and refreshes.
 - The dashboard's send form suggests the names and aliases of active sessions, with their
-  family and state, and of every session on request. The messages recipient filter no longer
-  resets while you type, because the 5-second refresh now leaves the filter forms alone.
+  family and state, and of every session on request. The messages recipient filter also
+  accepts a held alias, and it no longer resets while you type, because the 5-second refresh
+  now leaves the filter forms alone.
 - Every dashboard table sorts by its column headers. A click sorts the whole list on the
   server, a second click reverses it, and the order stays in the URL, so a sorted view can be
   reloaded, linked and refreshed. Paging keeps the order and the messages recipient filter.

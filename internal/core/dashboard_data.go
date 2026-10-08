@@ -423,40 +423,67 @@ type peerOption struct {
 	Name, Label string
 }
 
+// dashboardPeerOptionMax bounds the sessions that the send form suggests.
+const dashboardPeerOptionMax = 1000
+
 // dashboardPeerOptions lists the names and held aliases that the send form suggests:
-// active sessions first, then expired and retired ones when all is set, each by name.
+// active sessions, and expired and retired ones after them when all is set, each by name.
+// The bound applies after this order, so expired sessions never push out active ones.
 func (s *Store) dashboardPeerOptions(ctx context.Context, all bool) ([]peerOption, error) {
-	sessions, _, err := s.List(ctx)
+	query := `SELECT family,name,alias,state FROM (` + dashboardSessionView + `)`
+	if !all {
+		query += ` WHERE state='active'`
+	}
+	rows, err := s.db.QueryContext(ctx, query+` ORDER BY CASE state WHEN 'active' THEN 0 WHEN 'expired' THEN 1 ELSE 2 END,
+		name,family,id LIMIT `+strconv.Itoa(dashboardPeerOptionMax), s.now().UnixMilli())
 	if err != nil {
 		return nil, err
 	}
-	rank := map[string]int{"active": 0, "expired": 1, "retired": 2}
-	sort.SliceStable(sessions, func(i, j int) bool {
-		if rank[sessions[i].State] != rank[sessions[j].State] {
-			return rank[sessions[i].State] < rank[sessions[j].State]
-		}
-		return sessions[i].Name < sessions[j].Name
-	})
+	defer rows.Close()
 	options := []peerOption{}
-	for _, session := range sessions {
-		if session.State != "active" && !all {
-			continue
+	for rows.Next() {
+		var family, name, alias, state string
+		if err := rows.Scan(&family, &name, &alias, &state); err != nil {
+			return nil, err
 		}
-		label := session.Family + ", " + session.State
-		options = append(options, peerOption{session.Name, label})
-		if session.Alias != "" {
-			options = append(options, peerOption{session.Alias, "alias of " + session.Name + ", " + label})
+		label := family + ", " + state
+		options = append(options, peerOption{name, label})
+		// An alias is held only while its session is active.
+		if alias != "" && state == "active" {
+			options = append(options, peerOption{alias, "alias of " + name + ", " + label})
 		}
 	}
-	return options, nil
+	return options, rows.Err()
 }
 
 // sessionByName resolves a peer name to its session key for the message filter.
+// A held alias resolves to its holder, as it does for a send; an unheld one is not found.
 func (s *Store) sessionByName(ctx context.Context, name string) (*Key, error) {
-	var k Key
-	err := s.db.QueryRowContext(ctx, `SELECT family,session_id FROM names WHERE kind='peer' AND name=?`, name).Scan(&k.Family, &k.ID)
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return nil, err
+	}
+	defer tx.Rollback()
+	var kind, family, id, repository, holder string
+	err = tx.QueryRowContext(ctx, `SELECT kind,family,session_id,repository,holder_id FROM names WHERE name=?`, name).
+		Scan(&kind, &family, &id, &repository, &holder)
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, ErrPeerNotFound
 	}
-	return &k, err
+	if err != nil {
+		return nil, err
+	}
+	if kind == "alias" {
+		held := false
+		if holder != "" {
+			if held, err = holds(ctx, tx, s.now().UnixMilli(), family, holder, repository); err != nil {
+				return nil, err
+			}
+		}
+		if !held {
+			return nil, ErrPeerNotFound
+		}
+		id = holder
+	}
+	return &Key{family, id}, nil
 }

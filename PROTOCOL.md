@@ -333,9 +333,10 @@ from elsewhere. Peer message bodies appear here, escaped, and nowhere else outsi
   key `FAMILY:ID`; `q=TEXT`, at most 256 bytes, lists only the sessions whose peer name,
   alias, family, repository, directory or state holds TEXT, ignoring ASCII case, with `%` and
   `_` matched literally), `messages` (every inbox, 50 per page and about 1 MiB of bodies,
-  `to=NAME` for one recipient; delivery state and reason, acknowledgement; the send form
-  suggests the names and held aliases of active sessions with their family and state, and of
-  every session with `peers=all`, never a session ID or directory), `memory` (per store:
+  `to=NAME` for one recipient, a peer name or a held alias; delivery state and reason,
+  acknowledgement; the send form suggests the names and held aliases of at most 1,000 active
+  sessions with their family and state, and with `peers=all` of every session, active first,
+  never a session ID or directory), `memory` (per store:
   head, floor, entries and logical bytes against their ceilings, consumers, work debt and
   maintenance, 50 stores per page), `work` (per store, every unfinished item with its claim,
   resources, lease and progress state computed at read time; stores page by repository, 50 at a
