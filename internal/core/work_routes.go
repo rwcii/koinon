@@ -56,6 +56,8 @@ func (d *Daemon) maintainWork() {
 	for {
 		ctx, cancel := contextUntil(d.stop, time.Minute)
 		d.store.MaintainWork(ctx)
+		// Retention runs after the work sweep, which has reconciled expired claims (#216).
+		d.store.Cull(ctx)
 		// The audit log keeps 90 days and at most auditMax records (sprint chunk 09), and
 		// launch results that could not be recorded at once are recorded now.
 		d.store.trimAudit(ctx)

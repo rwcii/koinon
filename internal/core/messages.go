@@ -337,6 +337,17 @@ func (s *Store) MessageOutcome(ctx context.Context, caller Key, id int64) (Outco
 		WHERE m.id=? AND m.sender_family=? AND m.sender_id=?`, id, caller.Family, caller.ID).
 		Scan(&result.ID, &result.Recipient, &result.Seq, &result.DeliveryState, &result.DeliveryReason, &result.UpdatedAt, &result.Acknowledged, &maintainer)
 	if errors.Is(err, sql.ErrNoRows) {
+		// An ID that the daemon issued and no longer holds was deleted by retention or a
+		// purge (#216); its outcome is the fixed state deleted, whichever session sent it.
+		var issued int64
+		if err := tx.QueryRowContext(ctx, `SELECT COALESCE(MAX(seq),0) FROM sqlite_sequence WHERE name='messages'`).Scan(&issued); err != nil {
+			return Outcome{}, err
+		}
+		if id > 0 && id <= issued {
+			if err := tx.QueryRowContext(ctx, `SELECT 1 FROM messages WHERE id=?`, id).Scan(new(int)); errors.Is(err, sql.ErrNoRows) {
+				return Outcome{ID: id, DeliveryState: "deleted"}, nil
+			}
+		}
 		return Outcome{}, ErrMessageNotFound
 	}
 	result.AcknowledgedBy = acknowledgedBy(result.Acknowledged, maintainer)

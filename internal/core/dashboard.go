@@ -249,6 +249,7 @@ type healthData struct {
 	Storage   StorageStatus
 	Sweep     map[string]any
 	Wake      map[string]any
+	Retention RetentionStatus
 }
 
 // dashboardData reads one view's state. Every query is bounded and read-only.
@@ -345,8 +346,12 @@ func (d *Daemon) dashboardData(r *http.Request, view string) (any, error) {
 		if err != nil {
 			return nil, err
 		}
+		retention, err := d.store.RetentionStatus(ctx)
+		if err != nil {
+			return nil, err
+		}
 		return healthData{Started: d.started, Revision: buildRevision(), Schema: schemaVersion, Listeners: d.Addresses(),
-			Sessions: counts, Storage: storage, Sweep: sweep, Wake: wake}, nil
+			Sessions: counts, Storage: storage, Sweep: sweep, Wake: wake, Retention: retention}, nil
 	}
 }
 
