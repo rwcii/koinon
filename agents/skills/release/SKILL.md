@@ -68,10 +68,13 @@ gh pr view <number> --json state,mergeCommit
 ## 5. Tag the release and check the tap
 
 Tag the main merge commit with the version the maintainer approved, in the form
-`vMAJOR.MINOR.PATCH`, and push only the tag:
+`vMAJOR.MINOR.PATCH`, and push only the tag. The tag message becomes the GitHub release
+description, so write it as release notes in Markdown: one sentence on what the release is, a
+**Highlights** list of the user-visible changes with the commands to use them, the **Known
+limits**, and links to the changelog and the installation guide at that tag. State facts only.
 
 ```sh
-git tag -s <tag> -m "Koinon <tag>" <merge commit>
+git tag -s --cleanup=verbatim -F <notes file> <tag> <merge commit>
 git push origin <tag>
 ```
 
