@@ -317,8 +317,9 @@ func (d *Daemon) workActions(mux *http.ServeMux, authed func(int64, func(http.Re
 
 // finishReplay finds the consumer under which a finish with this key was recorded, the
 // claim generation it finished (the item's last generation, which a finish keeps), and
-// whether claimAndFinish made it: only that path also records the key's "-start" claim. A
-// maintainer finish of a claim it already held is replayed as an ordinary finish.
+// whether claimAndFinish made it: only that path records the key's "-start" claim with no
+// fingerprint of its own. A maintainer finish of a claim it already held, even one started
+// with that key, is replayed as an ordinary finish.
 func (s *Store) finishReplay(ctx context.Context, repository, workID, key string) (string, int64, bool, error) {
 	store, err := storeOf(ctx, s.db, repository)
 	if err != nil || store == "" {
@@ -328,7 +329,7 @@ func (s *Store) finishReplay(ctx context.Context, repository, workID, key string
 	var generation sql.NullInt64
 	var combined bool
 	err = s.db.QueryRowContext(ctx, `SELECT r.consumer,w.last_generation,EXISTS(SELECT 1 FROM work_replays s
-		WHERE s.store=r.store AND s.consumer=r.consumer AND s.key=r.key||'-start' AND s.operation='work-start')
+		WHERE s.store=r.store AND s.consumer=r.consumer AND s.key=r.key||'-start' AND s.operation='work-start' AND s.fingerprint='')
 		FROM work_replays r LEFT JOIN work_items w ON w.store=r.store AND w.work_id=?
 		WHERE r.store=? AND r.key=? AND r.operation='work-finish'
 		ORDER BY r.consumer=? DESC LIMIT 1`, workID, store, key, maintainerConsumer).Scan(&consumer, &generation, &combined)
