@@ -23,8 +23,9 @@ Criteria 1, 2, 9 and 10 of `decision.md`, and the upgrade constraint.
 2. **Role.** `koinon <family> --role <role>` validates the role (lower-case letters, digits and
    hyphens, 1 to 24 characters, starts with a letter, not made only of hexadecimal digits so it
    can never equal a peer-name suffix) and stores it in the launch record. `koinon mcp` sends the
-   launch ID for every launcher family; for Claude the store reads only the role from the launch record and
-   keeps the Claude wake target. The registration carries no role from tool arguments.
+   launch ID for every launcher family; for Claude the store reads the role and the nested
+   repository list (`nested`, `nested_incomplete`, #252) from the launch record and keeps the
+   Claude wake target, so the dashboard shows the list for a Claude session too. The registration carries no role from tool arguments.
 3. **Address.** A participant's address is `<family>-<label>` without a role and
    `<family>-<label>-<role>` with one. When that name is taken, the existing `lengths` fallback
    applies and the result reports the address that was given.
@@ -52,6 +53,7 @@ Criteria 1, 2, 9 and 10 of `decision.md`, and the upgrade constraint.
 - The store tests of `definition-of-done.md`, "Participants" and "Upgrade", with
   `TestAliasHolderMoves` replaced by tests of the new rules, including reversed renewal order and
   concurrent registration.
-- Dashboard action tests (choice, refusals, audit). Launcher role validation tests.
+- Dashboard action tests (choice, refusals, audit). Launcher role validation tests. A launched
+  Claude session shows its launch's nested repository list in the sessions view (#252).
 - `PROTOCOL.md` (participants, roles, holder rules, the action), `docs/USAGE.md`,
   `docs/INSTALL.md` (`--role`), the installed `koinon guide` text, `CHANGELOG.md`.

@@ -15,6 +15,6 @@ depends on have merged. One pull request is in flight at a time. Each chunk pass
 Chunk 05 needs only 02, but it is built after 04 under the one-pull-request rule. The final live
 check of `definition-of-done.md` runs before the last chunk's sign-off.
 
-Work items: chunks 01 to 04 reuse the work item of #228 (01 also delivers #247, 04 delivers
-#141); chunk 05 delivers #147 and closes #228. Each issue closes when the last chunk that names it
+Work items: chunks 01 to 04 reuse the work item of #228 (01 also delivers #247, 02 delivers the
+Claude part of #252 and closes it, 04 delivers #141); chunk 05 delivers #147 and closes #228. Each issue closes when the last chunk that names it
 merges.
