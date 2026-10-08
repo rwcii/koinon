@@ -3,6 +3,9 @@
 Read [INSTALL.md](INSTALL.md) for installation, managed/manual startup and legacy upgrade.
 The daemon and every client must select the same state directory and loopback address.
 `koinon --help` lists the installed binary's commands. Errors report `ok: false` and a code.
+The examples call `koinon` from `PATH`, which the install links at `~/.local/bin/koinon` on Linux
+and macOS. When `PATH` does not reach the installed binary, follow the install report's
+`path_step`, or call `~/.local/share/koinon/go/bin/koinon` directly.
 
 ## Messages and participants
 
