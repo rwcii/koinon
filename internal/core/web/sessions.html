@@ -4,7 +4,7 @@
 <tbody>{{range .Data.Rows}}<tr class="state-{{.State}}">
 <td>{{.Name}}{{if .Alias}}<br><small>alias {{.Alias}}</small>{{end}}</td>
 <td>{{.Family}}</td>
-<td>{{if .Repository}}{{.Repository}}{{else}}<small>no repository</small>{{end}}<br><small>directory {{.Directory}}</small></td>
+<td>{{if .Repository}}{{.Repository}}{{else}}<small>no repository</small>{{end}}<br><small>directory {{.Directory}}</small>{{with .NestedRepositories}}<details class="nested"><summary><small>{{len .List}}{{if .Incomplete}}+{{end}} nested {{if eq (len .List) 1}}repository{{else}}repositories{{end}}</small></summary><small>{{range .List}}<code>{{.Path}}</code> {{.Kind}}<br>{{end}}{{if .Incomplete}}list incomplete<br>{{end}}The session's Koinon repository is the start repository.</small></details>{{end}}</td>
 <td>{{.State}}{{if .PurgeAt}}<br><small>marked for purge</small>{{end}}</td>
 <td>{{with index .Observed "model"}}{{if .Value}}{{.Value.ID}}<br><small>{{.Value.Source}}, {{ms .Value.At}}</small>{{else}}<small>unknown: {{.Reason}}</small>{{end}}{{end}}</td>
 <td>{{with index .Observed "context"}}{{if .Value}}{{tokens .Value}}<br><small>{{.Value.Source}}, {{ms .Value.At}}</small>{{else}}<small>unknown: {{.Reason}}</small>{{end}}{{end}}</td>

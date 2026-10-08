@@ -112,6 +112,11 @@ retrying.
 Launch creation takes `family` (`codex`, `agy`, `opencode`), absolute `directory` and `cli`,
 and positive `host_pid`. OpenCode also requires `address` (literal loopback with a nonzero
 port) and `password` (64 hex characters). Other families refuse those credential fields.
+Optional `nested` lists at most 64 repositories inside the directory that are not part of its
+repository, each `{"path", "kind"}`: a clean relative path of at most 256 bytes with no control
+character, and `kind` `submodule`, `worktree` or `repository`. Optional `nested_incomplete`
+says that the launcher's scan stopped early. The session target carries both; they never
+change the session's repository.
 The response returns `ok` and `launch_id`. The credential stays only in private launch storage;
 session responses contain a `launch_id` reference and target metadata with no password field.
 Launch records survive a
@@ -516,7 +521,9 @@ from elsewhere. Peer message bodies appear here, escaped, and nowhere else outsi
     its own executable as the launcher with `--tmux-session`, so the agent starts detached in a
     new tmux session with its configured CLI. The directory must be an existing absolute path; the
     name uses letters, digits, `_` and `-`, and defaults to `FAMILY-FOLDER-XXXX`. No other
-    argument is accepted. The action never waits for the agent to register.
+    argument is accepted. The action never waits for the agent to register. The launcher's
+    `--tmux-session` result adds `nested` and `nested_incomplete` when it found nested
+    repositories; the sessions view shows the launch record's list with each session registered with it.
 - **Audit log.** A request that fails the session, host, origin or CSRF check writes no record.
   After those checks, each action writes one record: time, action, target, result (`accepted`,
   `refused`, `started` while a launch runs, or `unknown`) and a fixed reason code. A record never

@@ -98,13 +98,17 @@ koinon status
 ```
 
 The launchers use configured native CLIs, exact repositories and private launch records.
-A launcher refuses a start directory that holds another repository, before any agent starts:
-a nested `.git` directory or symlink, or a `.git` file of another repository. It accepts the
-`.git` files of the start repository's own work: a submodule that its enclosing checkout
-records as a gitlink at exactly that path, with its Git directory under the `modules/` of that
-checkout's Git directory (a linked worktree's own) or common directory, and a linked worktree
-of the start repository inside the checkout. It never follows directory symlinks,
-and a directory it cannot read is a refusal.
+A launcher starts in a directory that holds other repositories and reports them before the
+agent starts: each nested checkout, with its path relative to the start directory and its kind
+(`submodule` when its enclosing repository records it as a gitlink, whatever its `.git` layout;
+`worktree` for a linked worktree of another repository; `repository` for any other, such as a
+separate clone). A linked worktree of the start repository is part of it and is not listed. The
+scan goes into submodules and the start repository's worktrees, but not into another
+repository, never follows directory symlinks, and stops after 3 seconds or 64 entries; a stop
+or an unreadable directory marks the list incomplete and never refuses the start. The
+session's Koinon repository, memory and work store stay the start directory's repository. The
+launch record keeps the list, and the dashboard shows it with each session that registers with
+its launch record (Codex, Antigravity and OpenCode).
 OpenCode's wake server requires the launcher. The dashboard link is single-use and expires;
 keep it out of logs, Git and messages. Administrative actions require CSRF protection and are
 audited. Health reports unknown observations explicitly; a failure is not permission to
