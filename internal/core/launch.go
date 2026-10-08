@@ -36,16 +36,21 @@ type NestedReport struct {
 	Incomplete bool
 }
 
+// ValidNestedPath reports whether a launch record can hold p: a clean relative path of at
+// most MaxNestedPath bytes of UTF-8 with no control character.
+func ValidNestedPath(p string) bool {
+	if p == "" || len(p) > MaxNestedPath || !utf8.ValidString(p) || strings.ContainsFunc(p, func(r rune) bool { return r < 0x20 || r == 0x7f }) {
+		return false
+	}
+	return !filepath.IsAbs(p) && filepath.Clean(p) == p && p != "." && p != ".." && !strings.HasPrefix(p, ".."+string(filepath.Separator))
+}
+
 func validNested(list []NestedRepository) bool {
 	if len(list) > MaxNested {
 		return false
 	}
 	for _, n := range list {
-		p := n.Path
-		if p == "" || len(p) > MaxNestedPath || !utf8.ValidString(p) || strings.ContainsFunc(p, func(r rune) bool { return r < 0x20 || r == 0x7f }) {
-			return false
-		}
-		if filepath.IsAbs(p) || filepath.Clean(p) != p || p == "." || p == ".." || strings.HasPrefix(p, ".."+string(filepath.Separator)) {
+		if !ValidNestedPath(n.Path) {
 			return false
 		}
 		if n.Kind != "submodule" && n.Kind != "worktree" && n.Kind != "repository" {

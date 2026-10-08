@@ -147,8 +147,10 @@ var scanTime = 3 * time.Second
 // incomplete; none of them refuses the start.
 func ScanNested(dir string) core.NestedReport {
 	report := core.NestedReport{}
-	start, _ := gitPath(dir, "--git-common-dir")
-	deadline := time.Now().Add(scanTime)
+	// One deadline bounds the whole scan, every Git query included.
+	ctx, cancel := context.WithTimeout(context.Background(), scanTime)
+	defer cancel()
+	start, _ := gitPath(ctx, dir, "--git-common-dir")
 	filepath.WalkDir(dir, func(path string, entry fs.DirEntry, err error) error {
 		if err != nil {
 			report.Incomplete = true
@@ -157,7 +159,7 @@ func ScanNested(dir string) core.NestedReport {
 			}
 			return nil
 		}
-		if time.Now().After(deadline) {
+		if ctx.Err() != nil {
 			report.Incomplete = true
 			return filepath.SkipAll
 		}
@@ -171,12 +173,18 @@ func ScanNested(dir string) core.NestedReport {
 		if err != nil {
 			return nil
 		}
-		kind := nestedKind(start, path, git.Mode())
+		kind := nestedKind(ctx, start, path, git.Mode())
+		if ctx.Err() != nil {
+			// A query cut short by the deadline leaves the kind unknown.
+			report.Incomplete = true
+			return filepath.SkipAll
+		}
 		if kind == "" {
 			return nil
 		}
+		// A path that the launch record cannot hold, such as one with a newline, is left out.
 		rel, _ := filepath.Rel(dir, path)
-		if len(report.List) == core.MaxNested || len(rel) > core.MaxNestedPath {
+		if len(report.List) == core.MaxNested || !core.ValidNestedPath(rel) {
 			report.Incomplete = true
 		} else {
 			report.List = append(report.List, core.NestedRepository{Path: rel, Kind: kind})
@@ -186,6 +194,9 @@ func ScanNested(dir string) core.NestedReport {
 		}
 		return filepath.SkipDir
 	})
+	if ctx.Err() != nil {
+		report.Incomplete = true
+	}
 	return report
 }
 
@@ -193,19 +204,19 @@ func ScanNested(dir string) core.NestedReport {
 // worktree of the start repository (common directory start); submodule when its enclosing
 // repository records exactly dir as a gitlink, whatever the .git layout; worktree for a
 // linked worktree of another repository; otherwise repository.
-func nestedKind(start, dir string, mode fs.FileMode) string {
+func nestedKind(ctx context.Context, start, dir string, mode fs.FileMode) string {
 	if mode.IsRegular() {
-		common, err := gitPath(dir, "--git-common-dir")
+		common, err := gitPath(ctx, dir, "--git-common-dir")
 		if err == nil && start != "" && common == start {
 			return ""
 		}
 	}
-	if recordedGitlink(filepath.Dir(dir), filepath.Base(dir)) {
+	if recordedGitlink(ctx, filepath.Dir(dir), filepath.Base(dir)) {
 		return "submodule"
 	}
 	if mode.IsRegular() {
-		common, commonErr := gitPath(dir, "--git-common-dir")
-		gitDir, dirErr := gitPath(dir, "--git-dir")
+		common, commonErr := gitPath(ctx, dir, "--git-common-dir")
+		gitDir, dirErr := gitPath(ctx, dir, "--git-dir")
 		if commonErr == nil && dirErr == nil && gitDir != common {
 			return "worktree"
 		}
@@ -233,8 +244,8 @@ func NestedNotice(dir string, report core.NestedReport) string {
 // recordedGitlink reports whether the index of the repository at dir holds an entry for
 // exactly name, as a gitlink. The pathspec is literal, and an entry below name, which a
 // directory pathspec also lists, does not count.
-func recordedGitlink(dir, name string) bool {
-	out, err := git(dir, "--literal-pathspecs", "ls-files", "--stage", "-z", "--", name)
+func recordedGitlink(ctx context.Context, dir, name string) bool {
+	out, err := git(ctx, dir, "--literal-pathspecs", "ls-files", "--stage", "-z", "--", name)
 	if err != nil {
 		return false
 	}
@@ -249,8 +260,8 @@ func recordedGitlink(dir, name string) bool {
 
 // gitPath returns an absolute rev-parse path for the repository at dir, with symlinks
 // resolved so that paths compare on macOS too.
-func gitPath(dir, flag string) (string, error) {
-	out, err := git(dir, "rev-parse", "--path-format=absolute", flag)
+func gitPath(ctx context.Context, dir, flag string) (string, error) {
+	out, err := git(ctx, dir, "rev-parse", "--path-format=absolute", flag)
 	if err != nil {
 		return "", err
 	}
@@ -259,11 +270,13 @@ func gitPath(dir, flag string) (string, error) {
 
 // git runs one read-only Git command in dir without inherited GIT_ variables and with the
 // file-system monitor off, so no repository configuration runs a command.
-func git(dir string, args ...string) (string, error) {
-	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+func git(ctx context.Context, dir string, args ...string) (string, error) {
+	ctx, cancel := context.WithTimeout(ctx, 3*time.Second)
 	defer cancel()
 	cmd := exec.CommandContext(ctx, "git", append([]string{"-c", "core.fsmonitor=false", "-C", dir}, args...)...)
 	cmd.Env = core.CleanGitEnvironment()
+	// A child that keeps the output open cannot hold the caller past the deadline.
+	cmd.WaitDelay = 100 * time.Millisecond
 	out, err := cmd.Output()
 	return string(out), err
 }

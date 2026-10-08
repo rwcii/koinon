@@ -429,6 +429,8 @@ func TestConfiguredPathAndFailures(t *testing.T) {
 	nested := filepath.Join(directory, "nested")
 	os.Mkdir(nested, 0700)
 	os.WriteFile(filepath.Join(nested, ".git"), nil, 0600)
+	// A name that the launch record cannot hold is left out and never refuses the start.
+	os.MkdirAll(filepath.Join(directory, "line\nbreak", ".git"), 0700)
 	// A start directory with a nested repository starts the agent, reports the repository
 	// before the CLI starts, and records it with the launch (#252).
 	// A TMUX value keeps the start in this process, never in a tmux server.
@@ -439,12 +441,12 @@ func TestConfiguredPathAndFailures(t *testing.T) {
 	if err := cmd.Run(); err != nil {
 		t.Fatalf("start with a nested repository: %v %s", err, stderr.String())
 	}
-	if !strings.Contains(stderr.String(), "1 nested repositories") || !strings.Contains(stderr.String(), "nested (repository)") {
+	if !strings.Contains(stderr.String(), "1 nested repositories in the start directory (list incomplete)") || !strings.Contains(stderr.String(), "nested (repository)") {
 		t.Fatalf("no nested notice: %q", stderr.String())
 	}
 	var target core.LaunchTarget
 	if err := json.Unmarshal(readReport(t, filepath.Join(root, "result")).Session.WakeTarget, &target); err != nil ||
-		!reflect.DeepEqual(target.Nested, []core.NestedRepository{{Path: "nested", Kind: "repository"}}) || target.NestedIncomplete {
+		!reflect.DeepEqual(target.Nested, []core.NestedRepository{{Path: "nested", Kind: "repository"}}) || !target.NestedIncomplete {
 		t.Fatalf("launch record lacks the nested repository: %+v %v", target, err)
 	}
 	if err := Run(context.Background(), Options{Family: "opencode", CLI: cli, Directory: directory, StateDir: filepath.Join(root, "state"), Address: address, Args: []string{"--hostname=0.0.0.0"}}, io.Discard); err == nil {

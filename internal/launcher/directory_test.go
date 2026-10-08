@@ -7,6 +7,7 @@ import (
 	"reflect"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/rwcii/koinon/internal/core"
 )
@@ -155,5 +156,43 @@ func TestNestedScanBounds(t *testing.T) {
 	}
 	if NestedNotice(root, core.NestedReport{}) != "" {
 		t.Fatal("notice without nested repositories")
+	}
+}
+
+// A nested path that a launch record cannot hold is left out and marks the list incomplete,
+// so it never refuses the launch (#255 review).
+func TestNestedUnrepresentablePath(t *testing.T) {
+	root := t.TempDir()
+	os.Mkdir(filepath.Join(root, ".git"), 0700)
+	os.MkdirAll(filepath.Join(root, "line\nbreak", ".git"), 0700)
+	os.MkdirAll(filepath.Join(root, "plain", ".git"), 0700)
+	report := ScanNested(root)
+	if !report.Incomplete || !reflect.DeepEqual(report.List, []core.NestedRepository{{Path: "plain", Kind: "repository"}}) {
+		t.Fatalf("unrepresentable path: %+v", report)
+	}
+}
+
+// One deadline bounds the whole scan, Git queries included: with the production budget and a
+// Git that answers each query after 0.8 seconds, the scan ends near the budget and reports the
+// list incomplete (#255 review).
+func TestNestedScanDeadlineCoversGit(t *testing.T) {
+	sleep, err := exec.LookPath("sleep")
+	if err != nil {
+		t.Fatal(err)
+	}
+	bin := t.TempDir()
+	os.WriteFile(filepath.Join(bin, "git"), []byte("#!/bin/sh\n"+sleep+" 0.8\nexit 1\n"), 0700)
+	t.Setenv("PATH", bin)
+	root := t.TempDir()
+	// One nested entry: the walk ends after it, so only the shared deadline marks it incomplete.
+	os.Mkdir(filepath.Join(root, "one"), 0700)
+	os.WriteFile(filepath.Join(root, "one", ".git"), []byte("gitdir: synthetic\n"), 0600)
+	began := time.Now()
+	report := ScanNested(root)
+	if elapsed := time.Since(began); elapsed > scanTime+500*time.Millisecond {
+		t.Fatalf("scan took %v with a %v budget", elapsed, scanTime)
+	}
+	if !report.Incomplete {
+		t.Fatalf("over-budget scan reported complete: %+v", report)
 	}
 }
