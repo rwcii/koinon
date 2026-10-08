@@ -7,6 +7,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
+	"syscall"
 	"testing"
 )
 
@@ -85,20 +86,27 @@ func TestCheckoutResourceIdentity(t *testing.T) {
 			t.Fatalf("accepted %q", path)
 		}
 	}
-	// JSON framing must not collapse distinct invalid UTF-8 path bytes to replacement
-	// characters. Refuse such paths instead of deriving an ambiguous opaque resource.
-	invalidPath := filepath.Join(t.TempDir(), "checkout-\xff")
-	if err := os.Mkdir(invalidPath, 0700); err != nil {
-		t.Fatal(err)
-	}
-	checkoutGit(t, invalidPath, "init", "-q")
-	if _, err := CheckoutResource(ctx, invalidPath); err == nil {
-		t.Fatal("accepted a path whose JSON identity is lossy")
-	}
 	ctx, cancel := context.WithCancel(ctx)
 	cancel()
 	if _, err := CheckoutResource(ctx, first.Directory); err == nil {
 		t.Fatal("ignored cancellation")
+	}
+}
+
+func TestCheckoutResourceRejectsLossyPathIdentity(t *testing.T) {
+	// JSON framing must not collapse invalid UTF-8 path bytes to replacement characters.
+	// Some filesystems reject these names at creation, so no ambiguous Git checkout can
+	// exist there. Keep the canonical-path tests above independent of this fixture.
+	invalidPath := filepath.Join(t.TempDir(), "checkout-\xff")
+	if err := os.Mkdir(invalidPath, 0700); err != nil {
+		if errors.Is(err, syscall.EILSEQ) || errors.Is(err, syscall.EINVAL) {
+			t.Skipf("filesystem refuses non-UTF-8 names: %v", err)
+		}
+		t.Fatal(err)
+	}
+	checkoutGit(t, invalidPath, "init", "-q")
+	if _, err := CheckoutResource(context.Background(), invalidPath); err == nil {
+		t.Fatal("accepted a path whose JSON identity is lossy")
 	}
 }
 
