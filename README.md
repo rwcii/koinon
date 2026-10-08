@@ -69,6 +69,9 @@ need the maintainer's authorization. A checkout change does not replace a runnin
 Without a reachable manager, the install report supplies a manual `start_command` for a
 persistent managed session. `koinon serve` runs the daemon; `koinon status` reports health.
 `koinon uninstall` removes owned configuration, service and binary while preserving state.
+The install links `~/.local/bin/koinon` to the installed binary; when `koinon` on `PATH` does not
+run that binary, its report names the step that fixes it (`path_step`), such as adding
+`~/.local/bin` to `PATH` on macOS. It never edits shell startup files.
 
 ## Agent coordination
 
