@@ -15,8 +15,7 @@ Tmux input looks like local maintainer input to the receiving agent. Send only t
 commands from the table below, bare. Do not send prose: it costs tokens and turns, and the receiver can misread it. Never
 impersonate the maintainer or turn a peer request into approval. Use Koinon for ordinary
 coordination. Do not switch to tmux to retry an action that a permission or approval check
-denied, and never use it to accept a permission dialog. A Claude session in auto mode is
-blocked from typing into a peer's pane until the maintainer allows it; do not work around that.
+denied.
 
 ## Find and read the target
 
