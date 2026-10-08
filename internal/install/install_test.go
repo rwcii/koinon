@@ -251,3 +251,68 @@ func TestInstallPathLink(t *testing.T) {
 		t.Fatalf("prefix left: %v", err)
 	}
 }
+
+func TestInstallLinkMarkerRefusesUnrelatedFile(t *testing.T) {
+	ctx := context.Background()
+	for _, kind := range []string{"symlink", "file"} {
+		t.Run(kind, func(t *testing.T) {
+			e := newEnv(t, "systemd")
+			retained := filepath.Join(t.TempDir(), "retained")
+			os.WriteFile(retained, []byte("unrelated"), 0600)
+			marker := filepath.Join(e.o.Prefix, "link")
+			os.MkdirAll(e.o.Prefix, 0755)
+			if kind == "symlink" {
+				os.Symlink(retained, marker)
+			} else {
+				os.WriteFile(marker, []byte("unrelated"), 0600)
+			}
+			// Install and uninstall refuse the marker and change neither file.
+			if _, err := Install(ctx, e.o); err == nil || !strings.Contains(err.Error(), "link_marker_invalid") {
+				t.Fatalf("install: %v", err)
+			}
+			if _, err := os.Lstat(filepath.Join(e.o.Services.Home, ".local", "bin", "koinon")); !os.IsNotExist(err) {
+				t.Fatalf("link made: %v", err)
+			}
+			if _, err := Uninstall(ctx, e.o); err == nil || !strings.Contains(err.Error(), "link_marker_invalid") {
+				t.Fatalf("uninstall: %v", err)
+			}
+			if data, _ := os.ReadFile(retained); string(data) != "unrelated" {
+				t.Fatalf("retained file changed: %q", data)
+			}
+			if kind == "file" {
+				if data, _ := os.ReadFile(marker); string(data) != "unrelated" {
+					t.Fatalf("marker file changed: %q", data)
+				}
+			}
+		})
+	}
+}
+
+func TestInstallReportsRelativePathEntries(t *testing.T) {
+	ctx := context.Background()
+	e := newEnv(t, "systemd")
+	linkDir := filepath.Join(e.o.Services.Home, ".local", "bin")
+	wd := t.TempDir()
+	t.Chdir(wd)
+	os.MkdirAll(filepath.Join(wd, "rel"), 0755)
+	os.WriteFile(filepath.Join(wd, "rel", "koinon"), []byte("relative"), 0755)
+	os.WriteFile(filepath.Join(wd, "koinon"), []byte("current"), 0755)
+	sep := string(filepath.ListSeparator)
+	// A relative entry before the link directory runs first, as in a shell.
+	e.o.Path = "rel" + sep + linkDir
+	r, err := Install(ctx, e.o)
+	if err != nil || r.OnPath != filepath.Join(wd, "rel", "koinon") ||
+		r.PathStep != "PATH runs "+r.OnPath+" first; put "+linkDir+" before its directory in PATH, or run "+r.Binary {
+		t.Fatalf("relative entry %+v %v", r, err)
+	}
+	// An empty entry is the current directory.
+	e.o.Path = sep + linkDir
+	if r, err = Install(ctx, e.o); err != nil || r.OnPath != filepath.Join(wd, "koinon") {
+		t.Fatalf("empty entry %+v %v", r, err)
+	}
+	// After the link directory, neither matters.
+	e.o.Path = linkDir + sep + "rel" + sep
+	if r, err = Install(ctx, e.o); err != nil || r.OnPath != filepath.Join(linkDir, "koinon") || r.PathStep != "" {
+		t.Fatalf("link first %+v %v", r, err)
+	}
+}

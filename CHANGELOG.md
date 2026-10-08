@@ -22,7 +22,8 @@ into a dated release section when promoted to `main`.
   `koinon ...` commands run it. The report names the `koinon` that `PATH` runs and, when that is
   not the installed copy, the step that makes it so; it never edits shell startup files.
   `koinon uninstall` removes the link only when the install created it and it still points at
-  the installed binary.
+  the installed binary. A symlink or an unrelated file at the link's marker is refused and
+  never overwritten.
 - Dashboard actions work from a browser again. Every page sent `Referrer-Policy: no-referrer`,
   which makes a browser send `Origin: null` with a form `POST`, so retire, release, acknowledge,
   clear, send, launch and logout were refused with "foreign origin". The pages now send
