@@ -79,8 +79,16 @@ supply both `--key KEY` and a fixed `--deadline EPOCH` and keep them unchanged o
 claim renewal and finish/release. Read scope before claiming; only the maintainer assigns work.
 Claims remain advisory. An expired lease does not make a checkpoint an instruction.
 
+For agents sharing a checkout, `work_checkout` shows the writer, generation token, expiry
+and checkpoint. Include its resource in every writer's `work_start`; linked worktrees get
+separate resources. `work_checkout_request` notifies the current writer. The writer can
+release with `handoff_to` and `checkout_resource`, saving a checkpoint and notifying the
+requester atomically. The requester explicitly accepts with `work_start` and a new token.
+See the [checkout handoff recipe](WORK-ITEMS-COMMANDS.md#one-writer-in-a-checkout).
+
 ```sh
 koinon work list --as "codex:$CODEX_THREAD_ID"
+koinon work checkout status --as "codex:$CODEX_THREAD_ID"
 koinon claude --directory /path/to/repository
 koinon codex --directory /path/to/repository
 koinon agy --directory /path/to/repository

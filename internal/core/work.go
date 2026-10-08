@@ -46,7 +46,7 @@ var workFields = map[string][]string{
 	"work-start":   {"work_id", "if_revision", "checkpoint", "next_artifact", "progress_deadline", "lease_seconds", "resources"},
 	"work-update": {"work_id", "if_revision", "claim_generation", "progress", "checkpoint", "next_artifact",
 		"progress_deadline", "lifecycle", "blocker", "references", "renew_for"},
-	"work-release": {"work_id", "if_revision", "claim_generation", "checkpoint"},
+	"work-release": {"work_id", "if_revision", "claim_generation", "checkpoint", "handoff_to", "checkout_resource"},
 	"work-finish":  {"work_id", "if_revision", "claim_generation", "outcome", "reason", "references"},
 	"claim-renew":  {"work_id", "claim_generation", "if_claim_revision", "lease_seconds"},
 }
@@ -150,7 +150,7 @@ func parseWork(op string, fields map[string]json.RawMessage) (*workRequest, erro
 			}
 			fallthrough
 		case "work_id", "title", "criteria", "non_goals", "progress", "checkpoint", "next_artifact", "blocker", "reason",
-			"outcome", "lifecycle", "key":
+			"outcome", "lifecycle", "key", "handoff_to", "checkout_resource":
 			var v string
 			if kind != "string" || json.Unmarshal(raw, &v) != nil {
 				return nil, invalid(name + " must be text")
@@ -266,6 +266,17 @@ func (r *workRequest) validate() error {
 	}
 	if r.has("resources") {
 		if _, err := claimBundle(r.text["work_id"], r.res); err != nil {
+			return err
+		}
+	}
+	if r.has("handoff_to") != r.has("checkout_resource") {
+		return invalid("handoff_to and checkout_resource must be supplied together")
+	}
+	if r.has("handoff_to") {
+		if err := checkText(r.text["handoff_to"], "handoff_to", 256); err != nil {
+			return err
+		}
+		if err := checkCheckoutKey(r.text["checkout_resource"]); err != nil {
 			return err
 		}
 	}
@@ -926,7 +937,7 @@ func (s *Store) workMutation(ctx context.Context, m MemoryCaller, r *workRequest
 		}
 	}
 	class := ordinary
-	if r.op == "work-release" || r.op == "work-finish" {
+	if (r.op == "work-release" && !r.has("handoff_to")) || r.op == "work-finish" {
 		class = control
 	}
 	var result map[string]any
@@ -1101,6 +1112,19 @@ func (s *Store) apply(ctx context.Context, tx *writeTx, store string, m MemoryCa
 				w.References = r.refs
 			}
 		case "work-release", "work-finish":
+			if r.has("handoff_to") {
+				resources, err := bundleResources(ctx, tx, store, r.ints["claim_generation"])
+				if err != nil {
+					return nil, err
+				}
+				found := false
+				for _, resource := range resources {
+					found = found || resource == (claimResource{"exact", r.text["checkout_resource"]})
+				}
+				if !found {
+					return nil, workError("checkout_not_held", "this claim does not hold the named checkout resource")
+				}
+			}
 			if err := engine.release(w.WorkID, m.Consumer, r.ints["claim_generation"], now); err != nil {
 				return nil, err
 			}
@@ -1118,6 +1142,13 @@ func (s *Store) apply(ctx context.Context, tx *writeTx, store string, m MemoryCa
 		return nil, err
 	}
 	result := map[string]any{"work_id": w.WorkID, "revision": w.Revision, "seq": w.LatestSeq, "duplicate": false}
+	if r.has("handoff_to") {
+		message, err := s.notifyCheckoutHandoff(ctx, tx, m, r)
+		if err != nil {
+			return nil, err
+		}
+		result["message"], result["role_released"] = message, true
+	}
 	if r.op == "work-start" || r.op == "work-update" {
 		held, err := bundleFor(ctx, tx, store, w.WorkID)
 		if err != nil {

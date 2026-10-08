@@ -33,6 +33,9 @@ var (
 // workCommand runs koinon work OPERATION and koinon claim renew through the daemon's
 // API. It checks the unconditional required options before it contacts the daemon.
 func workCommand(ctx context.Context, args []string, out io.Writer) error {
+	if len(args) >= 2 && args[0] == "work" && args[1] == "checkout" {
+		return checkoutCommand(ctx, args[2:], out)
+	}
 	if len(args) < 2 {
 		return usageError{"invalid_request", "use koinon work <create|get|list|propose|edit|start|update|release|finish> or koinon claim renew"}
 	}

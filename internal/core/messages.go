@@ -136,18 +136,28 @@ func (s *Store) send(ctx context.Context, caller Key, to, body string, dashboard
 	if to == "" || len(to) > 256 || body == "" || len(body) > maxBody || !utf8.ValidString(body) {
 		return Outcome{}, ErrInvalid
 	}
-	now := s.now().UnixMilli()
 	tx, err := s.begin(ctx, ordinary)
 	if err != nil {
 		return Outcome{}, err
 	}
 	defer tx.Rollback()
 	tx.audited = true
+	outcome, err := s.sendTx(ctx, tx, caller, to, body, dashboard)
+	if err != nil {
+		return Outcome{}, err
+	}
+	return outcome, tx.Commit()
+}
+
+// sendTx lets an explicit work handoff commit its release and notification together.
+// Callers validate the body and use ordinary admission when adding a message.
+func (s *Store) sendTx(ctx context.Context, tx *writeTx, caller Key, to, body string, dashboard bool) (Outcome, error) {
+	now := s.now().UnixMilli()
 	if err := activeCaller(ctx, tx.Tx, now, caller, dashboard); err != nil {
 		return Outcome{}, err
 	}
 	var kind, family, sessionID, repository, holder string
-	err = tx.QueryRowContext(ctx, `SELECT kind,family,session_id,repository,holder_id FROM names WHERE name=?`, to).
+	err := tx.QueryRowContext(ctx, `SELECT kind,family,session_id,repository,holder_id FROM names WHERE name=?`, to).
 		Scan(&kind, &family, &sessionID, &repository, &holder)
 	if errors.Is(err, sql.ErrNoRows) {
 		return Outcome{}, ErrPeerNotFound
@@ -204,7 +214,7 @@ func (s *Store) send(ctx context.Context, caller Key, to, body string, dashboard
 			p.target += " via " + submitted
 		}
 	}
-	return Outcome{ID: id, Recipient: to, Seq: seq, DeliveryState: "waiting", UpdatedAt: now}, tx.Commit()
+	return Outcome{ID: id, Recipient: to, Seq: seq, DeliveryState: "waiting", UpdatedAt: now}, nil
 }
 
 // ReadInbox returns the caller's own messages after a sequence, at most limit of them

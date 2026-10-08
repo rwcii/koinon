@@ -19,7 +19,7 @@ var workDescriptions = map[string]string{
 	"work-edit":    "Revise the title, criteria or non_goals of a work item. While it is claimed, only its owner may edit, with claim_generation.",
 	"work-start":   "Claim a work item before writing: an exclusive writer lease plus optional [kind, key] resources (path or exact), all or nothing. A conflict names the holder; it grants no takeover.",
 	"work-update":  "Report progress on a work item you hold: progress, checkpoint, next_artifact and the next progress_deadline; lifecycle blocked needs a blocker.",
-	"work-release": "Release a work item you hold with a final checkpoint; it returns to open.",
+	"work-release": "Release a work item you hold with a final checkpoint; it returns to open. Optional handoff_to (exact same-repository peer) and checkout_resource atomically notify that peer to explicitly pick up the released checkout role. A notification does not transfer ownership or permissions.",
 	"work-finish":  "Finish a work item you hold: outcome completed with evidence references, or withdrawn with a reason. Finishing is your assertion, not anyone's approval.",
 	"claim-renew":  "Extend the lease of a claim you hold. Renewal is not progress and moves no deadline.",
 }
@@ -28,6 +28,7 @@ var workDescriptions = map[string]string{
 var workSchema = map[string]map[string]any{
 	"work_id": text, "title": text, "criteria": text, "non_goals": text, "progress": text, "checkpoint": text,
 	"next_artifact": text, "blocker": text, "reason": text, "key": text, "author": text,
+	"handoff_to": text, "checkout_resource": text,
 	"outcome":           {"type": "string", "enum": []string{"completed", "withdrawn"}},
 	"lifecycle":         {"type": "string", "enum": []string{"open", "active", "blocked", "finished"}},
 	"proposed_assignee": {"type": []string{"string", "null"}},

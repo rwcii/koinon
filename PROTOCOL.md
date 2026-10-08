@@ -312,6 +312,38 @@ daemon refuses a database whose header schema format is not 4, or whose schema o
 indexes, triggers, views) differ from those it creates for the database's schema version, checked
 before and after a migration.
 
+Checkout coordination uses the existing exact-resource lease engine. A read-only local
+`koinon work checkout [--directory DIR]` derives `checkout:v1:SHA256`, hashing the JSON pair
+of canonical Git common directory and worktree root with inherited Git overrides removed.
+The authenticated `POST /v1/work/checkout-status` takes `caller` and nonempty `directory`,
+which must resolve inside the caller's recorded repository. Its `result` carries
+`repository`, `directory`, `resource: ["exact", KEY]`, `observed_at`, `state` (`held`,
+`released`, `expired`, `unclaimed`) and nullable `writer`. A writer carries `work_id`,
+`generation`, `consumer`, optional exact native `peer`, work `revision`, `expires_at`,
+`lease_valid` and `checkpoint`. Reads create no store or claim and reconcile no expiry.
+Inactive bundles are bounded and reclaimable; `unclaimed` does not prove an old writer
+stopped editing. Writers explicitly include the resource in `work-start`.
+
+`POST /v1/work/checkout-request` takes the same fields plus optional string `note` (up to
+1,024 UTF-8 bytes). It sends an ordinary inert `checkout_writer_request` JSON message to
+the currently observed native writer, including resource, work ID and generation; its
+result carries `checkout` and `message` outcome. It changes no ownership. An unheld role
+refuses with `checkout_unheld`; an unaddressable custom consumer with `writer_unaddressable`.
+Request delivery follows the existing content-free wake and acknowledgement protocol.
+
+`work-release` additionally accepts paired `handoff_to` (exact same-repository peer name)
+and `checkout_resource` (derived key). It verifies that the live owner/generation holds
+that resource, releases the entire bundle and saves its checkpoint, and inserts one
+`checkout_writer_handoff` JSON message in the same transaction. The result adds
+`role_released: true` and a `message` outcome. Paired key/deadline retries replay that outcome
+without a second message. Aliases/foreign peers refuse with `invalid_recipient`; a missing
+resource with `checkout_not_held`; inactive recipients and stale claims retain their
+existing refusals. This message-adding release uses ordinary admission; a plain release
+keeps its funded control allowance. Notification is an offer to explicitly pick up, not a
+reservation or ownership transfer. The recipient reads the checkpoint and current status,
+then `work-start`s with the same resource; a successful start issues a new token. No new
+lease engine, schema, filesystem enforcement or permission grant is introduced.
+
 ### MCP server
 
 `koinon mcp` is a stdio MCP server: newline-delimited JSON-RPC 2.0 with `initialize` (protocol
@@ -322,7 +354,10 @@ longer than 1 MiB gets -32700. Its tools are `peers`, `send` (`to`, `body`), `in
 `memory_ack`, `memory_record` and `memory_recall` with the fields of the memory routes, and
 `work_create`, `work_get`, `work_list`, `work_propose`, `work_edit`, `work_start`, `work_update`,
 `work_release`, `work_finish` and `claim_renew` with the fields of the work routes, which call
-the routes above. A tool
+the routes above. `work_checkout` (optional `directory`, default MCP working directory)
+and `work_checkout_request` (also optional `note`) call the checkout routes. Relative
+directories resolve against the MCP working directory and must share its Git common
+directory. They take no model-supplied consumer or caller identity. A tool
 error is a result with `isError` and a JSON text `{"ok": false, "code": ...}`: the daemon's code,
 `daemon_unavailable`, `identity_unavailable`, `invalid_arguments` or `unknown_tool`, with the
 `details` of a work refusal. The server
