@@ -1,5 +1,5 @@
 {{define "list"}}<p class="counts">{{index .Data.Counts "active"}} active, {{index .Data.Counts "expired"}} expired, {{index .Data.Counts "retired"}} retired</p>
-{{if not .Data.Rows}}<p class="empty">No sessions.</p>{{else}}<table>
+{{if not .Data.Rows}}<p class="empty">{{if .Data.Search}}No session matches “{{.Data.Search}}”.{{else}}No sessions.{{end}}</p>{{else}}<table>
 <thead><tr>{{template "th" (.Data.Sort.Column "name" "Name")}}{{template "th" (.Data.Sort.Column "family" "Family")}}{{template "th" (.Data.Sort.Column "repository" "Repository and directory")}}{{template "th" (.Data.Sort.Column "state" "State")}}<th>Model</th><th>Context</th><th>Activity</th><th>Terminal</th>{{template "th" (.Data.Sort.Column "registered" "Registered")}}{{template "th" (.Data.Sort.Column "renewed" "Renewed")}}{{template "th" (.Data.Sort.Column "expires" "Expires")}}<th>Claimed work</th><th>Actions</th></tr></thead>
 <tbody>{{range .Data.Rows}}<tr class="state-{{.State}}">
 <td>{{.Name}}{{if .Alias}}<br><small>alias {{.Alias}}</small>{{end}}</td>
@@ -22,3 +22,4 @@
 <label>tmux session <input name="name" maxlength="80" pattern="[A-Za-z0-9_-]{1,80}" placeholder="optional"></label>
 <button type="submit">Start</button></form>
 <p><small>The agent starts detached in a new tmux session with its configured command, and registers with the daemon on its first tool call.</small></p></details>{{end}}
+{{define "filter"}}<form method="get" action="/dashboard/sessions" class="filter" role="search"><label>Search <input type="search" name="q" value="{{.Data.Search}}" maxlength="256" placeholder="name, alias, family, repository, directory or state"></label><input type="hidden" name="sort" value="{{.Data.Sort.Key}}"><input type="hidden" name="dir" value="{{.Data.Sort.Dir}}"> <button type="submit">Search</button>{{if .Data.Search}} <a href="{{.Data.Sort.With "q" ""}}">Clear</a>{{end}}</form>{{end}}

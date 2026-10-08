@@ -6,6 +6,7 @@ import (
 	"errors"
 	"sort"
 	"strconv"
+	"strings"
 )
 
 // Read-only projections for the dashboard views. None of them writes, so a view never
@@ -66,14 +67,36 @@ const dashboardSessionView = `SELECT s.family AS family,s.id AS id,s.repository 
 	CASE WHEN s.retired_at!=0 THEN 'retired' WHEN s.expires_at<=?1 THEN 'expired' ELSE 'active' END AS state
 	FROM sessions s WHERE s.family!='maintainer'`
 
-// dashboardSessions lists agent sessions in the sort's order after its cursor; next is
-// the cursor for the following page, or "". The maintainer's inbox is on the messages view.
-func (s *Store) dashboardSessions(ctx context.Context, order dashboardSort) ([]Session, string, error) {
+// dashboardSearchMax bounds a sessions search, in bytes.
+const dashboardSearchMax = 256
+
+// likePattern matches text as a substring with LIKE ... ESCAPE '\', so the wildcards % and _
+// in the text match literally.
+func likePattern(text string) string {
+	return "%" + strings.NewReplacer(`\`, `\\`, "%", `\%`, "_", `\_`).Replace(text) + "%"
+}
+
+// dashboardSessions lists agent sessions in the sort's order after its cursor, those that
+// match search when it is set; next is the cursor for the following page, or "". The
+// maintainer's inbox is on the messages view.
+func (s *Store) dashboardSessions(ctx context.Context, order dashboardSort, search string) ([]Session, string, error) {
+	if len(search) > dashboardSearchMax {
+		return nil, "", ErrInvalid
+	}
 	where, after, by := order.sql()
 	now := s.now().UnixMilli()
+	args := append([]any{now}, after...)
+	if search != "" {
+		// LIKE ignores ASCII case. Each listed field is searched as a substring.
+		where += ` AND (name LIKE ? ESCAPE '\' OR alias LIKE ? ESCAPE '\' OR family LIKE ? ESCAPE '\'
+			OR repository LIKE ? ESCAPE '\' OR directory LIKE ? ESCAPE '\' OR state LIKE ? ESCAPE '\')`
+		for range 6 {
+			args = append(args, likePattern(search))
+		}
+	}
 	rows, err := s.db.QueryContext(ctx, `SELECT family,id,repository,directory,wake_target,registered_at,renewed_at,expires_at,
 		retired_at,revision,name,alias,`+order.selectList()+` FROM (`+dashboardSessionView+`) WHERE `+where+
-		` ORDER BY `+by+` LIMIT `+strconv.Itoa(dashboardSessionPage+1), append([]any{now}, after...)...)
+		` ORDER BY `+by+` LIMIT `+strconv.Itoa(dashboardSessionPage+1), args...)
 	if err != nil {
 		return nil, "", err
 	}
@@ -392,6 +415,40 @@ func (s *Store) storeList(ctx context.Context, after string, limit int) ([]Store
 		result = append(result, item)
 	}
 	return result, rows.Err()
+}
+
+// peerOption is one suggestion of the send form: a peer name or a held alias, with the
+// family and state of its session. It never holds a session ID or a directory.
+type peerOption struct {
+	Name, Label string
+}
+
+// dashboardPeerOptions lists the names and held aliases that the send form suggests:
+// active sessions first, then expired and retired ones when all is set, each by name.
+func (s *Store) dashboardPeerOptions(ctx context.Context, all bool) ([]peerOption, error) {
+	sessions, _, err := s.List(ctx)
+	if err != nil {
+		return nil, err
+	}
+	rank := map[string]int{"active": 0, "expired": 1, "retired": 2}
+	sort.SliceStable(sessions, func(i, j int) bool {
+		if rank[sessions[i].State] != rank[sessions[j].State] {
+			return rank[sessions[i].State] < rank[sessions[j].State]
+		}
+		return sessions[i].Name < sessions[j].Name
+	})
+	options := []peerOption{}
+	for _, session := range sessions {
+		if session.State != "active" && !all {
+			continue
+		}
+		label := session.Family + ", " + session.State
+		options = append(options, peerOption{session.Name, label})
+		if session.Alias != "" {
+			options = append(options, peerOption{session.Alias, "alias of " + session.Name + ", " + label})
+		}
+	}
+	return options, nil
 }
 
 // sessionByName resolves a peer name to its session key for the message filter.

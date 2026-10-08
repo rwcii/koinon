@@ -289,7 +289,7 @@ func TestDashboardSessionPaging(t *testing.T) {
 	seen := map[Key]bool{}
 	var after, previous string
 	for pages := 0; ; pages++ {
-		page, next, err := s.dashboardSessions(ctx, sortOrder(t, &sessionSort, "family", "asc", after))
+		page, next, err := s.dashboardSessions(ctx, sortOrder(t, &sessionSort, "family", "asc", after), "")
 		if err != nil {
 			t.Fatal(err)
 		}

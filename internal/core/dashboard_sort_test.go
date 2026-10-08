@@ -83,7 +83,7 @@ func TestDashboardSessionSortEveryColumn(t *testing.T) {
 	states := map[string]bool{}
 	for _, c := range sessionSort.columns {
 		for _, dir := range []string{"asc", "desc"} {
-			rows := pageAll(t, &sessionSort, c.key, dir, func(o dashboardSort) ([]Session, string, error) { return s.dashboardSessions(ctx, o) })
+			rows := pageAll(t, &sessionSort, c.key, dir, func(o dashboardSort) ([]Session, string, error) { return s.dashboardSessions(ctx, o, "") })
 			checkOrder(t, "sessions "+c.key, dir, rows, want, func(r Session) []any {
 				states[r.State] = true
 				switch c.key {
@@ -410,7 +410,7 @@ func TestDashboardActiveSessionsFirst(t *testing.T) {
 	join(t, s, "codex", "synthetic-older", "")
 	clock = clock.Add(time.Second)
 	join(t, s, "codex", "synthetic-newer", "")
-	page, next, err := s.dashboardSessions(ctx, sortOrder(t, &sessionSort, "", "", ""))
+	page, next, err := s.dashboardSessions(ctx, sortOrder(t, &sessionSort, "", "", ""), "")
 	if err != nil || len(page) != dashboardSessionPage || next == "" {
 		t.Fatalf("page of %d, next %q: %v", len(page), next, err)
 	}

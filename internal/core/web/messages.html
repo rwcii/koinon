@@ -1,5 +1,5 @@
-{{define "list"}}<form method="get" action="/dashboard/messages" class="filter"><label>Recipient <input name="to" value="{{.Data.Recipient}}" maxlength="128"></label><input type="hidden" name="sort" value="{{.Data.Sort.Key}}"><input type="hidden" name="dir" value="{{.Data.Sort.Dir}}"> <button type="submit">Filter</button></form>
-{{if not .Data.Messages}}<p class="empty">No messages.</p>{{else}}<table>
+{{define "filter"}}<form method="get" action="/dashboard/messages" class="filter"><label>Recipient <input name="to" value="{{.Data.Recipient}}" maxlength="128" list="peer-names"></label><input type="hidden" name="sort" value="{{.Data.Sort.Key}}"><input type="hidden" name="dir" value="{{.Data.Sort.Dir}}">{{if .Data.AllPeers}}<input type="hidden" name="peers" value="all">{{end}} <button type="submit">Filter</button></form>{{end}}
+{{define "list"}}{{if not .Data.Messages}}<p class="empty">No messages.</p>{{else}}<table>
 <thead><tr>{{template "th" (.Data.Sort.Column "id" "ID")}}{{template "th" (.Data.Sort.Column "to" "To")}}{{template "th" (.Data.Sort.Column "seq" "Seq")}}{{template "th" (.Data.Sort.Column "from" "From")}}{{template "th" (.Data.Sort.Column "sent" "Sent")}}{{template "th" (.Data.Sort.Column "delivery" "Delivery")}}{{template "th" (.Data.Sort.Column "acknowledged" "Acknowledged")}}<th>Body</th></tr></thead>
 <tbody>{{range .Data.Messages}}<tr>
 <td>{{.ID}}</td>
@@ -14,9 +14,11 @@
 {{if .Data.Next}}<p><a href="{{.Data.Sort.Next .Data.Next}}">Older messages</a></p>{{end}}{{end}}
 {{define "actions"}}<details class="action" open><summary>Send as maintainer</summary>
 <form method="post" action="/dashboard/actions/send"><input type="hidden" name="csrf" value="{{.CSRF}}">
-<label>To <input name="to" required maxlength="256" placeholder="peer name or alias"></label>
+<label>To <input name="to" required maxlength="256" placeholder="peer name or alias" list="peer-names" autocomplete="off"></label>
+<datalist id="peer-names">{{range .Data.Peers}}<option value="{{.Name}}">{{.Label}}</option>{{end}}</datalist>
 <label class="wide">Message <textarea name="body" required maxlength="65536" rows="4"></textarea></label>
 <button type="submit">Send</button></form>
+<p><small>Suggestions: {{if .Data.AllPeers}}every session. <a href="{{.Data.Sort.With "peers" ""}}">Active sessions only</a>{{else}}active sessions. <a href="{{.Data.Sort.With "peers" "all"}}">Include expired and retired</a>{{end}}.</small></p>
 <p><small>Agents can reply to <code>maintainer</code>. Show replies with the recipient filter <a href="/dashboard/messages?to=maintainer">maintainer</a>.</small></p></details>
 {{with .Data.RecipientKey}}<details class="action" open><summary>Inbox of {{$.Data.Recipient}}</summary>
 <form method="post" action="/dashboard/actions/acknowledge" class="inline"><input type="hidden" name="csrf" value="{{$.CSRF}}"><input type="hidden" name="family" value="{{.Family}}"><input type="hidden" name="id" value="{{.ID}}"><input type="hidden" name="to" value="{{$.Data.Recipient}}">
