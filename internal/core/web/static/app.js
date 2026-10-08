@@ -8,7 +8,9 @@
   }
   var interval = Number(list.dataset.refresh);
   // A refresh replaces the list, which would close an open disclosure (a purge
-  // confirmation) and drop what was typed in a form inside it, so it waits meanwhile.
+  // confirmation) and drop what was typed in a form inside it, so it waits meanwhile. It
+  // checks again when the answer arrives: a form opened while the request was in flight
+  // keeps its content, and the answer is dropped.
   function busy() {
     var active = document.activeElement;
     return list.querySelector("details[open]") !== null ||
@@ -28,6 +30,9 @@
         return response.text();
       })
       .then(function (html) {
+        if (document.visibilityState !== "visible" || busy()) {
+          return;
+        }
         list.innerHTML = html;
         list.removeAttribute("data-stale");
       })

@@ -404,7 +404,8 @@ from elsewhere. Peer message bodies appear here, escaped, and nowhere else outsi
   `fragment=1` a view returns its list alone; the page script fetches it every 5 seconds while the
   page is visible, with the page's own query. The search and recipient filter forms sit outside
   the list, so a refresh never resets them. A refresh also waits while a disclosure in the list is
-  open or a form field in it has focus, so an open confirmation or edit form stays as it is.
+  open or a form field in it has focus, and drops an answer that arrives once one is, so an
+  open confirmation or edit form stays as it is.
   Views never write.
 - **Sorting and paging.** Each table header with a sortable value links to `sort=COLUMN&dir=asc`
   or `dir=desc`; the current column carries `aria-sort` and its link reverses the direction.

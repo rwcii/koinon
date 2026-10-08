@@ -198,10 +198,10 @@ func TestDashboardRefusedFinishLeavesItemUnclaimed(t *testing.T) {
 }
 
 // Review regressions on #244 (F2) and #245: the same finish form again replays the first
-// result, for an unclaimed item, one a peer claimed and one the maintainer claimed, with no
-// new event or audit record.
+// result, for an unclaimed item, one a peer claimed and one the maintainer claimed, also
+// with a start under the form's own "-start" key, with no new event or audit record.
 func TestDashboardFinishReplay(t *testing.T) {
-	for _, holder := range []string{"none", "peer", "maintainer"} {
+	for _, holder := range []string{"none", "peer", "maintainer", "maintainer-keyed"} {
 		t.Run(holder, func(t *testing.T) {
 			d, root := startTestDaemon(t)
 			m := MemoryCaller{Repository: "/synthetic/finish-replay/.git", Family: "codex", Name: "synthetic-peer", Consumer: "codex:synthetic-peer"}
@@ -211,6 +211,9 @@ func TestDashboardFinishReplay(t *testing.T) {
 				mustStart(t, d.store, m, id, nil)
 			case "maintainer":
 				mustStart(t, d.store, maintainerWork(m.Repository, maintainerConsumer), id, nil)
+			case "maintainer-keyed":
+				mustStart(t, d.store, maintainerWork(m.Repository, maintainerConsumer), id,
+					map[string]any{"key": "finish-replay-start", "deadline": d.store.clock() + 3600})
 			}
 			client := newActionClient(t, d, root)
 			form := url.Values{"repository": {m.Repository}, "work_id": {id}, "revision": {strconv.FormatInt(revision(t, d.store, m, id), 10)},
