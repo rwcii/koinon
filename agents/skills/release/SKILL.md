@@ -1,6 +1,6 @@
 ---
 name: release
-description: Promote develop to main with a merge pull request once the release is shown to install and upgrade - dated changelog, CI evidence on the exact commit, an upgrade from the current main in a scratch prefix, and the maintainer's approval before the merge. Use when the maintainer asks to release, promote or ship to main.
+description: Promote develop to main with a merge pull request once the release is shown to install and upgrade - dated changelog, CI evidence on the exact commit, an upgrade from the current main in a scratch prefix, the maintainer's approval before the merge, then the version tag that publishes the binaries and the Homebrew formula. Use when the maintainer asks to release, promote or ship to main.
 ---
 
 # Release
@@ -60,3 +60,28 @@ gh pr merge <number> --merge --match-head-commit <sha> \
   --author-email <github-no-reply-address>
 gh pr view <number> --json state,mergeCommit
 ```
+
+## 5. Tag the release and check the tap
+
+Tag the main merge commit with the version the maintainer approved, in the form
+`vMAJOR.MINOR.PATCH`, and push only the tag:
+
+```sh
+git tag -s <tag> -m "Koinon <tag>" <merge commit>
+git push origin <tag>
+```
+
+The tag starts `release.yml`. Its jobs attach the four binaries and `SHA256SUMS` to the GitHub
+release, then write `Formula/koinon.rb` in `rwcii/homebrew-koinon` with
+`scripts/homebrew-formula.sh` and push it with the `HOMEBREW_TAP_DEPLOY_KEY` deploy key. Check
+both results:
+
+```sh
+gh run list --workflow release.yml --limit 1
+gh release view <tag> --json assets --jq '.assets[].name'
+gh run list -R rwcii/homebrew-koinon --limit 1
+```
+
+The tap's own workflow installs, tests and audits the formula on Linux and macOS. The release is
+published only when that run passes. A failure there is a release defect: fix the generator in
+this repository and release a new patch version; never edit the formula in the tap by hand.
