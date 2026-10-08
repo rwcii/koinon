@@ -216,21 +216,37 @@ func git(dir string, args ...string) (string, error) {
 	return string(out), err
 }
 
+// carriedConfig carries the caller's CLAUDE_CONFIG_DIR into a new tmux pane, whose
+// environment otherwise comes from the tmux server; an empty value means the caller had none.
+const carriedConfig = "KOINON_CLAUDE_CONFIG_DIR"
+
 // cleanEnvironment drops the variables that would tie the started agent to another session:
 // Claude Code's session variables and nesting marker, Koinon's launch variables and the
-// OpenCode credential. A started Claude keeps CLAUDE_CONFIG_DIR, its user's configuration.
+// OpenCode credential. A started Claude keeps CLAUDE_CONFIG_DIR, its user's configuration;
+// in a pane that the launcher created, the carried value of the caller replaces the server's.
 func cleanEnvironment(env []string, family string) []string {
 	result := []string{}
+	carried, isCarried := "", false
+	for _, entry := range env {
+		if value, ok := strings.CutPrefix(entry, carriedConfig+"="); ok {
+			carried, isCarried = value, true
+		}
+	}
 	for _, entry := range env {
 		key, _, _ := strings.Cut(entry, "=")
 		if family == "claude" && key == "CLAUDE_CONFIG_DIR" {
-			result = append(result, entry)
+			if !isCarried {
+				result = append(result, entry)
+			}
 			continue
 		}
 		if strings.HasPrefix(key, "CLAUDE_") || key == "CLAUDECODE" || strings.HasPrefix(key, "KOINON_") || key == "OPENCODE_SERVER_PASSWORD" || key == "OPENCODE_SERVER_USERNAME" {
 			continue
 		}
 		result = append(result, entry)
+	}
+	if family == "claude" && carried != "" {
+		result = append(result, "CLAUDE_CONFIG_DIR="+carried)
 	}
 	return result
 }
@@ -306,7 +322,12 @@ func startTmux(ctx context.Context, tmux, cli, directory string, o Options, out 
 	for i, value := range args {
 		quoted[i] = quote(value)
 	}
-	cmd := exec.CommandContext(ctx, tmux, tmuxArgs(socket, "new-session", "-d", "-P", "-F", "#{session_id}\t#{pane_id}", "-s", name, "-c", directory, "exec "+strings.Join(quoted, " "))...)
+	session := []string{"new-session", "-d", "-P", "-F", "#{session_id}\t#{pane_id}", "-s", name, "-c", directory}
+	if o.Family == "claude" {
+		// tmux sets it in the new session only, as one literal argument, never through a shell.
+		session = append(session, "-e", carriedConfig+"="+os.Getenv("CLAUDE_CONFIG_DIR"))
+	}
+	cmd := exec.CommandContext(ctx, tmux, tmuxArgs(socket, append(session, "exec "+strings.Join(quoted, " "))...)...)
 	cmd.Env = cleanEnvironment(os.Environ(), o.Family)
 	data, err := cmd.Output()
 	if err != nil {

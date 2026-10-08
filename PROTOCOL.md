@@ -346,8 +346,10 @@ wake adapters: Claude `{"claude_pid": PID}`; Codex `{"cli": PATH}` from `launche
 the parent Codex executable, never a `PATH` search; a launched Codex, Antigravity or OpenCode
 agent passes `KOINON_LAUNCH_ID` as `launch_id`. A Claude session that `koinon claude` started
 registers with `claude_pid` like any Claude session; its launch record documents the start, and
-the launcher keeps `CLAUDE_CONFIG_DIR` but removes the other `CLAUDE_` variables and `CLAUDECODE`
-of the session that ran it. `KOINON_STATE_DIR` and `KOINON_DAEMON_ADDRESS`
+the launcher keeps the caller's `CLAUDE_CONFIG_DIR` but removes the other `CLAUDE_` variables and
+`CLAUDECODE` of the session that ran it. In a new tmux session, whose environment comes from the
+tmux server, it carries the caller's value, or its absence, as the session variable
+`KOINON_CLAUDE_CONFIG_DIR`, which the pane's launcher turns back into `CLAUDE_CONFIG_DIR`. `KOINON_STATE_DIR` and `KOINON_DAEMON_ADDRESS`
 select the state root and address.
 
 ### Dashboard and session observations
