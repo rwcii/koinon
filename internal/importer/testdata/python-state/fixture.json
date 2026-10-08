@@ -1,0 +1,60 @@
+{
+  "base": 1790000000.0,
+  "baseline": "3d60c73c88f3110ca4bc91a9a0cc7e16f7daf827",
+  "generated_until": 1792592417.0,
+  "placeholder_state": "/koinon-fixture/state",
+  "repositories": {
+    "a": {
+      "key": "2963d7eaf82d721f",
+      "path": "/koinon-fixture/repo-a/.git"
+    },
+    "b": {
+      "key": "41cba641c24b8602",
+      "path": "/koinon-fixture/repo-b/.git"
+    },
+    "c": {
+      "key": "84e501502582743c",
+      "path": "/koinon-fixture/repo-c/.git"
+    }
+  },
+  "sessions": {
+    "codex": {
+      "ack_through": 2,
+      "directory": "8e52c80b27d9544d9f0efb08ead0656f733a67452c2fd3c61f2f1f9f689b092c",
+      "messages": 4,
+      "name": "codex-repo-a-3f"
+    },
+    "deepseek": {
+      "ack_through": 0,
+      "directory": "2eebca4d53de8c0b3093d8d09edd865a05e071edfb35ac5690474a8bebc3d9dc",
+      "messages": 2,
+      "name": "deepseek-scratch-b2"
+    },
+    "legacy": {
+      "ack_through": 0,
+      "messages": 1
+    }
+  },
+  "stores": {
+    "a": {
+      "expired_generation": 1,
+      "expired_work": "00000000000000000000000000000002",
+      "finished_work": "00000000000000000000000000000003",
+      "first_note": 1,
+      "lapsed_work": "00000000000000000000000000000005",
+      "live_work": "00000000000000000000000000000001",
+      "store_id": "714eba7fa5594caeb323d080d11e32a9"
+    },
+    "b": {
+      "store_id": "675341c05d164d83bf89192fdac88224"
+    },
+    "c": {
+      "store_id": "c8abfb36c7c345ef8014051067154158"
+    }
+  },
+  "threads": {
+    "codex": "019a0000-0000-7000-8000-00000000000a",
+    "deepseek": "dsh-fixture-session-b",
+    "legacy": "019a0000-0000-7000-8000-0000000000ff"
+  }
+}

@@ -1,5 +1,9 @@
 # Resumable runtime upgrade design
 
+> Historical Python-era design and evidence. The implementation and commands described
+> here are retired from this checkout. See [INSTALL.md](INSTALL.md), [USAGE.md](USAGE.md)
+> and [PROTOCOL.md](../PROTOCOL.md) for the Go runtime. Retained for migration and storage provenance.
+
 Status: peer-reviewed design for DQ-12 and issue #43, delivered as `scripts/upgrade.py`. It
 does not authorize changing a live installation. The current native installer refuses
 different runtime bytes during ordinary repeat installation.
@@ -38,7 +42,19 @@ it must never imply that a backup alone guarantees an automated restore operatio
 
 No implicit repository relocation, state-root migration, participant retargeting, new
 memory selection, guidance opt-in, traffic test, or rollback is part of upgrade. The
-source is an explicitly selected local release tree. Its complete runtime manifest and
+source is an explicitly selected local release tree.
+
+One exception, approved with the peer status sprint: the upgrade sets up the Claude Code
+status-line wrapper ([Claude integration](INSTALL.md#claude-integration)) unless the user
+declined it, so that an existing installation reports Claude context without a separate
+step. Preflight records the planned action (`set_up`, `declined` or `skipped`) and a digest of
+the settings file in the `prepared-checks` document. The frozen `install.json` cannot record
+the saved entry while the operation runs, so the set-up runs after `finish()` restores
+ordinary admission, under the ordinary installation lock. A settings file that changed
+since preflight is reported as `settings_conflict` and is not written. The outcome is
+returned with the completion result and retained as the `claude-statusline` document, so a
+repeated `--resume` reports the first outcome. A failure never fails the runtime upgrade;
+the result names the repair command. Its complete runtime manifest and
 content digests are frozen before mutation. Resume rejects a changed source rather
 than silently choosing a newer version.
 

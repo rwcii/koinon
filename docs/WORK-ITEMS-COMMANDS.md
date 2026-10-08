@@ -1,29 +1,15 @@
 # Work commands
 
-The memory runtime implements the [approved work contract](WORK-ITEMS-V1.md) on
-schema-5 stores. Public startup creates or migrates schema 5; use the
-[upgrade procedure](WORK-ITEMS-UPGRADE.md) for existing services and
-[explicit guidance opt-in](WORK-ITEMS-POLICY.md) for participants. The
-[maintenance implementation](WORK-ITEMS-MAINTENANCE.md) supplies the bounded background loop.
-
-## Schema refusals
-
-`schema_too_old` refuses a work command when the store is below schema 5. The CLI
-classifies this as a configuration refusal (exit 78). Upgrade the selected memory
-runtime and restart it through the documented upgrade procedure before retrying;
-changing the client alone does not migrate a running service's store. Preserve the
-existing state and do not rewrite schema metadata or create a replacement store to
-bypass the refusal.
-
-At startup, `schema_too_old` can also mean that stored schema or protocol metadata
-is older than a version for which this runtime has a migration. The error identifies
-the unsupported field and versions. Supported schema-3 and schema-4 stores migrate
-to schema 5 during startup; the refusal does not mean every older store is unsupported.
+The Go daemon implements the [approved work contract](WORK-ITEMS-V1.md). Work shares
+the repository memory store in `state.sqlite3`. See [PROTOCOL.md](../PROTOCOL.md#work-items)
+for the routes and [INSTALL.md](INSTALL.md) for upgrades from Python-era state.
 
 ## Interface
 
-The CLI uses `memory.py --consumer NAME work OPERATION` and
-`memory.py --consumer NAME claim renew`. Work IDs are positional except on create
+The CLI uses `koinon work OPERATION --as FAMILY:ID --consumer KEY` and
+`koinon claim renew WORK_ID --as FAMILY:ID`. MCP exposes the same operations as
+`work_create`, `work_start`, `work_update` and the other `work_*` tools, plus `claim_renew`.
+`--consumer` is optional and defaults to the calling session identity; it must stay stable. Work IDs are positional except on create
 and list. Wire names are `work-create`, `work-get`, `work-list`, `work-propose`,
 `work-edit`, `work-start`, `work-update`, `work-release`, `work-finish`, and
 `claim-renew`. Wire fields use underscores; CLI options use hyphens. Unknown work
@@ -61,50 +47,24 @@ returns the original bounded result before mutable preconditions or reconciliati
 Transport service generation is excluded from fingerprints so retries can survive
 restart; claim generation and all semantic request fields remain bound to the key.
 
-## Transaction and recovery behavior
+## Transactions, claims and recovery
 
-The memory worker serializes commands. Each observable mutation writes the record,
-scope history if applicable, paired stream/event rows, head and replay result in
-one Store transaction. Only after commit can the existing content-free wake fire.
-Renewal writes no work event and does not report progress. Ordinary writes preserve
-remaining credits; release, finish and due transitions consume their own obligations.
+Work writes commit the item, scope/event history, durable counters and replay result in one
+serialized store transaction. Only committed changes can wake readers. Renewal extends a
+lease without reporting progress or writing a work event. A mutating operation may reconcile
+a due transition before returning a revision refusal, so reread the item rather than assuming
+that every refusal means the revision stayed unchanged.
 
-After static validation and replay lookup, a mutation may independently reconcile
-one due transition for its known target. Lease expiry wins over progress overdue.
-A start may separately reclaim that target's inactive bundle under ordinary
-admission. A later revision or ownership refusal can therefore follow a committed
-older due event; reread the item before retrying. Invalid fields and unknown targets
-do not trigger reconciliation. These are bounded target operations, not a background
-sweep. The [maintenance slice](WORK-ITEMS-MAINTENANCE.md) adds periodic maintenance,
-diagnostics, shutdown integration and physical finished-item reclamation.
+Get/list return observed ownership and progress without renewing a lease. A claim is advisory:
+it never authorizes work, a takeover or configuration changes. Before writing, obtain the
+current revision and claim generation. Use both on update/release/finish, and use claim revision
+on renewal. Read the retained checkpoint before restarting an expired claim under the current
+native identity. Work history and replay retention are finite; see
+[WORK-ITEMS-GO-STORAGE.md](WORK-ITEMS-GO-STORAGE.md).
 
-Work mutations also run the existing rate-limited note/snapshot/replay expiry after
-validation and retry lookup. That legacy expiry routine is separate from the bounded
-work-target transition. Reads and successful replays bypass cleanup writes.
-
-Get/list compute effective ownership and progress at server `observed_at`; reads
-never renew, acknowledge, or require writable storage. Finished items become
-invisible to new reads/snapshots at their fixed 30-day expiry even before cleanup.
-Existing snapshots and replay results retain their separate lifetimes.
-Full views expose `observed_lease_expires` from the retained bundle, even when it is
-expired. This distinguishes the deadline used for the observation from historical
-`last_lease_expires`, which standalone renewal does not rewrite.
-
-## Stream and snapshot readers
-
-Schema-5 sync and ack require integer `record_format: 2`, checked before maintenance,
-snapshot issuance or cursor mutation. The CLI supplies it automatically. The guard
-also applies to stores containing only notes. Schema-4 behavior stays compatible.
-
-Delta work entries have `type: work-event`, `event_kind`, `work_id` and immutable
-`payload`, alongside sequence and provenance. Snapshot work views have
-`type: work-item` and `seq` equal to their latest event sequence. A snapshot includes
-one frozen current view per retained work ID, ordered by ID after the existing note
-selection. Ownership/deadline observations describe snapshot creation, not later page
-reads. Legacy frozen note snapshots resume unchanged; newer events follow as deltas.
-
-Work text is excluded from note search and FTS rebuilds. Work-only head increments
-keep an already-current note index current without adding documents. Notes cannot
-supersede or revoke work events. The shared 5,000-entry ceiling includes work stream
-rows; it is not a notes-only allowance. The [storage limits](WORK-ITEMS-STORAGE.md)
-and encoded record/scope/event/replay bounds still apply independently.
+Snapshot and delta readers use the memory operations in [USAGE.md](USAGE.md#shared-memory).
+Page every frozen snapshot before acknowledging its ID; process deltas before acknowledging
+`next_cursor`. Snapshot work views are frozen; later events arrive as deltas. Work text is not
+part of note recall. Capacity refusals preserve data and cannot be bypassed by creating a new
+store or rewriting counters. Refer to [PROTOCOL.md](../PROTOCOL.md#work-items) for the exact
+response fields, refusal codes and maintenance bounds.

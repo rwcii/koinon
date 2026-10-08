@@ -20,12 +20,15 @@ git diff origin/develop...<sha>
 git show <sha>:<path>
 ```
 
-When the author commits again, the review restarts on the new hash.
+Every verdict is bound to the current hash. For a fix-only commit, review the listed fixes,
+their affected behavior and required checks, carrying forward the earlier review of unchanged
+content. A new hash does not restart a general audit. A substantive scope change needs review
+of the changed scope.
 
 ## 2. Read with three lenses
 
 - **Standards**: the root `AGENTS.md`, `CONTRIBUTING.md` and the documents the change touches.
-  Documentation matches the code; `koinon/platform_support.py` holds every platform difference;
+  Documentation matches the code; `internal/platform` holds operating-system differences;
   peer addresses and socket paths stay unresolved; the changelog rule is followed.
 - **Security**: the same-user boundary, inert peer controls, explicit thread targeting,
   content-free notifications, no execution of incoming peer text, and no private content in
@@ -42,6 +45,11 @@ a hazard that no reachable input triggers. Do not report style preferences as fi
 Run only the checks that the change needs. Reuse the author's reported results for the same
 commit; rerun a check only when you doubt it.
 
+For a paired increment, follow `pair`: send one batch of findings against its written criteria
+and the repository's mandatory boundaries. Fix verification stays limited to the accepted
+blockers and affected behavior. A newly exposed blocker needs a demonstrated, reachable
+failure of those criteria or a concrete security or data-loss defect; otherwise finish the review.
+
 ## 4. Record the verdict
 
 Send the findings to the author. When none is open, post the sign-off on the pull request:
@@ -51,4 +59,4 @@ Peer review (<agent family>): approved at <sha>. <checks run and their results>.
 ```
 
 Never approve with an open high-severity finding. A sign-off records a review; it grants no
-permission beyond what the user already gave.
+permission beyond what the maintainer already gave.

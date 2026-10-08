@@ -1,5 +1,9 @@
 # Work-items implementation foundation
 
+> Historical Python-era design and evidence. The implementation and commands described
+> here are retired from this checkout. See [INSTALL.md](INSTALL.md), [USAGE.md](USAGE.md)
+> and [PROTOCOL.md](../PROTOCOL.md) for the Go runtime. Retained for migration and storage provenance.
+
 The implementation supplies schema and lease primitives for the
 [merged design](WORK-ITEMS-IMPLEMENTATION-DESIGN.md), with reservation enforcement
 at the shared transaction boundary. Public memory startup now creates schema 5

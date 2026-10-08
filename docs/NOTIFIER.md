@@ -1,5 +1,9 @@
 # Notifier operation and recovery
 
+> Historical Python-era design and evidence. The implementation and commands described
+> here are retired from this checkout. See [INSTALL.md](INSTALL.md), [USAGE.md](USAGE.md)
+> and [PROTOCOL.md](../PROTOCOL.md) for the Go runtime. Retained for migration and storage provenance.
+
 The notifier serves one explicitly selected participant. Its state-directory and
 account-local participant locks remain held until shutdown finishes. A provider
 failure changes delivery health; it does not remove lifecycle readiness or authorize
@@ -52,6 +56,9 @@ automatic budgets without erasing prior uncertainty or cumulative accounting.
 It does not acknowledge inbox messages, change memory cursors, reset retry budgets
 or clear uncertainty on retained work. Stop commands are for controlled maintenance;
 stop the managing supervisor first to prevent its service policy from restarting a child.
+
+Status also reports the participant's `model`, `context` and `work`, read from its own
+status record; see [model, context and claimed work](DELIVERY.md#model-context-and-claimed-work).
 
 Status separates lifecycle from delivery health. Delivery is degraded while work
 is pending, exhausted or uncertain, or when a storage, compatibility or optional
@@ -125,3 +132,23 @@ An interrupted preparation resumes its recorded nonce and watermark. If preparat
 already reached ready state, normal notifier startup completes any pending activation.
 Do not delete files to force a second rebuild. Restore the normal service arrangement
 after maintenance and verify status and authorized delivery in both directions.
+
+Codex status observes only the selected thread log under `CODEX_HOME` (default `~/.codex`).
+Activity, model and last-request context usage require a live associated Codex log holder;
+missing evidence is unknown. The observer exports no transcript text and does not resume a
+thread. See `docs/DELIVERY.md` for ownership and freshness semantics.
+
+## Guidance update notices
+
+The notifier checks installed guidance metadata during its serial delivery scan. A changed
+or never-acknowledged revision produces a content-free pointer to `session.py guide` and
+`guide-ack REVISION`, using this notifier's participant family. It shares the provider with
+ordinary inbox notices; the two never invoke that provider concurrently.
+
+Each session reserves a notice in `notifier/guidance-notices/<revision>.json` before provider
+I/O, and records the outcome afterward. The reservation survives restart and returning to an
+earlier revision. An interrupted, failed or uncertain attempt is not automatically repeated;
+startup/resume guide reads remain the recovery path. This conservative policy prevents a
+provider call accepted before a crash from becoming a duplicate notice. A notice reservation
+is not evidence that the agent processed the guide. Only explicit `guide-ack` records that.
+No notice is attempted while upgrade completion or revision publication remains incomplete.

@@ -3,6 +3,73 @@
 User-visible changes to Koinon are recorded here. Unreleased entries move
 into a dated release section when promoted to `main`.
 
+## Unreleased
+
+## 2026-10-08 — Go runtime: one daemon, MCP access, install and upgrade from Python
+
+This release replaces the Python runtime with one Go binary, `koinon`, and one daemon for each
+user. Linux and macOS builds use no cgo, and a fresh installation needs no Python.
+
+- **Installation.** `koinon install` places the binary, writes and starts a systemd user unit
+  (Linux) or a launchd agent (macOS), and sets up the agents you name. `koinon uninstall`
+  removes them again and keeps the state. `koinon version` prints the build. Releases attach
+  four CGO-free binaries (Linux and macOS, amd64 and arm64) with a `SHA256SUMS` file.
+  Homebrew installs the release binary with `brew install rwcii/koinon/koinon` on macOS and
+  Linux; run `koinon install` again after each `brew upgrade`.
+- **Upgrade from the Python release.** `koinon upgrade --from-python` moves a `main`-release
+  installation to the Go runtime. It takes the Python runtime's own upgrade marker, stops the
+  Python services, and imports every inbox, memory store, work item and claim. It verifies the
+  import before it removes the Python services. A failure before that point restores the
+  Python runtime. A failure after it resumes when you run the command again. The Python state
+  tree stays as a backup. `koinon import` imports a Python-era state tree on its own, and
+  `--verify` compares the tree with the imported state.
+- **Daemon core.** An authenticated IPv4 and IPv6 loopback API, durable session registration,
+  renewal and retirement, and `koinon status`. Each session gets a permanent peer name, and
+  each family and repository one alias. `koinon peers`, `send`, `inbox` and `ack` send, read and
+  acknowledge messages with gapless sequence numbers, and a sender can read the delivery
+  outcome of its own message. A built-in `maintainer` session receives messages from agents.
+  Sessions can register from plain directories. The state schema is 8.
+- **MCP access.** `koinon mcp` is a stdio MCP server with the messaging tools `peers`, `send`,
+  `inbox`, `ack` and `delivery`, the `memory_*` tools, and the `work_*` and `claim_renew` tools.
+  It takes the calling session from the agent on every call (Codex thread, Antigravity
+  conversation, Claude Code session, OpenCode session through a plugin) and never from tool
+  arguments. `koinon setup <family>` adds it to Claude, Codex, Antigravity or OpenCode through
+  the agent's own command and changes nothing on a repeated run. `koinon guide --agent <family>`
+  prints the guidance. DeepSeek uses the command path with `koinon register`.
+- **Wake.** The daemon wakes Codex, Claude Code, DeepSeek and idle OpenCode sessions with
+  content-free inbox notices, and offers Antigravity notices at its Stop boundary. Busy sessions
+  are rechecked every three seconds; failed and unconfirmed attempts retry with bounded backoff
+  across restarts. Acknowledged sequences are suppressed. Health reports delivery counts and
+  adapter reasons.
+- **Launchers.** `koinon codex`, `koinon agy` and `koinon opencode` start sessions with
+  configured CLI paths, in the current terminal or a new tmux session, refuse a start folder
+  that holds another repository, and clean the inherited Claude environment. OpenCode receives
+  a loopback listener and a generated password. `koinon mcp` names a Claude session's or a
+  launched session's own tmux session after its published name.
+- **Memory.** One shared memory store per repository, with the record format 2, snapshot,
+  delta, acknowledgement, idempotency, retention and capacity rules of the memory protocol,
+  through the `memory_*` tools and `koinon memory`. The database has a fixed storage ceiling
+  with a reserve for progress and withdrawal, proves its write-ahead log empty before every
+  write, and refuses writes until `koinon recover` when it cannot.
+- **Work items.** Records with criteria and non-goals, advisory writer leases with path and
+  exact resource claims, progress and due-transition events in the memory stream, idempotent
+  retries, list filters, 30-day retention of finished work and a bounded maintenance sweep,
+  through the work tools, `koinon work` and `koinon claim renew`.
+- **Dashboard.** `koinon dashboard` prints a one-time login link to a loopback web view of the
+  sessions, every message with its body and delivery and acknowledgement state, the memory
+  stores, the work items, the audit log and the daemon's health. Sessions show their model,
+  context, activity and terminal, from Codex call metadata and rollouts, the Claude Code
+  registry and the `koinon hook claude-status` status line, the Antigravity Stop hook and the
+  OpenCode session status. Actions retire a session, release a claim on its owner's behalf,
+  acknowledge or clear an inbox, send a message as `maintainer`, and start a Codex, `agy` or
+  OpenCode session. Each action needs the login, the listener's literal address and origin and
+  a CSRF token, and writes one audit record (90 days, at most 10,000 records).
+- **Python runtime removed.** The Python runtime, its entrypoints, its tests and its CI jobs are
+  removed. The design documents of the Python subsystems are marked historical. Committed
+  fixtures and the pinned previous release keep the import and upgrade coverage.
+- **Known limit.** The live proof that a DeepSeek session receives and processes a wake notice
+  is deferred ([#199](https://github.com/rwcii/koinon/issues/199)); synthetic tests pass.
+
 ## 2026-09-23 — Bounded test runs
 
 - Run the tests with `python3 tests/run.py -v`. The runner ends a run that stops making

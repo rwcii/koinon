@@ -23,6 +23,45 @@ Work in a worktree that no other agent writes to. Commit with `git commit -S -s`
 human author identity and the GitHub no-reply address. Add no automated attribution: no
 co-author trailer, no tool signature, no model name, in commits or in the pull request.
 
+### Hold the issue's work item
+
+When the change delivers an issue, hold one memory work item for that issue from the first
+commit to the merge, so peers see through Koinon discovery who builds it. Reuse the same item
+through build, review fixes and merge; never create a second item for the same issue. A
+reviewer that only reads does not claim work. The commands are in
+`docs/WORK-ITEMS-COMMANDS.md`.
+
+Use configured MCP work tools when available; they obtain the calling identity from the
+native session. Otherwise use the installed Go command with the exact current identity and a
+stable consumer, as described in `docs/WORK-ITEMS-COMMANDS.md`. Never guess a session identity
+or publish its private key in Git or a pull request.
+
+For the command path, define `mem` to invoke `koinon` with each operation's options:
+
+```sh
+# Set caller to this family's exact current FAMILY:ID, obtained from trusted metadata.
+mem() { koinon "$@" --as "${caller:?set the current native identity}"; }
+soon() { echo $(( $(date +%s) + $1 )); }
+```
+
+Use a matching custom state/address when needed. During a transition, an installed predecessor
+uses its own supported work interface until an authorized upgrade. Do not install a different
+runtime just to hold a work claim.
+
+1. Find the item: `mem work list` and look for the title `#<issue>: ...`. When there is none,
+   create it:
+   `mem work create --title "#<issue>: <issue title>" --criteria "<acceptance>" --non-goals "<non-goals>" --reference <issue URL> --key issue-<issue>-create --deadline $(soon 300)`.
+2. Start it before the first write, with the `revision` from `mem work get <id>`:
+   `mem work start <id> --if-revision <revision> --checkpoint "<state>" --next-artifact "<next>" --progress-deadline $(soon 14400) --lease-seconds 3600 --key issue-<issue>-start-<n> --deadline $(soon 300)`.
+   A `claim_conflict` means another session holds it: report that and do not build.
+3. At each stage (push, review, CI), record progress and renew the lease, with the `revision`
+   and `current_claim.generation` from `mem work get <id>`:
+   `mem work update <id> --if-revision <revision> --claim-generation <generation> --progress "<done>" --checkpoint "<state>" --next-artifact "<next>" --progress-deadline $(soon 14400) --renew-for 3600`.
+   When the lease has expired, read the item again and start it again.
+4. Close it in step 5.
+
+When a work command refuses because the repository has no reachable daemon/store or its schema is unsupported, say so in the pull request and continue. Do not create another store to get around it.
+
 ## 2. Check, then push once
 
 Run the `check` skill. Push when it passes, and open the pull request against `develop`. Say in
@@ -59,3 +98,13 @@ gh pr view <number> --json state,mergeCommit
 
 Close each delivered issue with a comment that names the pull request, and read back its state.
 Report the merge commit and the closed issues.
+
+Then close the issue's work item, with the `revision` and `current_claim.generation` from
+`mem work get <id>`:
+
+- When the merge completes the issue:
+  `mem work finish <id> --if-revision <revision> --claim-generation <generation> --outcome completed --reference <pull request URL>`.
+- When more work on the issue remains, for example a later chunk of a sprint, release the
+  claim with a checkpoint that names the next step, so that the next builder starts the same
+  item:
+  `mem work release <id> --if-revision <revision> --claim-generation <generation> --checkpoint "<merged; next step>"`.

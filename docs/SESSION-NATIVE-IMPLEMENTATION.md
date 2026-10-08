@@ -1,5 +1,9 @@
 # Native session supervision implementation
 
+> Historical Python-era design and evidence. The implementation and commands described
+> here are retired from this checkout. See [INSTALL.md](INSTALL.md), [USAGE.md](USAGE.md)
+> and [PROTOCOL.md](../PROTOCOL.md) for the Go runtime. Retained for migration and storage provenance.
+
 This extends the approved [installation design](MEMORY-INSTALLATION-DESIGN.md).
 Memory activation is integrated through PR #56; native session activation now serves
 explicitly published bridge/notifier selections. The installer remains

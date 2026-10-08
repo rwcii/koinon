@@ -1,5 +1,9 @@
 # Delivery queue
 
+> Historical Python-era design and evidence. The implementation and commands described
+> here are retired from this checkout. See [INSTALL.md](INSTALL.md), [USAGE.md](USAGE.md)
+> and [PROTOCOL.md](../PROTOCOL.md) for the Go runtime. Retained for migration and storage provenance.
+
 This is the repository record of outstanding delivery work. It supplements the
 [programme contract](PARITY-MEMORY-DESIGN.md); an entry is not evidence that a
 feature works. Distinguish user requirements, confirmed defects, and proposals.

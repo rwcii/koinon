@@ -1,5 +1,9 @@
 # Repository memory supervisor (staged)
 
+> Historical Python-era design and evidence. The implementation and commands described
+> here are retired from this checkout. See [INSTALL.md](INSTALL.md), [USAGE.md](USAGE.md)
+> and [PROTOCOL.md](../PROTOCOL.md) for the Go runtime. Retained for migration and storage provenance.
+
 `memory_service.py` implements the portable lifecycle portion of DQ-11 slice 3.
 It requires a validated saved memory-service selection. The installer copies it but
 still does not create selections or activate memory services. Native memory manager activation and loaded-job ownership checks are available
@@ -37,6 +41,15 @@ retains the original failure. If recording fails, the wrapper still exits zero a
 observation remains unavailable. A preopened, private, bounded diagnostic file records
 the original failure and recording failure when the filesystem permits it. A failure
 of both diagnostic sinks still cannot turn a permanent launchd failure into a retry.
+
+A failure code names a class, not a cause. When the cause of `primary_code` is known, the
+failure carries a `detail` object: `memory_code` when the memory service refused verification,
+or `child_exit_status` and `started` when the memory child exited. The supervisor keeps it in
+its owner and refusal records, status reports it with a refused or failed state, and failure
+output and the private diagnostic include it. The native fixture writes an in-process failure's
+`detail` to its evidence as `error_detail`, and a refused or failed status, with its `detail`,
+in `error`. `detail` is diagnostic data; it adds no code to the public vocabulary. Records
+written before it existed still read.
 
 If child exit cannot be confirmed, supervision ends with `shutdown_unconfirmed` (78)
 and preserves both `primary_code` and `shutdown_code`. This deliberately prevents a

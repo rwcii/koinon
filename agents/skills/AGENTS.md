@@ -19,7 +19,7 @@ prevents.
 - Use the shell, `git` and `gh` only. Do not name a tool, slash command, memory store or
   message transport that exists in only one agent.
 - Name the agent by its family (`claude`, `codex`, `deepseek`), with a public role suffix only
-  when the user assigns one (`codex-review`). Never use a session name, thread ID or model
+  when the maintainer assigns one (`codex-review`). Never use a session name, thread ID or model
   version.
 - Tell the agent to read this file. Some agents load a skill without the surrounding
   `AGENTS.md`, so each `SKILL.md` names `agents/skills/AGENTS.md` in its opening lines.

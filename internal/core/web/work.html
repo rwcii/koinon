@@ -1,0 +1,13 @@
+{{define "list"}}{{range $store := .Data.Stores}}{{if .Work}}<h2>{{.Repository}}</h2><table>
+<thead><tr><th>Work</th><th>Title</th><th>Lifecycle</th><th>Proposed</th><th>Owner</th><th>Lease</th><th>Resources</th><th>Progress</th></tr></thead>
+<tbody>{{range .Work}}<tr>
+<td><code>{{.WorkID}}</code><br><small>revision {{.Revision}}</small></td>
+<td>{{.Title}}{{if .Checkpoint}}<br><small>{{.Checkpoint}}</small>{{end}}</td>
+<td>{{.Lifecycle}}</td>
+<td>{{with .ProposedAssignee}}{{.}}{{else}}—{{end}}</td>
+<td>{{with .CurrentClaim}}{{.Consumer}}<br><small>generation {{.Generation}}</small>{{else}}—{{end}}{{if .CurrentClaim}}<form method="post" action="/dashboard/actions/release" class="inline"><input type="hidden" name="csrf" value="{{$.CSRF}}"><input type="hidden" name="repository" value="{{$store.Repository}}"><input type="hidden" name="work_id" value="{{.WorkID}}"><input type="hidden" name="revision" value="{{.Revision}}"><input type="hidden" name="generation" value="{{.CurrentClaim.Generation}}"><input type="hidden" name="consumer" value="{{.CurrentClaim.Consumer}}"><button type="submit">Release</button></form>{{end}}</td>
+<td>{{if .LeaseValid}}valid until {{secs .CurrentClaim.ExpiresAt}}{{else}}none{{end}}</td>
+<td>{{with .CurrentClaim}}{{range .Resources}}<div><small>{{index . 0}}</small> <code>{{index . 1}}</code></div>{{end}}{{else}}—{{end}}</td>
+<td>{{if .ProgressOverdue}}overdue{{else}}on time{{end}}{{if .ProgressUnverified}}<br><small>unverified: {{range $i, $r := .ProgressUnverifiedReasons}}{{if $i}}, {{end}}{{$r}}{{end}}</small>{{end}}<br><small>deadline {{secs .ProgressDeadline}}</small></td>
+</tr>{{end}}</tbody></table>{{end}}{{else}}<p class="empty">No memory stores.</p>{{end}}
+{{if .Data.Next}}<p><a href="/dashboard/work{{query "after" .Data.Next}}">More stores</a></p>{{end}}{{end}}

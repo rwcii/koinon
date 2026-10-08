@@ -1,5 +1,9 @@
 # Work items v1 — approved contract
 
+> Retained semantic contract. Python-specific services, file layouts and recipes below
+> describe the previous implementation; the Go routes and storage are defined in
+> [PROTOCOL.md](../PROTOCOL.md) and [WORK-ITEMS-GO-STORAGE.md](WORK-ITEMS-GO-STORAGE.md).
+
 Status: behavioral scope independently reviewed and approved by the maintainer.
 The [implementation design](WORK-ITEMS-IMPLEMENTATION-DESIGN.md) addresses the remaining
 design gates. Implementation, deployment, participant configuration, and existing work
@@ -225,7 +229,7 @@ old-owner writes; restart and wall-clock steps; lost replies and idempotency con
 capped listings and explicit truncation; catch-up after lost wakes; idle due-event publication
 and deduplication; capacity refusal with successful release/finish; schema upgrade preserving
 existing data; and scoped opt-in
-preserving unrelated configuration. Verify completion never implies user approval.
+preserving unrelated configuration. Verify completion never implies maintainer approval.
 
 No scheduler, dependencies, dashboards, auto-assignment, forced takeover, automatic budget
 enforcement, semantic duplicate classification, filesystem fencing, semantic memory

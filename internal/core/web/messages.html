@@ -1,0 +1,25 @@
+{{define "list"}}<form method="get" action="/dashboard/messages" class="filter"><label>Recipient <input name="to" value="{{.Data.Recipient}}" maxlength="128"></label> <button type="submit">Filter</button></form>
+{{if not .Data.Messages}}<p class="empty">No messages.</p>{{else}}<table>
+<thead><tr><th>ID</th><th>To</th><th>Seq</th><th>From</th><th>Sent</th><th>Delivery</th><th>Acknowledged</th><th>Body</th></tr></thead>
+<tbody>{{range .Data.Messages}}<tr>
+<td>{{.ID}}</td>
+<td>{{if .RecipientName}}{{.RecipientName}}{{else}}{{.RecipientFamily}}:{{.RecipientID}}{{end}}</td>
+<td>{{.Seq}}</td>
+<td>{{.SenderName}} <small>{{.SenderFamily}}</small></td>
+<td>{{ms .CreatedAt}}</td>
+<td>{{.DeliveryState}}{{if .DeliveryReason}}<br><small>{{.DeliveryReason}}</small>{{end}}<br><small>{{ms .UpdatedAt}}</small></td>
+<td>{{if .Acknowledged}}yes<br><small>by {{.AcknowledgedBy}}</small>{{else}}no{{end}}</td>
+<td><pre class="body">{{.Body}}</pre></td>
+</tr>{{end}}</tbody></table>{{end}}
+{{if .Data.Next}}<p><a href="/dashboard/messages{{query "to" .Data.Recipient "before" (printf "%d" .Data.Next)}}">Older messages</a></p>{{end}}{{end}}
+{{define "actions"}}<details class="action" open><summary>Send as maintainer</summary>
+<form method="post" action="/dashboard/actions/send"><input type="hidden" name="csrf" value="{{.CSRF}}">
+<label>To <input name="to" required maxlength="256" placeholder="peer name or alias"></label>
+<label class="wide">Message <textarea name="body" required maxlength="65536" rows="4"></textarea></label>
+<button type="submit">Send</button></form>
+<p><small>Agents can reply to <code>maintainer</code>. Show replies with the recipient filter <a href="/dashboard/messages?to=maintainer">maintainer</a>.</small></p></details>
+{{with .Data.RecipientKey}}<details class="action" open><summary>Inbox of {{$.Data.Recipient}}</summary>
+<form method="post" action="/dashboard/actions/acknowledge" class="inline"><input type="hidden" name="csrf" value="{{$.CSRF}}"><input type="hidden" name="family" value="{{.Family}}"><input type="hidden" name="id" value="{{.ID}}"><input type="hidden" name="to" value="{{$.Data.Recipient}}">
+<label>Acknowledge through sequence <input name="through" type="number" min="0" required></label> <button type="submit">Acknowledge</button></form>
+<form method="post" action="/dashboard/actions/clear" class="inline"><input type="hidden" name="csrf" value="{{$.CSRF}}"><input type="hidden" name="family" value="{{.Family}}"><input type="hidden" name="id" value="{{.ID}}"><input type="hidden" name="to" value="{{$.Data.Recipient}}"><button type="submit">Clear: acknowledge all</button></form>
+<p><small>Nothing is deleted. Senders see these messages as acknowledged by the maintainer.</small></p></details>{{end}}{{end}}

@@ -1,5 +1,9 @@
 # Native manager evidence
 
+> Historical Python-era design and evidence. The implementation and commands described
+> here are retired from this checkout. See [INSTALL.md](INSTALL.md), [USAGE.md](USAGE.md)
+> and [PROTOCOL.md](../PROTOCOL.md) for the Go runtime. Retained for migration and storage provenance.
+
 The portable supervisor is separate from native manager activation. DQ-11 still
 requires real Linux and macOS evidence for owned activation, readiness, crash restart,
 permanent refusal without restart, explicit retry, stop and removal preserving data.

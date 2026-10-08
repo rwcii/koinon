@@ -1,5 +1,9 @@
 # Delivery evidence and presence
 
+> Historical Python-era design and evidence. The implementation and commands described
+> here are retired from this checkout. See [INSTALL.md](INSTALL.md), [USAGE.md](USAGE.md)
+> and [PROTOCOL.md](../PROTOCOL.md) for the Go runtime. Retained for migration and storage provenance.
+
 Delivery records are local to one bridge installation. A sender can inspect its
 transport attempt; the receiving installation can inspect stored, notified,
 fetched and handled evidence. This release sends no native wire receipts, so a
@@ -130,8 +134,10 @@ Koinon's own daemon registry record omits activity instead of permanently assert
 waiting. Claude's UI may display Idle for an absent status; that UI fallback is
 not a Koinon activity claim.
 
-Codex and DeepSeek activity remains unknown: no verified read-only source owned by
-the selected participant is integrated. Codex app-server schemas expose status and
+Codex activity is observed from the selected session log while its same-user Codex owner
+holds that file open with the same process-start marker. A matching turn start means busy;
+a matching completion or abort means idle. Missing, unreadable or unrecognized evidence,
+or loss of the open-file association, means unknown. DeepSeek activity remains unknown. Codex app-server schemas expose status and
 wait flags, but schema availability does not prove that connecting observes the
 actual owning server without side effects. No thread is resumed, replaced, loaded
 or subscribed as part of this feature.
@@ -143,6 +149,72 @@ Claude 2.1.276 parses these values; running-model scheduling and interruption
 semantics are unverified. Native receipt controls also remain disabled despite
 observed parser support. Schema support, endpoint reachability and live
 verification are distinct fields; none substitutes for another.
+
+## Model, context and claimed work
+
+Each `peers` entry and the notifier `status` carry three fields beside `presence`:
+
+- `model`: `{state, source, id, recorded_at_ms, observed_at_ms, freshness_ms, reason}`.
+- `context`: `{state, source, limit_tokens, used_tokens, fill, recorded_at_ms,
+  observed_at_ms, freshness_ms, reason}`, where `fill` is `used_tokens / limit_tokens`.
+- `work`: `{state, source, claims, recorded_at_ms, observed_at_ms, freshness_ms, reason}`.
+
+`state` is `observed` or `unknown`. `recorded_at_ms` is the time the source recorded the
+value; `observed_at_ms` is the read time; consumers expire a cached reading after
+`freshness_ms` (15 seconds) or a disconnect, as for presence. An old value of a live, idle
+participant stays observed on a fresh read. Unknown values name a reason:
+`no_status_record`, `status_record_invalid`, `participant_not_live`,
+`participant_not_associated`, `statusline_missing`, `source_unrecognized`, `source_catching_up`,
+`no_token_usage`, `work_association_missing`, `memory_unavailable` or
+`provider_unsupported`.
+
+The values come from status records in `${CLAUDE_CONFIG_DIR:-~/.claude}/koinon-status`,
+beside the session registry that `peers` reads: `claude-<sessionId>.json` for a Claude
+session and `bridge-<pid>.json` for a Koinon participant, written by its notifier and
+removed at shutdown. The directory is 0700 and each record 0600. A reader refuses a
+record that is not a private regular file owned by the user, is a link, exceeds 16 KiB or
+does not parse. A record names the participant process and its start marker; while that
+process is not live, every value is `unknown` with `participant_not_live`. A bridge record
+is used only for the registry record's bridge process and notifier generation.
+
+Integers are bounded to 2^53 - 1, and a value whose source time is later than the read
+time is `unknown` with `status_record_invalid`. Records hold only numbers, identifiers,
+states, times and the work-store association, checked against an allowlist on write and
+again on read. No transcript, prompt or message text is stored. Claimed-work titles and
+checkpoints are returned only by the read-only memory query described below.
+
+A Claude session's `model` and `context` come from `statusline.py`, run as the Claude Code
+`statusLine` command. On each update it reads the status-line input once, runs the maintainer's
+own status-line command with the same bytes through `/bin/sh -c` (as Claude Code does),
+and returns that command's output and exit status unchanged; the maintainer's command runs even
+when recording fails. It records only `model.id`, `context_window.context_window_size`,
+`context_window.total_input_tokens` and whether `current_usage` is present, for the Claude
+process that the session registry names for the input's `session_id`. Claude Code writes
+that registry record with the process umask, so the lookup accepts any mode but still
+requires a regular file owned by the user, with one link and at most 64 KiB. Input larger than
+1 MiB is forwarded and not parsed. Before the first response of a session the usage is
+`unknown` with `no_token_usage`, not zero. When a Claude session has no record because the wrapper is not
+the `statusLine` command in the configuration directory that `peers` reads, `model` and
+`context` report `statusline_missing` with a `repair` field holding the installer command that
+sets it up ([Claude integration](INSTALL.md#claude-integration)). A status value grants nothing and triggers nothing: peers read it and decide what
+to suggest. Until their sources exist, Codex values are `participant_not_associated`,
+DeepSeek model and context are `provider_unsupported`.
+
+Claimed work is queried fresh from the writing installation’s selected memory store,
+using the peer’s repository and consumer key. Active leases appear as `{work_id, title,
+checkpoint}` in `claims`; a successful empty query is `observed` with an empty list.
+Expired leases are omitted without changing the item. `source` is `memory_work_list`;
+`truncated` reports the bounded work-list limit. Missing repository/store association is
+`work_association_missing`; an unreachable service is `memory_unavailable`. No prior
+claim list is reused after a failed query. This applies to Claude, Codex and DeepSeek.
+
+The default consumer key is the native session ID: `CLAUDE_CODE_SESSION_ID`,
+`CODEX_THREAD_ID` or `DSH_SESSION_ID`. Run the installed `session.py work-key --key KEY`
+in that session’s shell when using another key. The private association persists across
+status rewrites and takes effect on the next status publication (the next Claude
+status-line update, or within the notifier’s two-second sampling interval). It does
+not create, acquire or transfer a claim. Work records carry repository paths and a
+consumer identifier; claim titles and checkpoints are read only when status is requested.
 
 ## Compatibility and verification limits
 
@@ -178,3 +250,29 @@ listing-filter result rests on the driver’s extraction. Both observations are
 limited to version 2.1.276 and do not establish end-to-end native discovery.
 Live discovery remains unverified. Vendor implementation text is not included
 in this repository.
+
+### Codex session-log observation
+
+The notifier locates only the explicitly selected thread under `CODEX_HOME/sessions`
+(default `~/.codex/sessions`) and checks its `session_meta` identity. It reads bounded batches
+incrementally; while catching up it reports `source_catching_up`. A partial trailing
+event keeps the last complete observation until the rest of that event arrives. Model,
+last-request input tokens and context-window size retain their source event timestamps.
+Cumulative usage is not context occupancy. Rollout shapes are internal Codex interfaces;
+unrecognized evidence is unknown rather than inferred.
+
+Linux uses same-user `/proc` file holders; macOS uses `lsof`. A configured native Codex CLI
+or its direct wrapper child must hold the log. This association is checked each observation.
+An idle thread that closes its log therefore reports unknown. These are observations, not
+proof that a task completed successfully. No app-server connection, resume or queued probe
+is made. Status polling runs separately from notification delivery, every two seconds.
+
+## Guidance pointers
+
+Guidance notices carry only the installed catalog revision and commands to pull and explicitly
+acknowledge it. They use the notifier's existing serialized provider adapter, separately from
+inbox sequence acknowledgements and the inbox delivery ledger. A durable per-session,
+per-revision reservation prevents repeats across polling, notifier restart or a return to an
+older revision. A failed or uncertain reservation is retained rather than retried automatically;
+reading the guide at startup/resume supplies the independent recovery path. Delivery, fetching,
+and processing remain separate: only `session.py guide-ack REVISION` records processing.

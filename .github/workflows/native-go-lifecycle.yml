@@ -1,0 +1,59 @@
+name: Native Go lifecycle evidence
+on:
+  pull_request:
+    branches: [develop]
+  push:
+    branches: [develop, main]
+  workflow_dispatch:
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.sha }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+permissions:
+  contents: read
+jobs:
+  go-lifecycle:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-latest
+            backend: systemd
+          - os: macos-latest
+            backend: launchd
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # The upgrade starts from the pinned main release, read from history.
+          fetch-depth: 0
+      # The required jobs always report. For agent-process-only PRs, Go contributor
+      # checks validate the change and these service steps are unnecessary.
+      - id: scope
+        if: github.event_name == 'pull_request'
+        shell: bash
+        env:
+          BASE: ${{ github.event.pull_request.base.sha }}
+          HEAD: ${{ github.event.pull_request.head.sha }}
+        run: |
+          changed=$(git diff --name-only --no-renames "$BASE...$HEAD")
+          others=$(printf '%s\n' "$changed" \
+            | grep -vE '^(agents/|docs/sprints/|\.claude/|\.agents/|\.codex/)' || true)
+          if [ -n "$changed" ] && [ -z "$others" ]; then
+            echo "exempt=true" >> "$GITHUB_OUTPUT"
+            echo "Only agent-process files changed; native service steps are skipped."
+          fi
+      - if: steps.scope.outputs.exempt != 'true'
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+      # Python runs only the pinned main release that the upgrade starts from.
+      - if: steps.scope.outputs.exempt != 'true'
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+      - if: steps.scope.outputs.exempt != 'true'
+        name: Install, restart, upgrade from main and uninstall under ${{ matrix.backend }}
+        env:
+          KOINON_NATIVE_JOB: '1'
+        run: go test -tags native -count=1 -v -timeout 15m ./internal/nativetest/

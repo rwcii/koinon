@@ -1,6 +1,7 @@
 __pycache__/
 *.py[cod]
 .venv/
+/bin/
 *.log
 *.sqlite3*
 *.sock
@@ -11,3 +12,5 @@ install.json
 session.json
 _handoff/
 .claude/settings.local.json
+# Committed synthetic Python-era state trees; import tests need no generator.
+!/internal/importer/testdata/python-state/**
