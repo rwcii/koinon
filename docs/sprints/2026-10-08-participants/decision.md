@@ -5,7 +5,7 @@
 The Go runtime (develop `f88a42c`) gives each agent session a permanent peer name and, for a
 session in a Git repository, one alias per family and repository (`internal/core/names.go`,
 `assignNames`). The alias is the stable address that people and agents use, for example
-`codex-koinon`. Four gaps remain.
+`codex-koinon`. Five gaps remain.
 
 1. **One address per family and repository.** Two Claude sessions, or two Codex sessions, can
    register in one checkout, but only one of them has a stable address. The other has only its
@@ -17,26 +17,36 @@ session in a Git repository, one alias per family and repository (`internal/core
    gives A a new session that gets no alias while A's old registration is still active. When that
    old registration expires (15 minutes after its last renewal), B can take the alias before A's
    successor does, and messages for A then go to B (#228).
-3. **No successor link.** A reset starts a new native session. Codex `/clear` keeps the Codex
-   process and its Koinon MCP server and changes the thread ID that each tool call carries
-   (`docs/sprints/2026-10-06-go-daemon/spike.md`, fact 1; #141, live test of 2026-09-24). The
-   new thread registers as a new session. The old registration stops renewing, keeps its alias
-   until it expires, and stays listed. Retirement exists only as a dashboard action
-   (`internal/core/dashboard_actions.go`). Nothing links the new session to its predecessor (#141,
-   items 2 and 3).
-4. **Terminal naming misses two cases.** `internal/mcp/terminal_name.go` names the tmux terminal
-   of a Claude session and of a session that the Koinon launcher started. A Codex session that
-   the person started directly connects and gets its name, but its terminal keeps the old name
-   (#228). A Claude background job (`claude bg-pty-host`) runs outside tmux, so it gets
-   `not_in_tmux`, although the person watches it through a `claude` client in a tmux pane (#147).
-   A `name_taken` result is final, so the name is not tried again when the other terminal goes
-   away (#228).
+3. **A reset loses the participant's state.** A new native session starts with its own inbox,
+   memory cursor and work claims. Messages that the old session did not read stay in its inbox. Its
+   claims stay leased to its key until they expire (`docs/WORK-ITEMS-POLICY.md`), so the new
+   session cannot continue its own work. Nothing links the new session to the old one; retirement
+   exists only as a dashboard action (#141, items 2 and 3).
+4. **Codex sessions share one daemon.** A Codex 0.161 session that the person starts with `codex`
+   joins the user's shared Codex app-server daemon. The daemon, not the session's process in its
+   pane, runs the session's MCP servers, starts a new one for each thread, and keeps them after the
+   session ends. Codex removes `TMUX`, `TMUX_PANE` and `KOINON_LAUNCH_ID` from an MCP server's
+   environment. Koinon therefore cannot tell which terminal such a session runs in, and even the
+   agent's own shell reports the daemon's pane. `codex --no-daemon` runs the session on its own:
+   its MCP servers are children of its process in the pane (`live-checks.md`, F1). Today the
+   launched session's `koinon mcp` probably never receives its launch ID (#247), and each Codex
+   sub-agent that calls a Koinon tool registers as its own session (`live-checks.md`, F2).
+5. **Terminal naming misses two cases.** `internal/mcp/terminal_name.go` names the tmux terminal
+   of a Claude session and of a launched session. A Claude background job (`claude bg-pty-host`)
+   runs outside tmux, so it gets `not_in_tmux`, although the person watches it through
+   `claude attach` in a tmux pane (#147, `live-checks.md`, F4). A `name_taken` result is final, so
+   the name is not tried again when the other terminal goes away (#228).
 
-The maintainer decided on 2026-09-24 (#141, `docs/sprints/2026-09-24-stable-alias/decision.md`,
-criterion 3) that a reset session in the same tmux pane retires its predecessor without asking,
-and takes the address when the predecessor holds it or when it is free. On 2026-10-08 the
-maintainer chose maintainer-assigned role suffixes for additional participants. This sprint
-carries both decisions into the Go runtime.
+Maintainer decisions that this sprint carries into the Go runtime:
+
+- 2026-09-24 (#141, `docs/sprints/2026-09-24-stable-alias/decision.md`, criterion 3): a reset
+  session in the same tmux pane takes its predecessor's place without asking.
+- 2026-10-08: additional participants of one family get maintainer-assigned role suffixes.
+- 2026-10-08: a successor takes the place of its predecessor, so the participant's state
+  continues: "the old process is gone; a new process exists in its place and is registering".
+- 2026-10-08: `koinon codex` starts Codex with `--no-daemon`; a Codex session that runs under the
+  shared daemon gets its address, but no terminal naming or automatic succession, and the result
+  says why.
 
 ## Acceptance criteria
 
@@ -44,86 +54,91 @@ carries both decisions into the Go runtime.
    participant without a role has the short alias `<family>-<label>`, as today. The maintainer
    gives a session a role when it starts it through the launcher (`koinon <family> --role
    <role>`); that participant's address is `<family>-<label>-<role>`. Linked worktrees of one
-   repository share its participants. Every session keeps its own peer name as well.
-2. **One holder, never by order.** An address resolves to exactly one active session, or a send
-   to it fails with a clear refusal. A session never takes an address from an active holder,
-   except by criterion 3. When an address is free (its holder expired or retired), it goes to a
-   session of that participant only when exactly one active session qualifies. When more than one
-   qualifies, the address stays free, the result reports the conflict, and the maintainer binds
-   one session in the dashboard. Registration and renewal order never decide.
-3. **Verified succession.** A new session takes its participant's address from the active holder
-   at once, and the holder is retired, only on one of this evidence:
-   - the same Koinon MCP server process served the holder and now serves the new session, and
-     the holder made no call after the new session's first call (a Codex `/clear` or `/resume`
-     in one process);
-   - the new session's host process runs in the same tmux server and pane as the holder's host
-     process, and the holder's host process has ended (a new agent process started in that pane);
-   - the maintainer binds the session in the dashboard.
+   repository share its participants. Every session keeps its own peer name as well. A Codex
+   sub-agent thread (`thread_source` `subagent`) never holds a participant.
+2. **One holder, never by order.** A participant has at most one holder, an active native
+   session. Its address resolves to that session, or a send to it fails with a clear refusal. A
+   session never becomes the holder in place of an active holder, except by criterion 3. When a
+   participant has no active holder, a session of that participant becomes its holder only when
+   exactly one active session qualifies. When more than one qualifies, the participant stays
+   without a holder, the result reports the conflict, and the maintainer chooses the holder in
+   the dashboard. Registration and renewal order never decide.
+3. **Verified succession.** A new session becomes the holder in place of the active holder only
+   on one of this evidence:
+   - The new session runs under the same host process as the holder, with another native session
+     ID: a launched Codex session after `/clear` or `/resume` starts a new user thread under the
+     same Codex process.
+   - The new session's host process runs in the same tmux server and pane as the holder's host
+     process, and the holder's host process has ended: a new agent process started in that pane.
+   - The maintainer chooses the new session in the dashboard.
 
-   The same family, repository, host process or peer name alone is not evidence. Two sessions
-   that are active in one MCP server at the same time are not a succession: the address stays
-   with its holder, and the result reports both. A peer message never moves an address or
-   retires a session.
-4. **Reversible, no inheritance.** Each native session keeps its own inbox, acknowledgements,
-   memory cursor and work claims. Succession transfers none of them and releases no claim. A
-   retired predecessor that calls again registers again, as today, and can take the address back
-   only under criterion 3. A change of the pair's driver does not change any address or claim.
-5. **Direct Codex terminal naming.** A Codex session that the person started without the
-   launcher names its own tmux terminal, as a Claude session does, when the daemon verifies that
-   its MCP server's parent is the Codex process in that pane. When that cannot be verified, the
-   result says why and nothing is renamed.
-6. **Naming rules.** One agent pane in a tmux session: rename the session to the published
-   address. More than one agent pane: set only the agent's own pane title. Never rename another
-   session or pane; a nested agent or a shared MCP server never renames a terminal it does not
-   own. A taken name is reported, nothing is overwritten, and the name is tried again at later
-   renewals until it is free. Outside tmux, nothing happens.
-7. **Claude background jobs.** For a Claude background job, the runtime finds the tmux pane of
-   the `claude` client attached to that job and applies criterion 6 to that pane. The peers
-   listing and the dashboard show one session for the job and its attached client, not two
-   unrelated peers.
-8. **Reported.** The `peers` MCP tool, `koinon peers` and the dashboard show for each session
-   its peer name, its participant address (held or not), its role, the last succession result
-   and the last naming result with its reason.
-9. **Documented.** `PROTOCOL.md`, `docs/USAGE.md`, `docs/INSTALL.md`, the installed `koinon
-   guide` output, the `pickup` and `peer-tmux` skills and `CHANGELOG.md` describe participants,
-   roles, succession and terminal naming, in the chunk that changes the behaviour.
-10. Linux and macOS.
+   The same family, repository, peer name or address alone is not evidence. A session under the
+   shared Codex daemon has no verifiable host, so only the maintainer's choice moves its
+   participant. A peer message never changes a holder.
+4. **The participant's state continues.** The participant owns the messages sent to its address,
+   their acknowledgements, its memory cursor and its work claims and leases. The holder acts for
+   the participant, so a successor continues them as they are: it reads the unread messages, the
+   memory deltas after the cursor, and its claims and checkpoints, with no transfer or acceptance
+   step. Messages sent to a session's peer name stay with that session. Each acknowledgement and
+   work event records the native session that made it.
+5. **Fencing.** When a session stops being the holder, it is retired at once, in the same
+   transaction. From then on, a call that acts for the participant (send as it, read or
+   acknowledge its inbox, renew, update, release or finish its claims, acknowledge its memory
+   cursor) is refused unless the caller is the current holder; this includes a custom consumer
+   key, a registration retry and the command-line paths. A fenced session that calls again cannot
+   register itself back into the participant; it gets only its own peer name, and the result says
+   why.
+6. **Codex sessions on their own.** `koinon codex` starts Codex with `--no-daemon` and passes the
+   variables that `koinon mcp` needs through the Codex MCP configuration, so a launched session
+   registers with its launch record (#247), names its own terminal and qualifies for criterion 3.
+   A session under the shared Codex daemon gets its address; its terminal is not renamed, and the
+   result says that the terminal cannot be verified under the shared daemon and recommends
+   `koinon codex`.
+7. **Naming rules.** One agent pane in a tmux session: rename the session to the participant's
+   address, or the peer name without one. More than one agent pane: set only the agent's own pane
+   title. Never rename another session or pane; a nested agent or a shared MCP server never renames
+   a terminal it does not own. A taken name is reported, nothing is overwritten, and the name is
+   tried again at later renewals until it is free. Outside tmux, nothing happens.
+8. **Claude background jobs.** For a Claude background job, the runtime finds the tmux pane of
+   the `claude attach` client of that job and applies criterion 7 to that pane. The pane is
+   reported with the session.
+9. **Reported.** The `peers` MCP tool, `koinon peers` and the dashboard show for each session its
+   peer name, its participant address and whether it holds it, its role, the last succession
+   result and the last naming result with its reason.
+10. **Documented.** `PROTOCOL.md`, `docs/USAGE.md`, `docs/INSTALL.md`,
+    `docs/WORK-ITEMS-POLICY.md`, the installed `koinon guide` output, the `pickup`, `handoff` and
+    `peer-tmux` skills and `CHANGELOG.md` describe participants, roles, succession, fencing and
+    terminal naming, in the chunk that changes the behaviour.
+11. Linux and macOS.
 
 ## Constraints
 
 - The root `AGENTS.md` rules apply: loopback-only listeners, same-user private state, identity
   from each family's native per-call source and never from tool arguments, inert peer controls,
   and no change to a cursor, checkpoint, secret or retained state outside the defined rules.
-- A peer request never moves an address, retires a session or renames a terminal.
+- A peer request never changes a holder, retires a session or renames a terminal.
 - An upgraded store keeps every existing alias and its holder. An existing alias becomes the
-  address of the participant without a role, so no recipient changes at the upgrade.
+  address of the participant without a role, so no recipient changes at the upgrade. Existing
+  claims, inboxes and cursors keep their current owners.
 - Process and tmux observations run in `koinon mcp` and the daemon, outside the agent sandbox.
   Platform differences stay in `internal/platform`. Builds stay `CGO_ENABLED=0`.
+- Koinon does not read Codex's private state files, and it never stops or reconfigures the
+  user's shared Codex daemon.
 - Tests use synthetic sessions, temporary state and private tmux servers addressed with `-S`.
   No test touches the maintainer's sessions, terminals or services.
-- Non-goals: work routing by role (#140), the skills package (#145), detection of a host's active
-  thread beyond the evidence in criterion 3, and a release to `main`.
+- Non-goals: work routing by role (#140), the skills package (#145), the checkout resource key
+  (#83), and a release to `main`.
 
-## Unverified facts
+## Verified facts
 
-Each fact needs a live check before the chunk that depends on it is built. A live check runs only
-with the maintainer's authorization, in scratch sessions.
-
-- **F1.** In an interactive Codex session that the person started directly, the Koinon MCP
-  server's parent is the Codex process that runs in the tmux pane, and that server serves only
-  the threads of that process. The spike checked `codex exec` only.
-- **F2.** Codex sends tool calls from more than one thread through one MCP server at the same
-  time (for example from a sub-agent), or it does not.
-- **F3.** Claude `/clear` keeps the Claude process, its MCP server and the server's
-  `CLAUDE_CODE_SESSION_ID`, so Koinon sees no new session (observed once, on 2026-10-08, in a
-  Claude session of this repository). Claude `/resume` inside a running process does the same, or
-  it starts new MCP servers.
-- **F4.** For a Claude background job: which process runs the job's MCP servers, how the
-  attached `claude` client in a tmux pane can be linked to that job from the process table and
-  the job's sockets, and whether the attached client starts its own Koinon MCP server.
+`live-checks.md` records the live checks of 2026-10-08 (Codex 0.161.0, Claude Code 2.1.294,
+Linux). A later CLI version that behaves otherwise needs a new live check, authorized by the
+maintainer, before the plan changes. Not checked: Claude `/resume` inside a running process, and
+macOS; the definition of done names the checks for both.
 
 ## Issues
 
-- Delivers #228, #141 (items 2 and 3; items 1 and 5 are in the Go runtime already) and #147.
+- Delivers #228, #141 (items 2 and 3; items 1 and 5 are in the Go runtime already), #147 and
+  #247.
 - Leaves #140 (work routing by role) and #145 (skills package) to their own sprints: neither
   is part of an address or a terminal name.
