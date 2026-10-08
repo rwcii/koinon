@@ -29,7 +29,7 @@ func (s *Store) CreateLaunch(ctx context.Context, target LaunchTarget) (string, 
 	if target.LaunchID != "" {
 		return "", ErrInvalid
 	}
-	if target.Family != "codex" && target.Family != "agy" && target.Family != "opencode" {
+	if target.Family != "claude" && target.Family != "codex" && target.Family != "agy" && target.Family != "opencode" {
 		return "", ErrInvalid
 	}
 	if target.HostPID <= 0 || !filepath.IsAbs(target.CLI) || len(target.CLI) > 4096 {

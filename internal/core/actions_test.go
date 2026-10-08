@@ -260,6 +260,15 @@ func TestDashboardActionsChangeStateAndAudit(t *testing.T) {
 	if !strings.Contains(launched.Target, odd) {
 		t.Fatalf("launch target: %q", launched.Target)
 	}
+	// Claude Code starts the same way (#219).
+	if got := client.do("launch", url.Values{"family": {"claude"}, "directory": {odd}, "name": {"claude_1"}}); got != "launched" {
+		t.Fatalf("claude launch: %s", got)
+	}
+	expectAudit(t, s, n, "launch", "accepted", "tmux $7 %9")
+	n++
+	if want := []string{"claude", "--state-dir", d.root, "--address", d.launchAddress(), "--directory", odd, "--tmux-session", "claude_1"}; !reflect.DeepEqual(gotArgs, want) {
+		t.Fatalf("claude launcher arguments: %q", gotArgs)
+	}
 	d.launch = func(context.Context, []string) ([]byte, error) { return nil, errors.New("synthetic refusal") }
 	if got := client.do("launch", url.Values{"family": {"opencode"}, "directory": {odd}, "name": {"named_1"}}); got != "launch_refused" {
 		t.Fatalf("refused launch: %s", got)
@@ -267,7 +276,7 @@ func TestDashboardActionsChangeStateAndAudit(t *testing.T) {
 	expectAudit(t, s, n, "launch", "refused", "launch_refused")
 	n++
 	for _, form := range []url.Values{
-		{"family": {"claude"}, "directory": {odd}},
+		{"family": {"deepseek"}, "directory": {odd}},
 		// A relative directory that exists where the daemon runs, the package directory.
 		{"family": {"codex"}, "directory": {"web"}},
 		{"family": {"codex"}, "directory": {filepath.Join(odd, "missing")}},

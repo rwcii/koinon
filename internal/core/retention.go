@@ -55,6 +55,10 @@ type RetentionStatus struct {
 
 type retentionState struct {
 	mu sync.Mutex
+	// purge orders the removal of a purge mark against the sweep's release of the marked
+	// session's claims: a release first reads the mark under it, so a mark removed before
+	// that read releases nothing.
+	purge sync.Mutex
 	// messages and sessions are the retention periods; zero means the default.
 	messages, sessions time.Duration
 	lastSweep          *int64
@@ -136,7 +140,7 @@ func (s *Store) deleteAcknowledged(ctx context.Context, counts *RetentionCounts,
 	}
 	for _, k := range due {
 		for *budget > 0 {
-			deleted, done, err := s.deleteMarked(ctx, k, cutoff)
+			deleted, done, err := s.deleteMarked(ctx, k, cutoff, min(cullBatch, *budget))
 			if err != nil {
 				return err
 			}
@@ -164,9 +168,9 @@ func (s *Store) deleteAcknowledged(ctx context.Context, counts *RetentionCounts,
 	return tx.Commit()
 }
 
-// deleteMarked deletes one batch of a session's messages at or below its due mark. The
+// deleteMarked deletes at most limit of a session's messages at or below its due mark. The
 // batch that finishes the mark also clears it, in the same transaction.
-func (s *Store) deleteMarked(ctx context.Context, k Key, cutoff int64) (int64, bool, error) {
+func (s *Store) deleteMarked(ctx context.Context, k Key, cutoff, limit int64) (int64, bool, error) {
 	tx, err := s.begin(ctx, control)
 	if err != nil {
 		return 0, false, err
@@ -182,7 +186,7 @@ func (s *Store) deleteMarked(ctx context.Context, k Key, cutoff int64) (int64, b
 		return 0, false, err
 	}
 	result, err := tx.ExecContext(ctx, `DELETE FROM messages WHERE id IN (SELECT id FROM messages
-		WHERE recipient_family=? AND recipient_id=? AND seq<=? ORDER BY seq LIMIT ?)`, k.Family, k.ID, mark, cullBatch)
+		WHERE recipient_family=? AND recipient_id=? AND seq<=? ORDER BY seq LIMIT ?)`, k.Family, k.ID, mark, limit)
 	if err != nil {
 		return 0, false, tx.fail(err)
 	}
@@ -190,7 +194,7 @@ func (s *Store) deleteMarked(ctx context.Context, k Key, cutoff int64) (int64, b
 	if err != nil {
 		return 0, false, err
 	}
-	done := deleted < cullBatch
+	done := deleted < limit
 	if done {
 		if _, err := tx.ExecContext(ctx, `UPDATE sessions SET ack_mark_at=0 WHERE family=? AND id=?`, k.Family, k.ID); err != nil {
 			return 0, false, tx.fail(err)
@@ -279,22 +283,27 @@ func (s *Store) purgeMarked(ctx context.Context, counts *RetentionCounts, budget
 		return err
 	}
 	for _, k := range keys {
-		released, err := s.releasePurged(ctx, k)
+		released, marked, err := s.releasePurged(ctx, k)
 		if err != nil {
 			return err
+		}
+		if !marked {
+			// The maintainer removed the mark after the session was selected.
+			continue
 		}
 		if !released {
 			counts.HeldClaims++
 			continue
 		}
 		for *budget > 0 {
-			deleted, err := s.deletePurgedBatch(ctx, k)
+			limit := min(cullBatch, *budget)
+			deleted, err := s.deletePurgedBatch(ctx, k, limit)
 			if err != nil {
 				return err
 			}
 			counts.MessagesByPurge += deleted
 			*budget -= deleted
-			if deleted < cullBatch {
+			if deleted < limit {
 				break
 			}
 		}
@@ -312,33 +321,35 @@ func (s *Store) purgeMarked(ctx context.Context, counts *RetentionCounts, budget
 	return nil
 }
 
+// purgeClaim is a live claim of a marked session, as the sweep read it.
+type purgeClaim struct {
+	repository, workID   string
+	revision, generation int64
+	expires              float64
+}
+
 // releasePurged releases every live claim of a marked session and reports whether none
-// is left. A claim whose lease has expired waits for the work sweep's reconciliation.
-func (s *Store) releasePurged(ctx context.Context, k Key) (bool, error) {
-	consumer := k.Family + ":" + k.ID
+// is left, and whether the session was still marked. A claim whose lease has expired waits
+// for the work sweep's reconciliation.
+func (s *Store) releasePurged(ctx context.Context, k Key) (released, marked bool, err error) {
 	rows, err := s.db.QueryContext(ctx, `SELECT m.repository,w.work_id,w.revision,b.generation,b.expires_at
 		FROM claim_bundles b JOIN work_items w ON w.store=b.store AND w.work_id=b.work_id
-		JOIN memory_stores m ON m.store_id=b.store WHERE b.active=1 AND b.consumer=? ORDER BY b.generation`, consumer)
+		JOIN memory_stores m ON m.store_id=b.store WHERE b.active=1 AND b.consumer=? ORDER BY b.generation`, k.Family+":"+k.ID)
 	if err != nil {
-		return false, err
+		return false, false, err
 	}
-	type claim struct {
-		repository, workID   string
-		revision, generation int64
-		expires              float64
-	}
-	var claims []claim
+	var claims []purgeClaim
 	for rows.Next() {
-		var c claim
+		var c purgeClaim
 		if err := rows.Scan(&c.repository, &c.workID, &c.revision, &c.generation, &c.expires); err != nil {
 			rows.Close()
-			return false, err
+			return false, false, err
 		}
 		claims = append(claims, c)
 	}
 	rows.Close()
 	if err := rows.Err(); err != nil {
-		return false, err
+		return false, false, err
 	}
 	all := true
 	for _, c := range claims {
@@ -346,27 +357,49 @@ func (s *Store) releasePurged(ctx context.Context, k Key) (bool, error) {
 			all = false
 			continue
 		}
-		fields := map[string]json.RawMessage{}
-		for name, value := range map[string]any{"work_id": c.workID, "if_revision": c.revision,
-			"claim_generation": c.generation, "checkpoint": purgeCheckpoint} {
-			fields[name], _ = json.Marshal(value)
+		marked, released, err := s.releaseMarked(ctx, k, c)
+		if err != nil || !marked {
+			return false, marked, err
 		}
-		caller := MemoryCaller{Repository: c.repository, Family: maintainerKey.Family, Name: "maintainer", Consumer: consumer}
-		if _, err := s.Work(ctx, caller, "work-release", fields); err != nil {
-			var refusal WorkRefusal
-			if errors.As(err, &refusal) {
-				// The claim changed since it was read; the next sweep reads it again.
-				all = false
-				continue
-			}
-			return false, err
-		}
+		all = all && released
 	}
-	return all, nil
+	return all, s.purgeMarkStands(ctx, k), nil
 }
 
-// deletePurgedBatch deletes one batch of a marked session's messages, while the mark stands.
-func (s *Store) deletePurgedBatch(ctx context.Context, k Key) (int64, error) {
+// purgeMarkStands reports whether a session still carries a purge mark.
+func (s *Store) purgeMarkStands(ctx context.Context, k Key) bool {
+	var at int64
+	err := s.db.QueryRowContext(ctx, `SELECT purge_at FROM sessions WHERE family=? AND id=?`, k.Family, k.ID).Scan(&at)
+	return err == nil && at != 0
+}
+
+// releaseMarked releases one claim of a marked session while the mark stands: it reads the
+// mark and releases the claim under the purge lock, which removing a mark also takes. A
+// claim that changed since the sweep read it is kept for the next sweep.
+func (s *Store) releaseMarked(ctx context.Context, k Key, c purgeClaim) (marked, released bool, err error) {
+	s.retention.purge.Lock()
+	defer s.retention.purge.Unlock()
+	if !s.purgeMarkStands(ctx, k) {
+		return false, false, nil
+	}
+	fields := map[string]json.RawMessage{}
+	for name, value := range map[string]any{"work_id": c.workID, "if_revision": c.revision,
+		"claim_generation": c.generation, "checkpoint": purgeCheckpoint} {
+		fields[name], _ = json.Marshal(value)
+	}
+	caller := MemoryCaller{Repository: c.repository, Family: maintainerKey.Family, Name: "maintainer", Consumer: k.Family + ":" + k.ID}
+	if _, err := s.Work(ctx, caller, "work-release", fields); err != nil {
+		var refusal WorkRefusal
+		if errors.As(err, &refusal) {
+			return true, false, nil
+		}
+		return true, false, err
+	}
+	return true, true, nil
+}
+
+// deletePurgedBatch deletes at most limit of a marked session's messages, while the mark stands.
+func (s *Store) deletePurgedBatch(ctx context.Context, k Key, limit int64) (int64, error) {
 	tx, err := s.begin(ctx, control)
 	if err != nil {
 		return 0, err
@@ -374,7 +407,7 @@ func (s *Store) deletePurgedBatch(ctx context.Context, k Key) (int64, error) {
 	defer tx.Rollback()
 	result, err := tx.ExecContext(ctx, `DELETE FROM messages WHERE id IN (SELECT m.id FROM messages m
 		JOIN sessions s ON s.family=m.recipient_family AND s.id=m.recipient_id
-		WHERE m.recipient_family=? AND m.recipient_id=? AND s.purge_at!=0 ORDER BY m.seq LIMIT ?)`, k.Family, k.ID, cullBatch)
+		WHERE m.recipient_family=? AND m.recipient_id=? AND s.purge_at!=0 ORDER BY m.seq LIMIT ?)`, k.Family, k.ID, limit)
 	if err != nil {
 		return 0, tx.fail(err)
 	}
@@ -388,6 +421,8 @@ func (s *Store) deletePurgedBatch(ctx context.Context, k Key) (int64, error) {
 // markPurge sets or removes the maintainer's purge mark on a session at revision. Setting
 // it retires an active session in the same write.
 func (s *Store) markPurge(ctx context.Context, k Key, revision int64, mark bool) error {
+	s.retention.purge.Lock()
+	defer s.retention.purge.Unlock()
 	s.wake.mu.Lock()
 	defer s.wake.mu.Unlock()
 	if !validKey(k.Family, k.ID) || revision < 1 {

@@ -190,11 +190,13 @@ session columns for it: `ack_mark` and `ack_mark_at`, the sweep's acknowledgemen
   `Released by the maintainer's purge of the session` and a work event that names family and
   name `maintainer`. A claim whose lease expired waits for the work sweep's reconciliation; a
   claim that cannot be released keeps the session until a later sweep. Removing the mark stops
-  the purge; once the sweep has begun to delete the inbox, the deleted messages stay deleted.
+  the purge: the sweep reads the mark again before it releases each claim, under the lock that
+  removing a mark also takes, and in each transaction that deletes messages or the session.
+  Claims released and messages deleted before the removal stay so.
 
 A send to a deleted peer name is `peer_not_found`. Each deletion is a control write (it may use
 the storage reserve) in its own transaction: at most 500 messages per transaction, 10,000
-messages per sweep and 100 sessions per rule and sweep, so a sweep holds the storage boundary no longer
+messages per sweep for both rules together and 100 sessions per rule and sweep, so a sweep holds the storage boundary no longer
 than the work sweep does. Memory entries, work items and audit records keep their own retention.
 
 `GET /v1/status` (and `koinon status`) and dashboard health report `retention`:
@@ -342,7 +344,12 @@ repository, and registers it again after five minutes or when the daemon reports
 Every five minutes it renews the session it served last. Registration carries wake data for the
 wake adapters: Claude `{"claude_pid": PID}`; Codex `{"cli": PATH}` from `launchers.json`, else
 the parent Codex executable, never a `PATH` search; a launched Codex, Antigravity or OpenCode
-agent passes `KOINON_LAUNCH_ID` as `launch_id`. `KOINON_STATE_DIR` and `KOINON_DAEMON_ADDRESS`
+agent passes `KOINON_LAUNCH_ID` as `launch_id`. A Claude session that `koinon claude` started
+registers with `claude_pid` like any Claude session; its launch record documents the start, and
+the launcher keeps the caller's `CLAUDE_CONFIG_DIR` but removes the other `CLAUDE_` variables and
+`CLAUDECODE` of the session that ran it. In a new tmux session, whose environment comes from the
+tmux server, it carries the caller's value, or its absence, as the session variable
+`KOINON_CLAUDE_CONFIG_DIR`, which the pane's launcher turns back into `CLAUDE_CONFIG_DIR`. `KOINON_STATE_DIR` and `KOINON_DAEMON_ADDRESS`
 select the state root and address.
 
 ### Dashboard and session observations
@@ -446,7 +453,7 @@ from elsewhere. Peer message bodies appear here, escaped, and nowhere else outsi
     `store_not_found`. Each form of a rendered page carries its own idempotency key.
   - `send` (`to`, `body`): a message from `maintainer`; the recipient's wake works as for any
     message.
-  - `launch` (`family` `codex`, `agy` or `opencode`; `directory`; optional `name`): the daemon runs
+  - `launch` (`family` `claude`, `codex`, `agy` or `opencode`; `directory`; optional `name`): the daemon runs
     its own executable as the launcher with `--tmux-session`, so the agent starts detached in a
     new tmux session with its configured CLI. The directory must be an existing absolute path; the
     name uses letters, digits, `_` and `-`, and defaults to `FAMILY-FOLDER-XXXX`. No other

@@ -81,6 +81,7 @@ Claims remain advisory. An expired lease does not make a checkpoint an instructi
 
 ```sh
 koinon work list --as "codex:$CODEX_THREAD_ID"
+koinon claude --directory /path/to/repository
 koinon codex --directory /path/to/repository
 koinon agy --directory /path/to/repository
 koinon opencode --directory /path/to/repository
@@ -103,7 +104,7 @@ replace state, kill an unrelated process, or change agent settings.
 
 ## Launcher paths in launchers.json
 
-Authorized `koinon setup codex|agy|opencode` records its resolved absolute CLI path in
+Authorized `koinon setup claude|codex|agy|opencode` records its resolved absolute CLI path in
 `launchers.json` under the Go state root, so subsequent launches need no `--cli`:
 
 ```sh

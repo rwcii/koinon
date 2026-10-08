@@ -33,7 +33,7 @@ const (
 
 var (
 	tmuxSessionName = regexp.MustCompile(`^[A-Za-z0-9_-]{1,80}$`)
-	launchFamilies  = map[string]bool{"codex": true, "agy": true, "opencode": true}
+	launchFamilies  = map[string]bool{"claude": true, "codex": true, "agy": true, "opencode": true}
 )
 
 // noticeText is every notice a view can show; any other code shows nothing.
