@@ -47,8 +47,12 @@ gh pr create --base main --head develop --title "<release title>"
 gh pr view <number> --json mergeStateStatus
 ```
 
-`main` accepts only merge commits. When the pull request is `BEHIND`, stop and tell the maintainer:
-bringing `main` into `develop` needs a merge commit, which the `develop` ruleset does not allow.
+`main` accepts only merge commits. Its earlier promotion merge commits never reach `develop`, so
+GitHub may report the pull request as `BEHIND`. The `main` ruleset does not require an up-to-date
+branch, so that state does not block the merge; the required checks on the `develop` head do.
+When `main` has content that `develop` lacks (`git diff origin/develop...origin/main` is not
+empty), stop and tell the maintainer: that content must reach `develop` through a reviewed pull
+request first.
 
 ## 4. Stop for the maintainer
 
