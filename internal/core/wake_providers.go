@@ -137,10 +137,12 @@ func (s *Store) wakeClaude(ctx context.Context, session Session, target wakeTarg
 	if json.Unmarshal(data, &peer) != nil || peer.PID != target.ClaudePID || peer.SessionID != session.ID || peer.Entrypoint != "cli" {
 		return waiting("claude_identity_mismatch")
 	}
-	if peer.Status == "busy" || peer.Status == "shell" || peer.Status == "waiting" {
+	// shell is the prompt with a background shell task running: the session takes the
+	// next-priority notice at its turn boundary, as it does when idle.
+	if peer.Status == "busy" || peer.Status == "waiting" {
 		return waiting("receiver_busy")
 	}
-	if peer.Status != "idle" {
+	if peer.Status != "idle" && peer.Status != "shell" {
 		return waiting("receiver_state_unknown")
 	}
 	allowed := s.wake.allowed

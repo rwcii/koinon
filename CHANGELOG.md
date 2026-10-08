@@ -5,6 +5,10 @@ into a dated release section when promoted to `main`.
 
 ## Unreleased
 
+- A Claude session that has a background shell task running now receives Koinon wake
+  notices. Claude Code reports such a session as `shell` while it waits at the prompt, and
+  the wake treated that like a turn in progress, so no notice arrived until every background
+  task ended.
 - Dashboard actions work from a browser again. Every page sent `Referrer-Policy: no-referrer`,
   which makes a browser send `Origin: null` with a form `POST`, so retire, release, acknowledge,
   clear, send, launch and logout were refused with "foreign origin". The pages now send

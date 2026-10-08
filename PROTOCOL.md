@@ -134,10 +134,13 @@ an acknowledgement committed before submission is never included. Provider calls
 
 Each notice names only the quoted native family/ID inbox and its sequence range. Codex uses
 the configured absolute CLI with `queue --thread ID --message NOTICE`. Claude requires a
-same-user registry record matching its native session ID and CLI entrypoint, idle status,
-an owned private socket/directory, and the connected kernel UID/PID. Key filenames hash the
-literal unresolved socket path. The daemon's private same-process reply listener accepts no
-commands and needs no registry entry. A Claude write remains `uncertain` because the socket
+same-user registry record matching its native session ID and CLI entrypoint, the status
+`idle` or `shell` (the prompt with a background shell task running; the session takes the
+`next`-priority notice at its turn boundary), an owned private socket/directory, and the
+connected kernel UID/PID. The statuses `busy` (a turn in progress) and `waiting` (an approval
+or question prompt) are a busy receiver. Key filenames hash the literal unresolved socket
+path. The daemon's private same-process reply listener accepts no commands and needs no
+registry entry. A Claude write remains `uncertain` because the socket
 protocol provides no verifiable queue receipt; a duplicate notice is possible until inbox ack.
 
 DeepSeek validates a canonical HTTP(S) loopback authority and pins all resolved addresses
