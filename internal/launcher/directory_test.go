@@ -86,3 +86,51 @@ func TestDirectorySubmodulesAndWorktrees(t *testing.T) {
 		t.Fatal(err)
 	}
 }
+
+// TestDirectoryExactGitlink: only the exact recorded path counts. An unrecorded directory
+// whose name is a pathspec pattern, or one above a recorded gitlink, is refused even when its
+// .git file points at the retained submodule directory.
+func TestDirectoryExactGitlink(t *testing.T) {
+	for _, c := range []struct{ candidate, recorded string }{{"record*", "recorded"}, {"bucket", "bucket/recorded"}} {
+		t.Run(c.candidate, func(t *testing.T) {
+			base := t.TempDir()
+			library := syntheticRepo(t, filepath.Join(base, "library"))
+			root := syntheticRepo(t, filepath.Join(base, "root"))
+			gitRun(t, root, "submodule", "add", "-q", library, c.recorded)
+			gitRun(t, root, "commit", "-q", "-m", "submodule")
+			gitRun(t, root, "submodule", "deinit", "-q", "-f", "--", c.recorded)
+			dir := filepath.Join(root, c.candidate)
+			os.MkdirAll(dir, 0700)
+			gitDir := filepath.Join(root, ".git", "modules", filepath.FromSlash(c.recorded))
+			os.WriteFile(filepath.Join(dir, ".git"), []byte("gitdir: "+gitDir+"\n"), 0600)
+			if _, err := CheckDirectory(root); err == nil {
+				t.Fatalf("unrecorded .git at %q accepted", c.candidate)
+			}
+		})
+	}
+}
+
+// TestDirectorySubmoduleInLinkedWorktree: Git keeps an initialized submodule of a linked
+// worktree under that worktree's own Git directory; it is accepted, in a worktree outside
+// the start directory and in one nested inside it.
+func TestDirectorySubmoduleInLinkedWorktree(t *testing.T) {
+	base := t.TempDir()
+	library := syntheticRepo(t, filepath.Join(base, "library"))
+	root := syntheticRepo(t, filepath.Join(base, "root"))
+	gitRun(t, root, "submodule", "add", "-q", library, "module")
+	gitRun(t, root, "commit", "-q", "-m", "submodule")
+	for _, worktree := range []string{filepath.Join(base, "linked"), filepath.Join(root, ".worktrees", "nested")} {
+		gitRun(t, root, "worktree", "add", "-q", "-b", filepath.Base(worktree), worktree)
+		gitRun(t, worktree, "submodule", "update", "-q", "--init")
+		data, err := os.ReadFile(filepath.Join(worktree, "module", ".git"))
+		if err != nil || !strings.Contains(string(data), filepath.Join("worktrees", filepath.Base(worktree), "modules")) {
+			t.Fatalf("%s: submodule not under the worktree's Git directory: %q %v", worktree, data, err)
+		}
+		if _, err := CheckDirectory(worktree); err != nil {
+			t.Fatalf("%s: %v", worktree, err)
+		}
+	}
+	if _, err := CheckDirectory(root); err != nil {
+		t.Fatalf("start with a nested worktree and its submodule: %v", err)
+	}
+}

@@ -6,8 +6,9 @@ into a dated release section when promoted to `main`.
 ## Unreleased
 
 - `koinon codex`, `koinon agy` and `koinon opencode` start in a repository that has
-  submodules or a linked worktree of itself inside its checkout. They still refuse any other
-  nested repository.
+  submodules or a linked worktree of itself inside its checkout, also a submodule inside a
+  linked worktree. They still refuse any other nested repository, including a directory that
+  the repository does not record at exactly that path.
 - The dashboard's sessions view has a search box. It searches every session on the server
   by peer name, alias, family, repository, directory or state, and the search stays in the
   URL, across pages and refreshes.
