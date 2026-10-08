@@ -6,6 +6,7 @@ import (
 	"net/url"
 	"strconv"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 )
@@ -427,5 +428,109 @@ func TestPurgeDashboardActions(t *testing.T) {
 	if err != nil || !strings.Contains(string(data), `"retention":{"message_retention_days":30,"session_retention_days":30,`) ||
 		!strings.Contains(string(data), `"marked_for_purge":0`) {
 		t.Fatalf("status: %s %v", data, err)
+	}
+}
+
+// Review regressions on #240 (F1): a mark removed after the sweep selected the session,
+// before it released the claim, releases nothing.
+func TestUnpurgeDuringSweepKeepsClaim(t *testing.T) {
+	s, clock := retentionStore(t)
+	ctx := context.Background()
+	repo := namedRepo(t, "cancel")
+	peer := join(t, s, "codex", "synthetic-cancel", repo)
+	key := Key{"codex", "synthetic-cancel"}
+	owner := MemoryCaller{Repository: "/synthetic/cancel/.git", Family: "codex", Name: peer.Name, Consumer: "codex:synthetic-cancel"}
+	id := create(t, s, owner, "synthetic cancel")
+	mustStart(t, s, owner, id, nil)
+	if err := s.markPurge(ctx, key, peer.Revision, true); err != nil {
+		t.Fatal(err)
+	}
+	marked := sessionState(t, s, key)
+	// The sweep's first clock read is the expiry check of the selected claim, after it
+	// read the marked session and before any release or deletion.
+	entered, resume := make(chan struct{}), make(chan struct{})
+	var gated atomic.Bool
+	current := *clock
+	s.now = func() time.Time {
+		if gated.CompareAndSwap(false, true) {
+			close(entered)
+			<-resume
+		}
+		return current
+	}
+	done := make(chan error, 1)
+	go func() { done <- s.Cull(ctx) }()
+	select {
+	case <-entered:
+	case <-time.After(5 * time.Second):
+		t.Fatal("the sweep did not reach the claim check")
+	}
+	err := s.markPurge(ctx, key, marked.Revision, false)
+	close(resume)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := <-done; err != nil {
+		t.Fatal(err)
+	}
+	if !sessionExists(t, s, key) {
+		t.Fatal("unmarked session deleted")
+	}
+	if item := get(t, s, owner, id); item["lifecycle"] != "active" {
+		t.Fatalf("a cancelled purge released the live claim: %+v", item)
+	}
+}
+
+// Review regressions on #240 (F2): purge and retention share one budget per sweep, and a
+// partial batch never exceeds what is left of it.
+func TestMixedDeletionRespectsBudget(t *testing.T) {
+	s, clock := retentionStore(t)
+	ctx := context.Background()
+	repo := namedRepo(t, "budget")
+	purged := join(t, s, "codex", "synthetic-purge-budget", repo)
+	join(t, s, "claude", "synthetic-retention-budget", repo)
+	pk, rk := Key{"codex", "synthetic-purge-budget"}, Key{"claude", "synthetic-retention-budget"}
+	// Synthetic inboxes in one fixture transaction, not 10,001 sends.
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer tx.Rollback()
+	for _, fixture := range []struct {
+		key Key
+		n   int
+	}{{pk, 1}, {rk, cullBudget}} {
+		for seq := 1; seq <= fixture.n; seq++ {
+			if _, err := tx.Exec(`INSERT INTO messages(sender_family,sender_id,sender_name,recipient_family,recipient_id,seq,body,created_at,delivery_updated_at)
+				VALUES('maintainer','maintainer','maintainer',?,?,?,'synthetic',?,?)`, fixture.key.Family, fixture.key.ID, seq, clock.UnixMilli(), clock.UnixMilli()); err != nil {
+				t.Fatal(err)
+			}
+		}
+		if _, err := tx.Exec(`UPDATE sessions SET last_seq=? WHERE family=? AND id=?`, fixture.n, fixture.key.Family, fixture.key.ID); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := tx.Commit(); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.Ack(ctx, rk, cullBudget); err != nil {
+		t.Fatal(err)
+	}
+	cull(t, s)
+	*clock = clock.Add(messageRetention + time.Minute)
+	keepAlive(t, s, rk)
+	if err := s.markPurge(ctx, pk, purged.Revision, true); err != nil {
+		t.Fatal(err)
+	}
+	got := cull(t, s)
+	if got.MessagesByPurge != 1 || got.MessagesByRetention != cullBudget-1 {
+		t.Fatalf("the sweep did not stop at the budget of %d: %+v", cullBudget, got)
+	}
+	// The next sweep deletes the rest and clears the mark.
+	if got := cull(t, s); got.MessagesByRetention != 1 || messageCount(t, s, rk) != 0 {
+		t.Fatalf("the next sweep: %+v, %d left", got, messageCount(t, s, rk))
+	}
+	if mark := count(t, s, `SELECT ack_mark_at FROM sessions WHERE family=? AND id=?`, rk.Family, rk.ID); mark != 0 {
+		t.Fatalf("mark left: %d", mark)
 	}
 }
