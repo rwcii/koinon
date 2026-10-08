@@ -11,6 +11,7 @@ import (
 // recorded repository; the consumer is the caller's session key unless the request names
 // a stable consumer.
 func (d *Daemon) workRoutes(mux *http.ServeMux) {
+	d.checkoutRoutes(mux)
 	for _, op := range WorkOperations() {
 		mux.HandleFunc("POST /v1/work/"+op, func(w http.ResponseWriter, r *http.Request) {
 			var fields map[string]json.RawMessage

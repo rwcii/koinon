@@ -117,7 +117,7 @@ func TestProtocol(t *testing.T) {
 			}
 		}
 	}
-	if strings.Join(names, ",") != "peers,peer_status,send,inbox,ack,delivery,memory_status,memory_sync,memory_ack,memory_record,memory_recall,work_create,work_get,work_list,work_propose,work_edit,work_start,work_update,work_release,work_finish,claim_renew" {
+	if strings.Join(names, ",") != "peers,peer_status,send,inbox,ack,delivery,memory_status,memory_sync,memory_ack,memory_record,memory_recall,work_checkout,work_checkout_request,work_create,work_get,work_list,work_propose,work_edit,work_start,work_update,work_release,work_finish,claim_renew" {
 		t.Fatalf("tools: %v", names)
 	}
 	if reply := h.request("ping", nil); reply["result"] == nil {
