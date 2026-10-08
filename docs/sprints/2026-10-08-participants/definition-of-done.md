@@ -72,7 +72,8 @@ maintainer's sessions, Codex or Claude configuration, or services.
   renewal after the other session is gone; outside tmux nothing happens. A synthetic Claude
   background job (no `TMUX`) with a `claude attach <short ID>` client process in a private tmux
   pane gets that pane named; a client whose short ID does not match the job's session ID, and two
-  clients for one job, rename nothing and report why.
+  clients for one job, rename nothing and report why. A directly started non-Claude session (no
+  launch record) renames nothing and reports `not_launched` with the launcher command.
 - **Reporting (criterion 9).** `peers` (MCP and `koinon peers`) and the dashboard session view
   show the peer name, address, holder flag, role, last succession result and last naming result.
 

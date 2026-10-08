@@ -25,7 +25,10 @@ Facts: `live-checks.md`, F4. Delivers #147; closes #228.
    client in place of the host for the ancestor check. No match: `attach_pane_not_found`, tried
    again at the next renewal. More than one: `attach_pane_ambiguous`, nothing renamed. Panes on a
    private tmux server outside the socket directory are not searched.
-4. **Reporting.** The naming result and its reason text are in the session view and in `peers`
+4. **Direct starts.** A non-Claude session without a launch record keeps today's rule: its
+   terminal is not renamed (maintainer decision of 2026-10-08 in `decision.md`). The result is
+   `not_launched`, and its reason text says to start the agent with `koinon <family>`.
+5. **Reporting.** The naming result and its reason text are in the session view and in `peers`
    (chunk 02, item 6).
 
 ## Done

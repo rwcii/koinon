@@ -47,6 +47,9 @@ Maintainer decisions that this sprint carries into the Go runtime:
 - 2026-10-08: `koinon codex` starts Codex with `--no-daemon`; a Codex session that runs under the
   shared daemon gets its address, but no terminal naming or automatic succession, and the result
   says why.
+- 2026-10-08: a non-Claude agent's terminal is named when the agent is started with
+  `koinon <family>`; a direct start is not renamed, and the result says to use the launcher. This
+  replaces #228's requirement that naming must not depend on the launcher alone.
 
 ## Acceptance criteria
 
