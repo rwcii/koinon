@@ -253,6 +253,8 @@ func (s *Store) forget(active map[Key]bool) {
 type SessionView struct {
 	Value  *ObservedValue
 	Reason string
+	// ConfirmedAt is when the daemon last received confirmation, distinct from Value.At.
+	ConfirmedAt int64
 }
 
 // sessionObservations returns each group of a session's observations as the dashboard
@@ -290,7 +292,7 @@ func (s *Store) sessionObservations(ctx context.Context, session Session) map[st
 			result[group] = SessionView{Reason: "observation_stale"}
 		case found:
 			value := v.ObservedValue
-			result[group] = SessionView{Value: &value}
+			result[group] = SessionView{Value: &value, ConfirmedAt: v.seen}
 		default:
 			result[group] = SessionView{Reason: unobserved(group, session.Family)}
 		}
@@ -314,6 +316,22 @@ func unobserved(group, family string) string {
 }
 
 func (d *Daemon) observationRoutes(mux *http.ServeMux) {
+	mux.HandleFunc("POST /v1/peers/status", func(w http.ResponseWriter, r *http.Request) {
+		var request struct {
+			Caller Key    `json:"caller"`
+			Peer   string `json:"peer"`
+		}
+		if err := decode(w, r, &request); err != nil {
+			failure(w, err)
+			return
+		}
+		status, err := d.store.PeerStatus(r.Context(), request.Caller, request.Peer)
+		if err != nil {
+			failure(w, err)
+			return
+		}
+		respond(w, 200, map[string]any{"ok": true, "peer": status})
+	})
 	mux.HandleFunc("POST /v1/sessions/observe", func(w http.ResponseWriter, r *http.Request) {
 		var o Observation
 		if err := decode(w, r, &o); err != nil {
