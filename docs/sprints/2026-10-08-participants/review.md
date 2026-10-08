@@ -18,3 +18,12 @@ scope removed by the launched-only decision.
 | L1 | The launched-only rule is enforced only in new MCP servers; HTTP `Register` takes no launch ID and an old MCP server renews a direct registration indefinitely. | **Fixed.** Chunk 01 item 4: `Store.Register` refuses a launcher-family registration without a valid launch on every path; `Store.Mutate` refuses, without extending, the renewal of a session with no launch record, so an upgraded direct session expires at its upgrade-time expiry with its state kept. `decision.md` criterion 6 and the upgrade constraint; `definition-of-done.md`, "Daemon admission". |
 | L2 | A later background job inherits an earlier job's launch ID from the Claude service (F5) and passes the family and directory check. | **Fixed.** Chunk 01 item 5: a foreground launch admits only its host; a background launch admits only the recorded job, and a registration before the record gets `launch_pending`. Item 2: `claude --bg` runs without launch variables, and a failed start retires the launch. `definition-of-done.md`, "Launch binding" (the F5 two-job case and the ordering). |
 | L3 | "Every family" includes DeepSeek, which has no launcher and keeps its command registration under #199. | **Fixed by maintainer decision (gate B).** The launcher families are Claude, Codex, OpenCode and Antigravity; `koinon register --as deepseek:ID` stays the one admission without a launch record until #199; no DeepSeek launcher is added or recommended. `decision.md`, chunk 01 items 4 and Done, `definition-of-done.md`. |
+
+## Gate B review 3 (Codex), plan at `8331521`
+
+L1, L2 and L3 verified fixed; P2 and the removed direct-start scope carry forward; P1 blocks
+automatic fence lifting.
+
+| # | Finding | Disposition |
+| --- | --- | --- |
+| P1a | Chunk 04 refused a fenced session's whole registration, so the session stayed retired and the dashboard's active-only choice could not select it to lift the fence. | **Fixed.** Chunk 04 item 2: the registration succeeds peer-only and only the succession is refused (`fenced`); a refused succession never refuses the registration. `definition-of-done.md`: the H→S→fenced H call→dashboard selects H recovery test. |

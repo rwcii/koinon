@@ -56,8 +56,12 @@ maintainer's sessions, Codex or Claude configuration, or services.
   repeated registration of the fenced session, and after the successor expires, the fenced
   session is not a qualifier and does not become the holder; a delayed call of the fenced session
   inside the 30-second guard is refused; a same-host registration of the fenced session after the
-  guard is refused with `fenced` and changes nothing; only the maintainer's choice makes it the
-  holder again and removes the fence.
+  guard registers it with its peer name only, reports `succession_refused` reason `fenced`, and
+  leaves the holder unchanged; only the maintainer's choice makes it the holder again and
+  removes the fence. Recovery end to end: H holds; S succeeds H (H retired and fenced); H calls
+  again (active, peer name only, `fenced`); the maintainer selects H in the dashboard; H holds,
+  its fence is removed, S is retired and fenced, and the participant's inbox, cursor and claims
+  continue with H.
 - **Checkout roles (#83) with participants.** Before and after a succession: checkout status
   shows the current holder's exact peer for a `participant:<address>` writer; another agent's
   request reaches that holder and never the fenced former holder; the holder's own request is
