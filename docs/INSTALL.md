@@ -5,6 +5,22 @@
 The Go runtime is one `koinon` binary and one daemon per user. It needs no Python. The checkout no longer carries the Python runtime. The pinned previous release
 remains a supported input to the import and upgrade commands below. Every command prints a JSON report; a refusal prints `ok: false` with a fixed `code`.
 
+### Homebrew
+
+On macOS or Linux, the tap `rwcii/koinon` installs the release binary for your platform:
+
+```sh
+brew install rwcii/koinon/koinon
+koinon install --agent claude --agent codex
+```
+
+Homebrew checks the binary against the release's `SHA256SUMS` entry. The formula does not use
+`brew services`: `koinon install` copies the binary into its own prefix and manages the
+service, as the next sections describe. A `brew upgrade koinon` therefore changes only the
+Homebrew copy. Run `koinon install` again after each upgrade to replace the installed binary and
+restart the daemon. A Python-era installation upgrades with `koinon upgrade --from-python`, as
+below, with the Homebrew binary.
+
 ### Download and check
 
 Each release attaches four binaries, `koinon-linux-amd64`, `koinon-linux-arm64`,

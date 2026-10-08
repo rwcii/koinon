@@ -14,6 +14,8 @@ user. Linux and macOS builds use no cgo, and a fresh installation needs no Pytho
   (Linux) or a launchd agent (macOS), and sets up the agents you name. `koinon uninstall`
   removes them again and keeps the state. `koinon version` prints the build. Releases attach
   four CGO-free binaries (Linux and macOS, amd64 and arm64) with a `SHA256SUMS` file.
+  Homebrew installs the release binary with `brew install rwcii/koinon/koinon` on macOS and
+  Linux; run `koinon install` again after each `brew upgrade`.
 - **Upgrade from the Python release.** `koinon upgrade --from-python` moves a `main`-release
   installation to the Go runtime. It takes the Python runtime's own upgrade marker, stops the
   Python services, and imports every inbox, memory store, work item and claim. It verifies the
