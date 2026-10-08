@@ -106,6 +106,12 @@ func (s *server) call(ctx context.Context, raw json.RawMessage) map[string]any {
 	var path string
 	body := map[string]any{"caller": caller}
 	switch p.Name {
+	case "work_checkout", "work_checkout_request":
+		var refusal string
+		path, refusal = s.checkoutCall(ctx, p.Name, p.Arguments, body)
+		if refusal != "" {
+			return failure(refusal)
+		}
 	case "peers":
 		var a struct{}
 		err, path = decodeArgs(p.Arguments, &a), "/v1/peers"

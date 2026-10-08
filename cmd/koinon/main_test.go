@@ -329,6 +329,13 @@ func TestWorkCommands(t *testing.T) {
 		return result["result"].(map[string]any), nil
 	}
 	deadline := fmt.Sprint(time.Now().Unix() + 600)
+	if status, err := work("work", "checkout", "status", "--directory", repo); err != nil || status["state"] != "unclaimed" {
+		t.Fatalf("checkout status: %v %v", status, err)
+	}
+	var checkoutRefusal core.RefusedError
+	if _, err := work("work", "checkout", "request", "--directory", repo, "--note", "ready to drive"); !errors.As(err, &checkoutRefusal) || checkoutRefusal.Code != "checkout_unheld" {
+		t.Fatalf("unheld checkout request: %v", err)
+	}
 	created, err := work("work", "create", "--title", "t", "--criteria", "c", "--non-goals", "n", "--key", "k", "--deadline", deadline,
 		"--proposed-assignee", "codex:x", "--reference", "r1", "--reference", "r2")
 	if err != nil {

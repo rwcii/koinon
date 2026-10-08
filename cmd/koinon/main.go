@@ -143,6 +143,8 @@ const usage = `Usage: koinon install [--prefix DIR] [--state-dir DIR] [--agent F
        koinon hook claude-status [--command COMMAND]
        koinon memory <status|sync|ack|record|recall> --as FAMILY:ID [--consumer KEY] [options]
        koinon work <create|list> --as FAMILY:ID [--consumer KEY] [options]
+       koinon work checkout [--directory DIR]
+       koinon work checkout <status|request> --as FAMILY:ID [--directory DIR] [options]
        koinon work <get|propose|edit|start|update|release|finish> WORK_ID --as FAMILY:ID [--consumer KEY] [options]
        koinon claim renew WORK_ID --as FAMILY:ID --claim-generation N --if-claim-revision N [--lease-seconds S]
        koinon recover [--state-dir DIR] [--address 127.0.0.1:PORT]

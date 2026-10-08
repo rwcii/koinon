@@ -5,6 +5,12 @@ into a dated release section when promoted to `main`.
 
 ## Unreleased
 
+- Agents sharing a checkout can derive one advisory checkout resource, inspect its writer,
+  generation token, expiry and checkpoint through `work_checkout` or `koinon work checkout
+  status`, and request the role with an inbox notification. Release with `handoff_to` and
+  `checkout_resource` saves a checkpoint and notifies an exact peer atomically; the requester
+  explicitly picks up with a new claim generation. Different worktrees have separate roles.
+
 - The dashboard's work view can show finished items and filter by lifecycle, and opens one
   item with its scope, progress, references and history. The maintainer can create an item,
   propose or clear an assignee, edit the scope of an item without a live claim and finish an

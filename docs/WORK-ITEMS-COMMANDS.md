@@ -24,7 +24,7 @@ request fields are refused. References are inert reported strings.
 | edit | Required if_revision and at least one of title, criteria, non_goals; a live claim requires its owner's claim_generation. |
 | start | Required if_revision, checkpoint, next_artifact, progress_deadline, key, deadline; optional lease_seconds and resources. |
 | update | Required if_revision, claim_generation, progress, checkpoint, next_artifact, progress_deadline; optional active/blocked lifecycle, blocker, references, renew_for. Blocked requires blocker text. |
-| release | Required if_revision, claim_generation and final checkpoint. |
+| release | Required if_revision, claim_generation and final checkpoint; optional paired handoff_to and checkout_resource notify an exact same-repository peer to pick up the released checkout role. |
 | finish | Required if_revision, claim_generation, outcome; completed requires references, withdrawn requires reason. |
 | renew | Required claim_generation and if_claim_revision; optional lease_seconds. Work revision is unchanged. |
 
@@ -68,3 +68,55 @@ Page every frozen snapshot before acknowledging its ID; process deltas before ac
 part of note recall. Capacity refusals preserve data and cannot be bypassed by creating a new
 store or rewriting counters. Refer to [PROTOCOL.md](../PROTOCOL.md#work-items) for the exact
 response fields, refusal codes and maintenance bounds.
+
+## One writer in a checkout
+
+`koinon work checkout [--directory DIR]` derives an advisory resource locally, without a
+daemon or caller. MCP `work_checkout` and `koinon work checkout status --as FAMILY:ID
+[--directory DIR]` also report its current writer. The key is `checkout:v1:` plus the SHA-256
+of the JSON pair of canonical Git common directory and worktree root. Subdirectories and
+symlink spellings converge; linked worktrees have different keys in the same logical store.
+Inherited Git environment overrides cannot change the identity. Bare repositories refuse.
+
+Include the returned `["exact", KEY]` in `work_start.resources`, or pass the key through
+`--exact-resource KEY`. Every cooperating writer in that checkout uses the same resource,
+even when working on different items. An overlapping start conflicts atomically. Separate
+worktrees can each have a writer. This is opt-in coordination: it installs no hooks and
+cannot stop an agent that omits the resource or writes outside the agreement.
+
+Checkout status returns `repository`, `directory`, `resource`, `observed_at`, `state` and
+`writer`. The writer carries `work_id`, `generation` (the role token), `consumer`, the exact
+native `peer` when addressable, the work `revision`, lease `expires_at`, `lease_valid` and
+`checkpoint`. The resource plus work ID/generation identifies the role; it is observable
+data, not a secret capability. `held` means a current advisory lease; `released` and `expired`
+describe a retained former lease. `unclaimed` means no retained matching bundle, including
+after bounded maintenance reclaims an inactive bundle. Work checkpoints remain on their
+items; no status, expiry or notification proves the former writer stopped editing.
+
+For a shared-checkout driver handoff:
+
+1. The requester reads checkout status, then calls `work_checkout_request` with an optional
+   `note`, or `koinon work checkout request --as FAMILY:ID [--directory DIR] [--note TEXT]`.
+   This sends an ordinary inbox message to the observed writer's exact native peer, naming
+   its work ID/generation; it changes no ownership. An unheld role refuses. A custom consumer
+   with no native recipient refuses with `writer_unaddressable`; coordinate with its owner.
+2. The writer reads the request, verifies the requester through peers and rechecks the role.
+   After stopping edits and saving a checkpoint, it calls `work_release` with `handoff_to`
+   set to that exact peer name and `checkout_resource` set to the key, along with its current
+   revision, generation and checkpoint. CLI options are `--handoff-to NAME` and
+   `--checkout-resource KEY`. Use paired `key`/`deadline` for safe retries. The whole work
+   claim bundle is released; its checkpoint and the pickup message commit together. Aliases,
+   foreign-repository peers, inactive recipients, stale tokens and resources outside the
+   owned bundle refuse without a partial handoff. Adding a message uses ordinary storage
+   admission; a capacity refusal can still be followed by a plain release and manual
+   coordination using the existing funded release allowance.
+3. The requester reads the notification, checkpoint and current checkout status, reconciles
+   the stopped writer's work, then explicitly `work_start`s the assigned item with the same
+   checkout resource. Only a successful start records the new writer and issues a new
+   generation. The handback reserves nothing: another successful start may win first, and
+   a delayed notification cannot override it. Acknowledge inbox messages after handling.
+
+The requester may pick up the same item or its separately assigned item. Requests and
+notifications do not assign work, change sandbox permissions or permit an automatic takeover.
+Readers can inspect the checkout role without claiming it; writers renew the existing lease
+and report progress through the usual work operations.
