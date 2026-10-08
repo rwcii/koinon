@@ -99,16 +99,29 @@ func TestWakeClaudeProtocolAndIdentity(t *testing.T) {
 	if got := s.providerWake(context.Background(), session, "notice"); got.Reason != "claude_identity_mismatch" {
 		t.Fatal(got)
 	}
-	writeRecord(session.ID, "busy", os.Getpid())
-	if got := s.providerWake(context.Background(), session, "notice"); got.Reason != "receiver_busy" {
-		t.Fatal(got)
+	// A turn in progress or an approval or question prompt defers the wake.
+	for _, status := range []string{"busy", "waiting"} {
+		writeRecord(session.ID, status, os.Getpid())
+		if got := s.providerWake(context.Background(), session, "notice"); got.Reason != "receiver_busy" {
+			t.Fatal(status, got)
+		}
 	}
-	writeRecord(session.ID, "idle", os.Getpid())
 	digest := sha256.Sum256([]byte(socket))
 	token := strings.Repeat("ab", 16)
 	if err := os.WriteFile(filepath.Join(s.wake.registry, strconv.Itoa(os.Getpid())+"."+hex.EncodeToString(digest[:])+".key"), []byte(`{"peerToken":"`+token+`"}`), 0600); err != nil {
 		t.Fatal(err)
 	}
+	// At the prompt, also with a background shell task running (shell), the notice goes.
+	for _, status := range []string{"idle", "shell"} {
+		writeRecord(session.ID, status, os.Getpid())
+		checkClaudeNotice(t, s, session, listener, token)
+	}
+}
+
+// checkClaudeNotice wakes session and checks the auth and notice frames that the
+// synthetic receiver reads.
+func checkClaudeNotice(t *testing.T, s *Store, session Session, listener *net.UnixListener, token string) {
+	t.Helper()
 	frames := make(chan []map[string]any, 1)
 	go func() {
 		conn, e := listener.AcceptUnix()
