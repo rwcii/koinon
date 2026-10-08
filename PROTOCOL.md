@@ -448,8 +448,10 @@ from elsewhere. Peer message bodies appear here, escaped, and nowhere else outsi
     agent's request; each work event names family and name `maintainer`. An edit of an item
     with a live claim is refused with `work_claimed`: release the claim first. A finish of a
     live claim runs on behalf of its owner, as `release` does; an unclaimed item is claimed by
-    `maintainer` and finished at once, with one audit record. A finish whose outcome lacks its
-    references or reason is refused before anything is claimed. A store that does not exist is
+    `maintainer` and finished in one transaction, with one audit record, so a refused finish
+    changes nothing. The same finish form again repeats its first request under that request's
+    consumer, so it replays the first result whatever the item's state is now; a form key is at
+    most 250 bytes. A store that does not exist is
     `store_not_found`. Each form of a rendered page carries its own idempotency key.
   - `send` (`to`, `body`): a message from `maintainer`; the recipient's wake works as for any
     message.
