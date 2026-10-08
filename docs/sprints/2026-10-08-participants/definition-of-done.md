@@ -44,7 +44,8 @@ maintainer's sessions, Codex or Claude configuration, or services.
   tmux server and pane with the former host process ended. Refuse and report: same host process
   with a sub-agent thread; same host process while the former holder made a tool call in the last
   30 seconds; a renewal-timer call (no succession without a tool call); same pane with the former
-  host process still running; another pane;
+  host process still running; another pane; and after a `holder_active` refusal, the successor's
+  first tool call after 30 seconds takes the participant;
   same family and repository only; no host recorded (shared Codex daemon); a peer message that
   asks for it. A former holder that calls after a refused succession keeps the participant.
 

@@ -39,6 +39,10 @@ Facts: `live-checks.md`, F1 and F3. Delivers #141.
    with `holder_active` when H made a tool call in the 30 seconds before S's registration, so two
    user threads that are active in one host at once never swap the participant. Not verified: whether
    one Codex process runs two user threads at once; the guard covers it either way.
+   After a `holder_active` refusal, `koinon mcp` registers S again at S's first tool call after the
+   30 seconds have passed, so a successor that called Koinon right after a `/clear` takes the
+   participant at its next call instead of waiting for H to expire. Every other refusal is final
+   for that registration.
 3. **Records.** Each holder change and each refusal is a participant event with the evidence
    (kind, host process ID, pane). The session view shows the last one (chunk 02, item 6).
 4. **Skills.** `pickup` no longer retires a predecessor or moves an alias: it reads the
