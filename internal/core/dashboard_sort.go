@@ -5,6 +5,7 @@ import (
 	"cmp"
 	"encoding/base64"
 	"encoding/json"
+	"io"
 	"net/url"
 	"strings"
 )
@@ -89,7 +90,11 @@ func decodeCursor(v string, terms []sortTerm) ([]any, error) {
 	decoder := json.NewDecoder(bytes.NewReader(data))
 	decoder.UseNumber()
 	var raw []any
-	if decoder.Decode(&raw) != nil || decoder.More() || len(raw) != len(terms) {
+	if decoder.Decode(&raw) != nil || len(raw) != len(terms) {
+		return nil, ErrInvalid
+	}
+	// Only the array: anything after it, a stray closing delimiter included, is invalid.
+	if _, err := decoder.Token(); err != io.EOF {
 		return nil, ErrInvalid
 	}
 	values := make([]any, len(raw))

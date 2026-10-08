@@ -2,6 +2,7 @@ package core
 
 import (
 	"context"
+	"encoding/base64"
 	"fmt"
 	"net/url"
 	"regexp"
@@ -302,7 +303,8 @@ func TestDashboardSortRequests(t *testing.T) {
 		t.Fatalf("cursor: %v", got.after)
 	}
 	for _, bad := range []string{"x", good + "x", order.cursor([]any{int64(7), int64(7)}), order.cursor([]any{"a"}),
-		order.cursor([]any{"a", int64(1), int64(2)}), order.cursor([]any{"a", 1.5}), order.cursor([]any{"a", nil})} {
+		order.cursor([]any{"a", int64(1), int64(2)}), order.cursor([]any{"a", 1.5}), order.cursor([]any{"a", nil}),
+		rawCursor(`["synthetic",1]]`), rawCursor(`["synthetic",1]}`), rawCursor(`["synthetic",1] 2`), rawCursor(`["synthetic",1][]`)} {
 		if _, err := parseSort(&messageSort, "", url.Values{"sort": {"from"}, "after": {bad}}); err != ErrInvalid {
 			t.Fatalf("cursor %q: %v", bad, err)
 		}
@@ -420,3 +422,6 @@ func TestDashboardActiveSessionsFirst(t *testing.T) {
 		t.Fatalf("counts %v %v", counts, err)
 	}
 }
+
+// rawCursor encodes cursor text as a request carries it, for malformed cursors.
+func rawCursor(text string) string { return base64.RawURLEncoding.EncodeToString([]byte(text)) }
