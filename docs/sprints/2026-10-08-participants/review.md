@@ -27,3 +27,10 @@ automatic fence lifting.
 | # | Finding | Disposition |
 | --- | --- | --- |
 | P1a | Chunk 04 refused a fenced session's whole registration, so the session stayed retired and the dashboard's active-only choice could not select it to lift the fence. | **Fixed.** Chunk 04 item 2: the registration succeeds peer-only and only the succession is refused (`fenced`); a refused succession never refuses the registration. `definition-of-done.md`: the H→S→fenced H call→dashboard selects H recovery test. |
+
+## Gate B verdict (Codex)
+
+Approved at `c6e5081`: bounded verification of `84f90ab` (peer-only registration of a fenced
+session, the dashboard recovery test) and `c6e5081` (Claude nested list in chunk 02) found no
+open finding. P1, P1a, P2 and L1 to L3 dispositions verified; the earlier review carries
+forward. Docs only; `git diff --check` passed.
