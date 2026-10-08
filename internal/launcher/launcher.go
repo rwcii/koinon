@@ -110,10 +110,8 @@ func ConfiguredCLI(stateDir, family, override string) (string, error) {
 	return path, nil
 }
 
-// CheckDirectory refuses a start directory that holds another repository: a nested .git
-// directory or symlink, or a .git file of any repository other than a linked worktree of the
-// start repository or a submodule that its enclosing repository records. A scan failure is a
-// refusal, since an unreadable subtree cannot be verified.
+// CheckDirectory resolves the start directory: an existing directory, with symlinks
+// resolved. Nested repositories do not refuse a start; ScanNested reports them (#252).
 func CheckDirectory(path string) (string, error) {
 	if path == "" {
 		var err error
@@ -134,55 +132,120 @@ func CheckDirectory(path string) (string, error) {
 	if err != nil || !info.IsDir() {
 		return "", errors.New("start directory is not a directory")
 	}
-	start, _ := gitPath(abs, "--git-common-dir")
-	err = filepath.WalkDir(abs, func(path string, entry fs.DirEntry, err error) error {
-		if err != nil {
-			return errors.New("cannot verify start directory")
-		}
-		if entry.Name() == ".git" {
-			if filepath.Dir(path) != abs && !(entry.Type().IsRegular() && sameRepository(start, filepath.Dir(path))) {
-				return errors.New("start directory holds another repository; start in that repository instead")
-			}
-			if entry.IsDir() {
-				return filepath.SkipDir
-			}
-		}
-		return nil
-	})
-	return abs, err
+	return abs, nil
 }
 
-// sameRepository reports whether the checkout in dir, which holds a .git file, is part of
-// the start repository's work: a linked worktree with the start repository's common
-// directory (start), or a submodule whose Git directory lies under its enclosing
-// repository's modules/ and which that repository records as a gitlink in its index.
-func sameRepository(start, dir string) bool {
-	common, err := gitPath(dir, "--git-common-dir")
-	if err != nil {
-		return false
+// scanTime bounds a nested repository scan; a scan that stops early is incomplete.
+var scanTime = 3 * time.Second
+
+// ScanNested lists the repositories inside the start directory dir that are not part of
+// its repository: every nested checkout with a .git entry except a linked worktree of the
+// start repository. It descends into submodules and the start repository's worktrees, but
+// not into another repository, whose contents are its own; it never follows directory
+// symlinks or enters a .git directory. An unreadable subtree, the time bound, more than
+// core.MaxNested entries or a path longer than core.MaxNestedPath make the report
+// incomplete; none of them refuses the start.
+func ScanNested(dir string) core.NestedReport {
+	report := core.NestedReport{}
+	// One deadline bounds the whole scan, every Git query included.
+	ctx, cancel := context.WithTimeout(context.Background(), scanTime)
+	defer cancel()
+	start, _ := gitPath(ctx, dir, "--git-common-dir")
+	filepath.WalkDir(dir, func(path string, entry fs.DirEntry, err error) error {
+		if err != nil {
+			report.Incomplete = true
+			if entry != nil && entry.IsDir() {
+				return filepath.SkipDir
+			}
+			return nil
+		}
+		if ctx.Err() != nil {
+			report.Incomplete = true
+			return filepath.SkipAll
+		}
+		if !entry.IsDir() || path == dir {
+			return nil
+		}
+		if entry.Name() == ".git" {
+			return filepath.SkipDir
+		}
+		git, err := os.Lstat(filepath.Join(path, ".git"))
+		if err != nil {
+			return nil
+		}
+		kind := nestedKind(ctx, start, path, git.Mode())
+		if ctx.Err() != nil {
+			// A query cut short by the deadline leaves the kind unknown.
+			report.Incomplete = true
+			return filepath.SkipAll
+		}
+		if kind == "" {
+			return nil
+		}
+		// A path that the launch record cannot hold, such as one with a newline, is left out.
+		rel, _ := filepath.Rel(dir, path)
+		if len(report.List) == core.MaxNested || !core.ValidNestedPath(rel) {
+			report.Incomplete = true
+		} else {
+			report.List = append(report.List, core.NestedRepository{Path: rel, Kind: kind})
+		}
+		if kind == "submodule" {
+			return nil
+		}
+		return filepath.SkipDir
+	})
+	if ctx.Err() != nil {
+		report.Incomplete = true
 	}
-	if start != "" && common == start {
-		return true
+	return report
+}
+
+// nestedKind classifies the checkout at dir, whose .git entry has mode: "" for a linked
+// worktree of the start repository (common directory start); submodule when its enclosing
+// repository records exactly dir as a gitlink, whatever the .git layout; worktree for a
+// linked worktree of another repository; otherwise repository.
+func nestedKind(ctx context.Context, start, dir string, mode fs.FileMode) string {
+	if mode.IsRegular() {
+		common, err := gitPath(ctx, dir, "--git-common-dir")
+		if err == nil && start != "" && common == start {
+			return ""
+		}
 	}
-	gitDir, err := gitPath(dir, "--git-dir")
-	if err != nil {
-		return false
+	if recordedGitlink(ctx, filepath.Dir(dir), filepath.Base(dir)) {
+		return "submodule"
 	}
-	// Git keeps a submodule's directory under the modules/ of the checkout that holds it:
-	// the common directory for a main checkout, its own Git directory for a linked worktree.
-	inModules := false
-	for _, flag := range []string{"--git-dir", "--git-common-dir"} {
-		enclosing, err := gitPath(filepath.Dir(dir), flag)
-		inModules = inModules || err == nil && strings.HasPrefix(gitDir, filepath.Join(enclosing, "modules")+string(filepath.Separator))
+	if mode.IsRegular() {
+		common, commonErr := gitPath(ctx, dir, "--git-common-dir")
+		gitDir, dirErr := gitPath(ctx, dir, "--git-dir")
+		if commonErr == nil && dirErr == nil && gitDir != common {
+			return "worktree"
+		}
 	}
-	return inModules && recordedGitlink(filepath.Dir(dir), filepath.Base(dir))
+	return "repository"
+}
+
+// NestedNotice is the launcher's report of a nested scan, or "" when it found nothing.
+func NestedNotice(dir string, report core.NestedReport) string {
+	if len(report.List) == 0 && !report.Incomplete {
+		return ""
+	}
+	var b strings.Builder
+	fmt.Fprintf(&b, "koinon: %d nested repositories in the start directory", len(report.List))
+	if report.Incomplete {
+		b.WriteString(" (list incomplete)")
+	}
+	fmt.Fprintf(&b, "; the session's Koinon repository is %s\n", dir)
+	for _, n := range report.List {
+		fmt.Fprintf(&b, "  %s (%s)\n", n.Path, n.Kind)
+	}
+	return b.String()
 }
 
 // recordedGitlink reports whether the index of the repository at dir holds an entry for
 // exactly name, as a gitlink. The pathspec is literal, and an entry below name, which a
 // directory pathspec also lists, does not count.
-func recordedGitlink(dir, name string) bool {
-	out, err := git(dir, "--literal-pathspecs", "ls-files", "--stage", "-z", "--", name)
+func recordedGitlink(ctx context.Context, dir, name string) bool {
+	out, err := git(ctx, dir, "--literal-pathspecs", "ls-files", "--stage", "-z", "--", name)
 	if err != nil {
 		return false
 	}
@@ -197,8 +260,8 @@ func recordedGitlink(dir, name string) bool {
 
 // gitPath returns an absolute rev-parse path for the repository at dir, with symlinks
 // resolved so that paths compare on macOS too.
-func gitPath(dir, flag string) (string, error) {
-	out, err := git(dir, "rev-parse", "--path-format=absolute", flag)
+func gitPath(ctx context.Context, dir, flag string) (string, error) {
+	out, err := git(ctx, dir, "rev-parse", "--path-format=absolute", flag)
 	if err != nil {
 		return "", err
 	}
@@ -207,11 +270,13 @@ func gitPath(dir, flag string) (string, error) {
 
 // git runs one read-only Git command in dir without inherited GIT_ variables and with the
 // file-system monitor off, so no repository configuration runs a command.
-func git(dir string, args ...string) (string, error) {
-	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+func git(ctx context.Context, dir string, args ...string) (string, error) {
+	ctx, cancel := context.WithTimeout(ctx, 3*time.Second)
 	defer cancel()
 	cmd := exec.CommandContext(ctx, "git", append([]string{"-c", "core.fsmonitor=false", "-C", dir}, args...)...)
 	cmd.Env = core.CleanGitEnvironment()
+	// A child that keeps the output open cannot hold the caller past the deadline.
+	cmd.WaitDelay = 100 * time.Millisecond
 	out, err := cmd.Output()
 	return string(out), err
 }
@@ -338,7 +403,12 @@ func startTmux(ctx context.Context, tmux, cli, directory string, o Options, out 
 		return errors.New("invalid tmux launch result")
 	}
 	if o.Session != "" {
-		return json.NewEncoder(out).Encode(map[string]any{"ok": true, "session": name, "session_id": fields[0], "pane_id": fields[1], "socket": socket})
+		result := map[string]any{"ok": true, "session": name, "session_id": fields[0], "pane_id": fields[1], "socket": socket}
+		// The launcher in the new pane records its own scan with the launch.
+		if nested := ScanNested(directory); len(nested.List) > 0 || nested.Incomplete {
+			result["nested"], result["nested_incomplete"] = nested.List, nested.Incomplete
+		}
+		return json.NewEncoder(out).Encode(result)
 	}
 	return platform.Exec(tmux, append([]string{tmux}, tmuxArgs(socket, "attach-session", "-t", fields[0])...), cleanEnvironment(os.Environ(), o.Family))
 }
@@ -413,7 +483,9 @@ func Run(ctx context.Context, o Options, out io.Writer) error {
 		}
 		return startTmux(ctx, tmux, cli, directory, o, out)
 	}
-	target := core.LaunchTarget{Family: o.Family, Directory: directory, CLI: cli, HostPID: os.Getpid()}
+	nested := ScanNested(directory)
+	target := core.LaunchTarget{Family: o.Family, Directory: directory, CLI: cli, HostPID: os.Getpid(),
+		Nested: nested.List, NestedIncomplete: nested.Incomplete}
 	args := append([]string{cli}, o.Args...)
 	env := cleanEnvironment(os.Environ(), o.Family)
 	if o.Family == "opencode" {
@@ -438,5 +510,6 @@ func Run(ctx context.Context, o Options, out io.Writer) error {
 	if err := os.Chdir(directory); err != nil {
 		return errors.New("cannot enter start directory")
 	}
+	fmt.Fprint(os.Stderr, NestedNotice(directory, nested))
 	return platform.Exec(cli, args, env)
 }

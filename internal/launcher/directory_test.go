@@ -4,12 +4,17 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"testing"
+	"time"
+
+	"github.com/rwcii/koinon/internal/core"
 )
 
-// Directory check with real synthetic repositories (#236): a recorded submodule and a
-// linked worktree of the start repository are accepted; any other nested repository is not.
+// Nested repository scan with real synthetic repositories (#252): every nested repository
+// except a linked worktree of the start repository is reported with its kind, and none
+// refuses the start.
 
 func gitRun(t *testing.T, dir string, args ...string) {
 	t.Helper()
@@ -30,107 +35,164 @@ func syntheticRepo(t *testing.T, dir string) string {
 	return dir
 }
 
-func TestDirectorySubmodulesAndWorktrees(t *testing.T) {
+func scanned(t *testing.T, dir string) map[string]string {
+	t.Helper()
+	report := ScanNested(dir)
+	if report.Incomplete {
+		t.Fatalf("%s: incomplete scan: %+v", dir, report)
+	}
+	kinds := map[string]string{}
+	for _, n := range report.List {
+		kinds[filepath.ToSlash(n.Path)] = n.Kind
+	}
+	return kinds
+}
+
+func TestNestedKinds(t *testing.T) {
 	base := t.TempDir()
 	library := syntheticRepo(t, filepath.Join(base, "library"))
 	nestedLibrary := syntheticRepo(t, filepath.Join(base, "nested-library"))
 	gitRun(t, library, "submodule", "add", "-q", nestedLibrary, "deep")
 	gitRun(t, library, "commit", "-q", "-m", "deep submodule")
 	root := syntheticRepo(t, filepath.Join(base, "root"))
+	// An absorbed submodule (.git file into modules/), with its own submodule.
 	gitRun(t, root, "submodule", "add", "-q", library, "vendor/library")
 	gitRun(t, root, "submodule", "update", "-q", "--init", "--recursive")
-	gitRun(t, root, "commit", "-q", "-m", "submodule")
+	// A submodule whose .git is a directory: a clone recorded as a gitlink.
+	gitRun(t, root, "clone", "-q", library, "embedded")
+	gitRun(t, root, "-c", "advice.addEmbeddedRepo=false", "add", "embedded")
+	gitRun(t, root, "commit", "-q", "-m", "submodules")
+	if info, err := os.Lstat(filepath.Join(root, "embedded", ".git")); err != nil || !info.IsDir() {
+		t.Fatalf("embedded submodule has no .git directory: %v", err)
+	}
+	// A linked worktree of the start repository, with an initialized submodule.
 	gitRun(t, root, "worktree", "add", "-q", "-b", "synthetic", filepath.Join(root, ".worktrees", "synthetic"))
-	for _, gitFile := range []string{"vendor/library/.git", "vendor/library/deep/.git", ".worktrees/synthetic/.git"} {
-		if info, err := os.Lstat(filepath.Join(root, gitFile)); err != nil || !info.Mode().IsRegular() {
-			t.Fatalf("%s is not a .git file: %v", gitFile, err)
-		}
-	}
-	// A recorded submodule (also one inside it) and a nested linked worktree are accepted,
-	// from the top level and from a subdirectory.
-	for _, start := range []string{root, filepath.Join(root, "vendor")} {
-		if _, err := CheckDirectory(start); err != nil {
-			t.Fatalf("%s: %v", start, err)
-		}
-	}
-	refused := func(label string) {
-		t.Helper()
-		if _, err := CheckDirectory(root); err == nil || !strings.Contains(err.Error(), "holds another repository") {
-			t.Fatalf("%s accepted: %v", label, err)
-		}
-	}
-	// A .git file at a path the repository does not record, even into its modules/.
-	unrecorded := filepath.Join(root, "unrecorded")
-	os.Mkdir(unrecorded, 0700)
-	os.WriteFile(filepath.Join(unrecorded, ".git"), []byte("gitdir: "+filepath.Join(root, ".git", "modules", "vendor", "library")+"\n"), 0600)
-	refused("unrecorded .git file")
-	os.RemoveAll(unrecorded)
-	// A worktree of another repository.
+	gitRun(t, filepath.Join(root, ".worktrees", "synthetic"), "submodule", "update", "-q", "--init", "--", "vendor/library")
+	// A linked worktree of another repository, a separate Git directory, a separate clone,
+	// a .git symlink, and an unrecorded .git file into the start repository's modules/.
 	gitRun(t, library, "worktree", "add", "-q", "-b", "elsewhere", filepath.Join(root, "foreign-worktree"))
-	refused("worktree of another repository")
-	gitRun(t, library, "worktree", "remove", "--force", filepath.Join(root, "foreign-worktree"))
-	// A repository with its Git directory elsewhere.
 	gitRun(t, root, "init", "-q", "--separate-git-dir="+filepath.Join(base, "separate.git"), "separate")
-	refused("separate Git directory")
-	os.RemoveAll(filepath.Join(root, "separate"))
-	// A nested .git directory, and a nested .git symlink.
-	syntheticRepo(t, filepath.Join(root, "inner"))
-	refused("nested .git directory")
-	os.RemoveAll(filepath.Join(root, "inner"))
+	os.Mkdir(filepath.Join(root, "tasks"), 0700)
+	syntheticRepo(t, filepath.Join(root, "tasks", "clone"))
+	// A repository inside another repository belongs to that one and is not listed.
+	syntheticRepo(t, filepath.Join(root, "tasks", "clone", "inner"))
 	os.Mkdir(filepath.Join(root, "linked"), 0700)
 	os.Symlink(filepath.Join(root, ".worktrees", "synthetic", ".git"), filepath.Join(root, "linked", ".git"))
-	refused("nested .git symlink")
-	os.RemoveAll(filepath.Join(root, "linked"))
-	// Without the exceptions in place the start directory is accepted again.
-	if _, err := CheckDirectory(root); err != nil {
+	os.Mkdir(filepath.Join(root, "unrecorded"), 0700)
+	os.WriteFile(filepath.Join(root, "unrecorded", ".git"), []byte("gitdir: "+filepath.Join(root, ".git", "modules", "vendor", "library")+"\n"), 0600)
+	// A directory symlink to another repository is not followed.
+	os.Symlink(syntheticRepo(t, filepath.Join(base, "outside")), filepath.Join(root, "outside-link"))
+
+	want := map[string]string{
+		"vendor/library":                      "submodule",
+		"vendor/library/deep":                 "submodule",
+		"embedded":                            "submodule",
+		".worktrees/synthetic/vendor/library": "submodule",
+		"foreign-worktree":                    "worktree",
+		"separate":                            "repository",
+		"tasks/clone":                         "repository",
+		"linked":                              "repository",
+		"unrecorded":                          "repository",
+	}
+	if got := scanned(t, root); !reflect.DeepEqual(got, want) {
+		t.Fatalf("nested kinds:\n got %v\nwant %v", got, want)
+	}
+	// From a subdirectory, paths are relative to the start directory.
+	if got := scanned(t, filepath.Join(root, "vendor")); !reflect.DeepEqual(got, map[string]string{"library": "submodule", "library/deep": "submodule"}) {
+		t.Fatalf("subdirectory scan: %v", got)
+	}
+	// The start repository's own worktree lists the start's other nested repositories, never itself.
+	if got := scanned(t, filepath.Join(root, ".worktrees", "synthetic")); !reflect.DeepEqual(got, map[string]string{"vendor/library": "submodule"}) {
+		t.Fatalf("worktree scan: %v", got)
+	}
+	// A directory outside any repository reports every nested repository.
+	plain := t.TempDir()
+	syntheticRepo(t, filepath.Join(plain, "one"))
+	if got := scanned(t, plain); !reflect.DeepEqual(got, map[string]string{"one": "repository"}) {
+		t.Fatalf("plain directory scan: %v", got)
+	}
+}
+
+func TestNestedScanBounds(t *testing.T) {
+	root := t.TempDir()
+	os.Mkdir(filepath.Join(root, ".git"), 0700)
+	for i := 0; i <= core.MaxNested; i++ {
+		os.MkdirAll(filepath.Join(root, "many", strings.Repeat("r", i+1), ".git"), 0700)
+	}
+	report := ScanNested(root)
+	if !report.Incomplete || len(report.List) != core.MaxNested {
+		t.Fatalf("count bound: %d entries, incomplete %v", len(report.List), report.Incomplete)
+	}
+	os.RemoveAll(filepath.Join(root, "many"))
+	long := filepath.Join(root, strings.Repeat("d", 200), strings.Repeat("e", 60))
+	os.MkdirAll(filepath.Join(long, ".git"), 0700)
+	if report := ScanNested(root); !report.Incomplete || len(report.List) != 0 {
+		t.Fatalf("path bound: %+v", report)
+	}
+	os.RemoveAll(filepath.Join(root, strings.Repeat("d", 200)))
+	saved := scanTime
+	scanTime = 0
+	report = ScanNested(root)
+	scanTime = saved
+	if !report.Incomplete {
+		t.Fatal("time bound not reported")
+	}
+	if os.Geteuid() == 0 {
+		t.Skip("root reads every directory")
+	}
+	locked := filepath.Join(root, "locked")
+	os.MkdirAll(filepath.Join(locked, "inner", ".git"), 0700)
+	os.Chmod(locked, 0)
+	t.Cleanup(func() { os.Chmod(locked, 0700) })
+	if report := ScanNested(root); !report.Incomplete || len(report.List) != 0 {
+		t.Fatalf("unreadable subtree: %+v", report)
+	}
+	os.Chmod(locked, 0700)
+	if report := ScanNested(root); report.Incomplete || len(report.List) != 1 {
+		t.Fatalf("readable again: %+v", report)
+	}
+	if notice := NestedNotice(root, ScanNested(root)); !strings.Contains(notice, "1 nested repositories") || !strings.Contains(notice, filepath.Join("locked", "inner")+" (repository)") {
+		t.Fatalf("notice: %q", notice)
+	}
+	if NestedNotice(root, core.NestedReport{}) != "" {
+		t.Fatal("notice without nested repositories")
+	}
+}
+
+// A nested path that a launch record cannot hold is left out and marks the list incomplete,
+// so it never refuses the launch (#255 review).
+func TestNestedUnrepresentablePath(t *testing.T) {
+	root := t.TempDir()
+	os.Mkdir(filepath.Join(root, ".git"), 0700)
+	os.MkdirAll(filepath.Join(root, "line\nbreak", ".git"), 0700)
+	os.MkdirAll(filepath.Join(root, "plain", ".git"), 0700)
+	report := ScanNested(root)
+	if !report.Incomplete || !reflect.DeepEqual(report.List, []core.NestedRepository{{Path: "plain", Kind: "repository"}}) {
+		t.Fatalf("unrepresentable path: %+v", report)
+	}
+}
+
+// One deadline bounds the whole scan, Git queries included: with the production budget and a
+// Git that answers each query after 0.8 seconds, the scan ends near the budget and reports the
+// list incomplete (#255 review).
+func TestNestedScanDeadlineCoversGit(t *testing.T) {
+	sleep, err := exec.LookPath("sleep")
+	if err != nil {
 		t.Fatal(err)
 	}
-}
-
-// TestDirectoryExactGitlink: only the exact recorded path counts. An unrecorded directory
-// whose name is a pathspec pattern, or one above a recorded gitlink, is refused even when its
-// .git file points at the retained submodule directory.
-func TestDirectoryExactGitlink(t *testing.T) {
-	for _, c := range []struct{ candidate, recorded string }{{"record*", "recorded"}, {"bucket", "bucket/recorded"}} {
-		t.Run(c.candidate, func(t *testing.T) {
-			base := t.TempDir()
-			library := syntheticRepo(t, filepath.Join(base, "library"))
-			root := syntheticRepo(t, filepath.Join(base, "root"))
-			gitRun(t, root, "submodule", "add", "-q", library, c.recorded)
-			gitRun(t, root, "commit", "-q", "-m", "submodule")
-			gitRun(t, root, "submodule", "deinit", "-q", "-f", "--", c.recorded)
-			dir := filepath.Join(root, c.candidate)
-			os.MkdirAll(dir, 0700)
-			gitDir := filepath.Join(root, ".git", "modules", filepath.FromSlash(c.recorded))
-			os.WriteFile(filepath.Join(dir, ".git"), []byte("gitdir: "+gitDir+"\n"), 0600)
-			if _, err := CheckDirectory(root); err == nil {
-				t.Fatalf("unrecorded .git at %q accepted", c.candidate)
-			}
-		})
+	bin := t.TempDir()
+	os.WriteFile(filepath.Join(bin, "git"), []byte("#!/bin/sh\n"+sleep+" 0.8\nexit 1\n"), 0700)
+	t.Setenv("PATH", bin)
+	root := t.TempDir()
+	// One nested entry: the walk ends after it, so only the shared deadline marks it incomplete.
+	os.Mkdir(filepath.Join(root, "one"), 0700)
+	os.WriteFile(filepath.Join(root, "one", ".git"), []byte("gitdir: synthetic\n"), 0600)
+	began := time.Now()
+	report := ScanNested(root)
+	if elapsed := time.Since(began); elapsed > scanTime+500*time.Millisecond {
+		t.Fatalf("scan took %v with a %v budget", elapsed, scanTime)
 	}
-}
-
-// TestDirectorySubmoduleInLinkedWorktree: Git keeps an initialized submodule of a linked
-// worktree under that worktree's own Git directory; it is accepted, in a worktree outside
-// the start directory and in one nested inside it.
-func TestDirectorySubmoduleInLinkedWorktree(t *testing.T) {
-	base := t.TempDir()
-	library := syntheticRepo(t, filepath.Join(base, "library"))
-	root := syntheticRepo(t, filepath.Join(base, "root"))
-	gitRun(t, root, "submodule", "add", "-q", library, "module")
-	gitRun(t, root, "commit", "-q", "-m", "submodule")
-	for _, worktree := range []string{filepath.Join(base, "linked"), filepath.Join(root, ".worktrees", "nested")} {
-		gitRun(t, root, "worktree", "add", "-q", "-b", filepath.Base(worktree), worktree)
-		gitRun(t, worktree, "submodule", "update", "-q", "--init")
-		data, err := os.ReadFile(filepath.Join(worktree, "module", ".git"))
-		if err != nil || !strings.Contains(string(data), filepath.Join("worktrees", filepath.Base(worktree), "modules")) {
-			t.Fatalf("%s: submodule not under the worktree's Git directory: %q %v", worktree, data, err)
-		}
-		if _, err := CheckDirectory(worktree); err != nil {
-			t.Fatalf("%s: %v", worktree, err)
-		}
-	}
-	if _, err := CheckDirectory(root); err != nil {
-		t.Fatalf("start with a nested worktree and its submodule: %v", err)
+	if !report.Incomplete {
+		t.Fatalf("over-budget scan reported complete: %+v", report)
 	}
 }

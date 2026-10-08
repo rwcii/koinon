@@ -295,6 +295,10 @@ func TestPrivateTmuxDetachedAndOutside(t *testing.T) {
 		}
 		t.Skip("tmux not installed")
 	}
+	sleep, err := exec.LookPath("sleep")
+	if err != nil {
+		t.Fatal(err)
+	}
 	for _, family := range []string{"claude", "codex", "agy", "opencode"} {
 		for _, detached := range []bool{true, false} {
 			t.Run(fmt.Sprintf("%s-detached-%v", family, detached), func(t *testing.T) {
@@ -338,8 +342,17 @@ func TestPrivateTmuxDetachedAndOutside(t *testing.T) {
 					if json.Unmarshal(out, &result) != nil || result["ok"] != true || result["session"] != "detached" {
 						t.Fatalf("invalid detached result %s", out)
 					}
-					// A name collision must not reuse an existing session.
-					exec.Command(realTmux, "-S", socket, "new-session", "-d", "-s", "detached", "sleep 60").Run()
+					// A name collision must not reuse an existing session. The first session
+					// closes when its synthetic CLI exits, which can be after the report is
+					// written; occupy the name only once that session is gone. The occupant
+					// names sleep by its absolute path, since PATH holds only the wrapper.
+					deadline := time.Now().Add(10 * time.Second)
+					for exec.Command(realTmux, "-S", socket, "-f", "/dev/null", "new-session", "-d", "-s", "detached", quote(sleep)+" 60").Run() != nil {
+						if time.Now().After(deadline) {
+							t.Fatal("cannot occupy the session name")
+						}
+						time.Sleep(20 * time.Millisecond)
+					}
 					if err := exec.Command(launcherBinary, args...).Run(); err == nil {
 						t.Fatal("reused occupied session")
 					}
@@ -355,13 +368,11 @@ func TestPrivateTmuxDetachedAndOutside(t *testing.T) {
 }
 
 func TestDirectoryGuardAndOptions(t *testing.T) {
+	// Nested repositories never refuse a start (#252).
 	for _, kind := range []string{"directory", "file", "symlink"} {
 		t.Run(kind, func(t *testing.T) {
 			root := t.TempDir()
 			os.Mkdir(filepath.Join(root, ".git"), 0700)
-			if _, err := CheckDirectory(root); err != nil {
-				t.Fatal(err)
-			}
 			nested := filepath.Join(root, "nested")
 			os.Mkdir(nested, 0700)
 			switch kind {
@@ -372,17 +383,18 @@ func TestDirectoryGuardAndOptions(t *testing.T) {
 			case "symlink":
 				os.Symlink(filepath.Join(root, ".git"), filepath.Join(nested, ".git"))
 			}
-			if _, err := CheckDirectory(root); err == nil {
-				t.Fatal("nested repository allowed")
+			if _, err := CheckDirectory(root); err != nil {
+				t.Fatal(err)
 			}
 		})
 	}
-	root := t.TempDir()
-	outside := t.TempDir()
-	os.Mkdir(filepath.Join(outside, ".git"), 0700)
-	os.Symlink(outside, filepath.Join(root, "linked"))
-	if _, err := CheckDirectory(root); err != nil {
-		t.Fatal("followed directory symlink")
+	if _, err := CheckDirectory(filepath.Join(t.TempDir(), "missing")); err == nil {
+		t.Fatal("missing start directory accepted")
+	}
+	file := filepath.Join(t.TempDir(), "file")
+	os.WriteFile(file, nil, 0600)
+	if _, err := CheckDirectory(file); err == nil {
+		t.Fatal("file accepted as start directory")
 	}
 	o, err := Parse("agy", []string{"--directory", "relative", "--", "--cli", "literal"})
 	if err != nil || o.Directory != "relative" || !reflect.DeepEqual(o.Args, []string{"--cli", "literal"}) {
@@ -417,12 +429,25 @@ func TestConfiguredPathAndFailures(t *testing.T) {
 	nested := filepath.Join(directory, "nested")
 	os.Mkdir(nested, 0700)
 	os.WriteFile(filepath.Join(nested, ".git"), nil, 0600)
+	// A name that the launch record cannot hold is left out and never refuses the start.
+	os.MkdirAll(filepath.Join(directory, "line\nbreak", ".git"), 0700)
+	// A start directory with a nested repository starts the agent, reports the repository
+	// before the CLI starts, and records it with the launch (#252).
+	// A TMUX value keeps the start in this process, never in a tmux server.
+	t.Setenv("TMUX", filepath.Join(root, "unused-socket")+",1,0")
 	cmd := exec.Command(launcherBinary, arguments(root, address, cli, directory, "agy", filepath.Join(root, "result"))...)
-	if err := cmd.Run(); err == nil {
-		t.Fatal("started agent above another repository")
+	var stderr strings.Builder
+	cmd.Stderr = &stderr
+	if err := cmd.Run(); err != nil {
+		t.Fatalf("start with a nested repository: %v %s", err, stderr.String())
 	}
-	if _, err := os.Stat(filepath.Join(root, "result")); !os.IsNotExist(err) {
-		t.Fatal("CLI ran before directory refusal")
+	if !strings.Contains(stderr.String(), "1 nested repositories in the start directory (list incomplete)") || !strings.Contains(stderr.String(), "nested (repository)") {
+		t.Fatalf("no nested notice: %q", stderr.String())
+	}
+	var target core.LaunchTarget
+	if err := json.Unmarshal(readReport(t, filepath.Join(root, "result")).Session.WakeTarget, &target); err != nil ||
+		!reflect.DeepEqual(target.Nested, []core.NestedRepository{{Path: "nested", Kind: "repository"}}) || !target.NestedIncomplete {
+		t.Fatalf("launch record lacks the nested repository: %+v %v", target, err)
 	}
 	if err := Run(context.Background(), Options{Family: "opencode", CLI: cli, Directory: directory, StateDir: filepath.Join(root, "state"), Address: address, Args: []string{"--hostname=0.0.0.0"}}, io.Discard); err == nil {
 		t.Fatal("unsafe launch succeeded")

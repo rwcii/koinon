@@ -4,9 +4,11 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"net/http"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"testing"
 )
@@ -19,6 +21,10 @@ func TestLaunchBindingAndRestart(t *testing.T) {
 		if family == "opencode" {
 			target.Address = "127.0.0.1:12345"
 			target.Password = strings.Repeat("ab", 32)
+		}
+		if family == "codex" {
+			target.Nested = []NestedRepository{{Path: "vendor/library", Kind: "submodule"}, {Path: "clone", Kind: "repository"}}
+			target.NestedIncomplete = true
 		}
 		id, err := s.CreateLaunch(context.Background(), target)
 		if err != nil {
@@ -33,7 +39,7 @@ func TestLaunchBindingAndRestart(t *testing.T) {
 		public := target
 		public.Password = ""
 		public.LaunchID = id
-		if json.Unmarshal(session.WakeTarget, &stored) != nil || stored != public {
+		if json.Unmarshal(session.WakeTarget, &stored) != nil || !reflect.DeepEqual(stored, public) {
 			t.Fatal("launch target not bound")
 		}
 		var private string
@@ -41,7 +47,7 @@ func TestLaunchBindingAndRestart(t *testing.T) {
 			t.Fatal(err)
 		}
 		stored = LaunchTarget{}
-		if json.Unmarshal([]byte(private), &stored) != nil || stored != target {
+		if json.Unmarshal([]byte(private), &stored) != nil || !reflect.DeepEqual(stored, target) {
 			t.Fatal("private launch target was changed")
 		}
 		// One live CLI can serve another native identity after a context reset.
@@ -178,5 +184,73 @@ func TestLaunchMigrationPreservesSessions(t *testing.T) {
 	}
 	if _, err := s.CreateLaunch(context.Background(), LaunchTarget{Family: "codex", Directory: r.Directory, CLI: filepath.Join(r.Directory, "synthetic-cli"), HostPID: 123}); err != nil {
 		t.Fatal(err)
+	}
+}
+
+// A launch's nested list is bounded and holds only clean relative paths and known kinds
+// (#252); the session view reads it from the bound launch target.
+func TestLaunchNestedRepositories(t *testing.T) {
+	s, _ := testStore(t)
+	directory := testRepo(t)
+	long := strings.Repeat("a", MaxNestedPath+1)
+	many := make([]NestedRepository, MaxNested+1)
+	for i := range many {
+		many[i] = NestedRepository{Path: "r" + strings.Repeat("x", i), Kind: "repository"}
+	}
+	for _, list := range [][]NestedRepository{
+		{{Path: "", Kind: "repository"}}, {{Path: "/abs", Kind: "repository"}}, {{Path: "..", Kind: "repository"}},
+		{{Path: filepath.Join("..", "up"), Kind: "repository"}}, {{Path: "a//b", Kind: "repository"}}, {{Path: ".", Kind: "repository"}},
+		{{Path: "line\nbreak", Kind: "repository"}}, {{Path: long, Kind: "repository"}}, {{Path: "ok", Kind: "clone"}}, many,
+	} {
+		target := LaunchTarget{Family: "agy", Directory: directory, CLI: "/synthetic/cli", HostPID: 123, Nested: list}
+		if _, err := s.CreateLaunch(context.Background(), target); !errors.Is(err, ErrInvalid) {
+			t.Fatalf("nested list accepted: %.60q", list)
+		}
+	}
+	list := []NestedRepository{{Path: "vendor-infra", Kind: "submodule"}, {Path: filepath.Join("tools", "wt"), Kind: "worktree"}}
+	id, err := s.CreateLaunch(context.Background(), LaunchTarget{Family: "agy", Directory: directory, CLI: "/synthetic/cli", HostPID: 123, Nested: list})
+	if err != nil {
+		t.Fatal(err)
+	}
+	session, err := s.Register(context.Background(), Registration{Family: "agy", ID: "synthetic-nested", Directory: directory, LaunchID: id})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := session.NestedRepositories(); got == nil || !reflect.DeepEqual(got.List, list) || got.Incomplete {
+		t.Fatalf("session nested report: %+v", got)
+	}
+	if (Session{WakeTarget: json.RawMessage(`{"claude_pid":1}`)}).NestedRepositories() != nil {
+		t.Fatal("report without a nested list")
+	}
+}
+
+func TestDashboardShowsNestedRepositories(t *testing.T) {
+	d, root := startTestDaemon(t)
+	secret, err := ReadSecret(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	directory := testRepo(t)
+	list := []NestedRepository{{Path: "vendor-infra", Kind: "submodule"}, {Path: "<b>clone", Kind: "repository"}}
+	id, err := d.store.CreateLaunch(context.Background(), LaunchTarget{Family: "agy", Directory: directory, CLI: "/synthetic/cli", HostPID: 123, Nested: list, NestedIncomplete: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := d.store.Register(context.Background(), Registration{Family: "agy", ID: "synthetic-nested", Directory: directory, LaunchID: id}); err != nil {
+		t.Fatal(err)
+	}
+	// The largest list, with characters that JSON escapes, fits the launch route.
+	largest := make([]NestedRepository, MaxNested)
+	for i := range largest {
+		largest[i] = NestedRepository{Path: fmt.Sprintf("%03d", i) + strings.Repeat("<", MaxNestedPath-3), Kind: "repository"}
+	}
+	if _, err := CreateLaunch(context.Background(), d.Addresses()[0], secret, LaunchTarget{Family: "agy", Directory: directory, CLI: "/" + strings.Repeat("c", 4095), HostPID: 123, Nested: largest}); err != nil {
+		t.Fatalf("largest nested list refused: %v", err)
+	}
+	page := dashboardDo(t, d, "GET", "/dashboard/sessions", dashboardLogin(t, d, secret), nil, nil).body
+	for _, want := range []string{"2+ nested repositories", "<code>vendor-infra</code> submodule", "<code>&lt;b&gt;clone</code> repository", "list incomplete", "Koinon repository is the start repository"} {
+		if !strings.Contains(page, want) {
+			t.Fatalf("session view lacks %q", want)
+		}
 	}
 }

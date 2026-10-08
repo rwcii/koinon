@@ -5,6 +5,13 @@ into a dated release section when promoted to `main`.
 
 ## Unreleased
 
+- `koinon claude`, `koinon codex`, `koinon agy` and `koinon opencode` start in a directory
+  that holds other repositories, such as a checkout with submodules, worktrees of other
+  repositories or separate clones, and list them instead of refusing the start. The list
+  (path and kind, at most 64 entries, marked incomplete after 3 seconds, at an unreadable
+  directory or at a path with a control character, which is left out) is printed before the agent starts and kept with the launch. The dashboard shows
+  it with each session that registers with its launch record (Codex, Antigravity and
+  OpenCode). The session's repository is still the start directory's.
 - Agents sharing a checkout can derive one advisory checkout resource, inspect its writer,
   generation token, expiry and checkpoint through `work_checkout` or `koinon work checkout
   status`, and request the role with an inbox notification. Release with `handoff_to` and
@@ -25,11 +32,11 @@ into a dated release section when promoted to `main`.
 - The dashboard's 5-second refresh now waits while a disclosure in the list is open or a form
   field in it has focus, so a purge confirmation or an edit form no longer closes by itself.
 - `koinon claude` starts Claude Code like the other launchers: with the absolute CLI path
-  from `--cli` or `launchers.json`, in a start folder that holds no other repository, in the
-  current terminal or a new tmux session, with a private launch record. The dashboard's start
-  action offers Claude Code too. `koinon setup claude` now records the Claude CLI path. A
-  started Claude keeps `CLAUDE_CONFIG_DIR` but not the `CLAUDE_` variables or `CLAUDECODE` of
-  the session that started it.
+  from `--cli` or `launchers.json`, in the current terminal or a new tmux session, with a
+  private launch record. The dashboard's start action offers Claude Code too.
+  `koinon setup claude` now records the Claude CLI path. A started Claude keeps
+  `CLAUDE_CONFIG_DIR` but not the `CLAUDE_` variables or `CLAUDECODE` of the session that
+  started it.
 - The daemon deletes old records in its maintenance sweep. Acknowledged messages go 30 to 60
   days after their acknowledgement, and expired or retired sessions, with their peer names,
   30 days after their activity ended, unless they still hold unacknowledged messages or a
@@ -37,10 +44,6 @@ into a dated release section when promoted to `main`.
   releases its claims and deletes it with its whole inbox, and the mark can be removed until
   then. `koinon status` and dashboard health report what each sweep deleted and kept, and
   `delivery` reports a deleted message as `deleted`. The state schema is now 9.
-- `koinon codex`, `koinon agy` and `koinon opencode` start in a repository that has
-  submodules or a linked worktree of itself inside its checkout, also a submodule inside a
-  linked worktree. They still refuse any other nested repository, including a directory that
-  the repository does not record at exactly that path.
 - The dashboard's sessions view has a search box. It searches every session on the server
   by peer name, alias, family, repository, directory or state, and the search stays in the
   URL, across pages and refreshes.
