@@ -302,7 +302,9 @@ func (d *Daemon) handler() http.Handler {
 	})
 	mux.HandleFunc("POST /v1/launches", func(w http.ResponseWriter, r *http.Request) {
 		var target LaunchTarget
-		if err := decode(w, r, &target); err != nil {
+		// The nested list (MaxNested paths, each at most six times longer when escaped) may
+		// exceed the ordinary limit.
+		if err := decodeLimit(w, r, &target, 131072); err != nil {
 			failure(w, err)
 			return
 		}

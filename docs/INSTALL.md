@@ -189,7 +189,8 @@ It keeps the state directory and reports its path. A repeated uninstall changes 
 
 Fresh installation needs Linux or macOS and the binary for that operating system and CPU.
 No Python interpreter is needed. Building from source needs the Go version in `go.mod`.
-Git resolves repository identity for shared memory/work and repository launchers. Agent setup
+Git resolves repository identity for shared memory/work and repository launchers; a launcher
+reports, and never refuses, other repositories nested in its start directory. Agent setup
 requires the selected agent CLI. Codex must support `queue`; OpenCode must support its server.
 DeepSeek requires a running harness, but its live wake proof remains deferred under #199.
 
