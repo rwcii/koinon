@@ -212,6 +212,7 @@ type sessionRow struct {
 
 type sessionsData struct {
 	Rows   []sessionRow
+	Search string
 	Counts map[string]int64
 	Sort   dashboardSort
 	Next   string
@@ -220,6 +221,8 @@ type sessionsData struct {
 type messagesData struct {
 	Recipient    string
 	RecipientKey *Key
+	Peers        []peerOption
+	AllPeers     bool
 	Messages     []MessageRecord
 	Sort         dashboardSort
 	Next         string
@@ -253,11 +256,11 @@ func (d *Daemon) dashboardData(r *http.Request, view string) (any, error) {
 	ctx, q, path := r.Context(), r.URL.Query(), "/dashboard/"+view
 	switch view {
 	case "sessions":
-		order, err := parseSort(&sessionSort, path, q)
+		order, err := parseSort(&sessionSort, path, q, "q")
 		if err != nil {
 			return nil, err
 		}
-		sessions, next, err := d.store.dashboardSessions(ctx, order)
+		sessions, next, err := d.store.dashboardSessions(ctx, order, q.Get("q"))
 		if err != nil {
 			return nil, err
 		}
@@ -278,17 +281,20 @@ func (d *Daemon) dashboardData(r *http.Request, view string) (any, error) {
 		if err != nil {
 			return nil, err
 		}
-		result := sessionsData{Rows: make([]sessionRow, 0, len(sessions)), Counts: counts, Sort: order, Next: next}
+		result := sessionsData{Rows: make([]sessionRow, 0, len(sessions)), Search: q.Get("q"), Counts: counts, Sort: order, Next: next}
 		for _, s := range sessions {
 			result.Rows = append(result.Rows, sessionRow{Session: s, Work: claims[s.Family+":"+s.ID], Observed: d.store.sessionObservations(pull, s)})
 		}
 		return result, nil
 	case "messages":
-		order, err := parseSort(&messageSort, path, q, "to")
+		order, err := parseSort(&messageSort, path, q, "to", "peers")
 		if err != nil {
 			return nil, err
 		}
-		result := messagesData{Recipient: q.Get("to"), Sort: order}
+		result := messagesData{Recipient: q.Get("to"), AllPeers: q.Get("peers") == "all", Sort: order}
+		if result.Peers, err = d.store.dashboardPeerOptions(ctx, result.AllPeers); err != nil {
+			return nil, err
+		}
 		var recipient *Key
 		if result.Recipient != "" {
 			if recipient, err = d.store.sessionByName(ctx, result.Recipient); err != nil {

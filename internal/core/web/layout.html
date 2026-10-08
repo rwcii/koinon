@@ -17,6 +17,7 @@
 <h1>{{.Title}}</h1>
 {{if .Notice}}<p class="notice" role="status">{{.Notice}}</p>{{end}}
 {{if .CSRF}}{{block "actions" .}}{{end}}{{end}}
+{{block "filter" .}}{{end}}
 <div id="list"{{if .CSRF}} data-refresh="5000"{{end}}>{{template "list" .}}</div>
 </main>
 </body>

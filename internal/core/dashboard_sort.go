@@ -227,6 +227,22 @@ func (s dashboardSort) link(key, dir, after string) string {
 	return s.path + "?" + v.Encode()
 }
 
+// With is the link to the first page in this order with one filter parameter set, or
+// removed when value is "".
+func (s dashboardSort) With(name, value string) string {
+	params := url.Values{}
+	for k, v := range s.params {
+		params[k] = v
+	}
+	if value == "" {
+		params.Del(name)
+	} else {
+		params.Set(name, value)
+	}
+	s.params = params
+	return s.link(s.Key, s.Dir(), "")
+}
+
 // Next is the link to the page after a cursor, in the same order and filters.
 func (s dashboardSort) Next(cursor string) string {
 	return s.link(s.Key, s.Dir(), cursor)
