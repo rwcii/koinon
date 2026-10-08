@@ -159,16 +159,35 @@ func sameRepository(start, dir string) bool {
 	if start != "" && common == start {
 		return true
 	}
-	enclosing, err := gitPath(filepath.Dir(dir), "--git-common-dir")
+	gitDir, err := gitPath(dir, "--git-dir")
 	if err != nil {
 		return false
 	}
-	gitDir, err := gitPath(dir, "--git-dir")
-	if err != nil || !strings.HasPrefix(gitDir, filepath.Join(enclosing, "modules")+string(filepath.Separator)) {
+	// Git keeps a submodule's directory under the modules/ of the checkout that holds it:
+	// the common directory for a main checkout, its own Git directory for a linked worktree.
+	inModules := false
+	for _, flag := range []string{"--git-dir", "--git-common-dir"} {
+		enclosing, err := gitPath(filepath.Dir(dir), flag)
+		inModules = inModules || err == nil && strings.HasPrefix(gitDir, filepath.Join(enclosing, "modules")+string(filepath.Separator))
+	}
+	return inModules && recordedGitlink(filepath.Dir(dir), filepath.Base(dir))
+}
+
+// recordedGitlink reports whether the index of the repository at dir holds an entry for
+// exactly name, as a gitlink. The pathspec is literal, and an entry below name, which a
+// directory pathspec also lists, does not count.
+func recordedGitlink(dir, name string) bool {
+	out, err := git(dir, "--literal-pathspecs", "ls-files", "--stage", "-z", "--", name)
+	if err != nil {
 		return false
 	}
-	out, err := git(filepath.Dir(dir), "ls-files", "--stage", "--", filepath.Base(dir))
-	return err == nil && strings.HasPrefix(out, "160000 ")
+	for _, entry := range strings.Split(out, "\x00") {
+		meta, path, found := strings.Cut(entry, "\t")
+		if found && path == name && strings.HasPrefix(meta, "160000 ") {
+			return true
+		}
+	}
+	return false
 }
 
 // gitPath returns an absolute rev-parse path for the repository at dir, with symlinks
