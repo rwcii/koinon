@@ -72,7 +72,9 @@ maintainer's sessions, Codex or Claude configuration, or services.
   renewal after the other session is gone; outside tmux nothing happens. A synthetic Claude
   background job (no `TMUX`) with a `claude attach <short ID>` client process in a private tmux
   pane gets that pane named; a client whose short ID does not match the job's session ID, and two
-  clients for one job, rename nothing and report why.
+  clients for one job, rename nothing and report why. A directly started OpenCode, Antigravity
+  and Codex `--no-daemon` session (synthetic process tree, no launch ID) is named; the same host
+  serving two active sessions renames nothing and reports `host_shared`.
 - **Reporting (criterion 9).** `peers` (MCP and `koinon peers`) and the dashboard session view
   show the peer name, address, holder flag, role, last succession result and last naming result.
 
@@ -116,6 +118,8 @@ Before the last chunk's pull request is approved:
    addresses, each pane named after its own address; ending the first and starting a new Claude in
    the same pane gives the new session the first address and continues its claim.
 4. Linux: a Claude background job with `claude attach` in a private tmux pane: the pane is named.
+   OpenCode and Antigravity, each started directly from a shell in a private tmux pane: each
+   names its pane's session.
 5. macOS: items 1 and 3, run by the maintainer or on a macOS host the maintainer names.
 
 Each check records the CLI versions. Scratch configuration is restored byte for byte.
