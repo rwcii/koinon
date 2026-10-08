@@ -46,12 +46,14 @@ chmod +x koinon-linux-amd64 && ./koinon-linux-amd64 version
    checked against the source's SHA-256.
 2. It links `~/.local/bin/koinon` to that copy, on Linux and macOS, and records the link in
    `<prefix>/link`. An existing link to the copy is kept; any other file or link at that path
-   is never replaced (`"link_result": "occupied"`). The report names the `koinon` that `PATH`
-   runs (`on_path`). When that is not the installed copy, `path_step` names the one step that
-   makes it so, for example adding `~/.local/bin` to `PATH` in the shell's startup file; on
-   macOS that directory is not on `PATH` by default. When another `koinon`, such as the
-   Homebrew copy, comes first on `PATH`, the report names it. The install never edits shell
-   startup files.
+   is never replaced (`"link_result": "occupied"`). A symlink or an unrelated file at
+   `<prefix>/link` is refused (`link_marker_invalid`) and left as it is. The report names the
+   `koinon` that `PATH` runs (`on_path`), reading relative and empty `PATH` entries against the
+   current directory, as a shell does. When that is not the installed copy, `path_step` names
+   the one step that makes it so, for example adding `~/.local/bin` to `PATH` in the shell's
+   startup file; on macOS that directory is not on `PATH` by default. When another `koinon`,
+   such as the Homebrew copy, comes first on `PATH`, the report names it. The install never
+   edits shell startup files.
 3. It writes one service that runs `<prefix>/bin/koinon serve --state-dir <state>`, then enables
    and (re)starts it:
    - on Linux, the systemd user unit `~/.config/systemd/user/koinon.service`, enabled for login;
@@ -215,6 +217,30 @@ with `peers`, send only within the maintainer's authorization, read notices thro
 and acknowledge only messages already handled. Use MCP when available; command examples
 and memory/work operations are in [USAGE.md](USAGE.md). Setup and runtime replacement require
 the maintainer's authorization, separate from repository development.
+
+## Launcher paths in launchers.json
+
+After successful `koinon setup codex`, `agy` or `opencode`, setup records the absolute
+native CLI path it resolved in `launchers.json` under the selected Go state root:
+`~/.local/state/koinon/go/launchers.json`, or `$XDG_STATE_HOME/koinon/go/launchers.json`.
+`--state-dir DIR` selects a different root. The file is a JSON object, for example:
+
+```json
+{"codex": "/opt/agents/bin/codex", "agy": "/opt/agents/bin/agy", "opencode": "/opt/agents/bin/opencode"}
+```
+
+The root must be owned by the current user and private (normally mode 0700); the file
+must be owned by that user, be a regular file with one link, have mode 0600 and fit within
+16 KiB. Symbolic links and unsafe existing files are refused without changing permissions.
+Setup preserves other families' entries, uses a private `launchers.lock` for concurrent
+updates and replaces the JSON atomically. Repeat setup with the same path leaves it unchanged.
+
+To change a recorded path, rerun the authorized setup operation with
+`koinon setup codex --cli /absolute/path/to/codex` (or the other family). Setup resolves
+`PATH` only when selecting a CLI; launchers use the recorded absolute path and never search
+`PATH` at launch time. `koinon codex --cli /absolute/path/to/codex` overrides it for that
+launch without editing the file. Match `--state-dir` between setup and launches. Uninstall
+preserves this state-root configuration along with other retained state.
 
 ## State, recovery and compatibility
 

@@ -16,6 +16,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/rwcii/koinon/internal/launcher"
 	"github.com/rwcii/koinon/internal/platform"
 )
 
@@ -70,14 +71,14 @@ func Run(ctx context.Context, o Options) (Report, error) {
 	if !filepath.IsAbs(o.Binary) {
 		return report, errors.New("the koinon binary path must be absolute")
 	}
+	if o.StateDir == "" {
+		if o.StateDir, err = platform.DefaultStateDir(); err != nil {
+			return report, err
+		}
+	}
 	if o.Family == "claude" {
 		if o.ClaudeConfig == "" {
 			o.ClaudeConfig = claudeConfigDir(os.Getenv)
-		}
-		if o.StateDir == "" {
-			if o.StateDir, err = platform.DefaultStateDir(); err != nil {
-				return report, err
-			}
 		}
 	}
 	if o.RemoveStatusLine {
@@ -154,6 +155,19 @@ func Run(ctx context.Context, o Options) (Report, error) {
 		err = agyHook(o, &report)
 	case "opencode":
 		err = openCodePlugin(o, &report)
+	}
+	if err == nil && o.Family != "claude" {
+		var changed bool
+		changed, err = launcher.RecordCLI(ctx, o.StateDir, o.Family, cli)
+		if err != nil {
+			return report, fmt.Errorf("record launcher CLI: %w", err)
+		}
+		entry := o.Family + " CLI in launchers.json"
+		if changed {
+			report.Changed = append(report.Changed, entry)
+		} else {
+			report.Unchanged = append(report.Unchanged, entry)
+		}
 	}
 	return report, err
 }

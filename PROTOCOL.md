@@ -135,10 +135,13 @@ an acknowledgement committed before submission is never included. Provider calls
 
 Each notice names only the quoted native family/ID inbox and its sequence range. Codex uses
 the configured absolute CLI with `queue --thread ID --message NOTICE`. Claude requires a
-same-user registry record matching its native session ID and CLI entrypoint, idle status,
-an owned private socket/directory, and the connected kernel UID/PID. Key filenames hash the
-literal unresolved socket path. The daemon's private same-process reply listener accepts no
-commands and needs no registry entry. A Claude write remains `uncertain` because the socket
+same-user registry record matching its native session ID and CLI entrypoint, the status
+`idle` or `shell` (the prompt with a background shell task running; the session takes the
+`next`-priority notice at its turn boundary), an owned private socket/directory, and the
+connected kernel UID/PID. The statuses `busy` (a turn in progress) and `waiting` (an approval
+or question prompt) are a busy receiver. Key filenames hash the literal unresolved socket
+path. The daemon's private same-process reply listener accepts no commands and needs no
+registry entry. A Claude write remains `uncertain` because the socket
 protocol provides no verifiable queue receipt; a duplicate notice is possible until inbox ack.
 
 DeepSeek validates a canonical HTTP(S) loopback authority and pins all resolved addresses
@@ -424,7 +427,7 @@ activity. Message delivery and acknowledgement do not establish activity or inbo
 | --- | --- |
 | Model | `claude_statusline`; `codex_rollout` (the session's own rollout under `CODEX_HOME`) and `codex_mcp_meta` (`x-codex-turn-metadata.model` of a tool call); `agy_hook` (`modelName` of the Stop hook) |
 | Context | `claude_statusline` (`context_window_size`, `total_input_tokens`); `codex_rollout` (`model_context_window`, `last_token_usage.input_tokens`) |
-| Activity | `claude_registry` (the parent Claude process's registry record for this session, `entrypoint: cli`); `codex_rollout` (task started and completed); `agy_hook` (idle at Stop) and `mcp_call` (an agy tool call); `opencode_status` (`GET /session/status` on a launched OpenCode server, with its password, cached 5 seconds) |
+| Activity | `claude_registry` (the parent Claude process's registry record for this session, `entrypoint: cli`; `shell`, the prompt with a background shell task running, is idle); `codex_rollout` (task started and completed); `agy_hook` (idle at Stop) and `mcp_call` (an agy tool call); `opencode_status` (`GET /session/status` on a launched OpenCode server, with its password, cached 5 seconds) |
 | Terminal | `tmux_env`: the MCP server's `TMUX` and `TMUX_PANE`, the pane's session name and the last terminal naming result |
 
 One MCP server can serve several sessions, so its environment proves nothing about a session.
