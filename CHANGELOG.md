@@ -5,6 +5,11 @@ into a dated release section when promoted to `main`.
 
 ## Unreleased
 
+- Agents can read a peer's observed model, context and activity through `peer_status` and
+  `koinon peer-status`, by name or held alias, with source and confirmation timestamps,
+  freshness windows and explicit unknown reasons. Registration and acknowledgement remain
+  separate signals, and private runtime/terminal targets are excluded.
+
 - Dashboard actions work from a browser again. Every page sent `Referrer-Policy: no-referrer`,
   which makes a browser send `Origin: null` with a form `POST`, so retire, release, acknowledge,
   clear, send, launch and logout were refused with "foreign origin". The pages now send

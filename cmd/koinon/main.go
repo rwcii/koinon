@@ -77,12 +77,12 @@ func run(ctx context.Context, args []string, in io.Reader, out io.Writer) error 
 	case "serve":
 		listen = flags.String("listen", "127.0.0.1:47671", "IPv4 loopback listener")
 		listen6 = flags.String("listen-v6", "[::1]:47671", "IPv6 loopback listener")
-	case "status", "peers", "send", "inbox", "ack":
+	case "status", "peers", "peer-status", "send", "inbox", "ack":
 		address = flags.String("address", "127.0.0.1:47671", "daemon loopback address")
 		if args[0] != "status" {
 			as = flags.String("as", "", "calling session as FAMILY:ID")
 		}
-		positional = map[string]int{"send": 2, "ack": 1}[args[0]]
+		positional = map[string]int{"peer-status": 1, "send": 2, "ack": 1}[args[0]]
 		if args[0] == "inbox" {
 			after = flags.Int64("after", 0, "read messages after this sequence")
 			limit = flags.Int64("limit", 50, "most messages to read")
@@ -148,6 +148,7 @@ const usage = `Usage: koinon install [--prefix DIR] [--state-dir DIR] [--agent F
        koinon recover [--state-dir DIR] [--address 127.0.0.1:PORT]
        koinon <codex|agy|opencode> [--state-dir DIR] [--address HOST:PORT] [--cli ABS_PATH] [--directory DIR] [--tmux-session NAME] [--] [CLI arguments...]
        koinon peers --as FAMILY:ID [--state-dir DIR] [--address 127.0.0.1:PORT]
+       koinon peer-status --as FAMILY:ID [--state-dir DIR] [--address 127.0.0.1:PORT] NAME
        koinon send --as FAMILY:ID [--state-dir DIR] [--address 127.0.0.1:PORT] NAME BODY
        koinon inbox --as FAMILY:ID [--after SEQ] [--limit N] [--state-dir DIR] [--address 127.0.0.1:PORT]
        koinon ack --as FAMILY:ID [--state-dir DIR] [--address 127.0.0.1:PORT] SEQ
@@ -214,6 +215,8 @@ func call(ctx context.Context, command, state, address string, as *string, after
 		path = "/v1/status"
 	case "peers":
 		path, body = "/v1/peers", map[string]any{"caller": caller}
+	case "peer-status":
+		path, body = "/v1/peers/status", map[string]any{"caller": caller, "peer": args[0]}
 	case "send":
 		text := args[1]
 		if text == "-" {
