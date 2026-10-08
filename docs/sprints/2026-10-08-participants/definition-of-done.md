@@ -56,24 +56,24 @@ maintainer's sessions, Codex or Claude configuration, or services.
   30 seconds; a renewal-timer call (no succession without a tool call); same pane with the former
   host process still running; another pane; and after a `holder_active` refusal, the successor's
   first tool call after 30 seconds takes the participant;
-  same family and repository only; no host recorded (shared Codex daemon); a peer message that
+  same family and repository only; no pane recorded (a launch outside tmux); a peer message that
   asks for it. A former holder that calls after a refused succession keeps the participant.
 
 ### MCP server and terminal naming (`internal/mcp`)
 
-- **Codex attribution (criterion 6).** A `koinon mcp` whose parent is a Codex process started
-  with `--no-daemon` and whose environment carries the launch variables registers with its launch
-  record. A `koinon mcp` whose parent is the shared Codex app-server daemon reports
-  `codex_shared_daemon` and names no terminal. `thread_source` `subagent` registers without a
-  participant.
+- **Launched sessions only (criterion 6).** For each family, a `koinon mcp` with a known launch
+  ID registers with its launch record; with no launch ID, or an unknown one, every tool call
+  returns `not_launched` with the launcher command, and nothing is registered or listed. A
+  launched Codex session (`--no-daemon`, launch variables through `env_vars`) and a
+  `koinon claude --bg` job (launch variables through `--settings`) register with their launch
+  records. `thread_source` `subagent` registers without a participant.
 - **Naming (criteria 7, 8).** On a private tmux server: one agent pane renames its session to the
   address; two agent panes set only the own pane title; a nested agent and a foreign pane rename
   nothing; a taken name reports `name_taken`, overwrites nothing, and is renamed at a later
   renewal after the other session is gone; outside tmux nothing happens. A synthetic Claude
   background job (no `TMUX`) with a `claude attach <short ID>` client process in a private tmux
   pane gets that pane named; a client whose short ID does not match the job's session ID, and two
-  clients for one job, rename nothing and report why. A directly started non-Claude session (no
-  launch record) renames nothing and reports `not_launched` with the launcher command.
+  clients for one job, rename nothing and report why.
 - **Reporting (criterion 9).** `peers` (MCP and `koinon peers`) and the dashboard session view
   show the peer name, address, holder flag, role, last succession result and last naming result.
 
@@ -112,11 +112,12 @@ Before the last chunk's pull request is approved:
    participant with the new thread as holder, the predecessor is retired, and a message sent to the
    address before the `/clear` is read by the successor. A Codex sub-agent of that session does not
    take the address.
-2. Linux: a plain `codex` start reports `codex_shared_daemon` and renames nothing.
+2. Linux: a direct `codex` start and a direct `claude` start are islanded: each tool call
+   returns `not_launched`, and neither session appears among peers or in the dashboard.
 3. Linux: two Claude sessions in one scratch repository, one launched with `--role review`: two
    addresses, each pane named after its own address; ending the first and starting a new Claude in
    the same pane gives the new session the first address and continues its claim.
-4. Linux: a Claude background job with `claude attach` in a private tmux pane: the pane is named.
+4. Linux: a `koinon claude --bg` job with `claude attach` in a private tmux pane: the job registers with its launch record and the pane is named.
 5. macOS: items 1 and 3, run by the maintainer or on a macOS host the maintainer names.
 
 Each check records the CLI versions. Scratch configuration is restored byte for byte.

@@ -6,7 +6,7 @@ depends on have merged. One pull request is in flight at a time. Each chunk pass
 
 | Chunk | Outcome | Criteria | Depends on |
 | --- | --- | --- | --- |
-| [01 Codex launch](chunks/01-codex-launch.md) | `koinon codex` runs Codex on its own (`--no-daemon`) with the variables `koinon mcp` needs; a shared-daemon session is reported; a sub-agent never takes an address. | 1 (sub-agents), 6, 9 (naming reason), 10 | — |
+| [01 Launched sessions only](chunks/01-codex-launch.md) | Every Koinon session is started with `koinon <family>` (Codex with `--no-daemon`, background jobs with `koinon claude --bg`); a direct start is islanded; a sub-agent never takes an address. | 1 (sub-agents), 6, 9, 10 | — |
 | [02 Participants](chunks/02-participants.md) | Participants with optional roles, one holder chosen never by order, the maintainer's choice in the dashboard, upgrade of existing aliases, reporting. | 1, 2, 9, 10 | 01 |
 | [03 Participant state](chunks/03-participant-state.md) | The participant owns its address inbox, memory cursor and claims; fencing refuses every stale holder path. | 4, 5, 10 | 02 |
 | [04 Succession](chunks/04-succession.md) | Verified succession changes the holder and retires the former holder atomically; the skills describe it. | 3, 10 | 03 |

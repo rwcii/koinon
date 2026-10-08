@@ -60,3 +60,20 @@ therefore sees one continuous session across a Claude `/clear`; no succession oc
   The second peer in #147 was the client's record in Claude Code's own session registry, which
   the Python runtime listed. The Go runtime lists only sessions that register through
   `koinon mcp`.
+
+## F5. Passing a launch ID to a Claude background job
+
+Checked on 2026-10-08 with the same probe, Claude Code 2.1.294.
+
+- `claude --bg` with `KOINON_LAUNCH_ID` in the starting shell, while no Claude background service
+  ran: the command started the service ("Starting background service…") and the job's MCP server
+  received the shell's value.
+- A second `claude --bg` with a different `KOINON_LAUNCH_ID` while that service ran: the job's MCP
+  server received the **first** value. A job inherits the service's environment, not the starting
+  shell's.
+- `claude --bg … --settings <file>` with `{"env":{"KOINON_LAUNCH_ID":"…"}}` in the file: the job's
+  MCP server received the value from the file.
+
+Consequence: `koinon claude --bg` passes its launch ID through `--settings`, never through the
+environment. The scratch jobs were removed and the background service, which had inherited a test
+value, exited.

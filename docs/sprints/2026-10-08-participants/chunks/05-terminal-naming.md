@@ -16,8 +16,8 @@ Facts: `live-checks.md`, F4. Delivers #147; closes #228.
 1. **Published name.** The participant address while the session holds it, else its peer name.
 2. **Retry.** `name_taken` is no longer final: it is tried again at each renewal, and the name
    is set once the other session with that name is gone. All other rules stay as they are.
-3. **Background job.** When the host Claude process is a child of `claude bg-pty-host` and the
-   server has no `TMUX`, the server looks for the attached client: on each tmux server socket in
+3. **Background job.** For a session whose launch record marks a background job
+   (`koinon claude --bg`, chunk 01), the server has no `TMUX`, so it looks for the attached client: on each tmux server socket in
    the user's tmux socket directory (`$TMUX_TMPDIR/tmux-<uid>`, else the platform default, through
    `internal/platform`), it lists the panes and searches each pane's process tree for a
    `claude attach <short ID>` process whose short ID is the first eight characters of the job's
@@ -25,9 +25,9 @@ Facts: `live-checks.md`, F4. Delivers #147; closes #228.
    client in place of the host for the ancestor check. No match: `attach_pane_not_found`, tried
    again at the next renewal. More than one: `attach_pane_ambiguous`, nothing renamed. Panes on a
    private tmux server outside the socket directory are not searched.
-4. **Direct starts.** A non-Claude session without a launch record keeps today's rule: its
-   terminal is not renamed (maintainer decision of 2026-10-08 in `decision.md`). The result is
-   `not_launched`, and its reason text says to start the agent with `koinon <family>`.
+4. **Launched sessions only.** Naming runs for every launched session of every family (chunk
+   01); the `KOINON_LAUNCH_ID` condition in `nameAfterRegistration` becomes the launch record
+   that the session registered with. A direct start never registers, so it is never named.
 5. **Reporting.** The naming result and its reason text are in the session view and in `peers`
    (chunk 02, item 6).
 

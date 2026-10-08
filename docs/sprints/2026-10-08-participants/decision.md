@@ -35,7 +35,12 @@ session in a Git repository, one alias per family and repository (`internal/core
    of a Claude session and of a launched session. A Claude background job (`claude bg-pty-host`)
    runs outside tmux, so it gets `not_in_tmux`, although the person watches it through
    `claude attach` in a tmux pane (#147, `live-checks.md`, F4). A `name_taken` result is final, so
-   the name is not tried again when the other terminal goes away (#228).
+   the name is not tried again when the other terminal goes away (#228). Directly started
+   OpenCode and Antigravity sessions register but are not named (observed 2026-10-08).
+6. **Two kinds of session.** Today a session can register with or without a launch record, so
+   Koinon's view of its host, pane and role depends on how it was started. A Claude background
+   job inherits the environment of Claude's background service, not of the shell that starts it,
+   so a launch ID set in that shell does not reach the job (`live-checks.md`, F5).
 
 Maintainer decisions that this sprint carries into the Go runtime:
 
@@ -44,12 +49,12 @@ Maintainer decisions that this sprint carries into the Go runtime:
 - 2026-10-08: additional participants of one family get maintainer-assigned role suffixes.
 - 2026-10-08: a successor takes the place of its predecessor, so the participant's state
   continues: "the old process is gone; a new process exists in its place and is registering".
-- 2026-10-08: `koinon codex` starts Codex with `--no-daemon`; a Codex session that runs under the
-  shared daemon gets its address, but no terminal naming or automatic succession, and the result
-  says why.
-- 2026-10-08: a non-Claude agent's terminal is named when the agent is started with
-  `koinon <family>`; a direct start is not renamed, and the result says to use the launcher. This
-  replaces #228's requirement that naming must not depend on the launcher alone.
+- 2026-10-08: a Koinon session is an agent session started with `koinon <family>`, for every
+  family. `koinon codex` starts Codex with `--no-daemon`. A direct start (`claude`, `codex`,
+  `opencode`, `agy` without `koinon`) is an **islanded instance**: it does not register, it is not
+  listed among peers or in the dashboard, and the Koinon tools refuse its calls with
+  `not_launched` and the launcher command. Isolation of an agent is a supported use. This replaces
+  #228's requirement that naming must not depend on the launcher alone.
 
 ## Acceptance criteria
 
@@ -75,9 +80,8 @@ Maintainer decisions that this sprint carries into the Go runtime:
      process, and the holder's host process has ended: a new agent process started in that pane.
    - The maintainer chooses the new session in the dashboard.
 
-   The same family, repository, peer name or address alone is not evidence. A session under the
-   shared Codex daemon has no verifiable host, so only the maintainer's choice moves its
-   participant. A peer message never changes a holder.
+   The host and the pane come from the session's launch record. The same family, repository,
+   peer name or address alone is not evidence. A peer message never changes a holder.
 4. **The participant's state continues.** The participant owns the messages sent to its address,
    their acknowledgements, its memory cursor and its work claims and leases. The holder acts for
    the participant, so a successor continues them as they are: it reads the unread messages, the
@@ -91,20 +95,22 @@ Maintainer decisions that this sprint carries into the Go runtime:
    key, a registration retry and the command-line paths. A fenced session that calls again cannot
    register itself back into the participant; it gets only its own peer name, and the result says
    why.
-6. **Codex sessions on their own.** `koinon codex` starts Codex with `--no-daemon` and passes the
-   variables that `koinon mcp` needs through the Codex MCP configuration, so a launched session
-   registers with its launch record (#247), names its own terminal and qualifies for criterion 3.
-   A session under the shared Codex daemon gets its address; its terminal is not renamed, and the
-   result says that the terminal cannot be verified under the shared daemon and recommends
-   `koinon codex`.
+6. **Launched sessions only.** Every Koinon session is started with `koinon <family>`, which
+   records a launch and passes its launch ID to the session's `koinon mcp`: through the
+   environment for Claude, OpenCode and Antigravity; through the Codex MCP configuration with
+   `--no-daemon` for Codex (#247); through `--settings` for a Claude background job
+   (`koinon claude --bg`, `live-checks.md`, F5). A launched session registers with its launch
+   record, names its own terminal and qualifies for criterion 3. A direct start is islanded: it
+   never registers, is never listed, and every Koinon tool call returns `not_launched` with the
+   launcher command.
 7. **Naming rules.** One agent pane in a tmux session: rename the session to the participant's
    address, or the peer name without one. More than one agent pane: set only the agent's own pane
    title. Never rename another session or pane; a nested agent or a shared MCP server never renames
    a terminal it does not own. A taken name is reported, nothing is overwritten, and the name is
    tried again at later renewals until it is free. Outside tmux, nothing happens.
-8. **Claude background jobs.** For a Claude background job, the runtime finds the tmux pane of
-   the `claude attach` client of that job and applies criterion 7 to that pane. The pane is
-   reported with the session.
+8. **Claude background jobs.** `koinon claude --bg` starts a background job as a launched
+   session. The runtime finds the tmux pane of the `claude attach` client of that job and applies
+   criterion 7 to that pane. The pane is reported with the session.
 9. **Reported.** The `peers` MCP tool, `koinon peers` and the dashboard show for each session its
    peer name, its participant address and whether it holds it, its role, the last succession
    result and the last naming result with its reason.
@@ -122,7 +128,10 @@ Maintainer decisions that this sprint carries into the Go runtime:
 - A peer request never changes a holder, retires a session or renames a terminal.
 - An upgraded store keeps every existing alias and its holder. An existing alias becomes the
   address of the participant without a role, so no recipient changes at the upgrade. Existing
-  claims, inboxes and cursors keep their current owners.
+  claims, inboxes and cursors keep their current owners. A session that was started directly
+  keeps its registration until it expires, then it is islanded; a session started again with
+  `koinon <family>` becomes the holder under criterion 2 when it is the only qualifier, or by the
+  maintainer's choice.
 - Process and tmux observations run in `koinon mcp` and the daemon, outside the agent sandbox.
   Platform differences stay in `internal/platform`. Builds stay `CGO_ENABLED=0`.
 - Koinon does not read Codex's private state files, and it never stops or reconfigures the

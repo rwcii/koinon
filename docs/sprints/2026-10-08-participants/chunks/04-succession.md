@@ -12,12 +12,11 @@ Facts: `live-checks.md`, F1 and F3. Delivers #141.
 
 ## Change
 
-1. **Host record.** `koinon mcp` sends with each registration the host it found: the host
-   process ID (the Claude process, or the launched CLI from the launch record) and that
-   process's start time, and, when `TMUX` and `TMUX_PANE` are set and the pane holds the host
-   (the existing ancestor check in `terminal_name.go`), the tmux socket path and pane ID. A
-   session under the shared Codex daemon sends no host. The daemon stores the host record with
-   the session. `internal/platform` gains `ProcessStart(pid)`: Linux reads field 22 of
+1. **Host record.** Every session is launched (chunk 01). Its launch record names the host
+   process (the launched CLI; for a background job, the job's Claude process, which `koinon mcp`
+   reports as its parent) and its start time, and, when `TMUX` and `TMUX_PANE` are set and the
+   pane holds the host (the existing ancestor check in `terminal_name.go`), the tmux socket path
+   and pane ID. The daemon stores the host record with the session. `internal/platform` gains `ProcessStart(pid)`: Linux reads field 22 of
    `/proc/<pid>/stat`; macOS reads `kern.proc.pid.<pid>` through `sysctl` without cgo.
 2. **Evidence.** When a registering session S qualifies for a participant whose active holder H
    is another session, the store checks, in the registration transaction:
