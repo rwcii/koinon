@@ -9,7 +9,10 @@ implementation packages in `internal/`, and operating-system differences in
 
 Work on feature/fix/chore branches from develop, in an isolated worktree. Squash reviewed
 PRs into develop; promote to main through a separately approved merge PR. Never commit
-directly to either long-lived branch. Use signed, human-authored DCO commits, with no
+directly to either long-lived branch. Keep one open PR per target branch for the whole
+repository, drafts included, whatever agent family or tool opens it; open the next only after
+it merges or closes. Publish or freeze a head only when it contains the latest develop: merge
+develop into a pushed branch, never rewrite it. Use signed, human-authored DCO commits, with no
 automated attribution. Refer to Robert as the maintainer in Git prose and internal docs.
 
 The maintainer assigns sprint chunks. A paired peer may request a named PR/commit review:
