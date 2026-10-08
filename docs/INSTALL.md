@@ -46,12 +46,14 @@ chmod +x koinon-linux-amd64 && ./koinon-linux-amd64 version
    checked against the source's SHA-256.
 2. It links `~/.local/bin/koinon` to that copy, on Linux and macOS, and records the link in
    `<prefix>/link`. An existing link to the copy is kept; any other file or link at that path
-   is never replaced (`"link_result": "occupied"`). The report names the `koinon` that `PATH`
-   runs (`on_path`). When that is not the installed copy, `path_step` names the one step that
-   makes it so, for example adding `~/.local/bin` to `PATH` in the shell's startup file; on
-   macOS that directory is not on `PATH` by default. When another `koinon`, such as the
-   Homebrew copy, comes first on `PATH`, the report names it. The install never edits shell
-   startup files.
+   is never replaced (`"link_result": "occupied"`). A symlink or an unrelated file at
+   `<prefix>/link` is refused (`link_marker_invalid`) and left as it is. The report names the
+   `koinon` that `PATH` runs (`on_path`), reading relative and empty `PATH` entries against the
+   current directory, as a shell does. When that is not the installed copy, `path_step` names
+   the one step that makes it so, for example adding `~/.local/bin` to `PATH` in the shell's
+   startup file; on macOS that directory is not on `PATH` by default. When another `koinon`,
+   such as the Homebrew copy, comes first on `PATH`, the report names it. The install never
+   edits shell startup files.
 3. It writes one service that runs `<prefix>/bin/koinon serve --state-dir <state>`, then enables
    and (re)starts it:
    - on Linux, the systemd user unit `~/.config/systemd/user/koinon.service`, enabled for login;

@@ -154,7 +154,7 @@ func link(binary, dir, marker string) (string, string, error) {
 			return path, "", err
 		}
 		// The marker comes first, so a link is never left unrecorded.
-		if err := os.WriteFile(marker, []byte(path+"\n"), 0600); err != nil {
+		if err := writeMarker(marker, path); err != nil {
 			return path, "", err
 		}
 		if err := os.Symlink(binary, path); err != nil {
@@ -172,12 +172,68 @@ func link(binary, dir, marker string) (string, string, error) {
 	return path, "occupied", nil
 }
 
-// lookPath returns the koinon that the search path runs, or "".
-func lookPath(path string) string {
+// readMarker returns the link that the marker records, or "" without a marker. A marker
+// that is not a regular file of this user (a symlink included), or that names no koinon
+// link, is refused, so an unrelated file there is never read as one or overwritten.
+func readMarker(marker string) (string, error) {
+	invalid := errors.New("link_marker_invalid: " + marker + " is not a koinon link marker")
+	f, err := platform.OpenOwned(marker)
+	if errors.Is(err, fs.ErrNotExist) {
+		return "", nil
+	}
+	if err != nil {
+		return "", invalid
+	}
+	defer f.Close()
+	data, err := io.ReadAll(io.LimitReader(f, 4097))
+	recorded := strings.TrimSpace(string(data))
+	if err != nil || len(data) > 4096 || !filepath.IsAbs(recorded) || filepath.Base(recorded) != "koinon" {
+		return "", invalid
+	}
+	return recorded, nil
+}
+
+// writeMarker records path in the marker. It replaces only a valid marker, by renaming a
+// new file over it, which never follows a symlink.
+func writeMarker(marker, path string) error {
+	if _, err := readMarker(marker); err != nil {
+		return err
+	}
+	tmp, err := os.CreateTemp(filepath.Dir(marker), ".link-*")
+	if err != nil {
+		return err
+	}
+	defer os.Remove(tmp.Name())
+	if _, err := tmp.WriteString(path + "\n"); err != nil {
+		tmp.Close()
+		return err
+	}
+	if err := tmp.Close(); err != nil {
+		return err
+	}
+	return os.Rename(tmp.Name(), marker)
+}
+
+// searchDirs resolves the search path's directories as a shell in the current directory
+// would: an empty entry is the current directory, and a relative entry is under it.
+func searchDirs(path string) []string {
+	wd, _ := os.Getwd()
+	var dirs []string
 	for _, dir := range filepath.SplitList(path) {
 		if !filepath.IsAbs(dir) {
-			continue
+			if wd == "" {
+				continue
+			}
+			dir = filepath.Join(wd, dir)
 		}
+		dirs = append(dirs, filepath.Clean(dir))
+	}
+	return dirs
+}
+
+// lookPath returns the koinon that the search path runs, or "".
+func lookPath(path string) string {
+	for _, dir := range searchDirs(path) {
 		candidate := filepath.Join(dir, "koinon")
 		if info, err := os.Stat(candidate); err == nil && info.Mode().IsRegular() && info.Mode().Perm()&0111 != 0 {
 			return candidate
@@ -202,8 +258,8 @@ func pathStep(r Report, dir, path string) string {
 		return ""
 	}
 	listed := false
-	for _, entry := range filepath.SplitList(path) {
-		listed = listed || filepath.Clean(entry) == filepath.Clean(dir)
+	for _, entry := range searchDirs(path) {
+		listed = listed || entry == filepath.Clean(dir)
 	}
 	switch {
 	case r.LinkResult == "occupied":
@@ -399,16 +455,11 @@ func Uninstall(ctx context.Context, o Options) (Report, error) {
 // kept.
 func unlink(binary, dir, marker string) (string, string, error) {
 	path := filepath.Join(dir, "koinon")
-	data, err := os.ReadFile(marker)
+	recorded, err := readMarker(marker)
 	switch {
-	case errors.Is(err, fs.ErrNotExist):
 	case err != nil:
 		return path, "", err
-	default:
-		recorded := strings.TrimSpace(string(data))
-		if !filepath.IsAbs(recorded) || filepath.Base(recorded) != "koinon" {
-			return path, "", errors.New("link_marker_invalid: " + marker + " does not name a koinon link")
-		}
+	case recorded != "":
 		path = recorded
 		if target, err := os.Readlink(path); err == nil && target == binary {
 			if err := os.Remove(path); err != nil {
