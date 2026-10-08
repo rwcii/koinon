@@ -134,7 +134,7 @@ func TestDashboardLoginAndRequestProtection(t *testing.T) {
 	}
 	for name, want := range map[string]string{
 		"Content-Security-Policy": "default-src 'none'; script-src 'self'; style-src 'self'; connect-src 'self'; img-src 'self'; form-action 'self'; frame-ancestors 'none'; base-uri 'none'",
-		"X-Frame-Options":         "DENY", "X-Content-Type-Options": "nosniff", "Referrer-Policy": "no-referrer",
+		"X-Frame-Options":         "DENY", "X-Content-Type-Options": "nosniff", "Referrer-Policy": "same-origin",
 		"Cache-Control": "no-store", "Cross-Origin-Opener-Policy": "same-origin",
 	} {
 		if got := page.header.Get(name); got != want {

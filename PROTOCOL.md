@@ -319,7 +319,8 @@ from elsewhere. Peer message bodies appear here, escaped, and nowhere else outsi
   in a hidden field, so the cookie stays unreadable to scripts. A wrong host, origin or token is
   403; no session is 401. Every response carries a `default-src 'none'` content security policy
   that allows only the dashboard's own script, style and fetches, `frame-ancestors 'none'`,
-  `X-Frame-Options: DENY`, `nosniff`, `Referrer-Policy: no-referrer`, `Cache-Control: no-store`
+  `X-Frame-Options: DENY`, `nosniff`, `Referrer-Policy: same-origin` (under `no-referrer` a browser sends
+  `Origin: null` with a same-origin `POST`, which the origin check refuses), `Cache-Control: no-store`
   and `Cross-Origin-Opener-Policy: same-origin`. The dashboard cookie never authorizes `/v1/`, and
   the bearer secret never authorizes `/dashboard/`.
 - **Views.** `sessions` (100 per page in family and ID order, `after=FAMILY:ID` for the next page;

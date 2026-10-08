@@ -5,6 +5,11 @@ into a dated release section when promoted to `main`.
 
 ## Unreleased
 
+- Dashboard actions work from a browser again. Every page sent `Referrer-Policy: no-referrer`,
+  which makes a browser send `Origin: null` with a form `POST`, so retire, release, acknowledge,
+  clear, send, launch and logout were refused with "foreign origin". The pages now send
+  `Referrer-Policy: same-origin`; the origin check is unchanged.
+
 ## 2026-10-08 — Go runtime: one daemon, MCP access, install and upgrade from Python
 
 This release replaces the Python runtime with one Go binary, `koinon`, and one daemon for each
