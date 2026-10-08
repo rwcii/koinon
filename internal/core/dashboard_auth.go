@@ -194,7 +194,9 @@ func dashboardHeaders(w http.ResponseWriter) {
 	h.Set("Content-Security-Policy", "default-src 'none'; script-src 'self'; style-src 'self'; connect-src 'self'; img-src 'self'; form-action 'self'; frame-ancestors 'none'; base-uri 'none'")
 	h.Set("X-Frame-Options", "DENY")
 	h.Set("X-Content-Type-Options", "nosniff")
-	h.Set("Referrer-Policy", "no-referrer")
+	// same-origin, not no-referrer: under no-referrer a browser sends "Origin: null" with every
+	// POST, also to this origin, and the origin check refuses every action form.
+	h.Set("Referrer-Policy", "same-origin")
 	h.Set("Cache-Control", "no-store")
 	h.Set("Cross-Origin-Opener-Policy", "same-origin")
 }
