@@ -11,6 +11,7 @@ import (
 	"slices"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/rwcii/koinon/internal/core"
 	"github.com/rwcii/koinon/internal/launcher"
@@ -225,6 +226,21 @@ func TestMCPParticipantInboxFencing(t *testing.T) {
 		t.Fatalf("no session %s", id)
 		return 0
 	}
+	deadline := float64(time.Now().Unix() + 600)
+	created, isError := h.tool("work_create", map[string]any{"title": "synthetic", "criteria": "synthetic", "non_goals": "synthetic", "key": "synthetic-create-retry", "deadline": deadline}, thread("synthetic-a"))
+	if isError {
+		t.Fatal(created)
+	}
+	workID := created["result"].(map[string]any)["work_id"]
+	if result, isError := h.tool("memory_sync", map[string]any{}, thread("synthetic-a")); isError {
+		t.Fatal(result)
+	}
+	var consumer string
+	for _, session := range h.sessions() {
+		if session.ID == "synthetic-a" {
+			consumer = "participant:" + session.Address
+		}
+	}
 	// A retires; B's renewal makes it the one qualifier, which fences A.
 	if _, err := core.Call(context.Background(), address, secret, "/v1/sessions/retire", core.Mutation{Family: "codex", ID: "synthetic-a", IfRevision: revision("synthetic-a")}); err != nil {
 		t.Fatal(err)
@@ -236,6 +252,27 @@ func TestMCPParticipantInboxFencing(t *testing.T) {
 		reply, isError := h.tool(tool, args, thread("synthetic-a"))
 		if !isError || reply["code"] != "stale_holder" {
 			t.Fatalf("%s by the former holder: %v", tool, reply)
+		}
+	}
+	values := map[string]any{"work_id": workID, "if_revision": 1, "claim_generation": 1, "if_claim_revision": 1, "checkpoint": "synthetic", "next_artifact": "synthetic", "progress": "synthetic", "progress_deadline": deadline, "key": "synthetic-create-retry", "deadline": deadline, "title": "synthetic", "criteria": "synthetic", "non_goals": "synthetic", "outcome": "withdrawn", "proposed_assignee": "synthetic"}
+	for _, op := range core.WorkOperations() {
+		args := map[string]any{"consumer": consumer}
+		for _, field := range core.WorkRequired[op] {
+			args[field] = values[field]
+		}
+		result, isError := h.tool(strings.ReplaceAll(op, "-", "_"), args, thread("synthetic-a"))
+		if !isError || result["code"] != "stale_holder" {
+			t.Fatalf("stale MCP %s: %v", op, result)
+		}
+	}
+	for _, tool := range []string{"memory_sync", "memory_ack", "memory_status", "memory_record"} {
+		args := map[string]any{"consumer": consumer}
+		if tool == "memory_record" {
+			args["type"] = "status"
+			args["body"] = "synthetic"
+		}
+		if result, isError := h.tool(tool, args, thread("synthetic-a")); !isError || result["code"] != "stale_holder" {
+			t.Fatalf("stale MCP %s: %v", tool, result)
 		}
 	}
 	reply, isError := h.tool("inbox", map[string]any{}, thread("synthetic-b"))

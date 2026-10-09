@@ -22,7 +22,7 @@ import (
 
 // undoSchemaTwelve turns a schema 12 database without participant inboxes back into
 // schema 11 for migration tests.
-const undoSchemaTwelve = `DROP TABLE participant_fences; ALTER TABLE sessions DROP COLUMN acked_by; `
+const undoSchemaTwelve = `DROP TABLE participant_fences; ALTER TABLE sessions DROP COLUMN acked_by; ALTER TABLE memory_cursors DROP COLUMN actor; ALTER TABLE work_events DROP COLUMN actor; `
 
 // undoSchemaEleven turns a schema 11 database with roleless participants back into
 // schema 10 for migration tests.

@@ -214,6 +214,9 @@ func assignNames(ctx context.Context, tx *sql.Tx, now int64, p participant) erro
 			return err
 		}
 		if holder != "" {
+			if _, err := tx.ExecContext(ctx, `UPDATE sessions SET retired_at=?,revision=revision+1 WHERE family=? AND id=? AND retired_at=0 AND expires_at>?`, now, p.family, holder, now); err != nil {
+				return err
+			}
 			if err := fence(ctx, tx, now, address, p.family, holder, "conflict"); err != nil {
 				return err
 			}

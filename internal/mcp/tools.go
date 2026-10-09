@@ -53,7 +53,7 @@ var toolList = []map[string]any{
 var (
 	text          = map[string]any{"type": "string"}
 	number        = map[string]any{"type": "number"}
-	consumerField = map[string]any{"type": "string", "description": "A stable cursor name that outlives this session; defaults to this session's peer name."}
+	consumerField = map[string]any{"type": "string", "description": "A stable cursor name that outlives this session; defaults to participant:<address> for its current holder, otherwise its peer name. Participant keys require the current holder."}
 )
 
 // memoryArgs are the arguments each memory tool accepts besides consumer.

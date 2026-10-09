@@ -495,7 +495,7 @@ func TestMemoryTools(t *testing.T) {
 		t.Fatalf("sync: %v", page)
 	}
 	entry := result["entries"].([]any)[0].(map[string]any)
-	if entry["writer_family"] != "codex" || entry["consumer"] != entry["writer_name"] {
+	if entry["writer_family"] != "codex" || entry["writer_name"] != h.sessions()[0].Name || entry["consumer"] != "participant:"+h.sessions()[0].Address {
 		t.Fatalf("provenance: %v", entry)
 	}
 	if acked, isError := h.tool("memory_ack", map[string]any{"consumer": "stable-cursor", "snapshot_id": result["snapshot_id"]}, meta); isError {
@@ -540,8 +540,9 @@ func TestWorkTools(t *testing.T) {
 		t.Fatalf("start: %v", started)
 	}
 	item, _ := h.tool("work_get", map[string]any{"work_id": id}, meta)
-	// The default consumer is the session key, not the peer name.
-	if claim := item["result"].(map[string]any)["current_claim"].(map[string]any); claim["consumer"] != "codex:synthetic-thread" {
+	// The holder defaults to its participant; the second session keeps its native key.
+	consumer := "participant:" + h.sessions()[0].Address
+	if claim := item["result"].(map[string]any)["current_claim"].(map[string]any); claim["consumer"] != consumer {
 		t.Fatalf("claim: %v", claim)
 	}
 	other := map[string]any{"threadId": "synthetic-other"}
@@ -549,7 +550,7 @@ func TestWorkTools(t *testing.T) {
 	conflict, isError := h.tool("work_start", map[string]any{"work_id": second["result"].(map[string]any)["work_id"], "if_revision": 1,
 		"checkpoint": "c", "next_artifact": "a", "progress_deadline": deadline, "key": "s2", "deadline": deadline,
 		"resources": [][]string{{"path", "docs/x"}}}, other)
-	if !isError || conflict["code"] != "claim_conflict" || conflict["details"].(map[string]any)["consumer"] != "codex:synthetic-thread" {
+	if !isError || conflict["code"] != "claim_conflict" || conflict["details"].(map[string]any)["consumer"] != consumer {
 		t.Fatalf("conflict: %v", conflict)
 	}
 	for name, args := range map[string]map[string]any{

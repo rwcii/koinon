@@ -136,10 +136,22 @@ type writeTx struct {
 // starts the transaction.
 func (s *Store) begin(ctx context.Context, class writeClass) (*writeTx, error) {
 	s.storage.mu.Lock()
+	// Refuse a stale participant before admission can reclaim or maintenance can write.
+	if err := s.checkParticipantCall(ctx); err != nil {
+		s.storage.mu.Unlock()
+		return nil, err
+	}
 	tx, err := s.enter(ctx, class)
 	if err != nil {
 		s.storage.mu.Unlock()
 		return nil, err
+	}
+	if m, guarded := ctx.Value(participantCallKey{}).(MemoryCaller); guarded {
+		if err := s.requireParticipantCaller(ctx, tx, m); err != nil {
+			tx.Rollback()
+			s.storage.mu.Unlock()
+			return nil, err
+		}
 	}
 	return &writeTx{Tx: tx, s: s, ctx: ctx, class: class}, nil
 }

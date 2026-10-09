@@ -23,6 +23,8 @@ func TestParticipantInbox(t *testing.T) {
 	for _, body := range []string{"one", "two", "three"} {
 		if out, err := s.Send(ctx, from, "codex-koinon", body); err != nil || out.Recipient != "codex-koinon" {
 			t.Fatalf("send to the address: %+v %v", out, err)
+		} else if got, err := s.MessageOutcome(ctx, from, out.ID); err != nil || got.Recipient != out.Recipient {
+			t.Fatalf("participant delivery recipient: %+v %v", got, err)
 		}
 	}
 	if _, err := s.Send(ctx, from, a.Name, "to the peer name"); err != nil {

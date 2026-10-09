@@ -465,7 +465,7 @@ func (s *Store) MessageOutcome(ctx context.Context, caller Key, id int64) (Outco
 	}
 	var result Outcome
 	var maintainer bool
-	err = tx.QueryRowContext(ctx, `SELECT m.id,COALESCE(n.name,''),m.seq,m.delivery_state,m.delivery_reason,
+	err = tx.QueryRowContext(ctx, `SELECT m.id,CASE WHEN substr(m.recipient_id,1,12)='participant:' THEN substr(m.recipient_id,13) ELSE COALESCE(n.name,'') END,m.seq,m.delivery_state,m.delivery_reason,
 		m.delivery_updated_at,m.seq<=s.acked_through,m.maintainer_ack FROM messages m
 		JOIN sessions s ON s.family=m.recipient_family AND s.id=m.recipient_id
 		LEFT JOIN names n ON n.kind='peer' AND n.family=m.recipient_family AND n.session_id=m.recipient_id

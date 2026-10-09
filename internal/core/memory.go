@@ -64,6 +64,8 @@ type MemoryCaller struct {
 	Family     string
 	Name       string
 	Consumer   string
+	// Native is trusted caller identity from the transport, never a consumer argument.
+	Native Key
 }
 
 type MemoryEntry struct {
@@ -89,6 +91,7 @@ type MemoryEntry struct {
 	EventKind string          `json:"event_kind,omitempty"`
 	WorkID    string          `json:"work_id,omitempty"`
 	Payload   json.RawMessage `json:"payload,omitempty"`
+	Actor     string          `json:"actor,omitempty"`
 }
 
 const entryColumns = `seq,ts,type,scope,scope_target,path,body,author,writer_family,writer_name,consumer,revision,
@@ -122,18 +125,22 @@ func (s *Store) OnMemoryChange(f func(repository string)) {
 }
 
 // ResolveMemoryCaller names the store and provenance for an active caller: its recorded
-// repository, its family and peer name, and the consumer key (its peer name by default).
+// repository, native identity and peer name. A holder defaults to its participant key;
+// a non-holder keeps its peer-name cursor.
 func (s *Store) ResolveMemoryCaller(ctx context.Context, caller Key, consumer *string) (MemoryCaller, error) {
 	tx, err := s.db.BeginTx(ctx, &sql.TxOptions{ReadOnly: true})
 	if err != nil {
 		return MemoryCaller{}, err
 	}
 	defer tx.Rollback()
-	if err := active(ctx, tx, s.now().UnixMilli(), caller); err != nil {
-		return MemoryCaller{}, err
+	if consumer == nil || !isParticipantID(strings.TrimSpace(*consumer)) {
+		if err := active(ctx, tx, s.now().UnixMilli(), caller); err != nil {
+			return MemoryCaller{}, err
+		}
 	}
 	var m MemoryCaller
 	m.Family = caller.Family
+	m.Native = caller
 	if err := tx.QueryRowContext(ctx, `SELECT s.repository,COALESCE(n.name,'') FROM sessions s LEFT JOIN names n
 		ON n.kind='peer' AND n.family=s.family AND n.session_id=s.id WHERE s.family=? AND s.id=?`,
 		caller.Family, caller.ID).Scan(&m.Repository, &m.Name); err != nil {
@@ -143,12 +150,27 @@ func (s *Store) ResolveMemoryCaller(ctx context.Context, caller Key, consumer *s
 		return MemoryCaller{}, memoryError("repo_unresolved", "this session has no Git repository, so it has no memory store")
 	}
 	m.Consumer = m.Name
+	if consumer == nil {
+		address, err := heldAddress(ctx, tx, s.now().UnixMilli(), caller)
+		if err != nil {
+			return MemoryCaller{}, err
+		}
+		if address != "" {
+			m.Consumer = participantKey(address)
+		}
+	}
 	if consumer != nil {
 		// A consumer key names a cursor; it is asserted provenance, never authority.
 		if utf8.RuneCountInString(*consumer) > 128 || strings.TrimSpace(*consumer) == "" {
 			return MemoryCaller{}, memoryError("invalid_request", "a consumer key is 1 to 128 characters and not blank")
 		}
 		m.Consumer = strings.TrimSpace(*consumer)
+	}
+	if err := s.requireParticipantCaller(ctx, tx, m); err != nil {
+		return MemoryCaller{}, err
+	}
+	if err := active(ctx, tx, s.now().UnixMilli(), caller); err != nil {
+		return MemoryCaller{}, err
 	}
 	return m, nil
 }
@@ -204,7 +226,7 @@ func usage(ctx context.Context, q querier, repo string) (memoryUsage, error) {
 		(SELECT COUNT(*) FROM memory_idem WHERE repository=?1),
 		(SELECT COALESCE(SUM(length(CAST(key AS BLOB))+length(CAST(consumer AS BLOB))+64),0) FROM memory_idem WHERE repository=?1),
 		(SELECT COUNT(*) FROM memory_cursors WHERE repository=?1),
-		(SELECT COALESCE(SUM(length(CAST(consumer AS BLOB))+64),0) FROM memory_cursors WHERE repository=?1),
+		(SELECT COALESCE(SUM(length(CAST(consumer AS BLOB))+length(CAST(actor AS BLOB))+64),0) FROM memory_cursors WHERE repository=?1),
 		(SELECT COUNT(*) FROM memory_retired WHERE repository=?1),
 		(SELECT COALESCE(SUM(length(CAST(consumer AS BLOB))+64),0) FROM memory_retired WHERE repository=?1),
 		(SELECT COUNT(*) FROM memory_snapshots WHERE repository=?1),
@@ -239,7 +261,7 @@ func usage(ctx context.Context, q querier, repo string) (memoryUsage, error) {
 			FROM work_scope_revisions WHERE store=?1)+
 		(SELECT COALESCE(SUM(?2+`+textBytes("store", "work_id", "consumer")+`),0) FROM claim_bundles WHERE store=?1)+
 		(SELECT COALESCE(SUM(?2+`+textBytes("store", "kind", "resource")+`),0) FROM claim_resources WHERE store=?1)+
-		(SELECT COALESCE(SUM(?2+`+textBytes("store", "work_id", "kind", "payload")+`),0) FROM work_events WHERE store=?1),
+		(SELECT COALESCE(SUM(?2+`+textBytes("store", "work_id", "kind", "payload", "actor")+`),0) FROM work_events WHERE store=?1),
 		(SELECT COALESCE(SUM(?3+`+textBytes("key", "consumer", "operation", "result")+`),0) FROM work_replays WHERE store=?1),
 		(SELECT COALESCE(SUM(?4+`+textBytes("body", "path", "author", "scope_target", "consumer")+`),0) FROM memory_entries
 			WHERE repository=?5 AND type='work-event')`,
@@ -341,6 +363,11 @@ func (s *Store) memoryWrite(ctx context.Context, repo string, class writeClass, 
 	}
 	if err := body(tx); err != nil {
 		return tx.fail(err)
+	}
+	if m, guarded := ctx.Value(participantCallKey{}).(MemoryCaller); guarded {
+		if _, err := tx.ExecContext(ctx, `UPDATE memory_cursors SET actor=? WHERE repository=? AND consumer=?`, nativeActor(m), repo, m.Consumer); err != nil {
+			return tx.fail(err)
+		}
 	}
 	if err := s.enforce(ctx, tx, repo); err != nil {
 		tx.Rollback()
@@ -496,10 +523,16 @@ func fingerprint(r MemoryRecordRequest) string {
 }
 
 func (s *Store) MemoryRecord(ctx context.Context, m MemoryCaller, r MemoryRecordRequest) (MemoryRecordResult, error) {
+	ctx, finish, guardErr := s.participantCall(ctx, m)
+	if guardErr != nil {
+		return MemoryRecordResult{}, guardErr
+	}
+	defer finish()
 	s.memory.op.Lock()
 	advanced := false
 	defer func() {
 		s.memory.op.Unlock()
+		finish()
 		// The hook runs after the commit and outside every lock, so it may start any operation.
 		if advanced {
 			s.changed(m.Repository)
@@ -716,7 +749,7 @@ func (s *Store) register(ctx context.Context, m MemoryCaller) (memoryCursor, err
 		return c, memoryError("capacity", "this store's consumer capacity is reached")
 	}
 	// The charge covers the cursor and its eventual tombstone.
-	need := 2 * (int64(len(m.Consumer)) + 64)
+	need := 2*(int64(len(m.Consumer))+64) + int64(len(nativeActor(m)))
 	err = s.memoryWrite(ctx, m.Repository, ordinary, need, 0, func(tx *writeTx) error {
 		_, err := tx.ExecContext(ctx, `INSERT OR IGNORE INTO memory_cursors(repository,consumer,seq,issued,snapshot,bootstrapped,
 			resnapshot,updated) VALUES (?,?,0,0,NULL,0,0,?)`, m.Repository, m.Consumer, now)
@@ -763,6 +796,11 @@ type MemorySyncRequest struct {
 
 // MemorySync returns a snapshot page or a delta batch and never moves the cursor.
 func (s *Store) MemorySync(ctx context.Context, m MemoryCaller, r MemorySyncRequest) (map[string]any, error) {
+	ctx, finish, guardErr := s.participantCall(ctx, m)
+	if guardErr != nil {
+		return nil, guardErr
+	}
+	defer finish()
 	s.memory.op.Lock()
 	defer s.memory.op.Unlock()
 	l := s.limits()
@@ -1040,6 +1078,11 @@ type MemoryAckRequest struct {
 // MemoryAck moves the cursor: through a fully issued snapshot, or monotonically through
 // an issued delta.
 func (s *Store) MemoryAck(ctx context.Context, m MemoryCaller, r MemoryAckRequest) (map[string]any, error) {
+	ctx, finish, guardErr := s.participantCall(ctx, m)
+	if guardErr != nil {
+		return nil, guardErr
+	}
+	defer finish()
 	s.memory.op.Lock()
 	defer s.memory.op.Unlock()
 	l := s.limits()
@@ -1113,6 +1156,11 @@ func (s *Store) MemoryAck(ctx context.Context, m MemoryCaller, r MemoryAckReques
 // MemoryRecall finds live entries whose body contains the query, newest first. The scan is
 // complete and matches the query literally.
 func (s *Store) MemoryRecall(ctx context.Context, m MemoryCaller, query string, before int64) (map[string]any, error) {
+	ctx, finish, guardErr := s.participantCall(ctx, m)
+	if guardErr != nil {
+		return nil, guardErr
+	}
+	defer finish()
 	l := s.limits()
 	if strings.TrimSpace(query) == "" {
 		return nil, memoryError("invalid_request", "the query is empty")
@@ -1161,6 +1209,11 @@ func (s *Store) MemoryRecall(ctx context.Context, m MemoryCaller, query string, 
 
 // MemoryStatus reports the store's head, floor, usage, limits, lifetimes and consumers.
 func (s *Store) MemoryStatus(ctx context.Context, m MemoryCaller, after string) (map[string]any, error) {
+	ctx, finish, guardErr := s.participantCall(ctx, m)
+	if guardErr != nil {
+		return nil, guardErr
+	}
+	defer finish()
 	l := s.limits()
 	var head, floor int64
 	storeID := ""
@@ -1172,7 +1225,7 @@ func (s *Store) MemoryStatus(ctx context.Context, m MemoryCaller, after string) 
 	if err != nil {
 		return nil, err
 	}
-	rows, err := s.db.QueryContext(ctx, `SELECT consumer,seq,snapshot,bootstrapped FROM memory_cursors WHERE repository=? AND consumer>?
+	rows, err := s.db.QueryContext(ctx, `SELECT consumer,seq,snapshot,bootstrapped,actor FROM memory_cursors WHERE repository=? AND consumer>?
 		ORDER BY consumer LIMIT ?`, m.Repository, after, l.rowWindow+1)
 	if err != nil {
 		return nil, err
@@ -1180,12 +1233,12 @@ func (s *Store) MemoryStatus(ctx context.Context, m MemoryCaller, after string) 
 	var consumers []map[string]any
 	var sizes []int64
 	for rows.Next() {
-		var consumer string
+		var consumer, actor string
 		var seq int64
 		var snapshot sql.NullString
 		var bootstrapped bool
-		rows.Scan(&consumer, &seq, &snapshot, &bootstrapped)
-		item := map[string]any{"consumer": consumer, "cursor": seq, "lag": head - seq, "snapshot": nil, "bootstrapped": bootstrapped}
+		rows.Scan(&consumer, &seq, &snapshot, &bootstrapped, &actor)
+		item := map[string]any{"consumer": consumer, "cursor": seq, "lag": head - seq, "snapshot": nil, "bootstrapped": bootstrapped, "actor": actor}
 		if snapshot.Valid {
 			item["snapshot"] = snapshot.String
 		}

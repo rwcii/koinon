@@ -7,6 +7,7 @@ import (
 	"errors"
 	"os/exec"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -71,7 +72,11 @@ func TestParticipantCommands(t *testing.T) {
 	command := func(args ...string) (map[string]any, error) {
 		t.Helper()
 		var out bytes.Buffer
-		args = append(args[:1], append([]string{"--state-dir", root, "--address", address}, args[1:]...)...)
+		offset := 1
+		if args[0] == "work" || args[0] == "claim" || args[0] == "memory" {
+			offset = 2
+		}
+		args = append(args[:offset], append([]string{"--state-dir", root, "--address", address}, args[offset:]...)...)
 		if err := run(context.Background(), args, strings.NewReader(""), &out); err != nil {
 			return nil, err
 		}
@@ -84,6 +89,16 @@ func TestParticipantCommands(t *testing.T) {
 	if _, err := command("send", "--as", "agy:synthetic-sender", a.Alias, "for the participant"); err != nil {
 		t.Fatal(err)
 	}
+	deadline := strconv.FormatInt(time.Now().Unix()+600, 10)
+	createArgs := []string{"work", "create", "--as", "codex:synthetic-a", "--title", "synthetic", "--criteria", "synthetic", "--non-goals", "synthetic", "--key", "synthetic-create-retry", "--deadline", deadline}
+	created, err := command(createArgs...)
+	if err != nil {
+		t.Fatal(err)
+	}
+	workID := created["result"].(map[string]any)["work_id"].(string)
+	if _, err := command("memory", "sync", "--as", "codex:synthetic-a"); err != nil {
+		t.Fatal(err)
+	}
 	// A retires; B's renewal makes it the one qualifier and fences A, which registers again.
 	if _, err := core.Call(context.Background(), address, secret, "/v1/sessions/retire", core.Mutation{Family: "codex", ID: "synthetic-a", IfRevision: a.Revision}); err != nil {
 		t.Fatal(err)
@@ -93,6 +108,33 @@ func TestParticipantCommands(t *testing.T) {
 	}
 	register("codex", "synthetic-a")
 	var refused core.RefusedError
+	consumer := "participant:" + a.Address
+	values := map[string]string{"if_revision": "1", "claim_generation": "1", "if_claim_revision": "1", "checkpoint": "synthetic", "next_artifact": "synthetic", "progress": "synthetic", "progress_deadline": deadline, "key": "synthetic-create-retry", "deadline": deadline, "title": "synthetic", "criteria": "synthetic", "non_goals": "synthetic", "outcome": "withdrawn", "proposed_assignee": "synthetic"}
+	for _, op := range core.WorkOperations() {
+		parts := strings.Split(op, "-")
+		args := []string{parts[0], parts[1], "--as", "codex:synthetic-a", "--consumer", consumer}
+		for _, field := range core.WorkRequired[op] {
+			if field != "work_id" {
+				args = append(args, "--"+strings.ReplaceAll(field, "_", "-"), values[field])
+			}
+		}
+		if op != "work-create" && op != "work-list" {
+			args = append(args, workID)
+		}
+		if _, err := command(args...); !errors.As(err, &refused) || refused.Code != "stale_holder" {
+			t.Fatalf("stale CLI %s: %v", op, err)
+		}
+	}
+	for _, op := range []string{"sync", "ack", "status", "record", "recall"} {
+		args := []string{"memory", op, "--as", "codex:synthetic-a", "--consumer", consumer}
+		if op == "record" || op == "recall" {
+			args = append(args, "synthetic")
+		}
+		if _, err := command(args...); !errors.As(err, &refused) || refused.Code != "stale_holder" {
+			t.Fatalf("stale CLI memory %s: %v", op, err)
+		}
+	}
+
 	if _, err := command("inbox", "--as", "codex:synthetic-a", "--participant-after", "0"); !errors.As(err, &refused) || refused.Code != "stale_holder" {
 		t.Fatalf("former holder's participant read: %v", err)
 	}

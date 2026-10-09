@@ -76,10 +76,9 @@ func (s *Store) CheckoutStatus(ctx context.Context, caller Key, directory string
 	}
 	writer := &CheckoutWriter{WorkID: b.WorkID, Generation: b.Generation, Consumer: b.Consumer,
 		Revision: w.Revision, ExpiresAt: b.ExpiresAt, LeaseValid: b.Active && b.ExpiresAt > result.ObservedAt, Checkpoint: w.Checkpoint}
-	// A custom consumer is not necessarily a native session. Never guess its recipient.
-	err = tx.QueryRowContext(ctx, `SELECT name FROM names WHERE kind='peer' AND repository=? AND family||':'||session_id=?`,
-		m.Repository, b.Consumer).Scan(&writer.Peer)
-	if err != nil && !errors.Is(err, sql.ErrNoRows) {
+	// Participant claims follow the active holder; other custom consumers are never guessed.
+	writer.Peer, _, err = checkoutWriterPeer(ctx, tx, m.Repository, b.Consumer, s.now().UnixMilli())
+	if err != nil {
 		return result, err
 	}
 	result.Writer = writer
@@ -92,6 +91,26 @@ func (s *Store) CheckoutStatus(ctx context.Context, caller Key, directory string
 		result.State = "expired"
 	}
 	return result, nil
+}
+
+func checkoutWriterPeer(ctx context.Context, tx *sql.Tx, repository, consumer string, now int64) (string, Key, error) {
+	var peer string
+	var k Key
+	var err error
+	if isParticipantID(consumer) {
+		err = tx.QueryRowContext(ctx, `SELECT n.name,s.family,s.id FROM names p JOIN sessions s
+			ON s.family=p.family AND s.id=p.holder_id AND s.repository=p.repository AND s.role=p.role
+			JOIN names n ON n.kind='peer' AND n.family=s.family AND n.session_id=s.id
+			WHERE p.kind='alias' AND p.name=? AND p.repository=? AND s.subagent=0 AND s.retired_at=0 AND s.expires_at>?`,
+			strings.TrimPrefix(consumer, participantPrefix), repository, now).Scan(&peer, &k.Family, &k.ID)
+	} else {
+		err = tx.QueryRowContext(ctx, `SELECT name,family,session_id FROM names WHERE kind='peer' AND repository=? AND family||':'||session_id=?`,
+			repository, consumer).Scan(&peer, &k.Family, &k.ID)
+	}
+	if errors.Is(err, sql.ErrNoRows) {
+		return "", Key{}, nil
+	}
+	return peer, k, err
 }
 
 // RequestCheckout sends an ordinary inert inbox message to the currently observed
@@ -110,20 +129,41 @@ func (s *Store) RequestCheckout(ctx context.Context, caller Key, directory, note
 	if status.Writer == nil || !status.Writer.LeaseValid {
 		return nil, workError("checkout_unheld", "no live writer role to request; reconcile the checkpoint before explicitly starting work")
 	}
-	if status.Writer.Peer == "" {
-		return nil, workError("writer_unaddressable", "the writer uses a custom consumer; coordinate with its owner explicitly")
-	}
-	if status.Writer.Consumer == caller.Family+":"+caller.ID {
-		return nil, invalid("the caller already holds this checkout role")
-	}
-	body, _ := json.Marshal(map[string]any{"type": "checkout_writer_request", "resource": status.Resource,
-		"work_id": status.Writer.WorkID, "claim_generation": status.Writer.Generation, "note": note,
-		"meaning": "Request only. Verify current checkout status before deciding whether to hand back the writer role."})
-	message, err := s.Send(ctx, caller, status.Writer.Peer, string(body))
+	tx, err := s.begin(ctx, ordinary)
 	if err != nil {
 		return nil, err
 	}
-	return map[string]any{"checkout": status, "message": message}, nil
+	defer tx.Rollback()
+	store, err := storeOf(ctx, tx, status.Repository)
+	if err != nil {
+		return nil, err
+	}
+	bundle, err := bundleFor(ctx, tx, store, status.Writer.WorkID)
+	if err != nil {
+		return nil, err
+	}
+	if bundle == nil || !bundle.Active || bundle.ExpiresAt <= s.clock() || bundle.Generation != status.Writer.Generation || bundle.Consumer != status.Writer.Consumer {
+		return nil, workError("checkout_unheld", "the observed writer changed; read checkout status again")
+	}
+	peer, owner, err := checkoutWriterPeer(ctx, tx.Tx, status.Repository, bundle.Consumer, s.now().UnixMilli())
+	if err != nil {
+		return nil, err
+	}
+	if peer == "" {
+		return nil, workError("writer_unaddressable", "the writer has no addressable active holder; coordinate with its owner explicitly")
+	}
+	if owner == caller {
+		return nil, invalid("the caller already holds this checkout role")
+	}
+	status.Writer.Peer = peer
+	body, _ := json.Marshal(map[string]any{"type": "checkout_writer_request", "resource": status.Resource,
+		"work_id": status.Writer.WorkID, "claim_generation": status.Writer.Generation, "note": note,
+		"meaning": "Request only. Verify current checkout status before deciding whether to hand back the writer role."})
+	message, err := s.sendTx(ctx, tx, caller, peer, string(body), false)
+	if err != nil {
+		return nil, err
+	}
+	return map[string]any{"checkout": status, "message": message}, tx.Commit()
 }
 
 // notifyCheckoutHandoff joins the work-release transaction. Both the checkpoint/release

@@ -41,7 +41,7 @@ var workSchema = map[string]map[string]any{
 	"resources":  {"type": "array", "maxItems": 8, "items": map[string]any{"type": "array", "items": text, "minItems": 2, "maxItems": 2}},
 }
 
-var workConsumerField = map[string]any{"type": "string", "description": "A stable consumer key that outlives this session; defaults to this session's key (FAMILY:ID). Leases belong to it."}
+var workConsumerField = map[string]any{"type": "string", "description": "A stable consumer key that outlives this session; defaults to participant:<address> for its current holder, otherwise FAMILY:ID. Participant keys require the current holder. Leases belong to the consumer."}
 
 // workArgs are the arguments each work tool accepts besides consumer.
 func workArgs(op string) []string {

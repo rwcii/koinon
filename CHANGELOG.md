@@ -5,6 +5,17 @@ into a dated release section when promoted to `main`.
 
 ## Unreleased
 
+- Participant addresses now own their inboxes and a holder's default memory cursor and work
+  claims. A new holder continues acknowledgement points, cursors and live claim generations
+  without restarting leases. Holder changes retire and persistently fence the former holder;
+  only the maintainer's dashboard choice lifts a fence. Former-holder participant calls,
+  explicit consumer keys and keyed retries return `stale_holder`. Cursor and work-event
+  provenance records the acting native session. Checkout status and role requests resolve
+  participant writers to their current holder; handback still needs explicit acceptance.
+  Inbox messages identify their independent session/participant sequences. Schema 12 keeps
+  all pre-upgrade inbox messages, acknowledgements, memory cursors and claims with their
+  existing owners; participant ownership applies to new address messages and default calls.
+
 - Participants have one reserved address per family, repository and optional role. Launchers
   accept `--role`; linked worktrees share participants. An active holder keeps its address;
   without one, only a sole active qualifier takes it. Multiple qualifiers leave a conflict

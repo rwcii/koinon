@@ -471,6 +471,8 @@ func migrate(db *sql.DB, version, target int) error {
 		// A fence keeps a former holder from acting for, or taking, the participant again
 		// until the maintainer chooses it.
 		if _, err := tx.Exec(`ALTER TABLE sessions ADD COLUMN acked_by TEXT NOT NULL DEFAULT '';
+			ALTER TABLE memory_cursors ADD COLUMN actor TEXT NOT NULL DEFAULT '';
+			ALTER TABLE work_events ADD COLUMN actor TEXT NOT NULL DEFAULT '';
 			CREATE TABLE participant_fences (
 				address TEXT NOT NULL, family TEXT NOT NULL, session_id TEXT NOT NULL,
 				at INTEGER NOT NULL, reason TEXT NOT NULL, PRIMARY KEY (address, family, session_id)

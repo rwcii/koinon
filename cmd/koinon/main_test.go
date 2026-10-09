@@ -324,7 +324,14 @@ func TestWorkCommands(t *testing.T) {
 	if out, err := exec.Command("git", "init", "-q", repo).CombinedOutput(); err != nil {
 		t.Fatalf("git init: %v %s", err, out)
 	}
-	if _, err := core.Call(context.Background(), address, secret, "/v1/sessions/register", core.Registration{Family: "deepseek", ID: "synthetic-d", Repository: repo, Directory: repo}); err != nil {
+	registration, err := core.Call(context.Background(), address, secret, "/v1/sessions/register", core.Registration{Family: "deepseek", ID: "synthetic-d", Repository: repo, Directory: repo})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var registered struct {
+		Session core.Session `json:"session"`
+	}
+	if err := json.Unmarshal(registration, &registered); err != nil {
 		t.Fatal(err)
 	}
 	work := func(args ...string) (map[string]any, error) {
@@ -364,7 +371,7 @@ func TestWorkCommands(t *testing.T) {
 	}
 	generation := fmt.Sprint(started["claim"].(map[string]any)["generation"])
 	if item, err := work("work", "get", id); err != nil || len(item["current_claim"].(map[string]any)["resources"].([]any)) != 3 ||
-		item["current_claim"].(map[string]any)["consumer"] != "deepseek:synthetic-d" {
+		item["current_claim"].(map[string]any)["consumer"] != "participant:"+registered.Session.Address {
 		t.Fatalf("resources: %v %v", item, err)
 	}
 	if r, err := work("claim", "renew", id, "--claim-generation", generation, "--if-claim-revision", "1"); err != nil || r["seq"] != nil {

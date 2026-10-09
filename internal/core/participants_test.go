@@ -344,6 +344,9 @@ func TestExpiredHolderRegistersAgain(t *testing.T) {
 		if again.HoldsAddress || !again.Fenced || p.Holder != "" || !reflect.DeepEqual(p.Conflict, want) {
 			t.Fatalf("expired holder took the address back (observed %v): %+v %+v", observed, again, p)
 		}
+		if !observed && again.State != "retired" {
+			t.Fatalf("conflict did not retire the returning former holder: %+v", again)
+		}
 		if _, err := s.Send(context.Background(), Key{"codex", "synthetic-b"}, "codex-koinon", "x"); !errors.Is(err, ErrAliasUnheld) {
 			t.Fatalf("send to a conflicted address: %v", err)
 		}

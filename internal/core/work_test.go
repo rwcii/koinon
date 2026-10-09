@@ -1098,6 +1098,7 @@ func TestWorkAPIConsumerAndRefusalDetails(t *testing.T) {
 		}
 	}
 	callerA, callerB := Key{a.Family, a.ID}, Key{b.Family, b.ID}
+	consumerA := participantKey(sessionState(t, d.store, callerA).Address)
 	deadline := float64(time.Now().Unix() + 600)
 	status, created := post(t, address, secret, "/v1/work/work-create", map[string]any{"caller": callerA, "title": "api", "criteria": "c",
 		"non_goals": "n", "key": "k", "deadline": deadline})
@@ -1114,11 +1115,11 @@ func TestWorkAPIConsumerAndRefusalDetails(t *testing.T) {
 	}
 	status, refused := post(t, address, secret, "/v1/work/work-start", startBody(callerB, 2))
 	details, _ := refused["details"].(map[string]any)
-	if status != 409 || refused["code"] != "claim_conflict" || details["consumer"] != a.Family+":"+a.ID {
+	if status != 409 || refused["code"] != "claim_conflict" || details["consumer"] != consumerA {
 		t.Fatalf("conflict: %d %v", status, refused)
 	}
 	if status, result := post(t, address, secret, "/v1/work/work-get", map[string]any{"caller": callerB, "work_id": id, "consumer": "stable"}); status != 200 ||
-		result["result"].(map[string]any)["current_claim"].(map[string]any)["consumer"] != a.Family+":"+a.ID {
+		result["result"].(map[string]any)["current_claim"].(map[string]any)["consumer"] != consumerA {
 		t.Fatalf("get: %d %v", status, result)
 	}
 	if status, _ := post(t, address, secret, "/v1/work/work-get", map[string]any{"caller": callerB, "work_id": id, "consumer": nil}); status != 400 {

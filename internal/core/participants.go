@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"strings"
+	"sync"
 )
 
 // Participants (participants sprint, chunk 02). A participant is a family, a repository and
@@ -42,6 +43,8 @@ type ParticipantEvent struct {
 // revision, active, of that participant and not a sub-agent. It is a control write, so it
 // commits at the ordinary storage ceiling, and it records a participant event.
 func (s *Store) ChooseHolder(ctx context.Context, address string, k Key, revision int64) error {
+	s.wake.mu.Lock()
+	defer s.wake.mu.Unlock()
 	if address == "" || len(address) > 256 || !validKey(k.Family, k.ID) || revision <= 0 {
 		return ErrInvalid
 	}
@@ -208,4 +211,64 @@ func fence(ctx context.Context, tx *sql.Tx, now int64, address, family, id, reas
 	_, err := tx.ExecContext(ctx, `INSERT INTO participant_fences(address,family,session_id,at,reason) VALUES (?,?,?,?,?)
 		ON CONFLICT(address,family,session_id) DO UPDATE SET at=excluded.at,reason=excluded.reason`, address, family, id, now, reason)
 	return err
+}
+
+// Participant memory/work calls span several transactions. Keep holder changes (which
+// also hold wake.mu) outside the whole call, and carry the trusted native identity into
+// each write, including request-triggered maintenance. A cached resolved caller is never
+// authority, nor is an explicitly supplied participant consumer.
+type participantCallKey struct{}
+
+func (s *Store) participantCall(ctx context.Context, m MemoryCaller) (context.Context, func(), error) {
+	if !isParticipantID(m.Consumer) || m.Family == maintainerKey.Family {
+		return ctx, func() {}, nil
+	}
+	s.wake.mu.Lock()
+	ctx = context.WithValue(ctx, participantCallKey{}, m)
+	if err := s.checkParticipantCall(ctx); err != nil {
+		s.wake.mu.Unlock()
+		return ctx, func() {}, err
+	}
+	return ctx, sync.OnceFunc(s.wake.mu.Unlock), nil
+}
+
+func (s *Store) checkParticipantCall(ctx context.Context) error {
+	m, guarded := ctx.Value(participantCallKey{}).(MemoryCaller)
+	if !guarded {
+		return nil
+	}
+	tx, err := s.db.BeginTx(ctx, &sql.TxOptions{ReadOnly: true})
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+	return s.requireParticipantCaller(ctx, tx, m)
+}
+
+func (s *Store) requireParticipantCaller(ctx context.Context, tx *sql.Tx, m MemoryCaller) error {
+	if !isParticipantID(m.Consumer) || m.Family == maintainerKey.Family {
+		return nil
+	}
+	if !validKey(m.Native.Family, m.Native.ID) || m.Native.Family != m.Family {
+		return ErrStaleHolder
+	}
+	address := strings.TrimPrefix(m.Consumer, participantPrefix)
+	if err := requireHolder(ctx, tx, s.now().UnixMilli(), m.Native, address); err != nil {
+		return err
+	}
+	var repository string
+	if err := tx.QueryRowContext(ctx, `SELECT repository FROM names WHERE kind='alias' AND name=?`, address).Scan(&repository); err != nil {
+		return err
+	}
+	if repository != m.Repository {
+		return ErrStaleHolder
+	}
+	return nil
+}
+
+func nativeActor(m MemoryCaller) string {
+	if m.Native.ID != "" {
+		return m.Native.Family + ":" + m.Native.ID
+	}
+	return ""
 }

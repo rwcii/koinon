@@ -125,7 +125,7 @@ func TestMemoryStorePerRepositoryAndWorktree(t *testing.T) {
 		return m
 	}
 	a, b, c := register("synthetic-a", repo, repo), register("synthetic-b", repo+"-tree", repo+"-tree"), register("synthetic-c", other, other)
-	if a.Repository != b.Repository || a.Repository == c.Repository || a.Consumer != a.Name {
+	if a.Repository != b.Repository || a.Repository == c.Repository || a.Consumer != participantKey(sessionState(t, s, a.Native).Address) || b.Consumer != b.Name || c.Consumer != participantKey(sessionState(t, s, c.Native).Address) {
 		t.Fatalf("stores: %+v %+v %+v", a, b, c)
 	}
 	note(t, s, a, MemoryRecordRequest{Body: "shared"})
