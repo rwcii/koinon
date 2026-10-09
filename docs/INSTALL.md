@@ -237,6 +237,15 @@ repository. See [USAGE.md](USAGE.md) for holder conflicts and the maintainer's d
 Schema 11 preserves existing aliases and holders as participants without a role; inboxes,
 acknowledgements, memory cursors and work claims keep their existing owners.
 
+Launched sessions record their host PID and process start value; MCP reports a tmux socket
+and pane only after verifying that the pane holds the host. A new native session in the same
+host can succeed after the 30-second tool-call guard, and a new host in the same pane can
+succeed once the former host is proven ended. `peers` reports `succession` with the evidence
+or refusal. A `holder_active` refusal retries at the next tool call after the daemon's wait;
+renewal and observation timers never trigger succession. A fenced old thread needs the
+maintainer's dashboard choice. Schema 13 adds host records and succession results without
+moving existing inboxes, cursors or claims; missing host records cannot prove succession.
+
 Read `koinon guide --agent FAMILY` at startup and after a reset. Discover the exact recipient
 with `peers`, send only within the maintainer's authorization, read notices through `inbox`,
 and acknowledge only messages already handled. Use MCP when available; command examples

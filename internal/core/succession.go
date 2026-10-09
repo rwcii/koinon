@@ -173,36 +173,33 @@ func (s *Store) succeed(ctx context.Context, tx *sql.Tx, now int64, k Key, repos
 	evidence := ""
 	sameHost := sh.start != 0 && sh.pid == hh.pid && sh.start == hh.start
 	samePane := sh.pane != "" && sh.socket == hh.socket && sh.pane == hh.pane
+	other, err := holdsElsewhere(ctx, tx, now, k, sh, address)
+	if err != nil {
+		return nil, err
+	}
 	switch {
 	case fenced == 1:
 		result.Reason = "fenced"
 	case subagent:
 		result.Reason = "subagent"
+	case sh.start == 0 || hh.start == 0:
+		result.Reason = "no_host"
+	case other:
+		result.Reason = "other_participant"
 	case sameHost:
 		if left := s.guardLeft(Key{k.Family, holder}, now); left > 0 {
 			result.Reason, result.RetryAfterMS = "holder_active", left
 		} else {
 			evidence = "same_host"
 		}
-	case samePane && hh.start == 0:
-		result.Reason = "no_host"
 	case samePane:
 		if s.hostEnded(hh) {
 			evidence = "same_pane"
 		} else {
 			result.Reason = "host_running"
 		}
-	case sh.start == 0 || hh.start == 0:
-		result.Reason = "no_host"
 	default:
-		other, err := holdsElsewhere(ctx, tx, now, k, sh, address)
-		if err != nil {
-			return nil, err
-		}
 		result.Reason = "other_pane"
-		if other {
-			result.Reason = "other_participant"
-		}
 	}
 	if result.Holder, err = peerOf(ctx, tx, k.Family, holder); err != nil {
 		return nil, err

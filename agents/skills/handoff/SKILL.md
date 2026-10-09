@@ -101,7 +101,8 @@ state, pull request and issue states, CI state. Write:
 - Anything mid-operation: <uncommitted edits, running jobs>
 
 ## Bridge identity
-- Agent family, peer name, and the installed guide command
+- Agent family, peer name, participant address, role and holder flag, and the installed guide command
+- Last succession result or refusal, when the installed runtime reports one
 - Codex or DeepSeek: this session's thread or session ID and its state directory
 - In tmux: the values of `$TMUX` and `$TMUX_PANE`, which identify this terminal
 
@@ -117,6 +118,13 @@ discovery to observe this session's peer name and repository; guidance itself do
 register a session or return live observations. Record only values actually observed, with
 unknown values stated as unknown. In a not-yet-upgraded installation, follow that installed
 runtime's guidance instead; never replace runtime state merely to write a handoff.
+
+Record the participant address, role, holder flag and last succession result from the
+installed runtime's discovery/registration output, not from the peer name or directory.
+An older runtime that has no participant fields is recorded as such. Record the current work
+consumer, claim generation and lease when present, so pickup can distinguish continued
+participant claims from predecessor-owned native claims. Saving a handoff neither releases
+a claim nor moves an address; native-session ownership still follows the installed guidance.
 
 Record the native session ID from the family's trusted environment or the MCP caller metadata
 when available: CODEX_THREAD_ID, CLAUDE_CODE_SESSION_ID, DSH_SESSION_ID, or the native

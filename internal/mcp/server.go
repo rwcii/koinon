@@ -75,6 +75,9 @@ type server struct {
 type registered struct {
 	revision int64
 	at       time.Time
+	// retryAt is a local wait derived from the daemon's holder_active duration.
+	// Renewals keep it; only a tool call may retry succession.
+	retryAt time.Time
 }
 
 // Serve runs the server until the input ends or ctx is cancelled.

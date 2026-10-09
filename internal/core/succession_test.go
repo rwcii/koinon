@@ -256,9 +256,10 @@ func TestSuccessionSamePane(t *testing.T) {
 	// A host process that has ended with no process in its place.
 	repo2 := namedRepo(t, "other")
 	h.set(300, 5)
+	h.set(400, 10)
 	held = arrive(t, s, arrival{family: "codex", id: "old-2", repo: repo2, pid: 300, pane: "%4", toolCall: true})
 	h.set(300, 0)
-	next = arrive(t, s, arrival{family: "codex", id: "new-2", repo: repo2, pid: 200, pane: "%4", toolCall: true})
+	next = arrive(t, s, arrival{family: "codex", id: "new-2", repo: repo2, pid: 400, pane: "%4", toolCall: true})
 	wantSuccession(t, next, "succeeded", "same_pane", held.Name)
 }
 
@@ -438,4 +439,29 @@ func TestToolCallRoutes(t *testing.T) {
 	if stop {
 		t.Fatal("wake request recorded a tool call")
 	}
+}
+
+func TestSuccessionUnknownCandidateHost(t *testing.T) {
+	s, h, _ := successionStore(t)
+	repo := namedRepo(t, "koinon")
+	h.set(100, 7)
+	h.set(200, 9)
+	held := arrive(t, s, arrival{family: "codex", id: "old", repo: repo, pid: 100, pane: "%3", toolCall: true})
+	h.set(100, 0)
+	h.fail(200, true)
+	got := arrive(t, s, arrival{family: "codex", id: "new", repo: repo, pid: 200, pane: "%3", toolCall: true})
+	wantSuccession(t, got, "refused", "no_host", held.Name)
+}
+func TestSuccessionHostAlreadyHoldsElsewhere(t *testing.T) {
+	s, h, advance := successionStore(t)
+	repo := namedRepo(t, "koinon")
+	other := namedRepo(t, "elsewhere")
+	h.set(100, 7)
+	h.set(200, 9)
+	held := arrive(t, s, arrival{family: "codex", id: "old", repo: repo, pid: 100, pane: "%3", toolCall: true})
+	arrive(t, s, arrival{family: "codex", id: "other", repo: other, pid: 200, pane: "%3", toolCall: true})
+	h.set(100, 0)
+	advance(time.Minute)
+	got := arrive(t, s, arrival{family: "codex", id: "new", repo: repo, pid: 200, pane: "%3", toolCall: true})
+	wantSuccession(t, got, "refused", "other_participant", held.Name)
 }

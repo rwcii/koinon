@@ -134,6 +134,23 @@ current session revision, is audited, and shows as the participant's last event.
 or another participant's session cannot be chosen. A send to an unheld address is refused
 with `alias_unheld`; the agent's peer name can still be addressed directly.
 
+After a launched agent resets to a new native session in the same host process, its first
+Koinon tool call can take the participant from the previous session once that holder has
+made no tool call for 30 seconds. A new process in the same tmux server and pane can succeed
+it when the old host has provably ended. The runtime checks process IDs and start values;
+the same repository or peer message is insufficient. Sub-agents and fenced sessions cannot
+succeed automatically. Unknown host evidence, or missing pane evidence for a different
+host, leaves the holder unchanged.
+
+`peers` shows the current session's optional `succession` result, including the address,
+former/retained holder, daemon time, evidence or refusal reason. `holder_active` means the
+30-second guard remains: MCP retries at the first tool call after the returned wait, without
+you sending a registration command. Renewals and observation timers do not trigger the
+retry or keep the guard active. Other reasons are `no_host`, `host_running`, `other_pane`,
+`subagent`, `fenced` and `other_participant`; report the reason and use the maintainer's
+**Make holder** choice when a manual choice is needed. After a daemon restart, the guard
+waits at least 30 seconds because earlier tool-call activity is unknown.
+
 A holder change retires and persistently fences the former holder. Registering again gives
 it its native peer name only; only **Make holder** lifts its fence. Address messages now
 belong to the participant inbox, and a holder's default memory/work consumer is

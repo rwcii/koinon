@@ -120,8 +120,10 @@ whether project work was paused or authorized to continue. Do not infer a reset 
 merely from a high context reading.
 
 1. **Request handoff.** Send the family's handoff command. Do not queue the reset behind an
-   unfinished turn. If the peer has active work claims, the handoff records their state; an
-   authorized release happens under its current identity before the reset.
+   unfinished turn. The handoff records the participant address, role, holder state and
+   current work consumer, generation and lease. A reset does not require releasing a
+   participant-owned claim: a verified successor continues it. Predecessor-owned native
+   claims still need expiry or an authorized release under the current identity.
 2. **Verify the saved state.** Wait for the completed turn. Check that the reported file
    exists, is nonempty, lies in the main checkout's `_handoff/<agent>/`, and is Git-ignored.
    Let the peer write its own handoff; do not substitute another agent's file. If saving
@@ -136,15 +138,23 @@ merely from a high context reading.
    Rediscover native session/peer identity after reset; neither a retained PID nor a name
    proves that the native key stayed the same. The peer follows its installed guidance
    (`koinon guide --agent FAMILY`) and uses its configured MCP tools for the current session.
-   It checks current claim status before writing. A successor must not use the predecessor's
-   key to update or finish a claim. A lease stays until expiry or an authorized release;
-   report the limitation rather than taking ownership. Do not retire a predecessor or change
-   agent/runtime configuration without the maintainer's authorization.
+   Compare participant address and role with the handoff and inspect the reported succession:
+   the same host PID/start after the 30-second tool-call guard, or the same verified tmux
+   server/pane after the former host ends, can replace the holder. The runtime retires and
+   fences the predecessor; the terminal operator does not retire it or move an alias.
+   `holder_active` retries at the next native tool call after the daemon wait, never on a
+   renewal timer. Report any other refusal and tell the maintainer when a dashboard holder
+   choice is needed; a fenced old thread cannot recover automatically, including on `/resume`.
+   Check the current work item and saved checkpoint before writing. A confirmed holder
+   continues participant-owned claims with their existing generation and lease; it never
+   uses the predecessor's native key. Native-session claims keep their old owners and still
+   wait for expiry or authorized release. Installed predecessors retain their own guidance.
+   Succession grants no new task, runtime or permission authority.
 
 Capture after each stage and wait in bounded intervals when the peer is still working. Do
 not blindly queue handoff, reset and pickup together. If progress stalls, report the last
 completed stage and leave the saved handoff available rather than repeatedly clearing.
 
-Report the target session/pane, completed stages, saved path, pickup result, any authorized predecessor retirement, the tmux name and remaining blockers. Context percentages, when available, are supporting observations; successful
+Report the target session/pane, completed stages, saved path, pickup and succession/refusal result, participant address and role, the tmux name and remaining blockers. Context percentages, when available, are supporting observations; successful
 pickup is the evidence that the task state survived. Do not claim a new process was started
 or that work resumed unless that was observed.
