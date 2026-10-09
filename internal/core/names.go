@@ -74,6 +74,10 @@ func lengths(base, digest string) []string {
 type participant struct {
 	family, id, repository, directory, role string
 	subagent                                bool
+	// wasActive says whether the session was active before this registration or renewal:
+	// a recorded holder that had expired holds nothing until the rules give it the
+	// participant again.
+	wasActive bool
 }
 
 // peerName gives a session its permanent peer name, once.
@@ -163,10 +167,10 @@ func assignNames(ctx context.Context, tx *sql.Tx, now int64, p participant) erro
 	if errors.Is(err, sql.ErrNoRows) {
 		address, err = createAddress(ctx, tx, p)
 	}
-	if err != nil || holder == p.id {
+	if err != nil || holder == p.id && p.wasActive {
 		return err
 	}
-	if holder != "" {
+	if holder != "" && holder != p.id {
 		valid, err := holds(ctx, tx, now, p.family, holder, p.repository, p.role)
 		if err != nil || valid {
 			return err
@@ -193,14 +197,18 @@ func assignNames(ctx context.Context, tx *sql.Tx, now int64, p participant) erro
 		return err
 	}
 	switch {
+	case len(ids) == 1 && ids[0] == p.id && holder == p.id:
+		// The holder registered again after expiring and is still the only qualifier.
+		return nil
 	case len(ids) == 1 && ids[0] == p.id:
 		return setHolder(ctx, tx, now, address, holder, p.id, "only_qualifier", "session")
 	case len(ids) > 1:
 		data, err := json.Marshal(peers)
-		if err != nil || string(data) == conflict {
+		if err != nil || string(data) == conflict && holder == "" {
 			return err
 		}
-		if _, err := tx.ExecContext(ctx, `UPDATE names SET conflict=? WHERE name=?`, string(data), address); err != nil {
+		// A conflict leaves the participant without a holder, also an expired one.
+		if _, err := tx.ExecContext(ctx, `UPDATE names SET conflict=?,holder_id='' WHERE name=?`, string(data), address); err != nil {
 			return err
 		}
 		former, err := peerOf(ctx, tx, p.family, holder)

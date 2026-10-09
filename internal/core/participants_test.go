@@ -156,7 +156,7 @@ func TestParticipantHolderRules(t *testing.T) {
 			t.Fatalf("send without a holder: %v", err)
 		}
 		p := participantOf(t, s, "codex-koinon")
-		if p.Holder != "" || !reflect.DeepEqual(p.Conflict, want) || p.LastEvent == nil || p.LastEvent.Reason != "conflict" {
+		if p.Holder != "" || !reflect.DeepEqual(p.Conflict, want) || p.LastEvent == nil || p.LastEvent.Reason != "conflict" || p.LastEvent.Former != a.Name {
 			t.Fatalf("participant: %+v", p)
 		}
 		// Repeated renewals record the same conflict once.
@@ -173,7 +173,8 @@ func TestParticipantHolderRules(t *testing.T) {
 			t.Fatalf("one qualifier: %+v", b)
 		}
 		p = participantOf(t, s, "codex-koinon")
-		if p.Holder != b.Name || p.Conflict != nil || p.LastEvent.Reason != "only_qualifier" || p.LastEvent.Holder != b.Name || p.LastEvent.Former != a.Name {
+		// The conflict cleared the expired holder, so the change has no former holder.
+		if p.Holder != b.Name || p.Conflict != nil || p.LastEvent.Reason != "only_qualifier" || p.LastEvent.Holder != b.Name || p.LastEvent.Former != "" {
 			t.Fatalf("participant after the one qualifier: %+v %+v", p, p.LastEvent)
 		}
 	}
@@ -297,5 +298,50 @@ func TestChooseHolderAtTheStorageCeiling(t *testing.T) {
 	}
 	if p := participantOf(t, s, "codex-koinon"); p.Holder != b.Name {
 		t.Fatalf("holder: %+v", p)
+	}
+}
+
+// A holder whose registration expired holds nothing when it registers again: the holder
+// rules apply to it like to any qualifier, whether or not a renewal of another session
+// recorded the conflict first.
+func TestExpiredHolderRegistersAgain(t *testing.T) {
+	for _, observed := range []bool{true, false} {
+		s, _ := testStore(t)
+		repo := namedRepo(t, "koinon")
+		clock := time.Unix(1000, 0)
+		s.now = func() time.Time { return clock }
+		a := joinAs(t, s, "codex", "synthetic-a", repo, "")
+		b := joinAs(t, s, "codex", "synthetic-b", repo, "")
+		c := joinAs(t, s, "codex", "synthetic-c", repo, "")
+		clock = clock.Add(30 * time.Second)
+		b, c = renew(t, s, b), renew(t, s, c)
+		clock = clock.Add(31 * time.Second)
+		if observed {
+			b, c = renew(t, s, b), renew(t, s, c)
+		}
+		again := joinAs(t, s, "codex", "synthetic-a", repo, "")
+		p := participantOf(t, s, "codex-koinon")
+		want := []string{a.Name, b.Name, c.Name}
+		if again.HoldsAddress || p.Holder != "" || !reflect.DeepEqual(p.Conflict, want) {
+			t.Fatalf("expired holder took the address back (observed %v): %+v %+v", observed, again, p)
+		}
+		if _, err := s.Send(context.Background(), Key{"codex", "synthetic-b"}, "codex-koinon", "x"); !errors.Is(err, ErrAliasUnheld) {
+			t.Fatalf("send to a conflicted address: %v", err)
+		}
+		// With the others gone, the former holder is the one qualifier and holds again.
+		clock = clock.Add(61 * time.Second)
+		if again = joinAs(t, s, "codex", "synthetic-a", repo, ""); !again.HoldsAddress || again.Conflict != nil {
+			t.Fatalf("one qualifier after the conflict: %+v", again)
+		}
+	}
+	// An expired holder that is still the only qualifier keeps its address on return.
+	s, _ := testStore(t)
+	repo := namedRepo(t, "koinon")
+	clock := time.Unix(1000, 0)
+	s.now = func() time.Time { return clock }
+	joinAs(t, s, "codex", "synthetic-a", repo, "")
+	clock = clock.Add(61 * time.Second)
+	if again := joinAs(t, s, "codex", "synthetic-a", repo, ""); !again.HoldsAddress {
+		t.Fatalf("lone expired holder: %+v", again)
 	}
 }

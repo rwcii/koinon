@@ -624,6 +624,13 @@ func (s *Store) Register(ctx context.Context, r Registration) (Session, error) {
 	} else if r.WakeTarget, role, err = admitLaunch(ctx, tx.Tx, r, directory); err != nil {
 		return Session{}, err
 	}
+	// Whether the session was active before this registration decides whether a holding
+	// recorded for it still stands.
+	var wasActive bool
+	err = tx.QueryRowContext(ctx, `SELECT retired_at=0 AND expires_at>? FROM sessions WHERE family=? AND id=?`, now, r.Family, r.ID).Scan(&wasActive)
+	if err != nil && !errors.Is(err, sql.ErrNoRows) {
+		return Session{}, err
+	}
 	_, err = tx.ExecContext(ctx, `INSERT INTO sessions(`+sessionColumns+`) VALUES (?,?,?,?,?,?,?,?,0,1,?,?)
 		ON CONFLICT(family,id) DO UPDATE SET repository=excluded.repository,
 		directory=excluded.directory,wake_target=excluded.wake_target,renewed_at=excluded.renewed_at,
@@ -638,7 +645,7 @@ func (s *Store) Register(ctx context.Context, r Registration) (Session, error) {
 	if err := tx.QueryRowContext(ctx, `SELECT subagent FROM sessions WHERE family=? AND id=?`, r.Family, r.ID).Scan(&subagent); err != nil {
 		return Session{}, tx.fail(err)
 	}
-	if err := assignNames(ctx, tx.Tx, now, participant{r.Family, r.ID, common, directory, role, subagent}); err != nil {
+	if err := assignNames(ctx, tx.Tx, now, participant{r.Family, r.ID, common, directory, role, subagent, wasActive}); err != nil {
 		return Session{}, tx.fail(err)
 	}
 	result, err := scanSession(tx.QueryRowContext(ctx, sessionQuery+` WHERE s.family=? AND s.id=?`, r.Family, r.ID), now)
@@ -727,7 +734,7 @@ func (s *Store) Mutate(ctx context.Context, r Mutation, retire bool) (Session, e
 		_, err = tx.ExecContext(ctx, `UPDATE sessions SET renewed_at=?,expires_at=?,revision=revision+1 WHERE family=? AND id=?`, now, now+duration, r.Family, r.ID)
 		if err == nil {
 			// A renewal takes the repository's alias when its holder expired or retired.
-			err = assignNames(ctx, tx.Tx, now, participant{r.Family, r.ID, current.Repository, current.Directory, current.Role, current.Subagent})
+			err = assignNames(ctx, tx.Tx, now, participant{r.Family, r.ID, current.Repository, current.Directory, current.Role, current.Subagent, true})
 		}
 	}
 	if err != nil {
