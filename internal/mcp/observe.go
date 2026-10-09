@@ -51,7 +51,7 @@ type observer struct {
 	rollouts map[string]*rollout
 	terminal *core.ObservedValue
 	checked  time.Time
-	naming   map[core.Key]string // the last terminal naming result of each session
+	naming   map[core.Key]namingResult // the last terminal naming result of each session
 }
 
 // observeCall reports what one tool call shows: the model of a Codex turn, and that an
@@ -103,7 +103,7 @@ func (s *server) report(ctx context.Context, o core.Observation) {
 		s.obs.sent[o.Caller] = last
 	}
 	changed := false
-	for group, field := range map[string]**core.ObservedValue{"model": &o.Model, "context": &o.Context, "activity": &o.Activity, "terminal": &o.Terminal} {
+	for group, field := range map[string]**core.ObservedValue{"model": &o.Model, "context": &o.Context, "activity": &o.Activity, "terminal": &o.Terminal, "naming": &o.Naming} {
 		if *field == nil {
 			continue
 		}
@@ -125,7 +125,7 @@ func (s *server) report(ctx context.Context, o core.Observation) {
 	}
 	s.obs.mu.Lock()
 	defer s.obs.mu.Unlock()
-	for group, v := range map[string]*core.ObservedValue{"model": o.Model, "context": o.Context, "activity": o.Activity, "terminal": o.Terminal} {
+	for group, v := range map[string]*core.ObservedValue{"model": o.Model, "context": o.Context, "activity": o.Activity, "terminal": o.Terminal, "naming": o.Naming} {
 		if v != nil {
 			last[group] = sentValue{*v, now}
 		}
@@ -194,11 +194,15 @@ func (s *server) observeOnce(ctx context.Context) {
 		// reported as another session's terminal.
 		if terminal != nil && (c.key.Family == "claude" && claude || s.c.Getenv("KOINON_LAUNCH_ID") != "") {
 			v := *terminal
-			s.obs.mu.Lock()
-			v.Naming = s.obs.naming[c.key]
-			s.obs.mu.Unlock()
 			o.Terminal = &v
 		}
+		// The naming result is reported on its own, also without a terminal: a session
+		// outside tmux or a background job without its attach client reports why.
+		s.obs.mu.Lock()
+		if named, ok := s.obs.naming[c.key]; ok {
+			o.Naming = &core.ObservedValue{Source: "koinon_mcp", At: named.at, Naming: named.result, Target: named.target}
+		}
+		s.obs.mu.Unlock()
 		s.report(ctx, o)
 	}
 }

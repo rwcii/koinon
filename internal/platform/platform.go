@@ -149,3 +149,14 @@ func FileIdentity(f *os.File) (device, inode uint64, size int64, err error) {
 	}
 	return uint64(stat.Dev), uint64(stat.Ino), info.Size(), nil
 }
+
+// TmuxSocketDir is the directory of this user's tmux server sockets, as tmux itself
+// chooses it on Linux and macOS: $TMUX_TMPDIR/tmux-<uid>, else /tmp/tmux-<uid>. The path is
+// kept unresolved, as tmux and its clients name it.
+func TmuxSocketDir(getenv func(string) string) string {
+	base := getenv("TMUX_TMPDIR")
+	if base == "" || !filepath.IsAbs(base) {
+		base = "/tmp"
+	}
+	return filepath.Join(base, fmt.Sprintf("tmux-%d", os.Getuid()))
+}
