@@ -61,12 +61,14 @@ var sessionSort = sortSpec{columns: []sortColumn{
 // dashboardSessionView names the columns that sessions sort by; state is computed at now (?1).
 const dashboardSessionView = `SELECT s.family AS family,s.id AS id,s.repository AS repository,s.directory AS directory,
 	s.wake_target AS wake_target,s.registered_at AS registered_at,s.renewed_at AS renewed_at,s.expires_at AS expires_at,
-	s.retired_at AS retired_at,s.purge_at AS purge_at,s.revision AS revision,s.subagent AS subagent,
+	s.retired_at AS retired_at,s.purge_at AS purge_at,s.revision AS revision,s.subagent AS subagent,s.role AS role,
 	COALESCE((SELECT name FROM names WHERE kind='peer' AND family=s.family AND session_id=s.id),'') AS name,
-	COALESCE((SELECT name FROM names WHERE kind='alias' AND family=s.family AND repository=s.repository
-		AND s.repository!='' AND holder_id=s.id),'') AS alias,
+	COALESCE(p.name,'') AS address,COALESCE(p.holder_id,'') AS holder,COALESCE(p.conflict,'') AS conflict,
+	CASE WHEN p.holder_id=s.id AND s.retired_at=0 AND s.expires_at>?1 THEN p.name ELSE '' END AS alias,
 	CASE WHEN s.retired_at!=0 THEN 'retired' WHEN s.expires_at<=?1 THEN 'expired' ELSE 'active' END AS state
-	FROM sessions s WHERE s.family!='maintainer'`
+	FROM sessions s LEFT JOIN names p ON p.kind='alias' AND p.family=s.family AND p.repository=s.repository
+		AND p.role=s.role AND s.repository!='' AND s.subagent=0
+	WHERE s.family!='maintainer'`
 
 // dashboardSearchMax bounds a sessions search, in bytes.
 const dashboardSearchMax = 256
@@ -102,7 +104,7 @@ func (s *Store) dashboardSessions(ctx context.Context, order dashboardSort, sear
 		}
 	}
 	rows, err := s.db.QueryContext(ctx, `SELECT family,id,repository,directory,wake_target,registered_at,renewed_at,expires_at,
-		retired_at,purge_at,revision,subagent,name,alias,`+order.selectList()+` FROM (`+dashboardSessionView+`) WHERE `+where+
+		retired_at,purge_at,revision,subagent,role,name,address,holder,conflict,`+order.selectList()+` FROM (`+dashboardSessionView+`) WHERE `+where+
 		` ORDER BY `+by+` LIMIT `+strconv.Itoa(dashboardSessionPage+1), args...)
 	if err != nil {
 		return nil, "", err
@@ -471,9 +473,9 @@ func (s *Store) sessionByName(ctx context.Context, name string) (*Key, error) {
 		return nil, err
 	}
 	defer tx.Rollback()
-	var kind, family, id, repository, holder string
-	err = tx.QueryRowContext(ctx, `SELECT kind,family,session_id,repository,holder_id FROM names WHERE name=?`, name).
-		Scan(&kind, &family, &id, &repository, &holder)
+	var kind, family, id, repository, holder, role string
+	err = tx.QueryRowContext(ctx, `SELECT kind,family,session_id,repository,holder_id,role FROM names WHERE name=?`, name).
+		Scan(&kind, &family, &id, &repository, &holder, &role)
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, ErrPeerNotFound
 	}
@@ -483,7 +485,7 @@ func (s *Store) sessionByName(ctx context.Context, name string) (*Key, error) {
 	if kind == "alias" {
 		held := false
 		if holder != "" {
-			if held, err = holds(ctx, tx, s.now().UnixMilli(), family, holder, repository); err != nil {
+			if held, err = holds(ctx, tx, s.now().UnixMilli(), family, holder, repository, role); err != nil {
 				return nil, err
 			}
 		}

@@ -32,6 +32,17 @@ func TestParseBackground(t *testing.T) {
 	}
 }
 
+func TestParseRole(t *testing.T) {
+	if o, err := Parse("codex", []string{"--role", "review", "--model", "x"}); err != nil || o.Role != "review" || !reflect.DeepEqual(o.Args, []string{"--model", "x"}) {
+		t.Fatalf("parse: %+v %v", o, err)
+	}
+	for _, role := range []string{"Review", "abc", "1x", strings.Repeat("r", 25)} {
+		if _, err := Parse("codex", []string{"--role", role}); err == nil {
+			t.Errorf("role %q accepted", role)
+		}
+	}
+}
+
 func TestJobID(t *testing.T) {
 	for output, want := range map[string]string{
 		"Started background session 0123abcd\n":                           "0123abcd",

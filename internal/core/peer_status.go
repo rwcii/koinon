@@ -47,9 +47,9 @@ func (s *Store) PeerStatus(ctx context.Context, caller Key, name string) (PeerSt
 	if err := active(ctx, tx, now, caller); err != nil {
 		return PeerStatus{}, err
 	}
-	var kind, family, id, repository, holder string
-	err = tx.QueryRowContext(ctx, `SELECT kind,family,session_id,repository,holder_id FROM names WHERE name=?`, name).
-		Scan(&kind, &family, &id, &repository, &holder)
+	var kind, family, id, repository, holder, role string
+	err = tx.QueryRowContext(ctx, `SELECT kind,family,session_id,repository,holder_id,role FROM names WHERE name=?`, name).
+		Scan(&kind, &family, &id, &repository, &holder, &role)
 	if errors.Is(err, sql.ErrNoRows) {
 		return PeerStatus{}, ErrPeerNotFound
 	}
@@ -57,7 +57,7 @@ func (s *Store) PeerStatus(ctx context.Context, caller Key, name string) (PeerSt
 		return PeerStatus{}, err
 	}
 	if kind == "alias" {
-		held, err := holds(ctx, tx, now, family, holder, repository)
+		held, err := holds(ctx, tx, now, family, holder, repository, role)
 		if err != nil {
 			return PeerStatus{}, err
 		}

@@ -16,7 +16,7 @@ Never put a secret, runtime session identifier or response body in a repository.
 | `POST /v1/sessions/register` | Register or reactivate one session identified by `(family, id)`. |
 | `POST /v1/sessions/renew` | Renew an active session's expiry. |
 | `POST /v1/sessions/retire` | Mark an active session retired, retaining its record. |
-| `POST /v1/peers` | Each session's `name`, held `alias`, `family`, `state`, `repository` and, when true, `subagent`, for an active caller; never a wake target, directory or session ID. |
+| `POST /v1/peers` | Each session's `name`, held `alias`, `family`, `state`, `repository`, optional `role` and `address`, and true-only `holds_address` and `subagent`, for an active caller; never a wake target, directory or session ID. |
 | `POST /v1/peers/status` | Resolve a published peer name or held alias and read public identity plus observed model, context and activity for an active caller. |
 | `POST /v1/messages/send` | Store one message for the session that a peer name or alias names. |
 | `POST /v1/inbox/read` | Read the caller's own inbox after a sequence number. |
@@ -80,13 +80,45 @@ or the working directory name for a session without a repository: lower case, ch
 than `a-z`, `0-9` and `-` replaced with `-`, at most 32 characters, `session` when empty. The two
 hex digits start at the first byte of SHA-256 of `family NUL id` and take the next free value;
 when all 256 are taken, the name takes 4, 6, … hex digits of that digest. A renewal or a new
-registration of the same key keeps the name. Each family and repository reserves one alias
-`<family>-<label>`; when another name already uses it, `<family>-<label>-<first N hex of SHA-256
-of the Git common directory>` for N = 4, 6, …. The reservation is permanent. Peer names and
-aliases share one namespace, so a peer name never equals an alias. The alias names at most one
-holder: an active session of that family whose repository is the alias's repository. When the
-holder expires, retires or registers for another repository, the next registration or renewal
-of the same family and repository takes it. A session without a repository has no alias.
+registration of the same key keeps the name.
+
+### Participants and roles
+
+A participant is a family, Git common directory and optional role. Its reserved address is
+`<family>-<label>` without a role and `<family>-<label>-<role>` with one. Worktrees share
+participants. The maintainer sets a role at launch with `koinon FAMILY --role ROLE`; the
+role has 1–24 lower-case letters, digits or hyphens, starts with a letter, and cannot consist
+only of hexadecimal digits and hyphens. Registration takes the role from the launch record,
+never from a tool argument. DeepSeek's command registration has no role. A sub-agent or a
+session without a repository has no participant.
+
+Peer names and participant addresses share one namespace. A taken address uses the existing
+4, 6, … hexadecimal digest suffix fallback, hashing the common directory (and `NUL role` for
+a role). Address reservations persist. Schema 11 adds `sessions.role`, `names.role`,
+`names.conflict` and `participant_events`; existing aliases retain their addresses and holders
+as participants without a role. Migration keeps inboxes, acknowledgements, memory cursors and
+work claims unchanged.
+
+An active holder keeps the address when another session registers or renews. When no active
+holder remains, registration or renewal counts the active, non-retired, non-sub-agent sessions
+of that participant. Exactly one qualifier takes it; multiple qualifiers leave it unheld,
+record their peer names as `conflict`, and wait for the maintainer's choice or for only one
+qualifier to remain.
+An expired holder that re-registers follows these same rules. Renewal order cannot break a
+conflict. Sending to an unheld address returns `alias_unheld`.
+
+Session records carry optional `role` and `address`, true-only `holds_address`, and a
+`conflict` list when present. `address` identifies the participant even for a non-holder;
+`alias` is present only on its active holder. MCP and CLI `peers` expose role, address and
+holds-address alongside their existing fields. Participant events record holder and conflict
+changes with daemon time, former/new peer names, reason and actor, under the audit log's
+retention bounds. The dashboard shows the conflict and last event. Its bounded participant
+lookup contains at most 1,000 participants; sessions outside that lookup still show their
+role, address and holder flag.
+
+Address sends still enter the selected session's inbox. Choosing another holder does not move
+messages, memory cursors or work claims, or retire the former holder. These remain with their
+current session owners.
 
 Message calls name their `caller` as `{"family": ..., "id": ...}`; the caller must be an active
 session, or the call fails with `caller_inactive`. A caller reads and acknowledges only its own
@@ -212,8 +244,8 @@ session columns for it: `ack_mark` and `ack_mark_at`, the sweep's acknowledgemen
   by its consumer key `FAMILY:ID`. A session with unacknowledged messages stays until they are
   acknowledged, by the recipient or by the dashboard `clear`, and their own retention has
   passed. The deleting transaction reads every condition again, so a session that registered
-  again meanwhile stays. The alias that it held stays reserved for its repository and goes to
-  the next active session of that family and repository. Its released peer name is free at once,
+  again meanwhile stays. The address that it held stays reserved for its participant; the
+  holder rules apply at a later registration or renewal. Its released peer name is free at once,
   so a later session can receive the same name; a default memory consumer, which is the peer
   name, then continues the earlier cursor.
 - **Purge.** A session that the maintainer marked for purge is deleted by the next sweep with its
@@ -508,6 +540,13 @@ from elsewhere. Peer message bodies appear here, escaped, and nowhere else outsi
   above, and answers `303` to the view it changed with a fixed `notice` code, so a reload never
   repeats it. Forms are limited to 4 KiB; the send form takes up to 3 × 65,536 + 4,096 bytes of
   URL-encoded input, and its decoded body must be 1–65,536 bytes of UTF-8.
+  - `participant-holder` (`address`, `family`, `id`, `revision`): chooses the named active
+    session as holder of its participant address. A changed session revision returns
+    `revision_changed`; an inactive session returns `session_not_active`; a sub-agent or a
+    session of another participant returns `not_participant`. Invalid fields return
+    `invalid_request`. The choice is a control write, records `maintainer_choice` with the
+    former/new holders, and is audited. It leaves the former session active and its state
+    unchanged. The success notice is `participant_chosen`.
   - `retire` (`family`, `id`, `revision`): the existing retirement; a changed revision is
     `revision_changed`, a session that is not active `session_not_active`, and the maintainer
     session `maintainer_session`.

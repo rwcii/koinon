@@ -39,9 +39,18 @@ type Session struct {
 	Revision int64  `json:"revision"`
 	State    string `json:"state"`
 	Name     string `json:"name"`
-	Alias    string `json:"alias,omitempty"`
+	// Alias is the participant address that the session holds while it is active.
+	Alias string `json:"alias,omitempty"`
 	// Subagent marks a Codex sub-agent thread, which never holds an alias.
 	Subagent bool `json:"subagent,omitempty"`
+	// Role, from the session's launch, selects its participant: its family, repository
+	// and role. Address is that participant's address, held or not; HoldsAddress says
+	// whether this session holds it. Conflict lists the qualifying sessions' peer names
+	// while the participant has no holder because more than one qualifies.
+	Role         string   `json:"role,omitempty"`
+	Address      string   `json:"address,omitempty"`
+	HoldsAddress bool     `json:"holds_address,omitempty"`
+	Conflict     []string `json:"conflict,omitempty"`
 }
 
 type Registration struct {
@@ -209,7 +218,7 @@ func checkFormat(db *sql.DB, path string) error {
 	return nil
 }
 
-const schemaVersion = 10
+const schemaVersion = 11
 
 // migrate brings the state schema from version to target in one transaction, so a crash
 // leaves either the old or the new schema. Each step starts from the version before it.
@@ -278,7 +287,7 @@ func migrate(db *sql.DB, version, target int) error {
 		}
 		now := time.Now().UnixMilli()
 		for _, k := range existing {
-			if err := assignNames(context.Background(), tx, now, k.family, k.id, k.repository, k.directory, false); err != nil {
+			if err := assignNamesSchema2(context.Background(), tx, now, k.family, k.id, k.repository, k.directory); err != nil {
 				return err
 			}
 		}
@@ -426,6 +435,28 @@ func migrate(db *sql.DB, version, target int) error {
 		// Version 10: a Codex sub-agent thread registers as its own session but never
 		// holds an alias (participants sprint, chunk 01).
 		if _, err := tx.Exec(`ALTER TABLE sessions ADD COLUMN subagent INTEGER NOT NULL DEFAULT 0;`); err != nil {
+			return err
+		}
+	}
+	if version < 11 && target >= 11 {
+		// Version 11: participants (participants sprint, chunk 02). A participant is a family,
+		// repository and role; its address is an alias row with that role. The alias rows of
+		// version 10 become participants without a role, with their names and holders. A
+		// participant without an active holder and with more than one qualifier records the
+		// qualifiers' peer names as its conflict. participant_events records each change.
+		if _, err := tx.Exec(`ALTER TABLE sessions ADD COLUMN role TEXT NOT NULL DEFAULT '';
+			ALTER TABLE names ADD COLUMN role TEXT NOT NULL DEFAULT '';
+			ALTER TABLE names ADD COLUMN conflict TEXT NOT NULL DEFAULT '';
+			DROP INDEX names_alias;
+			CREATE UNIQUE INDEX names_participant ON names(family, repository, role) WHERE kind='alias';
+			CREATE TABLE participant_events (
+				id INTEGER PRIMARY KEY AUTOINCREMENT, at INTEGER NOT NULL, address TEXT NOT NULL,
+				former TEXT NOT NULL, holder TEXT NOT NULL, reason TEXT NOT NULL,
+				actor TEXT NOT NULL CHECK (actor IN ('session','maintainer','daemon')),
+				details TEXT NOT NULL DEFAULT ''
+			);
+			CREATE INDEX participant_events_at ON participant_events(at);
+			CREATE INDEX participant_events_address ON participant_events(address, id);`); err != nil {
 			return err
 		}
 	}
@@ -582,20 +613,30 @@ func (s *Store) Register(ctx context.Context, r Registration) (Session, error) {
 		return Session{}, err
 	}
 	defer tx.Rollback()
-	// Every launcher family registers only with its own launch; DeepSeek has no launcher
-	// and keeps its command registration until its MCP path is settled (#199).
+	// Every launcher family registers only with its own launch, which also gives the
+	// session its role; DeepSeek has no launcher and keeps its command registration until
+	// its MCP path is settled (#199).
+	role := ""
 	if r.Family == "deepseek" {
 		if r.LaunchID != "" || r.Subagent {
 			return Session{}, ErrInvalid
 		}
-	} else if r.WakeTarget, err = admitLaunch(ctx, tx.Tx, r, directory); err != nil {
+	} else if r.WakeTarget, role, err = admitLaunch(ctx, tx.Tx, r, directory); err != nil {
 		return Session{}, err
 	}
-	_, err = tx.ExecContext(ctx, `INSERT INTO sessions(`+sessionColumns+`) VALUES (?,?,?,?,?,?,?,?,0,1,?)
+	// Whether the session was active before this registration decides whether a holding
+	// recorded for it still stands.
+	var wasActive bool
+	err = tx.QueryRowContext(ctx, `SELECT retired_at=0 AND expires_at>? FROM sessions WHERE family=? AND id=?`, now, r.Family, r.ID).Scan(&wasActive)
+	if err != nil && !errors.Is(err, sql.ErrNoRows) {
+		return Session{}, err
+	}
+	_, err = tx.ExecContext(ctx, `INSERT INTO sessions(`+sessionColumns+`) VALUES (?,?,?,?,?,?,?,?,0,1,?,?)
 		ON CONFLICT(family,id) DO UPDATE SET repository=excluded.repository,
 		directory=excluded.directory,wake_target=excluded.wake_target,renewed_at=excluded.renewed_at,
-		expires_at=excluded.expires_at,retired_at=0,revision=sessions.revision+1,subagent=MAX(sessions.subagent,excluded.subagent)`,
-		r.Family, r.ID, common, directory, string(r.WakeTarget), now, now, now+duration, r.Subagent)
+		expires_at=excluded.expires_at,retired_at=0,revision=sessions.revision+1,subagent=MAX(sessions.subagent,excluded.subagent),
+		role=excluded.role`,
+		r.Family, r.ID, common, directory, string(r.WakeTarget), now, now, now+duration, r.Subagent, role)
 	if err != nil {
 		return Session{}, tx.fail(err)
 	}
@@ -604,7 +645,7 @@ func (s *Store) Register(ctx context.Context, r Registration) (Session, error) {
 	if err := tx.QueryRowContext(ctx, `SELECT subagent FROM sessions WHERE family=? AND id=?`, r.Family, r.ID).Scan(&subagent); err != nil {
 		return Session{}, tx.fail(err)
 	}
-	if err := assignNames(ctx, tx.Tx, now, r.Family, r.ID, common, directory, subagent); err != nil {
+	if err := assignNames(ctx, tx.Tx, now, participant{r.Family, r.ID, common, directory, role, subagent, wasActive}); err != nil {
 		return Session{}, tx.fail(err)
 	}
 	result, err := scanSession(tx.QueryRowContext(ctx, sessionQuery+` WHERE s.family=? AND s.id=?`, r.Family, r.ID), now)
@@ -614,22 +655,24 @@ func (s *Store) Register(ctx context.Context, r Registration) (Session, error) {
 	return result, tx.Commit()
 }
 
-const sessionColumns = `family,id,repository,directory,wake_target,registered_at,renewed_at,expires_at,retired_at,revision,subagent`
+const sessionColumns = `family,id,repository,directory,wake_target,registered_at,renewed_at,expires_at,retired_at,revision,subagent,role`
 
-// sessionQuery reads a session with its peer name and the alias it is recorded to hold;
-// scanSession shows the alias only while the session is active.
+// sessionQuery reads a session with its peer name and its participant: the address, its
+// recorded holder and conflict. scanSession shows the address as held only while the
+// session is active. A sub-agent or a session without a repository has no participant.
 const sessionQuery = `SELECT s.family,s.id,s.repository,s.directory,s.wake_target,s.registered_at,s.renewed_at,
-	s.expires_at,s.retired_at,s.purge_at,s.revision,s.subagent,
+	s.expires_at,s.retired_at,s.purge_at,s.revision,s.subagent,s.role,
 	COALESCE((SELECT name FROM names WHERE kind='peer' AND family=s.family AND session_id=s.id),''),
-	COALESCE((SELECT name FROM names WHERE kind='alias' AND family=s.family AND repository=s.repository
-		AND s.repository!='' AND holder_id=s.id),'') FROM sessions s`
+	COALESCE(p.name,''),COALESCE(p.holder_id,''),COALESCE(p.conflict,'') FROM sessions s
+	LEFT JOIN names p ON p.kind='alias' AND p.family=s.family AND p.repository=s.repository AND p.role=s.role
+		AND s.repository!='' AND s.subagent=0`
 
 type scanner interface{ Scan(...any) error }
 
 func scanSession(row scanner, now int64) (Session, error) {
 	var result Session
-	var target string
-	err := row.Scan(&result.Family, &result.ID, &result.Repository, &result.Directory, &target, &result.RegisteredAt, &result.RenewedAt, &result.ExpiresAt, &result.RetiredAt, &result.PurgeAt, &result.Revision, &result.Subagent, &result.Name, &result.Alias)
+	var target, holder, conflict string
+	err := row.Scan(&result.Family, &result.ID, &result.Repository, &result.Directory, &target, &result.RegisteredAt, &result.RenewedAt, &result.ExpiresAt, &result.RetiredAt, &result.PurgeAt, &result.Revision, &result.Subagent, &result.Role, &result.Name, &result.Address, &holder, &conflict)
 	if errors.Is(err, sql.ErrNoRows) {
 		return result, ErrMissing
 	}
@@ -644,8 +687,13 @@ func scanSession(row scanner, now int64) (Session, error) {
 	if result.RetiredAt != 0 {
 		result.State = "retired"
 	}
-	if result.State != "active" {
-		result.Alias = ""
+	if result.State == "active" && result.Address != "" && holder == result.ID {
+		result.Alias, result.HoldsAddress = result.Address, true
+	}
+	if conflict != "" {
+		if err := json.Unmarshal([]byte(conflict), &result.Conflict); err != nil {
+			return result, err
+		}
 	}
 	return result, nil
 }
@@ -686,7 +734,7 @@ func (s *Store) Mutate(ctx context.Context, r Mutation, retire bool) (Session, e
 		_, err = tx.ExecContext(ctx, `UPDATE sessions SET renewed_at=?,expires_at=?,revision=revision+1 WHERE family=? AND id=?`, now, now+duration, r.Family, r.ID)
 		if err == nil {
 			// A renewal takes the repository's alias when its holder expired or retired.
-			err = assignNames(ctx, tx.Tx, now, r.Family, r.ID, current.Repository, current.Directory, current.Subagent)
+			err = assignNames(ctx, tx.Tx, now, participant{r.Family, r.ID, current.Repository, current.Directory, current.Role, current.Subagent, true})
 		}
 	}
 	if err != nil {

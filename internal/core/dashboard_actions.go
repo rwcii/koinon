@@ -38,6 +38,8 @@ var (
 
 // noticeText is every notice a view can show; any other code shows nothing.
 var noticeText = map[string]string{
+	"participant_chosen":        "The session now holds the participant address.",
+	"not_participant":           "Refused: the session does not belong to that participant.",
 	"retired":                   "The session was retired.",
 	"purge_marked":              "The session is marked for purge. An active session was retired; the next maintenance sweep deletes it with its whole inbox.",
 	"purge_unmarked":            "The purge mark was removed. The session stays as it is.",
@@ -141,6 +143,25 @@ func (d *Daemon) dashboardActions(mux *http.ServeMux, authed func(int64, func(ht
 		}
 		done(w, r, view, query, accepted)
 	}
+
+	mux.HandleFunc("POST /dashboard/actions/participant-holder", authed(actionFormLimit, func(w http.ResponseWriter, r *http.Request, _ string) {
+		k, valid := sessionKey(r)
+		revision, ok := formInt(r, "revision")
+		address := r.PostForm.Get("address")
+		run(w, r, "participant-holder", address, "sessions", nil,
+			valid && k != maintainerKey && ok && revision > 0 && address != "" && len(address) <= 256,
+			func(ctx context.Context) error { return d.store.ChooseHolder(ctx, address, k, revision) },
+			"participant_chosen", func(err error) string {
+				if !errors.Is(err, ErrConflict) {
+					return errorCode(err)
+				}
+				s, readErr := scanSession(d.store.db.QueryRowContext(r.Context(), sessionQuery+` WHERE s.family=? AND s.id=?`, k.Family, k.ID), d.store.now().UnixMilli())
+				if readErr == nil && s.State != "active" {
+					return "session_not_active"
+				}
+				return "revision_changed"
+			})
+	}))
 
 	mux.HandleFunc("POST /dashboard/actions/retire", authed(actionFormLimit, func(w http.ResponseWriter, r *http.Request, _ string) {
 		k, valid := sessionKey(r)

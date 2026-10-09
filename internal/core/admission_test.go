@@ -292,6 +292,9 @@ func TestSubagentNeverHoldsAnAlias(t *testing.T) {
 	if err != nil || !session.Subagent || session.Alias != "" || session.Name != user.Name {
 		t.Fatalf("late sub-agent: %+v %v", session, err)
 	}
+	if p := participantOf(t, s, "codex-koinon"); p.Holder != "" || p.LastEvent == nil || p.LastEvent.Reason != "subagent" || p.LastEvent.Former != user.Name {
+		t.Fatalf("sub-agent release not recorded: %+v", p.LastEvent)
+	}
 	late.Subagent = false
 	if session, err = s.Register(ctx, late); err != nil || !session.Subagent || session.Alias != "" {
 		t.Fatalf("sub-agent registered again without metadata: %+v %v", session, err)

@@ -130,8 +130,8 @@ func (s *Store) closeStartedLaunches(ctx context.Context) error {
 	return tx.Commit()
 }
 
-// trimAudit removes records past the retention and beyond the newest auditMax. Removal
-// is reclamation; it may use the reserve.
+// trimAudit removes audit records and participant events past the retention and beyond the
+// newest auditMax of each. Removal is reclamation; it may use the reserve.
 func (s *Store) trimAudit(ctx context.Context) error {
 	ctx = noAudit(ctx)
 	tx, err := s.begin(ctx, control)
@@ -140,6 +140,11 @@ func (s *Store) trimAudit(ctx context.Context) error {
 	}
 	defer tx.Rollback()
 	if _, err := tx.ExecContext(ctx, `DELETE FROM audit WHERE at<? OR id<=(SELECT id FROM audit ORDER BY id DESC LIMIT 1 OFFSET ?)`,
+		s.now().UnixMilli()-auditRetention, auditMax); err != nil {
+		return tx.fail(err)
+	}
+	// Participant events follow the audit log's bounds.
+	if _, err := tx.ExecContext(ctx, `DELETE FROM participant_events WHERE at<? OR id<=(SELECT id FROM participant_events ORDER BY id DESC LIMIT 1 OFFSET ?)`,
 		s.now().UnixMilli()-auditRetention, auditMax); err != nil {
 		return tx.fail(err)
 	}

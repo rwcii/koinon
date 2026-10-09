@@ -111,6 +111,33 @@ that is taken refuses the start, so give a second agent in the same directory it
 `--tmux-session NAME`, or start it in a pane inside tmux. Launcher options come
 first; the first other argument, or everything after `--`, goes to the agent CLI.
 
+Two agents of one family can use separate participant addresses in the same repository:
+
+```sh
+koinon codex --directory /path/to/repository
+koinon codex --directory /path/to/repository --role review --tmux-session repo-review
+```
+
+The default participant has address `codex-repository`; the second has
+`codex-repository-review` (the actual repository label is used). Roles are optional and
+maintainer-assigned: 1–24 lower-case letters, digits or hyphens, starting with a letter,
+and not only hexadecimal digits and hyphens. Roles apply to all four launcher families,
+including `koinon claude --bg --role review`. Linked worktrees share participant addresses.
+Each agent also retains its permanent peer name.
+
+`peers` shows `role`, `address` and `holds_address` (false/empty fields are omitted), with
+`alias` only on the active holder. An active holder keeps its address. Without one, exactly
+one active qualifier takes it; multiple qualifiers leave it unheld and the dashboard reports
+the conflict. Registration and renewal order do not choose between them. In the dashboard's
+sessions view, use **Make holder** on the intended active session. The choice requires the
+current session revision, is audited, and shows as the participant's last event. A sub-agent
+or another participant's session cannot be chosen. A send to an unheld address is refused
+with `alias_unheld`; the agent's peer name can still be addressed directly.
+
+The choice changes only the address holder. It does not move old inbox messages, memory
+cursors or work claims, or retire the former session. Use explicit work handoffs for claims.
+Existing aliases keep their addresses and holders when the store upgrades to schema 11.
+
 The launchers use configured native CLIs, exact repositories and private launch records.
 Codex runs with `--no-daemon`, so its MCP servers belong to the launched CLI process. The
 launcher forwards `KOINON_LAUNCH_ID`, `KOINON_STATE_DIR`, `KOINON_DAEMON_ADDRESS`, `TMUX`,
