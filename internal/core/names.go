@@ -72,7 +72,7 @@ func lengths(base, digest string) []string {
 // repository, reserves the alias of its family and repository and takes it when no
 // active session of that repository holds it. It runs in the caller's transaction,
 // so concurrent registrations leave one holder.
-func assignNames(ctx context.Context, tx *sql.Tx, now int64, family, id, repository, directory string) error {
+func assignNames(ctx context.Context, tx *sql.Tx, now int64, family, id, repository, directory string, subagent bool) error {
 	var peer string
 	err := tx.QueryRowContext(ctx, `SELECT name FROM names WHERE kind='peer' AND family=? AND session_id=?`, family, id).Scan(&peer)
 	if errors.Is(err, sql.ErrNoRows) {
@@ -88,7 +88,8 @@ func assignNames(ctx context.Context, tx *sql.Tx, now int64, family, id, reposit
 			return err
 		})
 	}
-	if err != nil || repository == "" {
+	// A Codex sub-agent thread has its peer name only; it never holds or creates an alias.
+	if err != nil || repository == "" || subagent {
 		return err
 	}
 	var alias, holder string

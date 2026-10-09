@@ -451,7 +451,11 @@ func TestUpgradeFromMain(t *testing.T) {
 	waitFor(t, "the Go daemon", func() bool { return status(goState) })
 
 	// The imported state reads back through the daemon.
-	reg := call(t, goState, "/v1/sessions/register", core.Registration{Family: "codex", ID: m.Threads["codex"], Repository: second, Directory: filepath.Dir(second)})
+	// The session registers with its own launch, as koinon codex starts it.
+	launch := call(t, goState, "/v1/launches", core.LaunchTarget{Family: "codex", Directory: filepath.Dir(second), CLI: "/synthetic/cli", HostPID: 4242})
+	launchID, _ := launch["launch_id"].(string)
+	reg := call(t, goState, "/v1/sessions/register", core.Registration{Family: "codex", ID: m.Threads["codex"], Repository: second, Directory: filepath.Dir(second),
+		LaunchID: launchID, Ancestors: []int{4242}})
 	if reg["ok"] != true {
 		t.Fatalf("register %v", reg)
 	}

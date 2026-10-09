@@ -1,6 +1,7 @@
 package core
 
 import (
+	"bytes"
 	"context"
 	"crypto/rand"
 	"database/sql"
@@ -10,6 +11,7 @@ import (
 	"net"
 	"os"
 	"path/filepath"
+	"slices"
 	"strconv"
 	"strings"
 	"unicode/utf8"
@@ -74,10 +76,18 @@ type LaunchTarget struct {
 	// the session's Koinon repository is still Directory's (#252).
 	Nested           []NestedRepository `json:"nested,omitempty"`
 	NestedIncomplete bool               `json:"nested_incomplete,omitempty"`
+	// Background marks a Claude background job (koinon claude --bg). Its host is the job,
+	// not the launcher: JobID, recorded once after the job starts, admits only the Claude
+	// session whose ID begins with it.
+	Background bool   `json:"background,omitempty"`
+	JobID      string `json:"job_id,omitempty"`
 }
 
+// maxAncestors bounds a registration's process ancestry.
+const maxAncestors = 256
+
 func (s *Store) CreateLaunch(ctx context.Context, target LaunchTarget) (string, error) {
-	if target.LaunchID != "" {
+	if target.LaunchID != "" || target.JobID != "" || target.Background && target.Family != "claude" {
 		return "", ErrInvalid
 	}
 	if target.Family != "claude" && target.Family != "codex" && target.Family != "agy" && target.Family != "opencode" {
@@ -130,28 +140,161 @@ func (s *Store) CreateLaunch(ctx context.Context, target LaunchTarget) (string, 
 	return id, tx.Commit()
 }
 
-func launchTarget(ctx context.Context, tx *sql.Tx, id, family, directory string) (json.RawMessage, error) {
-	if len(id) != 64 {
+// admitLaunch returns the wake target of a launcher-family registration: the public target
+// of its launch, and for Claude the claude_pid that its server reports. The launch must be
+// of the caller's family and directory and must belong to the caller: a foreground launch's
+// host process is among the caller's ancestors (for Claude, it is the Claude process); a
+// background launch's recorded job ID begins the caller's session ID. Anything else is
+// not_launched, so a direct start never registers.
+func admitLaunch(ctx context.Context, tx *sql.Tx, r Registration, directory string) (json.RawMessage, error) {
+	if len(r.LaunchID) != 64 || len(r.Ancestors) > maxAncestors {
+		return nil, ErrNotLaunched
+	}
+	claudePID := 0
+	if r.Family == "claude" {
+		var own struct {
+			ClaudePID int `json:"claude_pid"`
+		}
+		dec := json.NewDecoder(bytes.NewReader(r.WakeTarget))
+		dec.DisallowUnknownFields()
+		if dec.Decode(&own) != nil || own.ClaudePID <= 0 {
+			return nil, ErrInvalid
+		}
+		claudePID = own.ClaudePID
+	} else if len(r.WakeTarget) != 0 && string(r.WakeTarget) != "{}" {
 		return nil, ErrInvalid
 	}
-	var storedFamily, storedDirectory, target string
-	err := tx.QueryRowContext(ctx, `SELECT family,directory,target FROM launches WHERE id=?`, id).Scan(&storedFamily, &storedDirectory, &target)
+	var family, storedDirectory, stored string
+	err := tx.QueryRowContext(ctx, `SELECT family,directory,target FROM launches WHERE id=?`, r.LaunchID).Scan(&family, &storedDirectory, &stored)
 	if errors.Is(err, sql.ErrNoRows) {
-		return nil, ErrMissing
+		return nil, ErrNotLaunched
 	}
 	if err != nil {
 		return nil, err
 	}
-	if storedFamily != family || storedDirectory != directory {
-		return nil, ErrInvalid
-	}
-	var public LaunchTarget
-	if err := json.Unmarshal([]byte(target), &public); err != nil {
+	var target LaunchTarget
+	if err := json.Unmarshal([]byte(stored), &target); err != nil {
 		return nil, err
 	}
-	public.Password = ""
-	public.LaunchID = id
-	return json.Marshal(public)
+	if family != r.Family || storedDirectory != directory {
+		return nil, ErrNotLaunched
+	}
+	if target.Background {
+		if target.JobID == "" {
+			return nil, ErrLaunchPending
+		}
+		if !strings.HasPrefix(r.ID, target.JobID) {
+			return nil, ErrNotLaunched
+		}
+	} else if !slices.Contains(r.Ancestors, target.HostPID) || r.Family == "claude" && claudePID != target.HostPID {
+		return nil, ErrNotLaunched
+	}
+	target.Password = ""
+	target.LaunchID = r.LaunchID
+	public, err := json.Marshal(target)
+	if err != nil || claudePID == 0 {
+		return public, err
+	}
+	var merged map[string]any
+	if err := json.Unmarshal(public, &merged); err != nil {
+		return nil, err
+	}
+	merged["claude_pid"] = claudePID
+	return json.Marshal(merged)
+}
+
+// launched reports whether a session registered with its launch.
+func launched(s Session) bool {
+	var target struct {
+		LaunchID string `json:"launch_id"`
+	}
+	return json.Unmarshal(s.WakeTarget, &target) == nil && target.LaunchID != ""
+}
+
+// validJobID accepts a Claude background job ID: the short ID or the full session ID.
+func validJobID(id string) bool {
+	if len(id) < 8 || len(id) > 36 {
+		return false
+	}
+	for _, r := range id {
+		if !(r >= '0' && r <= '9' || r >= 'a' && r <= 'f' || r == '-') {
+			return false
+		}
+	}
+	return true
+}
+
+// SetLaunchJob records the job ID of a background launch, once.
+func (s *Store) SetLaunchJob(ctx context.Context, id, job string) error {
+	if len(id) != 64 || !validJobID(job) {
+		return ErrInvalid
+	}
+	tx, err := s.begin(ctx, ordinary)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+	target, err := backgroundLaunch(ctx, tx.Tx, id)
+	if err != nil {
+		return err
+	}
+	if target.JobID == job {
+		return tx.Commit()
+	}
+	if target.JobID != "" {
+		return ErrConflict
+	}
+	target.JobID = job
+	data, err := json.Marshal(target)
+	if err != nil {
+		return err
+	}
+	if _, err := tx.ExecContext(ctx, `UPDATE launches SET target=? WHERE id=?`, string(data), id); err != nil {
+		return tx.fail(err)
+	}
+	return tx.Commit()
+}
+
+// RetireLaunch deletes a background launch whose job never started, so it admits nothing.
+func (s *Store) RetireLaunch(ctx context.Context, id string) error {
+	if len(id) != 64 {
+		return ErrInvalid
+	}
+	tx, err := s.begin(ctx, control)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+	target, err := backgroundLaunch(ctx, tx.Tx, id)
+	if err != nil {
+		return err
+	}
+	if target.JobID != "" {
+		return ErrConflict
+	}
+	if _, err := tx.ExecContext(ctx, `DELETE FROM launches WHERE id=?`, id); err != nil {
+		return tx.fail(err)
+	}
+	return tx.Commit()
+}
+
+func backgroundLaunch(ctx context.Context, tx *sql.Tx, id string) (LaunchTarget, error) {
+	var stored string
+	var target LaunchTarget
+	err := tx.QueryRowContext(ctx, `SELECT target FROM launches WHERE id=?`, id).Scan(&stored)
+	if errors.Is(err, sql.ErrNoRows) {
+		return target, ErrMissing
+	}
+	if err != nil {
+		return target, err
+	}
+	if err := json.Unmarshal([]byte(stored), &target); err != nil {
+		return target, err
+	}
+	if !target.Background {
+		return target, ErrInvalid
+	}
+	return target, nil
 }
 
 // NestedRepositories returns the nested repositories that the session's launch record

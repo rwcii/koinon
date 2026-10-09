@@ -97,6 +97,8 @@ type Peer struct {
 	Family     string `json:"family"`
 	State      string `json:"state"`
 	Repository string `json:"repository"`
+	// Subagent marks a Codex sub-agent thread; it never holds an alias.
+	Subagent bool `json:"subagent,omitempty"`
 }
 
 // Peers lists every session for an active caller.
@@ -118,7 +120,7 @@ func (s *Store) Peers(ctx context.Context, caller Key) ([]Peer, bool, error) {
 	}
 	peers := make([]Peer, 0, len(items)+1)
 	for _, item := range items {
-		peers = append(peers, Peer{Name: item.Name, Alias: item.Alias, Family: item.Family, State: item.State, Repository: item.Repository})
+		peers = append(peers, Peer{Name: item.Name, Alias: item.Alias, Family: item.Family, State: item.State, Repository: item.Repository, Subagent: item.Subagent})
 	}
 	// Agents can send to the maintainer, who reads the inbox in the dashboard (chunk 09).
 	peers = append(peers, Peer{Name: "maintainer", Family: maintainerKey.Family, State: "active"})

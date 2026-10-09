@@ -6,11 +6,9 @@ import (
 	"encoding/json"
 	"errors"
 	"os/exec"
-	"path/filepath"
 	"time"
 
 	"github.com/rwcii/koinon/internal/core"
-	"github.com/rwcii/koinon/internal/launcher"
 )
 
 const renewEvery = 5 * time.Minute
@@ -185,8 +183,16 @@ func (s *server) call(ctx context.Context, raw json.RawMessage) map[string]any {
 	if err != nil {
 		return failure("invalid_arguments")
 	}
+	if caller.Family == "codex" && codexSubagent(p.Meta) {
+		s.mu.Lock()
+		if s.subagents == nil {
+			s.subagents = map[core.Key]bool{}
+		}
+		s.subagents[caller] = true
+		s.mu.Unlock()
+	}
 	if err := s.ensure(ctx, caller); err != nil {
-		return failure(code(err))
+		return refusal(caller, err)
 	}
 	s.observeCall(caller, p.Meta)
 	data, err := s.daemon(ctx, path, body)
@@ -198,13 +204,23 @@ func (s *server) call(ctx context.Context, raw json.RawMessage) map[string]any {
 		}
 	}
 	if err != nil {
-		var refused core.RefusedError
-		if errors.As(err, &refused) && len(refused.Details) > 0 {
-			return result(map[string]any{"ok": false, "code": refused.Code, "details": refused.Details}, true)
-		}
-		return failure(code(err))
+		return refusal(caller, err)
 	}
 	return map[string]any{"content": []map[string]any{{"type": "text", "text": string(data)}}, "isError": false}
+}
+
+// refusal is the tool result of a failed call. A session that its launcher did not start
+// is islanded: the refusal names the launcher command that starts a Koinon session.
+func refusal(caller core.Key, err error) map[string]any {
+	var refused core.RefusedError
+	switch {
+	case code(err) == "not_launched":
+		return result(map[string]any{"ok": false, "code": "not_launched", "launcher": "koinon " + caller.Family,
+			"message": "Koinon serves only sessions started with koinon " + caller.Family + "; this direct start is not registered or listed."}, true)
+	case errors.As(err, &refused) && len(refused.Details) > 0:
+		return result(map[string]any{"ok": false, "code": refused.Code, "details": refused.Details}, true)
+	}
+	return failure(code(err))
 }
 
 func code(err error) string {
@@ -262,20 +278,19 @@ func (s *server) register(ctx context.Context, caller core.Key) error {
 	if gitRepository(ctx, s.c.Directory) {
 		r.Repository = s.c.Directory
 	}
-	launch := s.c.Getenv("KOINON_LAUNCH_ID")
-	switch caller.Family {
-	case "claude":
+	// Only a launched session registers; the daemon checks that the launch is this
+	// session's own (its family, directory and host process, or its background job).
+	r.LaunchID = s.c.Getenv("KOINON_LAUNCH_ID")
+	if r.LaunchID == "" {
+		return core.RefusedError{Code: "not_launched"}
+	}
+	r.Ancestors = s.ancestors()
+	if caller.Family == "claude" {
 		r.WakeTarget, _ = json.Marshal(map[string]any{"claude_pid": s.c.ParentPID})
-	case "codex":
-		if launch == "" {
-			if cli := s.codexCLI(); cli != "" {
-				r.WakeTarget, _ = json.Marshal(map[string]any{"cli": cli})
-			}
-		}
 	}
-	if caller.Family != "claude" && launch != "" {
-		r.LaunchID = launch
-	}
+	s.mu.Lock()
+	r.Subagent = s.subagents[caller]
+	s.mu.Unlock()
 	data, err := s.daemon(ctx, "/v1/sessions/register", r)
 	if err != nil {
 		return err
@@ -293,20 +308,25 @@ func (s *server) register(ctx context.Context, caller core.Key) error {
 	return nil
 }
 
-// codexCLI is the configured Codex executable, else this server's parent when it is a
-// Codex executable; never a PATH lookup.
-func (s *server) codexCLI() string {
-	if cli, err := launcher.ConfiguredCLI(s.c.StateDir, "codex", ""); err == nil {
-		return cli
+// ancestors is this server's parent process and its ancestors, nearest first, from the
+// process table; without the table, only the parent.
+func (s *server) ancestors() []int {
+	parents := map[int]int{}
+	if s.c.Parents != nil {
+		if table, err := s.c.Parents(); err == nil {
+			parents = table
+		}
 	}
-	if s.c.Command == nil {
-		return ""
+	result := []int{}
+	for pid := s.c.ParentPID; pid > 1 && len(result) < maxAncestors; {
+		result = append(result, pid)
+		parent, found := parents[pid]
+		if !found {
+			break
+		}
+		pid = parent
 	}
-	executable, _, err := s.c.Command(s.c.ParentPID)
-	if err != nil || !filepath.IsAbs(executable) || filepath.Base(executable) != "codex" {
-		return ""
-	}
-	return executable
+	return result
 }
 
 func (s *server) renew(ctx context.Context) {

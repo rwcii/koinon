@@ -115,7 +115,7 @@ func TestMemoryStorePerRepositoryAndWorktree(t *testing.T) {
 		}
 	}
 	register := func(id, repository, directory string) MemoryCaller {
-		if _, err := s.Register(ctx, Registration{Family: "codex", ID: id, Repository: repository, Directory: directory, TTLSeconds: 600}); err != nil {
+		if _, err := s.Register(ctx, withLaunch(t, s, Registration{Family: "codex", ID: id, Repository: repository, Directory: directory, TTLSeconds: 600})); err != nil {
 			t.Fatal(err)
 		}
 		m, err := s.ResolveMemoryCaller(ctx, Key{"codex", id}, nil)
@@ -135,7 +135,7 @@ func TestMemoryStorePerRepositoryAndWorktree(t *testing.T) {
 	if got := drain(t, s, c); len(got) != 0 {
 		t.Fatalf("repositories collide: %+v", got)
 	}
-	if _, err := s.Register(ctx, Registration{Family: "claude", ID: "synthetic-plain", Directory: t.TempDir(), TTLSeconds: 600}); err != nil {
+	if _, err := s.Register(ctx, withLaunch(t, s, Registration{Family: "claude", ID: "synthetic-plain", Directory: t.TempDir(), TTLSeconds: 600})); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := s.ResolveMemoryCaller(ctx, Key{"claude", "synthetic-plain"}, nil); code(err) != "repo_unresolved" {
@@ -742,7 +742,7 @@ func TestMemoryAPIAndMigration(t *testing.T) {
 		t.Fatalf("recover: %d %v", status, result)
 	}
 	data, err := GetStatus(context.Background(), address, secret)
-	if err != nil || !strings.Contains(string(data), `"schema":9`) || !strings.Contains(string(data), `"max_pages"`) {
+	if err != nil || !strings.Contains(string(data), `"schema":10`) || !strings.Contains(string(data), `"max_pages"`) {
 		t.Fatalf("daemon status: %s %v", data, err)
 	}
 }

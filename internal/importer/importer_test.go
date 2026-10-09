@@ -313,7 +313,11 @@ func TestImportedStateServes(t *testing.T) {
 	}
 	c := caller{t: t, address: d.Addresses()[0], secret: secret}
 	thread := f.m.Threads["codex"]
-	session := c.call("/v1/sessions/register", core.Registration{Family: "codex", ID: thread, Repository: repo, Directory: repo})
+	launch, err := core.CreateLaunch(context.Background(), d.Addresses()[0], secret, core.LaunchTarget{Family: "codex", Directory: repo, CLI: "/synthetic/cli", HostPID: 4242})
+	if err != nil {
+		t.Fatal(err)
+	}
+	session := c.call("/v1/sessions/register", core.Registration{Family: "codex", ID: thread, Repository: repo, Directory: repo, LaunchID: launch, Ancestors: []int{4242}})
 	got, _ := session["session"].(map[string]any)
 	if got["name"] != f.m.Sessions["codex"].Name || got["state"] != "active" {
 		t.Fatalf("registered %v", session)

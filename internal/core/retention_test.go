@@ -64,8 +64,8 @@ func keepAlive(t *testing.T, s *Store, k Key) {
 	t.Helper()
 	current := sessionState(t, s, k)
 	if current.State != "active" {
-		if _, err := s.Register(context.Background(), Registration{Family: k.Family, ID: k.ID, Repository: current.Repository,
-			Directory: current.Directory, TTLSeconds: 3600}); err != nil {
+		if _, err := s.Register(context.Background(), withLaunch(t, s, Registration{Family: k.Family, ID: k.ID, Repository: current.Repository,
+			Directory: current.Directory, TTLSeconds: 3600})); err != nil {
 			t.Fatal(err)
 		}
 		return
@@ -262,7 +262,7 @@ func TestImportedAndReregisteredSessions(t *testing.T) {
 	}
 	// A session past its period that registers again just before the sweep is kept.
 	*clock = clock.Add(sessionRetention + time.Minute)
-	if _, err := s.Register(context.Background(), Registration{Family: "claude", ID: "synthetic-back", Repository: repo, Directory: repo, TTLSeconds: 60}); err != nil {
+	if _, err := s.Register(context.Background(), withLaunch(t, s, Registration{Family: "claude", ID: "synthetic-back", Repository: repo, Directory: repo, TTLSeconds: 60})); err != nil {
 		t.Fatal(err)
 	}
 	if got := cull(t, s); got.SessionsByRetention != 0 || !sessionExists(t, s, kb) {
@@ -271,7 +271,7 @@ func TestImportedAndReregisteredSessions(t *testing.T) {
 	// The deleting transaction reads the conditions again: a registration after the
 	// candidate was chosen keeps it.
 	*clock = clock.Add(sessionRetention + time.Minute)
-	if _, err := s.Register(context.Background(), Registration{Family: "claude", ID: "synthetic-back", Repository: repo, Directory: repo, TTLSeconds: 60}); err != nil {
+	if _, err := s.Register(context.Background(), withLaunch(t, s, Registration{Family: "claude", ID: "synthetic-back", Repository: repo, Directory: repo, TTLSeconds: 60})); err != nil {
 		t.Fatal(err)
 	}
 	deleted, err := s.deleteSession(context.Background(), kb, `s.purge_at=0 AND s.last_seq=s.acked_through AND `+inactiveSince,

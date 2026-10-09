@@ -52,9 +52,11 @@ func TestObservationValidationAndAttribution(t *testing.T) {
 	if err := s.Observe(ctx, Observation{Caller: Key{"codex", "synthetic-missing"}, Model: model}); !errors.Is(err, ErrMissing) {
 		t.Fatalf("unknown session: %v", err)
 	}
-	// A shared server's environment does not make a terminal a session's own: an unlaunched
-	// Codex session is refused, a Claude session is accepted.
-	if got := observe(s, Observation{Caller: Key{"codex", "synthetic-codex"}, Terminal: terminal}); got != "terminal_unverified" {
+	// A shared server's environment does not make a terminal a session's own: a session
+	// without a launch (DeepSeek's command registration) is refused, a Claude session is
+	// accepted.
+	join(t, s, "deepseek", "synthetic-deepseek", "")
+	if got := observe(s, Observation{Caller: Key{"deepseek", "synthetic-deepseek"}, Terminal: terminal}); got != "terminal_unverified" {
 		t.Fatalf("unlaunched terminal: %q", got)
 	}
 	if got := observe(s, Observation{Caller: Key{"claude", "synthetic-claude"}, Terminal: terminal}); got != "" {
@@ -71,7 +73,7 @@ func TestObservationValidationAndAttribution(t *testing.T) {
 	}
 	views := s.sessionObservations(ctx, codex)
 	if views["model"].Value == nil || views["model"].Value.ID != "gpt-synthetic" || views["context"].Value == nil ||
-		*views["context"].Value.UsedTokens != 250 || views["activity"].Value.State != "busy" || views["terminal"].Reason != "terminal_unverified" {
+		*views["context"].Value.UsedTokens != 250 || views["activity"].Value.State != "busy" || views["terminal"].Reason != "not_observed" {
 		t.Fatalf("codex views: %+v", views)
 	}
 	views = s.sessionObservations(ctx, claude)
@@ -81,7 +83,7 @@ func TestObservationValidationAndAttribution(t *testing.T) {
 	// Families without a source say so.
 	opencode := join(t, s, "opencode", "synthetic-open", "")
 	if views := s.sessionObservations(ctx, opencode); views["model"].Reason != "no_source" || views["context"].Reason != "no_source" ||
-		views["activity"].Reason != "not_observed" || views["terminal"].Reason != "terminal_unverified" {
+		views["activity"].Reason != "not_observed" || views["terminal"].Reason != "not_observed" {
 		t.Fatalf("opencode views: %+v", views)
 	}
 	agy := join(t, s, "agy", "synthetic-agy", "")
@@ -140,7 +142,7 @@ func TestLaunchedTerminalsAndOpenCodeStatus(t *testing.T) {
 		return id
 	}
 	register := func(family, id, launchID string) Session {
-		session, err := s.Register(ctx, Registration{Family: family, ID: id, Directory: directory, LaunchID: launchID})
+		session, err := s.Register(ctx, Registration{Family: family, ID: id, Directory: directory, LaunchID: launchID, Ancestors: []int{123}})
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -179,11 +181,10 @@ func TestLaunchedTerminalsAndOpenCodeStatus(t *testing.T) {
 	if v := s.sessionObservations(ctx, d)["activity"]; v.Value != nil {
 		t.Fatalf("wrong password: %+v", v)
 	}
-	// An OpenCode session without a launch is never queried.
+	// An OpenCode session without a launch does not register, so it is never queried.
 	before = calls
-	plain := register("opencode", "synthetic-open-e", "")
-	if v := s.sessionObservations(ctx, plain)["activity"]; v.Value != nil || calls != before {
-		t.Fatal("unlaunched OpenCode session queried")
+	if _, err := s.Register(ctx, Registration{Family: "opencode", ID: "synthetic-open-e", Directory: directory}); !errors.Is(err, ErrNotLaunched) || calls != before {
+		t.Fatalf("unlaunched OpenCode session: %v", err)
 	}
 }
 

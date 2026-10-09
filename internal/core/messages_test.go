@@ -46,7 +46,7 @@ func join(t *testing.T, s *Store, family, id, repo string) Session {
 	if repo == "" {
 		r.Directory = t.TempDir()
 	}
-	got, err := s.Register(context.Background(), r)
+	got, err := s.Register(context.Background(), withLaunch(t, s, r))
 	if err != nil {
 		t.Fatalf("register %s:%s: %v", family, id, err)
 	}
@@ -209,7 +209,7 @@ func TestAliasHolderMoves(t *testing.T) {
 	// A holder that moves to another repository no longer holds the old alias.
 	moved := Registration{Family: "codex", ID: "synthetic-a", Repository: namedRepo(t, "other"), TTLSeconds: 60}
 	moved.Directory = moved.Repository
-	if _, err := s.Register(context.Background(), moved); err != nil {
+	if _, err := s.Register(context.Background(), withLaunch(t, s, moved)); err != nil {
 		t.Fatal(err)
 	}
 	if b := join(t, s, "codex", "synthetic-b", repo); b.Alias != "codex-koinon" {
@@ -223,9 +223,9 @@ func TestConcurrentRegistrationLeavesOneAliasHolder(t *testing.T) {
 	var wg sync.WaitGroup
 	for i := range 20 {
 		wg.Add(1)
+		r := withLaunch(t, s, Registration{Family: "codex", ID: fmt.Sprint("synthetic-", i), Repository: repo, Directory: repo, TTLSeconds: 60})
 		go func() {
 			defer wg.Done()
-			r := Registration{Family: "codex", ID: fmt.Sprint("synthetic-", i), Repository: repo, Directory: repo, TTLSeconds: 60}
 			if _, err := s.Register(context.Background(), r); err != nil {
 				t.Error(err)
 			}
@@ -518,7 +518,7 @@ func TestMessagesSurviveCrash(t *testing.T) {
 	}
 	var recipient string
 	for _, id := range []string{"synthetic-a", "synthetic-b"} {
-		status, result := post(t, address, secret, "/v1/sessions/register", Registration{Family: "codex", ID: id, Directory: t.TempDir(), TTLSeconds: 600})
+		status, result := post(t, address, secret, "/v1/sessions/register", httpLaunch(t, address, secret, Registration{Family: "codex", ID: id, Directory: t.TempDir(), TTLSeconds: 600}))
 		if status != 200 {
 			t.Fatal(result)
 		}

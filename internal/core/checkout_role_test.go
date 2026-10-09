@@ -12,7 +12,7 @@ func checkoutSession(t *testing.T, s *Store, id, directory string) (Key, MemoryC
 	t.Helper()
 	ctx := context.Background()
 	k := Key{"codex", id}
-	if _, err := s.Register(ctx, Registration{Family: k.Family, ID: k.ID, Repository: directory, Directory: directory, TTLSeconds: 3600}); err != nil {
+	if _, err := s.Register(ctx, withLaunch(t, s, Registration{Family: k.Family, ID: k.ID, Repository: directory, Directory: directory, TTLSeconds: 3600})); err != nil {
 		t.Fatal(err)
 	}
 	m, err := s.ResolveWorkCaller(ctx, k, nil)
