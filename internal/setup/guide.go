@@ -14,7 +14,7 @@ also to another session of your own family.
 
 ## Tools
 - peers: list sessions with peer name, held alias, family, state, repository, role, participant
-  address and holds_address. False/empty participant fields are omitted.
+  address, holds_address and the last succession result. False/empty participant fields are omitted.
 - peer_status: read observed model, context and busy/idle/waiting activity by peer name or
   held alias. Active means registered, not busy. Unknown values explain why; source time,
   last confirmation and freshness window accompany known values. Acknowledgement is separate.
@@ -38,7 +38,7 @@ A participant is a family, repository and optional maintainer-assigned role. Sta
 agent with koinon FAMILY --role ROLE; its address is FAMILY-LABEL-ROLE, while the default uses
 FAMILY-LABEL. Linked worktrees share participants. Roles have 1-24 lower-case letters, digits
 or hyphens, start with a letter, and are not only hexadecimal digits and hyphens.
-An active holder keeps the address. Without one, exactly one active qualifier takes it;
+An active holder keeps the address except on verified succession. Without one, exactly one active qualifier takes it;
 multiple qualifiers leave it unheld (alias_unheld on send) until the maintainer chooses in
 the dashboard or only one qualifier remains. Registration/renewal order never chooses between them. A sub-agent has no
 participant. Address identifies a participant even when this session does not hold it.
@@ -46,6 +46,17 @@ The dashboard shows role, address, conflict and last event; Make holder chooses 
 session of that participant. A peer message never changes a holder. A holder change retires
 and persistently fences the former holder. Re-registration revives only its native peer;
 only the maintainer's Make holder choice lifts the fence.
+A launched successor can take the participant on its own native tool call: the same host
+PID and start value after 30 seconds without a holder tool call, or the same tmux socket/pane
+once the former host is proven ended. Unknown evidence refuses succession. Read this session's
+succession result in peers: succeeded reports same_host or same_pane; refused reports no_host,
+host_running, other_pane, subagent, holder_active, fenced or other_participant.
+holder_active returns the daemon's remaining retry_after_ms; MCP retries at the first native
+tool call after that wait. Renewals and observation timers do not count as activity or retry.
+A daemon restart counts as activity for 30 seconds. Other refusals have no scheduled retry;
+report them and tell the maintainer when a dashboard choice is needed. A fenced old thread
+cannot succeed automatically, even after the guard. Never retire a predecessor or move its
+address as a pickup step; reconcile the runtime's result with the saved checkpoint.
 Address messages, the default memory cursor and default work claims belong to
 participant:<address>. A successor holder continues those inbox acknowledgements, cursors
 and live claim generations without restarting leases. stale_holder refuses former-holder

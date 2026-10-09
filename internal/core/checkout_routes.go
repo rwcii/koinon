@@ -17,6 +17,7 @@ func (d *Daemon) checkoutRoutes(mux *http.ServeMux) {
 				failure(w, ErrInvalid)
 				return
 			}
+			d.store.ToolCall(request.Caller)
 			var result any
 			var err error
 			if operation == "status" {

@@ -55,6 +55,8 @@ type Session struct {
 	// with its peer name only and never takes the participant again unless the maintainer
 	// chooses it (chunk 03).
 	Fenced bool `json:"fenced,omitempty"`
+	// Succession is the session's last succession result (chunk 04).
+	Succession *Succession `json:"succession,omitempty"`
 }
 
 type Registration struct {
@@ -69,6 +71,11 @@ type Registration struct {
 	// launch admits the caller only when its host process is among them.
 	Ancestors []int `json:"ancestors,omitempty"`
 	Subagent  bool  `json:"subagent,omitempty"`
+	// Tmux is the tmux socket and pane that hold the session's host process, when koinon
+	// mcp found them. ToolCall says that the session's own tool call caused this
+	// registration; only such a registration can take the participant from its holder.
+	Tmux     *TmuxPane `json:"tmux,omitempty"`
+	ToolCall bool      `json:"tool_call,omitempty"`
 }
 
 type Mutation struct {
@@ -90,6 +97,10 @@ type Store struct {
 	wake     wakeState
 	// retention holds the last retention sweep's results (#216).
 	retention retentionState
+	// calls holds each session's last tool call; processStart reads a host process's start
+	// time (chunk 04).
+	calls        toolCalls
+	processStart func(int) (int64, error)
 }
 
 func openStore(root string) (*Store, error) { return openStoreFile(root, "state.sqlite3") }
@@ -166,7 +177,7 @@ func openStoreFile(root, name string) (*Store, error) {
 		db.Close()
 		return nil, err
 	}
-	return &Store{db: db, now: time.Now, storage: storage{path: path, maxPages: defaultMaxPages}}, nil
+	return &Store{db: db, now: time.Now, storage: storage{path: path, maxPages: defaultMaxPages}, processStart: platform.ProcessStart}, nil
 }
 
 // configure reads back every setting the storage bound depends on. A database created
@@ -222,7 +233,7 @@ func checkFormat(db *sql.DB, path string) error {
 	return nil
 }
 
-const schemaVersion = 12
+const schemaVersion = 13
 
 // migrate brings the state schema from version to target in one transaction, so a crash
 // leaves either the old or the new schema. Each step starts from the version before it.
@@ -480,6 +491,18 @@ func migrate(db *sql.DB, version, target int) error {
 			return err
 		}
 	}
+	if version < 13 && target >= 13 {
+		// Version 13: succession (participants sprint, chunk 04). The host record of each
+		// session: its host process ID and start time, and the tmux socket and pane when the
+		// pane holds the host. succession is the session's last succession result (JSON).
+		if _, err := tx.Exec(`ALTER TABLE sessions ADD COLUMN host_pid INTEGER NOT NULL DEFAULT 0;
+			ALTER TABLE sessions ADD COLUMN host_start INTEGER NOT NULL DEFAULT 0;
+			ALTER TABLE sessions ADD COLUMN tmux_socket TEXT NOT NULL DEFAULT '';
+			ALTER TABLE sessions ADD COLUMN tmux_pane TEXT NOT NULL DEFAULT '';
+			ALTER TABLE sessions ADD COLUMN succession TEXT NOT NULL DEFAULT '';`); err != nil {
+			return err
+		}
+	}
 	if _, err := tx.Exec(fmt.Sprintf("PRAGMA user_version=%d", target)); err != nil {
 		return err
 	}
@@ -595,7 +618,7 @@ func CleanGitEnvironment() []string {
 func (s *Store) Register(ctx context.Context, r Registration) (Session, error) {
 	s.wake.mu.Lock()
 	defer s.wake.mu.Unlock()
-	if !validKey(r.Family, r.ID) || len(r.WakeTarget) > 8192 {
+	if !validKey(r.Family, r.ID) || len(r.WakeTarget) > 8192 || !r.Tmux.valid() {
 		return Session{}, ErrInvalid
 	}
 	duration, err := ttl(r.TTLSeconds)
@@ -653,12 +676,21 @@ func (s *Store) Register(ctx context.Context, r Registration) (Session, error) {
 	if err != nil && !errors.Is(err, sql.ErrNoRows) {
 		return Session{}, err
 	}
-	_, err = tx.ExecContext(ctx, `INSERT INTO sessions(`+sessionColumns+`) VALUES (?,?,?,?,?,?,?,?,0,1,?,?)
+	if r.ToolCall {
+		s.ToolCall(Key{r.Family, r.ID})
+	}
+	// DeepSeek has no launch and so no host record.
+	h := host{}
+	if r.Family != "deepseek" {
+		h = s.recordHost(hostPID(r.WakeTarget), r.Tmux)
+	}
+	_, err = tx.ExecContext(ctx, `INSERT INTO sessions(`+sessionColumns+`) VALUES (?,?,?,?,?,?,?,?,0,1,?,?,?,?,?,?)
 		ON CONFLICT(family,id) DO UPDATE SET repository=excluded.repository,
 		directory=excluded.directory,wake_target=excluded.wake_target,renewed_at=excluded.renewed_at,
 		expires_at=excluded.expires_at,retired_at=0,revision=sessions.revision+1,subagent=MAX(sessions.subagent,excluded.subagent),
-		role=excluded.role`,
-		r.Family, r.ID, common, directory, string(r.WakeTarget), now, now, now+duration, r.Subagent, role)
+		role=excluded.role,host_pid=excluded.host_pid,host_start=excluded.host_start,tmux_socket=excluded.tmux_socket,
+		tmux_pane=excluded.tmux_pane`,
+		r.Family, r.ID, common, directory, string(r.WakeTarget), now, now, now+duration, r.Subagent, role, h.pid, h.start, h.socket, h.pane)
 	if err != nil {
 		return Session{}, tx.fail(err)
 	}
@@ -670,6 +702,23 @@ func (s *Store) Register(ctx context.Context, r Registration) (Session, error) {
 	if err := assignNames(ctx, tx.Tx, now, participant{r.Family, r.ID, common, directory, role, subagent, wasActive}); err != nil {
 		return Session{}, tx.fail(err)
 	}
+	// Only the session's own tool call can take the participant from an active holder; the
+	// renewal timer never registers.
+	if r.ToolCall {
+		succession, err := s.succeed(ctx, tx.Tx, now, Key{r.Family, r.ID}, common, role, subagent)
+		if err != nil {
+			return Session{}, tx.fail(err)
+		}
+		if succession != nil {
+			data, err := json.Marshal(succession)
+			if err != nil {
+				return Session{}, err
+			}
+			if _, err := tx.ExecContext(ctx, `UPDATE sessions SET succession=? WHERE family=? AND id=?`, string(data), r.Family, r.ID); err != nil {
+				return Session{}, tx.fail(err)
+			}
+		}
+	}
 	result, err := scanSession(tx.QueryRowContext(ctx, sessionQuery+` WHERE s.family=? AND s.id=?`, r.Family, r.ID), now)
 	if err != nil {
 		return Session{}, err
@@ -677,7 +726,8 @@ func (s *Store) Register(ctx context.Context, r Registration) (Session, error) {
 	return result, tx.Commit()
 }
 
-const sessionColumns = `family,id,repository,directory,wake_target,registered_at,renewed_at,expires_at,retired_at,revision,subagent,role`
+const sessionColumns = `family,id,repository,directory,wake_target,registered_at,renewed_at,expires_at,retired_at,revision,subagent,role,
+	host_pid,host_start,tmux_socket,tmux_pane`
 
 // sessionQuery reads a session with its peer name and its participant: the address, its
 // recorded holder and conflict. scanSession shows the address as held only while the
@@ -686,7 +736,7 @@ const sessionQuery = `SELECT s.family,s.id,s.repository,s.directory,s.wake_targe
 	s.expires_at,s.retired_at,s.purge_at,s.revision,s.subagent,s.role,
 	COALESCE((SELECT name FROM names WHERE kind='peer' AND family=s.family AND session_id=s.id),''),
 	COALESCE(p.name,''),COALESCE(p.holder_id,''),COALESCE(p.conflict,''),
-	EXISTS (SELECT 1 FROM participant_fences f WHERE f.address=p.name AND f.family=s.family AND f.session_id=s.id) FROM sessions s
+	EXISTS (SELECT 1 FROM participant_fences f WHERE f.address=p.name AND f.family=s.family AND f.session_id=s.id),s.succession FROM sessions s
 	LEFT JOIN names p ON p.kind='alias' AND p.family=s.family AND p.repository=s.repository AND p.role=s.role
 		AND s.repository!='' AND s.subagent=0`
 
@@ -694,8 +744,8 @@ type scanner interface{ Scan(...any) error }
 
 func scanSession(row scanner, now int64) (Session, error) {
 	var result Session
-	var target, holder, conflict string
-	err := row.Scan(&result.Family, &result.ID, &result.Repository, &result.Directory, &target, &result.RegisteredAt, &result.RenewedAt, &result.ExpiresAt, &result.RetiredAt, &result.PurgeAt, &result.Revision, &result.Subagent, &result.Role, &result.Name, &result.Address, &holder, &conflict, &result.Fenced)
+	var target, holder, conflict, succession string
+	err := row.Scan(&result.Family, &result.ID, &result.Repository, &result.Directory, &target, &result.RegisteredAt, &result.RenewedAt, &result.ExpiresAt, &result.RetiredAt, &result.PurgeAt, &result.Revision, &result.Subagent, &result.Role, &result.Name, &result.Address, &holder, &conflict, &result.Fenced, &succession)
 	if errors.Is(err, sql.ErrNoRows) {
 		return result, ErrMissing
 	}
@@ -715,6 +765,12 @@ func scanSession(row scanner, now int64) (Session, error) {
 	}
 	if conflict != "" {
 		if err := json.Unmarshal([]byte(conflict), &result.Conflict); err != nil {
+			return result, err
+		}
+	}
+	if succession != "" {
+		result.Succession = &Succession{}
+		if err := json.Unmarshal([]byte(succession), result.Succession); err != nil {
 			return result, err
 		}
 	}

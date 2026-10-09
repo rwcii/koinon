@@ -58,7 +58,9 @@ func TestWakeCrashAfterAcceptanceRetries(t *testing.T) {
 	if err = restored.db.QueryRow("SELECT wake_reason FROM messages WHERE id=?", message.ID).Scan(&reason); err != nil || reason != "attempt_in_progress" {
 		t.Fatalf("lost durable boundary: %s %v", reason, err)
 	}
-	*clock = clock.Add(2 * time.Second)
+	// The child recorded its attempt with the real clock, after its start; the retry is due
+	// two seconds after the restart however long that start took.
+	*clock = time.Now().Add(2 * time.Second)
 	restored.now = func() time.Time { return *clock }
 	calls := 0
 	restored.wake.send = func(context.Context, Session, string) wakeResult { calls++; return accepted() }
@@ -78,7 +80,7 @@ func TestWakeCrashAfterAcceptanceRetries(t *testing.T) {
 }
 func TestWakeSchemaFiveMigrationAndFutureRefusal(t *testing.T) {
 	s, root, sender, receiver, message, _ := wakeFixture(t, "agy")
-	if _, err := s.db.Exec(undoSchemaTwelve + undoSchemaEleven + undoSchemaTen + undoSchemaNine + undoSchemaEight + undoSchemaSeven + `DROP INDEX messages_wake; ALTER TABLE messages DROP COLUMN wake_attempts; ALTER TABLE messages DROP COLUMN wake_next_at; ALTER TABLE messages DROP COLUMN wake_reason; PRAGMA user_version=5`); err != nil {
+	if _, err := s.db.Exec(undoSchemaThirteen + undoSchemaTwelve + undoSchemaEleven + undoSchemaTen + undoSchemaNine + undoSchemaEight + undoSchemaSeven + `DROP INDEX messages_wake; ALTER TABLE messages DROP COLUMN wake_attempts; ALTER TABLE messages DROP COLUMN wake_next_at; ALTER TABLE messages DROP COLUMN wake_reason; PRAGMA user_version=5`); err != nil {
 		t.Fatal(err)
 	}
 	s.db.Close()

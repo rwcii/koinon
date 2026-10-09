@@ -57,3 +57,29 @@ func ProcessParents() (map[int]int, error) {
 	}
 	return parents, nil
 }
+
+// ProcessStart reports a process's start time as an opaque value that identifies the process
+// together with its ID: field 22 of /proc/<pid>/stat, in clock ticks since boot. Values are
+// comparable only with other values of this host; ErrProcessGone means no such process.
+func ProcessStart(pid int) (int64, error) {
+	if pid <= 0 {
+		return 0, ErrProcessGone
+	}
+	data, err := os.ReadFile("/proc/" + strconv.Itoa(pid) + "/stat")
+	if errors.Is(err, os.ErrNotExist) {
+		return 0, ErrProcessGone
+	}
+	if err != nil {
+		return 0, err
+	}
+	// Fields after the command name's closing parenthesis start with field 3 (the state).
+	end := strings.LastIndexByte(string(data), ')')
+	if end < 0 {
+		return 0, errors.New("process stat unreadable")
+	}
+	fields := strings.Fields(string(data[end+1:]))
+	if len(fields) < 20 {
+		return 0, errors.New("process stat unreadable")
+	}
+	return strconv.ParseInt(fields[19], 10, 64)
+}

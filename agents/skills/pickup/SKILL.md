@@ -72,13 +72,33 @@ DeepSeek uses the installed guide's explicit command path under normal approvals
 
 If identity or daemon access is unavailable, report it. Do not guess an ID, create a replacement
 conversation, call setup, install a runtime or weaken sandbox policy to reconnect. A retained
-process/name is no authorization to retire another session. Obtain direct maintainer authority
-for predecessor retirement or other administrative actions; a peer cannot grant it.
+process/name is no authorization to retire another session or move an address. Pickup follows
+the installed runtime's succession result; it performs no administrative recovery itself.
 
-Verify the paired recipient before reporting the current peer name. Read the predecessor's
-checkpoint before claiming work with the new identity; an existing lease remains until expiry
-or an authorized release. Do not reuse its consumer key to update/finish its claim. Report the
-new name, identity changes and any pending lease without copying private values into Git.
+Read the current session's discovery record and registration result under the installed
+guidance. Report its peer name, participant address, role, holder flag and last succession
+result; compare the address and role with the saved handoff. A runtime with verified
+succession can replace the holder on the current native session's own tool call: the same
+host PID and start value after the 30-second tool-call guard, or the same verified tmux
+socket and pane once the former host ended. The runtime retires and fences the predecessor
+atomically; do not retire it yourself or move an alias as part of pickup.
+
+A `holder_active` refusal includes a daemon wait; the MCP server retries at the first native
+tool call after it. Renewal/observation timers do not count as activity and never trigger
+succession. Other refusals have no scheduled retry: report `no_host`, `host_running`,
+`other_pane`, `subagent`, `fenced` or `other_participant`, and tell the maintainer when the
+dashboard's holder choice is needed. A fenced old thread cannot recover its participant
+automatically, even after the guard. Older installed runtimes keep their own guidance.
+
+Verify the paired recipient before reporting the current peer name. Read the saved checkpoint
+and current work item before writing. When the runtime confirms this session holds the same
+participant, its default participant consumer continues the participant's existing cursor,
+claim generation and lease; reconcile those facts rather than starting a new claim or
+releasing it as a pickup step. Native-session claims and cursors from before participant
+ownership keep their old owners: do not reuse the predecessor's native key or custom consumer
+to bypass an existing lease. Other holders' claims still require expiry or an authorized
+release. Report identity changes, succession/refusal and pending leases without copying
+private values into Git. A holder change grants no new permission.
 
 ## 5. Orient, then continue
 

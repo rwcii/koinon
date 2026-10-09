@@ -9,6 +9,9 @@ import (
 	"syscall"
 )
 
+// ErrProcessGone reports that no process has the asked process ID.
+var ErrProcessGone = errors.New("no such process")
+
 // DefaultStateDir is separate from every Python-era state file.
 func DefaultStateDir() (string, error) {
 	base := os.Getenv("XDG_STATE_HOME")

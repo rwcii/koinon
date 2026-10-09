@@ -118,41 +118,9 @@ func (s *server) nameTerminal(ctx context.Context, host int, name string) string
 	if !tmuxName.MatchString(name) {
 		return "invalid_name"
 	}
-	socket, _, _ := strings.Cut(s.c.Getenv("TMUX"), ",")
-	pane := s.c.Getenv("TMUX_PANE")
-	if socket == "" || pane == "" {
-		return "not_in_tmux"
-	}
-	if host <= 1 {
-		return "pane_not_host"
-	}
-	out, err := s.c.Tmux(ctx, socket, "display-message", "-p", "-t", pane, "#{pane_id}\t#{pane_pid}\t#{session_id}")
-	fields := strings.Split(strings.TrimRight(out, "\n"), "\t")
-	if err != nil || len(fields) != 3 {
-		return "tmux_unreadable"
-	}
-	paneID, sessionID := fields[0], fields[2]
-	panePID, err := strconv.Atoi(fields[1])
-	if err != nil || panePID <= 1 {
-		return "tmux_unreadable"
-	}
-	parents, err := s.c.Parents()
-	if err != nil {
-		return "process_table_unreadable"
-	}
-	// The pane must hold the host, with no other agent between them.
-	for pid, steps := host, 0; pid != panePID; steps++ {
-		if pid != host && s.agentProcess(pid) {
-			return "nested_agent"
-		}
-		parent, found := parents[pid]
-		if !found || parent <= 1 || steps >= maxAncestors {
-			return "pane_not_host"
-		}
-		pid = parent
-	}
-	if panePID != host && s.agentProcess(panePID) {
-		return "nested_agent"
+	socket, paneID, sessionID, parents, reason := s.hostPane(ctx, host)
+	if reason != "" {
+		return reason
 	}
 	shared, ok := s.otherAgentPane(ctx, socket, sessionID, paneID, parents)
 	if !ok {
@@ -181,6 +149,66 @@ func (s *server) nameTerminal(ctx context.Context, host int, name string) string
 	}
 	return "renamed"
 }
+
+// hostPane proves the host is in the selected pane, without renaming anything.
+// Registration and terminal naming share this ancestor check.
+func (s *server) hostPane(ctx context.Context, host int) (socket, paneID, sessionID string, parents map[int]int, reason string) {
+	socket, _, _ = strings.Cut(s.c.Getenv("TMUX"), ",")
+	pane := s.c.Getenv("TMUX_PANE")
+	if socket == "" || pane == "" {
+		return "", "", "", nil, "not_in_tmux"
+	}
+	if host <= 1 {
+		return "", "", "", nil, "pane_not_host"
+	}
+	out, err := s.c.Tmux(ctx, socket, "display-message", "-p", "-t", pane, "#{pane_id}\t#{pane_pid}\t#{session_id}")
+	fields := strings.Split(strings.TrimRight(out, "\n"), "\t")
+	if err != nil || len(fields) != 3 {
+		return "", "", "", nil, "tmux_unreadable"
+	}
+	paneID, sessionID = fields[0], fields[2]
+	panePID, err := strconv.Atoi(fields[1])
+	if err != nil || panePID <= 1 {
+		return "", "", "", nil, "tmux_unreadable"
+	}
+	parents, err = s.c.Parents()
+	if err != nil {
+		return "", "", "", nil, "process_table_unreadable"
+	}
+	// The pane must hold the host, with no other agent between them.
+	for pid, steps := host, 0; pid != panePID; steps++ {
+		if pid != host && s.agentProcess(pid) {
+			return "", "", "", nil, "nested_agent"
+		}
+		parent, found := parents[pid]
+		if !found || parent <= 1 || steps >= maxAncestors {
+			return "", "", "", nil, "pane_not_host"
+		}
+		pid = parent
+	}
+	if panePID != host && s.agentProcess(panePID) {
+		return "", "", "", nil, "nested_agent"
+	}
+	return socket, paneID, sessionID, parents, ""
+}
+
+// registrationPane offers only a proven pane of this MCP server's native parent.
+// The daemon binds that parent to the launch and reads the actual host's start time.
+func (s *server) registrationPane(ctx context.Context) *core.TmuxPane {
+	if s.c.Tmux == nil || s.c.Parents == nil || s.c.Command == nil {
+		return nil
+	}
+	ctx, cancel := context.WithTimeout(ctx, tmuxTimeout)
+	defer cancel()
+	socket, pane, _, _, reason := s.hostPane(ctx, s.c.ParentPID)
+	if reason != "" || !filepath.IsAbs(socket) || filepath.Clean(socket) != socket || len(socket) > 4096 ||
+		strings.ContainsFunc(socket, func(r rune) bool { return r < 0x20 || r == 0x7f }) || !registrationPaneID.MatchString(pane) {
+		return nil
+	}
+	return &core.TmuxPane{Socket: socket, Pane: pane}
+}
+
+var registrationPaneID = regexp.MustCompile(`^%[0-9]{1,9}$`)
 
 // otherAgentPane reports whether another pane of the session holds an agent process. The
 // second result is false when that cannot be ruled out.

@@ -5,6 +5,16 @@ into a dated release section when promoted to `main`.
 
 ## Unreleased
 
+- Launched successors continue their participant automatically on a native tool call when
+  host evidence matches: the same process after the 30-second tool-call guard, or the same
+  tmux server and pane after the former host ends. Missing or unreadable evidence refuses
+  succession; fenced sessions still require the maintainer's dashboard choice. MCP retries
+  `holder_active` at the next tool call after the daemon's wait, preserving that wait across
+  renewals. Observation and renewal timers never count as activity or trigger succession.
+  `peers` reports the last result and participant events retain the evidence. Schema 13 adds
+  host records without changing existing owners. Pickup, handoff and peer-tmux guidance now
+  follows the runtime's succession result and records participant address and role.
+
 - Participant addresses now own their inboxes and a holder's default memory cursor and work
   claims. A new holder continues acknowledgement points, cursors and live claim generations
   without restarting leases. Holder changes retire and persistently fence the former holder;

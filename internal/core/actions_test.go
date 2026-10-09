@@ -20,6 +20,11 @@ import (
 // Dashboard action tests (sprint chunk 09): a real daemon on ephemeral loopback ports,
 // temporary state, synthetic sessions and a patched launcher.
 
+// undoSchemaThirteen turns a schema 13 database back into schema 12 for migration tests.
+const undoSchemaThirteen = `ALTER TABLE sessions DROP COLUMN host_pid; ALTER TABLE sessions DROP COLUMN host_start;
+	ALTER TABLE sessions DROP COLUMN tmux_socket; ALTER TABLE sessions DROP COLUMN tmux_pane;
+	ALTER TABLE sessions DROP COLUMN succession; `
+
 // undoSchemaTwelve turns a schema 12 database without participant inboxes back into
 // schema 11 for migration tests.
 const undoSchemaTwelve = `DROP TABLE participant_fences; ALTER TABLE sessions DROP COLUMN acked_by; ALTER TABLE memory_cursors DROP COLUMN actor; ALTER TABLE work_events DROP COLUMN actor; `
@@ -478,7 +483,7 @@ func TestSchemaSixMigrationAndRollback(t *testing.T) {
 	}
 	// A schema 6 database that already holds the name maintainer cannot migrate: the
 	// whole step rolls back and the database stays at 6.
-	if _, err := s.db.Exec(undoSchemaTwelve + undoSchemaEleven + undoSchemaTen + undoSchemaNine + undoSchemaEight + undoSchemaSeven + `INSERT INTO names(name,kind,family,session_id) VALUES ('maintainer','peer','codex','x'); PRAGMA user_version=6`); err != nil {
+	if _, err := s.db.Exec(undoSchemaThirteen + undoSchemaTwelve + undoSchemaEleven + undoSchemaTen + undoSchemaNine + undoSchemaEight + undoSchemaSeven + `INSERT INTO names(name,kind,family,session_id) VALUES ('maintainer','peer','codex','x'); PRAGMA user_version=6`); err != nil {
 		t.Fatal(err)
 	}
 	s.db.Close()

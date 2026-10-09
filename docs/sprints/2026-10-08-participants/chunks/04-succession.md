@@ -64,3 +64,15 @@ Facts: `live-checks.md`, F1 and F3. Delivers #141.
   process itself.
 - `PROTOCOL.md` (host record, evidence, `succession_refused`), `docs/USAGE.md`,
   `docs/INSTALL.md`, the installed `koinon guide` text, the three skills, `CHANGELOG.md`.
+
+## Implementation note
+
+The daemon reads the launch-bound host's start value at registration, and MCP supplies only
+its verified pane. Last tool-call stamps are memory-only; a daemon start conservatively
+counts as a call for the first 30 seconds. Actual tool routes stamp calls, including reads;
+observation, renewal, wake and maintenance routes do not. The guard reads the stamp inside
+the registration transaction. A stamp racing a holder change cannot permit a former
+holder's participant effect: that effect validates the holder under the existing lock.
+`holder_active` returns a remaining duration. MCP waits that duration from receipt and
+retries only at the next native tool call, preserving it across renewals. Client and daemon
+wall clocks are never compared.

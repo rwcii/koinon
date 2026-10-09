@@ -282,14 +282,15 @@ func (s *server) ensure(ctx context.Context, caller core.Key) error {
 	s.latest = caller
 	current, found := s.sessions[caller]
 	s.mu.Unlock()
-	if found && now.Sub(current.at) < renewEvery {
+	if found && now.Sub(current.at) < renewEvery && (current.retryAt.IsZero() || now.Before(current.retryAt)) {
 		return nil
 	}
 	return s.register(ctx, caller)
 }
 
 func (s *server) register(ctx context.Context, caller core.Key) error {
-	r := core.Registration{Family: caller.Family, ID: caller.ID, Directory: s.c.Directory}
+	// register is called only by a native tool call, never by the renewal timer.
+	r := core.Registration{Family: caller.Family, ID: caller.ID, Directory: s.c.Directory, ToolCall: true}
 	if gitRepository(ctx, s.c.Directory) {
 		r.Repository = s.c.Directory
 	}
@@ -300,6 +301,7 @@ func (s *server) register(ctx context.Context, caller core.Key) error {
 		return core.RefusedError{Code: "not_launched"}
 	}
 	r.Ancestors = s.ancestors()
+	r.Tmux = s.registrationPane(ctx)
 	if caller.Family == "claude" {
 		r.WakeTarget, _ = json.Marshal(map[string]any{"claude_pid": s.c.ParentPID})
 	}
@@ -317,7 +319,15 @@ func (s *server) register(ctx context.Context, caller core.Key) error {
 		return err
 	}
 	s.mu.Lock()
-	s.sessions[caller] = registered{revision: reply.Session.Revision, at: s.c.Now()}
+	now := s.c.Now()
+	current := registered{revision: reply.Session.Revision, at: now}
+	if result := reply.Session.Succession; !reply.Session.HoldsAddress && result != nil &&
+		result.Result == "refused" && result.Reason == "holder_active" {
+		// Wait the daemon's remaining duration from receipt. Do not compare its wall
+		// clock with this client's, and do not register until another tool call.
+		current.retryAt = now.Add(time.Duration(result.RetryAfterMS) * time.Millisecond)
+	}
+	s.sessions[caller] = current
 	s.mu.Unlock()
 	s.nameAfterRegistration(caller, reply.Session)
 	return nil
@@ -363,7 +373,11 @@ func (s *server) renew(ctx context.Context) {
 		s.mu.Unlock()
 		return
 	}
-	s.sessions[caller] = registered{revision: reply.Session.Revision, at: s.c.Now()}
+	current.revision, current.at = reply.Session.Revision, s.c.Now()
+	if reply.Session.HoldsAddress {
+		current.retryAt = time.Time{}
+	}
+	s.sessions[caller] = current
 	s.mu.Unlock()
 	// A renewal can give the session its alias.
 	s.nameAfterRegistration(caller, reply.Session)

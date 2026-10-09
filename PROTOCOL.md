@@ -16,7 +16,7 @@ Never put a secret, runtime session identifier or response body in a repository.
 | `POST /v1/sessions/register` | Register or reactivate one session identified by `(family, id)`. |
 | `POST /v1/sessions/renew` | Renew an active session's expiry. |
 | `POST /v1/sessions/retire` | Mark an active session retired, retaining its record. |
-| `POST /v1/peers` | Each session's `name`, held `alias`, `family`, `state`, `repository`, optional `role` and `address`, and true-only `holds_address` and `subagent`, for an active caller; never a wake target, directory or session ID. |
+| `POST /v1/peers` | Each session's `name`, held `alias`, `family`, `state`, `repository`, optional `role` and `address`, true-only `holds_address` and `subagent`, and optional `succession`, for an active caller; never a wake target, directory or session ID. |
 | `POST /v1/peers/status` | Resolve a published peer name or held alias and read public identity plus observed model, context and activity for an active caller. |
 | `POST /v1/messages/send` | Store one message for the session that a peer name or alias names. |
 | `POST /v1/inbox/read` | Read session and held participant inboxes after their independent sequences. |
@@ -99,7 +99,8 @@ a role). Address reservations persist. Schema 11 adds `sessions.role`, `names.ro
 as participants without a role. Migration keeps inboxes, acknowledgements, memory cursors and
 work claims unchanged.
 
-An active holder keeps the address when another session registers or renews. When no active
+An active holder keeps the address when another session registers or renews, except for
+verified succession below. When no active
 holder remains, registration or renewal counts the active, non-retired, non-sub-agent sessions
 of that participant. Exactly one qualifier takes it; multiple qualifiers leave it unheld,
 record their peer names as `conflict`, and wait for the maintainer's choice or for only one
@@ -131,6 +132,51 @@ its native caller again. The successor continues participant inbox acknowledgeme
 cursors and live claims with their existing generations and deadlines.
 Pre-upgrade messages, acknowledgements, peer-name cursors and native-session claims keep
 their original owners; migration does not transfer them to the participant.
+
+### Verified succession
+
+Schema 13 adds a private host record to each session: host PID, process start value,
+tmux socket and pane, plus its last `succession` result. Existing records start with no host
+evidence; their owners, messages, acknowledgements, cursors and claims remain unchanged.
+The daemon reads the host start through `internal/platform.ProcessStart`: Linux `/proc` field
+22 or macOS `kern.proc.pid`, without cgo. A PID with a different start identifies a different
+process; an inspection error proves nothing. The host is the launch's process, or the Claude
+background job's process reported by its MCP server.
+
+Registration accepts `tool_call` (default false) and optional `tmux: {socket, pane}`.
+The socket is an absolute clean path without control characters, at most 4,096 bytes; the
+pane matches `%` followed by 1–9 digits. Invalid values return `invalid_request`.
+`koinon mcp` sets `tool_call` for registrations triggered by native tool calls and reports a
+pane only after the terminal-naming ancestor check proves it holds the host, without a
+nested agent between them. Neither identity, host nor pane comes from tool arguments.
+
+Only a tool-triggered registration can succeed another active holder of the same family,
+repository and role. It requires readable host records and either the same host PID and
+start value, or the same tmux socket and pane with the former host proven ended or replaced.
+A candidate whose host already holds another participant is refused. Same-host succession
+also requires 30 seconds without a tool call from the holder. The daemon stamps actual tool
+routes, including reads, using its own clock; observation, renewal, wake and maintenance
+requests do not count. Stamps are kept in memory; a daemon restart conservatively counts as
+a call for the first 30 seconds. The guard reads the stamp in the registration transaction.
+
+The session and `peers` expose `succession: {result, reason, address, holder, at,
+retry_after_ms}` when present; `at` is daemon Unix milliseconds and `holder` is the former or
+retained holder's peer name. Success reports `result: succeeded` with `same_host` or
+`same_pane`. Refusal reports `result: refused` with `no_host`, `host_running`, `other_pane`,
+`subagent`, `holder_active`, `fenced` or `other_participant`. `no_host` covers missing host
+records; `host_running` includes a former host that cannot be proven ended; `other_pane`
+includes missing pane evidence. A refused succession still registers the native peer.
+
+For `holder_active`, the daemon returns a remaining `retry_after_ms`. MCP waits that duration
+from receipt, rather than comparing client and daemon wall clocks, then registers at the
+next native tool call even within its normal five-minute registration cache. A later call
+from the holder can cause another refusal and wait. Renewals preserve the pending wait and
+never initiate succession; other refusals have no scheduled retry. A fenced session cannot
+succeed automatically even after the guard; only the maintainer's dashboard choice lifts it.
+Each change and each new refusal records a participant event with candidate, evidence,
+refusal reason, host PID and pane; repeated refusals for the same reason and holder do not
+repeat the event. A successful change retires and fences the former holder atomically and
+continues the participant's inbox, cursor and claims.
 
 Message calls name their `caller` as `{"family": ..., "id": ...}`; the caller must be an active
 session, or the call fails with `caller_inactive`. A caller reads and acknowledges only its own
