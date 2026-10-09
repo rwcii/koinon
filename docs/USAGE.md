@@ -103,6 +103,14 @@ koinon dashboard
 koinon status
 ```
 
+Each launcher starts its agent in `--directory`, or the current directory. Outside tmux it
+starts a new tmux session named after that directory and attaches to it; inside tmux it runs in
+the current pane; without tmux it runs in the current terminal. `--tmux-session NAME` starts a
+detached tmux session instead and prints its name, pane and socket as JSON. A tmux session name
+that is taken refuses the start, so give a second agent in the same directory its own
+`--tmux-session NAME`, or start it in a pane inside tmux. Launcher options come
+first; the first other argument, or everything after `--`, goes to the agent CLI.
+
 The launchers use configured native CLIs, exact repositories and private launch records.
 Codex runs with `--no-daemon`, so its MCP servers belong to the launched CLI process. The
 launcher forwards `KOINON_LAUNCH_ID`, `KOINON_STATE_DIR`, `KOINON_DAEMON_ADDRESS`, `TMUX`,
