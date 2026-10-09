@@ -5,6 +5,14 @@ into a dated release section when promoted to `main`.
 
 ## Unreleased
 
+- Participants have one reserved address per family, repository and optional role. Launchers
+  accept `--role`; linked worktrees share participants. An active holder keeps its address;
+  without one, only a sole active qualifier takes it. Multiple qualifiers leave a conflict
+  for the maintainer to resolve with **Make holder** in the dashboard. `peers` and the dashboard
+  report role, address and holder state; the dashboard also shows conflicts and the last event.
+  Schema 11 preserves existing aliases/holders and retained inbox, memory and work state.
+  Launched Claude sessions now show their nested repository list in the dashboard too.
+
 - Claude Code, Codex, Antigravity and OpenCode register only through their Koinon launchers,
   with a matching launch family, directory and host process or recorded background job.
   Direct native starts are islanded and return `not_launched`. Codex launches with

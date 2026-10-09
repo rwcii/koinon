@@ -216,8 +216,9 @@ func (d *Daemon) dashboardHandler() (http.Handler, error) {
 
 type sessionRow struct {
 	Session
-	Work     []SessionWork
-	Observed map[string]SessionView
+	Work        []SessionWork
+	Observed    map[string]SessionView
+	Participant *Participant
 }
 
 type sessionsData struct {
@@ -279,6 +280,14 @@ func (d *Daemon) dashboardData(r *http.Request, view string) (any, error) {
 		if err != nil {
 			return nil, err
 		}
+		participants, _, err := d.store.Participants(ctx)
+		if err != nil {
+			return nil, err
+		}
+		byAddress := make(map[string]*Participant, len(participants))
+		for i := range participants {
+			byAddress[participants[i].Address] = &participants[i]
+		}
 		// Observations of ended sessions are dropped here too, whatever page is shown.
 		active, err := d.store.activeKeys(ctx)
 		if err != nil {
@@ -294,7 +303,7 @@ func (d *Daemon) dashboardData(r *http.Request, view string) (any, error) {
 		}
 		result := sessionsData{Rows: make([]sessionRow, 0, len(sessions)), Search: q.Get("q"), Counts: counts, Sort: order, Next: next}
 		for _, s := range sessions {
-			result.Rows = append(result.Rows, sessionRow{Session: s, Work: claims[s.Family+":"+s.ID], Observed: d.store.sessionObservations(pull, s)})
+			result.Rows = append(result.Rows, sessionRow{Session: s, Work: claims[s.Family+":"+s.ID], Observed: d.store.sessionObservations(pull, s), Participant: byAddress[s.Address]})
 		}
 		return result, nil
 	case "messages":
