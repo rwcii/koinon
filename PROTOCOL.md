@@ -16,7 +16,7 @@ Never put a secret, runtime session identifier or response body in a repository.
 | `POST /v1/sessions/register` | Register or reactivate one session identified by `(family, id)`. |
 | `POST /v1/sessions/renew` | Renew an active session's expiry. |
 | `POST /v1/sessions/retire` | Mark an active session retired, retaining its record. |
-| `POST /v1/peers` | Each session's `name`, held `alias`, `family`, `state`, `repository`, optional `role` and `address`, true-only `holds_address` and `subagent`, and optional `succession`, for an active caller; never a wake target, directory or session ID. |
+| `POST /v1/peers` | Each session's `name`, held `alias`, `family`, `state`, `repository`, optional `role` and `address`, true-only `holds_address` and `subagent`, and optional `succession` and fresh `naming`, for an active caller; never a wake target, directory or session ID. |
 | `POST /v1/peers/status` | Resolve a published peer name or held alias and read public identity plus observed model, context and activity for an active caller. |
 | `POST /v1/messages/send` | Store one message for the session that a peer name or alias names. |
 | `POST /v1/inbox/read` | Read session and held participant inboxes after their independent sequences. |
@@ -739,27 +739,50 @@ activity. Message delivery and acknowledgement do not establish activity or inbo
 | Model | `claude_statusline`; `codex_rollout` (the session's own rollout under `CODEX_HOME`) and `codex_mcp_meta` (`x-codex-turn-metadata.model` of a tool call); `agy_hook` (`modelName` of the Stop hook) |
 | Context | `claude_statusline` (`context_window_size`, `total_input_tokens`); `codex_rollout` (`model_context_window`, `last_token_usage.input_tokens`) |
 | Activity | `claude_registry` (the parent Claude process's registry record for this session, `entrypoint: cli`; `shell`, the prompt with a background shell task running, is idle); `codex_rollout` (task started and completed); `agy_hook` (idle at Stop) and `mcp_call` (an agy tool call); `opencode_status` (`GET /session/status` on a launched OpenCode server, with its password, cached 5 seconds) |
-| Terminal | `tmux_env`: the MCP server's `TMUX` and `TMUX_PANE`, the pane's session name and the last terminal naming result |
+| Terminal | `tmux_env`: the MCP server's `TMUX` and `TMUX_PANE`, and the pane's session name |
+| Naming | `koinon_mcp`: the last terminal naming result and the published name it was computed for; no socket or pane required |
 
 One MCP server can serve several sessions, so its environment proves nothing about a session.
 The daemon accepts a terminal only for a session registered with a verified launch ID or a
 Claude session, whose server is the child of that Claude process; any other terminal report is
 refused with `terminal_unverified`, and the view shows that reason.
 
-For those same sessions, `koinon mcp` names the terminal after the session's published name
-(the alias while the session holds one, else the peer name) after a registration or a renewal
-in which that name changed. `TMUX` and `TMUX_PANE` only select the tmux server and a candidate
+For sessions registered with a verified launch record, `koinon mcp` names the terminal after
+the session's published name (the participant address while held, else the peer name) after a
+registration or renewal when that name changed or the previous result permits a retry.
+Claude also requires its MCP server to be a child of its Claude process. `TMUX` and
+`TMUX_PANE` only select the tmux server and a candidate
 pane. The pane counts as the session's own only when its process is the session's host
 process from the wake target (the Claude process, or the launched CLI) or an ancestor of it,
 with no Claude Code, Codex, `agy` or OpenCode process between them (`pane_not_host`,
 `nested_agent`). When another pane of the same tmux session holds an agent process, only this
 pane is titled (`pane_titled`); otherwise the session is renamed by its ID (`renamed`), unless
 it already has the name (`unchanged`) or another session has it (`name_taken`), and the name is
-read back (`rename_unconfirmed`). A tmux or process-table failure (`tmux_unreadable`,
+read back (`rename_unconfirmed`). `name_taken`, `rename_unconfirmed` and a tmux or process-table failure (`tmux_unreadable`,
 `process_table_unreadable`, `panes_unknown`) changes nothing and is tried again at the next
-renewal; the other results wait for the next change of the published name. Every tmux call
-has a one-second timeout, and naming never delays or fails a tool call. The terminal
-observation carries the last result as `naming`. `koinon mcp` checks its
+renewal; the other results wait for the next change of the published name. Outside tmux,
+`not_in_tmux` changes nothing. Every tmux call has a one-second timeout, and naming never
+delays or fails a tool call.
+
+A Claude background launch uses the pane of its `claude attach SHORT_JOB_ID` client instead
+of the background host. The short ID is the first eight characters of its registered job ID.
+Naming searches socket entries in `$TMUX_TMPDIR/tmux-<uid>`, else `/tmp/tmux-<uid>`, kept
+unresolved, and the process trees of each server's panes. Exactly one matching client applies
+the same ancestor and naming rules to its pane. No match reports `attach_pane_not_found`
+and retries at the next renewal; multiple matches report `attach_pane_ambiguous`, rename
+nothing and wait for a change of published name. Servers outside that directory are not searched.
+
+The independent `naming` observation carries `source: koinon_mcp`, `at`, allowlisted `naming`
+result and `target` (the published name). It contains no socket or pane, so a session outside
+tmux or a background job with no client can report its result. Older servers' `terminal.naming`
+is still accepted but no longer displayed. Naming reports do not count as tool-call activity.
+The daemon's last confirmation controls freshness (two minutes), and a report for a target
+that is no longer the session's published name is unknown with `naming_outdated`.
+The dashboard shows the result, target, source time and fixed reason text; `peers` and
+`koinon peers` include optional `naming: {result, reason, target, at}` only for a fresh result
+of an active session's current published name. An unverified session reports
+`terminal_unverified` in the dashboard. Reports remain in memory and become unknown after
+a restart. `koinon mcp` checks its
 pulled sources every 5 seconds for the 8 sessions it registered last and reports a group when it
 changed, or once a minute to confirm it. It reads metadata only: a rollout's first record must
 name the session, at most 4 MiB are read per check, records longer than 1 MiB are discarded in

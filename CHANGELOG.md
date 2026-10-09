@@ -5,6 +5,12 @@ into a dated release section when promoted to `main`.
 
 ## Unreleased
 
+- Launched agents retry a taken tmux name at later renewals. Claude background jobs name the
+  single tmux pane with a matching `claude attach` client in the user's socket directory;
+  missing clients retry and ambiguous clients rename nothing. `peers` and the dashboard
+  report naming results with fixed reasons, also outside tmux, and suppress results for old
+  published names or stale observations. The dashboard shows the last succession result.
+
 - Launched successors continue their participant automatically on a native tool call when
   host evidence matches: the same process after the 30-second tool-call guard, or the same
   tmux server and pane after the former host ends. Missing or unreadable evidence refuses

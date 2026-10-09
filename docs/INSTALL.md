@@ -234,6 +234,14 @@ short address is retained. Roles use 1–24 lower-case letters, digits or hyphen
 a letter, and cannot consist only of hexadecimal digits and hyphens. The separate tmux
 session name avoids a taken default name. Inside tmux, separate panes can use the same
 repository. See [USAGE.md](USAGE.md) for holder conflicts and the maintainer's dashboard choice.
+After registration, the held participant address (else the peer name) becomes the session's
+tmux name once its host is verified in the pane. If another agent shares that tmux session,
+only the own pane title changes. A taken name is retried at later renewals. Outside tmux,
+`not_in_tmux` explains why naming did nothing. For `koinon claude --bg`, a single matching
+`claude attach SHORT_JOB_ID` client in the user's tmux socket directory supplies the candidate
+pane; no client retries and multiple clients rename nothing. A private server outside
+`$TMUX_TMPDIR/tmux-<uid>` (else `/tmp/tmux-<uid>`) is not searched. `peers` and the dashboard
+show fresh naming results with reasons for the current published name; see [USAGE.md](USAGE.md).
 Schema 11 preserves existing aliases and holders as participants without a role; inboxes,
 acknowledgements, memory cursors and work claims keep their existing owners.
 

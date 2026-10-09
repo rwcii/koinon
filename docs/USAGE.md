@@ -125,6 +125,20 @@ and not only hexadecimal digits and hyphens. Roles apply to all four launcher fa
 including `koinon claude --bg --role review`. Linked worktrees share participant addresses.
 Each agent also retains its permanent peer name.
 
+Launched agents name their own tmux session after the held participant address, or their peer
+name when they do not hold one. With another agent in the same tmux session, only the own pane
+title changes. A name already used by another session is left alone and retried at later
+renewals. The pane must hold the agent's host process with no other agent between them;
+nested agents and foreign panes rename nothing. Outside tmux, the result is `not_in_tmux`.
+
+MCP `peers`, `koinon peers` and the dashboard show the last naming result and its reason.
+The optional `naming` object has `result`, fixed `reason` text, `target` and source time `at`.
+It is omitted from peers when no fresh result exists or its target is no longer the current
+published name. The dashboard reports the corresponding unknown reason, including
+`observation_stale` or `naming_outdated`, and shows the last succession result. Naming reports
+need confirmation within two minutes and live in memory, so a restart makes them unknown
+until a new report. A naming result never proves that a peer is busy or has read its inbox.
+
 `peers` shows `role`, `address` and `holds_address` (false/empty fields are omitted), with
 `alias` only on the active holder. An active holder keeps its address. Without one, exactly
 one active qualifier takes it; multiple qualifiers leave it unheld and the dashboard reports
@@ -204,6 +218,13 @@ job ID returned by Claude. Do not supply native `--bg`, `--background` or `--set
 arguments yourself. A tool call that arrives before the job ID is recorded returns
 `launch_pending`; the next tool call retries registration. If starting the job fails or
 returns no usable job ID, Koinon retires the pending launch and removes its settings file.
+
+When you view that job with `claude attach SHORT_JOB_ID` in tmux, naming looks for its client
+in the user's tmux socket directory (`$TMUX_TMPDIR/tmux-<uid>`, else `/tmp/tmux-<uid>`).
+Exactly one matching pane gets the usual session-name or pane-title behavior. No client
+reports `attach_pane_not_found` and retries at the next renewal; multiple clients report
+`attach_pane_ambiguous` and rename nothing until the published name changes. Tmux servers
+outside that directory are not searched. The result can be reported without a terminal observation.
 
 After an upgrade, an existing launcher-family session without a launch association cannot
 renew and expires at its existing deadline. Its inbox, acknowledgements, memory cursor and
