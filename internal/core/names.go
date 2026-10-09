@@ -202,7 +202,7 @@ func assignNames(ctx context.Context, tx *sql.Tx, now int64, p participant) erro
 		// The holder registered again after expiring and is still the only qualifier.
 		return nil
 	case len(ids) == 1 && ids[0] == p.id:
-		return setHolder(ctx, tx, now, address, holder, p.id, "only_qualifier", "session")
+		return setHolder(ctx, tx, now, address, holder, p.id, "only_qualifier", "session", "")
 	case len(ids) > 1:
 		data, err := json.Marshal(peers)
 		if err != nil || string(data) == conflict && holder == "" {
@@ -250,8 +250,8 @@ func createAddress(ctx context.Context, tx *sql.Tx, p participant) (string, erro
 
 // setHolder makes id the holder of address, clears its conflict and records the change.
 // A former holder is retired when it is still active, and fenced, in the same transaction
-// (chunk 03), so it can no longer act for the participant.
-func setHolder(ctx context.Context, tx *sql.Tx, now int64, address, former, id, reason, actor string) error {
+// (chunk 03), so it can no longer act for the participant. details is the event's evidence.
+func setHolder(ctx context.Context, tx *sql.Tx, now int64, address, former, id, reason, actor, details string) error {
 	if _, err := tx.ExecContext(ctx, `UPDATE names SET holder_id=?,conflict='' WHERE name=?`, id, address); err != nil {
 		return err
 	}
@@ -276,7 +276,7 @@ func setHolder(ctx context.Context, tx *sql.Tx, now int64, address, former, id, 
 	if err != nil {
 		return err
 	}
-	return participantEvent(ctx, tx, now, address, formerName, holderName, reason, actor, "")
+	return participantEvent(ctx, tx, now, address, formerName, holderName, reason, actor, details)
 }
 
 // releaseAddress removes a session as the recorded holder of every address and records

@@ -74,7 +74,7 @@ func (s *Store) ChooseHolder(ctx context.Context, address string, k Key, revisio
 		return tx.fail(err)
 	}
 	if holder != k.ID {
-		if err := setHolder(ctx, tx.Tx, now, address, holder, k.ID, "maintainer_choice", "maintainer"); err != nil {
+		if err := setHolder(ctx, tx.Tx, now, address, holder, k.ID, "maintainer_choice", "maintainer", ""); err != nil {
 			return tx.fail(err)
 		}
 	}

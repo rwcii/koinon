@@ -93,6 +93,8 @@ func Start(c Config) (*Daemon, error) {
 		return nil, err
 	}
 	d.started = d.store.now()
+	// No tool call before this start is known, so the succession guard counts the start as one.
+	d.store.calls.since = d.started.UnixMilli()
 	d.store.observed.extras = d.store.openCodeActivity
 	d.unfinished = map[int64][2]string{}
 	// A launch whose result a previous daemon never recorded stays visibly open no longer.

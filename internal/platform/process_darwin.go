@@ -5,6 +5,8 @@ import (
 	"os/exec"
 	"strconv"
 	"strings"
+
+	"golang.org/x/sys/unix"
 )
 
 // ProcessCommand reports a process's executable path and arguments. macOS has no /proc;
@@ -44,4 +46,24 @@ func ProcessParents() (map[int]int, error) {
 		return nil, errors.New("process table unreadable")
 	}
 	return parents, nil
+}
+
+// ProcessStart reports a process's start time as an opaque value that identifies the process
+// together with its ID: kern.proc.pid's p_starttime in microseconds since the epoch, read
+// through sysctl without cgo. Values are comparable only with other values of this host;
+// ErrProcessGone means no such process.
+func ProcessStart(pid int) (int64, error) {
+	if pid <= 0 {
+		return 0, ErrProcessGone
+	}
+	info, err := unix.SysctlKinfoProc("kern.proc.pid", pid)
+	// A process that does not exist returns no record, which the wrapper reports as EIO.
+	if errors.Is(err, unix.EIO) || errors.Is(err, unix.ESRCH) || err == nil && int(info.Proc.P_pid) != pid {
+		return 0, ErrProcessGone
+	}
+	if err != nil {
+		return 0, err
+	}
+	start := info.Proc.P_starttime
+	return int64(start.Sec)*1_000_000 + int64(start.Usec), nil
 }

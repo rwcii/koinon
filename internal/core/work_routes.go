@@ -25,6 +25,7 @@ func (d *Daemon) workRoutes(mux *http.ServeMux) {
 				failure(w, ErrInvalid)
 				return
 			}
+			d.store.ToolCall(caller)
 			var consumer *string
 			if raw, ok := fields["consumer"]; ok {
 				if json.Unmarshal(raw, &consumer) != nil || consumer == nil {

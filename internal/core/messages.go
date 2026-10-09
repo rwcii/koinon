@@ -117,6 +117,8 @@ type Peer struct {
 	Role         string `json:"role,omitempty"`
 	Address      string `json:"address,omitempty"`
 	HoldsAddress bool   `json:"holds_address,omitempty"`
+	// Succession is the session's last succession result (chunk 04).
+	Succession *Succession `json:"succession,omitempty"`
 }
 
 // Peers lists every session for an active caller.
@@ -139,7 +141,7 @@ func (s *Store) Peers(ctx context.Context, caller Key) ([]Peer, bool, error) {
 	peers := make([]Peer, 0, len(items)+1)
 	for _, item := range items {
 		peers = append(peers, Peer{Name: item.Name, Alias: item.Alias, Family: item.Family, State: item.State, Repository: item.Repository,
-			Subagent: item.Subagent, Role: item.Role, Address: item.Address, HoldsAddress: item.HoldsAddress})
+			Subagent: item.Subagent, Role: item.Role, Address: item.Address, HoldsAddress: item.HoldsAddress, Succession: item.Succession})
 	}
 	// Agents can send to the maintainer, who reads the inbox in the dashboard (chunk 09).
 	peers = append(peers, Peer{Name: "maintainer", Family: maintainerKey.Family, State: "active"})

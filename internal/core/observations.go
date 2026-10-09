@@ -325,6 +325,7 @@ func (d *Daemon) observationRoutes(mux *http.ServeMux) {
 			failure(w, err)
 			return
 		}
+		d.store.ToolCall(request.Caller)
 		status, err := d.store.PeerStatus(r.Context(), request.Caller, request.Peer)
 		if err != nil {
 			failure(w, err)

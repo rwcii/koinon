@@ -36,6 +36,7 @@ func (d *Daemon) messageRoutes(mux *http.ServeMux) {
 			failure(w, err)
 			return
 		}
+		d.store.ToolCall(request.Caller)
 		items, truncated, err := d.store.Peers(r.Context(), request.Caller)
 		if err != nil {
 			failure(w, err)
@@ -53,6 +54,7 @@ func (d *Daemon) messageRoutes(mux *http.ServeMux) {
 			failure(w, err)
 			return
 		}
+		d.store.ToolCall(request.Caller)
 		result, err := d.store.Send(r.Context(), request.Caller, request.To, request.Body)
 		if err != nil {
 			failure(w, err)
@@ -71,6 +73,7 @@ func (d *Daemon) messageRoutes(mux *http.ServeMux) {
 			failure(w, err)
 			return
 		}
+		d.store.ToolCall(request.Caller)
 		result, err := d.store.ReadInboxes(r.Context(), request.Caller, request.After, request.ParticipantAfter, request.Limit)
 		if err != nil {
 			failure(w, err)
@@ -88,6 +91,7 @@ func (d *Daemon) messageRoutes(mux *http.ServeMux) {
 			failure(w, err)
 			return
 		}
+		d.store.ToolCall(request.Caller)
 		reply := map[string]any{"ok": true}
 		// The participant inbox is acknowledged first, so a stale holder changes nothing.
 		if request.ParticipantThrough != nil {
@@ -115,6 +119,7 @@ func (d *Daemon) messageRoutes(mux *http.ServeMux) {
 			failure(w, err)
 			return
 		}
+		d.store.ToolCall(request.Caller)
 		result, err := d.store.MessageOutcome(r.Context(), request.Caller, request.MessageID)
 		if err != nil {
 			failure(w, err)
