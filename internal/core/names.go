@@ -178,8 +178,9 @@ func assignNames(ctx context.Context, tx *sql.Tx, now int64, p participant) erro
 	}
 	rows, err := tx.QueryContext(ctx, `SELECT s.id,COALESCE(n.name,'') FROM sessions s
 		LEFT JOIN names n ON n.kind='peer' AND n.family=s.family AND n.session_id=s.id
-		WHERE s.family=? AND s.repository=? AND s.role=? AND s.subagent=0 AND s.retired_at=0 AND s.expires_at>?
-		ORDER BY n.name LIMIT 33`, p.family, p.repository, p.role, now)
+		WHERE s.family=? AND s.repository=? AND s.role=? AND s.subagent=0 AND s.retired_at=0 AND s.expires_at>? AND `+notParticipantRow+`
+		AND NOT EXISTS (SELECT 1 FROM participant_fences f WHERE f.address=? AND f.family=s.family AND f.session_id=s.id)
+		ORDER BY n.name LIMIT 33`, p.family, p.repository, p.role, now, address)
 	if err != nil {
 		return err
 	}
@@ -207,9 +208,15 @@ func assignNames(ctx context.Context, tx *sql.Tx, now int64, p participant) erro
 		if err != nil || string(data) == conflict && holder == "" {
 			return err
 		}
-		// A conflict leaves the participant without a holder, also an expired one.
+		// A conflict leaves the participant without a holder, also an expired one, and
+		// fences that former holder.
 		if _, err := tx.ExecContext(ctx, `UPDATE names SET conflict=?,holder_id='' WHERE name=?`, string(data), address); err != nil {
 			return err
+		}
+		if holder != "" {
+			if err := fence(ctx, tx, now, address, p.family, holder, "conflict"); err != nil {
+				return err
+			}
 		}
 		former, err := peerOf(ctx, tx, p.family, holder)
 		if err != nil {
@@ -239,6 +246,8 @@ func createAddress(ctx context.Context, tx *sql.Tx, p participant) (string, erro
 }
 
 // setHolder makes id the holder of address, clears its conflict and records the change.
+// A former holder is retired when it is still active, and fenced, in the same transaction
+// (chunk 03), so it can no longer act for the participant.
 func setHolder(ctx context.Context, tx *sql.Tx, now int64, address, former, id, reason, actor string) error {
 	if _, err := tx.ExecContext(ctx, `UPDATE names SET holder_id=?,conflict='' WHERE name=?`, id, address); err != nil {
 		return err
@@ -246,6 +255,15 @@ func setHolder(ctx context.Context, tx *sql.Tx, now int64, address, former, id, 
 	var family string
 	if err := tx.QueryRowContext(ctx, `SELECT family FROM names WHERE name=?`, address).Scan(&family); err != nil {
 		return err
+	}
+	if former != "" && former != id {
+		if _, err := tx.ExecContext(ctx, `UPDATE sessions SET retired_at=?,revision=revision+1 WHERE family=? AND id=?
+			AND retired_at=0 AND expires_at>?`, now, family, former, now); err != nil {
+			return err
+		}
+		if err := fence(ctx, tx, now, address, family, former, reason); err != nil {
+			return err
+		}
 	}
 	formerName, err := peerOf(ctx, tx, family, former)
 	if err != nil {

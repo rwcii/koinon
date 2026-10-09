@@ -111,11 +111,15 @@ func TestParticipantAddresses(t *testing.T) {
 	if err != nil || got.Address != "" || got.HoldsAddress || got.Name == "" {
 		t.Fatalf("sub-agent: %+v %v", got, err)
 	}
-	// A send to each address reaches its own holder.
+	// A send to each address reaches its own participant's inbox, which its holder reads.
 	sender := Key{"codex", "synthetic-plain"}
-	for address, want := range map[string]string{"codex-koinon": plain.Name, "codex-koinon-review": review.Name, "codex-koinon-build": third.Name} {
-		if out, err := s.Send(context.Background(), sender, address, "synthetic"); err != nil || out.Recipient != want {
+	for address, holder := range map[string]Session{"codex-koinon": plain, "codex-koinon-review": review, "codex-koinon-build": third} {
+		if out, err := s.Send(context.Background(), sender, address, "synthetic"); err != nil || out.Recipient != address {
 			t.Fatalf("send to %s: %+v %v", address, out, err)
+		}
+		inbox, err := s.ReadInboxes(context.Background(), Key{holder.Family, holder.ID}, 0, nil, 10)
+		if err != nil || inbox.Participant == nil || inbox.Participant.Address != address || inbox.Participant.LastSeq != 1 {
+			t.Fatalf("holder of %s: %+v %v", address, inbox, err)
 		}
 	}
 }
@@ -267,13 +271,24 @@ func TestChooseHolder(t *testing.T) {
 	if err := s.db.QueryRow(`SELECT COUNT(*) FROM audit WHERE action='participant-holder' AND target='codex-koinon' AND result='accepted'`).Scan(&audited); err != nil || audited != 1 {
 		t.Fatalf("audit: %d %v", audited, err)
 	}
-	// A's renewal does not take the address back from an active holder.
-	if a = renew(t, s, a); a.HoldsAddress {
-		t.Fatalf("former holder renewed into the address: %+v", a)
+	// The choice retired and fenced A (chunk 03). A registers again with its peer name only.
+	if a = joinAs(t, s, "codex", "synthetic-a", repo, ""); a.HoldsAddress || !a.Fenced {
+		t.Fatalf("former holder registered again: %+v", a)
+	}
+	// Only the maintainer's choice lifts the fence and makes it the holder again; B is
+	// retired and fenced in turn.
+	if err := s.ChooseHolder(ctx, "codex-koinon", Key{"codex", "synthetic-a"}, a.Revision); err != nil {
+		t.Fatal(err)
+	}
+	if a = sessionState(t, s, Key{"codex", "synthetic-a"}); !a.HoldsAddress || a.Fenced {
+		t.Fatalf("chosen again: %+v", a)
+	}
+	if b = sessionState(t, s, Key{"codex", "synthetic-b"}); b.State != "retired" || !b.Fenced {
+		t.Fatalf("replaced holder: %+v", b)
 	}
 	// An expired session is not chosen.
 	clock = clock.Add(61 * time.Second)
-	if err := s.ChooseHolder(ctx, "codex-koinon", Key{"codex", "synthetic-a"}, a.Revision); !errors.Is(err, ErrConflict) {
+	if err := s.ChooseHolder(ctx, "codex-koinon", Key{"codex", "synthetic-review"}, review.Revision); !errors.Is(err, ErrConflict) {
 		t.Fatalf("expired session chosen: %v", err)
 	}
 }
@@ -321,17 +336,25 @@ func TestExpiredHolderRegistersAgain(t *testing.T) {
 		}
 		again := joinAs(t, s, "codex", "synthetic-a", repo, "")
 		p := participantOf(t, s, "codex-koinon")
-		want := []string{a.Name, b.Name, c.Name}
-		if again.HoldsAddress || p.Holder != "" || !reflect.DeepEqual(p.Conflict, want) {
+		// The conflict cleared and fenced A: before A's return when B and C renewed, else at it.
+		want := []string{b.Name, c.Name}
+		if !observed {
+			want = []string{a.Name, b.Name, c.Name}
+		}
+		if again.HoldsAddress || !again.Fenced || p.Holder != "" || !reflect.DeepEqual(p.Conflict, want) {
 			t.Fatalf("expired holder took the address back (observed %v): %+v %+v", observed, again, p)
 		}
 		if _, err := s.Send(context.Background(), Key{"codex", "synthetic-b"}, "codex-koinon", "x"); !errors.Is(err, ErrAliasUnheld) {
 			t.Fatalf("send to a conflicted address: %v", err)
 		}
-		// With the others gone, the former holder is the one qualifier and holds again.
+		// With the others gone, the fenced former holder still takes nothing; a new session
+		// is the one qualifier.
 		clock = clock.Add(61 * time.Second)
-		if again = joinAs(t, s, "codex", "synthetic-a", repo, ""); !again.HoldsAddress || again.Conflict != nil {
-			t.Fatalf("one qualifier after the conflict: %+v", again)
+		if again = joinAs(t, s, "codex", "synthetic-a", repo, ""); again.HoldsAddress || !again.Fenced {
+			t.Fatalf("fenced holder after the conflict: %+v", again)
+		}
+		if d := joinAs(t, s, "codex", "synthetic-d", repo, ""); !d.HoldsAddress {
+			t.Fatalf("new session after the conflict: %+v", d)
 		}
 	}
 	// An expired holder that is still the only qualifier keeps its address on return.

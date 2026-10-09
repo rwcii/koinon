@@ -182,7 +182,8 @@ func TestAddressFollowsTheOneQualifier(t *testing.T) {
 		t.Fatalf("one holder: %+v %+v", a, b)
 	}
 	me := Key{"claude", "synthetic-sender"}
-	if out, err := s.Send(context.Background(), me, "codex-koinon", "to holder"); err != nil || out.Recipient != a.Name {
+	// A send to an address reaches the participant's inbox (chunk 03).
+	if out, err := s.Send(context.Background(), me, "codex-koinon", "to holder"); err != nil || out.Recipient != "codex-koinon" {
 		t.Fatalf("alias send: %+v %v", out, err)
 	}
 	if _, err := s.Mutate(context.Background(), Mutation{Family: "codex", ID: "synthetic-a", IfRevision: a.Revision}, true); err != nil {
@@ -196,17 +197,17 @@ func TestAddressFollowsTheOneQualifier(t *testing.T) {
 	if err != nil || b.Alias != "codex-koinon" {
 		t.Fatalf("renewal takes alias: %+v %v", b, err)
 	}
-	if out, err := s.Send(context.Background(), me, "codex-koinon", "to new holder"); err != nil || out.Recipient != b.Name {
+	if out, err := s.Send(context.Background(), me, "codex-koinon", "to new holder"); err != nil || out.Recipient != "codex-koinon" {
 		t.Fatalf("moved alias: %+v %v", out, err)
 	}
-	// An expired holder frees the address; A registers again as the one qualifier. The
-	// renewal above took the default lease of 900 seconds.
+	// B's lease of 900 seconds ends. A was replaced as holder, so it is fenced: it registers
+	// again with its peer name only (chunk 03).
 	clock = clock.Add(901 * time.Second)
 	if _, err := s.Mutate(context.Background(), Mutation{Family: "claude", ID: "synthetic-sender", IfRevision: sender.Revision}, false); !errors.Is(err, ErrConflict) {
 		t.Fatalf("expired sender renewed: %v", err)
 	}
-	if again := join(t, s, "codex", "synthetic-a", repo); again.Alias != "codex-koinon" {
-		t.Fatalf("expired holder: %+v", again)
+	if again := join(t, s, "codex", "synthetic-a", repo); again.Alias != "" || !again.Fenced {
+		t.Fatalf("fenced former holder: %+v", again)
 	}
 	// A holder that moves to another repository no longer holds the old address.
 	moved := Registration{Family: "codex", ID: "synthetic-a", Repository: namedRepo(t, "other"), TTLSeconds: 60}
@@ -261,9 +262,10 @@ func TestMessagesBetweenEveryFamilyPair(t *testing.T) {
 	}
 	address := d.Addresses()[0]
 	repo := namedRepo(t, "koinon")
-	names := map[string]string{}
+	names, addresses := map[string]string{}, map[string]string{}
 	for _, family := range families {
-		names[family] = join(t, d.store, family, "synthetic-"+family, repo).Name
+		session := join(t, d.store, family, "synthetic-"+family, repo)
+		names[family], addresses[family] = session.Name, session.Alias
 	}
 	for _, from := range families {
 		for _, to := range families {
@@ -286,7 +288,9 @@ func TestMessagesBetweenEveryFamilyPair(t *testing.T) {
 					t.Fatalf("read: %d %v", status, read)
 				}
 				m := got[0].(map[string]any)
-				if m["body"] != body || m["sender_name"] != names[from] || m["sender_family"] != from || m["seq"] != seq || m["acknowledged"] != false || m["delivery_state"] != "waiting" {
+				// Each sender holds its family's address, so it sends as that participant.
+				if m["body"] != body || m["sender_name"] != addresses[from] || m["sender_family"] != from || m["seq"] != seq || m["acknowledged"] != false ||
+					m["delivery_state"] != "waiting" || m["inbox"] != "session" {
 					t.Fatalf("stored: %v", m)
 				}
 				if status, acked := post(t, address, secret, "/v1/inbox/ack", map[string]any{"caller": recipient, "through": seq}); status != 200 || acked["acked_through"] != seq {

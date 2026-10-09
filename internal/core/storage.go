@@ -24,6 +24,9 @@ var (
 	// islanded. ErrLaunchPending refuses a background job before its job ID is recorded.
 	ErrNotLaunched   = Refusal{"not_launched", "start this agent with koinon <family>; a direct start is not registered"}
 	ErrLaunchPending = Refusal{"launch_pending", "the background launch has not recorded its job yet; call again"}
+	// ErrStaleHolder refuses a call that acts for a participant from a session that does
+	// not hold it, such as a former holder after a change of holder.
+	ErrStaleHolder = Refusal{"stale_holder", "this session does not hold that participant; another session holds it now"}
 )
 
 // The daemon-wide physical bound (docs/PARITY-MEMORY-DESIGN.md, "Storage bound"), for the one

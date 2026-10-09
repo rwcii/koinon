@@ -26,6 +26,9 @@ type wakeBatch struct {
 	Session     Session
 	First, Last int64
 	Attempts    int64
+	// Target is the session that the notice reaches: Session itself, or the current holder
+	// of a participant's inbox (chunk 03).
+	Target Session
 }
 
 const (
@@ -61,6 +64,24 @@ func (s *Store) pendingWake(ctx context.Context, key Key) (*wakeBatch, error) {
 	if session.State != "active" {
 		return nil, nil
 	}
+	target := session
+	if isParticipantID(key.ID) {
+		// A participant's messages wait while no active session holds it.
+		var holder, repository, role string
+		if err := s.db.QueryRowContext(ctx, `SELECT holder_id,repository,role FROM names WHERE kind='alias' AND name=?`,
+			key.ID[len(participantPrefix):]).Scan(&holder, &repository, &role); err != nil {
+			return nil, err
+		}
+		if holder == "" {
+			return nil, nil
+		}
+		if target, err = scanSession(s.db.QueryRowContext(ctx, sessionQuery+` WHERE s.family=? AND s.id=?`, key.Family, holder), s.now().UnixMilli()); err != nil {
+			return nil, err
+		}
+		if target.State != "active" || target.Address != key.ID[len(participantPrefix):] || !target.HoldsAddress {
+			return nil, nil
+		}
+	}
 	var first, last sql.NullInt64
 	var attempts int64
 	now := s.now().UnixMilli()
@@ -74,7 +95,7 @@ func (s *Store) pendingWake(ctx context.Context, key Key) (*wakeBatch, error) {
 	if !first.Valid {
 		return nil, nil
 	}
-	return &wakeBatch{session, first.Int64, last.Int64, attempts}, nil
+	return &wakeBatch{session, first.Int64, last.Int64, attempts, target}, nil
 }
 func (s *Store) recordWake(ctx context.Context, b wakeBatch, result wakeResult, attempts int64) error {
 	tx, err := s.begin(ctx, control)
@@ -106,7 +127,7 @@ func (s *Store) submitWake(ctx context.Context, key Key, offer bool) (string, er
 	if err != nil || b == nil {
 		return "", err
 	}
-	if (b.Session.Family == "agy") != offer {
+	if (b.Target.Family == "agy") != offer {
 		return "", nil
 	}
 	attempts := b.Attempts + 1
@@ -124,7 +145,7 @@ func (s *Store) submitWake(ctx context.Context, key Key, offer bool) (string, er
 	}
 	result := wakeResult{"waiting", "adapter_unavailable"}
 	if s.wake.send != nil {
-		result = s.wake.send(ctx, b.Session, notice)
+		result = s.wake.send(ctx, b.Target, notice)
 	}
 	if result.State != "waiting" && result.State != "notified" && result.State != "uncertain" {
 		result = wakeResult{"uncertain", "invalid_adapter_result"}
@@ -243,4 +264,24 @@ func (s *Store) closeWake() {
 		cleanup()
 		<-done
 	}
+}
+
+// offerWake is the notice that an Antigravity session's Stop boundary offers: its own
+// inbox's waiting range or, when that has none, the waiting range of the participant inbox
+// that it holds. Caller holds wake.mu.
+func (s *Store) offerWake(ctx context.Context, caller Key) (string, error) {
+	notice, err := s.submitWake(ctx, caller, true)
+	if err != nil || notice != "" {
+		return notice, err
+	}
+	tx, err := s.db.BeginTx(ctx, &sql.TxOptions{ReadOnly: true})
+	if err != nil {
+		return "", err
+	}
+	address, err := heldAddress(ctx, tx, s.now().UnixMilli(), caller)
+	tx.Rollback()
+	if err != nil || address == "" {
+		return "", err
+	}
+	return s.submitWake(ctx, Key{caller.Family, participantKey(address)}, true)
 }

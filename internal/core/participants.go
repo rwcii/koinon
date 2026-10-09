@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"encoding/json"
 	"errors"
+	"strings"
 )
 
 // Participants (participants sprint, chunk 02). A participant is a family, a repository and
@@ -64,6 +65,10 @@ func (s *Store) ChooseHolder(ctx context.Context, address string, k Key, revisio
 	var holder string
 	if err := tx.QueryRowContext(ctx, `SELECT holder_id FROM names WHERE name=? AND kind='alias'`, address).Scan(&holder); err != nil {
 		return err
+	}
+	// Only the maintainer's choice lifts a fence.
+	if _, err := tx.ExecContext(ctx, `DELETE FROM participant_fences WHERE address=? AND family=? AND session_id=?`, address, k.Family, k.ID); err != nil {
+		return tx.fail(err)
 	}
 	if holder != k.ID {
 		if err := setHolder(ctx, tx.Tx, now, address, holder, k.ID, "maintainer_choice", "maintainer"); err != nil {
@@ -140,4 +145,67 @@ func (s *Store) Participants(ctx context.Context) ([]Participant, bool, error) {
 		result = append(result, p)
 	}
 	return result, truncated, nil
+}
+
+// Participant state and fencing (participants sprint, chunk 03). The participant's consumer
+// key and its inbox's internal session ID are participant:<address>.
+const participantPrefix = "participant:"
+
+func participantKey(address string) string { return participantPrefix + address }
+
+func isParticipantID(id string) bool { return strings.HasPrefix(id, participantPrefix) }
+
+// notParticipantRow is a condition on sessions s that leaves out the participants' internal
+// inbox rows, for every query that lists or counts agent sessions.
+const notParticipantRow = `substr(s.id,1,12)!='participant:'`
+
+// heldAddress returns the address that the caller holds now, or "": an address recorded
+// for it whose participant matches its current repository and role while it is active and
+// not a sub-agent. A session that moved can still be recorded on an earlier participant.
+func heldAddress(ctx context.Context, tx *sql.Tx, now int64, caller Key) (string, error) {
+	var address string
+	err := tx.QueryRowContext(ctx, `SELECT n.name FROM names n JOIN sessions s ON s.family=n.family AND s.id=n.holder_id
+		AND s.repository=n.repository AND s.role=n.role AND s.subagent=0 AND s.retired_at=0 AND s.expires_at>?
+		WHERE n.kind='alias' AND n.family=? AND n.holder_id=? ORDER BY n.name LIMIT 1`, now, caller.Family, caller.ID).Scan(&address)
+	if errors.Is(err, sql.ErrNoRows) {
+		return "", nil
+	}
+	return address, err
+}
+
+// requireHolder refuses, with ErrStaleHolder, a call that acts for the participant at
+// address unless the caller holds it now. It runs in the call's own transaction, so a
+// change of holder that commits first is seen.
+func requireHolder(ctx context.Context, tx *sql.Tx, now int64, caller Key, address string) error {
+	held, err := heldAddress(ctx, tx, now, caller)
+	if err != nil {
+		return err
+	}
+	if held == "" || held != address {
+		return ErrStaleHolder
+	}
+	return nil
+}
+
+// ensureParticipantInbox creates the participant's internal inbox row when it is missing.
+// The row never expires, so the participant's messages and acknowledgements outlast every
+// holder.
+func ensureParticipantInbox(ctx context.Context, tx *sql.Tx, now int64, address string) error {
+	var family, repository, role string
+	if err := tx.QueryRowContext(ctx, `SELECT family,repository,role FROM names WHERE name=? AND kind='alias'`, address).
+		Scan(&family, &repository, &role); err != nil {
+		return err
+	}
+	_, err := tx.ExecContext(ctx, `INSERT INTO sessions(family,id,repository,directory,wake_target,registered_at,renewed_at,
+		expires_at,retired_at,revision,subagent,role) VALUES (?,?,?,'','{}',?,?,9007199254740991,0,1,0,?)
+		ON CONFLICT(family,id) DO NOTHING`, family, participantKey(address), repository, now, now, role)
+	return err
+}
+
+// fence records that a former holder may not act for, or take, the participant at address
+// until the maintainer chooses it.
+func fence(ctx context.Context, tx *sql.Tx, now int64, address, family, id, reason string) error {
+	_, err := tx.ExecContext(ctx, `INSERT INTO participant_fences(address,family,session_id,at,reason) VALUES (?,?,?,?,?)
+		ON CONFLICT(address,family,session_id) DO UPDATE SET at=excluded.at,reason=excluded.reason`, address, family, id, now, reason)
+	return err
 }

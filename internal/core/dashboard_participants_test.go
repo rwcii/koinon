@@ -58,11 +58,11 @@ func TestDashboardParticipantChoice(t *testing.T) {
 	if sessionState(t, d.store, Key{a.Family, a.ID}).HoldsAddress || !sessionState(t, d.store, Key{b.Family, b.ID}).HoldsAddress {
 		t.Fatal("session holder flags disagree with the choice")
 	}
-	// A session that became inactive after the page was loaded cannot be chosen.
-	if _, err := d.store.Mutate(context.Background(), Mutation{Family: a.Family, ID: a.ID, IfRevision: a.Revision}, true); err != nil {
-		t.Fatal(err)
-	}
+	// The choice retired the former holder (chunk 03), so it cannot be chosen now.
 	a = sessionState(t, d.store, Key{a.Family, a.ID})
+	if a.State != "retired" || !a.Fenced {
+		t.Fatalf("former holder after the choice: %+v", a)
+	}
 	if got := c.do("participant-holder", form(a, a.Revision)); got != "session_not_active" {
 		t.Fatalf("inactive choice: %s", got)
 	}
