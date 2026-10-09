@@ -43,6 +43,22 @@ func claudeProcess(command func(int) (string, []string, error), pid int) bool {
 	return false
 }
 
+// codexSubagent reports whether a Codex call may come from a thread other than the user's
+// own: its turn metadata, an object or a JSON string, names a thread_source other than
+// "user" ("subagent", live-checks F2, or a value not yet known). A call without that
+// metadata is the user's thread.
+func codexSubagent(meta map[string]json.RawMessage) bool {
+	raw := meta["x-codex-turn-metadata"]
+	var text string
+	if json.Unmarshal(raw, &text) == nil {
+		raw = json.RawMessage(text)
+	}
+	var turn struct {
+		ThreadSource string `json:"thread_source"`
+	}
+	return json.Unmarshal(raw, &turn) == nil && turn.ThreadSource != "" && turn.ThreadSource != "user"
+}
+
 // identity names the calling session from the family's own per-call source, or from the
 // trusted Claude environment. It removes the OpenCode plugin field from the arguments.
 func (s *server) identity(meta map[string]json.RawMessage, args map[string]json.RawMessage) (core.Key, error) {

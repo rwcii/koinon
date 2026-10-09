@@ -30,7 +30,12 @@ func TestLaunchBindingAndRestart(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		r := Registration{Family: family, ID: "synthetic-real-session", Directory: directory, LaunchID: id}
+		// The caller's ancestry holds the launch's host; Claude also reports it as claude_pid.
+		var own json.RawMessage
+		if family == "claude" {
+			own = json.RawMessage(`{"claude_pid":123}`)
+		}
+		r := Registration{Family: family, ID: "synthetic-real-session", Directory: directory, LaunchID: id, Ancestors: []int{77, 123}, WakeTarget: own}
 		session, err := s.Register(context.Background(), r)
 		if err != nil {
 			t.Fatal(err)
@@ -59,12 +64,15 @@ func TestLaunchBindingAndRestart(t *testing.T) {
 		if family == "agy" {
 			r.Family = "codex"
 		}
-		if _, err := s.Register(context.Background(), r); !errors.Is(err, ErrInvalid) {
+		if family == "claude" {
+			r.WakeTarget = nil
+		}
+		if _, err := s.Register(context.Background(), r); !errors.Is(err, ErrNotLaunched) {
 			t.Fatal("wrong launch family accepted")
 		}
-		r.Family = family
+		r.Family, r.WakeTarget = family, own
 		r.Directory = t.TempDir()
-		if _, err := s.Register(context.Background(), r); !errors.Is(err, ErrInvalid) {
+		if _, err := s.Register(context.Background(), r); !errors.Is(err, ErrNotLaunched) {
 			t.Fatal("wrong launch directory accepted")
 		}
 		r.Directory = directory
@@ -80,7 +88,7 @@ func TestLaunchBindingAndRestart(t *testing.T) {
 			t.Fatal(err)
 		}
 		t.Cleanup(func() { s.db.Close() })
-		r.WakeTarget = nil
+		r.WakeTarget = own
 		if _, err := s.Register(context.Background(), r); err != nil {
 			t.Fatalf("launch target lost on restart: %v", err)
 		}
@@ -112,7 +120,7 @@ func TestLaunchAuthenticationAndCredentialPrivacy(t *testing.T) {
 	if json.Unmarshal(data, &launch) != nil || launch.ID == "" {
 		t.Fatal("missing launch id")
 	}
-	registration, _ := json.Marshal(Registration{Family: "opencode", ID: "synthetic-private-target", Directory: target.Directory, LaunchID: launch.ID})
+	registration, _ := json.Marshal(Registration{Family: "opencode", ID: "synthetic-private-target", Directory: target.Directory, LaunchID: launch.ID, Ancestors: []int{123}})
 	response = request(t, d, "/v1/sessions/register", string(registration), secret)
 	data, err = io.ReadAll(response.Body)
 	response.Body.Close()
@@ -141,7 +149,7 @@ func TestLaunchAuthenticationAndCredentialPrivacy(t *testing.T) {
 		}
 	}
 	// Rejected registrations must not insert a partial session.
-	if _, err := d.store.Register(context.Background(), Registration{Family: "codex", ID: "synthetic-missing-launch", Directory: target.Directory, LaunchID: strings.Repeat("a", 64)}); !errors.Is(err, ErrMissing) {
+	if _, err := d.store.Register(context.Background(), Registration{Family: "codex", ID: "synthetic-missing-launch", Directory: target.Directory, LaunchID: strings.Repeat("a", 64), Ancestors: []int{123}}); !errors.Is(err, ErrNotLaunched) {
 		t.Fatal("unknown launch accepted")
 	}
 	counts, err := d.store.Counts(context.Background())
@@ -152,7 +160,7 @@ func TestLaunchAuthenticationAndCredentialPrivacy(t *testing.T) {
 
 func TestLaunchMigrationPreservesSessions(t *testing.T) {
 	s, root := testStore(t)
-	r := registration(testRepo(t), "codex")
+	r := registration(t, s, testRepo(t), "codex")
 	before, err := s.Register(context.Background(), r)
 	if err != nil {
 		t.Fatal(err)
@@ -165,7 +173,7 @@ func TestLaunchMigrationPreservesSessions(t *testing.T) {
 		t.Fatal(err)
 	}
 	// Schema 2 is the merged message runtime, with no launch table.
-	if _, err := s.db.Exec(undoSchemaNine + undoSchemaEight + undoSchemaSeven + "DROP INDEX messages_wake; ALTER TABLE messages DROP COLUMN wake_attempts; ALTER TABLE messages DROP COLUMN wake_next_at; ALTER TABLE messages DROP COLUMN wake_reason; DROP TABLE launches; DROP TABLE work_items; DROP TABLE work_scope_revisions; DROP TABLE claim_bundles; DROP TABLE claim_resources; DROP TABLE work_events; DROP TABLE work_replays; DROP TABLE memory_stores; DROP TABLE memory_entries; DROP TABLE memory_idem; DROP TABLE memory_cursors; DROP TABLE memory_retired; DROP TABLE memory_snapshots; DROP TABLE memory_snapshot_items; PRAGMA user_version=2"); err != nil {
+	if _, err := s.db.Exec(undoSchemaTen + undoSchemaNine + undoSchemaEight + undoSchemaSeven + "DROP INDEX messages_wake; ALTER TABLE messages DROP COLUMN wake_attempts; ALTER TABLE messages DROP COLUMN wake_next_at; ALTER TABLE messages DROP COLUMN wake_reason; DROP TABLE launches; DROP TABLE work_items; DROP TABLE work_scope_revisions; DROP TABLE claim_bundles; DROP TABLE claim_resources; DROP TABLE work_events; DROP TABLE work_replays; DROP TABLE memory_stores; DROP TABLE memory_entries; DROP TABLE memory_idem; DROP TABLE memory_cursors; DROP TABLE memory_retired; DROP TABLE memory_snapshots; DROP TABLE memory_snapshot_items; PRAGMA user_version=2"); err != nil {
 		t.Fatal(err)
 	}
 	s.db.Close()
@@ -212,7 +220,7 @@ func TestLaunchNestedRepositories(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	session, err := s.Register(context.Background(), Registration{Family: "agy", ID: "synthetic-nested", Directory: directory, LaunchID: id})
+	session, err := s.Register(context.Background(), Registration{Family: "agy", ID: "synthetic-nested", Directory: directory, LaunchID: id, Ancestors: []int{123}})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -236,7 +244,7 @@ func TestDashboardShowsNestedRepositories(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := d.store.Register(context.Background(), Registration{Family: "agy", ID: "synthetic-nested", Directory: directory, LaunchID: id}); err != nil {
+	if _, err := d.store.Register(context.Background(), Registration{Family: "agy", ID: "synthetic-nested", Directory: directory, LaunchID: id, Ancestors: []int{123}}); err != nil {
 		t.Fatal(err)
 	}
 	// The largest list, with characters that JSON escapes, fits the launch route.

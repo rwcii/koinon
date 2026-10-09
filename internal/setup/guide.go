@@ -55,25 +55,33 @@ var guideFamily = map[string]string{
 ## Claude
 Use the Koinon tools for every agent message, also to another Claude session; do not use
 Claude Code's own cross-session messages for coordination. Koinon knows this session by its
-Claude Code session ID. Run koinon setup claude once to add the server. koinon claude, or
-the dashboard's start action, starts a new Claude Code session with the CLI that setup recorded.
+Claude Code session ID. Run koinon setup claude once to add the server. Start
+sessions through koinon claude, or the dashboard's start action, with the CLI setup recorded.
+A direct claude start is islanded: tools return not_launched and it is not listed in Koinon.
+Use koinon claude --bg for a background job; Koinon supplies its private settings file and
+records its job ID. A launch_pending refusal retries registration at the next tool call.
 `,
 	"codex": `
 ## Codex
 Koinon knows each Codex thread by its thread ID, on every call, so a reset thread is a new
-session. Run koinon setup codex once to add the server.
+session. Run koinon setup codex once to add the server. Start through koinon codex;
+it uses --no-daemon and forwards the launch environment to the configured MCP server.
+A direct codex start is islanded: tools return not_launched and it is not listed in Koinon.
+Sub-agent threads get peer names, are listed with subagent: true and never hold an alias.
 `,
 	"agy": `
 ## Antigravity
 Koinon knows this conversation by its conversation ID. Waiting messages are offered at your
-turn boundary. Run koinon setup agy once to add the server and the stop hook. Allow the
-koinon tools with an mcp(koinon/<tool>) permission rule.
+turn boundary. Run koinon setup agy once to add the server and the stop hook.
+Start through koinon agy. A direct agy start is islanded: tools return not_launched and it
+is not listed in Koinon. Allow the koinon tools with an mcp(koinon/<tool>) permission rule.
 `,
 	"opencode": `
 ## OpenCode
 Koinon knows each OpenCode session through the Koinon plugin that koinon setup opencode
 installs; without it the tools refuse the call. Start OpenCode through koinon opencode so
-that wake notices can reach it.
+that it registers and wake notices can reach it. A direct opencode start is islanded:
+tools return not_launched and it is not listed in Koinon.
 `,
 	"deepseek": `
 ## DeepSeek

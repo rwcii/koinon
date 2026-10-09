@@ -14,6 +14,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
@@ -27,6 +28,13 @@ import (
 // hand does; its launch record documents the start.
 var Families = map[string]bool{"claude": true, "codex": true, "agy": true, "opencode": true}
 
+// MCPVariables are the environment variables that koinon mcp reads and the launcher sets or
+// inherits. Codex passes an MCP server only the variables that its env_vars lists (#247).
+var MCPVariables = []string{"KOINON_LAUNCH_ID", "KOINON_STATE_DIR", "KOINON_DAEMON_ADDRESS", "TMUX", "TMUX_PANE", "CODEX_HOME"}
+
+// codexServer is the MCP server name that koinon setup codex configures.
+const codexServer = "koinon"
+
 type Options struct {
 	Family    string
 	StateDir  string
@@ -34,7 +42,9 @@ type Options struct {
 	CLI       string
 	Directory string
 	Session   string
-	Args      []string
+	// Background starts a Claude background job (claude --bg) instead of a terminal.
+	Background bool
+	Args       []string
 }
 
 // Parse consumes only leading launcher options; everything after -- is literal.
@@ -49,6 +59,11 @@ func Parse(family string, args []string) (Options, error) {
 		if key == "--" {
 			args = args[1:]
 			break
+		}
+		if key == "--bg" {
+			o.Background = true
+			args = args[1:]
+			continue
 		}
 		var field *string
 		switch key {
@@ -470,6 +485,12 @@ func Run(ctx context.Context, o Options, out io.Writer) error {
 	if _, err := core.GetStatus(ctx, o.Address, secret); err != nil {
 		return err
 	}
+	if o.Background {
+		if o.Family != "claude" || o.Session != "" {
+			return errors.New("--bg starts only a Claude background job, outside tmux")
+		}
+		return runBackground(ctx, o, cli, directory, secret, out)
+	}
 	if o.Family == "opencode" {
 		// Validate before creating even a detached pane.
 		if err := validateOpenCodeArgs(o.Args); err != nil {
@@ -504,7 +525,7 @@ func Run(ctx context.Context, o Options, out io.Writer) error {
 	env = append(env, "KOINON_LAUNCH_ID="+id, "KOINON_STATE_DIR="+o.StateDir, "KOINON_DAEMON_ADDRESS="+o.Address)
 	if o.Family == "codex" {
 		pid := strconv.Itoa(os.Getpid())
-		args = append([]string{cli, "-c", "shell_environment_policy.set.KOINON_CODEX_HOST=\"" + pid + "\""}, o.Args...)
+		args = append([]string{cli}, codexArgs(pid, o.Args)...)
 		env = append(env, "KOINON_CODEX_HOST="+pid)
 	}
 	if err := os.Chdir(directory); err != nil {
@@ -512,4 +533,118 @@ func Run(ctx context.Context, o Options, out io.Writer) error {
 	}
 	fmt.Fprint(os.Stderr, NestedNotice(directory, nested))
 	return platform.Exec(cli, args, env)
+}
+
+// codexArgs runs Codex on its own (--no-daemon), so that its MCP servers are children of
+// the launched process, and passes koinon mcp the launch variables (#247).
+func codexArgs(pid string, user []string) []string {
+	args := []string{}
+	if !slices.Contains(user, "--no-daemon") {
+		args = append(args, "--no-daemon")
+	}
+	quoted := make([]string, len(MCPVariables))
+	for i, name := range MCPVariables {
+		quoted[i] = strconv.Quote(name)
+	}
+	args = append(args, "-c", "shell_environment_policy.set.KOINON_CODEX_HOST=\""+pid+"\"",
+		"-c", "mcp_servers."+codexServer+".env_vars=["+strings.Join(quoted, ",")+"]")
+	return append(args, user...)
+}
+
+// jobID reads the job ID that claude --bg prints: one full session ID, or else one short
+// ID (its first eight characters). Anything else is no job ID.
+func jobID(output string) string {
+	var full, short []string
+	for _, field := range strings.FieldsFunc(output, func(r rune) bool {
+		return !(r >= '0' && r <= '9' || r >= 'a' && r <= 'f' || r == '-')
+	}) {
+		switch {
+		case core.FullJobID.MatchString(field) && !slices.Contains(full, field):
+			full = append(full, field)
+		case core.ShortJobID.MatchString(field) && !slices.Contains(short, field):
+			short = append(short, field)
+		}
+	}
+	if len(full) == 1 {
+		return full[0]
+	}
+	if len(full) == 0 && len(short) == 1 {
+		return short[0]
+	}
+	return ""
+}
+
+// runBackground starts a Claude background job with its own launch. A job inherits the
+// Claude background service's environment, not this one, so the launch variables reach
+// it only through a private --settings file; claude --bg itself runs without them, so a
+// service that it starts inherits no launch ID (live-checks F5). The job's ID admits it.
+func runBackground(ctx context.Context, o Options, cli, directory, secret string, out io.Writer) error {
+	for _, arg := range o.Args {
+		if arg == "--bg" || arg == "--background" || arg == "--settings" || strings.HasPrefix(arg, "--settings=") {
+			return errors.New("koinon sets --bg and --settings for a background job")
+		}
+	}
+	nested := ScanNested(directory)
+	target := core.LaunchTarget{Family: "claude", Directory: directory, CLI: cli, HostPID: os.Getpid(), Background: true,
+		Nested: nested.List, NestedIncomplete: nested.Incomplete}
+	id, err := core.CreateLaunch(ctx, o.Address, secret, target)
+	if err != nil {
+		return err
+	}
+	settings := ""
+	retire := func(reason string) error {
+		core.Call(ctx, o.Address, secret, "/v1/launches/retire", map[string]string{"launch_id": id})
+		if settings != "" {
+			os.Remove(settings)
+		}
+		return errors.New(reason)
+	}
+	settings, err = writeSettings(o.StateDir, id, map[string]string{"KOINON_LAUNCH_ID": id, "KOINON_STATE_DIR": o.StateDir, "KOINON_DAEMON_ADDRESS": o.Address})
+	if err != nil {
+		return retire("cannot write the private settings file; the job was not started")
+	}
+	cmd := exec.CommandContext(ctx, cli, append(append([]string{"--bg"}, o.Args...), "--settings", settings)...)
+	cmd.Dir = directory
+	cmd.Env = cleanEnvironment(os.Environ(), "claude")
+	cmd.Stderr = os.Stderr
+	var stdout strings.Builder
+	cmd.Stdout = &stdout
+	runErr := cmd.Run()
+	job := jobID(stdout.String())
+	if runErr != nil || job == "" {
+		return retire("claude --bg reported no job ID; the launch was retired")
+	}
+	if _, err := core.Call(ctx, o.Address, secret, "/v1/launches/job", map[string]string{"launch_id": id, "job_id": job}); err != nil {
+		return retire("cannot record background job " + job + "; it is not a Koinon session, stop it with claude stop " + job)
+	}
+	_, err = io.WriteString(out, stdout.String())
+	return err
+}
+
+// writeSettings writes a private Claude settings file that sets env, under the state
+// directory's launches/, and returns its path.
+func writeSettings(stateDir, id string, env map[string]string) (string, error) {
+	dir, err := platform.PrivateDir(filepath.Join(stateDir, "launches"))
+	if err != nil {
+		return "", err
+	}
+	data, err := json.Marshal(map[string]any{"env": env})
+	if err != nil {
+		return "", err
+	}
+	path := filepath.Join(dir, id+".json")
+	f, err := platform.OpenPrivate(path, os.O_WRONLY|os.O_CREATE|os.O_EXCL)
+	if err != nil {
+		return "", err
+	}
+	if _, err := f.Write(data); err != nil {
+		f.Close()
+		os.Remove(path)
+		return "", err
+	}
+	if err := f.Close(); err != nil {
+		os.Remove(path)
+		return "", err
+	}
+	return path, nil
 }

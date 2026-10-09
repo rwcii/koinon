@@ -10,6 +10,7 @@ import (
 
 func TestCheckoutTool(t *testing.T) {
 	h := newHarness(t, "codex-mcp-client")
+	h.launch("codex")
 	meta := map[string]any{"threadId": "synthetic-checkout"}
 	repo := h.s.c.Directory
 	if out, err := exec.Command("git", "init", "-q", repo).CombinedOutput(); err != nil {
@@ -48,6 +49,7 @@ func TestCheckoutTool(t *testing.T) {
 
 func TestCheckoutToolWriterHandoff(t *testing.T) {
 	h := newHarness(t, "codex-mcp-client")
+	h.launch("codex")
 	if out, err := exec.Command("git", "init", "-q", h.s.c.Directory).CombinedOutput(); err != nil {
 		t.Fatalf("git: %v %s", err, out)
 	}

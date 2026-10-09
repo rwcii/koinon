@@ -336,7 +336,7 @@ func TestDashboardViewsRenderSyntheticState(t *testing.T) {
 	if err := os.Mkdir(sub, 0700); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := s.Register(ctx, Registration{Family: "claude", ID: "synthetic-sub", Directory: sub, TTLSeconds: 60}); err != nil {
+	if _, err := s.Register(ctx, withLaunch(t, s, Registration{Family: "claude", ID: "synthetic-sub", Directory: sub, TTLSeconds: 60})); err != nil {
 		t.Fatal(err)
 	}
 	if err := s.Observe(ctx, Observation{Caller: Key{"claude", "synthetic-sub"}, Terminal: &ObservedValue{Source: "tmux_env",
@@ -378,7 +378,7 @@ func TestDashboardViewsRenderSyntheticState(t *testing.T) {
 	}
 	sessions := page("/dashboard/sessions")
 	contains(sessions, a.Name, b.Name, retired.Name, "state-retired", repo, "Synthetic held item &lt;b&gt;bold&lt;/b&gt;", held,
-		"directory "+sub, "synthetic-work <code>%5</code>", "tmux_env, ", "naming: name_taken", "unknown: terminal_unverified")
+		"directory "+sub, "synthetic-work <code>%5</code>", "tmux_env, ", "naming: name_taken", "unknown: not_observed")
 	if strings.Contains(sessions, "More sessions") {
 		t.Fatal("a single page links to more")
 	}
@@ -411,7 +411,7 @@ func TestDashboardViewsRenderSyntheticState(t *testing.T) {
 	work := page("/dashboard/work")
 	contains(work, open, held, "codex:synthetic-a", "internal/core", "db:schema", "valid until", "open", "active")
 	health := page("/dashboard/health")
-	contains(health, "running since", "schema 9", d.Addresses()[0], "1 retired", "acknowledged messages 30 days, inactive sessions 30 days")
+	contains(health, "running since", "schema 10", d.Addresses()[0], "1 retired", "acknowledged messages 30 days, inactive sessions 30 days")
 	// A fragment is the list alone, for the in-place refresh.
 	fragment := page("/dashboard/work?fragment=1")
 	if strings.Contains(fragment, "<html") || !strings.Contains(fragment, held) {

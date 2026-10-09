@@ -34,8 +34,17 @@ func TestAgyStopOffersOnlyOwnUnacknowledgedNotice(t *testing.T) {
 	var target struct {
 		Session core.Session `json:"session"`
 	}
-	json.Unmarshal(call("/v1/sessions/register", core.Registration{Family: "agy", ID: "synthetic-turn", Directory: directory}), &target)
-	call("/v1/sessions/register", core.Registration{Family: "codex", ID: "synthetic-sender", Directory: directory})
+	// Each session registers with its own launch, as koinon <family> starts it.
+	launched := func(family, id string) core.Registration {
+		t.Helper()
+		launch, err := core.CreateLaunch(context.Background(), d.Addresses()[0], secret, core.LaunchTarget{Family: family, Directory: directory, CLI: "/synthetic/cli", HostPID: 4242})
+		if err != nil {
+			t.Fatal(err)
+		}
+		return core.Registration{Family: family, ID: id, Directory: directory, LaunchID: launch, Ancestors: []int{4242}}
+	}
+	json.Unmarshal(call("/v1/sessions/register", launched("agy", "synthetic-turn")), &target)
+	call("/v1/sessions/register", launched("codex", "synthetic-sender"))
 	call("/v1/messages/send", map[string]any{"caller": core.Key{Family: "codex", ID: "synthetic-sender"}, "to": target.Session.Name, "body": "PRIVATE PEER BODY $(touch sentinel)"})
 	env := HookEnv{Getenv: func(k string) string {
 		return map[string]string{"KOINON_STATE_DIR": root, "KOINON_DAEMON_ADDRESS": d.Addresses()[0]}[k]

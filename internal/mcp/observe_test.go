@@ -50,7 +50,8 @@ func newObserveHarness(t *testing.T, client, parent string) *observeHarness {
 		}
 	}))
 	t.Cleanup(daemon.Close)
-	h := &harness{t: t, root: root, out: &bytes.Buffer{}, env: map[string]string{}, parent: parent}
+	// A launched session: this fake daemon accepts its registration.
+	h := &harness{t: t, root: root, out: &bytes.Buffer{}, env: map[string]string{"KOINON_LAUNCH_ID": strings.Repeat("a", 64)}, parent: parent}
 	h.s = &server{c: Config{StateDir: root, Address: strings.TrimPrefix(daemon.URL, "http://"), Directory: t.TempDir(), ParentPID: 4242,
 		Getenv:      func(k string) string { return h.env[k] },
 		Command:     func(int) (string, []string, error) { return h.parent, []string{h.parent}, nil },
@@ -122,8 +123,6 @@ func TestCodexRolloutAndTerminalAttribution(t *testing.T) {
 	o := newObserveHarness(t, "codex-mcp-client", "/opt/agent/bin/codex")
 	home := t.TempDir()
 	o.env["CODEX_HOME"] = home
-	o.env["TMUX"] = "/tmp/tmux-synthetic/default,1,0"
-	o.env["TMUX_PANE"] = "%9"
 	dir := filepath.Join(home, "sessions", "2026", "10", "07")
 	os.MkdirAll(dir, 0700)
 	rollout := filepath.Join(dir, "rollout-2026-10-07T00-00-00-synthetic-thread-1.jsonl")
@@ -135,7 +134,7 @@ func TestCodexRolloutAndTerminalAttribution(t *testing.T) {
 		map[string]any{"timestamp": "2026-10-07T00:00:04.000Z", "type": "event_msg", "payload": map[string]any{"type": "token_count",
 			"info": map[string]any{"model_context_window": 200000, "last_token_usage": map[string]any{"input_tokens": 50000}}}},
 		`{"timestamp":"2026-10-07T00:00:05.000Z","type":"event_msg","payload":{"type":"task_complete","turn_id":"turn-a"}}`) // no newline yet
-	// Two threads served by one unlaunched server: neither gets the server's terminal.
+	// Two threads served by one server outside tmux: neither reports a terminal.
 	o.tool("peers", map[string]any{}, map[string]any{"threadId": "synthetic-thread-1"})
 	o.tool("peers", map[string]any{}, map[string]any{"threadId": "synthetic-thread-2"})
 	o.s.observeOnce(context.Background())
@@ -143,7 +142,7 @@ func TestCodexRolloutAndTerminalAttribution(t *testing.T) {
 	var first *core.Observation
 	for i := range reports {
 		if reports[i].Terminal != nil {
-			t.Fatalf("unlaunched server attributed its terminal: %+v", reports[i])
+			t.Fatalf("terminal reported outside tmux: %+v", reports[i])
 		}
 		if reports[i].Caller.ID == "synthetic-thread-1" {
 			first = &reports[i]

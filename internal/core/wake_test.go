@@ -78,7 +78,7 @@ func TestWakeCrashAfterAcceptanceRetries(t *testing.T) {
 }
 func TestWakeSchemaFiveMigrationAndFutureRefusal(t *testing.T) {
 	s, root, sender, receiver, message, _ := wakeFixture(t, "agy")
-	if _, err := s.db.Exec(undoSchemaNine + undoSchemaEight + undoSchemaSeven + `DROP INDEX messages_wake; ALTER TABLE messages DROP COLUMN wake_attempts; ALTER TABLE messages DROP COLUMN wake_next_at; ALTER TABLE messages DROP COLUMN wake_reason; PRAGMA user_version=5`); err != nil {
+	if _, err := s.db.Exec(undoSchemaTen + undoSchemaNine + undoSchemaEight + undoSchemaSeven + `DROP INDEX messages_wake; ALTER TABLE messages DROP COLUMN wake_attempts; ALTER TABLE messages DROP COLUMN wake_next_at; ALTER TABLE messages DROP COLUMN wake_reason; PRAGMA user_version=5`); err != nil {
 		t.Fatal(err)
 	}
 	s.db.Close()
@@ -93,7 +93,7 @@ func TestWakeSchemaFiveMigrationAndFutureRefusal(t *testing.T) {
 	if _, err = restored.MessageOutcome(context.Background(), Key{sender.Family, sender.ID}, message.ID); err != nil {
 		t.Fatal(err)
 	}
-	if _, err = restored.db.Exec("PRAGMA user_version=10"); err != nil {
+	if _, err = restored.db.Exec("PRAGMA user_version=11"); err != nil {
 		t.Fatal(err)
 	}
 	restored.db.Close()
@@ -108,7 +108,7 @@ func TestWakeSchemaFiveMigrationAndFutureRefusal(t *testing.T) {
 	var version, count int
 	db.QueryRow("PRAGMA user_version").Scan(&version)
 	db.QueryRow("SELECT COUNT(*) FROM messages").Scan(&count)
-	if version != 10 || count != 1 {
+	if version != 11 || count != 1 {
 		t.Fatal("refused future schema modified")
 	}
 }
@@ -194,7 +194,7 @@ func TestWakeBusyThenIdleIsPrompt(t *testing.T) {
 			s, _, sender, receiver, message, clock := wakeFixture(t, family)
 			ctx := context.Background()
 			for _, session := range []Session{sender, receiver} {
-				if _, err := s.Register(ctx, Registration{Family: session.Family, ID: session.ID, Repository: session.Repository, Directory: session.Directory, TTLSeconds: 900}); err != nil {
+				if _, err := s.Register(ctx, withLaunch(t, s, Registration{Family: session.Family, ID: session.ID, Repository: session.Repository, Directory: session.Directory, TTLSeconds: 900})); err != nil {
 					t.Fatal(err)
 				}
 			}
@@ -305,7 +305,7 @@ func TestWakeExpiryRetirementAndClockJump(t *testing.T) {
 	if err := s.wakeStep(ctx); err != nil || calls != 2 {
 		t.Fatalf("expired delivery %d %v", calls, err)
 	}
-	if _, err := s.Register(ctx, Registration{Family: receiver.Family, ID: receiver.ID, Directory: receiver.Directory}); err != nil {
+	if _, err := s.Register(ctx, withLaunch(t, s, Registration{Family: receiver.Family, ID: receiver.ID, Directory: receiver.Directory})); err != nil {
 		t.Fatal(err)
 	}
 	if err := s.wakeStep(ctx); err != nil || calls != 3 {

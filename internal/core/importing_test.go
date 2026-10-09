@@ -160,7 +160,7 @@ func TestImportedSessionRegistersAndWakes(t *testing.T) {
 	if err := s.wakeStep(ctx); err != nil || len(notices) != 0 {
 		t.Fatalf("expired session woken: %v %v", notices, err)
 	}
-	r := registration(repo, "codex")
+	r := registration(t, s, repo, "codex")
 	r.ID = "thread-1"
 	session, err := s.Register(ctx, r)
 	if err != nil || session.Name != "codex-python-thread-1" {

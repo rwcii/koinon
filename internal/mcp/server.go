@@ -62,8 +62,10 @@ type server struct {
 	mu       sync.Mutex
 	secret   string
 	sessions map[core.Key]registered
-	latest   core.Key
-	obs      observer
+	// subagents are the Codex threads whose calls came from a sub-agent.
+	subagents map[core.Key]bool
+	latest    core.Key
+	obs       observer
 	// named is the published name each session's terminal was last named after, with a
 	// final result; naming marks an attempt in progress.
 	named  map[core.Key]string

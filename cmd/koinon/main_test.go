@@ -102,7 +102,16 @@ func TestMessageCommands(t *testing.T) {
 	directory := t.TempDir()
 	for _, key := range []string{"codex:synthetic-a", "opencode:synthetic-b"} {
 		family, id, _ := strings.Cut(key, ":")
-		if _, err := core.Call(context.Background(), address, secret, "/v1/sessions/register", core.Registration{Family: family, ID: id, Directory: directory}); err != nil {
+		// Each session registers with its own launch, as koinon <family> starts it.
+		target := core.LaunchTarget{Family: family, Directory: directory, CLI: "/synthetic/cli", HostPID: 4242}
+		if family == "opencode" {
+			target.Address, target.Password = "127.0.0.1:9", strings.Repeat("ab", 32)
+		}
+		launch, err := core.CreateLaunch(context.Background(), address, secret, target)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, err := core.Call(context.Background(), address, secret, "/v1/sessions/register", core.Registration{Family: family, ID: id, Directory: directory, LaunchID: launch, Ancestors: []int{4242}}); err != nil {
 			t.Fatal(err)
 		}
 	}

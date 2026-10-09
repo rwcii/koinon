@@ -5,6 +5,20 @@ into a dated release section when promoted to `main`.
 
 ## Unreleased
 
+- Claude Code, Codex, Antigravity and OpenCode register only through their Koinon launchers,
+  with a matching launch family, directory and host process or recorded background job.
+  Direct native starts are islanded and return `not_launched`. Codex launches with
+  `--no-daemon` and forwards the launch environment to its MCP server. Codex sub-agent
+  threads get peer names and `subagent: true`, and never hold the repository alias.
+- `koinon claude --bg [args]` starts a background job with a private settings file and
+  records its job ID. Registration before that ID is recorded returns `launch_pending`
+  and retries at the next tool call. A failed start retires the pending launch and removes
+  its settings file. The state schema is now 10, adding `sessions.subagent`.
+  After upgrade, existing launcher-family sessions without launch associations cannot
+  renew and expire at their existing deadlines; their inboxes, acknowledgements, memory
+  cursors and work claims remain retained. DeepSeek keeps command registration and renewal
+  without a launch record.
+
 - `koinon claude`, `koinon codex`, `koinon agy` and `koinon opencode` start in a directory
   that holds other repositories, such as a checkout with submodules, worktrees of other
   repositories or separate clones, and list them instead of refusing the start. The list

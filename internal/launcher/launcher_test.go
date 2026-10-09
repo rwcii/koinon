@@ -141,7 +141,13 @@ func TestFakeCLI(t *testing.T) {
 	if err != nil {
 		os.Exit(16)
 	}
-	body, _ := json.Marshal(core.Registration{Family: family, ID: "synthetic-" + family, Directory: directory, LaunchID: r.LaunchID})
+	// The launcher's exec keeps its process ID, so this process is the launch's host, as
+	// the agent CLI is; a Claude server also reports it as claude_pid.
+	own := core.Registration{Family: family, ID: "synthetic-" + family, Directory: directory, LaunchID: r.LaunchID, Ancestors: []int{os.Getpid()}}
+	if family == "claude" {
+		own.WakeTarget = json.RawMessage(fmt.Sprintf(`{"claude_pid":%d}`, os.Getpid()))
+	}
+	body, _ := json.Marshal(own)
 	request, _ := http.NewRequest("POST", "http://"+os.Getenv("KOINON_DAEMON_ADDRESS")+"/v1/sessions/register", bytes.NewReader(body))
 	request.Header.Set("Content-Type", "application/json")
 	request.Header.Set("Authorization", "Bearer "+secret)
@@ -239,8 +245,11 @@ func checkReport(t *testing.T, r report, family, directory string) {
 	}
 	if family == "codex" {
 		expected := fmt.Sprint(r.PID)
-		if r.Host != expected || len(r.Args) < 2 || r.Args[0] != "-c" || r.Args[1] != "shell_environment_policy.set.KOINON_CODEX_HOST=\""+expected+"\"" {
-			t.Fatal("Codex host identity not preserved")
+		// Codex runs on its own, so its MCP servers are children of this process, and
+		// passes them the launch variables (#247).
+		if r.Host != expected || len(r.Args) < 5 || r.Args[0] != "--no-daemon" || r.Args[1] != "-c" || r.Args[2] != "shell_environment_policy.set.KOINON_CODEX_HOST=\""+expected+"\"" ||
+			r.Args[3] != "-c" || r.Args[4] != `mcp_servers.koinon.env_vars=["KOINON_LAUNCH_ID","KOINON_STATE_DIR","KOINON_DAEMON_ADDRESS","TMUX","TMUX_PANE","CODEX_HOME"]` {
+			t.Fatalf("Codex command line: %q", r.Args)
 		}
 	}
 	if family == "opencode" && !r.Authenticated {

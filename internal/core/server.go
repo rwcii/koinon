@@ -315,6 +315,35 @@ func (d *Daemon) handler() http.Handler {
 		}
 		respond(w, 200, map[string]any{"ok": true, "launch_id": id})
 	})
+	mux.HandleFunc("POST /v1/launches/job", func(w http.ResponseWriter, r *http.Request) {
+		var request struct {
+			LaunchID string `json:"launch_id"`
+			JobID    string `json:"job_id"`
+		}
+		if err := decode(w, r, &request); err != nil {
+			failure(w, err)
+			return
+		}
+		if err := d.store.SetLaunchJob(r.Context(), request.LaunchID, request.JobID); err != nil {
+			failure(w, err)
+			return
+		}
+		respond(w, 200, map[string]any{"ok": true})
+	})
+	mux.HandleFunc("POST /v1/launches/retire", func(w http.ResponseWriter, r *http.Request) {
+		var request struct {
+			LaunchID string `json:"launch_id"`
+		}
+		if err := decode(w, r, &request); err != nil {
+			failure(w, err)
+			return
+		}
+		if err := d.store.RetireLaunch(r.Context(), request.LaunchID); err != nil {
+			failure(w, err)
+			return
+		}
+		respond(w, 200, map[string]any{"ok": true})
+	})
 	mux.HandleFunc("POST /v1/sessions/register", func(w http.ResponseWriter, r *http.Request) {
 		var request Registration
 		if err := decode(w, r, &request); err != nil {

@@ -47,6 +47,26 @@ func newHarness(t *testing.T, client string) *harness {
 	return h
 }
 
+// launch records a launch of family for this server, as koinon <family> does: its host
+// is the server's parent, and the server reads the launch ID from its environment.
+func (h *harness) launch(family string) string {
+	h.t.Helper()
+	secret, err := core.ReadSecret(h.root)
+	if err != nil {
+		h.t.Fatal(err)
+	}
+	target := core.LaunchTarget{Family: family, Directory: h.s.c.Directory, CLI: "/synthetic/cli", HostPID: h.s.c.ParentPID}
+	if family == "opencode" {
+		target.Address, target.Password = "127.0.0.1:9", strings.Repeat("ab", 32)
+	}
+	id, err := core.CreateLaunch(context.Background(), h.d.Addresses()[0], secret, target)
+	if err != nil {
+		h.t.Fatal(err)
+	}
+	h.env["KOINON_LAUNCH_ID"] = id
+	return id
+}
+
 func (h *harness) request(method string, params any) map[string]any {
 	h.t.Helper()
 	h.nextID++
@@ -136,6 +156,7 @@ func TestProtocol(t *testing.T) {
 
 func TestPeerStatusTool(t *testing.T) {
 	h := newHarness(t, "codex")
+	h.launch("codex")
 	reader := map[string]any{"threadId": "synthetic-reader"}
 	targetMeta := map[string]any{"threadId": "synthetic-status-target"}
 	h.tool("peers", map[string]any{}, reader)
@@ -200,6 +221,7 @@ func TestServeReadsLinesAndBoundsThem(t *testing.T) {
 
 func TestCodexThreadsAreSeparateSessions(t *testing.T) {
 	h := newHarness(t, "codex-mcp-client")
+	launch := h.launch("codex")
 	a, b := map[string]any{"threadId": "synthetic-thread-a"}, map[string]any{"threadId": "synthetic-thread-b"}
 	listing, isError := h.tool("peers", map[string]any{}, a)
 	if isError {
@@ -211,7 +233,7 @@ func TestCodexThreadsAreSeparateSessions(t *testing.T) {
 		names[s.ID] = s.Name
 		var target map[string]any
 		json.Unmarshal(s.WakeTarget, &target)
-		if s.Family != "codex" || target["cli"] != "/opt/agent/bin/codex" {
+		if s.Family != "codex" || target["launch_id"] != launch {
 			t.Fatalf("codex session: %+v", s)
 		}
 	}
@@ -267,12 +289,18 @@ func TestIdentitySources(t *testing.T) {
 	} {
 		t.Run(c.name, func(t *testing.T) {
 			h := newHarness(t, "")
-			h.parent, h.env = c.parent, c.env
+			h.parent = c.parent
+			for k, v := range c.env {
+				h.env[k] = v
+			}
 			if c.name == "claude npm" {
 				h.s.c.Command = func(int) (string, []string, error) {
 					return "/usr/bin/node", []string{"node", "/usr/lib/node_modules/@anthropic-ai/claude-code/cli.js"}, nil
 				}
 				c.family, c.id = "claude", "synthetic-claude"
+			}
+			if c.family != "" {
+				h.launch(c.family)
 			}
 			h.request("initialize", map[string]any{"protocolVersion": "2025-06-18", "clientInfo": map[string]any{"name": c.client}})
 			args := map[string]any{}
@@ -290,7 +318,7 @@ func TestIdentitySources(t *testing.T) {
 			if isError || len(sessions) != 1 || sessions[0].Family != c.family || sessions[0].ID != c.id {
 				t.Fatalf("identity: %v %+v", reply, sessions)
 			}
-			if c.family == "claude" && string(sessions[0].WakeTarget) != `{"claude_pid":4242}` {
+			if c.family == "claude" && !strings.Contains(string(sessions[0].WakeTarget), `"claude_pid":4242`) {
 				t.Fatalf("claude wake target: %s", sessions[0].WakeTarget)
 			}
 		})
@@ -299,6 +327,7 @@ func TestIdentitySources(t *testing.T) {
 
 func TestOpenCodeSessionsOnOneServer(t *testing.T) {
 	h := newHarness(t, "opencode")
+	h.launch("opencode")
 	for _, id := range []string{"ses_a", "ses_b"} {
 		if reply, isError := h.tool("peers", map[string]any{"koinon_session": id}, nil); isError {
 			t.Fatal(reply)
@@ -319,6 +348,7 @@ func TestOpenCodeSessionsOnOneServer(t *testing.T) {
 
 func TestArgumentsAndLaunchBinding(t *testing.T) {
 	h := newHarness(t, "codex-mcp-client")
+	own := h.launch("codex")
 	meta := map[string]any{"threadId": "synthetic-thread"}
 	for _, args := range []map[string]any{{"to": "x"}, {"to": "x", "body": "y", "extra": 1}, {"through": "one"}} {
 		name := "send"
@@ -338,17 +368,27 @@ func TestArgumentsAndLaunchBinding(t *testing.T) {
 	if reply, isError := h.tool("send", map[string]any{"to": "codex-none-00", "body": "x"}, meta); !isError || reply["code"] != "peer_not_found" {
 		t.Fatalf("daemon code: %v", reply)
 	}
-	// A launched agent's server binds the session to the launcher's private target.
+	// A launch of another host process, an unknown launch and no launch at all register
+	// nothing: the session is islanded, and the refusal names the launcher.
 	secret, _ := core.ReadSecret(h.root)
 	cli := filepath.Join(t.TempDir(), "codex")
-	id, err := core.CreateLaunch(context.Background(), h.d.Addresses()[0], secret, core.LaunchTarget{Family: "codex", Directory: h.s.c.Directory, CLI: cli, HostPID: 77})
+	other, err := core.CreateLaunch(context.Background(), h.d.Addresses()[0], secret, core.LaunchTarget{Family: "codex", Directory: h.s.c.Directory, CLI: cli, HostPID: 77})
 	if err != nil {
 		t.Fatal(err)
 	}
-	h.env["KOINON_LAUNCH_ID"] = id
+	before := len(h.sessions())
+	for _, launch := range []string{other, strings.Repeat("b", 64), ""} {
+		h.env["KOINON_LAUNCH_ID"] = launch
+		reply, isError := h.tool("peers", map[string]any{}, map[string]any{"threadId": "synthetic-islanded"})
+		if !isError || reply["code"] != "not_launched" || reply["launcher"] != "koinon codex" || len(h.sessions()) != before {
+			t.Fatalf("islanded %q: %v %d", launch, reply, len(h.sessions()))
+		}
+	}
+	// The server's own launch binds the session to the launcher's private target.
+	h.env["KOINON_LAUNCH_ID"] = own
 	h.tool("peers", map[string]any{}, map[string]any{"threadId": "synthetic-launched"})
 	for _, s := range h.sessions() {
-		if s.ID == "synthetic-launched" && !strings.Contains(string(s.WakeTarget), id) {
+		if s.ID == "synthetic-launched" && !strings.Contains(string(s.WakeTarget), own) {
 			t.Fatalf("launch not bound: %s", s.WakeTarget)
 		}
 	}
@@ -356,6 +396,7 @@ func TestArgumentsAndLaunchBinding(t *testing.T) {
 
 func TestDaemonRestartAndRenewal(t *testing.T) {
 	h := newHarness(t, "codex-mcp-client")
+	h.launch("codex")
 	a, b := map[string]any{"threadId": "synthetic-a"}, map[string]any{"threadId": "synthetic-b"}
 	h.tool("peers", map[string]any{}, b)
 	recipient := h.sessions()[0].Name
@@ -416,6 +457,8 @@ func TestCommandBinary(t *testing.T) {
 	cmd.Stdin = strings.NewReader(`{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-06-18","clientInfo":{"name":"codex-mcp-client"}}}
 {"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"peers","arguments":{},"_meta":{"threadId":"synthetic"}}}
 `)
+	// A launched server reaches for the daemon; an unreachable one is reported as such.
+	cmd.Env = append(os.Environ(), "KOINON_LAUNCH_ID="+strings.Repeat("b", 64))
 	var stdout, stderr bytes.Buffer
 	cmd.Stdout, cmd.Stderr = &stdout, &stderr
 	if err := cmd.Run(); err != nil {
@@ -433,6 +476,7 @@ func TestCommandBinary(t *testing.T) {
 
 func TestMemoryTools(t *testing.T) {
 	h := newHarness(t, "codex-mcp-client")
+	h.launch("codex")
 	meta := map[string]any{"threadId": "synthetic-thread"}
 	if reply, isError := h.tool("memory_status", map[string]any{}, meta); !isError || reply["code"] != "repo_unresolved" {
 		t.Fatalf("no repository: %v", reply)
@@ -478,6 +522,7 @@ func TestMemoryTools(t *testing.T) {
 
 func TestWorkTools(t *testing.T) {
 	h := newHarness(t, "codex-mcp-client")
+	h.launch("codex")
 	meta := map[string]any{"threadId": "synthetic-thread"}
 	if out, err := exec.Command("git", "init", "-q", h.s.c.Directory).CombinedOutput(); err != nil {
 		t.Fatalf("git init: %v %s", err, out)

@@ -9,6 +9,12 @@ and macOS. When `PATH` does not reach the installed binary, follow the install r
 
 ## Messages and participants
 
+Start Claude Code, Codex, Antigravity and OpenCode through `koinon claude`, `koinon codex`,
+`koinon agy` and `koinon opencode`. Setup adds the MCP server; the launcher supplies the
+session's launch association. Starting the native CLI directly creates an islanded instance:
+it does not register or appear in Koinon, and its tool calls return `not_launched` with the
+family's launcher command. DeepSeek keeps its explicit registration command below.
+
 Prefer the configured MCP tools: `peers`, `send`, `inbox`, `ack`, `delivery`. The server obtains
 native identity on every call. A shell client names its exact current session explicitly:
 
@@ -98,6 +104,12 @@ koinon status
 ```
 
 The launchers use configured native CLIs, exact repositories and private launch records.
+Codex runs with `--no-daemon`, so its MCP servers belong to the launched CLI process. The
+launcher forwards `KOINON_LAUNCH_ID`, `KOINON_STATE_DIR`, `KOINON_DAEMON_ADDRESS`, `TMUX`,
+`TMUX_PANE` and `CODEX_HOME` through the configured Koinon MCP server's `env_vars` override.
+Codex sub-agent threads have their own peer names, appear with `subagent: true` and never
+hold the repository alias.
+
 A launcher starts in a directory that holds other repositories and reports them before the
 agent starts: each nested checkout, with its path relative to the start directory and its kind
 (`submodule` when its enclosing repository records it as a gitlink, whatever its `.git` layout;
@@ -110,9 +122,23 @@ hold (longer than 256 bytes, or with a control character such as a newline) mark
 incomplete and never refuses the start. The
 session's Koinon repository, memory and work store stay the start directory's repository. The
 launch record keeps the list, and the dashboard shows it with each session that registers with
-its launch record (Codex, Antigravity and OpenCode).
-OpenCode's wake server requires the launcher. The dashboard link is single-use and expires;
-keep it out of logs, Git and messages. Administrative actions require CSRF protection and are
+its launch record (Claude Code, Codex, Antigravity and OpenCode).
+
+To start a Claude background job, use `koinon claude --bg [args]`; put launcher options
+before native CLI arguments. This runs outside tmux and requires Claude Code's `--bg` support.
+Koinon supplies a private settings file with that job's launch environment and records the
+job ID returned by Claude. Do not supply native `--bg`, `--background` or `--settings`
+arguments yourself. A tool call that arrives before the job ID is recorded returns
+`launch_pending`; the next tool call retries registration. If starting the job fails or
+returns no usable job ID, Koinon retires the pending launch and removes its settings file.
+
+After an upgrade, an existing launcher-family session without a launch association cannot
+renew and expires at its existing deadline. Its inbox, acknowledgements, memory cursor and
+work claims remain retained. Start the next session through its Koinon launcher; a retained claim still needs
+the usual release or lease expiry before another session can acquire it.
+
+The dashboard link is single-use and expires; keep it out of logs, Git and messages.
+Administrative actions require CSRF protection and are
 audited. Health reports unknown observations explicitly; a failure is not permission to
 replace state, kill an unrelated process, or change agent settings.
 

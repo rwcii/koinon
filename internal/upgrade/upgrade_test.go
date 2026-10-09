@@ -504,7 +504,7 @@ func TestResumeRejectsAnUnrelatedTarget(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := other.Register(context.Background(), core.Registration{Family: "claude", ID: "unrelated", Directory: t.TempDir(), TTLSeconds: 60}); err != nil {
+	if _, err := other.Register(context.Background(), core.Registration{Family: "deepseek", ID: "unrelated", Directory: t.TempDir(), TTLSeconds: 60}); err != nil {
 		t.Fatal(err)
 	}
 	other.Close()

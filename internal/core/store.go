@@ -40,6 +40,8 @@ type Session struct {
 	State    string `json:"state"`
 	Name     string `json:"name"`
 	Alias    string `json:"alias,omitempty"`
+	// Subagent marks a Codex sub-agent thread, which never holds an alias.
+	Subagent bool `json:"subagent,omitempty"`
 }
 
 type Registration struct {
@@ -50,6 +52,10 @@ type Registration struct {
 	WakeTarget json.RawMessage `json:"wake_target,omitempty"`
 	TTLSeconds int64           `json:"ttl_seconds"`
 	LaunchID   string          `json:"launch_id,omitempty"`
+	// Ancestors are the caller's process and its ancestors, nearest first; a foreground
+	// launch admits the caller only when its host process is among them.
+	Ancestors []int `json:"ancestors,omitempty"`
+	Subagent  bool  `json:"subagent,omitempty"`
 }
 
 type Mutation struct {
@@ -203,7 +209,7 @@ func checkFormat(db *sql.DB, path string) error {
 	return nil
 }
 
-const schemaVersion = 9
+const schemaVersion = 10
 
 // migrate brings the state schema from version to target in one transaction, so a crash
 // leaves either the old or the new schema. Each step starts from the version before it.
@@ -272,7 +278,7 @@ func migrate(db *sql.DB, version, target int) error {
 		}
 		now := time.Now().UnixMilli()
 		for _, k := range existing {
-			if err := assignNames(context.Background(), tx, now, k.family, k.id, k.repository, k.directory); err != nil {
+			if err := assignNames(context.Background(), tx, now, k.family, k.id, k.repository, k.directory, false); err != nil {
 				return err
 			}
 		}
@@ -413,6 +419,13 @@ func migrate(db *sql.DB, version, target int) error {
 		if _, err := tx.Exec(`ALTER TABLE sessions ADD COLUMN ack_mark INTEGER NOT NULL DEFAULT 0;
 			ALTER TABLE sessions ADD COLUMN ack_mark_at INTEGER NOT NULL DEFAULT 0;
 			ALTER TABLE sessions ADD COLUMN purge_at INTEGER NOT NULL DEFAULT 0;`); err != nil {
+			return err
+		}
+	}
+	if version < 10 && target >= 10 {
+		// Version 10: a Codex sub-agent thread registers as its own session but never
+		// holds an alias (participants sprint, chunk 01).
+		if _, err := tx.Exec(`ALTER TABLE sessions ADD COLUMN subagent INTEGER NOT NULL DEFAULT 0;`); err != nil {
 			return err
 		}
 	}
@@ -569,24 +582,29 @@ func (s *Store) Register(ctx context.Context, r Registration) (Session, error) {
 		return Session{}, err
 	}
 	defer tx.Rollback()
-	if r.LaunchID != "" {
-		if len(r.WakeTarget) != 0 && string(r.WakeTarget) != "{}" {
+	// Every launcher family registers only with its own launch; DeepSeek has no launcher
+	// and keeps its command registration until its MCP path is settled (#199).
+	if r.Family == "deepseek" {
+		if r.LaunchID != "" || r.Subagent {
 			return Session{}, ErrInvalid
 		}
-		r.WakeTarget, err = launchTarget(ctx, tx.Tx, r.LaunchID, r.Family, directory)
-		if err != nil {
-			return Session{}, err
-		}
+	} else if r.WakeTarget, err = admitLaunch(ctx, tx.Tx, r, directory); err != nil {
+		return Session{}, err
 	}
-	_, err = tx.ExecContext(ctx, `INSERT INTO sessions(`+sessionColumns+`) VALUES (?,?,?,?,?,?,?,?,0,1)
+	_, err = tx.ExecContext(ctx, `INSERT INTO sessions(`+sessionColumns+`) VALUES (?,?,?,?,?,?,?,?,0,1,?)
 		ON CONFLICT(family,id) DO UPDATE SET repository=excluded.repository,
 		directory=excluded.directory,wake_target=excluded.wake_target,renewed_at=excluded.renewed_at,
-		expires_at=excluded.expires_at,retired_at=0,revision=sessions.revision+1`,
-		r.Family, r.ID, common, directory, string(r.WakeTarget), now, now, now+duration)
+		expires_at=excluded.expires_at,retired_at=0,revision=sessions.revision+1,subagent=MAX(sessions.subagent,excluded.subagent)`,
+		r.Family, r.ID, common, directory, string(r.WakeTarget), now, now, now+duration, r.Subagent)
 	if err != nil {
 		return Session{}, tx.fail(err)
 	}
-	if err := assignNames(ctx, tx.Tx, now, r.Family, r.ID, common, directory); err != nil {
+	// A thread stays a sub-agent once it is known to be one.
+	var subagent bool
+	if err := tx.QueryRowContext(ctx, `SELECT subagent FROM sessions WHERE family=? AND id=?`, r.Family, r.ID).Scan(&subagent); err != nil {
+		return Session{}, tx.fail(err)
+	}
+	if err := assignNames(ctx, tx.Tx, now, r.Family, r.ID, common, directory, subagent); err != nil {
 		return Session{}, tx.fail(err)
 	}
 	result, err := scanSession(tx.QueryRowContext(ctx, sessionQuery+` WHERE s.family=? AND s.id=?`, r.Family, r.ID), now)
@@ -596,12 +614,12 @@ func (s *Store) Register(ctx context.Context, r Registration) (Session, error) {
 	return result, tx.Commit()
 }
 
-const sessionColumns = `family,id,repository,directory,wake_target,registered_at,renewed_at,expires_at,retired_at,revision`
+const sessionColumns = `family,id,repository,directory,wake_target,registered_at,renewed_at,expires_at,retired_at,revision,subagent`
 
 // sessionQuery reads a session with its peer name and the alias it is recorded to hold;
 // scanSession shows the alias only while the session is active.
 const sessionQuery = `SELECT s.family,s.id,s.repository,s.directory,s.wake_target,s.registered_at,s.renewed_at,
-	s.expires_at,s.retired_at,s.purge_at,s.revision,
+	s.expires_at,s.retired_at,s.purge_at,s.revision,s.subagent,
 	COALESCE((SELECT name FROM names WHERE kind='peer' AND family=s.family AND session_id=s.id),''),
 	COALESCE((SELECT name FROM names WHERE kind='alias' AND family=s.family AND repository=s.repository
 		AND s.repository!='' AND holder_id=s.id),'') FROM sessions s`
@@ -611,7 +629,7 @@ type scanner interface{ Scan(...any) error }
 func scanSession(row scanner, now int64) (Session, error) {
 	var result Session
 	var target string
-	err := row.Scan(&result.Family, &result.ID, &result.Repository, &result.Directory, &target, &result.RegisteredAt, &result.RenewedAt, &result.ExpiresAt, &result.RetiredAt, &result.PurgeAt, &result.Revision, &result.Name, &result.Alias)
+	err := row.Scan(&result.Family, &result.ID, &result.Repository, &result.Directory, &target, &result.RegisteredAt, &result.RenewedAt, &result.ExpiresAt, &result.RetiredAt, &result.PurgeAt, &result.Revision, &result.Subagent, &result.Name, &result.Alias)
 	if errors.Is(err, sql.ErrNoRows) {
 		return result, ErrMissing
 	}
@@ -657,13 +675,18 @@ func (s *Store) Mutate(ctx context.Context, r Mutation, retire bool) (Session, e
 	if current.Revision != r.IfRevision || current.State != "active" {
 		return Session{}, ErrConflict
 	}
+	// A session registered without its launch, such as one an older store holds, is not
+	// renewed: it expires at the expiry it already has, with its records kept.
+	if !retire && current.Family != "deepseek" && !launched(current) {
+		return Session{}, ErrNotLaunched
+	}
 	if retire {
 		_, err = tx.ExecContext(ctx, `UPDATE sessions SET retired_at=?,revision=revision+1 WHERE family=? AND id=?`, now, r.Family, r.ID)
 	} else {
 		_, err = tx.ExecContext(ctx, `UPDATE sessions SET renewed_at=?,expires_at=?,revision=revision+1 WHERE family=? AND id=?`, now, now+duration, r.Family, r.ID)
 		if err == nil {
 			// A renewal takes the repository's alias when its holder expired or retired.
-			err = assignNames(ctx, tx.Tx, now, r.Family, r.ID, current.Repository, current.Directory)
+			err = assignNames(ctx, tx.Tx, now, r.Family, r.ID, current.Repository, current.Directory, current.Subagent)
 		}
 	}
 	if err != nil {

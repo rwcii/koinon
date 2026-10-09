@@ -20,6 +20,10 @@ func (r Refusal) Error() string { return r.Code + ": " + r.Message }
 var (
 	ErrCapacity       = Refusal{"capacity", "storage capacity reached; nothing was written and stored data is intact"}
 	ErrStorageBlocked = Refusal{"storage_blocked", "the write-ahead log could not be proven empty; writes wait for koinon recover"}
+	// ErrNotLaunched refuses a session that its launcher did not start: a direct start is
+	// islanded. ErrLaunchPending refuses a background job before its job ID is recorded.
+	ErrNotLaunched   = Refusal{"not_launched", "start this agent with koinon <family>; a direct start is not registered"}
+	ErrLaunchPending = Refusal{"launch_pending", "the background launch has not recorded its job yet; call again"}
 )
 
 // The daemon-wide physical bound (docs/PARITY-MEMORY-DESIGN.md, "Storage bound"), for the one
