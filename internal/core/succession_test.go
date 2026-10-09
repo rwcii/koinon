@@ -465,3 +465,77 @@ func TestSuccessionHostAlreadyHoldsElsewhere(t *testing.T) {
 	got := arrive(t, s, arrival{family: "codex", id: "new", repo: repo, pid: 200, pane: "%3", toolCall: true})
 	wantSuccession(t, got, "refused", "other_participant", held.Name)
 }
+
+// A Codex /clear (#228): a notice that the former holder's thread accepted never reaches
+// the successor, so a holder change returns the participant's unacknowledged notified
+// messages to waiting for a wake of the new holder. Registration and renewal replies
+// report host_holder to every other session of the holding host.
+func TestHolderChangeRearmsWakeAndReportsHostHolder(t *testing.T) {
+	s, h, advance := successionStore(t)
+	ctx := context.Background()
+	repo := namedRepo(t, "koinon")
+	h.set(100, 7)
+	h.set(200, 9)
+	held := arrive(t, s, arrival{family: "codex", id: "thread-1", repo: repo, pid: 100, pane: "%1", toolCall: true})
+	if held.HostHolder {
+		t.Fatalf("the holder reports a holding host-mate: %+v", held)
+	}
+	arrive(t, s, arrival{family: "claude", id: "synthetic-sender", repo: namedRepo(t, "other"), pid: 200, pane: "%2", toolCall: true})
+	for _, body := range []string{"handled", "pending"} {
+		if _, err := s.Send(ctx, Key{"claude", "synthetic-sender"}, held.Address, body); err != nil {
+			t.Fatal(err)
+		}
+	}
+	var woken []string
+	s.wake.send = func(_ context.Context, target Session, _ string) wakeResult {
+		woken = append(woken, target.ID)
+		return accepted()
+	}
+	participant := Key{"codex", participantPrefix + held.Address}
+	wake := func() {
+		t.Helper()
+		s.wake.mu.Lock()
+		defer s.wake.mu.Unlock()
+		if _, err := s.submitWake(ctx, participant, false); err != nil {
+			t.Fatal(err)
+		}
+	}
+	state := func(body string) (delivery string, attempts int64) {
+		t.Helper()
+		if err := s.db.QueryRow(`SELECT delivery_state,wake_attempts FROM messages WHERE body=?`, body).Scan(&delivery, &attempts); err != nil {
+			t.Fatal(err)
+		}
+		return delivery, attempts
+	}
+	wake()
+	if _, _, err := s.AckParticipant(ctx, Key{"codex", "thread-1"}, 1); err != nil {
+		t.Fatal(err)
+	}
+	advance(31 * time.Second)
+	next := arrive(t, s, arrival{family: "codex", id: "thread-2", repo: repo, pid: 100, pane: "%1", toolCall: true})
+	wantSuccession(t, next, "succeeded", "same_host", held.Name)
+	if got, _ := state("handled"); got != "notified" {
+		t.Fatalf("acknowledged message: %s", got)
+	}
+	if got, attempts := state("pending"); got != "waiting" || attempts != 0 {
+		t.Fatalf("unacknowledged message after the holder change: %s, %d attempts", got, attempts)
+	}
+	wake()
+	if len(woken) != 2 || woken[0] != "thread-1" || woken[1] != "thread-2" {
+		t.Fatalf("wakes: %v", woken)
+	}
+	if next.HostHolder {
+		t.Fatalf("the successor reports a holding host-mate: %+v", next)
+	}
+	advance(31 * time.Second)
+	back := arrive(t, s, arrival{family: "codex", id: "thread-1", repo: repo, pid: 100, pane: "%1", toolCall: true})
+	sub := arrive(t, s, arrival{family: "codex", id: "thread-3", repo: repo, pid: 100, pane: "%1", toolCall: true, subagent: true})
+	other := arrive(t, s, arrival{family: "codex", id: "thread-4", repo: repo, pid: 300, pane: "%3", toolCall: true})
+	if !back.HostHolder || !sub.HostHolder || other.HostHolder {
+		t.Fatalf("host_holder: former %v, sub-agent %v, other host %v", back.HostHolder, sub.HostHolder, other.HostHolder)
+	}
+	renewed, err := s.Mutate(ctx, Mutation{Family: "codex", ID: "thread-1", IfRevision: back.Revision, TTLSeconds: 900}, false)
+	if err != nil || !renewed.HostHolder {
+		t.Fatalf("renewal of the former holder: %+v %v", renewed, err)
+	}
+}

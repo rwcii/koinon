@@ -176,7 +176,15 @@ succeed automatically even after the guard; only the maintainer's dashboard choi
 Each change and each new refusal records a participant event with candidate, evidence,
 refusal reason, host PID and pane; repeated refusals for the same reason and holder do not
 repeat the event. A successful change retires and fences the former holder atomically and
-continues the participant's inbox, cursor and claims.
+continues the participant's inbox, cursor and claims. Every holder change, including the
+maintainer's choice, also returns the participant's unacknowledged `notified` messages to
+`waiting` with no attempts, so the new holder gets a wake: a notice accepted for the former
+holder, such as a Codex thread after `/clear`, never reaches it.
+
+Registration and renewal replies carry `host_holder: true` when another active session with
+the same host PID and start value holds a participant address. `koinon mcp` then leaves the
+terminal name to that session, and a sub-agent never names its terminal. Listings never carry
+the flag.
 
 Message calls name their `caller` as `{"family": ..., "id": ...}`; the caller must be an active
 session, or the call fails with `caller_inactive`. A caller reads and acknowledges only its own

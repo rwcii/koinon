@@ -286,3 +286,57 @@ func TestTerminalNamedAgainWhenAliasChanges(t *testing.T) {
 		t.Fatalf("an unattributed session was named: %d attempts, %q", attempts, f.sessionName(p))
 	}
 }
+
+// TestTerminalNamingLeavesHostHolderName covers the threads of one Codex host after
+// /clear (#228): a sub-agent and a former holder share the holder's terminal and rename
+// nothing; only a non-holder without a holding host-mate names the terminal after itself.
+func TestTerminalNamingLeavesHostHolderName(t *testing.T) {
+	f := newNamingFixture(t)
+	p := f.newSession("start")
+	s := f.server(f.env(p))
+	target, _ := json.Marshal(map[string]any{"host_pid": p.host, "launch_id": strings.Repeat("b", 64)})
+	settle := func(caller core.Key) {
+		t.Helper()
+		deadline := time.Now().Add(10 * time.Second)
+		for time.Now().Before(deadline) {
+			s.mu.Lock()
+			busy := s.naming[caller]
+			s.mu.Unlock()
+			if !busy {
+				return
+			}
+			time.Sleep(20 * time.Millisecond)
+		}
+		t.Fatal("naming did not finish")
+	}
+	holder := core.Key{Family: "codex", ID: "synthetic-holder"}
+	s.nameAfterRegistration(holder, core.Session{Family: "codex", Name: "codex-klc-2c", Address: "codex-klc",
+		Alias: "codex-klc", HoldsAddress: true, WakeTarget: target})
+	settle(holder)
+	if f.sessionName(p) != "codex-klc" {
+		t.Fatalf("holder: %q", f.sessionName(p))
+	}
+	subagent := core.Key{Family: "codex", ID: "synthetic-subagent"}
+	s.nameAfterRegistration(subagent, core.Session{Family: "codex", Name: "codex-klc-23", Subagent: true,
+		HostHolder: true, WakeTarget: target})
+	former := core.Key{Family: "codex", ID: "synthetic-former"}
+	s.nameAfterRegistration(former, core.Session{Family: "codex", Name: "codex-klc-7c", Address: "codex-klc",
+		Fenced: true, HostHolder: true, WakeTarget: target})
+	// A sub-agent never names, also when no session of its host holds an address.
+	alone := core.Key{Family: "codex", ID: "synthetic-alone-subagent"}
+	s.nameAfterRegistration(alone, core.Session{Family: "codex", Name: "codex-klc-5e", Subagent: true, WakeTarget: target})
+	time.Sleep(200 * time.Millisecond)
+	s.mu.Lock()
+	attempts := len(s.named)
+	s.mu.Unlock()
+	if attempts != 1 || f.sessionName(p) != "codex-klc" {
+		t.Fatalf("a host-mate renamed the holder's terminal: %d attempts, %q", attempts, f.sessionName(p))
+	}
+	// Once no host-mate holds an address, a fenced session names the terminal after itself.
+	s.nameAfterRegistration(former, core.Session{Family: "codex", Name: "codex-klc-7c", Address: "codex-klc",
+		Fenced: true, WakeTarget: target})
+	settle(former)
+	if f.sessionName(p) != "codex-klc-7c" {
+		t.Fatalf("fenced session without a holding host-mate: %q", f.sessionName(p))
+	}
+}

@@ -57,6 +57,10 @@ type Session struct {
 	Fenced bool `json:"fenced,omitempty"`
 	// Succession is the session's last succession result (chunk 04).
 	Succession *Succession `json:"succession,omitempty"`
+	// HostHolder says that another active session of this session's host process holds a
+	// participant address, such as the current thread of a Codex host after /clear. That
+	// session names the host's terminal. Only registration and renewal replies set it.
+	HostHolder bool `json:"host_holder,omitempty"`
 }
 
 type Registration struct {
@@ -723,6 +727,9 @@ func (s *Store) Register(ctx context.Context, r Registration) (Session, error) {
 	if err != nil {
 		return Session{}, err
 	}
+	if result.HostHolder, err = hostHolder(ctx, tx.Tx, now, Key{r.Family, r.ID}); err != nil {
+		return Session{}, err
+	}
 	return result, tx.Commit()
 }
 
@@ -822,6 +829,11 @@ func (s *Store) Mutate(ctx context.Context, r Mutation, retire bool) (Session, e
 	result, err := scanSession(tx.QueryRowContext(ctx, sessionQuery+` WHERE s.family=? AND s.id=?`, r.Family, r.ID), now)
 	if err != nil {
 		return Session{}, err
+	}
+	if !retire {
+		if result.HostHolder, err = hostHolder(ctx, tx.Tx, now, Key{r.Family, r.ID}); err != nil {
+			return Session{}, err
+		}
 	}
 	return result, tx.Commit()
 }

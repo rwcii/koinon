@@ -18,7 +18,8 @@ import (
 
 // Terminal naming (#156). After a registration or renewal, this server names its session's
 // own tmux session after the session's published name: its alias while it holds one, else
-// its peer name. TMUX and TMUX_PANE only select the server and a candidate pane; the pane is
+// its peer name. A sub-agent never names, nor does a non-holder while another session of its
+// host holds a participant address. TMUX and TMUX_PANE only select the server and a candidate pane; the pane is
 // the session's own only when its process is the session's host process or an ancestor of
 // it, with no other agent process between them. The session and the pane are targeted by
 // ID, never by name.
@@ -110,6 +111,11 @@ func (s *server) nameAfterRegistration(caller core.Key, session core.Session) {
 	// also needs this server to be the child of its Claude process.
 	launched, background := launchOf(session)
 	attributed := launched && (caller.Family != "claude" || s.claude)
+	// A sub-agent, and a non-holder whose host another session's held address names, share
+	// that host's terminal and leave its name alone (#228).
+	if session.Subagent || session.HostHolder && !session.HoldsAddress {
+		attributed = false
+	}
 	target := published(session)
 	if !attributed || target == "" || s.named[caller] == target || s.naming[caller] {
 		s.mu.Unlock()

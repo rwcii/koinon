@@ -71,7 +71,9 @@ the requester's work_start; checkout requests resolve the participant's current 
 Launched sessions name their own tmux session after the held participant address, else the
 peer name. If another agent shares the tmux session, only the own pane is titled. A taken
 name is left alone and retried at the next renewal. The host must be proven in the pane;
-nested agents and foreign panes rename nothing. Outside tmux, not_in_tmux explains the result.
+nested agents and foreign panes rename nothing. A sub-agent renames nothing, nor does a
+non-holder while another session of its host holds an address, such as a Codex thread after
+/clear. Outside tmux, not_in_tmux explains the result.
 For koinon claude --bg, naming finds the pane of claude attach SHORT_JOB_ID in the user's
 tmux socket directory (TMUX_TMPDIR/tmux-UID, else /tmp/tmux-UID). Exactly one matching pane
 can be named. attach_pane_not_found retries at the next renewal; attach_pane_ambiguous

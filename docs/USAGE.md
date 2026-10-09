@@ -129,7 +129,10 @@ Launched agents name their own tmux session after the held participant address, 
 name when they do not hold one. With another agent in the same tmux session, only the own pane
 title changes. A name already used by another session is left alone and retried at later
 renewals. The pane must hold the agent's host process with no other agent between them;
-nested agents and foreign panes rename nothing. Outside tmux, the result is `not_in_tmux`.
+nested agents and foreign panes rename nothing. Sessions of one host share its terminal: a
+Codex sub-agent renames nothing, and a non-holder, such as the former thread after a Codex
+`/clear`, renames nothing while another session of its host holds a participant address.
+Outside tmux, the result is `not_in_tmux`.
 
 MCP `peers`, `koinon peers` and the dashboard show the last naming result and its reason.
 The optional `naming` object has `result`, fixed `reason` text, `target` and source time `at`.

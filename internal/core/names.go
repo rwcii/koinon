@@ -268,6 +268,16 @@ func setHolder(ctx context.Context, tx *sql.Tx, now int64, address, former, id, 
 			return err
 		}
 	}
+	if former != id {
+		// A notice accepted for the former holder never reaches the new one, which may be a
+		// new thread of the same host. Its unacknowledged messages wait for a new wake.
+		if _, err := tx.ExecContext(ctx, `UPDATE messages SET delivery_state='waiting',delivery_reason='',
+			delivery_updated_at=?,wake_reason='',wake_attempts=0,wake_next_at=0 WHERE recipient_family=? AND recipient_id=?
+			AND delivery_state='notified' AND seq>(SELECT acked_through FROM sessions WHERE family=? AND id=?)`,
+			now, family, participantPrefix+address, family, participantPrefix+address); err != nil {
+			return err
+		}
+	}
 	formerName, err := peerOf(ctx, tx, family, former)
 	if err != nil {
 		return err

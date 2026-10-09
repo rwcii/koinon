@@ -10,6 +10,12 @@ into a dated release section when promoted to `main`.
   missing clients retry and ambiguous clients rename nothing. `peers` and the dashboard
   report naming results with fixed reasons, also outside tmux, and suppress results for old
   published names or stale observations. The dashboard shows the last succession result.
+  A Codex sub-agent, and the former thread after a Codex `/clear`, no longer rename the
+  holder's tmux session after their own peer names.
+
+- A holder change returns the participant's unacknowledged messages that were notified to
+  the former holder to waiting, so the new holder gets a wake. After a Codex `/clear`, a
+  notice accepted by the cleared thread left the successor without one.
 
 - A Claude session gets wake notices again after `/clear`. The wake check accepted only the
   registry entry of the first transcript, so every later wake failed with
