@@ -191,7 +191,10 @@ Fresh installation needs Linux or macOS and the binary for that operating system
 No Python interpreter is needed. Building from source needs the Go version in `go.mod`.
 Git resolves repository identity for shared memory/work and repository launchers; a launcher
 reports, and never refuses, other repositories nested in its start directory. Agent setup
-requires the selected agent CLI. Codex must support `queue`; OpenCode must support its server.
+requires the selected agent CLI. Codex must support `queue`, `--no-daemon` and the
+`mcp_servers.koinon.env_vars` configuration override (verified with Codex CLI 0.161.0).
+OpenCode must support its server. Claude background jobs require Claude Code's `--bg` and
+`--settings` support.
 DeepSeek requires a running harness, but its live wake proof remains deferred under #199.
 
 A legacy upgrade additionally needs Python 3.11+ to run the **installed previous release's**
@@ -211,7 +214,18 @@ until its MCP support is verified. `--cli ABS_PATH` selects the native CLI and `
 ABS_PATH` selects the installed Koinon binary. Setup does not create an agent conversation.
 Codex and Antigravity identify the calling conversation on every MCP call; Claude uses its
 native session environment and verified executable; OpenCode needs the managed identity
-plugin. Launch OpenCode through `koinon opencode` for a reachable wake server.
+plugin. Start Claude Code, Codex, Antigravity and OpenCode through `koinon claude`,
+`koinon codex`, `koinon agy` and `koinon opencode`; setup alone does not admit a session.
+A native CLI started directly is islanded: it never registers or appears in Koinon, and
+its Koinon tool calls return `not_launched` with the required launcher command. DeepSeek
+keeps its command registration without a launch record.
+
+`koinon codex` uses `--no-daemon` and forwards the launch environment to its configured MCP
+server. `koinon claude --bg [args]` passes a job-specific private settings file and binds
+registration to the returned job ID; see [USAGE.md](USAGE.md) for background launch usage.
+When upgrading, existing launcher-family sessions without launch associations cannot renew
+and expire at their existing deadlines. Their inboxes, acknowledgements, memory cursors and
+claims are retained; start subsequent sessions through the launchers without replacing retained state.
 
 Read `koinon guide --agent FAMILY` at startup and after a reset. Discover the exact recipient
 with `peers`, send only within the maintainer's authorization, read notices through `inbox`,

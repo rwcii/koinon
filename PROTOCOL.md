@@ -16,7 +16,7 @@ Never put a secret, runtime session identifier or response body in a repository.
 | `POST /v1/sessions/register` | Register or reactivate one session identified by `(family, id)`. |
 | `POST /v1/sessions/renew` | Renew an active session's expiry. |
 | `POST /v1/sessions/retire` | Mark an active session retired, retaining its record. |
-| `POST /v1/peers` | Each session's `name`, held `alias`, `family`, `state` and `repository`, for an active caller; never a wake target, directory or session ID. |
+| `POST /v1/peers` | Each session's `name`, held `alias`, `family`, `state`, `repository` and, when true, `subagent`, for an active caller; never a wake target, directory or session ID. |
 | `POST /v1/peers/status` | Resolve a published peer name or held alias and read public identity plus observed model, context and activity for an active caller. |
 | `POST /v1/messages/send` | Store one message for the session that a peer name or alias names. |
 | `POST /v1/inbox/read` | Read the caller's own inbox after a sequence number. |
@@ -24,6 +24,8 @@ Never put a secret, runtime session identifier or response body in a repository.
 | `POST /v1/messages/outcome` | Read the delivery and acknowledgement state of a message the caller sent. |
 | `POST /v1/wake/agy-stop` | Offer a due notice for this Antigravity conversation at its native Stop boundary. |
 | `POST /v1/launches` | Retain a launcher target and return its generated launch ID. |
+| `POST /v1/launches/job` | Record a pending Claude background launch's native job ID once. |
+| `POST /v1/launches/retire` | Delete a pending background launch with no recorded job ID. |
 | `POST /v1/memory/record` | Record an entry in the caller's repository memory store. |
 | `POST /v1/memory/sync` | Read a snapshot page or a delta batch; never moves a cursor. |
 | `POST /v1/memory/ack` | Acknowledge a fully issued snapshot or a delta through a sequence. |
@@ -37,9 +39,19 @@ POST requests use `Content-Type: application/json`, at most 16 KiB, with unknown
 Registration fields are `family` (`claude`, `codex`, `deepseek`, `agy`, `opencode`), `id` (1–256
 bytes), an absolute `directory` path, an optional absolute `repository` path,
 optional `wake_target` JSON (up to 8 KiB),
-optional `launch_id`, and optional `ttl_seconds` (60–3,600, default 900). A `launch_id` selects
-the daemon-held target and refuses a simultaneous `wake_target` override. Its family and
-canonical directory must match the registering session. The daemon derives the canonical absolute
+optional `launch_id` (required for launcher families), optional `ancestors` (at most 256
+process IDs), optional `subagent` (boolean),
+and optional `ttl_seconds` (60–3,600, default 900). Claude, Codex, Antigravity and OpenCode
+require a known launch ID whose family and canonical directory match the registering session.
+Missing, unknown or mismatched launch associations are refused with `not_launched` (409).
+A foreground launch's `host_pid` must occur in `ancestors`; Claude also requires
+`wake_target: {"claude_pid": PID}` with that same PID. Other launcher families accept no
+`wake_target` override except an empty object. The stored wake target comes from the launch,
+with Claude's worker PID added and any OpenCode password omitted.
+A background Claude launch instead admits a session whose native ID begins with its
+recorded job ID. Until that job ID is recorded, admission returns `launch_pending` (409)
+and registers nothing. DeepSeek retains registration without a launch ID and rejects a
+launch ID or `subagent: true`. The daemon derives the canonical absolute
 Git common directory when a repository is selected; the working directory must then belong
 to that repository. Worktrees share the repository identity. A session in a plain directory
 can omit `repository`; its stored repository is empty. Memory and work operations require a
@@ -51,8 +63,15 @@ to return an expired/retired session to active without deleting its retained dat
 registrations update one row, never create two records for the same key. Times are Unix
 milliseconds. Expiry is computed from the current wall clock; clock jumps can change effective
 expiry, never remove records or imply a model stopped. Restart preserves records and revisions.
+Renewal of a launcher-family session stored without a launch association returns
+`not_launched` without extending its expiry. This includes sessions retained from an older
+installation: they expire at their existing deadlines, retaining inboxes, acknowledgements,
+memory cursors and work claims. DeepSeek renewals keep their launch-free command path.
 
 Each session record carries its peer `name` and, while it is active and holds one, its `alias`.
+Sub-agent records additionally carry `subagent: true`; false is omitted. Schema 10 adds
+`sessions.subagent` with false as the default for retained sessions. A sub-agent gets a
+peer name and never acquires an alias on registration or renewal.
 The daemon gives each session a permanent peer name `<family>-<label>-<2 hex>`. The label is the
 repository directory name (the folder that holds `.git`, or a bare `NAME.git` without `.git`),
 or the working directory name for a session without a repository: lower case, characters other
@@ -109,9 +128,15 @@ Replies include `ok`. Success returns `session` or `sessions`; failures report a
 before replying. A lost reply does not prove rollback; read the retained record before
 retrying.
 
-Launch creation takes `family` (`codex`, `agy`, `opencode`), absolute `directory` and `cli`,
+Launch creation takes `family` (`claude`, `codex`, `agy`, `opencode`), absolute `directory` and `cli`,
 and positive `host_pid`. OpenCode also requires `address` (literal loopback with a nonzero
 port) and `password` (64 hex characters). Other families refuse those credential fields.
+Optional `background: true` is accepted only for Claude; `job_id` cannot be supplied at
+creation. `POST /v1/launches/job` takes `launch_id` and `job_id`, recording the native job ID
+after startup. Repeating the same ID succeeds; changing an already recorded ID returns
+`session_conflict`. `POST /v1/launches/retire` takes `launch_id` and deletes only a background
+launch with no recorded job ID; a recorded job prevents deletion with `session_conflict`.
+Unknown launch IDs return `session_not_found`. These routes do not stop native jobs.
 Optional `nested` lists at most 64 repositories inside the directory that are not part of its
 repository, each `{"path", "kind"}`: a clean relative path of at most 256 bytes with no control
 character, and `kind` `submodule`, `worktree` or `repository`. Optional `nested_incomplete`
@@ -373,24 +398,39 @@ call whose arguments hold `caller`, `family`, `id`, `as`, `session` or `session_
 
 | Family | Identity source |
 | --- | --- |
-| Codex | `_meta.threadId`, from a client whose name starts with `codex`; one server serves each thread as its own session. |
+| Codex | `_meta.threadId`, from a client whose name starts with `codex`; each thread is its own session. `x-codex-turn-metadata.thread_source` in the call metadata marks a non-empty value other than `user` as `subagent`; turn metadata may be an object or a JSON string. Missing metadata does not mark a sub-agent. |
 | Antigravity | `_meta["antigravity.google/conversation_id"]`. |
 | Claude | `CLAUDE_CODE_SESSION_ID` in the server's environment, only when `initialize` names the client `claude-code` and the server's parent process is a Claude Code executable. |
 | OpenCode | The `koinon_session` argument that the Koinon plugin sets from the calling session's ID; accepted only from the `opencode` client. |
 
-DeepSeek has no MCP identity source yet and uses the `koinon` commands with `--as`. The server
-registers a session at its first call, with the working directory and, inside Git, its
-repository, and registers it again after five minutes or when the daemon reports it inactive.
-Every five minutes it renews the session it served last. Registration carries wake data for the
-wake adapters: Claude `{"claude_pid": PID}`; Codex `{"cli": PATH}` from `launchers.json`, else
-the parent Codex executable, never a `PATH` search; a launched Codex, Antigravity or OpenCode
-agent passes `KOINON_LAUNCH_ID` as `launch_id`. A Claude session that `koinon claude` started
-registers with `claude_pid` like any Claude session; its launch record documents the start, and
-the launcher keeps the caller's `CLAUDE_CONFIG_DIR` but removes the other `CLAUDE_` variables and
-`CLAUDECODE` of the session that ran it. In a new tmux session, whose environment comes from the
+DeepSeek has no MCP identity source yet and uses the `koinon` commands with `--as`. For the
+other families, the server registers a launched session at its first call, with the working
+directory and, inside Git, its repository, and registers it again after five minutes or when
+the daemon reports it inactive.
+Every five minutes it renews the session it served last. Registration passes
+`KOINON_LAUNCH_ID` as `launch_id` and the server's process ancestors, nearest first, from the
+native process table. Claude also passes its parent's `claude_pid`; the daemon binds the
+foreground host or background job as described above. A server without a launch ID does not
+register: tool calls return `{ok: false, code: "not_launched", launcher: "koinon FAMILY",
+message: ...}`. `tools/list` remains available. Failed pending background admission retries
+at the next tool call. Codex has no direct-start CLI fallback.
+
+`koinon codex` uses `--no-daemon`, making the launched CLI the host of its MCP servers, and
+overrides `mcp_servers.koinon.env_vars` to forward `KOINON_LAUNCH_ID`, `KOINON_STATE_DIR`,
+`KOINON_DAEMON_ADDRESS`, `TMUX`, `TMUX_PANE` and `CODEX_HOME`, preserving the configured
+server's other fields. The launcher keeps the caller's `CLAUDE_CONFIG_DIR` but removes the
+other `CLAUDE_` variables and `CLAUDECODE` of the session that ran it. In a new tmux session, whose environment comes from the
 tmux server, it carries the caller's value, or its absence, as the session variable
 `KOINON_CLAUDE_CONFIG_DIR`, which the pane's launcher turns back into `CLAUDE_CONFIG_DIR`. `KOINON_STATE_DIR` and `KOINON_DAEMON_ADDRESS`
 select the state root and address.
+
+`koinon claude --bg` creates a background launch and passes its environment through
+`<state>/launches/<launch ID>.json`, a private mode-0600 settings file containing `env`.
+The native `claude --bg` invocation has inherited `KOINON_` variables removed so a service
+it starts cannot inherit another job's launch association. Its returned job ID is then
+recorded with the launch. Failed startup or unusable job output retires the pending launch
+and removes the settings file; successful jobs retain the file. Koinon owns `--bg` and
+`--settings` for this path and refuses conflicting native arguments.
 
 ### Dashboard and session observations
 
