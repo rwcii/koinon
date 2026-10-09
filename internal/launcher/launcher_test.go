@@ -334,6 +334,8 @@ func TestPrivateTmuxDetachedAndOutside(t *testing.T) {
 				t.Setenv("PATH", wrapperDir)
 				result := filepath.Join(root, "result.json")
 				args := arguments(root, address, cli, directory, family, result)
+				// The role reaches the launch record through the launcher in the new pane.
+				args = append(args[:9], append([]string{"--role", "review"}, args[9:]...)...)
 				if detached {
 					t.Setenv("TMUX", socket+",1,0")
 					args = append(args[:9], append([]string{"--tmux-session", "detached"}, args[9:]...)...)
@@ -345,7 +347,12 @@ func TestPrivateTmuxDetachedAndOutside(t *testing.T) {
 				if err != nil {
 					t.Fatalf("tmux launch: %v %s", err, out)
 				}
-				checkReport(t, readReport(t, result), family, directory)
+				launched := readReport(t, result)
+				checkReport(t, launched, family, directory)
+				var target core.LaunchTarget
+				if json.Unmarshal(launched.Session.WakeTarget, &target) != nil || target.Role != "review" || launched.Session.Role != "review" {
+					t.Fatalf("role not recorded: %+v %s", launched.Session, launched.Session.WakeTarget)
+				}
 				if detached {
 					var result map[string]any
 					if json.Unmarshal(out, &result) != nil || result["ok"] != true || result["session"] != "detached" {

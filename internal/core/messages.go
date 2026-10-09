@@ -99,6 +99,10 @@ type Peer struct {
 	Repository string `json:"repository"`
 	// Subagent marks a Codex sub-agent thread; it never holds an alias.
 	Subagent bool `json:"subagent,omitempty"`
+	// Role, Address and HoldsAddress report the session's participant (chunk 02).
+	Role         string `json:"role,omitempty"`
+	Address      string `json:"address,omitempty"`
+	HoldsAddress bool   `json:"holds_address,omitempty"`
 }
 
 // Peers lists every session for an active caller.
@@ -120,7 +124,8 @@ func (s *Store) Peers(ctx context.Context, caller Key) ([]Peer, bool, error) {
 	}
 	peers := make([]Peer, 0, len(items)+1)
 	for _, item := range items {
-		peers = append(peers, Peer{Name: item.Name, Alias: item.Alias, Family: item.Family, State: item.State, Repository: item.Repository, Subagent: item.Subagent})
+		peers = append(peers, Peer{Name: item.Name, Alias: item.Alias, Family: item.Family, State: item.State, Repository: item.Repository,
+			Subagent: item.Subagent, Role: item.Role, Address: item.Address, HoldsAddress: item.HoldsAddress})
 	}
 	// Agents can send to the maintainer, who reads the inbox in the dashboard (chunk 09).
 	peers = append(peers, Peer{Name: "maintainer", Family: maintainerKey.Family, State: "active"})
@@ -158,9 +163,9 @@ func (s *Store) sendTx(ctx context.Context, tx *writeTx, caller Key, to, body st
 	if err := activeCaller(ctx, tx.Tx, now, caller, dashboard); err != nil {
 		return Outcome{}, err
 	}
-	var kind, family, sessionID, repository, holder string
-	err := tx.QueryRowContext(ctx, `SELECT kind,family,session_id,repository,holder_id FROM names WHERE name=?`, to).
-		Scan(&kind, &family, &sessionID, &repository, &holder)
+	var kind, family, sessionID, repository, holder, role string
+	err := tx.QueryRowContext(ctx, `SELECT kind,family,session_id,repository,holder_id,role FROM names WHERE name=?`, to).
+		Scan(&kind, &family, &sessionID, &repository, &holder, &role)
 	if errors.Is(err, sql.ErrNoRows) {
 		return Outcome{}, ErrPeerNotFound
 	}
@@ -170,7 +175,7 @@ func (s *Store) sendTx(ctx context.Context, tx *writeTx, caller Key, to, body st
 	if kind == "alias" {
 		held := false
 		if holder != "" {
-			if held, err = holds(ctx, tx.Tx, now, family, holder, repository); err != nil {
+			if held, err = holds(ctx, tx.Tx, now, family, holder, repository, role); err != nil {
 				return Outcome{}, err
 			}
 		}

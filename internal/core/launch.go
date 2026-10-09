@@ -82,6 +82,19 @@ type LaunchTarget struct {
 	// session whose ID begins with it.
 	Background bool   `json:"background,omitempty"`
 	JobID      string `json:"job_id,omitempty"`
+	// Role is the maintainer's role for the launched session: its participant is the
+	// family, repository and role (participants sprint, chunk 02).
+	Role string `json:"role,omitempty"`
+}
+
+var roleChars = regexp.MustCompile(`^[a-z][a-z0-9-]{0,23}$`)
+var hexOnly = regexp.MustCompile(`^[0-9a-f-]+$`)
+
+// ValidRole reports whether role can name a participant: lower-case letters, digits and
+// hyphens, 1 to 24 characters, starting with a letter. A role made only of hexadecimal
+// digits (and hyphens) is refused, so an address never looks like a peer name's suffix.
+func ValidRole(role string) bool {
+	return roleChars.MatchString(role) && !hexOnly.MatchString(role)
 }
 
 // maxAncestors bounds a registration's process ancestry.
@@ -94,7 +107,8 @@ func (s *Store) CreateLaunch(ctx context.Context, target LaunchTarget) (string, 
 	if target.Family != "claude" && target.Family != "codex" && target.Family != "agy" && target.Family != "opencode" {
 		return "", ErrInvalid
 	}
-	if target.HostPID <= 0 || !filepath.IsAbs(target.CLI) || len(target.CLI) > 4096 || !validNested(target.Nested) {
+	if target.HostPID <= 0 || !filepath.IsAbs(target.CLI) || len(target.CLI) > 4096 || !validNested(target.Nested) ||
+		target.Role != "" && !ValidRole(target.Role) {
 		return "", ErrInvalid
 	}
 	dir, err := filepath.EvalSymlinks(target.Directory)
@@ -147,9 +161,9 @@ func (s *Store) CreateLaunch(ctx context.Context, target LaunchTarget) (string, 
 // host process is among the caller's ancestors (for Claude, it is the Claude process); a
 // background launch's recorded job ID begins the caller's session ID. Anything else is
 // not_launched, so a direct start never registers.
-func admitLaunch(ctx context.Context, tx *sql.Tx, r Registration, directory string) (json.RawMessage, error) {
+func admitLaunch(ctx context.Context, tx *sql.Tx, r Registration, directory string) (json.RawMessage, string, error) {
 	if len(r.LaunchID) != 64 || len(r.Ancestors) > maxAncestors {
-		return nil, ErrNotLaunched
+		return nil, "", ErrNotLaunched
 	}
 	claudePID := 0
 	if r.Family == "claude" {
@@ -159,52 +173,53 @@ func admitLaunch(ctx context.Context, tx *sql.Tx, r Registration, directory stri
 		dec := json.NewDecoder(bytes.NewReader(r.WakeTarget))
 		dec.DisallowUnknownFields()
 		if dec.Decode(&own) != nil || own.ClaudePID <= 0 {
-			return nil, ErrInvalid
+			return nil, "", ErrInvalid
 		}
 		claudePID = own.ClaudePID
 	} else if len(r.WakeTarget) != 0 && string(r.WakeTarget) != "{}" {
-		return nil, ErrInvalid
+		return nil, "", ErrInvalid
 	}
 	var family, storedDirectory, stored string
 	err := tx.QueryRowContext(ctx, `SELECT family,directory,target FROM launches WHERE id=?`, r.LaunchID).Scan(&family, &storedDirectory, &stored)
 	if errors.Is(err, sql.ErrNoRows) {
-		return nil, ErrNotLaunched
+		return nil, "", ErrNotLaunched
 	}
 	if err != nil {
-		return nil, err
+		return nil, "", err
 	}
 	var target LaunchTarget
 	if err := json.Unmarshal([]byte(stored), &target); err != nil {
-		return nil, err
+		return nil, "", err
 	}
 	if family != r.Family || storedDirectory != directory {
-		return nil, ErrNotLaunched
+		return nil, "", ErrNotLaunched
 	}
 	if target.Background {
 		if target.JobID == "" {
-			return nil, ErrLaunchPending
+			return nil, "", ErrLaunchPending
 		}
 		// A full job ID is the session ID; a short one is the first eight characters of it.
 		full := FullJobID.MatchString(target.JobID) && r.ID == target.JobID
 		short := ShortJobID.MatchString(target.JobID) && FullJobID.MatchString(r.ID) && strings.HasPrefix(r.ID, target.JobID+"-")
 		if !full && !short {
-			return nil, ErrNotLaunched
+			return nil, "", ErrNotLaunched
 		}
 	} else if !slices.Contains(r.Ancestors, target.HostPID) || r.Family == "claude" && claudePID != target.HostPID {
-		return nil, ErrNotLaunched
+		return nil, "", ErrNotLaunched
 	}
 	target.Password = ""
 	target.LaunchID = r.LaunchID
 	public, err := json.Marshal(target)
 	if err != nil || claudePID == 0 {
-		return public, err
+		return public, target.Role, err
 	}
 	var merged map[string]any
 	if err := json.Unmarshal(public, &merged); err != nil {
-		return nil, err
+		return nil, "", err
 	}
 	merged["claude_pid"] = claudePID
-	return json.Marshal(merged)
+	public, err = json.Marshal(merged)
+	return public, target.Role, err
 }
 
 // launched reports whether a session registered with its launch.

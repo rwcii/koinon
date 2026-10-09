@@ -77,8 +77,8 @@ run that binary, its report names the step that fixes it (`path_step`), such as 
 
 1. **Configure each agent family once.** `koinon install --agent FAMILY` runs this for the
    families it names. Later, run `koinon setup FAMILY` for another family (`claude`, `codex`,
-   `agy`, `opencode` or `deepseek`). Setup adds the Koinon MCP server to the agent's own
-   configuration and records the agent CLI's absolute path for the launcher.
+   `agy` or `opencode`). Setup adds the Koinon MCP server to the agent's own configuration
+   and records the agent CLI's absolute path for the launcher. DeepSeek needs no setup.
 2. **Start every session through its launcher**, in the repository where it works:
 
    ```sh

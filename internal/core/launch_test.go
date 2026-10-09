@@ -173,7 +173,7 @@ func TestLaunchMigrationPreservesSessions(t *testing.T) {
 		t.Fatal(err)
 	}
 	// Schema 2 is the merged message runtime, with no launch table.
-	if _, err := s.db.Exec(undoSchemaTen + undoSchemaNine + undoSchemaEight + undoSchemaSeven + "DROP INDEX messages_wake; ALTER TABLE messages DROP COLUMN wake_attempts; ALTER TABLE messages DROP COLUMN wake_next_at; ALTER TABLE messages DROP COLUMN wake_reason; DROP TABLE launches; DROP TABLE work_items; DROP TABLE work_scope_revisions; DROP TABLE claim_bundles; DROP TABLE claim_resources; DROP TABLE work_events; DROP TABLE work_replays; DROP TABLE memory_stores; DROP TABLE memory_entries; DROP TABLE memory_idem; DROP TABLE memory_cursors; DROP TABLE memory_retired; DROP TABLE memory_snapshots; DROP TABLE memory_snapshot_items; PRAGMA user_version=2"); err != nil {
+	if _, err := s.db.Exec(undoSchemaEleven + undoSchemaTen + undoSchemaNine + undoSchemaEight + undoSchemaSeven + "DROP INDEX messages_wake; ALTER TABLE messages DROP COLUMN wake_attempts; ALTER TABLE messages DROP COLUMN wake_next_at; ALTER TABLE messages DROP COLUMN wake_reason; DROP TABLE launches; DROP TABLE work_items; DROP TABLE work_scope_revisions; DROP TABLE claim_bundles; DROP TABLE claim_resources; DROP TABLE work_events; DROP TABLE work_replays; DROP TABLE memory_stores; DROP TABLE memory_entries; DROP TABLE memory_idem; DROP TABLE memory_cursors; DROP TABLE memory_retired; DROP TABLE memory_snapshots; DROP TABLE memory_snapshot_items; PRAGMA user_version=2"); err != nil {
 		t.Fatal(err)
 	}
 	s.db.Close()
@@ -247,6 +247,18 @@ func TestDashboardShowsNestedRepositories(t *testing.T) {
 	if _, err := d.store.Register(context.Background(), Registration{Family: "agy", ID: "synthetic-nested", Directory: directory, LaunchID: id, Ancestors: []int{123}}); err != nil {
 		t.Fatal(err)
 	}
+	// A launched Claude session shows its launch's list as well (#252); its wake target
+	// keeps claude_pid.
+	claude, err := d.store.CreateLaunch(context.Background(), LaunchTarget{Family: "claude", Directory: directory, CLI: "/synthetic/cli", HostPID: 124,
+		Nested: []NestedRepository{{Path: "claude-nested", Kind: "worktree"}}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	session, err := d.store.Register(context.Background(), Registration{Family: "claude", ID: "synthetic-claude-nested", Directory: directory, LaunchID: claude,
+		Ancestors: []int{124}, WakeTarget: json.RawMessage(`{"claude_pid":124}`)})
+	if err != nil || !strings.Contains(string(session.WakeTarget), `"claude_pid":124`) {
+		t.Fatalf("claude session: %s %v", session.WakeTarget, err)
+	}
 	// The largest list, with characters that JSON escapes, fits the launch route.
 	largest := make([]NestedRepository, MaxNested)
 	for i := range largest {
@@ -256,7 +268,7 @@ func TestDashboardShowsNestedRepositories(t *testing.T) {
 		t.Fatalf("largest nested list refused: %v", err)
 	}
 	page := dashboardDo(t, d, "GET", "/dashboard/sessions", dashboardLogin(t, d, secret), nil, nil).body
-	for _, want := range []string{"2+ nested repositories", "<code>vendor-infra</code> submodule", "<code>&lt;b&gt;clone</code> repository", "list incomplete", "Koinon repository is the start repository"} {
+	for _, want := range []string{"2+ nested repositories", "<code>vendor-infra</code> submodule", "<code>claude-nested</code> worktree", "<code>&lt;b&gt;clone</code> repository", "list incomplete", "Koinon repository is the start repository"} {
 		if !strings.Contains(page, want) {
 			t.Fatalf("session view lacks %q", want)
 		}

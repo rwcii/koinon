@@ -44,7 +44,9 @@ type Options struct {
 	Session   string
 	// Background starts a Claude background job (claude --bg) instead of a terminal.
 	Background bool
-	Args       []string
+	// Role is the maintainer's role for the session; its participant's address ends in it.
+	Role string
+	Args []string
 }
 
 // Parse consumes only leading launcher options; everything after -- is literal.
@@ -77,12 +79,17 @@ func Parse(family string, args []string) (Options, error) {
 			field = &o.Directory
 		case "--tmux-session":
 			field = &o.Session
+		case "--role":
+			field = &o.Role
 		default:
 			o.Args = args
 			return o, nil
 		}
 		if len(args) < 2 || args[1] == "" {
 			return Options{}, fmt.Errorf("%s needs a value", key)
+		}
+		if key == "--role" && !core.ValidRole(args[1]) {
+			return Options{}, errors.New("--role must be 1 to 24 lower-case letters, digits and hyphens, start with a letter and not be only hexadecimal digits")
 		}
 		*field = args[1]
 		args = args[2:]
@@ -396,8 +403,11 @@ func startTmux(ctx context.Context, tmux, cli, directory string, o Options, out 
 	}
 	// tmux executes its pane command through a shell. Quote every argument; never
 	// interpolate a directory or model argument as executable shell text.
-	args := []string{self, o.Family, "--state-dir", o.StateDir, "--address", o.Address, "--cli", cli, "--directory", directory, "--"}
-	args = append(args, o.Args...)
+	args := []string{self, o.Family, "--state-dir", o.StateDir, "--address", o.Address, "--cli", cli, "--directory", directory}
+	if o.Role != "" {
+		args = append(args, "--role", o.Role)
+	}
+	args = append(append(args, "--"), o.Args...)
 	quoted := make([]string, len(args))
 	for i, value := range args {
 		quoted[i] = quote(value)
@@ -505,7 +515,7 @@ func Run(ctx context.Context, o Options, out io.Writer) error {
 		return startTmux(ctx, tmux, cli, directory, o, out)
 	}
 	nested := ScanNested(directory)
-	target := core.LaunchTarget{Family: o.Family, Directory: directory, CLI: cli, HostPID: os.Getpid(),
+	target := core.LaunchTarget{Family: o.Family, Directory: directory, CLI: cli, HostPID: os.Getpid(), Role: o.Role,
 		Nested: nested.List, NestedIncomplete: nested.Incomplete}
 	args := append([]string{cli}, o.Args...)
 	env := cleanEnvironment(os.Environ(), o.Family)
@@ -585,7 +595,7 @@ func runBackground(ctx context.Context, o Options, cli, directory, secret string
 		}
 	}
 	nested := ScanNested(directory)
-	target := core.LaunchTarget{Family: "claude", Directory: directory, CLI: cli, HostPID: os.Getpid(), Background: true,
+	target := core.LaunchTarget{Family: "claude", Directory: directory, CLI: cli, HostPID: os.Getpid(), Background: true, Role: o.Role,
 		Nested: nested.List, NestedIncomplete: nested.Incomplete}
 	id, err := core.CreateLaunch(ctx, o.Address, secret, target)
 	if err != nil {

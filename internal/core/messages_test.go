@@ -168,7 +168,9 @@ func TestAliasUniquenessAcrossRepositories(t *testing.T) {
 	}
 }
 
-func TestAliasHolderMoves(t *testing.T) {
+// A participant's address resolves to its holder; a retired, expired or moved holder
+// frees it, and the one remaining qualifier takes it (participants chunk 02 rules).
+func TestAddressFollowsTheOneQualifier(t *testing.T) {
 	s, _ := testStore(t)
 	repo := namedRepo(t, "koinon")
 	clock := time.Unix(1000, 0)
@@ -189,7 +191,7 @@ func TestAliasHolderMoves(t *testing.T) {
 	if _, err := s.Send(context.Background(), me, "codex-koinon", "unheld"); !errors.Is(err, ErrAliasUnheld) {
 		t.Fatalf("retired holder: %v", err)
 	}
-	// The next renewal of the same family and repository takes the free alias.
+	// B is the one active qualifier, so its next renewal takes the free address.
 	b, err := s.Mutate(context.Background(), Mutation{Family: "codex", ID: "synthetic-b", IfRevision: b.Revision}, false)
 	if err != nil || b.Alias != "codex-koinon" {
 		t.Fatalf("renewal takes alias: %+v %v", b, err)
@@ -197,8 +199,8 @@ func TestAliasHolderMoves(t *testing.T) {
 	if out, err := s.Send(context.Background(), me, "codex-koinon", "to new holder"); err != nil || out.Recipient != b.Name {
 		t.Fatalf("moved alias: %+v %v", out, err)
 	}
-	// An expired holder frees the alias for the next registration. The renewal above
-	// took the default lease of 900 seconds.
+	// An expired holder frees the address; A registers again as the one qualifier. The
+	// renewal above took the default lease of 900 seconds.
 	clock = clock.Add(901 * time.Second)
 	if _, err := s.Mutate(context.Background(), Mutation{Family: "claude", ID: "synthetic-sender", IfRevision: sender.Revision}, false); !errors.Is(err, ErrConflict) {
 		t.Fatalf("expired sender renewed: %v", err)
@@ -206,7 +208,7 @@ func TestAliasHolderMoves(t *testing.T) {
 	if again := join(t, s, "codex", "synthetic-a", repo); again.Alias != "codex-koinon" {
 		t.Fatalf("expired holder: %+v", again)
 	}
-	// A holder that moves to another repository no longer holds the old alias.
+	// A holder that moves to another repository no longer holds the old address.
 	moved := Registration{Family: "codex", ID: "synthetic-a", Repository: namedRepo(t, "other"), TTLSeconds: 60}
 	moved.Directory = moved.Repository
 	if _, err := s.Register(context.Background(), withLaunch(t, s, moved)); err != nil {
@@ -302,12 +304,12 @@ func TestMessagesBetweenEveryFamilyPair(t *testing.T) {
 	if status != 200 || len(listing["peers"].([]any)) != len(families)+1 {
 		t.Fatalf("peers: %d %v", status, listing)
 	}
-	// Peers see names, aliases, families, states and repositories, never another
-	// session's wake target, directory or key.
+	// Peers see names, aliases, families, states, repositories and participants, never
+	// another session's wake target, directory or key.
 	for _, p := range listing["peers"].([]any) {
 		for field := range p.(map[string]any) {
 			switch field {
-			case "name", "alias", "family", "state", "repository":
+			case "name", "alias", "family", "state", "repository", "subagent", "role", "address", "holds_address":
 			default:
 				t.Fatalf("peer field %q: %v", field, p)
 			}

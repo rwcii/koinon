@@ -262,11 +262,12 @@ func (s *Store) deleteSession(ctx context.Context, k Key, condition string, arg 
 	if n, err := result.RowsAffected(); err != nil || n == 0 {
 		return false, err
 	}
-	if _, err := tx.ExecContext(ctx, `DELETE FROM names WHERE kind='peer' AND family=? AND session_id=?`, k.Family, k.ID); err != nil {
+	// The address stays reserved for its participant; the holder rules give it to a session
+	// again. The event names the deleted session by its peer name, so it is released first.
+	if err := releaseAddress(ctx, tx.Tx, s.now().UnixMilli(), k.Family, k.ID, "session_deleted", "daemon"); err != nil {
 		return false, tx.fail(err)
 	}
-	// The alias stays reserved for its repository; the next active session takes it.
-	if _, err := tx.ExecContext(ctx, `UPDATE names SET holder_id='' WHERE kind='alias' AND family=? AND holder_id=?`, k.Family, k.ID); err != nil {
+	if _, err := tx.ExecContext(ctx, `DELETE FROM names WHERE kind='peer' AND family=? AND session_id=?`, k.Family, k.ID); err != nil {
 		return false, tx.fail(err)
 	}
 	return true, tx.Commit()
