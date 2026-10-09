@@ -5,6 +5,11 @@ into a dated release section when promoted to `main`.
 
 ## Unreleased
 
+- A Claude session gets wake notices again after `/clear`. The wake check accepted only the
+  registry entry of the first transcript, so every later wake failed with
+  `claude_identity_mismatch`; it now also accepts the session's recorded host process with
+  its registration start time (#269).
+
 - Launched successors continue their participant automatically on a native tool call when
   host evidence matches: the same process after the 30-second tool-call guard, or the same
   tmux server and pane after the former host ends. Missing or unreadable evidence refuses

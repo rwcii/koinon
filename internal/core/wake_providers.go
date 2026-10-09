@@ -134,7 +134,11 @@ func (s *Store) wakeClaude(ctx context.Context, session Session, target wakeTarg
 		Socket     string `json:"messagingSocketPath"`
 		Status     string `json:"status"`
 	}
-	if json.Unmarshal(data, &peer) != nil || peer.PID != target.ClaudePID || peer.SessionID != session.ID || peer.Entrypoint != "cli" {
+	// After /clear the registry names the new transcript while Koinon keeps the session
+	// (live check F3): the entry still belongs to the session when its process is the
+	// session's recorded host with the start time read at registration (#269).
+	if json.Unmarshal(data, &peer) != nil || peer.PID != target.ClaudePID || peer.Entrypoint != "cli" ||
+		peer.SessionID != session.ID && !s.sameHost(ctx, session, target.ClaudePID) {
 		return waiting("claude_identity_mismatch")
 	}
 	// shell is the prompt with a background shell task running: the session takes the
@@ -383,4 +387,16 @@ func deepSeekDestination(ctx context.Context, raw string) (*url.URL, []string, e
 	u.Host = canonical
 	u.Path = "/api/session/prompt"
 	return u, pinned, nil
+}
+
+// sameHost reports whether pid is still the session's recorded host process: the host
+// record names pid, and the process with that ID has the start time read at registration.
+func (s *Store) sameHost(ctx context.Context, session Session, pid int) bool {
+	var hostPID, start int64
+	if s.db.QueryRowContext(ctx, `SELECT host_pid,host_start FROM sessions WHERE family=? AND id=?`, session.Family, session.ID).
+		Scan(&hostPID, &start) != nil || hostPID != int64(pid) || start == 0 {
+		return false
+	}
+	current, err := s.processStart(pid)
+	return err == nil && current == start
 }
