@@ -81,8 +81,10 @@ func TestClaudeBackgroundJob(t *testing.T) {
 		t.Fatalf("claude arguments: %q", got)
 	}
 	settings := got[4]
+	// The settings path is canonical: a macOS temporary directory is under a symbolic link.
+	launches, _ := filepath.EvalSymlinks(filepath.Join(state, "launches"))
 	info, err := os.Stat(settings)
-	if err != nil || info.Mode().Perm() != 0600 || filepath.Dir(settings) != filepath.Join(state, "launches") {
+	if err != nil || info.Mode().Perm() != 0600 || filepath.Dir(settings) != launches {
 		t.Fatalf("settings file: %v %v", info, err)
 	}
 	var file struct {

@@ -11,6 +11,7 @@ import (
 	"net"
 	"os"
 	"path/filepath"
+	"regexp"
 	"slices"
 	"strconv"
 	"strings"
@@ -183,7 +184,10 @@ func admitLaunch(ctx context.Context, tx *sql.Tx, r Registration, directory stri
 		if target.JobID == "" {
 			return nil, ErrLaunchPending
 		}
-		if !strings.HasPrefix(r.ID, target.JobID) {
+		// A full job ID is the session ID; a short one is the first eight characters of it.
+		full := FullJobID.MatchString(target.JobID) && r.ID == target.JobID
+		short := ShortJobID.MatchString(target.JobID) && FullJobID.MatchString(r.ID) && strings.HasPrefix(r.ID, target.JobID+"-")
+		if !full && !short {
 			return nil, ErrNotLaunched
 		}
 	} else if !slices.Contains(r.Ancestors, target.HostPID) || r.Family == "claude" && claudePID != target.HostPID {
@@ -211,22 +215,16 @@ func launched(s Session) bool {
 	return json.Unmarshal(s.WakeTarget, &target) == nil && target.LaunchID != ""
 }
 
-// validJobID accepts a Claude background job ID: the short ID or the full session ID.
-func validJobID(id string) bool {
-	if len(id) < 8 || len(id) > 36 {
-		return false
-	}
-	for _, r := range id {
-		if !(r >= '0' && r <= '9' || r >= 'a' && r <= 'f' || r == '-') {
-			return false
-		}
-	}
-	return true
-}
+// ShortJobID and FullJobID are the job IDs that claude --bg reports: a session's first eight
+// characters, or its whole ID.
+var (
+	ShortJobID = regexp.MustCompile(`^[0-9a-f]{8}$`)
+	FullJobID  = regexp.MustCompile(`^[0-9a-f]{8}(-[0-9a-f]{4}){3}-[0-9a-f]{12}$`)
+)
 
 // SetLaunchJob records the job ID of a background launch, once.
 func (s *Store) SetLaunchJob(ctx context.Context, id, job string) error {
-	if len(id) != 64 || !validJobID(job) {
+	if len(id) != 64 || !ShortJobID.MatchString(job) && !FullJobID.MatchString(job) {
 		return ErrInvalid
 	}
 	tx, err := s.begin(ctx, ordinary)

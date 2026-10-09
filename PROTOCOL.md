@@ -48,8 +48,9 @@ A foreground launch's `host_pid` must occur in `ancestors`; Claude also requires
 `wake_target: {"claude_pid": PID}` with that same PID. Other launcher families accept no
 `wake_target` override except an empty object. The stored wake target comes from the launch,
 with Claude's worker PID added and any OpenCode password omitted.
-A background Claude launch instead admits a session whose native ID begins with its
-recorded job ID. Until that job ID is recorded, admission returns `launch_pending` (409)
+A background Claude launch instead admits only the session whose native ID equals its
+recorded full job ID, or the full session ID whose first eight characters are its recorded
+short job ID. Until that job ID is recorded, admission returns `launch_pending` (409)
 and registers nothing. DeepSeek retains registration without a launch ID and rejects a
 launch ID or `subagent: true`. The daemon derives the canonical absolute
 Git common directory when a repository is selected; the working directory must then belong
@@ -71,7 +72,8 @@ memory cursors and work claims. DeepSeek renewals keep their launch-free command
 Each session record carries its peer `name` and, while it is active and holds one, its `alias`.
 Sub-agent records additionally carry `subagent: true`; false is omitted. Schema 10 adds
 `sessions.subagent` with false as the default for retained sessions. A sub-agent gets a
-peer name and never acquires an alias on registration or renewal.
+peer name and never acquires an alias on registration or renewal. A session stays a sub-agent
+once registered as one; a session that held the alias before it was marked gives it up.
 The daemon gives each session a permanent peer name `<family>-<label>-<2 hex>`. The label is the
 repository directory name (the folder that holds `.git`, or a bare `NAME.git` without `.git`),
 or the working directory name for a session without a repository: lower case, characters other
@@ -133,8 +135,8 @@ and positive `host_pid`. OpenCode also requires `address` (literal loopback with
 port) and `password` (64 hex characters). Other families refuse those credential fields.
 Optional `background: true` is accepted only for Claude; `job_id` cannot be supplied at
 creation. `POST /v1/launches/job` takes `launch_id` and `job_id`, recording the native job ID
-after startup. Repeating the same ID succeeds; changing an already recorded ID returns
-`session_conflict`. `POST /v1/launches/retire` takes `launch_id` and deletes only a background
+after startup: eight lower-case hex characters, or a canonical lower-case full session ID.
+Repeating the same ID succeeds; changing an already recorded ID returns `session_conflict`. `POST /v1/launches/retire` takes `launch_id` and deletes only a background
 launch with no recorded job ID; a recorded job prevents deletion with `session_conflict`.
 Unknown launch IDs return `session_not_found`. These routes do not stop native jobs.
 Optional `nested` lists at most 64 repositories inside the directory that are not part of its
@@ -405,8 +407,8 @@ call whose arguments hold `caller`, `family`, `id`, `as`, `session` or `session_
 
 DeepSeek has no MCP identity source yet and uses the `koinon` commands with `--as`. For the
 other families, the server registers a launched session at its first call, with the working
-directory and, inside Git, its repository, and registers it again after five minutes or when
-the daemon reports it inactive.
+directory and, inside Git, its repository, and registers it again after five minutes, when
+the daemon reports it inactive, or at once when a Codex thread is first marked as a sub-agent.
 Every five minutes it renews the session it served last. Registration passes
 `KOINON_LAUNCH_ID` as `launch_id` and the server's process ancestors, nearest first, from the
 native process table. Claude also passes its parent's `claude_pid`; the daemon binds the

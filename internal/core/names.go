@@ -88,7 +88,11 @@ func assignNames(ctx context.Context, tx *sql.Tx, now int64, family, id, reposit
 			return err
 		})
 	}
-	// A Codex sub-agent thread has its peer name only; it never holds or creates an alias.
+	// A Codex sub-agent thread has its peer name only; it never holds or creates an alias,
+	// and gives up one that it took before it was known to be a sub-agent.
+	if err == nil && subagent {
+		_, err = tx.ExecContext(ctx, `UPDATE names SET holder_id='' WHERE kind='alias' AND family=? AND holder_id=?`, family, id)
+	}
 	if err != nil || repository == "" || subagent {
 		return err
 	}

@@ -137,7 +137,7 @@ func TestBackgroundLaunchAdmitsOnlyItsJob(t *testing.T) {
 	if counts, err := s.Counts(ctx); err != nil || counts["total"] != 0 {
 		t.Fatalf("pending registration stored: %+v %v", counts, err)
 	}
-	for _, bad := range []string{"", "0123", "0123ABCD", "0123abcd;rm", strings.Repeat("a", 37)} {
+	for _, bad := range []string{"", "0123", "0123ABCD", "0123abcd;rm", strings.Repeat("a", 37), "--------", "0123abcd-1111", "0123abcd1111"} {
 		if err := s.SetLaunchJob(ctx, l1, bad); !errors.Is(err, ErrInvalid) {
 			t.Fatalf("job ID %q: %v", bad, err)
 		}
@@ -283,5 +283,64 @@ func TestSubagentNeverHoldsAnAlias(t *testing.T) {
 		if peer.Name == user.Name && peer.Subagent {
 			t.Fatalf("user thread listed as a sub-agent: %+v", peer)
 		}
+	}
+	// A thread that took the alias before it was known to be a sub-agent gives it up, keeps
+	// its peer name and stays a sub-agent when a later registration does not say so.
+	late := withLaunch(t, s, Registration{Family: "codex", ID: "synthetic-user", Repository: repo, Directory: repo, TTLSeconds: 60})
+	late.Subagent = true
+	session, err = s.Register(ctx, late)
+	if err != nil || !session.Subagent || session.Alias != "" || session.Name != user.Name {
+		t.Fatalf("late sub-agent: %+v %v", session, err)
+	}
+	late.Subagent = false
+	if session, err = s.Register(ctx, late); err != nil || !session.Subagent || session.Alias != "" {
+		t.Fatalf("sub-agent registered again without metadata: %+v %v", session, err)
+	}
+	if session, err = s.Mutate(ctx, Mutation{Family: "codex", ID: "synthetic-user", IfRevision: session.Revision}, false); err != nil || session.Alias != "" {
+		t.Fatalf("late sub-agent renewal: %+v %v", session, err)
+	}
+	other := join(t, s, "codex", "synthetic-user-2", repo)
+	if other.Alias != "codex-koinon" {
+		t.Fatalf("released alias not taken: %+v", other)
+	}
+}
+
+// A full job ID admits only the session with that ID; a short one admits only a full session
+// ID that begins with it.
+func TestBackgroundJobIDForms(t *testing.T) {
+	s, _ := testStore(t)
+	directory := testRepo(t)
+	ctx := context.Background()
+	launch := func(job string) string {
+		t.Helper()
+		id, err := s.CreateLaunch(ctx, LaunchTarget{Family: "claude", Directory: directory, CLI: "/synthetic/cli", HostPID: 1, Background: true})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := s.SetLaunchJob(ctx, id, job); err != nil {
+			t.Fatal(err)
+		}
+		return id
+	}
+	register := func(launch, id string) error {
+		_, err := s.Register(ctx, Registration{Family: "claude", ID: id, Directory: directory, LaunchID: launch, Ancestors: []int{500},
+			WakeTarget: json.RawMessage(`{"claude_pid":500}`)})
+		return err
+	}
+	full := launch("0123abcd-1111-4222-8333-444455556666")
+	if err := register(full, "0123abcd-1111-4222-8333-444455556666-different"); !errors.Is(err, ErrNotLaunched) {
+		t.Fatalf("longer ID admitted by a full job ID: %v", err)
+	}
+	if err := register(full, "0123abcd-1111-4222-8333-444455556666"); err != nil {
+		t.Fatalf("full job ID: %v", err)
+	}
+	short := launch("9876fedc")
+	for _, id := range []string{"9876fedc", "9876fedcxyz", "9876fedc-not-a-session-id"} {
+		if err := register(short, id); !errors.Is(err, ErrNotLaunched) {
+			t.Fatalf("short job ID admitted %q: %v", id, err)
+		}
+	}
+	if err := register(short, "9876fedc-1111-4222-8333-444455556666"); err != nil {
+		t.Fatalf("short job ID: %v", err)
 	}
 }

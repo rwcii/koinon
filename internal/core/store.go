@@ -594,12 +594,17 @@ func (s *Store) Register(ctx context.Context, r Registration) (Session, error) {
 	_, err = tx.ExecContext(ctx, `INSERT INTO sessions(`+sessionColumns+`) VALUES (?,?,?,?,?,?,?,?,0,1,?)
 		ON CONFLICT(family,id) DO UPDATE SET repository=excluded.repository,
 		directory=excluded.directory,wake_target=excluded.wake_target,renewed_at=excluded.renewed_at,
-		expires_at=excluded.expires_at,retired_at=0,revision=sessions.revision+1,subagent=excluded.subagent`,
+		expires_at=excluded.expires_at,retired_at=0,revision=sessions.revision+1,subagent=MAX(sessions.subagent,excluded.subagent)`,
 		r.Family, r.ID, common, directory, string(r.WakeTarget), now, now, now+duration, r.Subagent)
 	if err != nil {
 		return Session{}, tx.fail(err)
 	}
-	if err := assignNames(ctx, tx.Tx, now, r.Family, r.ID, common, directory, r.Subagent); err != nil {
+	// A thread stays a sub-agent once it is known to be one.
+	var subagent bool
+	if err := tx.QueryRowContext(ctx, `SELECT subagent FROM sessions WHERE family=? AND id=?`, r.Family, r.ID).Scan(&subagent); err != nil {
+		return Session{}, tx.fail(err)
+	}
+	if err := assignNames(ctx, tx.Tx, now, r.Family, r.ID, common, directory, subagent); err != nil {
 		return Session{}, tx.fail(err)
 	}
 	result, err := scanSession(tx.QueryRowContext(ctx, sessionQuery+` WHERE s.family=? AND s.id=?`, r.Family, r.ID), now)

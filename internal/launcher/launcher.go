@@ -14,7 +14,6 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
-	"regexp"
 	"slices"
 	"strconv"
 	"strings"
@@ -552,11 +551,6 @@ func codexArgs(pid string, user []string) []string {
 	return append(args, user...)
 }
 
-var (
-	shortJob = regexp.MustCompile(`^[0-9a-f]{8}$`)
-	fullJob  = regexp.MustCompile(`^[0-9a-f]{8}(-[0-9a-f]{4}){3}-[0-9a-f]{12}$`)
-)
-
 // jobID reads the job ID that claude --bg prints: one full session ID, or else one short
 // ID (its first eight characters). Anything else is no job ID.
 func jobID(output string) string {
@@ -565,9 +559,9 @@ func jobID(output string) string {
 		return !(r >= '0' && r <= '9' || r >= 'a' && r <= 'f' || r == '-')
 	}) {
 		switch {
-		case fullJob.MatchString(field) && !slices.Contains(full, field):
+		case core.FullJobID.MatchString(field) && !slices.Contains(full, field):
 			full = append(full, field)
-		case shortJob.MatchString(field) && !slices.Contains(short, field):
+		case core.ShortJobID.MatchString(field) && !slices.Contains(short, field):
 			short = append(short, field)
 		}
 	}

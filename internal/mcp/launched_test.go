@@ -123,6 +123,14 @@ func TestCodexSubagentThreads(t *testing.T) {
 			t.Fatalf("session %+v", s)
 		}
 	}
+	// The user thread's metadata now says sub-agent: it registers again at once, before the
+	// cached registration is due, and gives up the alias.
+	h.tool("peers", map[string]any{}, map[string]any{"threadId": "synthetic-user", "x-codex-turn-metadata": map[string]any{"thread_source": "subagent"}})
+	for _, s := range h.sessions() {
+		if s.ID == "synthetic-user" && (!s.Subagent || s.Alias != "") {
+			t.Fatalf("late sub-agent metadata: %+v", s)
+		}
+	}
 }
 
 // Codex passes an MCP server only the variables that its env_vars lists (#247), so every
