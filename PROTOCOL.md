@@ -915,5 +915,12 @@ commands. The outer frame carries `type: "user"`, `priority: "next"` and a fresh
 Those are Claude protocol fields, not maintainer instructions. The notice identifies only
 the native inbox and sequence range. No message body or memory content is transmitted.
 The receiving socket's UID/PID is verified against the selected native Claude session.
+The adapter wakes only the registry entry of the session's `claude_pid` with entrypoint `cli`.
+Its `sessionId` must be the registered session's, or, after `/clear` started a new transcript
+in the same process (the Koinon session continues, as the MCP server keeps its first session
+ID), the process must still be the session's recorded host: the host record names that PID
+and the process has the start time that the daemon read at registration. A reused process
+ID, another PID, a session without a host record, or a missing or malformed entry returns
+`claude_identity_mismatch` or `claude_target_unavailable`.
 Sender-provided envelope labels alone are not authentication or permission. See
 `internal/core/wake_providers.go` and its synthetic receiver tests for the maintained wire contract.
