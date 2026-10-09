@@ -183,18 +183,20 @@ func (s *server) call(ctx context.Context, raw json.RawMessage) map[string]any {
 	if err != nil {
 		return failure("invalid_arguments")
 	}
-	reclassified := false
 	if caller.Family == "codex" && codexSubagent(p.Meta) {
 		s.mu.Lock()
 		if s.subagents == nil {
 			s.subagents = map[core.Key]bool{}
 		}
-		reclassified = !s.subagents[caller]
-		s.subagents[caller] = true
+		if !s.subagents[caller] {
+			// A thread first seen as a sub-agent gives up the alias: its registration is
+			// dropped, so every call registers again until one registration succeeds.
+			s.subagents[caller] = true
+			delete(s.sessions, caller)
+		}
 		s.mu.Unlock()
 	}
-	// A thread first seen as a sub-agent registers again at once, so it gives up the alias.
-	if err := s.ensure(ctx, caller, reclassified); err != nil {
+	if err := s.ensure(ctx, caller); err != nil {
 		return refusal(caller, err)
 	}
 	s.observeCall(caller, p.Meta)
@@ -262,15 +264,15 @@ func (s *server) daemon(ctx context.Context, path string, body any) (json.RawMes
 	return data, err
 }
 
-// ensure registers the caller when this server has not registered it recently, or when
-// force is set, and makes it the session that renewLoop keeps active.
-func (s *server) ensure(ctx context.Context, caller core.Key, force bool) error {
+// ensure registers the caller when this server has not registered it recently, and makes
+// it the session that renewLoop keeps active.
+func (s *server) ensure(ctx context.Context, caller core.Key) error {
 	now := s.c.Now()
 	s.mu.Lock()
 	s.latest = caller
 	current, found := s.sessions[caller]
 	s.mu.Unlock()
-	if found && !force && now.Sub(current.at) < renewEvery {
+	if found && now.Sub(current.at) < renewEvery {
 		return nil
 	}
 	return s.register(ctx, caller)

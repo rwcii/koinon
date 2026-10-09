@@ -2,6 +2,8 @@ package mcp
 
 import (
 	"context"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -130,6 +132,38 @@ func TestCodexSubagentThreads(t *testing.T) {
 		if s.ID == "synthetic-user" && (!s.Subagent || s.Alias != "") {
 			t.Fatalf("late sub-agent metadata: %+v", s)
 		}
+	}
+}
+
+// A thread first marked as a sub-agent while the daemon cannot register it keeps no cached
+// registration: its next call registers it as a sub-agent before the tool runs.
+func TestSubagentRegistersAgainAfterAFailure(t *testing.T) {
+	h := newHarness(t, "codex-mcp-client")
+	if out, err := exec.Command("git", "init", "-q", h.s.c.Directory).CombinedOutput(); err != nil {
+		t.Fatalf("git: %v %s", err, out)
+	}
+	h.launch("codex")
+	if reply, isError := h.tool("peers", map[string]any{}, map[string]any{"threadId": "synthetic-thread"}); isError {
+		t.Fatal(reply)
+	}
+	failing := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusInternalServerError)
+		w.Write([]byte(`{"ok":false,"code":"storage_error"}`))
+	}))
+	defer failing.Close()
+	address := h.s.c.Address
+	h.s.c.Address = strings.TrimPrefix(failing.URL, "http://")
+	meta := map[string]any{"threadId": "synthetic-thread", "x-codex-turn-metadata": map[string]any{"thread_source": "subagent"}}
+	if reply, isError := h.tool("peers", map[string]any{}, meta); !isError {
+		t.Fatalf("registration did not fail: %v", reply)
+	}
+	h.s.c.Address = address
+	if reply, isError := h.tool("peers", map[string]any{}, meta); isError {
+		t.Fatal(reply)
+	}
+	if s := h.sessions()[0]; !s.Subagent || s.Alias != "" {
+		t.Fatalf("after the failure: %+v", s)
 	}
 }
 
