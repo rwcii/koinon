@@ -771,6 +771,9 @@ unresolved, and the process trees of each server's panes. Exactly one matching c
 the same ancestor and naming rules to its pane. No match reports `attach_pane_not_found`
 and retries at the next renewal; multiple matches report `attach_pane_ambiguous`, rename
 nothing and wait for a change of published name. Servers outside that directory are not searched.
+Only an `attach` command with the job's short ID qualifies; option values and prompts do not.
+If a pane's process tree cannot be completely checked within the scan bound, naming reports
+`panes_unknown`, renames nothing and retries at the next renewal.
 
 The independent `naming` observation carries `source: koinon_mcp`, `at`, allowlisted `naming`
 result and `target` (the published name). It contains no socket or pane, so a session outside

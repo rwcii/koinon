@@ -300,7 +300,10 @@ func (s *server) nameAttached(ctx context.Context, sessionID, name string) strin
 				return "tmux_unreadable"
 			}
 			queue := []int{root}
-			for seen := 0; len(queue) > 0 && seen < maxPaneProcesses; seen++ {
+			for seen := 0; len(queue) > 0; seen++ {
+				if seen >= maxPaneProcesses {
+					return "panes_unknown"
+				}
 				pid := queue[0]
 				queue = append(queue[1:], children[pid]...)
 				if s.attachClient(pid, short) {
@@ -327,12 +330,16 @@ func (s *server) attachClient(pid int, short string) bool {
 	if err != nil {
 		return false
 	}
-	for i := 0; i+1 < len(args); i++ {
-		if args[i] == "attach" && args[i+1] == short {
-			return true
-		}
+	if len(args) == 0 {
+		return false
 	}
-	return false
+	// The native CLI's command starts after argv[0]; the npm CLI's starts after its
+	// node entry point. Option values and prompts are never attach commands.
+	args = args[1:]
+	if len(args) > 0 && strings.Contains(args[0], "@anthropic-ai/claude-code/") {
+		args = args[1:]
+	}
+	return len(args) >= 2 && args[0] == "attach" && args[1] == short
 }
 
 // otherAgentPane reports whether another pane of the session holds an agent process. The

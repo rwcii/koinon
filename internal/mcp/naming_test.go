@@ -129,3 +129,61 @@ func TestNamingReportedWithoutTerminal(t *testing.T) {
 	}
 	t.Fatal("no naming report")
 }
+
+func TestAttachClientCommandPosition(t *testing.T) {
+	short := "abcd1234"
+	for _, c := range []struct {
+		name       string
+		executable string
+		args       []string
+		want       bool
+	}{
+		{"native", "/opt/synthetic/claude/versions/1.0.0", []string{"claude", "attach", short}, true},
+		{"npm", "/usr/bin/node", []string{"node", "/opt/synthetic/node_modules/@anthropic-ai/claude-code/cli.js", "attach", short}, true},
+		{"option value", "/opt/synthetic/claude/versions/1.0.0", []string{"claude", "--append-system-prompt", "attach", short}, false},
+		{"npm option value", "/usr/bin/node", []string{"node", "/opt/synthetic/node_modules/@anthropic-ai/claude-code/cli.js", "--append-system-prompt", "attach", short}, false},
+		{"another job", "/opt/synthetic/claude/versions/1.0.0", []string{"claude", "attach", "deadbeef"}, false},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			s := &server{c: Config{Command: func(int) (string, []string, error) { return c.executable, c.args, nil }}}
+			if got := s.attachClient(4242, short); got != c.want {
+				t.Fatalf("attach client = %v, want %v", got, c.want)
+			}
+		})
+	}
+}
+
+func TestAttachTruncatedTreeRenamesNothing(t *testing.T) {
+	uid := fmt.Sprintf("tmux-%d", os.Getuid())
+	f := newNamingFixtureAt(t, filepath.Join(uid, "default"))
+	first := f.newSession("first")
+	second := f.newSession("second")
+	short := "abcd1234"
+	f.mu.Lock()
+	f.attach[first.host] = short
+	f.mu.Unlock()
+	s := f.server(map[string]string{"TMUX_TMPDIR": filepath.Dir(filepath.Dir(f.socket))})
+	parents, err := s.c.Parents()
+	if err != nil {
+		t.Fatal(err)
+	}
+	parent := second.shell
+	for i := 0; i < maxPaneProcesses+8; i++ {
+		pid := 100000000 + i
+		parents[pid] = parent
+		parent = pid
+	}
+	hidden := parent
+	command := s.c.Command
+	s.c.Parents = func() (map[int]int, error) { return parents, nil }
+	s.c.Command = func(pid int) (string, []string, error) {
+		if pid == hidden {
+			return "/opt/synthetic/claude/versions/1.0.0", []string{"claude", "attach", short}, nil
+		}
+		return command(pid)
+	}
+	got := s.nameAttached(context.Background(), short+"-1111-4222-8333-444455556666", "claude-koinon")
+	if got != "panes_unknown" || f.sessionName(first) != "first" || f.sessionName(second) != "second" {
+		t.Fatalf("incomplete scan missed second client and renamed a terminal: result %s, names %q %q", got, f.sessionName(first), f.sessionName(second))
+	}
+}
