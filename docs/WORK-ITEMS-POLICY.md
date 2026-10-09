@@ -95,3 +95,17 @@ consumer key for Codex, DeepSeek, or Claude respectively. For a custom stable ke
 the installed `session.py work-key --key KEY` in that participant’s own shell. This
 records the association for peer status; it neither claims work nor changes existing
 claim ownership. A replacement session must still respect the old session’s lease.
+
+## Current Go participant ownership
+
+The Go runtime supersedes the historical session-key rule above. A holder defaults to
+`participant:<address>` for work and memory; a successor holder continues existing
+participant claims, generations, deadlines and cursors. It reads the current checkpoint
+before acting. Former holders are fenced, including custom-consumer requests and keyed
+retries. A holder change grants no permission beyond the maintainer's assigned scope.
+
+Pre-upgrade native-session claims retain their owners and leases; a successor does not
+reuse that native identity or bypass a live claim. Non-holders keep native-session work
+keys. Checkout handback still requires explicit acceptance with `work_start`, creating a
+new generation. See [USAGE.md](USAGE.md#messages-and-participants) and
+[WORK-ITEMS-COMMANDS.md](WORK-ITEMS-COMMANDS.md) for the current interfaces.

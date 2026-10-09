@@ -51,6 +51,10 @@ type Session struct {
 	Address      string   `json:"address,omitempty"`
 	HoldsAddress bool     `json:"holds_address,omitempty"`
 	Conflict     []string `json:"conflict,omitempty"`
+	// Fenced says that the session was replaced as its participant's holder: it registers
+	// with its peer name only and never takes the participant again unless the maintainer
+	// chooses it (chunk 03).
+	Fenced bool `json:"fenced,omitempty"`
 }
 
 type Registration struct {
@@ -218,7 +222,7 @@ func checkFormat(db *sql.DB, path string) error {
 	return nil
 }
 
-const schemaVersion = 11
+const schemaVersion = 12
 
 // migrate brings the state schema from version to target in one transaction, so a crash
 // leaves either the old or the new schema. Each step starts from the version before it.
@@ -460,6 +464,22 @@ func migrate(db *sql.DB, version, target int) error {
 			return err
 		}
 	}
+	if version < 12 && target >= 12 {
+		// Version 12: participant state and fencing (participants sprint, chunk 03). A
+		// participant's inbox is an internal session row participant:<address> that never
+		// expires; acked_by names the native session (FAMILY:ID) that acknowledged it last.
+		// A fence keeps a former holder from acting for, or taking, the participant again
+		// until the maintainer chooses it.
+		if _, err := tx.Exec(`ALTER TABLE sessions ADD COLUMN acked_by TEXT NOT NULL DEFAULT '';
+			ALTER TABLE memory_cursors ADD COLUMN actor TEXT NOT NULL DEFAULT '';
+			ALTER TABLE work_events ADD COLUMN actor TEXT NOT NULL DEFAULT '';
+			CREATE TABLE participant_fences (
+				address TEXT NOT NULL, family TEXT NOT NULL, session_id TEXT NOT NULL,
+				at INTEGER NOT NULL, reason TEXT NOT NULL, PRIMARY KEY (address, family, session_id)
+			);`); err != nil {
+			return err
+		}
+	}
 	if _, err := tx.Exec(fmt.Sprintf("PRAGMA user_version=%d", target)); err != nil {
 		return err
 	}
@@ -526,7 +546,9 @@ func validKey(family, id string) bool {
 	default:
 		return false
 	}
-	return id != "" && len(id) <= 256 && !strings.ContainsAny(id, "\x00\r\n")
+	// A participant's internal inbox row has the ID participant:<address>; no native
+	// session can take that form.
+	return id != "" && len(id) <= 256 && !strings.ContainsAny(id, "\x00\r\n") && !strings.HasPrefix(id, participantPrefix)
 }
 
 func ttl(seconds int64) (int64, error) {
@@ -663,7 +685,8 @@ const sessionColumns = `family,id,repository,directory,wake_target,registered_at
 const sessionQuery = `SELECT s.family,s.id,s.repository,s.directory,s.wake_target,s.registered_at,s.renewed_at,
 	s.expires_at,s.retired_at,s.purge_at,s.revision,s.subagent,s.role,
 	COALESCE((SELECT name FROM names WHERE kind='peer' AND family=s.family AND session_id=s.id),''),
-	COALESCE(p.name,''),COALESCE(p.holder_id,''),COALESCE(p.conflict,'') FROM sessions s
+	COALESCE(p.name,''),COALESCE(p.holder_id,''),COALESCE(p.conflict,''),
+	EXISTS (SELECT 1 FROM participant_fences f WHERE f.address=p.name AND f.family=s.family AND f.session_id=s.id) FROM sessions s
 	LEFT JOIN names p ON p.kind='alias' AND p.family=s.family AND p.repository=s.repository AND p.role=s.role
 		AND s.repository!='' AND s.subagent=0`
 
@@ -672,7 +695,7 @@ type scanner interface{ Scan(...any) error }
 func scanSession(row scanner, now int64) (Session, error) {
 	var result Session
 	var target, holder, conflict string
-	err := row.Scan(&result.Family, &result.ID, &result.Repository, &result.Directory, &target, &result.RegisteredAt, &result.RenewedAt, &result.ExpiresAt, &result.RetiredAt, &result.PurgeAt, &result.Revision, &result.Subagent, &result.Role, &result.Name, &result.Address, &holder, &conflict)
+	err := row.Scan(&result.Family, &result.ID, &result.Repository, &result.Directory, &target, &result.RegisteredAt, &result.RenewedAt, &result.ExpiresAt, &result.RetiredAt, &result.PurgeAt, &result.Revision, &result.Subagent, &result.Role, &result.Name, &result.Address, &holder, &conflict, &result.Fenced)
 	if errors.Is(err, sql.ErrNoRows) {
 		return result, ErrMissing
 	}
@@ -749,7 +772,7 @@ func (s *Store) Mutate(ctx context.Context, r Mutation, retire bool) (Session, e
 
 func (s *Store) List(ctx context.Context) ([]Session, bool, error) {
 	// The built-in maintainer session is not an agent session; Peers adds it.
-	rows, err := s.db.QueryContext(ctx, sessionQuery+` WHERE s.family!='maintainer' ORDER BY s.family,s.id LIMIT 1001`)
+	rows, err := s.db.QueryContext(ctx, sessionQuery+` WHERE s.family!='maintainer' AND `+notParticipantRow+` ORDER BY s.family,s.id LIMIT 1001`)
 	if err != nil {
 		return nil, false, err
 	}
@@ -776,7 +799,7 @@ func (s *Store) List(ctx context.Context) ([]Session, bool, error) {
 func (s *Store) Counts(ctx context.Context) (map[string]int64, error) {
 	counts := map[string]int64{"total": 0, "active": 0, "expired": 0, "retired": 0}
 	rows, err := s.db.QueryContext(ctx, `SELECT CASE WHEN retired_at!=0 THEN 'retired'
-		WHEN expires_at<=? THEN 'expired' ELSE 'active' END,COUNT(*) FROM sessions WHERE family!='maintainer' GROUP BY 1`, s.now().UnixMilli())
+		WHEN expires_at<=? THEN 'expired' ELSE 'active' END,COUNT(*) FROM sessions s WHERE family!='maintainer' AND `+notParticipantRow+` GROUP BY 1`, s.now().UnixMilli())
 	if err != nil {
 		return nil, err
 	}

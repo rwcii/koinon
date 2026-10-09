@@ -11,6 +11,7 @@ import (
 	"slices"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/rwcii/koinon/internal/core"
 	"github.com/rwcii/koinon/internal/launcher"
@@ -199,5 +200,84 @@ func TestLauncherPassesEveryMCPVariable(t *testing.T) {
 	}
 	if found < 8 {
 		t.Fatalf("found only %d environment reads", found)
+	}
+}
+
+// A former holder that MCP registers again after a change of holder is refused, with
+// stale_holder, when it reads or acknowledges the participant's inbox; the holder reads
+// it (participants chunk 03).
+func TestMCPParticipantInboxFencing(t *testing.T) {
+	h := newHarness(t, "codex-mcp-client")
+	if out, err := exec.Command("git", "init", "-q", h.s.c.Directory).CombinedOutput(); err != nil {
+		t.Fatalf("git: %v %s", err, out)
+	}
+	h.launch("codex")
+	thread := func(id string) map[string]any { return map[string]any{"threadId": id} }
+	h.tool("peers", map[string]any{}, thread("synthetic-a"))
+	h.tool("peers", map[string]any{}, thread("synthetic-b"))
+	secret, _ := core.ReadSecret(h.root)
+	address := h.d.Addresses()[0]
+	revision := func(id string) int64 {
+		for _, s := range h.sessions() {
+			if s.ID == id {
+				return s.Revision
+			}
+		}
+		t.Fatalf("no session %s", id)
+		return 0
+	}
+	deadline := float64(time.Now().Unix() + 600)
+	created, isError := h.tool("work_create", map[string]any{"title": "synthetic", "criteria": "synthetic", "non_goals": "synthetic", "key": "synthetic-create-retry", "deadline": deadline}, thread("synthetic-a"))
+	if isError {
+		t.Fatal(created)
+	}
+	workID := created["result"].(map[string]any)["work_id"]
+	if result, isError := h.tool("memory_sync", map[string]any{}, thread("synthetic-a")); isError {
+		t.Fatal(result)
+	}
+	var consumer string
+	for _, session := range h.sessions() {
+		if session.ID == "synthetic-a" {
+			consumer = "participant:" + session.Address
+		}
+	}
+	// A retires; B's renewal makes it the one qualifier, which fences A.
+	if _, err := core.Call(context.Background(), address, secret, "/v1/sessions/retire", core.Mutation{Family: "codex", ID: "synthetic-a", IfRevision: revision("synthetic-a")}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := core.Call(context.Background(), address, secret, "/v1/sessions/renew", core.Mutation{Family: "codex", ID: "synthetic-b", IfRevision: revision("synthetic-b")}); err != nil {
+		t.Fatal(err)
+	}
+	for tool, args := range map[string]map[string]any{"inbox": {"participant_after": 0}, "ack": {"participant_through": 0}} {
+		reply, isError := h.tool(tool, args, thread("synthetic-a"))
+		if !isError || reply["code"] != "stale_holder" {
+			t.Fatalf("%s by the former holder: %v", tool, reply)
+		}
+	}
+	values := map[string]any{"work_id": workID, "if_revision": 1, "claim_generation": 1, "if_claim_revision": 1, "checkpoint": "synthetic", "next_artifact": "synthetic", "progress": "synthetic", "progress_deadline": deadline, "key": "synthetic-create-retry", "deadline": deadline, "title": "synthetic", "criteria": "synthetic", "non_goals": "synthetic", "outcome": "withdrawn", "proposed_assignee": "synthetic"}
+	for _, op := range core.WorkOperations() {
+		args := map[string]any{"consumer": consumer}
+		for _, field := range core.WorkRequired[op] {
+			args[field] = values[field]
+		}
+		result, isError := h.tool(strings.ReplaceAll(op, "-", "_"), args, thread("synthetic-a"))
+		if !isError || result["code"] != "stale_holder" {
+			t.Fatalf("stale MCP %s: %v", op, result)
+		}
+	}
+	for _, tool := range []string{"memory_sync", "memory_ack", "memory_status", "memory_record"} {
+		args := map[string]any{"consumer": consumer}
+		if tool == "memory_record" {
+			args["type"] = "status"
+			args["body"] = "synthetic"
+		}
+		if result, isError := h.tool(tool, args, thread("synthetic-a")); !isError || result["code"] != "stale_holder" {
+			t.Fatalf("stale MCP %s: %v", tool, result)
+		}
+	}
+	reply, isError := h.tool("inbox", map[string]any{}, thread("synthetic-b"))
+	participant, _ := reply["inbox"].(map[string]any)["participant"].(map[string]any)
+	if isError || participant == nil || participant["address"] == nil {
+		t.Fatalf("holder inbox: %v", reply)
 	}
 }

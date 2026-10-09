@@ -134,9 +134,30 @@ current session revision, is audited, and shows as the participant's last event.
 or another participant's session cannot be chosen. A send to an unheld address is refused
 with `alias_unheld`; the agent's peer name can still be addressed directly.
 
-The choice changes only the address holder. It does not move old inbox messages, memory
-cursors or work claims, or retire the former session. Use explicit work handoffs for claims.
-Existing aliases keep their addresses and holders when the store upgrades to schema 11.
+A holder change retires and persistently fences the former holder. Registering again gives
+it its native peer name only; only **Make holder** lifts its fence. Address messages now
+belong to the participant inbox, and a holder's default memory/work consumer is
+`participant:<address>`. The next holder continues its acknowledgements, memory cursor and
+live claim generations without restarting a lease. Calls with that consumer, including
+custom-consumer arguments and keyed retries, require the current holder or return
+`stale_holder`. Read the current work and checkpoint before continuing; ownership grants no
+new permissions. Non-holders keep their previous session defaults.
+
+`inbox` returns session and participant messages, each tagged `inbox`. Track `after` and
+`participant_after` separately; the top-level sequence state describes the session and the
+`participant` object describes the participant. Page both until their `more` flags are false.
+Acknowledge only handled messages with `through` and `participant_through` respectively.
+CLI examples: `koinon inbox --as FAMILY:ID --after 0 --participant-after 0` and
+`koinon ack --as FAMILY:ID --participant 7 3` (participant through 7, session through 3).
+A holder sends with its address as `sender_name`, so replies follow the participant. A
+send to an exact peer name remains in that native session's inbox.
+
+Schema 12 keeps all pre-upgrade inbox messages, acknowledgements, peer-name memory cursors
+and native-session work claims with their existing owners; it does not migrate their
+ownership to participants. Existing aliases keep their addresses and holders.
+Checkout status resolves participant writers to their current active holder's exact peer.
+Requests are notifications only; handback followed by explicit `work_start` still creates
+a new writer generation.
 
 The launchers use configured native CLIs, exact repositories and private launch records.
 Codex runs with `--no-daemon`, so its MCP servers belong to the launched CLI process. The

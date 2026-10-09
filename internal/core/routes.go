@@ -21,7 +21,7 @@ func (d *Daemon) messageRoutes(mux *http.ServeMux) {
 		}
 		d.store.wake.mu.Lock()
 		defer d.store.wake.mu.Unlock()
-		notice, err := d.store.submitWake(r.Context(), request.Caller, true)
+		notice, err := d.store.offerWake(r.Context(), request.Caller)
 		if err != nil {
 			failure(w, err)
 			return
@@ -62,15 +62,16 @@ func (d *Daemon) messageRoutes(mux *http.ServeMux) {
 	})
 	mux.HandleFunc("POST /v1/inbox/read", func(w http.ResponseWriter, r *http.Request) {
 		var request struct {
-			Caller Key   `json:"caller"`
-			After  int64 `json:"after"`
-			Limit  int64 `json:"limit"`
+			Caller           Key    `json:"caller"`
+			After            int64  `json:"after"`
+			ParticipantAfter *int64 `json:"participant_after"`
+			Limit            int64  `json:"limit"`
 		}
 		if err := decode(w, r, &request); err != nil {
 			failure(w, err)
 			return
 		}
-		result, err := d.store.ReadInbox(r.Context(), request.Caller, request.After, request.Limit)
+		result, err := d.store.ReadInboxes(r.Context(), request.Caller, request.After, request.ParticipantAfter, request.Limit)
 		if err != nil {
 			failure(w, err)
 			return
@@ -79,19 +80,31 @@ func (d *Daemon) messageRoutes(mux *http.ServeMux) {
 	})
 	mux.HandleFunc("POST /v1/inbox/ack", func(w http.ResponseWriter, r *http.Request) {
 		var request struct {
-			Caller  Key   `json:"caller"`
-			Through int64 `json:"through"`
+			Caller             Key    `json:"caller"`
+			Through            int64  `json:"through"`
+			ParticipantThrough *int64 `json:"participant_through"`
 		}
 		if err := decode(w, r, &request); err != nil {
 			failure(w, err)
 			return
+		}
+		reply := map[string]any{"ok": true}
+		// The participant inbox is acknowledged first, so a stale holder changes nothing.
+		if request.ParticipantThrough != nil {
+			address, acked, err := d.store.AckParticipant(r.Context(), request.Caller, *request.ParticipantThrough)
+			if err != nil {
+				failure(w, err)
+				return
+			}
+			reply["participant"] = map[string]any{"address": address, "acked_through": acked}
 		}
 		acked, err := d.store.Ack(r.Context(), request.Caller, request.Through)
 		if err != nil {
 			failure(w, err)
 			return
 		}
-		respond(w, 200, map[string]any{"ok": true, "acked_through": acked})
+		reply["acked_through"] = acked
+		respond(w, 200, reply)
 	})
 	mux.HandleFunc("POST /v1/messages/outcome", func(w http.ResponseWriter, r *http.Request) {
 		var request struct {

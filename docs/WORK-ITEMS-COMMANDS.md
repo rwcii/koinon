@@ -9,7 +9,10 @@ for the routes and [INSTALL.md](INSTALL.md) for upgrades from Python-era state.
 The CLI uses `koinon work OPERATION --as FAMILY:ID --consumer KEY` and
 `koinon claim renew WORK_ID --as FAMILY:ID`. MCP exposes the same operations as
 `work_create`, `work_start`, `work_update` and the other `work_*` tools, plus `claim_renew`.
-`--consumer` is optional and defaults to the calling session identity; it must stay stable. Work IDs are positional except on create
+`--consumer` is optional. A holder defaults to `participant:<address>`; a non-holder uses
+`FAMILY:ID`. Only the current holder may use a participant key, including when named
+explicitly. A successor continues the participant's live generation and deadlines; reconcile
+the checkpoint before acting. Old native-session claims retain their owners. Work IDs are positional except on create
 and list. Wire names are `work-create`, `work-get`, `work-list`, `work-propose`,
 `work-edit`, `work-start`, `work-update`, `work-release`, `work-finish`, and
 `claim-renew`. Wire fields use underscores; CLI options use hyphens. Unknown work

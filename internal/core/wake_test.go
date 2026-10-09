@@ -78,7 +78,7 @@ func TestWakeCrashAfterAcceptanceRetries(t *testing.T) {
 }
 func TestWakeSchemaFiveMigrationAndFutureRefusal(t *testing.T) {
 	s, root, sender, receiver, message, _ := wakeFixture(t, "agy")
-	if _, err := s.db.Exec(undoSchemaEleven + undoSchemaTen + undoSchemaNine + undoSchemaEight + undoSchemaSeven + `DROP INDEX messages_wake; ALTER TABLE messages DROP COLUMN wake_attempts; ALTER TABLE messages DROP COLUMN wake_next_at; ALTER TABLE messages DROP COLUMN wake_reason; PRAGMA user_version=5`); err != nil {
+	if _, err := s.db.Exec(undoSchemaTwelve + undoSchemaEleven + undoSchemaTen + undoSchemaNine + undoSchemaEight + undoSchemaSeven + `DROP INDEX messages_wake; ALTER TABLE messages DROP COLUMN wake_attempts; ALTER TABLE messages DROP COLUMN wake_next_at; ALTER TABLE messages DROP COLUMN wake_reason; PRAGMA user_version=5`); err != nil {
 		t.Fatal(err)
 	}
 	s.db.Close()

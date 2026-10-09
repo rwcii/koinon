@@ -434,15 +434,14 @@ type workCaller struct {
 	store string // the store's store_id; empty before the store's first write
 }
 
-// ResolveWorkCaller resolves a work caller. Without an explicit consumer the consumer is
-// the session key FAMILY:ID, not the peer name, which a successor can inherit: a
-// replacement session must respect its predecessor's lease.
+// ResolveWorkCaller uses the held participant's key by default; a non-holder keeps its
+// native FAMILY:ID key. Existing native-session claims are never transferred implicitly.
 func (s *Store) ResolveWorkCaller(ctx context.Context, caller Key, consumer *string) (MemoryCaller, error) {
 	m, err := s.ResolveMemoryCaller(ctx, caller, consumer)
 	if err != nil {
 		return m, err
 	}
-	if consumer == nil {
+	if consumer == nil && !isParticipantID(m.Consumer) {
 		m.Consumer = caller.Family + ":" + caller.ID
 	}
 	if err := checkConsumer(m.Consumer, "consumer"); err != nil {
@@ -607,8 +606,8 @@ func (s *Store) workPayloads(ctx context.Context, repo string, entries []MemoryE
 				return err
 			}
 		}
-		var kind, payload string
-		err := s.db.QueryRowContext(ctx, `SELECT kind,payload FROM work_events WHERE store=? AND seq=?`, store, entries[i].Seq).Scan(&kind, &payload)
+		var kind, payload, actor string
+		err := s.db.QueryRowContext(ctx, `SELECT kind,payload,actor FROM work_events WHERE store=? AND seq=?`, store, entries[i].Seq).Scan(&kind, &payload, &actor)
 		if errors.Is(err, sql.ErrNoRows) {
 			return workError("incompatible_store", "a work stream payload is missing")
 		}
@@ -616,6 +615,7 @@ func (s *Store) workPayloads(ctx context.Context, repo string, entries []MemoryE
 			return err
 		}
 		entries[i].EventKind, entries[i].Payload = kind, json.RawMessage(payload)
+		entries[i].Actor = actor
 		if entries[i].ScopeTarget != nil {
 			entries[i].WorkID = *entries[i].ScopeTarget
 		}
@@ -695,8 +695,8 @@ func (s *Store) event(ctx context.Context, tx *writeTx, store string, m MemoryCa
 		family, name, consumer, w.Revision); err != nil {
 		return err
 	}
-	if _, err := tx.ExecContext(ctx, `INSERT INTO work_events(store,seq,work_id,revision,kind,payload) VALUES (?,?,?,?,?,?)`,
-		store, seq, w.WorkID, w.Revision, kind, string(data)); err != nil {
+	if _, err := tx.ExecContext(ctx, `INSERT INTO work_events(store,seq,work_id,revision,kind,payload,actor) VALUES (?,?,?,?,?,?,?)`,
+		store, seq, w.WorkID, w.Revision, kind, string(data), nativeActor(m)); err != nil {
 		return err
 	}
 	tx.onCommit(func() { *advanced = true })
@@ -718,6 +718,11 @@ func (s *Store) scope(ctx context.Context, tx *writeTx, store string, w workItem
 // writes its record, scope history, stream entry, event, head and replay result in one
 // transaction, and the change hook runs after the commit, outside every lock.
 func (s *Store) Work(ctx context.Context, m MemoryCaller, op string, fields map[string]json.RawMessage) (any, error) {
+	ctx, finish, guardErr := s.participantCall(ctx, m)
+	if guardErr != nil {
+		return nil, guardErr
+	}
+	defer finish()
 	r, err := parseWork(op, fields)
 	if err != nil {
 		return nil, err
@@ -729,6 +734,7 @@ func (s *Store) Work(ctx context.Context, m MemoryCaller, op string, fields map[
 	advanced := false
 	defer func() {
 		s.memory.op.Unlock()
+		finish()
 		if advanced {
 			s.changed(m.Repository)
 		}
@@ -744,6 +750,9 @@ func (s *Store) workRead(ctx context.Context, m MemoryCaller, r *workRequest, no
 		return nil, err
 	}
 	defer tx.Rollback()
+	if err := s.requireParticipantCaller(ctx, tx, m); err != nil {
+		return nil, err
+	}
 	store, err := storeOf(ctx, tx, m.Repository)
 	if err != nil {
 		return nil, err
@@ -852,6 +861,14 @@ func (s *Store) replay(ctx context.Context, m MemoryCaller, r *workRequest, now 
 	if !r.keyed() {
 		return "", nil, nil
 	}
+	tx, err := s.db.BeginTx(ctx, &sql.TxOptions{ReadOnly: true})
+	if err != nil {
+		return "", nil, err
+	}
+	defer tx.Rollback()
+	if err := s.requireParticipantCaller(ctx, tx, m); err != nil {
+		return "", nil, err
+	}
 	l := s.limits()
 	deadline := r.numbers["deadline"]
 	if deadline <= now {
@@ -861,12 +878,12 @@ func (s *Store) replay(ctx context.Context, m MemoryCaller, r *workRequest, now 
 		return "", nil, invalid(fmt.Sprintf("the retry deadline is beyond the %.0f s horizon", l.idemTTL))
 	}
 	print := r.fingerprint(m.Consumer)
-	store, err := storeOf(ctx, s.db, m.Repository)
+	store, err := storeOf(ctx, tx, m.Repository)
 	if err != nil || store == "" {
 		return print, nil, err
 	}
 	var scheme, stored, operation, result string
-	err = s.db.QueryRowContext(ctx, `SELECT scheme,fingerprint,operation,result FROM work_replays WHERE store=? AND consumer=? AND key=?`,
+	err = tx.QueryRowContext(ctx, `SELECT scheme,fingerprint,operation,result FROM work_replays WHERE store=? AND consumer=? AND key=?`,
 		store, m.Consumer, r.text["key"]).Scan(&scheme, &stored, &operation, &result)
 	if errors.Is(err, sql.ErrNoRows) {
 		return print, nil, nil

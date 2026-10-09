@@ -60,7 +60,7 @@ func run(ctx context.Context, args []string, in io.Reader, out io.Writer) error 
 	flags.SetOutput(io.Discard)
 	state := flags.String("state-dir", root, "private Go state directory")
 	var listen, listen6, address, as *string
-	var after, limit *int64
+	var after, limit, participant *int64
 	positional := 0
 	switch args[0] {
 	case "mcp":
@@ -86,6 +86,10 @@ func run(ctx context.Context, args []string, in io.Reader, out io.Writer) error 
 		if args[0] == "inbox" {
 			after = flags.Int64("after", 0, "read messages after this sequence")
 			limit = flags.Int64("limit", 50, "most messages to read")
+			participant = flags.Int64("participant-after", -1, "read the held participant's messages after this sequence")
+		}
+		if args[0] == "ack" {
+			participant = flags.Int64("participant", -1, "also acknowledge the held participant's inbox through this sequence")
 		}
 	default:
 		return errors.New("unknown command; use koinon --help")
@@ -107,7 +111,7 @@ func run(ctx context.Context, args []string, in io.Reader, out io.Writer) error 
 			Tmux:        mcp.RunTmux, Parents: platform.ProcessParents}, in, out)
 	}
 	if args[0] != "serve" {
-		return call(ctx, args[0], *state, *address, as, after, limit, flags.Args(), in, out)
+		return call(ctx, args[0], *state, *address, as, after, limit, participant, flags.Args(), in, out)
 	}
 	d, err := core.Start(core.Config{StateDir: *state, Listen: []string{*listen, *listen6}})
 	if err != nil {
@@ -201,7 +205,7 @@ func registerDeepSeek(ctx context.Context, args []string, out io.Writer) error {
 }
 
 // call runs one client command against the daemon's API and prints its JSON response.
-func call(ctx context.Context, command, state, address string, as *string, after, limit *int64, args []string, in io.Reader, out io.Writer) error {
+func call(ctx context.Context, command, state, address string, as *string, after, limit, participant *int64, args []string, in io.Reader, out io.Writer) error {
 	var caller core.Key
 	if as != nil {
 		family, id, found := strings.Cut(*as, ":")
@@ -230,13 +234,21 @@ func call(ctx context.Context, command, state, address string, as *string, after
 		}
 		path, body = "/v1/messages/send", map[string]any{"caller": caller, "to": args[0], "body": text}
 	case "inbox":
-		path, body = "/v1/inbox/read", map[string]any{"caller": caller, "after": *after, "limit": *limit}
+		request := map[string]any{"caller": caller, "after": *after, "limit": *limit}
+		if *participant >= 0 {
+			request["participant_after"] = *participant
+		}
+		path, body = "/v1/inbox/read", request
 	case "ack":
 		through, err := strconv.ParseInt(args[0], 10, 64)
 		if err != nil {
 			return errors.New("SEQ must be a sequence number")
 		}
-		path, body = "/v1/inbox/ack", map[string]any{"caller": caller, "through": through}
+		request := map[string]any{"caller": caller, "through": through}
+		if *participant >= 0 {
+			request["participant_through"] = *participant
+		}
+		path, body = "/v1/inbox/ack", request
 	}
 	secret, err := core.ReadSecret(state)
 	if err != nil {

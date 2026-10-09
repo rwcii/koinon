@@ -61,6 +61,12 @@ Criteria 4, 5 and 10 of `decision.md`. Depends on chunk 02.
 
 ## Done
 
+Implementation note: the participant inbox uses an internal `sessions` row whose ID is
+`participant:<address>` and which never expires. Its sequence counters live there rather
+than on `names`; agent listings, counts and qualifiers exclude the internal row. This
+reuses the existing transactional message, acknowledgement, wake and retention paths while
+preserving the ownership and fencing behavior above.
+
 - The tests of `definition-of-done.md`, "Participant state" and "Fencing", for every path in
   item 4, including MCP, HTTP and the command line, a keyed retry made before a holder change, a
   custom consumer, re-registration of a fenced session and the injected failure inside the holder

@@ -20,6 +20,10 @@ import (
 // Dashboard action tests (sprint chunk 09): a real daemon on ephemeral loopback ports,
 // temporary state, synthetic sessions and a patched launcher.
 
+// undoSchemaTwelve turns a schema 12 database without participant inboxes back into
+// schema 11 for migration tests.
+const undoSchemaTwelve = `DROP TABLE participant_fences; ALTER TABLE sessions DROP COLUMN acked_by; ALTER TABLE memory_cursors DROP COLUMN actor; ALTER TABLE work_events DROP COLUMN actor; `
+
 // undoSchemaEleven turns a schema 11 database with roleless participants back into
 // schema 10 for migration tests.
 const undoSchemaEleven = `DROP TABLE participant_events; DROP INDEX names_participant;
@@ -474,7 +478,7 @@ func TestSchemaSixMigrationAndRollback(t *testing.T) {
 	}
 	// A schema 6 database that already holds the name maintainer cannot migrate: the
 	// whole step rolls back and the database stays at 6.
-	if _, err := s.db.Exec(undoSchemaEleven + undoSchemaTen + undoSchemaNine + undoSchemaEight + undoSchemaSeven + `INSERT INTO names(name,kind,family,session_id) VALUES ('maintainer','peer','codex','x'); PRAGMA user_version=6`); err != nil {
+	if _, err := s.db.Exec(undoSchemaTwelve + undoSchemaEleven + undoSchemaTen + undoSchemaNine + undoSchemaEight + undoSchemaSeven + `INSERT INTO names(name,kind,family,session_id) VALUES ('maintainer','peer','codex','x'); PRAGMA user_version=6`); err != nil {
 		t.Fatal(err)
 	}
 	s.db.Close()
@@ -719,7 +723,8 @@ func TestAliasSendAuditNamesTheRecipient(t *testing.T) {
 	}
 	var id int64
 	d.store.db.QueryRow(`SELECT id FROM messages WHERE sender_family='maintainer'`).Scan(&id)
-	want := "to " + b.Name + " bytes 9 message " + strconv.FormatInt(id, 10) + " via " + b.Alias
+	// A send to an address reaches the participant, which the record names (chunk 03).
+	want := "to " + b.Alias + " bytes 9 message " + strconv.FormatInt(id, 10)
 	if record := auditAll(t, d.store)[0]; record.Target != want {
 		t.Fatalf("target %q, want %q", record.Target, want)
 	}

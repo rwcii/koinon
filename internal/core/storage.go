@@ -24,6 +24,9 @@ var (
 	// islanded. ErrLaunchPending refuses a background job before its job ID is recorded.
 	ErrNotLaunched   = Refusal{"not_launched", "start this agent with koinon <family>; a direct start is not registered"}
 	ErrLaunchPending = Refusal{"launch_pending", "the background launch has not recorded its job yet; call again"}
+	// ErrStaleHolder refuses a call that acts for a participant from a session that does
+	// not hold it, such as a former holder after a change of holder.
+	ErrStaleHolder = Refusal{"stale_holder", "this session does not hold that participant; another session holds it now"}
 )
 
 // The daemon-wide physical bound (docs/PARITY-MEMORY-DESIGN.md, "Storage bound"), for the one
@@ -133,10 +136,22 @@ type writeTx struct {
 // starts the transaction.
 func (s *Store) begin(ctx context.Context, class writeClass) (*writeTx, error) {
 	s.storage.mu.Lock()
+	// Refuse a stale participant before admission can reclaim or maintenance can write.
+	if err := s.checkParticipantCall(ctx); err != nil {
+		s.storage.mu.Unlock()
+		return nil, err
+	}
 	tx, err := s.enter(ctx, class)
 	if err != nil {
 		s.storage.mu.Unlock()
 		return nil, err
+	}
+	if m, guarded := ctx.Value(participantCallKey{}).(MemoryCaller); guarded {
+		if err := s.requireParticipantCaller(ctx, tx, m); err != nil {
+			tx.Rollback()
+			s.storage.mu.Unlock()
+			return nil, err
+		}
 	}
 	return &writeTx{Tx: tx, s: s, ctx: ctx, class: class}, nil
 }

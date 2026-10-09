@@ -8,8 +8,8 @@ import (
 )
 
 // workRoutes adds the work API: one route per wire operation. The store is the caller's
-// recorded repository; the consumer is the caller's session key unless the request names
-// a stable consumer.
+// recorded repository; the consumer defaults to its held participant or native session
+// key. Explicit participant consumers require the current native holder too.
 func (d *Daemon) workRoutes(mux *http.ServeMux) {
 	d.checkoutRoutes(mux)
 	for _, op := range WorkOperations() {

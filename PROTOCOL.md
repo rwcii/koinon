@@ -19,8 +19,8 @@ Never put a secret, runtime session identifier or response body in a repository.
 | `POST /v1/peers` | Each session's `name`, held `alias`, `family`, `state`, `repository`, optional `role` and `address`, and true-only `holds_address` and `subagent`, for an active caller; never a wake target, directory or session ID. |
 | `POST /v1/peers/status` | Resolve a published peer name or held alias and read public identity plus observed model, context and activity for an active caller. |
 | `POST /v1/messages/send` | Store one message for the session that a peer name or alias names. |
-| `POST /v1/inbox/read` | Read the caller's own inbox after a sequence number. |
-| `POST /v1/inbox/ack` | Acknowledge the caller's own inbox through a sequence number. |
+| `POST /v1/inbox/read` | Read session and held participant inboxes after their independent sequences. |
+| `POST /v1/inbox/ack` | Acknowledge handled session and held participant messages through independent sequences. |
 | `POST /v1/messages/outcome` | Read the delivery and acknowledgement state of a message the caller sent. |
 | `POST /v1/wake/agy-stop` | Offer a due notice for this Antigravity conversation at its native Stop boundary. |
 | `POST /v1/launches` | Retain a launcher target and return its generated launch ID. |
@@ -116,28 +116,51 @@ retention bounds. The dashboard shows the conflict and last event. Its bounded p
 lookup contains at most 1,000 participants; sessions outside that lookup still show their
 role, address and holder flag.
 
-Address sends still enter the selected session's inbox. Choosing another holder does not move
-messages, memory cursors or work claims, or retire the former holder. These remain with their
-current session owners.
+Schema 12 gives each participant the key `participant:<address>`. An address send enters
+that participant's inbox, represented by an internal `sessions` row with that ID which never
+expires and is excluded from agent listings, counts and qualifiers. Native IDs with the
+`participant:` prefix are refused. Exact peer-name sends keep their native recipient.
+Holder changes retire an active former holder and record a persistent fence in the same
+transaction. A fenced session can register again as a native peer but is never a qualifier;
+only the maintainer's dashboard choice removes its fence. A holder defaults to the
+participant consumer for memory and work. Every participant call validates the current
+native holder, family and repository, including explicit consumer keys, read paths and
+stored retries, before returning a replay or writing. Refusals use `stale_holder` (409).
+Split memory/work calls serialize against holder changes, and each write transaction checks
+its native caller again. The successor continues participant inbox acknowledgements, memory
+cursors and live claims with their existing generations and deadlines.
+Pre-upgrade messages, acknowledgements, peer-name cursors and native-session claims keep
+their original owners; migration does not transfer them to the participant.
 
 Message calls name their `caller` as `{"family": ..., "id": ...}`; the caller must be an active
 session, or the call fails with `caller_inactive`. A caller reads and acknowledges only its own
-inbox and reads only the outcome of its own messages; another sender's message reads as
+native inbox and its currently held participant inbox. It reads only outcomes of messages
+its native session sent; another sender's message reads as
 `message_not_found`.
 
 - Send takes `caller`, `to` (a peer name or alias) and `body` (1–65,536 bytes of UTF-8; the
   request may be up to 6 × 64 KiB + 4 KiB, for JSON escaping). The message, the sender's session
-  and peer name, and the next sequence number of the receiving inbox are stored in one
+  and sender name (participant address while held, otherwise peer name), and the next
+  sequence number of the receiving inbox are stored in one
   transaction; sequence numbers per inbox are gapless and ordered. The reply's `message` carries
-  `id`, the receiving `recipient` peer name, `seq` and `delivery_state`. Errors:
+  `id`, the receiving `recipient` peer name or participant address, `seq` and `delivery_state`. Errors:
   `peer_not_found` (404) for an unknown name, `alias_unheld` (409) for an alias with no active
   holder, `recipient_inactive` (409) for an expired or retired recipient.
-- Read takes `caller`, `after` (default 0) and `limit` (1–100, default 50). The reply's `inbox`
-  holds `messages` in sequence order, `last_seq`, `acked_through` and `more`; a page stops after
-  about 1 MiB of bodies. Each message has `id`, `seq`, `sender_family`, `sender_name`, `body`,
+- Read takes `caller`, `after` and optional `participant_after` (both default 0), and
+  `limit` (1–100, default 50) per inbox. The reply's `inbox` has `messages`, `last_seq`,
+  `acked_through` and `more` for the session; while a participant is held it adds
+  `participant: {address, last_seq, acked_through, more}`. Messages are ordered within each
+  inbox, session first then participant, and tagged `inbox: session|participant`. Each inbox
+  page stops after about 1 MiB of bodies. Track and page both independent sequences;
+  an explicit `participant_after` without a held participant returns `stale_holder`.
+  Each message has `id`, `seq`, `sender_family`, `sender_name`, `body`,
   `created_at`, `delivery_state`, `delivery_reason`, `acknowledged` and, for an acknowledged
   message, `acknowledged_by`: `recipient` or `maintainer`.
-- Acknowledge takes `caller` and `through`. Acknowledgement only moves forward: an earlier
+- Acknowledge takes `caller`, `through` (default 0) and optional `participant_through`.
+  The reply adds `participant: {address, acked_through}` when it acknowledges that inbox;
+  `sessions.acked_by` records the acting native session (`FAMILY:ID`). Without a held
+  participant, an explicit participant acknowledgement returns `stale_holder` before either
+  inbox changes. Each inbox's acknowledgement only moves forward: an earlier
   sequence leaves `acked_through` unchanged, and a sequence beyond the last fails with
   `ack_beyond_last` (409). A message is acknowledged when its `seq` is at most `acked_through`.
 - Outcome takes `caller` and `message_id` and returns `id`, `recipient`, `seq`, `delivery_state`,
@@ -200,7 +223,9 @@ the maximum backoff ahead. Acknowledgement and withdrawal share the submission b
 an acknowledgement committed before submission is never included. Provider calls have a
 3-second deadline bounded by session expiry. No peer body or provider output enters a notice.
 
-Each notice names only the quoted native family/ID inbox and its sequence range. Codex uses
+Each notice names only the quoted family/ID inbox and its sequence range. A participant
+notice names `participant:<address>` and is delivered to its current active holder's native
+wake endpoint; without one its messages wait. Codex uses
 the configured absolute CLI with `queue --thread ID --message NOTICE`. Claude requires a
 same-user registry record matching its native session ID and CLI entrypoint, the status
 `idle` or `shell` (the prompt with a background shell task running; the session takes the
@@ -276,9 +301,11 @@ The daemon holds one memory store per Git common directory: the store of a reque
 repository that the daemon recorded for the calling session, so every worktree and
 subdirectory of a repository share one store. A session without a repository gets
 `repo_unresolved`. Each request names its `caller`, which must be active, and an optional
-`consumer` (1–128 characters, a stable cursor name that defaults to the caller's peer name; it
-names a cursor, never an identity). Provenance is the caller's family and peer name
-(`writer_family`, `writer_name`).
+`consumer` (1–128 characters). A holder defaults to `participant:<address>`; a non-holder
+keeps its peer-name cursor. Explicit participant consumers also require their current native
+holder; other custom keys remain asserted provenance. Entries record the caller's family and
+peer name (`writer_family`, `writer_name`). Participant cursors additionally retain `actor`
+(`FAMILY:ID`) for their latest caller mutation, shown with each consumer in `status`.
 
 The operations are `record`, `sync`, `ack`, `recall` and `status`. Entry fields, types, scopes,
 limits, supersession and revocation follow contract 4 of
@@ -337,11 +364,16 @@ is a route: `POST /v1/work/work-create`, `work-get`, `work-list`, `work-propose`
 `work-start`, `work-update`, `work-release`, `work-finish` and `claim-renew`. A request names
 its `caller` and the fields of the commands table; unknown fields are refused, and types are
 strict (a boolean is not an integer, times are finite numbers). The optional `consumer` (1–128
-characters) names a stable key; without it the consumer is the caller's session key
-`FAMILY:ID`, not its peer name, which a successor can inherit, so a replacement session must
-respect its predecessor's lease. Results are `{"ok": true, "result": ...}`; a refusal carries
+characters) names a stable key. A holder defaults to `participant:<address>`; a non-holder
+uses its native `FAMILY:ID`. Only the current holder may use a participant consumer, including
+an explicit one, for any operation or keyed retry. A successor continues the same participant
+claim generation and deadlines; existing native-session claims keep their owners and leases. Results are `{"ok": true, "result": ...}`; a refusal carries
 its code and, for `claim_conflict` (holder, generation, expiry, resource) and
 `revision_conflict` (current revision), bounded `details`.
+
+Each work event records `actor` (`FAMILY:ID`) next to its consumer, stored in
+`work_events.actor` and returned with work events in memory deltas. Historical events and
+daemon maintenance without a native caller keep an empty actor.
 
 Work IDs are 32 lowercase hexadecimal characters from a per-store counter that never
 decreases. Every observable mutation and due transition writes, in one transaction, the item,
@@ -390,7 +422,10 @@ stopped editing. Writers explicitly include the resource in `work-start`.
 
 `POST /v1/work/checkout-request` takes the same fields plus optional string `note` (up to
 1,024 UTF-8 bytes). It sends an ordinary inert `checkout_writer_request` JSON message to
-the currently observed native writer, including resource, work ID and generation; its
+the current native writer, including resource, work ID and generation. A participant
+consumer resolves only to the active holder of that address in the same repository; an
+unheld participant has no peer. The holder is re-read inside the send transaction, and the
+current holder's own request is refused with `invalid_request`. Its
 result carries `checkout` and `message` outcome. It changes no ownership. An unheld role
 refuses with `checkout_unheld`; an unaddressable custom consumer with `writer_unaddressable`.
 Request delivery follows the existing content-free wake and acknowledgement protocol.
@@ -414,7 +449,7 @@ lease engine, schema, filesystem enforcement or permission grant is introduced.
 versions `2025-06-18`, `2025-03-26` and `2024-11-05`; another requested version gets
 `2025-06-18`), `ping`, `tools/list` and `tools/call`. Other methods get error -32601; a message
 longer than 1 MiB gets -32700. Its tools are `peers`, `send` (`to`, `body`), `inbox` (`after`,
-`limit`), `ack` (`through`) and `delivery` (`message_id`), and `memory_status`, `memory_sync`,
+`participant_after`, `limit`), `ack` (`through`, `participant_through`) and `delivery` (`message_id`), and `memory_status`, `memory_sync`,
 `memory_ack`, `memory_record` and `memory_recall` with the fields of the memory routes, and
 `work_create`, `work_get`, `work_list`, `work_propose`, `work_edit`, `work_start`, `work_update`,
 `work_release`, `work_finish` and `claim_renew` with the fields of the work routes, which call
@@ -545,8 +580,9 @@ from elsewhere. Peer message bodies appear here, escaped, and nowhere else outsi
     `revision_changed`; an inactive session returns `session_not_active`; a sub-agent or a
     session of another participant returns `not_participant`. Invalid fields return
     `invalid_request`. The choice is a control write, records `maintainer_choice` with the
-    former/new holders, and is audited. It leaves the former session active and its state
-    unchanged. The success notice is `participant_chosen`.
+    former/new holders, and is audited. It retires an active former holder, persistently
+    fences it and lifts the chosen session's fence in the same transaction. Participant
+    inboxes, cursors and claims retain their state. The success notice is `participant_chosen`.
   - `retire` (`family`, `id`, `revision`): the existing retirement; a changed revision is
     `revision_changed`, a session that is not active `session_not_active`, and the maintainer
     session `maintainer_session`.

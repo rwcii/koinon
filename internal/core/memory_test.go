@@ -125,7 +125,7 @@ func TestMemoryStorePerRepositoryAndWorktree(t *testing.T) {
 		return m
 	}
 	a, b, c := register("synthetic-a", repo, repo), register("synthetic-b", repo+"-tree", repo+"-tree"), register("synthetic-c", other, other)
-	if a.Repository != b.Repository || a.Repository == c.Repository || a.Consumer != a.Name {
+	if a.Repository != b.Repository || a.Repository == c.Repository || a.Consumer != participantKey(sessionState(t, s, a.Native).Address) || b.Consumer != b.Name || c.Consumer != participantKey(sessionState(t, s, c.Native).Address) {
 		t.Fatalf("stores: %+v %+v %+v", a, b, c)
 	}
 	note(t, s, a, MemoryRecordRequest{Body: "shared"})
@@ -742,7 +742,7 @@ func TestMemoryAPIAndMigration(t *testing.T) {
 		t.Fatalf("recover: %d %v", status, result)
 	}
 	data, err := GetStatus(context.Background(), address, secret)
-	if err != nil || !strings.Contains(string(data), `"schema":11`) || !strings.Contains(string(data), `"max_pages"`) {
+	if err != nil || !strings.Contains(string(data), `"schema":12`) || !strings.Contains(string(data), `"max_pages"`) {
 		t.Fatalf("daemon status: %s %v", data, err)
 	}
 }
