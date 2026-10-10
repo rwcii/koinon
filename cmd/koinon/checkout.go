@@ -54,7 +54,7 @@ func checkoutCommand(ctx context.Context, args []string, out io.Writer) error {
 		if note != nil {
 			body["note"] = *note
 		}
-		secret, err := core.ClientSecret(*state)
+		secret, err := core.ClientSecret(*state, *address)
 		if err != nil {
 			return err
 		}

@@ -206,9 +206,12 @@ session. The equivalent manual command is `koinon serve --state-dir STATE`; term
 owned process gracefully when finished. There is one daemon, not a bridge/notifier pair.
 Until a daemon has started with the state directory, launchers and command clients refuse
 with `no daemon has started with state directory STATE`. When the daemon has stopped, a
-launcher refuses with `no daemon answers at ADDRESS`. Both refusals name the two ways to
-start it: `koinon install` from a login session, or `koinon serve --state-dir STATE` in a
-persistent managed session. The launcher does not start the agent.
+launcher refuses with `no daemon answers at ADDRESS`. The launcher does not start the agent.
+Both refusals name how to start the daemon with that state directory, shell-quoted: at the
+default address, `koinon install --state-dir STATE` from a login session or `koinon serve
+--state-dir STATE` in a persistent managed session. The installed service listens only on the
+default address, so at another address the refusal names only `koinon serve --state-dir STATE
+--listen IPV4 --listen-v6 IPV6`, with the address and the other loopback family on its port.
 Do not use sudo, system services, lingering or permission changes to work around a refusal.
 
 ## Configuration and agent access

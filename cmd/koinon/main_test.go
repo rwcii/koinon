@@ -68,7 +68,8 @@ func TestServeStatusAndShutdown(t *testing.T) {
 	}
 	never := filepath.Join(t.TempDir(), "never-started")
 	if err := run(context.Background(), []string{"status", "--state-dir", never, "--address", status.Listeners[0]}, nil, &out); err == nil ||
-		!strings.HasPrefix(err.Error(), "no daemon has started with state directory "+never+"; start it with koinon install") {
+		err.Error() != "no daemon has started with state directory "+never+"; start it with koinon serve --state-dir "+never+
+			" --listen "+status.Listeners[0]+" --listen-v6 '[::1]:"+status.Listeners[0][strings.LastIndex(status.Listeners[0], ":")+1:]+"' in a persistent managed session" {
 		t.Fatalf("state without a daemon: %v", err)
 	}
 	secret, _ := os.ReadFile(filepath.Join(root, "secret"))

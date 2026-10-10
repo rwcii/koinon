@@ -39,7 +39,7 @@ func dashboardCommand(ctx context.Context, args []string, out io.Writer) error {
 	if err := flags.Parse(args); err != nil || flags.NArg() != 0 {
 		return errors.New("invalid command options; use koinon --help")
 	}
-	secret, err := core.ClientSecret(*state)
+	secret, err := core.ClientSecret(*state, *address)
 	if err != nil {
 		return err
 	}

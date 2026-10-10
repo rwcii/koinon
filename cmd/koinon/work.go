@@ -154,7 +154,7 @@ func workCommand(ctx context.Context, args []string, out io.Writer) error {
 	if *consumer != "" {
 		body["consumer"] = *consumer
 	}
-	secret, err := core.ClientSecret(*state)
+	secret, err := core.ClientSecret(*state, *address)
 	if err != nil {
 		return err
 	}
