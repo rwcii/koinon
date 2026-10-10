@@ -336,11 +336,13 @@ func TestDashboardViewsRenderSyntheticState(t *testing.T) {
 	if err := os.Mkdir(sub, 0700); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := s.Register(ctx, withLaunch(t, s, Registration{Family: "claude", ID: "synthetic-sub", Directory: sub, TTLSeconds: 60})); err != nil {
+	standalone, err := s.Register(ctx, withLaunch(t, s, Registration{Family: "claude", ID: "synthetic-sub", Directory: sub, TTLSeconds: 60}))
+	if err != nil {
 		t.Fatal(err)
 	}
 	if err := s.Observe(ctx, Observation{Caller: Key{"claude", "synthetic-sub"}, Terminal: &ObservedValue{Source: "tmux_env",
-		At: s.now().UnixMilli(), Socket: "/tmp/tmux-synthetic/default", Pane: "%5", Session: "synthetic-work", Naming: "name_taken"}}); err != nil {
+		At: s.now().UnixMilli(), Socket: "/tmp/tmux-synthetic/default", Pane: "%5", Session: "synthetic-work", Naming: "renamed"},
+		Naming: &ObservedValue{Source: "koinon_mcp", At: s.now().UnixMilli(), Naming: "name_taken", Target: standalone.Name}}); err != nil {
 		t.Fatal(err)
 	}
 	hostile := `<script>alert("x")</script> <a href="javascript:alert(1)">link</a> 'quote' & more`
@@ -378,7 +380,10 @@ func TestDashboardViewsRenderSyntheticState(t *testing.T) {
 	}
 	sessions := page("/dashboard/sessions")
 	contains(sessions, a.Name, b.Name, retired.Name, "state-retired", repo, "Synthetic held item &lt;b&gt;bold&lt;/b&gt;", held,
-		"directory "+sub, "synthetic-work <code>%5</code>", "tmux_env, ", "naming: name_taken", "unknown: not_observed")
+		"directory "+sub, "synthetic-work <code>%5</code>", "tmux_env, ", "naming: name_taken", NamingReason("name_taken"), "unknown: not_observed")
+	if strings.Contains(sessions, "naming: renamed") {
+		t.Fatal("legacy terminal naming shown instead of the independent naming result")
+	}
 	if strings.Contains(sessions, "More sessions") {
 		t.Fatal("a single page links to more")
 	}

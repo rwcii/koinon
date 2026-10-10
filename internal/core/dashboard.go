@@ -35,6 +35,7 @@ type dashboardPage struct {
 
 func dashboardTemplates() (map[string]*template.Template, error) {
 	funcs := template.FuncMap{
+		"namingReason": NamingReason,
 		"ms": func(v int64) string {
 			if v == 0 {
 				return "—"

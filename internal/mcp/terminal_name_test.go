@@ -24,9 +24,18 @@ type namingFixture struct {
 	socket string
 	mu     sync.Mutex
 	agents map[int]bool // processes that the synthetic Command reports as Claude Code
+	// attach holds the short ID of each process that Command reports as `claude attach`.
+	attach map[int]string
 }
 
 func newNamingFixture(t *testing.T) *namingFixture {
+	t.Helper()
+	return newNamingFixtureAt(t, "s")
+}
+
+// newNamingFixtureAt starts the private server at socket, a path relative to a new
+// temporary directory, which TMUX_TMPDIR can name.
+func newNamingFixtureAt(t *testing.T, socket string) *namingFixture {
 	t.Helper()
 	tmux, err := exec.LookPath("tmux")
 	if err != nil {
@@ -40,7 +49,10 @@ func newNamingFixture(t *testing.T) *namingFixture {
 	if err != nil {
 		t.Fatal(err)
 	}
-	f := &namingFixture{t: t, socket: filepath.Join(dir, "s"), agents: map[int]bool{}}
+	f := &namingFixture{t: t, socket: filepath.Join(dir, socket), agents: map[int]bool{}, attach: map[int]string{}}
+	if err := os.MkdirAll(filepath.Dir(f.socket), 0700); err != nil {
+		t.Fatal(err)
+	}
 	t.Cleanup(func() { exec.Command(tmux, "-S", f.socket, "kill-server").Run(); os.RemoveAll(dir) })
 	// The first session starts the server without reading any user configuration.
 	if out, err := exec.Command(tmux, "-S", f.socket, "-f", "/dev/null", "new-session", "-d", "-s", "keeper", "sleep 300").CombinedOutput(); err != nil {
@@ -125,6 +137,9 @@ func (f *namingFixture) agent(pid int) {
 func (f *namingFixture) command(pid int) (string, []string, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
+	if short, ok := f.attach[pid]; ok {
+		return "/opt/synthetic/claude/versions/1.0.0", []string{"claude", "attach", short}, nil
+	}
 	if f.agents[pid] {
 		return "/opt/synthetic/claude/versions/1.0.0", []string{"claude"}, nil
 	}
@@ -219,7 +234,8 @@ func TestTerminalNamedAgainWhenAliasChanges(t *testing.T) {
 	s := f.server(f.env(p))
 	s.claude = true
 	caller := core.Key{Family: "claude", ID: "synthetic-claude"}
-	target, _ := json.Marshal(map[string]any{"claude_pid": p.host})
+	target, _ := json.Marshal(map[string]any{"claude_pid": p.host, "launch_id": strings.Repeat("a", 64)})
+	unlaunched, _ := json.Marshal(map[string]any{"host_pid": p.host})
 	result := func(want string) {
 		t.Helper()
 		deadline := time.Now().Add(10 * time.Second)
@@ -228,7 +244,7 @@ func TestTerminalNamedAgainWhenAliasChanges(t *testing.T) {
 			busy := s.naming[caller]
 			s.mu.Unlock()
 			s.obs.mu.Lock()
-			got := s.obs.naming[caller]
+			got := s.obs.naming[caller].result
 			s.obs.mu.Unlock()
 			if !busy && got == want {
 				return
@@ -256,10 +272,10 @@ func TestTerminalNamedAgainWhenAliasChanges(t *testing.T) {
 		t.Fatalf("alias: %q", f.sessionName(p))
 	}
 
-	// A session whose terminal the daemon does not attribute is never named: an unlaunched
-	// Codex session, and a Claude session whose server is not the child of Claude.
+	// A session that registered without a launch record is never named, nor a Claude
+	// session whose server is not the child of Claude.
 	codex := core.Key{Family: "codex", ID: "synthetic-codex"}
-	s.nameAfterRegistration(codex, core.Session{Family: "codex", Name: "codex-koinon-1a", WakeTarget: target})
+	s.nameAfterRegistration(codex, core.Session{Family: "codex", Name: "codex-koinon-1a", WakeTarget: unlaunched})
 	s.claude = false
 	s.nameAfterRegistration(core.Key{Family: "claude", ID: "synthetic-other"}, core.Session{Family: "claude", Name: "claude-koinon-2b", WakeTarget: target})
 	time.Sleep(200 * time.Millisecond)
@@ -268,5 +284,59 @@ func TestTerminalNamedAgainWhenAliasChanges(t *testing.T) {
 	s.mu.Unlock()
 	if attempts != 1 || f.sessionName(p) != "claude-koinon" {
 		t.Fatalf("an unattributed session was named: %d attempts, %q", attempts, f.sessionName(p))
+	}
+}
+
+// TestTerminalNamingLeavesHostHolderName covers the threads of one Codex host after
+// /clear (#228): a sub-agent and a former holder share the holder's terminal and rename
+// nothing; only a non-holder without a holding host-mate names the terminal after itself.
+func TestTerminalNamingLeavesHostHolderName(t *testing.T) {
+	f := newNamingFixture(t)
+	p := f.newSession("start")
+	s := f.server(f.env(p))
+	target, _ := json.Marshal(map[string]any{"host_pid": p.host, "launch_id": strings.Repeat("b", 64)})
+	settle := func(caller core.Key) {
+		t.Helper()
+		deadline := time.Now().Add(10 * time.Second)
+		for time.Now().Before(deadline) {
+			s.mu.Lock()
+			busy := s.naming[caller]
+			s.mu.Unlock()
+			if !busy {
+				return
+			}
+			time.Sleep(20 * time.Millisecond)
+		}
+		t.Fatal("naming did not finish")
+	}
+	holder := core.Key{Family: "codex", ID: "synthetic-holder"}
+	s.nameAfterRegistration(holder, core.Session{Family: "codex", Name: "codex-klc-2c", Address: "codex-klc",
+		Alias: "codex-klc", HoldsAddress: true, WakeTarget: target})
+	settle(holder)
+	if f.sessionName(p) != "codex-klc" {
+		t.Fatalf("holder: %q", f.sessionName(p))
+	}
+	subagent := core.Key{Family: "codex", ID: "synthetic-subagent"}
+	s.nameAfterRegistration(subagent, core.Session{Family: "codex", Name: "codex-klc-23", Subagent: true,
+		HostHolder: true, WakeTarget: target})
+	former := core.Key{Family: "codex", ID: "synthetic-former"}
+	s.nameAfterRegistration(former, core.Session{Family: "codex", Name: "codex-klc-7c", Address: "codex-klc",
+		Fenced: true, HostHolder: true, WakeTarget: target})
+	// A sub-agent never names, also when no session of its host holds an address.
+	alone := core.Key{Family: "codex", ID: "synthetic-alone-subagent"}
+	s.nameAfterRegistration(alone, core.Session{Family: "codex", Name: "codex-klc-5e", Subagent: true, WakeTarget: target})
+	time.Sleep(200 * time.Millisecond)
+	s.mu.Lock()
+	attempts := len(s.named)
+	s.mu.Unlock()
+	if attempts != 1 || f.sessionName(p) != "codex-klc" {
+		t.Fatalf("a host-mate renamed the holder's terminal: %d attempts, %q", attempts, f.sessionName(p))
+	}
+	// Once no host-mate holds an address, a fenced session names the terminal after itself.
+	s.nameAfterRegistration(former, core.Session{Family: "codex", Name: "codex-klc-7c", Address: "codex-klc",
+		Fenced: true, WakeTarget: target})
+	settle(former)
+	if f.sessionName(p) != "codex-klc-7c" {
+		t.Fatalf("fenced session without a holding host-mate: %q", f.sessionName(p))
 	}
 }

@@ -87,7 +87,8 @@ maintainer's sessions, Codex or Claude configuration, or services.
   records. `thread_source` `subagent` registers without a participant.
 - **Naming (criteria 7, 8).** On a private tmux server: one agent pane renames its session to the
   address; two agent panes set only the own pane title; a nested agent and a foreign pane rename
-  nothing; a taken name reports `name_taken`, overwrites nothing, and is renamed at a later
+  nothing; a Codex sub-agent, and a non-holder while another session of its host holds an
+  address, rename nothing; a taken name reports `name_taken`, overwrites nothing, and is renamed at a later
   renewal after the other session is gone; outside tmux nothing happens. A synthetic Claude
   background job (no `TMUX`) with a `claude attach <short ID>` client process in a private tmux
   pane gets that pane named; a client whose short ID does not match the job's session ID, and two

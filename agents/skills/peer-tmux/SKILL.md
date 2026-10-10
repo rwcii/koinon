@@ -32,6 +32,18 @@ agent process or terminal identity. A retained alias/name or directory alone is 
 when several sessions share the repository. If ambiguous, ask the maintainer which pane before
 typing. MCP discovery provides observed native sessions; never read credentials to identify one.
 
+Use discovery's participant address, role, holder flag and fresh naming result as context.
+A launched agent names its session after its held address, else its peer name; another agent
+in the same tmux session makes it title only its own pane. A taken name is retried at renewals.
+Naming does not replace the process and prompt verification above. Outside tmux it reports
+`not_in_tmux`. A Claude background job searches the user's tmux socket directory for the pane
+of its `claude attach SHORT_JOB_ID` client: no client reports `attach_pane_not_found` and retries;
+multiple clients report `attach_pane_ambiguous` and rename nothing. Servers outside
+`$TMUX_TMPDIR/tmux-<uid>` (else `/tmp/tmux-<uid>`) are not searched. A naming result for an old
+published name or without confirmation for two minutes is omitted from peers; the dashboard
+shows `naming_outdated` or `observation_stale`. Rediscover the target rather than assuming a
+terminal name stayed the same across a holder change.
+
 ## Commands by agent
 
 Identify the target's family before typing: the agent process in the pane (`claude`, `codex`)
@@ -54,8 +66,9 @@ for the syntax; do not guess and do not fall back to prose.
 
 What a reset keeps:
 
-- **Claude `/clear`.** The process and pane stay; the native session key changes, so
-  rediscover the Koinon session rather than assuming its old peer name stayed.
+- **Claude `/clear`.** The process and pane stay. The transcript changes, but the running MCP
+  server keeps its first native session ID, so Koinon sees one continuous session (live check F3
+  in `docs/sprints/2026-10-08-participants/live-checks.md`). Rediscover its current status.
 - **Codex `/clear`.** The process and pane stay, and the thread changes: `CODEX_THREAD_ID` is
   new; its first configured MCP call registers the current native session. `/resume` in the same process can
   switch back to the old thread. Do not use `/new`: it starts a separate session with its own

@@ -238,8 +238,19 @@ func hostOf(ctx context.Context, tx *sql.Tx, family, id string) (host, error) {
 	return h, err
 }
 
+// hostHolder reports whether another active session of k's host holds a participant
+// address. That session names the host's terminal, so k does not (#228).
+func hostHolder(ctx context.Context, tx *sql.Tx, now int64, k Key) (bool, error) {
+	h, err := hostOf(ctx, tx, k.Family, k.ID)
+	if err != nil {
+		return false, err
+	}
+	return holdsElsewhere(ctx, tx, now, k, h, "")
+}
+
 // holdsElsewhere reports whether another active session of S's host holds a participant
-// other than address: the host's evidence belongs to that participant, not to S's.
+// other than address: the host's evidence belongs to that participant, not to S's. An empty
+// address matches every participant.
 func holdsElsewhere(ctx context.Context, tx *sql.Tx, now int64, k Key, h host, address string) (bool, error) {
 	if h.start == 0 {
 		return false, nil

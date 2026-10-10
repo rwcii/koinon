@@ -3,6 +3,8 @@ package mcp
 import (
 	"context"
 	"encoding/json"
+	"io/fs"
+	"os"
 	"os/exec"
 	"path/filepath"
 	"regexp"
@@ -11,11 +13,13 @@ import (
 	"time"
 
 	"github.com/rwcii/koinon/internal/core"
+	"github.com/rwcii/koinon/internal/platform"
 )
 
 // Terminal naming (#156). After a registration or renewal, this server names its session's
 // own tmux session after the session's published name: its alias while it holds one, else
-// its peer name. TMUX and TMUX_PANE only select the server and a candidate pane; the pane is
+// its peer name. A sub-agent never names, nor does a non-holder while another session of its
+// host holds a participant address. TMUX and TMUX_PANE only select the server and a candidate pane; the pane is
 // the session's own only when its process is the session's host process or an ancestor of
 // it, with no other agent process between them. The session and the pane are targeted by
 // ID, never by name.
@@ -30,10 +34,18 @@ const (
 var tmuxName = regexp.MustCompile(`^[a-z0-9][a-z0-9-]{0,127}$`)
 
 // Results of one naming attempt. A result marked final is not tried again until the
-// published name changes; the others are tried again at the next renewal.
+// published name changes; the others, such as name_taken and attach_pane_not_found, are
+// tried again at the next renewal.
 var namingFinal = map[string]bool{
-	"renamed": true, "unchanged": true, "pane_titled": true, "name_taken": true,
+	"renamed": true, "unchanged": true, "pane_titled": true, "attach_pane_ambiguous": true,
 	"pane_not_host": true, "nested_agent": true, "invalid_name": true, "not_in_tmux": true,
+}
+
+// namingResult is the last naming attempt of a session: its result, the published name it
+// was for, and when it ended.
+type namingResult struct {
+	result, target string
+	at             int64
 }
 
 // RunTmux runs one tmux command on the server at socket. tmux is resolved on PATH, as the
@@ -51,6 +63,20 @@ func published(session core.Session) string {
 		return session.Alias
 	}
 	return session.Name
+}
+
+// launchOf reads what naming needs from the launch record that the daemon recorded for a
+// session: whether it registered with a launch, and whether that launch is a Claude
+// background job.
+func launchOf(session core.Session) (launched, background bool) {
+	var target struct {
+		LaunchID   string `json:"launch_id"`
+		Background bool   `json:"background"`
+	}
+	if json.Unmarshal(session.WakeTarget, &target) != nil || target.LaunchID == "" {
+		return false, false
+	}
+	return true, target.Background
 }
 
 // hostPID is the session's host process from the wake target the daemon recorded: the
@@ -81,10 +107,15 @@ func (s *server) nameAfterRegistration(caller core.Key, session core.Session) {
 		return
 	}
 	s.mu.Lock()
-	// Only the sessions whose terminal the daemon attributes: a Claude session whose
-	// server is the child of its Claude process, and a launched session.
-	attributed := caller.Family == "claude" && s.claude ||
-		caller.Family != "claude" && s.c.Getenv("KOINON_LAUNCH_ID") != ""
+	// Only a session that registered with its launch record is named; a Claude session
+	// also needs this server to be the child of its Claude process.
+	launched, background := launchOf(session)
+	attributed := launched && (caller.Family != "claude" || s.claude)
+	// A sub-agent, and a non-holder whose host another session's held address names, share
+	// that host's terminal and leave its name alone (#228).
+	if session.Subagent || session.HostHolder && !session.HoldsAddress {
+		attributed = false
+	}
 	target := published(session)
 	if !attributed || target == "" || s.named[caller] == target || s.naming[caller] {
 		s.mu.Unlock()
@@ -95,7 +126,12 @@ func (s *server) nameAfterRegistration(caller core.Key, session core.Session) {
 	go func() {
 		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 		defer cancel()
-		result := s.nameTerminal(ctx, hostPID(session), target)
+		var result string
+		if background {
+			result = s.nameAttached(ctx, session.ID, target)
+		} else {
+			result = s.nameTerminal(ctx, hostPID(session), target)
+		}
 		s.mu.Lock()
 		delete(s.naming, caller)
 		if namingFinal[result] {
@@ -104,21 +140,28 @@ func (s *server) nameAfterRegistration(caller core.Key, session core.Session) {
 		s.mu.Unlock()
 		s.obs.mu.Lock()
 		if s.obs.naming == nil {
-			s.obs.naming = map[core.Key]string{}
+			s.obs.naming = map[core.Key]namingResult{}
 		}
-		s.obs.naming[caller] = result
+		s.obs.naming[caller] = namingResult{result: result, target: target, at: s.c.Now().UnixMilli()}
 		// The session name changed; read it again at the next observation.
 		s.obs.checked = time.Time{}
 		s.obs.mu.Unlock()
 	}()
 }
 
-// nameTerminal applies the naming rules for one host process and returns the result.
+// nameTerminal applies the naming rules for one host process in the pane that TMUX and
+// TMUX_PANE select and returns the result.
 func (s *server) nameTerminal(ctx context.Context, host int, name string) string {
+	socket, _, _ := strings.Cut(s.c.Getenv("TMUX"), ",")
+	return s.namePane(ctx, socket, s.c.Getenv("TMUX_PANE"), host, name)
+}
+
+// namePane applies the naming rules for host in the candidate pane of the server at socket.
+func (s *server) namePane(ctx context.Context, socket, pane string, host int, name string) string {
 	if !tmuxName.MatchString(name) {
 		return "invalid_name"
 	}
-	socket, paneID, sessionID, parents, reason := s.hostPane(ctx, host)
+	socket, paneID, sessionID, parents, reason := s.hostPane(ctx, socket, pane, host)
 	if reason != "" {
 		return reason
 	}
@@ -152,9 +195,7 @@ func (s *server) nameTerminal(ctx context.Context, host int, name string) string
 
 // hostPane proves the host is in the selected pane, without renaming anything.
 // Registration and terminal naming share this ancestor check.
-func (s *server) hostPane(ctx context.Context, host int) (socket, paneID, sessionID string, parents map[int]int, reason string) {
-	socket, _, _ = strings.Cut(s.c.Getenv("TMUX"), ",")
-	pane := s.c.Getenv("TMUX_PANE")
+func (s *server) hostPane(ctx context.Context, socket, pane string, host int) (string, string, string, map[int]int, string) {
 	if socket == "" || pane == "" {
 		return "", "", "", nil, "not_in_tmux"
 	}
@@ -166,12 +207,12 @@ func (s *server) hostPane(ctx context.Context, host int) (socket, paneID, sessio
 	if err != nil || len(fields) != 3 {
 		return "", "", "", nil, "tmux_unreadable"
 	}
-	paneID, sessionID = fields[0], fields[2]
+	paneID, sessionID := fields[0], fields[2]
 	panePID, err := strconv.Atoi(fields[1])
 	if err != nil || panePID <= 1 {
 		return "", "", "", nil, "tmux_unreadable"
 	}
-	parents, err = s.c.Parents()
+	parents, err := s.c.Parents()
 	if err != nil {
 		return "", "", "", nil, "process_table_unreadable"
 	}
@@ -200,7 +241,8 @@ func (s *server) registrationPane(ctx context.Context) *core.TmuxPane {
 	}
 	ctx, cancel := context.WithTimeout(ctx, tmuxTimeout)
 	defer cancel()
-	socket, pane, _, _, reason := s.hostPane(ctx, s.c.ParentPID)
+	envSocket, _, _ := strings.Cut(s.c.Getenv("TMUX"), ",")
+	socket, pane, _, _, reason := s.hostPane(ctx, envSocket, s.c.Getenv("TMUX_PANE"), s.c.ParentPID)
 	if reason != "" || !filepath.IsAbs(socket) || filepath.Clean(socket) != socket || len(socket) > 4096 ||
 		strings.ContainsFunc(socket, func(r rune) bool { return r < 0x20 || r == 0x7f }) || !registrationPaneID.MatchString(pane) {
 		return nil
@@ -209,6 +251,102 @@ func (s *server) registrationPane(ctx context.Context) *core.TmuxPane {
 }
 
 var registrationPaneID = regexp.MustCompile(`^%[0-9]{1,9}$`)
+
+// nameAttached names the terminal of a Claude background job (koinon claude --bg), whose
+// server has no TMUX: the pane of the job's attach client. It searches the panes of every
+// tmux server in this user's socket directory for a `claude attach <short ID>` process,
+// where the short ID is the first eight characters of the job's session ID, and applies the
+// naming rules with that client as the host. Servers outside that directory are not searched.
+func (s *server) nameAttached(ctx context.Context, sessionID, name string) string {
+	if !tmuxName.MatchString(name) {
+		return "invalid_name"
+	}
+	if len(sessionID) < 8 {
+		return "attach_pane_not_found"
+	}
+	short := sessionID[:8]
+	dir := platform.TmuxSocketDir(s.c.Getenv)
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		return "attach_pane_not_found"
+	}
+	parents, err := s.c.Parents()
+	if err != nil {
+		return "process_table_unreadable"
+	}
+	children := map[int][]int{}
+	for pid, parent := range parents {
+		children[parent] = append(children[parent], pid)
+	}
+	type match struct {
+		socket, pane string
+		client       int
+	}
+	var found []match
+	for _, entry := range entries {
+		if entry.Type()&fs.ModeSocket == 0 {
+			continue
+		}
+		socket := filepath.Join(dir, entry.Name())
+		out, err := s.c.Tmux(ctx, socket, "list-panes", "-a", "-F", "#{pane_id}\t#{pane_pid}")
+		if err != nil {
+			// A socket whose server has ended.
+			continue
+		}
+		for _, line := range strings.Split(strings.TrimRight(out, "\n"), "\n") {
+			if line == "" {
+				continue
+			}
+			fields := strings.Split(line, "\t")
+			root, err := 0, error(nil)
+			if len(fields) == 2 {
+				root, err = strconv.Atoi(fields[1])
+			}
+			if len(fields) != 2 || err != nil || !registrationPaneID.MatchString(fields[0]) {
+				return "tmux_unreadable"
+			}
+			queue := []int{root}
+			for seen := 0; len(queue) > 0; seen++ {
+				if seen >= maxPaneProcesses {
+					return "panes_unknown"
+				}
+				pid := queue[0]
+				queue = append(queue[1:], children[pid]...)
+				if s.attachClient(pid, short) {
+					found = append(found, match{socket, fields[0], pid})
+				}
+			}
+		}
+	}
+	switch len(found) {
+	case 0:
+		return "attach_pane_not_found"
+	case 1:
+		return s.namePane(ctx, found[0].socket, found[0].pane, found[0].client, name)
+	}
+	return "attach_pane_ambiguous"
+}
+
+// attachClient reports whether pid is a Claude Code `claude attach <short>` client.
+func (s *server) attachClient(pid int, short string) bool {
+	if !claudeProcess(s.c.Command, pid) {
+		return false
+	}
+	_, args, err := s.c.Command(pid)
+	if err != nil {
+		return false
+	}
+	if len(args) == 0 {
+		return false
+	}
+	// The native CLI's command starts after argv[0]; the npm CLI's starts after its
+	// node entry point. Option values and prompts are never attach commands.
+	args = args[1:]
+	if len(args) > 0 && strings.Contains(args[0], "@anthropic-ai/claude-code/") {
+		args = args[1:]
+	}
+	return len(args) >= 2 && args[0] == "attach" && args[1] == short
+}
 
 // otherAgentPane reports whether another pane of the session holds an agent process. The
 // second result is false when that cannot be ruled out.

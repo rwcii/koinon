@@ -22,13 +22,38 @@ var observationSources = map[string][]string{
 	"context":  {"claude_statusline", "codex_rollout"},
 	"activity": {"claude_registry", "codex_rollout", "agy_hook", "mcp_call"},
 	"terminal": {"tmux_env"},
+	"naming":   {"koinon_mcp"},
 }
 
-// terminalNaming lists the results that `koinon mcp` reports for naming a terminal.
-var terminalNaming = map[string]bool{
-	"renamed": true, "unchanged": true, "pane_titled": true, "name_taken": true, "rename_unconfirmed": true,
-	"pane_not_host": true, "nested_agent": true, "panes_unknown": true, "tmux_unreadable": true,
-	"process_table_unreadable": true, "invalid_name": true,
+// terminalNaming lists the results that `koinon mcp` reports for naming a terminal, each
+// with the reason text that peers and the dashboard show (participants sprint, chunk 05).
+var terminalNaming = map[string]string{
+	"renamed":                  "the tmux session was renamed to the published name",
+	"unchanged":                "the tmux session already has the published name",
+	"pane_titled":              "another agent shares the tmux session, so only this pane was titled",
+	"name_taken":               "another tmux session has the name; tried again at the next renewal",
+	"rename_unconfirmed":       "tmux did not confirm the new name; tried again at the next renewal",
+	"pane_not_host":            "the tmux pane does not hold this session's host process",
+	"nested_agent":             "another agent process lies between the pane and the host",
+	"panes_unknown":            "the other panes of the tmux session could not be read; tried again at the next renewal",
+	"tmux_unreadable":          "tmux could not be read; tried again at the next renewal",
+	"process_table_unreadable": "the process table could not be read; tried again at the next renewal",
+	"invalid_name":             "the published name is not a valid tmux name",
+	"not_in_tmux":              "the session does not run in tmux",
+	"attach_pane_not_found":    "no tmux pane holds a claude attach client for this job; tried again at the next renewal",
+	"attach_pane_ambiguous":    "more than one tmux pane holds a claude attach client for this job; nothing was renamed",
+}
+
+// NamingReason is the fixed reason text of a naming result, or "" for an unknown result.
+func NamingReason(result string) string { return terminalNaming[result] }
+
+// published is the name that a session's terminal takes: its participant address while it
+// holds it, else its peer name.
+func published(session Session) string {
+	if session.Alias != "" {
+		return session.Alias
+	}
+	return session.Name
 }
 
 var maxObservedSessions = 4096 // a variable only so that tests can lower it
@@ -51,8 +76,10 @@ type ObservedValue struct {
 	Pane    string `json:"pane,omitempty"`
 	Session string `json:"session,omitempty"`
 	// Naming is the result of the last attempt to name the terminal after the session's
-	// published name (#156).
+	// published name (#156), and Target that name. A naming report needs no terminal: a
+	// session outside tmux or a background job without its attach client reports why.
 	Naming string `json:"naming,omitempty"`
+	Target string `json:"target,omitempty"`
 }
 
 // Observation is one report. Absent groups are left as they were.
@@ -62,6 +89,7 @@ type Observation struct {
 	Context  *ObservedValue `json:"context,omitempty"`
 	Activity *ObservedValue `json:"activity,omitempty"`
 	Terminal *ObservedValue `json:"terminal,omitempty"`
+	Naming   *ObservedValue `json:"naming,omitempty"`
 }
 
 // storedValue keeps the time the daemon last received a report that confirms the value,
@@ -79,6 +107,7 @@ var observationFreshness = map[string]time.Duration{
 	"context":  30 * time.Minute,
 	"activity": 2 * time.Minute,
 	"terminal": 2 * time.Minute,
+	"naming":   2 * time.Minute,
 }
 
 // sameContent compares the observed fields, not their source or time.
@@ -97,6 +126,7 @@ var (
 	modelID      = regexp.MustCompile(`^[^\x00-\x1f\x7f]{1,128}$`)
 	tmuxPane     = regexp.MustCompile(`^%[0-9]{1,9}$`)
 	tmuxSession  = regexp.MustCompile(`^[^\x00-\x1f\x7f]{1,128}$`)
+	namingTarget = regexp.MustCompile(`^[a-z0-9][a-z0-9-]{0,127}$`)
 	maxSafeInt   = int64(1<<53 - 1)
 	activityKind = map[string]bool{"busy": true, "idle": true, "waiting": true}
 )
@@ -121,19 +151,22 @@ func (v *ObservedValue) valid(group string, now int64) bool {
 	switch group {
 	case "model":
 		return modelID.MatchString(v.ID) && v.LimitTokens == nil && v.UsedTokens == nil && v.UsageAvailable == nil &&
-			v.State == "" && v.Socket == "" && v.Pane == "" && v.Session == "" && v.Naming == ""
+			v.State == "" && v.Socket == "" && v.Pane == "" && v.Session == "" && v.Naming == "" && v.Target == ""
 	case "context":
 		ok := func(p *int64) bool { return p == nil || *p >= 0 && *p <= maxSafeInt }
 		return ok(v.LimitTokens) && ok(v.UsedTokens) && (v.LimitTokens == nil) == (v.UsedTokens == nil) &&
-			v.ID == "" && v.State == "" && v.Socket == "" && v.Pane == "" && v.Session == "" && v.Naming == ""
+			v.ID == "" && v.State == "" && v.Socket == "" && v.Pane == "" && v.Session == "" && v.Naming == "" && v.Target == ""
 	case "activity":
 		return activityKind[v.State] && v.ID == "" && v.LimitTokens == nil && v.UsedTokens == nil &&
-			v.UsageAvailable == nil && v.Socket == "" && v.Pane == "" && v.Session == "" && v.Naming == ""
+			v.UsageAvailable == nil && v.Socket == "" && v.Pane == "" && v.Session == "" && v.Naming == "" && v.Target == ""
 	case "terminal":
 		return len(v.Socket) > 0 && len(v.Socket) <= 4096 && !strings.ContainsAny(v.Socket, "\x00\r\n") &&
 			tmuxPane.MatchString(v.Pane) && (v.Session == "" || tmuxSession.MatchString(v.Session)) &&
-			(v.Naming == "" || terminalNaming[v.Naming]) &&
+			(v.Naming == "" || terminalNaming[v.Naming] != "") && v.Target == "" &&
 			v.ID == "" && v.State == "" && v.LimitTokens == nil && v.UsedTokens == nil && v.UsageAvailable == nil
+	case "naming":
+		return terminalNaming[v.Naming] != "" && namingTarget.MatchString(v.Target) && v.Socket == "" && v.Pane == "" &&
+			v.Session == "" && v.ID == "" && v.State == "" && v.LimitTokens == nil && v.UsedTokens == nil && v.UsageAvailable == nil
 	}
 	return false
 }
@@ -156,7 +189,7 @@ func terminalVerified(s Session) bool {
 // or a terminal that cannot be attributed, is refused.
 func (s *Store) Observe(ctx context.Context, o Observation) error {
 	now := s.now().UnixMilli()
-	groups := map[string]*ObservedValue{"model": o.Model, "context": o.Context, "activity": o.Activity, "terminal": o.Terminal}
+	groups := map[string]*ObservedValue{"model": o.Model, "context": o.Context, "activity": o.Activity, "terminal": o.Terminal, "naming": o.Naming}
 	present := 0
 	for group, v := range groups {
 		if !v.valid(group, now) {
@@ -176,7 +209,7 @@ func (s *Store) Observe(ctx context.Context, o Observation) error {
 	if session.State != "active" {
 		return ErrCallerInactive
 	}
-	if o.Terminal != nil && !terminalVerified(session) {
+	if (o.Terminal != nil || o.Naming != nil) && !terminalVerified(session) {
 		return Refusal{Code: "terminal_unverified", Message: "this session's terminal cannot be attributed to it"}
 	}
 	s.observed.mu.Lock()
@@ -286,10 +319,14 @@ func (s *Store) sessionObservations(ctx context.Context, session Session) map[st
 	for group := range observationSources {
 		v, found := current[group]
 		switch {
-		case group == "terminal" && !terminalVerified(session):
+		case (group == "terminal" || group == "naming") && !terminalVerified(session):
 			result[group] = SessionView{Reason: "terminal_unverified"}
 		case found && now-v.seen > observationFreshness[group].Milliseconds():
 			result[group] = SessionView{Reason: "observation_stale"}
+		case found && group == "naming" && v.Target != published(session):
+			// A result for an earlier published name, such as one computed before a holder
+			// change, says nothing about the current name.
+			result[group] = SessionView{Reason: "naming_outdated"}
 		case found:
 			value := v.ObservedValue
 			result[group] = SessionView{Value: &value, ConfirmedAt: v.seen}
@@ -300,6 +337,31 @@ func (s *Store) sessionObservations(ctx context.Context, session Session) map[st
 	return result
 }
 
+// PeerNaming is a session's last terminal naming result for its current published name,
+// with its fixed reason text.
+type PeerNaming struct {
+	Result string `json:"result"`
+	Reason string `json:"reason"`
+	Target string `json:"target"`
+	At     int64  `json:"at"`
+}
+
+// namingOf returns the current naming result of an active session, or nil when none is
+// fresh or the result is for an earlier published name.
+func (s *Store) namingOf(session Session) *PeerNaming {
+	if session.State != "active" || !terminalVerified(session) {
+		return nil
+	}
+	now := s.now().UnixMilli()
+	s.observed.mu.Lock()
+	v, found := s.observed.byKey[Key{session.Family, session.ID}]["naming"]
+	s.observed.mu.Unlock()
+	if !found || now-v.seen > observationFreshness["naming"].Milliseconds() || v.Target != published(session) {
+		return nil
+	}
+	return &PeerNaming{Result: v.Naming, Reason: NamingReason(v.Naming), Target: v.Target, At: v.At}
+}
+
 // unobserved names why a group has no value: no source exists for the family, or none has
 // reported yet.
 func unobserved(group, family string) string {
@@ -308,6 +370,7 @@ func unobserved(group, family string) string {
 		"context":  {"claude": true, "codex": true},
 		"activity": {"claude": true, "codex": true, "agy": true, "opencode": true},
 		"terminal": {"claude": true, "codex": true, "agy": true, "opencode": true},
+		"naming":   {"claude": true, "codex": true, "agy": true, "opencode": true},
 	}
 	if !sources[group][family] {
 		return "no_source"
