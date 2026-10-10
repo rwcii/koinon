@@ -5,6 +5,12 @@ into a dated release section when promoted to `main`.
 
 ## Unreleased
 
+- Outside tmux, a launcher names its new tmux session after the participant address,
+  `FAMILY-LABEL` with `-ROLE` for a role, instead of the directory name, and takes the first
+  free `NAME-2` to `NAME-99` when that name is taken. A second agent in the same directory no
+  longer fails with a taken name; when no name is free, the refusal names `--tmux-session`
+  (#277).
+
 - Launched agents retry a taken tmux name at later renewals. Claude background jobs name the
   single tmux pane with a matching `claude attach` client in the user's socket directory;
   missing clients retry and ambiguous clients rename nothing. `peers` and the dashboard

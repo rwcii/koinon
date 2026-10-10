@@ -87,10 +87,12 @@ run that binary, its report names the step that fixes it (`path_step`), such as 
    ```
 
    Arguments after `--` go to the agent CLI, for example `koinon codex -- --model NAME`.
-   Outside tmux, the launcher starts a new tmux session named after the directory and attaches
-   to it; inside tmux it runs in the current pane; without tmux it runs in this terminal.
-   `--tmux-session NAME` starts a detached tmux session and prints its name and pane; use it for
-   a second agent in the same directory, whose default tmux session name is taken.
+   Outside tmux, the launcher starts a new tmux session and attaches to it; inside tmux it
+   runs in the current pane; without tmux it runs in this terminal. The new session is named
+   after the agent's participant address, for example `claude-repo`, `codex-repo` or
+   `claude-repo-review` with `--role review`; a second agent of the same family and role gets
+   `claude-repo-2`, and so on. `--tmux-session NAME` starts a detached tmux session with that
+   name and prints its name and pane.
    `koinon claude --bg` starts a Claude Code background job instead.
 3. **Do not start the agent CLI directly.** A `claude`, `codex`, `agy` or `opencode` started
    without `koinon` is islanded: it is not registered or listed, and its Koinon tools return

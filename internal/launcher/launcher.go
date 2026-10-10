@@ -372,29 +372,32 @@ func validSession(name string) bool {
 	return true
 }
 
-func directorySession(directory string) string {
-	name := strings.Map(func(r rune) rune {
-		if r >= 'a' && r <= 'z' || r >= 'A' && r <= 'Z' || r >= '0' && r <= '9' || r == '-' || r == '_' {
-			return r
-		}
-		return '_'
-	}, filepath.Base(directory))
-	if len(name) > 80 {
-		name = name[:80]
+// maxSessionSuffix bounds the default names a start tries: NAME, then NAME-2 to NAME-99.
+const maxSessionSuffix = 99
+
+// defaultSessions are the tmux session names a start without --tmux-session tries in order:
+// the participant address base, FAMILY-LABEL[-ROLE], so that agents of other families or
+// roles never collide and the first name is the later address, then numbered names for a
+// second agent of the same family and role.
+func defaultSessions(ctx context.Context, family, directory, role string) []string {
+	repository, _ := gitPath(ctx, directory, "--git-common-dir")
+	base := core.AddressBase(family, repository, directory, role)
+	names := []string{base}
+	for n := 2; n <= maxSessionSuffix; n++ {
+		names = append(names, base+"-"+strconv.Itoa(n))
 	}
-	if name == "" {
-		name = "koinon"
-	}
-	return name
+	return names
 }
 
 func startTmux(ctx context.Context, tmux, cli, directory string, o Options, out io.Writer) error {
-	name := o.Session
-	if name == "" {
-		name = directorySession(directory)
+	names := []string{o.Session}
+	if o.Session == "" {
+		names = defaultSessions(ctx, o.Family, directory, o.Role)
 	}
-	if !validSession(name) {
-		return errors.New("tmux session name must contain only letters, numbers, underscores and hyphens")
+	for _, name := range names {
+		if !validSession(name) {
+			return errors.New("tmux session name must contain only letters, numbers, underscores and hyphens")
+		}
 	}
 	socket := tmuxSocket()
 	self, err := os.Executable()
@@ -412,16 +415,32 @@ func startTmux(ctx context.Context, tmux, cli, directory string, o Options, out 
 	for i, value := range args {
 		quoted[i] = quote(value)
 	}
-	session := []string{"new-session", "-d", "-P", "-F", "#{session_id}\t#{pane_id}", "-s", name, "-c", directory}
-	if o.Family == "claude" {
-		// tmux sets it in the new session only, as one literal argument, never through a shell.
-		session = append(session, "-e", carriedConfig+"="+os.Getenv("CLAUDE_CONFIG_DIR"))
+	var name string
+	var data []byte
+	for _, candidate := range names {
+		session := []string{"new-session", "-d", "-P", "-F", "#{session_id}\t#{pane_id}", "-s", candidate, "-c", directory}
+		if o.Family == "claude" {
+			// tmux sets it in the new session only, as one literal argument, never through a shell.
+			session = append(session, "-e", carriedConfig+"="+os.Getenv("CLAUDE_CONFIG_DIR"))
+		}
+		cmd := exec.CommandContext(ctx, tmux, tmuxArgs(socket, append(session, "exec "+strings.Join(quoted, " "))...)...)
+		cmd.Env = cleanEnvironment(os.Environ(), o.Family)
+		if data, err = cmd.Output(); err == nil {
+			name = candidate
+			break
+		}
+		// Only a session that exists under the exact name makes the next name worth trying.
+		exists := exec.CommandContext(ctx, tmux, tmuxArgs(socket, "has-session", "-t", "="+candidate)...)
+		exists.Env = cmd.Env
+		if exists.Run() != nil {
+			return errors.New("tmux did not create a new session; the tmux server is unavailable")
+		}
 	}
-	cmd := exec.CommandContext(ctx, tmux, tmuxArgs(socket, append(session, "exec "+strings.Join(quoted, " "))...)...)
-	cmd.Env = cleanEnvironment(os.Environ(), o.Family)
-	data, err := cmd.Output()
-	if err != nil {
-		return errors.New("tmux did not create a new session; name may be taken or server unavailable")
+	if name == "" {
+		if o.Session != "" {
+			return fmt.Errorf("tmux session %s exists; choose another name with --tmux-session NAME", o.Session)
+		}
+		return fmt.Errorf("tmux sessions %s to %s exist; choose a name with --tmux-session NAME", names[0], names[len(names)-1])
 	}
 	fields := strings.Split(strings.TrimSpace(string(data)), "\t")
 	if len(fields) != 2 {

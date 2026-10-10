@@ -228,11 +228,12 @@ and expire at their existing deadlines. Their inboxes, acknowledgements, memory 
 claims are retained; start subsequent sessions through the launchers without replacing retained state.
 
 For two agents of the same family in one repository, assign the additional agent a role
-at launch, for example `koinon codex --role review --tmux-session repo-review`. The role
+at launch, for example `koinon codex --role review`. The role
 selects the participant address `<family>-<repository-label>-<role>`; without a role the
 short address is retained. Roles use 1–24 lower-case letters, digits or hyphens, start with
-a letter, and cannot consist only of hexadecimal digits and hyphens. The separate tmux
-session name avoids a taken default name. Inside tmux, separate panes can use the same
+a letter, and cannot consist only of hexadecimal digits and hyphens. Outside tmux, the
+launcher names its new tmux session after that address, so each agent gets its own session.
+Inside tmux, separate panes can use the same
 repository. See [USAGE.md](USAGE.md) for holder conflicts and the maintainer's dashboard choice.
 After registration, the held participant address (else the peer name) becomes the session's
 tmux name once its host is verified in the pane. If another agent shares that tmux session,
