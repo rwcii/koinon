@@ -5,6 +5,11 @@ into a dated release section when promoted to `main`.
 
 ## Unreleased
 
+- When no daemon has started with the state directory, launchers and command clients report
+  that and name how to start one (`koinon install` from a login session, or `koinon serve
+  --state-dir STATE`), instead of `cannot read private daemon secret`. A launcher whose daemon
+  has stopped reports `no daemon answers at ADDRESS` with the same remedy (#279).
+
 - A write request that is canceled or times out while the daemon proves its write-ahead log
   empty no longer blocks every later write until `koinon recover`; only that request is
   refused, and the next write proves the log again. A failed proof still blocks (#276).

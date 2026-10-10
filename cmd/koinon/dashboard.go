@@ -39,9 +39,9 @@ func dashboardCommand(ctx context.Context, args []string, out io.Writer) error {
 	if err := flags.Parse(args); err != nil || flags.NArg() != 0 {
 		return errors.New("invalid command options; use koinon --help")
 	}
-	secret, err := core.ReadSecret(*state)
+	secret, err := core.ClientSecret(*state)
 	if err != nil {
-		return errors.New("cannot read private daemon secret")
+		return err
 	}
 	data, err := core.Call(ctx, *address, secret, "/v1/dashboard/links", map[string]any{})
 	if err != nil {

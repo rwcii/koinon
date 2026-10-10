@@ -5,6 +5,7 @@ import (
 	"encoding/hex"
 	"errors"
 	"io"
+	"io/fs"
 	"os"
 	"path/filepath"
 
@@ -58,6 +59,24 @@ func loadSecret(root string) (string, error) {
 		return "", err
 	}
 	return secret, nil
+}
+
+// ClientSecret reads the secret for a client command. A state directory without a secret
+// has never held a running daemon, so the error says so and how to start one.
+func ClientSecret(root string) (string, error) {
+	secret, err := ReadSecret(root)
+	if errors.Is(err, fs.ErrNotExist) {
+		return "", errors.New("no daemon has started with state directory " + root + "; " + StartDaemon(root))
+	}
+	if err != nil {
+		return "", errors.New("cannot read private daemon secret")
+	}
+	return secret, nil
+}
+
+// StartDaemon names the two ways to start the daemon that docs/INSTALL.md describes.
+func StartDaemon(root string) string {
+	return "start it with koinon install from a login session, or run koinon serve --state-dir " + root + " in a persistent managed session"
 }
 
 // ReadSecret reads an existing secret without creating state or starting a daemon.

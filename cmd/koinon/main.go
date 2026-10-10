@@ -192,9 +192,9 @@ func registerDeepSeek(ctx context.Context, args []string, out io.Writer) error {
 		return errors.New("register requires an exact DeepSeek session, harness URL and absolute credential path")
 	}
 	wake, _ := json.Marshal(map[string]string{"dsh_url": *base, "dsh_credentials": *credential})
-	secret, err := core.ReadSecret(*state)
+	secret, err := core.ClientSecret(*state)
 	if err != nil {
-		return errors.New("cannot read private daemon secret")
+		return err
 	}
 	data, err := core.Call(ctx, *address, secret, "/v1/sessions/register", core.Registration{Family: family, ID: id, Directory: *dir, Repository: *repo, WakeTarget: wake})
 	if err != nil {
@@ -250,9 +250,9 @@ func call(ctx context.Context, command, state, address string, as *string, after
 		}
 		path, body = "/v1/inbox/ack", request
 	}
-	secret, err := core.ReadSecret(state)
+	secret, err := core.ClientSecret(state)
 	if err != nil {
-		return errors.New("cannot read private daemon secret")
+		return err
 	}
 	result, err := core.Call(ctx, address, secret, path, body)
 	if err != nil {
@@ -349,9 +349,9 @@ func memoryCommand(ctx context.Context, args []string, in io.Reader, out io.Writ
 			body["query"] = flags.Arg(0)
 		}
 	}
-	secret, err := core.ReadSecret(*state)
+	secret, err := core.ClientSecret(*state)
 	if err != nil {
-		return errors.New("cannot read private daemon secret")
+		return err
 	}
 	result, err := core.Call(ctx, *address, secret, path, body)
 	if err != nil {

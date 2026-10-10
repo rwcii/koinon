@@ -204,6 +204,11 @@ this checkout. Do not delete the old installation or state before the verified u
 Without a reachable user manager, run the returned `start_command` in a persistent managed
 session. The equivalent manual command is `koinon serve --state-dir STATE`; terminate that
 owned process gracefully when finished. There is one daemon, not a bridge/notifier pair.
+Until a daemon has started with the state directory, launchers and command clients refuse
+with `no daemon has started with state directory STATE`. When the daemon has stopped, a
+launcher refuses with `no daemon answers at ADDRESS`. Both refusals name the two ways to
+start it: `koinon install` from a login session, or `koinon serve --state-dir STATE` in a
+persistent managed session. The launcher does not start the agent.
 Do not use sudo, system services, lingering or permission changes to work around a refusal.
 
 ## Configuration and agent access
