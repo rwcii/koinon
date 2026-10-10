@@ -5,6 +5,10 @@ into a dated release section when promoted to `main`.
 
 ## Unreleased
 
+- A write request that is canceled or times out while the daemon proves its write-ahead log
+  empty no longer blocks every later write until `koinon recover`; only that request is
+  refused, and the next write proves the log again. A failed proof still blocks (#276).
+
 - Outside tmux, a launcher names its new tmux session after the participant address,
   `FAMILY-LABEL` with `-ROLE` for a role, instead of the directory name, and takes the first
   free `NAME-2` to `NAME-99` when that name is taken. A second agent in the same directory no

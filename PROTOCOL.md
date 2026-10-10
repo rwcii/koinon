@@ -407,7 +407,10 @@ reserve serves progress and withdrawal (renewal, retirement, acknowledgement, de
 page issuance, supersession, revocation and expiry). A write the ceiling refuses rolls back
 whole as `capacity`. A failed proof, or a reserved write that the engine still refuses, blocks
 writes with `storage_blocked` while status and reads keep working, until `koinon recover`
-(`POST /v1/storage/recover`) proves the log empty again. `GET /v1/status` reports `storage`:
+(`POST /v1/storage/recover`) proves the log empty again. A proof that ends because its request
+was canceled or timed out proves nothing and writes nothing: it refuses only that request,
+records no block, and the next write proves the log again. An outside read-only reader of the
+database, such as a backup tool, does not block or delay writes. `GET /v1/status` reports `storage`:
 pages, ceilings, the log size, the work debt and the blocked state.
 
 ### Work items
