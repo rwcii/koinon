@@ -369,8 +369,9 @@ func TestPrivateTmuxDetachedAndOutside(t *testing.T) {
 						}
 						time.Sleep(20 * time.Millisecond)
 					}
-					if err := exec.Command(launcherBinary, args...).Run(); err == nil {
-						t.Fatal("reused occupied session")
+					out, err := exec.Command(launcherBinary, args...).CombinedOutput()
+					if err == nil || !strings.Contains(string(out), "tmux session detached exists; choose another name with --tmux-session NAME") {
+						t.Fatalf("reused occupied session: %v %s", err, out)
 					}
 				} else {
 					data, err := os.ReadFile(attach)
@@ -533,3 +534,92 @@ func TestTmuxCarriesClaudeConfiguration(t *testing.T) {
 }
 
 func ptr(value string) *string { return &value }
+
+// The default tmux session name is the participant address base, so that agents of other
+// families or roles in one directory never collide; a repository gives its label.
+func TestDefaultSessionNames(t *testing.T) {
+	root := t.TempDir()
+	plain := filepath.Join(root, "My Project.v2")
+	repository := filepath.Join(root, "Repo")
+	inner := filepath.Join(repository, "sub")
+	for _, dir := range []string{plain, inner} {
+		if err := os.MkdirAll(dir, 0700); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if out, err := exec.Command("git", "init", "-q", repository).CombinedOutput(); err != nil {
+		t.Fatalf("git init: %v %s", err, out)
+	}
+	for _, c := range []struct{ family, directory, role, want string }{
+		{"claude", plain, "", "claude-my-project-v2"},
+		{"codex", plain, "", "codex-my-project-v2"},
+		{"claude", plain, "review", "claude-my-project-v2-review"},
+		{"codex", inner, "", "codex-repo"},
+	} {
+		names := defaultSessions(context.Background(), c.family, c.directory, c.role)
+		if names[0] != c.want || names[1] != c.want+"-2" || names[len(names)-1] != c.want+"-99" || len(names) != maxSessionSuffix {
+			t.Fatalf("%s %s %q: %v", c.family, c.directory, c.role, names)
+		}
+	}
+}
+
+// A start outside tmux takes the next numbered name when the default is taken, and the
+// refusal names --tmux-session when every default name is taken.
+func TestPrivateTmuxTakenDefaultName(t *testing.T) {
+	realTmux, err := exec.LookPath("tmux")
+	if err != nil {
+		if os.Getenv("CI") != "" {
+			t.Fatal("tmux required in CI")
+		}
+		t.Skip("tmux not installed")
+	}
+	sleep, err := exec.LookPath("sleep")
+	if err != nil {
+		t.Fatal(err)
+	}
+	root, address, cli, directory := fixture(t)
+	socketDir, err := os.MkdirTemp("", "kl-tmux-")
+	if err != nil {
+		t.Fatal(err)
+	}
+	socket := filepath.Join(socketDir, "s")
+	t.Cleanup(func() { exec.Command(realTmux, "-S", socket, "kill-server").Run(); os.RemoveAll(socketDir) })
+	occupy := func(name string) {
+		t.Helper()
+		// A launched session closes when its synthetic CLI exits; wait until its name is free.
+		deadline := time.Now().Add(10 * time.Second)
+		for exec.Command(realTmux, "-S", socket, "-f", "/dev/null", "new-session", "-d", "-s", name, quote(sleep)+" 60").Run() != nil {
+			if time.Now().After(deadline) {
+				t.Fatalf("cannot occupy %s", name)
+			}
+			time.Sleep(20 * time.Millisecond)
+		}
+	}
+	occupy("codex-project")
+	occupy("codex-project-2")
+	wrapperDir := filepath.Join(root, "tools")
+	os.Mkdir(wrapperDir, 0700)
+	calls := filepath.Join(root, "calls")
+	wrapper := "#!/bin/sh\nprintf '%s ' \"$@\" >> " + quote(calls) + "; echo >> " + quote(calls) + "\nif [ \"$1\" = attach-session ]; then exit 0; fi\nexec " + quote(realTmux) + " -S " + quote(socket) + " -f /dev/null \"$@\"\n"
+	os.WriteFile(filepath.Join(wrapperDir, "tmux"), []byte(wrapper), 0700)
+	t.Setenv("PATH", wrapperDir)
+	t.Setenv("TMUX", "")
+	result := filepath.Join(root, "result.json")
+	if out, err := exec.Command(launcherBinary, arguments(root, address, cli, directory, "codex", result)...).CombinedOutput(); err != nil {
+		t.Fatalf("launch: %v %s", err, out)
+	}
+	checkReport(t, readReport(t, result), "codex", directory)
+	data, _ := os.ReadFile(calls)
+	lines := strings.Split(strings.TrimSpace(string(data)), "\n")
+	if len(lines) < 2 || !strings.Contains(lines[len(lines)-2], "new-session -d -P -F #{session_id}\t#{pane_id} -s codex-project-3 ") ||
+		!strings.HasPrefix(lines[len(lines)-1], "attach-session -t $") {
+		t.Fatalf("did not start and attach codex-project-3:\n%s", data)
+	}
+	for n := 3; n <= maxSessionSuffix; n++ {
+		occupy(fmt.Sprintf("codex-project-%d", n))
+	}
+	out, err := exec.Command(launcherBinary, arguments(root, address, cli, directory, "codex", result)...).CombinedOutput()
+	if err == nil || !strings.Contains(string(out), "codex-project to codex-project-99 exist; choose a name with --tmux-session NAME") {
+		t.Fatalf("every name taken: %v %s", err, out)
+	}
+}

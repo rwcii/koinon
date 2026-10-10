@@ -104,18 +104,22 @@ koinon status
 ```
 
 Each launcher starts its agent in `--directory`, or the current directory. Outside tmux it
-starts a new tmux session named after that directory and attaches to it; inside tmux it runs in
-the current pane; without tmux it runs in the current terminal. `--tmux-session NAME` starts a
-detached tmux session instead and prints its name, pane and socket as JSON. A tmux session name
-that is taken refuses the start, so give a second agent in the same directory its own
-`--tmux-session NAME`, or start it in a pane inside tmux. Launcher options come
-first; the first other argument, or everything after `--`, goes to the agent CLI.
+starts a new tmux session and attaches to it; inside tmux it runs in the current pane; without
+tmux it runs in the current terminal. The new session is named `FAMILY-LABEL`, with `-ROLE`
+for a role: the participant's address before any suffix, where LABEL is the repository label
+(or the directory's, outside a repository). Agents of other families or roles in one directory
+therefore get their own sessions. When the name is taken, as for a second agent of the same
+family and role, the launcher uses the first free name of `NAME-2` to `NAME-99`; when all are
+taken it refuses the start and names `--tmux-session`. `--tmux-session NAME` starts a detached
+tmux session with that exact name instead and prints its name, pane and socket as JSON; a taken
+name refuses the start. Launcher options come first; the first other argument, or everything
+after `--`, goes to the agent CLI.
 
 Two agents of one family can use separate participant addresses in the same repository:
 
 ```sh
 koinon codex --directory /path/to/repository
-koinon codex --directory /path/to/repository --role review --tmux-session repo-review
+koinon codex --directory /path/to/repository --role review
 ```
 
 The default participant has address `codex-repository`; the second has

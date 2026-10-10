@@ -231,12 +231,22 @@ func assignNames(ctx context.Context, tx *sql.Tx, now int64, p participant) erro
 	return nil
 }
 
-// createAddress reserves a participant's address: <family>-<label>, with -<role> for a
-// role, or a longer free name when that is taken.
+// AddressBase is a participant's address before a free-name suffix: <family>-<label>, with
+// -<role> for a role. The launcher names a new tmux session after it.
+func AddressBase(family, repository, directory, role string) string {
+	base := family + "-" + label(repository, directory)
+	if role != "" {
+		base += "-" + role
+	}
+	return base
+}
+
+// createAddress reserves a participant's address: AddressBase, or a longer free name when
+// that is taken.
 func createAddress(ctx context.Context, tx *sql.Tx, p participant) (string, error) {
-	base, seed := p.family+"-"+label(p.repository, p.directory), p.repository
+	base, seed := AddressBase(p.family, p.repository, p.directory, p.role), p.repository
 	if p.role != "" {
-		base, seed = base+"-"+p.role, p.repository+"\x00"+p.role
+		seed = p.repository + "\x00" + p.role
 	}
 	sum := sha256.Sum256([]byte(seed))
 	var address string
