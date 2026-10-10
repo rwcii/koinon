@@ -10,6 +10,9 @@ import (
 // that no test can read or write the user's agent configuration or Koinon state, even a
 // test that omits an explicit path.
 func TestMain(m *testing.M) {
+	if path := os.Getenv("KOINON_TEST_OUTSIDE_READER"); path != "" {
+		os.Exit(outsideReader(path))
+	}
 	dir, err := os.MkdirTemp("", "koinon-isolated-home-")
 	if err != nil {
 		panic(err)

@@ -109,6 +109,17 @@ func (s *Store) resetLog(ctx context.Context) error {
 	return nil
 }
 
+// proofFailed records a failed log proof as a block. A proof that ended because the
+// request's context ended proved nothing about the log and wrote nothing: only that request
+// is refused, and the next write proves the log again.
+func (s *Store) proofFailed(ctx context.Context, err error) error {
+	if ctx.Err() != nil {
+		return ctx.Err()
+	}
+	s.storage.blocked = err.Error()
+	return ErrStorageBlocked
+}
+
 func (s *Store) pages(ctx context.Context, q interface {
 	QueryRowContext(context.Context, string, ...any) *sql.Row
 }) (int64, error) {
@@ -161,8 +172,7 @@ func (s *Store) enter(ctx context.Context, class writeClass) (*sql.Tx, error) {
 		return nil, ErrStorageBlocked
 	}
 	if err := s.resetLog(ctx); err != nil {
-		s.storage.blocked = err.Error()
-		return nil, ErrStorageBlocked
+		return nil, s.proofFailed(ctx, err)
 	}
 	if class == ordinary {
 		pages, err := s.pages(ctx, s.db)
@@ -195,8 +205,7 @@ func (s *Store) reclaim(ctx context.Context) error {
 		return err
 	}
 	if err := s.resetLog(ctx); err != nil {
-		s.storage.blocked = err.Error()
-		return ErrStorageBlocked
+		return s.proofFailed(ctx, err)
 	}
 	return nil
 }
@@ -296,15 +305,13 @@ func (s *Store) recoverLocked(ctx context.Context) error {
 		return err
 	}
 	if err := s.resetLog(ctx); err != nil {
-		s.storage.blocked = err.Error()
-		return ErrStorageBlocked
+		return s.proofFailed(ctx, err)
 	}
 	if _, err := s.db.ExecContext(ctx, "PRAGMA incremental_vacuum"); err != nil {
 		return err
 	}
 	if err := s.resetLog(ctx); err != nil {
-		s.storage.blocked = err.Error()
-		return ErrStorageBlocked
+		return s.proofFailed(ctx, err)
 	}
 	after, err := s.pages(ctx, s.db)
 	if err != nil {
