@@ -5,6 +5,12 @@ into a dated release section when promoted to `main`.
 
 ## Unreleased
 
+- The daemon logs each start, each stop with its reason, and lock contention. On macOS the
+  launchd agent writes the log to `~/Library/Logs/koinon/daemon.log`; on Linux it is in the user
+  journal. A second daemon started by the service waits up to 60 seconds for the daemon lock
+  and then exits cleanly, instead of being restarted every 10 seconds. `koinon status` reports
+  the daemon's PID. Run `koinon install` again to update the service file (#283).
+
 - Document scoped native permissions for every supported agent family in the installed guide
   and a shared reference, with named syntax checks, trust boundaries and verification limits.
 

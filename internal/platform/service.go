@@ -75,6 +75,16 @@ func (s Services) DaemonArtifact() string {
 	return filepath.Join(s.Home, ".config", "systemd", "user", DaemonUnit)
 }
 
+// LockWait is how long a service-started daemon waits for daemon.lock before it exits with
+// status 0. The user agent and systemd do not restart a clean exit, so a second daemon stays
+// stopped instead of restarting every few seconds (#283).
+const LockWait = "60s"
+
+// DaemonLog is the launchd agent's log file; systemd keeps the output in the user journal.
+func (s Services) DaemonLog() string {
+	return filepath.Join(s.Home, "Library", "Logs", "koinon", "daemon.log")
+}
+
 // RenderDaemon is the daemon's unit or agent: binary serves the state directory state.
 func (s Services) RenderDaemon(binary, state string) []byte {
 	if s.Backend == "launchd" {
@@ -93,7 +103,13 @@ func (s Services) RenderDaemon(binary, state string) []byte {
 		<string>serve</string>
 		<string>--state-dir</string>
 		<string>` + xmlEscape(state) + `</string>
+		<string>--lock-wait</string>
+		<string>` + LockWait + `</string>
 	</array>
+	<key>StandardOutPath</key>
+	<string>` + xmlEscape(s.DaemonLog()) + `</string>
+	<key>StandardErrorPath</key>
+	<string>` + xmlEscape(s.DaemonLog()) + `</string>
 	<key>RunAtLoad</key>
 	<true/>
 	<key>KeepAlive</key>
@@ -111,7 +127,7 @@ func (s Services) RenderDaemon(binary, state string) []byte {
 		return b.Bytes()
 	}
 	return []byte("# " + ServiceMarker + "\n[Unit]\nDescription=Koinon daemon\n\n[Service]\nExecStart=" +
-		systemdQuote(binary) + " serve --state-dir " + systemdQuote(state) + "\nRestart=on-failure\nRestartSec=5\nUMask=0077\n\n[Install]\nWantedBy=default.target\n")
+		systemdQuote(binary) + " serve --state-dir " + systemdQuote(state) + " --lock-wait " + LockWait + "\nRestart=on-failure\nRestartSec=5\nUMask=0077\n\n[Install]\nWantedBy=default.target\n")
 }
 
 func xmlEscape(s string) string {
@@ -173,6 +189,12 @@ func (s Services) WriteDaemon(binary, state string) (bool, error) {
 	}
 	if present && !marked {
 		return false, fmt.Errorf("service_artifact_unowned: %s exists without the Koinon marker", path)
+	}
+	if s.Backend == "launchd" {
+		// launchd opens the log as the user and does not create its directory.
+		if err := os.MkdirAll(filepath.Dir(s.DaemonLog()), 0700); err != nil {
+			return false, err
+		}
 	}
 	want := s.RenderDaemon(binary, state)
 	current, _ := os.ReadFile(path)

@@ -230,6 +230,7 @@ func TestGoLifecycle(t *testing.T) {
 		pid := daemonPID(t)
 		return pid != 0 && pid != before && status(state)
 	})
+	lifecycleLogAndLockWait(t, state)
 	must(t, "uninstall", "--prefix", prefix, "--state-dir", state)
 	if _, err := os.Stat(services(t).DaemonArtifact()); !os.IsNotExist(err) {
 		t.Fatalf("artifact left after uninstall: %v", err)
@@ -251,6 +252,33 @@ func TestGoLifecycle(t *testing.T) {
 	}
 	if err != nil || json.Unmarshal(data, &health) != nil || health.Sessions["total"] != 1 {
 		t.Fatalf("state lost across reinstall: %s %v", data, err)
+	}
+}
+
+// lifecycleLogAndLockWait checks the service arguments of #283 on the real manager: the
+// artifact passes --lock-wait, a second daemon waits and then exits with status 0, and the
+// launchd agent's log file holds a start line.
+func lifecycleLogAndLockWait(t *testing.T, state string) {
+	t.Helper()
+	s := services(t)
+	artifact, err := os.ReadFile(s.DaemonArtifact())
+	if err != nil || !bytes.Contains(artifact, []byte("--lock-wait")) {
+		t.Fatalf("service artifact without --lock-wait: %v\n%s", err, artifact)
+	}
+	cmd := exec.Command(binary, "serve", "--state-dir", state, "--lock-wait", "3s")
+	var stderr bytes.Buffer
+	cmd.Stderr = &stderr
+	if err := cmd.Run(); err != nil || !strings.Contains(stderr.String(), `"reason":"lock_held"`) {
+		t.Fatalf("second daemon: %v\n%s", err, stderr.String())
+	}
+	if !status(state) {
+		t.Fatal("the running daemon stopped answering")
+	}
+	if s.Backend == "launchd" {
+		waitFor(t, "the daemon log's start line", func() bool {
+			data, err := os.ReadFile(s.DaemonLog())
+			return err == nil && bytes.Contains(data, []byte(`"event":"start"`))
+		})
 	}
 }
 

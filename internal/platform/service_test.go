@@ -194,3 +194,28 @@ func TestUnitStates(t *testing.T) {
 		t.Fatalf("launchd calls %v", *lcalls)
 	}
 }
+
+// Service-started daemons wait for the lock and then exit cleanly, and the launchd agent
+// writes its output to a private log directory (#283).
+func TestServiceLockWaitAndLog(t *testing.T) {
+	s, _ := fakeServices(t, "systemd", nil)
+	if unit := string(s.RenderDaemon("/opt/koinon", "/state")); !strings.Contains(unit, `serve --state-dir "/state" --lock-wait 60s`+"\n") {
+		t.Fatalf("unit:\n%s", unit)
+	}
+	l, _ := managerFake(t, "launchd", "")
+	plist := string(l.RenderDaemon("/opt/koinon", "/state"))
+	log := filepath.Join(l.Home, "Library", "Logs", "koinon", "daemon.log")
+	for _, want := range []string{"<string>--lock-wait</string>\n\t\t<string>60s</string>\n\t</array>",
+		"<key>StandardOutPath</key>\n\t<string>" + log + "</string>", "<key>StandardErrorPath</key>\n\t<string>" + log + "</string>"} {
+		if !strings.Contains(plist, want) {
+			t.Fatalf("missing %q in plist:\n%s", want, plist)
+		}
+	}
+	if _, err := l.WriteDaemon("/opt/koinon", "/state"); err != nil {
+		t.Fatal(err)
+	}
+	info, err := os.Stat(filepath.Dir(log))
+	if err != nil || !info.IsDir() || info.Mode().Perm() != 0700 {
+		t.Fatalf("log directory: %v %v", info, err)
+	}
+}

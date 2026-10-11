@@ -61,6 +61,7 @@ func run(ctx context.Context, args []string, in io.Reader, out io.Writer) error 
 	state := flags.String("state-dir", root, "private Go state directory")
 	var listen, listen6, address, as *string
 	var after, limit, participant *int64
+	var lockWait *time.Duration
 	positional := 0
 	switch args[0] {
 	case "mcp":
@@ -77,6 +78,7 @@ func run(ctx context.Context, args []string, in io.Reader, out io.Writer) error 
 	case "serve":
 		listen = flags.String("listen", "127.0.0.1:47671", "IPv4 loopback listener")
 		listen6 = flags.String("listen-v6", "[::1]:47671", "IPv6 loopback listener")
+		lockWait = flags.Duration("lock-wait", 0, "wait this long for the daemon lock, then exit with status 0")
 	case "status", "peers", "peer-status", "send", "inbox", "ack":
 		address = flags.String("address", "127.0.0.1:47671", "daemon loopback address")
 		if args[0] != "status" {
@@ -113,18 +115,81 @@ func run(ctx context.Context, args []string, in io.Reader, out io.Writer) error 
 	if args[0] != "serve" {
 		return call(ctx, args[0], *state, *address, as, after, limit, participant, flags.Args(), in, out)
 	}
-	d, err := core.Start(core.Config{StateDir: *state, Listen: []string{*listen, *listen6}})
-	if err != nil {
-		return err
+	return serve(ctx, *state, []string{*listen, *listen6}, *lockWait, out)
+}
+
+// daemonLog receives the daemon's lifecycle lines; the service manager sends standard error
+// to the log file or journal (#283). A variable only so that tests can read it.
+var daemonLog io.Writer = os.Stderr
+
+// logEvent writes one lifecycle line. Lines hold fixed codes, the version, the state
+// directory and listener addresses: never a secret, message body or session ID.
+func logEvent(event string, fields map[string]any) {
+	line := map[string]any{"at": time.Now().UTC().Format(time.RFC3339Nano), "event": event}
+	for key, value := range fields {
+		line[key] = value
+	}
+	json.NewEncoder(daemonLog).Encode(line)
+}
+
+// serve runs the daemon. With lockWait, a daemon that finds the lock held retries every 2
+// seconds for that long and then exits with status 0, so a service manager does not restart
+// it in a loop while another daemon runs.
+func serve(ctx context.Context, state string, listen []string, lockWait time.Duration, out io.Writer) error {
+	signals := make(chan os.Signal, 1)
+	signal.Notify(signals, os.Interrupt, syscall.SIGTERM)
+	defer signal.Stop(signals)
+	stopped := func() {
+		// The signal that canceled ctx reaches this channel too; give it a moment.
+		select {
+		case sig := <-signals:
+			logEvent("stop", map[string]any{"reason": "signal", "signal": sig.String()})
+		case <-time.After(100 * time.Millisecond):
+			logEvent("stop", map[string]any{"reason": "canceled"})
+		}
+	}
+	deadline := time.Now().Add(lockWait)
+	waited := false
+	var d *core.Daemon
+	for {
+		var err error
+		d, err = core.Start(core.Config{StateDir: state, Listen: listen})
+		if err == nil {
+			break
+		}
+		if lockWait <= 0 || !platform.LockHeld(err) {
+			logEvent("stop", map[string]any{"reason": "error", "code": "start_failed"})
+			return err
+		}
+		if !waited {
+			logEvent("lock_wait", map[string]any{"state_dir": state, "wait_seconds": lockWait.Seconds()})
+			waited = true
+		}
+		if !time.Now().Before(deadline) {
+			logEvent("stop", map[string]any{"reason": "lock_held"})
+			return nil
+		}
+		select {
+		case <-ctx.Done():
+			stopped()
+			return nil
+		case <-time.After(min(2*time.Second, time.Until(deadline))):
+		}
 	}
 	defer d.Close()
+	if waited {
+		logEvent("lock_acquired", nil)
+	}
+	logEvent("start", map[string]any{"version": version, "commit": commit, "state_dir": state, "listeners": d.Addresses()})
 	if err := json.NewEncoder(out).Encode(map[string]any{"ok": true, "daemon": "running", "listeners": d.Addresses()}); err != nil {
 		return err
 	}
 	select {
 	case <-ctx.Done():
+		stopped()
 		return d.Close()
 	case err := <-d.Errors():
+		logEvent("stop", map[string]any{"reason": "error", "code": "listener_error"})
 		return err
 	}
 }
@@ -135,7 +200,7 @@ const usage = `Usage: koinon install [--prefix DIR] [--state-dir DIR] [--agent F
        koinon upgrade --status [--state-dir DIR]
        koinon import [--from DIR] [--python-prefix DIR] [--state-dir DIR] [--repository KEY=PATH]... [--verify]
        koinon version
-       koinon serve [--state-dir DIR] [--listen 127.0.0.1:PORT] [--listen-v6 [::1]:PORT]
+       koinon serve [--state-dir DIR] [--listen 127.0.0.1:PORT] [--listen-v6 [::1]:PORT] [--lock-wait 60s]
        koinon register --as deepseek:ID [--directory DIR] [--repository DIR] [--dsh-url URL] [--dsh-credentials FILE] [--state-dir DIR] [--address HOST:PORT]
        koinon status [--state-dir DIR] [--address 127.0.0.1:PORT]
        koinon dashboard [--state-dir DIR] [--address 127.0.0.1:PORT] [--no-open]

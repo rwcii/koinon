@@ -298,7 +298,7 @@ func (d *Daemon) handler() http.Handler {
 			failure(w, err)
 			return
 		}
-		respond(w, 200, map[string]any{"ok": true, "daemon": "running", "listeners": d.Addresses(), "sessions": counts,
+		respond(w, 200, map[string]any{"ok": true, "daemon": "running", "pid": os.Getpid(), "listeners": d.Addresses(), "sessions": counts,
 			"schema": schemaVersion, "storage": storage, "wake": wake, "retention": retention})
 	})
 	mux.HandleFunc("GET /v1/sessions", func(w http.ResponseWriter, r *http.Request) {

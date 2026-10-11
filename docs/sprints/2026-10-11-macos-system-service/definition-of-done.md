@@ -50,8 +50,9 @@
   runner user; the user agent is disabled; `koinon status` passes from the runner's
   `Background` launchd session; a repeated install leaves one daemon; the log file shows a
   start and a stop; `koinon uninstall` removes it. The Linux job keeps its current proof plus
-  the log and `--lock-wait` arguments, and a second `serve --lock-wait` against the running
-  service exits 0 with `lock_held` and is not restarted by systemd.
+  the `--lock-wait` arguments; on both runners a second `serve --lock-wait` against the running
+  service exits 0 with `lock_held` while the service keeps answering, and on macOS the agent's
+  log file holds a start line.
 
 ## Live checks (maintainer, on a Mac, at the final head)
 
