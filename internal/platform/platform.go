@@ -99,6 +99,11 @@ func Lock(path string) (*os.File, error) {
 	return f, nil
 }
 
+// LockHeld reports whether err is Lock's refusal because another process holds the lock.
+func LockHeld(err error) bool {
+	return errors.Is(err, syscall.EWOULDBLOCK)
+}
+
 func Unlock(f *os.File) error {
 	err := syscall.Flock(int(f.Fd()), syscall.LOCK_UN)
 	return errors.Join(err, f.Close())

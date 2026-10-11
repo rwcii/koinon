@@ -194,3 +194,59 @@ func TestUnitStates(t *testing.T) {
 		t.Fatalf("launchd calls %v", *lcalls)
 	}
 }
+
+// Service-started daemons wait for the lock and then exit cleanly, and the launchd agent
+// writes its output to a private log directory (#283).
+func TestServiceLockWaitAndLog(t *testing.T) {
+	s, _ := fakeServices(t, "systemd", nil)
+	if unit := string(s.RenderDaemon("/opt/koinon", "/state")); !strings.Contains(unit, `serve --state-dir "/state" --lock-wait 60s`+"\n") {
+		t.Fatalf("unit:\n%s", unit)
+	}
+	l, _ := managerFake(t, "launchd", "")
+	plist := string(l.RenderDaemon("/opt/koinon", "/state"))
+	log := filepath.Join(l.Home, "Library", "Logs", "koinon", "daemon.log")
+	for _, want := range []string{"<string>--lock-wait</string>\n\t\t<string>60s</string>\n\t</array>",
+		"<key>StandardOutPath</key>\n\t<string>" + log + "</string>", "<key>StandardErrorPath</key>\n\t<string>" + log + "</string>"} {
+		if !strings.Contains(plist, want) {
+			t.Fatalf("missing %q in plist:\n%s", want, plist)
+		}
+	}
+	if _, err := l.WriteDaemon("/opt/koinon", "/state"); err != nil {
+		t.Fatal(err)
+	}
+	info, err := os.Stat(filepath.Dir(log))
+	if err != nil || !info.IsDir() || info.Mode().Perm() != 0700 {
+		t.Fatalf("log directory: %v %v", info, err)
+	}
+}
+
+// An existing log directory that is not private is refused and left unchanged (#283).
+func TestServiceRefusesUnsafeLogDirectory(t *testing.T) {
+	l, _ := managerFake(t, "launchd", "")
+	dir := filepath.Dir(l.DaemonLog())
+	if err := os.MkdirAll(dir, 0700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chmod(dir, 0755); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := l.WriteDaemon("/opt/koinon", "/state"); err == nil || !strings.HasPrefix(err.Error(), "service_log_unsafe: ") {
+		t.Fatalf("unsafe log directory: %v", err)
+	}
+	if info, err := os.Stat(dir); err != nil || info.Mode().Perm() != 0755 {
+		t.Fatalf("log directory changed: %v %v", info, err)
+	}
+	if _, err := os.Stat(l.DaemonArtifact()); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("artifact written: %v", err)
+	}
+	// A symlink to a private directory is refused too.
+	if err := os.Remove(dir); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(t.TempDir(), dir); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := l.WriteDaemon("/opt/koinon", "/state"); err == nil || !strings.HasPrefix(err.Error(), "service_log_unsafe: ") {
+		t.Fatalf("symlinked log directory: %v", err)
+	}
+}

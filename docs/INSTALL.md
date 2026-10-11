@@ -54,8 +54,9 @@ chmod +x koinon-linux-amd64 && ./koinon-linux-amd64 version
    startup file; on macOS that directory is not on `PATH` by default. When another `koinon`,
    such as the Homebrew copy, comes first on `PATH`, the report names it. The install never
    edits shell startup files.
-3. It writes one service that runs `<prefix>/bin/koinon serve --state-dir <state>`, then enables
-   and (re)starts it:
+3. It writes one service that runs
+   `<prefix>/bin/koinon serve --state-dir <state> --lock-wait 60s`, then enables and
+   (re)starts it:
    - on Linux, the systemd user unit `~/.config/systemd/user/koinon.service`, enabled for login;
    - on macOS, the launchd agent
      `~/Library/LaunchAgents/io.github.rwcii.koinon.daemon.plist`, bootstrapped in `gui/<uid>`.
@@ -405,6 +406,21 @@ reported condition before using `koinon recover` for blocked storage. Capacity r
 preserve existing records; a failed or timed-out request alone does not prove a write failed.
 Use the same idempotency key and deadline to resolve uncertain writes within their horizon.
 An unavailable daemon is not permission to replace its state or change a secret.
+
+The daemon writes one JSON line to standard error for each lifecycle event: `start` (version,
+state directory, listeners), `stop` with its `reason` (`signal` and its name, `canceled`,
+`error` with a fixed code, or `lock_held`), `lock_wait` and `lock_acquired`. The lines hold no
+secret, message body or session ID. On macOS the launchd agent writes them to
+`~/Library/Logs/koinon/daemon.log` (directory mode 0700). Installation refuses an existing log
+directory that is not private to this user (`service_log_unsafe`) and does not change it. On
+Linux the lines are in the user journal (`journalctl --user -u koinon`). Read them to find when and why a daemon stopped. `koinon
+status` reports the daemon's `pid`.
+
+Only one daemon holds the daemon lock. The service starts the daemon with `--lock-wait 60s`: a
+second daemon, for example a service started while a manual `koinon serve` runs, waits up to 60
+seconds for the lock and then exits with status 0 and `lock_held` in the log. The launchd agent
+and the systemd unit do not restart a clean exit, so it stays stopped instead of restarting
+every few seconds. A manual `koinon serve` without the flag still fails at once.
 
 Memory and work share the daemon database, with one logical store per resolved Git common
 directory, including worktrees. Snapshot pages and deltas still require explicit
