@@ -87,7 +87,10 @@ A `holder_active` refusal includes a daemon wait; the MCP server retries at the 
 tool call after it. Renewal/observation timers do not count as activity and never trigger
 succession. Other refusals have no scheduled retry: report `no_host`, `host_running`,
 `other_pane`, `subagent`, `fenced` or `other_participant`, and tell the maintainer when the
-dashboard's holder choice is needed. A fenced old thread cannot recover its participant
+dashboard's holder choice is needed. A `no_host` against a predecessor without a host record
+(unlaunched, or registered before the upgrade) resolves when that predecessor expires: this
+session takes the address at its next registration or renewal. The holder choice only makes
+it immediate; it is not needed. A fenced old thread cannot recover its participant
 automatically, even after the guard. Older installed runtimes keep their own guidance.
 
 Verify the paired recipient before reporting the current peer name. Read the saved checkpoint

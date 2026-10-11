@@ -55,7 +55,10 @@ host_running, other_pane, subagent, holder_active, fenced or other_participant.
 holder_active returns the daemon's remaining retry_after_ms; MCP retries at the first native
 tool call after that wait. Renewals and observation timers do not count as activity or retry.
 A daemon restart counts as activity for 30 seconds. Other refusals have no scheduled retry;
-report them and tell the maintainer when a dashboard choice is needed. A fenced old thread
+report them and tell the maintainer when a dashboard choice is needed. no_host against a
+predecessor without a host record (unlaunched, or registered before the upgrade) resolves
+when it expires: this session takes the address at its next registration or renewal. Make
+holder only makes that immediate. A fenced old thread
 cannot succeed automatically, even after the guard. Never retire a predecessor or move its
 address as a pickup step; reconcile the runtime's result with the saved checkpoint.
 Address messages, the default memory cursor and default work claims belong to

@@ -169,7 +169,10 @@ former/retained holder, daemon time, evidence or refusal reason. `holder_active`
 you sending a registration command. Renewals and observation timers do not trigger the
 retry or keep the guard active. Other reasons are `no_host`, `host_running`, `other_pane`,
 `subagent`, `fenced` and `other_participant`; report the reason and use the maintainer's
-**Make holder** choice when a manual choice is needed. After a daemon restart, the guard
+**Make holder** choice when a manual choice is needed. A `no_host` against a predecessor
+without a host record, such as an unlaunched session or one registered before the upgrade,
+resolves when that predecessor expires: the successor takes the address at its next
+registration or renewal. **Make holder** only makes that immediate. After a daemon restart, the guard
 waits at least 30 seconds because earlier tool-call activity is unknown.
 
 A holder change retires and persistently fences the former holder. Registering again gives
