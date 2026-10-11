@@ -83,14 +83,17 @@ refused with `python_install_present`. Use the upgrade instead.
 ### Upgrade the Go runtime
 
 Run `koinon install` with the new binary, with the same `--prefix` and `--state-dir`. It replaces
-the binary in place and restarts the daemon, and the state stays. A launched session registers
-again at its next tool call or renewal and continues. It needs no step.
+the binary in place and restarts the daemon, and the state stays. A launched session continues.
+If one of its renewals comes while the daemon restarts, `koinon mcp` stops renewing it, and only
+its next Koinon tool call registers it again; an idle session can expire before that call. Thus,
+after the install, make one Koinon tool call in each running session, for example read the inbox.
 
 #### Upgrade from a build without launch admission
 
 v0.1.0 has no Claude launcher. It records a launch only for a session that `koinon codex`,
 `koinon agy` or `koinon opencode` started. After the install, the daemon renews only launched
-sessions. Thus each Claude session, and each other session that no launcher started (for example a
+sessions, except DeepSeek sessions, which keep their command registration. Thus each Claude
+session, and each Codex, Antigravity or OpenCode session that no launcher started (for example a
 Codex session that Codex's shared app-server runs), is islanded, in each repository on this
 daemon:
 
@@ -110,14 +113,15 @@ daemon:
 
 Do these steps in this sequence:
 
-1. Run `koinon peers` to list the active sessions. Stop each of them as step 2 says. A launched
-   session keeps running after the install, but its successor also reports `no_host`.
-2. In each running agent session, read the inbox and acknowledge each handled message. Finish or
+1. Run `koinon peers` to list the active sessions. Stop each Claude, Codex, Antigravity and
+   OpenCode session as step 2 says. A launched session keeps running after the install, but its
+   successor also reports `no_host`. A DeepSeek session needs no step.
+2. In each of those sessions, read the inbox and acknowledge each handled message. Finish or
    release each work claim. Write a handoff that the next session can read. Then exit the agent.
 3. Run `koinon install` with the new binary.
-4. In each repository, start each agent through its launcher: `koinon claude`, `koinon codex`,
-   `koinon agy` or `koinon opencode`. Then let it read the handoff. Until the old session expires, the new session reports `no_host` and does not hold
-   the address.
+4. In each repository, start each of those agents through its launcher: `koinon claude`,
+   `koinon codex`, `koinon agy` or `koinon opencode`. Then let it read the handoff. Until the old
+   session expires, the new session reports `no_host` and does not hold the address.
 
 ### Upgrade from the Python runtime
 

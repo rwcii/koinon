@@ -6,8 +6,9 @@ into a dated release section when promoted to `main`.
 ## Unreleased
 
 - docs/INSTALL.md gives the procedure to upgrade the Go runtime while agents run. From v0.1.0,
-  each Claude session and each session that no launcher started is islanded and keeps its
-  inbox, claims and address until it expires. The installed guide, the pickup skill and
+  each Claude session, and each Codex, Antigravity or OpenCode session that no launcher started,
+  is islanded and keeps its inbox, claims and address until it expires. DeepSeek keeps its
+  command registration. The installed guide, the pickup skill and
   docs/USAGE.md say that `no_host` against a predecessor without a host record resolves when
   that predecessor expires, and that **Make holder** only makes it immediate (#274).
 
