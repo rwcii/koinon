@@ -66,6 +66,28 @@ func TestSharedSkillsAndGuidance(t *testing.T) {
 	}
 }
 
+// raceTests is the race-enabled suite command. Under the race detector the core package runs
+// close to go test's default 10-minute timeout, so every place that runs it names one limit
+// (#296).
+const raceTests = "go test -race -timeout 30m ./..."
+
+func TestRaceCommandIsTheSameEverywhere(t *testing.T) {
+	for _, file := range []string{".github/workflows/tests.yml", "agents/skills/check/SKILL.md", "AGENTS.md", "CONTRIBUTING.md", "README.md"} {
+		text := read(t, file)
+		if !strings.Contains(text, raceTests) {
+			t.Errorf("%s does not run %q", file, raceTests)
+		}
+		if strings.Count(text, "go test -race") != strings.Count(text, raceTests) {
+			t.Errorf("%s runs another go test -race command", file)
+		}
+	}
+	// The job limit must exceed the go test limit, or the job ends without the stack of a
+	// hung test.
+	if !strings.Contains(read(t, ".github/workflows/tests.yml"), "timeout-minutes: 40") {
+		t.Error("the Go CI job needs a 40-minute limit above the 30-minute go test timeout")
+	}
+}
+
 // Run the real repository command so missing, stale and retired wrappers fail CI.
 func TestOpenCodeSkillCommandsCurrent(t *testing.T) {
 	// Subprocess reads are invisible to Go's test cache. Read its inputs here too,
@@ -114,7 +136,7 @@ func TestRuntimeRetirementAndCICoverage(t *testing.T) {
 		}
 	}
 	workflow := read(t, ".github/workflows/tests.yml")
-	for _, command := range []string{"go vet ./...", "go test -race ./...", "CGO_ENABLED=0", "ubuntu-latest", "macos-latest"} {
+	for _, command := range []string{"go vet ./...", raceTests, "CGO_ENABLED=0", "ubuntu-latest", "macos-latest"} {
 		if !strings.Contains(workflow, command) {
 			t.Errorf("missing Go CI coverage: %s", command)
 		}
