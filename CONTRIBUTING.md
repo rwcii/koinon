@@ -47,12 +47,12 @@ git switch develop
 git pull --ff-only
 git switch -c feature/my-change
 go vet ./...
-go test -race ./...
+go test -race -timeout 30m ./...
 git diff --check
 git commit -S -s -m "Add a concise description"
 gh pr list --base develop --state open   # wait until it lists none
 git fetch origin && git merge --no-edit origin/develop
-go test -race ./...
+go test -race -timeout 30m ./...
 # Just before the push: develop has not moved and no pull request opened meanwhile.
 git fetch origin && git merge-base --is-ancestor origin/develop HEAD
 gh pr list --base develop --state open
@@ -74,8 +74,8 @@ is preserved; signed-off contributions are required from adoption of this policy
 
 ## Local checks and scope
 
-Run `go vet ./...`, `go test -race ./...` and `git diff --check`. Runtime and installation
-changes also need the four `CGO_ENABLED=0` builds for linux/amd64, linux/arm64, darwin/amd64
+Run `go vet ./...`, `go test -race -timeout 30m ./...` and `git diff --check`. Runtime and
+installation changes also need the four `CGO_ENABLED=0` builds for linux/amd64, linux/arm64, darwin/amd64
 and darwin/arm64. Go tests live beside packages; operating-system differences belong in
 `internal/platform`. For changed shell tooling, run `bash -n scripts/setup-repo.sh` and
 `sh -n .githooks/pre-commit`.
