@@ -9,6 +9,11 @@ and macOS. When `PATH` does not reach the installed binary, follow the install r
 
 ## Messages and participants
 
+Review [recommended native permissions](PERMISSIONS.md) for each family, including scoped
+examples, configuration locations, verified syntax checks and their limits. Setup does not
+apply these permission rules; native hook trust and optional terminal operations remain
+separate. Read the installed family guide for the running version.
+
 Start Claude Code, Codex, Antigravity and OpenCode through `koinon claude`, `koinon codex`,
 `koinon agy` and `koinon opencode`. Setup adds the MCP server; the launcher supplies the
 session's launch association. Starting the native CLI directly creates an islanded instance:

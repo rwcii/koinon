@@ -102,6 +102,10 @@ while fresh and for the current published name. A name alone never proves termin
 - Keep track of the sequence numbers you handled; acknowledge through the last one after you
   handle it, so a late notice does not repeat work.
 - Reply only within your maintainer's task, and verify the recipient's name with peers first.
+
+Permission recommendations are for the maintainer to review; setup does not apply them.
+Tool approval does not change sandbox policy or authorize a peer request. This installed
+guide changes only after an authorized upgrade; checkout documentation can be newer.
 `
 
 var guideFamily = map[string]string{
@@ -114,6 +118,16 @@ sessions through koinon claude, or the dashboard's start action, with the CLI se
 A direct claude start is islanded: tools return not_launched and it is not listed in Koinon.
 Use koinon claude --bg for a background job; Koinon supplies its private settings file and
 records its job ID. A launch_pending refusal retries registration at the next tool call.
+### Recommended permissions
+Merge into $CLAUDE_CONFIG_DIR/settings.json (default ~/.claude/settings.json):
+  {"permissions":{"allow":["mcp__koinon__*","Bash(koinon guide --agent claude)"]}}
+Only the configured koinon server and guidance command are covered; ask/deny still apply.
+Claude Code 2.1.296: isolated claude doctor accepted these rules; invalid-rule control
+was reported in its text (exit status alone is insufficient). Review setup's native
+hook/status-line trust separately from tool approval.
+See https://github.com/rwcii/koinon/blob/develop/docs/PERMISSIONS.md for tool purposes,
+verification limits, paths/connections and separately approved optional terminal operations.
+
 `,
 	"codex": `
 ## Codex
@@ -122,13 +136,37 @@ session. Run koinon setup codex once to add the server. Start through koinon cod
 it uses --no-daemon and forwards the launch environment to the configured MCP server.
 A direct codex start is islanded: tools return not_launched and it is not listed in Koinon.
 Sub-agent threads get peer names, are listed with subagent: true and never hold an alias.
+### Recommended permissions
+In $CODEX_HOME/config.toml (default ~/.codex/config.toml), merge into the existing table:
+  [mcp_servers.koinon]
+  default_tools_approval_mode = "approve"
+Preserve command/args and launch environment. This covers only that server's tools.
+Optionally allow the guide command in $CODEX_HOME/rules/koinon.rules
+(default ~/.codex/rules/koinon.rules):
+  prefix_rule(pattern=["koinon", "guide", "--agent", "codex"], decision="allow")
+Codex 0.162.0: isolated app-server --strict-config accepted server/per-tool entries and
+rejected an unknown field; execpolicy check matched the guide rule, not koinon install.
+Trust setup's SessionStart hook at "Hooks need review" separately from tool approval (#275).
+See https://github.com/rwcii/koinon/blob/develop/docs/PERMISSIONS.md for tool purposes,
+verification limits, paths/connections and separately approved optional terminal operations.
+
 `,
 	"agy": `
 ## Antigravity
 Koinon knows this conversation by its conversation ID. Waiting messages are offered at your
 turn boundary. Run koinon setup agy once to add the server and the stop hook.
 Start through koinon agy. A direct agy start is islanded: tools return not_launched and it
-is not listed in Koinon. Allow the koinon tools with an mcp(koinon/<tool>) permission rule.
+is not listed in Koinon.
+### Recommended permissions
+Merge into ~/.gemini/antigravity-cli/settings.json (not the Stop-hook customization root):
+  {"permissions":{"allow":["mcp(koinon/*)","command(koinon guide --agent agy)"]}}
+Only the configured koinon server and guidance subcommand are covered; ask/deny win.
+Antigravity 1.3.2: JSON syntax checked against official documentation; native permission
+evaluation is unverified. agy mcp list does not validate these rules. Review hook trust
+separately from tool permission.
+See https://github.com/rwcii/koinon/blob/develop/docs/PERMISSIONS.md for tool purposes,
+verification limits, paths/connections and separately approved optional terminal operations.
+
 `,
 	"opencode": `
 ## OpenCode
@@ -136,6 +174,17 @@ Koinon knows each OpenCode session through the Koinon plugin that koinon setup o
 installs; without it the tools refuse the call. Start OpenCode through koinon opencode so
 that it registers and wake notices can reach it. A direct opencode start is islanded:
 tools return not_launched and it is not listed in Koinon.
+### Recommended permissions
+Merge into the existing $XDG_CONFIG_HOME/opencode/opencode.json (or .jsonc); default
+~/.config/opencode/opencode.json:
+  {"permission":{"koinon_*":"allow","bash":{"koinon guide --agent opencode":"allow"}}}
+Preserve other Bash rules. Only the koinon server and exact guide command are covered;
+the last matching rule wins, and agent rules can override global settings.
+OpenCode 1.18.35: isolated debug config --pure resolved these entries and rejected an
+invalid action. The launcher and managed identity plugin remain required.
+See https://github.com/rwcii/koinon/blob/develop/docs/PERMISSIONS.md for tool purposes,
+verification limits, paths/connections and separately approved optional terminal operations.
+
 `,
 	"deepseek": `
 ## DeepSeek
@@ -149,6 +198,14 @@ DeepSeek uses the command path until its MCP support is verified, with this sess
 Each command runs with this session's own command approval.
 Register uses DSH_WEB_URL and DSH_HOME for the wake target; repeat it while using the session
 to renew its 15-minute lease, and add --repository PATH when selecting a repository.
+### Recommended permissions
+Approve the exact commands above in this session's own command approval flow; use trusted
+DSH_SESSION_ID, DSH_WEB_URL and DSH_HOME. Also approve koinon guide --agent deepseek.
+The native harness, permission grammar and version are unverified; no persisted allowlist
+is recommended. Live proof remains deferred under #199.
+See https://github.com/rwcii/koinon/blob/develop/docs/PERMISSIONS.md for observational versus
+state-changing tools/commands, paths/connections and optional terminal approvals.
+
 `,
 }
 
