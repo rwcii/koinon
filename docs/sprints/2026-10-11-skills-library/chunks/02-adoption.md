@@ -5,17 +5,22 @@ Use the corresponding tests and integration gate in definition-of-done.md.
 
 ## State query
 
-Add `library_state` and `koinon library state`. It takes optional catalog item IDs, never
-paths or a caller identity. Inspect only the manifest's target descriptors. For repository
-items, resolve against the calling worktree while retaining the validated Git common directory
-as the decision-store scope. The existing MCP process or command client performs bounded
+Add `library_state` and `koinon library state`. It takes optional catalog item IDs and an
+optional directory, never arbitrary target paths or a caller identity. Inspect only the
+manifest's target descriptors. The default repository directory is the session's registered
+directory (the MCP/client directory at registration), not a guessed editor location. Resolve
+an optional directory relative to that directory; require its Git common directory to match
+the registered repository and its containing worktree to appear in that repository's
+`git worktree list`. Reuse the existing checkout-tool validation boundary. Plain or foreign
+directories are refused. Repository targets resolve against this verified selection while
+the validated Git common directory remains the decision-store scope. The existing MCP process or command client performs bounded
 read-only inspection; it has the caller's working directory and native environment, unlike
 the daemon's global HOME. Inject filesystem/environment readers for synthetic tests.
 
 The daemon supplies trusted catalog bytes and repository-scoped decisions; the client returns
 the combined result through the native identity path. Inspection observations are same-user
 reported data, not an attestation or a permission grant. No model-controlled observation,
-family, environment-root or pathname argument is exposed. Refuse symlink escapes and
+family, environment-root or target-path argument is exposed. Refuse symlink escapes and
 non-regular targets, report unavailable roots and permissions explicitly, and read no more
 than the per-item bound. Do not return private native paths or file bodies in catalog state.
 

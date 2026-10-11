@@ -26,6 +26,16 @@ skill discovery pointers are optional, separately reviewed changes described in 
 item, using verified family paths; plain reading of skill files is supported for every family.
 No universal native permission or discovery syntax is invented for an unverified family.
 
+`setup.claude-user-skill` is a separate, Claude-only item targeting
+`~/.claude/skills/koinon-guide/SKILL.md`. It is a reference wrapper with name/description
+frontmatter and plain instructions to read project rules and the installed guide/catalog.
+It has no dynamic command substitution, tool grant, launch/reset step or pairing authorization.
+This [personal skill location](https://code.claude.com/docs/en/skills#choose-where-skills-load)
+is documented by Claude. Verify discovery for the named supported Claude version in an isolated
+temporary home without a provider call before shipping. Resolve HOME from trusted native
+environment; a nondefault configuration root must be verified or reported unsupported, never
+guessed. Adopting this native-home item requires its own exact change and approval.
+
 The three team-operation skills are authored from the requested outcomes in issue145's
 public comment. Do not import downstream private files. Spin-up reviews checkout state and
 an authorized launch plan before changing Git or starting a CLI; spin-down asks each session

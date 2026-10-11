@@ -7,7 +7,8 @@
   Invalid IDs, unsupported families and oversized items are refused. Build the binary,
   remove the checkout from its search path and still list/read its catalog.
 - MCP list/read/state use native identity; guessed caller fields and arbitrary target paths
-  are refused. Exercise each MCP family with synthetic native metadata and DeepSeek's
+  are refused. State defaults to the registered directory; an optional directory must resolve
+  into a worktree listed for the same Git common directory. Exercise each MCP family with synthetic native metadata and DeepSeek's
   command path with its existing identity/admission rules. Native identity is never returned
   in catalog content.
 - Initialize and guide always offer the catalog, including repeated initialize/reconnect.
@@ -15,7 +16,10 @@
   record a decision. Actual tool-purpose and family coverage guards from #253 remain current.
 - Temporary repositories, linked worktrees and temporary native homes exercise present,
   missing, outdated, edited, unreadable and symlink/escape cases. Outside files stay
-  unread. An inspection failure returns a reason, not a guessed state.
+  unread. An inspection failure returns a reason, not a guessed state. Inspect the real
+  `setup.claude-user-skill` item under a temporary HOME for all four content states; no synthetic
+  catalog item substitutes for the required agent-home proof. Test a session registered in the
+  main checkout selecting its linked worktree, and refuse foreign repository/plain directories.
 - State/list/read cause no filesystem writes and no adoption/memory acknowledgement writes.
   Existing MCP registration/renewal effects remain documented separately.
 - Adopt one approved item by applying its reviewed change in a fixture, record the decision,

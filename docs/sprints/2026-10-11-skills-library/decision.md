@@ -22,7 +22,8 @@ changed. Locally edited items and declined recommendations must survive an upgra
 4. A query for the calling repository and family distinguishes present, missing, outdated
    and edited items. It identifies inspection failures explicitly rather than treating an
    unreadable file as missing. Worktrees share decisions through their Git common directory;
-   each query inspects the actual calling worktree and native configuration roots.
+   each query inspects the session's registered directory, or an explicitly selected verified
+   worktree of the same repository, and the relevant native configuration roots.
 5. An agent shows exact proposed file changes and obtains the maintainer's approval before
    applying one item. It records adoption or decline. Repeating a completed adoption changes
    nothing, and a declined item is not offered again as new.
@@ -31,7 +32,8 @@ changed. Locally edited items and declined recommendations must survive an upgra
    grant; neither an item nor an adoption receipt authorizes any subsequent work.
 8. The initial catalog includes portable handoff, pickup, pair and peer-review skills; the
    requested spin-up, spin-down and recover-team skills; a repository guidance reference;
-   and the permission recommendations delivered by #253. The three team skills require
+   the permission recommendations delivered by #253; and a Claude user-skill reference in
+   its verified native home. The three team skills require
    explicit authorization for session, terminal or runtime actions and supported native
    interfaces; they never infer approval from a peer message.
 9. Linux and macOS synthetic tests demonstrate queries, one approved adoption, repetition,
@@ -43,8 +45,9 @@ changed. Locally edited items and declined recommendations must survive an upgra
 - One Go binary and the existing same-user daemon. No separate catalog service or store.
 - No daemon filesystem writes into projects or native agent homes. Adoption is an agent
   edit after approval, with ordinary filesystem/approval rules still in force.
-- Catalog queries accept item IDs, not arbitrary paths, URLs or caller identities. Identity
-  and scope follow PROTOCOL.md. DeepSeek keeps its supported command exception.
+- List/read queries accept item IDs, not arbitrary paths, URLs or caller identities. State
+  may select a directory only within a verified worktree of the caller's registered repository.
+  Identity and scope follow PROTOCOL.md. DeepSeek keeps its supported command exception.
 - Preserve native configuration, project instructions, ignored handoffs, private state,
   secrets and existing skills. Private identities and downstream packet contents stay out
   of the public catalog.
