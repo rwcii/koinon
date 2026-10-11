@@ -5,6 +5,10 @@ into a dated release section when promoted to `main`.
 
 ## Unreleased
 
+- An install or upgrade records the launcher CLI of each family that an earlier setup
+  configured for the installed binary, though `--agent` did not name it, so `koinon agy` and
+  `koinon opencode` still start. It only reads the agent's configuration (#273).
+
 - A launcher for a family without a `launchers.json` entry reports that no CLI is configured
   for the family, and an empty entry reports that it is empty, instead of `configured CLI path
   must be absolute`. Both name `koinon setup FAMILY` and `--cli ABS_PATH` (#272).

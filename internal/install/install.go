@@ -14,6 +14,7 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"time"
 
@@ -41,9 +42,11 @@ type Options struct {
 	Address  string // the daemon address to wait for
 	Services platform.Services
 	Setup    func(context.Context, setup.Options) (setup.Report, error)
-	Remove   func(context.Context, setup.Options) (setup.Report, error)
-	Status   func(ctx context.Context, address, secret string) (json.RawMessage, error)
-	Wait     time.Duration
+	// Adopt records the launcher CLI of a family that an earlier setup configured.
+	Adopt  func(context.Context, setup.Options) (setup.Report, bool, error)
+	Remove func(context.Context, setup.Options) (setup.Report, error)
+	Status func(ctx context.Context, address, secret string) (json.RawMessage, error)
+	Wait   time.Duration
 }
 
 // Report is the JSON result of an install or an uninstall.
@@ -110,6 +113,9 @@ func (o *Options) defaults() error {
 	}
 	if o.Setup == nil {
 		o.Setup = setup.Run
+	}
+	if o.Adopt == nil {
+		o.Adopt = setup.Adopt
 	}
 	if o.Remove == nil {
 		o.Remove = setup.Remove
@@ -379,6 +385,20 @@ func Install(ctx context.Context, o Options) (Report, error) {
 		r.Agents = append(r.Agents, report)
 		if err != nil {
 			return r, fmt.Errorf("setup %s: %w", agent, err)
+		}
+	}
+	// A family that an earlier setup configured keeps starting through its launcher,
+	// though this install did not name it (#273). Its configuration is only read.
+	for _, family := range []string{"claude", "codex", "agy", "opencode"} {
+		if slices.Contains(o.Agents, family) {
+			continue
+		}
+		report, adopted, err := o.Adopt(ctx, setup.Options{Family: family, Binary: r.Binary, StateDir: o.StateDir})
+		if err != nil {
+			return r, fmt.Errorf("record %s launcher: %w", family, err)
+		}
+		if adopted {
+			r.Agents = append(r.Agents, report)
 		}
 	}
 	return r, nil

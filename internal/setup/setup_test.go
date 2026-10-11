@@ -366,3 +366,53 @@ func TestRemoveDisabledEntries(t *testing.T) {
 		}
 	}
 }
+
+// Adopt records the CLI of a family whose koinon entry runs this binary, after reading the
+// entry only; another binary's entry, no entry, no CLI or a usable record change nothing
+// (#273).
+func TestAdoptRecordsOnlyOwnConfiguredFamily(t *testing.T) {
+	binary := "/opt/koinon/bin/koinon"
+	for _, family := range []string{"claude", "codex", "agy", "opencode"} {
+		t.Run(family, func(t *testing.T) {
+			cli, entries, log := syntheticCLI(t, family)
+			os.WriteFile(entries, []byte("koinon "+binary+" mcp\n"), 0600)
+			state := filepath.Join(t.TempDir(), "state")
+			t.Setenv("PATH", filepath.Dir(cli)+string(filepath.ListSeparator)+os.Getenv("PATH"))
+			report, adopted, err := Adopt(context.Background(), Options{Family: family, Binary: binary, StateDir: state})
+			if err != nil || !adopted || report.CLI != cli || len(report.Changed) != 1 {
+				t.Fatalf("adopt: %+v %v %v", report, adopted, err)
+			}
+			if path, err := launcher.ConfiguredCLI(state, family, ""); err != nil || path != cli {
+				t.Fatalf("not recorded: %q %v", path, err)
+			}
+			if got := calls(t, log); len(got) != 1 || !strings.HasPrefix(got[0], "mcp get") && got[0] != "mcp list" {
+				t.Fatalf("adopt did more than read the entry: %v", got)
+			}
+			if data, _ := os.ReadFile(entries); string(data) != "koinon "+binary+" mcp\n" {
+				t.Fatalf("entries changed: %q", data)
+			}
+			if _, adopted, err := Adopt(context.Background(), Options{Family: family, Binary: binary, StateDir: state}); err != nil || adopted {
+				t.Fatalf("usable record adopted again: %v %v", adopted, err)
+			}
+			if len(calls(t, log)) != 1 {
+				t.Fatal("a usable record ran the CLI")
+			}
+		})
+	}
+	cli, entries, _ := syntheticCLI(t, "codex")
+	t.Setenv("PATH", filepath.Dir(cli)+string(filepath.ListSeparator)+os.Getenv("PATH"))
+	for name, content := range map[string]string{"other binary": "koinon /old/koinon mcp\n", "no entry": ""} {
+		os.WriteFile(entries, []byte(content), 0600)
+		state := filepath.Join(t.TempDir(), "state")
+		if _, adopted, err := Adopt(context.Background(), Options{Family: "codex", Binary: binary, StateDir: state}); err != nil || adopted {
+			t.Fatalf("%s adopted: %v %v", name, adopted, err)
+		}
+		if _, err := os.Stat(state); !os.IsNotExist(err) {
+			t.Fatalf("%s wrote state: %v", name, err)
+		}
+	}
+	t.Setenv("PATH", t.TempDir())
+	if _, adopted, err := Adopt(context.Background(), Options{Family: "agy", Binary: binary, StateDir: filepath.Join(t.TempDir(), "state")}); err != nil || adopted {
+		t.Fatalf("no CLI adopted: %v %v", adopted, err)
+	}
+}
