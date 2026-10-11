@@ -94,7 +94,7 @@ func TestGenerateLifecycle(t *testing.T) {
 	}
 	run(t, root, false)
 	run(t, root, true)
-	if err := os.Chmod(filepath.Join(root, ".opencode/commands/alpha.md"), 0600); err != nil {
+	if err := os.Chmod(filepath.Join(root, ".opencode/commands/alpha.md"), 0755); err != nil {
 		t.Fatal(err)
 	}
 	drift(t, root)
@@ -226,5 +226,26 @@ func TestCaseCollisionPreservesCustomCommand(t *testing.T) {
 	}
 	if get(t, root, ".opencode/commands/Alpha.MD") != "Custom command\n" {
 		t.Fatal("changed custom command")
+	}
+}
+
+func TestCheckAcceptsCheckoutUmask(t *testing.T) {
+	root := t.TempDir()
+	skill(t, root, "alpha", "Safe")
+	run(t, root, false)
+	file := filepath.Join(root, ".opencode/commands/alpha.md")
+	if err := os.Chmod(file, 0664); err != nil {
+		t.Fatal(err)
+	}
+	before := get(t, root, ".opencode/commands/alpha.md")
+	run(t, root, true)
+	info, err := os.Stat(file)
+	if err != nil || info.Mode().Perm() != 0664 || get(t, root, ".opencode/commands/alpha.md") != before {
+		t.Fatal("check changed checkout permissions", err)
+	}
+	run(t, root, false)
+	info, err = os.Stat(file)
+	if err != nil || info.Mode().Perm() != 0644 {
+		t.Fatal("generation did not emit 0644", err)
 	}
 }

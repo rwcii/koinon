@@ -55,7 +55,8 @@ an error before any changes. Custom commands and native OpenCode package files a
 The existing nine wrappers are already tracked on `develop`, so merging this change replaces
 them normally.
 
-Check mode compares bytes and mode without writing. Go contributor tests run it on Linux and
+Check mode compares bytes and the executable bit without writing; it accepts checkout
+permissions from the user's umask. Go contributor tests run it on Linux and
 macOS, so missing, changed or obsolete wrappers fail CI. Native discovery was verified with
 OpenCode 1.18.35 in a scratch repository with private configuration and no provider calls.
 See OpenCode's [commands](https://opencode.ai/docs/commands/) and

@@ -253,7 +253,9 @@ func generate(root string, check bool) error {
 			continue
 		}
 		delete(desired, file)
-		if string(data) != string(want) || info.Mode().Perm() != 0644 {
+		// Git preserves the executable bit, not checkout group-write permissions.
+		// Generation still normalizes owned output to 0644; check accepts umask 002.
+		if string(data) != string(want) || info.Mode().Perm()&0111 != 0 || !check && info.Mode().Perm() != 0644 {
 			changes = append(changes, change{path: path, data: want})
 		}
 	}

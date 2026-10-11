@@ -68,6 +68,25 @@ func TestSharedSkillsAndGuidance(t *testing.T) {
 
 // Run the real repository command so missing, stale and retired wrappers fail CI.
 func TestOpenCodeSkillCommandsCurrent(t *testing.T) {
+	// Subprocess reads are invisible to Go's test cache. Read its inputs here too,
+	// so a cached passing check cannot hide changed wrappers or generator code.
+	for _, tree := range []string{"agents/skills", ".opencode/commands", "scripts/skill-commands"} {
+		err := filepath.WalkDir(filepath.Join(root(t), tree), func(path string, entry os.DirEntry, err error) error {
+			if err != nil {
+				return err
+			}
+			if entry.Type().IsRegular() {
+				_, err = os.ReadFile(path)
+				return err
+			}
+			// Record path metadata without following custom symlinks or reading special files.
+			_, err = os.Lstat(path)
+			return err
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+	}
 	cmd := exec.Command("go", "run", "./scripts/skill-commands", "--check")
 	cmd.Dir = root(t)
 	if out, err := cmd.CombinedOutput(); err != nil {
