@@ -34,6 +34,9 @@ type Options struct {
 	PythonPrefix string   // the Python-era prefix that refuses a plain install
 	Agents       []string // families to set up, or to remove (default: all for removal)
 	NoStart      bool
+	// System installs the daemon as a macOS LaunchDaemon (#283); a later install or
+	// uninstall finds system mode from its plist.
+	System bool
 	// Upgrade is set by `koinon upgrade`, which removed the Python installation itself.
 	Upgrade  bool
 	Source   string // the binary to install; default this executable
@@ -47,6 +50,8 @@ type Options struct {
 	Remove func(context.Context, setup.Options) (setup.Report, error)
 	Status func(ctx context.Context, address, secret string) (json.RawMessage, error)
 	Wait   time.Duration
+	// SystemWait bounds the wait for the system daemon; zero is 90 seconds.
+	SystemWait time.Duration
 }
 
 // Report is the JSON result of an install or an uninstall.
@@ -354,7 +359,10 @@ func Install(ctx context.Context, o Options) (Report, error) {
 			return r, fmt.Errorf("python_install_present: a Python-era installation is at %s; run koinon upgrade --from-python", o.PythonPrefix)
 		}
 	}
-	var err error
+	system, err := systemMode(ctx, o)
+	if err != nil {
+		return r, err
+	}
 	if r.BinaryResult, err = place(o.Source, r.Binary); err != nil {
 		return r, err
 	}
@@ -363,22 +371,15 @@ func Install(ctx context.Context, o Options) (Report, error) {
 	}
 	r.OnPath = lookPath(o.Path)
 	r.PathStep = pathStep(r, o.LinkDir, o.Path)
-	if _, err := o.Services.WriteDaemon(r.Binary, o.StateDir); err != nil {
-		return r, err
-	}
-	r.Service = "staged"
-	if !o.NoStart {
-		switch err := o.Services.StartDaemon(ctx); {
-		case errors.Is(err, platform.ErrManualRequired):
-			r.Service, r.StartCommand = "manual_required", r.Binary+" serve --state-dir "+o.StateDir
-		case err != nil:
+	if system != nil {
+		r.Artifact = o.Services.SystemArtifact()
+		if err := o.Services.InstallSystem(ctx, platform.SystemInstall{Binary: r.Binary, State: o.StateDir, Plist: *system,
+			StatusPID: func(ctx context.Context) (int, error) { return statusPID(ctx, o) }, Wait: o.SystemWait}); err != nil {
 			return r, err
-		default:
-			if err := waitForDaemon(ctx, o); err != nil {
-				return r, err
-			}
-			r.Service = "running"
 		}
+		r.Service = "system"
+	} else if err := startAgent(ctx, o, &r); err != nil {
+		return r, err
 	}
 	for _, agent := range o.Agents {
 		report, err := o.Setup(ctx, setup.Options{Family: agent, Binary: r.Binary, StateDir: o.StateDir})
@@ -402,6 +403,77 @@ func Install(ctx context.Context, o Options) (Report, error) {
 		}
 	}
 	return r, nil
+}
+
+// startAgent writes the user service and, unless NoStart, starts it and waits for the daemon.
+func startAgent(ctx context.Context, o Options, r *Report) error {
+	if _, err := o.Services.WriteDaemon(r.Binary, o.StateDir); err != nil {
+		return err
+	}
+	r.Service = "staged"
+	if o.NoStart {
+		return nil
+	}
+	switch err := o.Services.StartDaemon(ctx); {
+	case errors.Is(err, platform.ErrManualRequired):
+		r.Service, r.StartCommand = "manual_required", r.Binary+" serve --state-dir "+o.StateDir
+	case err != nil:
+		return err
+	default:
+		if err := waitForDaemon(ctx, o); err != nil {
+			return err
+		}
+		r.Service = "running"
+	}
+	return nil
+}
+
+// systemMode returns the system plist when this install runs in system mode, or nil. It
+// refuses before anything changes: --system off macOS, as root or without a start, and a
+// hand-written LaunchDaemon that does not run this binary, state directory and user.
+func systemMode(ctx context.Context, o Options) (*platform.SystemPlist, error) {
+	if o.Services.Backend != "launchd" {
+		if o.System {
+			return nil, errors.New("system_mode_unsupported: --system installs a macOS LaunchDaemon; Linux keeps the systemd user unit")
+		}
+		return nil, nil
+	}
+	p, err := o.Services.ReadSystem(ctx)
+	if err != nil {
+		return nil, err
+	}
+	switch {
+	case !o.System && !p.Present:
+		return nil, nil
+	case o.Services.UID == 0:
+		return nil, errors.New("system_mode_root: run koinon install --system as the user the daemon runs as; it asks sudo for each privileged step")
+	case o.NoStart:
+		return nil, errors.New("system_mode_no_start: a system-mode install always starts and verifies the LaunchDaemon")
+	case p.Present && !p.Marked:
+		if err := o.Services.CheckHandWritten(p, Binary(o.Prefix), o.StateDir); err != nil {
+			return nil, err
+		}
+	}
+	return &p, nil
+}
+
+// statusPID is the process ID that the answering daemon reports.
+func statusPID(ctx context.Context, o Options) (int, error) {
+	secret, err := core.ReadSecret(o.StateDir)
+	if err != nil {
+		return 0, err
+	}
+	data, err := o.Status(ctx, o.Address, secret)
+	if err != nil {
+		return 0, err
+	}
+	var status struct {
+		PID int `json:"pid"`
+	}
+	if err := json.Unmarshal(data, &status); err != nil {
+		return 0, err
+	}
+	return status.PID, nil
 }
 
 // waitForDaemon polls the daemon's status until it answers or the wait ends.
@@ -449,6 +521,18 @@ func Uninstall(ctx context.Context, o Options) (Report, error) {
 	removed, err := o.Services.RemoveDaemon(ctx)
 	if err != nil {
 		return r, err
+	}
+	if o.Services.Backend == "launchd" {
+		// System mode; the user agent stays disabled until a later plain install.
+		system, err := o.Services.RemoveSystem(ctx)
+		if err != nil {
+			r.Artifact = o.Services.SystemArtifact()
+			return r, err
+		}
+		if system {
+			r.Artifact = o.Services.SystemArtifact()
+		}
+		removed = removed || system
 	}
 	r.Service = map[bool]string{true: "removed", false: "absent"}[removed]
 	r.BinaryResult = "absent"
