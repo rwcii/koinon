@@ -443,6 +443,46 @@ func TestDaemonRestartAndRenewal(t *testing.T) {
 	}
 }
 
+// TestRenewalSurvivesTransientFailure: a renewal that fails because the daemon is down
+// keeps the session in the renewal set, and the next interval renews it; a renewal refused
+// because the session retired drops it (#249).
+func TestRenewalSurvivesTransientFailure(t *testing.T) {
+	h := newHarness(t, "codex-mcp-client")
+	h.launch("codex")
+	b := map[string]any{"threadId": "synthetic-b"}
+	if _, isError := h.tool("peers", map[string]any{}, b); isError {
+		t.Fatal("peers")
+	}
+	key := core.Key{Family: "codex", ID: "synthetic-b"}
+	address := h.d.Addresses()[0]
+	if err := h.d.Close(); err != nil {
+		t.Fatal(err)
+	}
+	h.s.renew(context.Background())
+	before, kept := h.s.sessions[key]
+	if !kept {
+		t.Fatal("a failed renewal dropped the session")
+	}
+	restarted, err := core.Start(core.Config{StateDir: h.root, Listen: []string{address}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	h.d = restarted
+	t.Cleanup(func() { restarted.Close() })
+	h.s.renew(context.Background())
+	if after := h.s.sessions[key].revision; after != before.revision+1 {
+		t.Fatalf("renewal after the restart: %d -> %d", before.revision, after)
+	}
+	secret, _ := core.ReadSecret(h.root)
+	if _, err := core.Call(context.Background(), address, secret, "/v1/sessions/retire", core.Mutation{Family: "codex", ID: "synthetic-b", IfRevision: before.revision + 1}); err != nil {
+		t.Fatal(err)
+	}
+	h.s.renew(context.Background())
+	if _, kept := h.s.sessions[key]; kept {
+		t.Fatal("a retired session stayed in the renewal set")
+	}
+}
+
 func TestCommandBinary(t *testing.T) {
 	if testing.Short() {
 		t.Skip()

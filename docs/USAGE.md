@@ -54,6 +54,13 @@ an older source timestamp. Unsupported values stay unknown. Reports live in memo
 unknown after a restart until fresh reports or provider reads arrive.
 
 Peer names can report expired or retired sessions; aliases must have an active holder.
+A running agent keeps its session while it is idle: the daemon checks the host process of each
+launched session every 30 seconds and extends the session while that process runs, also when
+its `koinon mcp` was replaced and nothing renews it. `peers` and the dashboard show
+`liveness` (`host` or `none`) and `host_verified_at`. A session without a host record, such as
+a DeepSeek session, is kept only by renewals and calls. A message to an expired or retired
+session is refused with `recipient_inactive`, and `details.reason` says why: `retired`,
+`ended`, `no_liveness_evidence` or `lapsed`.
 The read uses the dashboard's projection without needing a dashboard login or another
 agent's terminal. Delivery and acknowledgement remain separate signals and do not establish
 whether a peer is busy or has read its inbox.

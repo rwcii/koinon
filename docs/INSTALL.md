@@ -83,10 +83,11 @@ refused with `python_install_present`. Use the upgrade instead.
 ### Upgrade the Go runtime
 
 Run `koinon install` with the new binary, with the same `--prefix` and `--state-dir`. It replaces
-the binary in place and restarts the daemon, and the state stays. A launched session continues.
-If one of its renewals comes while the daemon restarts, `koinon mcp` stops renewing it, and only
-its next Koinon tool call registers it again; an idle session can expire before that call. Thus,
-after the install, make one Koinon tool call in each running session, for example read the inbox.
+the binary in place and restarts the daemon, and the state stays. A launched session continues:
+`koinon mcp` tries a renewal that fails during the restart again at the next interval, and
+the daemon keeps a session whose host process runs (liveness, see PROTOCOL.md). A session
+without a host record, such as a DeepSeek session or one registered before host records, is
+kept only by its renewals and tool calls.
 
 #### Upgrade from a build without launch admission
 

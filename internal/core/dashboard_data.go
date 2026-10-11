@@ -65,6 +65,7 @@ const dashboardSessionView = `SELECT s.family AS family,s.id AS id,s.repository 
 	COALESCE((SELECT name FROM names WHERE kind='peer' AND family=s.family AND session_id=s.id),'') AS name,
 	COALESCE(p.name,'') AS address,COALESCE(p.holder_id,'') AS holder,COALESCE(p.conflict,'') AS conflict,
 	EXISTS (SELECT 1 FROM participant_fences f WHERE f.address=p.name AND f.family=s.family AND f.session_id=s.id) AS fenced,s.succession AS succession,
+	s.host_pid>0 AND s.host_start>0 AND s.subagent=0 AS evidence,
 	CASE WHEN p.holder_id=s.id AND s.retired_at=0 AND s.expires_at>?1 THEN p.name ELSE '' END AS alias,
 	CASE WHEN s.retired_at!=0 THEN 'retired' WHEN s.expires_at<=?1 THEN 'expired' ELSE 'active' END AS state
 	FROM sessions s LEFT JOIN names p ON p.kind='alias' AND p.family=s.family AND p.repository=s.repository
@@ -105,7 +106,7 @@ func (s *Store) dashboardSessions(ctx context.Context, order dashboardSort, sear
 		}
 	}
 	rows, err := s.db.QueryContext(ctx, `SELECT family,id,repository,directory,wake_target,registered_at,renewed_at,expires_at,
-		retired_at,purge_at,revision,subagent,role,name,address,holder,conflict,fenced,succession,`+order.selectList()+` FROM (`+dashboardSessionView+`) WHERE `+where+
+		retired_at,purge_at,revision,subagent,role,name,address,holder,conflict,fenced,succession,evidence,`+order.selectList()+` FROM (`+dashboardSessionView+`) WHERE `+where+
 		` ORDER BY `+by+` LIMIT `+strconv.Itoa(dashboardSessionPage+1), args...)
 	if err != nil {
 		return nil, "", err
@@ -118,6 +119,7 @@ func (s *Store) dashboardSessions(ctx context.Context, order dashboardSort, sear
 		if err != nil {
 			return nil, "", err
 		}
+		s.annotate(&r)
 		result, keys = append(result, r), append(keys, scannedValues(targets))
 	}
 	if err := rows.Err(); err != nil {

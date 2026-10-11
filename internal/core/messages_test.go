@@ -308,12 +308,12 @@ func TestMessagesBetweenEveryFamilyPair(t *testing.T) {
 	if status != 200 || len(listing["peers"].([]any)) != len(families)+1 {
 		t.Fatalf("peers: %d %v", status, listing)
 	}
-	// Peers see names, aliases, families, states, repositories and participants, never
-	// another session's wake target, directory or key.
+	// Peers see names, aliases, families, states, repositories, participants and liveness
+	// evidence, never another session's wake target, directory, host process or key.
 	for _, p := range listing["peers"].([]any) {
 		for field := range p.(map[string]any) {
 			switch field {
-			case "name", "alias", "family", "state", "repository", "subagent", "role", "address", "holds_address":
+			case "name", "alias", "family", "state", "repository", "subagent", "role", "address", "holds_address", "liveness", "host_verified_at":
 			default:
 				t.Fatalf("peer field %q: %v", field, p)
 			}
@@ -373,6 +373,9 @@ func TestMessageErrorsAndIsolation(t *testing.T) {
 		t.Fatal(err)
 	}
 	expect("/v1/messages/send", map[string]any{"caller": ka, "to": c.Name, "body": "x"}, 409, "recipient_inactive")
+	if _, refused := post(t, address, secret, "/v1/messages/send", map[string]any{"caller": ka, "to": c.Name, "body": "x"}); refused["details"].(map[string]any)["reason"] != "retired" {
+		t.Fatalf("recipient_inactive reason: %v", refused)
+	}
 	expect("/v1/messages/send", map[string]any{"caller": ka, "to": "deepseek-koinon", "body": "x"}, 409, "alias_unheld")
 	expect("/v1/inbox/read", map[string]any{"caller": kc}, 403, "caller_inactive")
 	if _, err := d.store.Mutate(context.Background(), Mutation{Family: "codex", ID: "synthetic-a", IfRevision: a.Revision}, true); err != nil {
