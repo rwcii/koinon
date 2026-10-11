@@ -80,7 +80,7 @@ func TestWakeCrashAfterAcceptanceRetries(t *testing.T) {
 }
 func TestWakeSchemaFiveMigrationAndFutureRefusal(t *testing.T) {
 	s, root, sender, receiver, message, _ := wakeFixture(t, "agy")
-	if _, err := s.db.Exec(undoSchemaFourteen + undoSchemaThirteen + undoSchemaTwelve + undoSchemaEleven + undoSchemaTen + undoSchemaNine + undoSchemaEight + undoSchemaSeven + `DROP INDEX messages_wake; ALTER TABLE messages DROP COLUMN wake_attempts; ALTER TABLE messages DROP COLUMN wake_next_at; ALTER TABLE messages DROP COLUMN wake_reason; PRAGMA user_version=5`); err != nil {
+	if _, err := s.db.Exec(undoSchemaFifteen + undoSchemaFourteen + undoSchemaThirteen + undoSchemaTwelve + undoSchemaEleven + undoSchemaTen + undoSchemaNine + undoSchemaEight + undoSchemaSeven + `DROP INDEX messages_wake; ALTER TABLE messages DROP COLUMN wake_attempts; ALTER TABLE messages DROP COLUMN wake_next_at; ALTER TABLE messages DROP COLUMN wake_reason; PRAGMA user_version=5`); err != nil {
 		t.Fatal(err)
 	}
 	s.db.Close()
@@ -246,8 +246,11 @@ func TestWakeUncertaintySurvivesRestart(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer restored.db.Close()
-	*clock = clock.Add(time.Second)
+	// An uncertain transport may have reached the agent: the retry waits for the read wait.
+	*clock = clock.Add(wakeReadWait)
 	restored.now = func() time.Time { return *clock }
+	join(t, restored, sender.Family, sender.ID, sender.Directory)
+	join(t, restored, receiver.Family, receiver.ID, receiver.Directory)
 	calls := 0
 	restored.wake.send = func(context.Context, Session, string) wakeResult { calls++; return wakeResult{"notified", "accepted"} }
 	if err := restored.wakeStep(ctx); err != nil || calls != 1 {

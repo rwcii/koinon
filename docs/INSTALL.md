@@ -341,7 +341,10 @@ renewal and observation timers never trigger succession. A fenced old thread nee
 maintainer's dashboard choice. Schema 13 adds host records and succession results without
 moving existing inboxes, cursors or claims; missing host records cannot prove succession.
 Schema 14 adds the session timing settings with their defaults; a binary from before schema
-14 refuses the upgraded database.
+14 refuses the upgraded database. Schema 15 adds read tracking, per-message notice counts and
+the acknowledgement record; a binary from before schema 15 refuses it. After the upgrade, a
+message that was notified and is still unacknowledged gets one new notice, because no read
+of it was recorded before.
 
 Read `koinon guide --agent FAMILY` at startup and after a reset. Discover the exact recipient
 with `peers`, send only within the maintainer's authorization, read notices through `inbox`,

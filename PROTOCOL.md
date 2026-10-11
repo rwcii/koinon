@@ -220,9 +220,11 @@ Each change and each new refusal records a participant event with candidate, evi
 refusal reason, host PID and pane; repeated refusals for the same reason and holder do not
 repeat the event. A successful change retires and fences the former holder atomically and
 continues the participant's inbox, cursor and claims. Every holder change, including the
-maintainer's choice, also returns the participant's unacknowledged `notified` messages to
-`waiting` with no attempts, so the new holder gets a wake: a notice accepted for the former
-holder, such as a Codex thread after `/clear`, never reaches it.
+maintainer's choice, also returns the participant's unacknowledged `notified`, `uncertain` and
+`failed` messages to `waiting` with no attempts and no notices, and sets its `read_through` back
+to `acked_through`, so the new holder gets a wake: a notice accepted for the former holder,
+such as a Codex thread after `/clear`, never reaches it, and what the former holder read it
+did not handle. The notice budget of a participant inbox belongs to its holder.
 
 Registration and renewal replies carry `host_holder: true` when another active session with
 the same host PID and start value holds a participant address. `koinon mcp` then leaves the
@@ -256,16 +258,23 @@ its native session sent; another sender's message reads as
   an explicit `participant_after` without a held participant returns `stale_holder`.
   Each message has `id`, `seq`, `sender_family`, `sender_name`, `body`,
   `created_at`, `delivery_state`, `delivery_reason`, `acknowledged` and, for an acknowledged
-  message, `acknowledged_by`: `recipient` or `maintainer`.
+  message, `acknowledged_by`: `recipient` or `maintainer`. From schema 15 an acknowledged
+  message also has `acknowledged_session` (the peer name of the session that acknowledged
+  it, or `maintainer`) and `acknowledged_via` (`ack`, `participant_ack` or `dashboard`).
+  A read records the highest sequence that it returned from each inbox as that inbox's
+  `read_through`, when the read started at or below `max(read_through, acked_through)`; a
+  read that skips unread messages records nothing (see Handled wakes).
 - Acknowledge takes `caller`, `through` (default 0) and optional `participant_through`.
   The reply adds `participant: {address, acked_through}` when it acknowledges that inbox;
-  `sessions.acked_by` records the acting native session (`FAMILY:ID`). Without a held
+  `sessions.acked_by` records the acting native session (`FAMILY:ID`). Each message that an
+  acknowledgement covers records the session's peer name and the operation (#250). Without a held
   participant, an explicit participant acknowledgement returns `stale_holder` before either
   inbox changes. Each inbox's acknowledgement only moves forward: an earlier
   sequence leaves `acked_through` unchanged, and a sequence beyond the last fails with
   `ack_beyond_last` (409). A message is acknowledged when its `seq` is at most `acked_through`.
 - Outcome takes `caller` and `message_id` and returns `id`, `recipient`, `seq`, `delivery_state`,
-  `delivery_reason`, `updated_at`, `acknowledged` and `acknowledged_by` (#82). For a message that
+  `delivery_reason`, `wake_reason`, `notices`, `updated_at`, `acknowledged`, `acknowledged_by`,
+  `acknowledged_session` and `acknowledged_via` (#82, #250). For a message that
   retention or a purge deleted, it returns `ok: true` with `id` and `delivery_state` `deleted`;
   the other fields are empty, zero or false. Any issued ID that the daemon no longer holds reads as `deleted`, also when another
   session sent it; a held message of another sender stays `message_not_found`.
@@ -275,10 +284,15 @@ It has an inbox, never expires, has no repository, alias or wake target, and is 
 `peers` lists it last, so agents can send to `maintainer`; the session list and the session
 counts leave it out. No `/v1/` caller can act as it, register it, renew it or retire it
 (`invalid_request`); only the dashboard sends, reads and acknowledges as the maintainer.
+The daemon itself puts notices in the maintainer's inbox with `sender_name` `koinon`: today
+only the notice that messages failed (see Handled wakes). Such a notice holds fixed text,
+message IDs, a recipient name and reason codes, never peer text.
 
 Each message has exactly one delivery state: `waiting`, `notified`, `uncertain`, or `failed` with
 a reason. Messages are stored as `waiting`; the adapters below update delivery independently
-of inbox storage and acknowledgement.
+of inbox storage and acknowledgement. While a message waits for a further notice,
+`delivery_reason` says why its last notice was not handled (`not_read` or
+`turn_failed:CODE`); a failed message keeps that reason.
 
 Replies include `ok`. Success returns `session` or `sessions`; failures report a fixed `code`:
 `unauthorized` (401), `foreign_origin` (403), `invalid_request` (400), `session_not_found` (404),
@@ -324,7 +338,8 @@ the maximum backoff ahead. Acknowledgement and withdrawal share the submission b
 an acknowledgement committed before submission is never included. Provider calls have a
 3-second deadline bounded by session expiry. No peer body or provider output enters a notice.
 
-Each notice names only the quoted family/ID inbox and its sequence range. A participant
+Each notice names only the quoted family/ID inbox and its sequence range: the first run of
+due unhandled messages, which stops before a message whose read wait has not ended. A participant
 notice names `participant:<address>` and is delivered to its current active holder's native
 wake endpoint; without one its messages wait. Codex uses
 the configured absolute CLI with `queue --thread ID --message NOTICE`. Claude requires a
@@ -346,11 +361,49 @@ read precedes `/session/ID/prompt_async`; an omitted status counts as idle only 
 `GET /session/ID` confirms this exact ID exists. Busy/retry and unknown sessions are not woken.
 
 `POST /v1/wake/agy-stop` takes `caller` with family `agy` and the hook's native conversation ID.
-It offers a due unacknowledged notice at that turn boundary, leaving delivery uncertain. The
+It offers a due unhandled notice at that turn boundary, leaving delivery `uncertain` with
+`stop_offered`; the offer counts as a notice (see Handled wakes). The
 Stop hook returns `{"decision":"continue","reason":NOTICE}` only for that offer; otherwise `{}`,
 including when the daemon is unavailable. `GET /v1/status` and dashboard health expose `wake`
-counts, grouped fixed reason codes and a storage fault, without message bodies or credentials.
-Queue acceptance does not prove model processing. Expired/retired sessions keep their inboxes,
+counts (`waiting`, `uncertain`, `notified`, `failed`), grouped fixed reason codes and a storage
+fault, without message bodies or credentials. The counts cover messages that are neither
+acknowledged nor read. Queue acceptance does not prove model processing.
+
+#### Handled wakes
+
+Schema 15 (#250) adds `sessions.read_through` and, on messages, `wake_notices`, `ack_session`
+and `ack_via`. A message is handled when its `seq` is at most `acked_through` or
+`read_through`; the worker wakes only for messages that are not handled. A read therefore
+ends the notices for what it returned, even before the agent acknowledges it.
+
+A result that may have put the notice in front of the agent counts as a notice: `notified`,
+or `uncertain` other than `attempt_in_progress` and `invalid_adapter_result`, including an
+Antigravity Stop offer. Each message counts its own notices; a notice whose range spans a
+message that is not yet due leaves that message's count and wait unchanged. After its 1st, 2nd, 3rd and 4th notice it waits 2, 4, 8 and 16
+minutes for a read. When the wait ends and it is still not handled, it gets `delivery_reason`
+`not_read` and a new notice; the adapters' busy check defers that notice without counting it.
+Results that never reach the agent (`waiting` reasons) keep the backoff above and do not count.
+
+A Codex turn that fails reports the fixed code of `codex_error_info` from the rollout on the
+idle activity observation as `turn_error`: `server_overloaded`, `usage_limit_exceeded`,
+`unauthorized`, `response_too_many_failed_attempts`, `context_window_exceeded`,
+`internal_server_error`, `http_connection_failed`, `response_stream_connection_failed`,
+`response_stream_disconnected`, `bad_request`, `sandbox_error`, `cyber_policy`,
+`misalignment_policy_violation`, or `other`. The error's message text is never read. A failure
+observed after a message's last notice sets `delivery_reason` to `turn_failed:CODE` at once,
+in the session's own inbox and in the participant inbox that it holds; each reported failure
+is applied once, for every Codex session;
+the next notice keeps the wait, so a capacity outage does not use the notices up in a minute.
+Other families report no turn result; for them the read wait applies.
+
+A message that is still not handled when the wait after its 4th notice ends, or that has a
+failed turn after its 4th notice, becomes `failed` with that reason, and its notices stop. This
+applies in every family's inbox, Antigravity's included, and to a participant inbox with no
+active holder. A read that a holder change overtook does not advance the new holder's read. In
+the same transaction the daemon puts one notice in the maintainer's inbox naming the message
+IDs, the recipient, the notice count and the reasons. The recipient still finds the message
+unread. Wakes stay content-free: a further notice never carries peer text and never changes
+the recipient's model or settings. Expired/retired sessions keep their inboxes,
 until retention deletes them, and receive no new wake until registered again.
 
 ### Retention

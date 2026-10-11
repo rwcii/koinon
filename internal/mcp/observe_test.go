@@ -360,3 +360,43 @@ func TestUnchangedValuesAreConfirmedAndUnreadableSourcesAreNot(t *testing.T) {
 		}
 	}
 }
+
+// A failed Codex turn reports its fixed error code on the idle activity, never the error's
+// message text (#250).
+func TestRolloutTurnErrorCode(t *testing.T) {
+	complete := func(turn, errorJSON string) []byte {
+		payload := `{"type":"task_complete","turn_id":"` + turn + `"`
+		if errorJSON != "" {
+			payload += `,"error":` + errorJSON
+		}
+		return []byte(`{"timestamp":"2026-10-08T20:38:18.427Z","type":"event_msg","payload":` + payload + `}}`)
+	}
+	for _, c := range []struct{ errorJSON, want string }{
+		{`{"message":"Selected model is at capacity. PRIVATE","codex_error_info":"server_overloaded"}`, "server_overloaded"},
+		{`{"message":"PRIVATE","codex_error_info":{"response_too_many_failed_attempts":{"http_status_code":429}}}`, "response_too_many_failed_attempts"},
+		{`{"message":"PRIVATE","codex_error_info":"a_new_code"}`, "other"},
+		{`{"message":"PRIVATE"}`, "other"},
+		{``, ""},
+	} {
+		r := &rollout{turn: "turn-a"}
+		r.event(complete("turn-a", c.errorJSON))
+		if r.activity == nil || r.activity.State != "idle" || r.activity.TurnError != c.want {
+			t.Fatalf("%s: %+v", c.errorJSON, r.activity)
+		}
+		data, _ := json.Marshal(r.activity)
+		if strings.Contains(string(data), "PRIVATE") || strings.Contains(string(data), "capacity") {
+			t.Fatalf("error text reported: %s", data)
+		}
+	}
+	// An aborted turn carries no error, and a new turn clears the last one.
+	r := &rollout{turn: "turn-a"}
+	r.event([]byte(`{"timestamp":"2026-10-08T20:38:18.427Z","type":"event_msg","payload":{"type":"turn_aborted","turn_id":"turn-a","error":{"codex_error_info":"server_overloaded"}}}`))
+	if r.activity == nil || r.activity.TurnError != "" {
+		t.Fatalf("aborted turn: %+v", r.activity)
+	}
+	r.event(complete("turn-a", `{"codex_error_info":"unauthorized"}`))
+	r.event([]byte(`{"timestamp":"2026-10-08T20:39:00.000Z","type":"event_msg","payload":{"type":"task_started","turn_id":"turn-b"}}`))
+	if r.activity == nil || r.activity.State != "busy" || r.activity.TurnError != "" {
+		t.Fatalf("new turn: %+v", r.activity)
+	}
+}
