@@ -26,11 +26,12 @@ skills. `.claude/skills`, `.agents/skills` and `.codex/skills` remain symlinks t
 At a frozen review checkpoint report one verified batch; fixes get a bounded review of the
 accepted findings and affected behavior. A new hash does not restart a general audit.
 
-Before pushing, run `go vet ./...`, `go test -race ./...` and `git diff --check`. Review changed
-shell files with `bash -n scripts/setup-repo.sh` and `sh -n .githooks/pre-commit`. Run the four
-CGO-free builds for runtime or installation changes. The contributor checks cover shared
-skills, retirement and CI coverage. CI runs the full Go suite on Linux and macOS, including
-for agent-only changes. Update CHANGELOG.md under Unreleased for visible changes.
+Before pushing, run `go vet ./...`, `go test -race -timeout 30m ./...` and `git diff --check`.
+Review changed shell files with `bash -n scripts/setup-repo.sh` and
+`sh -n .githooks/pre-commit`. Run the four CGO-free builds for runtime or installation changes.
+The contributor checks cover shared skills, retirement and CI coverage. CI runs the full Go
+suite on Linux and macOS, including for agent-only changes. Update CHANGELOG.md under
+Unreleased for visible changes.
 
 ## Agent coordination
 
