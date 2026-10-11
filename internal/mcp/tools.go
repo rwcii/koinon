@@ -8,6 +8,7 @@ import (
 	"os/exec"
 	"strings"
 	"time"
+	"unicode/utf8"
 
 	"github.com/rwcii/koinon/internal/core"
 )
@@ -80,6 +81,21 @@ func decodeArgs(args map[string]json.RawMessage, value any) error {
 func result(value any, isError bool) map[string]any {
 	data, _ := json.Marshal(value)
 	return map[string]any{"content": []map[string]any{{"type": "text", "text": string(data)}}, "isError": isError}
+}
+
+// refusalText bounds this server's own refusal text as the daemon's is bounded: valid UTF-8,
+// cut at a character boundary to at most core.MaxRefusalMessage bytes. An argument name can
+// be longer than that.
+func refusalText(text string) string {
+	text = strings.ToValidUTF8(text, "\uFFFD")
+	if len(text) <= core.MaxRefusalMessage {
+		return text
+	}
+	cut := core.MaxRefusalMessage
+	for cut > 0 && !utf8.RuneStart(text[cut]) {
+		cut--
+	}
+	return text[:cut]
 }
 
 func failure(code string) map[string]any {
@@ -195,7 +211,7 @@ func (s *server) call(ctx context.Context, raw json.RawMessage) map[string]any {
 	}
 	if err != nil {
 		// The text names the argument and the rule, so the caller can correct the call.
-		return result(map[string]any{"ok": false, "code": "invalid_arguments", "error": strings.TrimPrefix(err.Error(), "json: ")}, true)
+		return result(map[string]any{"ok": false, "code": "invalid_arguments", "error": refusalText(strings.TrimPrefix(err.Error(), "json: "))}, true)
 	}
 	if caller.Family == "codex" && codexSubagent(p.Meta) {
 		s.mu.Lock()

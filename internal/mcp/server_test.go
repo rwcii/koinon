@@ -11,6 +11,7 @@ import (
 	"strings"
 	"testing"
 	"time"
+	"unicode/utf8"
 
 	"github.com/rwcii/koinon/internal/core"
 )
@@ -576,6 +577,20 @@ func TestWorkTools(t *testing.T) {
 	} {
 		if reply, isError := h.tool(c.name, c.args, meta); !isError || reply["code"] != c.code || reply["error"] != c.text {
 			t.Errorf("%s %v: %v", c.name, c.args, reply)
+		}
+	}
+	// A long argument name keeps the text within 1 KiB of valid UTF-8, cut between characters.
+	for _, name := range []string{strings.Repeat("x", 2048), strings.Repeat("é", 1500)} {
+		for _, tool := range []string{"work_get", "memory_recall", "peers"} {
+			args := map[string]any{name: 1}
+			if tool == "memory_recall" {
+				args["query"] = "q"
+			}
+			reply, isError := h.tool(tool, args, meta)
+			text, _ := reply["error"].(string)
+			if !isError || reply["code"] != "invalid_arguments" || len(text) > 1024 || len(text) < 1000 || !utf8.ValidString(text) {
+				t.Errorf("%s with a %d-byte name: %d bytes, %v", tool, len(name), len(text), reply["code"])
+			}
 		}
 	}
 }

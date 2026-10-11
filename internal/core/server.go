@@ -483,7 +483,7 @@ func Call(ctx context.Context, address, secret, path string, body any) (json.Raw
 		if json.Unmarshal(data, &refusal) != nil || refusal.Code == "" || len(refusal.Code) > 64 {
 			return nil, errors.New("daemon refused request")
 		}
-		if len(refusal.Message) > maxRefusalMessage || !utf8.ValidString(refusal.Message) {
+		if len(refusal.Message) > MaxRefusalMessage || !utf8.ValidString(refusal.Message) {
 			refusal.Message = ""
 		}
 		return nil, RefusedError{Code: refusal.Code, Details: refusal.Details, Message: refusal.Message}
@@ -493,5 +493,5 @@ func Call(ctx context.Context, address, secret, path string, body any) (json.Raw
 
 const maxResponse = 8 << 20
 
-// maxRefusalMessage bounds the refusal text that a client passes on.
-const maxRefusalMessage = 1024
+// MaxRefusalMessage bounds the refusal text that a client passes on.
+const MaxRefusalMessage = 1024
