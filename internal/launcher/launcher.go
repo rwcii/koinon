@@ -108,6 +108,9 @@ func ConfiguredCLI(stateDir, family, override string) (string, error) {
 	path := override
 	if path == "" {
 		f, err := platform.OpenPrivate(filepath.Join(stateDir, "launchers.json"), os.O_RDONLY)
+		if errors.Is(err, fs.ErrNotExist) {
+			return "", errors.New("no " + family + " CLI is configured in launchers.json; " + recordCLI(stateDir, family))
+		}
 		if err != nil {
 			return "", errors.New("configure an absolute CLI path in private launchers.json or use --cli")
 		}
@@ -120,7 +123,13 @@ func ConfiguredCLI(stateDir, family, override string) (string, error) {
 		if json.Unmarshal(data, &config) != nil {
 			return "", errors.New("invalid launcher configuration")
 		}
-		path = config[family]
+		var found bool
+		if path, found = config[family]; !found {
+			return "", errors.New("no " + family + " CLI is configured in launchers.json; " + recordCLI(stateDir, family))
+		}
+		if path == "" {
+			return "", errors.New("the " + family + " CLI entry in launchers.json is empty; " + recordCLI(stateDir, family))
+		}
 	}
 	if !filepath.IsAbs(path) {
 		return "", errors.New("configured CLI path must be absolute")
@@ -130,6 +139,18 @@ func ConfiguredCLI(stateDir, family, override string) (string, error) {
 		return "", errors.New("configured agent CLI is not installed or executable")
 	}
 	return path, nil
+}
+
+// recordCLI names the two remedies for a family without a recorded CLI: setup records it in
+// this state directory's launchers.json, and --cli selects it for one launch.
+func recordCLI(stateDir, family string) string {
+	command := "koinon setup " + family
+	if root, err := filepath.Abs(stateDir); err == nil {
+		if standard, err := platform.DefaultStateDir(); err != nil || root != filepath.Clean(standard) {
+			command += " --state-dir " + core.ShellWord(root)
+		}
+	}
+	return "run " + command + " to record it, or start with --cli ABS_PATH"
 }
 
 // CheckDirectory resolves the start directory: an existing directory, with symlinks

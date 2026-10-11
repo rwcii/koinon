@@ -263,3 +263,9 @@ in a private user-owned directory. Unsafe files are refused, with permissions le
 Repeat setup with `--cli /new/absolute/path` to update one family while preserving the
 others. A launch's `--cli` overrides the stored path without changing it. Launchers never
 search `PATH`; only setup does so when `--cli` is omitted. Uninstall retains the file.
+
+A launcher for a family that has no entry, such as an agent that the install did not set
+up, refuses with `no FAMILY CLI is configured in launchers.json`; an empty entry refuses with
+`the FAMILY CLI entry in launchers.json is empty`. Both name the two remedies: run
+`koinon setup FAMILY` (with `--state-dir DIR` for a custom root) to record the CLI, or start
+with `--cli ABS_PATH`. A relative entry refuses with `configured CLI path must be absolute`.
