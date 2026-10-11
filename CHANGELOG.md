@@ -5,6 +5,11 @@ into a dated release section when promoted to `main`.
 
 ## Unreleased
 
+- MCP tool and command refusals now carry the rule that refused the call, such as
+  `renew_for is 60 to 3600 seconds` or `missing argument work_id`, instead of a bare
+  `invalid_request` or `invalid_arguments`. The work tool schemas state the lease bounds and
+  the list limit (#264).
+
 - An install or upgrade records the launcher CLI of each family that an earlier setup
   configured for the installed binary, though `--agent` did not name it, so `koinon agy` and
   `koinon opencode` still start. It only reads the agent's configuration (#273).

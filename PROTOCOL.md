@@ -516,7 +516,10 @@ directories resolve against the MCP working directory and must share its Git com
 directory. They take no model-supplied consumer or caller identity. A tool
 error is a result with `isError` and a JSON text `{"ok": false, "code": ...}`: the daemon's code,
 `daemon_unavailable`, `identity_unavailable`, `invalid_arguments` or `unknown_tool`, with the
-`details` of a work refusal. The server
+`details` of a work refusal. When the daemon or the MCP server states the rule that refused the
+call, such as `renew_for is 60 to 3600 seconds` or `missing argument work_id`, the result also
+carries it as `error` (at most 1 KiB). The tool schemas state the lease bounds (60 to 3,600
+seconds) and the list limit (1 to 100). The server
 writes only protocol messages to stdout and never logs a secret, session ID or message body.
 
 The calling session comes from the agent on every call, never from model-supplied arguments; a

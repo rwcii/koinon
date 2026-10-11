@@ -34,12 +34,16 @@ var workSchema = map[string]map[string]any{
 	"proposed_assignee": {"type": []string{"string", "null"}},
 	"owner":             {"type": []string{"string", "null"}},
 	"revision":          integer, "if_revision": integer, "claim_generation": integer, "if_claim_revision": integer,
-	"limit": integer, "lease_seconds": integer, "renew_for": integer,
+	"limit":         {"type": "integer", "minimum": 1, "maximum": 100},
+	"lease_seconds": lease, "renew_for": lease,
 	"progress_deadline": number, "deadline": number,
 	"stale": {"type": "boolean"}, "blocked": {"type": "boolean"},
 	"references": {"type": "array", "items": text, "maxItems": 8},
 	"resources":  {"type": "array", "maxItems": 8, "items": map[string]any{"type": "array", "items": text, "minItems": 2, "maxItems": 2}},
 }
+
+// lease is a lease duration in seconds; the daemon accepts 60 to 3600.
+var lease = map[string]any{"type": "integer", "minimum": 60, "maximum": 3600}
 
 var workConsumerField = map[string]any{"type": "string", "description": "A stable consumer key that outlives this session; defaults to participant:<address> for its current holder, otherwise FAMILY:ID. Participant keys require the current holder. Leases belong to the consumer."}
 
@@ -77,13 +81,13 @@ func workCall(name string, args map[string]json.RawMessage, body map[string]any)
 		}
 		for field, value := range args {
 			if !allowed[field] {
-				return "", true, errors.New("unknown argument")
+				return "", true, errors.New("unknown argument " + field)
 			}
 			body[field] = value
 		}
 		for _, field := range core.WorkRequired[op] {
 			if args[field] == nil {
-				return "", true, errors.New("missing argument")
+				return "", true, errors.New("missing argument " + field)
 			}
 		}
 		return "/v1/work/" + op, true, nil

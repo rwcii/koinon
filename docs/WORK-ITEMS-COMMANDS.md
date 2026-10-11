@@ -34,14 +34,16 @@ request fields are refused. References are inert reported strings.
 The CLI checks unconditional required options before contacting the service. These
 missing-option refusals return JSON with `ok: false`, `code: invalid_request` and exit 1;
 missing options are named explicitly. The service independently checks required
-wire fields. Conditional requirements below remain service-validated.
+wire fields. Conditional requirements below remain service-validated. A service refusal
+carries its rule as `error` text, for example `renew_for is 60 to 3600 seconds` or `missing
+required fields: deadline` for a `key` without its `deadline`; the CLI prints it in `detail`.
 
 Other mutations accept optional paired key/deadline and reported author fields.
 CLI references repeat `--reference`; start resources repeat `--path-resource` or
 `--exact-resource`. JSON resources are `[kind, key]` pairs. Claim generation is a
 durable writer token, distinct from the service-instance generation used for
-endpoint targeting. Lease duration defaults to 900 seconds and is bounded to
-60–3,600. Progress deadlines must be after server time and within one day; retry
+endpoint targeting. Lease duration defaults to 900 seconds; `lease_seconds` and
+`renew_for` are bounded to 60–3,600. Progress deadlines must be after server time and within one day; retry
 deadlines follow the existing 24-hour horizon.
 
 Results contain work ID, revision, sequence and duplicate flag. Start/update/renew

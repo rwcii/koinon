@@ -14,6 +14,7 @@ import (
 	"strings"
 	"sync"
 	"time"
+	"unicode/utf8"
 
 	"github.com/rwcii/koinon/internal/platform"
 )
@@ -423,9 +424,17 @@ var ErrUnavailable = errors.New("daemon unavailable")
 type RefusedError struct {
 	Code    string
 	Details json.RawMessage
+	// Message is the daemon's own text for the refusal, such as the field and rule that
+	// an invalid request broke; empty when the daemon sent none.
+	Message string
 }
 
-func (e RefusedError) Error() string { return "daemon refused request: " + e.Code }
+func (e RefusedError) Error() string {
+	if e.Message != "" {
+		return "daemon refused request: " + e.Code + ": " + e.Message
+	}
+	return "daemon refused request: " + e.Code
+}
 
 // Call sends one authenticated request: GET without a body, POST with one. It never uses
 // environment proxies or follows a redirect with the secret.
@@ -469,13 +478,20 @@ func Call(ctx context.Context, address, secret, path string, body any) (json.Raw
 		var refusal struct {
 			Code    string          `json:"code"`
 			Details json.RawMessage `json:"details"`
+			Message string          `json:"error"`
 		}
 		if json.Unmarshal(data, &refusal) != nil || refusal.Code == "" || len(refusal.Code) > 64 {
 			return nil, errors.New("daemon refused request")
 		}
-		return nil, RefusedError{Code: refusal.Code, Details: refusal.Details}
+		if len(refusal.Message) > MaxRefusalMessage || !utf8.ValidString(refusal.Message) {
+			refusal.Message = ""
+		}
+		return nil, RefusedError{Code: refusal.Code, Details: refusal.Details, Message: refusal.Message}
 	}
 	return data, nil
 }
 
 const maxResponse = 8 << 20
+
+// MaxRefusalMessage bounds the refusal text that a client passes on.
+const MaxRefusalMessage = 1024
