@@ -60,7 +60,18 @@ selected repository. Wake targets are local registration metadata used by the ad
 
 Renew/retire take `family`, `id`, and `if_revision`; renew also accepts `ttl_seconds`. A stale
 revision, expired session or retired session is refused with `session_conflict`. Re-register
-to return an expired/retired session to active without deleting its retained data. Concurrent
+to return an expired/retired session to active without deleting its retained data.
+
+Liveness keeps a running session without renewals. Every 30 seconds the daemon reads the host
+process of each active, launched session that is not a sub-agent and has a host record. When
+that process still has the recorded start value, the daemon records the time, and when less
+than 450 seconds remain it moves `expires_at` to 900 seconds from now. This change keeps the
+revision, so the session's own renewals still apply. A session whose host ended (no process,
+or another start value) or cannot be read, a sub-agent, and a session without a host record
+(DeepSeek, or one registered before host records) expire at their deadline. The daemon never
+revives an expired session. A session record shows `liveness`: `host` or `none`, and
+`host_verified_at`, the last time that the daemon read the host as running (kept in memory, so
+it is empty until the first check after a daemon start). Concurrent
 registrations update one row, never create two records for the same key. Times are Unix
 milliseconds. Expiry is computed from the current wall clock; clock jumps can change effective
 expiry, never remove records or imply a model stopped. Restart preserves records and revisions.
@@ -199,7 +210,11 @@ its native session sent; another sender's message reads as
   transaction; sequence numbers per inbox are gapless and ordered. The reply's `message` carries
   `id`, the receiving `recipient` peer name or participant address, `seq` and `delivery_state`. Errors:
   `peer_not_found` (404) for an unknown name, `alias_unheld` (409) for an alias with no active
-  holder, `recipient_inactive` (409) for an expired or retired recipient.
+  holder, `recipient_inactive` (409) for an expired or retired recipient, with `details.reason`:
+  `retired`; `ended` (its host process ended); `no_liveness_evidence` (no host record, a
+  sub-agent, or a host that cannot be read, and its lifetime passed); or `lapsed` (its host
+  runs, but its registration expired before a check kept it, as while the daemon was stopped;
+  its next tool call registers it again).
 - Read takes `caller`, `after` and optional `participant_after` (both default 0), and
   `limit` (1–100, default 50) per inbox. The reply's `inbox` has `messages`, `last_seq`,
   `acked_through` and `more` for the session; while a participant is held it adds
@@ -536,7 +551,11 @@ DeepSeek has no MCP identity source yet and uses the `koinon` commands with `--a
 other families, the server registers a launched session at its first call, with the working
 directory and, inside Git, its repository, and registers it again after five minutes, when
 the daemon reports it inactive, or at once when a Codex thread is first marked as a sub-agent.
-Every five minutes it renews the session it served last. Registration passes
+Every five minutes it renews the session it served last. A renewal that fails because the
+daemon is unreachable, its storage is blocked or the call times out is tried again at the next
+interval. A refusal that ends the registration (`session_conflict`, `session_not_found`,
+`not_launched`, `caller_inactive`, `stale_holder` or `invalid_request`) stops the renewals
+until the next tool call registers the session again. Registration passes
 `KOINON_LAUNCH_ID` as `launch_id` and the server's process ancestors, nearest first, from the
 native process table. Claude also passes its parent's `claude_pid`; the daemon binds the
 foreground host or background job as described above. A server without a launch ID does not

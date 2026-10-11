@@ -373,6 +373,9 @@ func TestMessageErrorsAndIsolation(t *testing.T) {
 		t.Fatal(err)
 	}
 	expect("/v1/messages/send", map[string]any{"caller": ka, "to": c.Name, "body": "x"}, 409, "recipient_inactive")
+	if _, refused := post(t, address, secret, "/v1/messages/send", map[string]any{"caller": ka, "to": c.Name, "body": "x"}); refused["details"].(map[string]any)["reason"] != "retired" {
+		t.Fatalf("recipient_inactive reason: %v", refused)
+	}
 	expect("/v1/messages/send", map[string]any{"caller": ka, "to": "deepseek-koinon", "body": "x"}, 409, "alias_unheld")
 	expect("/v1/inbox/read", map[string]any{"caller": kc}, 403, "caller_inactive")
 	if _, err := d.store.Mutate(context.Background(), Mutation{Family: "codex", ID: "synthetic-a", IfRevision: a.Revision}, true); err != nil {

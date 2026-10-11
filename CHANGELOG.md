@@ -5,6 +5,14 @@ into a dated release section when promoted to `main`.
 
 ## Unreleased
 
+- A running agent no longer loses its registration while it is idle. Every 30 seconds the
+  daemon extends each launched session whose host process still runs, also when its
+  `koinon mcp` was replaced and nothing renews it. `koinon mcp` tries a renewal that fails
+  because the daemon is unreachable or its storage is blocked again at the next interval,
+  instead of dropping the session until its next tool call. `peers` and the dashboard show the
+  liveness evidence and when the host was last seen running, and `recipient_inactive` names
+  its reason: `retired`, `ended`, `no_liveness_evidence` or `lapsed` (#249).
+
 - docs/INSTALL.md gives the procedure to upgrade the Go runtime while agents run. From v0.1.0,
   each Claude session, and each Codex, Antigravity or OpenCode session that no launcher started,
   is islanded and keeps its inbox, claims and address until it expires. DeepSeek keeps its

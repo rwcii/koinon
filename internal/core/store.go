@@ -61,6 +61,11 @@ type Session struct {
 	// participant address, such as the current thread of a Codex host after /clear. That
 	// session names the host's terminal. Only registration and renewal replies set it.
 	HostHolder bool `json:"host_holder,omitempty"`
+	// Liveness is the evidence that keeps the session while its agent runs: "host" for a
+	// launched session with a host record, or "none". HostVerifiedAt is when the daemon
+	// last read that host as running, in daemon Unix milliseconds (#249).
+	Liveness       string `json:"liveness,omitempty"`
+	HostVerifiedAt int64  `json:"host_verified_at,omitempty"`
 }
 
 type Registration struct {
@@ -105,6 +110,8 @@ type Store struct {
 	// time (chunk 04).
 	calls        toolCalls
 	processStart func(int) (int64, error)
+	// alive holds when the liveness sweep last read each session's host as running (#249).
+	alive liveness
 }
 
 func openStore(root string) (*Store, error) { return openStoreFile(root, "state.sqlite3") }
@@ -743,7 +750,8 @@ const sessionQuery = `SELECT s.family,s.id,s.repository,s.directory,s.wake_targe
 	s.expires_at,s.retired_at,s.purge_at,s.revision,s.subagent,s.role,
 	COALESCE((SELECT name FROM names WHERE kind='peer' AND family=s.family AND session_id=s.id),''),
 	COALESCE(p.name,''),COALESCE(p.holder_id,''),COALESCE(p.conflict,''),
-	EXISTS (SELECT 1 FROM participant_fences f WHERE f.address=p.name AND f.family=s.family AND f.session_id=s.id),s.succession FROM sessions s
+	EXISTS (SELECT 1 FROM participant_fences f WHERE f.address=p.name AND f.family=s.family AND f.session_id=s.id),s.succession,
+	s.host_pid>0 AND s.host_start>0 AND s.subagent=0 FROM sessions s
 	LEFT JOIN names p ON p.kind='alias' AND p.family=s.family AND p.repository=s.repository AND p.role=s.role
 		AND s.repository!='' AND s.subagent=0`
 
@@ -752,7 +760,8 @@ type scanner interface{ Scan(...any) error }
 func scanSession(row scanner, now int64) (Session, error) {
 	var result Session
 	var target, holder, conflict, succession string
-	err := row.Scan(&result.Family, &result.ID, &result.Repository, &result.Directory, &target, &result.RegisteredAt, &result.RenewedAt, &result.ExpiresAt, &result.RetiredAt, &result.PurgeAt, &result.Revision, &result.Subagent, &result.Role, &result.Name, &result.Address, &holder, &conflict, &result.Fenced, &succession)
+	var evidence bool
+	err := row.Scan(&result.Family, &result.ID, &result.Repository, &result.Directory, &target, &result.RegisteredAt, &result.RenewedAt, &result.ExpiresAt, &result.RetiredAt, &result.PurgeAt, &result.Revision, &result.Subagent, &result.Role, &result.Name, &result.Address, &holder, &conflict, &result.Fenced, &succession, &evidence)
 	if errors.Is(err, sql.ErrNoRows) {
 		return result, ErrMissing
 	}
@@ -760,6 +769,10 @@ func scanSession(row scanner, now int64) (Session, error) {
 		return result, err
 	}
 	result.WakeTarget = json.RawMessage(target)
+	result.Liveness = "none"
+	if evidence && launched(result) {
+		result.Liveness = "host"
+	}
 	result.State = "active"
 	if result.ExpiresAt <= now {
 		result.State = "expired"
@@ -852,6 +865,7 @@ func (s *Store) List(ctx context.Context) ([]Session, bool, error) {
 		if err != nil {
 			return nil, false, err
 		}
+		s.annotate(&r)
 		result = append(result, r)
 	}
 	if err := rows.Err(); err != nil {
