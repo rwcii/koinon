@@ -109,6 +109,18 @@ refused with `python_install_present`. Use the upgrade instead.
    installed `uninstall.py`. That script removes the Python services, the Python-managed Codex
    and DeepSeek guidance sections, and the Claude guidance and status line. It keeps the Python
    state tree, which stays as a backup.
+
+   `uninstall.py` stops each Python session, and it takes a control socket that remains for
+   the session as a running session. A session that crashed or was killed leaves its sockets:
+   `control.sock` and `notifier/control.sock` in the session directory, or
+   `/tmp/cc-socks/HASH-control.sock` when the direct path is too long. Before `uninstall.py`
+   runs, the upgrade holds the writer locks of every session directory, which a running
+   supervisor and notifier hold. Under those locks it removes each such file that is a socket
+   of this user and refuses a connection, and it lists the file in `cleared_endpoints` of the
+   report and the journal. A held lock or a socket that accepts a connection gives
+   `python_running`. A file that it cannot prove dead gives `python_endpoint_unverified` with
+   the path: stop its owner, make sure that it is gone, remove the file and run the same
+   command again.
 5. **Start Go.** The upgrade installs and starts the Go service, as `koinon install` does, and
    runs `koinon setup` for each `--agent`.
 
