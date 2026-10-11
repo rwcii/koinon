@@ -5,8 +5,11 @@ import (
 	"encoding/hex"
 	"errors"
 	"io"
+	"io/fs"
+	"net"
 	"os"
 	"path/filepath"
+	"strings"
 
 	"github.com/rwcii/koinon/internal/platform"
 )
@@ -58,6 +61,48 @@ func loadSecret(root string) (string, error) {
 		return "", err
 	}
 	return secret, nil
+}
+
+// ClientSecret reads the secret for a client command. A state directory without a secret
+// has never held a running daemon, so the error says so and how to start one.
+func ClientSecret(root, address string) (string, error) {
+	if !validAddress(address) {
+		return "", ErrInvalid
+	}
+	secret, err := ReadSecret(root)
+	if errors.Is(err, fs.ErrNotExist) {
+		return "", errors.New("no daemon has started with state directory " + root + "; " + StartDaemon(root, address))
+	}
+	if err != nil {
+		return "", errors.New("cannot read private daemon secret")
+	}
+	return secret, nil
+}
+
+// StartDaemon names how docs/INSTALL.md starts a daemon with this state directory at this
+// loopback address. The installed service listens only on the default port, so another
+// address has only the serve command, with a listener for each loopback family.
+func StartDaemon(root, address string) string {
+	serve := "koinon serve --state-dir " + shellWord(root)
+	host, port, _ := net.SplitHostPort(address)
+	if port == "47671" && (host == "127.0.0.1" || host == "::1") {
+		return "start it with koinon install --state-dir " + shellWord(root) + " from a login session, or run " + serve + " in a persistent managed session"
+	}
+	listen, listen6 := net.JoinHostPort("127.0.0.1", port), net.JoinHostPort("::1", port)
+	if net.ParseIP(host).To4() != nil {
+		listen = address
+	} else {
+		listen6 = address
+	}
+	return "start it with " + serve + " --listen " + shellWord(listen) + " --listen-v6 " + shellWord(listen6) + " in a persistent managed session"
+}
+
+// shellWord quotes a value for a POSIX shell unless it holds only characters that need none.
+func shellWord(value string) string {
+	if value != "" && strings.Trim(value, "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789_./:@%+=,-") == "" {
+		return value
+	}
+	return "'" + strings.ReplaceAll(value, "'", `'"'"'`) + "'"
 }
 
 // ReadSecret reads an existing secret without creating state or starting a daemon.

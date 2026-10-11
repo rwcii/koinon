@@ -3,7 +3,6 @@ package main
 import (
 	"context"
 	"encoding/json"
-	"errors"
 	"flag"
 	"fmt"
 	"io"
@@ -55,9 +54,9 @@ func checkoutCommand(ctx context.Context, args []string, out io.Writer) error {
 		if note != nil {
 			body["note"] = *note
 		}
-		secret, err := core.ReadSecret(*state)
+		secret, err := core.ClientSecret(*state, *address)
 		if err != nil {
-			return errors.New("cannot read private daemon secret")
+			return err
 		}
 		data, err := core.Call(ctx, *address, secret, "/v1/work/checkout-"+operation, body)
 		if err != nil {

@@ -507,11 +507,13 @@ func Run(ctx context.Context, o Options, out io.Writer) error {
 	if err != nil {
 		return err
 	}
-	secret, err := core.ReadSecret(o.StateDir)
+	secret, err := core.ClientSecret(o.StateDir, o.Address)
 	if err != nil {
-		return errors.New("cannot read private daemon secret; agent was not started")
+		return errors.New("agent was not started: " + err.Error())
 	}
-	if _, err := core.GetStatus(ctx, o.Address, secret); err != nil {
+	if _, err := core.GetStatus(ctx, o.Address, secret); errors.Is(err, core.ErrUnavailable) {
+		return errors.New("agent was not started: no daemon answers at " + o.Address + "; " + core.StartDaemon(o.StateDir, o.Address))
+	} else if err != nil {
 		return err
 	}
 	if o.Background {

@@ -471,6 +471,32 @@ func TestConfiguredPathAndFailures(t *testing.T) {
 	}
 }
 
+// Without a running daemon the launcher names the cause and how to start one at its own
+// state directory and address, for a state directory that never held a daemon and for one
+// whose daemon stopped (#279).
+func TestNoDaemon(t *testing.T) {
+	root, _, cli, directory := fixture(t)
+	never := filepath.Join(root, "never started")
+	err := Run(context.Background(), Options{Family: "agy", CLI: cli, Directory: directory, StateDir: never, Address: "127.0.0.1:47671"}, io.Discard)
+	if err == nil || err.Error() != "agent was not started: no daemon has started with state directory "+never+
+		"; start it with koinon install --state-dir '"+never+"' from a login session, or run koinon serve --state-dir '"+never+"' in a persistent managed session" {
+		t.Fatalf("never-started state: %v", err)
+	}
+	stopped := filepath.Join(root, "stopped")
+	d, err := core.Start(core.Config{StateDir: stopped, Listen: []string{"127.0.0.1:0"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	address := d.Addresses()[0]
+	d.Close()
+	_, port, _ := net.SplitHostPort(address)
+	err = Run(context.Background(), Options{Family: "agy", CLI: cli, Directory: directory, StateDir: stopped, Address: address}, io.Discard)
+	if err == nil || err.Error() != "agent was not started: no daemon answers at "+address+"; start it with koinon serve --state-dir "+stopped+
+		" --listen "+address+" --listen-v6 '[::1]:"+port+"' in a persistent managed session" {
+		t.Fatalf("stopped daemon: %v", err)
+	}
+}
+
 // An existing tmux server has its own environment: a started Claude gets the caller's
 // CLAUDE_CONFIG_DIR, exactly, or none when the caller has none (#242 review).
 func TestTmuxCarriesClaudeConfiguration(t *testing.T) {

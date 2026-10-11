@@ -66,6 +66,12 @@ func TestServeStatusAndShutdown(t *testing.T) {
 	if err := run(context.Background(), []string{"status", "--state-dir", root, "--address", status.Listeners[0]}, nil, &out); err == nil {
 		t.Fatal("dead daemon reported running")
 	}
+	never := filepath.Join(t.TempDir(), "never-started")
+	if err := run(context.Background(), []string{"status", "--state-dir", never, "--address", status.Listeners[0]}, nil, &out); err == nil ||
+		err.Error() != "no daemon has started with state directory "+never+"; start it with koinon serve --state-dir "+never+
+			" --listen "+status.Listeners[0]+" --listen-v6 '[::1]:"+status.Listeners[0][strings.LastIndex(status.Listeners[0], ":")+1:]+"' in a persistent managed session" {
+		t.Fatalf("state without a daemon: %v", err)
+	}
 	secret, _ := os.ReadFile(filepath.Join(root, "secret"))
 	if bytes.Contains(body, secret) || bytes.Contains(out.Bytes(), secret) {
 		t.Fatal("secret in command output")

@@ -2,7 +2,6 @@ package main
 
 import (
 	"context"
-	"errors"
 	"flag"
 	"fmt"
 	"io"
@@ -155,9 +154,9 @@ func workCommand(ctx context.Context, args []string, out io.Writer) error {
 	if *consumer != "" {
 		body["consumer"] = *consumer
 	}
-	secret, err := core.ReadSecret(*state)
+	secret, err := core.ClientSecret(*state, *address)
 	if err != nil {
-		return errors.New("cannot read private daemon secret")
+		return err
 	}
 	result, err := core.Call(ctx, *address, secret, "/v1/work/"+op, body)
 	if err != nil {
