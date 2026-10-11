@@ -52,6 +52,21 @@ func TestLivenessKeepsARunningIdleSession(t *testing.T) {
 	if err := sendTo(t, s, repo, got.Name); err != nil {
 		t.Fatalf("send to the running session: %v", err)
 	}
+	// peers carries the evidence: host with its check time, and none for DeepSeek.
+	peers, _, err := s.Peers(context.Background(), Key{"codex", "synthetic-idle"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	evidence := map[string]Peer{}
+	for _, p := range peers {
+		evidence[p.Family] = p
+	}
+	if p := evidence["codex"]; p.Liveness != "host" || p.HostVerifiedAt != s.now().UnixMilli() {
+		t.Fatalf("peer with a host: %+v", p)
+	}
+	if p := evidence["deepseek"]; p.Liveness != "none" || p.HostVerifiedAt != 0 {
+		t.Fatalf("peer without evidence: %+v", p)
+	}
 	// The daemon was stopped past the deadline: the host runs, but nothing revives it.
 	advance(16 * time.Minute)
 	if err := s.MaintainLiveness(context.Background()); err != nil {
@@ -115,5 +130,49 @@ func TestLivenessLetsOtherSessionsExpire(t *testing.T) {
 			t.Fatalf("%s was kept: %+v", c.id, got)
 		}
 		wantInactive(t, sendTo(t, s, repo, c.name), c.reason)
+	}
+}
+
+// TestLivenessRechecksInsideTheWrite: the sweep reads hosts outside its write. A session
+// whose deadline passes during that read is not revived.
+func TestLivenessRechecksInsideTheWrite(t *testing.T) {
+	s, h, advance := successionStore(t)
+	repo := testRepo(t)
+	h.set(300, 5)
+	arrive(t, s, arrival{family: "codex", id: "synthetic-deadline", repo: repo, pid: 300})
+	read := s.processStart
+	advance(899 * time.Second)
+	s.processStart = func(pid int) (int64, error) { advance(2 * time.Second); return read(pid) }
+	if err := s.MaintainLiveness(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if got := sessionOf(t, s, "codex", "synthetic-deadline"); got.State != "expired" {
+		t.Fatalf("revived at its deadline: %+v", got)
+	}
+}
+
+// TestLivenessSkipsASessionThatChanged: a session that registered again as a sub-agent
+// while the sweep read its host keeps that registration.
+func TestLivenessSkipsASessionThatChanged(t *testing.T) {
+	s, h, advance := successionStore(t)
+	repo := testRepo(t)
+	h.set(301, 6)
+	arrive(t, s, arrival{family: "codex", id: "synthetic-turned", repo: repo, pid: 301})
+	advance(10 * time.Minute)
+	read := s.processStart
+	once := false
+	s.processStart = func(pid int) (int64, error) {
+		if !once {
+			once = true
+			arrive(t, s, arrival{family: "codex", id: "synthetic-turned", repo: repo, pid: 301, subagent: true})
+			advance(time.Second)
+		}
+		return read(pid)
+	}
+	if err := s.MaintainLiveness(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if got := sessionOf(t, s, "codex", "synthetic-turned"); !got.Subagent || got.ExpiresAt != s.now().UnixMilli()-1000+900_000 {
+		t.Fatalf("the sub-agent registration was changed by the sweep: %+v", got)
 	}
 }

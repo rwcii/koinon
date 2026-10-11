@@ -56,42 +56,45 @@ func (s *Store) annotate(r *Session) {
 // has expired is never revived.
 func (s *Store) MaintainLiveness(ctx context.Context) error {
 	now := s.now().UnixMilli()
-	rows, err := s.db.QueryContext(ctx, `SELECT family,id,wake_target,host_pid,host_start,expires_at FROM sessions
+	rows, err := s.db.QueryContext(ctx, `SELECT family,id,wake_target,host_pid,host_start,expires_at,revision FROM sessions
 		WHERE retired_at=0 AND expires_at>? AND subagent=0 AND host_pid>0 AND host_start>0`, now)
 	if err != nil {
 		return err
 	}
 	type candidate struct {
-		key        Key
-		pid, start int64
+		key                           Key
+		pid, start, expires, revision int64
 	}
-	var due []candidate
-	seen := map[Key]bool{}
+	var candidates []candidate
 	for rows.Next() {
 		var c candidate
 		var target string
-		var expires int64
-		if err := rows.Scan(&c.key.Family, &c.key.ID, &target, &c.pid, &c.start, &expires); err != nil {
+		if err := rows.Scan(&c.key.Family, &c.key.ID, &target, &c.pid, &c.start, &c.expires, &c.revision); err != nil {
 			rows.Close()
 			return err
 		}
-		if !launched(Session{WakeTarget: []byte(target)}) {
-			continue
+		if launched(Session{WakeTarget: []byte(target)}) {
+			candidates = append(candidates, c)
 		}
+	}
+	rows.Close()
+	if err := rows.Err(); err != nil {
+		return err
+	}
+	// The hosts are read after the query has ended, so no read holds the database.
+	seen := map[Key]bool{}
+	var due []candidate
+	for _, c := range candidates {
 		seen[c.key] = true
 		start, err := s.processStart(int(c.pid))
 		if err != nil || start != c.start {
 			s.alive.set(c.key, 0)
 			continue
 		}
-		s.alive.set(c.key, now)
-		if expires-now < defaultLifetime/2 {
+		s.alive.set(c.key, s.now().UnixMilli())
+		if c.expires-s.now().UnixMilli() < defaultLifetime/2 {
 			due = append(due, c)
 		}
-	}
-	rows.Close()
-	if err := rows.Err(); err != nil {
-		return err
 	}
 	s.alive.forget(seen)
 	if len(due) == 0 {
@@ -102,11 +105,14 @@ func (s *Store) MaintainLiveness(ctx context.Context) error {
 		return err
 	}
 	defer tx.Rollback()
+	// The clock and the row are read again inside the write: a session that expired while
+	// its host was read, or that changed since (registered again, as a sub-agent too,
+	// renewed or retired; each changes its revision), is left as it is.
+	now = s.now().UnixMilli()
 	for _, c := range due {
-		// The guard keeps a session that changed since the read: retired, expired, or
-		// registered again with another host.
-		if _, err := tx.ExecContext(ctx, `UPDATE sessions SET expires_at=? WHERE family=? AND id=? AND retired_at=0
-			AND expires_at>? AND host_pid=? AND host_start=?`, now+defaultLifetime, c.key.Family, c.key.ID, now, c.pid, c.start); err != nil {
+		if _, err := tx.ExecContext(ctx, `UPDATE sessions SET expires_at=? WHERE family=? AND id=? AND revision=?
+			AND retired_at=0 AND subagent=0 AND expires_at>? AND expires_at<? AND host_pid=? AND host_start=?`,
+			now+defaultLifetime, c.key.Family, c.key.ID, c.revision, now, now+defaultLifetime, c.pid, c.start); err != nil {
 			return tx.fail(err)
 		}
 	}

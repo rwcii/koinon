@@ -66,7 +66,10 @@ Liveness keeps a running session without renewals. Every 30 seconds the daemon r
 process of each active, launched session that is not a sub-agent and has a host record. When
 that process still has the recorded start value, the daemon records the time, and when less
 than 450 seconds remain it moves `expires_at` to 900 seconds from now. This change keeps the
-revision, so the session's own renewals still apply. A session whose host ended (no process,
+revision, so the session's own renewals still apply. The daemon reads the hosts outside its
+write and checks the clock and the row again inside it: a session that expired meanwhile, or
+whose revision changed (renewed, registered again, as a sub-agent too, or retired), is left as
+it is. A session whose host ended (no process,
 or another start value) or cannot be read, a sub-agent, and a session without a host record
 (DeepSeek, or one registered before host records) expire at their deadline. The daemon never
 revives an expired session. A session record shows `liveness`: `host` or `none`, and
