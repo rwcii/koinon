@@ -18,8 +18,11 @@
   as over SSH, and the transition still succeeds. A failure injected at each step (disable,
   bootout, print-disabled, print, install, bootstrap, kickstart, status timeout, and a status
   PID that differs from the system service's PID, i.e. the old agent answering) ends in the
-  stated state: user agent enabled and loaded again, no system plist, and a report naming the
-  step; a failing rollback reports the manual commands. Running as root is refused.
+  stated state: no system plist, the user agent restored to its recorded state (loaded and
+  enabled, or disabled, or not loaded, as it was before; never created), and a report naming
+  the step; a failing rollback reports the manual commands. An install interrupted after the
+  system plist was written completes on the next run through reconciliation. Running as root
+  is refused.
 - Reconciliation: on a system-mode host where the fake shows the user agent re-enabled and
   loaded, a plain `koinon install` disables and boots it out again, verifies with
   `print-disabled`, never writes or bootstraps the agent, and kickstarts the system service.

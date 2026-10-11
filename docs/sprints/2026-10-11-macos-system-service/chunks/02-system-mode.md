@@ -15,10 +15,13 @@ Criteria 1, 2, 6, 7 and the CI part of 8 of `decision.md`. Needs chunk 01 (log p
 
 ## Change
 
-1. **Mode.** System mode is the presence of `/Library/LaunchDaemons/<label>.plist`, which
-   the installer writes only as the last step of a transition that succeeded (item 3). There
-   is no separate mode file. `koinon install --system` (macOS) selects it; any later `install`
-   or `uninstall` detects it from the file and then reconciles the user agent (item 4).
+1. **Mode.** The presence of `/Library/LaunchDaemons/<label>.plist` records the intent to run
+   in system mode; it does not prove that system mode works. There is no separate mode file.
+   `koinon install --system` (macOS) creates the intent; any later `install` or `uninstall`
+   detects it from the file. Readiness is verified separately every time (step 5 of item 3):
+   an install reports success only after that check passes. A transition that was interrupted
+   after step 4 leaves the plist, so the next install takes the reconciliation path (item 4),
+   which repeats every step and completes or reports it.
 2. **System plist.** Same label, `KoinonManaged` marker and `ProgramArguments` as the agent
    (binary link, `serve`, `--state-dir`, the state directory, `--lock-wait 60s`), plus
    `UserName` and `GroupName` of the installing user (from the running process, never root),
@@ -29,22 +32,30 @@ Criteria 1, 2, 6, 7 and the CI part of 8 of `decision.md`. Needs chunk 01 (log p
    so that the person approves it and so that it works from SSH and tmux, where the user's
    own `gui/<uid>` commands fail with error 125. Steps, in order:
    1. Render the plist to a private temporary file and validate it with `plutil -lint`.
+      Record the agent's original state: loaded or not (`sudo launchctl print
+      gui/<uid>/<label>`) and disabled or not (`sudo launchctl print-disabled gui/<uid>`).
    2. Stop the user agent: `sudo launchctl disable gui/<uid>/<label>`, then
       `sudo launchctl bootout gui/<uid>/<label>` ("not loaded" counts as success).
    3. Verify both: `sudo launchctl print-disabled gui/<uid>` lists the label as disabled, and
-      `sudo launchctl print gui/<uid>/<label>` reports no service. Remove the owned agent plist.
+      `sudo launchctl print gui/<uid>/<label>` reports no service. The agent plist stays in
+      place until step 6.
    4. Install and start the daemon:
       `sudo install -o root -g wheel -m 0644 TMP /Library/LaunchDaemons/<label>.plist`,
       `sudo launchctl bootstrap system <path>`, `sudo launchctl kickstart -k system/<label>`.
    5. Verify the owner: `koinon status` answers within 90 seconds (the chunk 01 lock wait plus
       the throttle), and its `pid` equals the PID that `sudo launchctl print system/<label>`
       reports. A daemon that answers with another PID is the former agent and fails this step.
-   On a failure in steps 2 or 3, nothing else has changed: re-enable the agent
-   (`sudo launchctl enable gui/<uid>/<label>`), leave its plist, and report the step. On a
-   failure in steps 4 or 5, roll back: `sudo launchctl bootout system/<label>`, remove the
-   system plist, rewrite the owned agent plist, re-enable and bootstrap it through `sudo`, and
-   report the step and the rollback result. System mode exists only after step 5 succeeds.
-   A failed rollback reports the exact `sudo` commands that finish it by hand.
+   6. Remove the owned agent plist.
+   **Rollback** on a failure in steps 2 to 5: if steps 4 or 5 ran, `sudo launchctl bootout
+   system/<label>` and remove the system plist. Then restore the agent to its recorded state:
+   `sudo launchctl enable gui/<uid>/<label>` only if it was enabled, and `sudo launchctl
+   bootstrap gui/<uid> <agent plist>` only if it was loaded. An agent that was disabled or
+   not loaded stays so; none is created. Report the failed step and the rollback result; a
+   failed rollback reports the exact `sudo` commands that finish it by hand.
+   **Proof obligation.** That root `launchctl` can disable, boot out, bootstrap and print
+   `gui/<uid>` from a `Background` session (SSH, tmux, CI) is an assumption until the native
+   CI case of item 9 passes. Build that case first; if it fails, stop the chunk and return the
+   plan to review and gate B.
 4. **Later installs (reconciliation).** In system mode, a plain `koinon install` first repeats
    steps 2 and 3 for the user agent, so an agent re-enabled or restarted since then is stopped
    and disabled again. Then it replaces the binary in place, rewrites an owned system plist
