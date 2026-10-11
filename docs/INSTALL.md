@@ -283,6 +283,11 @@ Do not use sudo, system services, lingering or permission changes to work around
 
 ## Configuration and agent access
 
+Review [recommended native permissions](PERMISSIONS.md) for each family, including scoped
+examples, configuration locations, verified syntax checks and their limits. Setup does not
+apply these permission rules; native hook trust and optional terminal operations remain
+separate. Read the installed family guide for the running version.
+
 `koinon setup FAMILY` installs the MCP entry through the selected agent's CLI. Families are
 `claude`, `codex`, `agy`, `opencode` and `deepseek`; DeepSeek uses the explicit command path
 until its MCP support is verified. `--cli ABS_PATH` selects the native CLI and `--binary

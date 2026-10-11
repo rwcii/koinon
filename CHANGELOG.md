@@ -5,6 +5,9 @@ into a dated release section when promoted to `main`.
 
 ## Unreleased
 
+- Document scoped native permissions for every supported agent family in the installed guide
+  and a shared reference, with named syntax checks, trust boundaries and verification limits.
+
 - Generate OpenCode skill commands from the shared skills and check for stale wrappers in CI.
 
 - Koinon now sees when a woken agent does not handle a message. Reading the inbox stops the
