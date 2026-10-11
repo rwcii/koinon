@@ -362,6 +362,17 @@ func (s *Store) markRead(ctx context.Context, caller Key, address string, after 
 		return
 	}
 	defer tx.Rollback()
+	if address != "" {
+		// A holder change after the read has reset the participant's read for the new
+		// holder; the former holder's read must not advance it (#250).
+		held, err := heldAddress(ctx, tx.Tx, s.now().UnixMilli(), caller)
+		if err != nil {
+			return
+		}
+		if held != address {
+			delete(reads, Key{caller.Family, participantKey(address)})
+		}
+	}
 	for inbox, r := range reads {
 		if _, err := tx.ExecContext(ctx, `UPDATE sessions SET read_through=? WHERE family=? AND id=? AND read_through<?
 			AND max(read_through,acked_through)>=?`, r.through, inbox.Family, inbox.ID, r.through, r.after); err != nil {

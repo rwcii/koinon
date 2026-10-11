@@ -360,7 +360,8 @@ read precedes `/session/ID/prompt_async`; an omitted status counts as idle only 
 `GET /session/ID` confirms this exact ID exists. Busy/retry and unknown sessions are not woken.
 
 `POST /v1/wake/agy-stop` takes `caller` with family `agy` and the hook's native conversation ID.
-It offers a due unacknowledged notice at that turn boundary, leaving delivery uncertain. The
+It offers a due unhandled notice at that turn boundary, leaving delivery `uncertain` with
+`stop_offered`; the offer counts as a notice (see Handled wakes). The
 Stop hook returns `{"decision":"continue","reason":NOTICE}` only for that offer; otherwise `{}`,
 including when the daemon is unavailable. `GET /v1/status` and dashboard health expose `wake`
 counts (`waiting`, `uncertain`, `notified`, `failed`), grouped fixed reason codes and a storage
@@ -375,8 +376,9 @@ and `ack_via`. A message is handled when its `seq` is at most `acked_through` or
 ends the notices for what it returned, even before the agent acknowledges it.
 
 A result that may have put the notice in front of the agent counts as a notice: `notified`,
-or `uncertain` other than `attempt_in_progress` and `invalid_adapter_result`. Each message
-counts its own notices. After its 1st, 2nd, 3rd and 4th notice it waits 2, 4, 8 and 16
+or `uncertain` other than `attempt_in_progress` and `invalid_adapter_result`, including an
+Antigravity Stop offer. Each message counts its own notices; a notice whose range spans a
+message that is not yet due leaves that message's count and wait unchanged. After its 1st, 2nd, 3rd and 4th notice it waits 2, 4, 8 and 16
 minutes for a read. When the wait ends and it is still not handled, it gets `delivery_reason`
 `not_read` and a new notice; the adapters' busy check defers that notice without counting it.
 Results that never reach the agent (`waiting` reasons) keep the backoff above and do not count.
@@ -387,12 +389,16 @@ idle activity observation as `turn_error`: `server_overloaded`, `usage_limit_exc
 `internal_server_error`, `http_connection_failed`, `response_stream_connection_failed`,
 `response_stream_disconnected`, `bad_request`, `sandbox_error`, `cyber_policy`,
 `misalignment_policy_violation`, or `other`. The error's message text is never read. A failure
-observed after a message's last notice sets `delivery_reason` to `turn_failed:CODE` at once;
+observed after a message's last notice sets `delivery_reason` to `turn_failed:CODE` at once,
+in the session's own inbox and in the participant inbox that it holds; each reported failure
+is applied once, for every Codex session;
 the next notice keeps the wait, so a capacity outage does not use the notices up in a minute.
 Other families report no turn result; for them the read wait applies.
 
 A message that is still not handled when the wait after its 4th notice ends, or that has a
-failed turn after its 4th notice, becomes `failed` with that reason, and its notices stop. In
+failed turn after its 4th notice, becomes `failed` with that reason, and its notices stop. This
+applies in every family's inbox, Antigravity's included, and to a participant inbox with no
+active holder. A read that a holder change overtook does not advance the new holder's read. In
 the same transaction the daemon puts one notice in the maintainer's inbox naming the message
 IDs, the recipient, the notice count and the reasons. The recipient still finds the message
 unread. Wakes stay content-free: a further notice never carries peer text and never changes

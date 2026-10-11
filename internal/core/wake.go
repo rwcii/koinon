@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"sort"
 	"strconv"
@@ -23,6 +24,8 @@ type wakeState struct {
 	reply     string
 	cleanup   func()
 	replyDone chan struct{}
+	// turns is the time of each Codex session's failed turn that checkTurns applied.
+	turns map[Key]int64
 }
 type wakeResult struct{ State, Reason string }
 type wakeBatch struct {
@@ -91,6 +94,10 @@ func wakeNotice(batch wakeBatch) string {
 // the session itself, or the active holder of a participant. ok is false while there is none.
 func (s *Store) wakeRecipient(ctx context.Context, key Key) (session, target Session, ok bool, err error) {
 	session, err = scanSession(s.db.QueryRowContext(ctx, sessionQuery+` WHERE s.family=? AND s.id=?`, key.Family, key.ID), s.now().UnixMilli())
+	if errors.Is(err, ErrMissing) {
+		// A participant's inbox row exists once a message was sent to its address.
+		return session, target, false, nil
+	}
 	if err != nil || session.State != "active" {
 		return session, target, false, err
 	}
@@ -144,6 +151,10 @@ func (s *Store) pendingWake(ctx context.Context, key Key) (*wakeBatch, error) {
 	}
 	return &wakeBatch{session, first.Int64, last.Int64, attempts, notices, target}, nil
 }
+
+// recordWake records an attempt's start (attempt_in_progress) on the batch's due messages,
+// or its result on the messages that its start marked. A message in the range whose wait
+// has not ended keeps its count and wait (#250).
 func (s *Store) recordWake(ctx context.Context, b wakeBatch, result wakeResult, attempts int64) error {
 	tx, err := s.begin(ctx, control)
 	if err != nil {
@@ -166,16 +177,23 @@ func (s *Store) recordWake(ctx context.Context, b wakeBatch, result wakeResult, 
 	// delivery_reason says why the last notice was not handled. A new attempt for a message
 	// that already had a notice, with no other reason recorded, finds it not read; a notice
 	// that may have reached the agent starts with no reason.
+	marked := `delivery_state='uncertain' AND wake_reason='attempt_in_progress'`
+	args := []any{}
+	if result.Reason == "attempt_in_progress" {
+		marked = `delivery_state IN ('waiting','uncertain','notified') AND (wake_next_at<=? OR wake_next_at>?)`
+		due, later := s.dueArgs()
+		args = append(args, due, later)
+	}
 	_, err = tx.ExecContext(ctx, `UPDATE messages SET delivery_state=?,delivery_updated_at=?,
  delivery_reason=CASE WHEN ?=1 THEN '' WHEN wake_notices>0 AND delivery_reason='' THEN 'not_read' ELSE delivery_reason END,
  wake_reason=?,wake_attempts=?,wake_notices=wake_notices+?,
  wake_next_at=CASE WHEN ?=0 THEN ? WHEN wake_notices=0 THEN ? WHEN wake_notices=1 THEN ? WHEN wake_notices=2 THEN ? ELSE ? END
  WHERE recipient_family=? AND recipient_id=? AND seq BETWEEN ? AND ?
- AND seq>(SELECT max(acked_through,read_through) FROM sessions WHERE family=? AND id=?) AND delivery_state IN ('waiting','uncertain','notified')`,
-		result.State, now, reached, result.Reason, attempts, reached,
-		reached, now+delay.Milliseconds(), now+readWait(1).Milliseconds(), now+readWait(2).Milliseconds(),
-		now+readWait(3).Milliseconds(), now+readWait(4).Milliseconds(),
-		b.Session.Family, b.Session.ID, b.First, b.Last, b.Session.Family, b.Session.ID)
+ AND seq>(SELECT max(acked_through,read_through) FROM sessions WHERE family=? AND id=?) AND `+marked,
+		append([]any{result.State, now, reached, result.Reason, attempts, reached,
+			reached, now + delay.Milliseconds(), now + readWait(1).Milliseconds(), now + readWait(2).Milliseconds(),
+			now + readWait(3).Milliseconds(), now + readWait(4).Milliseconds(),
+			b.Session.Family, b.Session.ID, b.First, b.Last, b.Session.Family, b.Session.ID}, args...)...)
 	if err != nil {
 		return tx.fail(err)
 	}
@@ -192,7 +210,7 @@ func (s *Store) submitWake(ctx context.Context, key Key, offer bool) (string, er
 		return "", nil
 	}
 	if b.Notices >= wakeNoticeLimit {
-		if err = s.failUnhandled(ctx, *b); err != nil {
+		if err = s.failUnhandled(ctx, key); err != nil {
 			return "", err
 		}
 		if b, err = s.pendingWake(ctx, key); err != nil || b == nil {
@@ -210,6 +228,10 @@ func (s *Store) submitWake(ctx context.Context, key Key, offer bool) (string, er
 	}
 	notice := wakeNotice(*b)
 	if offer {
+		// The Stop hook returns the notice to the agent's turn: it counts as a notice (#250).
+		if err = s.recordWake(ctx, *b, uncertain("stop_offered"), attempts); err != nil {
+			return "", err
+		}
 		return notice, nil
 	}
 	result := wakeResult{"waiting", "adapter_unavailable"}
@@ -225,10 +247,15 @@ func (s *Store) submitWake(ctx context.Context, key Key, offer bool) (string, er
 	return notice, nil
 }
 
-// failUnhandled fails the batch's messages that had wakeNoticeLimit notices without a read,
-// with the reason of the last notice, and puts one content-free notice in the maintainer's
-// inbox in the same transaction. Their wakes stop; the recipient still finds them unread.
-func (s *Store) failUnhandled(ctx context.Context, b wakeBatch) error {
+// failUnhandled fails an inbox's due messages that had wakeNoticeLimit notices without a
+// read, with the reason of the last notice, and puts one content-free notice in the
+// maintainer's inbox in the same transaction. Their wakes stop; the recipient still finds
+// them unread. Caller holds wake.mu.
+func (s *Store) failUnhandled(ctx context.Context, key Key) error {
+	session, err := scanSession(s.db.QueryRowContext(ctx, sessionQuery+` WHERE s.family=? AND s.id=?`, key.Family, key.ID), s.now().UnixMilli())
+	if err != nil {
+		return err
+	}
 	tx, err := s.begin(ctx, control)
 	if err != nil {
 		return err
@@ -238,8 +265,8 @@ func (s *Store) failUnhandled(ctx context.Context, b wakeBatch) error {
 	rows, err := tx.QueryContext(ctx, `UPDATE messages AS m SET delivery_state='failed',delivery_updated_at=?,wake_next_at=0,
  delivery_reason=CASE WHEN m.delivery_reason='' THEN 'not_read' ELSE m.delivery_reason END
  FROM sessions s WHERE s.family=m.recipient_family AND s.id=m.recipient_id AND m.recipient_family=? AND m.recipient_id=?
- AND m.seq BETWEEN ? AND ? AND `+unhandled+` AND `+dueWake+` AND m.wake_notices>=? RETURNING id,delivery_reason`,
-		now, b.Session.Family, b.Session.ID, b.First, b.Last, now, later, wakeNoticeLimit)
+ AND `+unhandled+` AND `+dueWake+` AND m.wake_notices>=? RETURNING id,delivery_reason`,
+		now, key.Family, key.ID, now, later, wakeNoticeLimit)
 	if err != nil {
 		return tx.fail(err)
 	}
@@ -275,9 +302,9 @@ func (s *Store) failUnhandled(ctx context.Context, b wakeBatch) error {
 		why = append(why, reason)
 	}
 	sort.Strings(why)
-	recipient := b.Session.Name
-	if isParticipantID(b.Session.ID) {
-		recipient = b.Session.ID[len(participantPrefix):]
+	recipient := session.Name
+	if isParticipantID(key.ID) {
+		recipient = key.ID[len(participantPrefix):]
 	}
 	body := fmt.Sprintf("Koinon: %s %s to %s %s not handled after %d notices (%s). Delivery state: failed.",
 		plural(len(ids), "Message", "Messages"), strings.Join(listed, ", "), recipient, plural(len(ids), "was", "were"), wakeNoticeLimit, strings.Join(why, ", "))
@@ -308,38 +335,58 @@ func (s *Store) noticeMaintainer(ctx context.Context, tx *writeTx, now int64, bo
 	return err
 }
 
-// checkTurns records a failed turn that a Codex recipient reported after its last notice
-// (#250): the reason turn_failed:CODE replaces the wait for a read, and a message at the
-// notice limit fails at once. Other families report no turn result.
+// checkTurns records a failed turn that a Codex session reported after a message's last
+// notice (#250), in the session's own inbox and in the participant inbox that it holds: the
+// reason turn_failed:CODE replaces not_read, and a message at the notice limit fails at
+// once. Each reported failure is applied once. Other families report no turn result.
 func (s *Store) checkTurns(ctx context.Context) error {
-	keys, err := s.wakeKeys(ctx, `m.recipient_family='codex' AND m.delivery_state IN ('notified','uncertain') AND m.wake_notices>0
- AND m.delivery_reason='' AND m.wake_reason<>'attempt_in_progress'`)
-	if err != nil {
-		return err
+	type failure struct {
+		key  Key
+		code string
+		at   int64
 	}
-	for _, k := range keys {
-		_, target, ok, err := s.wakeRecipient(ctx, k)
+	var failures []failure
+	s.observed.mu.Lock()
+	for key, groups := range s.observed.byKey {
+		if v, ok := groups["activity"]; ok && key.Family == "codex" && v.TurnError != "" {
+			failures = append(failures, failure{key, v.TurnError, v.At})
+		}
+	}
+	s.observed.mu.Unlock()
+	s.wake.mu.Lock()
+	defer s.wake.mu.Unlock()
+	seen := map[Key]int64{}
+	for _, f := range failures {
+		if s.wake.turns[f.key] == f.at {
+			seen[f.key] = f.at
+			continue
+		}
+		session, err := scanSession(s.db.QueryRowContext(ctx, sessionQuery+` WHERE s.family=? AND s.id=?`, f.key.Family, f.key.ID), s.now().UnixMilli())
+		if errors.Is(err, ErrMissing) {
+			continue
+		}
 		if err != nil {
 			return err
 		}
-		if !ok || target.Family != "codex" {
-			continue
+		if session.State == "active" {
+			inboxes := []Key{f.key}
+			if session.Alias != "" {
+				inboxes = append(inboxes, Key{f.key.Family, participantKey(session.Alias)})
+			}
+			for _, inbox := range inboxes {
+				if err := s.recordTurnFailure(ctx, inbox, f.code, f.at, s.now().UnixMilli()); err != nil {
+					return err
+				}
+			}
 		}
-		view := s.sessionObservations(ctx, target)["activity"]
-		if view.Value == nil || view.Value.TurnError == "" {
-			continue
-		}
-		now := s.now().UnixMilli()
-		s.wake.mu.Lock()
-		err = s.recordTurnFailure(ctx, k, view.Value.TurnError, view.Value.At, now)
-		s.wake.mu.Unlock()
-		if err != nil {
-			return err
-		}
+		seen[f.key] = f.at
 	}
+	s.wake.turns = seen
 	return nil
 }
 
+// recordTurnFailure applies one failed turn to an inbox's messages noticed before it.
+// Caller holds wake.mu.
 func (s *Store) recordTurnFailure(ctx context.Context, k Key, code string, at, now int64) error {
 	tx, err := s.begin(ctx, control)
 	if err != nil {
@@ -357,13 +404,17 @@ func (s *Store) recordTurnFailure(ctx context.Context, k Key, code string, at, n
 	return tx.Commit()
 }
 
-// wakeKeys lists up to 16 active inboxes, other than Antigravity's and the maintainer's,
-// with unhandled messages that match the condition.
-func (s *Store) wakeKeys(ctx context.Context, condition string, args ...any) ([]Key, error) {
+// wakeKeys lists up to 16 active inboxes, other than the maintainer's and, unless agy is
+// set, Antigravity's, with unhandled messages that match the condition.
+func (s *Store) wakeKeys(ctx context.Context, agy bool, condition string, args ...any) ([]Key, error) {
+	excluded := `('agy','maintainer')`
+	if agy {
+		excluded = `('maintainer')`
+	}
 	rows, err := s.db.QueryContext(ctx, `SELECT DISTINCT m.recipient_family,m.recipient_id FROM messages m
  JOIN sessions s ON s.family=m.recipient_family AND s.id=m.recipient_id
  WHERE `+condition+` AND `+unhandled+` AND s.retired_at=0 AND s.expires_at>?
- AND s.family NOT IN ('agy','maintainer') ORDER BY m.recipient_family,m.recipient_id LIMIT 16`, append(args, s.now().UnixMilli())...)
+ AND s.family NOT IN `+excluded+` ORDER BY m.recipient_family,m.recipient_id LIMIT 16`, append(args, s.now().UnixMilli())...)
 	if err != nil {
 		return nil, err
 	}
@@ -383,8 +434,23 @@ func (s *Store) wakeStep(ctx context.Context) error {
 	if err := s.checkTurns(ctx); err != nil {
 		return err
 	}
+	// Messages at the notice limit fail when their wait ends, in every family's inbox,
+	// Antigravity's too, and whether or not a participant has an active holder. They leave
+	// this set, so they never hold the 16 places.
 	now, later := s.dueArgs()
-	keys, err := s.wakeKeys(ctx, dueWake, now, later)
+	exhausted, err := s.wakeKeys(ctx, true, dueWake+` AND m.wake_notices>=?`, now, later, wakeNoticeLimit)
+	if err != nil {
+		return err
+	}
+	for _, k := range exhausted {
+		s.wake.mu.Lock()
+		err = s.failUnhandled(ctx, k)
+		s.wake.mu.Unlock()
+		if err != nil {
+			return err
+		}
+	}
+	keys, err := s.wakeKeys(ctx, false, dueWake, now, later)
 	if err != nil {
 		return err
 	}

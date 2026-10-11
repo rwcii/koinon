@@ -368,3 +368,125 @@ func TestHolderChangeResetsReadAndNoticeBudget(t *testing.T) {
 		t.Fatalf("wake of the new holder: %q %v", woken, err)
 	}
 }
+
+// A read that a holder change overtakes does not advance the new holder's read (#250 review).
+func TestFormerHolderReadDoesNotAdvanceSuccessor(t *testing.T) {
+	s, h, advance := successionStore(t)
+	ctx := context.Background()
+	repo := namedRepo(t, "koinon")
+	h.set(100, 7)
+	h.set(200, 9)
+	held := arrive(t, s, arrival{family: "codex", id: "thread-1", repo: repo, pid: 100, pane: "%1", toolCall: true})
+	arrive(t, s, arrival{family: "claude", id: "synthetic-sender", repo: namedRepo(t, "other"), pid: 200, pane: "%2", toolCall: true})
+	sent, err := s.Send(ctx, Key{"claude", "synthetic-sender"}, held.Address, "pending")
+	if err != nil {
+		t.Fatal(err)
+	}
+	advance(31 * time.Second)
+	arrive(t, s, arrival{family: "codex", id: "thread-2", repo: repo, pid: 100, pane: "%1", toolCall: true})
+	// The former holder's read returned the message before the holder change committed.
+	zero := int64(0)
+	s.markRead(ctx, Key{"codex", "thread-1"}, held.Address, 0, &zero, []Message{{Seq: sent.Seq, Inbox: "participant"}})
+	var read int64
+	if err := s.db.QueryRow(`SELECT read_through FROM sessions WHERE family='codex' AND id=?`, participantPrefix+held.Address).Scan(&read); err != nil || read != 0 {
+		t.Fatalf("read_through after the former holder's read: %d %v", read, err)
+	}
+	// The holder's own read still counts.
+	s.markRead(ctx, Key{"codex", "thread-2"}, held.Address, 0, &zero, []Message{{Seq: sent.Seq, Inbox: "participant"}})
+	if err := s.db.QueryRow(`SELECT read_through FROM sessions WHERE family='codex' AND id=?`, participantPrefix+held.Address).Scan(&read); err != nil || read != sent.Seq {
+		t.Fatalf("read_through after the holder's read: %d %v", read, err)
+	}
+}
+
+// An Antigravity Stop offer counts as a notice, and its messages fail at the limit (#250 review).
+func TestAntigravityOffersCountAndFail(t *testing.T) {
+	s, _, sender, receiver, message, clock := wakeFixture(t, "agy")
+	ctx := context.Background()
+	offer := func() string {
+		t.Helper()
+		s.wake.mu.Lock()
+		defer s.wake.mu.Unlock()
+		notice, err := s.offerWake(ctx, Key{receiver.Family, receiver.ID})
+		if err != nil {
+			t.Fatal(err)
+		}
+		return notice
+	}
+	for n := int64(1); n <= wakeNoticeLimit; n++ {
+		if notice := offer(); notice == "" {
+			t.Fatalf("offer %d: no notice", n)
+		}
+		if row := messageRow(t, s, message.ID); row.notices != n || row.wake != "stop_offered" || row.state != "uncertain" {
+			t.Fatalf("offer %d: %+v", n, row)
+		}
+		if notice := offer(); notice != "" {
+			t.Fatalf("offer %d repeated within its wait", n)
+		}
+		later(t, s, clock, readWait(n), sender, receiver)
+	}
+	step(t, s)
+	if row := messageRow(t, s, message.ID); row.state != "failed" || row.reason != "not_read" {
+		t.Fatalf("after the limit: %+v", row)
+	}
+	if notice := offer(); notice != "" {
+		t.Fatalf("a failed message was offered: %q", notice)
+	}
+}
+
+// A notice range that spans a message whose wait has not ended leaves its count and wait
+// (#250 review).
+func TestWakeRangeKeepsAMessageThatIsNotDue(t *testing.T) {
+	s, _, sender, receiver, first, clock := wakeFixture(t, "codex")
+	ctx := context.Background()
+	calls := countingWake(s, accepted())
+	step(t, s)
+	later(t, s, clock, 30*time.Second, sender, receiver)
+	second, err := s.Send(ctx, Key{sender.Family, sender.ID}, receiver.Name, "second")
+	if err != nil {
+		t.Fatal(err)
+	}
+	step(t, s)
+	before := messageRow(t, s, second.ID)
+	later(t, s, clock, 90*time.Second, sender, receiver)
+	third, err := s.Send(ctx, Key{sender.Family, sender.ID}, receiver.Name, "third")
+	if err != nil {
+		t.Fatal(err)
+	}
+	step(t, s)
+	if *calls != 3 {
+		t.Fatalf("calls: %d", *calls)
+	}
+	if a, b, c := messageRow(t, s, first.ID), messageRow(t, s, second.ID), messageRow(t, s, third.ID); a.notices != 2 || c.notices != 1 ||
+		b.notices != 1 || b.next != before.next || b.state != "notified" {
+		t.Fatalf("rows: %+v %+v (was %+v) %+v", a, b, before, c)
+	}
+}
+
+// A failed turn is recorded for every Codex recipient, also beyond the first 16 inboxes with
+// pending notices (#250 review).
+func TestTurnFailureBeyondSixteenInboxes(t *testing.T) {
+	s, _, sender, receiver, message, clock := wakeFixture(t, "codex")
+	ctx := context.Background()
+	countingWake(s, accepted())
+	for i := 0; i < 17; i++ {
+		other := join(t, s, "codex", "aaa-synthetic-"+strconv.Itoa(i), receiver.Directory)
+		if _, err := s.Send(ctx, Key{sender.Family, sender.ID}, other.Name, "other"); err != nil {
+			t.Fatal(err)
+		}
+	}
+	for i := 0; i < 3; i++ {
+		step(t, s)
+	}
+	if row := messageRow(t, s, message.ID); row.notices != 1 {
+		t.Fatalf("target notice: %+v", row)
+	}
+	*clock = clock.Add(time.Second)
+	if err := s.Observe(ctx, Observation{Caller: Key{receiver.Family, receiver.ID},
+		Activity: &ObservedValue{Source: "codex_rollout", At: clock.UnixMilli(), State: "idle", TurnError: "server_overloaded"}}); err != nil {
+		t.Fatal(err)
+	}
+	step(t, s)
+	if row := messageRow(t, s, message.ID); row.reason != "turn_failed:server_overloaded" {
+		t.Fatalf("failure beyond 16 inboxes: %+v", row)
+	}
+}
