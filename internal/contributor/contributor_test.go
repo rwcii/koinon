@@ -66,6 +66,15 @@ func TestSharedSkillsAndGuidance(t *testing.T) {
 	}
 }
 
+// Run the real repository command so missing, stale and retired wrappers fail CI.
+func TestOpenCodeSkillCommandsCurrent(t *testing.T) {
+	cmd := exec.Command("go", "run", "./scripts/skill-commands", "--check")
+	cmd.Dir = root(t)
+	if out, err := cmd.CombinedOutput(); err != nil {
+		t.Fatalf("OpenCode commands are out of date: %v\n%s", err, out)
+	}
+}
+
 func TestRuntimeRetirementAndCICoverage(t *testing.T) {
 	for _, name := range []string{"koinon", "tests", "bridge.py", "notify.py", "session.py", "memory.py", "memory_service.py", "session_service.py", "codex_launch.py", "statusline.py", "usage_report.py", "scripts/install.py", "scripts/upgrade.py", "scripts/uninstall.py", "scripts/make-import-fixtures.py"} {
 		if _, err := os.Lstat(filepath.Join(root(t), name)); !os.IsNotExist(err) {

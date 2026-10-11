@@ -5,6 +5,8 @@ into a dated release section when promoted to `main`.
 
 ## Unreleased
 
+- Generate OpenCode skill commands from the shared skills and check for stale wrappers in CI.
+
 - After a Codex `/clear`, the participant address moves to the new thread at its first turn
   instead of at its first Koinon tool call. `koinon setup codex` adds a SessionStart hook to
   `~/.codex/hooks.json` (or `$CODEX_HOME/hooks.json`); trust it when Codex asks to review it.

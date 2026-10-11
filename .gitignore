@@ -14,3 +14,11 @@ _handoff/
 .claude/settings.local.json
 # Committed synthetic Python-era state trees; import tests need no generator.
 !/internal/importer/testdata/python-state/**
+
+# Native OpenCode dependency artifacts; commands remain tracked.
+.opencode/node_modules/
+.opencode/package.json
+.opencode/package-lock.json
+.opencode/bun.lock
+.opencode/bun.lockb
+.opencode/.gitignore

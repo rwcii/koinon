@@ -1,7 +1,8 @@
 # Shared agent skills
 
-The skills in this directory work in every agent that develops Koinon. Claude Code and Codex
-read them through symlinks, so there is one copy of each skill. Rules for writing a skill are in
+The skills in this directory work in every agent that develops Koinon. Claude Code, Codex
+and OpenCode discover the canonical skills through symlinks. OpenCode also has generated
+slash-command wrappers that load these same skills. Rules for writing a skill are in
 [AGENTS.md](AGENTS.md).
 
 ## Skills
@@ -27,7 +28,38 @@ A larger deliverable starts with `sprint`. `release` promotes the result to `mai
 | --- | --- |
 | Claude Code | `/<name>`, for example `/handoff` |
 | Codex | `$<name>`, for example `$handoff`, or select it from `/skills` |
+| OpenCode | `/<name>`, for example `/handoff`; the command loads the canonical skill |
 | Any other agent | Tell the agent: "Read `agents/skills/<name>/SKILL.md` and follow it." |
+
+## OpenCode commands
+
+From the repository root, generate the wrappers after adding, renaming, retiring or changing
+skill metadata:
+
+```sh
+go run ./scripts/skill-commands
+go run ./scripts/skill-commands --check
+```
+
+The command needs only Go and the checkout. It reads each skill's `name` and `description`
+from single-line YAML strings (plain, JSON-style double quoted, or YAML single quoted).
+Quote descriptions containing YAML punctuation, such as `description: "Reason: detail"`.
+Names match the directory and `[a-z0-9-]+`; native OpenCode command names and aliases are
+reserved. The wrappers contain the description and a skill-loading template with one literal
+`$ARGUMENTS`. They do not copy skill instructions.
+
+Generated files have an ownership comment. Generation repairs or removes only those files,
+and narrowly adopts the nine original wrappers when their template is unchanged. A custom
+command that collides with a skill name, modified legacy template or managed symlink causes
+an error before any changes. Custom commands and native OpenCode package files are preserved.
+The existing nine wrappers are already tracked on `develop`, so merging this change replaces
+them normally.
+
+Check mode compares bytes and mode without writing. Go contributor tests run it on Linux and
+macOS, so missing, changed or obsolete wrappers fail CI. Native discovery was verified with
+OpenCode 1.18.35 in a scratch repository with private configuration and no provider calls.
+See OpenCode's [commands](https://opencode.ai/docs/commands/) and
+[TUI command names](https://opencode.ai/docs/tui/).
 
 ## Handoffs
 
@@ -43,7 +75,9 @@ agents/skills/          the tracked skills
 .claude/skills  -> ../agents/skills
 .agents/skills  -> ../agents/skills   (Codex repository discovery)
 .codex/skills   -> ../agents/skills
+.opencode/commands/    generated slash commands that load the skills
 _handoff/<agent>/       ignored handoffs, one directory per agent (main checkout only)
 ```
 
-To add a skill, create `agents/skills/<name>/SKILL.md` and add a row to the table above.
+To add a skill, create `agents/skills/<name>/SKILL.md`, add a row to the table above, and run
+`go run ./scripts/skill-commands`. Commit the generated wrappers with the skill change.
