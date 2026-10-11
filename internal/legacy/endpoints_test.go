@@ -139,6 +139,28 @@ func TestClearDeadEndpointsRefuses(t *testing.T) {
 			t.Fatal("a bound socket was removed")
 		}
 	})
+	t.Run("line break in the path", func(t *testing.T) {
+		// The kernel table splits such an address over two rows, so it proves nothing.
+		dir := shortDir(t)
+		state := filepath.Join(dir, "s\nt")
+		path := filepath.Join(state, "sessions", strings.Repeat("a", 16), "control.sock")
+		os.MkdirAll(filepath.Dir(path), 0700)
+		fd, err := syscall.Socket(syscall.AF_UNIX, syscall.SOCK_STREAM, 0)
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer syscall.Close(fd)
+		if err := syscall.Bind(fd, &syscall.SockaddrUnix{Name: path}); err != nil {
+			t.Fatal(err)
+		}
+		removed, err := ClearDeadEndpoints(state)
+		if err == nil || !strings.HasPrefix(err.Error(), "python_endpoint_unverified:") || len(removed) != 0 {
+			t.Fatalf("removed %v: %v", removed, err)
+		}
+		if !exists(path) {
+			t.Fatal("a bound socket was removed")
+		}
+	})
 	t.Run("not a socket", func(t *testing.T) {
 		state, a, _ := sessionsUnder(t)
 		path := filepath.Join(a, "control.sock")

@@ -418,6 +418,11 @@ func deadSocket(path string) (bool, error) {
 	if !errors.Is(err, syscall.ECONNREFUSED) {
 		return false, unverified(err.Error())
 	}
+	// The table prints an address raw, one socket a line: a line break in the path
+	// would split its row, and the table could not show its owner.
+	if strings.ContainsAny(path, "\n\r") {
+		return false, unverified("the socket table cannot show a path with a line break")
+	}
 	bound, err := platform.BoundUnixPaths()
 	if err != nil {
 		return false, unverified("cannot read the socket table: " + err.Error())
