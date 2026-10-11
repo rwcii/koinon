@@ -5,6 +5,12 @@ into a dated release section when promoted to `main`.
 
 ## Unreleased
 
+- The dashboard has a **Settings** page for the session timing: the registration lifetime
+  (default 900 seconds), the renewal interval of `koinon mcp` (default 300 seconds) and the
+  succession guard (default 30 seconds). The values are checked together, audited, and applied
+  without a restart; `koinon mcp` takes the interval from the daemon's replies. Schema 14
+  stores them (#249).
+
 - A running agent no longer loses its registration while it is idle. Every 30 seconds the
   daemon extends each launched session whose host process still runs, also when its
   `koinon mcp` was replaced and nothing renews it. `koinon mcp` tries a renewal that fails

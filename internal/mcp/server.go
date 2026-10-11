@@ -62,6 +62,9 @@ type server struct {
 	mu       sync.Mutex
 	secret   string
 	sessions map[core.Key]registered
+	// renewal is the renewal interval that the daemon's last reply set, or 0 for
+	// renewEvery (#249).
+	renewal time.Duration
 	// subagents are the Codex threads whose calls came from a sub-agent.
 	subagents map[core.Key]bool
 	latest    core.Key
@@ -196,15 +199,16 @@ func (s *server) initialize(r rpcRequest) {
 	})
 }
 
-// renewLoop keeps the most recent session active while the client stays connected.
+// renewLoop keeps the most recent session active while the client stays connected. Each
+// wait uses the interval in force, so a changed setting applies from the next renewal.
 func (s *server) renewLoop(ctx context.Context) {
-	ticker := time.NewTicker(renewEvery)
-	defer ticker.Stop()
 	for {
+		timer := time.NewTimer(s.interval())
 		select {
 		case <-ctx.Done():
+			timer.Stop()
 			return
-		case <-ticker.C:
+		case <-timer.C:
 			s.renew(ctx)
 		}
 	}

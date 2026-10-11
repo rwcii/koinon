@@ -79,7 +79,7 @@ Read the current session's discovery record and registration result under the in
 guidance. Report its peer name, participant address, role, holder flag and last succession
 result; compare the address and role with the saved handoff. A runtime with verified
 succession can replace the holder on the current native session's own tool call: the same
-host PID and start value after the 30-second tool-call guard, or the same verified tmux
+host PID and start value after the tool-call guard (30 seconds by default), or the same verified tmux
 socket and pane once the former host ended. The runtime retires and fences the predecessor
 atomically; do not retire it yourself or move an alias as part of pickup.
 

@@ -483,6 +483,29 @@ func TestRenewalSurvivesTransientFailure(t *testing.T) {
 	}
 }
 
+// TestRenewalIntervalFromDaemon: the server takes the renewal interval from the daemon's
+// register reply, and ignores a value outside 30 to 1800 seconds (#249).
+func TestRenewalIntervalFromDaemon(t *testing.T) {
+	h := newHarness(t, "codex-mcp-client")
+	h.launch("codex")
+	h.s.mu.Lock()
+	h.s.renewal = time.Minute
+	h.s.mu.Unlock()
+	if _, isError := h.tool("peers", map[string]any{}, map[string]any{"threadId": "synthetic-b"}); isError {
+		t.Fatal("peers")
+	}
+	if got := h.s.interval(); got != 300*time.Second {
+		t.Fatalf("interval from the register reply: %v", got)
+	}
+	h.s.mu.Lock()
+	h.s.setInterval(10)
+	h.s.setInterval(0)
+	h.s.mu.Unlock()
+	if got := h.s.interval(); got != 300*time.Second {
+		t.Fatalf("an invalid value applied: %v", got)
+	}
+}
+
 func TestCommandBinary(t *testing.T) {
 	if testing.Short() {
 		t.Skip()

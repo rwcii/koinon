@@ -112,6 +112,8 @@ type Store struct {
 	processStart func(int) (int64, error)
 	// alive holds when the liveness sweep last read each session's host as running (#249).
 	alive liveness
+	// settings holds the session timing values in force (#249).
+	settings settingsState
 }
 
 func openStore(root string) (*Store, error) { return openStoreFile(root, "state.sqlite3") }
@@ -188,7 +190,12 @@ func openStoreFile(root, name string) (*Store, error) {
 		db.Close()
 		return nil, err
 	}
-	return &Store{db: db, now: time.Now, storage: storage{path: path, maxPages: defaultMaxPages}, processStart: platform.ProcessStart}, nil
+	s := &Store{db: db, now: time.Now, storage: storage{path: path, maxPages: defaultMaxPages}, processStart: platform.ProcessStart}
+	if err := s.loadSettings(context.Background()); err != nil {
+		db.Close()
+		return nil, err
+	}
+	return s, nil
 }
 
 // configure reads back every setting the storage bound depends on. A database created
@@ -244,7 +251,7 @@ func checkFormat(db *sql.DB, path string) error {
 	return nil
 }
 
-const schemaVersion = 13
+const schemaVersion = 14
 
 // migrate brings the state schema from version to target in one transaction, so a crash
 // leaves either the old or the new schema. Each step starts from the version before it.
@@ -514,6 +521,15 @@ func migrate(db *sql.DB, version, target int) error {
 			return err
 		}
 	}
+	if version < 14 && target >= 14 {
+		// Version 14: the session timing settings that the maintainer sets in the dashboard
+		// (#249). A setting without a row has its default.
+		if _, err := tx.Exec(`CREATE TABLE settings (
+			name TEXT PRIMARY KEY, value INTEGER NOT NULL, updated_at INTEGER NOT NULL
+		);`); err != nil {
+			return err
+		}
+	}
 	if _, err := tx.Exec(fmt.Sprintf("PRAGMA user_version=%d", target)); err != nil {
 		return err
 	}
@@ -585,9 +601,11 @@ func validKey(family, id string) bool {
 	return id != "" && len(id) <= 256 && !strings.ContainsAny(id, "\x00\r\n") && !strings.HasPrefix(id, participantPrefix)
 }
 
-func ttl(seconds int64) (int64, error) {
+// ttl is a registration's lifetime in milliseconds: the requested seconds, or the
+// lifetime setting when it names none.
+func (s *Store) ttl(seconds int64) (int64, error) {
 	if seconds == 0 {
-		seconds = 900
+		seconds = s.Settings().LifetimeSeconds
 	}
 	if seconds < 60 || seconds > 3600 {
 		return 0, ErrInvalid
@@ -632,7 +650,7 @@ func (s *Store) Register(ctx context.Context, r Registration) (Session, error) {
 	if !validKey(r.Family, r.ID) || len(r.WakeTarget) > 8192 || !r.Tmux.valid() {
 		return Session{}, ErrInvalid
 	}
-	duration, err := ttl(r.TTLSeconds)
+	duration, err := s.ttl(r.TTLSeconds)
 	if err != nil {
 		return Session{}, err
 	}
@@ -803,7 +821,7 @@ func (s *Store) Mutate(ctx context.Context, r Mutation, retire bool) (Session, e
 	if !validKey(r.Family, r.ID) || r.IfRevision < 1 {
 		return Session{}, ErrInvalid
 	}
-	duration, err := ttl(r.TTLSeconds)
+	duration, err := s.ttl(r.TTLSeconds)
 	if err != nil {
 		return Session{}, err
 	}

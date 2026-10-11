@@ -266,6 +266,25 @@ func refusal(caller core.Key, err error) map[string]any {
 	return failure(code(err))
 }
 
+// interval is the renewal interval in force: the daemon's renewal setting from its last
+// register or renew reply, or renewEvery before one arrives.
+func (s *server) interval() time.Duration {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.renewal > 0 {
+		return s.renewal
+	}
+	return renewEvery
+}
+
+// setInterval applies a reply's renewal setting; a reply without one, from an older daemon,
+// keeps the interval. The caller holds s.mu.
+func (s *server) setInterval(seconds int64) {
+	if seconds >= 30 && seconds <= 1800 {
+		s.renewal = time.Duration(seconds) * time.Second
+	}
+}
+
 // final reports whether a renewal refusal ends the registration: the session expired,
 // retired or changed (session_conflict), is unknown, has no launch, or is refused as a caller.
 func final(err error) bool {
@@ -320,7 +339,7 @@ func (s *server) ensure(ctx context.Context, caller core.Key) error {
 	s.latest = caller
 	current, found := s.sessions[caller]
 	s.mu.Unlock()
-	if found && now.Sub(current.at) < renewEvery && (current.retryAt.IsZero() || now.Before(current.retryAt)) {
+	if found && now.Sub(current.at) < s.interval() && (current.retryAt.IsZero() || now.Before(current.retryAt)) {
 		return nil
 	}
 	return s.register(ctx, caller)
@@ -352,11 +371,13 @@ func (s *server) register(ctx context.Context, caller core.Key) error {
 	}
 	var reply struct {
 		Session core.Session `json:"session"`
+		Renewal int64        `json:"renewal_seconds"`
 	}
 	if err := json.Unmarshal(data, &reply); err != nil {
 		return err
 	}
 	s.mu.Lock()
+	s.setInterval(reply.Renewal)
 	now := s.c.Now()
 	current := registered{revision: reply.Session.Revision, at: now}
 	if result := reply.Session.Succession; !reply.Session.HoldsAddress && result != nil &&
@@ -403,6 +424,7 @@ func (s *server) renew(ctx context.Context) {
 	data, err := s.daemon(ctx, "/v1/sessions/renew", core.Mutation{Family: caller.Family, ID: caller.ID, IfRevision: current.revision})
 	var reply struct {
 		Session core.Session `json:"session"`
+		Renewal int64        `json:"renewal_seconds"`
 	}
 	s.mu.Lock()
 	if err != nil || json.Unmarshal(data, &reply) != nil {
@@ -415,6 +437,7 @@ func (s *server) renew(ctx context.Context) {
 		s.mu.Unlock()
 		return
 	}
+	s.setInterval(reply.Renewal)
 	current.revision, current.at = reply.Session.Revision, s.c.Now()
 	if reply.Session.HoldsAddress {
 		current.retryAt = time.Time{}
