@@ -390,8 +390,11 @@ func endpoints(root string) []string {
 	return append(paths, filepath.Join(fallbackSockets, hex.EncodeToString(sum[:])[:16]+"-control.sock"))
 }
 
-// deadSocket reports whether path is a socket of this user that refuses a connection.
-// A missing path is not dead; a socket that accepts a connection is python_running.
+// deadSocket reports whether path is a socket of this user that has no live owner. A
+// refused connection alone is no proof: a socket that is bound but not yet listening, and
+// on macOS a full listener, refuse too. The kernel's socket table, read after the refusal,
+// lists every socket that a process still holds. A missing path is not dead; a socket
+// that accepts a connection or that the table lists is python_running.
 func deadSocket(path string) (bool, error) {
 	unverified := func(why string) error {
 		return fmt.Errorf("python_endpoint_unverified: cannot prove that nothing listens on %s (%s); stop its owner, verify that it is gone, remove the file and run the upgrade again", path, why)
@@ -415,6 +418,16 @@ func deadSocket(path string) (bool, error) {
 	if !errors.Is(err, syscall.ECONNREFUSED) {
 		return false, unverified(err.Error())
 	}
+	bound, err := platform.BoundUnixPaths()
+	if err != nil {
+		return false, unverified("cannot read the socket table: " + err.Error())
+	}
+	target := resolve(path)
+	for _, owned := range bound {
+		if owned == path || resolve(owned) == target {
+			return false, fmt.Errorf("python_running: a process still holds %s", path)
+		}
+	}
 	return true, nil
 }
 
@@ -422,8 +435,9 @@ func deadSocket(path string) (bool, error) {
 // processes crashed or were killed. The installed uninstall.py treats any remaining
 // endpoint as a running session and stops. A file is removed only while this process
 // holds the session's writer locks, which its running supervisor and notifier hold, and
-// only when it is a socket of this user that refuses a connection. It returns the
-// removed paths, also when it stops at a path that it cannot prove dead.
+// only when it is a socket of this user that refuses a connection and that no process
+// holds. It returns the removed paths, also when it stops at a path that it cannot
+// prove dead.
 func ClearDeadEndpoints(stateRoot string) ([]string, error) {
 	components, err := Components(stateRoot)
 	if err != nil {

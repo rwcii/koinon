@@ -116,9 +116,12 @@ refused with `python_install_present`. Use the upgrade instead.
    `/tmp/cc-socks/HASH-control.sock` when the direct path is too long. Before `uninstall.py`
    runs, the upgrade holds the writer locks of every session directory, which a running
    supervisor and notifier hold. Under those locks it removes each such file that is a socket
-   of this user and refuses a connection, and it lists the file in `cleared_endpoints` of the
-   report and the journal. A held lock or a socket that accepts a connection gives
-   `python_running`. A file that it cannot prove dead gives `python_endpoint_unverified` with
+   of this user, refuses a connection and has no owner. A refused connection alone is no proof:
+   a socket that is bound but not yet listening refuses, and so does a full listener on macOS.
+   The owner check reads the kernel's socket table after the refusal: `/proc/PID/net/unix` for
+   each network namespace of this user's processes on Linux, `netstat -anf unix` on macOS. The
+   upgrade lists each removed file in `cleared_endpoints` of the report and the journal. A held
+   lock, a socket that accepts a connection or a socket in the table gives `python_running`. A file that it cannot prove dead gives `python_endpoint_unverified` with
    the path: stop its owner, make sure that it is gone, remove the file and run the same
    command again.
 5. **Start Go.** The upgrade installs and starts the Go service, as `koinon install` does, and
