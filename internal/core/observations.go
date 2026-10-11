@@ -69,8 +69,9 @@ type ObservedValue struct {
 	LimitTokens    *int64 `json:"limit_tokens,omitempty"`
 	UsedTokens     *int64 `json:"used_tokens,omitempty"`
 	UsageAvailable *bool  `json:"usage_available,omitempty"`
-	// activity
-	State string `json:"state,omitempty"`
+	// activity. TurnError is the fixed code of a failed Codex turn on an idle activity (#250).
+	State     string `json:"state,omitempty"`
+	TurnError string `json:"turn_error,omitempty"`
 	// terminal
 	Socket  string `json:"socket,omitempty"`
 	Pane    string `json:"pane,omitempty"`
@@ -129,7 +130,31 @@ var (
 	namingTarget = regexp.MustCompile(`^[a-z0-9][a-z0-9-]{0,127}$`)
 	maxSafeInt   = int64(1<<53 - 1)
 	activityKind = map[string]bool{"busy": true, "idle": true, "waiting": true}
+	// turnErrors are the Codex turn error codes (codex_error_info) that an activity can carry.
+	turnErrors = map[string]bool{"server_overloaded": true, "usage_limit_exceeded": true, "unauthorized": true,
+		"response_too_many_failed_attempts": true, "context_window_exceeded": true, "internal_server_error": true,
+		"http_connection_failed": true, "response_stream_connection_failed": true, "response_stream_disconnected": true,
+		"bad_request": true, "sandbox_error": true, "cyber_policy": true, "misalignment_policy_violation": true, "other": true}
 )
+
+// TurnErrorCode maps a Codex codex_error_info value, a string or an object with one key,
+// to a fixed code: other for any value not on the list. It never keeps the value's text.
+func TurnErrorCode(info json.RawMessage) string {
+	var code string
+	if json.Unmarshal(info, &code) != nil {
+		var object map[string]json.RawMessage
+		if json.Unmarshal(info, &object) != nil || len(object) != 1 {
+			return "other"
+		}
+		for key := range object {
+			code = key
+		}
+	}
+	if !turnErrors[code] {
+		return "other"
+	}
+	return code
+}
 
 func allowed(group, source string) bool {
 	for _, s := range observationSources[group] {
@@ -146,6 +171,9 @@ func (v *ObservedValue) valid(group string, now int64) bool {
 		return true
 	}
 	if !allowed(group, v.Source) || v.At <= 0 || v.At > now+60_000 {
+		return false
+	}
+	if v.TurnError != "" && (group != "activity" || v.Source != "codex_rollout" || v.State != "idle" || !turnErrors[v.TurnError]) {
 		return false
 	}
 	switch group {

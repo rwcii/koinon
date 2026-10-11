@@ -5,6 +5,14 @@ into a dated release section when promoted to `main`.
 
 ## Unreleased
 
+- Koinon now sees when a woken agent does not handle a message. Reading the inbox stops the
+  notices for the messages read. A message that is neither read nor acknowledged gets a new
+  notice after 2, 4, 8 and 16 minutes; after four notices it becomes `failed` and the
+  maintainer gets a notice in the dashboard inbox. A failed Codex turn (for example a model at
+  capacity) is recorded at once as `turn_failed:CODE`. `delivery` and the dashboard show the
+  reason and the notice count, and each acknowledgement records the session and the operation
+  that made it. Schema 15 stores these (#250).
+
 - After a Codex `/clear`, the participant address moves to the new thread at its first turn
   instead of at its first Koinon tool call. `koinon setup codex` adds a SessionStart hook to
   `~/.codex/hooks.json` (or `$CODEX_HOME/hooks.json`); trust it when Codex asks to review it.

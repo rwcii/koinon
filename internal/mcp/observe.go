@@ -475,7 +475,12 @@ func (r *rollout) event(line []byte) {
 		Type   string `json:"type"`
 		Model  string `json:"model"`
 		TurnID string `json:"turn_id"`
-		Info   *struct {
+		// Error is a failed turn's error; only its codex_error_info code is read, never its
+		// message text (#250).
+		Error *struct {
+			Info json.RawMessage `json:"codex_error_info"`
+		} `json:"error"`
+		Info *struct {
 			Window *int64 `json:"model_context_window"`
 			Last   *struct {
 				Input *int64 `json:"input_tokens"`
@@ -507,6 +512,9 @@ func (r *rollout) event(line []byte) {
 	case "task_complete", "turn_aborted":
 		if payload.TurnID != "" && payload.TurnID == r.turn {
 			r.activity = &core.ObservedValue{Source: "codex_rollout", At: at, State: "idle"}
+			if payload.Type == "task_complete" && payload.Error != nil {
+				r.activity.TurnError = core.TurnErrorCode(payload.Error.Info)
+			}
 		}
 	}
 }

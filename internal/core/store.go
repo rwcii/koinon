@@ -254,7 +254,7 @@ func checkFormat(db *sql.DB, path string) error {
 	return nil
 }
 
-const schemaVersion = 14
+const schemaVersion = 15
 
 // migrate brings the state schema from version to target in one transaction, so a crash
 // leaves either the old or the new schema. Each step starts from the version before it.
@@ -530,6 +530,18 @@ func migrate(db *sql.DB, version, target int) error {
 		if _, err := tx.Exec(`CREATE TABLE settings (
 			name TEXT PRIMARY KEY, value INTEGER NOT NULL, updated_at INTEGER NOT NULL
 		);`); err != nil {
+			return err
+		}
+	}
+	if version < 15 && target >= 15 {
+		// Version 15: handled wakes (#250). read_through is the highest sequence that an
+		// inbox call returned; wake_notices counts the notices that may have reached the
+		// agent; ack_session and ack_via name the session and the operation that
+		// acknowledged a message.
+		if _, err := tx.Exec(`ALTER TABLE sessions ADD COLUMN read_through INTEGER NOT NULL DEFAULT 0;
+			ALTER TABLE messages ADD COLUMN wake_notices INTEGER NOT NULL DEFAULT 0;
+			ALTER TABLE messages ADD COLUMN ack_session TEXT NOT NULL DEFAULT '';
+			ALTER TABLE messages ADD COLUMN ack_via TEXT NOT NULL DEFAULT '';`); err != nil {
 			return err
 		}
 	}

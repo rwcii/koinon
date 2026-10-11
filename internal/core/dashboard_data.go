@@ -147,6 +147,8 @@ type MessageRecord struct {
 	RecipientID     string `json:"recipient_id"`
 	RecipientName   string `json:"recipient_name"`
 	UpdatedAt       int64  `json:"updated_at"`
+	WakeReason      string `json:"wake_reason,omitempty"`
+	Notices         int64  `json:"notices,omitempty"`
 }
 
 const dashboardMessagePage = 50
@@ -169,7 +171,8 @@ func (s *Store) dashboardMessages(ctx context.Context, recipient *Key, order das
 		m.created_at AS created_at,m.delivery_state AS delivery_state,m.delivery_reason AS delivery_reason,
 		m.delivery_updated_at AS updated_at,m.recipient_family AS recipient_family,m.recipient_id AS recipient_id,
 		COALESCE((SELECT name FROM names WHERE kind='peer' AND family=m.recipient_family AND session_id=m.recipient_id),'') AS recipient_name,
-		m.seq<=COALESCE(s.acked_through,0) AS acknowledged,m.maintainer_ack AS maintainer_ack
+		m.seq<=COALESCE(s.acked_through,0) AS acknowledged,m.maintainer_ack AS maintainer_ack,m.ack_session AS ack_session,
+		m.ack_via AS ack_via,m.wake_reason AS wake_reason,m.wake_notices AS wake_notices
 		FROM messages m LEFT JOIN sessions s ON s.family=m.recipient_family AND s.id=m.recipient_id`
 	args := []any{}
 	if recipient != nil {
@@ -178,7 +181,7 @@ func (s *Store) dashboardMessages(ctx context.Context, recipient *Key, order das
 	}
 	where, after, by := order.sql()
 	rows, err := s.db.QueryContext(ctx, `SELECT id,seq,sender_family,sender_name,body,created_at,delivery_state,delivery_reason,
-		updated_at,recipient_family,recipient_id,recipient_name,acknowledged,maintainer_ack,`+order.selectList()+
+		updated_at,recipient_family,recipient_id,recipient_name,acknowledged,maintainer_ack,ack_session,ack_via,wake_reason,wake_notices,`+order.selectList()+
 		` FROM (`+query+`) WHERE `+where+` ORDER BY `+by+` LIMIT `+strconv.Itoa(dashboardMessagePage+1), append(args, after...)...)
 	if err != nil {
 		return nil, "", err
@@ -191,11 +194,15 @@ func (s *Store) dashboardMessages(ctx context.Context, recipient *Key, order das
 		var maintainer bool
 		targets := order.scanTargets()
 		if err := rows.Scan(append([]any{&m.ID, &m.Seq, &m.SenderFamily, &m.SenderName, &m.Body, &m.CreatedAt, &m.DeliveryState,
-			&m.DeliveryReason, &m.UpdatedAt, &m.RecipientFamily, &m.RecipientID, &m.RecipientName, &m.Acknowledged, &maintainer},
+			&m.DeliveryReason, &m.UpdatedAt, &m.RecipientFamily, &m.RecipientID, &m.RecipientName, &m.Acknowledged, &maintainer,
+			&m.AcknowledgedSession, &m.AcknowledgedVia, &m.WakeReason, &m.Notices},
 			targets...)...); err != nil {
 			return nil, "", err
 		}
 		m.AcknowledgedBy = acknowledgedBy(m.Acknowledged, maintainer)
+		if !m.Acknowledged {
+			m.AcknowledgedSession, m.AcknowledgedVia = "", ""
+		}
 		if len(result) == dashboardMessagePage || (len(result) > 0 && size+len(m.Body) > 1<<20) {
 			next = order.cursor(keys[len(keys)-1])
 			break

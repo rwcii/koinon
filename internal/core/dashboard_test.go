@@ -399,7 +399,7 @@ func TestDashboardViewsRenderSyntheticState(t *testing.T) {
 	if strings.Contains(messages, "<script>alert") || strings.Contains(messages, `href="javascript:`) {
 		t.Fatal("message body not escaped")
 	}
-	if got := strings.Count(messages, "<td>yes<br><small>by recipient</small></td>"); got != 1 {
+	if got := strings.Count(messages, "<td>yes<br><small>by recipient ("+b.Name+", ack)</small></td>"); got != 1 {
 		t.Fatalf("acknowledged messages: %d", got)
 	}
 	contains(page("/dashboard/messages?to="+b.Name), "first message")

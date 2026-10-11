@@ -7,8 +7,8 @@
 <td>{{.Seq}}</td>
 <td>{{.SenderName}} <small>{{.SenderFamily}}</small></td>
 <td>{{ms .CreatedAt}}</td>
-<td>{{.DeliveryState}}{{if .DeliveryReason}}<br><small>{{.DeliveryReason}}</small>{{end}}<br><small>{{ms .UpdatedAt}}</small></td>
-<td>{{if .Acknowledged}}yes<br><small>by {{.AcknowledgedBy}}</small>{{else}}no{{end}}</td>
+<td>{{.DeliveryState}}{{if .DeliveryReason}}<br><small>{{.DeliveryReason}}</small>{{end}}{{if .WakeReason}}<br><small>wake: {{.WakeReason}}{{if .Notices}}, notices {{.Notices}}{{end}}</small>{{end}}<br><small>{{ms .UpdatedAt}}</small></td>
+<td>{{if .Acknowledged}}yes<br><small>by {{.AcknowledgedBy}}{{if .AcknowledgedSession}} ({{.AcknowledgedSession}}, {{.AcknowledgedVia}}){{end}}</small>{{else}}no{{end}}</td>
 <td><pre class="body">{{.Body}}</pre></td>
 </tr>{{end}}</tbody></table>{{end}}
 {{if .Data.Next}}<p><a href="{{.Data.Sort.Next .Data.Next}}">Older messages</a></p>{{end}}{{end}}
