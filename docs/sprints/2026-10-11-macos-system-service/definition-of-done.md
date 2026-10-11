@@ -5,23 +5,30 @@
 - Daemon log lines: start (version, state directory, listeners), stop with its reason
   (signal name, fatal error), and lock contention, written to standard error. Lines hold no
   secret, message body or private ID.
-- Lock contention: a daemon started with `--wait-for-lock` while another holds the lock logs
-  the contention once, keeps waiting, and becomes the daemon when the lock frees; without the
-  flag `serve` still exits with its error at once.
+- Lock contention: a daemon started with `--lock-wait` while another holds the lock logs the
+  wait once and becomes the daemon when the lock frees within the wait; when it does not, it
+  logs `lock_held` and exits with status 0. Without the flag `serve` still exits with its error
+  at once. `koinon status` reports the daemon's `pid`.
 - Plist and unit rendering: the user agent gains `StandardOutPath`/`StandardErrorPath`
-  (macOS) and the service arguments gain `--wait-for-lock` (both platforms); the system plist
+  (macOS) and the service arguments gain `--lock-wait 60s` (both platforms); the system plist
   has every key of acceptance criterion 1 and the log paths, and `UserName`/`GroupName`/`HOME`
   come from the installing user.
-- Install mode: `--system` runs exactly the expected privileged commands through the fake
-  runner (`sudo` install of the plist as root:wheel 0644, `sudo launchctl bootstrap system`,
-  `sudo launchctl kickstart`), then boots out and disables `gui/<uid>/<label>`; later runs
-  detect the mode from the system plist.
-  A repeated plain `koinon install` on a system-mode host keeps system mode and never touches
-  the user agent. `--system` on Linux returns the fixed error. A failed `sudo` step leaves the
-  user agent as it was.
-- Hand-written LaunchDaemon (criterion 7): an unmarked plist with the same label and state
-  directory is detected as system mode, never rewritten, and restarted after a binary
-  replacement; one with another state directory is refused with a fixed error.
+- Transition: `--system` runs exactly the chunk 02 steps through the fake runner, in order and
+  all through `sudo`. Plain `launchctl` calls on `gui/<uid>` fail with error 125 in the fake,
+  as over SSH, and the transition still succeeds. A failure injected at each step (disable,
+  bootout, print-disabled, print, install, bootstrap, kickstart, status timeout, and a status
+  PID that differs from the system service's PID, i.e. the old agent answering) ends in the
+  stated state: user agent enabled and loaded again, no system plist, and a report naming the
+  step; a failing rollback reports the manual commands. Running as root is refused.
+- Reconciliation: on a system-mode host where the fake shows the user agent re-enabled and
+  loaded, a plain `koinon install` disables and boots it out again, verifies with
+  `print-disabled`, never writes or bootstraps the agent, and kickstarts the system service.
+  `--system` on Linux returns the fixed error.
+- Hand-written LaunchDaemon (criterion 7): an unmarked plist with the same label, the binary
+  link of this prefix, the same state directory and user is system mode, never rewritten, and
+  restarted after a binary replacement. One that names another executable, another state
+  directory or another user is refused with a fixed error naming the field, and nothing
+  changes.
 - Uninstall in system mode removes an owned LaunchDaemon through `sudo` and
   leaves state.
 - `recover` with the daemon unreachable prints the service mode and the exact restart
@@ -38,7 +45,8 @@
   runner user; the user agent is disabled; `koinon status` passes from the runner's
   `Background` launchd session; a repeated install leaves one daemon; the log file shows a
   start and a stop; `koinon uninstall` removes it. The Linux job keeps its current proof plus
-  the log and `--wait-for-lock` arguments.
+  the log and `--lock-wait` arguments, and a second `serve --lock-wait` against the running
+  service exits 0 with `lock_held` and is not restarted by systemd.
 
 ## Live checks (maintainer, on a Mac, at the final head)
 

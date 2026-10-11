@@ -55,7 +55,8 @@ every 10 seconds while another daemon holds the lock.
 ## Constraints
 
 - **Explicit opt-in.** System mode exists only behind `--system`. The default install stays the
-  per-user LaunchAgent or systemd user unit, unchanged except for log paths.
+  per-user LaunchAgent or systemd user unit. It changes only where criteria 2 and 3 require it
+  for every service: the log paths, and the lock loser's bounded wait and clean exit.
 - **Sudo boundary.** The root `AGENTS.md` forbids sudo and system services as a workaround.
   `--system` is the maintainer's explicit choice, not a workaround: the person who runs
   `koinon install --system` approves each privileged step at the `sudo` prompt. Agents never
