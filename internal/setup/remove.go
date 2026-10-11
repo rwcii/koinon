@@ -88,6 +88,8 @@ func Remove(ctx context.Context, o Options) (Report, error) {
 		result, err := ClaudeStatusLine(o.Binary, o.StateDir, o.ClaudeConfig, true)
 		report.StatusLine = &result
 		return report, err
+	case "codex":
+		return report, removeCodexHook(o, &report)
 	case "agy":
 		return report, removeAgyHook(o, &report)
 	}

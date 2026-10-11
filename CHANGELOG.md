@@ -5,6 +5,12 @@ into a dated release section when promoted to `main`.
 
 ## Unreleased
 
+- After a Codex `/clear`, the participant address moves to the new thread at its first turn
+  instead of at its first Koinon tool call. `koinon setup codex` adds a SessionStart hook to
+  `~/.codex/hooks.json` (or `$CODEX_HOME/hooks.json`); trust it when Codex asks to review it.
+  The succession result is `host_cleared`. Before the new thread's first turn, Codex gives no
+  evidence of the `/clear`, so a wake in that interval still reaches the cleared thread (#275).
+
 - The dashboard has a **Settings** page for the session timing: the registration lifetime
   (default 900 seconds), the renewal interval of `koinon mcp` (default 300 seconds) and the
   succession guard (default 30 seconds). The values are checked together, audited, and applied

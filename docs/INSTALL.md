@@ -239,6 +239,8 @@ staging files.
   - for OpenCode, which has no remove command, the `mcp.koinon` entry in `opencode.json` or
     `opencode.jsonc`;
   - the `agy` Stop hook;
+  - the Codex SessionStart hook in `$CODEX_HOME/hooks.json` (default `~/.codex/hooks.json`),
+    only while it runs this binary;
   - the OpenCode identity plugin;
   - the Claude status line, whose saved original is restored.
 - The service file that carries the marker. It is removed only after the manager reports the
@@ -292,6 +294,14 @@ plugin. Start Claude Code, Codex, Antigravity and OpenCode through `koinon claud
 A native CLI started directly is islanded: it never registers or appears in Koinon, and
 its Koinon tool calls return `not_launched` with the required launcher command. DeepSeek
 keeps its command registration without a launch record.
+
+`koinon setup codex` also adds a SessionStart hook, `'BINARY' hook codex-session-start`, to
+`$CODEX_HOME/hooks.json` (default `~/.codex/hooks.json`). It keeps every other hook and
+replaces only a Koinon hook that runs another binary. Codex runs a new or changed hook only
+after you trust it: at its next start it shows "Hooks need review"; choose to trust the
+Koinon hook. Without it, a participant moves to the thread that `/clear` started only at that
+thread's first Koinon tool call, not at its first turn. Run `koinon setup codex` again after
+an upgrade that changes this hook.
 
 `koinon codex` uses `--no-daemon` and forwards the launch environment to its configured MCP
 server. `koinon claude --bg [args]` passes a job-specific private settings file and binds

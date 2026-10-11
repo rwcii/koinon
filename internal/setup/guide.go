@@ -50,7 +50,7 @@ only the maintainer's Make holder choice lifts the fence.
 A launched successor can take the participant on its own native tool call: the same host
 PID and start value after the guard (default 30 seconds) without a holder tool call, or the same tmux socket/pane
 once the former host is proven ended. Unknown evidence refuses succession. Read this session's
-succession result in peers: succeeded reports same_host or same_pane; refused reports no_host,
+succession result in peers: succeeded reports same_host, host_cleared or same_pane; refused reports no_host,
 host_running, other_pane, subagent, holder_active, fenced or other_participant.
 holder_active returns the daemon's remaining retry_after_ms; MCP retries at the first native
 tool call after that wait. Renewals and observation timers do not count as activity or retry.

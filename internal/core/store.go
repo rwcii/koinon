@@ -85,6 +85,9 @@ type Registration struct {
 	// registration; only such a registration can take the participant from its holder.
 	Tmux     *TmuxPane `json:"tmux,omitempty"`
 	ToolCall bool      `json:"tool_call,omitempty"`
+	// Clear says that the Codex host's SessionStart hook reported this thread as the one it
+	// shows after /clear, at the thread's first turn (#275). It needs ToolCall.
+	Clear bool `json:"clear,omitempty"`
 }
 
 type Mutation struct {
@@ -647,7 +650,7 @@ func CleanGitEnvironment() []string {
 func (s *Store) Register(ctx context.Context, r Registration) (Session, error) {
 	s.wake.mu.Lock()
 	defer s.wake.mu.Unlock()
-	if !validKey(r.Family, r.ID) || len(r.WakeTarget) > 8192 || !r.Tmux.valid() {
+	if !validKey(r.Family, r.ID) || len(r.WakeTarget) > 8192 || !r.Tmux.valid() || r.Clear && (!r.ToolCall || r.Family != "codex") {
 		return Session{}, ErrInvalid
 	}
 	duration, err := s.ttl(r.TTLSeconds)
@@ -734,7 +737,7 @@ func (s *Store) Register(ctx context.Context, r Registration) (Session, error) {
 	// Only the session's own tool call can take the participant from an active holder; the
 	// renewal timer never registers.
 	if r.ToolCall {
-		succession, err := s.succeed(ctx, tx.Tx, now, Key{r.Family, r.ID}, common, role, subagent)
+		succession, err := s.succeed(ctx, tx.Tx, now, Key{r.Family, r.ID}, common, role, subagent, r.Clear)
 		if err != nil {
 			return Session{}, tx.fail(err)
 		}

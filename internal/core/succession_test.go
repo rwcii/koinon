@@ -67,6 +67,7 @@ type arrival struct {
 	pane             string
 	toolCall         bool
 	subagent         bool
+	clear            bool
 }
 
 func arrive(t *testing.T, s *Store, a arrival) Session {
@@ -76,7 +77,7 @@ func arrive(t *testing.T, s *Store, a arrival) Session {
 		t.Fatal(err)
 	}
 	r := Registration{Family: a.family, ID: a.id, Repository: a.repo, Directory: a.repo, TTLSeconds: 900, LaunchID: launch,
-		Ancestors: []int{a.pid}, ToolCall: a.toolCall, Subagent: a.subagent}
+		Ancestors: []int{a.pid}, ToolCall: a.toolCall, Subagent: a.subagent, Clear: a.clear}
 	if a.family == "claude" {
 		r.WakeTarget = json.RawMessage(`{"claude_pid":` + itoa(a.pid) + `}`)
 	}
@@ -156,6 +157,44 @@ func TestSuccessionSameHost(t *testing.T) {
 	for _, p := range peers {
 		if p.Name == next.Name && (p.Succession == nil || p.Succession.Reason != "same_host") {
 			t.Fatalf("peer view: %+v", p)
+		}
+	}
+}
+
+// Accept at once: the holder's Codex host reports the new thread after /clear (#275), also
+// within the guard. Clear evidence from another host or for a sub-agent is refused as before,
+// and a clear registration needs a Codex tool call.
+func TestSuccessionHostCleared(t *testing.T) {
+	s, h, advance := successionStore(t)
+	repo := namedRepo(t, "koinon")
+	h.set(100, 7)
+	h.set(200, 8)
+	held := arrive(t, s, arrival{family: "codex", id: "thread-1", repo: repo, pid: 100, toolCall: true})
+	advance(5 * time.Second)
+	next := arrive(t, s, arrival{family: "codex", id: "thread-2", repo: repo, pid: 100, toolCall: true, clear: true})
+	if !next.HoldsAddress {
+		t.Fatalf("cleared thread does not hold: %+v", next)
+	}
+	wantSuccession(t, next, "succeeded", "host_cleared", held.Name)
+	if former := sessionOf(t, s, "codex", "thread-1"); former.State != "retired" || !former.Fenced {
+		t.Fatalf("former holder not retired and fenced: %+v", former)
+	}
+	if reason, details := lastEvent(t, s, held.Address); reason != "host_cleared" || details["candidate"] != next.Name {
+		t.Fatalf("event: %s %v", reason, details)
+	}
+	other := arrive(t, s, arrival{family: "codex", id: "thread-3", repo: repo, pid: 200, toolCall: true, clear: true})
+	wantSuccession(t, other, "refused", "other_pane", next.Name)
+	sub := arrive(t, s, arrival{family: "codex", id: "thread-4", repo: repo, pid: 100, toolCall: true, subagent: true, clear: true})
+	wantSuccession(t, sub, "refused", "subagent", next.Name)
+	if got := sessionOf(t, s, "codex", "thread-2"); !got.HoldsAddress {
+		t.Fatalf("holder lost the participant: %+v", got)
+	}
+	for _, r := range []Registration{
+		{Family: "codex", ID: "thread-5", Repository: repo, Directory: repo, Clear: true},
+		{Family: "claude", ID: "synthetic-claude", Repository: repo, Directory: repo, ToolCall: true, Clear: true},
+	} {
+		if _, err := s.Register(context.Background(), r); !errors.Is(err, ErrInvalid) {
+			t.Fatalf("%+v: %v", r, err)
 		}
 	}
 }

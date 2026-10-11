@@ -28,6 +28,8 @@ type Options struct {
 	Binary   string // absolute koinon binary; default: this executable
 	AgyRoot  string // agy global customization root; default ~/.gemini/config
 	Opencode string // OpenCode global configuration directory; default $XDG_CONFIG_HOME/opencode
+	// CodexHome holds the Codex hooks.json; default $CODEX_HOME, else ~/.codex.
+	CodexHome string
 	// Claude status line: the Go state directory that keeps the saved entry, the Claude
 	// configuration directory (default $CLAUDE_CONFIG_DIR, else ~/.claude), and a removal.
 	StateDir         string
@@ -137,6 +139,8 @@ func Run(ctx context.Context, o Options) (Report, error) {
 		if err == nil && result.Outcome == "changed" {
 			report.Note = "The Claude statusLine entry runs an edited Koinon hook; it was left unchanged."
 		}
+	case "codex":
+		err = codexHook(o, &report)
 	case "agy":
 		err = agyHook(o, &report)
 	case "opencode":
