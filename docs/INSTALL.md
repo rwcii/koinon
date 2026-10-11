@@ -80,6 +80,45 @@ defaults to `$XDG_STATE_HOME/koinon/go`, which is `~/.local/state/koinon/go`.
 When a Python-era installation is present (`~/.local/share/koinon/install.json`), the install is
 refused with `python_install_present`. Use the upgrade instead.
 
+### Upgrade the Go runtime
+
+Run `koinon install` with the new binary, with the same `--prefix` and `--state-dir`. It replaces
+the binary in place and restarts the daemon, and the state stays. A launched session registers
+again at its next tool call or renewal and continues. It needs no step.
+
+#### Upgrade from a build without launch admission
+
+v0.1.0 has no Claude launcher. It records a launch only for a session that `koinon codex`,
+`koinon agy` or `koinon opencode` started. After the install, the daemon renews only launched
+sessions. Thus each Claude session, and each other session that no launcher started (for example a
+Codex session that Codex's shared app-server runs), is islanded, in each repository on this
+daemon:
+
+- It cannot renew (`not_launched`). It expires at its deadline, in at most 15 minutes. Then its
+  tool calls return `not_launched`.
+- Its unread messages stay in its own inbox. It stays the owner of its native-session work
+  claims and memory cursors. A successor cannot take them.
+- It keeps its participant address until it expires. A successor that a launcher starts reports
+  `succession: refused` with `no_host`, because no v0.1.0 session has a host record. When the
+  old session expires, the successor takes the address at its next registration or renewal.
+  `koinon mcp` renews every 5 minutes. The maintainer's **Make holder** choice in the dashboard
+  gives the address at once, but it is not necessary.
+- A Codex session that ran under Codex's shared app-server can leave its `koinon mcp` server
+  running after the Codex terminal exits. The daemon refuses its renewals, and the session
+  expires. `koinon codex` starts Codex with `--no-daemon`, so new sessions do not use the
+  shared app-server.
+
+Do these steps in this sequence:
+
+1. Run `koinon peers` to list the active sessions. Stop each of them as step 2 says. A launched
+   session keeps running after the install, but its successor also reports `no_host`.
+2. In each running agent session, read the inbox and acknowledge each handled message. Finish or
+   release each work claim. Write a handoff that the next session can read. Then exit the agent.
+3. Run `koinon install` with the new binary.
+4. In each repository, start each agent through its launcher: `koinon claude`, `koinon codex`,
+   `koinon agy` or `koinon opencode`. Then let it read the handoff. Until the old session expires, the new session reports `no_host` and does not hold
+   the address.
+
 ### Upgrade from the Python runtime
 
 ```sh
@@ -254,7 +293,9 @@ server. `koinon claude --bg [args]` passes a job-specific private settings file 
 registration to the returned job ID; see [USAGE.md](USAGE.md) for background launch usage.
 When upgrading, existing launcher-family sessions without launch associations cannot renew
 and expire at their existing deadlines. Their inboxes, acknowledgements, memory cursors and
-claims are retained; start subsequent sessions through the launchers without replacing retained state.
+claims are retained; start subsequent sessions through the launchers without replacing retained
+state. [Upgrade from a build without launch admission](#upgrade-from-a-build-without-launch-admission)
+gives the procedure.
 
 For two agents of the same family in one repository, assign the additional agent a role
 at launch, for example `koinon codex --role review`. The role
