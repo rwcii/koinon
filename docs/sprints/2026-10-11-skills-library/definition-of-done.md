@@ -33,6 +33,9 @@
 - Test the actual discovery-link item: correct link bytes are present; a custom link is edited;
   an escaping link is refused without following it or changing it. The native-home guide item
   has the same canonical body as its repository counterpart.
+- Pre-create real `.claude/skills` and `.agents/skills` directories containing adopter skills:
+  the discovery-link item reports `directory_conflict`, performs no traversal or modification,
+  and leaves all directory/file bytes intact. A directory is never mislabeled edited link data.
 - Collection items such as generated wrappers retain bounded per-target descriptor IDs/digests
   in receipts. Adding a canonical skill offers its new file and wrapper through the same process.
   An unchanged prior wrapper collection is outdated after a new wrapper is added; a locally

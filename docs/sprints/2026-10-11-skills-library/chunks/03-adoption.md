@@ -27,6 +27,12 @@ Do not read a foreign destination or automatically replace a custom link. Report
 roots and permissions explicitly, and read no more
 than the per-item bound. Do not return private native paths or file bodies in catalog state.
 
+An expected discovery-link path that is already a real directory is a distinct
+`directory_conflict` inspection result, with no guessed content state. Preserve that directory
+and every existing skill; do not read its contents, move, merge or delete it. Stop the link
+adoption and report the conflict. Other independently approved canonical-file items remain
+available; this sprint adds no implicit per-skill-link fallback.
+
 Report content state separately from adoption decision:
 
 - present: target content/marked fragment matches the current catalog digest;

@@ -26,3 +26,14 @@ chunks: canonical source/catalog, query/offer, state/adoption.
 Review of this changed scope is pending. Carry the earlier resolved native-home and verified
 worktree-selection findings forward, and review the canonical-source, policy-preservation,
 link/collection handling and new chunk boundaries before presenting Gate B again.
+
+Changed-scope review (Claude, `743003e9ff1da26c2bd50cf6c3a63e0b978d6311`):
+
+| Finding | Disposition |
+| --- | --- |
+| Medium: an adopter's real skill directory is not a custom symlink; its handling was unspecified. | Fixed: `directory_conflict` is a distinct inspection result. Stop/report link adoption, never traverse, move, merge or delete the directory. Test real directories and preserved local skills. |
+| Minor: choose an exact filename for the permissions embedding file. | Dropped: its canonical source directory is already fixed (`docs/PERMISSIONS.md`); the Go filename is a routine implementation choice and changes no boundary. |
+| Minor: the plan PR must wait for the service PR. | Dropped as a new change: the root one-open-PR rule already applies. No plan publication races that target; Gate B uses the reviewed branch artifact. |
+
+Bounded verification of the accepted directory fix is pending; unchanged scope review carries
+forward. No product work is authorized before direct maintainer Gate B approval.
