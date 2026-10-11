@@ -1,6 +1,6 @@
-# Chunk 02 — scoped state and explicit adoption
+# Chunk 03 — scoped state and explicit adoption
 
-Implements decision criteria 4, 5 and 6 and completes criterion 9. Depends on chunk01.
+Implements decision criteria 4, 5 and 6 and completes criterion 9. Depends on chunk02.
 Use the corresponding tests and integration gate in definition-of-done.md.
 
 ## State query
@@ -21,7 +21,10 @@ The daemon supplies trusted catalog bytes and repository-scoped decisions; the c
 the combined result through the native identity path. Inspection observations are same-user
 reported data, not an attestation or a permission grant. No model-controlled observation,
 family, environment-root or target-path argument is exposed. Refuse symlink escapes and
-non-regular targets, report unavailable roots and permissions explicitly, and read no more
+non-regular file targets. Declared discovery-link targets are inspected with Lstat/Readlink;
+require their literal target and resolved canonical root to stay inside the selected worktree.
+Do not read a foreign destination or automatically replace a custom link. Report unavailable
+roots and permissions explicitly, and read no more
 than the per-item bound. Do not return private native paths or file bodies in catalog state.
 
 Report content state separately from adoption decision:
@@ -36,13 +39,21 @@ Without a prior receipt, nonmatching content is edited, never automatically outd
 inspection failure reports an error/reason with no guessed content state. Read-only state
 does not record an observation, advance a memory cursor or suppress an offer durably.
 
+For a collection item, return per-target states and an aggregate; a verified unchanged prior
+collection is outdated when the new catalog adds a wrapper, even though that new target is
+absent. An edited target wins over an automatic update recommendation. Bound each collection
+to 32 declared targets and the existing item-size ceiling.
+
 ## Decisions in existing memory
 
 Reuse the calling repository's existing memory store and `memory_record`/`memory_recall`
 interfaces, not a new database or schema. Adoption decisions are bounded versioned JSON
 `decision` entries with an explicit library marker, item ID, family, target scope digest,
 catalog digest, observed pre-edit digest, result digest, decision (adopted or declined) and
-an inert approval/evidence reference. They contain no private identity, file content, secret
+an inert approval/evidence reference. Collection receipts additionally retain bounded typed
+target IDs and digests, not arbitrary paths; only registry-derived safe targets can be inspected
+when comparing an old collection. Unknown or malformed descriptor data reports an inspection
+limitation and never causes an arbitrary filesystem read. They contain no private identity, file content, secret
 or absolute native-home path. Repository items use the Git common-directory scope, so a
 decline is shared by worktrees even when their inspected bytes differ. A native-runtime item,
 when supplied, uses a native-root scope digest without publishing that path. Memory's recorded caller provenance remains authoritative

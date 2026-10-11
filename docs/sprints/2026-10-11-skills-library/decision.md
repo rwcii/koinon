@@ -3,7 +3,9 @@
 Issue [#145](https://github.com/rwcii/koinon/issues/145) supplies the approved problem and
 seven outcomes. Its [team-operation candidates](https://github.com/rwcii/koinon/issues/145#issuecomment-6052782627)
 are included. This plan proposes the catalog contents and adoption mechanism for Gate B;
-it does not authorize an adoption in any project.
+it does not authorize an adoption in any project. This revision proposes a single source:
+the skills used to develop Koinon are the same canonical files offered to adopting projects.
+It supersedes the earlier proposal for separate portable copies; Gate B is still pending.
 
 ## Problem
 
@@ -30,10 +32,13 @@ changed. Locally edited items and declined recommendations must survive an upgra
 6. A new release exposes changed items without applying them. Local edits remain untouched.
 7. Catalog material is reference data. It contains no pairing authorization or permission
    grant; neither an item nor an adoption receipt authorizes any subsequent work.
-8. The initial catalog includes portable handoff, pickup, pair and peer-review skills; the
-   requested spin-up, spin-down and recover-team skills; a repository guidance reference;
-   the permission recommendations delivered by #253; and a Claude user-skill reference in
-   its verified native home. The three team skills require
+8. Every canonical skill under `agents/skills/` is a catalog item, including future additions.
+   Koinon uses those files through `.agents/skills`, `.codex/skills` and `.claude/skills`
+   symlinks to the shared directory. Add the requested spin-up, spin-down and recover-team
+   skills there, plus a guide reference usable from a verified Claude native-home target.
+   The catalog also offers shared skill instructions, discovery links, generated OpenCode
+   wrappers, a repository guidance reference and #253's permission recommendations.
+   The three team skills require
    explicit authorization for session, terminal or runtime actions and supported native
    interfaces; they never infer approval from a peer message.
 9. Linux and macOS synthetic tests demonstrate queries, one approved adoption, repetition,
@@ -51,8 +56,11 @@ changed. Locally edited items and declined recommendations must survive an upgra
 - Preserve native configuration, project instructions, ignored handoffs, private state,
   secrets and existing skills. Private identities and downstream packet contents stay out
   of the public catalog.
-- Catalog skills are portable reference versions, not copies of this repository's service,
-  signing, merge or release policies. Adopters keep their own project rules.
+- One canonical skill source: the binary embeds `agents/skills/` bytes; no separately authored
+  skill copies live under `internal/library`. Generalize the same skills used here and keep
+  Koinon-specific branch, signing, checks, CI and release policy in root `AGENTS.md`.
+  Adopters retain their own project policy. Root `AGENTS.md`, including pairing authorization,
+  is never an embedded catalog item.
 - No automatic team restart, terminal input, context reset, permission edit, service change,
   Git update or installation on connect or upgrade. Team skills stop when a required native
   capability cannot be verified; #275 and #199 are not bypassed by skill prose.
@@ -67,4 +75,4 @@ OpenCode wrapper conventions. #196, #206 and #217 remain separate product delive
 their future interfaces are not prerequisites for this reference catalog.
 
 Inputs: README.md, PROTOCOL.md (MCP and memory stores), docs/INSTALL.md,
-docs/PERMISSIONS.md, agents/skills/AGENTS.md and the four existing core skill files.
+docs/PERMISSIONS.md, agents/skills/AGENTS.md and every canonical skill file.

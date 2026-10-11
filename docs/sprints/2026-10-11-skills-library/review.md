@@ -12,4 +12,17 @@ each disposition here. Changed criteria, chunks or done-criteria receive bounded
 Bounded follow-up (Claude): PASS at `597960e7bdde78a2c2fa1e626a51b46da2dd503b`.
 Both accepted findings are resolved in the specification and required test coverage. This
 verdict reviews the plan; implementation and native-discovery evidence are still to be built.
-No findings remain. Present the reviewed plan for maintainer Gate B before product work.
+No findings remained in that revision. Its approval does not cover the changed canonical-source
+proposal below; the earlier Gate B request is superseded.
+
+## Canonical-source revision
+
+The revised proposal uses the actual shared skills for Koinon and adopters, generalizes them
+in place, extracts project policy into root instructions, preserves the three symlinks, and
+embeds the canonical bytes. New skills enter the same enumeration. Native-CI classification
+changes because those bytes become installed runtime content. There are now three complete
+chunks: canonical source/catalog, query/offer, state/adoption.
+
+Review of this changed scope is pending. Carry the earlier resolved native-home and verified
+worktree-selection findings forward, and review the canonical-source, policy-preservation,
+link/collection handling and new chunk boundaries before presenting Gate B again.

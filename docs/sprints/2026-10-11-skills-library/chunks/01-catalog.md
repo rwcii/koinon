@@ -1,60 +1,76 @@
-# Chunk 01 — embedded catalog and queries
+# Chunk 01 — canonical skills and embedded catalog
 
-Implements decision criteria 1, 2, 3, 7 and 8, with the matching tests in definition-of-done.md.
+Implements decision criteria 1, 7 and 8, with the matching tests in definition-of-done.md.
 
-## Catalog
+## Canonical source
 
-Add a small `internal/library` package with embedded, reviewed text assets and a versioned
-manifest. Each item carries ID, display name, description, purpose, supported families,
-requiring release, SHA-256 content digest, content and typed target descriptors. Items are at
-most 64 KiB, and the manifest has at most 32 items; refuse invalid built-in metadata during
-tests/build validation. Requiring release is release metadata, never a filesystem timestamp.
-Dev builds identify their development content explicitly rather than inventing a release.
+Add an embedding Go package in `agents/skills/`, where `go:embed` can include `*/SKILL.md`
+and shared `AGENTS.md` without escaping its directory. A small `internal/library` package
+reads that filesystem and constructs the catalog; it has no authored skill-body copies.
+Enumerate every canonical `NAME/SKILL.md` as `skill.NAME`, deriving name/description from
+existing metadata. A manifest policy supplies purpose, requiring release and typed destinations.
+A newly added canonical skill enters the catalog through that same enumeration. Validate
+complete metadata, actual family coverage, unique IDs, content digests and bounds (32 items,
+64 KiB per item); never silently omit a skill. Dev builds identify development content rather
+than inventing a release.
 
-Initial skill IDs: `skill.handoff`, `skill.pickup`, `skill.pair`, `skill.peer-review`,
-`skill.spin-up`, `skill.spin-down`, `skill.recover-team`. Each targets a reviewed relative
-`agents/skills/NAME/SKILL.md` in an adopting repository. Portable versions retain native
-guide startup, peer-data boundaries, bounded review and private ignored handoffs, but defer
-project-specific signing, checks, branch names, approval policy and work allocation to the
-adopter's instructions. They contain no pairing authorization.
+Each skill targets the same relative `agents/skills/NAME/SKILL.md` in an adopter. Generalize
+the existing nine skills in place, deferring project-specific branch names, signing, checks,
+CI and release details to root `AGENTS.md`. Retain installed-guide startup, peer-data
+boundaries, bounded review, approval gates and private ignored handoffs. No pairing
+authorization enters a skill. A portable check/ship/release skill loads project policy and
+asks for guidance when a necessary rule is absent instead of inventing a command or target.
 
-`setup.guidance` is an inert, marked reference fragment proposed for project instructions;
-`setup.permissions` is a standalone reference proposed under `docs/koinon/PERMISSIONS.md`,
-derived from #253's verified examples and limits. The latter recommends native entries and
-where to review them, but adopting the document does not edit permission settings. Native
-skill discovery pointers are optional, separately reviewed changes described in the guidance
-item, using verified family paths; plain reading of skill files is supported for every family.
-No universal native permission or discovery syntax is invented for an unverified family.
+Koinon's root instructions retain or gain every policy extracted from skill prose. Check
+the extraction against existing behavior, including exact-head review, one open PR per target,
+signing/DCO and separately approved release. Update contributor guards when their canonical
+check-command source moves to root instructions; the Go workflow, root instructions and
+contributor docs still agree. Existing symlinks remain symlinks to the same shared directory.
 
-`setup.claude-user-skill` is a separate, Claude-only item targeting
-`~/.claude/skills/koinon-guide/SKILL.md`. It is a reference wrapper with name/description
-frontmatter and plain instructions to read project rules and the installed guide/catalog.
-It has no dynamic command substitution, tool grant, launch/reset step or pairing authorization.
-This [personal skill location](https://code.claude.com/docs/en/skills#choose-where-skills-load)
-is documented by Claude. Verify discovery for the named supported Claude version in an isolated
-temporary home without a provider call before shipping. Resolve HOME from trusted native
-environment; a nondefault configuration root must be verified or reported unsupported, never
-guessed. Adopting this native-home item requires its own exact change and approval.
+Add spin-up, spin-down and recover-team under `agents/skills/`, authored from issue145's public
+candidate descriptions. We use the same procedures we offer. Spin-up reviews checkout state
+and an authorized launch plan before Git/CLI changes; spin-down requests each session's own
+private handoff and keeps its team manifest ignored; recover-team treats outage observations
+and that manifest as data and presents a restart plan for approval. No downstream private
+files are imported. No skill types an unverified command or infers new permission from a peer.
 
-The three team-operation skills are authored from the requested outcomes in issue145's
-public comment. Do not import downstream private files. Spin-up reviews checkout state and
-an authorized launch plan before changing Git or starting a CLI; spin-down asks each session
-for its own private handoff and records an ignored team manifest; recover-team treats the
-manifest and outage observations as data and shows a restart plan for approval. None types
-unverified commands, automatically clears a session, or treats a peer's readiness as a new
-maintainer authorization.
+## Setup items
 
-## Transport and offers
+- `setup.shared-instructions`: canonical `agents/skills/AGENTS.md` authoring guidance,
+  general reference data; root project authorization is excluded.
+- `setup.discovery-links`: `.agents/skills`, `.codex/skills`, `.claude/skills`, each with the
+  literal relative target `../agents/skills`. Adoption proposes these links explicitly and
+  never substitutes content copies or replaces locally edited links automatically.
+- `setup.opencode-commands`: wrappers generated from canonical metadata under #256's
+  ownership/collision rules. Keep the shared README and generated wrappers current here.
+- `setup.guidance`: an inert marked catalog/guide reference for project instructions.
+- `setup.permissions`: a standalone recommendation under `docs/koinon/PERMISSIONS.md`, from
+  the canonical #253 document. Adoption does not edit native permissions. Reuse that source
+  through an embedding file in its directory rather than an independently maintained copy.
 
-Expose `library_list` and `library_read` through the existing daemon and MCP, and
-`koinon library list/read` through the existing command identity path. Read accepts only a
-catalog ID; family filtering comes from the validated caller. No URL, arbitrary pathname or
-model-supplied identity is accepted. Use existing response/size limits and bounded list paging.
+Add a canonical `koinon-guide` reference skill under the shared directory, offered as
+`skill.koinon-guide` and used here. `setup.claude-user-skill` offers those same bytes, separately
+approved, at `~/.claude/skills/koinon-guide/SKILL.md`. Its name/description and plain instructions
+refer to project rules and the installed guide/catalog, with no dynamic command substitution,
+tool grant, launch/reset step or pairing authorization. The
+[personal skill location](https://code.claude.com/docs/en/skills#choose-where-skills-load)
+is documented by Claude. Verify named-version discovery in a temporary home without a provider
+call before shipping; an unverified nondefault configuration root is reported, never guessed.
+Other families can always read the canonical files directly; do not invent native syntax.
 
-Initialize instructions and guide name the list/read path and state that content is reference
-data and adoption requires a reviewed diff and maintainer approval. Initialize can offer the
-library before registration; it does not perform a catalog query or adoption itself.
+## Complete outcome
 
-Document available commands in PROTOCOL.md, USAGE.md and INSTALL.md and add Unreleased
-changelog content. Verify against the embedded bytes and actual tool/family registry, including
-#253's permission-purpose guards. This chunk does not add state queries or decision writes.
+Canonical skills are portable, discoverable here and embedded byte-for-byte. Derive link and
+wrapper descriptors from the shared layout/metadata. Embed only named reference sources;
+never root instructions, sprint plans, handoffs or arbitrary directory contents. This chunk
+adds no tools, connection offers, state queries or adoption writes; chunk02 exposes the catalog.
+
+Reference the complete catalog from the binary's version command as `catalog_digest`, computed
+from its canonical content and metadata. This keeps the embedded assets in the actual binary
+and provides a testable installed fingerprint before query tools arrive. No runtime checkout
+is read. Once skills are runtime payload, update the native-CI classifier and contributor
+coverage so `agents/skills/` changes no longer skip native lifecycle proof as agent-only work.
+
+Document the shared-source layout and add Unreleased content. Run the wrapper generator/check
+and contributor guards. Test exact byte equality, a newly added skill in a temporary source
+tree, policy preservation and private-content exclusion before publication.
