@@ -438,7 +438,12 @@ func TestAntigravityOffersCountAndFail(t *testing.T) {
 func TestWakeRangeKeepsAMessageThatIsNotDue(t *testing.T) {
 	s, _, sender, receiver, first, clock := wakeFixture(t, "codex")
 	ctx := context.Background()
-	calls := countingWake(s, accepted())
+	var notices []string
+	s.wake.send = func(_ context.Context, _ Session, notice string) wakeResult {
+		notices = append(notices, notice)
+		return accepted()
+	}
+	calls := new(int)
 	step(t, s)
 	later(t, s, clock, 30*time.Second, sender, receiver)
 	second, err := s.Send(ctx, Key{sender.Family, sender.ID}, receiver.Name, "second")
@@ -452,9 +457,14 @@ func TestWakeRangeKeepsAMessageThatIsNotDue(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	// The due messages 1 and 3 are noticed in two batches; neither range names message 2.
 	step(t, s)
-	if *calls != 3 {
-		t.Fatalf("calls: %d", *calls)
+	step(t, s)
+	*calls = len(notices)
+	seq := func(n int64) string { return strconv.FormatInt(n, 10) }
+	if *calls != 4 || !strings.Contains(notices[2], "range "+seq(first.Seq)+"-"+seq(first.Seq)+".") ||
+		!strings.Contains(notices[3], "range "+seq(third.Seq)+"-"+seq(third.Seq)+".") {
+		t.Fatalf("notices: %q", notices)
 	}
 	if a, b, c := messageRow(t, s, first.ID), messageRow(t, s, second.ID), messageRow(t, s, third.ID); a.notices != 2 || c.notices != 1 ||
 		b.notices != 1 || b.next != before.next || b.state != "notified" {

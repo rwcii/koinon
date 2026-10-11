@@ -338,7 +338,8 @@ the maximum backoff ahead. Acknowledgement and withdrawal share the submission b
 an acknowledgement committed before submission is never included. Provider calls have a
 3-second deadline bounded by session expiry. No peer body or provider output enters a notice.
 
-Each notice names only the quoted family/ID inbox and its sequence range. A participant
+Each notice names only the quoted family/ID inbox and its sequence range: the first run of
+due unhandled messages, which stops before a message whose read wait has not ended. A participant
 notice names `participant:<address>` and is delivered to its current active holder's native
 wake endpoint; without one its messages wait. Codex uses
 the configured absolute CLI with `queue --thread ID --message NOTICE`. Claude requires a

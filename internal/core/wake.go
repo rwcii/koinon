@@ -139,9 +139,16 @@ func (s *Store) pendingWake(ctx context.Context, key Key) (*wakeBatch, error) {
 	var first, last sql.NullInt64
 	var attempts, notices int64
 	now, later := s.dueArgs()
-	err = s.db.QueryRowContext(ctx, `SELECT MIN(m.seq),MAX(m.seq),COALESCE(MAX(m.wake_attempts),0),COALESCE(MAX(m.wake_notices),0)
+	// The batch is the first run of due messages: it stops before an unhandled message whose
+	// wait has not ended, so a notice's range names only due messages. A later run is the
+	// next batch.
+	err = s.db.QueryRowContext(ctx, `WITH pending AS (SELECT m.seq,m.wake_attempts,m.wake_notices,(`+dueWake+`) AS due
  FROM messages m JOIN sessions s ON s.family=m.recipient_family AND s.id=m.recipient_id
- WHERE m.recipient_family=? AND m.recipient_id=? AND `+unhandled+` AND `+dueWake, key.Family, key.ID, now, later).
+ WHERE m.recipient_family=? AND m.recipient_id=? AND `+unhandled+`),
+ start AS (SELECT MIN(seq) AS first FROM pending WHERE due),
+ gap AS (SELECT MIN(p.seq) AS seq FROM pending p,start WHERE NOT p.due AND p.seq>start.first)
+ SELECT MIN(p.seq),MAX(p.seq),COALESCE(MAX(p.wake_attempts),0),COALESCE(MAX(p.wake_notices),0)
+ FROM pending p,start,gap WHERE p.due AND (gap.seq IS NULL OR p.seq<gap.seq)`, now, later, key.Family, key.ID).
 		Scan(&first, &last, &attempts, &notices)
 	if err != nil {
 		return nil, err
