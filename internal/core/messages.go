@@ -38,6 +38,11 @@ type Message struct {
 	Acknowledged   bool   `json:"acknowledged"`
 	// AcknowledgedBy is recipient or maintainer for an acknowledged message (chunk 09).
 	AcknowledgedBy string `json:"acknowledged_by,omitempty"`
+	// AcknowledgedSession and AcknowledgedVia name the session (its peer name, or
+	// maintainer) and the operation (ack, participant_ack or dashboard) that acknowledged
+	// the message; acknowledgements from before schema 15 have none (#250).
+	AcknowledgedSession string `json:"acknowledged_session,omitempty"`
+	AcknowledgedVia     string `json:"acknowledged_via,omitempty"`
 	// Inbox is session for the caller's own inbox and participant for the inbox of the
 	// participant that the caller holds (chunk 03).
 	Inbox string `json:"inbox"`
@@ -67,9 +72,15 @@ type Outcome struct {
 	Seq            int64  `json:"seq"`
 	DeliveryState  string `json:"delivery_state"`
 	DeliveryReason string `json:"delivery_reason,omitempty"`
-	UpdatedAt      int64  `json:"updated_at"`
-	Acknowledged   bool   `json:"acknowledged"`
-	AcknowledgedBy string `json:"acknowledged_by,omitempty"`
+	// WakeReason is the result code of the last wake attempt, and Notices the number of
+	// notices that may have reached the agent (#250).
+	WakeReason          string `json:"wake_reason,omitempty"`
+	Notices             int64  `json:"notices,omitempty"`
+	UpdatedAt           int64  `json:"updated_at"`
+	Acknowledged        bool   `json:"acknowledged"`
+	AcknowledgedBy      string `json:"acknowledged_by,omitempty"`
+	AcknowledgedSession string `json:"acknowledged_session,omitempty"`
+	AcknowledgedVia     string `json:"acknowledged_via,omitempty"`
 }
 
 // acknowledgedBy names who acknowledged a message: the maintainer when the dashboard
@@ -320,7 +331,71 @@ func (s *Store) ReadInboxes(ctx context.Context, caller Key, after int64, partic
 		}
 		result.Participant = p
 	}
+	tx.Rollback()
+	s.markRead(ctx, caller, address, after, participantAfter, result.Messages)
 	return result, nil
+}
+
+// markRead records the highest sequence that a read returned from each inbox (#250): the
+// wake loop sends no further notice for those messages. A read that started above the
+// inbox's handled sequence skipped messages and records nothing. It is progress and may use
+// the reserve. When it cannot be written, the read is still returned; the recipient then
+// gets one more notice for messages it has read.
+func (s *Store) markRead(ctx context.Context, caller Key, address string, after int64, participantAfter *int64, messages []Message) {
+	type read struct{ after, through int64 }
+	reads := map[Key]read{}
+	for _, m := range messages {
+		inbox, from := caller, after
+		if m.Inbox == "participant" {
+			inbox, from = Key{caller.Family, participantKey(address)}, 0
+			if participantAfter != nil {
+				from = *participantAfter
+			}
+		}
+		reads[inbox] = read{from, max(reads[inbox].through, m.Seq)}
+	}
+	if len(reads) == 0 {
+		return
+	}
+	tx, err := s.begin(ctx, control)
+	if err != nil {
+		return
+	}
+	defer tx.Rollback()
+	if address != "" {
+		// A holder change after the read has reset the participant's read for the new
+		// holder; the former holder's read must not advance it (#250).
+		held, err := heldAddress(ctx, tx.Tx, s.now().UnixMilli(), caller)
+		if err != nil {
+			return
+		}
+		if held != address {
+			delete(reads, Key{caller.Family, participantKey(address)})
+		}
+	}
+	for inbox, r := range reads {
+		if _, err := tx.ExecContext(ctx, `UPDATE sessions SET read_through=? WHERE family=? AND id=? AND read_through<?
+			AND max(read_through,acked_through)>=?`, r.through, inbox.Family, inbox.ID, r.through, r.after); err != nil {
+			tx.fail(err)
+			return
+		}
+	}
+	tx.Commit()
+}
+
+// ackedBy is the name that an acknowledgement records for its session: the peer name, or
+// maintainer for the dashboard.
+func ackedBy(ctx context.Context, tx *sql.Tx, caller Key) (string, error) {
+	if caller == maintainerKey {
+		return "maintainer", nil
+	}
+	var name string
+	err := tx.QueryRowContext(ctx, `SELECT name FROM names WHERE kind='peer' AND family=? AND session_id=?`,
+		caller.Family, caller.ID).Scan(&name)
+	if errors.Is(err, sql.ErrNoRows) {
+		return caller.Family, nil
+	}
+	return name, err
 }
 
 // readMessages appends the messages of one inbox after a sequence and returns its sequence
@@ -330,8 +405,8 @@ func readMessages(ctx context.Context, tx *sql.Tx, inbox Key, after, limit int64
 		inbox.Family, inbox.ID).Scan(&last, &acked); err != nil {
 		return 0, 0, false, err
 	}
-	rows, err := tx.QueryContext(ctx, `SELECT id,seq,sender_family,sender_name,body,created_at,delivery_state,delivery_reason,maintainer_ack
-		FROM messages WHERE recipient_family=? AND recipient_id=? AND seq>? ORDER BY seq LIMIT ?`,
+	rows, err := tx.QueryContext(ctx, `SELECT id,seq,sender_family,sender_name,body,created_at,delivery_state,delivery_reason,maintainer_ack,
+		ack_session,ack_via FROM messages WHERE recipient_family=? AND recipient_id=? AND seq>? ORDER BY seq LIMIT ?`,
 		inbox.Family, inbox.ID, after, limit+1)
 	if err != nil {
 		return 0, 0, false, err
@@ -341,7 +416,8 @@ func readMessages(ctx context.Context, tx *sql.Tx, inbox Key, after, limit int64
 	for rows.Next() {
 		var m Message
 		var maintainer bool
-		if err := rows.Scan(&m.ID, &m.Seq, &m.SenderFamily, &m.SenderName, &m.Body, &m.CreatedAt, &m.DeliveryState, &m.DeliveryReason, &maintainer); err != nil {
+		if err := rows.Scan(&m.ID, &m.Seq, &m.SenderFamily, &m.SenderName, &m.Body, &m.CreatedAt, &m.DeliveryState, &m.DeliveryReason, &maintainer,
+			&m.AcknowledgedSession, &m.AcknowledgedVia); err != nil {
 			return 0, 0, false, err
 		}
 		if count == limit || (count > 0 && size+len(m.Body) > 1<<20) {
@@ -352,6 +428,9 @@ func readMessages(ctx context.Context, tx *sql.Tx, inbox Key, after, limit int64
 		count++
 		m.Acknowledged = m.Seq <= acked
 		m.AcknowledgedBy = acknowledgedBy(m.Acknowledged, maintainer)
+		if !m.Acknowledged {
+			m.AcknowledgedSession, m.AcknowledgedVia = "", ""
+		}
 		m.Inbox = kind
 		*messages = append(*messages, m)
 	}
@@ -407,6 +486,14 @@ func (s *Store) AckParticipant(ctx context.Context, caller Key, through int64) (
 			through, caller.Family+":"+caller.ID, caller.Family, inbox); err != nil {
 			return "", 0, tx.fail(err)
 		}
+		name, err := ackedBy(ctx, tx.Tx, caller)
+		if err != nil {
+			return "", 0, err
+		}
+		if _, err := tx.ExecContext(ctx, `UPDATE messages SET ack_session=?,ack_via='participant_ack' WHERE recipient_family=?
+			AND recipient_id=? AND seq>? AND seq<=?`, name, caller.Family, inbox, acked, through); err != nil {
+			return "", 0, tx.fail(err)
+		}
 		acked = through
 	}
 	return address, acked, tx.Commit()
@@ -453,12 +540,18 @@ func (s *Store) ack(ctx context.Context, caller Key, through int64, dashboard bo
 			through, caller.Family, caller.ID); err != nil {
 			return 0, tx.fail(err)
 		}
-		if dashboard {
-			// 0 becomes 1: format 4 stores both without a payload byte, so no page grows.
-			if _, err := tx.ExecContext(ctx, `UPDATE messages SET maintainer_ack=1 WHERE recipient_family=? AND recipient_id=?
-				AND seq>? AND seq<=?`, caller.Family, caller.ID, acked, through); err != nil {
-				return 0, tx.fail(err)
+		// maintainer_ack 0 becomes 1 without a payload byte; the session and the operation
+		// that acknowledged each message are recorded with it (#250).
+		name, via, flag := "maintainer", "dashboard", 1
+		if !dashboard {
+			if name, err = ackedBy(ctx, tx.Tx, caller); err != nil {
+				return 0, err
 			}
+			via, flag = "ack", 0
+		}
+		if _, err := tx.ExecContext(ctx, `UPDATE messages SET maintainer_ack=max(maintainer_ack,?),ack_session=?,ack_via=?
+			WHERE recipient_family=? AND recipient_id=? AND seq>? AND seq<=?`, flag, name, via, caller.Family, caller.ID, acked, through); err != nil {
+			return 0, tx.fail(err)
 		}
 		acked = through
 	}
@@ -479,11 +572,12 @@ func (s *Store) MessageOutcome(ctx context.Context, caller Key, id int64) (Outco
 	var result Outcome
 	var maintainer bool
 	err = tx.QueryRowContext(ctx, `SELECT m.id,CASE WHEN substr(m.recipient_id,1,12)='participant:' THEN substr(m.recipient_id,13) ELSE COALESCE(n.name,'') END,m.seq,m.delivery_state,m.delivery_reason,
-		m.delivery_updated_at,m.seq<=s.acked_through,m.maintainer_ack FROM messages m
+		m.wake_reason,m.wake_notices,m.delivery_updated_at,m.seq<=s.acked_through,m.maintainer_ack,m.ack_session,m.ack_via FROM messages m
 		JOIN sessions s ON s.family=m.recipient_family AND s.id=m.recipient_id
 		LEFT JOIN names n ON n.kind='peer' AND n.family=m.recipient_family AND n.session_id=m.recipient_id
 		WHERE m.id=? AND m.sender_family=? AND m.sender_id=?`, id, caller.Family, caller.ID).
-		Scan(&result.ID, &result.Recipient, &result.Seq, &result.DeliveryState, &result.DeliveryReason, &result.UpdatedAt, &result.Acknowledged, &maintainer)
+		Scan(&result.ID, &result.Recipient, &result.Seq, &result.DeliveryState, &result.DeliveryReason, &result.WakeReason, &result.Notices,
+			&result.UpdatedAt, &result.Acknowledged, &maintainer, &result.AcknowledgedSession, &result.AcknowledgedVia)
 	if errors.Is(err, sql.ErrNoRows) {
 		// An ID that the daemon issued and no longer holds was deleted by retention or a
 		// purge (#216); its outcome is the fixed state deleted, whichever session sent it.
@@ -499,6 +593,9 @@ func (s *Store) MessageOutcome(ctx context.Context, caller Key, id int64) (Outco
 		return Outcome{}, ErrMessageNotFound
 	}
 	result.AcknowledgedBy = acknowledgedBy(result.Acknowledged, maintainer)
+	if !result.Acknowledged {
+		result.AcknowledgedSession, result.AcknowledgedVia = "", ""
+	}
 	return result, err
 }
 

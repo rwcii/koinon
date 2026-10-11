@@ -20,6 +20,10 @@ import (
 // Dashboard action tests (sprint chunk 09): a real daemon on ephemeral loopback ports,
 // temporary state, synthetic sessions and a patched launcher.
 
+// undoSchemaFifteen turns a schema 15 database back into schema 14 for migration tests.
+const undoSchemaFifteen = `ALTER TABLE sessions DROP COLUMN read_through; ALTER TABLE messages DROP COLUMN wake_notices;
+	ALTER TABLE messages DROP COLUMN ack_session; ALTER TABLE messages DROP COLUMN ack_via; `
+
 // undoSchemaFourteen turns a schema 14 database back into schema 13 for migration tests.
 const undoSchemaFourteen = `DROP TABLE settings; `
 
@@ -486,7 +490,7 @@ func TestSchemaSixMigrationAndRollback(t *testing.T) {
 	}
 	// A schema 6 database that already holds the name maintainer cannot migrate: the
 	// whole step rolls back and the database stays at 6.
-	if _, err := s.db.Exec(undoSchemaFourteen + undoSchemaThirteen + undoSchemaTwelve + undoSchemaEleven + undoSchemaTen + undoSchemaNine + undoSchemaEight + undoSchemaSeven + `INSERT INTO names(name,kind,family,session_id) VALUES ('maintainer','peer','codex','x'); PRAGMA user_version=6`); err != nil {
+	if _, err := s.db.Exec(undoSchemaFifteen + undoSchemaFourteen + undoSchemaThirteen + undoSchemaTwelve + undoSchemaEleven + undoSchemaTen + undoSchemaNine + undoSchemaEight + undoSchemaSeven + `INSERT INTO names(name,kind,family,session_id) VALUES ('maintainer','peer','codex','x'); PRAGMA user_version=6`); err != nil {
 		t.Fatal(err)
 	}
 	s.db.Close()
@@ -599,7 +603,8 @@ func TestDashboardAckSharesTheWakeBoundary(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	inbox, err := s.ReadInbox(ctx, key, 0, 50)
+	// A read after the later message leaves it unread, so it still gets a notice.
+	inbox, err := s.ReadInbox(ctx, key, later.Seq, 50)
 	if err != nil || inbox.AckedThrough != message.Seq || later.Seq != message.Seq+1 {
 		t.Fatalf("after clear: %+v %v", inbox, err)
 	}
