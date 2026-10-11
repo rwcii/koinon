@@ -33,7 +33,7 @@ func TestSettingsValidation(t *testing.T) {
 	}
 	for _, v := range []Settings{
 		{59, 29, 30}, {3601, 300, 30}, {900, 29, 30}, {900, 451, 30}, {60, 31, 30},
-		{900, 300, 29}, {900, 300, 601},
+		{900, 300, 29}, {900, 300, 601}, {900, 1<<63 - 1, 30}, {1<<63 - 1, 300, 30},
 	} {
 		if err := s.SetSettings(context.Background(), v); !errors.Is(err, ErrInvalid) {
 			t.Fatalf("%+v accepted: %v", v, err)
@@ -101,6 +101,12 @@ func TestDashboardSettings(t *testing.T) {
 		t.Fatalf("interval above half the lifetime: %s", got)
 	}
 	expectAudit(t, d.store, n, "settings", "refused", "invalid_request")
+	// A doubled interval would overflow; the check compares with half the lifetime.
+	if got := c.do("settings", settingsForm(Settings{900, 1<<63 - 1, 30})); got != "invalid_request" {
+		t.Fatalf("an overflowing interval: %s", got)
+	}
+	expectAudit(t, d.store, n+1, "settings", "refused", "invalid_request")
+	n++
 	if storedSettings(t, d.store) != 0 || d.store.Settings() != DefaultSettings {
 		t.Fatal("a refused change was stored")
 	}
@@ -125,5 +131,29 @@ func TestDashboardSettings(t *testing.T) {
 	_, reply := post(t, d.Addresses()[0], secret, "/v1/sessions/register", Registration{Family: "deepseek", ID: "synthetic-reply", Repository: repo, Directory: repo})
 	if reply["renewal_seconds"] != float64(120) {
 		t.Fatalf("register reply: %v", reply)
+	}
+}
+
+// TestShortestLifetimeKeepsALiveHost: with the 60-second lifetime, the 30-second sweep
+// still extends an idle session whose host runs, before each deadline.
+func TestShortestLifetimeKeepsALiveHost(t *testing.T) {
+	s, h, advance := successionStore(t)
+	if err := s.SetSettings(context.Background(), Settings{60, 30, 30}); err != nil {
+		t.Fatal(err)
+	}
+	h.set(500, 4)
+	got := arrive(t, s, arrival{family: "codex", id: "synthetic-short", repo: testRepo(t), pid: 500})
+	// A renewal without ttl_seconds takes the 60-second lifetime.
+	if got, err := s.Mutate(context.Background(), Mutation{Family: "codex", ID: got.ID, IfRevision: got.Revision}, false); err != nil || got.ExpiresAt-got.RenewedAt != 60_000 {
+		t.Fatalf("renew: %+v %v", got, err)
+	}
+	for range 6 {
+		advance(30 * time.Second)
+		if err := s.MaintainLiveness(context.Background()); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if got := sessionOf(t, s, "codex", "synthetic-short"); got.State != "active" {
+		t.Fatalf("lost with the shortest lifetime: %+v", got)
 	}
 }

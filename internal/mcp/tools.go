@@ -280,8 +280,14 @@ func (s *server) interval() time.Duration {
 // setInterval applies a reply's renewal setting; a reply without one, from an older daemon,
 // keeps the interval. The caller holds s.mu.
 func (s *server) setInterval(seconds int64) {
-	if seconds >= 30 && seconds <= 1800 {
-		s.renewal = time.Duration(seconds) * time.Second
+	interval := time.Duration(seconds) * time.Second
+	if seconds < 30 || seconds > 1800 || interval == s.renewal {
+		return
+	}
+	s.renewal = interval
+	select {
+	case s.retune <- struct{}{}:
+	default:
 	}
 }
 

@@ -45,8 +45,8 @@ func (s *Store) annotate(r *Session) {
 
 // MaintainLiveness keeps each active session whose host process still runs: a launched
 // session, not a sub-agent, with a host record whose process has the recorded start value.
-// A session with less than half of the lifetime setting left is extended by that
-// lifetime, without a revision change, so its own renewals still apply. A session whose
+// A session with less than half of the lifetime setting, or less than two sweep intervals,
+// left is extended by that lifetime, without a revision change, so its own renewals still apply. A session whose
 // host ended or cannot be read is not extended and expires at its deadline; a session that
 // has expired is never revived.
 func (s *Store) MaintainLiveness(ctx context.Context) error {
@@ -88,7 +88,9 @@ func (s *Store) MaintainLiveness(ctx context.Context) error {
 			continue
 		}
 		s.alive.set(c.key, s.now().UnixMilli())
-		if c.expires-s.now().UnixMilli() < lifetime/2 {
+		// Extend at half the lifetime, and in any case before the next sweep can come too
+		// late: with the shortest lifetime, half of it is one sweep interval.
+		if c.expires-s.now().UnixMilli() < max(lifetime/2, 2*workSweepInterval.Milliseconds()) {
 			due = append(due, c)
 		}
 	}

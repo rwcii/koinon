@@ -38,6 +38,8 @@ type Config struct {
 	// terminal is named only when both are set.
 	Tmux    func(ctx context.Context, socket string, args ...string) (string, error)
 	Parents func() (map[int]int, error)
+	// After waits for the renewal timer; nil is time.After.
+	After func(time.Duration) <-chan time.Time
 }
 
 type rpcRequest struct {
@@ -63,8 +65,9 @@ type server struct {
 	secret   string
 	sessions map[core.Key]registered
 	// renewal is the renewal interval that the daemon's last reply set, or 0 for
-	// renewEvery (#249).
+	// renewEvery; retune tells renewLoop that it changed (#249).
 	renewal time.Duration
+	retune  chan struct{}
 	// subagents are the Codex threads whose calls came from a sub-agent.
 	subagents map[core.Key]bool
 	latest    core.Key
@@ -86,7 +89,7 @@ type registered struct {
 // Serve runs the server until the input ends or ctx is cancelled.
 func Serve(ctx context.Context, c Config, in io.Reader, out io.Writer) error {
 	s := &server{c: c, out: json.NewEncoder(out), sessions: map[core.Key]registered{},
-		named: map[core.Key]string{}, naming: map[core.Key]bool{}}
+		named: map[core.Key]string{}, naming: map[core.Key]bool{}, retune: make(chan struct{}, 1)}
 	ctx, cancel := context.WithCancel(ctx)
 	defer cancel()
 	go s.renewLoop(ctx)
@@ -199,17 +202,20 @@ func (s *server) initialize(r rpcRequest) {
 	})
 }
 
-// renewLoop keeps the most recent session active while the client stays connected. Each
-// wait uses the interval in force, so a changed setting applies from the next renewal.
+// renewLoop keeps the most recent session active while the client stays connected. A
+// changed interval replaces the pending wait, so the first reply's interval applies at once.
 func (s *server) renewLoop(ctx context.Context) {
+	after := s.c.After
+	if after == nil {
+		after = time.After
+	}
 	for {
-		timer := time.NewTimer(s.interval())
 		select {
 		case <-ctx.Done():
-			timer.Stop()
 			return
-		case <-timer.C:
+		case <-after(s.interval()):
 			s.renew(ctx)
+		case <-s.retune:
 		}
 	}
 }

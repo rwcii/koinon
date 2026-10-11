@@ -28,7 +28,7 @@ var DefaultSettings = Settings{LifetimeSeconds: 900, RenewalSeconds: 300, GuardS
 // lifetime. The guard cannot go below 30 seconds, because it is a safety bound.
 func (v Settings) Valid() bool {
 	return v.LifetimeSeconds >= 60 && v.LifetimeSeconds <= 3600 &&
-		v.RenewalSeconds >= 30 && v.RenewalSeconds*2 <= v.LifetimeSeconds &&
+		v.RenewalSeconds >= 30 && v.RenewalSeconds <= v.LifetimeSeconds/2 &&
 		v.GuardSeconds >= 30 && v.GuardSeconds <= 600
 }
 

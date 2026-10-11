@@ -506,6 +506,41 @@ func TestRenewalIntervalFromDaemon(t *testing.T) {
 	}
 }
 
+// TestNewIntervalReschedulesRenewal: a changed interval replaces the pending wait at once,
+// so a first reply of 30 seconds does not leave the default 300-second wait running.
+func TestNewIntervalReschedulesRenewal(t *testing.T) {
+	h := newHarness(t, "codex-mcp-client")
+	waits := make(chan time.Duration, 8)
+	h.s.retune = make(chan struct{}, 1)
+	h.s.c.After = func(d time.Duration) <-chan time.Time { waits <- d; return make(chan time.Time) }
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	go h.s.renewLoop(ctx)
+	if got := <-waits; got != 300*time.Second {
+		t.Fatalf("first wait %v", got)
+	}
+	h.s.mu.Lock()
+	h.s.setInterval(30)
+	h.s.mu.Unlock()
+	select {
+	case got := <-waits:
+		if got != 30*time.Second {
+			t.Fatalf("wait after the new interval %v", got)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("the pending wait was not replaced")
+	}
+	// The same interval again changes nothing.
+	h.s.mu.Lock()
+	h.s.setInterval(30)
+	h.s.mu.Unlock()
+	select {
+	case got := <-waits:
+		t.Fatalf("an unchanged interval rescheduled: %v", got)
+	case <-time.After(200 * time.Millisecond):
+	}
+}
+
 func TestCommandBinary(t *testing.T) {
 	if testing.Short() {
 		t.Skip()

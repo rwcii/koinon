@@ -65,8 +65,8 @@ to return an expired/retired session to active without deleting its retained dat
 Liveness keeps a running session without renewals. Every 30 seconds the daemon reads the host
 process of each active, launched session that is not a sub-agent and has a host record. When
 that process still has the recorded start value, the daemon records the time, and when less
-than half of the lifetime setting remains it moves `expires_at` to that lifetime from now (900
-seconds by default, so at 450 seconds left). This change keeps the
+than half of the lifetime setting, or less than two sweep intervals (60 seconds), remains it
+moves `expires_at` to that lifetime from now (900 seconds by default, so at 450 seconds left). This change keeps the
 revision, so the session's own renewals still apply. The daemon reads the hosts outside its
 write and checks the clock and the row again inside it: a session that expired meanwhile, or
 whose revision changed (renewed, registered again, as a sub-agent too, or retired), is left as
