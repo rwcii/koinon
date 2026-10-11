@@ -21,7 +21,9 @@
   stated state: no system plist, the user agent restored to its recorded state (loaded and
   enabled, or disabled, or not loaded, as it was before; never created), and a report naming
   the step; a failing rollback reports the manual commands. An install interrupted after the
-  system plist was written completes on the next run through reconciliation. Running as root
+  system plist was installed but before `bootstrap` completes on the next run: reconciliation
+  finds no loaded system service, bootstraps it, kickstarts it and verifies the PID. With the
+  service already loaded, reconciliation does not bootstrap it again. Running as root
   is refused.
 - Reconciliation: on a system-mode host where the fake shows the user agent re-enabled and
   loaded, a plain `koinon install` disables and boots it out again, verifies with

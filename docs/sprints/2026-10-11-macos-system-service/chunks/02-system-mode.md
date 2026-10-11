@@ -58,9 +58,11 @@ Criteria 1, 2, 6, 7 and the CI part of 8 of `decision.md`. Needs chunk 01 (log p
    plan to review and gate B.
 4. **Later installs (reconciliation).** In system mode, a plain `koinon install` first repeats
    steps 2 and 3 for the user agent, so an agent re-enabled or restarted since then is stopped
-   and disabled again. Then it replaces the binary in place, rewrites an owned system plist
-   only when its content differs (through `sudo`), runs
-   `sudo launchctl kickstart -k system/<label>`, and repeats step 5. It never writes, enables
+   and disabled again. Then it replaces the binary in place and rewrites an owned system plist
+   only when its content differs (through `sudo`). If `sudo launchctl print system/<label>`
+   shows no loaded service (an interruption after step 4's file install, or a booted-out
+   service), it runs `sudo launchctl bootstrap system <path>`; then it runs
+   `sudo launchctl kickstart -k system/<label>` and repeats step 5. It never writes, enables
    or bootstraps the user agent. The report says `"service": "system"`.
 5. **Hand-written LaunchDaemon (criterion 7).** An unmarked system plist with the same label is
    system mode only when its `ProgramArguments` are the agent's exactly: the binary link path

@@ -17,3 +17,9 @@ Review of the committed plan by the other agent family, with the disposition of 
 | 2a | Item 1 said the system plist is written only after success, but step 4 writes it before verification; detection must handle the partial state, including interruption. | Fixed. The plist records intent, not readiness. Every install verifies readiness (step 5) and reports success only then; an interrupted transition completes through reconciliation on the next run. |
 | 2b | The rollback after steps 2 or 3 only re-enabled the agent, but bootout had already unloaded it; it must restore the original loaded/disabled state and never create an agent. | Fixed. Step 1 records the agent's loaded and disabled state; rollback restores exactly that (enable only if it was enabled, bootstrap only if it was loaded). The agent plist stays until step 6. |
 | 2c | Root `launchctl` on `gui/<uid>` from a Background session is unverified. | Fixed. Stated as a proof obligation: the native CI case is built first, and a failure returns the plan to gate B. |
+
+## Round 3 (Codex, plan 2b45895, bounded to finding 2a)
+
+| # | Finding | Disposition |
+| --- | --- | --- |
+| 2a | Reconciliation only kickstarted the system service, which cannot complete a transition interrupted after the plist install but before `bootstrap`. | Fixed. Reconciliation bootstraps the system service when `print system/<label>` shows it is not loaded, then kickstarts and verifies the PID; a test covers that interruption point and the already-loaded case. |
