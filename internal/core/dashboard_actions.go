@@ -39,6 +39,7 @@ var (
 // noticeText is every notice a view can show; any other code shows nothing.
 var noticeText = map[string]string{
 	"participant_chosen":        "The session now holds the participant address.",
+	"settings_saved":            "The session timing was saved and applies now.",
 	"not_participant":           "Refused: the session does not belong to that participant.",
 	"retired":                   "The session was retired.",
 	"purge_marked":              "The session is marked for purge. An active session was retired; the next maintenance sweep deletes it with its whole inbox.",
@@ -144,6 +145,15 @@ func (d *Daemon) dashboardActions(mux *http.ServeMux, authed func(int64, func(ht
 		done(w, r, view, query, accepted)
 	}
 
+	mux.HandleFunc("POST /dashboard/actions/settings", authed(actionFormLimit, func(w http.ResponseWriter, r *http.Request, _ string) {
+		var v Settings
+		var ok [3]bool
+		v.LifetimeSeconds, ok[0] = formInt(r, "lifetime_seconds")
+		v.RenewalSeconds, ok[1] = formInt(r, "renewal_seconds")
+		v.GuardSeconds, ok[2] = formInt(r, "guard_seconds")
+		run(w, r, "settings", v.String(), "settings", nil, ok[0] && ok[1] && ok[2] && v.Valid(),
+			func(ctx context.Context) error { return d.store.SetSettings(ctx, v) }, "settings_saved", nil)
+	}))
 	mux.HandleFunc("POST /dashboard/actions/participant-holder", authed(actionFormLimit, func(w http.ResponseWriter, r *http.Request, _ string) {
 		k, valid := sessionKey(r)
 		revision, ok := formInt(r, "revision")

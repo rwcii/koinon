@@ -41,7 +41,7 @@ bytes), an absolute `directory` path, an optional absolute `repository` path,
 optional `wake_target` JSON (up to 8 KiB),
 optional `launch_id` (required for launcher families), optional `ancestors` (at most 256
 process IDs), optional `subagent` (boolean),
-and optional `ttl_seconds` (60–3,600, default 900). Claude, Codex, Antigravity and OpenCode
+and optional `ttl_seconds` (60–3,600; without it, the lifetime setting, 900 by default). Claude, Codex, Antigravity and OpenCode
 require a known launch ID whose family and canonical directory match the registering session.
 Missing, unknown or mismatched launch associations are refused with `not_launched` (409).
 A foreground launch's `host_pid` must occur in `ancestors`; Claude also requires
@@ -65,7 +65,8 @@ to return an expired/retired session to active without deleting its retained dat
 Liveness keeps a running session without renewals. Every 30 seconds the daemon reads the host
 process of each active, launched session that is not a sub-agent and has a host record. When
 that process still has the recorded start value, the daemon records the time, and when less
-than 450 seconds remain it moves `expires_at` to 900 seconds from now. This change keeps the
+than half of the lifetime setting, or less than two sweep intervals (60 seconds), remains it
+moves `expires_at` to that lifetime from now (900 seconds by default, so at 450 seconds left). This change keeps the
 revision, so the session's own renewals still apply. The daemon reads the hosts outside its
 write and checks the clock and the row again inside it: a session that expired meanwhile, or
 whose revision changed (renewed, registered again, as a sub-agent too, or retired), is left as
@@ -147,6 +148,24 @@ cursors and live claims with their existing generations and deadlines.
 Pre-upgrade messages, acknowledgements, peer-name cursors and native-session claims keep
 their original owners; migration does not transfer them to the participant.
 
+### Session timing settings
+
+Schema 14 adds the `settings` table. The maintainer sets three values on the dashboard
+**Settings** page; a value without a row has its default:
+
+| Setting | Default | Range | Use |
+| --- | --- | --- | --- |
+| `lifetime_seconds` | 900 | 60–3,600 | The lifetime of a registration or renewal without `ttl_seconds`, and of a liveness extension. |
+| `renewal_seconds` | 300 | 30 to half the lifetime | How often `koinon mcp` renews; register and renew replies carry it as `renewal_seconds`. |
+| `guard_seconds` | 30 | 30–600 | How long after the holder's last tool call same-host succession waits. |
+
+The action `settings` checks the three values together and stores them in one transaction
+with its audit record (target: the three values); a refused change stores nothing and is
+audited as refused. A change applies from its commit, without a restart: the next
+registration, renewal, liveness sweep and succession check read it, and each `koinon mcp`
+takes the interval from its next reply. A stored set that is not valid as a whole is not
+applied at start, and the defaults apply.
+
 ### Verified succession
 
 Schema 13 adds a private host record to each session: host PID, process start value,
@@ -168,10 +187,10 @@ Only a tool-triggered registration can succeed another active holder of the same
 repository and role. It requires readable host records and either the same host PID and
 start value, or the same tmux socket and pane with the former host proven ended or replaced.
 A candidate whose host already holds another participant is refused. Same-host succession
-also requires 30 seconds without a tool call from the holder. The daemon stamps actual tool
+also requires the guard setting (30 seconds by default) without a tool call from the holder. The daemon stamps actual tool
 routes, including reads, using its own clock; observation, renewal, wake and maintenance
 requests do not count. Stamps are kept in memory; a daemon restart conservatively counts as
-a call for the first 30 seconds. The guard reads the stamp in the registration transaction.
+a call for the first guard period. The guard reads the stamp in the registration transaction.
 
 The session and `peers` expose `succession: {result, reason, address, holder, at,
 retry_after_ms}` when present; `at` is daemon Unix milliseconds and `holder` is the former or
@@ -552,9 +571,11 @@ call whose arguments hold `caller`, `family`, `id`, `as`, `session` or `session_
 
 DeepSeek has no MCP identity source yet and uses the `koinon` commands with `--as`. For the
 other families, the server registers a launched session at its first call, with the working
-directory and, inside Git, its repository, and registers it again after five minutes, when
-the daemon reports it inactive, or at once when a Codex thread is first marked as a sub-agent.
-Every five minutes it renews the session it served last. A renewal that fails because the
+directory and, inside Git, its repository, and registers it again after the renewal interval,
+when the daemon reports it inactive, or at once when a Codex thread is first marked as a
+sub-agent. At the renewal interval it renews the session it served last. The interval is the
+daemon's renewal setting from the `renewal_seconds` of its last register or renew reply (30
+to 1,800), and five minutes before a reply carries one. A renewal that fails because the
 daemon is unreachable, its storage is blocked or the call times out is tried again at the next
 interval. A refusal that ends the registration (`session_conflict`, `session_not_found`,
 `not_launched`, `caller_inactive`, `stale_holder` or `invalid_request`) stops the renewals

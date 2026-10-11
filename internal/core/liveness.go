@@ -9,11 +9,6 @@ import (
 	"github.com/rwcii/koinon/internal/platform"
 )
 
-// defaultLifetime is the registration lifetime when a registration names none, in
-// milliseconds. Liveness keeps a running session past it; the lifetime bounds a session
-// without host evidence.
-const defaultLifetime = 900_000
-
 // liveness records when the maintenance sweep last read each session's host process as
 // running. It is kept in memory: after a daemon restart, the first sweep fills it again.
 type liveness struct {
@@ -50,12 +45,13 @@ func (s *Store) annotate(r *Session) {
 
 // MaintainLiveness keeps each active session whose host process still runs: a launched
 // session, not a sub-agent, with a host record whose process has the recorded start value.
-// A session with less than half of the default lifetime left is extended by the default
-// lifetime, without a revision change, so its own renewals still apply. A session whose
+// A session with less than half of the lifetime setting, or less than two sweep intervals,
+// left is extended by that lifetime, without a revision change, so its own renewals still apply. A session whose
 // host ended or cannot be read is not extended and expires at its deadline; a session that
 // has expired is never revived.
 func (s *Store) MaintainLiveness(ctx context.Context) error {
 	now := s.now().UnixMilli()
+	lifetime := s.Settings().LifetimeSeconds * 1000
 	rows, err := s.db.QueryContext(ctx, `SELECT family,id,wake_target,host_pid,host_start,expires_at,revision FROM sessions
 		WHERE retired_at=0 AND expires_at>? AND subagent=0 AND host_pid>0 AND host_start>0`, now)
 	if err != nil {
@@ -92,7 +88,9 @@ func (s *Store) MaintainLiveness(ctx context.Context) error {
 			continue
 		}
 		s.alive.set(c.key, s.now().UnixMilli())
-		if c.expires-s.now().UnixMilli() < defaultLifetime/2 {
+		// Extend at half the lifetime, and in any case before the next sweep can come too
+		// late: with the shortest lifetime, half of it is one sweep interval.
+		if c.expires-s.now().UnixMilli() < max(lifetime/2, 2*workSweepInterval.Milliseconds()) {
 			due = append(due, c)
 		}
 	}
@@ -112,7 +110,7 @@ func (s *Store) MaintainLiveness(ctx context.Context) error {
 	for _, c := range due {
 		if _, err := tx.ExecContext(ctx, `UPDATE sessions SET expires_at=? WHERE family=? AND id=? AND revision=?
 			AND retired_at=0 AND subagent=0 AND expires_at>? AND expires_at<? AND host_pid=? AND host_start=?`,
-			now+defaultLifetime, c.key.Family, c.key.ID, c.revision, now, now+defaultLifetime, c.pid, c.start); err != nil {
+			now+lifetime, c.key.Family, c.key.ID, c.revision, now, now+lifetime, c.pid, c.start); err != nil {
 			return tx.fail(err)
 		}
 	}

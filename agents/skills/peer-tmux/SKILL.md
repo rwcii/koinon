@@ -152,7 +152,7 @@ merely from a high context reading.
    proves that the native key stayed the same. The peer follows its installed guidance
    (`koinon guide --agent FAMILY`) and uses its configured MCP tools for the current session.
    Compare participant address and role with the handoff and inspect the reported succession:
-   the same host PID/start after the 30-second tool-call guard, or the same verified tmux
+   the same host PID/start after the tool-call guard (30 seconds by default), or the same verified tmux
    server/pane after the former host ends, can replace the holder. The runtime retires and
    fences the predecessor; the terminal operator does not retire it or move an alias.
    `holder_active` retries at the next native tool call after the daemon wait, never on a

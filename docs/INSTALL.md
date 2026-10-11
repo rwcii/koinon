@@ -105,7 +105,7 @@ daemon:
 - It keeps its participant address until it expires. A successor that a launcher starts reports
   `succession: refused` with `no_host`, because no v0.1.0 session has a host record. When the
   old session expires, the successor takes the address at its next registration or renewal.
-  `koinon mcp` renews every 5 minutes. The maintainer's **Make holder** choice in the dashboard
+  `koinon mcp` renews at the renewal interval, 5 minutes by default. The maintainer's **Make holder** choice in the dashboard
   gives the address at once, but it is not necessary.
 - A Codex session that ran under Codex's shared app-server can leave its `koinon mcp` server
   running after the Codex terminal exits. The daemon refuses its renewals, and the session
@@ -323,12 +323,14 @@ acknowledgements, memory cursors and work claims keep their existing owners.
 
 Launched sessions record their host PID and process start value; MCP reports a tmux socket
 and pane only after verifying that the pane holds the host. A new native session in the same
-host can succeed after the 30-second tool-call guard, and a new host in the same pane can
+host can succeed after the tool-call guard (30 seconds by default), and a new host in the same pane can
 succeed once the former host is proven ended. `peers` reports `succession` with the evidence
 or refusal. A `holder_active` refusal retries at the next tool call after the daemon's wait;
 renewal and observation timers never trigger succession. A fenced old thread needs the
 maintainer's dashboard choice. Schema 13 adds host records and succession results without
 moving existing inboxes, cursors or claims; missing host records cannot prove succession.
+Schema 14 adds the session timing settings with their defaults; a binary from before schema
+14 refuses the upgraded database.
 
 Read `koinon guide --agent FAMILY` at startup and after a reset. Discover the exact recipient
 with `peers`, send only within the maintainer's authorization, read notices through `inbox`,

@@ -48,13 +48,13 @@ session of that participant. A peer message never changes a holder. A holder cha
 and persistently fences the former holder. Re-registration revives only its native peer;
 only the maintainer's Make holder choice lifts the fence.
 A launched successor can take the participant on its own native tool call: the same host
-PID and start value after 30 seconds without a holder tool call, or the same tmux socket/pane
+PID and start value after the guard (default 30 seconds) without a holder tool call, or the same tmux socket/pane
 once the former host is proven ended. Unknown evidence refuses succession. Read this session's
 succession result in peers: succeeded reports same_host or same_pane; refused reports no_host,
 host_running, other_pane, subagent, holder_active, fenced or other_participant.
 holder_active returns the daemon's remaining retry_after_ms; MCP retries at the first native
 tool call after that wait. Renewals and observation timers do not count as activity or retry.
-A daemon restart counts as activity for 30 seconds. Other refusals have no scheduled retry;
+A daemon restart counts as activity for one guard period. Other refusals have no scheduled retry;
 report them and tell the maintainer when a dashboard choice is needed. no_host against a
 predecessor without a host record (unlaunched, or registered before the upgrade) resolves
 when it expires: this session takes the address at its next registration or renewal. Make

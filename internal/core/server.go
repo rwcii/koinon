@@ -364,7 +364,7 @@ func (d *Daemon) handler() http.Handler {
 			failure(w, err)
 			return
 		}
-		respond(w, 200, map[string]any{"ok": true, "session": result})
+		respond(w, 200, map[string]any{"ok": true, "session": result, "renewal_seconds": d.store.Settings().RenewalSeconds})
 	})
 	for _, action := range []string{"renew", "retire"} {
 		mux.HandleFunc("POST /v1/sessions/"+action, func(w http.ResponseWriter, r *http.Request) {
@@ -378,7 +378,7 @@ func (d *Daemon) handler() http.Handler {
 				failure(w, err)
 				return
 			}
-			respond(w, 200, map[string]any{"ok": true, "session": result})
+			respond(w, 200, map[string]any{"ok": true, "session": result, "renewal_seconds": d.store.Settings().RenewalSeconds})
 		})
 	}
 	d.messageRoutes(mux)

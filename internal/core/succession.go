@@ -15,12 +15,13 @@ import (
 
 // Succession (participants sprint, chunk 04). A session S that registers through its own tool
 // call takes its participant from the active holder H only on evidence from the host records:
-// the same host process (ID and start time) with H idle for activeGuard, or the same tmux
+// the same host process (ID and start time) with H idle for the guard setting, or the same tmux
 // server and pane with H's host process ended. Anything else leaves H the holder and reports
 // the refusal; a refused succession never refuses the registration.
 
-// activeGuard is how long after the holder's last tool call same-host evidence is refused.
-const activeGuard = 30_000
+// guard is how long after the holder's last tool call same-host evidence is refused, in
+// milliseconds: the guard setting.
+func (s *Store) guard() int64 { return s.Settings().GuardSeconds * 1000 }
 
 // TmuxPane is the tmux server socket and pane that hold a session's host process, as
 // koinon mcp reports them.
@@ -61,7 +62,7 @@ type toolCalls struct {
 // ToolCall records a tool call of caller now. Only the routes of agent tools record one;
 // observation, wake, renewal and maintenance requests never do.
 func (s *Store) ToolCall(caller Key) {
-	now := s.now().UnixMilli()
+	now, guard := s.now().UnixMilli(), s.guard()
 	s.calls.mu.Lock()
 	defer s.calls.mu.Unlock()
 	if s.calls.at == nil {
@@ -69,7 +70,7 @@ func (s *Store) ToolCall(caller Key) {
 	}
 	if len(s.calls.at) >= 4096 {
 		for k, at := range s.calls.at {
-			if now-at >= activeGuard {
+			if now-at >= guard {
 				delete(s.calls.at, k)
 			}
 		}
@@ -78,14 +79,15 @@ func (s *Store) ToolCall(caller Key) {
 }
 
 // guardLeft is how long the guard still refuses same-host evidence against k: 0 when k
-// made no tool call in the last activeGuard, counting a daemon start as an unknown call.
+// made no tool call within the guard setting, counting a daemon start as an unknown call.
 func (s *Store) guardLeft(k Key, now int64) int64 {
+	guard := s.guard()
 	s.calls.mu.Lock()
 	defer s.calls.mu.Unlock()
 	left := int64(0)
 	for _, at := range []int64{s.calls.at[k], s.calls.since} {
-		if at != 0 && activeGuard-(now-at) > left {
-			left = activeGuard - (now - at)
+		if at != 0 && guard-(now-at) > left {
+			left = guard - (now - at)
 		}
 	}
 	return left
