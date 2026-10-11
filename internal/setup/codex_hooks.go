@@ -36,16 +36,32 @@ func codexHookGroup(binary string) json.RawMessage {
 	}}})
 }
 
-// koinonGroup reports whether a SessionStart group is one that setup wrote, for any binary.
+// koinonGroup reports whether a SessionStart group has exactly the form that setup writes,
+// for any absolute koinon binary: no matcher or other member, and one hook whose command is
+// a quoted absolute path followed by the hook command. A user's group never matches.
 func koinonGroup(group json.RawMessage) bool {
-	var g struct {
-		Hooks []struct {
-			Type    string `json:"type"`
-			Command string `json:"command"`
-		} `json:"hooks"`
+	members, ok := decodeMembers(group)
+	if !ok || len(members) != 1 || members[0].key != "hooks" {
+		return false
 	}
-	return json.Unmarshal(group, &g) == nil && len(g.Hooks) == 1 && g.Hooks[0].Type == "command" &&
-		strings.HasSuffix(g.Hooks[0].Command, codexHookCommand)
+	var hooks []json.RawMessage
+	if json.Unmarshal(members[0].value, &hooks) != nil || len(hooks) != 1 {
+		return false
+	}
+	var hook struct {
+		Type    string `json:"type"`
+		Command string `json:"command"`
+	}
+	fields, ok := decodeMembers(hooks[0])
+	if !ok || len(fields) != 3 || json.Unmarshal(hooks[0], &hook) != nil || hook.Type != "command" {
+		return false
+	}
+	binary, found := strings.CutSuffix(hook.Command, codexHookCommand)
+	if !found || len(binary) < 2 || binary[0] != '\'' || binary[len(binary)-1] != '\'' {
+		return false
+	}
+	path := strings.ReplaceAll(binary[1:len(binary)-1], `'"'"'`, "'")
+	return filepath.IsAbs(path) && sameJSON(group, codexHookGroup(path))
 }
 
 // editCodexHooks rewrites the SessionStart groups of a Codex hooks file with edit, and keeps
@@ -122,17 +138,26 @@ func codexHook(o Options, report *Report) error {
 	path := filepath.Join(root, "hooks.json")
 	want := codexHookGroup(o.Binary)
 	changed, err := editCodexHooks(path, true, func(groups []json.RawMessage) ([]json.RawMessage, bool) {
-		for i, g := range groups {
-			if sameJSON(g, want) {
-				return groups, false
+		// The result has exactly one Koinon group, for this binary, at the place of the first
+		// Koinon group; groups for other binaries and copies are dropped.
+		result, at, current := []json.RawMessage{}, -1, 0
+		for _, g := range groups {
+			if !koinonGroup(g) {
+				result = append(result, g)
+				continue
 			}
-			if koinonGroup(g) {
-				// A group that runs another koinon binary is replaced.
-				groups[i] = want
-				return groups, true
+			if sameJSON(g, want) {
+				current++
+			}
+			if at < 0 {
+				at = len(result)
+				result = append(result, want)
 			}
 		}
-		return append(groups, want), true
+		if at < 0 {
+			return append(result, want), true
+		}
+		return result, len(result) != len(groups) || current != 1
 	})
 	if err != nil {
 		return fmt.Errorf("codex hooks: %w", err)
@@ -155,12 +180,14 @@ func removeCodexHook(o Options, report *Report) error {
 	path := filepath.Join(root, "hooks.json")
 	want := codexHookGroup(o.Binary)
 	changed, err := editCodexHooks(path, false, func(groups []json.RawMessage) ([]json.RawMessage, bool) {
-		for i, g := range groups {
-			if sameJSON(g, want) {
-				return append(groups[:i:i], groups[i+1:]...), true
+		// Every copy of this binary's group goes; other groups stay.
+		result := []json.RawMessage{}
+		for _, g := range groups {
+			if !sameJSON(g, want) {
+				result = append(result, g)
 			}
 		}
-		return groups, false
+		return result, len(result) != len(groups)
 	})
 	if err != nil {
 		return fmt.Errorf("codex hooks: %w", err)

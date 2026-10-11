@@ -96,6 +96,61 @@ func TestCodexHookMergePreservesConfiguration(t *testing.T) {
 	}
 }
 
+// TestCodexHookOwnership: only a group in exactly the form that setup writes counts as
+// Koinon's. A user's group that ends with the same words, or that adds a matcher, is kept.
+// Old-binary groups and copies become one group for this binary; removal takes out every
+// copy for this binary and nothing else.
+func TestCodexHookOwnership(t *testing.T) {
+	cli, _, _ := syntheticCLI(t, "codex")
+	root := t.TempDir()
+	path := filepath.Join(root, "hooks.json")
+	user := `{"hooks":[{"type":"command","command":"printf 'hello' hook codex-session-start"}]}`
+	matched := `{"matcher":"clear","hooks":[{"type":"command","command":"'/old/koinon' hook codex-session-start","timeout":10}]}`
+	old := `{"hooks":[{"type":"command","command":"'/old/koinon' hook codex-session-start","timeout":10}]}`
+	current := `{"hooks":[{"type":"command","command":"'/opt/koinon/koinon' hook codex-session-start","timeout":10}]}`
+	os.WriteFile(path, []byte(`{"hooks":{"SessionStart":[`+user+`,`+old+`,`+matched+`,`+current+`,`+current+`]}}`), 0600)
+	o := Options{Family: "codex", CLI: cli, Binary: "/opt/koinon/koinon", CodexHome: root}
+	groups := func() []json.RawMessage {
+		t.Helper()
+		data, _ := os.ReadFile(path)
+		var config struct{ Hooks map[string][]json.RawMessage }
+		if err := json.Unmarshal(data, &config); err != nil {
+			t.Fatalf("%s: %v", data, err)
+		}
+		return config.Hooks["SessionStart"]
+	}
+	want := func(got []json.RawMessage, expected ...string) {
+		t.Helper()
+		if len(got) != len(expected) {
+			t.Fatalf("groups: %s", got)
+		}
+		for i := range got {
+			if !sameJSON(got[i], []byte(expected[i])) {
+				t.Fatalf("group %d: %s, want %s", i, got[i], expected[i])
+			}
+		}
+	}
+	if _, err := Run(context.Background(), o); err != nil {
+		t.Fatal(err)
+	}
+	want(groups(), user, current, matched)
+	if again, err := Run(context.Background(), o); err != nil || len(again.Changed) != 0 {
+		t.Fatalf("repeat: %+v %v", again, err)
+	}
+	// A quote in the binary's path is kept as setup quotes it.
+	o.Binary = "/opt/it's/koinon"
+	if _, err := Run(context.Background(), o); err != nil {
+		t.Fatal(err)
+	}
+	quoted := `{"hooks":[{"type":"command","command":"'/opt/it'\"'\"'s/koinon' hook codex-session-start","timeout":10}]}`
+	want(groups(), user, quoted, matched)
+	os.WriteFile(path, []byte(`{"hooks":{"SessionStart":[`+quoted+`,`+user+`,`+quoted+`]}}`), 0600)
+	if _, err := Remove(context.Background(), o); err != nil {
+		t.Fatal(err)
+	}
+	want(groups(), user)
+}
+
 // clearFixture is a daemon with a Git repository and a cleared Codex thread that holds the
 // repository's participant. This test process stands in for the Codex host: it is the
 // launch's host process and the parent of a hook that the test runs.

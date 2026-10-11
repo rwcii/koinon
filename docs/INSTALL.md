@@ -296,8 +296,9 @@ its Koinon tool calls return `not_launched` with the required launcher command. 
 keeps its command registration without a launch record.
 
 `koinon setup codex` also adds a SessionStart hook, `'BINARY' hook codex-session-start`, to
-`$CODEX_HOME/hooks.json` (default `~/.codex/hooks.json`). It keeps every other hook and
-replaces only a Koinon hook that runs another binary. Codex runs a new or changed hook only
+`$CODEX_HOME/hooks.json` (default `~/.codex/hooks.json`). It keeps every other hook. A group
+counts as Koinon's only in exactly the form setup writes; setup leaves one such group, for
+this binary, in place of the first, and removal takes out every copy for this binary. Codex runs a new or changed hook only
 after you trust it: at its next start it shows "Hooks need review"; choose to trust the
 Koinon hook. Without it, a participant moves to the thread that `/clear` started only at that
 thread's first Koinon tool call, not at its first turn. Run `koinon setup codex` again after
