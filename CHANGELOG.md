@@ -5,6 +5,11 @@ into a dated release section when promoted to `main`.
 
 ## Unreleased
 
+- `koinon upgrade --from-python` continues when a Python session that crashed or was killed
+  left its control sockets. Under the sessions' writer locks it removes each such socket that
+  refuses a connection and that the kernel's socket table shows without an owner, before the
+  Python `uninstall.py` runs, and it lists them in `cleared_endpoints`. Before, `uninstall.py` stopped with `session stop is unconfirmed` (#278).
+
 - MCP tool and command refusals now carry the rule that refused the call, such as
   `renew_for is 60 to 3600 seconds` or `missing argument work_id`, instead of a bare
   `invalid_request` or `invalid_arguments`. The work tool schemas state the lease bounds and

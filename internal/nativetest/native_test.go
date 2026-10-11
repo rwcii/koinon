@@ -17,6 +17,7 @@ import (
 	"fmt"
 	"io"
 	"io/fs"
+	"net"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -441,9 +442,41 @@ func TestUpgradeFromMain(t *testing.T) {
 	if _, err := koinon(t, append(append([]string{}, good...), "--python", "/usr/bin/false")...); err == nil || !strings.Contains(err.Error(), "resume") {
 		t.Fatalf("interrupted upgrade: %v", err)
 	}
+	// Crashed sessions left their control sockets, where the main release's own path
+	// rule puts them; nothing listens on them, and uninstall.py takes each one for a
+	// running session.
+	var roots []string
+	entries, _ := os.ReadDir(filepath.Join(fixture, "state", "sessions"))
+	for _, e := range entries {
+		home := filepath.Join(p.state, "sessions", e.Name())
+		roots = append(roots, home, filepath.Join(home, "notifier"))
+	}
+	paths := p.must(append([]string{"-c", "import sys\nsys.path.insert(0, sys.argv[1])\nfrom koinon import platform_support\n" +
+		"for root in sys.argv[2:]: print(platform_support.control_socket_path(root))", p.prefix}, roots...)...)
+	sockets := strings.Split(strings.TrimSpace(paths), "\n")
+	if len(sockets) != 4 {
+		t.Fatalf("control socket paths %q", paths)
+	}
+	for _, path := range sockets {
+		os.MkdirAll(filepath.Dir(path), 0700)
+		l, err := net.ListenUnix("unix", &net.UnixAddr{Name: path, Net: "unix"})
+		if err != nil {
+			t.Fatal(err)
+		}
+		l.SetUnlinkOnClose(false)
+		l.Close()
+	}
 	result := must(t, good...)
 	if result["phase"] != "complete" {
 		t.Fatalf("resumed upgrade %v", result)
+	}
+	if cleared, _ := result["cleared_endpoints"].([]any); len(cleared) != len(sockets) {
+		t.Fatalf("cleared %v, planted %v", cleared, sockets)
+	}
+	for _, path := range sockets {
+		if _, err := os.Lstat(path); !errors.Is(err, fs.ErrNotExist) {
+			t.Fatalf("dead socket %s remains: %v", path, err)
+		}
 	}
 	if _, err := os.Stat(filepath.Join(p.prefix, "install.json")); !os.IsNotExist(err) {
 		t.Fatalf("the Python installation remains: %v", err)
