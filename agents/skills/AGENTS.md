@@ -7,6 +7,7 @@ the same files through a symlink from its own skill path:
 | --- | --- | --- |
 | Claude Code | `.claude/skills` | `../agents/skills` |
 | Codex | `.agents/skills` (repository discovery) and `.codex/skills` | `../agents/skills` |
+| OpenCode | `.claude/skills` discovery; generated `.opencode/commands` wrappers | Canonical `agents/skills` |
 
 Edit skills here only. Never replace a symlink with a copy, and never add an agent-specific
 skill directory elsewhere in the repository; divergent copies are the failure this layout
@@ -25,7 +26,10 @@ prevents.
   `AGENTS.md`, so each `SKILL.md` names `agents/skills/AGENTS.md` in its opening lines.
 - Keep repository rules in the repository's root `AGENTS.md`; a skill points to them rather
   than restating them.
-- Add every new skill to `README.md` in this directory in the same change.
+- Add every new skill to `README.md` in this directory in the same change. Run
+  `go run ./scripts/skill-commands` after changing skill metadata or adding, renaming or
+  retiring a skill, and commit the generated OpenCode wrappers. The contributor check
+  runs `go run ./scripts/skill-commands --check` to catch drift.
 
 ## Content that must stay out
 

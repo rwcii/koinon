@@ -8,6 +8,8 @@ into a dated release section when promoted to `main`.
 - Document scoped native permissions for every supported agent family in the installed guide
   and a shared reference, with named syntax checks, trust boundaries and verification limits.
 
+- Generate OpenCode skill commands from the shared skills and check for stale wrappers in CI.
+
 - Koinon now sees when a woken agent does not handle a message. Reading the inbox stops the
   notices for the messages read. A message that is neither read nor acknowledged gets a new
   notice after 2, 4, 8 and 16 minutes; after four notices it becomes `failed` and the
