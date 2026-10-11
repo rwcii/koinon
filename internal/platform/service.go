@@ -191,9 +191,14 @@ func (s Services) WriteDaemon(binary, state string) (bool, error) {
 		return false, fmt.Errorf("service_artifact_unowned: %s exists without the Koinon marker", path)
 	}
 	if s.Backend == "launchd" {
-		// launchd opens the log as the user and does not create its directory.
-		if err := os.MkdirAll(filepath.Dir(s.DaemonLog()), 0700); err != nil {
+		// launchd opens the log as the user and does not create its directory. An existing
+		// directory must already be private; it is refused, never changed.
+		dir := filepath.Dir(s.DaemonLog())
+		if err := os.MkdirAll(dir, 0700); err != nil {
 			return false, err
+		}
+		if info, err := os.Lstat(dir); err != nil || owned(info, true) != nil {
+			return false, fmt.Errorf("service_log_unsafe: %s must be a directory owned by this user with mode 0700", dir)
 		}
 	}
 	want := s.RenderDaemon(binary, state)

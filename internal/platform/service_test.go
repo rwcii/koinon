@@ -219,3 +219,34 @@ func TestServiceLockWaitAndLog(t *testing.T) {
 		t.Fatalf("log directory: %v %v", info, err)
 	}
 }
+
+// An existing log directory that is not private is refused and left unchanged (#283).
+func TestServiceRefusesUnsafeLogDirectory(t *testing.T) {
+	l, _ := managerFake(t, "launchd", "")
+	dir := filepath.Dir(l.DaemonLog())
+	if err := os.MkdirAll(dir, 0700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chmod(dir, 0755); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := l.WriteDaemon("/opt/koinon", "/state"); err == nil || !strings.HasPrefix(err.Error(), "service_log_unsafe: ") {
+		t.Fatalf("unsafe log directory: %v", err)
+	}
+	if info, err := os.Stat(dir); err != nil || info.Mode().Perm() != 0755 {
+		t.Fatalf("log directory changed: %v %v", info, err)
+	}
+	if _, err := os.Stat(l.DaemonArtifact()); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("artifact written: %v", err)
+	}
+	// A symlink to a private directory is refused too.
+	if err := os.Remove(dir); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(t.TempDir(), dir); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := l.WriteDaemon("/opt/koinon", "/state"); err == nil || !strings.HasPrefix(err.Error(), "service_log_unsafe: ") {
+		t.Fatalf("symlinked log directory: %v", err)
+	}
+}

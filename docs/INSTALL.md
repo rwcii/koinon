@@ -411,8 +411,9 @@ The daemon writes one JSON line to standard error for each lifecycle event: `sta
 state directory, listeners), `stop` with its `reason` (`signal` and its name, `canceled`,
 `error` with a fixed code, or `lock_held`), `lock_wait` and `lock_acquired`. The lines hold no
 secret, message body or session ID. On macOS the launchd agent writes them to
-`~/Library/Logs/koinon/daemon.log` (directory mode 0700); on Linux they are in the user journal
-(`journalctl --user -u koinon`). Read them to find when and why a daemon stopped. `koinon
+`~/Library/Logs/koinon/daemon.log` (directory mode 0700). Installation refuses an existing log
+directory that is not private to this user (`service_log_unsafe`) and does not change it. On
+Linux the lines are in the user journal (`journalctl --user -u koinon`). Read them to find when and why a daemon stopped. `koinon
 status` reports the daemon's `pid`.
 
 Only one daemon holds the daemon lock. The service starts the daemon with `--lock-wait 60s`: a

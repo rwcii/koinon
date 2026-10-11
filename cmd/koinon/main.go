@@ -182,6 +182,7 @@ func serve(ctx context.Context, state string, listen []string, lockWait time.Dur
 	}
 	logEvent("start", map[string]any{"version": version, "commit": commit, "state_dir": state, "listeners": d.Addresses()})
 	if err := json.NewEncoder(out).Encode(map[string]any{"ok": true, "daemon": "running", "listeners": d.Addresses()}); err != nil {
+		logEvent("stop", map[string]any{"reason": "error", "code": "report_failed"})
 		return err
 	}
 	select {

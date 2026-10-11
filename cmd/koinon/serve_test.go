@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -129,5 +130,25 @@ func TestServeLifecycleLogAndLockWait(t *testing.T) {
 	}
 	if strings.Contains(log.buf.String(), strings.TrimSpace(string(secret))) {
 		t.Fatal("the log holds the secret")
+	}
+}
+
+type failingWriter struct{}
+
+func (failingWriter) Write([]byte) (int, error) { return 0, errors.New("synthetic write failure") }
+
+// A daemon that cannot write its running report logs a stop with a fixed code (#283).
+func TestServeReportFailureLogsStop(t *testing.T) {
+	log := &lockedBuffer{}
+	daemonLog = log
+	defer func() { daemonLog = os.Stderr }()
+	root := filepath.Join(t.TempDir(), "state")
+	if err := run(context.Background(), serveArgs(root), nil, failingWriter{}); err == nil {
+		t.Fatal("the report failure was not returned")
+	}
+	events := log.events()
+	if len(events) != 2 || events[0]["event"] != "start" || events[1]["event"] != "stop" ||
+		events[1]["reason"] != "error" || events[1]["code"] != "report_failed" {
+		t.Fatalf("events %v", events)
 	}
 }
