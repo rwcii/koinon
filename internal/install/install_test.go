@@ -6,6 +6,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"testing"
 
@@ -49,6 +50,9 @@ type env struct {
 	r        *recorder
 	setups   []string
 	removals []string
+	adopts   []string
+	// adopted lists the families whose fake earlier setup Adopt finds.
+	adopted map[string]bool
 }
 
 func newEnv(t *testing.T, backend string) *env {
@@ -72,6 +76,10 @@ func newEnv(t *testing.T, backend string) *env {
 		Setup: func(_ context.Context, o setup.Options) (setup.Report, error) {
 			e.setups = append(e.setups, o.Family+" "+o.Binary)
 			return setup.Report{OK: true, Family: o.Family}, nil
+		},
+		Adopt: func(_ context.Context, o setup.Options) (setup.Report, bool, error) {
+			e.adopts = append(e.adopts, o.Family+" "+o.Binary+" "+o.StateDir)
+			return setup.Report{OK: true, Family: o.Family, Changed: []string{o.Family + " CLI in launchers.json"}}, e.adopted[o.Family], nil
 		},
 		Remove: func(_ context.Context, o setup.Options) (setup.Report, error) {
 			e.removals = append(e.removals, o.Family+" "+o.Binary)
@@ -314,5 +322,30 @@ func TestInstallReportsRelativePathEntries(t *testing.T) {
 	e.o.Path = linkDir + sep + "rel" + sep
 	if r, err = Install(ctx, e.o); err != nil || r.OnPath != filepath.Join(linkDir, "koinon") || r.PathStep != "" {
 		t.Fatalf("link first %+v %v", r, err)
+	}
+}
+
+// An install records the launcher CLI of each other family that an earlier setup configured,
+// and reports only those; the named families are set up as before (#273).
+func TestInstallAdoptsEarlierSetup(t *testing.T) {
+	e := newEnv(t, "systemd")
+	e.o.Agents = []string{"codex", "claude"}
+	e.adopted = map[string]bool{"agy": true}
+	r, err := Install(context.Background(), e.o)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !reflect.DeepEqual(e.adopts, []string{"agy " + r.Binary + " " + e.o.StateDir, "opencode " + r.Binary + " " + e.o.StateDir}) {
+		t.Fatalf("adopt calls %v", e.adopts)
+	}
+	if len(r.Agents) != 3 || r.Agents[2].Family != "agy" {
+		t.Fatalf("agents %+v", r.Agents)
+	}
+	e = newEnv(t, "launchd")
+	e.o.Adopt = func(context.Context, setup.Options) (setup.Report, bool, error) {
+		return setup.Report{}, false, errors.New("unsafe launcher configuration")
+	}
+	if _, err := Install(context.Background(), e.o); err == nil || err.Error() != "record claude launcher: unsafe launcher configuration" {
+		t.Fatalf("adopt failure: %v", err)
 	}
 }

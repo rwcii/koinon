@@ -64,6 +64,12 @@ chmod +x koinon-linux-amd64 && ./koinon-linux-amd64 version
    marker is refused (`service_artifact_unowned`), never replaced.
 4. It waits until the daemon answers `status`.
 5. It runs `koinon setup` for each `--agent`, with the installed path.
+6. For each other launcher family (`claude`, `codex`, `agy`, `opencode`) without a usable
+   `launchers.json` entry, it reads the family's MCP configuration through the CLI on `PATH`.
+   When the enabled `koinon` server runs exactly the installed binary, as an earlier setup left
+   it, the install records that CLI in `launchers.json` and lists the family under `agents`.
+   It changes nothing in the agent's configuration. A family without such an entry or CLI is
+   left out; set it up with `koinon setup FAMILY`.
 
 When no user service manager answers, the report says `"service": "manual_required"` and gives
 the `start_command` to run in a managed session. Koinon never uses sudo, system services,
@@ -286,9 +292,11 @@ must be owned by that user, be a regular file with one link, have mode 0600 and 
 Setup preserves other families' entries, uses a private `launchers.lock` for concurrent
 updates and replaces the JSON atomically. Repeat setup with the same path leaves it unchanged.
 
-An install or upgrade records the CLI only for each `--agent` family. A launcher for another
-family without an entry refuses with `no FAMILY CLI is configured in launchers.json` and names
-`koinon setup FAMILY` or `--cli ABS_PATH`; see [USAGE.md](USAGE.md#launcher-paths-in-launchersjson).
+An install or upgrade runs setup for each `--agent` family. For another family it records the
+CLI only when an earlier setup configured that family for the installed binary (step 6 of
+the install). A launcher for a family without an entry refuses with `no FAMILY CLI is
+configured in launchers.json` and names `koinon setup FAMILY` or `--cli ABS_PATH`; see
+[USAGE.md](USAGE.md#launcher-paths-in-launchersjson).
 
 To change a recorded path, rerun the authorized setup operation with
 `koinon setup codex --cli /absolute/path/to/codex` (or the other family). Setup resolves

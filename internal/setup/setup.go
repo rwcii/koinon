@@ -99,33 +99,19 @@ func Run(ctx context.Context, o Options) (Report, error) {
 		return report, errors.New("the agent CLI path must be absolute")
 	}
 	report.CLI = cli
-	run := func(args ...string) (string, error) {
-		ctx, cancel := context.WithTimeout(ctx, 60*time.Second)
-		defer cancel()
-		var out bytes.Buffer
-		cmd := exec.CommandContext(ctx, cli, args...)
-		cmd.Stdout, cmd.Stderr = &out, &out
-		cmd.Stdin = nil
-		err := cmd.Run()
-		return out.String(), err
-	}
+	run := func(args ...string) (string, error) { return runCLI(ctx, cli, args...) }
 	// Each family's command to read the entry, and to add it. A present entry that
 	// already runs this binary's `mcp` command is left alone.
-	var get, add, remove []string
+	get := getCommand(o.Family)
+	var add, remove []string
 	switch o.Family {
 	case "claude":
-		get = []string{"mcp", "get", serverName}
 		remove = []string{"mcp", "remove", serverName}
 		add = []string{"mcp", "add", "--scope", "user", serverName, "--", o.Binary, "mcp"}
 	case "codex":
-		get = []string{"mcp", "get", serverName, "--json"}
 		remove = []string{"mcp", "remove", serverName}
 		add = []string{"mcp", "add", serverName, "--", o.Binary, "mcp"}
-	case "agy":
-		get = []string{"mcp", "list"}
-		add = []string{"mcp", "add", serverName, "--", o.Binary, "mcp"}
-	case "opencode":
-		get = []string{"mcp", "list"}
+	case "agy", "opencode":
 		add = []string{"mcp", "add", serverName, "--", o.Binary, "mcp"}
 	}
 	current, getErr := run(get...)
@@ -170,6 +156,64 @@ func Run(ctx context.Context, o Options) (Report, error) {
 		}
 	}
 	return report, err
+}
+
+// getCommand is each family's command that prints its koinon MCP entry.
+func getCommand(family string) []string {
+	switch family {
+	case "claude":
+		return []string{"mcp", "get", serverName}
+	case "codex":
+		return []string{"mcp", "get", serverName, "--json"}
+	}
+	return []string{"mcp", "list"}
+}
+
+// runCLI runs the agent CLI without input and returns its combined output.
+func runCLI(ctx context.Context, cli string, args ...string) (string, error) {
+	ctx, cancel := context.WithTimeout(ctx, 60*time.Second)
+	defer cancel()
+	var out bytes.Buffer
+	cmd := exec.CommandContext(ctx, cli, args...)
+	cmd.Stdout, cmd.Stderr = &out, &out
+	cmd.Stdin = nil
+	err := cmd.Run()
+	return out.String(), err
+}
+
+// Adopt records the launcher CLI of a family that an earlier setup configured, when
+// launchers.json holds no usable entry for it: the CLI on PATH (or o.CLI) must show the
+// enabled koinon server running exactly this binary. It only reads the agent's
+// configuration and changes nothing there. It reports false and changes nothing when the
+// family has a usable entry, has no such CLI or has no such server.
+func Adopt(ctx context.Context, o Options) (Report, bool, error) {
+	report := Report{OK: true, Family: o.Family, Changed: []string{}, Unchanged: []string{}}
+	if !launcher.Families[o.Family] || !filepath.IsAbs(o.Binary) {
+		return report, false, errors.New("adopt needs a launcher family and an absolute koinon binary")
+	}
+	if _, err := launcher.ConfiguredCLI(o.StateDir, o.Family, ""); err == nil {
+		return report, false, nil
+	}
+	cli := o.CLI
+	if cli == "" {
+		var err error
+		if cli, err = exec.LookPath(o.Family); err != nil {
+			return report, false, nil
+		}
+	}
+	if !filepath.IsAbs(cli) {
+		return report, false, nil
+	}
+	if current, err := runCLI(ctx, cli, getCommand(o.Family)...); err != nil || !configured(o.Family, current, o.Binary) {
+		return report, false, nil
+	}
+	if _, err := launcher.RecordCLI(ctx, o.StateDir, o.Family, cli); err != nil {
+		return report, false, fmt.Errorf("record launcher CLI: %w", err)
+	}
+	report.CLI = cli
+	report.Changed = append(report.Changed, o.Family+" CLI in launchers.json")
+	report.Note = "An earlier setup configured this family; its CLI was recorded for the launcher, and its configuration was not changed."
+	return report, true, nil
 }
 
 var (
