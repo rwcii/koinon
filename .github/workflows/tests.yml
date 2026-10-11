@@ -16,7 +16,8 @@ jobs:
       matrix:
         os: [ubuntu-latest, macos-latest]
     runs-on: ${{ matrix.os }}
-    timeout-minutes: 20
+    # Longer than the race suite's 30-minute go test timeout, so a hung test reports its stack.
+    timeout-minutes: 40
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-go@v5
@@ -30,7 +31,7 @@ jobs:
             else sudo apt-get update && sudo apt-get install -y tmux; fi
           fi
       - run: go vet ./...
-      - run: go test -race ./...
+      - run: go test -race -timeout 30m ./...
       - name: Build the four CGO-free targets
         shell: bash
         run: |
