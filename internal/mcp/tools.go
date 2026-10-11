@@ -266,6 +266,16 @@ func refusal(caller core.Key, err error) map[string]any {
 	return failure(code(err))
 }
 
+// final reports whether a renewal refusal ends the registration: the session expired,
+// retired or changed (session_conflict), is unknown, has no launch, or is refused as a caller.
+func final(err error) bool {
+	switch code(err) {
+	case "session_conflict", "session_not_found", "not_launched", "caller_inactive", "stale_holder", "invalid_request":
+		return true
+	}
+	return false
+}
+
 func code(err error) string {
 	var refused core.RefusedError
 	switch {
@@ -396,8 +406,12 @@ func (s *server) renew(ctx context.Context) {
 	}
 	s.mu.Lock()
 	if err != nil || json.Unmarshal(data, &reply) != nil {
-		// Expired, retired or unreachable: the next tool call registers again.
-		delete(s.sessions, caller)
+		// A refusal that ends this registration stops renewal; the next tool call registers
+		// again. An unreachable daemon, blocked storage or a timeout is tried again at the
+		// next interval, so an idle session is not lost to one failure (#249).
+		if final(err) {
+			delete(s.sessions, caller)
+		}
 		s.mu.Unlock()
 		return
 	}

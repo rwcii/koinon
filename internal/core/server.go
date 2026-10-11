@@ -195,6 +195,12 @@ func failure(w http.ResponseWriter, err error) {
 		respond(w, status, body)
 		return
 	}
+	var inactive InactiveRecipient
+	if errors.As(err, &inactive) {
+		respond(w, http.StatusConflict, map[string]any{"ok": false, "code": "recipient_inactive",
+			"error": "the recipient session is expired or retired", "details": map[string]string{"reason": inactive.Reason}})
+		return
+	}
 	var refusal Refusal
 	if errors.As(err, &refusal) {
 		status := http.StatusConflict

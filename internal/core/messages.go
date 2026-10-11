@@ -223,7 +223,11 @@ func (s *Store) sendTx(ctx context.Context, tx *writeTx, caller Key, to, body st
 	err = tx.QueryRowContext(ctx, `UPDATE sessions SET last_seq=last_seq+1 WHERE family=? AND id=?
 		AND retired_at=0 AND expires_at>? RETURNING last_seq`, family, sessionID, now).Scan(&seq)
 	if errors.Is(err, sql.ErrNoRows) {
-		return Outcome{}, ErrRecipientInactive
+		reason, err := s.inactiveReason(ctx, tx, family, sessionID)
+		if err != nil {
+			return Outcome{}, err
+		}
+		return Outcome{}, InactiveRecipient{reason}
 	}
 	if err != nil {
 		return Outcome{}, err
