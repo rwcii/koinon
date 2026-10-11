@@ -286,6 +286,10 @@ must be owned by that user, be a regular file with one link, have mode 0600 and 
 Setup preserves other families' entries, uses a private `launchers.lock` for concurrent
 updates and replaces the JSON atomically. Repeat setup with the same path leaves it unchanged.
 
+An install or upgrade records the CLI only for each `--agent` family. A launcher for another
+family without an entry refuses with `no FAMILY CLI is configured in launchers.json` and names
+`koinon setup FAMILY` or `--cli ABS_PATH`; see [USAGE.md](USAGE.md#launcher-paths-in-launchersjson).
+
 To change a recorded path, rerun the authorized setup operation with
 `koinon setup codex --cli /absolute/path/to/codex` (or the other family). Setup resolves
 `PATH` only when selecting a CLI; launchers use the recorded absolute path and never search

@@ -21,7 +21,7 @@ func TestStartDaemon(t *testing.T) {
 		}
 	}
 	for _, value := range []string{"/s/a b", "/s/it's", `/s/"q"$HOME`, "/s/*", "[::1]:5000", "/s/plain", ""} {
-		out, err := exec.Command("sh", "-c", `printf '%s\n' `+shellWord(value)).Output()
+		out, err := exec.Command("sh", "-c", `printf '%s\n' `+ShellWord(value)).Output()
 		if err != nil || strings.TrimSuffix(string(out), "\n") != value {
 			t.Errorf("%q came back as %q: %v", value, out, err)
 		}

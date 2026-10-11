@@ -5,6 +5,10 @@ into a dated release section when promoted to `main`.
 
 ## Unreleased
 
+- A launcher for a family without a `launchers.json` entry reports that no CLI is configured
+  for the family, and an empty entry reports that it is empty, instead of `configured CLI path
+  must be absolute`. Both name `koinon setup FAMILY` and `--cli ABS_PATH` (#272).
+
 - When no daemon has started with the state directory, launchers and command clients report
   that and name how to start one with that state directory and address (`koinon install` from
   a login session, or `koinon serve`), instead of `cannot read private daemon secret`. A

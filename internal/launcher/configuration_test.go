@@ -144,3 +144,39 @@ func TestRecordedPathLaunchAndOverride(t *testing.T) {
 	}
 	checkReport(t, readReport(t, result), "codex", directory)
 }
+
+// A family without a recorded CLI, an empty entry and a relative entry each name their own
+// cause; the first two name setup for this state directory and --cli (#272).
+func TestMissingCLIEntry(t *testing.T) {
+	state := filepath.Join(t.TempDir(), "custom state")
+	remedy := "; run koinon setup agy --state-dir '" + state + "' to record it, or start with --cli ABS_PATH"
+	if _, err := ConfiguredCLI(state, "agy", ""); err == nil || err.Error() != "no agy CLI is configured in launchers.json"+remedy {
+		t.Fatalf("no file: %v", err)
+	}
+	if _, err := platform.PrivateDir(state); err != nil {
+		t.Fatal(err)
+	}
+	data, _ := json.Marshal(map[string]string{"codex": testExecutable(t, "codex"), "agy": "", "opencode": "bin/opencode"})
+	if err := os.WriteFile(filepath.Join(state, "launchers.json"), data, 0600); err != nil {
+		t.Fatal(err)
+	}
+	for family, want := range map[string]string{
+		"claude":   "no claude CLI is configured in launchers.json; run koinon setup claude --state-dir '" + state + "' to record it, or start with --cli ABS_PATH",
+		"agy":      "the agy CLI entry in launchers.json is empty" + remedy,
+		"opencode": "configured CLI path must be absolute",
+	} {
+		if _, err := ConfiguredCLI(state, family, ""); err == nil || err.Error() != want {
+			t.Errorf("%s: %v", family, err)
+		}
+	}
+	// The default state directory needs no --state-dir in the setup command.
+	t.Setenv("XDG_STATE_HOME", t.TempDir())
+	standard, err := platform.DefaultStateDir()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := ConfiguredCLI(standard, "agy", ""); err == nil ||
+		err.Error() != "no agy CLI is configured in launchers.json; run koinon setup agy to record it, or start with --cli ABS_PATH" {
+		t.Fatalf("default state: %v", err)
+	}
+}
