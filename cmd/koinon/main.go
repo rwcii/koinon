@@ -144,6 +144,7 @@ const usage = `Usage: koinon install [--prefix DIR] [--state-dir DIR] [--agent F
        koinon setup claude --remove-status-line [--claude-config DIR] [--state-dir DIR]
        koinon guide --agent <claude|codex|agy|opencode|deepseek>
        koinon hook agy-stop
+       koinon hook codex-session-start
        koinon hook claude-status [--command COMMAND]
        koinon memory <status|sync|ack|record|recall> --as FAMILY:ID [--consumer KEY] [options]
        koinon work <create|list> --as FAMILY:ID [--consumer KEY] [options]
@@ -367,8 +368,12 @@ func agentCommand(ctx context.Context, args []string, in io.Reader, out io.Write
 	flags.SetOutput(io.Discard)
 	switch args[0] {
 	case "hook":
+		if len(args) == 2 && args[1] == "codex-session-start" {
+			setup.CodexSessionStart(in, setup.HookEnv{Getenv: os.Getenv, Now: time.Now, Parents: platform.ProcessParents})
+			return nil
+		}
 		if len(args) != 2 || args[1] != "agy-stop" {
-			return errors.New("unknown hook; use koinon hook agy-stop or koinon hook claude-status")
+			return errors.New("unknown hook; use koinon hook agy-stop, codex-session-start or claude-status")
 		}
 		return setup.AgyStop(in, out, setup.HookEnv{Getenv: os.Getenv, Now: time.Now})
 	case "guide":

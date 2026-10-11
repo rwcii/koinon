@@ -194,6 +194,11 @@ func TestAgentCommands(t *testing.T) {
 		t.Fatalf("hook: %v %q", err, out.String())
 	}
 	out.Reset()
+	// The Codex SessionStart hook writes nothing.
+	if err := run(context.Background(), []string{"hook", "codex-session-start"}, strings.NewReader(`{"session_id":"synthetic","cwd":"/","source":"clear"}`), &out); err != nil || out.Len() != 0 {
+		t.Fatalf("codex hook: %v %q", err, out.String())
+	}
+	out.Reset()
 	if err := run(context.Background(), []string{"setup", "deepseek"}, nil, &out); err != nil || !strings.Contains(out.String(), `"changed":[]`) {
 		t.Fatalf("setup: %v %s", err, out.String())
 	}

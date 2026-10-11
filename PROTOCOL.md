@@ -176,7 +176,8 @@ The daemon reads the host start through `internal/platform.ProcessStart`: Linux 
 process; an inspection error proves nothing. The host is the launch's process, or the Claude
 background job's process reported by its MCP server.
 
-Registration accepts `tool_call` (default false) and optional `tmux: {socket, pane}`.
+Registration accepts `tool_call` (default false), `clear` (default false) and optional
+`tmux: {socket, pane}`.
 The socket is an absolute clean path without control characters, at most 4,096 bytes; the
 pane matches `%` followed by 1–9 digits. Invalid values return `invalid_request`.
 `koinon mcp` sets `tool_call` for registrations triggered by native tool calls and reports a
@@ -192,10 +193,19 @@ routes, including reads, using its own clock; observation, renewal, wake and mai
 requests do not count. Stamps are kept in memory; a daemon restart conservatively counts as
 a call for the first guard period. The guard reads the stamp in the registration transaction.
 
+`clear` is accepted only for Codex and only with `tool_call`; otherwise registration returns
+`invalid_request`. `koinon hook codex-session-start` sets it. Codex runs that SessionStart
+hook as a child of its host process at the first turn of the thread that `/clear` started,
+with `source: "clear"`; the hook registers that thread through its own launch and ancestors,
+writes nothing and always exits 0. A `clear` registration with the holder's host PID and
+start value succeeds at once with `host_cleared`, also within the guard: the host itself no
+longer shows the holder. Every other rule applies unchanged. Codex runs no hook at `/clear`
+itself, so until the new thread's first turn the cleared thread stays the holder (#275).
+
 The session and `peers` expose `succession: {result, reason, address, holder, at,
 retry_after_ms}` when present; `at` is daemon Unix milliseconds and `holder` is the former or
-retained holder's peer name. Success reports `result: succeeded` with `same_host` or
-`same_pane`. Refusal reports `result: refused` with `no_host`, `host_running`, `other_pane`,
+retained holder's peer name. Success reports `result: succeeded` with `same_host`,
+`host_cleared` or `same_pane`. Refusal reports `result: refused` with `no_host`, `host_running`, `other_pane`,
 `subagent`, `holder_active`, `fenced` or `other_participant`. `no_host` covers missing host
 records; `host_running` includes a former host that cannot be proven ended; `other_pane`
 includes missing pane evidence. A refused succession still registers the native peer.

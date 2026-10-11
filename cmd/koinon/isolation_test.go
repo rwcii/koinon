@@ -24,6 +24,10 @@ func TestMain(m *testing.M) {
 	for _, name := range []string{"HOME", "XDG_STATE_HOME", "XDG_CONFIG_HOME", "XDG_DATA_HOME", "CLAUDE_CONFIG_DIR", "CODEX_HOME"} {
 		os.Setenv(name, dir)
 	}
+	// A test run inside a launched agent session must not reach that session's daemon.
+	for _, name := range []string{"KOINON_STATE_DIR", "KOINON_DAEMON_ADDRESS", "KOINON_LAUNCH_ID"} {
+		os.Unsetenv(name)
+	}
 	code := m.Run()
 	os.RemoveAll(dir)
 	os.Exit(code)

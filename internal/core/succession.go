@@ -17,7 +17,9 @@ import (
 // call takes its participant from the active holder H only on evidence from the host records:
 // the same host process (ID and start time) with H idle for the guard setting, or the same tmux
 // server and pane with H's host process ended. Anything else leaves H the holder and reports
-// the refusal; a refused succession never refuses the registration.
+// the refusal; a refused succession never refuses the registration. A Codex host that
+// reports S after /clear (the SessionStart hook, #275) is same-host evidence without the
+// guard: the host itself no longer shows H.
 
 // guard is how long after the holder's last tool call same-host evidence is refused, in
 // milliseconds: the guard setting.
@@ -38,7 +40,7 @@ func (p *TmuxPane) valid() bool {
 }
 
 // Succession is a session's last succession result. Result is "succeeded" or "refused";
-// Reason is the evidence (same_host, same_pane) or the refusal: no_host, host_running,
+// Reason is the evidence (same_host, host_cleared, same_pane) or the refusal: no_host, host_running,
 // other_pane, subagent, holder_active, fenced or other_participant. Holder is the peer name
 // of the session that held the participant. After holder_active, the session may register
 // again RetryAfterMS after At.
@@ -142,7 +144,7 @@ func (s *Store) hostEnded(h host) bool {
 
 // succeed decides, in S's registration transaction, whether S takes its participant from
 // its active holder. It returns nil when no other session holds the participant.
-func (s *Store) succeed(ctx context.Context, tx *sql.Tx, now int64, k Key, repository, role string, subagent bool) (*Succession, error) {
+func (s *Store) succeed(ctx context.Context, tx *sql.Tx, now int64, k Key, repository, role string, subagent, clear bool) (*Succession, error) {
 	if repository == "" {
 		return nil, nil
 	}
@@ -188,6 +190,8 @@ func (s *Store) succeed(ctx context.Context, tx *sql.Tx, now int64, k Key, repos
 		result.Reason = "no_host"
 	case other:
 		result.Reason = "other_participant"
+	case sameHost && clear:
+		evidence = "host_cleared"
 	case sameHost:
 		if left := s.guardLeft(Key{k.Family, holder}, now); left > 0 {
 			result.Reason, result.RetryAfterMS = "holder_active", left

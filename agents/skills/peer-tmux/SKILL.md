@@ -70,7 +70,8 @@ What a reset keeps:
   server keeps its first native session ID, so Koinon sees one continuous session (live check F3
   in `docs/sprints/2026-10-08-participants/live-checks.md`). Rediscover its current status.
 - **Codex `/clear`.** The process and pane stay, and the thread changes: `CODEX_THREAD_ID` is
-  new; its first configured MCP call registers the current native session. `/resume` in the same process can
+  new. With the Koinon SessionStart hook trusted in Codex (docs/INSTALL.md), the thread's first
+  turn takes the participant (`host_cleared`); otherwise its first configured MCP call does. `/resume` in the same process can
   switch back to the old thread. Do not use `/new`: it starts a separate session with its own
   sandbox and asks where to run it. The pickup's reconnect step handles the new thread.
 
