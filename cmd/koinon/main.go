@@ -122,20 +122,26 @@ func run(ctx context.Context, args []string, in io.Reader, out io.Writer) error 
 // to the log file or journal (#283). A variable only so that tests can read it.
 var daemonLog io.Writer = os.Stderr
 
-// logEvent writes one lifecycle line. Lines hold fixed codes, the version, the state
-// directory and listener addresses: never a secret, message body or session ID.
-func logEvent(event string, fields map[string]any) {
-	line := map[string]any{"at": time.Now().UTC().Format(time.RFC3339Nano), "event": event}
-	for key, value := range fields {
-		line[key] = value
+// lifecycleLog writes one lifecycle line to the writer that daemonLog held when the run
+// began, so a run that ends late never writes into another run's log. Lines hold fixed codes,
+// the version, the state directory and listener addresses: never a secret, message body or
+// session ID.
+func lifecycleLog() func(event string, fields map[string]any) {
+	w := daemonLog
+	return func(event string, fields map[string]any) {
+		line := map[string]any{"at": time.Now().UTC().Format(time.RFC3339Nano), "event": event}
+		for key, value := range fields {
+			line[key] = value
+		}
+		json.NewEncoder(w).Encode(line)
 	}
-	json.NewEncoder(daemonLog).Encode(line)
 }
 
 // serve runs the daemon. With lockWait, a daemon that finds the lock held retries every 2
 // seconds for that long and then exits with status 0, so a service manager does not restart
 // it in a loop while another daemon runs.
 func serve(ctx context.Context, state string, listen []string, lockWait time.Duration, out io.Writer) error {
+	logEvent := lifecycleLog()
 	signals := make(chan os.Signal, 1)
 	signal.Notify(signals, os.Interrupt, syscall.SIGTERM)
 	defer signal.Stop(signals)
@@ -195,7 +201,7 @@ func serve(ctx context.Context, state string, listen []string, lockWait time.Dur
 	}
 }
 
-const usage = `Usage: koinon install [--prefix DIR] [--state-dir DIR] [--agent FAMILY]... [--no-start]
+const usage = `Usage: koinon install [--prefix DIR] [--state-dir DIR] [--agent FAMILY]... [--no-start] [--system]
        koinon uninstall [--prefix DIR] [--state-dir DIR] [--agent FAMILY]...
        koinon upgrade --from-python [--python-prefix DIR] [--prefix DIR] [--state-dir DIR] [--agent FAMILY]... [--repository KEY=PATH]... [--python PATH]
        koinon upgrade --status [--state-dir DIR]

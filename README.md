@@ -60,8 +60,9 @@ CGO_ENABLED=0 go build -o bin/koinon ./cmd/koinon
 bin/koinon install --agent claude --agent codex
 ```
 
-Installation writes one systemd **user** unit on Linux or one launchd agent on macOS. It
-refuses an unrelated artifact or an existing Python installation. Use `koinon upgrade
+Installation writes one systemd **user** unit on Linux or one launchd agent on macOS. On macOS,
+`koinon install --system` instead runs the daemon as a LaunchDaemon that survives logout and
+asks `sudo` for each step ([system mode](docs/INSTALL.md#system-mode-on-macos)). It refuses an unrelated artifact or an existing Python installation. Use `koinon upgrade
 --from-python` for the latter; the documented upgrade verifies every imported source before
 removing the old services. Installation, agent configuration and live runtime replacement
 need the maintainer's authorization. A checkout change does not replace a running installation.

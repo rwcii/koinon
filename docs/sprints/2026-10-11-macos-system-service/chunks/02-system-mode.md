@@ -29,8 +29,10 @@ Criteria 1, 2, 6, 7 and the CI part of 8 of `decision.md`. Needs chunk 01 (log p
    `ThrottleInterval 10`, `Umask 63` (077) and the chunk 01 log paths.
 3. **Transition.** `koinon install --system` runs as the user; running it as root is refused
    with a fixed error, so `UserName` is never root. Every launchctl step runs through `sudo`,
-   so that the person approves it and so that it works from SSH and tmux, where the user's
-   own `gui/<uid>` commands fail with error 125. Steps, in order:
+   so that the person approves it and so that it works from SSH and tmux. (The plan expected
+   the user's own `gui/<uid>` commands to fail there with error 125; the Background-session
+   probe on #283 showed them working while the user has a console login, so `sudo` is the
+   approval boundary, not a workaround.) Steps, in order:
    1. Render the plist to a private temporary file and validate it with `plutil -lint`.
       Record the agent's original state: loaded or not (`sudo launchctl print
       gui/<uid>/<label>`) and disabled or not (`sudo launchctl print-disabled gui/<uid>`).
@@ -84,9 +86,11 @@ Criteria 1, 2, 6, 7 and the CI part of 8 of `decision.md`. Needs chunk 01 (log p
    person approves at the `sudo` prompt. Root `AGENTS.md`, installation section: agents never
    run `--system` or `sudo` on the maintainer's machine. README installation line. CHANGELOG.
 9. **Native CI.** The macOS job of `native-go-lifecycle.yml` adds a system-mode case with a
-   scratch prefix and state, using the runner's passwordless `sudo`. The runner's launchd
-   session is `Background`, as over SSH, so it also proves the transition without the GUI
-   domain. Checks: the LaunchDaemon runs as the runner user; `print-disabled` lists the agent
+   scratch prefix and state, using the runner's passwordless `sudo`. The runner's own launchd
+   session is `Aqua`, so the case runs over `ssh localhost` and asserts that its session is
+   `Background`, as over SSH (probe on #283). The runner user has a console login, so its
+   `gui/<uid>` domain exists. A host where nobody is logged in at the console has no such
+   domain; the agent steps there are not proven in CI and stay with live checks 3 and 4. Checks: the LaunchDaemon runs as the runner user; `print-disabled` lists the agent
    as disabled and `print gui/<uid>/<label>` shows no service; `koinon status` reports the
    system service's PID; after `sudo launchctl enable` and a bootstrap of a stray agent, a
    second install disables it again and leaves one daemon (`pgrep -f` count); the log has a
