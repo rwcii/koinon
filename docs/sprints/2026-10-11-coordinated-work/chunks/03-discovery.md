@@ -28,6 +28,13 @@ eligible targets; a custom creator consumer without a verified active actor is s
 and remains discoverable by query. Clean audience state only when no retained relevant item
 or pending notice needs it; use existing ordinary storage/logical-byte limits for these rows.
 
+When all 256 audience rows are occupied and a new audience needs a row, do not allocate a
+row or enqueue its notice. Do not evict another audience or its pending notice. Expose
+audience-row usage, the limit and saturation in status/usage output, so the missing notice
+has an observable cause. Current queries and catch-up must still reveal all outstanding
+work for the caller, including audiences with no row. Retry reconciliation after eligible
+rows are reclaimed; reserve no notification capacity inside report/verdict control funding.
+
 Reuse the existing inbox/provider wake/read/ack lifecycle, with an explicitly marked daemon
 work notice, never a maintainer-authored message. Its body is only a repository work-head/query
 pointer, no title, criteria, reference commands or peer content. One pending notice coalesces
@@ -43,4 +50,7 @@ or model-activity inference is introduced.
 
 Test commit-before-wake, loss, saturation/recovery, coalescing, duplicate handling, task failure,
 holder succession, unheld roles, custom consumers and cross-repository isolation with private
-provider stubs. Update protocol, usage, guide, storage/schema accounting and Unreleased.
+provider stubs. Fill all 256 audience rows, then commit relevant work for a new audience:
+assert no extra row or notice, no eviction, visible saturation and complete paged current
+queries. Reclaim an eligible row and verify reconciliation delivers the pending head once.
+Update protocol, usage, guide, storage/schema accounting and Unreleased.

@@ -33,6 +33,10 @@
   cursor after a reset: current assignment/report queries still reveal outstanding work.
 - Ordinary notice-enqueue refusal cannot roll back a funded work control. Reconciliation
   discovers its durable event later and retries, with one pending notice per audience.
+- Fill all 256 audience rows and introduce another relevant audience: no extra row/notice
+  and no eviction, visible usage/limit/saturation, and complete paged current queries for
+  the omitted audience. Once an eligible row is reclaimed, reconciliation sends its head
+  once. This ordinary notification limit never consumes a funded control's reserve.
 - Build migrations from committed old-schema fixtures and retain old native/participant
   claims, scope history and keyed outcomes. Incompatible older writers refuse the new schema.
 - MCP/CLI/API coverage uses synthetic sessions, temporary state, ephemeral ports and private
