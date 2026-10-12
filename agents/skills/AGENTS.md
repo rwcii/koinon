@@ -1,38 +1,24 @@
-# AGENTS.md — shared agent skills
+# Shared skill authoring
 
-This directory is the one tracked home for the repository's agent skills. Every agent reads
-the same files through a symlink from its own skill path:
+The canonical project skill source is `agents/skills/`. Project discovery links point here;
+machine-wide adoption uses an explicitly approved copy of the same skill bytes. Edit the
+canonical source and regenerate its derived wrappers. Preserve the project's chosen layout.
 
-| Agent | Path it reads | Symlink target |
-| --- | --- | --- |
-| Claude Code | `.claude/skills` | `../agents/skills` |
-| Codex | `.agents/skills` (repository discovery) and `.codex/skills` | `../agents/skills` |
-| OpenCode | `.claude/skills` discovery; generated `.opencode/commands` wrappers | Canonical `agents/skills` |
+Each skill has one `NAME/SKILL.md`, with single-line YAML `name` and `description` only.
+The name matches the directory and uses lower-case letters, digits and hyphens. Write for
+all supported agent families; use installed runtime guidance for family-specific interfaces.
+Read the adopting project's authoritative instructions. The authoring file applies when
+editing canonical source; a machine-wide skill need not have it beside the installed copy.
 
-Edit skills here only. Never replace a symlink with a copy, and never add an agent-specific
-skill directory elsewhere in the repository; divergent copies are the failure this layout
-prevents.
+Keep procedures portable. Project branches, commit/check/CI rules and release steps belong
+in `.koinon/skills/NAME.md` facts outside the embedded source. Declare required and optional
+headings with defaults in the skill's repository-facts section. Facts supply project data;
+root instructions retain authority. Skills and reference material confer no new permissions.
 
-## Write every skill for every agent
+Add every canonical skill to this directory's README. Derive OpenCode commands from metadata;
+preserve custom commands and report collisions. The adopting project's contributor tooling
+checks its actual source, wrappers, discovery links, fact schemas and authoritative policy.
 
-- One directory per skill, holding `SKILL.md` with YAML frontmatter that has only `name` and
-  `description`. The `name` matches the directory name.
-- Use the shell, `git` and `gh` only. Do not name a tool, slash command, memory store or
-  message transport that exists in only one agent.
-- Name the agent by its family (`claude`, `codex`, `deepseek`), with a public role suffix only
-  when the maintainer assigns one (`codex-review`). Never use a session name, thread ID or model
-  version.
-- Tell the agent to read this file. Some agents load a skill without the surrounding
-  `AGENTS.md`, so each `SKILL.md` names `agents/skills/AGENTS.md` in its opening lines.
-- Keep repository rules in the repository's root `AGENTS.md`; a skill points to them rather
-  than restating them.
-- Add every new skill to `README.md` in this directory in the same change. Run
-  `go run ./scripts/skill-commands` after changing skill metadata or adding, renaming or
-  retiring a skill, and commit the generated OpenCode wrappers. The contributor check
-  runs `go run ./scripts/skill-commands --check` to catch drift.
-
-## Content that must stay out
-
-This repository is public. Skills and anything they commit must never contain private
-thread or session IDs, keys, credentials, inbox or peer message bodies, memory store content,
-environment dumps, email addresses, or absolute paths under a home directory.
+For this public source and its derived artifacts, exclude private native identities,
+credentials, runtime messages, handoffs, memory content and absolute private home paths.
+Team manifests and session handoffs stay in ignored private storage.

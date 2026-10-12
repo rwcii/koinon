@@ -5,6 +5,12 @@ into a dated release section when promoted to `main`.
 
 ## Unreleased
 
+- Embed the portable shared skills and setup references in the binary; report their
+  fingerprint as `catalog_digest` in `koinon version`. Add team launch/stop/recovery and
+  runtime-guide skills, project fact schemas and derived OpenCode commands. Skill adoption
+  remains explicit; this increment adds no installation writes or catalog query tools.
+
+
 - Claude model, context and activity observations survive `/clear` while keeping the existing
   Koinon session and participant. Changed transcript IDs require the same pinned native host;
   status-line reports use verified hook ancestry, and foreign, reused or ambiguous hosts are

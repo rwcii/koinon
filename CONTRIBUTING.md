@@ -103,10 +103,11 @@ checkout with the [handoff](agents/skills/handoff/SKILL.md) skill. Handoffs are 
 Plans for deliverables of more than one pull request live under `docs/sprints/`; see the
 [sprint](agents/skills/sprint/SKILL.md) skill.
 
-Installation ships the binary, not `agents/`, `docs/sprints/` or native agent skill paths.
+Installation ships one binary with canonical skills embedded as inert catalog data; it does
+not write `agents/`, `docs/sprints/` or native agent skill paths.
 The full Go matrix runs on every change, including agent-only changes, so contributor
 checks always validate shared layout and guidance. Required native jobs always report; only service steps are skipped for PRs limited to those
-agent-process prefixes. `internal/contributor` executes the classifier, including deletion/rename
+agent-process prefixes other than the embedded `agents/skills/` source. `internal/contributor` executes the classifier, including deletion/rename
 cases, and verifies those paths stay outside installation. All runtime and ordinary documentation changes run native CI.
 
 `scripts/setup-repo.sh` configures PR merge policy and required Go/native lifecycle checks

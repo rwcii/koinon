@@ -621,9 +621,14 @@ func checkCatalog(db *sql.DB, version int) error {
 var maintainerKey = Key{Family: "maintainer", ID: "maintainer"}
 
 func validKey(family, id string) bool {
-	switch family {
-	case "claude", "codex", "deepseek", "agy", "opencode":
-	default:
+	supported := false
+	for _, candidate := range SupportedFamilies() {
+		if family == candidate {
+			supported = true
+			break
+		}
+	}
+	if !supported {
 		return false
 	}
 	// A participant's internal inbox row has the ID participant:<address>; no native

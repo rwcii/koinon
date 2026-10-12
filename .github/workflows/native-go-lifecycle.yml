@@ -28,7 +28,8 @@ jobs:
           # The upgrade starts from the pinned main release, read from history.
           fetch-depth: 0
       # The required jobs always report. For agent-process-only PRs, Go contributor
-      # checks validate the change and these service steps are unnecessary.
+      # checks validate the change and these service steps are unnecessary. Embedded
+      # agents/skills assets are runtime inputs and always run lifecycle evidence.
       - id: scope
         if: github.event_name == 'pull_request'
         shell: bash
@@ -38,7 +39,7 @@ jobs:
         run: |
           changed=$(git diff --name-only --no-renames "$BASE...$HEAD")
           others=$(printf '%s\n' "$changed" \
-            | grep -vE '^(agents/|docs/sprints/|\.claude/|\.agents/|\.codex/)' || true)
+            | grep -vE '^(docs/sprints/|\.claude/|\.agents/|\.codex/)' || true)
           if [ -n "$changed" ] && [ -z "$others" ]; then
             echo "exempt=true" >> "$GITHUB_OUTPUT"
             echo "Only agent-process files changed; native service steps are skipped."

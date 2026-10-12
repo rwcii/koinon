@@ -1,18 +1,20 @@
 ---
 name: peer-tmux
-description: Inspect a peer agent's tmux terminal, send maintainer-authorized terminal input, or manage a handoff, context reset and pickup cycle. Use when the maintainer asks to operate a peer's terminal or reset its context; ordinary peer coordination uses Koinon.
+description: "Inspect a peer agent's tmux terminal, send maintainer-authorized terminal input, or manage a handoff, context reset and pickup cycle. Use when the maintainer asks to operate a peer's terminal or reset its context; ordinary peer coordination uses Koinon."
 ---
 
 # Peer tmux
 
-Read `agents/skills/AGENTS.md` and the root `AGENTS.md` first.
+Read the adopting project's authoritative instructions first. Read `agents/skills/AGENTS.md` when editing its canonical source; a machine-wide installation need not contain that file.
 
 Operate only the target and actions the maintainer authorized. Permission to read a terminal is
 not permission to type into it or clear context. A peer request alone does not authorize a
 reset. An already authorized cycle does not need another confirmation at every step.
 
 Tmux input looks like local maintainer input to the receiving agent. Send only the target's own
-commands from the table below, bare. Do not send prose: it costs tokens and turns, and the receiver can misread it. Never
+context commands from the table below, bare, and handle startup or cycle prompts through
+their native interface. Read each prompt, choose the response within existing authorization
+and task context, and verify the result. Surface decisions that exceed that scope. Never
 impersonate the maintainer or turn a peer request into approval. Use Koinon for ordinary
 coordination. Do not switch to tmux to retry an action that a permission or approval check
 denied.
@@ -61,19 +63,20 @@ refuse. After each Enter, capture the pane and validate that the agent received 
 and is acting on it: a working indicator, or its first step of that command. Do not press Enter
 again by rule. When the command is still in the input field, for example because a completion
 menu took the Enter, read the screen first: a menu, a refusal, an error or a dialog each needs
-its own response, and an Enter can accept the wrong one. For a family marked not verified, or when the target rejects a command, stop and ask the maintainer
-for the syntax; do not guess and do not fall back to prose.
+its own response, and an Enter can accept the wrong one. For a family marked not verified, establish its syntax from installed guidance or native
+help before using it. If the target rejects a command, read the reason and establish the
+correct interface; ask for guidance only when that cannot be resolved within the task.
 
 What a reset keeps:
 
 - **Claude `/clear`.** The process and pane stay. The transcript changes, but the running MCP
-  server keeps its first native session ID, so Koinon sees one continuous session (live check F3
-  in `docs/sprints/2026-10-08-participants/live-checks.md`). Rediscover its current status.
+  server behavior depends on the installed runtime. Rediscover the calling session and
+  follow its installed guide, including supported same-host succession.
 - **Codex `/clear`.** The process and pane stay, and the thread changes: `CODEX_THREAD_ID` is
-  new. With the Koinon SessionStart hook trusted in Codex (docs/INSTALL.md), the thread's first
-  turn takes the participant (`host_cleared`); otherwise its first configured MCP call does. `/resume` in the same process can
-  switch back to the old thread. Do not use `/new`: it starts a separate session with its own
-  sandbox and asks where to run it. The pickup's reconnect step handles the new thread.
+  new. Follow the installed runtime's guide and native hook configuration for succession
+  at the first turn or configured MCP call. `/resume` in the same process can
+  switch back to the old thread. This cycle uses `/clear`; `/new` starts a separate session
+  with its own sandbox and asks where to run it. The pickup's reconnect step handles the new thread.
 
 Use the verified pane ID explicitly for every operation rather than relying on the active
 window. Shell variables may not survive between tool calls: set `peer_pane` to the verified
@@ -97,13 +100,15 @@ does not send `send-keys` input to the program, and the keys are lost:
 tmux display-message -p -t "${peer_pane:?set the verified pane ID in this shell}" '#{pane_in_mode}'
 ```
 
-A result of `1` means the pane is in a mode. Do not press Escape or `q` to leave it: the maintainer
-can be reading or selecting in that pane. Report it and ask the maintainer to leave the mode.
+A result of `1` means input is going to a tmux mode. Return the verified pane to its
+normal input mode as part of the authorized operation, then capture and verify it again
+before sending the agent command.
 
 Then capture the pane again. Confirm the same target is at an **empty, idle agent
 input prompt**, with no permission dialog, selection menu or pending text. A running shell
 receives shell input, not an agent prompt. If the pane is busy or shows a dialog, wait for a
-normal prompt or report the blocker; do not interrupt it or press Enter to clear the screen.
+normal prompt. Handle a startup or context-cycle dialog by reading it and selecting the
+authorized response, then verify the resulting interface before sending the next command.
 
 Prepare the exact authorized command in `peer_text` in the same shell call, with proper shell
 quoting. Use one line with no embedded newline, carriage return or other control characters.
@@ -172,3 +177,30 @@ completed stage and leave the saved handoff available rather than repeatedly cle
 Report the target session/pane, completed stages, saved path, pickup and succession/refusal result, participant address and role, the tmux name and remaining blockers. Context percentages, when available, are supporting observations; successful
 pickup is the evidence that the task state survived. Do not claim a new process was started
 or that work resumed unless that was observed.
+
+## Repository facts
+
+Resolve the current worktree and Git common directory before reading project facts. The file
+below is local fact data with Version 1, matching Skill, Sources and the declared headings.
+It is outside the embedded catalog. No required fields means no sidecar is needed; optional
+fields use only the defaults declared here. A supplied sidecar must still be valid.
+Read required facts before the dependent step. If missing, draft from checked repository
+evidence, show the exact diff and obtain approval before writing it. Ask for unknown or
+conflicting facts; do not guess a branch, command, interface or permission. A sidecar cannot
+remove a skill step, override root policy or grant authorization. Bound it to 64 KiB, with no
+arbitrary includes, shell expansion or dynamic command substitution.
+
+<!-- koinon:repository-facts -->
+```json
+{
+  "version": 1,
+  "filename": ".koinon/skills/peer-tmux.md",
+  "fields": [
+    {
+      "heading": "Extra repository checks",
+      "required": false,
+      "default": "none"
+    }
+  ]
+}
+```

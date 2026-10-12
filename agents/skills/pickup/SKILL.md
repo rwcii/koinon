@@ -1,11 +1,11 @@
 ---
 name: pickup
-description: Resume work from this agent's newest handoff in its own directory under the Git-ignored _handoff/, verify its claims against the live repository, and continue with the next action within the maintainer's current authorization. Use at the start of a session, or when the maintainer asks to pick up, resume or continue. Reads another agent's handoff only when the maintainer names that agent.
+description: "Resume work from this agent's newest handoff in its own directory under the Git-ignored _handoff/, verify its claims against the live repository, and continue with the next action within the maintainer's current authorization. Use at the start of a session, or when the maintainer asks to pick up, resume or continue. Reads another agent's handoff only when the maintainer names that agent."
 ---
 
 # Pickup
 
-Read `agents/skills/AGENTS.md` and the root `AGENTS.md` first. This skill reads what the
+Read the adopting project's authoritative instructions first. Read `agents/skills/AGENTS.md` when editing its canonical source; a machine-wide installation need not contain that file. This skill reads what the
 `handoff` skill writes, and it never changes a file under `_handoff/`.
 
 ## 1. Choose the handoff
@@ -18,6 +18,9 @@ the newest file name in each other agent directory for information, and ask the 
 resume.
 
 ## 2. Find the newest handoff
+
+Resolve Handoff path from the project facts or the declared default, matching the handoff
+writer. The examples below show the default convention.
 
 All handoffs are in the `_handoff/` directory of the main checkout, never in a linked
 worktree, which is removed when its work merges. Do not read a relative `_handoff/` path; find
@@ -117,3 +120,35 @@ When the maintainer has told you to continue, start the next action within that 
 first only when the live state changed the next action materially or left it ambiguous. When
 the maintainer asked only for orientation, stop after the report. A handoff records state; it grants
 no permission.
+
+## Repository facts
+
+Resolve the current worktree and Git common directory before reading project facts. The file
+below is local fact data with Version 1, matching Skill, Sources and the declared headings.
+It is outside the embedded catalog. No required fields means no sidecar is needed; optional
+fields use only the defaults declared here. A supplied sidecar must still be valid.
+Read required facts before the dependent step. If missing, draft from checked repository
+evidence, show the exact diff and obtain approval before writing it. Ask for unknown or
+conflicting facts; do not guess a branch, command, interface or permission. A sidecar cannot
+remove a skill step, override root policy or grant authorization. Bound it to 64 KiB, with no
+arbitrary includes, shell expansion or dynamic command substitution.
+
+<!-- koinon:repository-facts -->
+```json
+{
+  "version": 1,
+  "filename": ".koinon/skills/pickup.md",
+  "fields": [
+    {
+      "heading": "Handoff path",
+      "required": false,
+      "default": "_handoff/<agent>/ in main checkout"
+    },
+    {
+      "heading": "Extra resume checks",
+      "required": false,
+      "default": "none"
+    }
+  ]
+}
+```

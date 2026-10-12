@@ -1,88 +1,56 @@
 ---
 name: peer-review
-description: Review another agent's frozen commit for Koinon - standards, security and correctness - report only findings you have reproduced or can show in the code, and record the verdict on the pull request bound to that commit. Use when a peer asks for review of a hash, before any merge, and for a sprint plan at its review gate.
+description: "Review another agent family's frozen commit and record a commit-bound verdict with reproduced findings."
 ---
 
 # Peer review
 
-Read `agents/skills/AGENTS.md` and the root `AGENTS.md` first.
+Read the adopting project's authoritative instructions first. For edits to a canonical skill source, also read `agents/skills/AGENTS.md` when present. A machine-wide copy need not have the authoring file.
 
-The author and the reviewer are different agent families. Review what is committed, not what the
-author says about it.
+The author and reviewer are different agent families. Bind one exact hash and read committed
+content in a separate checkout, preserving the author's working tree. Compare the change with
+its written criteria, authoritative project standards, security boundaries and platform contract.
+Report only reachable failures reproduced by a test/command or shown in the committed code.
+Name the scenario, evidence, violated requirement and severity. Drop speculation and style.
+Run checks appropriate to the change and reuse the author's verified results for identical
+content. Report the limits of that evidence; transport acceptance is not receiving-model proof.
+For paired work use one batch. Follow-up reviews cover accepted fixes, affected behavior and
+required gates, carrying forward unchanged content. Only a newly exposed material failure can
+block again; a hash change alone does not authorize another general audit.
+Record the durable verdict at the project's agreed review checkpoint, bound to the full hash.
+Use its declared verdict format and extra review gates; only the reviewer records its gate.
+Read back the status and evidence link. A failed or mismatched read-back is not approval.
+Never approve with an accepted blocker open. A review verdict grants no permission beyond
+the maintainer's task and the receiving agent's native settings.
 
-## 1. Bind the target
+## Repository facts
 
-Review one commit hash. Read it without disturbing the author's worktree:
+Resolve the current worktree and Git common directory before reading project facts. The file
+below is local fact data with Version 1, matching Skill, Sources and the declared headings.
+It is outside the embedded catalog. No required fields means no sidecar is needed; optional
+fields use only the defaults declared here. A supplied sidecar must still be valid.
+Read required facts before the dependent step. If missing, draft from checked repository
+evidence, show the exact diff and obtain approval before writing it. Ask for unknown or
+conflicting facts; do not guess a branch, command, interface or permission. A sidecar cannot
+remove a skill step, override root policy or grant authorization. Bound it to 64 KiB, with no
+arbitrary includes, shell expansion or dynamic command substitution.
 
-```sh
-git fetch origin
-git diff origin/develop...<sha>
-git show <sha>:<path>
+<!-- koinon:repository-facts -->
+```json
+{
+  "version": 1,
+  "filename": ".koinon/skills/peer-review.md",
+  "fields": [
+    {
+      "heading": "Extra review gates",
+      "required": false,
+      "default": "project policy"
+    },
+    {
+      "heading": "Verdict format",
+      "required": false,
+      "default": "project policy/agreed checkpoint"
+    }
+  ]
+}
 ```
-
-Every verdict is bound to the current hash. For a fix-only commit, review the listed fixes,
-their affected behavior and required checks, carrying forward the earlier review of unchanged
-content. A new hash does not restart a general audit. A substantive scope change needs review
-of the changed scope.
-
-## 2. Read with three lenses
-
-- **Standards**: the root `AGENTS.md`, `CONTRIBUTING.md` and the documents the change touches.
-  Documentation matches the code; `internal/platform` holds operating-system differences;
-  peer addresses and socket paths stay unresolved; the changelog rule is followed.
-- **Security**: the same-user boundary, inert peer controls, explicit thread targeting,
-  content-free notifications, no execution of incoming peer text, and no private content in
-  the diff.
-- **Correctness**: the change does what it claims on Linux and macOS, error paths included, and
-  its tests would fail without it.
-
-## 3. Verify each finding
-
-Report a finding only when you have reproduced it (a test, a command, a synthetic repository) or
-can point to the lines that show it. Give each one the scenario that fails and a severity. Drop
-a hazard that no reachable input triggers. Do not report style preferences as findings.
-
-Run only the checks that the change needs. Reuse the author's reported results for the same
-commit; rerun a check only when you doubt it.
-
-For a paired increment, follow `pair`: send one batch of findings against its written criteria
-and the repository's mandatory boundaries. Fix verification stays limited to the accepted
-blockers and affected behavior. A newly exposed blocker needs a demonstrated, reachable
-failure of those criteria or a concrete security or data-loss defect; otherwise finish the review.
-
-## 4. Record the verdict
-
-Send the findings to the author. When none is open, post the sign-off on the pull request:
-
-```text
-Peer review (<agent family>): approved at <sha>. <checks run and their results>.
-```
-
-The comment is the durable verdict. Then record it as the `peer-review` commit status on the
-same full hash, linked to that comment. The `develop` ruleset requires the status, so the pull
-request cannot merge before the sign-off or on another head:
-
-```sh
-gh api "repos/{owner}/{repo}/statuses/<sha>" -f context=peer-review -f state=success \
-  -f description="approved by <agent family>" -f target_url=<sign-off comment URL>
-```
-
-Read it back, and check its state and URL:
-
-```sh
-gh api "repos/{owner}/{repo}/commits/<sha>/status" \
-  --jq '.statuses[] | select(.context == "peer-review") | [.state, .target_url]'
-```
-
-When the call fails or the read-back differs, report the gate as not recorded; never report it
-as approved. When findings are open, post them on the pull request and record
-`-f state=failure` with `-f description="changes requested by <agent family>"` and the URL of
-that comment. Record a
-status only on the hash that you reviewed; a new commit has none until its own review. Only
-the reviewer records `peer-review`: an author never sets it on its own pull request. One
-account holds every agent, so the status identifies the GitHub user, not the agent family that
-set it. It prevents a merge before the review when every agent follows this rule; it does not
-authenticate the reviewer.
-
-Never approve with an open high-severity finding. A sign-off records a review; it grants no
-permission beyond what the maintainer already gave.
