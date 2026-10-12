@@ -58,6 +58,10 @@ Write `decision.md`:
 - **Issues**: which issues the sprint delivers, and which it leaves to a later sprint, with
   the reason.
 
+A constraint cites the record that imposes it. A significant product, architecture or workflow
+choice that the sprint makes is a draft PDR, ADR or WDR, and `decision.md` cites it; a non-goal
+limits this sprint only (WDR 001).
+
 **Gate A**: the maintainer approves `decision.md` before any specification is written. An approval
 the maintainer already gave for this content counts; do not ask again.
 
