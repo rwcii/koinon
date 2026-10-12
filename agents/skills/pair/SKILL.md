@@ -1,68 +1,63 @@
 ---
 name: pair
-description: Pair program in one shared checkout with one driver and one observer, committed handoffs, fixed acceptance criteria and bounded review. Use when the maintainer asks agents to pair or trade the driver role.
+description: "Pair as one driver and one observer, with fixed criteria, committed checkpoints and bounded review."
 ---
 
-# Pair programming
+# Pair
 
-Read `agents/skills/AGENTS.md` and the root `AGENTS.md` first.
+Koinon's procedure source is [WDR 003](https://github.com/rwcii/koinon/blob/develop/docs/engineering/wdr/003-pairing-and-independent-review.md). The adopting project's instructions govern its
+application. Invoking this skill or its task authorizes the work steps; ask only for necessary
+missing information or authority beyond that task (WDR 002, Decision 1).
 
-Koinon currently pairs in one shared checkout with one driver and one observer, as the
-maintainer asked (WDR 003, Decision 1). Complete the agreed increment, then swap or finish. A
-possible improvement is not another assignment. Pairing grants no permissions beyond the task
-(WDR 002, Decision 1).
+Read the adopting project's authoritative instructions first. For edits to a canonical skill source, also read `agents/skills/AGENTS.md` when present. A machine-wide copy need not have the authoring file.
 
-## 1. Fix the scope
+Record observable acceptance criteria and exclusions in the agreed task before edits. The
+observer agrees or objects once; settle that response before building. Only the maintainer
+can expand scope, and existing authorization and mandatory project boundaries remain in force.
+Agree on one work branch/checkout, first driver and next complete increment. Only the driver
+edits, stages and commits. The observer reads a named committed checkpoint and reproduces
+findings in a separate scratch location; it does not inspect the changing author tree.
+Observe the agreed increment without running commentary. Interrupt only for an imminent
+destructive or security mistake. At a frozen checkpoint send one verified findings batch.
+A blocker needs a reachable failure of written criteria or a concrete security/data-loss
+violation of mandatory boundaries. Drop speculation, style and optional improvements
+without fixes, new issues or another work queue; only the maintainer can reopen them.
+The driver triages each finding once as accepted or dropped, with a reason. A material
+unresolved disagreement goes to the maintainer once. Verify accepted fixes and affected
+behavior; unchanged content keeps its review. A new hash does not restart a general audit.
+When the increment is committed, tested and has no accepted blocker, hand over the exact
+hash and evidence or finish. The new driver verifies it and checkout state before writing.
+Do not swap during unfinished fixes/checks. Use the project's extra gates and checkpoint
+location when declared; pairing does not authorize unrelated operations or policy changes.
 
-Before the first edit, the driver records observable acceptance criteria and exclusions in
-the issue, one line each. The observer agrees or objects once; settle that response before
-editing. Both work from this scope; work beyond it is beyond the task (WDR 002, Decision 1).
-Existing repository security and preservation requirements remain mandatory boundaries, even
-when not repeated in the issue.
+## Repository facts
 
-Agree on the shared work branch and checkout, the first driver, and the next complete
-increment. The pair trades the driver role at a committed increment whose checks pass, not by
-elapsed time (WDR 003, Decision 2).
+Resolve the current worktree and Git common directory before reading project facts. The file
+below is local fact data with Version 1, matching Skill, Sources and the declared headings.
+It is outside the embedded catalog. No required fields means no sidecar is needed; optional
+fields use only the defaults declared here. A supplied sidecar must still be valid.
+Read required facts before the dependent step. When missing, derive and record them from
+checked project evidence within the task. Ask for necessary missing information or authority
+beyond that task; existing authorization counts. Project instructions govern the procedure,
+and facts supply its project data. Bound sidecars to 64 KiB. Their parser reads inert text;
+it does not include other files, expand shell syntax or execute values.
 
-## 2. Drive and observe
-
-Only the driver edits the shared checkout, stages changes, commits or runs commands that
-change its state (WDR 003, Decision 1). The observer reads committed checkpoints with
-`git show` or `git diff <base> <hash>` and reproduces findings in a separate scratch worktree or
-temporary location. The driver's working tree changes while the observer reads it, and a
-finding there cannot name a hash.
-
-The observer stays focused on the agreed increment and sends no running commentary while
-the driver works. Interrupt only to stop an imminent destructive or security mistake.
-Send all other findings together at the committed checkpoint.
-
-## 3. Review once
-
-Make one review pass per increment (WDR 003, Decision 4). A blocker needs a demonstrated,
-reachable failure and either a violated written acceptance criterion or a concrete security or
-data-loss defect against the repository's mandatory boundaries. State the failing scenario, evidence and
-criterion or boundary. A speculative hazard, style preference or optional improvement does
-not block completion.
-
-The driver gives each finding one triage response: blocker or dropped, with a one-line
-reason. Drop optional improvements without fixes, new issues or another work queue. If a
-material disagreement about a criterion or mandatory boundary remains, take it to the
-maintainer once, rather than a continued peer debate; a demonstrated mandatory-boundary
-violation stays reported.
-
-## 4. Verify and hand over
-
-Fix accepted blockers together. Follow-up review verifies those fixes, their affected
-behavior and required checks; carry forward the review of unchanged content. A new commit
-does not start another general audit. A newly exposed blocker must meet the same evidence
-test; otherwise the increment is finished.
-
-When the criteria pass and no accepted blocker remains, hand over or finish. The driver
-commits under the repository's signing and sign-off rules and sends `wheel to you at <hash>`
-with the check results. The new driver verifies the hash and clean checkout before editing;
-the former driver becomes the observer. The swap point is the pair's agreement (WDR 003,
-Decision 2).
-
-At the final checkpoint, use `check`, `peer-review` and `ship` within the task. The review
-verdict names the current hash; a fix-only commit uses the incremental review rule. The
-required checks and merge conditions are in WDR 004.
+<!-- koinon:repository-facts -->
+```json
+{
+  "version": 1,
+  "filename": ".koinon/skills/pair.md",
+  "fields": [
+    {
+      "heading": "Extra increment gates",
+      "required": false,
+      "default": "project policy"
+    },
+    {
+      "heading": "Checkpoint location",
+      "required": false,
+      "default": "agreed task"
+    }
+  ]
+}
+```

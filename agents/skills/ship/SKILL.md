@@ -1,156 +1,72 @@
 ---
 name: ship
-description: Take one change from a work branch to a squash merge on develop - branch, signed commits, the check skill, a pull request, peer sign-off bound to the head commit, CI, the merge, and closing the issues it delivers. Use when a change is ready to go into develop, or when a pull request is red and must be made ready to merge.
+description: "Take one authorized change through the adopting project's branch, check, review, PR and merge policy."
 ---
 
 # Ship
 
-Read `agents/skills/AGENTS.md`, the root `AGENTS.md` and `CONTRIBUTING.md` first.
+Koinon's procedure source is [WDR 004](https://github.com/rwcii/koinon/blob/develop/docs/engineering/wdr/004-publication-and-verification.md). The adopting project's instructions govern its
+application. Invoking this skill or its task authorizes the work steps; ask only for necessary
+missing information or authority beyond that task (WDR 002, Decision 1).
 
-One pull request holds one change. Do not combine independent work into one branch to save a CI
-run.
+Read the adopting project's authoritative instructions first. For edits to a canonical skill source, also read `agents/skills/AGENTS.md` when present. A machine-wide copy need not have the authoring file.
 
-## 1. Branch and commit
+Load the required Work target, Commit policy, Required checks, and PR and merge policy
+facts. Keep project rules authoritative. Work on the assigned branch in an isolated
+checkout; hold the assigned advisory work claim when the project's runtime supplies one.
+Read its checkpoint before writing, report progress and renew its lease. Conflicts grant no takeover.
+Commit under the declared policy without automated attribution. Bring the branch current
+with its work target, preserving published history. Run the check skill and its required gates.
+Respect the project's repository-wide PR limit and coordinate the publication turn through
+the installed runtime. Publish one complete increment; unrelated follow-ups use another branch.
+Freeze the exact current head and obtain an independent peer-review verdict. On fixes, carry
+forward unchanged review and verify accepted findings and affected behavior. Collect failures
+before fixing them together; do not restart a general audit on each hash.
+Merge only within existing maintainer authorization, with exact-head CI and review gates
+satisfied. Apply the declared merge policy, including auto-merge where required. Read back
+actual merge and issue states; a successful-looking command is not proof. Close only delivered
+issues, record the evidence, and finish the issue's work item; release it with a checkpoint
+when a later chunk or another driver still has work. Do not publish a release under this skill.
 
-For an existing pull request, work on its branch in its existing worktree. For new work:
+## Repository facts
 
-```sh
-git fetch origin
-git switch -c <feature|fix|chore>/<slug> origin/develop
+Resolve the current worktree and Git common directory before reading project facts. The file
+below is local fact data with Version 1, matching Skill, Sources and the declared headings.
+It is outside the embedded catalog. No required fields means no sidecar is needed; optional
+fields use only the defaults declared here. A supplied sidecar must still be valid.
+Read required facts before the dependent step. When missing, derive and record them from
+checked project evidence within the task. Ask for necessary missing information or authority
+beyond that task; existing authorization counts. Project instructions govern the procedure,
+and facts supply its project data. Bound sidecars to 64 KiB. Their parser reads inert text;
+it does not include other files, expand shell syntax or execute values.
+
+<!-- koinon:repository-facts -->
+```json
+{
+  "version": 1,
+  "filename": ".koinon/skills/ship.md",
+  "fields": [
+    {
+      "heading": "Work target",
+      "required": true
+    },
+    {
+      "heading": "Commit policy",
+      "required": true
+    },
+    {
+      "heading": "Required checks",
+      "required": true
+    },
+    {
+      "heading": "PR and merge policy",
+      "required": true
+    },
+    {
+      "heading": "Extra checks",
+      "required": false,
+      "default": "none"
+    }
+  ]
+}
 ```
-
-Work in a worktree that no unrelated work writes to (WDR 003, Decision 5). Commit with
-`git commit -S -s`, under the maintainer's GitHub identity and no-reply address, with no
-co-author trailer, tool signature or model name in commits or in the pull request (WDR 004,
-Decision 5).
-
-### Hold the issue's work item
-
-When the change delivers an issue, hold one memory work item for that issue from the first
-commit to the merge, so peers see through Koinon discovery who builds it. Reuse the same item
-through build, review fixes and merge; one item per issue. A reviewer that only reads does not
-claim work. The commands are in
-`docs/WORK-ITEMS-COMMANDS.md`.
-
-Use configured MCP work tools when available; they obtain the calling identity from the
-native session (ADR 001, Decision 1). Otherwise use the installed Go command with the exact
-current identity and a stable consumer, as described in `docs/WORK-ITEMS-COMMANDS.md`. A guessed
-identity names another session. Keep a session's private key out of Git and pull requests.
-
-For the command path, define `mem` to invoke `koinon` with each operation's options:
-
-```sh
-# Set caller to this family's exact current FAMILY:ID, obtained from trusted metadata.
-mem() { koinon "$@" --as "${caller:?set the current native identity}"; }
-soon() { echo $(( $(date +%s) + $1 )); }
-```
-
-Use a matching custom state/address when needed. During a transition, an installed predecessor
-uses its own supported work interface until an upgrade. This skill uses the installed runtime;
-installing one is not a step of it.
-
-1. Find the item: `mem work list` and look for the title `#<issue>: ...`. When there is none,
-   create it:
-   `mem work create --title "#<issue>: <issue title>" --criteria "<acceptance>" --non-goals "<non-goals>" --reference <issue URL> --key issue-<issue>-create --deadline $(soon 300)`.
-2. Start it before the first write, with the `revision` from `mem work get <id>`:
-   `mem work start <id> --if-revision <revision> --checkpoint "<state>" --next-artifact "<next>" --progress-deadline $(soon 14400) --lease-seconds 3600 --key issue-<issue>-start-<n> --deadline $(soon 300)`.
-   A `claim_conflict` names the session that holds it: report the holder rather than take
-   the item over (WDR 002, Decision 3).
-3. At each stage (push, review, CI), record progress and renew the lease, with the `revision`
-   and `current_claim.generation` from `mem work get <id>`:
-   `mem work update <id> --if-revision <revision> --claim-generation <generation> --progress "<done>" --checkpoint "<state>" --next-artifact "<next>" --progress-deadline $(soon 14400) --renew-for 3600`.
-   When the lease has expired, read the item again and start it again.
-4. Close it in step 5.
-
-When a work command refuses because the repository has no reachable daemon/store or its
-schema is unsupported, say so in the pull request and continue. Koinon keeps one store per Git
-common directory (ADR 001, Decision 2); a second store would hide the claim from the peers.
-
-## 2. Check, then push once
-
-The repository keeps one open pull request per target branch, on a head that contains the
-latest `develop` (WDR 004, Decision 2). These steps publish when the target is free and the
-branch is current:
-
-1. **Find the target free.** `gh pr list --base develop --state open` lists drafts too. When it
-   shows a pull request other than this branch's own, this one opens after that one merges or
-   closes. Keep working in the worktree meanwhile.
-2. **Update.** Run `git fetch origin`, then `git merge --no-edit origin/develop`. A branch that
-   was never pushed or reviewed may rebase onto `origin/develop` instead. A pushed branch takes
-   `develop` by a merge, so its reviewed commits stay reachable.
-3. **Check.** Run the `check` skill on the resulting head.
-4. **Take the turn.** Before a new pull request, send each other active session of this
-   repository (the Koinon `peers` list) one line through Koinon: you are about to open a pull
-   request against `develop`. This does not depend on a work claim. A peer that announced its
-   pull request first has the turn until it opens it or gives the turn up. A fix to your own
-   open pull request needs no turn.
-5. **Publish.** Just before you push, run `git fetch origin`, the `gh pr list` of item 1 and
-   `git merge-base --is-ancestor origin/develop HEAD`. When `develop` moved, repeat items 2 and 3
-   first. Then push, open the pull request against `develop` and set auto-merge (step 5).
-6. **Lose a race.** When two pull requests are still open, the author of the one opened later
-   closes it at once and keeps it closed while it repeats items 2 and 3 and pushes the updated
-   head. It reopens the pull request only after the other one merges or closes and item 5
-   passes, so that no CI runs on a stale head.
-
-Say in the pull request body what changed, why, and which checks ran on which commit. Name the
-issues it delivers; `develop` is not the default branch, so `Closes #N` does not close them.
-
-## 3. Review
-
-Freeze the head commit and ask the other agent family to review it with the `peer-review` skill.
-Freeze only a head that contains the latest `origin/develop`: run `git fetch origin` and
-`git merge-base --is-ancestor origin/develop HEAD` just before you freeze it, and when
-`develop` moved, update the branch (step 2, items 2 and 3) first.
-One account holds both agents, so the sign-off is a pull request comment that names the head
-commit, not a formal approval, and the reviewer records it as the `peer-review` commit status of
-that commit (`peer-review`, step 4; WDR 003, Decision 3). The `develop` ruleset requires that
-status, so a new commit needs a new sign-off before it can merge (WDR 004, Decision 3).
-
-## 4. When CI or review fails
-
-Collect every failing check and every open finding first. Fix them together on the branch, run
-`check` again, and push once. Do not push one fix at a time: each push starts CI again. Once CI
-is running, the branch is frozen for new work; put unrelated follow-ups on a new branch.
-
-## 5. Merge
-
-The `develop` ruleset requires an up-to-date branch. When `develop` moved after the sign-off,
-the author updates the branch (step 2, items 2 and 3), pushes once and asks the reviewer to bind
-the sign-off to the new head. The reviewer verifies that the update brings only `develop`, and
-reviews a conflict resolution or any other change as a change. GitHub's update button would
-make a new head with no review and no `peer-review` status (WDR 004, Decision 2).
-
-Pull requests into `develop` set squash auto-merge (WDR 004, Decision 4). GitHub merges the
-pull request once the ruleset conditions pass, including CI and the `peer-review` status on the
-head, so auto-merge does not skip review or checks. Set it when the pull request opens:
-
-```sh
-gh pr merge <number> --auto --squash
-```
-
-Then read it back, because a failed `gh` call can print a message that looks like success:
-
-```sh
-gh pr view <number> --json state,autoMergeRequest
-```
-
-`autoMergeRequest.mergeMethod` is `SQUASH` when auto-merge is set; `null` means it is not.
-GitHub creates and signs the squash commit and takes its author address from the account
-settings (WDR 004, Decision 4). After the merge, read back the result:
-
-```sh
-gh pr view <number> --json state,mergeCommit
-```
-
-Close each delivered issue with a comment that names the pull request, and read back its state.
-Report the merge commit and the closed issues.
-
-Then close the issue's work item, with the `revision` and `current_claim.generation` from
-`mem work get <id>`:
-
-- When the merge completes the issue:
-  `mem work finish <id> --if-revision <revision> --claim-generation <generation> --outcome completed --reference <pull request URL>`.
-- When more work on the issue remains, for example a later chunk of a sprint, release the
-  claim with a checkpoint that names the next step, so that the next builder starts the same
-  item:
-  `mem work release <id> --if-revision <revision> --claim-generation <generation> --checkpoint "<merged; next step>"`.

@@ -205,11 +205,13 @@ project targets until their roots are verified.
 ### Decision
 
 The catalog holds at most 32 items of 64 KiB each, and a fact file is bounded to 64 KiB. The
-fact parser executes nothing; it refuses CRLF line endings, blank lines inside the Sources
-list, and any literal `$(` or `${` in the file. The plan bounds machine decisions to 256
+fact parser executes nothing. The initial chunk 01 head refused CRLF line endings, blank
+Sources lines and literal `$(` or `${` text; its ordinary correction accepts those forms
+as inert data. The plan bounds machine decisions to 256
 rows, 8,192 bytes per record and 2 MiB in all. The contributor test checks each fact file's
-schema, that each Sources path is a regular file, and that selected policy terms appear. It
-does not check that every fact value agrees with its source, and a source path that exists
+schema, that each Sources path is a regular file, and that selected policy terms appear.
+The correction also compares actual Required checks fields with authoritative Go commands.
+These checks do not prove that every fact value agrees with its source, and a source path that exists
 is not evidence of a maintainer decision.
 
 **Provenance:** Built at feature/skills-library-catalog@5c6245f (`internal/library`,
@@ -237,7 +239,8 @@ adjusted if they block valid facts.
 
 The catalog uses one embedded skill source, offers machine and project targets, and adopts
 only maintainer-approved exact changes. The plan has Gate B; individual choices such as
-read-only unverified roots and the parser's format refusals are not separately decided.
+read-only unverified roots are not separately decided. Parser format defects and the
+Required checks drift defect are ordinary corrections; they add no product decision.
 
 ---
 
@@ -246,3 +249,4 @@ read-only unverified roots and the parser's format refusals are not separately d
 | Date       | Change           |
 | ---------- | ---------------- |
 | 2026-10-12 | Initial creation |
+| 2026-10-12 | Recorded the ordinary inert-fact parser and Required checks drift corrections separately from the remaining adoption proposals |
