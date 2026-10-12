@@ -76,3 +76,22 @@ receiving-session proof, including reuse of an MCP process and same-ID Claude cl
 
 No host service, skill installation, native configuration or terminal input was changed
 while collecting this evidence.
+
+## Installed interface metadata check
+
+On 2026-10-12, local CLI version commands reported Codex 0.162.0 and Claude Code 2.1.296.
+No upgrade was performed. Codex generated its experimental app-server JSON schema into
+an isolated temporary CODEX_HOME without starting a provider turn or changing native settings.
+The generated API exposes `hooks/list`, hook start/completion notices, hook trust/source
+metadata, SessionStart as a hook event, and turn `additionalContext`. It exposes
+`thread/started`; the clear-related method/notice found there is a thread goal clear,
+which is not a transcript reset. This schema supplies no proof of a TUI-visible clear-to-first-
+prompt event. Hook availability in the API does not establish that the running TUI emits it
+at the required boundary or that a missing native skill command is accepted.
+
+Claude's installed help lists `--plugin-dir` as session-only plugin loading and `--bare`
+as a mode that skips hooks while still resolving slash skills. A transient native skill
+wrapper is therefore an interface candidate for a missing installed skill, but it has not
+been tested and is not a chosen design. It would need native discovery, command acceptance,
+canonical library read and post-clear receiving-model proof; it must not be described as
+verified or adopted merely because the option exists.
