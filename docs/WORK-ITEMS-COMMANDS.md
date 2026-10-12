@@ -83,9 +83,10 @@ current queries reveal retained work even after the continued memory cursor has 
 original transition. A daemon work notice names the repository and changed head: query
 current work, process memory deltas through that head, and acknowledge after handling.
 
-Work notices coalesce per audience and use the existing inbox/provider lifecycle. Proposals
-and changes reach current assignees; removed assignments reach previous assignees; reports
+Work notices coalesce per audience and use the existing inbox/provider lifecycle. Assignment,
+scope and daemon changes reach current assignees; removed assignments reach previous assignees; reports
 reach creators; verdicts reach the reported worker's participant or recorded native actor.
+The worker's own claim, progress and result activity does not send it another assignment notice.
 Current registry and cursor provenance resolve recipients. Status shows unresolved audiences
 and the 256-row limit; full queries remain available when a notice cannot be queued.
 

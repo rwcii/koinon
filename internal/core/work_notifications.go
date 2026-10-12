@@ -39,7 +39,20 @@ type workAudienceHead struct {
 	human    bool
 }
 
-func assignmentAudience(w workItem) *workAudience {
+// Only routing fields are decoded. Scope, evidence and progress bodies are not needed
+// to reconcile a notice, and claim/progress events do not notify their own worker.
+type workAudienceEvent struct {
+	WorkID           string    `json:"work_id"`
+	ProposedRole     *WorkRole `json:"proposed_role"`
+	ProposedAssignee *string   `json:"proposed_assignee"`
+	CreatedConsumer  string    `json:"created_consumer"`
+	ReportSeq        *int64    `json:"report_seq"`
+	Report           *struct {
+		ParticipantRole *WorkRole `json:"participant_role"`
+	} `json:"report"`
+}
+
+func assignmentAudience(w workAudienceEvent) *workAudience {
 	if w.ProposedRole != nil {
 		return &workAudience{Kind: "role", Family: w.ProposedRole.Family, Role: w.ProposedRole.Role}
 	}
@@ -65,7 +78,9 @@ func (s *Store) audienceHeads(ctx context.Context, store string, now float64) (m
 		FROM work_events e JOIN work_items w ON w.store=e.store AND w.work_id=e.work_id
 		LEFT JOIN memory_stores ms ON ms.store_id=e.store
 		LEFT JOIN memory_entries m ON m.repository=ms.repository AND m.seq=e.seq
-		WHERE e.store=? AND (w.expires_at IS NULL OR w.expires_at>?) ORDER BY e.seq`, store, now)
+		WHERE e.store=? AND (w.expires_at IS NULL OR w.expires_at>?)
+		AND e.kind IN ('created','proposed','edited','reported','accepted','rejected','lease-expired','progress-overdue')
+		ORDER BY e.seq`, store, now)
 	if err != nil {
 		return nil, err
 	}
@@ -93,12 +108,16 @@ func (s *Store) audienceHeads(ctx context.Context, store string, now float64) (m
 		if err := rows.Scan(&seq, &kind, &payload, &actor, &family); err != nil {
 			return nil, err
 		}
-		var v WorkView
+		var v workAudienceEvent
 		if err := json.Unmarshal([]byte(payload), &v); err != nil {
 			return nil, err
 		}
-		assigned := assignmentAudience(v.workItem)
-		add(assigned, seq)
+		assigned := assignmentAudience(v)
+		// A report concerns its creator; the worker's own claim/progress/result
+		// activity is not another assignment notice and cannot create a wake loop.
+		if kind != "reported" {
+			add(assigned, seq)
+		}
 		if old := previous[v.WorkID]; kind == "proposed" && old != nil && (assigned == nil || old.key() != assigned.key()) {
 			add(old, seq)
 		}
@@ -212,21 +231,24 @@ func (s *Store) audienceRecipient(ctx context.Context, tx *sql.Tx, repo string, 
 	return Key{}, "unresolved_audience", nil
 }
 
-// ReconcileWorkNotices serializes registry selection and work history, but each audience
-// update/message is its own ordinary transaction. A refusal leaves the durable work
-// event intact for the next reconciliation.
+// ReconcileWorkNotices reads routing history outside the memory operation lock. Each
+// audience update/message is its own serialized ordinary transaction. A refusal leaves
+// the durable work event intact for the next reconciliation.
 func (s *Store) ReconcileWorkNotices(ctx context.Context) error {
 	s.work.noticeMu.Lock()
 	defer s.work.noticeMu.Unlock()
-	rows, err := s.db.QueryContext(ctx, `SELECT repository,store_id FROM memory_stores WHERE EXISTS(SELECT 1 FROM work_items WHERE store=store_id) OR EXISTS(SELECT 1 FROM work_audiences WHERE store=store_id) ORDER BY repository`)
+	rows, err := s.db.QueryContext(ctx, `SELECT repository,store_id,head FROM memory_stores WHERE EXISTS(SELECT 1 FROM work_items WHERE store=store_id) OR EXISTS(SELECT 1 FROM work_audiences WHERE store=store_id) ORDER BY repository`)
 	if err != nil {
 		return err
 	}
-	type target struct{ repo, store string }
+	type target struct {
+		repo, store string
+		head        int64
+	}
 	var targets []target
 	for rows.Next() {
 		var t target
-		if err := rows.Scan(&t.repo, &t.store); err != nil {
+		if err := rows.Scan(&t.repo, &t.store, &t.head); err != nil {
 			rows.Close()
 			return err
 		}
@@ -239,14 +261,12 @@ func (s *Store) ReconcileWorkNotices(ctx context.Context) error {
 	rows.Close()
 	var faults []error
 	for _, t := range targets {
-		s.memory.op.Lock()
 		heads, err := s.audienceHeads(ctx, t.store, s.clock())
-		s.memory.op.Unlock()
 		if err != nil {
 			faults = append(faults, err)
 			continue
 		}
-		if err := s.cleanWorkAudiences(ctx, t.repo, t.store, heads); err != nil {
+		if err := s.cleanWorkAudiences(ctx, t.repo, t.store, t.head, heads); err != nil {
 			faults = append(faults, err)
 		}
 		keys := make([]string, 0, len(heads))
@@ -263,7 +283,7 @@ func (s *Store) ReconcileWorkNotices(ctx context.Context) error {
 	return errors.Join(faults...)
 }
 
-func (s *Store) cleanWorkAudiences(ctx context.Context, repo, store string, heads map[string]*workAudienceHead) error {
+func (s *Store) cleanWorkAudiences(ctx context.Context, repo, store string, observedHead int64, heads map[string]*workAudienceHead) error {
 	rows, err := s.db.QueryContext(ctx, `SELECT audience,message_id FROM work_audiences WHERE store=? AND (message_id IS NULL OR NOT EXISTS
 		(SELECT 1 FROM messages m JOIN sessions r ON r.family=m.recipient_family AND r.id=m.recipient_id WHERE m.id=message_id AND m.seq>r.acked_through))`, store)
 	if err != nil {
@@ -289,19 +309,17 @@ func (s *Store) cleanWorkAudiences(ctx context.Context, repo, store string, head
 	for _, key := range unused {
 		s.wake.mu.Lock()
 		s.memory.op.Lock()
-		// A transition may have made this audience relevant after the initial scan.
-		current, err := s.audienceHeads(ctx, store, s.clock())
-		if err != nil {
-			s.memory.op.Unlock()
-			s.wake.mu.Unlock()
-			return err
-		}
-		if current[key] != nil {
-			s.memory.op.Unlock()
-			s.wake.mu.Unlock()
-			continue
-		}
 		err = s.workWrite(ctx, repo, ordinary, func(tx *writeTx, _ string) error {
+			// Every new work transition advances the store head. If history changed
+			// since the unlocked scan, keep the row and retry on the next pass.
+			// This checks one scalar instead of rebuilding all payloads under lock.
+			var currentHead int64
+			if err := tx.QueryRowContext(ctx, `SELECT head FROM memory_stores WHERE store_id=?`, store).Scan(&currentHead); err != nil {
+				return err
+			}
+			if currentHead != observedHead {
+				return nil
+			}
 			_, err := tx.ExecContext(ctx, `DELETE FROM work_audiences WHERE store=? AND audience=? AND (message_id IS NULL OR NOT EXISTS
 				(SELECT 1 FROM messages m JOIN sessions r ON r.family=m.recipient_family AND r.id=m.recipient_id WHERE m.id=message_id AND m.seq>r.acked_through))`, store, key)
 			return err

@@ -10,6 +10,8 @@ into a dated release section when promoted to `main`.
   reconcile missed notices after restart or holder changes; ordinary notification
   admission preserves funded work controls. Status shows the 256-audience limit and
   unresolved or omitted audiences, with complete paged queries as the fallback.
+  Worker progress does not create a wake loop, and routing history is read outside
+  the memory operation lock.
   The state database moves to schema 18 (#140, chunk 03).
 
 - A worker reports a held item's result with a summary and evidence (`work_report`,

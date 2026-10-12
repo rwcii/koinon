@@ -238,6 +238,80 @@ func TestWorkNoticesCoalesceAndSeparateReadFromAck(t *testing.T) {
 	}
 }
 
+func TestWorkNoticesDoNotLoopOnWorkerProgress(t *testing.T) {
+	s, _, creator, owner, coordinator, worker := noticePair(t)
+	id := createRoleWork(t, s, creator, "codex", "worker")
+	mustReconcileNotices(t, s)
+	k := Key{worker.Family, worker.ID}
+	if _, _, err := s.AckParticipant(context.Background(), k, 1); err != nil {
+		t.Fatal(err)
+	}
+	generation := mustStart(t, s, owner, id, nil)
+	mustReconcileNotices(t, s)
+	for i := 0; i < 3; i++ {
+		mustWork(t, s, owner, "work-update", map[string]any{"work_id": id, "if_revision": revision(t, s, owner, id),
+			"claim_generation": generation, "progress": "synthetic progress", "checkpoint": "synthetic checkpoint",
+			"next_artifact": "synthetic next", "progress_deadline": now(s) + 600})
+		mustReconcileNotices(t, s)
+	}
+	mustWork(t, s, owner, "work-release", map[string]any{"work_id": id, "if_revision": revision(t, s, owner, id),
+		"claim_generation": generation, "checkpoint": "synthetic released"})
+	mustReconcileNotices(t, s)
+	if inbox := participantNotices(t, s, k); len(inbox.Messages) != 1 {
+		t.Fatalf("worker claim/progress/release caused a wake loop: %+v", inbox)
+	}
+	// A coordinator's changed scope still reaches the worker.
+	mustWork(t, s, creator, "work-edit", map[string]any{"work_id": id, "if_revision": revision(t, s, creator, id), "criteria": "synthetic external change"})
+	mustReconcileNotices(t, s)
+	if inbox := participantNotices(t, s, k); len(inbox.Messages) != 2 {
+		t.Fatalf("coordinator change did not notify worker: %+v", inbox)
+	}
+	if _, _, err := s.AckParticipant(context.Background(), k, 2); err != nil {
+		t.Fatal(err)
+	}
+	mustReport(t, s, owner, id, mustStart(t, s, owner, id, nil))
+	mustReconcileNotices(t, s)
+	if inbox := participantNotices(t, s, k); len(inbox.Messages) != 2 {
+		t.Fatalf("worker's report notified itself: %+v", inbox)
+	}
+	if inbox := participantNotices(t, s, Key{coordinator.Family, coordinator.ID}); len(inbox.Messages) != 1 {
+		t.Fatalf("creator missed worker's report: %+v", inbox)
+	}
+}
+
+func TestWorkAudienceCleanupKeepsRowsAfterAnUnlockedHistoryChange(t *testing.T) {
+	s, _, creator, _, _, _ := noticePair(t)
+	create(t, s, creator, "synthetic unassigned seed")
+	store, err := storeOf(context.Background(), s.db, creator.Repository)
+	if err != nil {
+		t.Fatal(err)
+	}
+	a := workAudience{Kind: "role", Family: "codex", Role: "worker"}
+	if _, err := s.db.Exec(`INSERT INTO work_audiences(store,audience,data,head) VALUES(?,?,?,1)`, store, a.key(), a.encoding()); err != nil {
+		t.Fatal(err)
+	}
+	var observedHead int64
+	if err := s.db.QueryRow(`SELECT head FROM memory_stores WHERE store_id=?`, store).Scan(&observedHead); err != nil {
+		t.Fatal(err)
+	}
+	heads, err := s.audienceHeads(context.Background(), store, now(s))
+	if err != nil {
+		t.Fatal(err)
+	}
+	// A work change commits after the unlocked scan, making its unused row relevant.
+	createRoleWork(t, s, creator, "codex", "worker")
+	if err := s.cleanWorkAudiences(context.Background(), creator.Repository, store, observedHead, heads); err != nil {
+		t.Fatal(err)
+	}
+	if count(t, s, `SELECT COUNT(*) FROM work_audiences`) != 1 {
+		t.Fatal("cleanup removed a newly relevant audience from a stale snapshot")
+	}
+	mustReconcileNotices(t, s)
+	if count(t, s, `SELECT COUNT(*) FROM messages WHERE sender_family='daemon'`) != 1 {
+		t.Fatal("next pass did not deliver the newly relevant head")
+	}
+}
+
 func TestWorkNoticesReportCreatorVerdictWorkerAndSuccession(t *testing.T) {
 	s, _, creator, owner, coordinator, worker := noticePair(t)
 	id := createRoleWork(t, s, creator, "codex", "worker")

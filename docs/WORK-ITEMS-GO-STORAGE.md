@@ -114,6 +114,15 @@ Read-only ledger queries include the added state. Catalog validation includes on
 declared schema objects. At row or ordinary-capacity saturation, retained work events and
 complete paged queries remain the recovery source.
 
+Reconciliation selects retained assignment, scope, report, verdict and daemon events and
+decodes only their routing fields outside the memory operation lock. Claim/progress events
+do not cause assignment notices. Each audience update uses its own ordinary transaction;
+cleanup checks the observed store head before deleting an unused row, without rebuilding
+the history under the lock. A changed head defers cleanup to the next pass.
+The observer's synthetic fixture (1,610 events, 18.3 MB of payloads) took about 15 ms to
+rebuild routing heads in an uninstrumented local Linux run after this change, compared
+with its earlier 660 ms full-payload read. This is measurement evidence, not a latency bound.
+
 The reporting participant's family/role is optional bounded metadata in the immutable report
 event. Report admission checks its encoded event with that metadata before promising the
 verdict. The metadata is absent from a verdict image, whose report sequence references the

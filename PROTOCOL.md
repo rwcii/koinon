@@ -613,13 +613,18 @@ their existing read/acknowledgement and retention-floor contract.
 
 The daemon binds the post-commit memory-change hook to work-notice reconciliation, also
 running it at startup, after registration or holder changes, and every 30 seconds. Retained
-work events reconstruct relevant audience heads: changes reach current assignees, assignment
-removal reaches the previous assignee, reports reach creators, and verdicts reach the
+work events reconstruct relevant audience heads: assignment, scope and daemon changes reach
+current assignees, assignment removal reaches the previous assignee, reports reach creators, and verdicts reach the
 reported worker. A report freezes the reporting native session's `participant_role` when
 it has a participant; an older report without that metadata uses its recorded event actor.
 Role recipients follow the same store's current holder. Custom consumer recipients use
 verified registry/cursor or creator-actor provenance; a claimed consumer is never parsed
 as a native ID. Unresolved audiences remain queryable.
+
+A worker's own start, progress, release, finish and report do not advance the assignment
+audience, so recording its response to a notice does not create another wake. Routing-history
+reads decode only relevant fields outside the memory operation lock; cleanup rechecks the
+observed store head in its transaction before removing an unused row.
 
 Each store retains at most 256 `work_audiences` rows, containing the audience, relevant head,
 last notice head and one pending message reference. A pending notice coalesces later changes.
