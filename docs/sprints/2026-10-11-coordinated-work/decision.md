@@ -1,8 +1,11 @@
 # Coordinated work — decision
 
-Issue [#140](https://github.com/rwcii/koinon/issues/140) supplies the approved outcomes and
-non-goals. This plan proposes the reported-state model and its ownership/storage mechanics
-for Gate B. It grants no permission to perform a task or act on a coordinator verdict.
+Issue [#140](https://github.com/rwcii/koinon/issues/140) requests the outcomes and non-goals.
+The maintainer selected the reporting-consumer verdict rule (PDR 004, Decision 3;
+[#306 comment 6119167156](https://github.com/rwcii/koinon/issues/306#issuecomment-6119167156)).
+This plan proposes the role, reported-state, funding and discovery mechanisms for Gate B;
+those mechanisms remain undecided (PDR 004, Decisions 1, 2 and 4). Work records and verdicts
+remain reported data within the maintainer's task (WDR 002, Decisions 1 and 3).
 
 ## Problem
 
@@ -19,12 +22,13 @@ the historical subscription description is not evidence that this path already w
 2. New role-assigned claims belong to the accepting native session. A successor cannot
    update, renew, release, finish or replay its predecessor's ownership; start conflicts
    while that lease is live and succeeds after release/expiry with a fresh generation.
-3. Existing participant inboxes/cursors and legacy participant-consumer claim continuation
+3. Existing/default participant inboxes/cursors and participant-consumer claim continuation
    remain unchanged. A context clear that retains the native identity remains the same
    native session; a genuine successor uses its own native identity, never a guessed ID.
 4. The worker reports a result, then a different consumer records accepted or rejected.
-   The reporter cannot self-verdict by changing consumer labels, including after native
-   succession within the same worker participant.
+   Only the exact reporting consumer is excluded; a different consumer is allowed even
+   when it belongs to the same native session or a later session in the same worker role
+   (PDR 004, Decision 3). Normal caller, repository and participant-consumer validation applies.
 5. Rejection returns the item to open with a new scope revision; the report, verdict and old
    and new scopes remain readable. Acceptance yields finished/completed and starts the
    existing finished-item retention period. Reported work is not finished or time-pruned.
@@ -41,21 +45,25 @@ the historical subscription description is not evidence that this path already w
 
 ## Constraints
 
-- Same-user reported data throughout. An accepted result is a coordinator's assertion,
-  not human approval or a permission grant. No task text, reference or notice is executed.
+- Work records and coordinator verdicts are reported data; task authority comes from the
+  maintainer's instructions (WDR 002, Decisions 1 and 3). Koinon's runtime carries the records
+  and content-free notices rather than executing their text (ADR 001, Decision 3).
 - Keep the existing repository store, advisory lease engine, memory stream, storage boundary
   and provider wake path. No scheduler, automatic assignment, forced takeover, budget
   enforcement or dependency tracking. Consuming-project setup is outside this deliverable.
-- Role routing is separate from ownership. Use the existing launcher-declared family/role
-  participant; add no model-supplied native identity or role-registration operation.
+- Role routing uses the existing launcher-declared family/role participant (PDR 001,
+  Decision 3). Native identity comes from the transport (ADR 001, Decision 1); routing and
+  the explicitly native-bound role-claim proposal are separate (PDR 004, Decision 1).
 - Legacy explicit consumer proposals and claims are not silently converted to role claims.
   DeepSeek keeps its native-session command path; role routing is available only for families
   with verified participant roles. All supported transports can use report/verdict operations.
 - Use `reported` between active and finished, as the issue recommends. This preserves v1's
   terminal finished state and gives rejection a natural return to open, without reopening
   an already completed item. Unreported v1 completion/withdrawal stays available.
-- Preserve loopback, private state, native caller validation, participant fencing and fixed
-  retry deadlines. Claims and notifications confer no authorization.
+- The loopback daemon/private store and native caller validation remain as in ADR 001,
+  Decisions 1 and 2. Participant fencing remains as in PDR 001, Decision 5; default
+  participant state continues across succession as in Decision 6. Fixed retry deadlines
+  and existing v1 claims remain unchanged. Claims and notices are data (WDR 002, Decision 3).
 
 ## Issues and inputs
 

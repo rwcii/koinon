@@ -12,3 +12,14 @@ Changed scope/criteria/tests receive bounded follow-up. No product implementatio
 Bounded follow-up (Claude): PASS at `e192b958e83f0fd2409ca1542a47b55a94e72f20`.
 The accepted cap finding is resolved and the two minor dispositions are accepted. No
 material finding remains. The reviewed plan is ready for the maintainer's Gate B.
+
+## Reconciliation after the maintainer's verdict choice
+
+The maintainer selected the exact reporting-consumer exclusion, with any other consumer
+eligible for a verdict (PDR 004, Decision 3; #306 comment 6119167156). The plan removes the
+additional native-actor and logical-participant exclusions and updates their verification
+cases. Existing/default participant state continues across succession (PDR 001, Decision 6);
+the proposed explicitly native-bound role-claim path remains distinct (PDR 004, Decision 1).
+Role, reported-state/funding and discovery mechanisms remain proposals for Gate B. This
+reconciliation's frozen head receives a bounded observer review; the earlier funding and
+discovery review remains applicable to unchanged content.
