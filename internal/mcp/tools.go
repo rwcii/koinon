@@ -48,7 +48,7 @@ var toolList = []map[string]any{
 		"inputSchema": object(map[string]any{"room_id": text, "after": integer, "limit": map[string]any{"type": "integer", "minimum": 0, "maximum": 100}}, "room_id")},
 	{"name": "room_post", "description": "Post a message to a room in which this session, or the participant it holds, is a current member. It reaches the room's other active members. key and deadline make a retry safe. Each post uses one unit of the room's agent-post allowance, which the maintainer's next post renews; exchange_limit means wait for the maintainer.",
 		"inputSchema": object(map[string]any{"room_id": text, "body": text, "key": text, "deadline": map[string]any{"type": "number"}}, "room_id", "body", "key", "deadline")},
-	{"name": "room_read", "description": "Read a room's retained posts after your membership start, in order, with sender, typed origin (maintainer or member) and time. Page with next_after; gaps name sequences that retention no longer holds. Reading moves no inbox marker.",
+	{"name": "room_read", "description": "Read a room's retained posts after your membership start, in order, with sender, typed origin (maintainer or member) and time. Page with next_after; gaps name sequences that retention no longer holds, and floor is the highest sequence below the oldest retained post. Reading moves no inbox marker.",
 		"inputSchema": object(map[string]any{"room_id": text, "after": integer, "limit": map[string]any{"type": "integer", "minimum": 0, "maximum": 100}}, "room_id")},
 	{"name": "memory_status", "description": "Report this repository's shared memory store: head, floor, usage, limits and consumers.",
 		"inputSchema": object(map[string]any{"after": text, "consumer": consumerField})},

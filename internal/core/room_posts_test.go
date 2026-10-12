@@ -218,6 +218,20 @@ func TestRoomPostRetries(t *testing.T) {
 	if rowsOf(t, s.db) != before || allowanceOf(t, s, room) != allowance {
 		t.Fatal("a retry wrote state")
 	}
+	// At the ordinary storage ceiling both retries still return their receipts; a new post
+	// refuses.
+	limit := s.storage.maxPages
+	s.storage.maxPages = count(t, s, `PRAGMA page_count`) + reservePages + commitSlack + appendAllowance - 1
+	if r, err := s.DashboardRoomPost(roomCtx("room-post"), room, "synthetic", hk, deadline); err != nil || !r.Duplicate || r.Seq != first.Seq {
+		t.Fatalf("maintainer retry at capacity: %+v %v", r, err)
+	}
+	if r, err := s.RoomPost(ctx, caller, room, "reply", k, deadline); err != nil || !r.Duplicate || r.Seq != 2 {
+		t.Fatalf("retry at capacity: %+v %v", r, err)
+	}
+	if _, err := s.RoomPost(ctx, caller, room, "new", key(), deadline); errorCode(err) != "capacity" {
+		t.Fatalf("new post at capacity: %v", err)
+	}
+	s.storage.maxPages = limit
 	for name, c := range map[string]struct {
 		body     string
 		deadline float64
@@ -385,6 +399,22 @@ func TestRoomReadPagesAndGaps(t *testing.T) {
 	last, err := s.RoomRead(ctx, reader, room, 16, 0)
 	if err != nil || fmt.Sprint(last.Gaps) != "[{20 20}]" || last.More {
 		t.Fatalf("gap at the head: %+v %v", last.Gaps, err)
+	}
+	if page.Floor != 0 || last.Floor != 0 {
+		t.Fatalf("floor with post 1 retained: %d %d", page.Floor, last.Floor)
+	}
+	// Retention removed the oldest posts too: a page after them still reports the floor.
+	if _, err := s.db.Exec(`DELETE FROM room_posts WHERE seq IN (1,5)`); err != nil {
+		t.Fatal(err)
+	}
+	if last, err = s.RoomRead(ctx, reader, room, 16, 0); err != nil || last.Floor != 5 {
+		t.Fatalf("floor beyond the page: %d %v", last.Floor, err)
+	}
+	if _, err := s.db.Exec(`DELETE FROM room_posts`); err != nil {
+		t.Fatal(err)
+	}
+	if last, err = s.RoomRead(ctx, reader, room, 0, 0); err != nil || last.Floor != 20 || last.Head != 20 {
+		t.Fatalf("floor with nothing retained: %d %d %v", last.Floor, last.Head, err)
 	}
 }
 

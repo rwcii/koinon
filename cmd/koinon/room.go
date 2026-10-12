@@ -46,15 +46,23 @@ func roomCommand(ctx context.Context, args []string, out io.Writer) error {
 		key = flags.String("key", "", "idempotency key, fixed before the first attempt")
 		deadline = flags.Float64("deadline", 0, "retry deadline in Unix seconds, at most 24 hours ahead")
 	}
-	// Positional arguments can come before or after the flags: ROOM_ID, and BODY for a post.
+	// Positional arguments (ROOM_ID, and BODY for a post) and flags can come in any order;
+	// after "--" every argument is positional.
 	var positional []string
-	for len(rest) > 0 && !strings.HasPrefix(rest[0], "-") && len(positional) < 2 {
-		positional, rest = append(positional, rest[0]), rest[1:]
+	for {
+		if err := flags.Parse(rest); err != nil {
+			return usageError{"invalid_request", err.Error()}
+		}
+		left := flags.Args()
+		if len(left) < len(rest) && rest[len(rest)-len(left)-1] == "--" {
+			positional = append(positional, left...)
+			break
+		}
+		if len(left) == 0 {
+			break
+		}
+		positional, rest = append(positional, left[0]), left[1:]
 	}
-	if err := flags.Parse(rest); err != nil {
-		return usageError{"invalid_request", err.Error()}
-	}
-	positional = append(positional, flags.Args()...)
 	want := map[string]int{"list": 0, "members": 1, "read": 1, "post": 2}[op]
 	if len(positional) != want {
 		return usageError{"invalid_request", fmt.Sprintf("koinon room %s takes %d arguments", op, want)}

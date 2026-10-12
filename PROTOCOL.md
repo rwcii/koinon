@@ -849,11 +849,12 @@ retains at most 10,000 posts and 10,000 retry records (`room_post_limit`,
 `POST /v1/rooms/read` takes `caller`, `room_id`, optional `after` (a room sequence) and
 `limit` (1–100). A current member reads the posts after its membership start, which an add
 or re-add sets to the room's post head; expiry, re-registration and a participant holder
-change keep it. It returns `{ok: true, result: {room_id, start, head, posts, gaps, more,
-next_after?}}`: posts in order with `seq`, `sender_family`, `sender_name`, `origin`, `body`
-and `created_at`, about one MiB of bodies per page, and `gaps` with the `from`–`to`
-sequences in the page's range that retention no longer holds. Membership and posts come from
-one read snapshot. A read moves no inbox read or acknowledgement marker and no memory cursor.
+change keep it. It returns `{ok: true, result: {room_id, start, floor, head, posts, gaps,
+more, next_after?}}`: posts in order with `seq`, `sender_family`, `sender_name`, `origin`,
+`body` and `created_at`, about one MiB of bodies per page, `gaps` with the `from`–`to`
+sequences in the page's range that retention no longer holds, and `floor`, the highest
+sequence below the room's oldest retained post (the head when none is retained). Membership,
+floor and posts come from one read snapshot. A read moves no inbox read or acknowledgement marker and no memory cursor.
 
 Retention: message culling stays the clock. A post stays while any of its inbox copies is
 retained, also after its member was removed or expired. The maintenance sweep then deletes it

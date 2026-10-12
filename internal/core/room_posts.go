@@ -66,11 +66,56 @@ type RoomGap struct {
 type RoomTranscript struct {
 	RoomID    string     `json:"room_id"`
 	Start     int64      `json:"start"`
+	Floor     int64      `json:"floor"`
 	Head      int64      `json:"head"`
 	Posts     []RoomPost `json:"posts"`
 	Gaps      []RoomGap  `json:"gaps"`
 	More      bool       `json:"more"`
 	NextAfter *int64     `json:"next_after,omitempty"`
+}
+
+// roomPostRepeat checks an agent caller's current membership and then its retry record, so
+// an accepted earlier post grants no post after removal. It returns the caller's member
+// keys, and the original receipt when key was used before with the same input.
+func roomPostRepeat(ctx context.Context, tx *sql.Tx, now int64, caller Key, maintainer bool, roomID, key, print string) ([]Key, *RoomPostResult, error) {
+	var senders []Key
+	if !maintainer {
+		if err := active(ctx, tx, now, caller); err != nil {
+			return nil, nil, err
+		}
+		var err error
+		if senders, err = callerMemberships(ctx, tx, now, caller); err != nil {
+			return nil, nil, err
+		}
+		if _, err := currentMembershipStart(ctx, tx, roomID, senders); err != nil {
+			return nil, nil, err
+		}
+	}
+	var stored, result string
+	err := tx.QueryRowContext(ctx, `SELECT fingerprint,result FROM room_replays WHERE family=? AND caller_id=? AND key=?`,
+		caller.Family, caller.ID, key).Scan(&stored, &result)
+	if errors.Is(err, sql.ErrNoRows) {
+		return senders, nil, nil
+	}
+	if err != nil {
+		return nil, nil, err
+	}
+	if stored != print {
+		return nil, nil, ErrRoomPostRepeat
+	}
+	var original RoomPostResult
+	if err := json.Unmarshal([]byte(result), &original); err != nil {
+		return nil, nil, err
+	}
+	original.Duplicate = true
+	return senders, &original, nil
+}
+
+func orZero(r *RoomPostResult) RoomPostResult {
+	if r == nil {
+		return RoomPostResult{}
+	}
+	return *r
 }
 
 func roomPostFingerprint(roomID, body string, deadline float64) string {
@@ -107,6 +152,18 @@ func (s *Store) roomPost(ctx context.Context, caller Key, maintainer bool, roomI
 	if deadline > clock+s.limits().idemTTL {
 		return RoomPostResult{}, Refusal{"invalid_request", fmt.Sprintf("the retry deadline is beyond the %.0f s horizon", s.limits().idemTTL)}
 	}
+	print := roomPostFingerprint(roomID, body, deadline)
+	// A repeat writes nothing, so it is answered from a read transaction before ordinary
+	// write admission: a full store still returns the original receipt.
+	read, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return RoomPostResult{}, err
+	}
+	_, original, err := roomPostRepeat(ctx, read, s.now().UnixMilli(), caller, maintainer, roomID, key, print)
+	read.Rollback()
+	if err != nil || original != nil {
+		return orZero(original), err
+	}
 	tx, err := s.begin(ctx, ordinary)
 	if err != nil {
 		return RoomPostResult{}, err
@@ -114,38 +171,11 @@ func (s *Store) roomPost(ctx context.Context, caller Key, maintainer bool, roomI
 	defer tx.Rollback()
 	tx.audited = maintainer
 	now := s.now().UnixMilli()
-	// The caller's current membership is checked before its retry record: an accepted
-	// earlier post grants no post after removal.
-	var senders []Key
-	if !maintainer {
-		if err := active(ctx, tx.Tx, now, caller); err != nil {
-			return RoomPostResult{}, err
-		}
-		if senders, err = callerMemberships(ctx, tx.Tx, now, caller); err != nil {
-			return RoomPostResult{}, err
-		}
-		if _, err := currentMembershipStart(ctx, tx.Tx, roomID, senders); err != nil {
-			return RoomPostResult{}, err
-		}
-	}
-	print := roomPostFingerprint(roomID, body, deadline)
-	var stored, result string
-	err = tx.QueryRowContext(ctx, `SELECT fingerprint,result FROM room_replays WHERE family=? AND caller_id=? AND key=?`,
-		caller.Family, caller.ID, key).Scan(&stored, &result)
-	if err == nil {
-		if stored != print {
-			return RoomPostResult{}, ErrRoomPostRepeat
-		}
-		var original RoomPostResult
-		if err := json.Unmarshal([]byte(result), &original); err != nil {
-			return RoomPostResult{}, err
-		}
-		// A repeat changes nothing: the transaction is not committed, so it writes no audit.
-		original.Duplicate = true
-		return original, nil
-	}
-	if !errors.Is(err, sql.ErrNoRows) {
-		return RoomPostResult{}, err
+	// Checked again in the write: a concurrent post with the same key or a removal may have
+	// committed since the read.
+	senders, original, err := roomPostRepeat(ctx, tx.Tx, now, caller, maintainer, roomID, key, print)
+	if err != nil || original != nil {
+		return orZero(original), err
 	}
 	var name string
 	var refill, allowance, head int64
@@ -355,13 +385,17 @@ func (s *Store) RoomRead(ctx context.Context, caller Key, roomID string, after i
 }
 
 // roomTranscript reads posts after from, at most limit of them and about one MiB of bodies,
-// and names the sequences in the page's range that retention no longer holds.
+// and names the sequences in the page's range that retention no longer holds. Floor is the
+// highest sequence below the room's oldest retained post, or the head when none is retained.
 func roomTranscript(ctx context.Context, tx *sql.Tx, roomID string, start, from int64, limit int) (RoomTranscript, error) {
 	t := RoomTranscript{RoomID: roomID, Start: start, Posts: []RoomPost{}, Gaps: []RoomGap{}}
 	if err := tx.QueryRowContext(ctx, `SELECT post_head FROM rooms WHERE room_id=?`, roomID).Scan(&t.Head); err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			return t, ErrRoomNotFound
 		}
+		return t, err
+	}
+	if err := tx.QueryRowContext(ctx, `SELECT COALESCE(MIN(seq)-1,?) FROM room_posts WHERE room_id=?`, t.Head, roomID).Scan(&t.Floor); err != nil {
 		return t, err
 	}
 	rows, err := tx.QueryContext(ctx, `SELECT seq,sender_family,sender_name,origin,body,created_at FROM room_posts
