@@ -31,11 +31,11 @@ since, in the development container only.
 ## Acceptance criteria
 
 1. A supported Grok entry point and its setup and launch workflow are defined and follow
-   Koinon's launcher admission rules. The supported Grok Build versions are recorded with the
+   Koinon's registration rules (PDR 001). The supported Grok Build versions are recorded with the
    evidence for each.
 2. Every Koinon call from a Grok session is attributed to the exact calling session from
    verified native metadata. A call whose session cannot be proven is refused with
-   `identity_unavailable`. Two concurrent Grok sessions on one host, and a session that shares
+   `identity_unavailable` (ADR 001, Decision 1). Two concurrent Grok sessions on one host, and a session that shares
    a parent MCP client, are never confused.
 3. Reset and resume behavior is documented from observation: whether a reset gives a new
    native session, and what a resumed session presents.
@@ -60,19 +60,22 @@ since, in the development container only.
   launcher or behavior for Grok. A container is only this sprint's development test bed,
   because Grok Build does not run directly on the maintainer's machine (maintainer,
   2026-10-12, #254).
-- **Installation is the maintainer's action.** Agents do not install, upgrade or run Grok
-  Build on the maintainer's machine without the maintainer's authorization, and do not use the
-  maintainer's xAI credentials without it. Provider credentials never enter Git, CI logs or
-  Koinon state.
-- **Identity.** A model never supplies its caller identity in tool arguments
-  (`callerFields`). The adapter follows the per-call identity rules of the existing families.
-- **Same-user boundary.** Loopback-only listeners, private same-user state and secrets,
-  exact native session selection, inert peer controls and content-free wakes stay unchanged.
+- **Authority.** Installing, upgrading or running Grok Build on the maintainer's machine, and
+  using the maintainer's xAI credentials, follow the maintainer's own boundary for peer
+  requests (WDR 002, Decision 2). Credentials stay out of Git (root `AGENTS.md`, Privacy).
+- **Identity.** The adapter takes the caller from native per-call metadata, never from tool
+  arguments (ADR 001, Decision 1).
+- **Registration.** A launched Grok session gets participant features; a direct start is a
+  plain peer; a sub-agent's calls are its parent's (PDR 001, Decisions 1 and 2; #254 comment
+  6118290944).
+- **Same-user boundary.** The loopback daemon, its private store and content-free wakes stay
+  unchanged (ADR 001, Decisions 2 and 3).
 - **Tests.** Tests use synthetic Grok sessions, temporary state and configuration, ephemeral
-  ports and private tmux servers. CI never contacts the xAI provider.
+  ports and private tmux servers, isolated from the person's environment (WDR 006, Decision 2).
+  CI never contacts the xAI provider.
 - **Platforms.** Linux and macOS, one CGO-free binary.
-- **Process.** Gate A approves this decision; gate B approves the reviewed plan before any
-  chunk is built. One open pull request per target branch.
+- **Process.** Gates A and B (WDR 002, Decision 5); one open pull request per target branch
+  (WDR 004, Decision 2).
 
 ## Issues
 

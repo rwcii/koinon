@@ -35,14 +35,16 @@ CI never runs Grok Build and never contacts the xAI provider.
   `identity_unavailable`. A call with no proven session, or one whose metadata names a
   session the server was not started for, is refused. Caller fields in tool arguments are
   refused as for every family.
-- **Admission (1).** A Grok session that was not started through the Koinon launcher is
-  refused with `not_launched` and the launcher command. A launched session registers with
-  its launch ID and host evidence.
+- **Admission (1).** A Grok session that was not started through the Koinon launcher, with
+  its identity proven (chunk 02, item 3), registers as a plain peer: peer name, messaging,
+  memory and work, and no participant, role, succession or terminal naming (PDR 001,
+  Decision 1). A launched session registers with its launch ID and host evidence.
 - **Reset and resume (3).** The tests model the reset and resume behavior that chunk 01
   records: a reset that gives a new native session registers the new session; a resumed
   session gets the identity chunk 01 shows it presents.
 - **Messaging (4).** Peer discovery, send, inbox, acknowledgement, delivery, memory and
-  work claims run end to end from a synthetic Grok session against a test daemon.
+  work claims run end to end from a launched and from a directly started synthetic Grok
+  session against a test daemon.
 - **Wake (5).** The `grok` provider types the fixed notice only into the session's proven,
   idle pane (chunk 03); tests on private tmux servers cover a foreign pane, a reused host, an
   intervening agent and a busy prompt, none of which receive input.
@@ -61,7 +63,8 @@ CI never runs Grok Build and never contacts the xAI provider.
 - `GROK_SESSION_ID` missing, or present but not matching the calling session.
 - A forged `X-Grok-Agent-ID` header or caller field from model-controlled input.
 - `--session-id` reused, or naming an existing session.
-- A subagent's Koinon call, which the `grok-pre-tool-use` hook refuses (chunk 02, item 8).
+- A subagent's Koinon call, which Koinon attributes to its parent session (chunk 02, item 8;
+  PDR 001, Decision 2).
 - A Grok version other than the recorded ones: setup reports it and does not assume support.
 
 ## Gate
