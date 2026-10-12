@@ -568,6 +568,10 @@ generation even if the proposal changes. A different native session starts only 
 release/expiry with its own consumer and generation. Claim views label `ownership` as
 `native` or `legacy`. Migration defaults old claims/replays to legacy, preserving consumers,
 generations, deadlines, inboxes and cursors. See [PDR 004, Decision 1](docs/product/pdr/004-work-results-role-routing.md).
+The authenticated dashboard and explicit purge retain their existing maintainer release and
+finish controls (PDR 005, Decision 3). Their ownership replay rows keep the claim's native
+binding for agent callers. Retention recognizes the same digest derived from recorded native
+session keys, including in its deleting transaction; participant claims keep their continuation.
 
 `work-list` accepts `assigned_to_me` and keyset `after`. Responses retain `truncated`, add
 `more` and nullable `next_after`, and keep their 100-item/48-KiB bounds. Matching proposals

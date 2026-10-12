@@ -1155,7 +1155,7 @@ func (s *Store) apply(ctx context.Context, tx *writeTx, store string, m MemoryCa
 		owned := r.op == "work-update" || r.op == "work-release" || r.op == "work-finish" || r.op == "claim-renew" ||
 			r.op == "work-edit" && held != nil && held.Active && held.ExpiresAt > now
 		if owned {
-			if held != nil && held.NativeActor != "" && held.NativeActor != nativeWorkActor(m) {
+			if held != nil && held.NativeActor != "" && m.Family != maintainerKey.Family && held.NativeActor != nativeWorkActor(m) {
 				return nil, workError("stale_claim", "this claim belongs to another native session")
 			}
 			if !r.has("claim_generation") {
@@ -1167,6 +1167,11 @@ func (s *Store) apply(ctx context.Context, tx *writeTx, store string, m MemoryCa
 			}
 			if b.ProgressEpoch != w.ProgressEpoch {
 				return nil, workError("incompatible_store", "work and claim progress epochs disagree")
+			}
+			// Administrative ownership replays keep the claim's binding too, so a
+			// copied consumer never becomes a native-session replay after reclamation.
+			if b.NativeActor != "" {
+				r.actor = b.NativeActor
 			}
 		}
 		if r.op == "claim-renew" {
@@ -1207,7 +1212,11 @@ func (s *Store) apply(ctx context.Context, tx *writeTx, store string, m MemoryCa
 		case "work-start", "work-update":
 			w.ProgressEpoch++
 			if r.op == "work-start" {
-				if w.ProposedRole != nil {
+				if w.ProposedRole != nil && m.Family != maintainerKey.Family {
+					if r.actor == "" {
+						return nil, WorkRefusal{Code: "revision_conflict", Message: "the proposal changed to a role while this start waited; read the item and retry",
+							Details: map[string]any{"current_revision": w.Revision - 1}}
+					}
 					if err := requireWorkRole(ctx, tx.Tx, m, w.ProposedRole, now); err != nil {
 						return nil, err
 					}
@@ -1221,7 +1230,7 @@ func (s *Store) apply(ctx context.Context, tx *writeTx, store string, m MemoryCa
 				if err != nil {
 					return nil, err
 				}
-				if w.ProposedRole != nil {
+				if r.actor != "" {
 					if _, err := tx.ExecContext(ctx, `UPDATE claim_bundles SET native_actor=? WHERE store=? AND generation=?`,
 						r.actor, store, got.Generation); err != nil {
 						return nil, err

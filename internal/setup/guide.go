@@ -86,6 +86,8 @@ whole generation, even after the proposal changes. Another native session waits 
 or expiry and starts a fresh generation. An active original native owner can release its own
 claim after a holder change. Explicit consumers must match the derived key. Existing default
 participant claims, inboxes and cursors retain their continuation above (PDR 004, Decision 1).
+The maintainer's authenticated dashboard release/finish and explicit purge retain their
+existing administrative controls (PDR 005, Decision 3).
 
 ## Terminal naming
 Launched sessions name their own tmux session after the held participant address, else the

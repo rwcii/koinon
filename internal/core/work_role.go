@@ -4,9 +4,12 @@ import (
 	"context"
 	"crypto/sha256"
 	"database/sql"
+	"database/sql/driver"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
+
+	"modernc.org/sqlite"
 )
 
 // WorkRole is a routing proposal in the caller's repository, never a caller identity.
@@ -59,13 +62,34 @@ func roleResolution(ctx context.Context, q querier, repo string, role *WorkRole,
 }
 
 func nativeWorkActor(m MemoryCaller) string {
-	if !validKey(m.Native.Family, m.Native.ID) || m.Native.Family != m.Family {
+	if m.Native.Family != m.Family {
+		return ""
+	}
+	return nativeWorkActorForKey(m.Native)
+}
+
+func nativeWorkActorForKey(k Key) string {
+	if !validKey(k.Family, k.ID) {
 		return ""
 	}
 	// JSON tuple encoding preserves the family/ID boundary for every valid native ID.
-	b, _ := json.Marshal([2]string{m.Native.Family, m.Native.ID})
+	b, _ := json.Marshal([2]string{k.Family, k.ID})
 	sum := sha256.Sum256(b)
 	return hex.EncodeToString(sum[:])
+}
+
+func init() {
+	// Retention compares the same digest against recorded session keys in its
+	// deleting transaction. This pure function adds no table, index or identity data.
+	sqlite.MustRegisterDeterministicScalarFunction("koinon_native_work_actor", 2,
+		func(_ *sqlite.FunctionContext, args []driver.Value) (driver.Value, error) {
+			family, familyOK := args[0].(string)
+			id, idOK := args[1].(string)
+			if !familyOK || !idOK {
+				return "", nil
+			}
+			return nativeWorkActorForKey(Key{family, id}), nil
+		})
 }
 
 func nativeWorkConsumer(m MemoryCaller) string { return "native-work:" + nativeWorkActor(m) }
@@ -73,7 +97,9 @@ func nativeWorkConsumer(m MemoryCaller) string { return "native-work:" + nativeW
 // The normalization read can precede a wait for memory serialization. Revalidate
 // the bound actor in the replay/owner transaction at its processing time as well.
 func requireNativeWorkCaller(ctx context.Context, tx *sql.Tx, m MemoryCaller, actor string, now float64) error {
-	if actor == "" {
+	// This internal caller is used by authenticated dashboard controls and an
+	// explicitly marked purge. validKey refuses it on every native API route.
+	if actor == "" || m.Family == maintainerKey.Family {
 		return nil
 	}
 	if actor != nativeWorkActor(m) {

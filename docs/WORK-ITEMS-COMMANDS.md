@@ -40,7 +40,7 @@ DeepSeek. Family and role use the supported family and launcher role grammar.
 
 Current views and summaries include `proposed_role` and, when set, `role_resolution` with
 `state` (`held`, `unheld`, `conflict`), the known participant address, and its held peer name.
-A role start requires that participant's current native holder and the usual resource checks.
+A native session's role start requires that participant's current holder and the usual resource checks.
 It derives `native-work:` plus the SHA-256 hex digest of the JSON tuple `[family, native ID]`.
 An explicit consumer must equal that key. The claim view labels this `ownership: native`;
 legacy claims are labeled `legacy`. The binding lasts for the complete generation, including
@@ -48,6 +48,9 @@ after a proposal changes or clears. Every owner write and ownership retry checks
 actor; a different session waits for release/expiry and starts a fresh generation. An active
 original native owner can release its generation even after the participant changes holder.
 Existing/default participant claims, cursors and inboxes continue as above.
+Authenticated maintainer release/finish and explicitly marked purge keep their existing
+administrative controls ([PDR 005, Decision 3](product/pdr/005-room-conversations-human-origin.md)).
+Their ownership retries retain the native claim's binding for agent callers as well.
 
 List accepts `assigned_to_me` (`--assigned-to-me`), matching explicit consumer proposals or
 the caller's actually held family/role. `after` (`--after WORK_ID`) pages in work-ID order.
