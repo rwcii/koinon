@@ -33,6 +33,10 @@ func TestWorkRoleToolsAllFamilies(t *testing.T) {
 			id := first["work_id"].(string)
 			call("work_create", map[string]any{"title": "synthetic second", "criteria": "c", "non_goals": "n", "key": "second-create",
 				"deadline": deadline, "proposed_role": map[string]any{"family": c.family, "role": ""}})
+			created := call("work_list", map[string]any{"created_by_me": true})
+			if len(created["items"].([]any)) != 2 {
+				t.Fatalf("creator inventory: %v", created)
+			}
 			page := call("work_list", map[string]any{"assigned_to_me": true, "limit": 1})
 			if page["more"] != true || page["next_after"] != id {
 				t.Fatalf("first assignment page: %v", page)

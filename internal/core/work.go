@@ -41,7 +41,7 @@ var workTextLimits = map[string]int{"title": 256, "criteria": 4096, "non_goals":
 var workFields = map[string][]string{
 	"work-create":  {"title", "criteria", "non_goals", "proposed_assignee", "proposed_role", "references"},
 	"work-get":     {"work_id", "revision"},
-	"work-list":    {"lifecycle", "owner", "proposed_assignee", "assigned_to_me", "after", "stale", "blocked", "limit"},
+	"work-list":    {"lifecycle", "owner", "proposed_assignee", "assigned_to_me", "created_by_me", "after", "stale", "blocked", "limit"},
 	"work-propose": {"work_id", "if_revision", "proposed_assignee", "proposed_role"},
 	"work-edit":    {"work_id", "if_revision", "claim_generation", "title", "criteria", "non_goals"},
 	"work-start":   {"work_id", "if_revision", "checkpoint", "next_artifact", "progress_deadline", "lease_seconds", "resources"},
@@ -198,7 +198,7 @@ func parseWork(op string, fields map[string]json.RawMessage) (*workRequest, erro
 				return nil, invalid(name + " must be a finite nonnegative time")
 			}
 			r.numbers[name] = v
-		case "stale", "blocked", "assigned_to_me":
+		case "stale", "blocked", "assigned_to_me", "created_by_me":
 			var v bool
 			if kind != "bool" || json.Unmarshal(raw, &v) != nil {
 				return nil, invalid(name + " must be a boolean")
@@ -452,10 +452,11 @@ type workItem struct {
 // workReport is the frozen report in a reported event's payload. Its evidence is the
 // item's references in the same payload; a read adds them here.
 type workReport struct {
-	Summary         string   `json:"summary"`
-	References      []string `json:"references,omitempty"`
-	ScopeRevision   int64    `json:"scope_revision"`
-	ClaimGeneration int64    `json:"claim_generation"`
+	Summary         string    `json:"summary"`
+	References      []string  `json:"references,omitempty"`
+	ScopeRevision   int64     `json:"scope_revision"`
+	ClaimGeneration int64     `json:"claim_generation"`
+	ParticipantRole *WorkRole `json:"participant_role,omitempty"`
 }
 
 // workVerdictEvidence names the report that an accepted or rejected event judges; the
@@ -983,7 +984,7 @@ func listing(ctx context.Context, q *sql.Tx, store string, m MemoryCaller, r *wo
 		}
 	}
 	rows, err := q.QueryContext(ctx, `SELECT w.work_id,w.revision,w.title,w.lifecycle,w.proposed_assignee,w.progress_deadline,
-		b.consumer,COALESCE(b.active,0),COALESCE(b.expires_at,0),w.checkpoint,w.proposed_role,w.report_seq,w.verdict,w.verdict_seq
+		b.consumer,COALESCE(b.active,0),COALESCE(b.expires_at,0),w.checkpoint,w.proposed_role,w.report_seq,w.verdict,w.verdict_seq,w.created_consumer
 		FROM work_items w LEFT JOIN claim_bundles b
 		ON b.store=w.store AND b.work_id=w.work_id WHERE w.store=? AND (w.expires_at IS NULL OR w.expires_at>?) AND w.work_id>? ORDER BY w.work_id`, store, now, r.text["after"])
 	if err != nil {
@@ -994,7 +995,7 @@ func listing(ctx context.Context, q *sql.Tx, store string, m MemoryCaller, r *wo
 	base, _ := json.Marshal(result)
 	used := len(base) + 32 // next_after becomes a full work ID when another page exists.
 	for rows.Next() {
-		var workID, title, lifecycle, checkpoint, roleJSON string
+		var workID, title, lifecycle, checkpoint, roleJSON, creator string
 		var revision int64
 		var proposed, consumer, verdict *string
 		var reportSeq, verdictSeq *int64
@@ -1002,7 +1003,7 @@ func listing(ctx context.Context, q *sql.Tx, store string, m MemoryCaller, r *wo
 		var active bool
 		var expires float64
 		if err := rows.Scan(&workID, &revision, &title, &lifecycle, &proposed, &deadline, &consumer, &active, &expires, &checkpoint, &roleJSON,
-			&reportSeq, &verdict, &verdictSeq); err != nil {
+			&reportSeq, &verdict, &verdictSeq, &creator); err != nil {
 			return nil, err
 		}
 		var role *WorkRole
@@ -1013,6 +1014,9 @@ func listing(ctx context.Context, q *sql.Tx, store string, m MemoryCaller, r *wo
 		}
 		assigned := proposed != nil && *proposed == m.Consumer || role != nil && assignedRole != nil && *role == *assignedRole
 		if r.has("assigned_to_me") && assigned != r.bools["assigned_to_me"] {
+			continue
+		}
+		if r.has("created_by_me") && (creator == m.Consumer) != r.bools["created_by_me"] {
 			continue
 		}
 		live, _, stale := freshness(lifecycle, deadline, active, expires, now)
@@ -1435,6 +1439,15 @@ func (s *Store) apply(ctx context.Context, tx *writeTx, store string, m MemoryCa
 			kind, w.Lifecycle, w.VerdictCredit, w.ProgressDeadline, w.Blocker = "reported", "reported", true, nil, ""
 			w.References, w.ReportConsumer, w.ReportActor, w.Verdict, w.VerdictSeq = r.refs, &consumer, nativeWorkActor(m), nil, nil
 			w.report = &workReport{Summary: r.text["summary"], ScopeRevision: w.ScopeRevision, ClaimGeneration: generation}
+			if validKey(m.Native.Family, m.Native.ID) {
+				session, err := scanSession(tx.QueryRowContext(ctx, sessionQuery+` WHERE s.family=? AND s.id=?`, m.Native.Family, m.Native.ID), int64(now*1000))
+				if err != nil {
+					return nil, err
+				}
+				if session.Address != "" {
+					w.report.ParticipantRole = &WorkRole{Family: session.Family, Role: session.Role}
+				}
+			}
 		case "work-accept", "work-reject":
 			// A verdict ends the reported round: the claim's progress fields are cleared and
 			// the verdict's evidence replaces the references, as a finish does. The report

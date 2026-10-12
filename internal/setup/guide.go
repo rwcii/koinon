@@ -38,6 +38,11 @@ also to another session of your own family.
 - work_report, work_accept, work_reject: report a held item's result with evidence (the
   claim is released and the item waits for a verdict); accept or reject another worker's
   current report. The reporting consumer and native session cannot record its verdict.
+- Daemon work notices name a repository and changed head. Use work_list with assigned_to_me
+  or created_by_me, process memory_sync through that head, then acknowledge the handled
+  inbox notice. Current queries remain complete after a reset or a missed notice, including
+  when the continued memory cursor already passed the transition. memory_status shows
+  unresolved audiences and notification saturation.
 
 ## Participants
 A participant is a family, repository and optional maintainer-assigned role. Start an additional

@@ -407,6 +407,9 @@ func TestWorkCommands(t *testing.T) {
 		t.Fatal(err)
 	}
 	roleID := roleCreated["work_id"].(string)
+	if page, err := work("work", "list", "--created-by-me"); err != nil || len(page["items"].([]any)) != 2 {
+		t.Fatalf("creator CLI query: %v %v", page, err)
+	}
 	if page, err := work("work", "list", "--assigned-to-me", "--limit", "1"); err != nil || page["more"] != false || page["items"].([]any)[0].(map[string]any)["work_id"] != roleID {
 		t.Fatalf("role assignment query: %v %v", page, err)
 	}

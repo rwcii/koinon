@@ -281,7 +281,7 @@ func checkFormat(db *sql.DB, path string) error {
 	return nil
 }
 
-const schemaVersion = 17
+const schemaVersion = 18
 
 // workItemsV16Columns are the work item columns before schema 17, which its rebuild copies.
 const workItemsV16Columns = `store,work_id,revision,lifecycle,title,criteria,non_goals,proposed_assignee,created_at,created_consumer,
@@ -638,6 +638,15 @@ func migrate(db *sql.DB, version, target int) error {
 				SELECT store,seq,work_id,revision,kind,payload,actor FROM work_events_v16;
 			DROP TABLE work_events_v16;
 			CREATE INDEX work_events_item ON work_events(store, work_id, seq);`); err != nil {
+			return err
+		}
+	}
+	if version < 18 && target >= 18 {
+		if _, err := tx.Exec(`CREATE TABLE work_audiences (
+			store TEXT NOT NULL, audience TEXT NOT NULL CHECK(length(audience)=64),
+			data TEXT NOT NULL, head INTEGER NOT NULL CHECK(head>0),
+			notice_head INTEGER NOT NULL DEFAULT 0, message_id INTEGER,
+			reason TEXT NOT NULL DEFAULT '', PRIMARY KEY(store,audience))`); err != nil {
 			return err
 		}
 	}

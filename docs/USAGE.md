@@ -155,6 +155,13 @@ claim renewal and finish/release. Read scope before claiming. The permission for
 from the maintainer's task, not from a claim (WDR 002, Decision 3).
 Claims remain advisory. An expired lease does not make a checkpoint an instruction.
 
+Daemon work notices contain a repository and changed head. List current assignments with
+`--assigned-to-me` or created work with `--created-by-me`, then read memory through the
+announced head and acknowledge the handled inbox notice. Queries page all retained matching
+items even when a continued memory cursor already passed the transition. Notices coalesce
+and follow current participant holders. `memory_status` shows unresolved audiences and the
+256-audience limit; queries remain complete when a notice cannot be queued.
+
 For agents sharing a checkout, `work_checkout` shows the writer, generation token, expiry
 and checkpoint. Include its resource in every writer's `work_start`; linked worktrees get
 separate resources. `work_checkout_request` notifies the current writer. The writer can

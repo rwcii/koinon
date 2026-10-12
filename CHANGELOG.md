@@ -15,6 +15,15 @@ into a dated release section when promoted to `main`.
   `invalid tmux launch result` after starting the session, and a launched session's pane was
   not proven for terminal naming, same-pane succession or the Grok wake (#254).
 
+- Discover work by creator and current assignment, and receive coalesced daemon work
+  notices through the existing inbox and wake adapters. Durable audience watermarks
+  reconcile missed notices after restart or holder changes; ordinary notification
+  admission preserves funded work controls. Status shows the 256-audience limit and
+  unresolved or omitted audiences, with complete paged queries as the fallback.
+  Worker progress does not create a wake loop, and routing history is read outside
+  the memory operation lock.
+  The state database moves to schema 18 (#140, chunk 03).
+
 - A worker reports a held item's result with a summary and evidence (`work_report`,
   `koinon work report`); the claim is released and the item stays `reported` until another
   worker accepts or rejects it (`work_accept`, `work_reject`). The reporting consumer and

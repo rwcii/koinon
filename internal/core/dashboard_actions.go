@@ -160,7 +160,13 @@ func (d *Daemon) dashboardActions(mux *http.ServeMux, authed func(int64, func(ht
 		address := r.PostForm.Get("address")
 		run(w, r, "participant-holder", address, "sessions", nil,
 			valid && k != maintainerKey && ok && revision > 0 && address != "" && len(address) <= 256,
-			func(ctx context.Context) error { return d.store.ChooseHolder(ctx, address, k, revision) },
+			func(ctx context.Context) error {
+				if err := d.store.ChooseHolder(ctx, address, k, revision); err != nil {
+					return err
+				}
+				d.signalWorkNotices()
+				return nil
+			},
 			"participant_chosen", func(err error) string {
 				if !errors.Is(err, ErrConflict) {
 					return errorCode(err)

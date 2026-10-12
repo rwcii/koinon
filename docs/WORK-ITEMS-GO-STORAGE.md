@@ -102,6 +102,32 @@ with the maximum scope and plain maximum references fits, which `TestWorkVerdict
 checks with maximum-length consumer keys on an item at its admission bound and on one with a
 short scope.
 
+## Ordinary work-notice state
+
+Schema 18 adds `work_audiences` and its primary-key index. At most 256 rows per store hold
+the bounded audience descriptor, relevant/notice heads and pending inbox message reference.
+Their text columns plus the 512-byte work-row charge enter both the shared and work logical
+ledgers. Notification insertion and advancement use ordinary admission after the work
+commit. The existing control transactions allocate neither audience rows nor notice
+messages, so the overdue/end/verdict derivations and credits above retain their object set.
+Read-only ledger queries include the added state. Catalog validation includes only the
+declared schema objects. At row or ordinary-capacity saturation, retained work events and
+complete paged queries remain the recovery source.
+
+Reconciliation selects retained assignment, scope, report, verdict and daemon events and
+decodes only their routing fields outside the memory operation lock. Claim/progress events
+do not cause assignment notices. Each audience update uses its own ordinary transaction;
+cleanup checks the observed store head before deleting an unused row, without rebuilding
+the history under the lock. A changed head defers cleanup to the next pass.
+The observer's synthetic fixture (1,610 events, 18.3 MB of payloads) took about 15 ms to
+rebuild routing heads in an uninstrumented local Linux run after this change, compared
+with its earlier 660 ms full-payload read. This is measurement evidence, not a latency bound.
+
+The reporting participant's family/role is optional bounded metadata in the immutable report
+event. Report admission checks its encoded event with that metadata before promising the
+verdict. The metadata is absent from a verdict image, whose report sequence references the
+frozen event; the verdict's physical and logical bounds remain unchanged.
+
 ## Evidence
 
 Schema 16 adds bounded proposal JSON and 64-byte native actor digests to the existing item,

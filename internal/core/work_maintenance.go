@@ -15,6 +15,7 @@ const workSweepInterval = 30 * time.Second
 
 type workState struct {
 	mu          sync.Mutex
+	noticeMu    sync.Mutex
 	lastSuccess *float64
 	fault       *string
 	faultAt     *float64
