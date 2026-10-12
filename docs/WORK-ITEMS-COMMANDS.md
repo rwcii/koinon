@@ -78,6 +78,17 @@ shows the frozen report with its own references. Report, accept and reject event
 the item's history. The verdict is the recording agent's data and
 grants no authority.
 
+List also accepts `created_by_me` (`--created-by-me`), matching the caller's consumer. These
+current queries reveal retained work even after the continued memory cursor has passed its
+original transition. A daemon work notice names the repository and changed head: query
+current work, process memory deltas through that head, and acknowledge after handling.
+
+Work notices coalesce per audience and use the existing inbox/provider lifecycle. Proposals
+and changes reach current assignees; removed assignments reach previous assignees; reports
+reach creators; verdicts reach the reported worker's participant or recorded native actor.
+Current registry and cursor provenance resolve recipients. Status shows unresolved audiences
+and the 256-row limit; full queries remain available when a notice cannot be queued.
+
 List accepts `assigned_to_me` (`--assigned-to-me`), matching explicit consumer proposals or
 the caller's actually held family/role. `after` (`--after WORK_ID`) pages in work-ID order.
 Responses carry `more`, nullable `next_after`, and the compatible `truncated` flag. Page until

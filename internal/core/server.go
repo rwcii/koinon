@@ -47,8 +47,9 @@ type Daemon struct {
 	launch func(ctx context.Context, args []string) ([]byte, error)
 	// unfinished holds launch results whose audit update failed, by record ID; the
 	// maintenance loop writes them when storage allows. A launch never runs again.
-	launchMu   sync.Mutex
-	unfinished map[int64][2]string
+	launchMu         sync.Mutex
+	unfinished       map[int64][2]string
+	workNoticeSignal chan struct{}
 }
 
 func validAddress(address string) bool {
@@ -86,7 +87,7 @@ func Start(c Config) (*Daemon, error) {
 	if err != nil {
 		return nil, err
 	}
-	d := &Daemon{lock: lock, errors: make(chan error, 2), stop: make(chan struct{}), root: root, launch: runLauncher, catalog: catalog}
+	d := &Daemon{lock: lock, errors: make(chan error, 2), stop: make(chan struct{}), root: root, launch: runLauncher, catalog: catalog, workNoticeSignal: make(chan struct{}, 1)}
 	defer func() {
 		if err != nil {
 			d.Close()
@@ -108,6 +109,7 @@ func Start(c Config) (*Daemon, error) {
 	// A launch whose result a previous daemon never recorded stays visibly open no longer.
 	d.store.closeStartedLaunches(context.Background())
 	d.store.wake.send = d.store.providerWake
+	d.store.OnMemoryChange(func(string) { d.signalWorkNotices() })
 	if d.auth, err = newDashboardAuth(func() time.Time { return d.store.now() }); err != nil {
 		return nil, err
 	}
@@ -131,6 +133,8 @@ func Start(c Config) (*Daemon, error) {
 	go d.maintainWork()
 	d.wg.Add(1)
 	go d.maintainWake()
+	d.wg.Add(1)
+	go d.maintainWorkNotices()
 	for _, listener := range d.listeners {
 		server := &http.Server{Handler: d.handler(), ReadHeaderTimeout: 5 * time.Second, ReadTimeout: 10 * time.Second, WriteTimeout: 10 * time.Second, IdleTimeout: 30 * time.Second, MaxHeaderBytes: 8192}
 		d.servers = append(d.servers, server)
@@ -382,6 +386,7 @@ func (d *Daemon) handler() http.Handler {
 			failure(w, err)
 			return
 		}
+		d.signalWorkNotices()
 		respond(w, 200, map[string]any{"ok": true, "session": result, "renewal_seconds": d.store.Settings().RenewalSeconds})
 	})
 	for _, action := range []string{"renew", "retire"} {
@@ -396,6 +401,7 @@ func (d *Daemon) handler() http.Handler {
 				failure(w, err)
 				return
 			}
+			d.signalWorkNotices()
 			respond(w, 200, map[string]any{"ok": true, "session": result, "renewal_seconds": d.store.Settings().RenewalSeconds})
 		})
 	}

@@ -5,6 +5,13 @@ into a dated release section when promoted to `main`.
 
 ## Unreleased
 
+- Discover work by creator and current assignment, and receive coalesced daemon work
+  notices through the existing inbox and wake adapters. Durable audience watermarks
+  reconcile missed notices after restart or holder changes; ordinary notification
+  admission preserves funded work controls. Status shows the 256-audience limit and
+  unresolved or omitted audiences, with complete paged queries as the fallback.
+  The state database moves to schema 18 (#140, chunk 03).
+
 - A worker reports a held item's result with a summary and evidence (`work_report`,
   `koinon work report`); the claim is released and the item stays `reported` until another
   worker accepts or rejects it (`work_accept`, `work_reject`). The reporting consumer and
