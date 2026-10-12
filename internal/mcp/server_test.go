@@ -301,6 +301,8 @@ func TestIdentitySources(t *testing.T) {
 		{"id in arguments", "opencode", "/opt/agent/bin/opencode", nil, nil, map[string]any{"koinon_session": "ses_synthetic", "id": "other"}, "", ""},
 		{"grok", "grok-shell-koinon", "/opt/xai/grok/bin/grok-native", map[string]string{"GROK_SESSION_ID": "synthetic-grok"}, nil, nil, "grok", "synthetic-grok"},
 		{"grok wrong parent", "grok-shell-koinon", "/usr/bin/bash", map[string]string{"GROK_SESSION_ID": "synthetic-grok"}, nil, nil, "", ""},
+		{"grok name only in argv[0]", "grok-shell-koinon", "/usr/bin/bash", map[string]string{"GROK_SESSION_ID": "synthetic-grok"}, nil, nil, "", ""},
+		{"grok link on macOS", "grok-shell-koinon", "/usr/local/bin/grok", map[string]string{"GROK_SESSION_ID": "synthetic-grok"}, nil, nil, "grok", "synthetic-grok"},
 		{"grok env under another client", "synthetic-client", "/opt/xai/grok/bin/grok-native", map[string]string{"GROK_SESSION_ID": "synthetic-grok"}, nil, nil, "", ""},
 		{"grok no id", "grok-shell-koinon", "/opt/xai/grok/bin/grok-native", nil, nil, nil, "", ""},
 		{"plugin field from grok", "grok-shell-koinon", "/opt/xai/grok/bin/grok-native", map[string]string{"GROK_SESSION_ID": "synthetic-grok"}, nil, map[string]any{"koinon_session": "ses_synthetic"}, "", ""},
@@ -311,6 +313,9 @@ func TestIdentitySources(t *testing.T) {
 			h.parent = c.parent
 			for k, v := range c.env {
 				h.env[k] = v
+			}
+			if c.name == "grok name only in argv[0]" {
+				h.s.c.Command = func(int) (string, []string, error) { return "/usr/bin/bash", []string{"grok-native"}, nil }
 			}
 			if c.name == "claude npm" {
 				h.s.c.Command = func(int) (string, []string, error) {

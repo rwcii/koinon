@@ -145,8 +145,9 @@ func TestFakeCLI(t *testing.T) {
 	// The launcher's exec keeps its process ID, so this process is the launch's host, as
 	// the agent CLI is; a Claude server also reports it as claude_pid.
 	own := core.Registration{Family: family, ID: "synthetic-" + family, Directory: directory, LaunchID: r.LaunchID, Ancestors: []int{os.Getpid()}}
-	// A Grok session takes the ID that the launcher chose with --session-id, as Grok does.
-	for i := 0; family == "grok" && i+1 < len(args); i++ {
+	// A Grok session takes the ID that the launcher chose with --session-id, as Grok does;
+	// Grok reads options only before its "--".
+	for i := 0; family == "grok" && i+1 < len(args) && args[i] != "--"; i++ {
 		if args[i] == "--session-id" {
 			own.ID = args[i+1]
 		}
@@ -688,9 +689,20 @@ func TestGrokLaunchChoosesTheFirstSession(t *testing.T) {
 		r.Session.ID != chosen || target.SessionID != chosen || target.Family != "grok" || len(r.LaunchID) != 64 {
 		t.Fatalf("grok launch record: %+v %+v %v", r, target, err)
 	}
+	// The chosen ID goes before a native "--", so text after it stays text (Codex review).
+	result = filepath.Join(root, "prompt.json")
+	args := append(arguments(root, address, cli, directory, "grok", result), "--", "synthetic prompt")
+	if out, err := exec.Command(launcherBinary, args...).CombinedOutput(); err != nil {
+		t.Fatalf("grok launch with a prompt: %v %s", err, out)
+	}
+	r = readReport(t, result)
+	option, marker := slices.Index(r.Args, "--session-id"), slices.Index(r.Args, "--")
+	if option < 0 || marker < option || r.Args[len(r.Args)-1] != "synthetic prompt" || r.Session.ID != r.Args[option+1] {
+		t.Fatalf("grok prompt arguments: %v %+v", r.Args, r.Session)
+	}
 	// A resumed session keeps its own ID; the launch chooses none.
 	result = filepath.Join(root, "resume.json")
-	args := append(arguments(root, address, cli, directory, "grok", result), "--resume", "synthetic-resumed")
+	args = append(arguments(root, address, cli, directory, "grok", result), "--resume", "synthetic-resumed")
 	if out, err := exec.Command(launcherBinary, args...).CombinedOutput(); err != nil {
 		t.Fatalf("grok resume: %v %s", err, out)
 	}

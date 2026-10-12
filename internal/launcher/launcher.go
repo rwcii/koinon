@@ -611,7 +611,12 @@ func Run(ctx context.Context, o Options, out io.Writer) error {
 			return err
 		}
 		if target.SessionID != "" {
-			args = append(args, "--session-id", target.SessionID)
+			// Grok's options end at a native "--"; the chosen ID goes before it.
+			end := len(args)
+			if i := slices.Index(args[1:], "--"); i >= 0 {
+				end = i + 1
+			}
+			args = slices.Concat(args[:end], []string{"--session-id", target.SessionID}, args[end:])
 		}
 	}
 	id, err := core.CreateLaunch(ctx, o.Address, secret, target)

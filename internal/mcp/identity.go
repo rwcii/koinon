@@ -28,8 +28,9 @@ const (
 	grokLeader                   // Grok's leader process (`grok-native agent leader`)
 )
 
-// grokProcess classifies the server's parent. The `grok` command runs the grok-native
-// executable; its leader runs `grok-native agent leader ...`.
+// grokProcess classifies the server's parent by its executable: grok-native, or the grok
+// link that macOS ps can report for it. The arguments only tell the leader
+// (`grok-native agent leader ...`) from a terminal session; they never admit a process.
 func grokProcess(command func(int) (string, []string, error), pid int) grokParent {
 	if command == nil || pid <= 1 {
 		return grokNone
@@ -38,8 +39,7 @@ func grokProcess(command func(int) (string, []string, error), pid int) grokParen
 	if err != nil {
 		return grokNone
 	}
-	name := filepath.Base(executable)
-	if name != "grok-native" && name != "grok" && (len(args) == 0 || filepath.Base(args[0]) != "grok" && filepath.Base(args[0]) != "grok-native") {
+	if name := filepath.Base(executable); name != "grok-native" && name != "grok" {
 		return grokNone
 	}
 	if len(args) >= 3 && args[1] == "agent" && args[2] == "leader" {
