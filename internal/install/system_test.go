@@ -87,16 +87,22 @@ func TestInstallSystemRefusals(t *testing.T) {
 	for name, change := range map[string]func(*env, *launchdtest.Fake){
 		"system_mode_root":     func(e *env, _ *launchdtest.Fake) { e.o.Services.UID = 0 },
 		"system_mode_no_start": func(e *env, _ *launchdtest.Fake) { e.o.NoStart = true },
-		"system_plist_mismatch": func(e *env, f *launchdtest.Fake) {
+		"system_plist_mismatch: another user": func(e *env, f *launchdtest.Fake) {
+			bob := e.o.Services
+			bob.User = "bob"
+			os.WriteFile(e.o.Services.SystemArtifact(), bob.RenderSystemDaemon("/b/bin/koinon", "/bob-state"), 0644)
+		},
+		"system_plist_mismatch: hand-written": func(e *env, f *launchdtest.Fake) {
 			e.o.System = false
 			os.WriteFile(e.o.Services.SystemArtifact(), []byte("hand-written"), 0644)
-			f.PlistJSON = `{"ProgramArguments":["/usr/local/bin/koinon","serve","--state-dir","` + e.o.StateDir + `"],"UserName":"alice"}`
+			f.PlistJSON = `{"Label":"` + platform.DaemonLabel + `","ProgramArguments":["/usr/local/bin/koinon","serve","--state-dir","` + e.o.StateDir + `"],"UserName":"alice"}`
 		},
 	} {
 		e, f := systemEnv(t)
 		e.o.System = true
 		change(e, f)
-		if _, err := Install(context.Background(), e.o); err == nil || !strings.HasPrefix(err.Error(), name+": ") {
+		code, _, _ := strings.Cut(name, ": ")
+		if _, err := Install(context.Background(), e.o); err == nil || !strings.HasPrefix(err.Error(), code+": ") {
 			t.Fatalf("%s: %v", name, err)
 		}
 		if _, err := os.Stat(Binary(e.o.Prefix)); !os.IsNotExist(err) {
@@ -112,7 +118,7 @@ func TestInstallSystemRefusals(t *testing.T) {
 	e, f := systemEnv(t)
 	os.WriteFile(e.o.Services.SystemArtifact(), []byte("hand-written"), 0644)
 	f.SystemLoaded = true
-	f.PlistJSON = `{"ProgramArguments":["` + Binary(e.o.Prefix) + `","serve","--state-dir","` + e.o.StateDir + `"],"UserName":"alice"}`
+	f.PlistJSON = `{"Label":"` + platform.DaemonLabel + `","ProgramArguments":["` + Binary(e.o.Prefix) + `","serve","--state-dir","` + e.o.StateDir + `"],"UserName":"alice"}`
 	r, err := Install(context.Background(), e.o)
 	if err != nil || r.Service != "system" {
 		t.Fatalf("hand-written %+v %v", r, err)

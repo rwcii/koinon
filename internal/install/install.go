@@ -449,8 +449,8 @@ func systemMode(ctx context.Context, o Options) (*platform.SystemPlist, error) {
 		return nil, errors.New("system_mode_root: run koinon install --system as the user the daemon runs as; it asks sudo for each privileged step")
 	case o.NoStart:
 		return nil, errors.New("system_mode_no_start: a system-mode install always starts and verifies the LaunchDaemon")
-	case p.Present && !p.Marked:
-		if err := o.Services.CheckHandWritten(p, Binary(o.Prefix), o.StateDir); err != nil {
+	case p.Present:
+		if err := o.Services.CheckSystem(p, Binary(o.Prefix), o.StateDir); err != nil {
 			return nil, err
 		}
 	}

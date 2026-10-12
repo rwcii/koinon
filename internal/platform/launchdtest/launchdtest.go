@@ -5,8 +5,11 @@ package launchdtest
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
+	"html"
 	"os"
+	"regexp"
 	"strconv"
 	"strings"
 )
@@ -22,6 +25,8 @@ type Fake struct {
 	// Stale makes status keep answering with the agent's PID, as when the former agent
 	// still holds the address. StatusDown makes status fail.
 	Stale, StatusDown bool
+	// NoDomain models a user without a console login: every command on gui/<uid> fails.
+	NoDomain bool
 	// PlistJSON is what plutil -convert json prints for the system plist.
 	PlistJSON string
 	// Fail makes the first command that contains it fail, after FailSkip matching commands
@@ -53,6 +58,9 @@ func (f *Fake) Run(_ context.Context, argv ...string) ([]byte, error) {
 	if f.Rollback != "" && strings.Contains(command, f.Rollback) {
 		return []byte("refused"), errors.New("exit status 1")
 	}
+	if f.NoDomain && strings.Contains(command, "launchctl") && strings.Contains(command, " "+f.gui()) {
+		return []byte("Bad request.\nCould not find domain for user gui: " + strconv.Itoa(f.UID)), errors.New("exit status 112")
+	}
 	switch {
 	case argv[0] == "launchctl" && len(argv) > 2 && strings.HasPrefix(argv[len(argv)-1], f.gui()):
 		return []byte("Domain does not support specified action"), errors.New("exit status 125")
@@ -60,8 +68,10 @@ func (f *Fake) Run(_ context.Context, argv ...string) ([]byte, error) {
 		return []byte("Domain does not support specified action"), errors.New("exit status 125")
 	case argv[0] == "plutil" && argv[1] == "-lint":
 		return []byte(argv[2] + ": OK"), nil
-	case argv[0] == "plutil":
+	case argv[0] == "plutil" && f.PlistJSON != "":
 		return []byte(f.PlistJSON), nil
+	case argv[0] == "plutil":
+		return plistJSON(argv[len(argv)-1])
 	case argv[0] != "sudo":
 		return nil, nil
 	}
@@ -131,6 +141,33 @@ func (f *Fake) Run(_ context.Context, argv ...string) ([]byte, error) {
 		f.SystemLoaded = false
 	}
 	return nil, nil
+}
+
+var (
+	plistString = regexp.MustCompile(`<key>(Label|UserName)</key>\s*<string>([^<]*)</string>`)
+	plistArray  = regexp.MustCompile(`(?s)<key>ProgramArguments</key>\s*<array>(.*?)</array>`)
+	arrayString = regexp.MustCompile(`<string>([^<]*)</string>`)
+)
+
+// plistJSON converts a plist that Koinon rendered into plutil's JSON for the fields that
+// ReadSystem reads.
+func plistJSON(path string) ([]byte, error) {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return []byte(err.Error()), err
+	}
+	fields := map[string]any{}
+	for _, m := range plistString.FindAllSubmatch(data, -1) {
+		fields[string(m[1])] = html.UnescapeString(string(m[2]))
+	}
+	if m := plistArray.FindSubmatch(data); m != nil {
+		var args []string
+		for _, a := range arrayString.FindAllSubmatch(m[1], -1) {
+			args = append(args, html.UnescapeString(string(a[1])))
+		}
+		fields["ProgramArguments"] = args
+	}
+	return json.Marshal(fields)
 }
 
 // StatusPID is the PID that the answering daemon reports.

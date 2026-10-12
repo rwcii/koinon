@@ -64,6 +64,7 @@ func TestSystemTransition(t *testing.T) {
 	agent := "gui/501/" + label
 	want := []string{
 		"plutil -lint TMP",
+		"sudo launchctl print gui/501",
 		"sudo launchctl print " + agent,
 		"sudo launchctl print-disabled gui/501",
 		"sudo launchctl disable " + agent,
@@ -207,10 +208,10 @@ func TestSystemHandWritten(t *testing.T) {
 		t.Fatal(err)
 	}
 	f.SystemLoaded = true
-	f.PlistJSON = `{"ProgramArguments":["/p/bin/koinon","serve","--state-dir","/state"],"UserName":"alice","KeepAlive":true}`
+	f.PlistJSON = `{"Label":"` + label + `","ProgramArguments":["/p/bin/koinon","serve","--state-dir","/state"],"UserName":"alice","KeepAlive":true}`
 	p, err := s.ReadSystem(context.Background())
-	if err != nil || !p.Present || p.Marked || s.CheckHandWritten(p, "/p/bin/koinon", "/state") != nil {
-		t.Fatalf("matching plist: %+v %v %v", p, err, s.CheckHandWritten(p, "/p/bin/koinon", "/state"))
+	if err != nil || !p.Present || p.Marked || s.CheckSystem(p, "/p/bin/koinon", "/state") != nil {
+		t.Fatalf("matching plist: %+v %v %v", p, err, s.CheckSystem(p, "/p/bin/koinon", "/state"))
 	}
 	if err := installSystem(s, f); err != nil {
 		t.Fatal(err)
@@ -222,13 +223,14 @@ func TestSystemHandWritten(t *testing.T) {
 		t.Fatalf("calls:\n%s", got)
 	}
 	for field, plist := range map[string]string{
-		"ProgramArguments": `{"ProgramArguments":["/other/koinon","serve","--state-dir","/state"],"UserName":"alice"}`,
-		"state directory":  `{"ProgramArguments":["/p/bin/koinon","serve","--state-dir","/elsewhere"],"UserName":"alice"}`,
-		"UserName":         `{"ProgramArguments":["/p/bin/koinon","serve","--state-dir","/state","--lock-wait","60s"],"UserName":"bob"}`,
+		"ProgramArguments": `{"Label":"` + label + `","ProgramArguments":["/other/koinon","serve","--state-dir","/state"],"UserName":"alice"}`,
+		"state directory":  `{"Label":"` + label + `","ProgramArguments":["/p/bin/koinon","serve","--state-dir","/elsewhere"],"UserName":"alice"}`,
+		"UserName":         `{"Label":"` + label + `","ProgramArguments":["/p/bin/koinon","serve","--state-dir","/state","--lock-wait","60s"],"UserName":"bob"}`,
+		"Label":            `{"Label":"other.service","ProgramArguments":["/p/bin/koinon","serve","--state-dir","/state"],"UserName":"alice"}`,
 	} {
 		f.PlistJSON = plist
 		p, _ := s.ReadSystem(context.Background())
-		if err := s.CheckHandWritten(p, "/p/bin/koinon", "/state"); err == nil ||
+		if err := s.CheckSystem(p, "/p/bin/koinon", "/state"); err == nil ||
 			!strings.HasPrefix(err.Error(), "system_plist_mismatch: ") || !strings.Contains(err.Error(), "("+field+")") {
 			t.Fatalf("%s: %v", field, err)
 		}
@@ -259,5 +261,89 @@ func TestRemoveSystem(t *testing.T) {
 	}
 	if _, err := os.Stat(s.SystemArtifact()); err != nil {
 		t.Fatal("the unowned plist was removed")
+	}
+}
+
+// The system plist is global: a marked LaunchDaemon of another user is never taken over or
+// removed (#283 chunk 02 review).
+func TestSystemOtherUser(t *testing.T) {
+	s, f := systemServices(t)
+	bob := s
+	bob.User = "bob"
+	if err := os.WriteFile(s.SystemArtifact(), bob.RenderSystemDaemon("/b/bin/koinon", "/bob-state"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	f.SystemLoaded = true
+	p, err := s.ReadSystem(context.Background())
+	if err != nil || !p.Marked || p.User != "bob" || p.Label != label {
+		t.Fatalf("read %+v %v", p, err)
+	}
+	if err := s.CheckSystem(p, "/p/bin/koinon", "/state"); err == nil || !strings.Contains(err.Error(), "(UserName)") {
+		t.Fatalf("another user's daemon: %v", err)
+	}
+	f.Calls = nil
+	if removed, err := s.RemoveSystem(context.Background()); removed || err == nil || !strings.Contains(err.Error(), "(UserName)") {
+		t.Fatalf("removal of another user's daemon: %v %v", removed, err)
+	}
+	for _, call := range f.Calls {
+		if strings.HasPrefix(call, "sudo ") {
+			t.Fatalf("%s ran", call)
+		}
+	}
+	if data, _ := os.ReadFile(s.SystemArtifact()); !strings.Contains(string(data), "<string>bob</string>") || !f.SystemLoaded {
+		t.Fatal("another user's daemon changed")
+	}
+	// The own marked plist passes.
+	os.WriteFile(s.SystemArtifact(), s.RenderSystemDaemon("/p/bin/koinon", "/state"), 0644)
+	if p, _ := s.ReadSystem(context.Background()); s.CheckSystem(p, "/p/bin/koinon", "/state") != nil {
+		t.Fatalf("own plist refused: %+v", p)
+	}
+}
+
+// Without a console login the user has no gui/<uid> domain and launchctl refuses every command
+// on it (exit 112, observed on the macOS runner). The transition and later installs proceed,
+// remove the owned agent plist and refuse one that Koinon did not write (#283 review).
+func TestSystemWithoutGUIDomain(t *testing.T) {
+	s, f := systemServices(t)
+	f.NoDomain, f.AgentLoaded = true, false
+	if err := installSystem(s, f); err != nil {
+		t.Fatal(err)
+	}
+	got := strings.Join(calls(f, s), "\n")
+	if strings.Contains(got, "disable") || strings.Contains(got, "bootout") || !strings.Contains(got, "sudo launchctl bootstrap system SYS") {
+		t.Fatalf("calls:\n%s", got)
+	}
+	if _, err := os.Stat(s.DaemonArtifact()); !os.IsNotExist(err) {
+		t.Fatalf("the owned agent plist stayed: %v", err)
+	}
+	// An upgrade of a running system service after a boot without a desktop login.
+	f.Calls = nil
+	if err := installSystem(s, f); err != nil {
+		t.Fatalf("upgrade without a gui domain: %v", err)
+	}
+	// A failure rolls back the system service and touches no agent.
+	s2, f2 := systemServices(t)
+	f2.NoDomain, f2.AgentLoaded, f2.Fail = true, false, "kickstart"
+	if err := installSystem(s2, f2); err == nil || !strings.Contains(err.Error(), "rolled back") || f2.SystemLoaded {
+		t.Fatalf("rollback without a gui domain: %v", err)
+	}
+	if _, err := os.Stat(s2.SystemArtifact()); !os.IsNotExist(err) {
+		t.Fatal("system plist left")
+	}
+	// An agent plist that Koinon did not write would start at the next login.
+	s3, f3 := systemServices(t)
+	f3.NoDomain, f3.AgentLoaded = true, false
+	os.WriteFile(s3.DaemonArtifact(), []byte("hand-written agent"), 0644)
+	if err := installSystem(s3, f3); err == nil || !strings.Contains(err.Error(), "system_step_failed: verify_agent") {
+		t.Fatalf("unowned agent plist: %v", err)
+	}
+	if _, err := os.Stat(s3.SystemArtifact()); !os.IsNotExist(err) {
+		t.Fatal("system plist installed beside an unowned agent")
+	}
+	// A failure to read the domain that is not its absence stops before any change.
+	s4, f4 := systemServices(t)
+	f4.Fail = "print gui/501"
+	if err := installSystem(s4, f4); err == nil || !strings.Contains(err.Error(), "system_step_failed: observe_agent") {
+		t.Fatalf("unreadable domain: %v", err)
 	}
 }

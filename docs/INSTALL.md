@@ -111,6 +111,12 @@ it was recorded: loaded or not, enabled or disabled. The error names the step
 (`system_step_failed: STEP`). When the restore fails too, the error lists the `sudo` commands that
 finish it (`rollback_failed`).
 
+Without a desktop login, for example after a reboot, the user has no `gui/<uid>` domain:
+no agent runs, and `launchctl` refuses every command on that domain. The install then skips
+the agent steps and removes the agent plist that it wrote, so nothing starts at the next login.
+It refuses an agent plist with the daemon's label that it did not write, because that one would
+start then.
+
 There is one daemon. The presence of the system plist records system mode: a later `koinon
 install`, with or without `--system`, stops and disables the agent again if it was started,
 replaces the binary, rewrites the plist only when its content changed, bootstraps the service
@@ -119,8 +125,10 @@ starts the user agent, and the report says `"service": "system"`. `--no-start` i
 system mode (`system_mode_no_start`); on Linux `--system` is refused
 (`system_mode_unsupported`), and the systemd user unit stays.
 
-A LaunchDaemon that you wrote yourself, without the Koinon marker, counts as system mode when its
-`ProgramArguments` are `<prefix>/bin/koinon serve --state-dir <state>` (a trailing `--lock-wait`
+The system plist is shared by every user of the Mac. An existing one is used only when its
+`Label` is the daemon's and its `UserName` is you; a daemon of another user is never stopped,
+rewritten or removed (`system_plist_mismatch`, naming the field). A LaunchDaemon that you wrote
+yourself, without the Koinon marker, counts as system mode when its `ProgramArguments` are `<prefix>/bin/koinon serve --state-dir <state>` (a trailing `--lock-wait`
 is allowed) and its `UserName` is you. The install never rewrites it; it replaces the binary and
 restarts the service. Any other plist at that path is refused before anything changes, with
 `system_plist_mismatch` and the differing field.

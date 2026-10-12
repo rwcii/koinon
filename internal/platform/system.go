@@ -38,11 +38,11 @@ func (s Services) sudo(ctx context.Context, argv ...string) ([]byte, error) {
 func (s Services) agentTarget() string  { return s.domain() + "/" + DaemonLabel }
 func (s Services) systemTarget() string { return "system/" + DaemonLabel }
 
-// SystemPlist is what the system plist says. Program and User are read only from a plist
-// without the marker, to check a hand-written LaunchDaemon (criterion 7).
+// SystemPlist is what the system plist says: its label, user and arguments.
 type SystemPlist struct {
 	Present bool
 	Marked  bool
+	Label   string
 	Program []string
 	User    string
 }
@@ -52,30 +52,38 @@ type SystemPlist struct {
 func (s Services) ReadSystem(ctx context.Context) (SystemPlist, error) {
 	path := s.SystemArtifact()
 	present, marked, err := Marked(path)
-	if err != nil || !present || marked {
+	if err != nil || !present {
 		return SystemPlist{Present: present, Marked: marked}, err
 	}
 	out, err := s.Run(ctx, "plutil", "-convert", "json", "-o", "-", path)
 	if err != nil {
-		return SystemPlist{Present: true}, fmt.Errorf("system_plist_unreadable: plutil cannot read %s: %s", path, strings.TrimSpace(string(out)))
+		return SystemPlist{Present: true, Marked: marked}, fmt.Errorf("system_plist_unreadable: plutil cannot read %s: %s", path, strings.TrimSpace(string(out)))
 	}
 	var fields struct {
+		Label            string   `json:"Label"`
 		ProgramArguments []string `json:"ProgramArguments"`
 		UserName         string   `json:"UserName"`
 	}
 	if err := json.Unmarshal(out, &fields); err != nil {
-		return SystemPlist{Present: true}, fmt.Errorf("system_plist_unreadable: %s: %v", path, err)
+		return SystemPlist{Present: true, Marked: marked}, fmt.Errorf("system_plist_unreadable: %s: %v", path, err)
 	}
-	return SystemPlist{Present: true, Program: fields.ProgramArguments, User: fields.UserName}, nil
+	return SystemPlist{Present: true, Marked: marked, Label: fields.Label, Program: fields.ProgramArguments, User: fields.UserName}, nil
 }
 
-// CheckHandWritten accepts an unmarked system plist only when it runs binary as `serve
-// --state-dir state` (with an optional trailing --lock-wait) as this user. Otherwise the
-// fixed error names the field that differs.
-func (s Services) CheckHandWritten(p SystemPlist, binary, state string) error {
+// CheckSystem accepts an existing system plist only when it has the daemon's label and runs as
+// this user: the plist is global, and another user's daemon is never taken over. An unmarked
+// (hand-written) plist must also run binary as `serve --state-dir state`, with an optional
+// trailing --lock-wait. Otherwise the fixed error names the field that differs.
+func (s Services) CheckSystem(p SystemPlist, binary, state string) error {
 	path := s.SystemArtifact()
 	args := p.Program
 	switch {
+	case p.Label != DaemonLabel:
+		return fmt.Errorf("system_plist_mismatch: %s has the label %q, not %q (Label)", path, p.Label, DaemonLabel)
+	case p.User != s.User:
+		return fmt.Errorf("system_plist_mismatch: %s runs as %q, not as %q (UserName)", path, p.User, s.User)
+	case p.Marked:
+		return nil
 	case len(args) == 0 || args[0] != binary:
 		return fmt.Errorf("system_plist_mismatch: %s runs another executable than %s (ProgramArguments)", path, binary)
 	case len(args) < 4 || args[1] != "serve" || args[2] != "--state-dir":
@@ -84,8 +92,6 @@ func (s Services) CheckHandWritten(p SystemPlist, binary, state string) error {
 		return fmt.Errorf("system_plist_mismatch: %s serves another state directory than %s (state directory)", path, state)
 	case len(args) != 4 && (len(args) != 6 || args[4] != "--lock-wait"):
 		return fmt.Errorf("system_plist_mismatch: %s has other arguments after the state directory (ProgramArguments)", path)
-	case p.User != s.User:
-		return fmt.Errorf("system_plist_mismatch: %s runs as %q, not as %q (UserName)", path, p.User, s.User)
 	}
 	return nil
 }
@@ -174,7 +180,7 @@ func (s Services) InstallSystem(ctx context.Context, in SystemInstall) error {
 		}
 		return fmt.Errorf("%w; rolled back: the user agent is as it was and no system plist is installed", err)
 	}
-	if err := s.stopAgent(ctx); err != nil {
+	if err := s.stopAgent(ctx, agent); err != nil {
 		return fail(err)
 	}
 	started = true
@@ -198,7 +204,11 @@ func (s Services) InstallSystem(ctx context.Context, in SystemInstall) error {
 
 func (s Services) reconcileSystem(ctx context.Context, in SystemInstall, staged string) error {
 	path := s.SystemArtifact()
-	if err := s.stopAgent(ctx); err != nil {
+	domain, err := s.guiDomain(ctx)
+	if err != nil {
+		return err
+	}
+	if err := s.stopAgent(ctx, agentState{noDomain: !domain}); err != nil {
 		return err
 	}
 	loaded, _, err := s.systemService(ctx)
@@ -234,11 +244,29 @@ func (s Services) reconcileSystem(ctx context.Context, in SystemInstall, staged 
 	return s.removeAgentPlist()
 }
 
-// agentState is the user agent before a transition.
-type agentState struct{ loaded, disabled bool }
+// agentState is the user agent before a transition. Without a console login the user has no
+// gui/<uid> domain: no agent runs, and launchctl refuses every command on that domain.
+type agentState struct{ loaded, disabled, noDomain bool }
+
+// guiDomain reports whether the user's gui/<uid> domain exists.
+func (s Services) guiDomain(ctx context.Context) (bool, error) {
+	out, err := s.sudo(ctx, "launchctl", "print", s.domain())
+	switch {
+	case err == nil:
+		return true, nil
+	case strings.Contains(string(out), "Could not find domain"):
+		return false, nil
+	}
+	return false, stepError("observe_agent", out, err)
+}
 
 func (s Services) observeAgent(ctx context.Context) (agentState, error) {
 	var a agentState
+	domain, err := s.guiDomain(ctx)
+	if err != nil || !domain {
+		a.noDomain = !domain
+		return a, err
+	}
 	out, err := s.sudo(ctx, "launchctl", "print", s.agentTarget())
 	switch {
 	case err == nil:
@@ -262,8 +290,21 @@ func (s Services) agentDisabled(ctx context.Context) (bool, error) {
 	return regexp.MustCompile(`"` + regexp.QuoteMeta(DaemonLabel) + `"\s*=>\s*(disabled|true)`).Match(out), nil
 }
 
-// stopAgent disables the user agent and boots it out, then verifies both.
-func (s Services) stopAgent(ctx context.Context) error {
+// stopAgent disables the user agent and boots it out, then verifies both. Without a gui/<uid>
+// domain no agent runs and none can be disabled; the owned agent plist is removed after the
+// system service is verified, so nothing starts at the next login. An agent plist that Koinon
+// did not write would start then, so it is refused.
+func (s Services) stopAgent(ctx context.Context, agent agentState) error {
+	if agent.noDomain {
+		present, marked, err := Marked(s.DaemonArtifact())
+		if err != nil {
+			return err
+		}
+		if present && !marked {
+			return stepError("verify_agent", []byte(s.DaemonArtifact()+" was not written by Koinon and would start at the next login; remove it, or run the install from a login session"), nil)
+		}
+		return nil
+	}
 	if out, err := s.sudo(ctx, "launchctl", "disable", s.agentTarget()); err != nil {
 		return stepError("disable_agent", out, err)
 	}
@@ -370,7 +411,11 @@ func (s Services) rollbackSystem(ctx context.Context, agent agentState, started 
 		steps = append(steps, []string{"launchctl", "bootout", s.systemTarget()}, []string{"rm", "-f", s.SystemArtifact()})
 	}
 	// launchd refuses to bootstrap a disabled service, so an agent that was loaded while
-	// disabled is enabled for its bootstrap and disabled again.
+	// disabled is enabled for its bootstrap and disabled again. Without a gui/<uid> domain
+	// nothing about the agent changed.
+	if agent.noDomain {
+		agent = agentState{disabled: true}
+	}
 	if !agent.disabled || agent.loaded {
 		steps = append(steps, []string{"launchctl", "enable", s.agentTarget()})
 	}
@@ -425,13 +470,16 @@ func (s Services) removeAgentPlist() error {
 // the commands that remove it. It returns whether anything was removed.
 func (s Services) RemoveSystem(ctx context.Context) (bool, error) {
 	path := s.SystemArtifact()
-	present, marked, err := Marked(path)
-	if err != nil || !present {
+	p, err := s.ReadSystem(ctx)
+	if err != nil || !p.Present {
 		return false, err
 	}
-	if !marked {
+	if !p.Marked {
 		return false, fmt.Errorf("service_artifact_unowned: %s exists without the Koinon marker; remove it with: sudo launchctl bootout %s; sudo rm %s",
 			path, s.systemTarget(), path)
+	}
+	if p.Label != DaemonLabel || p.User != s.User {
+		return false, fmt.Errorf("system_plist_mismatch: %s is the daemon of user %q, not of %q (UserName); it is kept", path, p.User, s.User)
 	}
 	if out, err := s.sudo(ctx, "launchctl", "bootout", s.systemTarget()); err != nil && !launchdAbsent(out, err) && !notLoaded(out) {
 		return false, fmt.Errorf("service_stop_failed: launchctl bootout %s: %s", s.systemTarget(), strings.TrimSpace(string(out)))
