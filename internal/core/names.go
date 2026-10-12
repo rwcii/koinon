@@ -158,6 +158,13 @@ func assignNames(ctx context.Context, tx *sql.Tx, now int64, p participant) erro
 	if p.subagent {
 		return releaseAddress(ctx, tx, now, p.family, p.id, "subagent", "daemon")
 	}
+	var qualifies bool
+	if err := tx.QueryRowContext(ctx, `SELECT `+participantQualifier+` FROM sessions s WHERE s.family=? AND s.id=?`, p.family, p.id).Scan(&qualifies); err != nil {
+		return err
+	}
+	if !qualifies {
+		return releaseAddress(ctx, tx, now, p.family, p.id, "plain_peer", "daemon")
+	}
 	if p.repository == "" {
 		return nil
 	}
@@ -178,7 +185,7 @@ func assignNames(ctx context.Context, tx *sql.Tx, now int64, p participant) erro
 	}
 	rows, err := tx.QueryContext(ctx, `SELECT s.id,COALESCE(n.name,'') FROM sessions s
 		LEFT JOIN names n ON n.kind='peer' AND n.family=s.family AND n.session_id=s.id
-		WHERE s.family=? AND s.repository=? AND s.role=? AND s.subagent=0 AND s.retired_at=0 AND s.expires_at>? AND `+notParticipantRow+`
+		WHERE s.family=? AND s.repository=? AND s.role=? AND s.subagent=0 AND s.retired_at=0 AND s.expires_at>? AND `+notParticipantRow+` AND `+participantQualifier+`
 		AND NOT EXISTS (SELECT 1 FROM participant_fences f WHERE f.address=? AND f.family=s.family AND f.session_id=s.id)
 		ORDER BY n.name LIMIT 33`, p.family, p.repository, p.role, now, address)
 	if err != nil {
@@ -364,8 +371,8 @@ func participantEvent(ctx context.Context, tx *sql.Tx, now int64, address, forme
 // active, not a sub-agent, and still registered for the participant's repository and role.
 func holds(ctx context.Context, tx *sql.Tx, now int64, family, id, repository, role string) (bool, error) {
 	var found int
-	err := tx.QueryRowContext(ctx, `SELECT 1 FROM sessions WHERE family=? AND id=? AND repository=? AND role=? AND subagent=0
-		AND retired_at=0 AND expires_at>?`, family, id, repository, role, now).Scan(&found)
+	err := tx.QueryRowContext(ctx, `SELECT 1 FROM sessions s WHERE family=? AND id=? AND repository=? AND role=? AND subagent=0
+		AND retired_at=0 AND expires_at>? AND `+participantQualifier, family, id, repository, role, now).Scan(&found)
 	if errors.Is(err, sql.ErrNoRows) {
 		return false, nil
 	}

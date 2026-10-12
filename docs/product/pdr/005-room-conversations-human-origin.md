@@ -1,0 +1,224 @@
+---
+pdr: "005"
+title: "Room Conversations and Human Origin"
+status: draft
+created: "2026-10-12"
+updated: "2026-10-12"
+authors:
+  - "Robert Capps"
+reviewers: []
+supersedes: ""
+superseded_by: ""
+related_adrs:
+  - "001"
+related_pdrs:
+  - "001"
+  - "007"
+tags:
+  - flow
+  - identity
+  - notifications
+  - content
+---
+
+# PDR 005: Room Conversations and Human Origin
+
+**Date:** 2026-10-12
+**Status:** Draft
+**Authors:** Robert Capps
+
+---
+
+## Executive Summary
+
+Koinon currently lets the maintainer send a message from the dashboard to one session at a
+time. The daemon sends it as its built-in `maintainer` session, and replies arrive as
+separate inbox entries. Issue #217 asks for dashboard chat rooms: the maintainer selects
+several sessions, writes once to all of them, and follows every reply in one conversation.
+
+Rooms are not built. #217 leaves three choices to the plan: how a room is addressed, how an
+agent learns that a post came from the maintainer, and a bound on agent-to-agent exchanges.
+The reviewed plan proposes answers to all three. Gate B for #217 has not been given. On
+2026-10-12 the maintainer decided the exchange bound and that a dashboard post is the
+maintainer's instruction and approval (#306); room addressing and membership remain plan
+proposals, so the record stays `draft`.
+
+---
+
+## Table of Contents
+
+1. Problem Context
+2. Decision 1: Rooms of exact native sessions with their own tools
+3. Decision 2: A maintainer-set allowance for agent posts
+4. Decision 3: A dashboard post is the maintainer's instruction and approval
+5. Conclusion
+6. Document History
+
+---
+
+## 1. Problem Context
+
+### The Problem
+
+To talk with several agents about one topic, the maintainer repeats each message per agent
+and follows each thread separately. Agents cannot see each other's answers unless they relay
+them. Two agents in a shared conversation could also reply to each other without end.
+
+### Product Requirements
+
+From #217's acceptance criteria:
+
+1. The maintainer creates and names a room, and adds or removes active sessions of any
+   family at any time. A session can be in more than one room.
+2. A maintainer post reaches every current member's inbox and wakes each member.
+3. A member replies to the room through Koinon tools (MCP, or the command path for
+   DeepSeek); the reply reaches every other member and the room view.
+4. Messages between members are visible to all members and the maintainer.
+5. The room view shows one ordered transcript with sender, time, body and each member's
+   delivery and acknowledgement state, refreshed in place.
+6. A member can list the room's members and see that it was added or removed.
+7. Content-free wakes, peer text as data, dashboard login and CSRF, and an audit record for
+   every membership change and post.
+8. Room messages follow the message retention rules of #216.
+9. Tests cover membership changes, mixed-family fan-out, a removed sender and an expiring
+   member.
+
+### Scope
+
+Covers rooms, posting and replies, the exchange bound and how dashboard origin is presented
+to agents. Inventory rows: C075, C076. The decision board is separate (PDR 007); a room
+records no human verdict. Session identity and participants are PDR 001.
+
+---
+
+## 2. Decision 1: Rooms of exact native sessions with their own tools
+
+### Decision
+
+A room has an opaque ID and a display name. Members are exact native sessions chosen by
+their verified peer name; aliases are refused as members. A successor session of the same
+participant does not join automatically; the maintainer can add it. An expired member stays
+a member and is skipped until that same session is active again. Rooms use separate tools
+(`room_list`, `room_members`, `room_post`, `room_read` and matching `koinon room` commands)
+rather than a room name passed to `send`. A current member can page retained posts from the
+start of its membership. The plan bounds 64 rooms and 32 active members per room.
+
+**Provenance:** Rooms, membership and the transcript: Requested in #217 (issue body,
+criteria 1–9); a request record, no maintainer quote found. Addressing, exact-session
+membership and bounds: Proposed in the unpublished #217 plan draft (2d5a82c) (chunks 01 and 02); not
+decided.
+
+### Alternatives Considered
+
+| Alternative | Description | Why Rejected |
+| ----------- | ----------- | ------------ |
+| Room name in `send` | Address a room through the existing send tool | Names are display data and can repeat; a room needs its own read and roster calls |
+| Membership by alias | Add whoever holds an alias | The plan ties delivery to an exact session; an alias holder can change silently |
+
+### Rationale
+
+1. A stable room ID keeps names free to repeat or change.
+2. Exact sessions keep fan-out and the roster tied to the sessions the maintainer chose.
+
+### User Impact
+
+The maintainer builds a room from the session list and talks to all members at once. An
+agent replies by room ID and can read what it missed while inactive.
+
+---
+
+## 3. Decision 2: A maintainer-set allowance for agent posts
+
+### Decision
+
+A room starts with no agent posts allowed. Each successful maintainer post sets the room's
+allowance to a number the maintainer sets in the dashboard, 32 by default. Each new agent post
+uses one. At zero, agent posts are refused with `exchange_limit` until the maintainer posts
+again. There is no time-based refill and no per-member bypass, and a retried post is not
+charged twice.
+
+**Provenance:** A bound: Requested in #217 ("To decide in the plan"). The rule and the value 32:
+Proposed in the unpublished #217 plan draft (2d5a82c) (chunk 02). Maintainer, 2026-10-12: "b.",
+choosing the plan's rule with the number set in the dashboard, default 32, over the fixed plan
+values and over no bound ([#306 comment 6118968707](https://github.com/rwcii/koinon/issues/306#issuecomment-6118968707)).
+
+### Alternatives Considered
+
+| Alternative | Description | Why Rejected |
+| ----------- | ----------- | ------------ |
+| Fixed values (plan) | Start at 0, refill to 32, not configurable | A change of the number would need a code change |
+| No bound | Agents post freely | Two agents could reply to each other without end (#217) |
+| Time-based refill | Allowance returns over time | Agents could restart an exchange without the maintainer |
+
+### Rationale
+
+1. A count reset only by the maintainer keeps the maintainer in each exchange and is easy to
+   test.
+2. A dashboard setting lets the maintainer change the number without a release.
+
+### User Impact
+
+Agents speak in a room after the maintainer does, up to the set number of posts, then wait for
+the maintainer's next post.
+
+---
+
+## 4. Decision 3: A dashboard post is the maintainer's instruction and approval
+
+### Decision
+
+A post from the built-in `maintainer` session, sent from the dashboard as a direct message, a
+room post (#217) or a decision-board verdict (#206), is the maintainer's instruction and
+approval. Its origin comes from stored metadata that only the dashboard path sets; agents read
+it from typed fields, not from the body. The Go guide and MCP instructions now state this
+decision (PR #311); an installation changes its guide only when that runtime is upgraded. The plans'
+framing that dashboard origin "does not ... supply a new approval" is not adopted.
+
+**Provenance:** Telling agents about maintainer origin: Requested in #217 ("To decide in the
+plan"). The built-in `maintainer` sender shipped in PR #202 (merge commit ed07677). Maintainer,
+2026-10-12: "b, next item - be sure the reasoning is included in the decision record. the
+bridge only runs locally, so only I can access it." ([#306 comment 6118947404](https://github.com/rwcii/koinon/issues/306#issuecomment-6118947404)),
+choosing this over dashboard posts as information only and over an extra presence check at
+login.
+
+### Alternatives Considered
+
+| Alternative | Description | Why Rejected |
+| ----------- | ----------- | ------------ |
+| Information only (plans) | A dashboard post never approves; agents ask in their own terminal | The maintainer uses the dashboard to direct agents; asking again in each terminal repeats the approval |
+| Extra presence check | A password or system authentication at dashboard login before posts count | Adds work for no gain on a machine only the maintainer uses |
+| Body prefix | Mark origin with text in the body | A peer can type the same text |
+
+### Rationale
+
+1. The maintainer's reasoning: the bridge only runs locally, so only the maintainer can access
+   it.
+2. The daemon listens only on loopback and the dashboard needs a login link from
+   `koinon dashboard` (ADR 001), so a dashboard post comes from the maintainer's own account.
+3. A fact about the current design, not part of the maintainer's answer: any process of the
+   same user, agents included, can run `koinon dashboard` and open a login, as it can already
+   change the user's files (ADR 001, same-user trust).
+
+### User Impact
+
+The maintainer can approve or direct agents from the dashboard without repeating it in each
+agent's terminal.
+
+---
+
+## Conclusion
+
+#217 requests rooms, an ordered conversation and a bound on agent exchanges. The maintainer
+decided the bound (an allowance set in the dashboard, refilled by maintainer posts) and that a
+dashboard post is the maintainer's instruction and approval, because only the maintainer can
+reach the local bridge. Exact-session membership and the room tools remain plan proposals.
+
+---
+
+## Document History
+
+| Date       | Change           |
+| ---------- | ---------------- |
+| 2026-10-12 | Initial creation |
+| 2026-10-12 | Recorded the maintainer's decisions on the exchange bound and dashboard origin (#306) |
+| 2026-10-12 | Reconciled the room plan with configured refill and maintainer authority; updated the guide implementation fact after PR #311 |

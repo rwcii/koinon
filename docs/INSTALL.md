@@ -75,9 +75,9 @@ this:
 
 When no user service manager answers, the report says `"service": "manual_required"` and gives
 the `start_command` to run in a managed session. The default install never uses sudo, system
-services, lingering or permission changes; `--system` on macOS (below) is an explicit choice whose
-privileged steps the person approves at the `sudo` prompt. `--no-start` writes the binary and the service file and starts
-nothing. A repeated install replaces the binary in place and restarts the service. The Go state
+services, lingering or permission changes (PDR 003, Decision 1); `--system` on macOS (below) is an
+explicit choice whose privileged steps run through `sudo` under the host's sudo policy.
+`--no-start` writes the binary and the service file and starts nothing. A repeated install replaces the binary in place and restarts the service. The Go state
 defaults to `$XDG_STATE_HOME/koinon/go`, which is `~/.local/state/koinon/go`.
 
 When a Python-era installation is present (`~/.local/share/koinon/install.json`), the install is
@@ -93,8 +93,9 @@ arguments, state directory and log file as the agent. It starts at boot (`RunAtL
 after any exit (`KeepAlive`, at most every 10 seconds) and keeps `Umask` 077. With FileVault on,
 it starts only after the disk is unlocked at boot.
 
-Run it as yourself, not with `sudo`: it refuses to run as root (`system_mode_root`) and asks
-`sudo` for each privileged step, so you approve each one. The steps:
+Run it as yourself, not with `sudo`: it refuses to run as root (`system_mode_root`) and runs
+`sudo` with each privileged step's command. Whether `sudo` asks for a password depends on the
+host's sudo policy and cached credentials (PDR 003, Decision 2). The steps:
 
 1. Render the plist to a private temporary file and check it with `plutil -lint`. Record whether
    the user agent is loaded and whether it is disabled.
@@ -135,7 +136,7 @@ restarts the service. Any other plist at that path is refused before anything ch
 
 `koinon uninstall` boots out and removes an owned system plist through `sudo`, and keeps the
 state. The user agent stays disabled; a later plain install, with no system plist present,
-enables and starts it again. Agents never run `--system` or `sudo` on the maintainer's machine.
+enables and starts it again.
 
 ### Upgrade the Go runtime
 
@@ -149,37 +150,22 @@ kept only by its renewals and tool calls.
 #### Upgrade from a build without launch admission
 
 v0.1.0 has no Claude launcher. It records a launch only for a session that `koinon codex`,
-`koinon agy` or `koinon opencode` started. After the install, the daemon renews only launched
-sessions, except DeepSeek sessions, which keep their command registration. Thus each Claude
-session, and each Codex, Antigravity or OpenCode session that no launcher started (for example a
-Codex session that Codex's shared app-server runs), is islanded, in each repository on this
-daemon:
+`koinon agy` or `koinon opencode` started. With the new daemon, a retained native session
+without a launch association renews as a plain peer. It keeps its own inbox, acknowledgements,
+native-session memory cursors and work claims. It releases any former participant address;
+the participant's inbox, cursor and claims stay with that participant. DeepSeek retains its
+command registration and participant behavior.
 
-- It cannot renew (`not_launched`). It expires at its deadline, in at most 15 minutes. Then its
-  tool calls return `not_launched`.
-- Its unread messages stay in its own inbox. It stays the owner of its native-session work
-  claims and memory cursors. A successor cannot take them.
-- It keeps its participant address until it expires. A successor that a launcher starts reports
-  `succession: refused` with `no_host`, because no v0.1.0 session has a host record. When the
-  old session expires, the successor takes the address at its next registration or renewal.
-  `koinon mcp` renews at the renewal interval, 5 minutes by default. The maintainer's **Make holder** choice in the dashboard
-  gives the address at once, but it is not necessary.
-- A Codex session that ran under Codex's shared app-server can leave its `koinon mcp` server
-  running after the Codex terminal exits. The daemon refuses its renewals, and the session
-  expires. `koinon codex` starts Codex with `--no-daemon`, so new sessions do not use the
-  shared app-server.
+Run `koinon install` with the new binary. Start new sessions through their launcher when they
+need a participant address, role, succession or terminal naming. Before replacing a native
+session that has work, handle its inbox, finish or release its native claims and write a
+handoff for the next session. A successor does not inherit those native claims or cursors.
 
-Do these steps in this sequence:
-
-1. Run `koinon peers` to list the active sessions. Stop each Claude, Codex, Antigravity and
-   OpenCode session as step 2 says. A launched session keeps running after the install, but its
-   successor also reports `no_host`. A DeepSeek session needs no step.
-2. In each of those sessions, read the inbox and acknowledge each handled message. Finish or
-   release each work claim. Write a handoff that the next session can read. Then exit the agent.
-3. Run `koinon install` with the new binary.
-4. In each repository, start each of those agents through its launcher: `koinon claude`,
-   `koinon codex`, `koinon agy` or `koinon opencode`. Then let it read the handoff. Until the old
-   session expires, the new session reports `no_host` and does not hold the address.
+A launched session retained without host evidence can still report `succession: refused`
+with `no_host` when its successor calls. The maintainer's **Make holder** choice selects the
+successor immediately; otherwise the ordinary expiry and qualifier rules apply.
+`koinon codex` uses `--no-daemon`; a directly started Codex session can still use the shared
+app-server, and its registration remains active while its MCP server renews it.
 
 ### Upgrade from the Python runtime
 
@@ -326,7 +312,9 @@ DeepSeek requires a running harness, but its live wake proof remains deferred un
 
 A legacy upgrade additionally needs Python 3.11+ to run the **installed previous release's**
 uninstaller. The Go importer reads SQLite itself; it does not import a Python package from
-this checkout. Do not delete the old installation or state before the verified upgrade.
+this checkout. Keep the old installation and state until the upgrade has verified the import:
+the upgrade reads them, and it removes the previous services only after that check (PDR 003,
+Decision 3).
 
 Without a reachable user manager, run the returned `start_command` in a persistent managed
 session. The equivalent manual command is `koinon serve --state-dir STATE`; terminate that
@@ -339,7 +327,11 @@ default address, `koinon install --state-dir STATE` from a login session or `koi
 --state-dir STATE` in a persistent managed session. The installed service listens only on the
 default address, so at another address the refusal names only `koinon serve --state-dir STATE
 --listen IPV4 --listen-v6 IPV6`, with the address and the other loopback family on its port.
-Do not use sudo, system services, lingering or permission changes to work around a refusal.
+The default install uses no sudo, system service, lingering or permission change; with no user
+service manager it reports the manual start command above. The system service that Koinon
+supports is the explicit `--system` mode on macOS (PDR 003, Decisions 1 and 2). A host change
+such as enabling systemd lingering is a separate operation that the person runs or assigns
+under their own instructions and host policy (WDR 002, Decision 1; PDR 003, Decision 4).
 
 ## Configuration and agent access
 
@@ -355,10 +347,10 @@ ABS_PATH` selects the installed Koinon binary. Setup does not create an agent co
 Codex and Antigravity identify the calling conversation on every MCP call; Claude uses its
 native session environment and verified executable; OpenCode needs the managed identity
 plugin. Start Claude Code, Codex, Antigravity and OpenCode through `koinon claude`,
-`koinon codex`, `koinon agy` and `koinon opencode`; setup alone does not admit a session.
-A native CLI started directly is islanded: it never registers or appears in Koinon, and
-its Koinon tool calls return `not_launched` with the required launcher command. DeepSeek
-keeps its command registration without a launch record.
+`koinon codex`, `koinon agy` and `koinon opencode` for participant features. After setup, a
+native CLI started directly registers as a plain peer at its first tool call. It can use its
+own inbox and repository memory/work, with no participant address, role, succession or
+terminal naming (PDR 001, Decision 1). DeepSeek keeps command registration without a launch.
 
 `koinon setup codex` also adds a SessionStart hook, `'BINARY' hook codex-session-start`, to
 `$CODEX_HOME/hooks.json` (default `~/.codex/hooks.json`). It keeps every other hook. A group
@@ -414,8 +406,9 @@ of it was recorded before.
 Read `koinon guide --agent FAMILY` at startup and after a reset. Discover the exact recipient
 with `peers`, send only within the maintainer's authorization, read notices through `inbox`,
 and acknowledge only messages already handled. Use MCP when available; command examples
-and memory/work operations are in [USAGE.md](USAGE.md). Setup and runtime replacement require
-the maintainer's authorization, separate from repository development.
+and memory/work operations are in [USAGE.md](USAGE.md). Setup and runtime replacement change the
+host; they run as part of a task the maintainer assigns, such as an install or upgrade, and that
+task authorizes their steps (PDR 003, Decision 4; WDR 002).
 
 ## Launcher paths in launchers.json
 
@@ -436,14 +429,15 @@ updates and replaces the JSON atomically. Repeat setup with the same path leaves
 
 An install or upgrade runs setup for each `--agent` family. For another family it records the
 CLI only when an earlier setup configured that family for the installed binary (step 6 of
-the install). A launcher for a family without an entry refuses with `no FAMILY CLI is
-configured in launchers.json` and names `koinon setup FAMILY` or `--cli ABS_PATH`; see
+the install). A launcher for a family without an entry records the family's CLI from `PATH`
+and reports it; when the CLI is not on `PATH`, it refuses with `no FAMILY CLI is configured
+in launchers.json` and names `koinon setup FAMILY` or `--cli ABS_PATH`; see
 [USAGE.md](USAGE.md#launcher-paths-in-launchersjson).
 
 To change a recorded path, rerun the authorized setup operation with
-`koinon setup codex --cli /absolute/path/to/codex` (or the other family). Setup resolves
-`PATH` only when selecting a CLI; launchers use the recorded absolute path and never search
-`PATH` at launch time. `koinon codex --cli /absolute/path/to/codex` overrides it for that
+`koinon setup codex --cli /absolute/path/to/codex` (or the other family). A launcher searches
+`PATH` only when the family has no entry; with an entry it uses the recorded absolute path.
+`koinon codex --cli /absolute/path/to/codex` overrides it for that
 launch without editing the file. Match `--state-dir` between setup and launches. Uninstall
 preserves this state-root configuration along with other retained state.
 

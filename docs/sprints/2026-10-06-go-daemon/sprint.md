@@ -1,5 +1,7 @@
 # Sprint 2026-10-06 — Go daemon — Chunks
 
+> Historical sprint plan. Its non-goals and constraints limited this sprint only. Current decisions are in the [decision records](../../engineering/wdr/README.md); see WDR 001.
+
 Milestone `2026-10-06-go-daemon`. Cites `decision.md` (criteria 1–12) and
 `definition-of-done.md`; it does not repeat them. Each chunk is one pull request that merges
 complete. The Python runtime stays untouched and releasable until chunk 12.

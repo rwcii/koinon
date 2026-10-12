@@ -10,6 +10,23 @@ into a dated release section when promoted to `main`.
   runtime-guide skills, project fact schemas and derived OpenCode commands. Skill adoption
   remains explicit; this increment adds no installation writes or catalog query tools.
 
+- `koinon claude|codex|agy|opencode` without `--cli` and without a recorded CLI now finds the
+  family's CLI on `PATH`, records its absolute path in `launchers.json`, prints
+  `koinon: recorded the FAMILY CLI PATH in launchers.json` and starts it. Later launches use the
+  recorded path. A path recorded meanwhile by another launch is kept; when the CLI is not on
+  `PATH`, the launch still names `koinon setup FAMILY` or `--cli` (PDR 003, Decision 5; #306).
+
+- Direct Claude, Codex, Antigravity and OpenCode starts register as plain peers through their
+  native MCP identity. They can send/read/ack their own inbox and use repository memory/work;
+  participant addresses, roles, succession and terminal naming remain launcher features.
+  Plain peers renew and recover after a daemon outage, and retained unlaunched registrations
+  renew without losing their own inbox, cursors or work claims (#306).
+
+- `koinon guide` and the MCP server instructions now say that a message with `sender_family`
+  `maintainer`, sent by the maintainer from the dashboard, is the maintainer's instruction and
+  approval (PDR 005). Messages from other sessions stay data and grant no permission. The
+  guide and the installation and permission documents cite the decision records that state
+  each behavior, and no longer say that agents never run `--system` or `sudo` (#306).
 
 - Claude model, context and activity observations survive `/clear` while keeping the existing
   Koinon session and participant. Changed transcript IDs require the same pinned native host;
