@@ -300,11 +300,17 @@ be owned by the current user, a regular file with one link, mode 0600 and at mos
 in a private user-owned directory. Unsafe files are refused, with permissions left intact.
 
 Repeat setup with `--cli /new/absolute/path` to update one family while preserving the
-others. A launch's `--cli` overrides the stored path without changing it. Launchers never
-search `PATH`; only setup does so when `--cli` is omitted. Uninstall retains the file.
+others. A launch's `--cli` overrides the stored path without changing it. Uninstall retains
+the file.
 
-A launcher for a family that has no entry, such as an agent that the install did not set
-up, refuses with `no FAMILY CLI is configured in launchers.json`; an empty entry refuses with
-`the FAMILY CLI entry in launchers.json is empty`. Both name the two remedies: run
-`koinon setup FAMILY` (with `--state-dir DIR` for a custom root) to record the CLI, or start
-with `--cli ABS_PATH`. A relative entry refuses with `configured CLI path must be absolute`.
+When the family has no entry or an empty entry and no `--cli` is given, the launcher finds
+the family's CLI on `PATH`, records its absolute path, prints
+`koinon: recorded the FAMILY CLI PATH in launchers.json` and starts it (PDR 003, Decision 5).
+It reads the file again under the lock first; an entry that another launch or setup recorded
+meanwhile is used, not replaced. Later launches use the recorded path and do not search
+`PATH`. When the CLI is not on `PATH`, the launch refuses with
+`no FAMILY CLI is configured in launchers.json` or `the FAMILY CLI entry in launchers.json is
+empty` and names the two remedies: run `koinon setup FAMILY` (with `--state-dir DIR` for a
+custom root) to record the CLI, or start with `--cli ABS_PATH`. An invalid file refuses with
+`invalid launcher configuration`, and a relative entry with `configured CLI path must be
+absolute`; neither is changed.

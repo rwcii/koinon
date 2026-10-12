@@ -14,8 +14,15 @@ import (
 )
 
 // RecordCLI records the resolved CLI during setup. Cooperating writers hold one private
-// lock, preserve other entries and replace the file atomically. Launches only read it.
+// lock, preserve other entries and replace the file atomically. A launch records a CLI
+// only when the family has no entry (launchCLI).
 func RecordCLI(ctx context.Context, stateDir, family, cli string) (bool, error) {
+	return recordCLI(ctx, stateDir, family, cli, true)
+}
+
+// recordCLI writes the family's entry under the lock. Without replace, an entry that is
+// already there is kept, so racing first launches use the first recorded choice.
+func recordCLI(ctx context.Context, stateDir, family, cli string, replace bool) (bool, error) {
 	if !Families[family] {
 		return false, errors.New("unsupported launcher family")
 	}
@@ -63,7 +70,7 @@ func RecordCLI(ctx context.Context, stateDir, family, cli string) (bool, error) 
 	} else if !errors.Is(err, os.ErrNotExist) {
 		return false, err
 	}
-	if config[family] == cli {
+	if config[family] == cli || !replace && config[family] != "" {
 		return false, nil
 	}
 	config[family] = cli

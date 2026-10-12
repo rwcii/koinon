@@ -125,7 +125,8 @@ var guideFamily = map[string]string{
 Use the Koinon tools for every agent message, also to another Claude session; do not use
 Claude Code's own cross-session messages for coordination. Koinon knows this session by its
 Claude Code session ID. Run koinon setup claude once to add the server. Start
-sessions through koinon claude, or the dashboard's start action, with the CLI setup recorded.
+sessions through koinon claude, or the dashboard's start action; without a recorded CLI the
+launcher records the claude on PATH.
 A direct claude start registers as a plain peer using its native session identity.
 Use koinon claude --bg for a background job; Koinon supplies its private settings file and
 records its job ID. A launch_pending refusal retries registration at the next tool call.
