@@ -126,10 +126,10 @@ func TestRoomMembershipNoticesAndQueries(t *testing.T) {
 	}
 	// Typed notices from the maintainer: the exact session and the participant's inbox.
 	n := roomNotices(t, s, Key{plain.Family, plain.ID})
-	if len(n) != 1 || *n[0].Room != (RoomEvent{room, 2, "added"}) || n[0].SenderFamily != "maintainer" || !strings.Contains(n[0].Body, room) {
+	if len(n) != 1 || *n[0].Room != (RoomEvent{RoomID: room, Revision: 2, Event: "added"}) || n[0].SenderFamily != "maintainer" || !strings.Contains(n[0].Body, room) {
 		t.Fatalf("native notice: %+v", n)
 	}
-	if n := roomNotices(t, s, Key{"codex", participantKey("codex-koinon")}); len(n) != 1 || *n[0].Room != (RoomEvent{room, 3, "added"}) {
+	if n := roomNotices(t, s, Key{"codex", participantKey("codex-koinon")}); len(n) != 1 || *n[0].Room != (RoomEvent{RoomID: room, Revision: 3, Event: "added"}) {
 		t.Fatalf("participant notice: %+v", n)
 	}
 	// Peer text cannot carry room metadata.
@@ -159,7 +159,7 @@ func TestRoomMembershipNoticesAndQueries(t *testing.T) {
 	if len(list) != 1 || list[0].Status != "removed" || list[0].Via != "session" || list[0].MembershipRevision != 4 {
 		t.Fatalf("removed room_list: %+v", list)
 	}
-	if n := roomNotices(t, s, Key{plain.Family, plain.ID}); len(n) != 2 || *n[1].Room != (RoomEvent{room, 4, "removed"}) {
+	if n := roomNotices(t, s, Key{plain.Family, plain.ID}); len(n) != 2 || *n[1].Room != (RoomEvent{RoomID: room, Revision: 4, Event: "removed"}) {
 		t.Fatalf("removal notice: %+v", n)
 	}
 	if !mustAdd(t, s, room, plain.Name) {
@@ -451,7 +451,7 @@ func TestRoomConcurrentChanges(t *testing.T) {
 }
 
 // A schema 16 store (develop d95fac8) gains the room tables without changing its messages,
-// sessions, cursors, claims or names; the step from schema 18 alone does the same.
+// sessions, cursors, claims or names; the steps from schema 18 alone do the same.
 func TestRoomsUpgradeKeepsExistingState(t *testing.T) {
 	root := loadFixtureFile(t, "d95fac8.sql")
 	s, err := openStore(root)
@@ -463,19 +463,19 @@ func TestRoomsUpgradeKeepsExistingState(t *testing.T) {
 		t.Fatal("fixture was not migrated")
 	}
 	rows := rowsOf(t, s.db)
-	if _, err := s.db.Exec(undoSchemaNineteen + `PRAGMA user_version=18`); err != nil {
+	if _, err := s.db.Exec(undoSchemaTwenty + undoSchemaNineteen + `PRAGMA user_version=18`); err != nil {
 		t.Fatal(err)
 	}
 	if err := checkCatalog(s.db, 18); err != nil {
 		t.Fatal(err)
 	}
-	if err := migrate(s.db, 18, 19); err != nil {
+	if err := migrate(s.db, 18, schemaVersion); err != nil {
 		t.Fatal(err)
 	}
-	if err := checkCatalog(s.db, 19); err != nil {
+	if err := checkCatalog(s.db, schemaVersion); err != nil {
 		t.Fatal(err)
 	}
-	if rowsOf(t, s.db) != rows || count(t, s, `SELECT COUNT(*) FROM messages WHERE room_id!='' OR room_revision!=0 OR room_event!=''`) != 0 {
+	if rowsOf(t, s.db) != rows || count(t, s, `SELECT COUNT(*) FROM messages WHERE room_id!='' OR room_revision!=0 OR room_event!='' OR room_seq!=0 OR room_origin!=''`) != 0 {
 		t.Fatal("migration changed existing state")
 	}
 }

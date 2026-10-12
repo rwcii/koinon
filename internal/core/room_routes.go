@@ -53,4 +53,48 @@ func (d *Daemon) roomRoutes(mux *http.ServeMux) {
 		}
 		respond(w, 200, map[string]any{"ok": true, "result": result})
 	})
+	mux.HandleFunc("POST /v1/rooms/post", func(w http.ResponseWriter, r *http.Request) {
+		var request struct {
+			Caller   Key      `json:"caller"`
+			RoomID   string   `json:"room_id"`
+			Body     string   `json:"body"`
+			Key      string   `json:"key"`
+			Deadline *float64 `json:"deadline"`
+		}
+		// Every byte of a 64 KiB body can be escaped in JSON, as for a send.
+		if err := decodeLimit(w, r, &request, 6*maxBody+4096); err != nil {
+			failure(w, err)
+			return
+		}
+		if request.Deadline == nil {
+			failure(w, ErrInvalid)
+			return
+		}
+		result, err := d.store.RoomPost(r.Context(), request.Caller, request.RoomID, request.Body, request.Key, *request.Deadline)
+		if err != nil {
+			failure(w, err)
+			return
+		}
+		d.store.ToolCall(request.Caller)
+		respond(w, 200, map[string]any{"ok": true, "result": result})
+	})
+	mux.HandleFunc("POST /v1/rooms/read", func(w http.ResponseWriter, r *http.Request) {
+		var request struct {
+			Caller Key    `json:"caller"`
+			RoomID string `json:"room_id"`
+			After  int64  `json:"after"`
+			Limit  int    `json:"limit"`
+		}
+		if err := decode(w, r, &request); err != nil {
+			failure(w, err)
+			return
+		}
+		transcript, err := d.store.RoomRead(r.Context(), request.Caller, request.RoomID, request.After, request.Limit)
+		if err != nil {
+			failure(w, err)
+			return
+		}
+		d.store.ToolCall(request.Caller)
+		respond(w, 200, map[string]any{"ok": true, "result": transcript})
+	})
 }
