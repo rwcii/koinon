@@ -38,4 +38,7 @@ that issue's authority boundary" (conflicts with PDR 005, Decision 3), "do not c
 instructions/config" and "The plan adds no installed-runtime changes" (no source). Kept with
 their sources: the allowance (PDR 005, Decision 2), typed maintainer origin (Decision 3),
 peer text as data (WDR 002, Decision 3) and content-free wakes. Room, member and post bounds
-remain proposed product limits with visible refusal. Gate B remains pending.
+remain product limits with visible refusal.
+
+The maintainer approved this plan at Gate B on 2026-10-12: "217 gate b approved"
+([#217 comment 6129177109](https://github.com/rwcii/koinon/issues/217#issuecomment-6129177109)).
