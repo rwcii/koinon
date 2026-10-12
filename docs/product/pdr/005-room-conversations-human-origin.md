@@ -170,7 +170,9 @@ the maintainer's next post.
 A post from the built-in `maintainer` session, sent from the dashboard as a direct message, a
 room post (#217) or a decision-board verdict (#206), is the maintainer's instruction and
 approval. Its origin comes from stored metadata that only the dashboard path sets; agents read
-it from typed fields, not from the body. The installed guide tells agents this. The plans'
+it from typed fields, not from the body. Today the installed guide and MCP instructions call
+every message data; the step 2 wording change and the runtime guide text will state this
+decision. The plans'
 framing that dashboard origin "does not ... supply a new approval" is not adopted.
 
 **Provenance:** Telling agents about maintainer origin: Requested in #217 ("To decide in the
@@ -194,9 +196,9 @@ login.
    it.
 2. The daemon listens only on loopback and the dashboard needs a login link from
    `koinon dashboard` (ADR 001), so a dashboard post comes from the maintainer's own account.
-3. Trade-off accepted: an agent process of the same user can open a dashboard login, as it can
-   already change the maintainer's files; the maintainer accepts that under the same-user trust
-   model.
+3. A fact about the current design, not part of the maintainer's answer: any process of the
+   same user, agents included, can run `koinon dashboard` and open a login, as it can already
+   change the user's files (ADR 001, same-user trust).
 
 ### User Impact
 

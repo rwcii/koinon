@@ -48,7 +48,7 @@ is agent-written and the requester's original words were not located.
 1. Problem Context
 2. Decision 1: A dashboard board of daemon-owned rows and agent-written items
 3. Decision 2: Only a dashboard action records a verdict, and the text then freezes
-4. Decision 3: Code blocks hold printable ASCII only
+4. Decision 3: Command code blocks hold printable ASCII only
 5. Decision 4: Each recipient reads the verdict record once
 6. Conclusion
 7. Document History
@@ -160,11 +160,12 @@ To change a decided item, an agent opens a new item that cites the old one.
 
 ---
 
-## 4. Decision 3: Code blocks hold printable ASCII only
+## 4. Decision 3: Command code blocks hold printable ASCII only
 
 ### Decision
 
 Each command appears in its own code block with a copy action and holds printable ASCII only.
+Code blocks in card text that are shown only to read are not limited by this rule.
 The page does not show an entry with a zero-width, bidirectional or look-alike character, so
 the human pastes what they see. The plan rejects such commands on write, hides them on read, and
 does not let a hidden command be approved as displayed. A valid command that needs non-ASCII
@@ -228,8 +229,8 @@ The maintainer decides once; each named agent receives the verdict without a ter
 
 #206 asks for one board in the dashboard where agents write items, only the human records
 verdicts, decided text stays frozen, and every family reads each verdict once. The maintainer
-decided that card text is Markdown with code blocks and ASD-STE100 prose, and that code blocks
-hold printable ASCII only. The plan's manual-work marker and write-time rules are not decided.
+decided that card text is Markdown with code blocks and ASD-STE100 prose, and that command code
+blocks, which the maintainer copies into a terminal, hold printable ASCII only. The plan's manual-work marker and write-time rules are not decided.
 
 ---
 
@@ -238,4 +239,4 @@ hold printable ASCII only. The plan's manual-work marker and write-time rules ar
 | Date       | Change           |
 | ---------- | ---------------- |
 | 2026-10-12 | Initial creation |
-| 2026-10-12 | Recorded the maintainer's card text requirement and the ASCII decision for code blocks (#206, #306) |
+| 2026-10-12 | Recorded the maintainer's card text requirement and the ASCII decision for command code blocks (#206, #306) |
