@@ -119,7 +119,8 @@ func requireNativeWorkCaller(ctx context.Context, tx *sql.Tx, m MemoryCaller, ac
 }
 
 func ownerOperation(op string) bool {
-	return op == "work-update" || op == "work-edit" || op == "work-release" || op == "work-finish" || op == "claim-renew"
+	return op == "work-update" || op == "work-edit" || op == "work-release" || op == "work-finish" || op == "claim-renew" ||
+		op == "work-report"
 }
 
 // roleWorkCaller chooses the new path before replay or maintenance. It is called

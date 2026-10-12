@@ -35,6 +35,9 @@ also to another session of your own family.
   repository's work items, propose an assignee and revise the scope.
 - work_start, work_update, claim_renew, work_release, work_finish: claim a work item before
   writing, report progress, renew the lease, and release or finish it.
+- work_report, work_accept, work_reject: report a held item's result with evidence (the
+  claim is released and the item waits for a verdict); accept or reject another worker's
+  current report. The reporting consumer and native session cannot record its verdict.
 
 ## Participants
 A participant is a family, repository and optional maintainer-assigned role. Start an additional

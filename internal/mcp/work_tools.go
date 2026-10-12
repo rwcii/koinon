@@ -22,15 +22,18 @@ var workDescriptions = map[string]string{
 	"work-release": "Release a work item you hold with a final checkpoint; it returns to open. Optional handoff_to (exact same-repository peer) and checkout_resource atomically notify that peer to explicitly pick up the released checkout role. A notification does not transfer ownership or permissions.",
 	"work-finish":  "Finish a work item you hold: outcome completed with evidence references, or withdrawn with a reason. Finishing is your assertion, not anyone's approval.",
 	"claim-renew":  "Extend the lease of a claim you hold. Renewal is not progress and moves no deadline.",
+	"work-report":  "Report the result of a work item you hold, with a summary and evidence references. The claim is released and the item stays reported until another worker accepts or rejects it; the store reserves that verdict first, or refuses and keeps your claim.",
+	"work-accept":  "Accept the current report of a reported item, naming its report_seq and evidence references. The item finishes as completed. The reporting consumer and native session cannot record this verdict.",
+	"work-reject":  "Reject the current report of a reported item, naming its report_seq, evidence references and corrected criteria and non_goals (optional title). A new scope revision is written and the item returns open, unclaimed. The reporting consumer and native session cannot record this verdict.",
 }
 
 // workSchema describes each field's JSON type.
 var workSchema = map[string]map[string]any{
 	"work_id": text, "title": text, "criteria": text, "non_goals": text, "progress": text, "checkpoint": text,
-	"next_artifact": text, "blocker": text, "reason": text, "key": text, "author": text,
+	"next_artifact": text, "blocker": text, "reason": text, "key": text, "author": text, "summary": text,
 	"handoff_to": text, "checkout_resource": text,
 	"outcome":           {"type": "string", "enum": []string{"completed", "withdrawn"}},
-	"lifecycle":         {"type": "string", "enum": []string{"open", "active", "blocked", "finished"}},
+	"lifecycle":         {"type": "string", "enum": []string{"open", "active", "blocked", "reported", "finished"}},
 	"proposed_assignee": {"type": []string{"string", "null"}},
 	"proposed_role": {"type": []string{"object", "null"}, "properties": map[string]any{
 		"family": map[string]any{"type": "string", "enum": []string{"claude", "codex", "deepseek", "agy", "opencode", "grok"}},
@@ -38,7 +41,7 @@ var workSchema = map[string]map[string]any{
 	}, "required": []string{"family", "role"}, "additionalProperties": false},
 	"after":    text,
 	"owner":    {"type": []string{"string", "null"}},
-	"revision": integer, "if_revision": integer, "claim_generation": integer, "if_claim_revision": integer,
+	"revision": integer, "if_revision": integer, "claim_generation": integer, "if_claim_revision": integer, "report_seq": integer,
 	"limit":         {"type": "integer", "minimum": 1, "maximum": 100},
 	"lease_seconds": lease, "renew_for": lease,
 	"progress_deadline": number, "deadline": number,

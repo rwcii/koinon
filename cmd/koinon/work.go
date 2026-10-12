@@ -25,7 +25,7 @@ func (r *repeated) Set(v string) error { *r = append(*r, v); return nil }
 
 var (
 	workIntegers = map[string]bool{"revision": true, "if_revision": true, "claim_generation": true, "if_claim_revision": true,
-		"limit": true, "lease_seconds": true, "renew_for": true}
+		"limit": true, "lease_seconds": true, "renew_for": true, "report_seq": true}
 	workNumbers = map[string]bool{"progress_deadline": true, "deadline": true}
 	workBools   = map[string]bool{"stale": true, "blocked": true, "assigned_to_me": true}
 )
@@ -37,7 +37,7 @@ func workCommand(ctx context.Context, args []string, out io.Writer) error {
 		return checkoutCommand(ctx, args[2:], out)
 	}
 	if len(args) < 2 {
-		return usageError{"invalid_request", "use koinon work <create|get|list|propose|edit|start|update|release|finish> or koinon claim renew"}
+		return usageError{"invalid_request", "use koinon work <create|get|list|propose|edit|start|update|release|finish|report|accept|reject> or koinon claim renew"}
 	}
 	op := args[0] + "-" + args[1]
 	if args[0] == "claim" && args[1] != "renew" || !known(op) {
@@ -104,7 +104,7 @@ func workCommand(ctx context.Context, args []string, out io.Writer) error {
 		given[field] = true
 		switch {
 		case f.Name == "reference":
-			body["references"] = []string(references)
+			body["references"], given["references"] = []string(references), true
 		case f.Name == "path-resource" || f.Name == "exact-resource" || f.Name == "clear-assignee":
 		case workBools[field] || workIntegers[field] || workNumbers[field]:
 			body[field] = f.Value.(flag.Getter).Get()
@@ -149,9 +149,12 @@ func workCommand(ctx context.Context, args []string, out io.Writer) error {
 	var missing []string
 	for _, field := range core.WorkRequired[op] {
 		if !given[field] {
-			if field == "work_id" {
+			switch field {
+			case "work_id":
 				missing = append(missing, "WORK_ID")
-			} else {
+			case "references":
+				missing = append(missing, "--reference")
+			default:
 				missing = append(missing, "--"+strings.ReplaceAll(field, "_", "-"))
 			}
 		}

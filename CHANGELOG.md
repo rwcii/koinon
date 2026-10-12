@@ -5,6 +5,14 @@ into a dated release section when promoted to `main`.
 
 ## Unreleased
 
+- A worker reports a held item's result with a summary and evidence (`work_report`,
+  `koinon work report`); the claim is released and the item stays `reported` until another
+  worker accepts or rejects it (`work_accept`, `work_reject`). The reporting consumer and
+  native session cannot record the verdict. Reject returns the item open with a corrected
+  scope. Each report reserves its verdict's storage first, or refuses and keeps the claim;
+  at most 16 verdicts are pending per store and 32 per daemon. The state database moves to
+  schema 17 (#140, chunk 02).
+
 - Route work proposals to a repository's family/role, bind new role claims to the accepting
   native session, and page current assignment queries completely. Existing/default participant
   claims retain their generation and cursor continuation (#140, chunk 01).

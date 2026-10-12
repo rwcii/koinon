@@ -37,7 +37,9 @@ for a coordinator and worker pair: route a proposal to a role across session res
 different consumer accept or reject a reported result, and let the assignee and creator
 discover the transitions that concern them.
 
-None of this is built. The maintainer approved the reviewed plan at Gate B on 2026-10-12
+Role routing (Decision 1) is built (#326), and the reported state and verdict (Decisions 2
+and 3) are built (#140 chunk 02); discovery (Decision 4) is not built. The maintainer
+approved the reviewed plan at Gate B on 2026-10-12
 ([#140 comment 6127384411](https://github.com/rwcii/koinon/issues/140#issuecomment-6127384411)).
 This record states what #140 requests and what the approved plan builds. The maintainer decided on 2026-10-12 that the reporting worker is refused
 the verdict, as #140 asks; the plan's wider exclusion is not adopted.
@@ -96,7 +98,7 @@ scheduling, auto-assignment, forced takeover, budget enforcement and dependency 
 
 An item can be proposed to a role in its repository, such as a family's worker role, instead
 of a consumer key. The session that currently holds that role lists the item. A successor
-gets no claim or identity from its predecessor. The plan proposes an optional
+gets no claim or identity from its predecessor. An optional
 `proposed_role` (family and launcher role), exclusive with `proposed_assignee`, resolved
 through the participant registry. An unheld or conflicting role is reported as such. A claim
 started from a role proposal belongs to the accepting native session for its whole
@@ -135,8 +137,8 @@ it and starts it when the old claim is gone.
 The worker reports a result with evidence references. A different consumer then records
 accepted or rejected. Reject returns the item to open with a corrected scope revision and
 keeps the report and both scopes. Accept finishes the item as completed. The verdict is
-same-user reported data and grants no authority. The plan proposes a `reported` lifecycle
-state between active and finished, with `work_report`, `work_accept` and `work_reject`.
+same-user reported data and grants no authority. A `reported` lifecycle state lies between
+active and finished, with `work_report`, `work_accept` and `work_reject`.
 Reported items do not expire; the 30-day finished retention starts at acceptance. A report
 reserves storage for its later verdict, with at most 16 pending reservations per store and
 32 per daemon. Unreported v1 finish and withdrawal stay available.
@@ -255,3 +257,4 @@ maintainer decided the verdict rule (Decision 3) and approved the plan's mechani
 | 2026-10-12 | Recorded the maintainer's decision on who records the verdict (#306) |
 | 2026-10-12 | Clarified the reporting-worker exclusion against the framed question: changing consumer labels does not make the same native session another worker (#140 reconciliation) |
 | 2026-10-12 | Recorded the maintainer's Gate B approval of the #140 plan; status accepted; role routing covers default participants |
+| 2026-10-12 | Role routing and the reported state with its verdict are built; discovery is not |

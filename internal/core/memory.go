@@ -29,6 +29,7 @@ type memoryLimits struct {
 	snapshotTTL, ackRetention, idemTTL, consumerTTL, retiredTTL, expiryInterval    float64
 	// Work limits (docs/WORK-ITEMS-IMPLEMENTATION-DESIGN.md, "Capacity").
 	workLogical, workEvents, workItems, workScopes, workScopesPerItem, creditBytes int64
+	verdictBytes                                                                   int64
 }
 
 var defaultMemoryLimits = memoryLimits{
@@ -37,6 +38,7 @@ var defaultMemoryLimits = memoryLimits{
 	rowWindow: 500, snapshotTTL: 3600, ackRetention: 86400, idemTTL: 86400, consumerTTL: 30 * 86400,
 	retiredTTL: 90 * 86400, expiryInterval: 30,
 	workLogical: 12 << 20, workEvents: 2048, workItems: 128, workScopes: 1024, workScopesPerItem: 64, creditBytes: 48 << 10,
+	verdictBytes: 64 << 10,
 }
 
 const entryOverhead = 512
@@ -259,7 +261,7 @@ func usage(ctx context.Context, q querier, repo string) (memoryUsage, error) {
 		(SELECT COUNT(*) FROM work_replays WHERE store=?1),
 		(SELECT COALESCE(SUM(?2+`+textBytes("store", "work_id", "lifecycle", "title", "criteria", "non_goals", "proposed_assignee",
 		"created_consumer", "proposed_role", "progress", "checkpoint", "next_artifact", "blocker", "last_writer", "outcome", "reason",
-		"references_json")+`),0) FROM work_items WHERE store=?1)+
+		"references_json", "report_consumer", "report_actor", "verdict")+`),0) FROM work_items WHERE store=?1)+
 		(SELECT COALESCE(SUM(?2+`+textBytes("store", "work_id", "consumer", "author", "title", "criteria", "non_goals")+`),0)
 			FROM work_scope_revisions WHERE store=?1)+
 		(SELECT COALESCE(SUM(?2+`+textBytes("store", "work_id", "consumer", "native_actor")+`),0) FROM claim_bundles WHERE store=?1)+
@@ -278,25 +280,30 @@ func usage(ctx context.Context, q querier, repo string) (memoryUsage, error) {
 }
 
 // workDebt is a store's funded work obligations, from the durable credit flags of its
-// retained bundles: each credit reserves one event and entry slot and its logical
-// bytes; an end credit also reserves one replay slot (docs/WORK-ITEMS-STORAGE.md).
-type workDebt struct{ overdue, end int64 }
+// retained bundles and reported items: each credit reserves one event and entry slot and
+// its logical bytes; an end credit also reserves one replay slot, and a verdict credit
+// one replay and one scope revision slot (docs/WORK-ITEMS-GO-STORAGE.md).
+type workDebt struct{ overdue, end, verdict int64 }
 
 func storeDebt(ctx context.Context, q querier, repo string) (workDebt, error) {
 	var d workDebt
 	err := q.QueryRowContext(ctx, `SELECT COALESCE(SUM(b.overdue_credit),0),COALESCE(SUM(b.end_credit),0) FROM claim_bundles b
 		JOIN memory_stores s ON s.store_id=b.store WHERE s.repository=?`, repo).Scan(&d.overdue, &d.end)
+	if err == nil {
+		err = q.QueryRowContext(ctx, `SELECT COALESCE(SUM(w.verdict_credit),0) FROM work_items w
+			JOIN memory_stores s ON s.store_id=w.store WHERE s.repository=?`, repo).Scan(&d.verdict)
+	}
 	return d, err
 }
 
 // caps are one store's ceilings for a write class after keeping its work debt free:
 // ordinary writes also leave the note reserve for withdrawals and progress.
-type storeCaps struct{ entries, logical, idem, workLogical, workEvents int64 }
+type storeCaps struct{ entries, logical, idem, workLogical, workEvents, workScopes int64 }
 
 func (l memoryLimits) caps(class writeClass, d workDebt) storeCaps {
-	slots, bytes := d.overdue+d.end, (d.overdue+d.end)*l.creditBytes
-	c := storeCaps{entries: l.entries - slots, logical: l.logical - bytes, idem: l.idem - d.end,
-		workLogical: l.workLogical - bytes, workEvents: l.workEvents - slots}
+	slots, bytes := d.overdue+d.end+d.verdict, (d.overdue+d.end)*l.creditBytes+d.verdict*l.verdictBytes
+	c := storeCaps{entries: l.entries - slots, logical: l.logical - bytes, idem: l.idem - d.end - d.verdict,
+		workLogical: l.workLogical - bytes, workEvents: l.workEvents - slots, workScopes: l.workScopes - d.verdict}
 	if class != control {
 		c.entries -= l.reservedEntries
 		c.logical -= l.reservedBytes
@@ -311,7 +318,7 @@ func (l memoryLimits) exceeded(u memoryUsage, c storeCaps, need, slots int64) er
 		return memoryError("capacity", "this store's capacity is reached after keeping promised work controls; nothing was written and stored data is intact")
 	case u.Idem > c.idem:
 		return memoryError("idem_capacity", "the idempotency window is full; nothing was written")
-	case u.WorkItems > l.workItems || u.WorkScopes > l.workScopes || u.WorkScopesPerItem > l.workScopesPerItem ||
+	case u.WorkItems > l.workItems || u.WorkScopes > c.workScopes || u.WorkScopesPerItem > l.workScopesPerItem ||
 		u.ClaimBundles > maxBundles || u.ClaimResources > maxBundles*(maxResources+1):
 		return memoryError("capacity", "a work row limit is reached; nothing was written and stored data is intact")
 	}
@@ -1279,7 +1286,7 @@ func (s *Store) MemoryStatus(ctx context.Context, m MemoryCaller, after string) 
 		return nil, err
 	}
 	return map[string]any{"work_maintenance": maintenance,
-		"work_debt":  map[string]any{"overdue_credits": debt.overdue, "end_credits": debt.end},
+		"work_debt":  map[string]any{"overdue_credits": debt.overdue, "end_credits": debt.end, "verdict_credits": debt.verdict},
 		"repository": m.Repository, "store_id": storeID, "head": head, "floor": floor, "usage": u, "fts": false, "indexed": false,
 		"record_format": 2, "storage": storage, "consumers": page, "more": more, "next_after": next,
 		"limits": map[string]any{"entries": l.entries, "logical_bytes": l.logical, "body": l.body, "reserved_entries": l.reservedEntries,
@@ -1287,7 +1294,8 @@ func (s *Store) MemoryStatus(ctx context.Context, m MemoryCaller, after string) 
 			"snapshots_per_consumer": l.snapshotsPerConsumer, "page_bytes": l.frameBudget, "work_logical_bytes": l.workLogical,
 			"work_events": l.workEvents, "work_items": l.workItems, "work_scope_revisions": l.workScopes,
 			"work_scopes_per_item": l.workScopesPerItem, "claim_bundles": maxBundles, "daemon_claim_bundles": maxDaemonBundles,
-			"credit_bytes": l.creditBytes},
+			"credit_bytes": l.creditBytes, "pending_verdicts": maxStoreVerdicts, "daemon_pending_verdicts": maxDaemonVerdicts,
+			"verdict_credit_bytes": l.verdictBytes},
 		"lifetimes": map[string]any{"snapshot": l.snapshotTTL, "acknowledgement": l.ackRetention, "idempotency": l.idemTTL,
 			"consumer": l.consumerTTL, "retired": l.retiredTTL, "expiry_interval": l.expiryInterval},
 	}, nil
