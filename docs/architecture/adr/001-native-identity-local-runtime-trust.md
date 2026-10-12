@@ -93,8 +93,9 @@ Inventory rows: C006, C007, C044, C047, C053, C058, C063, C064, C065, C066, C067
 Koinon currently takes the calling session from the agent's own per-call source, not from tool
 arguments: Codex `_meta.threadId` (client named `codex…`), Antigravity
 `_meta["antigravity.google/conversation_id"]`, Claude `CLAUDE_CODE_SESSION_ID` (client
-`claude-code` whose process is the server's parent) and the OpenCode plugin's `koinon_session`
-argument (client `opencode` only). A call whose arguments hold `caller`, `family`, `id`, `as`,
+`claude-code` whose process is the server's parent), the OpenCode plugin's `koinon_session`
+argument (client `opencode` only) and Grok `GROK_SESSION_ID` (client `grok-shell-koinon` whose
+parent is a Grok terminal process, not Grok's leader; #254). A call whose arguments hold `caller`, `family`, `id`, `as`,
 `session` or `session_id` is refused with `identity_unavailable`. DeepSeek has no MCP identity
 source yet and uses the `koinon` commands with `--as`.
 
@@ -292,3 +293,4 @@ agent.
 | Date       | Change           |
 | ---------- | ---------------- |
 | 2026-10-12 | Initial creation |
+| 2026-10-12 | Added Grok Build's identity source (#254 chunk 02) |

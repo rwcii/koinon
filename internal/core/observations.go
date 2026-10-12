@@ -411,8 +411,8 @@ func unobserved(group, family string) string {
 		"model":    {"claude": true, "codex": true, "agy": true},
 		"context":  {"claude": true, "codex": true},
 		"activity": {"claude": true, "codex": true, "agy": true, "opencode": true},
-		"terminal": {"claude": true, "codex": true, "agy": true, "opencode": true},
-		"naming":   {"claude": true, "codex": true, "agy": true, "opencode": true},
+		"terminal": {"claude": true, "codex": true, "agy": true, "opencode": true, "grok": true},
+		"naming":   {"claude": true, "codex": true, "agy": true, "opencode": true, "grok": true},
 	}
 	if !sources[group][family] {
 		return "no_source"

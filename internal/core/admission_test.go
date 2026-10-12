@@ -357,3 +357,45 @@ func TestBackgroundJobIDForms(t *testing.T) {
 		t.Fatalf("short job ID: %v", err)
 	}
 }
+
+// A Grok launch that chose the first session's ID admits only that ID until a session has
+// registered through it; a later session under the same host (a /clear) is not limited
+// (#254 chunk 02, item 5). Only a Grok launch records a session ID, in UUID form.
+func TestGrokLaunchAdmitsItsFirstSession(t *testing.T) {
+	s, _ := testStore(t)
+	directory := testRepo(t)
+	ctx := context.Background()
+	first := "7f3c2a10-0000-4000-8000-00000000c0de"
+	for _, target := range []LaunchTarget{
+		{Family: "codex", Directory: directory, CLI: "/synthetic/cli", HostPID: 1, SessionID: first},
+		{Family: "grok", Directory: directory, CLI: "/synthetic/cli", HostPID: 1, SessionID: "not-a-uuid"},
+	} {
+		if _, err := s.CreateLaunch(ctx, target); !errors.Is(err, ErrInvalid) {
+			t.Fatalf("session ID on %+v: %v", target, err)
+		}
+	}
+	launch, err := s.CreateLaunch(ctx, LaunchTarget{Family: "grok", Directory: directory, CLI: "/synthetic/cli", HostPID: 1, SessionID: first})
+	if err != nil {
+		t.Fatal(err)
+	}
+	session := func(id string) Registration {
+		return Registration{Family: "grok", ID: id, Directory: directory, LaunchID: launch, Ancestors: []int{1}}
+	}
+	if _, err := s.Register(ctx, session("synthetic-other")); !errors.Is(err, ErrIdentityUnavailable) {
+		t.Fatalf("another ID before the first session: %v", err)
+	}
+	if registered, err := s.Register(ctx, session(first)); err != nil || registered.ID != first {
+		t.Fatalf("first session: %+v %v", registered, err)
+	}
+	if registered, err := s.Register(ctx, session("synthetic-after-clear")); err != nil || registered.ID != "synthetic-after-clear" {
+		t.Fatalf("session after a reset: %+v %v", registered, err)
+	}
+	// A launch without a chosen ID (a resume or continue) admits any ID of its host.
+	resumed, err := s.CreateLaunch(ctx, LaunchTarget{Family: "grok", Directory: directory, CLI: "/synthetic/cli", HostPID: 1})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.Register(ctx, Registration{Family: "grok", ID: "synthetic-resumed", Directory: directory, LaunchID: resumed, Ancestors: []int{1}}); err != nil {
+		t.Fatalf("resumed session: %v", err)
+	}
+}

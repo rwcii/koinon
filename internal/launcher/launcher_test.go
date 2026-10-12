@@ -12,6 +12,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"reflect"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -144,6 +145,13 @@ func TestFakeCLI(t *testing.T) {
 	// The launcher's exec keeps its process ID, so this process is the launch's host, as
 	// the agent CLI is; a Claude server also reports it as claude_pid.
 	own := core.Registration{Family: family, ID: "synthetic-" + family, Directory: directory, LaunchID: r.LaunchID, Ancestors: []int{os.Getpid()}}
+	// A Grok session takes the ID that the launcher chose with --session-id, as Grok does;
+	// Grok reads options only before its "--".
+	for i := 0; family == "grok" && i+1 < len(args) && args[i] != "--"; i++ {
+		if args[i] == "--session-id" {
+			own.ID = args[i+1]
+		}
+	}
 	if family == "claude" {
 		own.WakeTarget = json.RawMessage(fmt.Sprintf(`{"claude_pid":%d}`, os.Getpid()))
 	}
@@ -647,5 +655,59 @@ func TestPrivateTmuxTakenDefaultName(t *testing.T) {
 	out, err := exec.Command(launcherBinary, arguments(root, address, cli, directory, "codex", result)...).CombinedOutput()
 	if err == nil || !strings.Contains(string(out), "codex-project to codex-project-99 exist; choose a name with --tmux-session NAME") {
 		t.Fatalf("every name taken: %v %s", err, out)
+	}
+}
+
+// koinon grok chooses the first session's ID unless the arguments select a session, and the
+// launch admits that session (#254 chunk 02, item 2).
+func TestGrokLaunchChoosesTheFirstSession(t *testing.T) {
+	for _, chosen := range []string{"", "--resume", "--session-id=7f3c2a10-0000-4000-8000-00000000c0de", "-c"} {
+		t.Run(chosen, func(t *testing.T) {
+			if id, err := grokSessionID([]string{"--model", "synthetic", chosen}); err != nil || (chosen == "") != core.FullJobID.MatchString(id) {
+				t.Fatalf("grokSessionID(%q) = %q %v", chosen, id, err)
+			}
+		})
+	}
+	if a, _ := grokSessionID(nil); a == "" || a[14] != '4' || !strings.Contains("89ab", string(a[19])) {
+		t.Fatalf("not a version 4 UUID: %q", a)
+	}
+	root, address, cli, directory := fixture(t)
+	t.Setenv("TMUX", filepath.Join(root, "unused-socket")+",1,0")
+	result := filepath.Join(root, "result.json")
+	if out, err := exec.Command(launcherBinary, arguments(root, address, cli, directory, "grok", result)...).CombinedOutput(); err != nil {
+		t.Fatalf("grok launch: %v %s", err, out)
+	}
+	r := readReport(t, result)
+	var chosen string
+	for i := 0; i+1 < len(r.Args); i++ {
+		if r.Args[i] == "--session-id" {
+			chosen = r.Args[i+1]
+		}
+	}
+	var target core.LaunchTarget
+	if err := json.Unmarshal(r.Session.WakeTarget, &target); err != nil || !core.FullJobID.MatchString(chosen) ||
+		r.Session.ID != chosen || target.SessionID != chosen || target.Family != "grok" || len(r.LaunchID) != 64 {
+		t.Fatalf("grok launch record: %+v %+v %v", r, target, err)
+	}
+	// The chosen ID goes before a native "--", so text after it stays text (Codex review).
+	result = filepath.Join(root, "prompt.json")
+	args := append(arguments(root, address, cli, directory, "grok", result), "--", "synthetic prompt")
+	if out, err := exec.Command(launcherBinary, args...).CombinedOutput(); err != nil {
+		t.Fatalf("grok launch with a prompt: %v %s", err, out)
+	}
+	r = readReport(t, result)
+	option, marker := slices.Index(r.Args, "--session-id"), slices.Index(r.Args, "--")
+	if option < 0 || marker < option || r.Args[len(r.Args)-1] != "synthetic prompt" || r.Session.ID != r.Args[option+1] {
+		t.Fatalf("grok prompt arguments: %v %+v", r.Args, r.Session)
+	}
+	// A resumed session keeps its own ID; the launch chooses none.
+	result = filepath.Join(root, "resume.json")
+	args = append(arguments(root, address, cli, directory, "grok", result), "--resume", "synthetic-resumed")
+	if out, err := exec.Command(launcherBinary, args...).CombinedOutput(); err != nil {
+		t.Fatalf("grok resume: %v %s", err, out)
+	}
+	r = readReport(t, result)
+	if slices.Contains(r.Args, "--session-id") || r.Session.ID != "synthetic-grok" {
+		t.Fatalf("grok resume record: %+v", r)
 	}
 }

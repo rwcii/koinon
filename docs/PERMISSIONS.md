@@ -184,6 +184,25 @@ checks parsing, not a model's actual tool call. See the
 Use `koinon opencode`, with the identity plugin installed by setup, so tools identify the
 exact native session and its wake endpoint. Tool permission alone supplies neither.
 
+## Grok Build
+
+Grok takes permission rules as `ToolPrefix(glob)` with `--allow` and `--deny`, in the terminal
+and in headless mode. Allow only the Koinon tools for a launch:
+
+```sh
+koinon grok --allow 'MCPTool(koinon__*)'
+```
+
+Grok names MCP tools `<server>__<tool>`, so an individual rule is `MCPTool(koinon__inbox)`.
+Deny rules take precedence over allow rules. The syntax comes from Grok Build **1.0.50**'s
+documentation; the #254 evidence did not run a model tool call under this rule, so native
+evaluation is unverified. `koinon setup grok` writes no rule.
+
+Use `koinon grok` in Grok's default mode, so tools identify the exact native session. A
+session served by Grok's leader process is refused with `grok_leader_mode`, and a Grok
+sub-agent's calls act as its parent session (PDR 001, Decision 2). Tool permission alone
+changes neither.
+
 ## DeepSeek command path
 
 DeepSeek's supported path remains explicit native-session commands until its MCP proof

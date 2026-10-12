@@ -62,6 +62,7 @@ type server struct {
 	outMu             sync.Mutex
 	client            string
 	claude            bool // the client is Claude Code and its parent is a Claude process
+	grok              grokParent
 	claudeHostChecked bool
 	claudeHostStart   int64
 
@@ -197,6 +198,10 @@ func (s *server) initialize(r rpcRequest) {
 	// Trust a Claude session ID from the environment only when the client is Claude Code
 	// and this server's parent is a Claude process (spike fact 1).
 	s.claude = s.client == "claude-code" && claudeProcess(s.c.Command, s.c.ParentPID)
+	s.grok = grokNone
+	if s.client == grokClient {
+		s.grok = grokProcess(s.c.Command, s.c.ParentPID)
+	}
 	if s.claude && !s.claudeHostChecked {
 		s.claudeHostChecked = true
 		s.claudeHostStart, _ = s.processStart(s.c.ParentPID)

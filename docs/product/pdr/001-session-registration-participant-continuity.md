@@ -97,7 +97,7 @@ identity is read (ADR 001).
 
 ### Decision
 
-Decided: a Claude, Codex, OpenCode or Antigravity session that was started without
+Decided: a Claude, Codex, OpenCode, Antigravity or Grok session that was started without
 `koinon <family>` registers as a plain peer. It has a peer name, sends and receives, and uses
 the memory and work tools. It gets no participant address, role, succession or terminal
 naming; those need the launch record.
@@ -150,8 +150,14 @@ memory and work tools by its peer name. It is not reachable by a participant add
 its terminal is not renamed. DeepSeek gets no role, succession or
 terminal naming.
 
+A Grok session registers only in Grok's default mode. A session served through Grok's leader
+process is refused with `grok_leader_mode`, launched or not: its server has the first
+terminal's directory and pane, so its repository and host would be wrong. Gate B approved the
+default mode only (#254 comment 6118290944); leader mode is a follow-up. A Grok launch chooses
+the first session's ID and admits only that ID until a session has registered through it.
+
 Direct Codex and OpenCode starts have no automatic wake in this implementation: the launch
-provides Codex's CLI target and OpenCode's wake endpoint. Their waiting messages are stored
+provides Codex's CLI target and OpenCode's wake endpoint. Grok has no wake provider yet. Their waiting messages are stored
 and remain readable with the inbox tool. Claude and Antigravity retain their native socket
 and turn-boundary paths.
 
@@ -168,10 +174,10 @@ hold or qualify for a participant: `assignNames` releases any address it holds, 
 refuses it with `subagent`, and `ChooseHolder` refuses it with `not_participant`. Koinon
 detects sub-agents only for Codex.
 
-Grok Build (planned under #254) runs a sub-agent's tool calls through the parent's MCP server
-with the parent's session ID and no per-call marker. Koinon will attribute those calls to the
-parent session, as it does for Claude Code sub-agents, and document that; it adds no default
-refusal of Grok sub-agent calls.
+Grok Build runs a sub-agent's tool calls through the parent's MCP server with the parent's
+session ID and no per-call marker. Koinon attributes those calls to the parent session, as it
+does for Claude Code sub-agents, and documents that in the guide and PROTOCOL; it adds no
+refusal of Grok sub-agent calls (#254 chunk 02).
 
 **Provenance:** Shipped in PR #263 (merge commit fec77b1) and PR #266 (merge commit 1eaa7e0);
 no maintainer decision found. The plan states it as acceptance criterion 1 after a live check
@@ -362,3 +368,4 @@ roles and succession evidence remain shipped behavior without a maintainer decis
 | ---------- | ---------------- |
 | 2026-10-12 | Initial creation |
 | 2026-10-12 | Recorded the maintainer's decisions on direct start, sub-agents, the fence and participant ownership (#306) |
+| 2026-10-12 | Applied Decisions 1 and 2 to Grok Build: direct start, default-mode scope and parent-scoped sub-agents (#254 chunk 02) |
