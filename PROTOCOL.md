@@ -390,9 +390,10 @@ pane from model input. Before each wake the daemon proves the pane again: the ho
 still has its recorded start value, and the pane's process is the host or an ancestor of it
 with no other agent process between them. Otherwise the wake waits with
 `grok_target_unavailable` and sends nothing. It then reads the pane and types only when Grok
-is idle: the last input box (`│ ❯`) is empty, no line shows a running turn's `[stop]`, and no
+is idle: every line of the last input box (`│ ❯` and its bordered continuation lines) is
+empty, no line is the running-turn status (a spinner glyph that ends with `[stop]`), and no
 line below the box shows a cancel shortcut (Grok Build 1.0.50 keeps the box empty during a
-turn). Otherwise it waits with `receiver_busy`. It sends the notice with `send-keys -l` and
+turn; conversation text that mentions `[stop]` does not count). Otherwise it waits with `receiver_busy`. It sends the notice with `send-keys -l` and
 then Enter, nothing else, and records `notified` only when a second read shows the box empty
 and the notice as a submitted prompt (`❯ NOTICE`); otherwise `uncertain` with
 `pane_submission_unconfirmed`. A directly started Grok session has no host record and gets

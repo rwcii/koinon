@@ -6,6 +6,7 @@ import (
 	"strconv"
 	"strings"
 	"time"
+	"unicode/utf8"
 
 	"github.com/rwcii/koinon/internal/platform"
 )
@@ -102,27 +103,54 @@ func (s *Store) grokPane(ctx context.Context, pid, start int64, socket, pane str
 	return panePID == int(pid) || !agent(panePID)
 }
 
-// grokComposer finds Grok's input box, the last line that starts with the box border and the
-// prompt mark, and returns its text and whether one was found, with the lines below it.
+// grokComposer reads Grok's input box: the last line that starts with the box border and the
+// prompt mark, and every bordered continuation line below it up to the bottom border. It
+// returns the box's text, the lines below the box, and whether a box was found.
 func grokComposer(screen string) (text string, below []string, found bool) {
 	lines := strings.Split(strings.TrimRight(screen, "\n"), "\n")
 	for i := len(lines) - 1; i >= 0; i-- {
-		line := strings.TrimSpace(lines[i])
-		if rest, ok := strings.CutPrefix(line, "│ ❯"); ok {
-			return strings.TrimSpace(strings.TrimSuffix(rest, "│")), lines[i+1:], true
+		rest, ok := strings.CutPrefix(strings.TrimSpace(lines[i]), "│ ❯")
+		if !ok {
+			continue
 		}
+		parts := []string{strings.TrimSpace(strings.TrimSuffix(rest, "│"))}
+		j := i + 1
+		for ; j < len(lines); j++ {
+			line := strings.TrimSpace(lines[j])
+			continuation, ok := strings.CutPrefix(line, "│")
+			if !ok {
+				break
+			}
+			parts = append(parts, strings.TrimSpace(strings.TrimSuffix(continuation, "│")))
+		}
+		return strings.TrimSpace(strings.Join(parts, "\n")), lines[j:], true
 	}
 	return "", nil, false
 }
 
+// grokRunning reports whether a line is Grok's running-turn status: a spinner glyph (a
+// Braille pattern) at its start and the [stop] control at its end. Conversation text that
+// merely mentions [stop] is not the status.
+func grokRunning(line string) bool {
+	line = strings.TrimSpace(line)
+	first, _ := utf8.DecodeRuneInString(line)
+	return first >= 0x2800 && first <= 0x28ff && strings.HasSuffix(line, "[stop]")
+}
+
 // grokIdle reports whether a Grok screen shows an empty input box and no running turn
-// (Grok Build 1.0.50, recorded on #254): a running turn shows a spinner line that ends with
-// [stop] and a shortcut bar below the box with Ctrl+c:cancel; the box itself stays empty.
+// (Grok Build 1.0.50, recorded on #254): a running turn shows its status line, a spinner
+// ending in [stop], and a shortcut bar below the box with Ctrl+c:cancel, while the box
+// itself stays empty. Every line of the box must be empty; a multi-line draft is not idle.
 // A screen without the box, such as a sub-agent's full-screen view, is not idle.
 func grokIdle(screen string) bool {
 	text, below, found := grokComposer(screen)
-	if !found || text != "" || strings.Contains(screen, "[stop]") {
+	if !found || text != "" {
 		return false
+	}
+	for _, line := range strings.Split(screen, "\n") {
+		if grokRunning(line) {
+			return false
+		}
 	}
 	for _, line := range below {
 		if strings.Contains(strings.ToLower(line), "cancel") {

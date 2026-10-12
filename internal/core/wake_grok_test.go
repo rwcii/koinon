@@ -295,6 +295,32 @@ func TestGrokWakeSendsNothingWithoutProofOrIdle(t *testing.T) {
 	}
 }
 
+// A multi-line draft keeps its text: nothing is typed when any line of the box holds text.
+func TestGrokWakeLeavesAMultiLineDraft(t *testing.T) {
+	f := newGrokFixture(t)
+	program := strings.Replace(grokScreen, "  │ ❯ %s\\n", "  │ ❯ %s\\n  │   synthetic continuation draft\\n", 1)
+	if err := os.WriteFile(f.program, []byte(program), 0700); err != nil {
+		t.Fatal(err)
+	}
+	p := f.pane("idle", 0)
+	if got := f.s.providerWake(context.Background(), f.session(p.host, p.id), grokTestNotice); got != waiting("receiver_busy") || f.received(p) != "" {
+		t.Fatalf("wake into a multi-line draft: %v, input %q", got, f.received(p))
+	}
+}
+
+// An idle session whose conversation mentions [stop] is still woken.
+func TestGrokWakeIgnoresStopInTheConversation(t *testing.T) {
+	f := newGrokFixture(t)
+	program := strings.Replace(grokScreen, `box "$draft"`, "printf '     ❯ Explain the [stop] marker\\n'\nbox \"$draft\"", 1)
+	if err := os.WriteFile(f.program, []byte(program), 0700); err != nil {
+		t.Fatal(err)
+	}
+	p := f.pane("idle", 0)
+	if got := f.s.providerWake(context.Background(), f.session(p.host, p.id), grokTestNotice); got != accepted() {
+		t.Fatalf("wake with [stop] in the conversation: %v", got)
+	}
+}
+
 // A notice that does not leave the input box is not recorded as delivered.
 func TestGrokWakeUnconfirmedSubmission(t *testing.T) {
 	f := newGrokFixture(t)
@@ -315,6 +341,10 @@ func TestGrokIdleScreens(t *testing.T) {
 		strings.Replace(box, "%s", "    ", 1) + "  Shift+Tab:mode  │  Ctrl+c:cancel  │  Ctrl+x:shortcuts\n":                    false,
 		strings.Replace(box, "%s", "text", 1) + "  Enter:send  │  Alt+Enter:newline  │  Shift+Tab:mode  │  Ctrl+x:shortcuts\n": false,
 		"  a sub-agent view without a box\n": false,
+		// A multi-line draft whose first line is empty is not an empty box.
+		"  ╭────╮\n  │ ❯     │\n  │   continued draft │\n  ╰────╯\n  Shift+Tab:mode  │  Ctrl+x:shortcuts\n": false,
+		// Conversation text that mentions [stop] is not the running-turn status.
+		"     ❯ Explain the [stop] marker\n" + strings.Replace(box, "%s", "    ", 1) + "  Shift+Tab:mode  │  Ctrl+x:shortcuts\n": true,
 	} {
 		if got := grokIdle(screen); got != idle {
 			t.Errorf("idle %v, want %v:\n%s", got, idle, screen)
