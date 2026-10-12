@@ -5,6 +5,12 @@
 > [PROTOCOL.md](../PROTOCOL.md) and [WORK-ITEMS-GO-STORAGE.md](WORK-ITEMS-GO-STORAGE.md).
 
 Status: behavioral scope independently reviewed and approved by the maintainer.
+
+The Go role-routing extension is approved in [PDR 004, Decision 1](product/pdr/004-work-results-role-routing.md).
+Schema 16 adds typed family/role proposals, native-bound new role claims and complete paged
+current-assignment queries. Existing explicit-consumer and default participant claims keep
+their v1 continuation. See the current [command contract](WORK-ITEMS-COMMANDS.md) for the
+extension; the historical implementation descriptions below remain provenance.
 The [implementation design](WORK-ITEMS-IMPLEMENTATION-DESIGN.md) addresses the remaining
 design gates. Implementation, deployment, participant configuration, and existing work
 assignments require their own authorization; this contract grants none.

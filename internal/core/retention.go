@@ -206,9 +206,10 @@ func (s *Store) deleteMarked(ctx context.Context, k Key, cutoff, limit int64) (i
 // inactiveSince is the SQL condition of a session whose activity ended at or before ?1.
 const inactiveSince = `((s.retired_at!=0 AND s.retired_at<=?1) OR (s.retired_at=0 AND s.expires_at<=?1))`
 
-// liveClaim is the SQL condition of a session that owns an active claim bundle; a claim is
-// owned by the consumer key FAMILY:ID.
-const liveClaim = `EXISTS (SELECT 1 FROM claim_bundles b WHERE b.active=1 AND b.consumer=s.family||':'||s.id)`
+// liveClaim recognizes legacy native consumers and the same native actor digest used
+// by role claims. Participant-owned claims retain their separate continuation.
+const liveClaim = `EXISTS (SELECT 1 FROM claim_bundles b WHERE b.active=1 AND
+	(b.consumer=s.family||':'||s.id OR (b.native_actor!='' AND b.native_actor=koinon_native_work_actor(s.family,s.id))))`
 
 const anyMessage = `EXISTS (SELECT 1 FROM messages m WHERE m.recipient_family=s.family AND m.recipient_id=s.id)`
 
@@ -324,25 +325,26 @@ func (s *Store) purgeMarked(ctx context.Context, counts *RetentionCounts, budget
 
 // purgeClaim is a live claim of a marked session, as the sweep read it.
 type purgeClaim struct {
-	repository, workID   string
-	revision, generation int64
-	expires              float64
+	repository, workID, consumer string
+	revision, generation         int64
+	expires                      float64
 }
 
 // releasePurged releases every live claim of a marked session and reports whether none
 // is left, and whether the session was still marked. A claim whose lease has expired waits
 // for the work sweep's reconciliation.
 func (s *Store) releasePurged(ctx context.Context, k Key) (released, marked bool, err error) {
-	rows, err := s.db.QueryContext(ctx, `SELECT m.repository,w.work_id,w.revision,b.generation,b.expires_at
+	rows, err := s.db.QueryContext(ctx, `SELECT m.repository,w.work_id,w.revision,b.generation,b.expires_at,b.consumer
 		FROM claim_bundles b JOIN work_items w ON w.store=b.store AND w.work_id=b.work_id
-		JOIN memory_stores m ON m.store_id=b.store WHERE b.active=1 AND b.consumer=? ORDER BY b.generation`, k.Family+":"+k.ID)
+		JOIN memory_stores m ON m.store_id=b.store WHERE b.active=1 AND
+		(b.consumer=? OR (b.native_actor!='' AND b.native_actor=?)) ORDER BY b.generation`, k.Family+":"+k.ID, nativeWorkActorForKey(k))
 	if err != nil {
 		return false, false, err
 	}
 	var claims []purgeClaim
 	for rows.Next() {
 		var c purgeClaim
-		if err := rows.Scan(&c.repository, &c.workID, &c.revision, &c.generation, &c.expires); err != nil {
+		if err := rows.Scan(&c.repository, &c.workID, &c.revision, &c.generation, &c.expires, &c.consumer); err != nil {
 			rows.Close()
 			return false, false, err
 		}
@@ -388,7 +390,7 @@ func (s *Store) releaseMarked(ctx context.Context, k Key, c purgeClaim) (marked,
 		"claim_generation": c.generation, "checkpoint": purgeCheckpoint} {
 		fields[name], _ = json.Marshal(value)
 	}
-	caller := MemoryCaller{Repository: c.repository, Family: maintainerKey.Family, Name: "maintainer", Consumer: k.Family + ":" + k.ID}
+	caller := MemoryCaller{Repository: c.repository, Family: maintainerKey.Family, Name: "maintainer", Consumer: c.consumer}
 	if _, err := s.Work(ctx, caller, "work-release", fields); err != nil {
 		var refusal WorkRefusal
 		if errors.As(err, &refusal) {

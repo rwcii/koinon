@@ -5,6 +5,10 @@ into a dated release section when promoted to `main`.
 
 ## Unreleased
 
+- Route work proposals to a repository's family/role, bind new role claims to the accepting
+  native session, and page current assignment queries completely. Existing/default participant
+  claims retain their generation and cursor continuation (#140, chunk 01).
+
 - Add the portable `refusal-review` skill: a different agent family checks a frozen commit for
   added or changed refusals, gates, caps and exclusions, in text, tests and code, that have no
   source covering their case, and records a commit-bound verdict. The `develop` ruleset

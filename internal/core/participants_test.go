@@ -17,6 +17,9 @@ import (
 func joinAs(t *testing.T, s *Store, family, id, directory, role string) Session {
 	t.Helper()
 	target := LaunchTarget{Family: family, Directory: directory, CLI: "/synthetic/cli", HostPID: syntheticHost, Role: role}
+	if family == "opencode" {
+		target.Address, target.Password = "127.0.0.1:9", strings.Repeat("ab", 32)
+	}
 	launch, err := s.CreateLaunch(context.Background(), target)
 	if err != nil {
 		t.Fatalf("launch with role %q: %v", role, err)

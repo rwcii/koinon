@@ -66,6 +66,9 @@ type MemoryCaller struct {
 	Consumer   string
 	// Native is trusted caller identity from the transport, never a consumer argument.
 	Native Key
+	// ConsumerExplicit distinguishes a transport's explicit work consumer from its
+	// legacy default. Only the new role-claim path derives a different default.
+	ConsumerExplicit bool
 }
 
 type MemoryEntry struct {
@@ -255,14 +258,14 @@ func usage(ctx context.Context, q querier, repo string) (memoryUsage, error) {
 		(SELECT COUNT(*) FROM work_events WHERE store=?1),
 		(SELECT COUNT(*) FROM work_replays WHERE store=?1),
 		(SELECT COALESCE(SUM(?2+`+textBytes("store", "work_id", "lifecycle", "title", "criteria", "non_goals", "proposed_assignee",
-		"created_consumer", "progress", "checkpoint", "next_artifact", "blocker", "last_writer", "outcome", "reason",
+		"created_consumer", "proposed_role", "progress", "checkpoint", "next_artifact", "blocker", "last_writer", "outcome", "reason",
 		"references_json")+`),0) FROM work_items WHERE store=?1)+
 		(SELECT COALESCE(SUM(?2+`+textBytes("store", "work_id", "consumer", "author", "title", "criteria", "non_goals")+`),0)
 			FROM work_scope_revisions WHERE store=?1)+
-		(SELECT COALESCE(SUM(?2+`+textBytes("store", "work_id", "consumer")+`),0) FROM claim_bundles WHERE store=?1)+
+		(SELECT COALESCE(SUM(?2+`+textBytes("store", "work_id", "consumer", "native_actor")+`),0) FROM claim_bundles WHERE store=?1)+
 		(SELECT COALESCE(SUM(?2+`+textBytes("store", "kind", "resource")+`),0) FROM claim_resources WHERE store=?1)+
 		(SELECT COALESCE(SUM(?2+`+textBytes("store", "work_id", "kind", "payload", "actor")+`),0) FROM work_events WHERE store=?1),
-		(SELECT COALESCE(SUM(?3+`+textBytes("key", "consumer", "operation", "result")+`),0) FROM work_replays WHERE store=?1),
+		(SELECT COALESCE(SUM(?3+`+textBytes("key", "consumer", "operation", "result", "native_actor")+`),0) FROM work_replays WHERE store=?1),
 		(SELECT COALESCE(SUM(?4+`+textBytes("body", "path", "author", "scope_target", "consumer")+`),0) FROM memory_entries
 			WHERE repository=?5 AND type='work-event')`,
 		store, workRowOverhead, workReplayOverhead, entryOverhead, repo).Scan(&u.WorkItems, &u.WorkScopes, &u.WorkScopesPerItem,

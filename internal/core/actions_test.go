@@ -20,6 +20,10 @@ import (
 // Dashboard action tests (sprint chunk 09): a real daemon on ephemeral loopback ports,
 // temporary state, synthetic sessions and a patched launcher.
 
+// undoSchemaSixteen removes role routing and native-bound work ownership.
+const undoSchemaSixteen = `ALTER TABLE work_items DROP COLUMN proposed_role;
+	ALTER TABLE claim_bundles DROP COLUMN native_actor; ALTER TABLE work_replays DROP COLUMN native_actor; `
+
 // undoSchemaFifteen turns a schema 15 database back into schema 14 for migration tests.
 const undoSchemaFifteen = `ALTER TABLE sessions DROP COLUMN read_through; ALTER TABLE messages DROP COLUMN wake_notices;
 	ALTER TABLE messages DROP COLUMN ack_session; ALTER TABLE messages DROP COLUMN ack_via; `
@@ -490,7 +494,7 @@ func TestSchemaSixMigrationAndRollback(t *testing.T) {
 	}
 	// A schema 6 database that already holds the name maintainer cannot migrate: the
 	// whole step rolls back and the database stays at 6.
-	if _, err := s.db.Exec(undoSchemaFifteen + undoSchemaFourteen + undoSchemaThirteen + undoSchemaTwelve + undoSchemaEleven + undoSchemaTen + undoSchemaNine + undoSchemaEight + undoSchemaSeven + `INSERT INTO names(name,kind,family,session_id) VALUES ('maintainer','peer','codex','x'); PRAGMA user_version=6`); err != nil {
+	if _, err := s.db.Exec(undoSchemaSixteen + undoSchemaFifteen + undoSchemaFourteen + undoSchemaThirteen + undoSchemaTwelve + undoSchemaEleven + undoSchemaTen + undoSchemaNine + undoSchemaEight + undoSchemaSeven + `INSERT INTO names(name,kind,family,session_id) VALUES ('maintainer','peer','codex','x'); PRAGMA user_version=6`); err != nil {
 		t.Fatal(err)
 	}
 	s.db.Close()

@@ -347,7 +347,7 @@ func releaseAddress(ctx context.Context, tx *sql.Tx, now int64, family, id, reas
 }
 
 // peerOf is the peer name of a session, or "" for none.
-func peerOf(ctx context.Context, tx *sql.Tx, family, id string) (string, error) {
+func peerOf(ctx context.Context, tx querier, family, id string) (string, error) {
 	if id == "" {
 		return "", nil
 	}
@@ -369,7 +369,7 @@ func participantEvent(ctx context.Context, tx *sql.Tx, now int64, address, forme
 
 // holds reports whether a recorded holder still holds its participant: the holder must be
 // active, not a sub-agent, and still registered for the participant's repository and role.
-func holds(ctx context.Context, tx *sql.Tx, now int64, family, id, repository, role string) (bool, error) {
+func holds(ctx context.Context, tx querier, now int64, family, id, repository, role string) (bool, error) {
 	var found int
 	err := tx.QueryRowContext(ctx, `SELECT 1 FROM sessions s WHERE family=? AND id=? AND repository=? AND role=? AND subagent=0
 		AND retired_at=0 AND expires_at>? AND `+participantQualifier, family, id, repository, role, now).Scan(&found)
