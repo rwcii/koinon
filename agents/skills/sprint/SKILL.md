@@ -1,122 +1,67 @@
 ---
 name: sprint
-description: Plan a deliverable of more than one pull request before building it. Write the decision (problem, acceptance criteria, constraints), fix the definition of done, split the work into ordered chunks that each merge complete, have the other agent family attack the plan, and get the maintainer's approval at each gate. Use when asked to plan a sprint, scope a feature or kick off a build. A single-issue fix does not need a sprint.
+description: "Plan a deliverable requiring multiple PRs, settle its decision and tests, and review ordered complete chunks."
 ---
 
 # Sprint
 
-Read `agents/skills/AGENTS.md` and the root `AGENTS.md` first.
+Koinon's procedure source is [WDR 002](https://github.com/rwcii/koinon/blob/develop/docs/engineering/wdr/002-authority-within-assigned-task.md). The adopting project's instructions govern its
+application. Invoking this skill or its task authorizes the work steps; ask only for necessary
+missing information or authority beyond that task (WDR 002, Decision 1).
 
-A sprint settles what to build, what "done" means and the order of work before any code is
-written. It writes plans, not production code. Existing design documents under `docs/` and
-open issues are inputs: a sprint cites them and does not decide them again.
+Read the adopting project's authoritative instructions first. For edits to a canonical skill source, also read `agents/skills/AGENTS.md` when present. A machine-wide copy need not have the authoring file.
 
-## Scope first
+A one-PR fix does not need a sprint. For a larger deliverable, read the issue and authoritative
+project design first. Fix its boundary with the maintainer; ask one unresolved scope question
+at a time, with a recommendation, and do not build on a guess. Existing approval counts.
+Use the declared Plan layout, default docs/sprints/<date>-<slug>/ with the UTC shell date.
+Write decision.md with problem, observable acceptance and constraints, without design.
+Gate A: obtain the maintainer's approval of that content before specifications.
+Write definition-of-done.md before chunk specifications: meaningful synthetic unit/integration
+checks, actual interfaces, platform evidence, edge cases, commands and publication gates.
+Split the outcome into ordered chunks, each one complete, independently testable and mergeable.
+Write sprint.md and chunks/NN-<slug>.md; each chunk cites the decision and definition of done
+and can be built from those files. Do not copy hidden planning context into a specification.
+Commit the plan under project policy and have the other agent family attack that hash using
+peer-review. Record each finding/disposition in review.md; changed scope or tests get a bounded
+review. No unverified assumption may be presented as an available capability.
+Gate B: the maintainer approves the reviewed plan before product implementation. Later builds
+use ship and the project's Build checks; start dependent chunks only after their dependencies
+merge. Correct a plan that evidence disproves before continuing. A correction within the
+approved scope uses the existing approval (WDR 001, Decision 2); a new consequential choice
+uses the project's review and approval procedure.
+Reuse the issue's work item across chunks, releasing at a driver handoff. Finish only after
+all required criteria and evidence are satisfied. Apply the approved scope and any separate
+release or adoption gates the project explicitly requires.
 
-- Plan only what the goal needs to reach `main`, correctly and completely. Do not add
-  fail-safes, options or phases that the goal does not require.
-- A deliverable that fits one pull request gets no sprint; open an issue and work it.
-- When scoping needs an answer that the documents and the request do not give, ask the maintainer
-  one question at a time, with your recommended answer. Do not build on a guess.
+## Repository facts
 
-## Layout
+Resolve the current worktree and Git common directory before reading project facts. The file
+below is local fact data with Version 1, matching Skill, Sources and the declared headings.
+It is outside the embedded catalog. No required fields means no sidecar is needed; optional
+fields use only the defaults declared here. A supplied sidecar must still be valid.
+Read required facts before the dependent step. When missing, derive and record them from
+checked project evidence within the task. Ask for necessary missing information or authority
+beyond that task; existing authorization counts. Project instructions govern the procedure,
+and facts supply its project data. Bound sidecars to 64 KiB. Their parser reads inert text;
+it does not include other files, expand shell syntax or execute values.
 
-Take the date from the shell (`date -u +%Y-%m-%d`). The sprint home is
-`docs/sprints/<date>-<slug>/`:
-
-| File | Contents |
-| --- | --- |
-| `decision.md` | Problem, acceptance criteria and constraints, in three separate sections. No design. |
-| `definition-of-done.md` | Tests required, integration points, edge cases, and the commands that prove done. |
-| `sprint.md` | The chunks: outcome, the criteria each satisfies, its done-criteria, its dependencies. |
-| `chunks/NN-<slug>.md` | The technical specification for one chunk only. |
-| `review.md` | Each review finding and its disposition: fixed (what changed) or rejected (why). |
-
-A small sprint is one file, `docs/sprints/<date>-<slug>.md`, with one section for each file
-above; each phase below then writes its section instead of a file. Use the directory only when
-the chunks need separate specifications.
-
-## Phase 0: frame
-
-1. Read the design documents under `docs/` and the decision records that the work touches
-   (the ADR, PDR and WDR indexes).
-2. List the related open issues. When the sprint delivers more than one issue, create a
-   GitHub milestone named `<date>-<slug>` and attach them, so `pickup` can find the sprint's
-   open work. Both agents use one GitHub account, so mark each issue with the label
-   `agent:<agent-id>` of the agent that takes it; two agents then do not take the same issue.
-3. State the boundary of the deliverable in one or two sentences. Gate A settles it with
-   `decision.md`.
-
-## Phase 1: decision → gate A
-
-Write `decision.md`:
-
-- **Problem**: the current state, the gap, who needs it and why now. No solution.
-- **Acceptance criteria**: outcomes a person who did not build it can check.
-- **Constraints**: non-goals; the decision records that apply, cited by number (ADR 001 for
-  the security boundary); Linux and macOS support; dependencies and order.
-- **Issues**: which issues the sprint delivers, and which it leaves to a later sprint, with
-  the reason.
-
-A constraint cites the record that imposes it. A significant product, architecture or workflow
-choice that the sprint makes is a draft PDR, ADR or WDR, and `decision.md` cites it; a non-goal
-limits this sprint only (WDR 001).
-
-**Gate A**: bring `decision.md` to the maintainer for approval (WDR 002, Decision 5). An approval
-already given for this content counts.
-
-## Phase 2: definition of done
-
-Write `definition-of-done.md` before the specification:
-
-- The unit and integration tests the work needs, with synthetic peers only.
-- The integration points exercised for real, including the native service managers on
-  Linux and macOS where the work touches them.
-- The edge cases that must have tests.
-- The gate: the `check` skill, plus the CI workflows under `.github/workflows/` that cover the
-  change.
-
-## Phase 3: chunks
-
-Split the acceptance criteria into chunks, and record which chunks each one depends on. Each chunk is one pull request that builds,
-passes its part of the definition of done and merges on its own. A new session must be able to
-build it after reading only `decision.md`, `definition-of-done.md` and its chunk file. Write
-`sprint.md` and one file per chunk. Both cite the decision and the definition of done; they do
-not repeat them.
-
-## Phase 4: review → gate B
-
-Commit the plan on a work branch. Ask the other agent family to review that commit: it reads
-only the plan files and the documents they cite, not the planning conversation. When no other
-agent is available, record the review as pending and tell the maintainer. The reviewer reports only
-material findings that it has reproduced or can show in the text, and checks that:
-
-- the chunks together satisfy every acceptance criterion;
-- each criterion can be checked;
-- no chunk conflicts with a constraint or a cited document;
-- each chunk is self-contained and in the right order;
-- the definition of done would catch a wrong build;
-- no assumption is left unverified.
-
-Record every finding in `review.md` with its disposition. A finding that changes the chunks, the
-criteria or the definition of done gets a second review of the changed plan.
-
-**Gate B**: bring the reviewed plan to the maintainer for approval before chunks are built
-(WDR 002, Decision 5). The approval covers the plan at the commit it names. An approval already
-given for this content counts.
-
-## Phase 5: build
-
-Build each chunk with the `ship` skill; peer review and CI cover each chunk, with no further
-maintainer approval (WDR 002, Decision 5). A chunk starts after the chunks it depends on have
-merged; chunks with no dependency between them may be built at the same time. Once a chunk's
-branch is pushed and CI is running, put further changes on a new branch. File each new deferral
-as an issue on the milestone when it is decided. When the build shows that the plan is wrong,
-correct the plan file first. A correction or clarification within the approved scope proceeds
-under the existing approval (WDR 001, Decision 2); a change that needs a new consequential
-choice or authority goes back through review and gate B.
-
-A chunk reuses the work item of the issue it delivers (`ship`, step 1); do not create one work
-item per chunk. When a different agent builds the next chunk of the same issue, the previous
-holder releases its claim after its pull request merges (`ship`, step 5), and the next
-builder starts the same item. A lease that expires releases the claim as well.
+<!-- koinon:repository-facts -->
+```json
+{
+  "version": 1,
+  "filename": ".koinon/skills/sprint.md",
+  "fields": [
+    {
+      "heading": "Plan layout",
+      "required": false,
+      "default": "docs/sprints/<date>-<slug>/"
+    },
+    {
+      "heading": "Build checks",
+      "required": false,
+      "default": "project policy"
+    }
+  ]
+}
+```

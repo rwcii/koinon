@@ -72,7 +72,7 @@ func TestSharedSkillsAndGuidance(t *testing.T) {
 const raceTests = "go test -race -timeout 30m ./..."
 
 func TestRaceCommandIsTheSameEverywhere(t *testing.T) {
-	for _, file := range []string{".github/workflows/tests.yml", "agents/skills/check/SKILL.md", "AGENTS.md", "CONTRIBUTING.md", "README.md"} {
+	for _, file := range []string{".github/workflows/tests.yml", ".koinon/skills/check.md", ".koinon/skills/ship.md", "AGENTS.md", "CONTRIBUTING.md", "README.md"} {
 		text := read(t, file)
 		if !strings.Contains(text, raceTests) {
 			t.Errorf("%s does not run %q", file, raceTests)
@@ -130,7 +130,7 @@ func TestRuntimeRetirementAndCICoverage(t *testing.T) {
 	if strings.Contains(nativeWorkflow, "paths-ignore:") {
 		t.Fatal("required native jobs must always report")
 	}
-	for _, contract := range []string{"--no-renames", "steps.scope.outputs.exempt", "agents/|docs/sprints/|", "fetch-depth: 0"} {
+	for _, contract := range []string{"--no-renames", "steps.scope.outputs.exempt", "docs/sprints/|", "fetch-depth: 0"} {
 		if !strings.Contains(nativeWorkflow, contract) {
 			t.Errorf("missing native scope contract: %s", contract)
 		}
@@ -170,6 +170,17 @@ func TestFreshInstallWithoutPython(t *testing.T) {
 	if out, err := build.CombinedOutput(); err != nil {
 		t.Fatalf("build: %v\n%s", err, out)
 	}
+	// The built binary reports its embedded catalog from an unrelated empty directory.
+	version := exec.Command(binary, "version")
+	version.Dir = t.TempDir()
+	versionOut, err := version.Output()
+	if err != nil {
+		t.Fatal(err)
+	}
+	var fingerprint map[string]string
+	if err := json.Unmarshal(versionOut, &fingerprint); err != nil || len(fingerprint["catalog_digest"]) != 64 {
+		t.Fatalf("embedded catalog version: %s %v", versionOut, err)
+	}
 	prefix := filepath.Join(dir, "prefix")
 	state := filepath.Join(dir, "state")
 	cmd := exec.Command(binary, "install", "--no-start", "--prefix", prefix, "--state-dir", state)
@@ -194,6 +205,12 @@ func TestFreshInstallWithoutPython(t *testing.T) {
 	if report["ok"] != true {
 		t.Fatalf("install report: %s", out)
 	}
+	installedVersion := exec.Command(filepath.Join(prefix, "bin/koinon"), "version")
+	installedVersion.Dir = version.Dir
+	installedOut, err := installedVersion.Output()
+	if err != nil || string(installedOut) != string(versionOut) {
+		t.Fatalf("installed catalog needs checkout/files: %v %s", err, installedOut)
+	}
 	if _, err := os.Stat(filepath.Join(prefix, "bin/koinon")); err != nil {
 		t.Fatal(err)
 	}
@@ -211,7 +228,7 @@ func TestNativeScope(t *testing.T) {
 		t.Fatal("no native scope script")
 	}
 	script := strings.ReplaceAll(match[1], "          ", "")
-	for _, scenario := range []string{"skill", "skill-and-readme", "rename-runtime"} {
+	for _, scenario := range []string{"skill", "skill-and-readme", "rename-runtime", "plan"} {
 		t.Run(scenario, func(t *testing.T) {
 			dir := t.TempDir()
 			git := func(args ...string) string {
@@ -231,6 +248,11 @@ func TestNativeScope(t *testing.T) {
 			base := git("rev-parse", "HEAD")
 			os.MkdirAll(filepath.Join(dir, "agents/skills/x"), 0700)
 			os.WriteFile(filepath.Join(dir, "agents/skills/x/SKILL.md"), []byte("skill\n"), 0600)
+			if scenario == "plan" {
+				os.Remove(filepath.Join(dir, "agents/skills/x/SKILL.md"))
+				os.MkdirAll(filepath.Join(dir, "docs/sprints/x"), 0700)
+				os.WriteFile(filepath.Join(dir, "docs/sprints/x/decision.md"), []byte("plan\n"), 0600)
+			}
 			if scenario == "skill-and-readme" {
 				os.WriteFile(filepath.Join(dir, "README.md"), []byte("changed\n"), 0600)
 			}
@@ -248,7 +270,7 @@ func TestNativeScope(t *testing.T) {
 			}
 			out, _ := os.ReadFile(output)
 			exempt := strings.Contains(string(out), "exempt=true")
-			if exempt != (scenario == "skill") {
+			if exempt != (scenario == "plan") {
 				t.Fatalf("%s exempt=%v", scenario, exempt)
 			}
 		})

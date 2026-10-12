@@ -30,6 +30,7 @@ import (
 
 	"github.com/rwcii/koinon/internal/core"
 	"github.com/rwcii/koinon/internal/legacy"
+	"github.com/rwcii/koinon/internal/library"
 	"github.com/rwcii/koinon/internal/platform"
 )
 
@@ -205,12 +206,38 @@ func installWithoutPython(t *testing.T, prefix, state string) map[string]any {
 	return report
 }
 
+// installedCatalog verifies that install/upgrade ships the complete embedded catalog in
+// one executable and applies no recommendation beside it. Runs only in guarded CI.
+func installedCatalog(t *testing.T, prefix string) {
+	t.Helper()
+	expected, err := library.Embedded("dev")
+	if err != nil {
+		t.Fatal(err)
+	}
+	cmd := exec.Command(filepath.Join(prefix, "bin", "koinon"), "version")
+	cmd.Dir = t.TempDir()
+	out, err := cmd.Output()
+	if err != nil {
+		t.Fatal(err)
+	}
+	var version map[string]string
+	if err := json.Unmarshal(out, &version); err != nil || version["catalog_digest"] != expected.Digest {
+		t.Fatalf("installed catalog without checkout: %v %s", err, out)
+	}
+	for _, relative := range []string{"agents/skills", ".koinon/skills", ".claude/skills", ".codex/skills", ".agents/skills", ".opencode/commands"} {
+		if _, err := os.Lstat(filepath.Join(prefix, relative)); !os.IsNotExist(err) {
+			t.Fatalf("install/upgrade applied catalog item %s: %v", relative, err)
+		}
+	}
+}
+
 // TestGoLifecycle installs, starts, kills, uninstalls and reinstalls the daemon; the
 // state survives the uninstall.
 func TestGoLifecycle(t *testing.T) {
 	dir := tempDir(t)
 	prefix, state := filepath.Join(dir, "prefix space"), filepath.Join(dir, "state")
 	report := installWithoutPython(t, prefix, state)
+	installedCatalog(t, prefix)
 	if report["service"] != "running" {
 		t.Fatalf("install %v", report)
 	}
@@ -523,6 +550,7 @@ func TestUpgradeFromMain(t *testing.T) {
 		t.Fatalf("the Python installation remains: %v", err)
 	}
 	waitFor(t, "the Go daemon", func() bool { return status(goState) })
+	installedCatalog(t, goPrefix)
 
 	// The imported state reads back through the daemon.
 	// The session registers with its own launch, as koinon codex starts it.

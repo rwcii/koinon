@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"flag"
+	"fmt"
 	"io"
 	"regexp"
 	"runtime"
@@ -13,6 +14,7 @@ import (
 
 	"github.com/rwcii/koinon/internal/core"
 	"github.com/rwcii/koinon/internal/install"
+	"github.com/rwcii/koinon/internal/library"
 	"github.com/rwcii/koinon/internal/platform"
 	"github.com/rwcii/koinon/internal/upgrade"
 )
@@ -59,7 +61,11 @@ func versionCommand(out io.Writer) error {
 			}
 		}
 	}
-	return printJSON(out, map[string]string{"version": version, "commit": revision, "go": runtime.Version(),
+	catalog, err := library.Embedded(version)
+	if err != nil {
+		return fmt.Errorf("catalog: %w", err)
+	}
+	return printJSON(out, map[string]string{"catalog_digest": catalog.Digest, "version": version, "commit": revision, "go": runtime.Version(),
 		"os": runtime.GOOS, "arch": runtime.GOARCH})
 }
 

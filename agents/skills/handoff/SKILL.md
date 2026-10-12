@@ -1,32 +1,40 @@
 ---
 name: handoff
-description: Write a timestamped snapshot of this agent's current work to its own directory under the Git-ignored _handoff/ so the next session of the same agent can resume it. Use at the end of a session, before a long or risky operation, when context is nearly full, or when the maintainer asks to hand off or save state. Each run adds a new file; it never edits an earlier one, and it never commits.
+description: "Write a timestamped snapshot of this agent's current work to its own directory under the Git-ignored _handoff/ so the next session of the same agent can resume it. Use at the end of a session, before a long or risky operation, when context is nearly full, or when the maintainer asks to hand off or save state. Each run adds a new file; it never edits an earlier one, and it never commits."
 ---
 
 # Handoff
 
-Read `agents/skills/AGENTS.md` and the root `AGENTS.md` first. The `pickup` skill reads what
+Koinon's procedure source is [WDR 005](https://github.com/rwcii/koinon/blob/develop/docs/engineering/wdr/005-private-handoffs-and-continuity.md). The adopting project's instructions govern its
+application. Invoking this skill or its task authorizes the work steps; ask only for necessary
+missing information or authority beyond that task (WDR 002, Decision 1).
+
+Read the adopting project's authoritative instructions first. Read `agents/skills/AGENTS.md` when editing its canonical source; a machine-wide installation need not contain that file. The `pickup` skill reads what
 this skill writes.
 
 A handoff is a snapshot of one agent's work, true at the time it is written. The reader is the
 next session of the same agent. Each agent writes only its own directory, so handoffs from
-different agents do not compete (WDR 005, Decision 2). Handoffs are session state, not part of
-the product: they stay in the ignored `_handoff/` directory, out of Git (WDR 005, Decision 1).
+different agents never compete. Handoffs are session state, not part of the product: they stay
+in the ignored `_handoff/` directory and never enter Git.
 
 ## 1. Name the agent
 
-The agent ID is the agent family in lower case: `claude`, `codex` or `deepseek`. When two
+The agent ID is the native agent family in lower case, such as `claude`, `codex`,
+`deepseek`, `agy` or `opencode`. When two
 agents of one family work in this repository at the same time, the maintainer assigns each a role
 suffix, for example `codex-review`. Use the same ID every session.
 
 ## 2. Create and check the directory
 
-Handoffs live in the `_handoff/` directory of the main checkout, the repository directory that
-holds `.git` (WDR 005, Decision 1). A `_handoff/` inside a linked worktree is removed with the
-worktree when its work merges, and every file in it goes too. A relative `_handoff/` path in a
-worktree names that wrong directory. The commands below find the main checkout from any
-worktree. Run them every time; they create what is missing and change nothing that already
-exists:
+Resolve Handoff path from the project facts or the declared default. The examples below use
+that default; apply an evidenced override consistently for writing and pickup.
+
+All handoffs belong in the `_handoff/` directory of the main checkout (the repository
+directory that holds `.git`). Never write one into a `_handoff/` inside a linked worktree:
+worktrees are removed when their work merges, and every file in them goes with them. Do not
+use a relative `_handoff/` path, because in a worktree it names the wrong directory. The
+commands below find the main checkout from any worktree. Run them every time; they create
+what is missing and change nothing that already exists:
 
 ```sh
 common=$(git rev-parse --path-format=absolute --git-common-dir)
@@ -60,8 +68,8 @@ fi
   whatever rule matches. `git ls-files` confirms that Git tracks nothing there; an ignore rule
   does not untrack a file that was committed earlier.
 
-When the output is `STOP`, Git could commit a handoff and the private values in it. Write no
-file, and report the output to the maintainer.
+When the output is `STOP`, stop and tell the maintainer; do not write a handoff into a path Git can
+commit.
 
 ## 3. Take the timestamp from the shell
 
@@ -117,7 +125,7 @@ Obtain current guidance with the installed `koinon guide --agent <family>`. Use 
 discovery to observe this session's peer name and repository; guidance itself does not
 register a session or return live observations. Record only values actually observed, with
 unknown values stated as unknown. In a not-yet-upgraded installation, follow that installed
-runtime's guidance instead. Writing a handoff changes no runtime state.
+runtime's guidance instead; never replace runtime state merely to write a handoff.
 
 Record the participant address, role, holder flag and last succession result from the
 installed runtime's discovery/registration output, not from the peer name or directory.
@@ -128,14 +136,44 @@ a claim nor moves an address; native-session ownership still follows the install
 
 Record the native session ID from the family's trusted environment or the MCP caller metadata
 when available: CODEX_THREAD_ID, CLAUDE_CODE_SESSION_ID, DSH_SESSION_ID, or the native
-Antigravity/OpenCode identity. Record TMUX and TMUX_PANE when present. A retained peer name or
-PID does not identify a native session (ADR 001, Decision 1). These private values stay only in
-the ignored file (WDR 005, Decision 1).
+Antigravity/OpenCode identity. Record TMUX and TMUX_PANE when present. Never infer a native
+session from a retained peer name or PID. These private values stay only in the ignored file.
 
 Use commit hashes, branch names, issue and pull request numbers, and repository-relative
-paths. Leave out a section that has no content. The file stays on this machine. Keys,
-credentials and peer message bodies stay out of it, and the file stays out of commits, pull
-requests and documentation.
+paths. Leave out a section that has no content. The file stays on this machine, but never write
+keys, credentials or peer message bodies into it, and never copy it into a commit, a pull
+request or documentation.
 
-This skill stages, commits and pushes nothing (WDR 005, Decision 1). Report the path of the new
-file.
+Do not commit, stage or push anything for a handoff. Report the path of the new file.
+
+## Repository facts
+
+Resolve the current worktree and Git common directory before reading project facts. The file
+below is local fact data with Version 1, matching Skill, Sources and the declared headings.
+It is outside the embedded catalog. No required fields means no sidecar is needed; optional
+fields use only the defaults declared here. A supplied sidecar must still be valid.
+Read required facts before the dependent step. When missing, derive and record them from
+checked project evidence within the task. Ask for necessary missing information or authority
+beyond that task; existing authorization counts. Project instructions govern the procedure,
+and facts supply its project data. Bound sidecars to 64 KiB. Their parser reads inert text;
+it does not include other files, expand shell syntax or execute values.
+
+<!-- koinon:repository-facts -->
+```json
+{
+  "version": 1,
+  "filename": ".koinon/skills/handoff.md",
+  "fields": [
+    {
+      "heading": "Handoff path",
+      "required": false,
+      "default": "_handoff/<agent>/ in main checkout"
+    },
+    {
+      "heading": "Extra verification",
+      "required": false,
+      "default": "none"
+    }
+  ]
+}
+```
