@@ -19,22 +19,23 @@ git fetch origin
 git switch -c <feature|fix|chore>/<slug> origin/develop
 ```
 
-Work in a worktree that no other agent writes to. Commit with `git commit -S -s`, using the
-human author identity and the GitHub no-reply address. Add no automated attribution: no
-co-author trailer, no tool signature, no model name, in commits or in the pull request.
+Work in a worktree that no unrelated work writes to (WDR 003, Decision 5). Commit with
+`git commit -S -s`, under the maintainer's GitHub identity and no-reply address, with no
+co-author trailer, tool signature or model name in commits or in the pull request (WDR 004,
+Decision 5).
 
 ### Hold the issue's work item
 
 When the change delivers an issue, hold one memory work item for that issue from the first
 commit to the merge, so peers see through Koinon discovery who builds it. Reuse the same item
-through build, review fixes and merge; never create a second item for the same issue. A
-reviewer that only reads does not claim work. The commands are in
+through build, review fixes and merge; one item per issue. A reviewer that only reads does not
+claim work. The commands are in
 `docs/WORK-ITEMS-COMMANDS.md`.
 
 Use configured MCP work tools when available; they obtain the calling identity from the
-native session. Otherwise use the installed Go command with the exact current identity and a
-stable consumer, as described in `docs/WORK-ITEMS-COMMANDS.md`. Never guess a session identity
-or publish its private key in Git or a pull request.
+native session (ADR 001, Decision 1). Otherwise use the installed Go command with the exact
+current identity and a stable consumer, as described in `docs/WORK-ITEMS-COMMANDS.md`. A guessed
+identity names another session. Keep a session's private key out of Git and pull requests.
 
 For the command path, define `mem` to invoke `koinon` with each operation's options:
 
@@ -45,43 +46,47 @@ soon() { echo $(( $(date +%s) + $1 )); }
 ```
 
 Use a matching custom state/address when needed. During a transition, an installed predecessor
-uses its own supported work interface until an authorized upgrade. Do not install a different
-runtime just to hold a work claim.
+uses its own supported work interface until an upgrade. This skill uses the installed runtime;
+installing one is not a step of it.
 
 1. Find the item: `mem work list` and look for the title `#<issue>: ...`. When there is none,
    create it:
    `mem work create --title "#<issue>: <issue title>" --criteria "<acceptance>" --non-goals "<non-goals>" --reference <issue URL> --key issue-<issue>-create --deadline $(soon 300)`.
 2. Start it before the first write, with the `revision` from `mem work get <id>`:
    `mem work start <id> --if-revision <revision> --checkpoint "<state>" --next-artifact "<next>" --progress-deadline $(soon 14400) --lease-seconds 3600 --key issue-<issue>-start-<n> --deadline $(soon 300)`.
-   A `claim_conflict` means another session holds it: report that and do not build.
+   A `claim_conflict` names the session that holds it: report the holder rather than take
+   the item over (WDR 002, Decision 3).
 3. At each stage (push, review, CI), record progress and renew the lease, with the `revision`
    and `current_claim.generation` from `mem work get <id>`:
    `mem work update <id> --if-revision <revision> --claim-generation <generation> --progress "<done>" --checkpoint "<state>" --next-artifact "<next>" --progress-deadline $(soon 14400) --renew-for 3600`.
    When the lease has expired, read the item again and start it again.
 4. Close it in step 5.
 
-When a work command refuses because the repository has no reachable daemon/store or its schema is unsupported, say so in the pull request and continue. Do not create another store to get around it.
+When a work command refuses because the repository has no reachable daemon/store or its
+schema is unsupported, say so in the pull request and continue. Koinon keeps one store per Git
+common directory (ADR 001, Decision 2); a second store would hide the claim from the peers.
 
 ## 2. Check, then push once
 
-The root `AGENTS.md` allows one open pull request per target branch. Publish only when the
-target is free and the branch is current:
+The repository keeps one open pull request per target branch, on a head that contains the
+latest `develop` (WDR 004, Decision 2). These steps publish when the target is free and the
+branch is current:
 
-1. **Wait for the target.** `gh pr list --base develop --state open` lists drafts too. When it
-   shows a pull request other than this branch's own, do not push or open this one. Keep working
-   in the worktree and wait until that pull request merges or closes.
+1. **Find the target free.** `gh pr list --base develop --state open` lists drafts too. When it
+   shows a pull request other than this branch's own, this one opens after that one merges or
+   closes. Keep working in the worktree meanwhile.
 2. **Update.** Run `git fetch origin`, then `git merge --no-edit origin/develop`. A branch that
-   was never pushed or reviewed may rebase onto `origin/develop` instead. Never rewrite a pushed
-   branch: its reviewed commits must stay reachable.
+   was never pushed or reviewed may rebase onto `origin/develop` instead. A pushed branch takes
+   `develop` by a merge, so its reviewed commits stay reachable.
 3. **Check.** Run the `check` skill on the resulting head.
 4. **Take the turn.** Before a new pull request, send each other active session of this
    repository (the Koinon `peers` list) one line through Koinon: you are about to open a pull
-   request against `develop`. This does not depend on a work claim. When a peer announced a
-   pull request first and has not yet opened it or given up the turn, wait for it. A fix to your
-   own open pull request needs no turn.
+   request against `develop`. This does not depend on a work claim. A peer that announced its
+   pull request first has the turn until it opens it or gives the turn up. A fix to your own
+   open pull request needs no turn.
 5. **Publish.** Just before you push, run `git fetch origin`, the `gh pr list` of item 1 and
    `git merge-base --is-ancestor origin/develop HEAD`. When `develop` moved, repeat items 2 and 3
-   first. Then push and open the pull request against `develop`.
+   first. Then push, open the pull request against `develop` and set auto-merge (step 5).
 6. **Lose a race.** When two pull requests are still open, the author of the one opened later
    closes it at once and keeps it closed while it repeats items 2 and 3 and pushes the updated
    head. It reopens the pull request only after the other one merges or closes and item 5
@@ -98,8 +103,8 @@ Freeze only a head that contains the latest `origin/develop`: run `git fetch ori
 `develop` moved, update the branch (step 2, items 2 and 3) first.
 One account holds both agents, so the sign-off is a pull request comment that names the head
 commit, not a formal approval, and the reviewer records it as the `peer-review` commit status of
-that commit (`peer-review`, step 4). The `develop` ruleset requires that status, so a new commit
-needs a new sign-off before it can merge.
+that commit (`peer-review`, step 4; WDR 003, Decision 3). The `develop` ruleset requires that
+status, so a new commit needs a new sign-off before it can merge (WDR 004, Decision 3).
 
 ## 4. When CI or review fails
 
@@ -112,18 +117,26 @@ is running, the branch is frozen for new work; put unrelated follow-ups on a new
 The `develop` ruleset requires an up-to-date branch. When `develop` moved after the sign-off,
 the author updates the branch (step 2, items 2 and 3), pushes once and asks the reviewer to bind
 the sign-off to the new head. The reviewer verifies that the update brings only `develop`, and
-reviews a conflict resolution or any other change as a change. Do not leave the update to the
-maintainer's update button on GitHub.
+reviews a conflict resolution or any other change as a change. GitHub's update button would
+make a new head with no review and no `peer-review` status (WDR 004, Decision 2).
 
-When CI is green, `peer-review` is `success` on the head commit and the rulesets allow it:
+Pull requests into `develop` set squash auto-merge (WDR 004, Decision 4). GitHub merges the
+pull request once the ruleset conditions pass, including CI and the `peer-review` status on the
+head, so auto-merge does not skip review or checks. Set it when the pull request opens:
 
 ```sh
-gh pr merge <number> --squash --match-head-commit <sha> \
-  --author-email <github-no-reply-address>
+gh pr merge <number> --auto --squash
 ```
 
-Then read back the result, because a failed `gh` call can print a message that looks like
-success:
+Then read it back, because a failed `gh` call can print a message that looks like success:
+
+```sh
+gh pr view <number> --json state,autoMergeRequest
+```
+
+`autoMergeRequest.mergeMethod` is `SQUASH` when auto-merge is set; `null` means it is not.
+GitHub creates and signs the squash commit and takes its author address from the account
+settings (WDR 004, Decision 4). After the merge, read back the result:
 
 ```sh
 gh pr view <number> --json state,mergeCommit

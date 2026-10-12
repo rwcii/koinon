@@ -75,9 +75,9 @@ this:
 
 When no user service manager answers, the report says `"service": "manual_required"` and gives
 the `start_command` to run in a managed session. The default install never uses sudo, system
-services, lingering or permission changes; `--system` on macOS (below) is an explicit choice whose
-privileged steps the person approves at the `sudo` prompt. `--no-start` writes the binary and the service file and starts
-nothing. A repeated install replaces the binary in place and restarts the service. The Go state
+services, lingering or permission changes (PDR 003, Decision 1); `--system` on macOS (below) is an
+explicit choice whose privileged steps run through `sudo` under the host's sudo policy.
+`--no-start` writes the binary and the service file and starts nothing. A repeated install replaces the binary in place and restarts the service. The Go state
 defaults to `$XDG_STATE_HOME/koinon/go`, which is `~/.local/state/koinon/go`.
 
 When a Python-era installation is present (`~/.local/share/koinon/install.json`), the install is
@@ -93,8 +93,9 @@ arguments, state directory and log file as the agent. It starts at boot (`RunAtL
 after any exit (`KeepAlive`, at most every 10 seconds) and keeps `Umask` 077. With FileVault on,
 it starts only after the disk is unlocked at boot.
 
-Run it as yourself, not with `sudo`: it refuses to run as root (`system_mode_root`) and asks
-`sudo` for each privileged step, so you approve each one. The steps:
+Run it as yourself, not with `sudo`: it refuses to run as root (`system_mode_root`) and runs
+`sudo` with each privileged step's command. Whether `sudo` asks for a password depends on the
+host's sudo policy and cached credentials (PDR 003, Decision 2). The steps:
 
 1. Render the plist to a private temporary file and check it with `plutil -lint`. Record whether
    the user agent is loaded and whether it is disabled.
@@ -135,7 +136,7 @@ restarts the service. Any other plist at that path is refused before anything ch
 
 `koinon uninstall` boots out and removes an owned system plist through `sudo`, and keeps the
 state. The user agent stays disabled; a later plain install, with no system plist present,
-enables and starts it again. Agents never run `--system` or `sudo` on the maintainer's machine.
+enables and starts it again.
 
 ### Upgrade the Go runtime
 
@@ -326,7 +327,9 @@ DeepSeek requires a running harness, but its live wake proof remains deferred un
 
 A legacy upgrade additionally needs Python 3.11+ to run the **installed previous release's**
 uninstaller. The Go importer reads SQLite itself; it does not import a Python package from
-this checkout. Do not delete the old installation or state before the verified upgrade.
+this checkout. Keep the old installation and state until the upgrade has verified the import:
+the upgrade reads them, and it removes the previous services only after that check (PDR 003,
+Decision 3).
 
 Without a reachable user manager, run the returned `start_command` in a persistent managed
 session. The equivalent manual command is `koinon serve --state-dir STATE`; terminate that
@@ -339,7 +342,11 @@ default address, `koinon install --state-dir STATE` from a login session or `koi
 --state-dir STATE` in a persistent managed session. The installed service listens only on the
 default address, so at another address the refusal names only `koinon serve --state-dir STATE
 --listen IPV4 --listen-v6 IPV6`, with the address and the other loopback family on its port.
-Do not use sudo, system services, lingering or permission changes to work around a refusal.
+The default install uses no sudo, system service, lingering or permission change; with no user
+service manager it reports the manual start command above. The system service that Koinon
+supports is the explicit `--system` mode on macOS (PDR 003, Decisions 1 and 2). A host change
+such as enabling systemd lingering is a separate operation that the person runs or assigns
+under their own instructions and host policy (WDR 002, Decision 1; PDR 003, Decision 4).
 
 ## Configuration and agent access
 
@@ -414,8 +421,9 @@ of it was recorded before.
 Read `koinon guide --agent FAMILY` at startup and after a reset. Discover the exact recipient
 with `peers`, send only within the maintainer's authorization, read notices through `inbox`,
 and acknowledge only messages already handled. Use MCP when available; command examples
-and memory/work operations are in [USAGE.md](USAGE.md). Setup and runtime replacement require
-the maintainer's authorization, separate from repository development.
+and memory/work operations are in [USAGE.md](USAGE.md). Setup and runtime replacement change the
+host; they run as part of a task the maintainer assigns, such as an install or upgrade, and that
+task authorizes their steps (PDR 003, Decision 4; WDR 002).
 
 ## Launcher paths in launchers.json
 

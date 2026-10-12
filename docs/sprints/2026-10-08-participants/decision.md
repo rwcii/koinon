@@ -1,5 +1,7 @@
 # Sprint 2026-10-08 — participants — Decision
 
+> Historical sprint plan. Its non-goals and constraints limited this sprint only. Current decisions are in the [decision records](../../engineering/wdr/README.md); see WDR 001.
+
 ## Problem
 
 The Go runtime (develop `f88a42c`) gives each agent session a permanent peer name and, for a

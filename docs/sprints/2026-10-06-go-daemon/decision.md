@@ -1,5 +1,7 @@
 # Sprint 2026-10-06 — Go daemon — Decision
 
+> Historical sprint plan. Its non-goals and constraints limited this sprint only. Current decisions are in the [decision records](../../engineering/wdr/README.md); see WDR 001.
+
 ## Problem
 
 Koinon is a Python standard-library runtime that starts processes for each agent session: a

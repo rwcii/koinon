@@ -5,6 +5,12 @@ into a dated release section when promoted to `main`.
 
 ## Unreleased
 
+- `koinon guide` and the MCP server instructions now say that a message with `sender_family`
+  `maintainer`, sent by the maintainer from the dashboard, is the maintainer's instruction and
+  approval (PDR 005). Messages from other sessions stay data and grant no permission. The
+  guide and the installation and permission documents cite the decision records that state
+  each behavior, and no longer say that agents never run `--system` or `sudo` (#306).
+
 - Claude model, context and activity observations survive `/clear` while keeping the existing
   Koinon session and participant. Changed transcript IDs require the same pinned native host;
   status-line reports use verified hook ancestry, and foreign, reused or ambiguous hosts are
