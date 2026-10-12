@@ -48,6 +48,17 @@ type namingResult struct {
 	at             int64
 }
 
+// tmuxFields is a tmux format of the named fields, separated by spaces. Every field that
+// Koinon reads this way is an ID ($N, %N) or a process ID, which holds no space; tmux before
+// 3.4 prints a tab in a format as "_", so a tab cannot separate them.
+func tmuxFields(names ...string) string {
+	formats := make([]string, len(names))
+	for i, name := range names {
+		formats[i] = "#{" + name + "}"
+	}
+	return strings.Join(formats, " ")
+}
+
 // RunTmux runs one tmux command on the server at socket. tmux is resolved on PATH, as the
 // agent's own terminal would.
 func RunTmux(ctx context.Context, socket string, args ...string) (string, error) {
@@ -202,8 +213,8 @@ func (s *server) hostPane(ctx context.Context, socket, pane string, host int) (s
 	if host <= 1 {
 		return "", "", "", nil, "pane_not_host"
 	}
-	out, err := s.c.Tmux(ctx, socket, "display-message", "-p", "-t", pane, "#{pane_id}\t#{pane_pid}\t#{session_id}")
-	fields := strings.Split(strings.TrimRight(out, "\n"), "\t")
+	out, err := s.c.Tmux(ctx, socket, "display-message", "-p", "-t", pane, tmuxFields("pane_id", "pane_pid", "session_id"))
+	fields := strings.Fields(out)
 	if err != nil || len(fields) != 3 {
 		return "", "", "", nil, "tmux_unreadable"
 	}
@@ -288,7 +299,7 @@ func (s *server) nameAttached(ctx context.Context, sessionID, name string) strin
 			continue
 		}
 		socket := filepath.Join(dir, entry.Name())
-		out, err := s.c.Tmux(ctx, socket, "list-panes", "-a", "-F", "#{pane_id}\t#{pane_pid}")
+		out, err := s.c.Tmux(ctx, socket, "list-panes", "-a", "-F", tmuxFields("pane_id", "pane_pid"))
 		if err != nil {
 			// A socket whose server has ended.
 			continue
@@ -297,7 +308,7 @@ func (s *server) nameAttached(ctx context.Context, sessionID, name string) strin
 			if line == "" {
 				continue
 			}
-			fields := strings.Split(line, "\t")
+			fields := strings.Fields(line)
 			root, err := 0, error(nil)
 			if len(fields) == 2 {
 				root, err = strconv.Atoi(fields[1])
@@ -351,7 +362,7 @@ func (s *server) attachClient(pid int, short string) bool {
 // otherAgentPane reports whether another pane of the session holds an agent process. The
 // second result is false when that cannot be ruled out.
 func (s *server) otherAgentPane(ctx context.Context, socket, sessionID, paneID string, parents map[int]int) (bool, bool) {
-	out, err := s.c.Tmux(ctx, socket, "list-panes", "-s", "-t", sessionID, "-F", "#{pane_id}\t#{pane_pid}")
+	out, err := s.c.Tmux(ctx, socket, "list-panes", "-s", "-t", sessionID, "-F", tmuxFields("pane_id", "pane_pid"))
 	if err != nil {
 		return false, false
 	}
@@ -360,7 +371,7 @@ func (s *server) otherAgentPane(ctx context.Context, socket, sessionID, paneID s
 		children[parent] = append(children[parent], pid)
 	}
 	for _, line := range strings.Split(strings.TrimRight(out, "\n"), "\n") {
-		fields := strings.Split(line, "\t")
+		fields := strings.Fields(line)
 		if len(fields) != 2 {
 			return false, false
 		}
@@ -388,22 +399,6 @@ func (s *server) otherAgentPane(ctx context.Context, socket, sessionID, paneID s
 
 // agentProcess reports whether pid runs an agent CLI: Claude Code, Codex, agy, OpenCode or Grok.
 func (s *server) agentProcess(pid int) bool {
-	if claudeProcess(s.c.Command, pid) {
-		return true
-	}
 	executable, args, err := s.c.Command(pid)
-	if err != nil {
-		return false
-	}
-	names := []string{filepath.Base(executable)}
-	if len(args) > 0 {
-		names = append(names, filepath.Base(args[0]))
-	}
-	for _, name := range names {
-		switch name {
-		case "codex", "agy", "opencode", "grok", "grok-native":
-			return true
-		}
-	}
-	return false
+	return err == nil && platform.AgentCommand(executable, args)
 }

@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	"github.com/rwcii/koinon/internal/core"
+	"github.com/rwcii/koinon/internal/platform"
 )
 
 var errIdentity = errors.New("identity_unavailable")
@@ -61,23 +62,7 @@ func claudeProcess(command func(int) (string, []string, error), pid int) bool {
 		return false
 	}
 	executable, args, err := command(pid)
-	if err != nil {
-		return false
-	}
-	// The native installer runs `claude` from .../claude/versions/<version>; an npm
-	// installation runs node with the @anthropic-ai/claude-code entry point.
-	if filepath.Base(executable) == "claude" || strings.Contains(executable, "/claude/versions/") {
-		return true
-	}
-	if len(args) > 0 && filepath.Base(args[0]) == "claude" {
-		return true
-	}
-	for _, arg := range args {
-		if strings.Contains(arg, "@anthropic-ai/claude-code/") {
-			return true
-		}
-	}
-	return false
+	return err == nil && platform.ClaudeCommand(executable, args)
 }
 
 // codexSubagent reports whether a Codex call may come from a thread other than the user's

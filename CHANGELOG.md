@@ -5,6 +5,16 @@ into a dated release section when promoted to `main`.
 
 ## Unreleased
 
+- A Grok session started with `koinon grok` is woken through its own tmux pane (#254, chunk
+  03). Before each wake the daemon proves that the recorded pane still holds the session's
+  host, and it types Koinon's fixed notice and Enter only while Grok's input box is empty and
+  no turn is running; otherwise nothing is sent and the wake waits.
+
+- Koinon reads tmux's answers with space-separated fields. tmux before 3.4 (for example 3.3a
+  on Debian 12) prints a tab in a format as `_`, so `koinon FAMILY --tmux-session` reported
+  `invalid tmux launch result` after starting the session, and a launched session's pane was
+  not proven for terminal naming, same-pane succession or the Grok wake (#254).
+
 - Discover work by creator and current assignment, and receive coalesced daemon work
   notices through the existing inbox and wake adapters. Durable audience watermarks
   reconcile missed notices after restart or holder changes; ordinary notification
