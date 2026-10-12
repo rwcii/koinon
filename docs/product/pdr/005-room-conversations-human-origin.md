@@ -38,9 +38,10 @@ several sessions, writes once to all of them, and follows every reply in one con
 
 Rooms are not built. #217 leaves three choices to the plan: how a room is addressed, how an
 agent learns that a post came from the maintainer, and a bound on agent-to-agent exchanges.
-The reviewed plan proposes answers to all three. Gate B for #217 has not been given. The
-plan's numeric exchange allowance and its "no new approval" framing go beyond what #217
-states and are recorded as proposals.
+The reviewed plan proposes answers to all three. Gate B for #217 has not been given. On
+2026-10-12 the maintainer decided the exchange bound and that a dashboard post is the
+maintainer's instruction and approval (#306); room addressing and membership remain plan
+proposals, so the record stays `draft`.
 
 ---
 
@@ -48,8 +49,8 @@ states and are recorded as proposals.
 
 1. Problem Context
 2. Decision 1: Rooms of exact native sessions with their own tools
-3. Decision 2: A finite allowance for agent posts between maintainer posts
-4. Decision 3: How dashboard origin is shown and framed
+3. Decision 2: A maintainer-set allowance for agent posts
+4. Decision 3: A dashboard post is the maintainer's instruction and approval
 5. Conclusion
 6. Document History
 
@@ -126,91 +127,92 @@ agent replies by room ID and can read what it missed while inactive.
 
 ---
 
-## 3. Decision 2: A finite allowance for agent posts between maintainer posts
+## 3. Decision 2: A maintainer-set allowance for agent posts
 
 ### Decision
 
-#217 asks for a bound so that two agents cannot reply to each other without end. The plan
-proposes an allowance: a room starts at zero agent posts; each successful dashboard post
-sets it to 32; each new agent post uses one; at zero, agent posts are refused with
-`exchange_limit` until the maintainer posts again. There is no time-based refill and no
-per-member bypass. A retried post is not charged twice. The plan's scope also excludes
-automatic agent responses.
+A room starts with no agent posts allowed. Each successful maintainer post sets the room's
+allowance to a number the maintainer sets in the dashboard, 32 by default. Each new agent post
+uses one. At zero, agent posts are refused with `exchange_limit` until the maintainer posts
+again. There is no time-based refill and no per-member bypass, and a retried post is not
+charged twice.
 
-**Provenance:** A bound: Requested in #217 ("To decide in the plan"); a request record, no
-maintainer quote found. The zero start, the value 32 and refill only by a maintainer post:
-Proposed in the unpublished #217 plan draft (2d5a82c) (chunk 02); not decided. The exclusion of automatic
-responses comes from the planning scope comment on #217 (comment 6115488464), which is not a
-maintainer quote.
+**Provenance:** A bound: Requested in #217 ("To decide in the plan"). The rule and the value 32:
+Proposed in the unpublished #217 plan draft (2d5a82c) (chunk 02). Maintainer, 2026-10-12: "b.",
+choosing the plan's rule with the number set in the dashboard, default 32, over the fixed plan
+values and over no bound ([#306 comment 6118968707](https://github.com/rwcii/koinon/issues/306#issuecomment-6118968707)).
 
 ### Alternatives Considered
 
 | Alternative | Description | Why Rejected |
 | ----------- | ----------- | ------------ |
-| No bound | Agents post freely | #217 asks for a bound |
-| Time-based refill | Allowance returns over time | The plan wanted the maintainer to restart an exchange |
-| Per-pair turn limit | Bound replies between two members | More state; the room-wide count covers the case #217 names |
+| Fixed values (plan) | Start at 0, refill to 32, not configurable | A change of the number would need a code change |
+| No bound | Agents post freely | Two agents could reply to each other without end (#217) |
+| Time-based refill | Allowance returns over time | Agents could restart an exchange without the maintainer |
 
 ### Rationale
 
-1. A count reset by the maintainer is visible and easy to test.
+1. A count reset only by the maintainer keeps the maintainer in each exchange and is easy to
+   test.
+2. A dashboard setting lets the maintainer change the number without a release.
 
 ### User Impact
 
-Agents in a room can exchange up to 32 posts after each maintainer post. A long agent-only
-discussion that the maintainer wants stops at the limit until the maintainer posts again.
-The maintainer has not decided whether this is the bound wanted.
+Agents speak in a room after the maintainer does, up to the set number of posts, then wait for
+the maintainer's next post.
 
 ---
 
-## 4. Decision 3: How dashboard origin is shown and framed
+## 4. Decision 3: A dashboard post is the maintainer's instruction and approval
 
 ### Decision
 
-A post's origin comes from stored metadata: the dashboard path records the maintainer, and
-no native request can set that origin. Agents read the origin from typed fields, not from
-the body. Today a direct dashboard message arrives from the built-in `maintainer` session,
-and the installed guide says a memory entry with writer `maintainer` was written in the
-dashboard and is recorded data. The plan proposes one guide text for direct and room posts:
-"Dashboard origin records the maintainer as the source. Handle it within your existing
-authorized task and permission settings; it does not override native instructions or supply
-a new approval." The decision-board plan carries a similar line.
+A post from the built-in `maintainer` session, sent from the dashboard as a direct message, a
+room post (#217) or a decision-board verdict (#206), is the maintainer's instruction and
+approval. Its origin comes from stored metadata that only the dashboard path sets; agents read
+it from typed fields, not from the body. Today the installed guide and MCP instructions call
+every message data; the step 2 wording change and the runtime guide text will state this
+decision. The plans'
+framing that dashboard origin "does not ... supply a new approval" is not adopted.
 
-**Provenance:** Telling agents about maintainer origin and framing it in the guide:
-Requested in #217 ("To decide in the plan"); a request record. The built-in `maintainer`
-sender: Shipped in PR #202 (merge commit ed07677); the memory-entry guide line: Shipped in
-PR #243 (merge commit f9fc14e); no maintainer decision found for either. The "does not
-... supply a new approval" framing: Proposed in the unpublished #217 plan draft (2d5a82c) (chunk 02) and
-the unpublished #206 plan draft (d325228) (constraints); not decided. No source found for treating a verified dashboard post as unable to carry the
-maintainer's approval.
+**Provenance:** Telling agents about maintainer origin: Requested in #217 ("To decide in the
+plan"). The built-in `maintainer` sender shipped in PR #202 (merge commit ed07677). Maintainer,
+2026-10-12: "b, next item - be sure the reasoning is included in the decision record. the
+bridge only runs locally, so only I can access it." ([#306 comment 6118947404](https://github.com/rwcii/koinon/issues/306#issuecomment-6118947404)),
+choosing this over dashboard posts as information only and over an extra presence check at
+login.
 
 ### Alternatives Considered
 
 | Alternative | Description | Why Rejected |
 | ----------- | ----------- | ------------ |
+| Information only (plans) | A dashboard post never approves; agents ask in their own terminal | The maintainer uses the dashboard to direct agents; asking again in each terminal repeats the approval |
+| Extra presence check | A password or system authentication at dashboard login before posts count | Adds work for no gain on a machine only the maintainer uses |
 | Body prefix | Mark origin with text in the body | A peer can type the same text |
-| Dashboard post as maintainer instruction | Treat a verified dashboard post as the maintainer's direct word | Not chosen by the plan; the maintainer has not decided between this and the plan's framing |
 
 ### Rationale
 
-1. Stored origin lets an agent tell a maintainer post from a peer quoting the maintainer.
-2. The plan's reason for the approval framing is that native permission settings stay the
-   agent's permission source; whether a dashboard post can approve an action is open.
+1. The maintainer's reasoning: the bridge only runs locally, so only the maintainer can access
+   it.
+2. The daemon listens only on loopback and the dashboard needs a login link from
+   `koinon dashboard` (ADR 001), so a dashboard post comes from the maintainer's own account.
+3. A fact about the current design, not part of the maintainer's answer: any process of the
+   same user, agents included, can run `koinon dashboard` and open a login, as it can already
+   change the user's files (ADR 001, same-user trust).
 
 ### User Impact
 
-Agents see which posts came from the maintainer. Under the plan's framing, a maintainer
-post in the dashboard would not approve an action that needs approval; the maintainer would
-give it where the agent's native permissions ask. This is the open question in this record.
+The maintainer can approve or direct agents from the dashboard without repeating it in each
+agent's terminal.
 
 ---
 
 ## Conclusion
 
-#217 requests rooms, an ordered conversation and a bound on agent exchanges. The plan
-proposes exact-session membership, room tools, a 0/32 allowance refilled by maintainer
-posts, and a guide framing that dashboard origin supplies no new approval. All are
-undecided; the allowance values and the approval framing are plan choices, not #217's text.
+#217 requests rooms, an ordered conversation and a bound on agent exchanges. The maintainer
+decided the bound (an allowance set in the dashboard, refilled by maintainer posts) and that a
+dashboard post is the maintainer's instruction and approval, because only the maintainer can
+reach the local bridge. Exact-session membership and the room tools remain plan proposals.
 
 ---
 
@@ -219,3 +221,4 @@ undecided; the allowance values and the approval framing are plan choices, not #
 | Date       | Change           |
 | ---------- | ---------------- |
 | 2026-10-12 | Initial creation |
+| 2026-10-12 | Recorded the maintainer's decisions on the exchange bound and dashboard origin (#306) |

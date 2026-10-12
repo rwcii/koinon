@@ -34,8 +34,9 @@ daemon, when it uses a system service, what it keeps when it is upgraded, remove
 unreachable, and which commands change services and agent configuration. Each decision states
 what Koinon currently does, why, and where it came from.
 
-The record is a draft: only the macOS system mode traces to a maintainer approval, of a plan.
-One statement in the current guidance, an operation ban on agents, is not adopted.
+The record is a draft. The maintainer decided the launcher PATH lookup (Decision 5) and the
+removal of an operation ban on agents (not adopted); the macOS system mode traces to the
+approval of a plan, and the rest is shipped behavior without a maintainer decision.
 
 ---
 
@@ -46,9 +47,10 @@ One statement in the current guidance, an operation ban on agents, is not adopte
 3. Decision 2: macOS system mode with `--system`
 4. Decision 3: State is kept across install, upgrade, removal and outages
 5. Decision 4: Services and configuration change only through Koinon's commands
-6. Statements this record does not adopt
-7. Conclusion
-8. Document History
+6. Decision 5: A launcher records the CLI it finds on PATH
+7. Statements this record does not adopt
+8. Conclusion
+9. Document History
 
 ---
 
@@ -259,11 +261,45 @@ upgrade task carries it out and reports the result.
 
 ---
 
+## 6. Decision 5: A launcher records the CLI it finds on PATH
+
+### Decision
+
+Decided: when `launchers.json` has no CLI path for the family, `koinon <family>` finds the
+family's CLI on PATH, records its absolute path in `launchers.json`, reports the path it chose
+and starts the agent. Later launches use the recorded path; `--cli` still overrides it. Until
+that change ships, the shipped behavior applies: the launcher uses only the recorded path or
+`--cli`, and without one it stops and names `koinon setup <family>`, which finds, checks and
+records the CLI.
+
+**Provenance:** Shipped behavior in PR #186 (merge commit e2bc2f3); no reason recorded.
+Maintainer, 2026-10-12: "b, next item", choosing the PATH lookup that records and reports the
+path over the recorded-path-only launcher ([#306 comment 6119328447](https://github.com/rwcii/koinon/issues/306#issuecomment-6119328447)).
+
+### Alternatives Considered
+
+| Alternative | Description | Why Rejected |
+| ----------- | ----------- | ------------ |
+| Recorded path only (shipped) | Stop and ask for `koinon setup` when no path is recorded | Adds a step before the first launch |
+| Search PATH on every launch | Resolve the CLI anew each time | A change to PATH or an upgrade could start a different program than the one recorded |
+
+### Rationale
+
+1. The first launch works without an extra step.
+2. The printed path shows which program ran, and later launches use that same path.
+
+### User Impact
+
+`koinon codex` works on a machine where only the Codex CLI is installed and prints the path it
+recorded.
+
+---
+
 ## Statements this record does not adopt
 
 | Inventory row | Statement (short) | Where it appears | Why not adopted |
 | ------------- | ----------------- | ---------------- | --------------- |
-| C052 | Agents never run `--system` or `sudo` on the maintainer's machine | AGENTS.md (Installation, upgrade and security); docs/INSTALL.md (System mode on macOS); docs/sprints/2026-10-11-macos-system-service/decision.md (Sudo boundary) | No maintainer words found; #283 and its comments were checked. Its only source is a sentence in the plan approved at Gate B, and that approval covers the plan, not each sentence. It bans an operation the maintainer may assign; the host's sudo policy and the native permission settings already govern each privileged step. |
+| C052 | Agents never run `--system` or `sudo` on the maintainer's machine | AGENTS.md (Installation, upgrade and security); docs/INSTALL.md (System mode on macOS); docs/sprints/2026-10-11-macos-system-service/decision.md (Sudo boundary) | No maintainer words found; #283 and its comments were checked. Its only source is a sentence in the plan approved at Gate B, and that approval covers the plan, not each sentence. It bans an operation the maintainer may assign; the host's sudo policy and the native permission settings already govern each privileged step. Maintainer, 2026-10-12: "a, next item", removing the sentence ([#306 comment 6119281303](https://github.com/rwcii/koinon/issues/306#issuecomment-6119281303)); the step 2 wording pull request removes it from AGENTS.md and docs/INSTALL.md. |
 
 ---
 
@@ -271,8 +307,10 @@ upgrade task carries it out and reports the result.
 
 Koinon currently installs into the user's own service manager, offers a macOS LaunchDaemon
 through an explicit `--system` install, keeps state through install operations and outages, and
-changes the host only through its own commands. Only the macOS system mode traces to a
-maintainer approval, of a plan; the rest is shipped behavior the maintainer has not yet decided.
+changes the host only through its own commands. A launcher will record the CLI it finds on
+PATH, and agents may run `--system` or `sudo` when the maintainer assigns it, as the maintainer
+decided. The macOS system mode traces to the approval of a plan; the rest is shipped behavior
+the maintainer has not yet decided.
 
 ---
 
@@ -281,3 +319,4 @@ maintainer approval, of a plan; the rest is shipped behavior the maintainer has 
 | Date       | Change           |
 | ---------- | ---------------- |
 | 2026-10-12 | Initial creation |
+| 2026-10-12 | Recorded the maintainer's decisions on the launcher PATH lookup and the `--system`/`sudo` sentence (#306) |
