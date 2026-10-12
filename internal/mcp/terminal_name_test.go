@@ -97,7 +97,7 @@ func (f *namingFixture) newPane(args ...string) pane {
 
 func (f *namingFixture) startPane(command string, args ...string) pane {
 	f.t.Helper()
-	fields := strings.Split(f.run(append(args, "-P", "-F", "#{pane_id}\t#{pane_pid}\t#{session_id}", command)...), "\t")
+	fields := strings.Fields(f.run(append(args, "-P", "-F", "#{pane_id} #{pane_pid} #{session_id}", command)...))
 	shell, _ := strconv.Atoi(fields[1])
 	p := pane{id: fields[0], session: fields[2], shell: shell}
 	child := func(parent int) int {
@@ -159,6 +159,28 @@ func (f *namingFixture) env(p pane) map[string]string {
 
 func (f *namingFixture) sessionName(p pane) string {
 	return f.run("display-message", "-p", "-t", p.id, "#{session_name}")
+}
+
+// tmux before 3.4 prints a tab in a format as "_" (tmux 3.3a, #254 live check); the
+// space-separated fields are read, and an old tab-joined answer is refused, not misread.
+func TestTerminalNamingReadsSpaceSeparatedFields(t *testing.T) {
+	f := newNamingFixture(t)
+	ctx := context.Background()
+	own := f.newSession("spaced")
+	s := f.server(f.env(own))
+	if got := s.nameTerminal(ctx, own.host, "claude-spaced"); got != "renamed" {
+		t.Fatalf("space-separated fields: %s", got)
+	}
+	s.c.Tmux = func(ctx context.Context, socket string, args ...string) (string, error) {
+		out, err := f.tmux(ctx, socket, args...)
+		if args[0] == "display-message" || args[0] == "list-panes" {
+			out = strings.ReplaceAll(out, " ", "_")
+		}
+		return out, err
+	}
+	if got := s.nameTerminal(ctx, own.host, "claude-joined"); got != "tmux_unreadable" || f.sessionName(own) != "claude-spaced" {
+		t.Fatalf("an underscore-joined answer: %s, named %q", got, f.sessionName(own))
+	}
 }
 
 func TestTerminalNamingRules(t *testing.T) {

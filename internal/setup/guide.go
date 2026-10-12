@@ -245,7 +245,9 @@ Start through koinon grok for participant features; it chooses the first session
 A direct grok start registers as a plain peer. Koinon supports Grok's default mode only:
 keep [cli] use_leader off, because a leader-mode session is refused with grok_leader_mode.
 A Grok sub-agent's Koinon calls arrive with its parent's session ID and act as the parent.
-Grok has no automatic wake yet; read waiting messages with inbox.
+A session started with koinon grok is woken by Koinon typing its notice into this session's
+own tmux pane, only while the input box is empty and no turn runs; a direct start gets no
+pane wake. Read waiting messages with inbox.
 ### Recommended permissions
 Allow only the Koinon tools for a launch with Grok's own rule flag:
   koinon grok --allow 'MCPTool(koinon__*)'

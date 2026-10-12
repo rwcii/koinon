@@ -51,7 +51,9 @@ It can send, read and acknowledge its own peer-name inbox and use repository mem
 It has no participant address, role, succession or terminal naming. A supplied launch that
 does not match still returns `not_launched`. Direct Codex starts have no launcher CLI wake
 target, and direct OpenCode starts have no launcher wake endpoint; read their waiting messages
-with the inbox tool. Grok has no wake provider yet. Koinon supports Grok's default mode only:
+with the inbox tool. A session started with `koinon grok` is woken by typing Koinon's notice
+into its own tmux pane, only while Grok's input box is empty and no turn is running; a direct
+Grok start gets no pane wake. Koinon supports Grok's default mode only:
 keep Grok's `[cli] use_leader` off, because a leader-mode session is refused with
 `grok_leader_mode`. `koinon grok` chooses the first session's ID with `--session-id` unless
 its arguments select a session (`--session-id`, `--resume`, `-r`, `--continue` or `-c`).

@@ -645,7 +645,7 @@ func TestPrivateTmuxTakenDefaultName(t *testing.T) {
 	checkReport(t, readReport(t, result), "codex", directory)
 	data, _ := os.ReadFile(calls)
 	lines := strings.Split(strings.TrimSpace(string(data)), "\n")
-	if len(lines) < 2 || !strings.Contains(lines[len(lines)-2], "new-session -d -P -F #{session_id}\t#{pane_id} -s codex-project-3 ") ||
+	if len(lines) < 2 || !strings.Contains(lines[len(lines)-2], "new-session -d -P -F #{session_id} #{pane_id} -s codex-project-3 ") ||
 		!strings.HasPrefix(lines[len(lines)-1], "attach-session -t $") {
 		t.Fatalf("did not start and attach codex-project-3:\n%s", data)
 	}
@@ -709,5 +709,18 @@ func TestGrokLaunchChoosesTheFirstSession(t *testing.T) {
 	r = readReport(t, result)
 	if slices.Contains(r.Args, "--session-id") || r.Session.ID != "synthetic-grok" {
 		t.Fatalf("grok resume record: %+v", r)
+	}
+}
+
+// tmux before 3.4 prints a tab in a format as "_" (tmux 3.3a, #254 live check): the launch
+// reads space-separated IDs and refuses anything else.
+func TestLaunchIDs(t *testing.T) {
+	if session, pane, err := launchIDs([]byte("$3 %7\n")); err != nil || session != "$3" || pane != "%7" {
+		t.Fatalf("space-separated IDs: %q %q %v", session, pane, err)
+	}
+	for _, out := range []string{"$1_%1\n", "$1\t%1 extra\n", "", "%1 $1\n"} {
+		if _, _, err := launchIDs([]byte(out)); err == nil {
+			t.Errorf("accepted %q", out)
+		}
 	}
 }
