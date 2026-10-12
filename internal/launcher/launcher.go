@@ -26,7 +26,7 @@ import (
 // Families are the agent families that the launcher starts. A started Claude session
 // registers through its own MCP server with its Claude Code session ID, as one started by
 // hand does; its launch record documents the start.
-var Families = map[string]bool{"claude": true, "codex": true, "agy": true, "opencode": true}
+var Families = map[string]bool{"claude": true, "codex": true, "agy": true, "opencode": true, "grok": true}
 
 // MCPVariables are the environment variables that koinon mcp reads and the launcher sets or
 // inherits. Codex passes an MCP server only the variables that its env_vars lists (#247).
@@ -384,7 +384,7 @@ func cleanEnvironment(env []string, family string) []string {
 			}
 			continue
 		}
-		if strings.HasPrefix(key, "CLAUDE_") || key == "CLAUDECODE" || strings.HasPrefix(key, "KOINON_") || key == "OPENCODE_SERVER_PASSWORD" || key == "OPENCODE_SERVER_USERNAME" {
+		if strings.HasPrefix(key, "CLAUDE_") || key == "CLAUDECODE" || strings.HasPrefix(key, "KOINON_") || key == "OPENCODE_SERVER_PASSWORD" || key == "OPENCODE_SERVER_USERNAME" || key == "GROK_SESSION_ID" {
 			continue
 		}
 		result = append(result, entry)
@@ -606,6 +606,14 @@ func Run(ctx context.Context, o Options, out io.Writer) error {
 		args = append(args, "--hostname", "127.0.0.1", "--port", port, "--mdns=false")
 		env = append(env, "OPENCODE_SERVER_PASSWORD="+target.Password, "OPENCODE_SERVER_USERNAME=opencode")
 	}
+	if o.Family == "grok" {
+		if target.SessionID, err = grokSessionID(o.Args); err != nil {
+			return err
+		}
+		if target.SessionID != "" {
+			args = append(args, "--session-id", target.SessionID)
+		}
+	}
 	id, err := core.CreateLaunch(ctx, o.Address, secret, target)
 	if err != nil {
 		return err
@@ -621,6 +629,30 @@ func Run(ctx context.Context, o Options, out io.Writer) error {
 	}
 	fmt.Fprint(os.Stderr, NestedNotice(directory, nested))
 	return platform.Exec(cli, args, env)
+}
+
+// grokSessionID chooses the first session's ID for a Grok launch, so that the launch admits
+// that session (#254 spike fact 3). Arguments that select a session themselves (a given ID,
+// a resume or a continue) keep their choice, and the launch records none.
+func grokSessionID(args []string) (string, error) {
+	for _, arg := range args {
+		name, _, _ := strings.Cut(arg, "=")
+		switch name {
+		case "--session-id", "--resume", "-r", "--continue", "-c":
+			return "", nil
+		}
+		if arg == "--" {
+			break
+		}
+	}
+	var b [16]byte
+	if _, err := rand.Read(b[:]); err != nil {
+		return "", err
+	}
+	b[6] = b[6]&0x0f | 0x40
+	b[8] = b[8]&0x3f | 0x80
+	h := hex.EncodeToString(b[:])
+	return h[:8] + "-" + h[8:12] + "-" + h[12:16] + "-" + h[16:20] + "-" + h[20:], nil
 }
 
 // codexArgs runs Codex on its own (--no-daemon), so that its MCP servers are children of

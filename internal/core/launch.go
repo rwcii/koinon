@@ -85,6 +85,9 @@ type LaunchTarget struct {
 	// Role is the maintainer's role for the launched session: its participant is the
 	// family, repository and role (participants sprint, chunk 02).
 	Role string `json:"role,omitempty"`
+	// SessionID is the native session ID that the launcher chose for the first session,
+	// for a family whose CLI takes one (Grok's --session-id, #254 spike fact 3).
+	SessionID string `json:"session_id,omitempty"`
 }
 
 var roleChars = regexp.MustCompile(`^[a-z][a-z0-9-]{0,23}$`)
@@ -104,7 +107,10 @@ func (s *Store) CreateLaunch(ctx context.Context, target LaunchTarget) (string, 
 	if target.LaunchID != "" || target.JobID != "" || target.Background && target.Family != "claude" {
 		return "", ErrInvalid
 	}
-	if target.Family != "claude" && target.Family != "codex" && target.Family != "agy" && target.Family != "opencode" {
+	if target.Family != "claude" && target.Family != "codex" && target.Family != "agy" && target.Family != "opencode" && target.Family != "grok" {
+		return "", ErrInvalid
+	}
+	if target.SessionID != "" && (target.Family != "grok" || !FullJobID.MatchString(target.SessionID)) {
 		return "", ErrInvalid
 	}
 	if target.HostPID <= 0 || !filepath.IsAbs(target.CLI) || len(target.CLI) > 4096 || !validNested(target.Nested) ||
@@ -196,6 +202,19 @@ func admitLaunch(ctx context.Context, tx *sql.Tx, r Registration, directory stri
 	}
 	if family != r.Family || storedDirectory != directory {
 		return nil, "", ErrNotLaunched
+	}
+	// A launch that chose the first session's ID admits only that ID until a session has
+	// registered through it; later sessions under the same host (a reset) are not limited.
+	if target.SessionID != "" && r.ID != target.SessionID {
+		var registered bool
+		err := tx.QueryRowContext(ctx, `SELECT EXISTS(SELECT 1 FROM sessions WHERE family=? AND json_extract(wake_target,'$.launch_id')=?)`,
+			r.Family, r.LaunchID).Scan(&registered)
+		if err != nil {
+			return nil, "", err
+		}
+		if !registered {
+			return nil, "", ErrIdentityUnavailable
+		}
 	}
 	if target.Background {
 		if target.JobID == "" {

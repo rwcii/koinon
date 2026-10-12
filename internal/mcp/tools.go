@@ -115,6 +115,9 @@ func (s *server) call(ctx context.Context, raw json.RawMessage) map[string]any {
 		p.Arguments = map[string]json.RawMessage{}
 	}
 	caller, err := s.identity(p.Meta, p.Arguments)
+	if errors.Is(err, errGrokLeader) {
+		return failure("grok_leader_mode")
+	}
 	if err != nil {
 		return failure("identity_unavailable")
 	}

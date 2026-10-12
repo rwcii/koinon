@@ -78,6 +78,7 @@ func TestDirectStartStillNeedsNativeIdentity(t *testing.T) {
 		t.Run(c.family, func(t *testing.T) {
 			h := c.harness(t)
 			delete(h.env, "CLAUDE_CODE_SESSION_ID")
+			delete(h.env, "GROK_SESSION_ID")
 			if reply, isError := h.tool("peers", map[string]any{}, nil); !isError || reply["code"] != "identity_unavailable" || len(h.sessions()) != 0 {
 				t.Fatalf("missing native identity: %v", reply)
 			}

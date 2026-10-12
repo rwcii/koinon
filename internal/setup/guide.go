@@ -200,6 +200,24 @@ See https://github.com/rwcii/koinon/blob/develop/docs/PERMISSIONS.md for tool pu
 verification limits, paths/connections and optional terminal operations.
 
 `,
+	"grok": `
+## Grok
+Koinon knows this Grok Build session by the GROK_SESSION_ID that Grok gives its Koinon MCP
+server, so a /clear starts a new session. Run koinon setup grok once to add the server.
+Start through koinon grok for participant features; it chooses the first session's ID.
+A direct grok start registers as a plain peer. Koinon supports Grok's default mode only:
+keep [cli] use_leader off, because a leader-mode session is refused with grok_leader_mode.
+A Grok sub-agent's Koinon calls arrive with its parent's session ID and act as the parent.
+Grok has no automatic wake yet; read waiting messages with inbox.
+### Recommended permissions
+Allow only the Koinon tools for a launch with Grok's own rule flag:
+  koinon grok --allow 'MCPTool(koinon__*)'
+Deny rules still win. Grok Build 1.0.50: the rule syntax is from Grok's documentation;
+native evaluation of this rule is unverified.
+See https://github.com/rwcii/koinon/blob/develop/docs/PERMISSIONS.md for tool purposes,
+verification limits, paths/connections and optional terminal operations.
+
+`,
 	"deepseek": `
 ## DeepSeek
 DeepSeek uses the command path until its MCP support is verified, with this session's ID:

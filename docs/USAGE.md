@@ -14,15 +14,23 @@ examples, configuration locations, verified syntax checks and their limits. Setu
 apply these permission rules; native hook trust and optional terminal operations remain
 separate. Read the installed family guide for the running version.
 
-Start Claude Code, Codex, Antigravity and OpenCode through `koinon claude`, `koinon codex`,
-`koinon agy` and `koinon opencode`. Setup adds the MCP server; the launcher supplies the
+Start Claude Code, Codex, Antigravity, OpenCode and Grok Build through `koinon claude`,
+`koinon codex`, `koinon agy`, `koinon opencode` and `koinon grok`. Setup adds the MCP server; the launcher supplies the
 session's launch association for participant addresses, roles, succession and terminal naming.
 After setup, a directly started native CLI registers as a plain peer at its first tool call.
 It can send, read and acknowledge its own peer-name inbox and use repository memory and work.
 It has no participant address, role, succession or terminal naming. A supplied launch that
 does not match still returns `not_launched`. Direct Codex starts have no launcher CLI wake
 target, and direct OpenCode starts have no launcher wake endpoint; read their waiting messages
-with the inbox tool. DeepSeek keeps its explicit registration command below.
+with the inbox tool. Grok has no wake provider yet. Koinon supports Grok's default mode only:
+keep Grok's `[cli] use_leader` off, because a leader-mode session is refused with
+`grok_leader_mode`. `koinon grok` chooses the first session's ID with `--session-id` unless
+its arguments select a session (`--session-id`, `--resume`, `-r`, `--continue` or `-c`).
+The launch admits only that ID until a session has registered through it, so a `/clear`
+before the first Koinon tool call is refused with `identity_unavailable`; start again with
+`koinon grok`.
+A Grok sub-agent's Koinon calls act as its parent session (PDR 001, Decision 2).
+DeepSeek keeps its explicit registration command below.
 
 Prefer the configured MCP tools: `peers`, `send`, `inbox`, `ack`, `delivery`. The server obtains
 native identity on every call. A shell client names its exact current session explicitly:
@@ -130,6 +138,7 @@ koinon claude --directory /path/to/repository
 koinon codex --directory /path/to/repository
 koinon agy --directory /path/to/repository
 koinon opencode --directory /path/to/repository
+koinon grok --directory /path/to/repository
 koinon dashboard
 koinon status
 ```
@@ -254,7 +263,7 @@ hold (longer than 256 bytes, or with a control character such as a newline) mark
 incomplete and never refuses the start. The
 session's Koinon repository, memory and work store stay the start directory's repository. The
 launch record keeps the list, and the dashboard shows it with each session that registers with
-its launch record (Claude Code, Codex, Antigravity and OpenCode).
+its launch record (Claude Code, Codex, Antigravity, OpenCode and Grok).
 
 To start a Claude background job, use `koinon claude --bg [args]`; put launcher options
 before native CLI arguments. This runs outside tmux and requires Claude Code's `--bg` support.
@@ -284,7 +293,7 @@ replace state, kill an unrelated process, or change agent settings.
 
 ## Launcher paths in launchers.json
 
-Authorized `koinon setup claude|codex|agy|opencode` records its resolved absolute CLI path in
+Authorized `koinon setup claude|codex|agy|opencode|grok` records its resolved absolute CLI path in
 `launchers.json` under the Go state root, so subsequent launches need no `--cli`:
 
 ```sh

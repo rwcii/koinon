@@ -25,6 +25,7 @@ func syntheticCLI(t *testing.T, family string) (cli, state, log string) {
 		"claude":   `printf '%s:\n  Scope: User config\n  Type: stdio\n  Command: %s\n  Args: %s\n' "$n" "$c" "$a"`,
 		"agy":      `printf '%s  stdio  enabled  %s %s\n' "$n" "$c" "$a"`,
 		"opencode": `printf '\033[0m●  ✓ %s \033[90mconnected\n│      \033[90m%s %s\n│\n' "$n" "$c" "$a"`,
+		"grok":     `printf '%s{"command":"%s","args":["%s"],"enabled":true,"name":"%s","scope":"user"}' "$sep" "$c" "$a" "$n"; sep=,`,
 	}
 	script := `#!/bin/sh
 printf '%s\n' "$*" >> '` + log + `'
@@ -32,7 +33,9 @@ touch '` + state + `'
 show() { while read -r n c a; do [ -z "$1" ] || [ "$n" = "$1" ] || continue; ` + formats[family] + `; done < '` + state + `'; }
 case "$1 $2" in
 "mcp get") command grep -q "^$3 " '` + state + `' && show "$3" && exit 0; echo "No MCP server named $3"; exit 1 ;;
-"mcp list") [ "` + family + `" = agy ] && echo "NAME    TYPE   STATUS   COMMAND/URL"; show ""; exit 0 ;;
+"mcp list") [ "` + family + `" = agy ] && echo "NAME    TYPE   STATUS   COMMAND/URL"
+  [ "` + family + `" = grok ] && { printf '['; show ""; printf ']\n'; exit 0; }; show ""; exit 0 ;;
+"--version ") echo "grok 1.0.49 (synthetic) [stable]"; exit 0 ;;
 "mcp remove") for name; do :; done; command grep -v "^$name " '` + state + `' > '` + state + `.new'; mv '` + state + `.new' '` + state + `'; exit 0 ;;
 "mcp add") shift 2; while [ "$1" != "--" ]; do name=$1; shift; done; shift
   command grep -v "^$name " '` + state + `' > '` + state + `.new'; mv '` + state + `.new' '` + state + `'
@@ -53,7 +56,7 @@ func calls(t *testing.T, log string) []string {
 
 func TestSetupEachFamilyAndRepeat(t *testing.T) {
 	binary := "/opt/koinon/bin/koinon"
-	for _, family := range []string{"claude", "codex", "agy", "opencode"} {
+	for _, family := range []string{"claude", "codex", "agy", "opencode", "grok"} {
 		t.Run(family, func(t *testing.T) {
 			cli, state, log := syntheticCLI(t, family)
 			o := Options{Family: family, CLI: cli, Binary: binary, StateDir: filepath.Join(t.TempDir(), "state"),
@@ -68,11 +71,22 @@ func TestSetupEachFamilyAndRepeat(t *testing.T) {
 			}
 			added := calls(t, log)
 			last := added[len(added)-1]
+			if family == "grok" {
+				// The version check follows the add; no remove precedes it without an entry.
+				last = added[len(added)-2]
+				if strings.Contains(strings.Join(added, "\n"), "mcp remove") {
+					t.Fatalf("grok removed an absent entry: %v", added)
+				}
+			}
 			if !strings.HasPrefix(last, "mcp add") || !strings.HasSuffix(last, "koinon -- "+binary+" mcp") {
 				t.Fatalf("add command: %v", added)
 			}
-			if family == "claude" && !strings.Contains(last, "--scope user") {
-				t.Fatalf("claude scope: %s", last)
+			if (family == "claude" || family == "grok") && !strings.Contains(last, "--scope user") {
+				t.Fatalf("%s scope: %s", family, last)
+			}
+			if family == "grok" && !strings.Contains(report.Note, "Grok Build 1.0.49 is installed; the Koinon evidence covers 1.0.50") ||
+				family == "grok" && !strings.Contains(report.Note, "MCPTool(koinon__*)") {
+				t.Fatalf("grok note: %q", report.Note)
 			}
 			if path, err := launcher.ConfiguredCLI(o.StateDir, family, ""); err != nil || path != cli {
 				t.Fatalf("setup did not record CLI: %q %v", path, err)
@@ -114,7 +128,7 @@ func TestSetupRecordsDiscoveredCLI(t *testing.T) {
 }
 
 func TestSetupIdentifiesItsOwnEntry(t *testing.T) {
-	for _, family := range []string{"claude", "codex", "agy", "opencode"} {
+	for _, family := range []string{"claude", "codex", "agy", "opencode", "grok"} {
 		for _, entries := range []string{"other /opt/k/koinon mcp\n", "koinon /opt/k/koinon status\n"} {
 			cli, state, _ := syntheticCLI(t, family)
 			os.WriteFile(state, []byte(entries), 0600)
@@ -138,7 +152,33 @@ func TestConfiguredMatchesRealOutput(t *testing.T) {
 	claude := "koinon:\n  Scope: User config (available in all your projects)\n  Status: ✘ Failed to connect\n  Type: stdio\n  Command: /opt/synthetic/koinon\n  Args: mcp\n  Environment:\n\nTo remove this server, run: claude mcp remove koinon -s user\n"
 	agy := "NAME    TYPE   STATUS   COMMAND/URL\nkoinon  stdio  enabled  /opt/synthetic/koinon mcp\nother   stdio  enabled  /opt/synthetic/koinon status\n"
 	opencode := "\x1b[0m\n┌  MCP Servers\n│\n●  ✗ koinon \x1b[90mfailed\n│      ENOENT: no such file or directory, posix_spawn '/opt/synthetic/koinon'\n│      \x1b[90m/opt/synthetic/koinon mcp\n│\n●  ✗ other \x1b[90mfailed\n│      \x1b[90m/opt/synthetic/koinon status\n│\n└  2 server(s)\n"
-	for family, output := range map[string]string{"codex": codex, "claude": claude, "agy": agy, "opencode": opencode} {
+	// Grok Build 1.0.50, grok mcp list --json in the development container (#254).
+	grok := `[
+  {
+    "command": "/opt/synthetic/koinon",
+    "args": [
+      "mcp"
+    ],
+    "enabled": true,
+    "name": "koinon",
+    "scope": "user"
+  },
+  {
+    "command": "/opt/synthetic/koinon",
+    "args": [
+      "status"
+    ],
+    "enabled": true,
+    "name": "other",
+    "scope": "user"
+  }
+]`
+	if configured("grok", strings.Replace(grok, `"scope": "user"`, `"scope": "project"`, 1), binary) ||
+		configured("grok", strings.Replace(grok, `"enabled": true`, `"enabled": false`, 1), binary) ||
+		!owned("grok", strings.Replace(grok, `"enabled": true`, `"enabled": false`, 1), binary) {
+		t.Fatal("grok: project scope or disabled entry handled wrongly")
+	}
+	for family, output := range map[string]string{"codex": codex, "claude": claude, "agy": agy, "opencode": opencode, "grok": grok} {
 		if !configured(family, output, binary) {
 			t.Fatalf("%s: own entry not found", family)
 		}
@@ -262,7 +302,7 @@ func TestGuideAndHook(t *testing.T) {
 
 func TestRemoveEachFamily(t *testing.T) {
 	binary := "/opt/koinon/bin/koinon"
-	for _, family := range []string{"claude", "codex", "agy", "opencode"} {
+	for _, family := range []string{"claude", "codex", "agy", "opencode", "grok"} {
 		t.Run(family, func(t *testing.T) {
 			cli, state, _ := syntheticCLI(t, family)
 			dir := t.TempDir()

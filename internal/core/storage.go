@@ -24,6 +24,8 @@ var (
 	// ErrLaunchPending refuses a background job before its job ID is recorded.
 	ErrNotLaunched   = Refusal{"not_launched", "the supplied launch does not match this session"}
 	ErrLaunchPending = Refusal{"launch_pending", "the background launch has not recorded its job yet; call again"}
+	// ErrIdentityUnavailable refuses a session ID that its launch does not admit.
+	ErrIdentityUnavailable = Refusal{"identity_unavailable", "the session ID does not match the launch's first session"}
 	// ErrStaleHolder refuses a call that acts for a participant from a session that does
 	// not hold it, such as a former holder after a change of holder.
 	ErrStaleHolder = Refusal{"stale_holder", "this session does not hold that participant; another session holds it now"}

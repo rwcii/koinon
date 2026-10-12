@@ -61,7 +61,7 @@ func Run(ctx context.Context, o Options) (Report, error) {
 		report.Note = "DeepSeek uses the documented command path: koinon send --as deepseek:$DSH_SESSION_ID NAME BODY, koinon inbox and koinon ack with the same --as. Nothing was changed."
 		return report, nil
 	}
-	if o.Family != "claude" && o.Family != "codex" && o.Family != "agy" && o.Family != "opencode" {
+	if o.Family != "claude" && o.Family != "codex" && o.Family != "agy" && o.Family != "opencode" && o.Family != "grok" {
 		return report, errors.New("unknown agent family")
 	}
 	var err error
@@ -115,11 +115,19 @@ func Run(ctx context.Context, o Options) (Report, error) {
 		add = []string{"mcp", "add", serverName, "--", o.Binary, "mcp"}
 	case "agy", "opencode":
 		add = []string{"mcp", "add", serverName, "--", o.Binary, "mcp"}
+	case "grok":
+		remove = []string{"mcp", "remove", "--scope", "user", serverName}
+		add = []string{"mcp", "add", "--scope", "user", serverName, "--", o.Binary, "mcp"}
 	}
 	current, getErr := run(get...)
 	if getErr == nil && configured(o.Family, current, o.Binary) {
 		report.Unchanged = append(report.Unchanged, "mcp server "+serverName)
 	} else {
+		// grok mcp list succeeds without the entry, and grok mcp remove fails on a
+		// missing name, so Grok removes only a listed user-scope koinon entry.
+		if o.Family == "grok" && !grokEntry(current) {
+			remove = nil
+		}
 		if remove != nil && getErr == nil {
 			// Replace an entry that names another command; nothing else is touched.
 			if out, err := run(remove...); err != nil {
@@ -145,6 +153,8 @@ func Run(ctx context.Context, o Options) (Report, error) {
 		err = agyHook(o, &report)
 	case "opencode":
 		err = openCodePlugin(o, &report)
+	case "grok":
+		report.Note = grokNote(ctx, cli)
 	}
 	if err == nil {
 		var changed bool
@@ -169,8 +179,42 @@ func getCommand(family string) []string {
 		return []string{"mcp", "get", serverName}
 	case "codex":
 		return []string{"mcp", "get", serverName, "--json"}
+	case "grok":
+		return []string{"mcp", "list", "--json"}
 	}
 	return []string{"mcp", "list"}
+}
+
+// grokEntry reports whether `grok mcp list --json` lists a user-scope koinon server.
+func grokEntry(output string) bool {
+	var entries []struct{ Name, Scope string }
+	if json.Unmarshal([]byte(output), &entries) != nil {
+		return false
+	}
+	for _, entry := range entries {
+		if entry.Name == serverName && entry.Scope == "user" {
+			return true
+		}
+	}
+	return false
+}
+
+// grokVersion is the Grok Build release that the #254 evidence covers.
+const grokVersion = "1.0.50"
+
+// grokNote reports the Grok Build version that setup saw and the permission rule that
+// setup recommends but does not write (#254 chunk 02, items 9 and 10).
+func grokNote(ctx context.Context, cli string) string {
+	note := "Koinon supports Grok's default mode; keep [cli] use_leader off for Koinon sessions. To allow only the Koinon tools, start with koinon grok --allow 'MCPTool(koinon__*)'; setup wrote no permission rule."
+	out, err := runCLI(ctx, cli, "--version")
+	fields := strings.Fields(out)
+	switch {
+	case err != nil || len(fields) < 2 || fields[0] != "grok":
+		return note + " The Grok Build version could not be read."
+	case fields[1] != grokVersion:
+		return note + " Grok Build " + fields[1] + " is installed; the Koinon evidence covers " + grokVersion + "."
+	}
+	return note + " Grok Build " + grokVersion + " is installed."
 }
 
 // runCLI runs the agent CLI without input and returns its combined output.
@@ -251,6 +295,25 @@ func matches(family, output, binary string, enabled bool) bool {
 		return json.Unmarshal([]byte(output), &entry) == nil && entry.Name == serverName && (entry.Enabled || !enabled) &&
 			entry.Transport.Type == "stdio" && entry.Transport.Command == binary &&
 			len(entry.Transport.Args) == 1 && entry.Transport.Args[0] == "mcp"
+	case "grok":
+		// `grok mcp list --json` prints every configured server with its scope.
+		var entries []struct {
+			Name    string
+			Command string
+			Args    []string
+			Enabled bool
+			Scope   string
+		}
+		if json.Unmarshal([]byte(output), &entries) != nil {
+			return false
+		}
+		for _, entry := range entries {
+			if entry.Name == serverName && entry.Scope == "user" && (entry.Enabled || !enabled) &&
+				entry.Command == binary && len(entry.Args) == 1 && entry.Args[0] == "mcp" {
+				return true
+			}
+		}
+		return false
 	case "claude":
 		// `claude mcp get koinon` prints the entry's fields under its name.
 		if len(lines) == 0 || strings.TrimSpace(lines[0]) != serverName+":" {

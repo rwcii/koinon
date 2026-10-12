@@ -29,6 +29,7 @@ var callers = []caller{
 	{"codex", "codex-mcp-client", "/opt/agent/bin/codex", nil, map[string]any{"threadId": "synthetic-thread"}, nil},
 	{"agy", "antigravity", "/opt/agent/bin/agy", nil, map[string]any{"antigravity.google/conversation_id": "synthetic-conversation"}, nil},
 	{"opencode", "opencode", "/opt/agent/bin/opencode", nil, nil, map[string]any{"koinon_session": "ses_synthetic"}},
+	{"grok", "grok-shell-koinon", "/opt/xai/grok/bin/grok-native", map[string]string{"GROK_SESSION_ID": "7f3c2a10-0000-4000-8000-00000000c0de"}, nil, nil},
 }
 
 func (c caller) harness(t *testing.T) *harness {
@@ -173,6 +174,7 @@ func TestSubagentRegistersAgainAfterAFailure(t *testing.T) {
 func TestLauncherPassesEveryMCPVariable(t *testing.T) {
 	exempt := map[string]string{
 		"CLAUDE_CODE_SESSION_ID": "Claude identity, set by Claude Code",
+		"GROK_SESSION_ID":        "Grok identity, set by Grok Build for its MCP servers",
 		"CLAUDE_CONFIG_DIR":      "Claude only; Claude passes its environment",
 		"HOME":                   "Codex passes it to every MCP server",
 	}

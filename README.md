@@ -1,6 +1,6 @@
 # Koinon
 
-Koinon connects local Claude Code, Codex, Antigravity, OpenCode and DeepSeek sessions through
+Koinon connects local Claude Code, Codex, Antigravity, OpenCode, Grok Build and DeepSeek sessions through
 one Go daemon. A single binary provides messaging, shared repository memory, advisory work
 claims, launchers and a dashboard. Linux and macOS builds use no cgo. Fresh installation needs
 no Python. The Python runtime has been retired from this checkout; import and upgrade from
@@ -15,9 +15,10 @@ flowchart LR
         Codex[Codex]
         Agy[Antigravity]
         OpenCode[OpenCode]
+        Grok[Grok Build]
         DeepSeek[DeepSeek]
     end
-    Claude & Codex & Agy & OpenCode -->|stdio MCP tools| MCP[koinon mcp]
+    Claude & Codex & Agy & OpenCode & Grok -->|stdio MCP tools| MCP[koinon mcp]
     DeepSeek -->|koinon commands| CLI[koinon CLI]
     MCP -->|loopback API, private secret| Daemon[koinon serve]
     CLI -->|loopback API, private secret| Daemon
@@ -80,13 +81,13 @@ run that binary, its report names the step that fixes it (`path_step`), such as 
 
 1. **Configure each agent family once.** `koinon install --agent FAMILY` runs this for the
    families it names. Later, run `koinon setup FAMILY` for another family (`claude`, `codex`,
-   `agy` or `opencode`). Setup adds the Koinon MCP server to the agent's own configuration
+   `agy`, `opencode` or `grok`). Setup adds the Koinon MCP server to the agent's own configuration
    and records the agent CLI's absolute path for the launcher. DeepSeek needs no setup.
 2. **Use the launcher for participant features**, in the repository where it works:
 
    ```sh
    cd /path/to/repository
-   koinon claude        # or: koinon codex, koinon agy, koinon opencode
+   koinon claude        # or: koinon codex, koinon agy, koinon opencode, koinon grok
    ```
 
    Arguments after `--` go to the agent CLI, for example `koinon codex -- --model NAME`.
@@ -98,7 +99,7 @@ run that binary, its report names the step that fixes it (`path_step`), such as 
    name and prints its name and pane.
    `koinon claude --bg` starts a Claude Code background job instead.
 3. **Direct starts register as plain peers.** After setup, a directly started `claude`,
-   `codex`, `agy` or `opencode` registers at its first Koinon tool call using its native
+   `codex`, `agy`, `opencode` or `grok` registers at its first Koinon tool call using its native
    identity. It can send, read and acknowledge its peer-name inbox and use repository memory
    and work tools. Participant addresses, roles, succession and terminal naming come from
    the launcher. DeepSeek registers with `koinon register` (see [usage](docs/USAGE.md)).

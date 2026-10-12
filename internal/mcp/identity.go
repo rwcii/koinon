@@ -11,6 +11,43 @@ import (
 
 var errIdentity = errors.New("identity_unavailable")
 
+// errGrokLeader refuses a Grok session served through Grok's leader process: the server's
+// directory and pane are the first terminal's, so its repository and host would be wrong
+// (#254 spike fact 1). Gate B covers Grok's default mode only (#254 comment 6118290944).
+var errGrokLeader = errors.New("grok_leader_mode")
+
+// grokClient is the clientInfo name that Grok Build sends for a server named koinon
+// ("grok-shell-<server>", #254 spike fact 1).
+const grokClient = "grok-shell-koinon"
+
+type grokParent int
+
+const (
+	grokNone   grokParent = iota // the parent is not a Grok process
+	grokTUI                      // a Grok terminal session in the default mode
+	grokLeader                   // Grok's leader process (`grok-native agent leader`)
+)
+
+// grokProcess classifies the server's parent. The `grok` command runs the grok-native
+// executable; its leader runs `grok-native agent leader ...`.
+func grokProcess(command func(int) (string, []string, error), pid int) grokParent {
+	if command == nil || pid <= 1 {
+		return grokNone
+	}
+	executable, args, err := command(pid)
+	if err != nil {
+		return grokNone
+	}
+	name := filepath.Base(executable)
+	if name != "grok-native" && name != "grok" && (len(args) == 0 || filepath.Base(args[0]) != "grok" && filepath.Base(args[0]) != "grok-native") {
+		return grokNone
+	}
+	if len(args) >= 3 && args[1] == "agent" && args[2] == "leader" {
+		return grokLeader
+	}
+	return grokTUI
+}
+
 // openCodeField is the argument that the Koinon OpenCode plugin sets on every Koinon tool
 // call from the calling session's ID (spike fact 6); OpenCode gives MCP servers no other
 // per-call session source.
@@ -68,7 +105,7 @@ func (s *server) identity(meta map[string]json.RawMessage, args map[string]json.
 		}
 	}
 	s.mu.Lock()
-	client, claude := s.client, s.claude
+	client, claude, grok := s.client, s.claude, s.grok
 	s.mu.Unlock()
 	text := func(raw json.RawMessage) string {
 		var value string
@@ -94,6 +131,15 @@ func (s *server) identity(meta map[string]json.RawMessage, args map[string]json.
 	case client == "opencode":
 		if plugin {
 			key = core.Key{Family: "opencode", ID: text(session)}
+		}
+	case client == grokClient && !plugin:
+		// A Grok sub-agent's call arrives with its parent's ID and is the parent's call
+		// (PDR 001, Decision 2).
+		switch grok {
+		case grokLeader:
+			return core.Key{}, errGrokLeader
+		case grokTUI:
+			key = core.Key{Family: "grok", ID: s.c.Getenv("GROK_SESSION_ID")}
 		}
 	}
 	if plugin && key.Family != "opencode" {

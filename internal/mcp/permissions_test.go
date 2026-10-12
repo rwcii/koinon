@@ -53,6 +53,15 @@ func TestPermissionRecommendationsCoverRegisteredTools(t *testing.T) {
 				}
 				return
 			}
+			var patterns []string
+			if family == "grok" {
+				// Grok takes its rule as a launch flag: MCPTool(server__tool).
+				rule := regexp.MustCompile(`--allow 'MCPTool\(([^)]*)\)'`).FindStringSubmatch(text)
+				if rule == nil || !strings.HasPrefix(rule[1], "koinon__") {
+					t.Fatal("missing Grok MCPTool rule scoped to the koinon server")
+				}
+				patterns = append(patterns, strings.TrimPrefix(rule[1], "koinon__"))
+			}
 			var example map[string]any
 			for _, line := range strings.Split(text, "\n") {
 				if strings.HasPrefix(line, "  {\"") {
@@ -62,11 +71,11 @@ func TestPermissionRecommendationsCoverRegisteredTools(t *testing.T) {
 					break
 				}
 			}
-			if example == nil {
+			if example == nil && family != "grok" {
 				t.Fatal("missing copyable permission JSON")
 			}
-			var patterns []string
 			switch family {
+			case "grok":
 			case "claude", "agy":
 				permissions, ok := example["permissions"].(map[string]any)
 				if !ok {

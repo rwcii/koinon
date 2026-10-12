@@ -36,13 +36,13 @@ Never put a secret, runtime session identifier or response body in a repository.
 | `POST /v1/storage/recover` | Prove the write-ahead log empty again, return free pages and clear a blocked state. |
 
 POST requests use `Content-Type: application/json`, at most 16 KiB, with unknown fields refused.
-Registration fields are `family` (`claude`, `codex`, `deepseek`, `agy`, `opencode`), `id` (1–256
+Registration fields are `family` (`claude`, `codex`, `deepseek`, `agy`, `opencode`, `grok`), `id` (1–256
 bytes), an absolute `directory` path, an optional absolute `repository` path,
 optional `wake_target` JSON (up to 8 KiB),
 optional `launch_id`, optional `ancestors` (at most 256
 process IDs), optional `subagent` (boolean),
 and optional `ttl_seconds` (60–3,600; without it, the lifetime setting, 900 by default). Claude,
-Codex, Antigravity and OpenCode register as plain peers when `launch_id` is absent. They get
+Codex, Antigravity, OpenCode and Grok register as plain peers when `launch_id` is absent. They get
 a peer name and can send/read/ack their own inbox and use repository memory/work, with no
 participant address, role, succession or terminal naming. A supplied launch ID must be known
 and match the registering session's family and canonical directory; an unknown, malformed or
@@ -52,6 +52,9 @@ A foreground launch's `host_pid` must occur in `ancestors`; Claude also requires
 its native worker PID, without recording a launch host. Other native families accept no
 `wake_target` override except an empty object. The stored wake target comes from the launch,
 with Claude's worker PID added and any OpenCode password omitted.
+A Grok launch with a recorded `session_id` admits only that native ID until a session has
+registered through it, and refuses another ID with `identity_unavailable` (409); later
+sessions under the same host, such as after `/clear`, are not limited.
 A background Claude launch instead admits only the session whose native ID equals its
 recorded full job ID, or the full session ID whose first eight characters are its recorded
 short job ID. Until that job ID is recorded, admission returns `launch_pending` (409)
@@ -318,8 +321,9 @@ three-second limit and invalid-input/repository validation remain unchanged. Mut
 before replying. A lost reply does not prove rollback; read the retained record before
 retrying.
 
-Launch creation takes `family` (`claude`, `codex`, `agy`, `opencode`), absolute `directory` and `cli`,
-and positive `host_pid`. OpenCode also requires `address` (literal loopback with a nonzero
+Launch creation takes `family` (`claude`, `codex`, `agy`, `opencode`, `grok`), absolute `directory` and `cli`,
+and positive `host_pid`. Grok may add `session_id`, a canonical lower-case UUID that the
+launcher passes to Grok as `--session-id`; other families refuse it. OpenCode also requires `address` (literal loopback with a nonzero
 port) and `password` (64 hex characters). Other families refuse those credential fields.
 Optional `background: true` is accepted only for Claude; `job_id` cannot be supplied at
 creation. `POST /v1/launches/job` takes `launch_id` and `job_id`, recording the native job ID
@@ -633,7 +637,7 @@ and `work_checkout_request` (also optional `note`) call the checkout routes. Rel
 directories resolve against the MCP working directory and must share its Git common
 directory. They take no model-supplied consumer or caller identity. A tool
 error is a result with `isError` and a JSON text `{"ok": false, "code": ...}`: the daemon's code,
-`daemon_unavailable`, `identity_unavailable`, `invalid_arguments` or `unknown_tool`, with the
+`daemon_unavailable`, `identity_unavailable`, `grok_leader_mode`, `invalid_arguments` or `unknown_tool`, with the
 `details` of a work refusal. When the daemon or the MCP server states the rule that refused the
 call, such as `renew_for is 60 to 3600 seconds` or `missing argument work_id`, the result also
 carries it as `error` (at most 1 KiB). The tool schemas state the lease bounds (60 to 3,600
@@ -649,6 +653,7 @@ call whose arguments hold `caller`, `family`, `id`, `as`, `session` or `session_
 | Antigravity | `_meta["antigravity.google/conversation_id"]`. |
 | Claude | `CLAUDE_CODE_SESSION_ID` in the server's environment, only when `initialize` names the client `claude-code` and the server's parent process is a Claude Code executable. |
 | OpenCode | The `koinon_session` argument that the Koinon plugin sets from the calling session's ID; accepted only from the `opencode` client. |
+| Grok | `GROK_SESSION_ID` in the server's environment, only when `initialize` names the client `grok-shell-koinon` and the server's parent process is a Grok terminal session: the `grok-native` executable (started as `grok`) whose arguments do not begin with `agent leader`. A parent that is Grok's leader process (`grok-native agent leader`) returns `grok_leader_mode`: Koinon supports Grok's default mode only, because a leader-mode server has the first terminal's directory and pane. A Grok sub-agent's call carries its parent's `GROK_SESSION_ID` with no per-call marker and acts as the parent session (PDR 001, Decision 2). |
 
 DeepSeek has no MCP identity source yet and uses the `koinon` commands with `--as`. For the
 other families, the server registers the native session at its first call, with the working
@@ -674,7 +679,11 @@ returns `{ok: false, code: "not_launched", launcher: "koinon FAMILY", message: .
 `tools/list` remains available. Failed pending background admission retries at the next tool
 call. A plain peer's renewal or reconnect can recover an expired registration with the same
 peer name. Direct Codex starts have no launcher CLI wake target, and direct OpenCode starts
-have no launcher wake endpoint; their inboxes remain available through tool calls.
+have no launcher wake endpoint; their inboxes remain available through tool calls. Grok has no
+wake provider yet; its inbox remains available through tool calls.
+
+`koinon grok` adds `--session-id` with a new UUID, recorded in the launch, unless its
+arguments hold `--session-id`, `--resume`, `-r`, `--continue` or `-c`.
 
 `koinon codex` uses `--no-daemon`, making the launched CLI the host of its MCP servers, and
 overrides `mcp_servers.koinon.env_vars` to forward `KOINON_LAUNCH_ID`, `KOINON_STATE_DIR`,
@@ -826,7 +835,7 @@ from elsewhere. Peer message bodies appear here, escaped, and nowhere else outsi
     `store_not_found`. Each form of a rendered page carries its own idempotency key.
   - `send` (`to`, `body`): a message from `maintainer`; the recipient's wake works as for any
     message.
-  - `launch` (`family` `claude`, `codex`, `agy` or `opencode`; `directory`; optional `name`): the daemon runs
+  - `launch` (`family` `claude`, `codex`, `agy`, `opencode` or `grok`; `directory`; optional `name`): the daemon runs
     its own executable as the launcher with `--tmux-session`, so the agent starts detached in a
     new tmux session with its configured CLI. The directory must be an existing absolute path; the
     name uses letters, digits, `_` and `-`, and defaults to `FAMILY-FOLDER-XXXX`. No other
@@ -900,7 +909,7 @@ Claude also requires its MCP server to be a child of its Claude process. `TMUX` 
 `TMUX_PANE` only select the tmux server and a candidate
 pane. The pane counts as the session's own only when its process is the session's host
 process from the wake target (the Claude process, or the launched CLI) or an ancestor of it,
-with no Claude Code, Codex, `agy` or OpenCode process between them (`pane_not_host`,
+with no Claude Code, Codex, `agy`, OpenCode or Grok process between them (`pane_not_host`,
 `nested_agent`). When another pane of the same tmux session holds an agent process, only this
 pane is titled (`pane_titled`); otherwise the session is renamed by its ID (`renamed`), unless
 it already has the name (`unchanged`) or another session has it (`name_taken`), and the name is

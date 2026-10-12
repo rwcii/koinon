@@ -5,6 +5,14 @@ into a dated release section when promoted to `main`.
 
 ## Unreleased
 
+- Grok Build is a supported agent family (#254, chunk 02). `koinon setup grok` adds the
+  user-scope `koinon` MCP server and reports the Grok Build version; `koinon grok` starts Grok
+  with a launcher-chosen first session ID (`--session-id`) unless its arguments select a
+  session. Koinon identifies each call by the `GROK_SESSION_ID` of a server whose parent is a
+  Grok terminal process; a direct start registers as a plain peer, a sub-agent's calls act as
+  its parent, and a session served by Grok's leader process is refused with
+  `grok_leader_mode`. Grok has no wake provider yet. The dashboard can start Grok sessions.
+
 - Repository registration distinguishes an unavailable Git executable or Git discovery
   timeout from invalid input, with fixed diagnostic error codes (#319).
 

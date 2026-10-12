@@ -25,7 +25,7 @@ import (
 )
 
 // Families are the agent families setup and removal know.
-var Families = []string{"claude", "codex", "agy", "opencode", "deepseek"}
+var Families = []string{"claude", "codex", "agy", "opencode", "grok", "deepseek"}
 
 // Options select the installation. Zero values take the documented defaults.
 type Options struct {
@@ -390,7 +390,7 @@ func Install(ctx context.Context, o Options) (Report, error) {
 	}
 	// A family that an earlier setup configured keeps starting through its launcher,
 	// though this install did not name it (#273). Its configuration is only read.
-	for _, family := range []string{"claude", "codex", "agy", "opencode"} {
+	for _, family := range []string{"claude", "codex", "agy", "opencode", "grok"} {
 		if slices.Contains(o.Agents, family) {
 			continue
 		}

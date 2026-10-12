@@ -213,9 +213,9 @@ const usage = `Usage: koinon install [--prefix DIR] [--state-dir DIR] [--agent F
        koinon status [--state-dir DIR] [--address 127.0.0.1:PORT]
        koinon dashboard [--state-dir DIR] [--address 127.0.0.1:PORT] [--no-open]
        koinon mcp [--state-dir DIR] [--address 127.0.0.1:PORT]
-       koinon setup <claude|codex|agy|opencode|deepseek> [--cli ABS_PATH] [--binary ABS_PATH]
+       koinon setup <claude|codex|agy|opencode|grok|deepseek> [--cli ABS_PATH] [--binary ABS_PATH]
        koinon setup claude --remove-status-line [--claude-config DIR] [--state-dir DIR]
-       koinon guide --agent <claude|codex|agy|opencode|deepseek>
+       koinon guide --agent <claude|codex|agy|opencode|grok|deepseek>
        koinon hook agy-stop
        koinon hook codex-session-start
        koinon hook claude-status [--command COMMAND]
@@ -226,7 +226,7 @@ const usage = `Usage: koinon install [--prefix DIR] [--state-dir DIR] [--agent F
        koinon work <get|propose|edit|start|update|release|finish> WORK_ID --as FAMILY:ID [--consumer KEY] [options]
        koinon claim renew WORK_ID --as FAMILY:ID --claim-generation N --if-claim-revision N [--lease-seconds S]
        koinon recover [--state-dir DIR] [--address 127.0.0.1:PORT]
-       koinon <claude|codex|agy|opencode> [--state-dir DIR] [--address HOST:PORT] [--cli ABS_PATH] [--directory DIR] [--tmux-session NAME] [--] [CLI arguments...]
+       koinon <claude|codex|agy|opencode|grok> [--state-dir DIR] [--address HOST:PORT] [--cli ABS_PATH] [--directory DIR] [--tmux-session NAME] [--] [CLI arguments...]
        koinon peers --as FAMILY:ID [--state-dir DIR] [--address 127.0.0.1:PORT]
        koinon peer-status --as FAMILY:ID [--state-dir DIR] [--address 127.0.0.1:PORT] NAME
        koinon send --as FAMILY:ID [--state-dir DIR] [--address 127.0.0.1:PORT] NAME BODY

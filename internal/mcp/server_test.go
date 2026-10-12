@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -298,6 +299,12 @@ func TestIdentitySources(t *testing.T) {
 		{"plugin field from codex", "codex-mcp-client", "/opt/agent/bin/codex", nil, codexMeta, map[string]any{"koinon_session": "ses_synthetic"}, "", ""},
 		{"caller in arguments", "codex-mcp-client", "/opt/agent/bin/codex", nil, codexMeta, map[string]any{"caller": map[string]any{"family": "codex", "id": "other"}}, "", ""},
 		{"id in arguments", "opencode", "/opt/agent/bin/opencode", nil, nil, map[string]any{"koinon_session": "ses_synthetic", "id": "other"}, "", ""},
+		{"grok", "grok-shell-koinon", "/opt/xai/grok/bin/grok-native", map[string]string{"GROK_SESSION_ID": "synthetic-grok"}, nil, nil, "grok", "synthetic-grok"},
+		{"grok wrong parent", "grok-shell-koinon", "/usr/bin/bash", map[string]string{"GROK_SESSION_ID": "synthetic-grok"}, nil, nil, "", ""},
+		{"grok env under another client", "synthetic-client", "/opt/xai/grok/bin/grok-native", map[string]string{"GROK_SESSION_ID": "synthetic-grok"}, nil, nil, "", ""},
+		{"grok no id", "grok-shell-koinon", "/opt/xai/grok/bin/grok-native", nil, nil, nil, "", ""},
+		{"plugin field from grok", "grok-shell-koinon", "/opt/xai/grok/bin/grok-native", map[string]string{"GROK_SESSION_ID": "synthetic-grok"}, nil, map[string]any{"koinon_session": "ses_synthetic"}, "", ""},
+		{"caller in grok arguments", "grok-shell-koinon", "/opt/xai/grok/bin/grok-native", map[string]string{"GROK_SESSION_ID": "synthetic-grok"}, nil, map[string]any{"session_id": "other"}, "", ""},
 	} {
 		t.Run(c.name, func(t *testing.T) {
 			h := newHarness(t, "")
@@ -700,5 +707,37 @@ func TestWorkTools(t *testing.T) {
 				t.Errorf("%s with a %d-byte name: %d bytes, %v", tool, len(name), len(text), reply["code"])
 			}
 		}
+	}
+}
+
+// A Grok session served through Grok's leader process is refused with grok_leader_mode,
+// launched or not: its server's directory and pane are the first terminal's (#254). The
+// leader runs the same grok-native executable as a terminal session.
+func TestGrokLeaderModeRefused(t *testing.T) {
+	for _, launched := range []bool{false, true} {
+		t.Run(fmt.Sprintf("launched-%v", launched), func(t *testing.T) {
+			h := newHarness(t, "")
+			h.env["GROK_SESSION_ID"] = "synthetic-grok-leader"
+			h.s.c.Command = func(int) (string, []string, error) {
+				return "/opt/xai/grok/bin/grok-native", []string{"grok-native", "agent", "leader", "--no-exit-on-disconnect"}, nil
+			}
+			if launched {
+				h.launch("grok")
+			}
+			h.request("initialize", map[string]any{"protocolVersion": "2025-06-18", "clientInfo": map[string]any{"name": "grok-shell-koinon"}})
+			if reply, isError := h.tool("peers", map[string]any{}, nil); !isError || reply["code"] != "grok_leader_mode" || len(h.sessions()) != 0 {
+				t.Fatalf("leader session: %v %v", reply, h.sessions())
+			}
+		})
+	}
+	// A terminal session started as `grok` (argv[0]) runs grok-native and is admitted.
+	h := newHarness(t, "")
+	h.env["GROK_SESSION_ID"] = "synthetic-grok-tui"
+	h.s.c.Command = func(int) (string, []string, error) {
+		return "/opt/xai/grok/bin/grok-native", []string{"grok", "--session-id", "synthetic-grok-tui"}, nil
+	}
+	h.request("initialize", map[string]any{"protocolVersion": "2025-06-18", "clientInfo": map[string]any{"name": "grok-shell-koinon"}})
+	if reply, isError := h.tool("peers", map[string]any{}, nil); isError || len(h.sessions()) != 1 || h.sessions()[0].Family != "grok" {
+		t.Fatalf("terminal session: %v %v", reply, h.sessions())
 	}
 }

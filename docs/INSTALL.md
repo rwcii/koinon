@@ -66,7 +66,7 @@ this:
    marker is refused (`service_artifact_unowned`), never replaced.
 4. It waits until the daemon answers `status`.
 5. It runs `koinon setup` for each `--agent`, with the installed path.
-6. For each other launcher family (`claude`, `codex`, `agy`, `opencode`) without a usable
+6. For each other launcher family (`claude`, `codex`, `agy`, `opencode`, `grok`) without a usable
    `launchers.json` entry, it reads the family's MCP configuration through the CLI on `PATH`.
    When the enabled `koinon` server runs exactly the installed binary, as an earlier setup left
    it, the install records that CLI in `launchers.json` and lists the family under `agents`.
@@ -307,7 +307,8 @@ reports, and never refuses, other repositories nested in its start directory. Ag
 requires the selected agent CLI. Codex must support `queue`, `--no-daemon` and the
 `mcp_servers.koinon.env_vars` configuration override (verified with Codex CLI 0.161.0).
 OpenCode must support its server. Claude background jobs require Claude Code's `--bg` and
-`--settings` support.
+`--settings` support. Grok Build must support `--session-id` and `grok mcp list --json`
+(verified with Grok Build 1.0.50); setup reports another version and does not refuse it.
 DeepSeek requires a running harness, but its live wake proof remains deferred under #199.
 
 A legacy upgrade additionally needs Python 3.11+ to run the **installed previous release's**
@@ -341,16 +342,24 @@ apply these permission rules; native hook trust and optional terminal operations
 separate. Read the installed family guide for the running version.
 
 `koinon setup FAMILY` installs the MCP entry through the selected agent's CLI. Families are
-`claude`, `codex`, `agy`, `opencode` and `deepseek`; DeepSeek uses the explicit command path
+`claude`, `codex`, `agy`, `opencode`, `grok` and `deepseek`; DeepSeek uses the explicit command path
 until its MCP support is verified. `--cli ABS_PATH` selects the native CLI and `--binary
 ABS_PATH` selects the installed Koinon binary. Setup does not create an agent conversation.
 Codex and Antigravity identify the calling conversation on every MCP call; Claude uses its
 native session environment and verified executable; OpenCode needs the managed identity
-plugin. Start Claude Code, Codex, Antigravity and OpenCode through `koinon claude`,
-`koinon codex`, `koinon agy` and `koinon opencode` for participant features. After setup, a
+plugin; Grok uses the `GROK_SESSION_ID` that Grok Build gives its MCP server, with a verified
+Grok terminal process as the server's parent. Start Claude Code, Codex, Antigravity, OpenCode
+and Grok Build through `koinon claude`, `koinon codex`, `koinon agy`, `koinon opencode` and
+`koinon grok` for participant features. After setup, a
 native CLI started directly registers as a plain peer at its first tool call. It can use its
 own inbox and repository memory/work, with no participant address, role, succession or
 terminal naming (PDR 001, Decision 1). DeepSeek keeps command registration without a launch.
+
+`koinon setup grok` adds the user-scope `koinon` server with `grok mcp add --scope user`. It
+writes no permission rule; it reports the Grok Build version it saw and the recommended
+`koinon grok --allow 'MCPTool(koinon__*)'`. Koinon supports Grok's default mode only: keep
+`[cli] use_leader` off in Grok's configuration, because a session served by Grok's leader
+process is refused with `grok_leader_mode` (#254).
 
 `koinon setup codex` also adds a SessionStart hook, `'BINARY' hook codex-session-start`, to
 `$CODEX_HOME/hooks.json` (default `~/.codex/hooks.json`). It keeps every other hook. A group
@@ -412,7 +421,7 @@ task authorizes their steps (PDR 003, Decision 4; WDR 002).
 
 ## Launcher paths in launchers.json
 
-After successful `koinon setup claude`, `codex`, `agy` or `opencode`, setup records the absolute
+After successful `koinon setup claude`, `codex`, `agy`, `opencode` or `grok`, setup records the absolute
 native CLI path it resolved in `launchers.json` under the selected Go state root:
 `~/.local/state/koinon/go/launchers.json`, or `$XDG_STATE_HOME/koinon/go/launchers.json`.
 `--state-dir DIR` selects a different root. The file is a JSON object, for example:

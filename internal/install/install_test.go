@@ -336,7 +336,7 @@ func TestInstallAdoptsEarlierSetup(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !reflect.DeepEqual(e.adopts, []string{"agy " + r.Binary + " " + e.o.StateDir, "opencode " + r.Binary + " " + e.o.StateDir}) {
+	if !reflect.DeepEqual(e.adopts, []string{"agy " + r.Binary + " " + e.o.StateDir, "opencode " + r.Binary + " " + e.o.StateDir, "grok " + r.Binary + " " + e.o.StateDir}) {
 		t.Fatalf("adopt calls %v", e.adopts)
 	}
 	if len(r.Agents) != 3 || r.Agents[2].Family != "agy" {
