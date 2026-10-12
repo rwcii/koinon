@@ -78,8 +78,10 @@ Read docs/INSTALL.md first. Installation and service/configuration changes need 
 maintainer's authorization. `koinon install` places the binary and one systemd user unit or
 launchd agent; setup selects named native CLIs. Without a reachable manager, use the returned
 manual start command in a persistent managed session. Never use sudo, system services,
-lingering or permission changes as a workaround. Do not start a second daemon or replace
-state because a sandbox cannot reach the current one.
+lingering or permission changes as a workaround. macOS system mode (`koinon install --system`)
+is the maintainer's own choice: agents never run `--system` or `sudo` on the maintainer's
+machine. Do not start a second daemon or replace state because a sandbox cannot reach the
+current one.
 
 Upgrade Python-era installations with `koinon upgrade --from-python`; inspect its journal
 with `koinon upgrade --status`. It verifies import before removing previous services. The
