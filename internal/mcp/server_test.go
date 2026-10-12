@@ -380,8 +380,7 @@ func TestArgumentsAndLaunchBinding(t *testing.T) {
 	if reply, isError := h.tool("send", map[string]any{"to": "codex-none-00", "body": "x"}, meta); !isError || reply["code"] != "peer_not_found" {
 		t.Fatalf("daemon code: %v", reply)
 	}
-	// A launch of another host process, an unknown launch and no launch at all register
-	// nothing: the session is islanded, and the refusal names the launcher.
+	// A launch of another host process or an unknown launch registers nothing.
 	secret, _ := core.ReadSecret(h.root)
 	cli := filepath.Join(t.TempDir(), "codex")
 	other, err := core.CreateLaunch(context.Background(), h.d.Addresses()[0], secret, core.LaunchTarget{Family: "codex", Directory: h.s.c.Directory, CLI: cli, HostPID: 77})
@@ -389,7 +388,7 @@ func TestArgumentsAndLaunchBinding(t *testing.T) {
 		t.Fatal(err)
 	}
 	before := len(h.sessions())
-	for _, launch := range []string{other, strings.Repeat("b", 64), ""} {
+	for _, launch := range []string{other, strings.Repeat("b", 64)} {
 		h.env["KOINON_LAUNCH_ID"] = launch
 		reply, isError := h.tool("peers", map[string]any{}, map[string]any{"threadId": "synthetic-islanded"})
 		if !isError || reply["code"] != "not_launched" || reply["launcher"] != "koinon codex" || len(h.sessions()) != before {

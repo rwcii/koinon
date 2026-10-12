@@ -10,10 +10,10 @@ import (
 	"time"
 )
 
-// Participants sprint, chunk 01: only a launched session registers. The daemon admits a
-// launcher family through its own launch only, on every path; DeepSeek registers without.
+// A supplied launch must match. Native direct starts register as plain peers; DeepSeek
+// keeps its command path.
 
-func TestDaemonAdmitsOnlyLaunchedSessions(t *testing.T) {
+func TestDaemonChecksSuppliedLaunches(t *testing.T) {
 	d, root := startTestDaemon(t)
 	secret, err := ReadSecret(root)
 	if err != nil {
@@ -34,7 +34,6 @@ func TestDaemonAdmitsOnlyLaunchedSessions(t *testing.T) {
 		if family == "claude" {
 			base.WakeTarget = json.RawMessage(fmt.Sprintf(`{"claude_pid":%d}`, syntheticHost))
 		}
-		refused(family+" without a launch", base)
 		unknown := base
 		unknown.LaunchID = strings.Repeat("c", 64)
 		refused(family+" with an unknown launch", unknown)
@@ -188,10 +187,9 @@ func TestBackgroundLaunchAdmitsOnlyItsJob(t *testing.T) {
 	}
 }
 
-// A session that an older store holds without a launch record is refused at each renewal,
-// as an old koinon mcp would keep trying, and expires at the expiry it had, with its inbox,
-// acknowledgements, cursor and claims kept.
-func TestUnlaunchedSessionExpiresAfterUpgrade(t *testing.T) {
+// A retained session without a launch renews as a plain peer and keeps its own inbox and
+// acknowledgements. Its previous participant is released.
+func TestUnlaunchedSessionRenewsAfterUpgrade(t *testing.T) {
 	d, root := startTestDaemon(t)
 	secret, err := ReadSecret(root)
 	if err != nil {
@@ -220,28 +218,40 @@ func TestUnlaunchedSessionExpiresAfterUpgrade(t *testing.T) {
 	}
 	revision := old.Revision
 	for range 3 {
-		_, err := Call(ctx, d.Addresses()[0], secret, "/v1/sessions/renew", Mutation{Family: "claude", ID: "synthetic-old", IfRevision: revision})
-		var refusal RefusedError
-		if !errors.As(err, &refusal) || refusal.Code != "not_launched" {
-			t.Fatalf("renewal of an unlaunched session: %v", err)
+		data, err := Call(ctx, d.Addresses()[0], secret, "/v1/sessions/renew", Mutation{Family: "claude", ID: "synthetic-old", IfRevision: revision})
+		if err != nil {
+			t.Fatalf("plain renewal: %v", err)
 		}
+		var reply struct {
+			Session Session `json:"session"`
+		}
+		if err := json.Unmarshal(data, &reply); err != nil {
+			t.Fatal(err)
+		}
+		if reply.Session.State != "active" || reply.Session.Address != "" || reply.Session.Succession != nil {
+			t.Fatalf("renewed plain peer: %+v", reply.Session)
+		}
+		revision = reply.Session.Revision
 	}
 	var after, ackedAfter int64
 	if err := s.db.QueryRow(`SELECT expires_at,acked_through FROM sessions WHERE family='claude' AND id='synthetic-old'`).Scan(&after, &ackedAfter); err != nil {
 		t.Fatal(err)
 	}
-	if after != expires || ackedAfter != acked || ackedAfter != 1 {
-		t.Fatalf("refused renewal changed the record: %d->%d acked %d->%d", expires, after, acked, ackedAfter)
+	if after < expires || revision != old.Revision+3 || ackedAfter != acked || ackedAfter != 1 {
+		t.Fatalf("plain renewal lost state: %d->%d revision %d acked %d->%d", expires, after, revision, acked, ackedAfter)
 	}
 	var unread int
 	if err := s.db.QueryRow(`SELECT COUNT(*) FROM messages WHERE recipient_family='claude' AND recipient_id='synthetic-old'`).Scan(&unread); err != nil || unread != 2 {
 		t.Fatalf("inbox not kept: %d %v", unread, err)
 	}
-	// A launched session still renews, and the record expires on time.
+	if participant := participantOf(t, s, old.Address); participant.Holder != "" {
+		t.Fatalf("plain peer retained a participant: %+v", participant)
+	}
+	// A launched session still renews, and a plain record expires without renewal.
 	if _, err := s.Mutate(ctx, Mutation{Family: "codex", ID: "synthetic-sender", IfRevision: sender.Revision}, false); err != nil {
 		t.Fatalf("launched renewal: %v", err)
 	}
-	clock := time.UnixMilli(expires + 1)
+	clock := time.UnixMilli(after + 1)
 	s.now = func() time.Time { return clock }
 	items, _, err := s.List(ctx)
 	if err != nil {

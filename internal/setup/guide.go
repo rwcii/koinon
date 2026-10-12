@@ -39,6 +39,9 @@ A participant is a family, repository and optional maintainer-assigned role. Sta
 agent with koinon FAMILY --role ROLE; its address is FAMILY-LABEL-ROLE, while the default uses
 FAMILY-LABEL. Linked worktrees share participants. Roles have 1-24 lower-case letters, digits
 or hyphens, start with a letter, and are not only hexadecimal digits and hyphens.
+After setup, a directly started native session registers as a plain peer at its first tool
+call. It sends, reads and acknowledges its peer-name inbox and uses repository memory/work.
+It has no participant address, role, succession or terminal naming (PDR 001, Decision 1).
 An active holder keeps the address except on verified succession. Without one, exactly one active qualifier takes it;
 multiple qualifiers leave it unheld (alias_unheld on send) until the maintainer chooses in
 the dashboard or only one qualifier remains. Registration/renewal order never chooses between them. A sub-agent has no
@@ -56,7 +59,7 @@ holder_active returns the daemon's remaining retry_after_ms; MCP retries at the 
 tool call after that wait. Renewals and observation timers do not count as activity or retry.
 A daemon restart counts as activity for one guard period. Other refusals have no scheduled retry;
 report them and tell the maintainer when a dashboard choice is needed. no_host against a
-predecessor without a host record (unlaunched, or registered before the upgrade) resolves
+launched predecessor without a host record resolves
 when it expires: this session takes the address at its next registration or renewal. Make
 holder only makes that immediate. A fenced old thread
 cannot succeed automatically, even after the guard. Only verified succession or the
@@ -123,7 +126,7 @@ Use the Koinon tools for every agent message, also to another Claude session; do
 Claude Code's own cross-session messages for coordination. Koinon knows this session by its
 Claude Code session ID. Run koinon setup claude once to add the server. Start
 sessions through koinon claude, or the dashboard's start action, with the CLI setup recorded.
-A direct claude start is islanded: tools return not_launched and it is not listed in Koinon.
+A direct claude start registers as a plain peer using its native session identity.
 Use koinon claude --bg for a background job; Koinon supplies its private settings file and
 records its job ID. A launch_pending refusal retries registration at the next tool call.
 ### Recommended permissions
@@ -142,7 +145,8 @@ verification limits, paths/connections and optional terminal operations.
 Koinon knows each Codex thread by its thread ID, on every call, so a reset thread is a new
 session. Run koinon setup codex once to add the server. Start through koinon codex;
 it uses --no-daemon and forwards the launch environment to the configured MCP server.
-A direct codex start is islanded: tools return not_launched and it is not listed in Koinon.
+A direct codex start registers as a plain peer using its native thread identity. It has no
+automatic wake because it has no launcher CLI wake target; read waiting messages with inbox.
 Sub-agent threads get peer names, are listed with subagent: true and never hold an alias.
 ### Recommended permissions
 In $CODEX_HOME/config.toml (default ~/.codex/config.toml), merge into the existing table:
@@ -163,8 +167,8 @@ verification limits, paths/connections and optional terminal operations.
 ## Antigravity
 Koinon knows this conversation by its conversation ID. Waiting messages are offered at your
 turn boundary. Run koinon setup agy once to add the server and the stop hook.
-Start through koinon agy. A direct agy start is islanded: tools return not_launched and it
-is not listed in Koinon.
+Start through koinon agy for participant features. A direct agy start registers as a plain
+peer using its native conversation identity.
 ### Recommended permissions
 Merge into ~/.gemini/antigravity-cli/settings.json (not the Stop-hook customization root):
   {"permissions":{"allow":["mcp(koinon/*)","command(koinon guide --agent agy)"]}}
@@ -179,9 +183,10 @@ verification limits, paths/connections and optional terminal operations.
 	"opencode": `
 ## OpenCode
 Koinon knows each OpenCode session through the Koinon plugin that koinon setup opencode
-installs; without it the tools refuse the call. Start OpenCode through koinon opencode so
-that it registers and wake notices can reach it. A direct opencode start is islanded:
-tools return not_launched and it is not listed in Koinon.
+installs; without it the tools refuse the call. Start OpenCode through koinon opencode for
+participant features and its wake endpoint. A direct opencode start registers as a plain
+peer using the plugin's native identity. It has no automatic wake because it has no launcher
+wake endpoint; read waiting messages with inbox.
 ### Recommended permissions
 Merge into the existing $XDG_CONFIG_HOME/opencode/opencode.json (or .jsonc); default
 ~/.config/opencode/opencode.json:

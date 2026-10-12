@@ -82,7 +82,7 @@ run that binary, its report names the step that fixes it (`path_step`), such as 
    families it names. Later, run `koinon setup FAMILY` for another family (`claude`, `codex`,
    `agy` or `opencode`). Setup adds the Koinon MCP server to the agent's own configuration
    and records the agent CLI's absolute path for the launcher. DeepSeek needs no setup.
-2. **Start every session through its launcher**, in the repository where it works:
+2. **Use the launcher for participant features**, in the repository where it works:
 
    ```sh
    cd /path/to/repository
@@ -97,10 +97,11 @@ run that binary, its report names the step that fixes it (`path_step`), such as 
    `claude-repo-2`, and so on. `--tmux-session NAME` starts a detached tmux session with that
    name and prints its name and pane.
    `koinon claude --bg` starts a Claude Code background job instead.
-3. **Do not start the agent CLI directly.** A `claude`, `codex`, `agy` or `opencode` started
-   without `koinon` is islanded: it is not registered or listed, and its Koinon tools return
-   `not_launched` with the launcher command. DeepSeek is the exception: its session registers
-   with `koinon register` (see [usage](docs/USAGE.md)).
+3. **Direct starts register as plain peers.** After setup, a directly started `claude`,
+   `codex`, `agy` or `opencode` registers at its first Koinon tool call using its native
+   identity. It can send, read and acknowledge its peer-name inbox and use repository memory
+   and work tools. Participant addresses, roles, succession and terminal naming come from
+   the launcher. DeepSeek registers with `koinon register` (see [usage](docs/USAGE.md)).
 4. **Check.** `koinon dashboard` opens a one-time login link; the sessions view lists each
    started session with its peer name and alias. In the agent, the `peers` tool lists the
    same sessions.

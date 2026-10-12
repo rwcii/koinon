@@ -5,6 +5,12 @@ into a dated release section when promoted to `main`.
 
 ## Unreleased
 
+- Direct Claude, Codex, Antigravity and OpenCode starts register as plain peers through their
+  native MCP identity. They can send/read/ack their own inbox and use repository memory/work;
+  participant addresses, roles, succession and terminal naming remain launcher features.
+  Plain peers renew and recover after a daemon outage, and retained unlaunched registrations
+  renew without losing their own inbox, cursors or work claims (#306).
+
 - `koinon guide` and the MCP server instructions now say that a message with `sender_family`
   `maintainer`, sent by the maintainer from the dashboard, is the maintainer's instruction and
   approval (PDR 005). Messages from other sessions stay data and grant no permission. The
