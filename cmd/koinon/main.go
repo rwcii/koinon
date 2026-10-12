@@ -46,6 +46,8 @@ func run(ctx context.Context, args []string, in io.Reader, out io.Writer) error 
 		return memoryCommand(ctx, args, in, out)
 	case "work", "claim":
 		return workCommand(ctx, args, out)
+	case "library":
+		return libraryCommand(ctx, args[1:], out)
 	case "dashboard":
 		return dashboardCommand(ctx, args[1:], out)
 	case "version":
@@ -160,7 +162,7 @@ func serve(ctx context.Context, state string, listen []string, lockWait time.Dur
 	var d *core.Daemon
 	for {
 		var err error
-		d, err = core.Start(core.Config{StateDir: state, Listen: listen})
+		d, err = core.Start(core.Config{StateDir: state, Listen: listen, Release: version})
 		if err == nil {
 			break
 		}
@@ -220,6 +222,8 @@ const usage = `Usage: koinon install [--prefix DIR] [--state-dir DIR] [--agent F
        koinon hook codex-session-start
        koinon hook claude-status [--command COMMAND]
        koinon memory <status|sync|ack|record|recall> --as FAMILY:ID [--consumer KEY] [options]
+       koinon library list --as FAMILY:ID [--after ITEM_ID] [--limit N]
+       koinon library read ITEM_ID --as FAMILY:ID
        koinon work <create|list> --as FAMILY:ID [--consumer KEY] [options]
        koinon work checkout [--directory DIR]
        koinon work checkout <status|request> --as FAMILY:ID [--directory DIR] [options]

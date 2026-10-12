@@ -16,17 +16,20 @@ import (
 	"time"
 	"unicode/utf8"
 
+	"github.com/rwcii/koinon/internal/library"
 	"github.com/rwcii/koinon/internal/platform"
 )
 
 type Config struct {
 	StateDir string
 	Listen   []string
+	Release  string
 }
 
 type Daemon struct {
 	store     *Store
 	secret    string
+	catalog   library.Catalog
 	auth      *dashboardAuth
 	dashboard http.Handler
 	started   time.Time
@@ -60,6 +63,10 @@ func validAddress(address string) bool {
 }
 
 func Start(c Config) (*Daemon, error) {
+	catalog, err := library.Embedded(c.Release)
+	if err != nil {
+		return nil, err
+	}
 	if len(c.Listen) == 0 {
 		c.Listen = []string{"127.0.0.1:47671", "[::1]:47671"}
 	}
@@ -79,7 +86,7 @@ func Start(c Config) (*Daemon, error) {
 	if err != nil {
 		return nil, err
 	}
-	d := &Daemon{lock: lock, errors: make(chan error, 2), stop: make(chan struct{}), root: root, launch: runLauncher}
+	d := &Daemon{lock: lock, errors: make(chan error, 2), stop: make(chan struct{}), root: root, launch: runLauncher, catalog: catalog}
 	defer func() {
 		if err != nil {
 			d.Close()
@@ -237,8 +244,10 @@ func errorCode(err error) string {
 func plainError(err error) (int, string) {
 	status, code := http.StatusInternalServerError, "storage_error"
 	switch {
-	case errors.Is(err, ErrInvalid):
+	case errors.Is(err, ErrInvalid), errors.Is(err, library.ErrInvalidQuery):
 		status, code = http.StatusBadRequest, "invalid_request"
+	case errors.Is(err, library.ErrItemNotFound):
+		status, code = http.StatusNotFound, "library_item_not_found"
 	case errors.Is(err, ErrRepositoryGitUnavailable):
 		status, code = http.StatusServiceUnavailable, "repository_git_unavailable"
 	case errors.Is(err, ErrRepositoryGitTimeout):
@@ -394,6 +403,7 @@ func (d *Daemon) handler() http.Handler {
 	d.memoryRoutes(mux)
 	d.workRoutes(mux)
 	d.observationRoutes(mux)
+	d.libraryRoutes(mux)
 	mux.HandleFunc("POST /v1/dashboard/links", func(w http.ResponseWriter, r *http.Request) {
 		if err := decode(w, r, &struct{}{}); err != nil {
 			failure(w, err)
