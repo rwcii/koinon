@@ -1,5 +1,7 @@
 # Sprint 2026-10-06 — Go daemon — Decision
 
+> Historical sprint plan. Its non-goals and constraints limited this sprint only. Current decisions are in the [decision records](../../engineering/wdr/README.md); see WDR 001.
+
 ## Problem
 
 Koinon is a Python standard-library runtime that starts processes for each agent session: a
@@ -45,7 +47,7 @@ The maintainer prefers Go to the Python constraint, and wants one binary that li
 6. **Wake.** A content-free notice reaches an idle Claude, Codex, DeepSeek or OpenCode session through
    that family's channel after a message arrives for it. An Antigravity session gets its waiting
    messages at its next turn boundary, or sooner through a wake path that the spike proves.
-   Nothing types into a terminal. Peer text never travels in a notice.
+   Peer text never travels in a notice.
 7. **Memory.** One memory store serves each Git common directory, with the snapshot, delta and
    acknowledgement behaviour of `PROTOCOL.md` and `docs/PARITY-MEMORY-DESIGN.md`.
 8. **Work items.** Work records, advisory claims and events behave as the work item documents
@@ -71,7 +73,7 @@ The maintainer prefers Go to the Python constraint, and wants one binary that li
 ## Constraints
 
 - **Non-goals:** access from other hosts or the LAN; sessions that Koinon hosts through ACP or
-  `agy` stream-JSON; typing into terminals; the legacy bridge and notifier unit pair, the
+  `agy` stream-JSON; the legacy bridge and notifier unit pair, the
   `codex_instructions.py` shim and the legacy notice formats; role assignment (#140); the
   adoption package (#145); a checkout resource key (#83).
 - **Security boundary:** the same-user boundary stays. Loopback plus a secret readable only by

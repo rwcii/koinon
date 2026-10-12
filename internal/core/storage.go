@@ -20,9 +20,9 @@ func (r Refusal) Error() string { return r.Code + ": " + r.Message }
 var (
 	ErrCapacity       = Refusal{"capacity", "storage capacity reached; nothing was written and stored data is intact"}
 	ErrStorageBlocked = Refusal{"storage_blocked", "the write-ahead log could not be proven empty; writes wait for koinon recover"}
-	// ErrNotLaunched refuses a session that its launcher did not start: a direct start is
-	// islanded. ErrLaunchPending refuses a background job before its job ID is recorded.
-	ErrNotLaunched   = Refusal{"not_launched", "start this agent with koinon <family>; a direct start is not registered"}
+	// ErrNotLaunched refuses a supplied launch that does not match the session.
+	// ErrLaunchPending refuses a background job before its job ID is recorded.
+	ErrNotLaunched   = Refusal{"not_launched", "the supplied launch does not match this session"}
 	ErrLaunchPending = Refusal{"launch_pending", "the background launch has not recorded its job yet; call again"}
 	// ErrStaleHolder refuses a call that acts for a participant from a session that does
 	// not hold it, such as a former holder after a change of holder.

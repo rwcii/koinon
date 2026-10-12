@@ -475,8 +475,14 @@ func TestSchemaOneMigration(t *testing.T) {
 		t.Fatalf("migrated: %+v %v", items, err)
 	}
 	byID := map[string]Session{items[0].ID: items[0], items[1].ID: items[1]}
-	if old, now := byID["synthetic-old"], byID["synthetic-new"]; old.Name == "" || old.Alias != "" || old.Revision != 3 || now.Alias != "codex-koinon" {
+	if old, now := byID["synthetic-old"], byID["synthetic-new"]; old.Name == "" || old.Alias != "" || old.Revision != 3 || now.Name == "" || now.Address != "" || now.Alias != "" || now.State != "active" || now.Revision != 1 {
 		t.Fatalf("names after migration: %+v %+v", old, now)
+	}
+	// Migration keeps the historical name reservation; an unlaunched native row does not
+	// expose it as an active participant and will release it on renewal.
+	var holder string
+	if err := s.db.QueryRow(`SELECT holder_id FROM names WHERE name='codex-koinon' AND kind='alias'`).Scan(&holder); err != nil || holder != "synthetic-new" {
+		t.Fatalf("stored name reservation: %q %v", holder, err)
 	}
 	var version int
 	if err := s.db.QueryRow("PRAGMA user_version").Scan(&version); err != nil || version != schemaVersion {

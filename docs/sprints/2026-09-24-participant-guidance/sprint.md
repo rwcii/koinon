@@ -1,5 +1,7 @@
 # Sprint 2026-09-24 — participant guidance — Chunks
 
+> Historical sprint plan. Its non-goals and constraints limited this sprint only. Current decisions are in the [decision records](../../engineering/wdr/README.md); see WDR 001.
+
 Realizes [decision.md](decision.md) (gate A: the maintainer approved the joint recommendation on #133,
 with the Claude hook) and is measured by [definition-of-done.md](definition-of-done.md).
 Milestone `2026-09-24-participant-guidance`.

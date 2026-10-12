@@ -54,7 +54,7 @@
   service exits 0 with `lock_held` while the service keeps answering, and on macOS the agent's
   log file holds a start line.
 
-## Live checks (maintainer, on a Mac, at the final head)
+## Live checks (maintainer, on a Mac, on a develop build after chunk 03 merges)
 
 1. `koinon install --system`, then desktop logout: the daemon keeps running and an agent in
    tmux stays registered (`koinon status` and `peers` over SSH).
@@ -68,5 +68,7 @@
 The `check` skill (vet, `go test -race -timeout 30m ./...` when #296 has merged, otherwise
 `go test -race ./...`, whitespace, the four CGO-free builds, private-content scan), the Go
 workflow on Linux and macOS, the native lifecycle workflow on both runners, and the observer's
-sign-off bound to each chunk's head. The live checks above run before the last chunk's
-sign-off.
+sign-off bound to each chunk's head. The live checks above run on a develop build after the
+last chunk merges, and #283 closes only after they pass; a failure is fixed in a new pull
+request before a release. The maintainer moved them there on 2026-10-12 ("move the live checks
+to after the merge"), so that the last chunk merges on review and CI.

@@ -3,9 +3,11 @@ package launcher
 import (
 	"context"
 	"encoding/json"
+	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strings"
 	"sync"
 	"testing"
 
@@ -178,5 +180,196 @@ func TestMissingCLIEntry(t *testing.T) {
 	if _, err := ConfiguredCLI(standard, "agy", ""); err == nil ||
 		err.Error() != "no agy CLI is configured in launchers.json; run koinon setup agy to record it, or start with --cli ABS_PATH" {
 		t.Fatalf("default state: %v", err)
+	}
+}
+
+// entries reads launchers.json, or nil when it is absent.
+func entries(t *testing.T, state string) map[string]string {
+	t.Helper()
+	data, err := os.ReadFile(filepath.Join(state, "launchers.json"))
+	if os.IsNotExist(err) {
+		return nil
+	}
+	var config map[string]string
+	if err != nil || json.Unmarshal(data, &config) != nil {
+		t.Fatalf("launchers.json: %v %q", err, data)
+	}
+	return config
+}
+
+// A launch with no recorded CLI and no --cli records the family's CLI from PATH and reports
+// it; a CLI that is not on PATH, an unreadable file and an unusable entry change nothing
+// (PDR 003, Decision 5).
+func TestLaunchRecordsCLIFromPath(t *testing.T) {
+	ctx := context.Background()
+	bin := t.TempDir()
+	cli := filepath.Join(bin, "codex")
+	if err := os.WriteFile(cli, []byte("#!/bin/sh\nexit 0\n"), 0700); err != nil {
+		t.Fatal(err)
+	}
+	// Not on PATH: the shipped refusal, and no file.
+	state := filepath.Join(t.TempDir(), "state")
+	t.Setenv("PATH", t.TempDir())
+	if _, err := launchCLI(ctx, Options{Family: "codex", StateDir: state}, io.Discard); err == nil ||
+		!strings.HasPrefix(err.Error(), "no codex CLI is configured in launchers.json; run koinon setup codex") {
+		t.Fatalf("not on PATH: %v", err)
+	}
+	if entries(t, state) != nil {
+		t.Fatal("a launch without a CLI on PATH wrote launchers.json")
+	}
+	// On PATH: recorded, reported, and other entries kept.
+	t.Setenv("PATH", bin)
+	other := testExecutable(t, "agy")
+	if _, err := RecordCLI(ctx, state, "agy", other); err != nil {
+		t.Fatal(err)
+	}
+	var report strings.Builder
+	if path, err := launchCLI(ctx, Options{Family: "codex", StateDir: state}, &report); err != nil || path != cli {
+		t.Fatalf("PATH fallback: %q %v", path, err)
+	}
+	if got := entries(t, state); got["codex"] != cli || got["agy"] != other {
+		t.Fatalf("recorded entries: %v", got)
+	}
+	if report.String() != "koinon: recorded the codex CLI "+cli+" in launchers.json\n" {
+		t.Fatalf("report: %q", report.String())
+	}
+	// Recorded: later launches use it without PATH and report nothing; --cli writes nothing.
+	t.Setenv("PATH", t.TempDir())
+	report.Reset()
+	if path, err := launchCLI(ctx, Options{Family: "codex", StateDir: state}, &report); err != nil || path != cli || report.Len() != 0 {
+		t.Fatalf("recorded launch: %q %v %q", path, err, report.String())
+	}
+	override := testExecutable(t, "codex")
+	if path, err := launchCLI(ctx, Options{Family: "codex", StateDir: state, CLI: override}, &report); err != nil || path != override || entries(t, state)["codex"] != cli {
+		t.Fatalf("override: %q %v %v", path, err, entries(t, state))
+	}
+	// An empty entry is filled from PATH.
+	t.Setenv("PATH", bin)
+	empty := filepath.Join(t.TempDir(), "state")
+	if _, err := platform.PrivateDir(empty); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(empty, "launchers.json"), []byte(`{"codex":""}`), 0600); err != nil {
+		t.Fatal(err)
+	}
+	if path, err := launchCLI(ctx, Options{Family: "codex", StateDir: empty}, io.Discard); err != nil || path != cli || entries(t, empty)["codex"] != cli {
+		t.Fatalf("empty entry: %q %v", path, err)
+	}
+	// An invalid file and a relative entry refuse as before and stay unchanged.
+	for content, want := range map[string]string{
+		`{`:                     "invalid launcher configuration",
+		`{"codex":"bin/codex"}`: "configured CLI path must be absolute",
+	} {
+		broken := filepath.Join(t.TempDir(), "state")
+		if _, err := platform.PrivateDir(broken); err != nil {
+			t.Fatal(err)
+		}
+		file := filepath.Join(broken, "launchers.json")
+		if err := os.WriteFile(file, []byte(content), 0600); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := launchCLI(ctx, Options{Family: "codex", StateDir: broken}, io.Discard); err == nil || err.Error() != want {
+			t.Errorf("%s: %v", content, err)
+		}
+		if data, _ := os.ReadFile(file); string(data) != content {
+			t.Errorf("%s changed to %q", content, data)
+		}
+	}
+}
+
+// A lookup that the person allowed through a relative PATH entry records the absolute path
+// of the CLI it found; Go's default refusal of such a result still records nothing.
+func TestLaunchRecordsRelativePathResultAbsolute(t *testing.T) {
+	work := t.TempDir()
+	if err := os.Mkdir(filepath.Join(work, "bin"), 0700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(work, "bin", "codex"), []byte("#!/bin/sh\nexit 0\n"), 0700); err != nil {
+		t.Fatal(err)
+	}
+	t.Chdir(work)
+	t.Setenv("PATH", "bin")
+	t.Setenv("GODEBUG", "execerrdot=1")
+	state := filepath.Join(t.TempDir(), "state")
+	if _, err := launchCLI(context.Background(), Options{Family: "codex", StateDir: state}, io.Discard); err == nil || entries(t, state) != nil {
+		t.Fatalf("default ErrDot: %v %v", err, entries(t, state))
+	}
+	t.Setenv("GODEBUG", "execerrdot=0")
+	want, err := filepath.Abs(filepath.Join("bin", "codex"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if path, err := launchCLI(context.Background(), Options{Family: "codex", StateDir: state}, io.Discard); err != nil || path != want || entries(t, state)["codex"] != want {
+		t.Fatalf("relative PATH result: %q %v %v", path, err, entries(t, state))
+	}
+}
+
+// Racing first launches keep the first recorded CLI: the launch rechecks the entry under the
+// lock and never replaces it, while setup still replaces it.
+func TestLaunchKeepsRecordedCLIUnderLock(t *testing.T) {
+	ctx := context.Background()
+	state := filepath.Join(t.TempDir(), "state")
+	paths := make([]string, 8)
+	for i := range paths {
+		paths[i] = testExecutable(t, "codex")
+	}
+	var mu sync.Mutex
+	var winners []string
+	var wg sync.WaitGroup
+	for _, cli := range paths {
+		wg.Go(func() {
+			changed, err := recordCLI(ctx, state, "codex", cli, false)
+			if err != nil {
+				t.Errorf("record %s: %v", cli, err)
+			}
+			if changed {
+				mu.Lock()
+				winners = append(winners, cli)
+				mu.Unlock()
+			}
+		})
+	}
+	wg.Wait()
+	if len(winners) != 1 || entries(t, state)["codex"] != winners[0] {
+		t.Fatalf("winners %v, entry %v", winners, entries(t, state))
+	}
+	if changed, err := RecordCLI(ctx, state, "codex", paths[0]); err != nil || entries(t, state)["codex"] != paths[0] || changed == (winners[0] == paths[0]) {
+		t.Fatalf("setup replacement: %v %v %v", changed, err, entries(t, state))
+	}
+}
+
+// The built launcher records the CLI it finds on PATH, reports it and starts that CLI; the
+// next launch starts the recorded CLI with no CLI on PATH.
+func TestLaunchFromPathStartsAndRecords(t *testing.T) {
+	root, address, cli, directory := fixture(t)
+	bin := t.TempDir()
+	script, err := os.ReadFile(cli)
+	if err != nil {
+		t.Fatal(err)
+	}
+	found := filepath.Join(bin, "codex")
+	if err := os.WriteFile(found, script, 0700); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("TMUX", "")
+	state := filepath.Join(root, "state")
+	for i, path := range []string{bin, t.TempDir()} {
+		t.Setenv("PATH", path)
+		result := filepath.Join(root, "result-"+string(rune('a'+i)))
+		cmd := exec.Command(launcherBinary, "codex", "--state-dir", state, "--address", address, "--directory", directory,
+			"--", "--result", result, "--family", "codex", "literal ' $() ` ; argument")
+		var stderr strings.Builder
+		cmd.Stderr = &stderr
+		if err := cmd.Run(); err != nil {
+			t.Fatalf("launch %d: %v %s", i, err, stderr.String())
+		}
+		checkReport(t, readReport(t, result), "codex", directory)
+		notice := "koinon: recorded the codex CLI " + found + " in launchers.json\n"
+		if strings.Contains(stderr.String(), notice) != (i == 0) {
+			t.Fatalf("launch %d report: %q", i, stderr.String())
+		}
+		if entries(t, state)["codex"] != found {
+			t.Fatalf("launch %d entry: %v", i, entries(t, state))
+		}
 	}
 }
