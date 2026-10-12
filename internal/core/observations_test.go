@@ -181,10 +181,15 @@ func TestLaunchedTerminalsAndOpenCodeStatus(t *testing.T) {
 	if v := s.sessionObservations(ctx, d)["activity"]; v.Value != nil {
 		t.Fatalf("wrong password: %+v", v)
 	}
-	// An OpenCode session without a launch does not register, so it is never queried.
+	// A plain OpenCode peer registers, but has no launch endpoint to query for status.
 	before = calls
-	if _, err := s.Register(ctx, Registration{Family: "opencode", ID: "synthetic-open-e", Directory: directory}); !errors.Is(err, ErrNotLaunched) || calls != before {
+	plain, err := s.Register(ctx, Registration{Family: "opencode", ID: "synthetic-open-e", Directory: directory})
+	if err != nil {
 		t.Fatalf("unlaunched OpenCode session: %v", err)
+	}
+	s.sessionObservations(ctx, plain)
+	if calls != before {
+		t.Fatal("plain peer queried a provider endpoint")
 	}
 }
 

@@ -31,8 +31,8 @@ tags:
 
 ## Executive Summary
 
-Koinon currently registers a Claude, Codex, OpenCode or Antigravity session only when
-`koinon <family>` started it, and DeepSeek by command. It gives a Codex sub-agent a peer name
+Koinon registers a native Claude, Codex, OpenCode or Antigravity session as a plain peer;
+`koinon <family>` adds participant features. DeepSeek registers by command. It gives a Codex sub-agent a peer name
 but no participant, takes roles from the launch record, moves a participant's address only on
 host or pane evidence, and lets only the dashboard's **Make holder** choice lift a former
 holder's fence.
@@ -100,23 +100,25 @@ identity is read (ADR 001).
 Decided: a Claude, Codex, OpenCode or Antigravity session that was started without
 `koinon <family>` registers as a plain peer. It has a peer name, sends and receives, and uses
 the memory and work tools. It gets no participant address, role, succession or terminal
-naming; those need the launch record. Until that change ships, the shipped behavior below
-applies.
+naming; those need the launch record.
 
-Shipped: Koinon currently registers a Claude, Codex, OpenCode or Antigravity session only with its own
-launch record, which `koinon <family>` creates and passes to the session's `koinon mcp`. The
-daemon refuses, on every path, a registration or renewal without a matching launch with
-`not_launched` (`admitLaunch`, `Store.Mutate`). A launch matches when it has the caller's
-family and directory and its host process is among the caller's ancestors, or, for a
-background job, when its recorded job ID begins the session ID. A direct start is islanded:
-it is not registered or listed, and every Koinon tool returns `not_launched` with the launcher
-command. A session that an older store holds without a launch expires with its records kept.
+Implemented: the MCP server verifies native identity on every call and registers a plain peer
+when no launch ID is present. Plain peers renew and recover after an outage with their own
+inbox, cursors and claims retained. They neither qualify for nor create a participant. A
+retained registration without a launch renews as a plain peer and releases any former
+participant address, without deleting the participant's state or lifting its fences.
+
+A supplied launch must still match; invalid associations return `not_launched` and never
+fall back to plain mode (`admitLaunch`). A launch matches when it has the caller's family and
+directory and its host process is among the caller's ancestors, or, for a background job,
+when its recorded job ID begins the session ID. `koinon <family>` creates the launch and
+passes it to the session's MCP server.
 
 DeepSeek has no launcher (`launcher.Families` holds the other four families). It registers
 with `koinon register --as deepseek:ID`; the daemon refuses a DeepSeek registration with a
 launch ID or `subagent`. A DeepSeek session has no role and no host record.
 
-**Provenance:** Shipped in PR #263 (merge commit fec77b1), documented in PR #265 (66cd58d);
+**Provenance:** Full refusal previously shipped in PR #263 (merge commit fec77b1), documented in PR #265 (66cd58d);
 no maintainer decision found. The participants plan (PR #258) lists both as 2026-10-08
 maintainer decisions and records gate B approval of the plan at c6e5081 in agent-written text;
 a gate approval approves a plan document, not each sentence in it. The DeepSeek choice is
@@ -130,7 +132,7 @@ no-launcher policy. Plain-peer direct start: Maintainer, 2026-10-12: "b, next it
 | Alternative | Description | Why Rejected |
 | ----------- | ----------- | ------------ |
 | Verified direct start (#228, criterion 5) | A direct Codex start registers and names its terminal when host and pane are verified | The shared Codex daemon hides the pane, and no other verified attribution was found |
-| Full refusal (shipped) | Every Koinon tool refuses a direct start with `not_launched` | The session cannot send, receive or use memory and work, though its identity is still verified by native metadata |
+| Full refusal (previous behavior) | Every Koinon tool refuses a direct start with `not_launched` | The session cannot send, receive or use memory and work, though its identity is still verified by native metadata |
 | Any start registers (v0.1.0) | Every session registers; a launch only adds host data | Host, pane and role then depend on how the session started |
 | DeepSeek launcher | `koinon deepseek` with launch records | Deferred until #199 settles DeepSeek's MCP path and live proof |
 
@@ -147,6 +149,11 @@ A session started with `claude`, `codex`, `opencode` or `agy` can send, receive 
 memory and work tools by its peer name. It is not reachable by a participant address, and
 its terminal is not renamed. DeepSeek gets no role, succession or
 terminal naming.
+
+Direct Codex and OpenCode starts have no automatic wake in this implementation: the launch
+provides Codex's CLI target and OpenCode's wake endpoint. Their waiting messages are stored
+and remain readable with the inbox tool. Claude and Antigravity retain their native socket
+and turn-boundary paths.
 
 ---
 

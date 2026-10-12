@@ -244,14 +244,14 @@ func (s *server) call(ctx context.Context, raw json.RawMessage) map[string]any {
 	return map[string]any{"content": []map[string]any{{"type": "text", "text": string(data)}}, "isError": false}
 }
 
-// refusal is the tool result of a failed call. A session that its launcher did not start
-// is islanded: the refusal names the launcher command that starts a Koinon session.
+// refusal is the tool result of a failed call. An invalid supplied launch names the
+// launcher command that creates a matching association.
 func refusal(caller core.Key, err error) map[string]any {
 	var refused core.RefusedError
 	switch {
 	case code(err) == "not_launched":
 		return result(map[string]any{"ok": false, "code": "not_launched", "launcher": "koinon " + caller.Family,
-			"message": "Koinon serves only sessions started with koinon " + caller.Family + "; this direct start is not registered or listed."}, true)
+			"message": "The supplied launch does not match this session. Start a new session with koinon " + caller.Family + "."}, true)
 	case errors.As(err, &refused):
 		// The daemon's text names the rule that refused the call, such as a field's bounds.
 		reply := map[string]any{"ok": false, "code": refused.Code}
@@ -377,12 +377,9 @@ func (s *server) registerAs(ctx context.Context, caller core.Key, toolCall bool)
 	if gitRepository(ctx, s.c.Directory) {
 		r.Repository = s.c.Directory
 	}
-	// Only a launched session registers; the daemon checks that the launch is this
-	// session's own (its family, directory and host process, or its background job).
+	// A missing launch registers a plain peer. The daemon checks a supplied launch's
+	// family, directory and host process, or its background job.
 	r.LaunchID = s.c.Getenv("KOINON_LAUNCH_ID")
-	if r.LaunchID == "" {
-		return core.RefusedError{Code: "not_launched"}
-	}
 	r.Ancestors = s.ancestors()
 	r.Tmux = s.registrationPane(ctx)
 	if caller.Family == "claude" {

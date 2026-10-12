@@ -84,9 +84,8 @@ func rowsOf(t *testing.T, db *sql.DB) string {
 	return b.String()
 }
 
-// The upgrade constraint: a develop f88a42c store opens after the migration with every
-// alias held by the same session as a participant without a role, and every message,
-// acknowledgement, memory cursor and claim unchanged.
+// A develop f88a42c store opens with its stored names, messages, acknowledgements, memory
+// cursors and claims unchanged. Retained native rows without launches are now plain peers.
 func TestUpgradeFromF88a42cKeepsParticipants(t *testing.T) {
 	root := loadFixture(t)
 	before, err := sql.Open("sqlite", filepath.Join(root, "state.sqlite3"))
@@ -118,12 +117,11 @@ func TestUpgradeFromF88a42cKeepsParticipants(t *testing.T) {
 			held[item.Address] = item.ID
 		}
 	}
-	if held["codex-koinon"] != "synthetic-holder" || held["claude-koinon"] != "synthetic-claude" || len(held) != 2 {
+	if len(held) != 0 {
 		t.Fatalf("holders after the migration: %v", held)
 	}
-	// A migrated session has no launch: its renewal is refused, so it holds its address
-	// until its deadline and the participant's next qualifier takes it then.
-	if _, err := s.Mutate(context.Background(), Mutation{Family: "codex", ID: "synthetic-holder", IfRevision: 1}, false); code(err) != "not_launched" {
+	// A migrated session has no launch: it renews as a plain peer, keeping retained state.
+	if renewed, err := s.Mutate(context.Background(), Mutation{Family: "codex", ID: "synthetic-holder", IfRevision: 1}, false); err != nil || renewed.Address != "" {
 		t.Fatalf("renewal of a migrated session: %v", err)
 	}
 }
