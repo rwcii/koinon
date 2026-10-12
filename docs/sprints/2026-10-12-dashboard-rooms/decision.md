@@ -1,7 +1,10 @@
 # Dashboard rooms — decision
 
-Issue [#217](https://github.com/rwcii/koinon/issues/217) supplies the maintainer's approved
-problem and nine criteria. The paired planning boundary is recorded in its
+Issue [#217](https://github.com/rwcii/koinon/issues/217) requests the problem and nine criteria.
+The maintainer selected a dashboard-configured allowance, default 32, and dashboard posts
+as the maintainer's instruction and approval (PDR 005, Decisions 2 and 3). The remaining
+membership, tools, storage and conversation mechanisms are proposals (Decision 1).
+The paired planning boundary is recorded in its
 [scope checkpoint](https://github.com/rwcii/koinon/issues/217#issuecomment-6115488464).
 Codex drives the plan and Claude observes. Gate B for product implementation is pending.
 
@@ -30,26 +33,28 @@ others' replies and the maintainer can follow delivery and acknowledgement.
    copies are preserved, and removal/expiry alone never purges conversation data.
 9. Linux/macOS tests cover changing membership, mixed-family fan-out, removed senders and
    members that expire during the conversation.
-10. Agent exchanges have a visible finite bound between maintainer posts. A peer cannot
-    replenish it or impersonate a dashboard maintainer post.
+10. A room starts with no agent posts allowed. Each successful maintainer post resets the
+    allowance to its dashboard-configured refill value, default 32 (PDR 005, Decision 2).
+    A peer cannot replenish it or impersonate a dashboard maintainer post.
 
 ## Constraints
 
-- One existing same-user daemon/database, loopback listeners, existing native admission,
-  wake providers and inbox/read/ack semantics. No guessed native caller or provider socket.
+- The existing daemon/private store and native caller source remain as in ADR 001,
+  Decisions 1 and 2. Existing wake and inbox/read/ack semantics remain; notices are
+  content-free (Decision 3).
 - Membership is an exact native session selected by its verified peer name. A participant
   successor does not silently inherit room membership; the maintainer can add it explicitly.
-- Rooms are conversation data, not assignment, approval, execution or budget permissions.
-- Dashboard origin proves the message's source, not a new permission grant. Room and
-  direct dashboard messages are recorded maintainer conversation data within the session's
-  existing authorized task and permission settings; they never override native instructions
-  or supply a new approval for a service/configuration/reset action. Member posts and quotes
-  remain peer data. This framing is the same for both dashboard message paths.
-- No automatic agent response, context reset, terminal input or service/config changes.
+- A direct message or room post from the built-in maintainer session in the dashboard is
+  the maintainer's instruction and approval (PDR 005, Decision 3; #306 comment 6118947404).
+  Typed stored origin comes from that path. Member posts and bodies quoting the maintainer
+  remain peer data (WDR 002, Decision 3); native session policies apply.
+- Koinon fans out posts and notices; agents produce replies under the maintainer's task
+  (WDR 002, Decision 1). This deliverable adds no context-cycle or service-management code.
 - #206's decision-board UI is separate. A room may discuss a decision but records no human
   verdict and does not replace that issue's authority boundary.
-- Synthetic sessions, temporary state, ephemeral ports/private provider stubs only locally.
-  Real service tests remain guarded disposable Linux/macOS CI; no maintainer-host changes.
+- Ordinary tests use synthetic sessions, temporary state and ephemeral ports/private
+  provider stubs (WDR 006, Decision 2); native service evidence uses the guarded CI workflow
+  (Decision 1). The plan adds no installed-runtime changes.
 
 ## Inputs and issues
 

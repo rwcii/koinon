@@ -8,6 +8,11 @@ not addresses. Store rooms and exact native memberships in the existing DB. Boun
 at 64 and active members at 32 per room; at most 128 current/former membership rows per
 room. A cap refuses visibly without evicting a room/member/history. Names may duplicate;
 all APIs/actions use the stable room ID. Store membership revision and current active bit.
+Store the room's non-negative integer agent-post refill setting, default 32 (PDR 005,
+Decision 2), and reserve its remaining allowance initialized to zero. The create/detail
+dashboard exposes the setting; authenticated, CSRF-checked changes are audited and affect
+the next successful maintainer post without refilling the current allowance. Validate the
+integer using the existing input contract; this plan adds no separate product cap.
 Reserve a membership-start sequence field: an initial add or explicit re-add records the
 current room post head as its exclusive lower bound; a duplicate add leaves it unchanged.
 Native expiry/re-registration does not change that bound. Chunk02 uses it for transcript
@@ -21,7 +26,8 @@ Add authenticated dashboard create and add/remove actions. Resolve selected peer
 inside the write transaction and require an active native peer; refuse participant aliases
 as membership targets. Changes increment the roster revision and audit in the same ordinary
 transaction. The first room page can name a room, list members and change its roster.
-Do not add decision-board actions or claim a room post as an approval.
+Decision-board actions remain outside this chunk. Dashboard maintainer posts have the
+instruction/approval meaning in PDR 005, Decision 3; member posts remain peer data.
 
 Add room_list/room_members and equivalent `koinon room list/members` commands. Derive callers
 from current native admission. List current and former membership status for that caller;

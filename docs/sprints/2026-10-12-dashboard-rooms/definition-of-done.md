@@ -20,15 +20,21 @@
   gets only its new membership period. Removed/foreign sessions refuse. Test multiple pages,
   concurrent removal, retention holes/floors and byte limits. Room reads advance no inbox
   read/ack marker or memory cursor and cannot hide unrelated waiting messages.
-- Installed guide text states the identical recorded-data/permission boundary for room and
-  direct dashboard origin; peer text quoting the maintainer gains no authority. Native
+- Guide text states that built-in dashboard maintainer origin is the maintainer's instruction
+  and approval for room and direct posts (PDR 005, Decision 3); peer text quoting the maintainer
+  gains no authority. Native
   source metadata, never message prose, supplies the displayed origin.
 - Duplicate fixed-key posts return the original accepted outcome without another message,
   audit or quota debit. Changed content/deadline conflicts; expired keys refuse. Removed
   members cannot create new posts; an earlier accepted receipt grants no new posting right.
-- Exhaust 32 successful agent posts after a human post: the next refuses, and neither a
+- Test initial zero and configured refill values including 0, 7, the default 32 and 64.
+  Exhaust the configured number of successful agent posts after a human post: the next
+  refuses, and neither a
   different agent, membership mutation, restart nor body text resets the quota. A validated
-  dashboard post resets it to 32 (never adds credits). Rejected/retried posts do not charge.
+  dashboard post resets it to the current configured value (never adds credits). Setting
+  changes alone do not refill; test changes before the next post, failed posts and retries.
+  Rejected/retried posts do not charge or refill. Invalid integer input is rejected without
+  changing configuration, transcript or allowance.
 - Render sender and maintainer provenance from typed stored data. Test HTML/script/Markdown
   bodies as inert text, native-ID redaction, CSRF/auth failures, live refresh and ordered paging.
   Delivery whose inbox record aged out is explicitly not_retained with unknown ack, never
@@ -45,6 +51,6 @@
 - Migrate committed old-schema fixtures without changing messages, claims, aliases or cursors;
   incompatible old writers refuse. No runtime fixture generator or replacement state.
 
-For every PR: check skill, latest develop, signed DCO, vet/full race suite (30m timeout),
-whitespace/privacy checks, four CGO-free builds, Linux/macOS Go and guarded native CI,
-exact-head observer verdict and squash auto-merge. No product chunk before reviewed-plan Gate B.
+Each chunk uses check/ship and WDR 004 for publication, WDR 003 for exact-head review and
+WDR 006 for native evidence. Every PR enables squash auto-merge. Gate B for the remaining
+product mechanisms is pending (WDR 002, Decision 5); the two decided room rules add no new gate.
