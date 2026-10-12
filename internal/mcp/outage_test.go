@@ -3,9 +3,15 @@ package mcp
 import (
 	"context"
 	"database/sql"
+	"encoding/json"
+	"fmt"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strings"
+	"sync"
 	"testing"
 
 	"github.com/rwcii/koinon/internal/core"
@@ -98,6 +104,18 @@ func TestRenewalRegistersExpiredSession(t *testing.T) {
 	if _, kept := h.s.sessions[core.Key{Family: "codex", ID: "synthetic-a"}]; !kept {
 		t.Fatal("the renewal set lost the session")
 	}
+	// A renewal reply lost after its commit leaves the cached revision stale; an expiry is
+	// still recognized and the session comes back.
+	h.outage("synthetic-a")
+	h.s.mu.Lock()
+	stale := h.s.sessions[core.Key{Family: "codex", ID: "synthetic-a"}]
+	stale.revision--
+	h.s.sessions[core.Key{Family: "codex", ID: "synthetic-a"}] = stale
+	h.s.mu.Unlock()
+	h.s.renew(context.Background())
+	if s := h.session("synthetic-a"); s.State != "active" || !s.HoldsAddress {
+		t.Fatalf("after a renewal with a stale revision: %+v", s)
+	}
 	// After another outage, the next tool call registers it again, also with the address.
 	h.outage("synthetic-a")
 	if _, isError := h.tool("peers", map[string]any{}, a); isError {
@@ -127,5 +145,59 @@ func TestRenewalRegistersExpiredSession(t *testing.T) {
 	}
 	if !h.session("synthetic-b").HoldsAddress {
 		t.Fatal("b lost the address to a renewal")
+	}
+}
+
+// A registration that fails once after an expired renewal keeps the session in the renewal
+// set, and the next renewal registers it (#283 chunk 03 review).
+func TestExpiredRenewalRetriesRegistration(t *testing.T) {
+	h := newHarness(t, "codex-mcp-client")
+	h.d.Close()
+	h.env["KOINON_LAUNCH_ID"] = strings.Repeat("a", 64)
+	var mu sync.Mutex
+	registrations, toolCalls := 0, 0
+	daemon := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		mu.Lock()
+		defer mu.Unlock()
+		w.Header().Set("Content-Type", "application/json")
+		switch r.URL.Path {
+		case "/v1/sessions/register":
+			var request core.Registration
+			json.NewDecoder(r.Body).Decode(&request)
+			registrations++
+			if request.ToolCall {
+				toolCalls++
+			}
+			if registrations == 2 {
+				w.WriteHeader(http.StatusServiceUnavailable)
+				fmt.Fprint(w, `{"ok":false,"code":"storage_blocked"}`)
+				return
+			}
+			fmt.Fprint(w, `{"ok":true,"session":{"revision":1}}`)
+		case "/v1/sessions/renew":
+			w.WriteHeader(http.StatusConflict)
+			fmt.Fprint(w, `{"ok":false,"code":"session_conflict","details":{"state":"expired"}}`)
+		default:
+			fmt.Fprint(w, `{"ok":true,"peers":[]}`)
+		}
+	}))
+	defer daemon.Close()
+	h.s.c.Address = strings.TrimPrefix(daemon.URL, "http://")
+	key := core.Key{Family: "codex", ID: "synthetic-a"}
+	if out, bad := h.tool("peers", map[string]any{}, map[string]any{"threadId": key.ID}); bad {
+		t.Fatal(out)
+	}
+	h.s.renew(context.Background())
+	if _, kept := h.s.sessions[key]; !kept {
+		t.Fatal("a failed registration dropped the session from the renewal set")
+	}
+	h.s.renew(context.Background())
+	mu.Lock()
+	defer mu.Unlock()
+	if registrations != 3 || toolCalls != 1 {
+		t.Fatalf("registrations %d, with tool_call %d", registrations, toolCalls)
+	}
+	if _, kept := h.s.sessions[key]; !kept {
+		t.Fatal("the registered session left the renewal set")
 	}
 }

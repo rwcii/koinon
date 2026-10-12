@@ -457,12 +457,19 @@ func (s *server) renew(ctx context.Context) {
 		// next interval, so an idle session is not lost to one failure (#249). A session
 		// that expired, for example while the daemon was down, registers again at once with
 		// the same identity and launch (#283); a retired or fenced one stays dropped.
-		if final(err) {
+		lapsed := expired(err)
+		if final(err) && !lapsed {
 			delete(s.sessions, caller)
 		}
 		s.mu.Unlock()
-		if expired(err) {
-			s.registerAs(ctx, caller, false)
+		if lapsed {
+			// It stays in the renewal set until the registration succeeds or is refused
+			// for good, so a transient failure is tried again at the next interval.
+			if err := s.registerAs(ctx, caller, false); err != nil && final(err) {
+				s.mu.Lock()
+				delete(s.sessions, caller)
+				s.mu.Unlock()
+			}
 		}
 		return
 	}

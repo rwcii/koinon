@@ -26,7 +26,7 @@ var ErrConflict = errors.New("session revision or lifecycle conflict")
 
 // SessionConflict is ErrConflict for a renewal of a session that is no longer active, with
 // its state (expired or retired), so that a client can tell an expiry during an outage from
-// a retirement (#283).
+// a retirement (#283), whatever revision the renewal named.
 type SessionConflict struct{ State string }
 
 func (e SessionConflict) Error() string        { return ErrConflict.Error() + ": the session is " + e.State }
@@ -860,10 +860,12 @@ func (s *Store) Mutate(ctx context.Context, r Mutation, retire bool) (Session, e
 	if err != nil {
 		return Session{}, err
 	}
+	if current.State != "active" && !retire {
+		// Also with a stale revision: a renewal whose reply was lost leaves the client one
+		// revision behind, and the session must still be recognized as expired.
+		return Session{}, SessionConflict{State: current.State}
+	}
 	if current.Revision != r.IfRevision || current.State != "active" {
-		if current.Revision == r.IfRevision && !retire {
-			return Session{}, SessionConflict{State: current.State}
-		}
 		return Session{}, ErrConflict
 	}
 	// A session registered without its launch, such as one an older store holds, is not
