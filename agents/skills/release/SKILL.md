@@ -39,8 +39,8 @@ The evidence counts only for the exact `develop` commit that will merge.
   receipt.
 
 The upgrade must complete and report preserved counts/cursors. A refusal is a failure to fix,
-not upgrade evidence. The maintainer's installed runtime is not release evidence; a change to it
-is its own task.
+not upgrade evidence. A named live check on an installed build counts for what it proves (WDR 006,
+Decision 3); it does not replace the scratch-prefix upgrade or the native lifecycle evidence.
 
 ## 3. Open the merge pull request
 

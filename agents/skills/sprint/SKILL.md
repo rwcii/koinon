@@ -102,7 +102,8 @@ Record every finding in `review.md` with its disposition. A finding that changes
 criteria or the definition of done gets a second review of the changed plan.
 
 **Gate B**: bring the reviewed plan to the maintainer for approval before chunks are built
-(WDR 002, Decision 5). The approval covers the plan at the commit it names.
+(WDR 002, Decision 5). The approval covers the plan at the commit it names. An approval already
+given for this content counts.
 
 ## Phase 5: build
 
@@ -111,8 +112,9 @@ maintainer approval (WDR 002, Decision 5). A chunk starts after the chunks it de
 merged; chunks with no dependency between them may be built at the same time. Once a chunk's
 branch is pushed and CI is running, put further changes on a new branch. File each new deferral
 as an issue on the milestone when it is decided. When the build shows that the plan is wrong,
-correct the plan file first; the gate B approval covers the plan at the commit it named, so a
-changed plan goes back through review and gate B.
+correct the plan file first. A correction or clarification within the approved scope proceeds
+under the existing approval (WDR 001, Decision 2); a change that needs a new consequential
+choice or authority goes back through review and gate B.
 
 A chunk reuses the work item of the issue it delivers (`ship`, step 1); do not create one work
 item per chunk. When a different agent builds the next chunk of the same issue, the previous

@@ -342,9 +342,11 @@ default address, `koinon install --state-dir STATE` from a login session or `koi
 --state-dir STATE` in a persistent managed session. The installed service listens only on the
 default address, so at another address the refusal names only `koinon serve --state-dir STATE
 --listen IPV4 --listen-v6 IPV6`, with the address and the other loopback family on its port.
-Do not use sudo, system services, lingering or permission changes to work around a refusal;
-the system service that Koinon supports is the explicit `--system` mode on macOS (PDR 003,
-Decision 1).
+The default install uses no sudo, system service, lingering or permission change; with no user
+service manager it reports the manual start command above. The system service that Koinon
+supports is the explicit `--system` mode on macOS (PDR 003, Decisions 1 and 2). A host change
+such as enabling systemd lingering is a separate operation that the person runs or assigns
+under their own instructions and host policy (WDR 002, Decision 1; PDR 003, Decision 4).
 
 ## Configuration and agent access
 
