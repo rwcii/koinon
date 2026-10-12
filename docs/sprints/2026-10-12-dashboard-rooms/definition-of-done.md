@@ -3,8 +3,12 @@
 - Exercise every supported family with synthetic native metadata, including DeepSeek's
   existing command admission; guessed caller identity and a foreign native reply refuse.
 - Room/membership creation, duplicate requests, active-only add, multiple rooms, add/remove
-  races, retired/expired members and replacement native sessions. A new participant holder
-  gains no old native membership. Roster responses reveal peer names, not wake targets/IDs.
+  races, retired/expired members and replacement native sessions. A verified successor holder
+  of a member participant continues its membership, membership start and room copies; the
+  fenced former holder cannot read or post. An unheld or conflicting member participant gets
+  a skipped outcome and its next holder catches up by room read. A session without a
+  participant keeps exact native membership. Roster responses reveal participant addresses
+  and peer names, not wake targets/IDs.
 - Added/removed inbox notices have typed room metadata and authenticated dashboard provenance;
   arbitrary peer body text cannot forge their source. Removed members discover removal but
   cannot read new transcript/roster or submit a fresh reply.
@@ -12,7 +16,7 @@
   no partial rows, audit, sequence or credit decrement remain after a failed transaction.
   At admission capacity, nothing is sent or charged; after commit, provider failure does not
   undo the post. Restart reconstructs ordinary wake delivery from committed inbox rows.
-- Exact native recipients retain their independent inbox sequences and read/ack behavior.
+- Recipients retain their independent inbox sequences and read/ack behavior.
   Native expiration is recorded as a skipped recipient; no guessed holder receives its copy.
   Transport acceptance and receiving-model proof remain distinct.
 - Current members page retained room posts from their membership-start sequence. An inactive

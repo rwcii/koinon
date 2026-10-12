@@ -37,9 +37,9 @@ for a coordinator and worker pair: route a proposal to a role across session res
 different consumer accept or reject a reported result, and let the assignee and creator
 discover the transitions that concern them.
 
-None of this is built. Gate B for #140 has not been given ("the rest come after", #145
-comment 6116403867). This record states what #140 requests and what the reviewed plan
-proposes. The maintainer decided on 2026-10-12 that the reporting worker is refused
+None of this is built. The maintainer approved the reviewed plan at Gate B on 2026-10-12
+([#140 comment 6127384411](https://github.com/rwcii/koinon/issues/140#issuecomment-6127384411)).
+This record states what #140 requests and what the approved plan builds. The maintainer decided on 2026-10-12 that the reporting worker is refused
 the verdict, as #140 asks; the plan's wider exclusion is not adopted.
 
 ---
@@ -104,7 +104,9 @@ generation. Existing consumer proposals and claims keep v1 behavior.
 
 **Provenance:** Requested in #140 (issue body, gap 1 and acceptance criteria); a request
 record, no maintainer quote found. The `proposed_role` mechanism: Proposed in
-the unpublished #140 plan draft (742a6f2) (chunk 01); not decided.
+the #140 plan (chunk 01); approved at Gate B. Maintainer, 2026-10-12: "approved as
+recommended.", answering "Do you approve Gate B for #140?"
+([#140 comment 6127384411](https://github.com/rwcii/koinon/issues/140#issuecomment-6127384411)).
 
 ### Alternatives Considered
 
@@ -141,8 +143,8 @@ reserves storage for its later verdict, with at most 16 pending reservations per
 
 **Provenance:** Requested in #140 (issue body, gap 2 and acceptance criteria), which
 recommends the `reported` state and names an alternative; a request record, no maintainer
-quote found. State choice and funding: Proposed in the unpublished #140 plan draft (742a6f2) (decision
-and chunk 02); not decided.
+quote found. State choice and funding: Proposed in the #140 plan (decision and chunk 02); approved at
+Gate B (#140 comment 6127384411).
 
 ### Alternatives Considered
 
@@ -216,8 +218,8 @@ all outstanding work. Today the Go daemon has the post-commit memory-change hook
 (`OnMemoryChange`) but no production caller binds it to work wakes.
 
 **Provenance:** Requested in #140 (issue body, gap 3); a request record, no maintainer quote
-found. Audience rules and bounds: Proposed in the unpublished #140 plan draft (742a6f2) (chunk 03); not
-decided.
+found. Audience rules and bounds: Proposed in the #140 plan (chunk 03); approved at Gate B
+(#140 comment 6127384411).
 
 ### Alternatives Considered
 
@@ -241,7 +243,7 @@ An agent that was reset or missed a wake lists what waits for it and acts on eac
 
 #140 requests role routing without claim inheritance, a reported result with a verdict by
 another consumer, and catch-up discovery. The plan proposes concrete mechanisms for each. The
-maintainer decided the verdict rule (Decision 3); the other mechanisms are undecided.
+maintainer decided the verdict rule (Decision 3) and approved the plan's mechanisms at Gate B.
 
 ---
 
@@ -252,3 +254,4 @@ maintainer decided the verdict rule (Decision 3); the other mechanisms are undec
 | 2026-10-12 | Initial creation |
 | 2026-10-12 | Recorded the maintainer's decision on who records the verdict (#306) |
 | 2026-10-12 | Clarified the reporting-worker exclusion against the framed question: changing consumer labels does not make the same native session another worker (#140 reconciliation) |
+| 2026-10-12 | Recorded the maintainer's Gate B approval of the #140 plan; role routing covers default participants |

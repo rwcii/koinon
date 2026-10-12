@@ -3,8 +3,9 @@
 Issue [#140](https://github.com/rwcii/koinon/issues/140) requests the outcomes and non-goals.
 The maintainer selected the reporting-consumer verdict rule (PDR 004, Decision 3;
 [#306 comment 6119167156](https://github.com/rwcii/koinon/issues/306#issuecomment-6119167156)).
-This plan proposes the role, reported-state, funding and discovery mechanisms for Gate B;
-those mechanisms remain undecided (PDR 004, Decisions 1, 2 and 4). Work records and verdicts
+The maintainer approved this plan's role, reported-state, funding and discovery mechanisms
+at Gate B ([#140 comment 6127384411](https://github.com/rwcii/koinon/issues/140#issuecomment-6127384411);
+PDR 004, Decisions 1, 2 and 4). Work records and verdicts
 remain reported data within the maintainer's task (WDR 002, Decisions 1 and 3).
 
 ## Problem
@@ -56,8 +57,9 @@ the historical subscription description is not evidence that this path already w
   Decision 3). Native identity comes from the transport (ADR 001, Decision 1); routing and
   the explicitly native-bound role-claim proposal are separate (PDR 004, Decision 1).
 - Legacy explicit consumer proposals and claims are not silently converted to role claims.
-  DeepSeek keeps its native-session command path; role routing is available only for families
-  with verified participant roles. All supported transports can use report/verdict operations.
+  DeepSeek keeps its native-session command path. Role routing targets any participant,
+  including a default participant with no role, such as DeepSeek's; a session without a
+  participant cannot hold one. All supported transports can use report/verdict operations.
 - Use `reported` between active and finished, as the issue recommends. This preserves v1's
   terminal finished state and gives rejection a natural return to open, without reopening
   an already completed item. Unreported v1 completion/withdrawal stays available.

@@ -24,3 +24,17 @@ the maintainer's instruction and approval; the earlier data-only guide framing i
 Membership, storage, fan-out, transcript and catch-up mechanisms remain proposals for Gate B.
 The earlier retention/catch-up review carries forward; this correction receives bounded
 observer review at its new frozen head.
+
+## Refusal-language audit
+
+On 2026-10-12 the maintainer asked: "make sure you and your peer didnt slip more refusal
+langauge in these two projects." Claude audited every restriction, refusal and gate in the
+plan against #217 and the records. Corrected: exact-session-only membership, which refused
+participant addresses and dropped a member from every room at a `/clear` or context cycle.
+#217 does not ask for it, and PDR 001, Decision 6 gives address state to the participant.
+Members that hold a participant now follow its verified holder. Removed: "does not replace
+that issue's authority boundary" (conflicts with PDR 005, Decision 3), "do not change live
+instructions/config" and "The plan adds no installed-runtime changes" (no source). Kept with
+their sources: the allowance (PDR 005, Decision 2), typed maintainer origin (Decision 3),
+peer text as data (WDR 002, Decision 3) and content-free wakes. Room, member and post bounds
+remain proposed product limits with visible refusal. Gate B remains pending.

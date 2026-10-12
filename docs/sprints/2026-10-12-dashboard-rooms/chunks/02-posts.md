@@ -11,8 +11,9 @@ and their own validated maintainer path; no native request can set maintainer or
 One ordinary transaction assigns the next monotonic room sequence, stores one canonical
 post with sender/display-name/time/origin, snapshots current memberships, stores inbox
 copies for active recipients and delivery links, and audits the acceptance. Agent posts
-exclude the sender; dashboard posts include every active member. Inactive members have
-explicit skipped outcomes, not a substituted alias holder. Resolve and verify recipients
+exclude the sender; dashboard posts include every active member. A participant member's
+copy goes to its participant inbox for the current verified holder; an inactive native member
+or an unheld/conflicting participant has an explicit skipped outcome. Resolve and verify recipients
 inside the same transaction. Commit all or nothing, including credit use and replay record.
 Provider wake attempts run after commit through the existing queue/retry path. Content-free
 wake payloads remain inbox pointers, without the post body or its purported instructions.
@@ -36,12 +37,12 @@ Retries return original acceptance without another debit; changed fingerprint/de
 conflicts, expired keys refuse. Validate current native provenance before retry lookup.
 An earlier accepted retry is data, not a fresh posting permission after membership removal.
 
-Add room_read and `koinon room read`: current active native members can page retained posts
+Add room_read and `koinon room read`: current active members can page retained posts
 after their stored membership-start sequence, with optional after/limit (at most100 posts
 and one MiB body data). Read membership and transcript in a single read snapshot; removed
-or foreign callers refuse. A member that merely expired retains its original lower bound
-on re-registration; a new add/re-add uses its new one. Return ordered posts, explicit more/
-next cursor and retained floor/gap status, including noncontiguous culling gaps. Never claim
+or foreign callers refuse. A member that merely expired, and a participant member's verified
+successor holder, retain the original lower bound; a new add/re-add uses its new one.
+Return ordered posts, explicit more/next cursor and retained floor/gap status, including noncontiguous culling gaps. Never claim
 an expired member received a skipped inbox copy. This tool advances no inbox read or ack
 marker and no memory cursor; room catch-up cannot suppress unrelated waiting messages.
 

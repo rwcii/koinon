@@ -51,5 +51,5 @@
 
 Each chunk uses the check/ship skills and WDR 004 for publication and checks, WDR 003 for
 the exact-head observer verdict, and WDR 006 for native evidence. Every PR enables squash
-auto-merge. Gate B for the proposed product mechanisms remains pending (WDR 002, Decision 5);
-the maintainer's decided verdict rule is not a separate approval gate.
+auto-merge. Gate B is approved
+([#140 comment 6127384411](https://github.com/rwcii/koinon/issues/140#issuecomment-6127384411)).
