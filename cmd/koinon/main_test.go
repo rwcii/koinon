@@ -400,6 +400,30 @@ func TestWorkCommands(t *testing.T) {
 		"--reference", "synthetic-pr"); err != nil {
 		t.Fatal(err)
 	}
+	// DeepSeek's native-session CLI path supports typed default-role proposals too.
+	roleCreated, err := work("work", "create", "--title", "role", "--criteria", "c", "--non-goals", "n", "--key", "role-create", "--deadline", deadline,
+		"--proposed-role", `{"family":"deepseek","role":""}`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	roleID := roleCreated["work_id"].(string)
+	if page, err := work("work", "list", "--assigned-to-me", "--limit", "1"); err != nil || page["more"] != false || page["items"].([]any)[0].(map[string]any)["work_id"] != roleID {
+		t.Fatalf("role assignment query: %v %v", page, err)
+	}
+	roleStart, err := work("work", "start", roleID, "--if-revision", "1", "--checkpoint", "c", "--next-artifact", "a",
+		"--progress-deadline", deadline, "--key", "role-start", "--deadline", deadline)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if item, err := work("work", "get", roleID); err != nil || item["current_claim"].(map[string]any)["ownership"] != "native" {
+		t.Fatalf("role native ownership: %v %v", item, err)
+	}
+	if _, err := work("work", "propose", roleID, "--if-revision", "2", "--proposed-role", "null"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := work("work", "release", roleID, "--if-revision", "3", "--claim-generation", fmt.Sprint(roleStart["claim"].(map[string]any)["generation"]), "--checkpoint", "synthetic release"); err != nil {
+		t.Fatal(err)
+	}
 	cancel()
 	<-done
 }

@@ -76,6 +76,17 @@ Peer-name messages, native-session claims and peer-name cursors from before the 
 their owners. Non-holders retain native defaults. Explicit checkout handback still requires
 the requester's work_start; checkout requests resolve the participant's current holder.
 
+Work can also propose a typed proposed_role {family, role}; empty role targets the default
+participant. work_list with assigned_to_me discovers proposals for the actual current holder.
+Page with after/next_after until more is false, then use current queries and memory catch-up
+for changes between pages. An advanced participant cursor needs no reset. Poll these queries;
+automatic work-change model notices are not implemented in this increment.
+A new role claim uses a derived native-work consumer and binds this native session for its
+whole generation, even after the proposal changes. Another native session waits for release
+or expiry and starts a fresh generation. An active original native owner can release its own
+claim after a holder change. Explicit consumers must match the derived key. Existing default
+participant claims, inboxes and cursors retain their continuation above (PDR 004, Decision 1).
+
 ## Terminal naming
 Launched sessions name their own tmux session after the held participant address, else the
 peer name. If another agent shares the tmux session, only the own pane is titled. A taken

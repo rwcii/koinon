@@ -11,6 +11,7 @@ import (
 	"fmt"
 	"math"
 	"strings"
+	"sync"
 )
 
 // Work items follow docs/WORK-ITEMS-V1.md with the limits of the implementation design
@@ -38,10 +39,10 @@ var workTextLimits = map[string]int{"title": 256, "criteria": 4096, "non_goals":
 // workFields are the request fields of each operation; mutations also take author, key
 // and deadline.
 var workFields = map[string][]string{
-	"work-create":  {"title", "criteria", "non_goals", "proposed_assignee", "references"},
+	"work-create":  {"title", "criteria", "non_goals", "proposed_assignee", "proposed_role", "references"},
 	"work-get":     {"work_id", "revision"},
-	"work-list":    {"lifecycle", "owner", "proposed_assignee", "stale", "blocked", "limit"},
-	"work-propose": {"work_id", "if_revision", "proposed_assignee"},
+	"work-list":    {"lifecycle", "owner", "proposed_assignee", "assigned_to_me", "after", "stale", "blocked", "limit"},
+	"work-propose": {"work_id", "if_revision", "proposed_assignee", "proposed_role"},
 	"work-edit":    {"work_id", "if_revision", "claim_generation", "title", "criteria", "non_goals"},
 	"work-start":   {"work_id", "if_revision", "checkpoint", "next_artifact", "progress_deadline", "lease_seconds", "resources"},
 	"work-update": {"work_id", "if_revision", "claim_generation", "progress", "checkpoint", "next_artifact",
@@ -56,7 +57,7 @@ var workFields = map[string][]string{
 var WorkRequired = map[string][]string{
 	"work-create":  {"title", "criteria", "non_goals", "key", "deadline"},
 	"work-get":     {"work_id"},
-	"work-propose": {"work_id", "if_revision", "proposed_assignee"},
+	"work-propose": {"work_id", "if_revision"},
 	"work-edit":    {"work_id", "if_revision"},
 	"work-start":   {"work_id", "if_revision", "checkpoint", "next_artifact", "progress_deadline", "key", "deadline"},
 	"work-update":  {"work_id", "if_revision", "claim_generation", "progress", "checkpoint", "next_artifact", "progress_deadline"},
@@ -85,6 +86,9 @@ type workRequest struct {
 	bools   map[string]bool
 	refs    []string
 	res     []claimResource
+	role    *WorkRole
+	// actor is set from validated transport metadata for a native-bound operation.
+	actor string
 }
 
 func (r *workRequest) has(name string) bool { return r.present[name] }
@@ -143,6 +147,23 @@ func parseWork(op string, fields map[string]json.RawMessage) (*workRequest, erro
 		r.present[name] = true
 		kind := jsonKind(raw)
 		switch name {
+		case "proposed_role":
+			if kind == "null" {
+				r.nulls[name] = true
+				continue
+			}
+			var fields map[string]json.RawMessage
+			if kind != "object" || json.Unmarshal(raw, &fields) != nil || len(fields) != 2 ||
+				fields["family"] == nil || fields["role"] == nil {
+				return nil, invalid("proposed_role is an object with family and role")
+			}
+			var role WorkRole
+			if json.Unmarshal(fields["family"], &role.Family) != nil || jsonKind(fields["family"]) != "string" ||
+				json.Unmarshal(fields["role"], &role.Role) != nil || jsonKind(fields["role"]) != "string" ||
+				!validKey(role.Family, "synthetic") || role.Role != "" && !ValidRole(role.Role) {
+				return nil, invalid("proposed_role uses a supported family and the launcher role grammar; empty role means default")
+			}
+			r.role = &role
 		case "proposed_assignee", "owner", "author":
 			if kind == "null" {
 				r.nulls[name] = true
@@ -150,7 +171,7 @@ func parseWork(op string, fields map[string]json.RawMessage) (*workRequest, erro
 			}
 			fallthrough
 		case "work_id", "title", "criteria", "non_goals", "progress", "checkpoint", "next_artifact", "blocker", "reason",
-			"outcome", "lifecycle", "key", "handoff_to", "checkout_resource":
+			"outcome", "lifecycle", "key", "handoff_to", "checkout_resource", "after":
 			var v string
 			if kind != "string" || json.Unmarshal(raw, &v) != nil {
 				return nil, invalid(name + " must be text")
@@ -168,7 +189,7 @@ func parseWork(op string, fields map[string]json.RawMessage) (*workRequest, erro
 				return nil, invalid(name + " must be a finite nonnegative time")
 			}
 			r.numbers[name] = v
-		case "stale", "blocked":
+		case "stale", "blocked", "assigned_to_me":
 			var v bool
 			if kind != "bool" || json.Unmarshal(raw, &v) != nil {
 				return nil, invalid(name + " must be a boolean")
@@ -203,6 +224,17 @@ func parseWork(op string, fields map[string]json.RawMessage) (*workRequest, erro
 
 func (r *workRequest) validate() error {
 	op := r.op
+	if r.has("proposed_assignee") && r.has("proposed_role") {
+		return invalid("proposed_assignee and proposed_role are mutually exclusive")
+	}
+	if op == "work-propose" && !r.has("proposed_assignee") && !r.has("proposed_role") {
+		return invalid("a proposal supplies proposed_assignee or proposed_role")
+	}
+	if r.has("after") {
+		if err := checkWorkID(r.text["after"]); err != nil {
+			return err
+		}
+	}
 	required := append([]string{}, WorkRequired[op]...)
 	if !workRead(op) && (r.has("key") || r.has("deadline")) {
 		required = append(required, "key", "deadline")
@@ -337,6 +369,8 @@ func (r *workRequest) fingerprint(consumer string) string {
 				pairs = append(pairs, []string{res.Kind, res.Key})
 			}
 			content[name] = pairs
+		case name == "proposed_role":
+			content[name] = r.role
 		default:
 			if v, ok := r.text[name]; ok {
 				content[name] = v
@@ -356,52 +390,56 @@ func (r *workRequest) fingerprint(consumer string) string {
 
 // workItem is one stored work record.
 type workItem struct {
-	WorkID             string   `json:"work_id"`
-	Revision           int64    `json:"revision"`
-	Lifecycle          string   `json:"lifecycle"`
-	Title              string   `json:"title"`
-	Criteria           string   `json:"criteria"`
-	NonGoals           string   `json:"non_goals"`
-	ProposedAssignee   *string  `json:"proposed_assignee"`
-	CreatedAt          float64  `json:"created_at"`
-	CreatedConsumer    string   `json:"created_consumer"`
-	FirstStartRevision *int64   `json:"first_start_revision"`
-	ScopeRevision      int64    `json:"scope_revision"`
-	ProgressEpoch      int64    `json:"progress_epoch"`
-	LastProgressAt     *float64 `json:"last_progress_at"`
-	ProgressDeadline   *float64 `json:"progress_deadline"`
-	Progress           string   `json:"progress"`
-	Checkpoint         string   `json:"checkpoint"`
-	NextArtifact       string   `json:"next_artifact"`
-	Blocker            string   `json:"blocker"`
-	LastWriter         *string  `json:"last_writer"`
-	LastGeneration     *int64   `json:"last_generation"`
-	LastLeaseExpires   *float64 `json:"last_lease_expires"`
-	LeaseExpired       bool     `json:"lease_expired"`
-	Outcome            *string  `json:"outcome"`
-	Reason             string   `json:"reason"`
-	References         []string `json:"references"`
-	FinishedAt         *float64 `json:"finished_at"`
-	ExpiresAt          *float64 `json:"expires_at"`
-	LatestSeq          int64    `json:"latest_seq"`
+	WorkID             string    `json:"work_id"`
+	Revision           int64     `json:"revision"`
+	Lifecycle          string    `json:"lifecycle"`
+	Title              string    `json:"title"`
+	Criteria           string    `json:"criteria"`
+	NonGoals           string    `json:"non_goals"`
+	ProposedAssignee   *string   `json:"proposed_assignee"`
+	ProposedRole       *WorkRole `json:"proposed_role"`
+	CreatedAt          float64   `json:"created_at"`
+	CreatedConsumer    string    `json:"created_consumer"`
+	FirstStartRevision *int64    `json:"first_start_revision"`
+	ScopeRevision      int64     `json:"scope_revision"`
+	ProgressEpoch      int64     `json:"progress_epoch"`
+	LastProgressAt     *float64  `json:"last_progress_at"`
+	ProgressDeadline   *float64  `json:"progress_deadline"`
+	Progress           string    `json:"progress"`
+	Checkpoint         string    `json:"checkpoint"`
+	NextArtifact       string    `json:"next_artifact"`
+	Blocker            string    `json:"blocker"`
+	LastWriter         *string   `json:"last_writer"`
+	LastGeneration     *int64    `json:"last_generation"`
+	LastLeaseExpires   *float64  `json:"last_lease_expires"`
+	LeaseExpired       bool      `json:"lease_expired"`
+	Outcome            *string   `json:"outcome"`
+	Reason             string    `json:"reason"`
+	References         []string  `json:"references"`
+	FinishedAt         *float64  `json:"finished_at"`
+	ExpiresAt          *float64  `json:"expires_at"`
+	LatestSeq          int64     `json:"latest_seq"`
 }
 
 const workColumns = `work_id,revision,lifecycle,title,criteria,non_goals,proposed_assignee,created_at,created_consumer,
 	first_start_revision,scope_revision,progress_epoch,last_progress_at,progress_deadline,progress,checkpoint,next_artifact,
-	blocker,last_writer,last_generation,last_lease_expires,lease_expired,outcome,reason,references_json,finished_at,expires_at,latest_seq`
+	blocker,last_writer,last_generation,last_lease_expires,lease_expired,outcome,reason,references_json,finished_at,expires_at,latest_seq,proposed_role`
 
 func scanWork(row scanner) (workItem, error) {
 	var w workItem
-	var refs string
+	var refs, role string
 	err := row.Scan(&w.WorkID, &w.Revision, &w.Lifecycle, &w.Title, &w.Criteria, &w.NonGoals, &w.ProposedAssignee, &w.CreatedAt,
 		&w.CreatedConsumer, &w.FirstStartRevision, &w.ScopeRevision, &w.ProgressEpoch, &w.LastProgressAt, &w.ProgressDeadline,
 		&w.Progress, &w.Checkpoint, &w.NextArtifact, &w.Blocker, &w.LastWriter, &w.LastGeneration, &w.LastLeaseExpires,
-		&w.LeaseExpired, &w.Outcome, &w.Reason, &refs, &w.FinishedAt, &w.ExpiresAt, &w.LatestSeq)
+		&w.LeaseExpired, &w.Outcome, &w.Reason, &refs, &w.FinishedAt, &w.ExpiresAt, &w.LatestSeq, &role)
 	if err == nil {
 		err = json.Unmarshal([]byte(refs), &w.References)
 	}
 	if w.References == nil {
 		w.References = []string{}
+	}
+	if err == nil && role != "" {
+		err = json.Unmarshal([]byte(role), &w.ProposedRole)
 	}
 	return w, err
 }
@@ -419,7 +457,7 @@ func (w workItem) referencesJSON() string {
 func (w workItem) rowCost(store string) int {
 	cost := workRowOverhead + len(store) + len(w.WorkID) + len(w.Lifecycle) + len(w.Title) + len(w.Criteria) + len(w.NonGoals) +
 		len(w.CreatedConsumer) + len(w.Progress) + len(w.Checkpoint) + len(w.NextArtifact) + len(w.Blocker) + len(w.Reason) +
-		len(w.referencesJSON())
+		len(w.referencesJSON()) + len(w.ProposedRole.encoded())
 	for _, v := range []*string{w.ProposedAssignee, w.LastWriter, w.Outcome} {
 		if v != nil {
 			cost += len(*v)
@@ -447,6 +485,7 @@ func (s *Store) ResolveWorkCaller(ctx context.Context, caller Key, consumer *str
 	if err := checkConsumer(m.Consumer, "consumer"); err != nil {
 		return m, workError("invalid_request", "the session key is too long for a consumer key; pass a consumer of 1 to 128 characters")
 	}
+	m.ConsumerExplicit = consumer != nil
 	return m, nil
 }
 
@@ -483,27 +522,40 @@ type workClaimView struct {
 	Revision   int64      `json:"revision"`
 	ExpiresAt  float64    `json:"expires_at"`
 	Resources  [][]string `json:"resources"`
+	Ownership  string     `json:"ownership"`
 }
 
 // WorkView is a work item observed at ObservedAt.
 type WorkView struct {
 	workItem
-	Type                      string         `json:"type"`
-	Seq                       int64          `json:"seq"`
-	ObservedAt                float64        `json:"observed_at"`
-	ObservedLeaseExpires      *float64       `json:"observed_lease_expires"`
-	CurrentClaim              *workClaimView `json:"current_claim"`
-	LeaseValid                bool           `json:"lease_valid"`
-	ProgressOverdue           bool           `json:"progress_overdue"`
-	ProgressUnverified        bool           `json:"progress_unverified"`
-	ProgressUnverifiedReasons []string       `json:"progress_unverified_reasons"`
-	ScopeRevisions            []int64        `json:"scope_revisions"`
-	CriteriaChangedAfterStart bool           `json:"criteria_changed_after_start"`
+	Type                      string              `json:"type"`
+	Seq                       int64               `json:"seq"`
+	ObservedAt                float64             `json:"observed_at"`
+	ObservedLeaseExpires      *float64            `json:"observed_lease_expires"`
+	CurrentClaim              *workClaimView      `json:"current_claim"`
+	LeaseValid                bool                `json:"lease_valid"`
+	ProgressOverdue           bool                `json:"progress_overdue"`
+	ProgressUnverified        bool                `json:"progress_unverified"`
+	ProgressUnverifiedReasons []string            `json:"progress_unverified_reasons"`
+	ScopeRevisions            []int64             `json:"scope_revisions"`
+	CriteriaChangedAfterStart bool                `json:"criteria_changed_after_start"`
+	RoleResolution            *WorkRoleResolution `json:"role_resolution,omitempty"`
 }
 
 // view overlays the live claim observation and the scope history on a stored item.
 func view(ctx context.Context, q querier, store string, w workItem, now float64) (WorkView, error) {
 	v := WorkView{workItem: w, Type: "work-item", Seq: w.LatestSeq, ObservedAt: now, ProgressUnverifiedReasons: []string{}}
+	var repo string
+	if w.ProposedRole != nil {
+		if err := q.QueryRowContext(ctx, `SELECT repository FROM memory_stores WHERE store_id=?`, store).Scan(&repo); err != nil {
+			return v, err
+		}
+		var err error
+		v.RoleResolution, err = roleResolution(ctx, q, repo, w.ProposedRole, now)
+		if err != nil {
+			return v, err
+		}
+	}
 	held, err := bundleFor(ctx, q, store, w.WorkID)
 	if err != nil {
 		return v, err
@@ -522,7 +574,10 @@ func view(ctx context.Context, q querier, store string, w workItem, now float64)
 			return v, err
 		}
 		claim := &workClaimView{Consumer: held.Consumer, Generation: held.Generation, Revision: held.Revision, ExpiresAt: held.ExpiresAt,
-			Resources: [][]string{}}
+			Resources: [][]string{}, Ownership: "legacy"}
+		if held.NativeActor != "" {
+			claim.Ownership = "native"
+		}
 		for _, r := range resources {
 			claim.Resources = append(claim.Resources, []string{r.Kind, r.Key})
 		}
@@ -663,11 +718,11 @@ func (s *Store) event(ctx context.Context, tx *writeTx, store string, m MemoryCa
 	if _, err := tx.ExecContext(ctx, `UPDATE work_items SET revision=?,lifecycle=?,title=?,criteria=?,non_goals=?,proposed_assignee=?,
 		first_start_revision=?,scope_revision=?,progress_epoch=?,last_progress_at=?,progress_deadline=?,progress=?,checkpoint=?,
 		next_artifact=?,blocker=?,last_writer=?,last_generation=?,last_lease_expires=?,lease_expired=?,outcome=?,reason=?,
-		references_json=?,finished_at=?,expires_at=?,latest_seq=? WHERE store=? AND work_id=?`,
+		references_json=?,finished_at=?,expires_at=?,latest_seq=?,proposed_role=? WHERE store=? AND work_id=?`,
 		w.Revision, w.Lifecycle, w.Title, w.Criteria, w.NonGoals, w.ProposedAssignee, w.FirstStartRevision, w.ScopeRevision,
 		w.ProgressEpoch, w.LastProgressAt, w.ProgressDeadline, w.Progress, w.Checkpoint, w.NextArtifact, w.Blocker, w.LastWriter,
 		w.LastGeneration, w.LastLeaseExpires, w.LeaseExpired, w.Outcome, w.Reason, w.referencesJSON(), w.FinishedAt, w.ExpiresAt,
-		w.LatestSeq, store, w.WorkID); err != nil {
+		w.LatestSeq, w.ProposedRole.encoded(), store, w.WorkID); err != nil {
 		return err
 	}
 	payload, err := view(ctx, tx, store, *w, now)
@@ -718,15 +773,40 @@ func (s *Store) scope(ctx context.Context, tx *writeTx, store string, w workItem
 // writes its record, scope history, stream entry, event, head and replay result in one
 // transaction, and the change hook runs after the commit, outside every lock.
 func (s *Store) Work(ctx context.Context, m MemoryCaller, op string, fields map[string]json.RawMessage) (any, error) {
-	ctx, finish, guardErr := s.participantCall(ctx, m)
-	if guardErr != nil {
-		return nil, guardErr
-	}
-	defer finish()
 	r, err := parseWork(op, fields)
 	if err != nil {
+		// Preserve the existing participant fence before argument errors, including
+		// cached callers and malformed keyed attempts from a former holder.
+		_, finish, guardErr := s.participantCall(ctx, m)
+		if guardErr != nil {
+			return nil, guardErr
+		}
+		finish()
 		return nil, err
 	}
+	var finish func()
+	if validKey(m.Native.Family, m.Native.ID) {
+		// Explicit native consumers also need holder serialization for role routing.
+		// Resolve their claim/replay binding before the legacy participant guard.
+		s.wake.mu.Lock()
+		finish = sync.OnceFunc(s.wake.mu.Unlock)
+		m, err = s.roleWorkCaller(ctx, m, r, s.clock())
+		if err != nil {
+			finish()
+			return nil, err
+		}
+		ctx = context.WithValue(ctx, participantCallKey{}, m)
+		if err := s.checkParticipantCall(ctx); err != nil {
+			finish()
+			return nil, err
+		}
+	} else {
+		ctx, finish, err = s.participantCall(ctx, m)
+		if err != nil {
+			return nil, err
+		}
+	}
+	defer finish()
 	if workRead(op) {
 		return s.workRead(ctx, m, r, s.clock())
 	}
@@ -758,7 +838,7 @@ func (s *Store) workRead(ctx context.Context, m MemoryCaller, r *workRequest, no
 		return nil, err
 	}
 	if r.op == "work-list" {
-		return listing(ctx, tx, store, r, now)
+		return listing(ctx, tx, store, m, r, now)
 	}
 	w, err := current(ctx, tx, store, r.text["work_id"], now)
 	if err != nil {
@@ -790,8 +870,8 @@ func (s *Store) workRead(ctx context.Context, m MemoryCaller, r *workRequest, no
 
 // listing returns capped summaries from one read transaction in work-ID order, with an
 // explicit truncated flag: a truncated result is not a complete inventory.
-func listing(ctx context.Context, q querier, store string, r *workRequest, now float64) (map[string]any, error) {
-	result := map[string]any{"items": []map[string]any{}, "truncated": false, "observed_at": now}
+func listing(ctx context.Context, q *sql.Tx, store string, m MemoryCaller, r *workRequest, now float64) (map[string]any, error) {
+	result := map[string]any{"items": []map[string]any{}, "truncated": false, "more": false, "next_after": nil, "observed_at": now}
 	if store == "" {
 		return result, nil
 	}
@@ -799,25 +879,49 @@ func listing(ctx context.Context, q querier, store string, r *workRequest, now f
 	if v, ok := r.ints["limit"]; ok {
 		limit = v
 	}
+	var assignedRole *WorkRole
+	if r.has("assigned_to_me") && validKey(m.Native.Family, m.Native.ID) {
+		address, err := heldAddress(ctx, q, int64(now*1000), m.Native)
+		if err != nil {
+			return nil, err
+		}
+		if address != "" {
+			assignedRole = &WorkRole{}
+			if err := q.QueryRowContext(ctx, `SELECT family,role FROM names WHERE kind='alias' AND name=? AND repository=?`,
+				address, m.Repository).Scan(&assignedRole.Family, &assignedRole.Role); err != nil {
+				return nil, err
+			}
+		}
+	}
 	rows, err := q.QueryContext(ctx, `SELECT w.work_id,w.revision,w.title,w.lifecycle,w.proposed_assignee,w.progress_deadline,
-		b.consumer,COALESCE(b.active,0),COALESCE(b.expires_at,0),w.checkpoint FROM work_items w LEFT JOIN claim_bundles b
-		ON b.store=w.store AND b.work_id=w.work_id WHERE w.store=? AND (w.expires_at IS NULL OR w.expires_at>?) ORDER BY w.work_id`, store, now)
+		b.consumer,COALESCE(b.active,0),COALESCE(b.expires_at,0),w.checkpoint,w.proposed_role FROM work_items w LEFT JOIN claim_bundles b
+		ON b.store=w.store AND b.work_id=w.work_id WHERE w.store=? AND (w.expires_at IS NULL OR w.expires_at>?) AND w.work_id>? ORDER BY w.work_id`, store, now, r.text["after"])
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
 	items := []map[string]any{}
 	base, _ := json.Marshal(result)
-	used := len(base)
+	used := len(base) + 32 // next_after becomes a full work ID when another page exists.
 	for rows.Next() {
-		var workID, title, lifecycle, checkpoint string
+		var workID, title, lifecycle, checkpoint, roleJSON string
 		var revision int64
 		var proposed, consumer *string
 		var deadline *float64
 		var active bool
 		var expires float64
-		if err := rows.Scan(&workID, &revision, &title, &lifecycle, &proposed, &deadline, &consumer, &active, &expires, &checkpoint); err != nil {
+		if err := rows.Scan(&workID, &revision, &title, &lifecycle, &proposed, &deadline, &consumer, &active, &expires, &checkpoint, &roleJSON); err != nil {
 			return nil, err
+		}
+		var role *WorkRole
+		if roleJSON != "" {
+			if err := json.Unmarshal([]byte(roleJSON), &role); err != nil {
+				return nil, err
+			}
+		}
+		assigned := proposed != nil && *proposed == m.Consumer || role != nil && assignedRole != nil && *role == *assignedRole
+		if r.has("assigned_to_me") && assigned != r.bools["assigned_to_me"] {
+			continue
 		}
 		live, _, stale := freshness(lifecycle, deadline, active, expires, now)
 		var owner *string
@@ -830,12 +934,22 @@ func listing(ctx context.Context, q querier, store string, r *workRequest, now f
 			continue
 		}
 		summary := map[string]any{"work_id": workID, "revision": revision, "title": title, "lifecycle": lifecycle,
-			"proposed_assignee": proposed, "progress_unverified": stale, "progress_deadline": deadline, "lease_valid": live,
+			"proposed_assignee": proposed, "proposed_role": role, "progress_unverified": stale, "progress_deadline": deadline, "lease_valid": live,
 			"owner": owner, "observed_at": now, "checkpoint": checkpoint}
+		if role != nil {
+			resolved, err := roleResolution(ctx, q, m.Repository, role, now)
+			if err != nil {
+				return nil, err
+			}
+			summary["role_resolution"] = resolved
+		}
 		data, _ := json.Marshal(summary)
 		size := len(data) + 1
 		if int64(len(items)) >= limit || used+size > maxWorkList {
-			result["truncated"] = true
+			result["truncated"], result["more"] = true, true
+			if len(items) > 0 {
+				result["next_after"] = items[len(items)-1]["work_id"]
+			}
 			break
 		}
 		items, used = append(items, summary), used+size
@@ -882,13 +996,16 @@ func (s *Store) replay(ctx context.Context, m MemoryCaller, r *workRequest, now 
 	if err != nil || store == "" {
 		return print, nil, err
 	}
-	var scheme, stored, operation, result string
-	err = tx.QueryRowContext(ctx, `SELECT scheme,fingerprint,operation,result FROM work_replays WHERE store=? AND consumer=? AND key=?`,
-		store, m.Consumer, r.text["key"]).Scan(&scheme, &stored, &operation, &result)
+	var scheme, stored, operation, result, actor string
+	err = tx.QueryRowContext(ctx, `SELECT scheme,fingerprint,operation,result,native_actor FROM work_replays WHERE store=? AND consumer=? AND key=?`,
+		store, m.Consumer, r.text["key"]).Scan(&scheme, &stored, &operation, &result, &actor)
 	if errors.Is(err, sql.ErrNoRows) {
 		return print, nil, nil
 	}
 	if err != nil {
+		return "", nil, err
+	}
+	if err := requireNativeWorkCaller(ctx, tx, m, actor, now); err != nil {
 		return "", nil, err
 	}
 	// A row is compared by the scheme it was written with; an unknown scheme conflicts.
@@ -913,9 +1030,9 @@ func storeReplay(ctx context.Context, tx *writeTx, store string, m MemoryCaller,
 	if !r.keyed() {
 		return nil
 	}
-	_, err := tx.ExecContext(ctx, `INSERT INTO work_replays(store,consumer,key,operation,scheme,fingerprint,seq,ts,deadline,result)
-		VALUES (?,?,?,?,?,?,?,?,?,?)`, store, m.Consumer, r.text["key"], r.op, fingerprintScheme, print, result["seq"], now,
-		r.numbers["deadline"], string(data))
+	_, err := tx.ExecContext(ctx, `INSERT INTO work_replays(store,consumer,key,operation,scheme,fingerprint,seq,ts,deadline,result,native_actor)
+		VALUES (?,?,?,?,?,?,?,?,?,?,?)`, store, m.Consumer, r.text["key"], r.op, fingerprintScheme, print, result["seq"], now,
+		r.numbers["deadline"], string(data), r.actor)
 	return err
 }
 
@@ -996,6 +1113,9 @@ func (s *Store) reclaimInactive(ctx context.Context, repo, workID string) error 
 func (s *Store) apply(ctx context.Context, tx *writeTx, store string, m MemoryCaller, r *workRequest, now float64, print string,
 	advanced *bool) (map[string]any, error) {
 	engine := leaseEngine{ctx: ctx, tx: tx, store: store}
+	if err := requireNativeWorkCaller(ctx, tx.Tx, m, r.actor, now); err != nil {
+		return nil, err
+	}
 	author := r.optional("author")
 	var w workItem
 	var kind string
@@ -1009,7 +1129,7 @@ func (s *Store) apply(ctx context.Context, tx *writeTx, store string, m MemoryCa
 			return nil, err
 		}
 		w = workItem{WorkID: fmt.Sprintf("%032x", n), Revision: 1, Lifecycle: "open", Title: r.text["title"], Criteria: r.text["criteria"],
-			NonGoals: r.text["non_goals"], ProposedAssignee: r.optional("proposed_assignee"), CreatedAt: now, CreatedConsumer: m.Consumer,
+			NonGoals: r.text["non_goals"], ProposedAssignee: r.optional("proposed_assignee"), ProposedRole: r.role, CreatedAt: now, CreatedConsumer: m.Consumer,
 			ScopeRevision: 1, References: r.refs, LatestSeq: head + 1}
 		if _, err := tx.ExecContext(ctx, `INSERT INTO work_items(store,work_id,revision,lifecycle,title,criteria,non_goals,proposed_assignee,
 			created_at,created_consumer,scope_revision,references_json,latest_seq) VALUES (?,?,1,'open',?,?,?,?,?,?,1,?,?)`, store, w.WorkID,
@@ -1035,6 +1155,9 @@ func (s *Store) apply(ctx context.Context, tx *writeTx, store string, m MemoryCa
 		owned := r.op == "work-update" || r.op == "work-release" || r.op == "work-finish" || r.op == "claim-renew" ||
 			r.op == "work-edit" && held != nil && held.Active && held.ExpiresAt > now
 		if owned {
+			if held != nil && held.NativeActor != "" && held.NativeActor != nativeWorkActor(m) {
+				return nil, workError("stale_claim", "this claim belongs to another native session")
+			}
 			if !r.has("claim_generation") {
 				return nil, invalid("a live claim exists; its owner's claim_generation is required")
 			}
@@ -1069,6 +1192,7 @@ func (s *Store) apply(ctx context.Context, tx *writeTx, store string, m MemoryCa
 		switch r.op {
 		case "work-propose":
 			kind, w.ProposedAssignee = "proposed", r.optional("proposed_assignee")
+			w.ProposedRole = r.role
 		case "work-edit":
 			kind = "edited"
 			for name, field := range map[string]*string{"title": &w.Title, "criteria": &w.Criteria, "non_goals": &w.NonGoals} {
@@ -1083,6 +1207,11 @@ func (s *Store) apply(ctx context.Context, tx *writeTx, store string, m MemoryCa
 		case "work-start", "work-update":
 			w.ProgressEpoch++
 			if r.op == "work-start" {
+				if w.ProposedRole != nil {
+					if err := requireWorkRole(ctx, tx.Tx, m, w.ProposedRole, now); err != nil {
+						return nil, err
+					}
+				}
 				kind = "started"
 				duration := int64(defaultLease)
 				if v, ok := r.ints["lease_seconds"]; ok {
@@ -1091,6 +1220,12 @@ func (s *Store) apply(ctx context.Context, tx *writeTx, store string, m MemoryCa
 				got, err := engine.acquire(w.WorkID, m.Consumer, w.ProgressEpoch, r.res, now, duration)
 				if err != nil {
 					return nil, err
+				}
+				if w.ProposedRole != nil {
+					if _, err := tx.ExecContext(ctx, `UPDATE claim_bundles SET native_actor=? WHERE store=? AND generation=?`,
+						r.actor, store, got.Generation); err != nil {
+						return nil, err
+					}
 				}
 				writer := m.Consumer
 				w.LastWriter, w.LastGeneration, w.LastLeaseExpires, w.LeaseExpired = &writer, &got.Generation, &got.ExpiresAt, false

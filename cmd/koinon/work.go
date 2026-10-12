@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"flag"
 	"fmt"
 	"io"
@@ -26,7 +27,7 @@ var (
 	workIntegers = map[string]bool{"revision": true, "if_revision": true, "claim_generation": true, "if_claim_revision": true,
 		"limit": true, "lease_seconds": true, "renew_for": true}
 	workNumbers = map[string]bool{"progress_deadline": true, "deadline": true}
-	workBools   = map[string]bool{"stale": true, "blocked": true}
+	workBools   = map[string]bool{"stale": true, "blocked": true, "assigned_to_me": true}
 )
 
 // workCommand runs koinon work OPERATION and koinon claim renew through the daemon's
@@ -111,6 +112,13 @@ func workCommand(ctx context.Context, args []string, out io.Writer) error {
 			body[field] = *texts[field]
 		}
 	})
+	if given["proposed_role"] {
+		var role any
+		if err := json.Unmarshal([]byte(*texts["proposed_role"]), &role); err != nil {
+			return usageError{"invalid_request", "--proposed-role must be JSON {family, role} or null"}
+		}
+		body["proposed_role"] = role
+	}
 	if workID != "" {
 		body["work_id"], given["work_id"] = workID, true
 	}
@@ -125,8 +133,14 @@ func workCommand(ctx context.Context, args []string, out io.Writer) error {
 		body["resources"] = resources
 	}
 	if op == "work-propose" {
-		if clear == given["proposed_assignee"] {
-			return usageError{"invalid_request", "give --proposed-assignee or --clear-assignee"}
+		choices := 0
+		for _, present := range []bool{clear, given["proposed_assignee"], given["proposed_role"]} {
+			if present {
+				choices++
+			}
+		}
+		if choices != 1 {
+			return usageError{"invalid_request", "give --proposed-assignee, --proposed-role or --clear-assignee"}
 		}
 		if clear {
 			body["proposed_assignee"], given["proposed_assignee"] = nil, true

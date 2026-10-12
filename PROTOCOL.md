@@ -545,7 +545,7 @@ is a route: `POST /v1/work/work-create`, `work-get`, `work-list`, `work-propose`
 `work-start`, `work-update`, `work-release`, `work-finish` and `claim-renew`. A request names
 its `caller` and the fields of the commands table; unknown fields are refused, and types are
 strict (a boolean is not an integer, times are finite numbers). The optional `consumer` (1–128
-characters) names a stable key. A holder defaults to `participant:<address>`; a non-holder
+characters) names a stable key. For legacy claims, a holder defaults to `participant:<address>`; a non-holder
 uses its native `FAMILY:ID`. Only the current holder may use a participant consumer, including
 an explicit one, for any operation or keyed retry. A successor continues the same participant
 claim generation and deadlines; existing native-session claims keep their owners and leases. Results are `{"ok": true, "result": ...}`; a refusal carries
@@ -556,6 +556,26 @@ Each work event records `actor` (`FAMILY:ID`) next to its consumer, stored in
 `work_events.actor` and returned with work events in memory deltas. Historical events and
 daemon maintenance without a native caller keep an empty actor.
 
+Schema 16 adds mutually exclusive typed `proposed_role: {family, role}` and consumer
+proposals; empty role targets the default participant. Current item/list views report the
+proposal and `role_resolution` (`held`, `unheld`, `conflict`, optional address/held peer).
+The current native holder accepts a role proposal using the existing lease engine and
+exclusive resources. Its bounded `native-work:` consumer is derived from SHA-256 of the
+JSON tuple `[family, native ID]`; explicit consumers must match. The native actor digest is
+stored on the claim bundle and its ownership replay rows, checked before owner writes/replays
+inside participant serialization and the existing transactions, and retained for the entire
+generation even if the proposal changes. A different native session starts only after
+release/expiry with its own consumer and generation. Claim views label `ownership` as
+`native` or `legacy`. Migration defaults old claims/replays to legacy, preserving consumers,
+generations, deadlines, inboxes and cursors. See [PDR 004, Decision 1](docs/product/pdr/004-work-results-role-routing.md).
+
+`work-list` accepts `assigned_to_me` and keyset `after`. Responses retain `truncated`, add
+`more` and nullable `next_after`, and keep their 100-item/48-KiB bounds. Matching proposals
+are discovered through the current consumer or the actual held family/role in this store;
+no unheld/conflicting role is assigned by guessing. Page to the end, then use current queries
+plus retained memory catch-up for changes between pages, without resetting a cursor. This
+chunk adds no production work-change model notices.
+
 Work IDs are 32 lowercase hexadecimal characters from a per-store counter that never
 decreases. Every observable mutation and due transition writes, in one transaction, the item,
 its scope history when the scope changes, one stream entry of type `work-event` (empty body,
@@ -565,7 +585,8 @@ commit. Renewal writes no event. Deltas carry `event_kind`, `work_id` and `paylo
 adds one frozen `work-item` view per retained item, ordered by ID after the notes. Recall and
 note snapshots exclude work entries, and a note cannot supersede or revoke one. Replay rows
 are kept apart from note idempotency rows, carry their fingerprint scheme, and return the
-original result with `duplicate: true` before any precondition or due transition.
+original result with `duplicate: true` after participant/native actor validation and before
+mutable preconditions or due transitions.
 
 At a statically valid request for a known target, the daemon first records at most one due
 transition of that target (`lease-expired` wins over `progress-overdue`); malformed requests,

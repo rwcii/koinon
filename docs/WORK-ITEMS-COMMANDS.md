@@ -20,16 +20,43 @@ request fields are refused. References are inert reported strings.
 
 | Operation | Fields beyond work ID and consumer |
 | --- | --- |
-| create | Required title, criteria, non_goals, key, deadline; optional proposed_assignee, references, author. |
+| create | Required title, criteria, non_goals, key, deadline; optional proposed_assignee or proposed_role, references, author. |
 | get | Optional revision selects a retained scope revision instead of the current view. |
-| list | Optional lifecycle, owner, proposed_assignee, stale, blocked, limit (1–100). |
-| propose | Required if_revision and proposed_assignee; explicit JSON null clears it, or CLI `--clear-assignee`. |
+| list | Optional lifecycle, owner, proposed_assignee, assigned_to_me, after, stale, blocked, limit (1–100). |
+| propose | Required if_revision and exactly one of proposed_assignee or proposed_role; JSON null clears it, or CLI `--clear-assignee`. |
 | edit | Required if_revision and at least one of title, criteria, non_goals; a live claim requires its owner's claim_generation. |
 | start | Required if_revision, checkpoint, next_artifact, progress_deadline, key, deadline; optional lease_seconds and resources. |
 | update | Required if_revision, claim_generation, progress, checkpoint, next_artifact, progress_deadline; optional active/blocked lifecycle, blocker, references, renew_for. Blocked requires blocker text. |
 | release | Required if_revision, claim_generation and final checkpoint; optional paired handoff_to and checkout_resource notify an exact same-repository peer to pick up the released checkout role. |
 | finish | Required if_revision, claim_generation, outcome; completed requires references, withdrawn requires reason. |
 | renew | Required claim_generation and if_claim_revision; optional lease_seconds. Work revision is unchanged. |
+
+Schema 16 adds the approved role path ([PDR 004, Decision 1](product/pdr/004-work-results-role-routing.md)):
+create and propose accept `proposed_role: {"family":"codex","role":"worker"}` instead of
+`proposed_assignee`. Both fields are mutually exclusive. Supply exactly one on propose;
+JSON null clears the proposal. The CLI accepts `--proposed-role '{"family":"codex","role":"worker"}'`
+and `--proposed-role null`. Empty role names the family's default participant, including
+DeepSeek. Family and role use the supported family and launcher role grammar.
+
+Current views and summaries include `proposed_role` and, when set, `role_resolution` with
+`state` (`held`, `unheld`, `conflict`), the known participant address, and its held peer name.
+A role start requires that participant's current native holder and the usual resource checks.
+It derives `native-work:` plus the SHA-256 hex digest of the JSON tuple `[family, native ID]`.
+An explicit consumer must equal that key. The claim view labels this `ownership: native`;
+legacy claims are labeled `legacy`. The binding lasts for the complete generation, including
+after a proposal changes or clears. Every owner write and ownership retry checks the native
+actor; a different session waits for release/expiry and starts a fresh generation. An active
+original native owner can release its generation even after the participant changes holder.
+Existing/default participant claims, cursors and inboxes continue as above.
+
+List accepts `assigned_to_me` (`--assigned-to-me`), matching explicit consumer proposals or
+the caller's actually held family/role. `after` (`--after WORK_ID`) pages in work-ID order.
+Responses carry `more`, nullable `next_after`, and the compatible `truncated` flag. Page until
+`more` is false; the limit remains 1–100 and each response remains bounded. These are current
+queries, not a frozen inventory: use a fresh query and retained memory deltas for assignment
+changes behind a page boundary. An already advanced participant cursor does not hide current
+assignments and needs no reset. Until the discovery chunk ships, poll work and memory; this
+increment does not emit work-change model notices.
 
 The CLI checks unconditional required options before contacting the service. These
 missing-option refusals return JSON with `ok: false`, `code: invalid_request` and exit 1;

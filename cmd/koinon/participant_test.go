@@ -118,6 +118,9 @@ func TestParticipantCommands(t *testing.T) {
 				args = append(args, "--"+strings.ReplaceAll(field, "_", "-"), values[field])
 			}
 		}
+		if op == "work-propose" {
+			args = append(args, "--proposed-assignee", "synthetic")
+		}
 		if op != "work-create" && op != "work-list" {
 			args = append(args, workID)
 		}
