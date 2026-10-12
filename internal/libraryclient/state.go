@@ -27,6 +27,7 @@ type StateRequest struct {
 
 type StateResult struct {
 	Version       int                 `json:"version"`
+	Family        string              `json:"family"`
 	CatalogDigest string              `json:"catalog_digest"`
 	Scope         string              `json:"scope"`
 	Items         []library.ItemState `json:"items"`
@@ -92,8 +93,9 @@ func (c Client) inspectionContext(ctx context.Context, scope, directory string) 
 	} else {
 		i.Repository, i.ProjectRoot = selected.Repository, selected.Directory
 	}
-	root, reason := library.NativeRoot(c.Caller.Family, c.Getenv)
+	root, reason := library.NativeRootAt(c.Caller.Family, c.Getenv, reply.Directory)
 	i.MachineRoot = root
+	i.UserRoot = library.NativeUserRootAt(c.Caller.Family, c.Getenv, reply.Directory)
 	if reason != "" {
 		limitations = append(limitations, reason)
 	}
@@ -115,7 +117,7 @@ func (c Client) State(ctx context.Context, r StateRequest) (StateResult, error) 
 	if err != nil {
 		return StateResult{}, err
 	}
-	result := StateResult{Version: cat.Version, CatalogDigest: cat.Digest, Scope: r.Scope, Items: []library.ItemState{}, Limitations: limitations}
+	result := StateResult{Version: cat.Version, Family: c.Caller.Family, CatalogDigest: cat.Digest, Scope: r.Scope, Items: []library.ItemState{}, Limitations: limitations}
 	ids := slices.Clone(r.ItemIDs)
 	if len(ids) == 0 {
 		for _, item := range cat.Items {
@@ -179,6 +181,14 @@ func (c Client) State(ctx context.Context, r StateRequest) (StateResult, error) 
 			facts, factsSeq, factsNote := project.selectDecision(id, "repository-facts", c.Caller.Family, library.ScopeDigest("project", i.Repository))
 			if i.Repository == "" {
 				factsNote = "decision_scope_unavailable"
+			}
+			if facts != nil {
+				declared := []library.Target{{ID: "facts"}}
+				if library.CheckTargets(declared, facts.Before) != nil || library.CheckTargets(declared, facts.Result) != nil || library.CheckTargets(declared, facts.Adopted) != nil {
+					facts, factsSeq, factsNote = nil, 0, "decision_unavailable"
+				} else if facts.SchemaDigest != state.Facts.SchemaDigest {
+					factsNote = "facts_schema_changed"
+				}
 			}
 			state.Facts.Decision, state.Facts.DecisionSeq, state.Facts.DecisionNote = facts, factsSeq, factsNote
 		}

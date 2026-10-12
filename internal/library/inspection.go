@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"io/fs"
+	"os"
 	"path"
 	"path/filepath"
 	"slices"
@@ -19,6 +20,7 @@ type InspectionContext struct {
 	Repository  string
 	ProjectRoot string
 	MachineRoot string
+	UserRoot    string
 }
 
 type TargetState struct {
@@ -349,33 +351,79 @@ func (i Inspector) inspectCollision(c Catalog, context InspectionContext, item I
 	if item.Kind != "skill" {
 		return "", ""
 	}
+	targets, err := c.CollisionTargets(context.Family, item.ID)
+	if err != nil {
+		return "", "native_root_unverified"
+	}
 	observed := []TargetState{}
-	for _, scope := range []string{"machine", "project"} {
-		targets, err := c.Targets(context.Family, scope, item.ID)
-		if err != nil {
-			return "", "native_root_unverified"
-		}
+	identities := []fs.FileInfo{}
+	primaryRoot := context.ProjectRoot
+	if context.Scope == "machine" {
+		primaryRoot = context.MachineRoot
+	}
+	primaryTargets, err := c.Targets(context.Family, context.Scope, item.ID)
+	if err != nil {
+		return "", "native_root_unverified"
+	}
+	var primary fs.FileInfo
+	if root, err := i.open(primaryRoot); err == nil {
+		primary, _ = root.Lstat(primaryTargets[0].Path)
+		root.Close()
+	}
+	proposalConflict := false
+	for _, target := range targets {
 		rootPath := context.ProjectRoot
-		if scope == "machine" {
+		if target.Root == "codex-home" {
 			rootPath = context.MachineRoot
+		}
+		if target.Root == "user-home" {
+			rootPath = context.UserRoot
 		}
 		root, err := i.open(rootPath)
 		if err != nil {
 			return "", "collision_scope_unavailable"
 		}
 		remaining := MaxItemBytes
-		state := inspectTarget(root, rootPath, targets[0], "", &remaining)
+		state := inspectTarget(root, rootPath, target.Target, "", &remaining)
+		identity, _ := root.Lstat(target.Target.Path)
 		root.Close()
 		if state.Reason != "" {
 			return "", state.Reason
 		}
-		observed = append(observed, state)
+		if state.State != "missing" {
+			// Different content at an independent same-name file would conflict with
+			// the proposed catalog bytes even when the selected target is absent.
+			// Shared discovery aliases of the selected file change with that file.
+			if (primary == nil || identity == nil || !os.SameFile(primary, identity)) && state.Digest != digest(target.Target.Expected) {
+				proposalConflict = true
+			}
+			duplicate := false
+			if identity != nil {
+				for _, old := range identities {
+					if os.SameFile(old, identity) {
+						duplicate = true
+						break
+					}
+				}
+			}
+			if !duplicate {
+				observed = append(observed, state)
+				if identity != nil {
+					identities = append(identities, identity)
+				}
+			}
+		}
 	}
-	if observed[0].State == "missing" || observed[1].State == "missing" {
+	if proposalConflict {
+		return "name_conflict", ""
+	}
+	if len(observed) < 2 {
 		return "", ""
 	}
-	if observed[0].Digest == observed[1].Digest {
-		return "duplicate_discovery", ""
+	for _, state := range observed[1:] {
+		if state.Digest != observed[0].Digest {
+			return "name_conflict", ""
+		}
 	}
-	return "name_conflict", ""
+	return "duplicate_discovery", ""
 }

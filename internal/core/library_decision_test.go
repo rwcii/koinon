@@ -2,6 +2,7 @@ package core
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"strings"
@@ -14,10 +15,6 @@ import (
 func machineDecisionFixture(t *testing.T) (*Store, Key, library.Catalog, string, library.Decision) {
 	t.Helper()
 	s, _ := testStore(t)
-	// The migration step is added after the preceding room schema is published.
-	if _, err := s.db.Exec(machineDecisionsTable); err != nil {
-		t.Fatal(err)
-	}
 	key := Key{"codex", "synthetic-library-decision"}
 	if _, err := s.Register(context.Background(), Registration{Family: key.Family, ID: key.ID, Directory: t.TempDir()}); err != nil {
 		t.Fatal(err)
@@ -127,5 +124,89 @@ func TestMachineDecisionRowAndOrdinaryPageCapacity(t *testing.T) {
 	current, err := s.LibraryDecisionRead(ctx, key, root, d.ItemID)
 	if err != nil || current.Revision != 1 {
 		t.Fatalf("refusal mutated current: %+v %v", current, err)
+	}
+}
+
+func TestMachineDecisionFollowsRootAcrossRepositories(t *testing.T) {
+	s, key, c, root, d := machineDecisionFixture(t)
+	ctx := context.Background()
+	d.Choice = "declined"
+	d.Result = nil
+	if _, err := s.LibraryDecision(ctx, key, c, root, 0, d); err != nil {
+		t.Fatal(err)
+	}
+	otherKey := Key{"codex", "synthetic-other-repository"}
+	repo := testRepo(t)
+	if _, err := s.Register(ctx, Registration{Family: otherKey.Family, ID: otherKey.ID, Directory: repo, Repository: repo}); err != nil {
+		t.Fatal(err)
+	}
+	r, err := s.LibraryDecisionRead(ctx, otherKey, root, d.ItemID)
+	if err != nil || r == nil || r.Decision.Choice != "declined" {
+		t.Fatalf("machine decline became repository-local: %+v %v", r, err)
+	}
+	data, _ := json.Marshal(r)
+	if strings.Contains(string(data), key.ID) || strings.Contains(string(data), otherKey.ID) || strings.Contains(string(data), repo) {
+		t.Fatal("private native provenance in current record")
+	}
+	if r, err := s.LibraryDecisionRead(ctx, otherKey, library.ScopeDigest("machine", "/synthetic/other-root"), d.ItemID); err != nil || r != nil {
+		t.Fatal("different native roots shared a decision", r, err)
+	}
+}
+
+func TestMachineDecisionsDoNotConsumeFundedWorkControls(t *testing.T) {
+	s, caller, c, root, d := machineDecisionFixture(t)
+	ctx := context.Background()
+	m := MemoryCaller{Family: "codex", Repository: "/synthetic/library-work/.git", Consumer: "synthetic-library-worker", Name: "synthetic-library-worker"}
+	id := create(t, s, m, "synthetic funded work")
+	generation := mustStart(t, s, m, id, nil)
+	debt := mustDebt(t, s)
+	s.storage.maxPages = count(t, s, `PRAGMA page_count`) + reservePages + commitSlack + debt + appendAllowance - 1
+	if _, err := s.LibraryDecision(ctx, caller, c, root, 0, d); !errors.Is(err, ErrCapacity) {
+		t.Fatal("machine record borrowed work debt", err)
+	}
+	if mustDebt(t, s) != debt {
+		t.Fatal("refusal changed funded obligations")
+	}
+	mustWork(t, s, m, "work-finish", map[string]any{"work_id": id, "if_revision": revision(t, s, m, id), "claim_generation": generation, "outcome": "withdrawn", "reason": "synthetic completed control test", "key": key(), "deadline": now(s) + 600})
+	if count(t, s, `SELECT COUNT(*) FROM library_decisions`) != 0 {
+		t.Fatal("ordinary capacity refusal wrote a decision")
+	}
+}
+
+func TestLibrarySchemaTwentyPreservesSchemaNineteenState(t *testing.T) {
+	s, root := testStore(t)
+	ctx := context.Background()
+	room := mustRoom(t, s, "synthetic preserved room", 7)
+	if err := s.SetRoomRefill(roomCtx("room-refill"), room, 64); err != nil {
+		t.Fatal(err)
+	}
+	m := MemoryCaller{Family: "codex", Repository: "/synthetic/migration/.git", Consumer: "synthetic-migration", Name: "synthetic-migration"}
+	note(t, s, m, MemoryRecordRequest{Type: "finding", Body: "synthetic retained schema19 note"})
+	before := rowsOf(t, s.db)
+	if _, err := s.db.Exec(undoSchemaTwenty + `PRAGMA user_version=19`); err != nil {
+		t.Fatal(err)
+	}
+	if err := checkCatalog(s.db, 19); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.db.Close(); err != nil {
+		t.Fatal(err)
+	}
+	upgraded, err := openStore(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer upgraded.db.Close()
+	if count(t, upgraded, `PRAGMA user_version`) != 20 || count(t, upgraded, `SELECT COUNT(*) FROM library_decisions`) != 0 || rowsOf(t, upgraded.db) != before {
+		t.Fatal("schema20 changed retained state")
+	}
+	if count(t, upgraded, `SELECT create_refill FROM rooms WHERE room_id=?`, room) != 7 || count(t, upgraded, `SELECT refill FROM rooms WHERE room_id=?`, room) != 64 {
+		t.Fatal("room retry inputs lost in migration")
+	}
+	if err := checkCatalog(upgraded.db, 19); err == nil {
+		t.Fatal("older schema writer accepted the new ordinary table")
+	}
+	if _, err := upgraded.StorageStatus(ctx); err != nil {
+		t.Fatal(err)
 	}
 }

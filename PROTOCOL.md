@@ -766,7 +766,71 @@ with no repository-specific values. List/read change no project/native files, ad
 decisions, memory cursors or acknowledgements. MCP registration/renewal still occurs under
 the existing session rules. Catalog calls count as tool activity for succession.
 The content is reference data; adoption uses an exact reviewed diff approved by the
-maintainer (PDR 008). State inspection and adoption decision queries are not available yet.
+maintainer (PDR 008).
+
+`library_state` runs bounded filesystem reads in the existing native MCP/command client,
+using the daemon's trusted catalog and current decisions. It accepts optional `item_ids`
+(at most 32), `scope` (`machine`, default, or `project`) and `directory`. Without IDs it
+selects skills for machine scope and all catalog items for project scope. Family, effective
+native root and caller identity are native metadata, not tool arguments. Project selection
+must match the registered Git common directory and a listed worktree. Machine decision
+scope hashes the resolved native root; project decision scope hashes the common directory.
+Linked worktrees can therefore inspect different bytes while sharing decisions.
+
+The response has version, family, catalog digest, scope, item states and explicit limitations.
+Each item has typed target IDs/hashes, aggregate and target `present`, `missing`, `outdated`
+or `edited` states, reasons, collision state, scoped decision and its revision or memory
+sequence. Outdated requires a retained adopted baseline. Edited content wins over update
+recommendation; a read failure has no guessed aggregate state. Collections have at most
+32 targets and a 64 KiB aggregate read bound. Facts are a separate fixed, bounded project
+sidecar with schema digest and validation state; local facts are not canonical catalog bytes.
+No response contains adopted file bodies, resolved private home paths or native provenance IDs.
+Read-only state records no decision and moves no memory cursor.
+
+Known same-name catalog-derived files in machine/project discovery roots return
+`name_conflict` for differing bytes or `duplicate_discovery` for matching bytes, independently
+of selected content state. Unavailable roots remain limitations.
+Adoption comparison also includes the incoming catalog bytes when another independent
+same-name file exists; an absent selected target does not conceal a conflict. Discovery
+aliases of one physical file count once. A directory at a declared
+discovery-link path reports `directory_conflict` and is not traversed by link inspection;
+independently declared regular skill targets stay inspectable. Rooted reads reject symlink
+escapes and nonregular targets. Codex's effective CODEX_HOME is the primary adoption root;
+its shared HOME/.agents skills and both project discovery roots are collision-only descriptors
+verified with Codex 0.162.0 metadata. Unverified families still support catalog reads and
+project inspection. Recommendations select only verified missing/outdated skills required
+by available features, with no decline, collision or decision-inspection limitation.
+
+Machine `library_decision` accepts item ID, adopted/declined choice, inert evidence,
+catalog/item digests, typed pre-edit/result target digests and compared revision. The client
+fills native family/root metadata and calls `POST /v1/library/decision` internally;
+`POST /v1/library/decision/read` returns current state. `POST /v1/library/context` supplies
+the registered directory/common-directory context internally and is not a model tool.
+Schema 20 adds one ordinary `library_decisions` table and its primary-key index, keyed by
+family, root digest and item. It has at most 256 rows, 8,192 bytes per body and 2 MiB bodies
+in all, with native writer digest/time retained privately. Existing ordinary page admission
+preserves funded work controls. Capacity refuses without eviction. An identical current
+canonical outcome is a no-write success, including after a lost reply; a differing compared
+revision returns `decision_conflict` with current data. It promises no historical replay.
+Adoption updates the adopted baseline; decline keeps it. Records for removed items remain inert.
+
+Project decisions use existing `memory_record`/`memory_recall`, with their body limit,
+fixed retry deadline, replacement/conflict and retention semantics. A repo-scope `decision`
+body is strict version-1 JSON marked `library: "koinon-library-decision"`: item/family/scope,
+scope/catalog/item digests, kind, choice, inert evidence, and typed pre-edit/result/adopted
+digests. `repository-facts` kind additionally names the schema digest and fixed target ID
+`facts`; it is always project-scoped. Native writer family and repository are checked
+independently of body/author fields. A decline superseding a receipt must preserve its adopted
+baseline. State pages every relevant live receipt; multiple live receipts or a retained
+replacement conflict stay conflicts. Literal `memory_recall` of the library marker also
+returns bounded `library_history` absence reasons for revoked/expired receipts, retained floor
+and an incomplete flag. This metadata revives nothing and moves no cursor. Unavailable
+history never silently resets a decline. Receipts are reported outcomes, not approval attestations.
+
+The approved #145 procedure has the agent present an exact scoped diff, apply the approved
+item with normal editing tools, verify hashes and then record its outcome. Sidecars and
+discovery pointers are separate proposed changes. A failed receipt leaves the files applied
+and an explicitly unrecorded outcome. No state/decision interface writes adopted files.
 
 ### Rooms
 
@@ -831,6 +895,9 @@ and `work_checkout_request` (also optional `note`) call the checkout routes. Rel
 directories resolve against the MCP working directory and must share its Git common
 directory. `library_list` (`after`, `limit`) and `library_read` (`item_id`) call the catalog
 routes, using native caller identity and accepting no target path or family override.
+`library_state` (`item_ids`, `scope`, `directory`) and `library_decision` (item, choice,
+evidence, catalog/item digests, pre-edit/result arrays and `if_revision`) combine catalog,
+decisions and bounded reads in that same native client.
 `room_list` (`after`, `limit`) and `room_members` (`room_id`, `after`, `limit`) call the room
 routes.
 They take no model-supplied consumer or caller identity. A tool

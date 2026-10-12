@@ -13,7 +13,7 @@ func TestGuideMachineInspectionFourStatesKeepsPathsAndBodiesPrivate(t *testing.T
 	if err != nil {
 		t.Fatal(err)
 	}
-	ctx := InspectionContext{Family: "codex", Scope: "machine", MachineRoot: t.TempDir(), ProjectRoot: t.TempDir(), Repository: "/synthetic/common"}
+	ctx := InspectionContext{Family: "codex", Scope: "machine", MachineRoot: t.TempDir(), ProjectRoot: t.TempDir(), UserRoot: t.TempDir(), Repository: "/synthetic/common"}
 	read, _ := c.Read("codex", "skill.koinon-guide")
 	targets, _ := c.Targets("codex", "machine", read.Item.ID)
 	filename := filepath.Join(ctx.MachineRoot, filepath.FromSlash(targets[0].Path))
@@ -140,7 +140,7 @@ func TestSidecarStateIsSeparateFromSkillBytes(t *testing.T) {
 
 func TestCollisionKeepsScopeStateSeparateAndPreservesCopies(t *testing.T) {
 	c, _ := Embedded("dev")
-	ctx := InspectionContext{Family: "codex", Scope: "machine", MachineRoot: t.TempDir(), ProjectRoot: t.TempDir(), Repository: "/synthetic/common"}
+	ctx := InspectionContext{Family: "codex", Scope: "machine", MachineRoot: t.TempDir(), ProjectRoot: t.TempDir(), UserRoot: t.TempDir(), Repository: "/synthetic/common"}
 	read, _ := c.Read("codex", "skill.pair")
 	files := []string{}
 	for _, scope := range []string{"machine", "project"} {
@@ -178,8 +178,8 @@ func TestCollisionKeepsScopeStateSeparateAndPreservesCopies(t *testing.T) {
 		t.Fatal(err)
 	}
 	state = (Inspector{}).InspectItem(c, ctx, read.Item.ID, nil)
-	if state.State != "missing" || state.Collision != "" || !state.Recommended {
-		t.Fatalf("verified absent copy: %+v", state)
+	if state.State != "missing" || state.Collision != "name_conflict" || state.Recommended {
+		t.Fatalf("absent selected copy concealed incoming catalog conflict: %+v", state)
 	}
 	ctx.ProjectRoot = ""
 	state = (Inspector{}).InspectItem(c, ctx, read.Item.ID, nil)
@@ -252,5 +252,47 @@ func TestCustomAbsoluteDiscoveryLinkInsideRootIsEdited(t *testing.T) {
 	link, err := os.Readlink(filepath.Join(root, ".agents", "skills"))
 	if err != nil || link != custom {
 		t.Fatal("custom link changed", err)
+	}
+}
+
+func TestSharedDiscoveryAliasesDoNotCreateAnUpdateConflict(t *testing.T) {
+	c, _ := Embedded("dev")
+	root := t.TempDir()
+	ctx := InspectionContext{Family: "codex", Scope: "project", ProjectRoot: root, Repository: "/synthetic/common", MachineRoot: t.TempDir(), UserRoot: t.TempDir()}
+	read, _ := c.Read("codex", "skill.pair")
+	targets, _ := c.Targets("codex", "project", read.Item.ID)
+	file := filepath.Join(root, targets[0].Path)
+	old := []byte("synthetic unchanged adopted version")
+	if err := os.MkdirAll(filepath.Dir(file), 0700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(file, old, 0600); err != nil {
+		t.Fatal(err)
+	}
+	for _, dir := range []string{".agents", ".codex"} {
+		if err := os.Mkdir(filepath.Join(root, dir), 0700); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.Symlink("../agents/skills", filepath.Join(root, dir, "skills")); err != nil {
+			t.Fatal(err)
+		}
+	}
+	d := Decision{Marker: DecisionMarker, Version: DecisionVersion, ItemID: read.Item.ID, Family: "codex", Scope: "project", ScopeDigest: ScopeDigest("project", ctx.Repository), CatalogDigest: digest([]byte("synthetic old catalog")), ItemDigest: digest(old), Kind: "item", Choice: "adopted", Evidence: "synthetic old adoption", Result: []TargetDigest{{ID: "skill", Digest: digest(old)}}, Adopted: []TargetDigest{{ID: "skill", Digest: digest(old)}}}
+	state := (Inspector{}).InspectItem(c, ctx, read.Item.ID, &d)
+	if state.State != "outdated" || state.Collision != "" || state.CollisionNote != "" || !state.Recommended {
+		t.Fatalf("aliases introduced an unsourced conflict: %+v", state)
+	}
+	// A separate shared-user copy of those old bytes would remain stale after a
+	// project-only update and must be included in the proposed-change comparison.
+	other := filepath.Join(ctx.UserRoot, ".agents", "skills", "pair", "SKILL.md")
+	if err := os.MkdirAll(filepath.Dir(other), 0700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(other, old, 0600); err != nil {
+		t.Fatal(err)
+	}
+	state = (Inspector{}).InspectItem(c, ctx, read.Item.ID, &d)
+	if state.Collision != "name_conflict" || state.Recommended {
+		t.Fatalf("independent stale copy concealed: %+v", state)
 	}
 }

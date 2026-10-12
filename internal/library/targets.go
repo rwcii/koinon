@@ -33,7 +33,7 @@ func (c Catalog) Targets(family, scope, id string) ([]Target, error) {
 	item := read.Item
 	var destination *Destination
 	for i := range item.Destinations {
-		if item.Destinations[i].Scope == scope {
+		if item.Destinations[i].Scope == scope && item.Destinations[i].Discovery != "collision-only" {
 			destination = &item.Destinations[i]
 			break
 		}
@@ -102,6 +102,37 @@ func (c Catalog) Targets(family, scope, id string) ([]Target, error) {
 		return []Target{{"file", destination.Path, "file", []byte(item.Content)}}, nil
 	}
 	return nil, ErrInvalidQuery
+}
+
+type CollisionTarget struct {
+	Root   string
+	Target Target
+}
+
+// CollisionTargets names independently declared files, including native discovery
+// roots observed by the metadata probe. Paths never come from a receipt or tool input.
+func (c Catalog) CollisionTargets(family, id string) ([]CollisionTarget, error) {
+	read, err := c.Read(family, id)
+	if err != nil {
+		return nil, err
+	}
+	if read.Item.Kind != "skill" {
+		return nil, nil
+	}
+	result := []CollisionTarget{}
+	for _, d := range read.Item.Destinations {
+		if d.Scope == "machine" && d.Discovery != "verified" && d.Discovery != "collision-only" {
+			return nil, ErrUnsupportedScope
+		}
+		if !safeCatalogPath(d.Path) || d.Root != "worktree" && d.Root != "codex-home" && d.Root != "user-home" {
+			return nil, ErrInvalidQuery
+		}
+		result = append(result, CollisionTarget{d.Root, Target{ID: "skill", Path: d.Path, Kind: "file", Expected: []byte(read.Item.Content)}})
+	}
+	if len(result) > MaxTargets {
+		return nil, ErrInvalidQuery
+	}
+	return result, nil
 }
 
 // CheckTargets checks only descriptor IDs. Unknown recorded descriptors are inert and

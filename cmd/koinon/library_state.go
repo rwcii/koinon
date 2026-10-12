@@ -1,8 +1,10 @@
 package main
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"flag"
 	"fmt"
 	"io"
@@ -70,7 +72,21 @@ func libraryStateCommand(ctx context.Context, args []string, out io.Writer) erro
 			return usageError{"invalid_request", "machine decision needs one ITEM_ID and --if-revision; project receipts use memory record"}
 		}
 		r := libraryclient.DecisionRequest{ItemID: ids[0], Choice: *choice, Evidence: *evidence, CatalogDigest: *catalogDigest, ItemDigest: *itemDigest, Compared: *compared}
-		if json.Unmarshal([]byte(*before), &r.Before) != nil || json.Unmarshal([]byte(*result), &r.Result) != nil {
+		parse := func(body string, value any) error {
+			if !strings.HasPrefix(strings.TrimSpace(body), "[") {
+				return errors.New("target digests must be an array")
+			}
+			decoder := json.NewDecoder(bytes.NewBufferString(body))
+			decoder.DisallowUnknownFields()
+			if err := decoder.Decode(value); err != nil {
+				return err
+			}
+			if decoder.Decode(new(any)) != io.EOF {
+				return errors.New("trailing target digest data")
+			}
+			return nil
+		}
+		if parse(*before, &r.Before) != nil || parse(*result, &r.Result) != nil {
 			return usageError{"invalid_request", "pre-edit and result must be typed target digest arrays"}
 		}
 		value, err = client.Decision(ctx, r)

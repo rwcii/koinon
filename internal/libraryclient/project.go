@@ -3,6 +3,7 @@ package libraryclient
 import (
 	"context"
 	"encoding/json"
+	"strings"
 
 	"github.com/rwcii/koinon/internal/core"
 	"github.com/rwcii/koinon/internal/library"
@@ -75,7 +76,13 @@ func (p projectReceipts) selectDecision(item, kind, family, scope string) (*libr
 			Family      string `json:"family"`
 			ScopeDigest string `json:"scope_digest"`
 		}
-		if json.Unmarshal([]byte(e.Body), &header) != nil || header.Library != library.DecisionMarker || header.ItemID != item || header.Kind != kind || header.Family != family || header.ScopeDigest != scope {
+		if json.Unmarshal([]byte(e.Body), &header) != nil {
+			if e.Type == "decision" && e.Scope == "repo" && e.WriterFamily == family && strings.HasPrefix(strings.TrimSpace(e.Body), "{") && strings.Contains(e.Body, library.DecisionMarker) {
+				return nil, 0, "decision_unavailable"
+			}
+			continue
+		}
+		if header.Library != library.DecisionMarker || header.ItemID != item || header.Kind != kind || header.Family != family || header.ScopeDigest != scope {
 			continue
 		}
 		d, err := library.ParseDecision([]byte(e.Body))

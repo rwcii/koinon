@@ -56,4 +56,9 @@ func TestProjectDecisionPagesAllReceiptsAndReportsConflicts(t *testing.T) {
 	if _, _, reason := p.selectDecision(item.Item.ID, "item", "codex", scope); reason != "retained_history_incomplete" {
 		t.Fatal("retention became missing", reason)
 	}
+	p.floor = 0
+	p.entries = []core.MemoryEntry{{Seq: 1, Type: "decision", Scope: "repo", WriterFamily: "codex", Body: `{"library":"koinon-library-decision",`}}
+	if _, _, reason := p.selectDecision(item.Item.ID, "item", "codex", scope); reason != "decision_unavailable" {
+		t.Fatal("malformed retained receipt became absent", reason)
+	}
 }

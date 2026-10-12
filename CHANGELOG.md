@@ -5,6 +5,13 @@ into a dated release section when promoted to `main`.
 
 ## Unreleased
 
+- Inspect installed skills and setup targets with `library_state` and `koinon library state`
+  (#145, chunk 03), including content, native name collisions, repository facts and scoped
+  adoption decisions. Machine decisions use compared revisions and retain adopted digests
+  through a decline; project receipts use repository memory. Connection guidance explains
+  exact-change adoption and recommends required skills from verified state. These interfaces
+  edit no adopted files. Schema 20 adds one ordinary machine-decision table.
+
 - Dashboard rooms (#217, chunk 01): the maintainer creates a room on the new Rooms page,
   sets its agent-post refill value (default 32) and adds or removes active sessions by peer
   name. A session that holds a participant address joins as that participant and keeps the

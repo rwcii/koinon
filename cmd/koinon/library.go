@@ -16,7 +16,7 @@ func libraryCommand(ctx context.Context, args []string, out io.Writer) error {
 		return libraryStateCommand(ctx, args, out)
 	}
 	if len(args) == 0 || args[0] != "list" && args[0] != "read" {
-		return usageError{"invalid_request", "use koinon library list or koinon library read ITEM_ID"}
+		return usageError{"invalid_request", "use koinon library list, read, state or decision"}
 	}
 	op, rest := args[0], args[1:]
 	root, err := platform.DefaultStateDir()

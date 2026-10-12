@@ -434,7 +434,13 @@ Unknown/unverified native roots support catalog reading; reading is not evidence
 installed skill. List/read inspect no project or native-home files and record no adoption
 decision. Installation and upgrade apply no catalog items. An adoption uses an exact
 reviewed diff approved by the maintainer (PDR 008); locally edited files remain as they are.
-Current queries provide reference content and metadata, with no installed-state query.
+`library_state` and `koinon library state` inspect declared targets in the calling native
+client's verified environment. Codex's effective `CODEX_HOME` selects its machine target;
+known same-name shared-user and project discovery copies are checked for collisions.
+Unverified roots report an inspection limitation. Machine decisions are shared across
+repositories for that family/root; project receipts share the repository's Git common
+directory. Schema 20 preserves existing state and adds ordinary bounded machine decisions.
+See [the adoption procedure](USAGE.md#inspect-and-adopt-an-item) before applying an item.
 
 ## Launcher paths in launchers.json
 
