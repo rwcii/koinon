@@ -271,7 +271,7 @@ func checkFormat(db *sql.DB, path string) error {
 	return nil
 }
 
-const schemaVersion = 15
+const schemaVersion = 16
 
 // migrate brings the state schema from version to target in one transaction, so a crash
 // leaves either the old or the new schema. Each step starts from the version before it.
@@ -561,6 +561,18 @@ func migrate(db *sql.DB, version, target int) error {
 			ALTER TABLE messages ADD COLUMN ack_via TEXT NOT NULL DEFAULT '';`); err != nil {
 			return err
 		}
+	}
+	if version < 16 && target >= 16 {
+		// Role proposals route through participants; new role claims and their replay
+		// records bind the native actor. Existing claims keep their empty legacy binding.
+		if _, err := tx.Exec(`ALTER TABLE work_items ADD COLUMN proposed_role TEXT NOT NULL DEFAULT '';
+			ALTER TABLE claim_bundles ADD COLUMN native_actor TEXT NOT NULL DEFAULT '';
+			ALTER TABLE work_replays ADD COLUMN native_actor TEXT NOT NULL DEFAULT '';
+			UPDATE claim_bundles SET native_actor='';`); err != nil {
+			return err
+		}
+		// Materialize the added column on retained bundles now. A later funded
+		// flag-only update must not grow an old row's record header on first use.
 	}
 	if _, err := tx.Exec(fmt.Sprintf("PRAGMA user_version=%d", target)); err != nil {
 		return err

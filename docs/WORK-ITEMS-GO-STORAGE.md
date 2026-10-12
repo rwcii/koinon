@@ -77,6 +77,20 @@ and expiry reasons, longer counters and times), so a funded due event is never r
 
 ## Evidence
 
+Schema 16 adds bounded proposal JSON and 64-byte native actor digests to the existing item,
+claim and replay tables, with no new table or index. Their UTF-8 bytes are included in usage
+and item-image charges. The unchanged 16,857-byte item-row admission bound includes the
+proposal; the 16-KiB event/image and 2-KiB replay-result bounds still apply. The native digest
+does not change any key or credit flag and fits the replay row's existing overflow allowance.
+Funded controls still change only claim flags; actor binding is written during the ordinary
+start. The 48-KiB logical credit and 576/768-page allowances remain unchanged.
+Migration materializes the added column on retained bundles, so their first funded flag
+update does not grow an old record header.
+`TestWorkRoleFundedControlsAtSaturation` fills ordinary storage beside 16 native-bound claims
+with maximum role/scope/checkpoint fields, then commits every overdue and finish control,
+checking debt, page growth and integrity. Legacy short/long-repository saturation proofs
+continue in `TestWorkSaturationAndControlAllowances`.
+
 `TestWorkSaturationAndControlAllowances` fills the ordinary band with notes beside 16 funded
 bundles, then commits every overdue and finish control, note withdrawals, an acknowledgement
 and the cleanup of every bundle, and checks each control's page growth against its allowance
