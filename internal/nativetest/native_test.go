@@ -252,11 +252,12 @@ func TestGoLifecycle(t *testing.T) {
 		cmd := exec.CommandContext(ctx, "git", "-C", repo, "rev-parse", "--git-common-dir")
 		cmd.Env = core.CleanGitEnvironment()
 		_, gitErr := cmd.Output()
+		elapsed := time.Since(started)
 		cancel()
 		_, lookupErr := exec.LookPath("git")
 		_, statusErr := koinon(t, "status", "--state-dir", state)
 		t.Logf("runner Git available=%t discovery_success=%t elapsed=%s daemon_status_success=%t",
-			lookupErr == nil, gitErr == nil, time.Since(started), statusErr == nil)
+			lookupErr == nil, gitErr == nil, elapsed, statusErr == nil)
 		t.Fatal(err)
 	}
 	before := daemonPID(t)

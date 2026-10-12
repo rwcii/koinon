@@ -716,7 +716,10 @@ func (s *Store) Register(ctx context.Context, r Registration) (Session, error) {
 			return Session{}, err
 		}
 		dirCommon, err := repository(ctx, directory)
-		if err != nil || common != dirCommon {
+		if err != nil {
+			return Session{}, err
+		}
+		if common != dirCommon {
 			return Session{}, ErrInvalid
 		}
 	}

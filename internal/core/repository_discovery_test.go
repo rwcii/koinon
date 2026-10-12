@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -77,5 +78,35 @@ func TestNonRepositoryRemainsInvalidInput(t *testing.T) {
 		Registration{Family: "deepseek", ID: "synthetic-not-repo", Directory: directory, Repository: directory})
 	if status != http.StatusBadRequest || reply["code"] != "invalid_request" {
 		t.Fatalf("non-repository validation changed: status=%d reply=%v", status, reply)
+	}
+}
+
+func TestRegistrationReportsSecondGitDiscoveryTimeout(t *testing.T) {
+	repo := testRepo(t)
+	directory := filepath.Join(repo, "child")
+	if err := os.Mkdir(directory, 0700); err != nil {
+		t.Fatal(err)
+	}
+	d, root := startTestDaemon(t)
+	secret, err := ReadSecret(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	quote := func(value string) string { return "'" + strings.ReplaceAll(value, "'", "'\"'\"'") + "'" }
+	script := fmt.Sprintf("#!/bin/sh\nif [ \"$2\" = %s ]; then\n printf '%%s\\n' %s\n exit 0\nfi\nexec /bin/sleep 30\n",
+		quote(repo), quote(filepath.Join(repo, ".git")))
+	bin := t.TempDir()
+	if err := os.WriteFile(filepath.Join(bin, "git"), []byte(script), 0700); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("PATH", bin)
+	status, reply := post(t, d.Addresses()[0], secret, "/v1/sessions/register",
+		Registration{Family: "deepseek", ID: "synthetic-second-discovery", Repository: repo, Directory: directory})
+	if status != http.StatusServiceUnavailable || reply["code"] != "repository_git_timeout" {
+		t.Fatalf("second lookup lost cause: status=%d reply=%v", status, reply)
+	}
+	counts, err := d.store.Counts(context.Background())
+	if err != nil || counts["total"] != 0 {
+		t.Fatalf("second lookup left a session: %v %v", counts, err)
 	}
 }
