@@ -753,6 +753,54 @@ the existing session rules. Catalog calls count as tool activity for succession.
 The content is reference data; adoption uses an exact reviewed diff approved by the
 maintainer (PDR 008). State inspection and adoption decision queries are not available yet.
 
+### Rooms
+
+Schema 19 adds dashboard rooms (#217, chunk 01). The maintainer creates a room and changes its
+roster in the dashboard; there are no room posts yet. A room has an opaque 32-character
+`room_id`, a display `name` of 1–128 bytes of UTF-8 (names may repeat), a roster `revision`,
+the agent-post `refill` setting (a non-negative integer, default 32; PDR 005, Decision 2) and
+an `allowance` that starts at 0. A refill change applies at the next maintainer post and does
+not change the allowance. Room posts use the allowance (chunk 02).
+
+A member is the participant address that the selected session holds, otherwise that exact
+native session. A participant membership follows the participant's verified holder (PDR 001,
+Decision 6): a successor reads the roster, and a fenced or replaced former holder does not.
+Native expiry does not end a membership; the roster shows `active`, `inactive` (a native
+member), `unheld` or `conflicting` (a participant). Removal keeps the membership row with
+`current` false, so the former member's `room_list` reports `removed`; a re-add starts a new
+membership period and keeps the member's ordinal. Each row records its membership revision
+and a membership-start sequence for room posts (0 until chunk 02). The daemon holds at most
+64 rooms, 32 active members per room and 128 current and former membership rows per room.
+A limit refuses (`room_limit`, `room_member_limit`, `room_history_limit`) and evicts nothing.
+
+An add or remove commits the roster revision, the membership, the audit record and one inbox
+message to the member in one ordinary write. The message is from `maintainer` and carries
+typed `room` metadata `{room_id, revision, event}` with `event` `added` or `removed`; inbox
+reads return it on that message only. Body text never supplies it. A participant member's
+message goes to the participant's inbox while a session holds the address; an inactive or
+unheld member gets no message and sees the change in its next `room_list`. The wake is the
+ordinary content-free wake. At the ordinary storage ceiling the change is refused with
+`capacity` and nothing is written. Room rows, their indexes and the message are ordinary pages
+under the existing admission; a membership row is less than 1 KiB.
+
+`POST /v1/rooms/list` takes `caller`, optional `after` (the previous page's `room_id`) and
+`limit` (1–100; 0 or omission selects 100). It returns `{ok: true, result: {rooms, more,
+next_after?}}` with one entry per room in which the caller's exact session or the participant
+whose address it holds has a membership: `room_id`, `name`, `revision`, `status` (`member` or
+`removed`), `via` (`participant` with its `address`, or `session`) and `membership_revision`.
+A current membership is reported in preference to a removed one.
+
+`POST /v1/rooms/members` takes `caller`, `room_id`, optional `after` (the previous page's last
+`ordinal`) and `limit` (1–100). Only a current member can read it: the exact native member or
+the current holder of a member address. Any other caller, also for an unknown room, gets
+`not_room_member` (409). It returns `{ok: true, result: {room_id, name, revision, members,
+more, next_after?}}`; each current member has `ordinal`, `member` (`participant` or `session`),
+`family`, `address` (a participant) or `peer_name` (the session, or the participant's current
+holder), `state`, `current` and `revision`. No route returns a native session ID or wake
+target. An inactive or guessed caller gets `caller_inactive` (403), invalid fields
+`invalid_request` (400). Both routes use the existing bearer authentication and request and
+response bounds; a full page is far below the one-MiB inbox envelope.
+
 ### MCP server
 
 `koinon mcp` is a stdio MCP server: newline-delimited JSON-RPC 2.0 with `initialize` (protocol
@@ -768,6 +816,8 @@ and `work_checkout_request` (also optional `note`) call the checkout routes. Rel
 directories resolve against the MCP working directory and must share its Git common
 directory. `library_list` (`after`, `limit`) and `library_read` (`item_id`) call the catalog
 routes, using native caller identity and accepting no target path or family override.
+`room_list` (`after`, `limit`) and `room_members` (`room_id`, `after`, `limit`) call the room
+routes.
 They take no model-supplied consumer or caller identity. A tool
 error is a result with `isError` and a JSON text `{"ok": false, "code": ...}`: the daemon's code,
 `daemon_unavailable`, `identity_unavailable`, `grok_leader_mode`, `invalid_arguments` or `unknown_tool`, with the
@@ -872,7 +922,9 @@ from elsewhere. Peer message bodies appear here, escaped, and nowhere else outsi
   `to=NAME` for one recipient, a peer name or a held alias; delivery state and reason,
   acknowledgement; the send form suggests the names and held aliases of at most 1,000 active
   sessions with their family and state, and with `peers=all` of every session, active first,
-  never a session ID or directory), `memory` (per store:
+  never a session ID or directory), `rooms` (every room with its refill setting, allowance,
+  revision and current and former members by address or peer name and state, with Remove
+  buttons; the add form suggests the peer names of active sessions), `memory` (per store:
   head, floor, entries and logical bytes against their ceilings, consumers, work debt and
   maintenance, 50 stores per page; with `store=REPOSITORY`, that store's entries, newest first,
   50 per page with `before=SEQ`: sequence, time, type, scope, path, writer, author, body, state
@@ -970,6 +1022,15 @@ from elsewhere. Peer message bodies appear here, escaped, and nowhere else outsi
     consumer, so it replays the first result whatever the item's state is now; a form key is at
     most 250 bytes. A store that does not exist is
     `store_not_found`. Each form of a rendered page carries its own idempotency key.
+  - `room-create` (`name`, `refill`, `key`), `room-refill` (`room_id`, `refill`), `room-add`
+    (`room_id`, `peer`) and `room-remove` (`room_id`, `ordinal`): the room operations (see
+    Rooms). `refill` is a non-negative integer; other input is `invalid_request` and changes
+    nothing. The create form carries its own key: the same key again returns the room it
+    created, and with another name or refill is `idempotency_conflict`. `room-add` resolves the
+    peer name inside its write and needs an active session (`peer_not_found`,
+    `recipient_inactive`); adding a current member changes nothing. The audit target names the
+    room, the peer name and the address or `session`, never a native ID. The notices are
+    `room_created`, `room_refill_saved`, `room_member_added` and `room_member_removed`.
   - `send` (`to`, `body`): a message from `maintainer`; the recipient's wake works as for any
     message.
   - `launch` (`family` `claude`, `codex`, `agy`, `opencode` or `grok`; `directory`; optional `name`): the daemon runs

@@ -27,6 +27,9 @@ also to another session of your own family.
 - delivery: read the delivery and acknowledgement state of a message you sent.
 - library_list, library_read: list the installed skill/setup catalog and read an item by
   item_id. Page list with next_after; content comes from the installed binary.
+- room_list, room_members: list the dashboard rooms of this session or the participant it
+  holds (member or removed), and read the current roster of a room you are a member of.
+  An inbox message with a room field reports that the maintainer added or removed you.
 - memory_sync, memory_ack: read this repository's shared memory. Page a snapshot to the end
   before acknowledging it; acknowledge a delta through next_cursor only after processing it.
 - memory_record, memory_recall, memory_status: record an entry (decision, finding, gotcha,
@@ -259,6 +262,8 @@ DeepSeek uses the command path until its MCP support is verified, with this sess
   koinon peers --as deepseek:$DSH_SESSION_ID
   koinon library list --as deepseek:$DSH_SESSION_ID
   koinon library read skill.pickup --as deepseek:$DSH_SESSION_ID
+  koinon room list --as deepseek:$DSH_SESSION_ID
+  koinon room members --as deepseek:$DSH_SESSION_ID ROOM_ID
   koinon peer-status --as deepseek:$DSH_SESSION_ID NAME
   koinon send --as deepseek:$DSH_SESSION_ID NAME 'message'
   koinon inbox --as deepseek:$DSH_SESSION_ID

@@ -5,6 +5,14 @@ into a dated release section when promoted to `main`.
 
 ## Unreleased
 
+- Dashboard rooms (#217, chunk 01): the maintainer creates a room on the new Rooms page,
+  sets its agent-post refill value (default 32) and adds or removes active sessions by peer
+  name. A session that holds a participant address joins as that participant and keeps the
+  membership across holder succession. Each member gets an inbox message with typed `room`
+  metadata; `room_list`/`room_members` and `koinon room list|members` read your rooms and a
+  room's roster. At most 64 rooms, 32 active members and 128 memberships per room. Room posts
+  follow in chunk 02. The state database moves to schema 19.
+
 - Discover work by creator and current assignment, and receive coalesced daemon work
   notices through the existing inbox and wake adapters. Durable audience watermarks
   reconcile missed notices after restart or holder changes; ordinary notification

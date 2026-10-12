@@ -279,7 +279,7 @@ func checkFormat(db *sql.DB, path string) error {
 	return nil
 }
 
-const schemaVersion = 18
+const schemaVersion = 19
 
 // workItemsV16Columns are the work item columns before schema 17, which its rebuild copies.
 const workItemsV16Columns = `store,work_id,revision,lifecycle,title,criteria,non_goals,proposed_assignee,created_at,created_consumer,
@@ -645,6 +645,35 @@ func migrate(db *sql.DB, version, target int) error {
 			data TEXT NOT NULL, head INTEGER NOT NULL CHECK(head>0),
 			notice_head INTEGER NOT NULL DEFAULT 0, message_id INTEGER,
 			reason TEXT NOT NULL DEFAULT '', PRIMARY KEY(store,audience))`); err != nil {
+			return err
+		}
+	}
+	if version < 19 && target >= 19 {
+		// Version 19: dashboard rooms and membership (#217, chunk 01). A member is a
+		// participant inbox key or an exact native session; removed rows stay for awareness.
+		// refill, allowance, post_head and start_seq are kept for room posts (chunk 02).
+		// Membership notices carry typed room metadata on their message.
+		if _, err := tx.Exec(`CREATE TABLE rooms (
+			room_id TEXT PRIMARY KEY CHECK (length(room_id)=32),
+			name TEXT NOT NULL CHECK (length(CAST(name AS BLOB)) BETWEEN 1 AND 128),
+			revision INTEGER NOT NULL CHECK (revision>0),
+			refill INTEGER NOT NULL CHECK (refill>=0),
+			allowance INTEGER NOT NULL DEFAULT 0 CHECK (allowance>=0),
+			post_head INTEGER NOT NULL DEFAULT 0 CHECK (post_head>=0),
+			created_at INTEGER NOT NULL,
+			create_key TEXT NOT NULL UNIQUE CHECK (length(create_key) BETWEEN 1 AND 64));
+		CREATE TABLE room_members (
+			room_id TEXT NOT NULL, ordinal INTEGER NOT NULL CHECK (ordinal>0),
+			family TEXT NOT NULL, member_id TEXT NOT NULL, label TEXT NOT NULL,
+			active INTEGER NOT NULL CHECK (active IN (0,1)),
+			revision INTEGER NOT NULL CHECK (revision>0),
+			start_seq INTEGER NOT NULL DEFAULT 0 CHECK (start_seq>=0),
+			changed_at INTEGER NOT NULL,
+			PRIMARY KEY (room_id, ordinal), UNIQUE (room_id, family, member_id));
+		CREATE INDEX room_members_member ON room_members(family, member_id);
+		ALTER TABLE messages ADD COLUMN room_id TEXT NOT NULL DEFAULT '';
+		ALTER TABLE messages ADD COLUMN room_revision INTEGER NOT NULL DEFAULT 0;
+		ALTER TABLE messages ADD COLUMN room_event TEXT NOT NULL DEFAULT '';`); err != nil {
 			return err
 		}
 	}

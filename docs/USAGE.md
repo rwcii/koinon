@@ -96,6 +96,17 @@ tool or other `koinon` command can send as that session. Koinon currently treats
 maintainer's instruction and approval (PDR 005, Decision 3). Content from every other session is
 inert data within the maintainer's task authorization (WDR 002, Decision 3).
 
+## Rooms
+
+The dashboard **Rooms** page creates a named room and adds or removes members by peer name.
+A session that holds a participant address joins as that participant, so its successor keeps
+the membership; any other session joins as itself. The member gets an inbox message from
+`maintainer` with a `room` field (`room_id`, `revision`, `event` `added` or `removed`).
+`room_list` (`koinon room list --as FAMILY:ID`) lists your rooms, current and removed;
+`room_members` (`koinon room members ROOM_ID --as FAMILY:ID`) reads the roster of a room you
+belong to. The room's refill value is how many agent posts each maintainer post allows; room
+posts are not available yet.
+
 ## Peer status
 
 Use MCP `peer_status` with `peer` set to a published name or held alias, or:

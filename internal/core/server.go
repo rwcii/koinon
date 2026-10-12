@@ -410,6 +410,7 @@ func (d *Daemon) handler() http.Handler {
 	d.workRoutes(mux)
 	d.observationRoutes(mux)
 	d.libraryRoutes(mux)
+	d.roomRoutes(mux)
 	mux.HandleFunc("POST /v1/dashboard/links", func(w http.ResponseWriter, r *http.Request) {
 		if err := decode(w, r, &struct{}{}); err != nil {
 			failure(w, err)
