@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"github.com/rwcii/koinon/internal/core"
+	"github.com/rwcii/koinon/internal/library"
 	"github.com/rwcii/koinon/internal/platform"
 )
 
@@ -42,6 +43,8 @@ type Config struct {
 	Parents func() (map[int]int, error)
 	// After waits for the renewal timer; nil is time.After.
 	After func(time.Duration) <-chan time.Time
+	// LibraryReadRoot injects bounded native-client filesystem observations.
+	LibraryReadRoot func(string) (library.ReadRoot, error)
 }
 
 type rpcRequest struct {

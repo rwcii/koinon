@@ -256,7 +256,7 @@ func Build(source, permissions fs.FS, release string) (Catalog, error) {
 	wrappers, _ := json.Marshal(struct {
 		Ownership string    `json:"ownership"`
 		Commands  []Command `json:"commands"`
-	}{"Generated ownership marker; preserve custom commands and refuse collisions or symlinks. Adopt only the nine unchanged original templates; removal affects only owned wrappers.", commands})
+	}{"Generated ownership marker; preserve custom commands and refuse collisions or symlinks. The listed commands are the catalog's bounded targets; removal affects only owned wrappers.", commands})
 	guidance := []byte("<!-- koinon:catalog-guidance -->\nRead the installed `koinon guide --agent FAMILY` within the task. Inspect the installed catalog before proposing skill adoption. Each proposed skill or setup adoption requires exact-change approval (PDR 008); permission recommendations are inert.\n<!-- /koinon:catalog-guidance -->\n")
 	for _, setup := range []struct {
 		id, target, purpose string

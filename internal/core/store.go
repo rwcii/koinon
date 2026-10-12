@@ -135,6 +135,7 @@ type Store struct {
 	alive liveness
 	// settings holds the session timing values in force (#249).
 	settings settingsState
+	library  libraryState
 }
 
 func openStore(root string) (*Store, error) { return openStoreFile(root, "state.sqlite3") }

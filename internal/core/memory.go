@@ -14,6 +14,8 @@ import (
 	"strings"
 	"sync"
 	"unicode/utf8"
+
+	"github.com/rwcii/koinon/internal/library"
 )
 
 // Memory follows the protocol of PROTOCOL.md ("Memory stores") and
@@ -605,6 +607,9 @@ func (s *Store) MemoryRecord(ctx context.Context, m MemoryCaller, r MemoryRecord
 		if result, found, err := s.duplicate(ctx, s.db, m, r, print); found || err != nil {
 			return result, err
 		}
+	}
+	if err := s.validateProjectDecision(ctx, m, r); err != nil {
+		return MemoryRecordResult{}, err
 	}
 	if err := s.maybeExpire(ctx, m.Repository); err != nil {
 		return MemoryRecordResult{}, err
@@ -1236,7 +1241,15 @@ func (s *Store) MemoryRecall(ctx context.Context, m MemoryCaller, query string, 
 	if page == nil {
 		page = []json.RawMessage{}
 	}
-	return map[string]any{"entries": page, "more": more, "indexed": false, "next_before": next}, nil
+	result := map[string]any{"entries": page, "more": more, "indexed": false, "next_before": next}
+	if query == library.DecisionMarker {
+		history, err := s.libraryReceiptHistory(ctx, m)
+		if err != nil {
+			return nil, err
+		}
+		result["library_history"] = history
+	}
+	return result, nil
 }
 
 // MemoryStatus reports the store's head, floor, usage, limits, lifetimes and consumers.
