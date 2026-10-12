@@ -150,9 +150,16 @@ hold or qualify for a participant: `assignNames` releases any address it holds, 
 refuses it with `subagent`, and `ChooseHolder` refuses it with `not_participant`. Koinon
 detects sub-agents only for Codex.
 
+Grok Build (planned under #254) runs a sub-agent's tool calls through the parent's MCP server
+with the parent's session ID and no per-call marker. Koinon will attribute those calls to the
+parent session, as it does for Claude Code sub-agents, and document that; it adds no default
+refusal of Grok sub-agent calls.
+
 **Provenance:** Shipped in PR #263 (merge commit fec77b1) and PR #266 (merge commit 1eaa7e0);
 no maintainer decision found. The plan states it as acceptance criterion 1 after a live check
-found that each Codex sub-agent registered as its own session.
+found that each Codex sub-agent registered as its own session. Grok: Maintainer, 2026-10-12:
+"your  Gate B for Grok #254 recomendation is approved." (#254 comment 6118290944), approving
+parent-scoped attribution with no default sub-agent ban.
 
 ### Alternatives Considered
 
