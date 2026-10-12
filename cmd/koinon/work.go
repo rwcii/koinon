@@ -27,7 +27,7 @@ var (
 	workIntegers = map[string]bool{"revision": true, "if_revision": true, "claim_generation": true, "if_claim_revision": true,
 		"limit": true, "lease_seconds": true, "renew_for": true, "report_seq": true}
 	workNumbers = map[string]bool{"progress_deadline": true, "deadline": true}
-	workBools   = map[string]bool{"stale": true, "blocked": true, "assigned_to_me": true}
+	workBools   = map[string]bool{"stale": true, "blocked": true, "assigned_to_me": true, "created_by_me": true}
 )
 
 // workCommand runs koinon work OPERATION and koinon claim renew through the daemon's

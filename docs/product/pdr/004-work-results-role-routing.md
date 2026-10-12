@@ -38,7 +38,7 @@ different consumer accept or reject a reported result, and let the assignee and 
 discover the transitions that concern them.
 
 Role routing (Decision 1) is built (#326), and the reported state and verdict (Decisions 2
-and 3) are built (#140 chunk 02); discovery (Decision 4) is not built. The maintainer
+and 3) are built (#328); discovery (Decision 4) is built in #140 chunk 03. The maintainer
 approved the reviewed plan at Gate B on 2026-10-12
 ([#140 comment 6127384411](https://github.com/rwcii/koinon/issues/140#issuecomment-6127384411)).
 This record states what #140 requests and what the approved plan builds. The maintainer decided on 2026-10-12 that the reporting worker is refused
@@ -216,8 +216,8 @@ Handling a transition twice has no effect. No per-transition notice is promised.
 wires work changes to the existing content-free inbox wake: one pending notice per audience,
 coalescing later changes. Audience state is bounded at 256 rows per store; when full, no row
 or notice is added, nothing is evicted, saturation is shown in status, and queries still list
-all outstanding work. Today the Go daemon has the post-commit memory-change hook
-(`OnMemoryChange`) but no production caller binds it to work wakes.
+all outstanding work. The Go daemon binds its post-commit memory-change hook
+(`OnMemoryChange`) to durable work-notice reconciliation.
 
 **Provenance:** Requested in #140 (issue body, gap 3); a request record, no maintainer quote
 found. Audience rules and bounds: Proposed in the #140 plan (chunk 03); approved at Gate B
@@ -258,3 +258,4 @@ maintainer decided the verdict rule (Decision 3) and approved the plan's mechani
 | 2026-10-12 | Clarified the reporting-worker exclusion against the framed question: changing consumer labels does not make the same native session another worker (#140 reconciliation) |
 | 2026-10-12 | Recorded the maintainer's Gate B approval of the #140 plan; status accepted; role routing covers default participants |
 | 2026-10-12 | Role routing and the reported state with its verdict are built; discovery is not |
+| 2026-10-12 | Built production work discovery and coalesced notices under the approved chunk 03 plan |

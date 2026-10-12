@@ -203,6 +203,7 @@ type memoryUsage struct {
 	ClaimResources    int64 `json:"claim_resources"`
 	WorkEvents        int64 `json:"work_events"`
 	WorkReplays       int64 `json:"work_replays"`
+	WorkAudiences     int64 `json:"work_audiences"`
 }
 
 // textBytes is the SQL charge of text columns: their UTF-8 bytes, NULL as zero.
@@ -276,6 +277,12 @@ func usage(ctx context.Context, q querier, repo string) (memoryUsage, error) {
 	u.Logical += tableBytes + replayBytes
 	u.Idem += u.WorkReplays
 	u.WorkLogical = tableBytes + replayBytes + eventEntryBytes
+	if err == nil {
+		var audienceBytes int64
+		err = q.QueryRowContext(ctx, `SELECT COUNT(*),COALESCE(SUM(?+`+textBytes("store", "audience", "data", "reason")+`),0) FROM work_audiences WHERE store=?`, workRowOverhead, store).Scan(&u.WorkAudiences, &audienceBytes)
+		u.Logical += audienceBytes
+		u.WorkLogical += audienceBytes
+	}
 	return u, err
 }
 
@@ -319,6 +326,7 @@ func (l memoryLimits) exceeded(u memoryUsage, c storeCaps, need, slots int64) er
 	case u.Idem > c.idem:
 		return memoryError("idem_capacity", "the idempotency window is full; nothing was written")
 	case u.WorkItems > l.workItems || u.WorkScopes > c.workScopes || u.WorkScopesPerItem > l.workScopesPerItem ||
+		u.WorkAudiences > maxWorkAudiences ||
 		u.ClaimBundles > maxBundles || u.ClaimResources > maxBundles*(maxResources+1):
 		return memoryError("capacity", "a work row limit is reached; nothing was written and stored data is intact")
 	}
@@ -775,6 +783,20 @@ func (s *Store) register(ctx context.Context, m MemoryCaller) (memoryCursor, err
 func (s *Store) touch(ctx context.Context, m MemoryCaller) error {
 	return s.memoryProgress(ctx, m.Repository, func(tx *writeTx) error {
 		_, err := tx.ExecContext(ctx, `UPDATE memory_cursors SET updated=? WHERE repository=? AND consumer=?`, s.clock(), m.Repository, m.Consumer)
+		if err != nil {
+			return err
+		}
+		// Custom consumers also record the actual session using the cursor. This is
+		// transport provenance for discovery, without deriving identity from its label.
+		if validKey(m.Native.Family, m.Native.ID) && m.Native.Family == m.Family {
+			var eligible bool
+			if err := tx.QueryRowContext(ctx, `SELECT EXISTS(SELECT 1 FROM sessions WHERE family=? AND id=? AND repository=? AND retired_at=0 AND expires_at>?)`, m.Native.Family, m.Native.ID, m.Repository, s.now().UnixMilli()).Scan(&eligible); err != nil {
+				return err
+			}
+			if eligible {
+				_, err = tx.ExecContext(ctx, `UPDATE memory_cursors SET actor=? WHERE repository=? AND consumer=?`, nativeActor(m), m.Repository, m.Consumer)
+			}
+		}
 		return err
 	})
 }
@@ -1285,9 +1307,14 @@ func (s *Store) MemoryStatus(ctx context.Context, m MemoryCaller, after string) 
 	if err != nil {
 		return nil, err
 	}
+	notices, err := s.workNoticeStatus(ctx, m.Repository)
+	if err != nil {
+		return nil, err
+	}
 	return map[string]any{"work_maintenance": maintenance,
-		"work_debt":  map[string]any{"overdue_credits": debt.overdue, "end_credits": debt.end, "verdict_credits": debt.verdict},
-		"repository": m.Repository, "store_id": storeID, "head": head, "floor": floor, "usage": u, "fts": false, "indexed": false,
+		"work_notifications": notices,
+		"work_debt":          map[string]any{"overdue_credits": debt.overdue, "end_credits": debt.end, "verdict_credits": debt.verdict},
+		"repository":         m.Repository, "store_id": storeID, "head": head, "floor": floor, "usage": u, "fts": false, "indexed": false,
 		"record_format": 2, "storage": storage, "consumers": page, "more": more, "next_after": next,
 		"limits": map[string]any{"entries": l.entries, "logical_bytes": l.logical, "body": l.body, "reserved_entries": l.reservedEntries,
 			"reserved_bytes": l.reservedBytes, "idempotency_rows": l.idem, "consumers": l.consumers, "retired": l.retired,

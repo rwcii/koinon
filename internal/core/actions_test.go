@@ -20,6 +20,8 @@ import (
 // Dashboard action tests (sprint chunk 09): a real daemon on ephemeral loopback ports,
 // temporary state, synthetic sessions and a patched launcher.
 
+const undoSchemaEighteen = `DROP TABLE work_audiences; `
+
 // undoSchemaSeventeen rebuilds the schema 16 work tables, without reports and verdicts.
 const undoSchemaSeventeen = `ALTER TABLE work_items RENAME TO work_items_v17;
 	CREATE TABLE work_items (store TEXT NOT NULL, work_id TEXT NOT NULL CHECK (length(work_id)=32),
@@ -524,7 +526,7 @@ func TestSchemaSixMigrationAndRollback(t *testing.T) {
 	}
 	// A schema 6 database that already holds the name maintainer cannot migrate: the
 	// whole step rolls back and the database stays at 6.
-	if _, err := s.db.Exec(undoSchemaSeventeen + undoSchemaSixteen + undoSchemaFifteen + undoSchemaFourteen + undoSchemaThirteen + undoSchemaTwelve + undoSchemaEleven + undoSchemaTen + undoSchemaNine + undoSchemaEight + undoSchemaSeven + `INSERT INTO names(name,kind,family,session_id) VALUES ('maintainer','peer','codex','x'); PRAGMA user_version=6`); err != nil {
+	if _, err := s.db.Exec(undoSchemaEighteen + undoSchemaSeventeen + undoSchemaSixteen + undoSchemaFifteen + undoSchemaFourteen + undoSchemaThirteen + undoSchemaTwelve + undoSchemaEleven + undoSchemaTen + undoSchemaNine + undoSchemaEight + undoSchemaSeven + `INSERT INTO names(name,kind,family,session_id) VALUES ('maintainer','peer','codex','x'); PRAGMA user_version=6`); err != nil {
 		t.Fatal(err)
 	}
 	s.db.Close()

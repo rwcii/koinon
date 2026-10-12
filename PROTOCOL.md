@@ -606,7 +606,44 @@ of logical bytes in the store's ceilings (`docs/WORK-ITEMS-GO-STORAGE.md`). A ve
 the maximum scope and eight 512-byte references fits its event bound; references whose JSON
 encoding grows (escaped characters) can refuse with `record_too_large`, as for a finish.
 
-`work-list` accepts `assigned_to_me` and keyset `after`. Responses retain `truncated`, add
+Schema 18 adds durable work-notice audiences. `work-list` also accepts `created_by_me`,
+matching the caller's validated consumer. Creator and assignment queries page the current
+inventory independently of a continued memory cursor. Frozen snapshots and deltas retain
+their existing read/acknowledgement and retention-floor contract.
+
+The daemon binds the post-commit memory-change hook to work-notice reconciliation, also
+running it at startup, after registration or holder changes, and every 30 seconds. Retained
+work events reconstruct relevant audience heads: assignment, scope and daemon changes reach
+current assignees, assignment removal reaches the previous assignee, reports reach creators, and verdicts reach the
+reported worker. A report freezes the reporting native session's `participant_role` when
+it has a participant; an older report without that metadata uses its recorded event actor.
+Role recipients follow the same store's current holder. Custom consumer recipients use
+verified registry/cursor or creator-actor provenance; a claimed consumer is never parsed
+as a native ID. Unresolved audiences remain queryable.
+
+A worker's own start, progress, release, finish and report do not advance the assignment
+audience, so recording its response to a notice does not create another wake. Routing-history
+reads decode only relevant fields outside the memory operation lock; cleanup rechecks the
+observed store head in its transaction before removing an unused row.
+
+Each store retains at most 256 `work_audiences` rows, containing the audience, relevant head,
+last notice head and one pending message reference. A pending notice coalesces later changes.
+Inbox read and acknowledgement remain distinct; after acknowledgement, a later head queues
+the next notice. At saturation no extra row/notice is allocated and no pending audience is
+evicted. A row is reclaimed only after its retained relevant work and pending notice are gone.
+Reconciliation retries omitted audiences after reclamation. `memory_status` exposes
+`work_notifications` (audiences, limit, pending, unresolved, missing_audiences, saturated,
+observed_at); usage includes audience rows and their logical bytes.
+
+Work notices have sender family `daemon`, sender name `koinon-daemon`, and a body containing
+only the repository work-head/query pointer. They reuse provider wake and task-failure retry
+handling. Transport acceptance does not establish receiving-model handling. Enqueueing and
+advancing a notice is an ordinary transaction after the work event commits. A refusal leaves
+the work transition and its funded controls intact for later reconciliation. Audience rows
+use ordinary storage and logical ceilings, with no notification allocation in a funded
+report/verdict transaction.
+
+`work-list` accepts `assigned_to_me`, `created_by_me` and keyset `after`. Responses retain `truncated`, add
 `more` and nullable `next_after`, and keep their 100-item/48-KiB bounds. Matching proposals
 are discovered through the current consumer or the actual held family/role in this store;
 no unheld/conflicting role is assigned by guessing. Page to the end, then use current queries
