@@ -48,7 +48,7 @@ is agent-written and the requester's original words were not located.
 1. Problem Context
 2. Decision 1: A dashboard board of daemon-owned rows and agent-written items
 3. Decision 2: Only a dashboard action records a verdict, and the text then freezes
-4. Decision 3: Commands are shown in printable ASCII only
+4. Decision 3: Code blocks hold printable ASCII only
 5. Decision 4: Each recipient reads the verdict record once
 6. Conclusion
 7. Document History
@@ -94,13 +94,17 @@ context, recommendation, status, kind, optional commands, `relayTo`). An `fyi` i
 Dismiss, which sets `done` and is not an approval. Decided items move unchanged to a readable
 archive. A waiting query lists open decisions with no verdict. The plan marks manual work as
 an `fyi` item whose title starts with `ACTION FOR YOU`, taken from the existing board design,
-and sorts those first.
+and sorts those first. Card text (context, recommendation and comments) is rendered from
+Markdown, code and commands appear in code blocks, and agents write card prose in ASD-STE100
+Simplified Technical English.
 
 **Provenance:** Requested in #206 (issue body, requirements 1, 2, 5, 6, 8, 10, 11, 12 and
 the settled point on rows); a request record. Using the existing board's UI design:
 #206 comment 6065771626, 2026-10-08: "let's also apply the current decision board skill UI
 design to the dashboard." (posted from the maintainer's account without agent framing;
-authorship not otherwise verified). The `ACTION FOR YOU` marker: Proposed in
+authorship not otherwise verified). Card text: Maintainer, 2026-10-12: "card comments should be
+formattable in markdown. code should be displayed in code blocks so it's readable, and all
+prose should be in asd-ste100" (#206 comment 6119203856). The `ACTION FOR YOU` marker: Proposed in
 the unpublished #206 plan draft (d325228); not decided.
 
 ### Alternatives Considered
@@ -127,7 +131,8 @@ The maintainer sees all agents and open decisions on one page in the dashboard.
 A verdict is `approved` or `declined`, with `verdictAt`, an optional note, an audit record,
 and `verdictOn`: a copy of the title, context, recommendation and commands the human saw.
 No agent interface (MCP, CLI or bearer API) writes a verdict field; only an authenticated
-dashboard action does, with no further check under the same-user trust model. Item text can
+dashboard action does, with no further check under the same-user trust model (PDR 005,
+Decision 3). Item text can
 change before the verdict and not after it; new facts make a new item that refers to the old
 one. The plan adds that a concurrent edit cannot make a verdict apply to unseen text. This
 covers the maintainer's verdicts on this board, not agent-to-agent work verdicts (PDR 004).
@@ -155,18 +160,20 @@ To change a decided item, an agent opens a new item that cites the old one.
 
 ---
 
-## 4. Decision 3: Commands are shown in printable ASCII only
+## 4. Decision 3: Code blocks hold printable ASCII only
 
 ### Decision
 
-Each command appears in its own copy box and holds printable ASCII only. The page does not
-show an entry with a line break, a zero-width, bidirectional or look-alike character, so the
-human pastes what they see. The plan rejects such commands on write, hides them on read, and
+Each command appears in its own code block with a copy action and holds printable ASCII only.
+The page does not show an entry with a zero-width, bidirectional or look-alike character, so
+the human pastes what they see. The plan rejects such commands on write, hides them on read, and
 does not let a hidden command be approved as displayed. A valid command that needs non-ASCII
 text cannot be shown in a command box under this rule.
 
-**Provenance:** Requested in #206 (issue body, requirement 7); a request record. Reject on
-write and hide on read: Proposed in the unpublished #206 plan draft (d325228) (criterion 6); not decided.
+**Provenance:** Requested in #206 (issue body, requirement 7). Maintainer, 2026-10-12: "yes,
+next item", keeping the printable-ASCII check for code blocks that the maintainer copies into a
+terminal ([#306 comment 6119251724](https://github.com/rwcii/koinon/issues/306#issuecomment-6119251724)). Reject on write and hide on read: Proposed
+in the unpublished #206 plan draft (d325228) (criterion 6); not decided.
 
 ### Alternatives Considered
 
@@ -220,8 +227,9 @@ The maintainer decides once; each named agent receives the verdict without a ter
 ## Conclusion
 
 #206 asks for one board in the dashboard where agents write items, only the human records
-verdicts, decided text stays frozen, commands are plain ASCII, and every family reads each
-verdict once. The plan adds a manual-work marker and write-time rules; none is decided yet.
+verdicts, decided text stays frozen, and every family reads each verdict once. The maintainer
+decided that card text is Markdown with code blocks and ASD-STE100 prose, and that code blocks
+hold printable ASCII only. The plan's manual-work marker and write-time rules are not decided.
 
 ---
 
@@ -230,3 +238,4 @@ verdict once. The plan adds a manual-work marker and write-time rules; none is d
 | Date       | Change           |
 | ---------- | ---------------- |
 | 2026-10-12 | Initial creation |
+| 2026-10-12 | Recorded the maintainer's card text requirement and the ASCII decision for code blocks (#206, #306) |

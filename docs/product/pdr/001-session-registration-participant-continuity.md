@@ -37,25 +37,26 @@ but no participant, takes roles from the launch record, moves a participant's ad
 host or pane evidence, and lets only the dashboard's **Make holder** choice lift a former
 holder's fence.
 
-This behavior shipped with the participants sprint (PRs #263 to #268) and later fixes. No
-maintainer quote has been found for any of these choices; the sprint's records say only that
-the maintainer approved the plan at gate B. The record is `draft`. Two choices replace
-earlier requests (#228, criterion 5; #141, item 3), and the maintainer has not decided whether
-to keep them.
+This behavior shipped with the participants sprint (PRs #263 to #268) and later fixes. On
+2026-10-12 the maintainer decided four of these choices (#306): a direct start becomes a plain
+peer, Codex sub-agents keep a peer name without a participant, the fence stays, and the
+participant owns its address state across a reset. Roles and succession evidence (Decisions
+3 and 4) have no maintainer decision, so the record stays `draft`.
 
 ---
 
 ## Table of Contents
 
 1. Problem Context
-2. Decision 1: Only launched sessions register; DeepSeek by command
+2. Decision 1: Launched sessions get participant features; a direct start is a plain peer
 3. Decision 2: Sub-agents get a peer name, not a participant
 4. Decision 3: Roles come from the launch record
 5. Decision 4: Succession needs host or pane evidence
 6. Decision 5: Only the dashboard lifts a fence
-7. Statements this record does not adopt
-8. Conclusion
-9. Document History
+7. Decision 6: The participant owns its address state across a reset
+8. Statements this record does not adopt
+9. Conclusion
+10. Document History
 
 ---
 
@@ -86,17 +87,23 @@ requested behavior, not the maintainer's own words.
 ### Scope
 
 Inventory rows: C003, C004, C005, C010, C011, C012, C024. Covers admission, sub-agents, roles,
-succession evidence and fences. Does not cover the participant's inbox, cursor and claims
-after a holder change (PROTOCOL.md, "Participants and roles"), terminal naming and wakes
-(PDR 002), work routing by role (PDR 004) or how identity is read (ADR 001).
+succession evidence, fences and the participant's inbox, cursor and claims across a reset.
+Does not cover terminal naming and wakes (PDR 002), work routing by role (PDR 004) or how
+identity is read (ADR 001).
 
 ---
 
-## 2. Decision 1: Only launched sessions register; DeepSeek by command
+## 2. Decision 1: Launched sessions get participant features; a direct start is a plain peer
 
 ### Decision
 
-Koinon currently registers a Claude, Codex, OpenCode or Antigravity session only with its own
+Decided: a Claude, Codex, OpenCode or Antigravity session that was started without
+`koinon <family>` registers as a plain peer. It has a peer name, sends and receives, and uses
+the memory and work tools. It gets no participant address, role, succession or terminal
+naming; those need the launch record. Until that change ships, the shipped behavior below
+applies.
+
+Shipped: Koinon currently registers a Claude, Codex, OpenCode or Antigravity session only with its own
 launch record, which `koinon <family>` creates and passes to the session's `koinon mcp`. The
 daemon refuses, on every path, a registration or renewal without a matching launch with
 `not_launched` (`admitLaunch`, `Store.Mutate`). A launch matches when it has the caller's
@@ -114,27 +121,31 @@ no maintainer decision found. The participants plan (PR #258) lists both as 2026
 maintainer decisions and records gate B approval of the plan at c6e5081 in agent-written text;
 a gate approval approves a plan document, not each sentence in it. The DeepSeek choice is
 recorded "until #199 settles its MCP path"; #199 is open, and no source states a permanent
-no-launcher policy.
+no-launcher policy. Plain-peer direct start: Maintainer, 2026-10-12: "b, next item", choosing
+"let a direct start register as a plain peer" over keeping the full refusal ([#306 comment
+6118852008](https://github.com/rwcii/koinon/issues/306#issuecomment-6118852008)).
 
 ### Alternatives Considered
 
 | Alternative | Description | Why Rejected |
 | ----------- | ----------- | ------------ |
-| Verified direct start (#228, criterion 5) | A direct Codex start registers and names its terminal when host and pane are verified | Replaced by the plan's launched-only choice; the shared Codex daemon hides the pane, and no other verified attribution was found |
-| Peer-only direct start | A direct start registers with a peer name but no host record, succession or naming | No record found that the plan weighed it; it keeps two kinds of session, which the plan named as a gap |
+| Verified direct start (#228, criterion 5) | A direct Codex start registers and names its terminal when host and pane are verified | The shared Codex daemon hides the pane, and no other verified attribution was found |
+| Full refusal (shipped) | Every Koinon tool refuses a direct start with `not_launched` | The session cannot send, receive or use memory and work, though its identity is still verified by native metadata |
 | Any start registers (v0.1.0) | Every session registers; a launch only adds host data | Host, pane and role then depend on how the session started |
 | DeepSeek launcher | `koinon deepseek` with launch records | Deferred until #199 settles DeepSeek's MCP path and live proof |
 
 ### Rationale
 
-1. The plan states that a launch gives every session the host, pane and role that succession
-   and naming need (problems 4 and 6), and that isolating an agent is a supported use.
-2. The command path is the only DeepSeek path that works today.
+1. A launch gives every session the host, pane and role that succession and naming need.
+2. Identity comes from native per-call metadata (ADR 001), so messaging, memory and work do
+   not need the launch.
+3. The command path is the only DeepSeek path that works today.
 
 ### User Impact
 
-A session started with `claude`, `codex`, `opencode` or `agy` cannot send, receive or use the
-memory and work tools; its tools name `koinon <family>`. DeepSeek gets no role, succession or
+A session started with `claude`, `codex`, `opencode` or `agy` can send, receive and use the
+memory and work tools by its peer name. It is not reachable by a participant address, and
+its terminal is not renamed. DeepSeek gets no role, succession or
 terminal naming.
 
 ---
@@ -159,7 +170,9 @@ refusal of Grok sub-agent calls.
 no maintainer decision found. The plan states it as acceptance criterion 1 after a live check
 found that each Codex sub-agent registered as its own session. Grok: Maintainer, 2026-10-12:
 "your  Gate B for Grok #254 recomendation is approved." (#254 comment 6118290944), approving
-parent-scoped attribution with no default sub-agent ban.
+parent-scoped attribution with no default sub-agent ban. Codex sub-agents: Maintainer,
+2026-10-12: "a, next item", keeping the own peer name with no participant over counting the
+sub-agent's calls as its parent's ([#306 comment 6118909834](https://github.com/rwcii/koinon/issues/306#issuecomment-6118909834)).
 
 ### Alternatives Considered
 
@@ -263,13 +276,15 @@ that participant, and its succession is refused with `fenced`, also after a `/re
 **Provenance:** Shipped in PR #267 (merge commit 850cbdd) and PR #268 (merge commit 9aef846);
 no maintainer decision found. The plan records it as a gate B decision in agent-written text:
 no resume evidence is verified, and a retained old thread that calls after a quiet period
-looks the same as an intentional `/resume`.
+looks the same as an intentional `/resume`. Maintainer, 2026-10-12: "a, next item", keeping
+the fence with the dashboard as the way back over letting a resume take the address back
+([#306 comment 6118891323](https://github.com/rwcii/koinon/issues/306#issuecomment-6118891323)).
 
 ### Alternatives Considered
 
 | Alternative | Description | Why Rejected |
 | ----------- | ----------- | ------------ |
-| Resume takes it back (#141, item 3; 2026-09-24 plan, criterion 5) | A later `/resume` registers the old thread and takes the address again | Replaced for fenced sessions; no verified resume signal |
+| Resume takes it back (#141, item 3; 2026-09-24 plan, criterion 5) | A later `/resume` in the same pane takes the address again once the newer holder ended | An old thread that wakes by itself could take the address from the current session |
 | Same-host after guard | A fenced session on the holder's host takes it back after the guard | Proposed in the plan's first review; an idle old thread looks like a resume |
 | Time-limited fence | The fence ends after a period | No record found that the plan weighed it |
 
@@ -285,6 +300,37 @@ takes the address under Decision 4.
 
 ---
 
+## 7. Decision 6: The participant owns its address state across a reset
+
+### Decision
+
+Messages sent to a participant address, the participant's default memory cursor and its
+default work claims belong to the participant, not to one native session. A session that takes
+the address continues the unread messages, the cursor position and the live claim generation
+and lease. Messages sent to a peer name stay with that one session.
+
+**Provenance:** Shipped in PR #266 (merge commit 1eaa7e0) and PR #267 (merge commit 850cbdd).
+Maintainer, 2026-10-12: "a, next
+item", keeping participant ownership over each native session owning its own state, as #228
+criterion 4 asked ([#306 comment 6118864620](https://github.com/rwcii/koinon/issues/306#issuecomment-6118864620)).
+
+### Alternatives Considered
+
+| Alternative | Description | Why Rejected |
+| ----------- | ----------- | ------------ |
+| Per-session ownership (#228, criterion 4) | Each native session keeps its own inbox, cursor and claims; nothing moves at a reset | A reset leaves unread messages and the live claim with the old session, and the successor waits for the claim to expire |
+
+### Rationale
+
+1. A reset continues the participant's work instead of stranding it.
+
+### User Impact
+
+After a reset, the new session sees the participant's unread messages and continues its work
+item without waiting for a lease to expire.
+
+---
+
 ## Statements this record does not adopt
 
 | Inventory row | Statement (short) | Where it appears | Why not adopted |
@@ -295,11 +341,11 @@ takes the address under Decision 4.
 
 ## Conclusion
 
-Koinon currently admits only launched sessions, and DeepSeek by command, so that each session
-has a host, pane and role. It moves an address only on host or pane evidence or the
-maintainer's dashboard choice. Each choice shipped from an approved sprint plan without
-recorded maintainer words. Two replace earlier requests: #228's verified direct start and
-#141's resume that takes the address back. The maintainer decides whether to keep them.
+Launched sessions get the participant address, role, succession and naming; a direct start is
+a plain peer. An address moves only on host or pane evidence or the maintainer's dashboard
+choice, and the participant keeps its messages, cursor and claims across a reset. The
+maintainer decided the direct-start, sub-agent, fence and ownership choices on 2026-10-12;
+roles and succession evidence remain shipped behavior without a maintainer decision.
 
 ---
 
@@ -308,3 +354,4 @@ recorded maintainer words. Two replace earlier requests: #228's verified direct 
 | Date       | Change           |
 | ---------- | ---------------- |
 | 2026-10-12 | Initial creation |
+| 2026-10-12 | Recorded the maintainer's decisions on direct start, sub-agents, the fence and participant ownership (#306) |
