@@ -71,8 +71,9 @@ func (s *Store) grokPane(ctx context.Context, pid, start int64, socket, pane str
 	if current, err := s.processStart(int(pid)); err != nil || current != start {
 		return false
 	}
-	out, err := s.tmux(ctx, socket, "display-message", "-p", "-t", pane, "#{pane_id}\t#{pane_pid}")
-	fields := strings.Split(strings.TrimRight(out, "\n"), "\t")
+	// A space separates the fields: tmux before 3.4 prints a tab in a format as "_".
+	out, err := s.tmux(ctx, socket, "display-message", "-p", "-t", pane, "#{pane_id} #{pane_pid}")
+	fields := strings.Fields(out)
 	if err != nil || len(fields) != 2 || fields[0] != pane {
 		return false
 	}

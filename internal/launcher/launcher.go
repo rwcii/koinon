@@ -475,7 +475,8 @@ func startTmux(ctx context.Context, tmux, cli, directory string, o Options, out 
 	var name string
 	var data []byte
 	for _, candidate := range names {
-		session := []string{"new-session", "-d", "-P", "-F", "#{session_id}\t#{pane_id}", "-s", candidate, "-c", directory}
+		// Spaces separate the IDs: tmux before 3.4 prints a tab in a format as "_".
+		session := []string{"new-session", "-d", "-P", "-F", "#{session_id} #{pane_id}", "-s", candidate, "-c", directory}
 		if o.Family == "claude" {
 			// tmux sets it in the new session only, as one literal argument, never through a shell.
 			session = append(session, "-e", carriedConfig+"="+os.Getenv("CLAUDE_CONFIG_DIR"))
@@ -499,19 +500,28 @@ func startTmux(ctx context.Context, tmux, cli, directory string, o Options, out 
 		}
 		return fmt.Errorf("tmux sessions %s to %s exist; choose a name with --tmux-session NAME", names[0], names[len(names)-1])
 	}
-	fields := strings.Split(strings.TrimSpace(string(data)), "\t")
-	if len(fields) != 2 {
-		return errors.New("invalid tmux launch result")
+	sessionID, paneID, err := launchIDs(data)
+	if err != nil {
+		return err
 	}
 	if o.Session != "" {
-		result := map[string]any{"ok": true, "session": name, "session_id": fields[0], "pane_id": fields[1], "socket": socket}
+		result := map[string]any{"ok": true, "session": name, "session_id": sessionID, "pane_id": paneID, "socket": socket}
 		// The launcher in the new pane records its own scan with the launch.
 		if nested := ScanNested(directory); len(nested.List) > 0 || nested.Incomplete {
 			result["nested"], result["nested_incomplete"] = nested.List, nested.Incomplete
 		}
 		return json.NewEncoder(out).Encode(result)
 	}
-	return platform.Exec(tmux, append([]string{tmux}, tmuxArgs(socket, "attach-session", "-t", fields[0])...), cleanEnvironment(os.Environ(), o.Family))
+	return platform.Exec(tmux, append([]string{tmux}, tmuxArgs(socket, "attach-session", "-t", sessionID)...), cleanEnvironment(os.Environ(), o.Family))
+}
+
+// launchIDs reads the session and pane IDs that new-session -P printed, separated by a space.
+func launchIDs(data []byte) (string, string, error) {
+	fields := strings.Fields(string(data))
+	if len(fields) != 2 || !strings.HasPrefix(fields[0], "$") || !strings.HasPrefix(fields[1], "%") {
+		return "", "", errors.New("invalid tmux launch result")
+	}
+	return fields[0], fields[1], nil
 }
 
 func validateOpenCodeArgs(args []string) error {

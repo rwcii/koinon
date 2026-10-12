@@ -124,7 +124,7 @@ func (f *grokFixture) pane(state string, depth int) grokPaneUnderTest {
 	case 2:
 		command = `sh -c 'sh -c "` + command + `; exit"; exit'`
 	}
-	fields := strings.Split(f.run("new-window", "-d", "-P", "-F", "#{pane_id}\t#{pane_pid}", command), "\t")
+	fields := strings.Fields(f.run("new-window", "-d", "-P", "-F", "#{pane_id} #{pane_pid}", command))
 	shell, _ := strconv.Atoi(fields[1])
 	p := grokPaneUnderTest{id: fields[0], shell: shell, host: shell, received: received}
 	// Walk down to the program: each level is the only child of the one above.
@@ -277,6 +277,17 @@ func TestGrokWakeSendsNothingWithoutProofOrIdle(t *testing.T) {
 	}
 	if got := f.s.providerWake(context.Background(), session, grokTestNotice); got != waiting("grok_target_unavailable") {
 		t.Fatalf("wake when tmux names another pane: %v", got)
+	}
+	// tmux before 3.4 prints a tab in a format as "_": an answer joined that way is refused.
+	f.s.tmux = func(ctx context.Context, socket string, args ...string) (string, error) {
+		out, err := real(ctx, socket, args...)
+		if len(args) > 0 && args[0] == "display-message" {
+			out = strings.ReplaceAll(out, " ", "_")
+		}
+		return out, err
+	}
+	if got := f.s.providerWake(context.Background(), session, grokTestNotice); got != waiting("grok_target_unavailable") {
+		t.Fatalf("wake with an underscore-joined answer: %v", got)
 	}
 	f.s.tmux = real
 	if got := f.received(p); got != "" {

@@ -10,6 +10,11 @@ into a dated release section when promoted to `main`.
   host, and it types Koinon's fixed notice and Enter only while Grok's input box is empty and
   no turn is running; otherwise nothing is sent and the wake waits.
 
+- Koinon reads tmux's answers with space-separated fields. tmux before 3.4 (for example 3.3a
+  on Debian 12) prints a tab in a format as `_`, so `koinon FAMILY --tmux-session` reported
+  `invalid tmux launch result` after starting the session, and a launched session's pane was
+  not proven for terminal naming, same-pane succession or the Grok wake (#254).
+
 - A worker reports a held item's result with a summary and evidence (`work_report`,
   `koinon work report`); the claim is released and the item stays `reported` until another
   worker accepts or rejects it (`work_accept`, `work_reject`). The reporting consumer and
