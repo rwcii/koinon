@@ -104,3 +104,10 @@ are compared in the actual fields against authoritative Go commands; regular sou
 existence is not presented as complete value agreement or decision provenance. Parser and
 altered-command regressions cover those corrections. Other reviewed catalog mechanisms
 carry forward; the corrected head receives bounded observer review before publication.
+
+Bounded review of `62d17fe`: two accepted merge-preservation findings. The project's
+peer-review facts now retain the Records lens for unsourced restrictions and cite the
+existing platform, literal-socket, content-free-notice, peer-data and changelog checks.
+The check facts retain decision-record index verification when a record is added or its
+status changes. These are Koinon project facts, outside the embedded portable procedures.
+The observer reported no further parser or Required checks findings in the same batch.
