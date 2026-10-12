@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"net/http"
 	"net/url"
 	"strconv"
 	"strings"
@@ -533,8 +534,28 @@ func TestDashboardRoomPost(t *testing.T) {
 	client := newActionClient(t, d, root)
 	deadline := strconv.FormatInt(int64(s.clock()+600), 10)
 	form := url.Values{"room_id": {room}, "body": {"<script>synthetic()</script>"}, "key": {"dashboard-post"}, "deadline": {deadline}}
-	if r := dashboardDo(t, d, "POST", "/dashboard/actions/room-post", client.cookie, client.sameOrigin, form); r.status != 403 {
-		t.Fatalf("post without CSRF: %d", r.status)
+	for name, c := range map[string]struct {
+		cookie string
+		change func(*http.Request)
+		status int
+	}{
+		"no session": {"", client.sameOrigin, 401},
+		"no token":   {client.cookie, client.sameOrigin, 403},
+		"foreign":    {client.cookie, func(r *http.Request) { r.Header.Set("Origin", "http://evil.example") }, 403},
+	} {
+		f := url.Values{"csrf": {client.csrf}}
+		if name == "no token" {
+			f = url.Values{}
+		}
+		for k, v := range form {
+			f[k] = v
+		}
+		if r := dashboardDo(t, d, "POST", "/dashboard/actions/room-post", c.cookie, c.change, f); r.status != c.status {
+			t.Fatalf("%s: %d", name, r.status)
+		}
+	}
+	if count(t, s, `SELECT COUNT(*) FROM room_posts`) != 0 || count(t, s, `SELECT COUNT(*) FROM audit WHERE action='room-post'`) != 0 {
+		t.Fatal("a refused request changed state")
 	}
 	if got := client.do("room-post", form); got != "room_posted" {
 		t.Fatalf("post: %s", got)
@@ -544,6 +565,9 @@ func TestDashboardRoomPost(t *testing.T) {
 	}
 	if allowanceOf(t, s, room) != 9 || count(t, s, `SELECT COUNT(*) FROM room_posts WHERE origin='maintainer' AND sender_family='maintainer'`) != 1 {
 		t.Fatal("maintainer post state")
+	}
+	if n := count(t, s, `SELECT COUNT(*) FROM audit WHERE action='room-post' AND result='accepted'`); n != 1 {
+		t.Fatalf("accepted room-post audit records: %d", n)
 	}
 	page := dashboardDo(t, d, "GET", "/dashboard/rooms?room="+room, client.cookie, nil, nil)
 	if page.status != 200 || strings.Contains(page.body, "<script>synthetic") || !strings.Contains(page.body, "&lt;script&gt;synthetic()") ||

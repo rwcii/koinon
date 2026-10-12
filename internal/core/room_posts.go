@@ -140,9 +140,9 @@ func (s *Store) roomPost(ctx context.Context, caller Key, maintainer bool, roomI
 		if err := json.Unmarshal([]byte(result), &original); err != nil {
 			return RoomPostResult{}, err
 		}
+		// A repeat changes nothing: the transaction is not committed, so it writes no audit.
 		original.Duplicate = true
-		setAuditTarget(ctx, "room "+roomID+" post "+strconv.FormatInt(original.Seq, 10)+" repeated")
-		return original, tx.Commit()
+		return original, nil
 	}
 	if !errors.Is(err, sql.ErrNoRows) {
 		return RoomPostResult{}, err
