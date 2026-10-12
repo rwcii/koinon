@@ -370,9 +370,9 @@ esac
 			}
 		}
 		required := []string{"go (ubuntu-latest)", "go (macos-latest)", "go-lifecycle (ubuntu-latest, systemd)", "go-lifecycle (macos-latest, launchd)"}
-		// develop also requires the reviewer's sign-off on the head; main takes develop heads.
+		// develop also requires the reviewer's sign-offs on the head; main takes develop heads.
 		if branch == "develop" {
-			required = append(required, "peer-review")
+			required = append(required, "peer-review", "refusal-review")
 		}
 		for _, name := range required {
 			if !checks[name] {

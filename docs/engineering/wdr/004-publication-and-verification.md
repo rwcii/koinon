@@ -201,8 +201,8 @@ located). The Go and native lifecycle checks shipped in PR #207 (merge commit 10
 `KOINON_NATIVE_JOB=1` on disposable runners; for a pull request that changes only `agents/`,
 `docs/sprints/`, `.claude/`, `.agents/` or `.codex/`, the jobs still report but skip the
 service steps. The `develop` ruleset requires `go (ubuntu-latest)`, `go (macos-latest)`,
-`go-lifecycle (ubuntu-latest, systemd)`, `go-lifecycle (macos-latest, launchd)` and
-`peer-review`; `main` requires the first four. `release.yml` builds the four binaries and
+`go-lifecycle (ubuntu-latest, systemd)`, `go-lifecycle (macos-latest, launchd)`,
+`peer-review` and `refusal-review` (WDR 001, Decision 6); `main` requires the first four. `release.yml` builds the four binaries and
 checksums for a version tag.
 
 ---

@@ -1,7 +1,7 @@
 ---
 wdr: "001"
 title: "Decision Records Govern Constraints"
-status: accepted
+status: modified
 created: "2026-10-12"
 updated: "2026-10-12"
 authors:
@@ -19,7 +19,7 @@ tags:
 # WDR 001: Decision Records Govern Constraints
 
 **Date:** 2026-10-12
-**Status:** Accepted
+**Status:** Modified
 **Authors:** Robert Capps
 
 ---
@@ -46,8 +46,9 @@ cites the record instead of restating it as a general rule.
 4. Decision 3: Carriers cite records
 5. Decision 4: Code-enforced blocks follow their PDR
 6. Decision 5: No extrapolation
-7. Conclusion
-8. Document History
+7. Decision 6: A separate refusal review gate
+8. Conclusion
+9. Document History
 
 ---
 
@@ -105,7 +106,7 @@ indexes from rwcii/engineering-standards at
 Upstream records, including its accepted baseline, are not Koinon decisions; a Koinon record
 can adopt one by citing it. Each series is numbered from 001 in this repository. No setup
 script or repository setting is part of this adoption. Record checks are part of the existing
-`sprint`, `peer-review` and `check` skills, not a separate review command.
+`sprint`, `peer-review` and `check` skills; the refusal review is its own gate (Decision 6).
 
 ### Alternatives Considered
 
@@ -225,7 +226,7 @@ alone does not justify a block. Reviewers judge the actual effect of new text, t
 conditions, including positively phrased requirements, and treat an unrecorded new block as a
 finding. A change of mind supersedes the record, and later agents read its status.
 
-**Gate crossed:** merge-time (the `peer-review` skill).
+**Gate crossed:** merge-time (the `refusal-review` skill, Decision 6).
 
 ### Alternatives Considered
 
@@ -236,6 +237,39 @@ finding. A change of mind supersedes the record, and later agents read its statu
 ### Rationale
 
 1. Extrapolation from one decision to a vague rule is the failure the maintainer named.
+
+---
+
+## 7. Decision 6: A separate refusal review gate
+
+### Decision
+
+Every pull request into `develop` gets a refusal review beside its peer review. A different
+agent family reviews the exact head for added or changed refusals, gates, caps, exclusions and
+approval or stop steps, in text, tests and code conditions, and finds a source that covers each
+case (Decision 5). It records its own verdict comment and `refusal-review` commit status on the
+full hash. The `refusal-review` skill describes the steps.
+
+**Provenance:** Maintainer, 2026-10-12, approving Gate B for #140: "make sure you and your
+peer didnt slip more refusal langauge in these two projects.  if you have spare time, build a
+gate for identifying this same refusal language in future PRs to run alongside our code
+review, security review, and standrds review gates." Intent: an audit of the #140 and #217
+plans had to find unsourced refusals after they were written; the gate finds them in each
+pull request. This replaces Decision 1's earlier "not a separate review command" for this
+check.
+
+### Alternatives Considered
+
+| Alternative | Description | Why Rejected |
+| ----------- | ----------- | ------------ |
+| Records lens inside peer review | Keep the check as one item of the general review | The #140 and #217 plans passed peer review with unsourced refusals |
+| Keyword scan in CI | Fail a build on words such as "never" or "only" | Decision 5: misses positively phrased limits and code, and blocks legitimate text |
+
+### Rationale
+
+1. A separate verdict makes the check visible on every head, as the maintainer asked.
+
+**Gate crossed:** merge-time. The `develop` ruleset requires the `refusal-review` status.
 
 ---
 
@@ -252,3 +286,4 @@ code-enforced behavior changes only after its PDR is decided; routine fixes do n
 | Date       | Change           |
 | ---------- | ---------------- |
 | 2026-10-12 | Initial creation |
+| 2026-10-12 | Decision 6: separate refusal review gate |

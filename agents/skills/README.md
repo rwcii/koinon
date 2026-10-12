@@ -17,14 +17,14 @@ slash-command wrappers that load these same skills. Rules for writing a skill ar
 | [ship](ship/SKILL.md) | Take one change through the project's branch, review and merge policy. |
 | [peer-tmux](peer-tmux/SKILL.md) | Inspect a peer terminal or run an authorized handoff, context reset and pickup cycle through tmux. |
 | [peer-review](peer-review/SKILL.md) | Review another agent's frozen commit and record the verdict bound to it. |
+| [refusal-review](refusal-review/SKILL.md) | Check another agent's frozen commit for new refusals, gates and restrictions without a source. |
 | [release](release/SKILL.md) | Promote and publish a release after project-specific checks. |
-
 | [spin-up](spin-up/SKILL.md) | Prepare and execute an authorized team launch, including first-run prompts. |
 | [spin-down](spin-down/SKILL.md) | Collect each session's handoff and complete the team stop plan. |
 | [recover-team](recover-team/SKILL.md) | Reconcile team state and carry out a reviewed restart plan. |
 | [koinon-guide](koinon-guide/SKILL.md) | Read installed runtime guidance and catalog recommendations. |
 
-A typical change runs `check`, then `ship`, with the other agent family running `peer-review`.
+A typical change runs `check`, then `ship`, with the other agent family running `peer-review` and `refusal-review`.
 A larger deliverable starts with `sprint`. `release` promotes the result to `main`.
 
 ## Run a skill

@@ -5,6 +5,11 @@ into a dated release section when promoted to `main`.
 
 ## Unreleased
 
+- Add the portable `refusal-review` skill: a different agent family checks a frozen commit for
+  added or changed refusals, gates, caps and exclusions, in text, tests and code, that have no
+  source covering their case, and records a commit-bound verdict. The `develop` ruleset
+  requires its `refusal-review` status beside `peer-review` (WDR 001, Decision 6).
+
 - Grok Build is a supported agent family (#254, chunk 02). `koinon setup grok` adds the
   user-scope `koinon` MCP server and reports the Grok Build version; `koinon grok` starts Grok
   with a launcher-chosen first session ID (`--session-id`) unless its arguments select a
