@@ -34,7 +34,16 @@ type HookEnv struct {
 }
 
 func (e HookEnv) report(o core.Observation) {
-	e.call("/v1/sessions/observe", o)
+	_, err := e.call("/v1/sessions/observe", o)
+	var refused core.RefusedError
+	if o.Caller.Family == "claude" && errors.As(err, &refused) && refused.Code == "session_not_found" {
+		pid := os.Getpid()
+		start, err := platform.ProcessStart(pid)
+		if err == nil && start > 0 {
+			o.ClaudeReporter = &core.ObservationReporter{PID: pid, Start: start}
+			e.call("/v1/sessions/observe", o)
+		}
+	}
 }
 func (e HookEnv) call(path string, body any) (json.RawMessage, error) {
 	return e.callWithin(time.Second, path, body)

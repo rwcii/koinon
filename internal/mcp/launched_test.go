@@ -50,13 +50,13 @@ func (c caller) peers(h *harness) (map[string]any, bool) {
 	return h.tool("peers", args, c.meta)
 }
 
-// A direct start is islanded: without its own launch, every tool call returns not_launched
-// with the family's launcher command, and nothing is registered or listed.
-func TestDirectStartIsIslanded(t *testing.T) {
+// A supplied unknown or malformed launch registers nothing; it never falls back to a
+// plain peer. A matching launch registers normally.
+func TestSuppliedLaunchMustMatch(t *testing.T) {
 	for _, c := range callers {
 		t.Run(c.family, func(t *testing.T) {
 			h := c.harness(t)
-			for _, launch := range []string{"", strings.Repeat("c", 64)} {
+			for _, launch := range []string{"invalid", strings.Repeat("c", 64)} {
 				h.env["KOINON_LAUNCH_ID"] = launch
 				reply, isError := c.peers(h)
 				if !isError || reply["code"] != "not_launched" || reply["launcher"] != "koinon "+c.family || len(h.sessions()) != 0 {

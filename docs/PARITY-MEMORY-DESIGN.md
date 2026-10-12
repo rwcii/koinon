@@ -9,8 +9,8 @@ participant and one Codex participant, agreed this contract with the maintainer 
 implementation started. It states what the programme must deliver, what it must refuse to
 deliver, and how completion is judged.
 
-Read `PROTOCOL.md` for the observed wire protocol and `AGENTS.md` for the operating rules
-this contract inherits.
+Read `PROTOCOL.md` for the observed wire protocol and the decision records (see `AGENTS.md`)
+for the decisions this contract inherits.
 
 **How to read a disagreement with the code.** This is a target design, so "the code wins"
 is the wrong rule. The code states current behaviour. This contract states required new

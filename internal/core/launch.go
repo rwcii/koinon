@@ -159,10 +159,10 @@ func (s *Store) CreateLaunch(ctx context.Context, target LaunchTarget) (string, 
 // of its launch, and for Claude the claude_pid that its server reports. The launch must be
 // of the caller's family and directory and must belong to the caller: a foreground launch's
 // host process is among the caller's ancestors (for Claude, it is the Claude process); a
-// background launch's recorded job ID begins the caller's session ID. Anything else is
-// not_launched, so a direct start never registers.
+// background launch's recorded job ID begins the caller's session ID. A missing launch
+// registers a plain peer; a supplied launch must match and never falls back to plain mode.
 func admitLaunch(ctx context.Context, tx *sql.Tx, r Registration, directory string) (json.RawMessage, string, error) {
-	if len(r.LaunchID) != 64 || len(r.Ancestors) > maxAncestors {
+	if r.LaunchID != "" && len(r.LaunchID) != 64 || len(r.Ancestors) > maxAncestors {
 		return nil, "", ErrNotLaunched
 	}
 	claudePID := 0
@@ -178,6 +178,9 @@ func admitLaunch(ctx context.Context, tx *sql.Tx, r Registration, directory stri
 		claudePID = own.ClaudePID
 	} else if len(r.WakeTarget) != 0 && string(r.WakeTarget) != "{}" {
 		return nil, "", ErrInvalid
+	}
+	if r.LaunchID == "" {
+		return r.WakeTarget, "", nil
 	}
 	var family, storedDirectory, stored string
 	err := tx.QueryRowContext(ctx, `SELECT family,directory,target FROM launches WHERE id=?`, r.LaunchID).Scan(&family, &storedDirectory, &stored)

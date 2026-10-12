@@ -29,21 +29,23 @@ The evidence counts only for the exact `develop` commit that will merge.
   main, its successful exact-commit runs are the legacy upgrade evidence.
 - If main has moved beyond that supported legacy baseline, do not pretend the pinned test
   proves the newer upgrade. Identify the actual supported path and test it in isolated state
-  on a disposable runner/account before release. A normal workstation is not a native test
-  account. Do not change a baseline pin merely to hide missing upgrade coverage.
+  on a disposable runner/account before release (WDR 006, Decision 1). A normal workstation is
+  not a native test account. A baseline pin changed only to hide missing upgrade coverage would
+  report evidence that does not exist.
 - Fresh installation needs no Python interpreter. Verify the four binaries/checksums and the
   no-interpreter installation test. State-preserving uninstall and native restart must pass.
-- Record the sprint's maintainer-authorized live checks. Name the deferred DeepSeek proof
-  under #199 as an outstanding limit; synthetic coverage is not live receipt.
+- Record the sprint's named live checks and their results (WDR 006, Decision 3). Name the
+  deferred DeepSeek proof under #199 as an outstanding limit; synthetic coverage is not live
+  receipt.
 
 The upgrade must complete and report preserved counts/cursors. A refusal is a failure to fix,
-not upgrade evidence. Do not operate on the maintainer's installed runtime without direct
-scope for that exact change.
+not upgrade evidence. A named live check on an installed build counts for what it proves (WDR 006,
+Decision 3); it does not replace the scratch-prefix upgrade or the native lifecycle evidence.
 
 ## 3. Open the merge pull request
 
-The root `AGENTS.md` allows one open pull request per target branch: open the merge pull
-request only when `gh pr list --base main --state open` lists none.
+The repository keeps one open pull request per target branch (WDR 004, Decision 2): the merge
+pull request opens when `gh pr list --base main --state open` lists none.
 
 ```sh
 gh pr create --base main --head develop --title "<release title>"
@@ -54,13 +56,13 @@ gh pr view <number> --json mergeStateStatus
 GitHub may report the pull request as `BEHIND`. The `main` ruleset does not require an up-to-date
 branch, so that state does not block the merge; the required checks on the `develop` head do.
 When `main` has content that `develop` lacks (`git diff origin/develop...origin/main` is not
-empty), stop and tell the maintainer: that content must reach `develop` through a reviewed pull
-request first.
+empty), report it and bring that content to `develop` through a reviewed pull request (`ship`)
+first: `main` changes only by promotion from `develop` (WDR 004, Decision 1).
 
-## 4. Stop for the maintainer
+## 4. Maintainer approval
 
-Report the release commit, the CI runs, the upgrade result and any known limits. Merge only
-after the maintainer approves this release. An approval for earlier work does not cover it.
+Report the release commit, the CI runs, the upgrade result and any known limits. The merge
+follows the maintainer's approval of this release (WDR 002, Decision 6).
 
 ```sh
 gh pr merge <number> --merge --match-head-commit <sha> \
@@ -94,4 +96,5 @@ gh run list -R rwcii/homebrew-koinon --limit 1
 
 The tap's own workflow installs, tests and audits the formula on Linux and macOS. The release is
 published only when that run passes. A failure there is a release defect: fix the generator in
-this repository and release a new patch version; never edit the formula in the tap by hand.
+this repository and release a new patch version. The release job rewrites the formula, so a
+hand edit in the tap does not last.

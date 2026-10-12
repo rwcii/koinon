@@ -38,14 +38,14 @@ the chunks need separate specifications.
 
 ## Phase 0: frame
 
-1. Read the design documents under `docs/` and the root `AGENTS.md` sections that the work
-   touches.
+1. Read the design documents under `docs/` and the decision records that the work touches
+   (the ADR, PDR and WDR indexes).
 2. List the related open issues. When the sprint delivers more than one issue, create a
    GitHub milestone named `<date>-<slug>` and attach them, so `pickup` can find the sprint's
    open work. Both agents use one GitHub account, so mark each issue with the label
    `agent:<agent-id>` of the agent that takes it; two agents then do not take the same issue.
-3. State the boundary of the deliverable to the maintainer in one or two sentences and get
-   agreement.
+3. State the boundary of the deliverable in one or two sentences. Gate A settles it with
+   `decision.md`.
 
 ## Phase 1: decision → gate A
 
@@ -53,13 +53,17 @@ Write `decision.md`:
 
 - **Problem**: the current state, the gap, who needs it and why now. No solution.
 - **Acceptance criteria**: outcomes a person who did not build it can check.
-- **Constraints**: non-goals; the security boundary and other rules in the root `AGENTS.md`
-  that apply; Linux and macOS support; dependencies and order.
+- **Constraints**: non-goals; the decision records that apply, cited by number (ADR 001 for
+  the security boundary); Linux and macOS support; dependencies and order.
 - **Issues**: which issues the sprint delivers, and which it leaves to a later sprint, with
   the reason.
 
-**Gate A**: the maintainer approves `decision.md` before any specification is written. An approval
-the maintainer already gave for this content counts; do not ask again.
+A constraint cites the record that imposes it. A significant product, architecture or workflow
+choice that the sprint makes is a draft PDR, ADR or WDR, and `decision.md` cites it; a non-goal
+limits this sprint only (WDR 001).
+
+**Gate A**: bring `decision.md` to the maintainer for approval (WDR 002, Decision 5). An approval
+already given for this content counts.
 
 ## Phase 2: definition of done
 
@@ -97,15 +101,20 @@ material findings that it has reproduced or can show in the text, and checks tha
 Record every finding in `review.md` with its disposition. A finding that changes the chunks, the
 criteria or the definition of done gets a second review of the changed plan.
 
-**Gate B**: the maintainer approves the reviewed plan before any chunk is built. As at gate A, an
-approval already given counts.
+**Gate B**: bring the reviewed plan to the maintainer for approval before chunks are built
+(WDR 002, Decision 5). The approval covers the plan at the commit it names. An approval already
+given for this content counts.
 
-## Phase 5: build → gate C for each chunk
+## Phase 5: build
 
-Build each chunk with the `ship` skill. Do not start a chunk until the chunks it depends on
-have merged; chunks with no dependency between them may be built at the same time. Once a chunk's branch is pushed and CI is running, put further changes on
-a new branch. File each new deferral as an issue on the milestone when it is decided. When the
-build shows that the plan is wrong, correct the plan file first and gate it again.
+Build each chunk with the `ship` skill; peer review and CI cover each chunk, with no further
+maintainer approval (WDR 002, Decision 5). A chunk starts after the chunks it depends on have
+merged; chunks with no dependency between them may be built at the same time. Once a chunk's
+branch is pushed and CI is running, put further changes on a new branch. File each new deferral
+as an issue on the milestone when it is decided. When the build shows that the plan is wrong,
+correct the plan file first. A correction or clarification within the approved scope proceeds
+under the existing approval (WDR 001, Decision 2); a change that needs a new consequential
+choice or authority goes back through review and gate B.
 
 A chunk reuses the work item of the issue it delivers (`ship`, step 1); do not create one work
 item per chunk. When a different agent builds the next chunk of the same issue, the previous

@@ -295,7 +295,18 @@ func (s *server) claudeActivity(session string) *core.ObservedValue {
 		StatusUpdatedAt int64  `json:"statusUpdatedAt"`
 		Entrypoint      string `json:"entrypoint"`
 	}
-	if json.Unmarshal(data, &record) != nil || record.PID != s.c.ParentPID || record.SessionID != session || record.Entrypoint != "cli" {
+	if json.Unmarshal(data, &record) != nil || record.PID != s.c.ParentPID || record.SessionID == "" ||
+		len(record.SessionID) > 256 || strings.ContainsAny(record.SessionID, "\x00\r\n") || record.Entrypoint != "cli" {
+		return nil
+	}
+	s.mu.Lock()
+	start := s.claudeHostStart
+	s.mu.Unlock()
+	current, startErr := s.processStart(s.c.ParentPID)
+	// /clear changes the transcript ID but leaves this MCP process and its native host
+	// in place. A changed ID needs the host pinned at initialization, never just a PID.
+	sameHost := start > 0 && startErr == nil && current == start
+	if record.SessionID != session && !sameHost || start > 0 && !sameHost {
 		return nil
 	}
 	// shell is the prompt with a background shell task running, so the agent is idle.

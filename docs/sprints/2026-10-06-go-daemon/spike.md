@@ -103,8 +103,8 @@ the agent's command approval. That makes an idle wake possible but not automatic
 of this sprint: Antigravity delivery is at the turn boundary, as criterion 6 allows.
 
 While approving the test command by typing into the terminal, an `Enter` moved the selection
-instead of choosing it, and the dialog saved a permanent allow rule (since reverted). This
-confirms the decision not to type into agent terminals.
+instead of choosing it, and the dialog saved a permanent allow rule (since reverted). Input to
+a dialog needs a read-back of the selected option before Enter.
 
 ## 6. OpenCode
 
