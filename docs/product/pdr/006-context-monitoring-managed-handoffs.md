@@ -155,8 +155,11 @@ finishes or pauses its step, writes its handoff and replies that it is ready; a 
 reply ready for another session. After the reply, Koinon enters the family's commands in the
 agent's own pane, proven as in the #156 rename (the pane process is an ancestor of the
 agent's host with no other agent between them): `/clear` then `/pickup`, or `/clear` then
-`$pickup` for Codex. It reads the pane after each step and stops on anything it does not
-expect. Peer text is not entered. The cycle stops with a shown reason when no ready reply
+`$pickup` for Codex, with no appended task text (PDR 002, Decision 4). It reads the pane
+after each step and handles prompts or alerts shown during the cycle under the maintainer's
+existing authorization and native permissions (PDR 002, Decision 2). It reports an outcome
+it cannot reconcile rather than counting it as a completed step. Peer text is not entered.
+The cycle stops with a shown reason when no ready reply
 arrives in time, the pane cannot be proven, or the session is busy. Entering commands in the
 tmux session is a required part of the cycle, not an exception.
 
@@ -222,8 +225,8 @@ Every cycle has a visible result. A family that cannot be proven shows why it is
 
 | Inventory row | Statement (short) | Where it appears | Why not adopted |
 | ------------- | ----------------- | ---------------- | --------------- |
-| C078 | Terminal input is an exception to Go sprint decision 6, approved for this cycle only | #196 issue body ("Bounds"); the unpublished #196 plan draft (9206a1d) decision.md (constraints) | Decision 6 was agent-written with no maintainer source and was removed in #305; the maintainer stated the cycle needs terminal commands (#196 comment 6117338153) |
-| C078 | Only the bare reset commands may be typed; the skill bootstrap must fit a bare-command restriction | #196 issue body ("Bounds"); the unpublished #196 plan draft (9206a1d) decision.md (criterion 4, constraints) | A limit with no maintainer source; it would block clearing prompts that appear during the cycle, which the agent-written intent in #196 comment 6117338153 counts as part of the same work |
+| C078 | Terminal input is an exception to Go sprint decision 6, approved for this cycle only | Earlier #196 issue body ("Bounds"); the original #196 plan draft (9206a1d) decision.md (constraints); both corrected in the reconciliation | Decision 6 was agent-written with no maintainer source and was removed in #305; the maintainer stated the cycle needs terminal commands (#196 comment 6117338153) |
+| C078 | Only the bare reset commands may be typed; the skill bootstrap must fit a bare-command restriction | Earlier #196 issue body ("Bounds"); the original #196 plan draft (9206a1d) decision.md (criterion 4, constraints); both corrected in the reconciliation | A limit with no maintainer source; it would block clearing prompts that appear during the cycle, which the agent-written intent in #196 comment 6117338153 counts as part of the same work |
 
 ---
 
@@ -240,3 +243,4 @@ and terminal commands have the maintainer's words; the rest is requested or prop
 | Date       | Change           |
 | ---------- | ---------------- |
 | 2026-10-12 | Initial creation |
+| 2026-10-12 | Reconciled the framing and active issue body with intended terminal commands and prompt handling; retained bare native commands without appended task text |
