@@ -1,5 +1,7 @@
 # Sprint 2026-10-11 — macOS system service — Decision
 
+> Historical sprint plan. Its non-goals and constraints limited this sprint only. Current decisions are in the [decision records](../../engineering/wdr/README.md); see WDR 001.
+
 The content of this decision is the maintainer's issue #283. This file restates it for
 the plan and adds the constraints from the root `AGENTS.md`; it decides nothing new.
 

@@ -39,13 +39,17 @@ POST requests use `Content-Type: application/json`, at most 16 KiB, with unknown
 Registration fields are `family` (`claude`, `codex`, `deepseek`, `agy`, `opencode`), `id` (1–256
 bytes), an absolute `directory` path, an optional absolute `repository` path,
 optional `wake_target` JSON (up to 8 KiB),
-optional `launch_id` (required for launcher families), optional `ancestors` (at most 256
+optional `launch_id`, optional `ancestors` (at most 256
 process IDs), optional `subagent` (boolean),
-and optional `ttl_seconds` (60–3,600; without it, the lifetime setting, 900 by default). Claude, Codex, Antigravity and OpenCode
-require a known launch ID whose family and canonical directory match the registering session.
-Missing, unknown or mismatched launch associations are refused with `not_launched` (409).
+and optional `ttl_seconds` (60–3,600; without it, the lifetime setting, 900 by default). Claude,
+Codex, Antigravity and OpenCode register as plain peers when `launch_id` is absent. They get
+a peer name and can send/read/ack their own inbox and use repository memory/work, with no
+participant address, role, succession or terminal naming. A supplied launch ID must be known
+and match the registering session's family and canonical directory; an unknown, malformed or
+mismatched association returns `not_launched` (409), without falling back to plain mode.
 A foreground launch's `host_pid` must occur in `ancestors`; Claude also requires
-`wake_target: {"claude_pid": PID}` with that same PID. Other launcher families accept no
+`wake_target: {"claude_pid": PID}` with that same PID. A plain Claude registration also carries
+its native worker PID, without recording a launch host. Other native families accept no
 `wake_target` override except an empty object. The stored wake target comes from the launch,
 with Claude's worker PID added and any OpenCode password omitted.
 A background Claude launch instead admits only the session whose native ID equals its
@@ -81,10 +85,10 @@ it is empty until the first check after a daemon start). Concurrent
 registrations update one row, never create two records for the same key. Times are Unix
 milliseconds. Expiry is computed from the current wall clock; clock jumps can change effective
 expiry, never remove records or imply a model stopped. Restart preserves records and revisions.
-Renewal of a launcher-family session stored without a launch association returns
-`not_launched` without extending its expiry. This includes sessions retained from an older
-installation: they expire at their existing deadlines, retaining inboxes, acknowledgements,
-memory cursors and work claims. DeepSeek renewals keep their launch-free command path.
+Sessions without a launch association renew as plain peers, including records retained from
+older installations. Renewal releases any former participant address and clears launch role,
+host and succession metadata, retaining inboxes, acknowledgements, memory cursors, work claims
+and persistent participant fences. DeepSeek renewals keep their command path and participant.
 
 Each session record carries its peer `name` and, while it is active and holds one, its `alias`.
 Sub-agent records additionally carry `subagent: true`; false is omitted. Schema 10 adds
@@ -106,8 +110,8 @@ A participant is a family, Git common directory and optional role. Its reserved 
 participants. The maintainer sets a role at launch with `koinon FAMILY --role ROLE`; the
 role has 1–24 lower-case letters, digits or hyphens, starts with a letter, and cannot consist
 only of hexadecimal digits and hyphens. Registration takes the role from the launch record,
-never from a tool argument. DeepSeek's command registration has no role. A sub-agent or a
-session without a repository has no participant.
+never from a tool argument. DeepSeek's command registration has no role. A native plain peer,
+a sub-agent or a session without a repository has no participant.
 
 Peer names and participant addresses share one namespace. A taken address uses the existing
 4, 6, … hexadecimal digest suffix fallback, hashing the common directory (and `NUL role` for
@@ -119,7 +123,7 @@ work claims unchanged.
 An active holder keeps the address when another session registers or renews, except for
 verified succession below. When no active
 holder remains, registration or renewal counts the active, non-retired, non-sub-agent sessions
-of that participant. Exactly one qualifier takes it; multiple qualifiers leave it unheld,
+of that participant, excluding native plain peers. Exactly one qualifier takes it; multiple qualifiers leave it unheld,
 record their peer names as `conflict`, and wait for the maintainer's choice or for only one
 qualifier to remain.
 An expired holder that re-registers follows these same rules. Renewal order cannot break a
@@ -289,6 +293,15 @@ counts leave it out. No `/v1/` caller can act as it, register it, renew it or re
 The daemon itself puts notices in the maintainer's inbox with `sender_name` `koinon`: today
 only the notice that messages failed (see Handled wakes). Such a notice holds fixed text,
 message IDs, a recipient name and reason codes, never peer text.
+
+A message that the dashboard sends as this session reaches the recipient with `sender_family`
+`maintainer` and `sender_name` `maintainer`. Because `/v1/` refuses family `maintainer`, no MCP
+tool or other `koinon` command can send a message with that `sender_family`; only the dashboard,
+which needs a login link from `koinon dashboard`, can. The field is set from the sending
+session, never from the body. Koinon currently treats such a message as the maintainer's
+instruction and approval, because the bridge runs only locally (PDR 005, Decision 3). Messages from every other session are data from another agent and grant no
+permission (WDR 002, Decision 3). The MCP server instructions, the `inbox` tool description and
+`koinon guide` state both.
 
 Each message has exactly one delivery state: `waiting`, `notified`, `uncertain`, or `failed` with
 a reason. Messages are stored as `waiting`; the adapters below update delivery independently
@@ -635,7 +648,7 @@ call whose arguments hold `caller`, `family`, `id`, `as`, `session` or `session_
 | OpenCode | The `koinon_session` argument that the Koinon plugin sets from the calling session's ID; accepted only from the `opencode` client. |
 
 DeepSeek has no MCP identity source yet and uses the `koinon` commands with `--as`. For the
-other families, the server registers a launched session at its first call, with the working
+other families, the server registers the native session at its first call, with the working
 directory and, inside Git, its repository, and registers it again after the renewal interval,
 when the daemon reports it inactive, or at once when a Codex thread is first marked as a
 sub-agent. At the renewal interval it renews the session it served last. The interval is the
@@ -652,10 +665,13 @@ the renewal set until that registration succeeds or is refused for good, so a tr
 is tried again at the next interval. Registration passes
 `KOINON_LAUNCH_ID` as `launch_id` and the server's process ancestors, nearest first, from the
 native process table. Claude also passes its parent's `claude_pid`; the daemon binds the
-foreground host or background job as described above. A server without a launch ID does not
-register: tool calls return `{ok: false, code: "not_launched", launcher: "koinon FAMILY",
-message: ...}`. `tools/list` remains available. Failed pending background admission retries
-at the next tool call. Codex has no direct-start CLI fallback.
+foreground host or background job as described above. A server without a launch ID registers
+a plain peer with the same native identity checks. A supplied launch that does not match
+returns `{ok: false, code: "not_launched", launcher: "koinon FAMILY", message: ...}`.
+`tools/list` remains available. Failed pending background admission retries at the next tool
+call. A plain peer's renewal or reconnect can recover an expired registration with the same
+peer name. Direct Codex starts have no launcher CLI wake target, and direct OpenCode starts
+have no launcher wake endpoint; their inboxes remain available through tool calls.
 
 `koinon codex` uses `--no-daemon`, making the launched CLI the host of its MCP servers, and
 overrides `mcp_servers.koinon.env_vars` to forward `KOINON_LAUNCH_ID`, `KOINON_STATE_DIR`,
@@ -1051,3 +1067,24 @@ ID, another PID, a session without a host record, or a missing or malformed entr
 `claude_identity_mismatch` or `claude_target_unavailable`.
 Sender-provided envelope labels alone are not authentication or permission. See
 `internal/core/wake_providers.go` and its synthetic receiver tests for the maintained wire contract.
+
+
+### Claude observations after a transcript clear
+
+Claude can keep its MCP process and first environment session ID across `/clear`, while the
+native registry and status-line input use a new transcript ID. The MCP activity reader accepts
+that changed ID only while the parent retains the process start value pinned at the first
+Claude initialization. A reused PID or unreadable changed-ID proof reports no activity.
+
+When a Claude status-line hook's direct observation names an unregistered transcript, it can
+retry with `claude_reporter: {pid, start}` from its own live process. Only `claude_statusline`
+model/context reports accept that optional evidence. The daemon reads actual process ancestry,
+requires one active Claude host with its recorded start value, and stops at a foreign or
+unregistered nested agent. An ambiguous host or a known caller from another session is refused
+with `observation_host_unverified`. The reporter is rechecked before accepting the report.
+
+This resolves observation values to the existing session only. It creates no registration and
+moves no participant, claim or cursor. Reporter evidence is transient and is excluded from
+peer status, dashboard values, stored observations and logs. Hook output and the user's status-
+line command's exit result are unchanged. These observations remain subject to the existing
+source validation and freshness windows.

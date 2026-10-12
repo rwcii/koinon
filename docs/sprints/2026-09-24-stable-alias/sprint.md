@@ -1,5 +1,7 @@
 # Sprint 2026-09-24 — stable alias — Chunks
 
+> Historical sprint plan. Its non-goals and constraints limited this sprint only. Current decisions are in the [decision records](../../engineering/wdr/README.md); see WDR 001.
+
 Delivers #141. Cites `decision.md` (criteria 1–9) and `definition-of-done.md`; it does not
 repeat them. Each chunk is one pull request that merges complete. The order is linear.
 

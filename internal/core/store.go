@@ -123,8 +123,10 @@ type Store struct {
 	retention retentionState
 	// calls holds each session's last tool call; processStart reads a host process's start
 	// time (chunk 04).
-	calls        toolCalls
-	processStart func(int) (int64, error)
+	calls          toolCalls
+	processStart   func(int) (int64, error)
+	processParents func() (map[int]int, error)
+	processCommand func(int) (string, []string, error)
 	// alive holds when the liveness sweep last read each session's host as running (#249).
 	alive liveness
 	// settings holds the session timing values in force (#249).
@@ -205,7 +207,8 @@ func openStoreFile(root, name string) (*Store, error) {
 		db.Close()
 		return nil, err
 	}
-	s := &Store{db: db, now: time.Now, storage: storage{path: path, maxPages: defaultMaxPages}, processStart: platform.ProcessStart}
+	s := &Store{db: db, now: time.Now, storage: storage{path: path, maxPages: defaultMaxPages}, processStart: platform.ProcessStart,
+		processParents: platform.ProcessParents, processCommand: platform.ProcessCommand}
 	if err := s.loadSettings(context.Background()); err != nil {
 		db.Close()
 		return nil, err
@@ -714,9 +717,8 @@ func (s *Store) Register(ctx context.Context, r Registration) (Session, error) {
 		return Session{}, err
 	}
 	defer tx.Rollback()
-	// Every launcher family registers only with its own launch, which also gives the
-	// session its role; DeepSeek has no launcher and keeps its command registration until
-	// its MCP path is settled (#199).
+	// A native family without a launch registers as a plain peer. A matching launch also
+	// gives the session its role and participant; DeepSeek keeps command registration (#199).
 	role := ""
 	if r.Family == "deepseek" {
 		if r.LaunchID != "" || r.Subagent {
@@ -735,9 +737,9 @@ func (s *Store) Register(ctx context.Context, r Registration) (Session, error) {
 	if r.ToolCall {
 		s.ToolCall(Key{r.Family, r.ID})
 	}
-	// DeepSeek has no launch and so no host record.
+	// Plain peers and DeepSeek have no launch host record.
 	h := host{}
-	if r.Family != "deepseek" {
+	if r.LaunchID != "" {
 		h = s.recordHost(hostPID(r.WakeTarget), r.Tmux)
 	}
 	_, err = tx.ExecContext(ctx, `INSERT INTO sessions(`+sessionColumns+`) VALUES (?,?,?,?,?,?,?,?,0,1,?,?,?,?,?,?)
@@ -760,7 +762,7 @@ func (s *Store) Register(ctx context.Context, r Registration) (Session, error) {
 	}
 	// Only the session's own tool call can take the participant from an active holder; the
 	// renewal timer never registers.
-	if r.ToolCall {
+	if r.ToolCall && (r.Family == "deepseek" || r.LaunchID != "") {
 		succession, err := s.succeed(ctx, tx.Tx, now, Key{r.Family, r.ID}, common, role, subagent, r.Clear)
 		if err != nil {
 			return Session{}, tx.fail(err)
@@ -773,6 +775,10 @@ func (s *Store) Register(ctx context.Context, r Registration) (Session, error) {
 			if _, err := tx.ExecContext(ctx, `UPDATE sessions SET succession=? WHERE family=? AND id=?`, string(data), r.Family, r.ID); err != nil {
 				return Session{}, tx.fail(err)
 			}
+		}
+	} else if r.LaunchID == "" && r.Family != "deepseek" {
+		if _, err := tx.ExecContext(ctx, `UPDATE sessions SET succession='' WHERE family=? AND id=?`, r.Family, r.ID); err != nil {
+			return Session{}, tx.fail(err)
 		}
 	}
 	result, err := scanSession(tx.QueryRowContext(ctx, sessionQuery+` WHERE s.family=? AND s.id=?`, r.Family, r.ID), now)
@@ -798,7 +804,7 @@ const sessionQuery = `SELECT s.family,s.id,s.repository,s.directory,s.wake_targe
 	EXISTS (SELECT 1 FROM participant_fences f WHERE f.address=p.name AND f.family=s.family AND f.session_id=s.id),s.succession,
 	s.host_pid>0 AND s.host_start>0 AND s.subagent=0 FROM sessions s
 	LEFT JOIN names p ON p.kind='alias' AND p.family=s.family AND p.repository=s.repository AND p.role=s.role
-		AND s.repository!='' AND s.subagent=0`
+		AND s.repository!='' AND s.subagent=0 AND ` + participantQualifier
 
 type scanner interface{ Scan(...any) error }
 
@@ -872,14 +878,19 @@ func (s *Store) Mutate(ctx context.Context, r Mutation, retire bool) (Session, e
 	if current.Revision != r.IfRevision || current.State != "active" {
 		return Session{}, ErrConflict
 	}
-	// A session registered without its launch, such as one an older store holds, is not
-	// renewed: it expires at the expiry it already has, with its records kept.
-	if !retire && current.Family != "deepseek" && !launched(current) {
-		return Session{}, ErrNotLaunched
-	}
 	if retire {
 		_, err = tx.ExecContext(ctx, `UPDATE sessions SET retired_at=?,revision=revision+1 WHERE family=? AND id=?`, now, r.Family, r.ID)
 	} else {
+		if current.Family != "deepseek" && !launched(current) {
+			// Retained pre-launch records become plain peers without losing their inbox,
+			// cursors, claims or any persistent participant fence.
+			_, err = tx.ExecContext(ctx, `UPDATE sessions SET role='',host_pid=0,host_start=0,tmux_socket='',tmux_pane='',succession=''
+				WHERE family=? AND id=?`, r.Family, r.ID)
+			if err != nil {
+				return Session{}, tx.fail(err)
+			}
+			current.Role = ""
+		}
 		_, err = tx.ExecContext(ctx, `UPDATE sessions SET renewed_at=?,expires_at=?,revision=revision+1 WHERE family=? AND id=?`, now, now+duration, r.Family, r.ID)
 		if err == nil {
 			// A renewal takes the repository's alias when its holder expired or retired.

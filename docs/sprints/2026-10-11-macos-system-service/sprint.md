@@ -1,5 +1,7 @@
 # Sprint 2026-10-11 — macOS system service — Chunks
 
+> Historical sprint plan. Its non-goals and constraints limited this sprint only. Current decisions are in the [decision records](../../engineering/wdr/README.md); see WDR 001.
+
 Each chunk is one pull request from `develop`, built with the `ship` skill after the chunks it
 depends on have merged, with one pull request in flight at a time. Each chunk passes its part
 of `definition-of-done.md` and updates the documents for the behaviour it changes in the same
