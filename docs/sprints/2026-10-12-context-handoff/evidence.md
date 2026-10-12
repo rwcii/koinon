@@ -11,7 +11,7 @@ installed guidance read on 2026-10-12.
 | `internal/core/observations.go`, `PROTOCOL.md` observations | Context sources are `claude_statusline` and `codex_rollout`. | Other families have no admitted context source today; unknown must not become zero. |
 | Same files | Context/model confirmation freshness is 30 minutes; activity/terminal freshness is 2 minutes. | Registration active does not prove idle. Context source time and confirmation time are distinct. A cycle needs a checked freshness policy; existing display freshness alone does not establish reset readiness. |
 | `internal/mcp/observe.go` | Polling runs every 5 seconds and confirms unchanged readable observations every minute. | A repeated observation is not necessarily a new threshold crossing or a new context epoch. |
-| `internal/mcp/observe.go` Claude registry reader | Reads bounded, owned registry metadata tied to native session and parent process; busy/shell map to busy, idle/waiting remain distinct. | Native session attribution and fresh status need rechecking at reset; MCP activity alone does not prove idle. |
+| `internal/mcp/observe.go` Claude registry reader | Reads bounded, owned registry metadata tied to native session and parent process; busy maps to busy; shell and idle map to idle, and waiting stays distinct. | Native session attribution and fresh status need rechecking at reset; MCP activity alone does not prove idle. |
 | Codex rollout reader in the same file | Context and activity come from the session's own rollout. | Native compaction and thread changes must be distinguished from a managed cycle; retained usage alone cannot prove a new context. |
 
 ## Terminal and reset evidence
@@ -95,3 +95,20 @@ wrapper is therefore an interface candidate for a missing installed skill, but i
 been tested and is not a chosen design. It would need native discovery, command acceptance,
 canonical library read and post-clear receiving-model proof; it must not be described as
 verified or adopted merely because the option exists.
+
+## Concrete post-clear observation gap
+
+The current Claude MCP identity path reads the retained process environment's
+`CLAUDE_CODE_SESSION_ID` (`internal/mcp/identity.go`). `claudeActivity` in
+`internal/mcp/observe.go` requires the owned parent registry's session ID to equal that
+caller ID, and otherwise returns no observation. Participant live check F3 establishes
+that `/clear` can change the registry/transcript session ID while this MCP environment
+ID stays unchanged. Fresh registry activity is then not collected by that reader.
+
+The daemon wake adapter already has a verified same-host fallback for this case
+(`internal/core/wake_providers.go`), but that fallback is not present in the MCP activity
+reader. A recurring managed cycle cannot assume it has fresh idle evidence after pickup.
+The specification must account for the current native transcript and retained MCP identity
+with checked host/reset proof; removing the ID comparison alone is not a verified fix.
+The existing reader also labels a shell prompt with a background shell task as idle, so
+that display value alone cannot establish a safe reset point.
