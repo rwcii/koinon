@@ -15,3 +15,8 @@ how the team and its agents work — is a WDR.
 | Number | Title | Status |
 | ------ | ----- | ------ |
 | 001    | [Decision Records Govern Constraints](001-decision-records-govern-constraints.md) | Accepted |
+| 002    | [Authority Within the Assigned Task](002-authority-within-assigned-task.md) | Draft |
+| 003    | [Pairing and Independent Review](003-pairing-and-independent-review.md) | Draft |
+| 004    | [Publication and Verification](004-publication-and-verification.md) | Draft |
+| 005    | [Private Handoffs and Continuity](005-private-handoffs-and-continuity.md) | Draft |
+| 006    | [Native Integration Evidence](006-native-integration-evidence.md) | Draft |

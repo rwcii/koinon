@@ -88,6 +88,11 @@ replaced.
 Covers the record system, how constraints become records, and how other text refers to them.
 Does not decide any product behavior; those decisions are PDRs. Tracked in issue #306.
 
+The first records cite rows (C001 to C086) of a constraint inventory made for #306 on
+2026-10-12. Each row holds a constraint's exact text, every copy found, its source and its
+actual effect. The inventory quotes private session history, so it is kept outside the
+repository; each record states the provenance it relies on.
+
 ---
 
 ## 2. Decision 1: Adopt the record machinery

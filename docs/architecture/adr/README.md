@@ -9,3 +9,4 @@ Koinon keeps these records and how a constraint becomes one.
 
 | Number | Title | Status |
 | ------ | ----- | ------ |
+| 001    | [Native Identity and Local Runtime Trust](001-native-identity-local-runtime-trust.md) | Draft |
