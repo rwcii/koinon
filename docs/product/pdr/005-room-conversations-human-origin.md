@@ -170,9 +170,8 @@ the maintainer's next post.
 A post from the built-in `maintainer` session, sent from the dashboard as a direct message, a
 room post (#217) or a decision-board verdict (#206), is the maintainer's instruction and
 approval. Its origin comes from stored metadata that only the dashboard path sets; agents read
-it from typed fields, not from the body. Today the installed guide and MCP instructions call
-every message data; the step 2 wording change and the runtime guide text will state this
-decision. The plans'
+it from typed fields, not from the body. The Go guide and MCP instructions now state this
+decision (PR #311); an installation changes its guide only when that runtime is upgraded. The plans'
 framing that dashboard origin "does not ... supply a new approval" is not adopted.
 
 **Provenance:** Telling agents about maintainer origin: Requested in #217 ("To decide in the
@@ -222,3 +221,4 @@ reach the local bridge. Exact-session membership and the room tools remain plan 
 | ---------- | ---------------- |
 | 2026-10-12 | Initial creation |
 | 2026-10-12 | Recorded the maintainer's decisions on the exchange bound and dashboard origin (#306) |
+| 2026-10-12 | Reconciled the room plan with configured refill and maintainer authority; updated the guide implementation fact after PR #311 |
