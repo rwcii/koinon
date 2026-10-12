@@ -814,10 +814,9 @@ func (s *Store) event(ctx context.Context, tx *writeTx, store string, m MemoryCa
 	payload.Report, payload.VerdictEvidence = w.report, w.evidence
 	data, _ := json.Marshal(payload)
 	limit := maxWorkRecord - viewHeadroom
-	if kind == "progress-overdue" || kind == "lease-expired" || kind == "accepted" || kind == "rejected" {
-		// A funded due transition or verdict is never refused for size when its item was
-		// admitted with the headroom that it needs: an observation, or a verdict's
-		// outcome, pointers and one short reference.
+	if kind == "progress-overdue" || kind == "lease-expired" {
+		// A funded due transition is never refused for size: its item was admitted with
+		// the headroom that its observation needs.
 		limit = maxWorkRecord
 	}
 	if len(data) > limit {

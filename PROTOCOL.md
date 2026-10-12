@@ -601,8 +601,8 @@ pending verdicts per store and 32 across the daemon, a free scope revision on th
 the verdict's pages, slots and bytes after every other promise. Each pending verdict holds
 1,024 pages of the page debt and one entry, event, replay and scope revision slot and 64 KiB
 of logical bytes in the store's ceilings (`docs/WORK-ITEMS-GO-STORAGE.md`). A verdict
-event may use the full 16 KiB bound, so the outcome, pointers and a short reference always
-fit; larger verdict references can refuse with `record_too_large`.
+event drops the report's summary, so its outcome, pointers and short evidence fit where the
+report fitted; larger verdict references can refuse with `record_too_large`.
 
 `work-list` accepts `assigned_to_me` and keyset `after`. Responses retain `truncated`, add
 `more` and nullable `next_after`, and keep their 100-item/48-KiB bounds. Matching proposals

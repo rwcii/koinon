@@ -399,11 +399,17 @@ func TestWorkVerdictReservesSlotsAndBytes(t *testing.T) {
 	}
 	// Ordinary writes stop at the reduced ceiling: fill entries to it.
 	s.memory.limits.entries = u.Entries + l.reservedEntries + 1 + 1
-	if _, err := s.MemoryRecord(context.Background(), m, MemoryRecordRequest{Type: "finding", Body: "fills the last ordinary slot"}); err != nil {
+	last, err := s.MemoryRecord(context.Background(), m, MemoryRecordRequest{Type: "finding", Body: "fills the last ordinary slot"})
+	if err != nil {
 		t.Fatal(err)
 	}
 	if _, err := s.MemoryRecord(context.Background(), m, MemoryRecordRequest{Type: "finding", Body: "takes the verdict's slot"}); code(err) != "capacity" {
 		t.Fatalf("ordinary write took the verdict's slot: %v", err)
+	}
+	// A withdrawal, a control write, uses the reserve; the verdict, also a control
+	// write, still commits beyond the ordinary ceiling.
+	if _, err := s.MemoryRecord(context.Background(), m, MemoryRecordRequest{Type: "finding", Body: "withdrawn", Revokes: ptr(last.Seq)}); err != nil {
+		t.Fatalf("withdrawal: %v", err)
 	}
 	if _, err := verdict(s, reviewer, "work-reject", id, seq, nil); err != nil {
 		t.Fatalf("funded verdict: %v", err)
@@ -475,15 +481,27 @@ func TestWorkVerdictOnAMaximumItem(t *testing.T) {
 				"proposed_assignee": strings.Repeat("a", 128), "references": refs, "key": key(), "deadline": now(s) + 600})
 			id := out["work_id"].(string)
 			generation := mustStart(t, s, m, id, map[string]any{"checkpoint": big[:1024], "next_artifact": big[:1024]})
+			// The largest progress and then the largest report that the item admits, so
+			// the reported view is at its admission bound.
+			for progress := 2048; ; progress -= 16 {
+				_, err := work(s, m, "work-update", map[string]any{"work_id": id, "if_revision": revision(t, s, m, id), "claim_generation": generation,
+					"progress": big[:progress], "checkpoint": big[:1024], "next_artifact": big[:1024], "progress_deadline": now(s) + 60,
+					"references": refs, "key": key(), "deadline": now(s) + 600})
+				if err == nil {
+					break
+				}
+				if wcode(err) != "record_too_large" || progress <= 16 {
+					t.Fatalf("update: %v", err)
+				}
+			}
 			var seq int64
-			// The largest report that the item admits.
-			for summary := 2048; ; summary -= 128 {
+			for summary := 2048; ; summary -= 16 {
 				out, err := report(s, m, id, generation, map[string]any{"summary": big[:summary], "references": refs})
 				if err == nil {
 					seq = int64(out["seq"].(float64))
 					break
 				}
-				if wcode(err) != "record_too_large" || summary <= 128 {
+				if wcode(err) != "record_too_large" || summary <= 16 {
 					t.Fatalf("report: %v", err)
 				}
 			}
