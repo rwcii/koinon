@@ -72,7 +72,7 @@ func TestSharedSkillsAndGuidance(t *testing.T) {
 const raceTests = "go test -race -timeout 30m ./..."
 
 func TestRaceCommandIsTheSameEverywhere(t *testing.T) {
-	for _, file := range []string{".github/workflows/tests.yml", ".koinon/skills/check.md", "AGENTS.md", "CONTRIBUTING.md", "README.md"} {
+	for _, file := range []string{".github/workflows/tests.yml", ".koinon/skills/check.md", ".koinon/skills/ship.md", "AGENTS.md", "CONTRIBUTING.md", "README.md"} {
 		text := read(t, file)
 		if !strings.Contains(text, raceTests) {
 			t.Errorf("%s does not run %q", file, raceTests)

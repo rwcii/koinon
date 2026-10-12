@@ -20,9 +20,9 @@ func ParseFactValues(data []byte, name string, schema *Facts) (FactValues, error
 	if schema == nil || len(data) == 0 || len(data) > MaxItemBytes || !utf8.Valid(data) {
 		return FactValues{}, errors.New("invalid or oversized fact file")
 	}
-	text := string(data)
-	if strings.ContainsFunc(text, func(r rune) bool { return unicode.IsControl(r) && r != '\n' && r != '\t' }) || strings.Contains(text, "$(") || strings.Contains(text, "${") {
-		return FactValues{}, errors.New("fact data contains controls or shell expansion")
+	text := strings.ReplaceAll(string(data), "\r\n", "\n")
+	if strings.ContainsFunc(text, func(r rune) bool { return unicode.IsControl(r) && r != '\n' && r != '\t' }) {
+		return FactValues{}, errors.New("fact data contains controls")
 	}
 	headings := map[string]string{}
 	heading := ""
@@ -51,6 +51,9 @@ func ParseFactValues(data []byte, name string, schema *Facts) (FactValues, error
 	}
 	values := FactValues{Fields: map[string]string{}, Sources: []string{}}
 	for _, line := range strings.Split(headings["Sources"], "\n") {
+		if strings.TrimSpace(line) == "" {
+			continue
+		}
 		ref := strings.TrimPrefix(line, "- ")
 		if ref == line || ref == "" || strings.ContainsAny(ref, "\\:#`") || path.IsAbs(ref) || path.Clean(ref) != ref || ref == "." || strings.HasPrefix(ref, "../") {
 			return FactValues{}, errors.New("source must be a repository-relative evidence path")

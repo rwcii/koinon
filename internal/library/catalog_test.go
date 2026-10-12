@@ -164,9 +164,22 @@ func TestSchemaAndFactValues(t *testing.T) {
 	if err != nil || values.Fields["Conditional checks"] != "none" {
 		t.Fatalf("defaults: %v %v", values, err)
 	}
-	for _, bad := range []string{prefix, good + "## Unknown\nx\n", good + "## Base branch\nother\n", strings.Replace(good, "AGENTS.md", "../private.md", 1), strings.Replace(good, "fixture-check", "$(command)", 1), strings.Replace(good, "check\n## Sources", "wrong\n## Sources", 1)} {
+	for _, bad := range []string{prefix, good + "## Unknown\nx\n", good + "## Base branch\nother\n", strings.Replace(good, "AGENTS.md", "../private.md", 1), strings.Replace(good, "fixture-check", "bad\rvalue", 1), strings.Replace(good, "check\n## Sources", "wrong\n## Sources", 1)} {
 		if _, err := ParseFactValues([]byte(bad), "check", schema); err == nil {
 			t.Fatalf("invalid facts accepted: %s", bad)
+		}
+	}
+	for _, text := range []string{
+		strings.ReplaceAll(good, "\n", "\r\n"),
+		strings.Replace(good, "- AGENTS.md\n", "- AGENTS.md\n\n- README.md\n", 1),
+		strings.Replace(good, "fixture-check", "Print the literal ${VALUE} and $(command) examples.", 1),
+	} {
+		parsed, err := ParseFactValues([]byte(text), "check", schema)
+		if err != nil || len(parsed.Sources) == 0 || parsed.Fields["Required checks"] == "" {
+			t.Fatalf("inert fact text rejected: %v", err)
+		}
+		if strings.Contains(text, "${VALUE}") && parsed.Fields["Required checks"] != "Print the literal ${VALUE} and $(command) examples." {
+			t.Fatalf("literal text changed: %q", parsed.Fields["Required checks"])
 		}
 	}
 	for _, bad := range [][]byte{bytes.Replace(b, []byte("\"required\": true"), []byte("\"required\": true, \"default\": \"invented\""), 1), bytes.Replace(b, []byte("\"version\": 1"), []byte("\"version\": 2"), 1), append(b, []byte("extra")...)} {

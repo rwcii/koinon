@@ -15,6 +15,12 @@ The command descriptors use the generator's shared wrapper function. Contributor
 all actual wrappers/discovery links, facts/evidence sources, portable check procedures and
 policy preservation, plus the real native-CI classifier for skills, plans and runtime renames.
 
+The correction tests accept CRLF, blank Sources lines and unchanged literal shell syntax as
+inert fact text. Required checks are compared in their actual parsed fields against the Go
+commands in the authoritative project instructions. Altering the ship or check race/vet
+command fails the guard. Regular Sources paths alone do not prove full semantic agreement
+or maintainer intent.
+
 The contributor test rebuilds the actual embedding pattern in a temporary source tree after
 adding a synthetic skill. It reads that skill from an executable launched in an unrelated
 empty directory, with adjacent private fixtures excluded. The real binary's scratch no-start

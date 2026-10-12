@@ -15,6 +15,12 @@ in `.koinon/skills/NAME.md` facts outside the embedded source. Declare required 
 headings with defaults in the skill's repository-facts section. Facts supply project data;
 root instructions retain authority. Skills and reference material confer no new permissions.
 
+Invoking a skill or its task authorizes the work steps; ask only for necessary missing
+information or authority beyond that task (WDR 002, Decision 1). A skill cites the record
+for a significant choice and adds no approval step, stop condition or prohibition without
+that source (WDR 001, Decisions 3 and 5). Koinon's records describe its procedures; an
+adopting project's authoritative instructions govern that project's work.
+
 Add every canonical skill to this directory's README. Derive OpenCode commands from metadata;
 preserve custom commands and report collisions. The adopting project's contributor tooling
 checks its actual source, wrappers, discovery links, fact schemas and authoritative policy.

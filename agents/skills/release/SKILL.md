@@ -5,6 +5,10 @@ description: "Promote and publish an authorized release after project-specific i
 
 # Release
 
+Koinon's procedure source is [WDR 004](https://github.com/rwcii/koinon/blob/develop/docs/engineering/wdr/004-publication-and-verification.md). The adopting project's instructions govern its
+application. Invoking this skill or its task authorizes the work steps; ask only for necessary
+missing information or authority beyond that task (WDR 002, Decision 1).
+
 Read the adopting project's authoritative instructions first. For edits to a canonical skill source, also read `agents/skills/AGENTS.md` when present. A machine-wide copy need not have the authoring file.
 
 Read the required Promotion path, Publish steps and Release checks facts and project policy.
@@ -26,11 +30,11 @@ Resolve the current worktree and Git common directory before reading project fac
 below is local fact data with Version 1, matching Skill, Sources and the declared headings.
 It is outside the embedded catalog. No required fields means no sidecar is needed; optional
 fields use only the defaults declared here. A supplied sidecar must still be valid.
-Read required facts before the dependent step. If missing, draft from checked repository
-evidence, show the exact diff and obtain approval before writing it. Ask for unknown or
-conflicting facts; do not guess a branch, command, interface or permission. A sidecar cannot
-remove a skill step, override root policy or grant authorization. Bound it to 64 KiB, with no
-arbitrary includes, shell expansion or dynamic command substitution.
+Read required facts before the dependent step. When missing, derive and record them from
+checked project evidence within the task. Ask for necessary missing information or authority
+beyond that task; existing authorization counts. Project instructions govern the procedure,
+and facts supply its project data. Bound sidecars to 64 KiB. Their parser reads inert text;
+it does not include other files, expand shell syntax or execute values.
 
 <!-- koinon:repository-facts -->
 ```json

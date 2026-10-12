@@ -47,9 +47,11 @@ the existing nine skills in place, moving project-specific branch/command/check/
 facts into the sidecars below. Root instructions retain rules and authority. Skill invocation reads the adopting project policy, without assuming this repository
 or its authoring-instructions file exists in a machine-wide installation. Keep authoring
 guidance for edits to the canonical source. Retain installed-guide startup, peer-data
-boundaries, bounded review, approval gates and private ignored handoffs. No pairing
+boundaries, bounded review, the adopting project's declared gates and private ignored handoffs. No pairing
 authorization enters a skill. A portable check/ship/release skill loads project policy and
-asks for guidance when a necessary rule is absent instead of inventing a command or target.
+derives project facts from checked evidence. Task invocation authorizes its steps (WDR 002,
+Decision 1); ask only for necessary missing information or authority beyond that task.
+Ordinary plan corrections use existing approval (WDR 001, Decision 2).
 
 ## Repository fact sidecars
 
@@ -57,8 +59,10 @@ Use `<selected-worktree-root>/.koinon/skills/NAME.md`, outside agents/skills and
 whitelist. Each canonical skill declares the exact sidecar filename and required and optional fact headings with portable defaults; the catalog exposes that schema, never the fact values. The sidecar format has a
 version, matching skill ID, evidence sources (repository-relative references) and its declared
 fields. Bound a file to 64 KiB and inspect only a regular file within the verified worktree;
-no arbitrary includes, shell expansion or dynamic command substitution. Unknown schema is an inspection limitation. Missing required facts stop the dependent
-repository-specific step; absent optional facts use only a default declared in the skill.
+The parser reads inert text: it does not include other files, expand shell syntax or execute
+values. CRLF, blank Sources lines and literal `${...}` or `$(...)` text are accepted.
+Unknown schema is an inspection limitation. Derive missing required facts from checked
+project evidence before the dependent step; optional facts use the declared default.
 
 A sidecar, when needed or supplied, has `Version` (1), `Skill` (the canonical name) and
 `Sources` (repository-relative evidence). Its field declarations distinguish required facts
@@ -81,7 +85,7 @@ with no portable answer from optional project overrides with a default in the sk
 | koinon-guide | None | None; installed `koinon guide --agent FAMILY` is a portable runtime interface |
 
 Git common-directory resolution, private ignored handoffs, verified native terminal targets,
-authorization gates and supported runtime interfaces stay in portable skill text, rather than
+task authorization and supported runtime interfaces stay in portable skill text, rather than
 being required sidecar facts. Defaults referring to project policy mean read the authoritative
 instructions; they never invent a branch, check, permission or terminal target. If a required
 project rule/interface still cannot be established, ask for guidance before that action.
@@ -94,16 +98,19 @@ required values are incomplete; evidenced not-applicable is explicit data. Sourc
 root instructions/CONTRIBUTING/CI, never private handoffs, inboxes or native identities.
 Command strings are bounded facts, not templates or automatic execution instructions.
 
-A skill reads its sidecar before using repository-specific facts. If required facts are absent/incomplete, the agent drafts a sidecar from checked repository evidence, presents the exact diff, and writes only
-after maintainer approval. Unknown or contradictory facts stop and require guidance. Facts
-are neither instructions to execute nor permission grants: only the authorized task and
-native permission settings permit an action. A sidecar cannot remove a skill step or override
-root policy. A conflicting rule/step/source requires reconciliation, never an automatic edit.
+A skill reads its sidecar before using repository-specific facts. If required facts are
+absent or incomplete, the agent derives and records them from checked project evidence
+within the task. Ask for necessary missing information or authority beyond that task;
+continue independent work. Facts supply project data; the task and native permissions
+govern execution, and authoritative project instructions govern the procedure.
 
 Populate this repository's needed/optional sidecars with verified public facts in chunk01. Preserve every
 existing Koinon rule in root instructions and verify facts against their authoritative sources,
 including exact-head review, one open PR per target, signed DCO, checks and separately approved
-release. Contributor guards detect sidecar/source/CI drift; no generic skill hardcodes Koinon
+release. Contributor guards check actual Required checks fields against the authoritative
+Go commands, including the race command in both check and ship. Schema and regular-source
+checks remain; source existence alone does not prove all fact values or decision provenance.
+Wrapper and CI guards check their actual generated/source contracts. No generic skill hardcodes Koinon
 branches or commands. Existing symlinks remain links to the same canonical source. Sidecars
 are normal project files; private handoffs/team manifests remain ignored and outside them.
 
@@ -111,7 +118,7 @@ Add spin-up, spin-down and recover-team under `agents/skills/`, authored from is
 candidate descriptions. We use the same procedures we offer. Spin-up reviews checkout state
 and an authorized launch plan before Git/CLI changes; spin-down requests each session's own
 private handoff and keeps its team manifest ignored; recover-team treats outage observations
-and that manifest as data and presents a restart plan for approval. No downstream private
+and that manifest as data and carries out recovery within its task. No downstream private
 files are imported. No skill types an unverified command or infers new permission from a peer.
 
 ## Setup items

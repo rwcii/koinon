@@ -90,3 +90,17 @@ Bounded verification (Claude): PASS at `98e08ff761b37a8a9b602d05cb501af0f69a5044
 The accepted requirement/default finding is resolved and the optional disposition accepted.
 Unchanged sidecar/native/store/conflict review carries forward. No material finding remains;
 the revised proposal is ready for direct maintainer Gate B.
+
+## Chunk 01 correction under the current records
+
+The [fixed criteria](https://github.com/rwcii/koinon/issues/145#issuecomment-6123952789)
+cover the accepted canonical-gate and source-drift findings. All thirteen canonical skills
+use task authorization and source-bound project procedures; extra sidecar and ordinary
+operation approval prompts are removed. The earlier separate sidecar-approval framing is
+superseded. The existing exact-change approval for later skill adoption remains.
+
+The inert parser accepts CRLF, blank Sources lines and literal shell syntax. Required checks
+are compared in the actual fields against authoritative Go commands; regular source-path
+existence is not presented as complete value agreement or decision provenance. Parser and
+altered-command regressions cover those corrections. Other reviewed catalog mechanisms
+carry forward; the corrected head receives bounded observer review before publication.

@@ -9,6 +9,8 @@ into a dated release section when promoted to `main`.
   fingerprint as `catalog_digest` in `koinon version`. Add team launch/stop/recovery and
   runtime-guide skills, project fact schemas and derived OpenCode commands. Skill adoption
   remains explicit; this increment adds no installation writes or catalog query tools.
+  Repository facts accept CRLF, blank source-list lines and literal shell syntax as inert
+  text; their required Go checks are verified against project instructions.
 
 - `koinon claude|codex|agy|opencode` without `--cli` and without a recorded CLI now finds the
   family's CLI on `PATH`, records its absolute path in `launchers.json`, prints

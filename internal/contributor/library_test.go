@@ -3,6 +3,7 @@ package contributor
 import (
 	"bytes"
 	"encoding/json"
+	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -42,6 +43,11 @@ func TestRepositoryFactsMatchCanonicalSchemasAndPolicy(t *testing.T) {
 				t.Fatalf("%s evidence %s: %v", item.Name, source, err)
 			}
 		}
+		if item.Name == "ship" || item.Name == "check" {
+			if err := requiredGoCommands(values.Fields["Required checks"], read(t, "AGENTS.md")); err != nil {
+				t.Errorf("%s: %v", item.Name, err)
+			}
+		}
 	}
 	// Facts keep the project's concrete gates while generic procedures no longer hardcode
 	// its Go checks or branches. Authoritative policy remains in root instructions.
@@ -63,9 +69,50 @@ func TestRepositoryFactsMatchCanonicalSchemasAndPolicy(t *testing.T) {
 			}
 		}
 	}
-	for _, term := range []string{"signed", "one open PR per target branch", "Squash", "same-user", "exact native session", "Git-ignored"} {
+	for _, term := range []string{"WDR 004", "ADR 001", "WDR 002", "WDR 005", "WDR 006", "Git-ignored"} {
 		if !strings.Contains(read(t, "AGENTS.md"), term) {
 			t.Errorf("authoritative policy lost %s", term)
+		}
+	}
+}
+
+// Compare the actual field, not a word elsewhere in the sidecar, with the commands
+// declared by the project's authoritative instructions.
+func requiredGoCommands(value, policy string) error {
+	for _, line := range strings.Split(policy, "\n") {
+		command := strings.TrimSpace(line)
+		if strings.HasPrefix(command, "go vet ") || strings.HasPrefix(command, "go test ") {
+			if !strings.Contains(value, command) {
+				return fmt.Errorf("Required checks lacks authoritative command %q", command)
+			}
+		}
+	}
+	return nil
+}
+
+func TestRequiredChecksDetectSourceValueDrift(t *testing.T) {
+	catalog, err := library.Embedded("dev")
+	if err != nil {
+		t.Fatal(err)
+	}
+	policy := read(t, "AGENTS.md")
+	for _, item := range catalog.Items {
+		if item.Name != "ship" && item.Name != "check" {
+			continue
+		}
+		values, err := library.ParseFactValues([]byte(read(t, item.Facts.Filename)), item.Name, item.Facts)
+		if err != nil {
+			t.Fatal(err)
+		}
+		good := values.Fields["Required checks"]
+		if err := requiredGoCommands(good, policy); err != nil {
+			t.Fatal(err)
+		}
+		for _, change := range [][2]string{{raceTests, "go test ./..."}, {"go vet ./...", "go vet ./internal/..."}} {
+			bad := strings.ReplaceAll(good, change[0], change[1])
+			if bad == good || requiredGoCommands(bad, policy) == nil {
+				t.Fatalf("%s failed to detect altered required command %q", item.Name, change[0])
+			}
 		}
 	}
 }
