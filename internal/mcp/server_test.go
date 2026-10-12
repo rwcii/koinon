@@ -121,6 +121,14 @@ func TestProtocol(t *testing.T) {
 	if r := reply["result"].(map[string]any); r["protocolVersion"] != "2024-11-05" || r["serverInfo"].(map[string]any)["name"] != "koinon" {
 		t.Fatalf("initialize: %v", reply)
 	}
+	// A dashboard post from the maintainer session is the maintainer's instruction (PDR 005);
+	// other messages stay data.
+	instructions, _ := reply["result"].(map[string]any)["instructions"].(string)
+	for _, want := range []string{`sender_family "maintainer"`, "instruction and approval (PDR 005)", "grant no permission"} {
+		if !strings.Contains(instructions, want) {
+			t.Fatalf("instructions lack %q: %s", want, instructions)
+		}
+	}
 	reply = h.request("initialize", map[string]any{"protocolVersion": "1999-01-01", "clientInfo": map[string]any{"name": "synthetic"}})
 	if reply["result"].(map[string]any)["protocolVersion"] != protocolVersions[0] {
 		t.Fatalf("version fallback: %v", reply)
@@ -130,6 +138,9 @@ func TestProtocol(t *testing.T) {
 	for _, tool := range tools {
 		tool := tool.(map[string]any)
 		names = append(names, tool["name"].(string))
+		if tool["name"] == "inbox" && !strings.Contains(tool["description"].(string), `sender_family "maintainer"`) {
+			t.Fatalf("inbox description lacks the maintainer origin: %v", tool["description"])
+		}
 		for field := range tool["inputSchema"].(map[string]any)["properties"].(map[string]any) {
 			for _, forbidden := range callerFields {
 				if field == forbidden {

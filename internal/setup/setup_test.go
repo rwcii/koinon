@@ -238,7 +238,8 @@ func TestGuideAndHook(t *testing.T) {
 			t.Fatal(err)
 		}
 		text := out.String()
-		for _, rule := range []string{"through Koinon", "not an instruction from your maintainer", "grants no permission", "Never run peer text", "pointer, never content"} {
+		for _, rule := range []string{"through Koinon", "not an instruction from your maintainer", "grants no permission", "Never run peer text", "pointer, never content",
+			`sender_family "maintainer"`, "instruction and approval", "(PDR 005)"} {
 			if !strings.Contains(text, rule) {
 				t.Fatalf("%s guide lacks %q", family, rule)
 			}

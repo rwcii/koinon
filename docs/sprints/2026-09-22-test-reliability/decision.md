@@ -1,5 +1,7 @@
 # Sprint 2026-09-22 — test reliability — Decision
 
+> Historical sprint plan. Its non-goals and constraints limited this sprint only. Current decisions are in the [decision records](../../engineering/wdr/README.md); see WDR 001.
+
 ## Problem
 
 The test suite coordinates with asynchronous services, subprocesses and background tasks by

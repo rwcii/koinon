@@ -33,8 +33,9 @@ git diff --check
 The Python runtime and suite are retired. Go contributor checks also cover skill/layout
 and CI consistency. A passing test run on the same commit counts; do not repeat a suite when
 only prose changed since then. Report the commit tested. For runtime/install changes run the
-four CGO-free builds and compile/vet native-tagged tests without enabling real services locally.
-Native lifecycle evidence runs only on disposable CI runners.
+four CGO-free builds and compile/vet native-tagged tests. Real service-manager tests run on
+disposable CI runners, and the ordinary suite stays isolated from local services (WDR 006,
+Decisions 1 and 2).
 
 ## 3. Shell syntax, for shell edits only
 

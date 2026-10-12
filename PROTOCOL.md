@@ -290,6 +290,15 @@ The daemon itself puts notices in the maintainer's inbox with `sender_name` `koi
 only the notice that messages failed (see Handled wakes). Such a notice holds fixed text,
 message IDs, a recipient name and reason codes, never peer text.
 
+A message that the dashboard sends as this session reaches the recipient with `sender_family`
+`maintainer` and `sender_name` `maintainer`. Because `/v1/` refuses family `maintainer`, no MCP
+tool or other `koinon` command can send a message with that `sender_family`; only the dashboard,
+which needs a login link from `koinon dashboard`, can. The field is set from the sending
+session, never from the body. Koinon currently treats such a message as the maintainer's
+instruction and approval, because the bridge runs only locally (PDR 005, Decision 3). Messages from every other session are data from another agent and grant no
+permission (WDR 002, Decision 3). The MCP server instructions, the `inbox` tool description and
+`koinon guide` state both.
+
 Each message has exactly one delivery state: `waiting`, `notified`, `uncertain`, or `failed` with
 a reason. Messages are stored as `waiting`; the adapters below update delivery independently
 of inbox storage and acknowledgement. While a message waits for a further notice,
