@@ -3,6 +3,9 @@
 This file records existing interfaces and gaps. It is not a specification, a support
 claim or permission to reset a native session. Evidence is from develop 496ec52 and
 installed guidance read on 2026-10-12.
+The post-clear source correction below was checked against develop 5170f1c. PDR 006
+records the settled settings, Enable carry-over and terminal input; its remaining
+verification mechanisms are plan proposals.
 
 ## Context and activity
 
@@ -19,7 +22,8 @@ installed guidance read on 2026-10-12.
 - `internal/mcp/terminal_name.go` already verifies a launched host against an exact tmux
   pane's process ancestry, refusing an intervening native agent. It preserves the provider's
   unresolved socket path. Naming proof does not itself authorize typing or prove readiness.
-- `agents/skills/peer-tmux/SKILL.md` defines the manual bare-command cycle and validates
+- `agents/skills/peer-tmux/SKILL.md` defines the family's native commands and prompt handling
+  (PDR 002, Decisions 2 and 4), and validates
   receipt after Enter instead of blindly sending another Enter. Its handoff artifact and
   pickup checks should be the behavior reference, rather than another copied procedure.
 - The manual skill and `docs/sprints/2026-10-08-participants/live-checks.md` F3 record
@@ -27,6 +31,8 @@ installed guidance read on 2026-10-12.
   its first native environment ID. Koinon therefore sees one continuous session. A
   changed Koinon identity cannot be a universal reset criterion; the native transcript
   epoch and the identity presented by the retained MCP process must be distinguished.
+  PR #304 fixed post-clear observations for this same-host case; see the source correction
+  below. It did not implement a context cycle.
 - Codex's process and pane survive `/clear`, while its thread changes. #275 still records
   the gap before the new visible thread's first native call: queueing against a previous
   thread is not proof of receiving-model delivery to the current one. The installed
@@ -39,15 +45,19 @@ installed guidance read on 2026-10-12.
 ## Embedded skills and bootstrap
 
 The reviewed #145 proposal supplies canonical library reads in chunk 02, but that chunk
-has not been approved or implemented. Existing catalog plan files live in
+is approved for ordered implementation; chunk 01 is underway and chunk 02 is not implemented.
+Existing catalog plan files live in
 `docs/sprints/2026-10-11-skills-library/` on their own branch; they are not runtime behavior.
 
 An agent can read a catalog skill before reset and still lose that context during reset.
 An absent native pickup command cannot be assumed to load the catalog. Before declaring
 this fallback supported, evidence must show how the successor receives its cycle-specific
-pickup instruction and reads the canonical skill while terminal input remains only the bare
-family commands. A startup hook, MCP initialization text or parser behavior needs a real
-receiving-session proof, including reuse of an MCP process and same-ID Claude clears.
+pickup instruction and reads the canonical skill. The cycle includes native commands
+and handling prompts that appear during reset or pickup. A startup hook, MCP initialization
+text or parser behavior needs a real receiving-session proof, including reuse of an MCP
+process. #303 now supports observations from a changed Claude registry session ID while
+the MCP caller identity remains retained; its synthetic tests do not by themselves prove a
+complete native reset/pickup cycle.
 
 ## Existing configuration and durable audit
 
@@ -67,7 +77,8 @@ receiving-session proof, including reuse of an MCP process and same-ID Claude cl
 2. Bounded handoff artifact verification without importing its private body into the daemon,
    public docs or tests, and without following arbitrary model-supplied paths.
 3. Fresh own-pane/host and idle proof immediately before each permitted input.
-4. Native clear receipt and reset epoch, including Claude's retained native identity.
+4. Native clear receipt and reset epoch, distinguishing native identity changes from an
+   unchanged host or retained MCP process.
 5. Pickup bootstrap when skills are absent, and receiving-model confirmation after reset.
 6. Unknown external outcomes after a daemon crash, preventing blind command replay.
 7. Compatibility with family defaults, explicit per-session enable and native compaction.
@@ -96,19 +107,23 @@ been tested and is not a chosen design. It would need native discovery, command 
 canonical library read and post-clear receiving-model proof; it must not be described as
 verified or adopted merely because the option exists.
 
-## Concrete post-clear observation gap
+## Post-clear observation correction and remaining native proof
 
 The current Claude MCP identity path reads the retained process environment's
 `CLAUDE_CODE_SESSION_ID` (`internal/mcp/identity.go`). `claudeActivity` in
-`internal/mcp/observe.go` requires the owned parent registry's session ID to equal that
-caller ID, and otherwise returns no observation. Participant live check F3 establishes
+`internal/mcp/observe.go` originally required the owned parent registry's session ID to
+equal that caller ID. Participant live check F3 establishes
 that `/clear` can change the registry/transcript session ID while this MCP environment
-ID stays unchanged. Fresh registry activity is then not collected by that reader.
+ID stays unchanged.
 
-The daemon wake adapter already has a verified same-host fallback for this case
-(`internal/core/wake_providers.go`), but that fallback is not present in the MCP activity
-reader. A recurring managed cycle cannot assume it has fresh idle evidence after pickup.
-The specification must account for the current native transcript and retained MCP identity
-with checked host/reset proof; removing the ID comparison alone is not a verified fix.
-The existing reader also labels a shell prompt with a background shell task as idle, so
-that display value alone cannot establish a safe reset point.
+PR #304 (fixing #303) added a same-host check to the activity reader: the parent host's
+process start must match the start pinned at initialization before a changed registry
+session ID is accepted. `internal/mcp/claude_clear_observe_test.go` covers the changed ID
+and host mismatch with synthetic metadata. The daemon's Claude status-line observation
+path also uses checked host attribution. These source fixes restore observations; they
+do not prove native clear acceptance, reset epoch or receiving-model pickup.
+
+The full cycle still needs native read-back and reset/bootstrap proof. The existing reader
+labels a shell prompt with a background shell task as idle; that display value alone does
+not establish reset readiness. The specification must distinguish current native transcript,
+retained MCP caller identity and the verified cycle result.
