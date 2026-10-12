@@ -39,7 +39,7 @@ discover the transitions that concern them.
 
 None of this is built. Gate B for #140 has not been given ("the rest come after", #145
 comment 6116403867). This record states what #140 requests and what the reviewed plan
-proposes. The maintainer decided on 2026-10-12 that only the reporting consumer is refused
+proposes. The maintainer decided on 2026-10-12 that the reporting worker is refused
 the verdict, as #140 asks; the plan's wider exclusion is not adopted.
 
 ---
@@ -49,7 +49,7 @@ the verdict, as #140 asks; the plan's wider exclusion is not adopted.
 1. Problem Context
 2. Decision 1: Route a proposal to a role without claim inheritance
 3. Decision 2: A reported state and a verdict by a different consumer
-4. Decision 3: The reporting consumer cannot record the verdict
+4. Decision 3: The reporting worker cannot record the verdict
 5. Decision 4: Discovery through current queries and coalesced wakes
 6. Conclusion
 7. Document History
@@ -164,19 +164,25 @@ one. The item's history shows every report, verdict and scope revision.
 
 ---
 
-## 4. Decision 3: The reporting consumer cannot record the verdict
+## 4. Decision 3: The reporting worker cannot record the verdict
 
 ### Decision
 
-The consumer that reported an item cannot accept or reject it; any other consumer can. The
-verdict is a second look by a session other than the one that did the work; without this
-rule, "accepted" means only that the worker says it is done. The plan's wider exclusion of
-every session in the reporter's logical worker participant is not adopted.
+The reporting consumer and the native session that reported an item cannot accept or reject
+it. Switching consumer labels does not make that session another worker. A different consumer
+from another native session can record the verdict, including a later session in the same
+worker role. The plan's wider exclusion of every session in the reporter's logical worker
+participant is not adopted. The explanation given before the maintainer chose was that the
+verdict is a second look by a session other than the one that did the work; otherwise
+"accepted" means only that the worker says it is done.
 
 **Provenance:** Requested in #140 (owner cannot verdict its own reported item). Maintainer,
 2026-10-12: "a, next item", choosing the #140 rule over the plan's logical-participant
 exclusion and over no rule, after asking "why is any agent refusing to accept the work of a
 peer session?" ([#306 comment 6119167156](https://github.com/rwcii/koinon/issues/306#issuecomment-6119167156)).
+The question's option (a) excludes "only the reporting worker"; the explanation refers to
+another session. The earlier phrase "any other consumer" was an overbroad paraphrase of that
+framed choice, not a separate maintainer decision about relabelling within one native session.
 
 ### Alternatives Considered
 
@@ -245,3 +251,4 @@ maintainer decided the verdict rule (Decision 3); the other mechanisms are undec
 | ---------- | ---------------- |
 | 2026-10-12 | Initial creation |
 | 2026-10-12 | Recorded the maintainer's decision on who records the verdict (#306) |
+| 2026-10-12 | Clarified the reporting-worker exclusion against the framed question: changing consumer labels does not make the same native session another worker (#140 reconciliation) |
