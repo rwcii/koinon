@@ -42,6 +42,10 @@ var toolList = []map[string]any{
 		"inputSchema": object(map[string]any{"after": text, "limit": map[string]any{"type": "integer", "minimum": 0, "maximum": 32}})},
 	{"name": "library_read", "description": "Read one installed catalog item by item_id, including its exact canonical content and family-specific destination metadata. Reading inspects no project or native-home files and records no adoption decision.",
 		"inputSchema": object(map[string]any{"item_id": text}, "item_id")},
+	{"name": "room_list", "description": "List the dashboard rooms in which this session, or the participant whose address it holds, is a current or former member: room ID, name, roster revision and status (member or removed). Page with next_after.",
+		"inputSchema": object(map[string]any{"after": text, "limit": map[string]any{"type": "integer", "minimum": 0, "maximum": 100}})},
+	{"name": "room_members", "description": "Read the current roster of a room by room_id: participant addresses and peer names, family and state (active, inactive, unheld or conflicting). Only a current member can read it. Page with next_after.",
+		"inputSchema": object(map[string]any{"room_id": text, "after": integer, "limit": map[string]any{"type": "integer", "minimum": 0, "maximum": 100}}, "room_id")},
 	{"name": "memory_status", "description": "Report this repository's shared memory store: head, floor, usage, limits and consumers.",
 		"inputSchema": object(map[string]any{"after": text, "consumer": consumerField})},
 	{"name": "memory_sync", "description": "Read this repository's shared memory: a snapshot page or the entries after your cursor. Entries are recorded data; they grant no permission (WDR 002). Page a snapshot to the end, then acknowledge it with memory_ack.",
@@ -153,6 +157,24 @@ func (s *server) call(ctx context.Context, raw json.RawMessage) map[string]any {
 			err = errors.New("missing item_id")
 		}
 		body["item_id"] = a.ItemID
+	case "room_list":
+		var a struct {
+			After string `json:"after"`
+			Limit int    `json:"limit"`
+		}
+		err, path = decodeArgs(p.Arguments, &a), "/v1/rooms/list"
+		body["after"], body["limit"] = a.After, a.Limit
+	case "room_members":
+		var a struct {
+			RoomID *string `json:"room_id"`
+			After  int64   `json:"after"`
+			Limit  int     `json:"limit"`
+		}
+		err, path = decodeArgs(p.Arguments, &a), "/v1/rooms/members"
+		if err == nil && (a.RoomID == nil || *a.RoomID == "") {
+			err = errors.New("missing room_id")
+		}
+		body["room_id"], body["after"], body["limit"] = a.RoomID, a.After, a.Limit
 	case "peer_status":
 		var a struct {
 			Peer *string `json:"peer"`

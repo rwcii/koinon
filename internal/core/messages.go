@@ -43,6 +43,8 @@ type Message struct {
 	// the message; acknowledgements from before schema 15 have none (#250).
 	AcknowledgedSession string `json:"acknowledged_session,omitempty"`
 	AcknowledgedVia     string `json:"acknowledged_via,omitempty"`
+	// Room is the typed metadata of a room membership notice from the dashboard (#217).
+	Room *RoomEvent `json:"room,omitempty"`
 	// Inbox is session for the caller's own inbox and participant for the inbox of the
 	// participant that the caller holds (chunk 03).
 	Inbox string `json:"inbox"`
@@ -406,7 +408,7 @@ func readMessages(ctx context.Context, tx *sql.Tx, inbox Key, after, limit int64
 		return 0, 0, false, err
 	}
 	rows, err := tx.QueryContext(ctx, `SELECT id,seq,sender_family,sender_name,body,created_at,delivery_state,delivery_reason,maintainer_ack,
-		ack_session,ack_via FROM messages WHERE recipient_family=? AND recipient_id=? AND seq>? ORDER BY seq LIMIT ?`,
+		ack_session,ack_via,room_id,room_revision,room_event FROM messages WHERE recipient_family=? AND recipient_id=? AND seq>? ORDER BY seq LIMIT ?`,
 		inbox.Family, inbox.ID, after, limit+1)
 	if err != nil {
 		return 0, 0, false, err
@@ -416,15 +418,20 @@ func readMessages(ctx context.Context, tx *sql.Tx, inbox Key, after, limit int64
 	for rows.Next() {
 		var m Message
 		var maintainer bool
+		var room RoomEvent
 		if err := rows.Scan(&m.ID, &m.Seq, &m.SenderFamily, &m.SenderName, &m.Body, &m.CreatedAt, &m.DeliveryState, &m.DeliveryReason, &maintainer,
-			&m.AcknowledgedSession, &m.AcknowledgedVia); err != nil {
+			&m.AcknowledgedSession, &m.AcknowledgedVia, &room.RoomID, &room.Revision, &room.Event); err != nil {
 			return 0, 0, false, err
 		}
-		if count == limit || (count > 0 && size+len(m.Body) > 1<<20) {
+		if room.RoomID != "" {
+			m.Room = &room
+		}
+		// The bound counts bodies; room metadata is at most 64 bytes more per message.
+		if count == limit || (count > 0 && size+len(m.Body)+len(room.RoomID)+len(room.Event) > 1<<20) {
 			more = true
 			break
 		}
-		size += len(m.Body)
+		size += len(m.Body) + len(room.RoomID) + len(room.Event)
 		count++
 		m.Acknowledged = m.Seq <= acked
 		m.AcknowledgedBy = acknowledgedBy(m.Acknowledged, maintainer)

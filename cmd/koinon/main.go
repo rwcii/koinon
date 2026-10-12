@@ -48,6 +48,8 @@ func run(ctx context.Context, args []string, in io.Reader, out io.Writer) error 
 		return workCommand(ctx, args, out)
 	case "library":
 		return libraryCommand(ctx, args[1:], out)
+	case "room":
+		return roomCommand(ctx, args[1:], out)
 	case "dashboard":
 		return dashboardCommand(ctx, args[1:], out)
 	case "version":
@@ -224,6 +226,8 @@ const usage = `Usage: koinon install [--prefix DIR] [--state-dir DIR] [--agent F
        koinon memory <status|sync|ack|record|recall> --as FAMILY:ID [--consumer KEY] [options]
        koinon library list --as FAMILY:ID [--after ITEM_ID] [--limit N]
        koinon library read ITEM_ID --as FAMILY:ID
+       koinon room list --as FAMILY:ID [--after ROOM_ID] [--limit N]
+       koinon room members ROOM_ID --as FAMILY:ID [--after ORDINAL] [--limit N]
        koinon work <create|list> --as FAMILY:ID [--consumer KEY] [options]
        koinon work checkout [--directory DIR]
        koinon work checkout <status|request> --as FAMILY:ID [--directory DIR] [options]

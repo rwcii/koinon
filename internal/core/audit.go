@@ -34,6 +34,13 @@ type pendingAudit struct {
 	written        bool
 }
 
+// setAuditTarget names what an accepted change did, once the store knows it.
+func setAuditTarget(ctx context.Context, target string) {
+	if p, _ := ctx.Value(auditContextKey{}).(*pendingAudit); p != nil {
+		p.target = target
+	}
+}
+
 // withAudit returns a context under which the next committed write records the action.
 func withAudit(ctx context.Context, action, target string) (context.Context, *pendingAudit) {
 	p := &pendingAudit{action: action, target: target}

@@ -5,6 +5,14 @@ into a dated release section when promoted to `main`.
 
 ## Unreleased
 
+- Dashboard rooms (#217, chunk 01): the maintainer creates a room on the new Rooms page,
+  sets its agent-post refill value (default 32) and adds or removes active sessions by peer
+  name. A session that holds a participant address joins as that participant and keeps the
+  membership across holder succession. Each member gets an inbox message with typed `room`
+  metadata; `room_list`/`room_members` and `koinon room list|members` read your rooms and a
+  room's roster. At most 64 rooms, 32 active members and 128 memberships per room. Room posts
+  follow in chunk 02. The state database moves to schema 19.
+
 - A Grok session started with `koinon grok` is woken through its own tmux pane (#254, chunk
   03). Before each wake the daemon proves that the recorded pane still holds the session's
   host, and it types Koinon's fixed notice and Enter only while Grok's input box is empty and
