@@ -26,9 +26,10 @@ the historical subscription description is not evidence that this path already w
    remain unchanged. A context clear that retains the native identity remains the same
    native session; a genuine successor uses its own native identity, never a guessed ID.
 4. The worker reports a result, then a different consumer records accepted or rejected.
-   Only the exact reporting consumer is excluded; a different consumer is allowed even
-   when it belongs to the same native session or a later session in the same worker role
-   (PDR 004, Decision 3). Normal caller, repository and participant-consumer validation applies.
+   The reporting consumer and reporting native session are excluded, including when that
+   session changes consumer labels. A different native session using a different consumer
+   is eligible, including a later session in the same worker role (PDR 004, Decision 3).
+   Normal caller, repository and participant-consumer validation applies.
 5. Rejection returns the item to open with a new scope revision; the report, verdict and old
    and new scopes remain readable. Acceptance yields finished/completed and starts the
    existing finished-item retention period. Reported work is not finished or time-pruned.

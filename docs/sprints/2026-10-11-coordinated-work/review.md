@@ -15,11 +15,17 @@ material finding remains. The reviewed plan is ready for the maintainer's Gate B
 
 ## Reconciliation after the maintainer's verdict choice
 
-The maintainer selected the exact reporting-consumer exclusion, with any other consumer
-eligible for a verdict (PDR 004, Decision 3; #306 comment 6119167156). The plan removes the
-additional native-actor and logical-participant exclusions and updates their verification
-cases. Existing/default participant state continues across succession (PDR 001, Decision 6);
+The maintainer selected exclusion of the reporting worker, with later sessions in that worker's
+role eligible (PDR 004, Decision 3; #306 comment 6119167156). The plan removes the additional
+logical-participant exclusion and updates its verification cases. Existing/default participant
+state continues across succession (PDR 001, Decision 6);
 the proposed explicitly native-bound role-claim path remains distinct (PDR 004, Decision 1).
 Role, reported-state/funding and discovery mechanisms remain proposals for Gate B. This
 reconciliation's frozen head receives a bounded observer review; the earlier funding and
 discovery review remains applicable to unchanged content.
+
+Claude's review of `aa4d1e9` found that allowing the reporting native session to switch consumer
+labels and accept its own report exceeded the framed choice. Accepted: retain the reporting
+native-session guard and exclude only that session, rather than later sessions of the role.
+PDR 004 Decision 3's consumer-only paraphrase is clarified against the question and explanation
+in the existing source. The corrected frozen head receives bounded verification of this finding.

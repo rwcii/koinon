@@ -13,10 +13,11 @@
 - Test every ownership operation and retry against a wrong native caller and a copied consumer
   label. Native identity and role come from actual registry/transport metadata, not arguments.
 - Report snapshots evidence and scope, releases resource claims, freezes the report, and
-  leaves the item reported. The exact reporting consumer is refused before verdict replay
-  and commit; a different consumer succeeds (PDR 004, Decision 3). Cover a different consumer
-  in the same native session and a later session of the same worker participant. Neither native
-  actor nor participant equality adds a verdict refusal; normal caller/consumer validation applies.
+  leaves the item reported. The reporting consumer and reporting native session are refused
+  before verdict replay and commit (PDR 004, Decision 3), including a different consumer label
+  in that same native session. A different consumer from a later native session of the same
+  worker participant succeeds. Participant equality adds no verdict refusal; normal
+  caller/consumer validation applies.
 - Accept is finished/completed for queries and retention. Reject requires the exact current
   report and a new scope, returns open, retains both scopes/report/verdict, and permits a
   fresh start. Re-report/re-verdict stale IDs/revisions are refused; fixed retries return the

@@ -13,15 +13,15 @@ instead of duplicating its large text. A reported item cannot be started or edit
 result; rejection is its rework transition. Unreported v1 finish/withdrawal remains available.
 
 Accept/reject require current item revision, exact report sequence, evidence and fixed retry
-fields. Compare the caller's resolved consumer with the stored reporting consumer: only
-that exact consumer is excluded (PDR 004, Decision 3). A different consumer may record a
-verdict even when it comes from the same native actor or the reporter's worker participant,
-including after a reset. Native actor/participant metadata describes provenance and discovery
-audiences; it adds no self-verdict exclusion. Keep normal native-caller, repository and
-participant-consumer checks. Derive actor and participant metadata from the trusted
-transport/registry, not model-supplied identity fields (ADR 001, Decision 1). The consumer
-comparison runs before verdict replay and in the committing transaction. The verdict remains
-same-user reported data (WDR 002, Decision 3).
+fields. The reporting consumer and reporting native session cannot record the verdict
+(PDR 004, Decision 3). Store a bounded native-actor digest from the trusted transport and
+compare it as well as the consumer before verdict replay and in the committing transaction;
+changing consumer labels does not make the reporting session a different worker. A different
+consumer from a different native session is eligible, including after succession in the same
+worker participant. Participant equality adds no verdict exclusion. Keep normal native-caller,
+repository and participant-consumer checks (ADR 001, Decision 1). Participant metadata may
+describe provenance/discovery audiences. The verdict remains same-user reported data
+(WDR 002, Decision 3).
 
 Accept records an accepted event and finished/completed outcome; 30-day retention starts at
 acceptance. Reject requires corrected criteria/non-goals (optional title/references), always
@@ -68,6 +68,6 @@ before acknowledging a report promise; maximum-size rows and the legacy migratio
 must not make a funded verdict fail its view/byte bound. Preserve all old controls.
 
 Update protocol/commands/guide, actual permission-purpose coverage and Unreleased. Verify
-report/accept/reject, exact reporting-consumer refusal, different-consumer verdicts across
-native actors/role succession, immutable history, retries,
+report/accept/reject, reporting-consumer/native-session refusal across consumer labels,
+different-session verdicts after role succession, immutable history, retries,
 resources released, retention and all capacity dimensions before publishing.
