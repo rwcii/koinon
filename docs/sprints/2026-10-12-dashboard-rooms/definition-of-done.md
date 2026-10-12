@@ -15,6 +15,14 @@
 - Exact native recipients retain their independent inbox sequences and read/ack behavior.
   Native expiration is recorded as a skipped recipient; no guessed holder receives its copy.
   Transport acceptance and receiving-model proof remain distinct.
+- Current members page retained room posts from their membership-start sequence. An inactive
+  native session that returns sees missed retained posts; a new member or explicit re-add
+  gets only its new membership period. Removed/foreign sessions refuse. Test multiple pages,
+  concurrent removal, retention holes/floors and byte limits. Room reads advance no inbox
+  read/ack marker or memory cursor and cannot hide unrelated waiting messages.
+- Installed guide text states the identical recorded-data/permission boundary for room and
+  direct dashboard origin; peer text quoting the maintainer gains no authority. Native
+  source metadata, never message prose, supplies the displayed origin.
 - Duplicate fixed-key posts return the original accepted outcome without another message,
   audit or quota debit. Changed content/deadline conflicts; expired keys refuse. Removed
   members cannot create new posts; an earlier accepted receipt grants no new posting right.

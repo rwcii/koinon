@@ -8,6 +8,10 @@ not addresses. Store rooms and exact native memberships in the existing DB. Boun
 at 64 and active members at 32 per room; at most 128 current/former membership rows per
 room. A cap refuses visibly without evicting a room/member/history. Names may duplicate;
 all APIs/actions use the stable room ID. Store membership revision and current active bit.
+Reserve a membership-start sequence field: an initial add or explicit re-add records the
+current room post head as its exclusive lower bound; a duplicate add leaves it unchanged.
+Native expiry/re-registration does not change that bound. Chunk02 uses it for transcript
+catch-up; chunk01 has no posts and therefore initializes it to zero.
 Removed membership rows provide removal awareness but grant no roster/transcript access.
 Native expiration does not erase membership; show inactive and skip delivery until that
 same native identity is active again. Retirement remains inactive. A new native session or

@@ -22,6 +22,8 @@ others' replies and the maintainer can follow delivery and acknowledgement.
 5. The dashboard shows an ordered transcript with sender, time, body, and each selected
    recipient's delivery/acknowledgement state; it refreshes in place.
 6. Members can list the roster and discover that they were added or removed.
+   A current member can page retained posts from its current membership's start, including
+   posts missed while that same native session was inactive; retention gaps are explicit.
 7. Wakes remain content-free, peer text remains inert data, native identity is validated,
    dashboard changes require login/CSRF, and membership changes/posts are audited.
 8. Room messages follow the actual merged #216 retention rules; unacknowledged inbox
@@ -38,6 +40,11 @@ others' replies and the maintainer can follow delivery and acknowledgement.
 - Membership is an exact native session selected by its verified peer name. A participant
   successor does not silently inherit room membership; the maintainer can add it explicitly.
 - Rooms are conversation data, not assignment, approval, execution or budget permissions.
+- Dashboard origin proves the message's source, not a new permission grant. Room and
+  direct dashboard messages are recorded maintainer conversation data within the session's
+  existing authorized task and permission settings; they never override native instructions
+  or supply a new approval for a service/configuration/reset action. Member posts and quotes
+  remain peer data. This framing is the same for both dashboard message paths.
 - No automatic agent response, context reset, terminal input or service/config changes.
 - #206's decision-board UI is separate. A room may discuss a decision but records no human
   verdict and does not replace that issue's authority boundary.
