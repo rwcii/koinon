@@ -32,6 +32,8 @@ wake accounting can still update internal metadata while these tools read that d
 | `library_read` | Read one catalog item's canonical content and destination metadata. |
 | `library_state` | Inspect bounded catalog targets, collisions, repository facts and decisions in the native client's verified scope. |
 | `library_decision` | Record compared-revision machine adoption or decline data; it edits no adopted files. |
+| `room_list` | List the dashboard rooms of this session or its participant, current and former. |
+| `room_members` | Read the current roster of a room in which the caller is a member. |
 | `memory_status` | Inspect this repository's memory inventory and limits. |
 | `memory_sync` | Page a snapshot or process a cursor delta. |
 | `memory_recall` | Find retained memory entries. |

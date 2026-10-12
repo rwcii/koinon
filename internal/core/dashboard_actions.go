@@ -51,6 +51,15 @@ var noticeText = map[string]string{
 	"sent":                      "The message was sent as maintainer.",
 	"launched":                  "The session was started in a new tmux session.",
 	"invalid_request":           "Refused: the request was not valid.",
+	"room_created":              "The room was created. Add members to it below.",
+	"room_refill_saved":         "The refill value was saved. It applies at the next maintainer post; the current allowance is unchanged.",
+	"room_member_added":         "The session is a member of the room.",
+	"room_member_removed":       "The member was removed from the room.",
+	"room_not_found":            "Refused: no such room.",
+	"room_limit":                "Refused: the daemon already has 64 rooms.",
+	"room_member_limit":         "Refused: the room already has 32 active members.",
+	"room_history_limit":        "Refused: the room already has 128 current and former memberships.",
+	"room_member_not_found":     "Refused: the room has no such current member.",
 	"maintainer_session":        "Refused: the maintainer session cannot be retired or purged.",
 	"revision_changed":          "Refused: the session changed since the page was loaded. Reload and try again.",
 	"session_not_active":        "Refused: the session is not active.",
@@ -299,6 +308,7 @@ func (d *Daemon) dashboardActions(mux *http.ServeMux, authed func(int64, func(ht
 
 	d.memoryActions(mux, authed)
 	d.workActions(mux, authed, run)
+	d.roomActions(mux, authed, run)
 
 	mux.HandleFunc("POST /dashboard/actions/launch", authed(actionFormLimit, func(w http.ResponseWriter, r *http.Request, _ string) {
 		family, directory, name := r.PostForm.Get("family"), r.PostForm.Get("directory"), r.PostForm.Get("name")

@@ -21,7 +21,7 @@ import (
 //go:embed web
 var webFiles embed.FS
 
-var dashboardViews = []string{"sessions", "messages", "memory", "work", "health", "settings", "audit"}
+var dashboardViews = []string{"sessions", "messages", "rooms", "memory", "work", "health", "settings", "audit"}
 
 // settingsData is the settings view: the values in force, the defaults and the time of
 // the last change.
@@ -314,6 +314,8 @@ func (d *Daemon) dashboardData(r *http.Request, view string) (any, error) {
 			result.Rows = append(result.Rows, sessionRow{Session: s, Work: claims[s.Family+":"+s.ID], Observed: d.store.sessionObservations(pull, s), Participant: byAddress[s.Address]})
 		}
 		return result, nil
+	case "rooms":
+		return d.roomsView(ctx)
 	case "messages":
 		order, err := parseSort(&messageSort, path, q, "to", "peers")
 		if err != nil {
