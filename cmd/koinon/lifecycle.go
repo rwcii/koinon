@@ -87,11 +87,12 @@ func lifecycleCommand(ctx context.Context, args []string, out io.Writer) error {
 	case "install", "uninstall", "upgrade":
 		flags.Var(&agents, "agent", "agent family to set up or remove; repeatable")
 	}
-	var noStart, fromPython, verify, status *bool
+	var noStart, system, fromPython, verify, status *bool
 	var from, pythonPrefix, python *string
 	switch args[0] {
 	case "install":
 		noStart = flags.Bool("no-start", false, "write the service without starting it")
+		system = flags.Bool("system", false, "macOS: run the daemon as a LaunchDaemon that survives logout; asks sudo")
 	case "import":
 		from = flags.String("from", "", "Python-era state root")
 		verify = flags.Bool("verify", false, "compare the sources with the Go state; change nothing")
@@ -110,7 +111,7 @@ func lifecycleCommand(ctx context.Context, args []string, out io.Writer) error {
 	switch args[0] {
 	case "install":
 		// The report shows what was done also when a later step failed.
-		r, err := install.Install(ctx, install.Options{Prefix: *prefix, StateDir: *state, Agents: agents, NoStart: *noStart})
+		r, err := install.Install(ctx, install.Options{Prefix: *prefix, StateDir: *state, Agents: agents, NoStart: *noStart, System: *system})
 		printJSON(out, r)
 		return coded(err)
 	case "uninstall":
