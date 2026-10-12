@@ -109,12 +109,16 @@ func TestParticipantCommands(t *testing.T) {
 	register("codex", "synthetic-a")
 	var refused core.RefusedError
 	consumer := "participant:" + a.Address
-	values := map[string]string{"if_revision": "1", "claim_generation": "1", "if_claim_revision": "1", "checkpoint": "synthetic", "next_artifact": "synthetic", "progress": "synthetic", "progress_deadline": deadline, "key": "synthetic-create-retry", "deadline": deadline, "title": "synthetic", "criteria": "synthetic", "non_goals": "synthetic", "outcome": "withdrawn", "proposed_assignee": "synthetic"}
+	values := map[string]string{"if_revision": "1", "claim_generation": "1", "if_claim_revision": "1", "checkpoint": "synthetic", "next_artifact": "synthetic", "progress": "synthetic", "progress_deadline": deadline, "key": "synthetic-create-retry", "deadline": deadline, "title": "synthetic", "criteria": "synthetic", "non_goals": "synthetic", "outcome": "withdrawn", "proposed_assignee": "synthetic", "summary": "synthetic", "report_seq": "1", "references": "synthetic"}
 	for _, op := range core.WorkOperations() {
 		parts := strings.Split(op, "-")
 		args := []string{parts[0], parts[1], "--as", "codex:synthetic-a", "--consumer", consumer}
 		for _, field := range core.WorkRequired[op] {
-			if field != "work_id" {
+			switch field {
+			case "work_id":
+			case "references":
+				args = append(args, "--reference", values[field])
+			default:
 				args = append(args, "--"+strings.ReplaceAll(field, "_", "-"), values[field])
 			}
 		}

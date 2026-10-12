@@ -193,6 +193,14 @@ func openStoreFile(root, name string) (*Store, error) {
 		db.Close()
 		return nil, err
 	}
+	if version < schemaVersion {
+		// A table rebuild frees the old table's pages; return them before the first
+		// write, so the page count that every ceiling reads holds only live pages.
+		if _, err := db.Exec("PRAGMA incremental_vacuum"); err != nil {
+			db.Close()
+			return nil, err
+		}
+	}
 	if err := checkCatalog(db, schemaVersion); err != nil {
 		db.Close()
 		return nil, err
@@ -271,7 +279,45 @@ func checkFormat(db *sql.DB, path string) error {
 	return nil
 }
 
-const schemaVersion = 16
+const schemaVersion = 17
+
+// workItemsV16Columns are the work item columns before schema 17, which its rebuild copies.
+const workItemsV16Columns = `store,work_id,revision,lifecycle,title,criteria,non_goals,proposed_assignee,created_at,created_consumer,
+	first_start_revision,scope_revision,progress_epoch,last_progress_at,progress_deadline,progress,checkpoint,next_artifact,blocker,
+	last_writer,last_generation,last_lease_expires,lease_expired,outcome,reason,references_json,finished_at,expires_at,latest_seq,proposed_role`
+
+// workItemsTable is the schema 17 work item table. A reported item holds the 0/1 credit
+// that funds its verdict (docs/WORK-ITEMS-GO-STORAGE.md); report_actor is the reporting
+// native session's digest.
+const workItemsTable = `CREATE TABLE work_items (store TEXT NOT NULL, work_id TEXT NOT NULL CHECK (length(work_id)=32),
+	revision INTEGER NOT NULL CHECK (revision>0),
+	lifecycle TEXT NOT NULL CHECK (lifecycle IN ('open','active','blocked','reported','finished')),
+	verdict_credit INTEGER NOT NULL DEFAULT 0 CHECK (verdict_credit IN (0,1)),
+	report_seq INTEGER, verdict_seq INTEGER, verdict TEXT CHECK (verdict IN ('accepted','rejected')),
+	report_consumer TEXT NOT NULL DEFAULT '', report_actor TEXT NOT NULL DEFAULT '',
+	title TEXT NOT NULL, criteria TEXT NOT NULL, non_goals TEXT NOT NULL, proposed_assignee TEXT,
+	created_at REAL NOT NULL, created_consumer TEXT NOT NULL, first_start_revision INTEGER,
+	scope_revision INTEGER NOT NULL CHECK (scope_revision>0),
+	progress_epoch INTEGER NOT NULL DEFAULT 0 CHECK (progress_epoch>=0), last_progress_at REAL,
+	progress_deadline REAL, progress TEXT NOT NULL DEFAULT '', checkpoint TEXT NOT NULL DEFAULT '',
+	next_artifact TEXT NOT NULL DEFAULT '', blocker TEXT NOT NULL DEFAULT '', last_writer TEXT,
+	last_generation INTEGER, last_lease_expires REAL,
+	lease_expired INTEGER NOT NULL DEFAULT 0 CHECK (lease_expired IN (0,1)),
+	outcome TEXT CHECK (outcome IN ('completed','withdrawn')), reason TEXT NOT NULL DEFAULT '',
+	references_json TEXT NOT NULL DEFAULT '[]', finished_at REAL, expires_at REAL,
+	latest_seq INTEGER NOT NULL CHECK (latest_seq>0), proposed_role TEXT NOT NULL DEFAULT '',
+	CHECK ((lifecycle='finished' AND outcome IS NOT NULL AND finished_at IS NOT NULL AND expires_at IS NOT NULL)
+		OR (lifecycle<>'finished' AND outcome IS NULL AND finished_at IS NULL AND expires_at IS NULL)),
+	CHECK ((lifecycle='reported') = (verdict_credit=1)),
+	CHECK (lifecycle<>'reported' OR report_seq IS NOT NULL),
+	PRIMARY KEY (store, work_id))`
+
+// workEventsTable is the schema 17 work event table, with the report and verdict kinds.
+const workEventsTable = `CREATE TABLE work_events (store TEXT NOT NULL, seq INTEGER NOT NULL CHECK (seq>0), work_id TEXT NOT NULL,
+	revision INTEGER NOT NULL CHECK (revision>0),
+	kind TEXT NOT NULL CHECK (kind IN ('created','proposed','edited','started','updated','released',
+		'finished','progress-overdue','lease-expired','reported','accepted','rejected')),
+	payload TEXT NOT NULL, actor TEXT NOT NULL DEFAULT '', PRIMARY KEY (store, seq))`
 
 // migrate brings the state schema from version to target in one transaction, so a crash
 // leaves either the old or the new schema. Each step starts from the version before it.
@@ -573,6 +619,25 @@ func migrate(db *sql.DB, version, target int) error {
 		}
 		// Materialize the added column on retained bundles now. A later funded
 		// flag-only update must not grow an old row's record header on first use.
+	}
+	if version < 17 && target >= 17 {
+		// Version 17: reported results and funded verdicts (#140 chunk 02). SQLite cannot
+		// widen a CHECK in place, so the two work tables are rebuilt under their own names
+		// with the same index; every row is copied unchanged. The verdict credit and the
+		// report pointers come first in the row, so the debt scan reads no overflow page.
+		if _, err := tx.Exec(`ALTER TABLE work_items RENAME TO work_items_v16;
+			` + workItemsTable + `;
+			INSERT INTO work_items(` + workItemsV16Columns + `) SELECT ` + workItemsV16Columns + ` FROM work_items_v16;
+			DROP TABLE work_items_v16;
+			ALTER TABLE work_events RENAME TO work_events_v16;
+			DROP INDEX work_events_item;
+			` + workEventsTable + `;
+			INSERT INTO work_events(store,seq,work_id,revision,kind,payload,actor)
+				SELECT store,seq,work_id,revision,kind,payload,actor FROM work_events_v16;
+			DROP TABLE work_events_v16;
+			CREATE INDEX work_events_item ON work_events(store, work_id, seq);`); err != nil {
+			return err
+		}
 	}
 	if _, err := tx.Exec(fmt.Sprintf("PRAGMA user_version=%d", target)); err != nil {
 		return err

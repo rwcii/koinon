@@ -14,8 +14,8 @@ The CLI uses `koinon work OPERATION --as FAMILY:ID --consumer KEY` and
 explicitly. A successor continues the participant's live generation and deadlines; reconcile
 the checkpoint before acting. Old native-session claims retain their owners. Work IDs are positional except on create
 and list. Wire names are `work-create`, `work-get`, `work-list`, `work-propose`,
-`work-edit`, `work-start`, `work-update`, `work-release`, `work-finish`, and
-`claim-renew`. Wire fields use underscores; CLI options use hyphens. Unknown work
+`work-edit`, `work-start`, `work-update`, `work-release`, `work-finish`, `claim-renew`,
+`work-report`, `work-accept` and `work-reject`. Wire fields use underscores; CLI options use hyphens. Unknown work
 request fields are refused. References are inert reported strings.
 
 | Operation | Fields beyond work ID and consumer |
@@ -30,6 +30,9 @@ request fields are refused. References are inert reported strings.
 | release | Required if_revision, claim_generation and final checkpoint; optional paired handoff_to and checkout_resource notify an exact same-repository peer to pick up the released checkout role. |
 | finish | Required if_revision, claim_generation, outcome; completed requires references, withdrawn requires reason. |
 | renew | Required claim_generation and if_claim_revision; optional lease_seconds. Work revision is unchanged. |
+| report | Required if_revision, claim_generation, summary (up to 2,048 bytes), references, key, deadline. Releases the claim; the item stays reported. |
+| accept | Required if_revision, report_seq, references, key, deadline. Finishes the item as completed. |
+| reject | Required if_revision, report_seq, references, criteria, non_goals, key, deadline; optional title. Writes a new scope revision and returns the item open. |
 
 Schema 16 adds the approved role path ([PDR 004, Decision 1](product/pdr/004-work-results-role-routing.md)):
 create and propose accept `proposed_role: {"family":"codex","role":"worker"}` instead of
@@ -51,6 +54,27 @@ Existing/default participant claims, cursors and inboxes continue as above.
 Authenticated maintainer release/finish and explicitly marked purge keep their existing
 administrative controls.
 Their ownership retries retain the native claim's binding for agent callers as well.
+
+Schema 17 adds the reported result and its verdict ([PDR 004, Decisions 2 and 3](product/pdr/004-work-results-role-routing.md)).
+The claim owner reports with a summary and evidence references. The report releases the
+claim and its resources, and the item stays `reported`, without a deadline or expiry, until a
+verdict. Before it releases the claim, the report reserves that verdict in the store; when it
+cannot (16 pending verdicts in the store, 32 in the daemon, no scope revision left on the
+item, or no room after every other promise), it refuses with `capacity` and the claim stays.
+A reported item refuses start, edit, update, release, finish and another report with
+`invalid_transition`; propose keeps it reported. Get shows the frozen `report` (summary,
+references, scope revision, claim generation); views and list summaries show `report_seq`,
+`report_consumer`, `verdict` and `verdict_seq`, and `lifecycle reported` filters a list.
+
+Accept or reject names the current `report_seq`; an older one refuses with `stale_report`.
+The reporting consumer is refused with `own_report`, and so is any consumer of the native
+session that reported. Another native session may record the verdict with any consumer,
+including a later holder of the same participant whose default consumer differs from the
+report's. Accept finishes the item as completed and starts its 30-day retention. Reject
+writes the corrected scope as a new revision and returns the item open with no claim; a
+fresh start and report follow. Report, accept and reject events stay in the item's history,
+with the verdict's evidence in its event. The verdict is the recording agent's data and
+grants no authority.
 
 List accepts `assigned_to_me` (`--assigned-to-me`), matching explicit consumer proposals or
 the caller's actually held family/role. `after` (`--after WORK_ID`) pages in work-ID order.

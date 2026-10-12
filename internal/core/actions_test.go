@@ -20,6 +20,36 @@ import (
 // Dashboard action tests (sprint chunk 09): a real daemon on ephemeral loopback ports,
 // temporary state, synthetic sessions and a patched launcher.
 
+// undoSchemaSeventeen rebuilds the schema 16 work tables, without reports and verdicts.
+const undoSchemaSeventeen = `ALTER TABLE work_items RENAME TO work_items_v17;
+	CREATE TABLE work_items (store TEXT NOT NULL, work_id TEXT NOT NULL CHECK (length(work_id)=32),
+		revision INTEGER NOT NULL CHECK (revision>0),
+		lifecycle TEXT NOT NULL CHECK (lifecycle IN ('open','active','blocked','finished')),
+		title TEXT NOT NULL, criteria TEXT NOT NULL, non_goals TEXT NOT NULL, proposed_assignee TEXT,
+		created_at REAL NOT NULL, created_consumer TEXT NOT NULL, first_start_revision INTEGER,
+		scope_revision INTEGER NOT NULL CHECK (scope_revision>0),
+		progress_epoch INTEGER NOT NULL DEFAULT 0 CHECK (progress_epoch>=0), last_progress_at REAL,
+		progress_deadline REAL, progress TEXT NOT NULL DEFAULT '', checkpoint TEXT NOT NULL DEFAULT '',
+		next_artifact TEXT NOT NULL DEFAULT '', blocker TEXT NOT NULL DEFAULT '', last_writer TEXT,
+		last_generation INTEGER, last_lease_expires REAL,
+		lease_expired INTEGER NOT NULL DEFAULT 0 CHECK (lease_expired IN (0,1)),
+		outcome TEXT CHECK (outcome IN ('completed','withdrawn')), reason TEXT NOT NULL DEFAULT '',
+		references_json TEXT NOT NULL DEFAULT '[]', finished_at REAL, expires_at REAL,
+		latest_seq INTEGER NOT NULL CHECK (latest_seq>0), proposed_role TEXT NOT NULL DEFAULT '',
+		CHECK ((lifecycle='finished' AND outcome IS NOT NULL AND finished_at IS NOT NULL AND expires_at IS NOT NULL)
+			OR (lifecycle<>'finished' AND outcome IS NULL AND finished_at IS NULL AND expires_at IS NULL)),
+		PRIMARY KEY (store, work_id));
+	INSERT INTO work_items(` + workItemsV16Columns + `) SELECT ` + workItemsV16Columns + ` FROM work_items_v17;
+	DROP TABLE work_items_v17;
+	ALTER TABLE work_events RENAME TO work_events_v17; DROP INDEX work_events_item;
+	CREATE TABLE work_events (store TEXT NOT NULL, seq INTEGER NOT NULL CHECK (seq>0), work_id TEXT NOT NULL,
+		revision INTEGER NOT NULL CHECK (revision>0),
+		kind TEXT NOT NULL CHECK (kind IN ('created','proposed','edited','started','updated','released',
+			'finished','progress-overdue','lease-expired')),
+		payload TEXT NOT NULL, actor TEXT NOT NULL DEFAULT '', PRIMARY KEY (store, seq));
+	INSERT INTO work_events SELECT store,seq,work_id,revision,kind,payload,actor FROM work_events_v17;
+	DROP TABLE work_events_v17; CREATE INDEX work_events_item ON work_events(store, work_id, seq); `
+
 // undoSchemaSixteen removes role routing and native-bound work ownership.
 const undoSchemaSixteen = `ALTER TABLE work_items DROP COLUMN proposed_role;
 	ALTER TABLE claim_bundles DROP COLUMN native_actor; ALTER TABLE work_replays DROP COLUMN native_actor; `
@@ -494,7 +524,7 @@ func TestSchemaSixMigrationAndRollback(t *testing.T) {
 	}
 	// A schema 6 database that already holds the name maintainer cannot migrate: the
 	// whole step rolls back and the database stays at 6.
-	if _, err := s.db.Exec(undoSchemaSixteen + undoSchemaFifteen + undoSchemaFourteen + undoSchemaThirteen + undoSchemaTwelve + undoSchemaEleven + undoSchemaTen + undoSchemaNine + undoSchemaEight + undoSchemaSeven + `INSERT INTO names(name,kind,family,session_id) VALUES ('maintainer','peer','codex','x'); PRAGMA user_version=6`); err != nil {
+	if _, err := s.db.Exec(undoSchemaSeventeen + undoSchemaSixteen + undoSchemaFifteen + undoSchemaFourteen + undoSchemaThirteen + undoSchemaTwelve + undoSchemaEleven + undoSchemaTen + undoSchemaNine + undoSchemaEight + undoSchemaSeven + `INSERT INTO names(name,kind,family,session_id) VALUES ('maintainer','peer','codex','x'); PRAGMA user_version=6`); err != nil {
 		t.Fatal(err)
 	}
 	s.db.Close()

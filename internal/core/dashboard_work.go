@@ -28,7 +28,7 @@ const (
 	maintainerConsumer = "maintainer"
 )
 
-var workLifecycles = map[string]bool{"": true, "open": true, "active": true, "blocked": true, "finished": true, "all": true}
+var workLifecycles = map[string]bool{"": true, "open": true, "active": true, "blocked": true, "reported": true, "finished": true, "all": true}
 
 // maintainerWork is the provenance of the maintainer's work requests for consumer.
 func maintainerWork(repository, consumer string) MemoryCaller {
@@ -119,6 +119,15 @@ func (d *Daemon) openItem(ctx context.Context, q url.Values) (*workItemData, err
 	}
 	for _, v := range views {
 		if v.WorkID == workID {
+			if v.ReportSeq != nil {
+				store, err := storeOf(ctx, d.store.db, repository)
+				if err != nil {
+					return nil, err
+				}
+				if v.Report, err = frozenReport(ctx, d.store.db, store, *v.ReportSeq); err != nil {
+					return nil, err
+				}
+			}
 			events, err := d.store.workEvents(ctx, repository, workID)
 			return &workItemData{Repository: repository, Item: v, Events: events}, err
 		}

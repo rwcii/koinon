@@ -53,17 +53,35 @@ replay row: **572**. The credits are rounded up: **576 pages for an overdue cred
 **768 pages for an end credit**, 1,344 per bundle. The sum, not an observation, establishes
 the allowance.
 
+## Verdict credit
+
+A report promises a verdict (#140 chunk 02). An accept or a reject changes the ten objects of a
+finish with its replay row: 690 pages and 20 overflow pages. The work item row is rewritten in
+full, and that rewrite clears its `verdict_credit` flag. A reject also writes a scope revision
+row (at most 8 KiB, 69 + 5) and its primary-key index entry (69), 143 pages. The sum is
+853 pages, with ceil(853 / 819) + 1 = 3 pointer-map pages, **856**. The credit is rounded up
+to **1,024 pages for a verdict credit**. A verdict writes no notification row.
+
+The 0/1 `verdict_credit` flag lives on the reported work item, with no index. A report sets it
+in an ordinary, capacity-checked write that also spends the bundle's end and overdue credits
+when it releases the claim; the report refuses when the store cannot keep the verdict's
+pages, slots and bytes free after every other promise, and the claim then stays. Schema 17
+rebuilds `work_items` with the flag and the report pointers before the large text columns, so
+the debt scan of the flags reads no overflow page. A store keeps at most 16 pending verdict
+credits and the daemon 32.
+
 ## Limits and the ledger
 
-A store retains at most 16 claim bundles and the daemon at most 32, so the page debt is at most
-32 × 1,344 = 43,008 pages (168 MiB); ordinary writes keep at least 85,623 pages. The debt is
-derived from the durable credit flags of the retained bundles and subtracted, after the
+A store retains at most 16 claim bundles and the daemon at most 32, and at most 32 verdicts
+are pending across the daemon, so the page debt is at most 32 × 1,344 + 32 × 1,024 = 75,776
+pages (296 MiB); ordinary writes keep at least 52,855 pages. The debt is derived from the
+durable credit flags of the retained bundles and the reported items and subtracted, after the
 mutation, in the one storage boundary that every daemon write passes:
 
 | Write class | Page ceiling inside the transaction |
 | --- | --- |
 | Ordinary writes (sessions, messages, launches, notes, snapshots, consumers, work creation, starts, updates) | max pages − 2,048 − debt − commit slack |
-| Control writes (progress, withdrawals, expiry, work controls) | max pages − debt − commit slack |
+| Control writes (progress, withdrawals, expiry, work controls, verdicts) | max pages − debt − commit slack |
 
 A work control clears the credit it spends in its own transaction, so it may use exactly that
 allowance; every other write keeps all remaining debt free. The per-store ledger keeps, for each
@@ -71,9 +89,14 @@ unspent credit, one entry and one event slot and 48 KiB of logical bytes, and fo
 one replay slot, in the ceilings of every memory and work write of that store. The Go row charges
 are the UTF-8 bytes of the text columns plus 512 per work row, and key, consumer, operation and
 result plus 192 per replay row; one control writes at most a 16 KiB image increase, a 16 KiB
-event, a 2 KiB result and about 2 KiB of keys and provenance, within the 48 KiB. A mutation's
+event, a 2 KiB result and about 2 KiB of keys and provenance, within the 48 KiB. Each unspent
+verdict credit keeps one entry, event, replay and scope revision slot and 64 KiB of logical
+bytes: the image, the event and the scope revision at most 16 KiB each, the 2 KiB result and
+up to 14 KiB of keys, provenance and row charges. The report checks the item's own scope
+revision limit. A mutation's
 view must leave 1 KiB of the 16 KiB free, which covers what a later observation adds (overdue
-and expiry reasons, longer counters and times), so a funded due event is never refused for size.
+and expiry reasons, longer counters and times), so a funded due event is never refused for size. A verdict event may use the full 16 KiB,
+so its outcome, pointers and a short reference fit the headroom of the reported item.
 
 ## Evidence
 
@@ -90,6 +113,15 @@ update does not grow an old record header.
 with maximum role/scope/checkpoint fields, then commits every overdue and finish control,
 checking debt, page growth and integrity. Legacy short/long-repository saturation proofs
 continue in `TestWorkSaturationAndControlAllowances`.
+
+Schema 17 rebuilds `work_items` and `work_events` under their own names, with the same
+primary keys and `work_events_item` index, to allow the `reported` lifecycle and the
+`reported`, `accepted` and `rejected` event kinds. It adds no table or index, and the
+catalog check still refuses an extra object, an index on `verdict_credit` included.
+`TestWorkReportFundingAndVerdictsAtSaturation` fills ordinary storage beside 16 reported
+items, then commits each accept or reject with maximum scope fields and checks its page
+growth against the 1,024-page credit, the spent credits and the database's integrity. On
+SQLite 3.53.4 (Linux) the largest growth was 5 pages for an accept and 7 for a reject.
 
 `TestWorkSaturationAndControlAllowances` fills the ordinary band with notes beside 16 funded
 bundles, then commits every overdue and finish control, note withdrawals, an acknowledgement

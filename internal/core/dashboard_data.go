@@ -261,6 +261,7 @@ type StoreSummary struct {
 	Maintenance map[string]any `json:"work_maintenance"`
 	OverdueDebt int64          `json:"overdue_credits"`
 	EndDebt     int64          `json:"end_credits"`
+	VerdictDebt int64          `json:"verdict_credits"`
 	Work        []WorkView     `json:"work"`
 }
 
@@ -293,7 +294,7 @@ func storeSortKey(key string, item StoreSummary) []any {
 	case "consumers":
 		value = item.Usage.Consumers
 	case "debt":
-		value = item.OverdueDebt + item.EndDebt
+		value = item.OverdueDebt + item.EndDebt + item.VerdictDebt
 	}
 	return []any{value, item.Repository}
 }
@@ -317,7 +318,7 @@ func (s *Store) dashboardMemory(ctx context.Context, order dashboardSort) ([]Sto
 		if err != nil {
 			return nil, "", err
 		}
-		item.OverdueDebt, item.EndDebt = debt.overdue, debt.end
+		item.OverdueDebt, item.EndDebt, item.VerdictDebt = debt.overdue, debt.end, debt.verdict
 	}
 	sort.SliceStable(all, func(i, j int) bool {
 		return order.before(storeSortKey(order.Key, all[i]), storeSortKey(order.Key, all[j]))

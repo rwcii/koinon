@@ -23,7 +23,13 @@ var fixtureTime = time.UnixMilli(1790000000000)
 // loadFixture writes testdata/f88a42c.sql into a new state directory's database.
 func loadFixture(t *testing.T) string {
 	t.Helper()
-	script, err := os.ReadFile(filepath.Join("testdata", "f88a42c.sql"))
+	return loadFixtureFile(t, "f88a42c.sql")
+}
+
+// loadFixtureFile writes a committed testdata script into a new state directory's database.
+func loadFixtureFile(t *testing.T, name string) string {
+	t.Helper()
+	script, err := os.ReadFile(filepath.Join("testdata", name))
 	if err != nil {
 		t.Fatal(err)
 	}

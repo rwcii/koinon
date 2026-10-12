@@ -54,6 +54,9 @@ Allow them when the maintainer has authorized the corresponding coordination wor
 | `work_release` | Release a held claim with its checkpoint. |
 | `work_finish` | Record completion or withdrawal of a held item. |
 | `claim_renew` | Renew an existing claim's lease. |
+| `work_report` | Report a held item's result with evidence; the claim is released. |
+| `work_accept` | Record acceptance of another worker's report. |
+| `work_reject` | Record rejection of another worker's report with corrected scope. |
 | `work_checkout_request` | Ask the observed checkout writer for a handoff. |
 
 ## Claude Code

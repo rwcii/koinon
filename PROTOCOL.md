@@ -542,7 +542,8 @@ pages, ceilings, the log size, the work debt and the blocked state.
 The memory store of a repository also holds its work items, with the contract of
 `docs/WORK-ITEMS-V1.md` and the commands of `docs/WORK-ITEMS-COMMANDS.md`. Each wire operation
 is a route: `POST /v1/work/work-create`, `work-get`, `work-list`, `work-propose`, `work-edit`,
-`work-start`, `work-update`, `work-release`, `work-finish` and `claim-renew`. A request names
+`work-start`, `work-update`, `work-release`, `work-finish`, `claim-renew`, `work-report`,
+`work-accept` and `work-reject`. A request names
 its `caller` and the fields of the commands table; unknown fields are refused, and types are
 strict (a boolean is not an integer, times are finite numbers). The optional `consumer` (1–128
 characters) names a stable key. For legacy claims, a holder defaults to `participant:<address>`; a non-holder
@@ -573,6 +574,36 @@ finish controls. Their ownership replay rows keep the claim's native
 binding for agent callers. Retention recognizes the same digest derived from recorded native
 session keys, including in its deleting transaction; participant claims keep their continuation.
 
+Schema 17 adds reported results and verdicts (PDR 004, Decisions 2 and 3). `work-report`
+(`claim_generation`, `if_revision`, `summary` up to 2,048 bytes, one to eight `references`,
+`key`, `deadline`) is an owner write in the ordinary write class. In one transaction it
+reserves the verdict, releases the claim bundle and its resources, clears the progress
+deadline and sets lifecycle `reported`; its `reported` event payload freezes the summary,
+the references (as the item's `references`), the scope revision and the claim generation.
+The item keeps `report_seq`, `report_consumer` and the reporting native session's digest,
+which views do not show. `work-get` adds the frozen `report`; views and list summaries carry
+`report_seq`, `report_consumer`, `verdict` and `verdict_seq`. A reported item does not expire
+and refuses start, edit, update, release, finish and another report with
+`invalid_transition`; `work-propose` keeps it reported. `work-accept` and `work-reject`
+(`if_revision`, the current `report_seq`, one to eight `references`, `key`, `deadline`;
+reject also `criteria`, `non_goals` and optional `title`) are control writes that spend the
+item's verdict credit. Accept finishes the item as `completed`, and its 30-day retention
+starts. Reject writes a new scope revision and returns the item open with no claim. Each
+writes an `accepted` or `rejected` event whose payload adds `verdict_evidence`
+(`report_seq`, `references`). A stale `report_seq` refuses with `stale_report`; a verdict on
+an item that is not reported with `invalid_transition`. The reporting consumer, and every
+consumer of the native session that reported, refuse with `own_report` before a replay and
+again in the committing transaction; another native session's consumer may record the
+verdict, including a later holder of the same participant.
+
+A report that cannot fund its verdict refuses with `capacity` and keeps its claim: at most 16
+pending verdicts per store and 32 across the daemon, a free scope revision on the item, and
+the verdict's pages, slots and bytes after every other promise. Each pending verdict holds
+1,024 pages of the page debt and one entry, event, replay and scope revision slot and 64 KiB
+of logical bytes in the store's ceilings (`docs/WORK-ITEMS-GO-STORAGE.md`). A verdict
+event may use the full 16 KiB bound, so the outcome, pointers and a short reference always
+fit; larger verdict references can refuse with `record_too_large`.
+
 `work-list` accepts `assigned_to_me` and keyset `after`. Responses retain `truncated`, add
 `more` and nullable `next_after`, and keep their 100-item/48-KiB bounds. Matching proposals
 are discovered through the current consumer or the actual held family/role in this store;
@@ -599,7 +630,7 @@ after each sweep ends, never overlapping: per store at most 32 due transitions, 
 inactive claim bundle and one finished item past its 30-day retention. Memory status reports
 `work_maintenance` (`enabled`, `last_successful_sweep`, `observed_at`, `pending_due`,
 `expired_items`, `inactive_bundles`, `fault`, `fault_at`, `skipped_submissions`) and
-`work_debt`.
+`work_debt` (`overdue_credits`, `end_credits`, `verdict_credits`).
 
 The limits are those of the implementation design per store (128 items, 16 claim bundles, 64
 scope revisions per item and 1,024 in all, 2,048 events, 12 MiB of work usage inside the shared
@@ -692,7 +723,7 @@ longer than 1 MiB gets -32700. Its tools are `peers`, `send` (`to`, `body`), `in
 `participant_after`, `limit`), `ack` (`through`, `participant_through`) and `delivery` (`message_id`), and `memory_status`, `memory_sync`,
 `memory_ack`, `memory_record` and `memory_recall` with the fields of the memory routes, and
 `work_create`, `work_get`, `work_list`, `work_propose`, `work_edit`, `work_start`, `work_update`,
-`work_release`, `work_finish` and `claim_renew` with the fields of the work routes, which call
+`work_release`, `work_finish`, `claim_renew`, `work_report`, `work_accept` and `work_reject` with the fields of the work routes, which call
 the routes above. `work_checkout` (optional `directory`, default MCP working directory)
 and `work_checkout_request` (also optional `note`) call the checkout routes. Relative
 directories resolve against the MCP working directory and must share its Git common
@@ -811,9 +842,11 @@ from elsewhere. Peer message bodies appear here, escaped, and nowhere else outsi
   substring, ignoring ASCII case; `type=TYPE` filters; without `all=1` only live entries are
   listed), `work` (per store, every unfinished item with its claim,
   resources, lease and progress state computed at read time; stores page by repository, 50 at a
-  time, with `after=REPOSITORY`; `lifecycle=open|active|blocked|finished|all` filters, and
+  time, with `after=REPOSITORY`; `lifecycle=open|active|blocked|reported|finished|all` filters, and
   finished items are listed while their retention lasts; `store=REPOSITORY&item=WORK_ID` opens
-  one item with its full scope, checkpoint, progress, references, outcome and its newest 200
+  one item with its full scope, checkpoint, progress, references, outcome, frozen report and
+  verdict (a reported item offers no edit or finish action, and the dashboard records no
+  verdict) and its newest 200
   events with their writers), `audit` (the audit log, 100 per page) and `health` (start time,
   revision, schema, listeners, session counts, storage and the work maintenance sweep). With
   `fragment=1` a view returns its list alone; the page script fetches it every 5 seconds while the

@@ -970,7 +970,7 @@ func TestWorkSchemaFormatHeaderAndMigration(t *testing.T) {
 	m := MemoryCaller{Repository: "/synthetic/repo/.git", Family: "codex", Name: "codex-repo-01", Consumer: "c"}
 	seq := note(t, s, m, MemoryRecordRequest{Type: "decision", Body: "kept across migration"})
 	// Schema 4: the memory runtime without work tables or counters.
-	if _, err := s.db.Exec(undoSchemaSixteen + undoSchemaFifteen + undoSchemaFourteen + undoSchemaThirteen + undoSchemaTwelve + undoSchemaEleven + undoSchemaTen + undoSchemaNine + undoSchemaEight + undoSchemaSeven + `DROP INDEX messages_wake; ALTER TABLE messages DROP COLUMN wake_attempts; ALTER TABLE messages DROP COLUMN wake_next_at; ALTER TABLE messages DROP COLUMN wake_reason; DROP TABLE work_items; DROP TABLE work_scope_revisions; DROP TABLE claim_bundles; DROP TABLE claim_resources;
+	if _, err := s.db.Exec(undoSchemaSeventeen + undoSchemaSixteen + undoSchemaFifteen + undoSchemaFourteen + undoSchemaThirteen + undoSchemaTwelve + undoSchemaEleven + undoSchemaTen + undoSchemaNine + undoSchemaEight + undoSchemaSeven + `DROP INDEX messages_wake; ALTER TABLE messages DROP COLUMN wake_attempts; ALTER TABLE messages DROP COLUMN wake_next_at; ALTER TABLE messages DROP COLUMN wake_reason; DROP TABLE work_items; DROP TABLE work_scope_revisions; DROP TABLE claim_bundles; DROP TABLE claim_resources;
 		DROP TABLE work_events; DROP TABLE work_replays; ALTER TABLE memory_stores DROP COLUMN work_counter;
 		ALTER TABLE memory_stores DROP COLUMN claim_counter; PRAGMA user_version=4`); err != nil {
 		t.Fatal(err)
@@ -1217,6 +1217,7 @@ func TestWorkQueuedRenewalCannotReviveExpiredLease(t *testing.T) {
 func TestWorkCatalogRefusesExtraObjects(t *testing.T) {
 	for name, statement := range map[string]string{
 		"index":   `CREATE INDEX unexpected_credit_index ON claim_bundles(active,overdue_credit,end_credit)`,
+		"verdict": `CREATE INDEX unexpected_verdict_index ON work_items(verdict_credit)`,
 		"trigger": `CREATE TRIGGER unexpected_claim_trigger AFTER UPDATE OF active ON claim_bundles BEGIN SELECT RAISE(ABORT,'x'); END`,
 		"view":    `CREATE VIEW unexpected_view AS SELECT 1`,
 	} {
@@ -1236,7 +1237,7 @@ func TestWorkCatalogRefusesExtraObjects(t *testing.T) {
 	}
 	// An extra object in an older schema is refused before its migration.
 	s, root := testStore(t)
-	if _, err := s.db.Exec(undoSchemaSixteen + undoSchemaFifteen + undoSchemaFourteen + undoSchemaThirteen + undoSchemaTwelve + undoSchemaEleven + undoSchemaTen + undoSchemaNine + undoSchemaEight + undoSchemaSeven + `DROP INDEX messages_wake; ALTER TABLE messages DROP COLUMN wake_attempts; ALTER TABLE messages DROP COLUMN wake_next_at; ALTER TABLE messages DROP COLUMN wake_reason; DROP TABLE work_items; DROP TABLE work_scope_revisions; DROP TABLE claim_bundles; DROP TABLE claim_resources;
+	if _, err := s.db.Exec(undoSchemaSeventeen + undoSchemaSixteen + undoSchemaFifteen + undoSchemaFourteen + undoSchemaThirteen + undoSchemaTwelve + undoSchemaEleven + undoSchemaTen + undoSchemaNine + undoSchemaEight + undoSchemaSeven + `DROP INDEX messages_wake; ALTER TABLE messages DROP COLUMN wake_attempts; ALTER TABLE messages DROP COLUMN wake_next_at; ALTER TABLE messages DROP COLUMN wake_reason; DROP TABLE work_items; DROP TABLE work_scope_revisions; DROP TABLE claim_bundles; DROP TABLE claim_resources;
 		DROP TABLE work_events; DROP TABLE work_replays; ALTER TABLE memory_stores DROP COLUMN work_counter;
 		ALTER TABLE memory_stores DROP COLUMN claim_counter; CREATE INDEX unexpected ON memory_stores(head); PRAGMA user_version=4`); err != nil {
 		t.Fatal(err)
