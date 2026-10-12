@@ -705,8 +705,12 @@ func TestLaunchResultWrittenAfterRecovery(t *testing.T) {
 	if records := auditAll(t, d.store); len(records) != 1 || records[0].Result != "accepted" || records[0].Reason != "tmux $7 %9" {
 		t.Fatalf("after recovery: %+v", records)
 	}
-	if len(d.unfinished) != 0 || runs != 1 {
-		t.Fatalf("unfinished %d, launches %d", len(d.unfinished), runs)
+	// The daemon's maintenance goroutine also calls finishLaunches, so read under its lock (#309).
+	d.launchMu.Lock()
+	unfinished := len(d.unfinished)
+	d.launchMu.Unlock()
+	if unfinished != 0 || runs != 1 {
+		t.Fatalf("unfinished %d, launches %d", unfinished, runs)
 	}
 	// A record a previous daemon left started is closed at the next start.
 	id, err := d.store.auditLaunch(context.Background(), "codex /synthetic tmux left-open")
