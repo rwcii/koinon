@@ -23,7 +23,8 @@ native-tagged compile/vet for runtime/install changes. Add visible changes under
 One open PR per target branch, including drafts, across every agent family. Fetch and merge
 latest develop before freezing or pushing; merge develop into a published branch, never
 rewrite it. A different agent family reviews the exact frozen head, records its verdict on
-the PR and sets peer-review status on that same full hash. Required CI and conversations
+the PR and sets peer-review status on that same full hash; it also runs refusal-review and
+sets the refusal-review status on that hash (WDR 001, Decision 6). Required CI and conversations
 must pass before merge. Use squash auto-merge for every PR into develop, under the
 maintainer's authorized task. Read back the merge and issue state.
 Promotion to main has its separate release gate. Close only issues fully delivered.

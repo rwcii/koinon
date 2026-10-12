@@ -19,7 +19,8 @@ Commit under the declared policy without automated attribution. Bring the branch
 with its work target, preserving published history. Run the check skill and its required gates.
 Respect the project's repository-wide PR limit and coordinate the publication turn through
 the installed runtime. Publish one complete increment; unrelated follow-ups use another branch.
-Freeze the exact current head and obtain an independent peer-review verdict. On fixes, carry
+Freeze the exact current head and obtain the independent peer-review verdict and any other
+review gates the project declares. On fixes, carry
 forward unchanged review and verify accepted findings and affected behavior. Collect failures
 before fixing them together; do not restart a general audit on each hash.
 Merge only within existing maintainer authorization, with exact-head CI and review gates

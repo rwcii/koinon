@@ -5,6 +5,11 @@ into a dated release section when promoted to `main`.
 
 ## Unreleased
 
+- Add the portable `refusal-review` skill: a different agent family checks a frozen commit for
+  added or changed refusals, gates, caps and exclusions, in text, tests and code, that have no
+  source covering their case, and records a commit-bound verdict. The `develop` ruleset
+  requires its `refusal-review` status beside `peer-review` (WDR 001, Decision 6).
+
 - Agents can query the installed skill/setup catalog through `library_list`, `library_read`
   and `koinon library list/read` (#145, chunk 02). Connection instructions and each family
   guide explain the catalog, its native destination support and the reviewed-diff adoption
