@@ -48,7 +48,7 @@ proposals, so the record stays `draft`.
 ## Table of Contents
 
 1. Problem Context
-2. Decision 1: Rooms of exact native sessions with their own tools
+2. Decision 1: Rooms of participants and sessions with their own tools
 3. Decision 2: A maintainer-set allowance for agent posts
 4. Decision 3: A dashboard post is the maintainer's instruction and approval
 5. Conclusion
@@ -91,34 +91,41 @@ records no human verdict. Session identity and participants are PDR 001.
 
 ---
 
-## 2. Decision 1: Rooms of exact native sessions with their own tools
+## 2. Decision 1: Rooms of participants and sessions with their own tools
 
 ### Decision
 
-A room has an opaque ID and a display name. Members are exact native sessions chosen by
-their verified peer name; aliases are refused as members. A successor session of the same
-participant does not join automatically; the maintainer can add it. An expired member stays
-a member and is skipped until that same session is active again. Rooms use separate tools
-(`room_list`, `room_members`, `room_post`, `room_read` and matching `koinon room` commands)
+A room has an opaque ID and a display name. The maintainer chooses members by verified peer
+name. A session that holds a participant address joins as that participant: membership,
+membership start and room copies continue with the participant's verified holder after a
+reset, as the participant's other address state does (PDR 001, Decision 6). A session without
+a participant joins as its exact native session. An expired, unheld or conflicting member
+stays a member, is skipped while it has no active holder, and catches up by reading the room.
+Rooms use separate tools (`room_list`, `room_members`, `room_post`, `room_read` and matching `koinon room` commands)
 rather than a room name passed to `send`. A current member can page retained posts from the
 start of its membership. The plan bounds 64 rooms and 32 active members per room.
 
 **Provenance:** Rooms, membership and the transcript: Requested in #217 (issue body,
-criteria 1–9); a request record, no maintainer quote found. Addressing, exact-session
-membership and bounds: Proposed in the unpublished #217 plan draft (2d5a82c) (chunks 01 and 02); not
-decided.
+criteria 1–9); a request record, no maintainer quote found. Addressing, membership and
+bounds: Proposed in the #217 plan (chunks 01 and 02); not decided. The plan first proposed
+exact-session membership with no participant continuation. That restriction had no source in
+#217; it was removed in an audit the maintainer asked for on 2026-10-12: "make sure you and
+your peer didnt slip more refusal langauge in these two projects." The proposed participant membership follows the inbox continuity of PDR 001,
+Decision 6, which covers participant-address messages and does not decide room membership.
 
 ### Alternatives Considered
 
 | Alternative | Description | Why Rejected |
 | ----------- | ----------- | ------------ |
 | Room name in `send` | Address a room through the existing send tool | Names are display data and can repeat; a room needs its own read and roster calls |
-| Membership by alias | Add whoever holds an alias | The plan ties delivery to an exact session; an alias holder can change silently |
+| Exact native sessions only | A reset session leaves every room until the maintainer adds it again | A `/clear` or context cycle (#196) silently drops the agent; #217 does not ask for it |
+| Membership by unverified alias | Deliver to whoever holds a name at post time | Holder changes need verified succession and fencing (PDR 001, Decision 5) |
 
 ### Rationale
 
 1. A stable room ID keeps names free to repeat or change.
-2. Exact sessions keep fan-out and the roster tied to the sessions the maintainer chose.
+2. Participant membership keeps a member in the room across a verified reset, as its inbox
+   and cursor already continue.
 
 ### User Impact
 
@@ -211,7 +218,7 @@ agent's terminal.
 #217 requests rooms, an ordered conversation and a bound on agent exchanges. The maintainer
 decided the bound (an allowance set in the dashboard, refilled by maintainer posts) and that a
 dashboard post is the maintainer's instruction and approval, because only the maintainer can
-reach the local bridge. Exact-session membership and the room tools remain plan proposals.
+reach the local bridge. Participant membership and the room tools remain plan proposals.
 
 ---
 
@@ -222,3 +229,4 @@ reach the local bridge. Exact-session membership and the room tools remain plan 
 | 2026-10-12 | Initial creation |
 | 2026-10-12 | Recorded the maintainer's decisions on the exchange bound and dashboard origin (#306) |
 | 2026-10-12 | Reconciled the room plan with configured refill and maintainer authority; updated the guide implementation fact after PR #311 |
+| 2026-10-12 | Membership follows a member participant's verified holder; removed the exact-session-only restriction (refusal-language audit) |

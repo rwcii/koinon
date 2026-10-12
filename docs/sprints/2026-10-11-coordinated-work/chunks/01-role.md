@@ -33,4 +33,4 @@ accounting and verify existing funded-control bounds before publishing.
 
 Update WORK-ITEMS-V1.md/COMMANDS, PROTOCOL, guide and Unreleased. Test both continuation models,
 scope/proposal changes, every owner write/replay, native identity continuity versus genuine
-succession, role conflict/unheld state and complete current-assignment paging. No runtime setup.
+succession, role conflict/unheld state and complete current-assignment paging.
