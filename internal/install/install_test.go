@@ -71,8 +71,9 @@ func newEnv(t *testing.T, backend string) *env {
 	}
 	e := &env{r: &recorder{}}
 	e.o = Options{Prefix: filepath.Join(dir, "prefix"), StateDir: state, PythonPrefix: filepath.Join(dir, "python"), Source: source,
-		Path:     filepath.Join(dir, "empty-path"),
-		Services: platform.Services{Backend: backend, Home: filepath.Join(dir, "home"), UID: 501, Run: e.r.run},
+		Path: filepath.Join(dir, "empty-path"),
+		Services: platform.Services{Backend: backend, Home: filepath.Join(dir, "home"), UID: 501, Run: e.r.run,
+			User: "alice", Group: "staff", SystemDir: filepath.Join(dir, "LaunchDaemons")},
 		Setup: func(_ context.Context, o setup.Options) (setup.Report, error) {
 			e.setups = append(e.setups, o.Family+" "+o.Binary)
 			return setup.Report{OK: true, Family: o.Family}, nil

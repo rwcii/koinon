@@ -5,6 +5,12 @@ into a dated release section when promoted to `main`.
 
 ## Unreleased
 
+- On macOS, `koinon install --system` runs the daemon as a LaunchDaemon under your user, so it
+  keeps running after a desktop logout, starts at boot and can be managed over SSH. It asks
+  `sudo` for each step, stops and disables the user agent, verifies the new daemon and restores
+  the agent when a step fails. Later installs keep system mode, and `koinon uninstall` removes
+  it. A plain install now enables the user agent again after system mode was removed (#283).
+
 - The daemon logs each start, each stop with its reason, and lock contention. On macOS the
   launchd agent writes the log to `~/Library/Logs/koinon/daemon.log`; on Linux it is in the user
   journal. A second daemon started by the service waits up to 60 seconds for the daemon lock

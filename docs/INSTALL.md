@@ -39,7 +39,8 @@ chmod +x koinon-linux-amd64 && ./koinon-linux-amd64 version
 ./koinon-linux-amd64 install --agent claude --agent codex
 ```
 
-`koinon install [--prefix DIR] [--state-dir DIR] [--agent FAMILY]... [--no-start]` does this:
+`koinon install [--prefix DIR] [--state-dir DIR] [--agent FAMILY]... [--no-start] [--system]` does
+this:
 
 1. It copies the running binary to `<prefix>/bin/koinon`. The default prefix is
    `$XDG_DATA_HOME/koinon/go`, which is `~/.local/share/koinon/go`. The copy is atomic, and it is
@@ -73,13 +74,68 @@ chmod +x koinon-linux-amd64 && ./koinon-linux-amd64 version
    left out; set it up with `koinon setup FAMILY`.
 
 When no user service manager answers, the report says `"service": "manual_required"` and gives
-the `start_command` to run in a managed session. Koinon never uses sudo, system services,
-lingering or permission changes. `--no-start` writes the binary and the service file and starts
+the `start_command` to run in a managed session. The default install never uses sudo, system
+services, lingering or permission changes; `--system` on macOS (below) is an explicit choice whose
+privileged steps the person approves at the `sudo` prompt. `--no-start` writes the binary and the service file and starts
 nothing. A repeated install replaces the binary in place and restarts the service. The Go state
 defaults to `$XDG_STATE_HOME/koinon/go`, which is `~/.local/state/koinon/go`.
 
 When a Python-era installation is present (`~/.local/share/koinon/install.json`), the install is
 refused with `python_install_present`. Use the upgrade instead.
+
+### System mode on macOS
+
+The launchd agent runs in the desktop login's `gui/<uid>` domain, so it stops when that login
+ends, and it cannot be managed from SSH or tmux. `koinon install --system` instead runs the
+daemon as a LaunchDaemon, `/Library/LaunchDaemons/io.github.rwcii.koinon.daemon.plist`. It runs
+as you (`UserName`, `GroupName` and `HOME` of the installing user, never root), with the same
+arguments, state directory and log file as the agent. It starts at boot (`RunAtLoad`), restarts
+after any exit (`KeepAlive`, at most every 10 seconds) and keeps `Umask` 077. With FileVault on,
+it starts only after the disk is unlocked at boot.
+
+Run it as yourself, not with `sudo`: it refuses to run as root (`system_mode_root`) and asks
+`sudo` for each privileged step, so you approve each one. The steps:
+
+1. Render the plist to a private temporary file and check it with `plutil -lint`. Record whether
+   the user agent is loaded and whether it is disabled.
+2. `sudo launchctl disable gui/<uid>/<label>` and `sudo launchctl bootout gui/<uid>/<label>`, then
+   verify with `print-disabled` and `print` that the agent is disabled and not loaded.
+3. `sudo install -o root -g wheel -m 0644` the plist, `sudo launchctl bootstrap system` it and
+   `sudo launchctl kickstart -k system/<label>`.
+4. Wait up to 90 seconds until `koinon status` answers with the PID that `sudo launchctl print
+   system/<label>` reports. A daemon that answers with another PID is the former agent.
+5. Remove the agent plist that the install wrote.
+
+A failure in steps 2 to 4 removes the system service and plist again and restores the agent as
+it was recorded: loaded or not, enabled or disabled. The error names the step
+(`system_step_failed: STEP`). When the restore fails too, the error lists the `sudo` commands that
+finish it (`rollback_failed`).
+
+Without a desktop login, for example after a reboot, the user has no `gui/<uid>` domain:
+no agent runs, and `launchctl` refuses every command on that domain. The install then skips
+the agent steps and removes the agent plist that it wrote, so nothing starts at the next login.
+It refuses an agent plist with the daemon's label that it did not write, because that one would
+start then.
+
+There is one daemon. The presence of the system plist records system mode: a later `koinon
+install`, with or without `--system`, stops and disables the agent again if it was started,
+replaces the binary, rewrites the plist only when its content changed, bootstraps the service
+when it is not loaded, restarts it and verifies it as in step 4. It never writes, enables or
+starts the user agent, and the report says `"service": "system"`. `--no-start` is refused in
+system mode (`system_mode_no_start`); on Linux `--system` is refused
+(`system_mode_unsupported`), and the systemd user unit stays.
+
+The system plist is shared by every user of the Mac. An existing one is used only when its
+`Label` is the daemon's and its `UserName` is you; a daemon of another user is never stopped,
+rewritten or removed (`system_plist_mismatch`, naming the field). A LaunchDaemon that you wrote
+yourself, without the Koinon marker, counts as system mode when its `ProgramArguments` are `<prefix>/bin/koinon serve --state-dir <state>` (a trailing `--lock-wait`
+is allowed) and its `UserName` is you. The install never rewrites it; it replaces the binary and
+restarts the service. Any other plist at that path is refused before anything changes, with
+`system_plist_mismatch` and the differing field.
+
+`koinon uninstall` boots out and removes an owned system plist through `sudo`, and keeps the
+state. The user agent stays disabled; a later plain install, with no system plist present,
+enables and starts it again. Agents never run `--system` or `sudo` on the maintainer's machine.
 
 ### Upgrade the Go runtime
 
@@ -247,6 +303,9 @@ staging files.
 - The service file that carries the marker. It is removed only after the manager reports the
   service stopped. When the manager refuses the stop, or still reports the service running,
   uninstall refuses with `service_stop_failed` and keeps the service file and the binary.
+- In system mode on macOS, the LaunchDaemon plist that carries the marker: `sudo launchctl
+  bootout system/<label>`, then `sudo rm`. A plist without the marker is kept, and the error
+  gives the commands that remove it (`service_artifact_unowned`).
 - The binary.
 - The `~/.local/bin/koinon` link, only when the install created it (`<prefix>/link`) and it still
   points at the installed binary. Any other link or file there is kept (`"link_result": "kept"`).
