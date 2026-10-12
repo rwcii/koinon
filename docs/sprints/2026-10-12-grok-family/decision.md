@@ -33,10 +33,11 @@ since, in the development container only.
 1. A supported Grok entry point and its setup and launch workflow are defined and follow
    Koinon's registration rules (PDR 001). The supported Grok Build versions are recorded with the
    evidence for each.
-2. Every Koinon call from a Grok session is attributed to the exact calling session from
+2. Every Koinon call from a top-level Grok session is attributed to that session from
    verified native metadata. A call whose session cannot be proven is refused with
-   `identity_unavailable` (ADR 001, Decision 1). Two concurrent Grok sessions on one host, and a session that shares
-   a parent MCP client, are never confused.
+   `identity_unavailable` (ADR 001, Decision 1). Two concurrent top-level Grok sessions on one
+   host are never confused. A sub-agent's calls carry its parent's ID and are attributed to
+   the parent (PDR 001, Decision 2; #254 comment 6118290944).
 3. Reset and resume behavior is documented from observation: whether a reset gives a new
    native session, and what a resumed session presents.
 4. A Grok session can use peer discovery, messaging, inbox acknowledgement, delivery

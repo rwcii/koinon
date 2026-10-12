@@ -30,9 +30,9 @@ CI never runs Grok Build and never contacts the xAI provider.
 ## Tests (synthetic, in the Go suite)
 
 - **Identity (2).** A synthetic Grok MCP client stands in for Grok Build with the native
-  metadata that chunk 01 records. Two concurrent sessions on one host, including two that
-  share one MCP server process, each get their own key, or the call is refused with
-  `identity_unavailable`. A call with no proven session, or one whose metadata names a
+  metadata that chunk 01 records. Two concurrent top-level sessions on one host, including two
+  that share one MCP server process, each get their own key, or the call is refused with
+  `identity_unavailable`. A sub-agent's call through its parent's server gets the parent's key. A call with no proven session, or one whose metadata names a
   session the server was not started for, is refused. Caller fields in tool arguments are
   refused as for every family.
 - **Admission (1).** A Grok session that was not started through the Koinon launcher, with
