@@ -5,6 +5,9 @@ into a dated release section when promoted to `main`.
 
 ## Unreleased
 
+- Repository registration distinguishes an unavailable Git executable or Git discovery
+  timeout from invalid input, with fixed diagnostic error codes (#319).
+
 - Embed the portable shared skills and setup references in the binary; report their
   fingerprint as `catalog_digest` in `koinon version`. Add team launch/stop/recovery and
   runtime-guide skills, project fact schemas and derived OpenCode commands. Skill adoption
