@@ -27,7 +27,9 @@ its external provider, private data and repository policies do not.
 4. Item text is immutable after a verdict. New facts require a new item referring to the
    earlier one. A concurrent edit cannot make a verdict apply to unseen text.
 5. An fyi item offers Dismiss only. Dismissal records done and its time, and grants no
-   approval. Manual work sorts before other items.
+   approval. Manual work uses the supplied design's existing item convention: kind fyi
+   and a title starting with the exact ASCII marker `ACTION FOR YOU`. Those items sort
+   before the rest, then by item order and reference. No separate agent-row order is added.
 6. Each command appears in its own copy box and contains printable ASCII only. Line breaks,
    zero-width, bidirectional and non-ASCII look-alike characters are rejected on write and
    hidden if encountered on read. Hidden commands cannot be approved as displayed.
