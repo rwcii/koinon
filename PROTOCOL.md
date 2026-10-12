@@ -1051,3 +1051,24 @@ ID, another PID, a session without a host record, or a missing or malformed entr
 `claude_identity_mismatch` or `claude_target_unavailable`.
 Sender-provided envelope labels alone are not authentication or permission. See
 `internal/core/wake_providers.go` and its synthetic receiver tests for the maintained wire contract.
+
+
+### Claude observations after a transcript clear
+
+Claude can keep its MCP process and first environment session ID across `/clear`, while the
+native registry and status-line input use a new transcript ID. The MCP activity reader accepts
+that changed ID only while the parent retains the process start value pinned at the first
+Claude initialization. A reused PID or unreadable changed-ID proof reports no activity.
+
+When a Claude status-line hook's direct observation names an unregistered transcript, it can
+retry with `claude_reporter: {pid, start}` from its own live process. Only `claude_statusline`
+model/context reports accept that optional evidence. The daemon reads actual process ancestry,
+requires one active Claude host with its recorded start value, and stops at a foreign or
+unregistered nested agent. An ambiguous host or a known caller from another session is refused
+with `observation_host_unverified`. The reporter is rechecked before accepting the report.
+
+This resolves observation values to the existing session only. It creates no registration and
+moves no participant, claim or cursor. Reporter evidence is transient and is excluded from
+peer status, dashboard values, stored observations and logs. Hook output and the user's status-
+line command's exit result are unchanged. These observations remain subject to the existing
+source validation and freshness windows.

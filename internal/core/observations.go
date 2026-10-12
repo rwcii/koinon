@@ -91,6 +91,9 @@ type Observation struct {
 	Activity *ObservedValue `json:"activity,omitempty"`
 	Terminal *ObservedValue `json:"terminal,omitempty"`
 	Naming   *ObservedValue `json:"naming,omitempty"`
+	// ClaudeReporter is supplied only by the native status-line hook when its new
+	// transcript ID has no registration. It routes observations, never identities.
+	ClaudeReporter *ObservationReporter `json:"claude_reporter,omitempty"`
 }
 
 // storedValue keeps the time the daemon last received a report that confirms the value,
@@ -229,6 +232,17 @@ func (s *Store) Observe(ctx context.Context, o Observation) error {
 	}
 	if present == 0 {
 		return ErrInvalid
+	}
+	if o.ClaudeReporter != nil {
+		if o.Caller.Family != "claude" || o.Activity != nil || o.Terminal != nil || o.Naming != nil ||
+			o.Model != nil && o.Model.Source != "claude_statusline" || o.Context != nil && o.Context.Source != "claude_statusline" {
+			return ErrInvalid
+		}
+		caller, err := s.claudeObservationCaller(ctx, o.Caller, *o.ClaudeReporter)
+		if err != nil {
+			return err
+		}
+		o.Caller = caller
 	}
 	session, err := scanSession(s.db.QueryRowContext(ctx, sessionQuery+` WHERE s.family=? AND s.id=?`, o.Caller.Family, o.Caller.ID), now)
 	if err != nil {

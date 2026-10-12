@@ -5,6 +5,11 @@ into a dated release section when promoted to `main`.
 
 ## Unreleased
 
+- Claude model, context and activity observations survive `/clear` while keeping the existing
+  Koinon session and participant. Changed transcript IDs require the same pinned native host;
+  status-line reports use verified hook ancestry, and foreign, reused or ambiguous hosts are
+  refused (#303).
+
 - When no daemon answers, `koinon status` and `koinon recover` name the service mode and the
   exact command that restarts the daemon (`sudo launchctl kickstart -k system/...` in macOS
   system mode); Koinon never runs it. An idle agent session whose registration expired during an

@@ -123,8 +123,10 @@ type Store struct {
 	retention retentionState
 	// calls holds each session's last tool call; processStart reads a host process's start
 	// time (chunk 04).
-	calls        toolCalls
-	processStart func(int) (int64, error)
+	calls          toolCalls
+	processStart   func(int) (int64, error)
+	processParents func() (map[int]int, error)
+	processCommand func(int) (string, []string, error)
 	// alive holds when the liveness sweep last read each session's host as running (#249).
 	alive liveness
 	// settings holds the session timing values in force (#249).
@@ -205,7 +207,8 @@ func openStoreFile(root, name string) (*Store, error) {
 		db.Close()
 		return nil, err
 	}
-	s := &Store{db: db, now: time.Now, storage: storage{path: path, maxPages: defaultMaxPages}, processStart: platform.ProcessStart}
+	s := &Store{db: db, now: time.Now, storage: storage{path: path, maxPages: defaultMaxPages}, processStart: platform.ProcessStart,
+		processParents: platform.ProcessParents, processCommand: platform.ProcessCommand}
 	if err := s.loadSettings(context.Background()); err != nil {
 		db.Close()
 		return nil, err
