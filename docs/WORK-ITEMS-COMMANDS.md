@@ -49,7 +49,7 @@ actor; a different session waits for release/expiry and starts a fresh generatio
 original native owner can release its generation even after the participant changes holder.
 Existing/default participant claims, cursors and inboxes continue as above.
 Authenticated maintainer release/finish and explicitly marked purge keep their existing
-administrative controls ([PDR 005, Decision 3](product/pdr/005-room-conversations-human-origin.md)).
+administrative controls.
 Their ownership retries retain the native claim's binding for agent callers as well.
 
 List accepts `assigned_to_me` (`--assigned-to-me`), matching explicit consumer proposals or

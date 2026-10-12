@@ -569,7 +569,7 @@ release/expiry with its own consumer and generation. Claim views label `ownershi
 `native` or `legacy`. Migration defaults old claims/replays to legacy, preserving consumers,
 generations, deadlines, inboxes and cursors. See [PDR 004, Decision 1](docs/product/pdr/004-work-results-role-routing.md).
 The authenticated dashboard and explicit purge retain their existing maintainer release and
-finish controls (PDR 005, Decision 3). Their ownership replay rows keep the claim's native
+finish controls. Their ownership replay rows keep the claim's native
 binding for agent callers. Retention recognizes the same digest derived from recorded native
 session keys, including in its deleting transaction; participant claims keep their continuation.
 
