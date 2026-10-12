@@ -466,6 +466,22 @@ preserve existing records; a failed or timed-out request alone does not prove a 
 Use the same idempotency key and deadline to resolve uncertain writes within their horizon.
 An unavailable daemon is not permission to replace its state or change a secret.
 
+`koinon recover` asks a running daemon to end a storage block, after you corrected its cause.
+When no daemon answers, `koinon recover` and `koinon status` fail with `daemon_unavailable` and
+name the installed service mode (`service`: `system`, `agent`, `systemd` or `manual`) and the
+`restart_command`: `sudo launchctl kickstart -k system/io.github.rwcii.koinon.daemon` in macOS
+system mode, `launchctl kickstart -k gui/<uid>/io.github.rwcii.koinon.daemon` for the launchd
+agent (which needs your desktop login session), `systemctl --user restart koinon.service` on
+Linux, or the `koinon serve` command when no service is installed. Koinon prints the command
+and never runs `sudo` itself. Both commands use loopback HTTP, not launchd, so they work over
+SSH; in system mode the daemon also runs without a desktop login.
+
+After an outage longer than the session lifetime, a running agent session does not need a
+restart. `koinon mcp` registers it again with the same identity at its next tool call, or at
+its next renewal when it is idle, and it takes back its participant address when no other
+session took the address meanwhile. When another session took it, that holder change retired
+the old session, which then stays retired.
+
 The daemon writes one JSON line to standard error for each lifecycle event: `start` (version,
 state directory, listeners), `stop` with its `reason` (`signal` and its name, `canceled`,
 `error` with a fixed code, or `lock_held`), `lock_wait` and `lock_acquired`. The lines hold no

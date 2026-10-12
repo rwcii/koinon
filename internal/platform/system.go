@@ -492,3 +492,23 @@ func (s Services) RemoveSystem(ctx context.Context) (bool, error) {
 	}
 	return true, nil
 }
+
+// Restart names the installed service mode (system, agent, systemd or manual) and the command
+// that restarts the daemon, for a client that finds no daemon answering (#283). It runs
+// nothing: a system-mode restart needs sudo, which the person runs.
+func (s Services) Restart(ctx context.Context) (mode, command, note string) {
+	if s.Backend == "launchd" {
+		if p, err := s.ReadSystem(ctx); err == nil && p.Present && p.Label == DaemonLabel && p.User == s.User {
+			return "system", "sudo launchctl kickstart -k " + s.systemTarget(), ""
+		}
+		if present, marked, _ := Marked(s.DaemonArtifact()); present && marked {
+			return "agent", "launchctl kickstart -k " + s.agentTarget(),
+				"the launchd agent runs in your desktop login session; without that session, as over SSH after a reboot, it cannot start until you log in. koinon install --system runs the daemon without it."
+		}
+		return "manual", "", ""
+	}
+	if present, marked, _ := Marked(s.DaemonArtifact()); present && marked {
+		return "systemd", "systemctl --user restart " + DaemonUnit, ""
+	}
+	return "manual", "", ""
+}
