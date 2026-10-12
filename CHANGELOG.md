@@ -5,6 +5,12 @@ into a dated release section when promoted to `main`.
 
 ## Unreleased
 
+- Agents can query the installed skill/setup catalog through `library_list`, `library_read`
+  and `koinon library list/read` (#145, chunk 02). Connection instructions and each family
+  guide explain the catalog, its native destination support and the reviewed-diff adoption
+  procedure. Queries return embedded reference content without inspecting or changing
+  project/native files or recording adoption decisions.
+
 - Grok Build is a supported agent family (#254, chunk 02). `koinon setup grok` adds the
   user-scope `koinon` MCP server and reports the Grok Build version; `koinon grok` starts Grok
   with a launcher-chosen first session ID (`--session-id`) unless its arguments select a

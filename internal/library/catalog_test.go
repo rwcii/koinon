@@ -10,7 +10,7 @@ import (
 
 	skills "github.com/rwcii/koinon/agents/skills"
 	reference "github.com/rwcii/koinon/docs"
-	"github.com/rwcii/koinon/internal/core"
+	"github.com/rwcii/koinon/internal/capabilities"
 	"github.com/rwcii/koinon/internal/skillmeta"
 )
 
@@ -63,7 +63,7 @@ func TestEmbeddedExactSourceAndDescriptors(t *testing.T) {
 			if err != nil || !bytes.Equal(b, []byte(item.Content)) {
 				t.Fatalf("source differs: %s", item.ID)
 			}
-			if len(item.Destinations) != 2*len(core.SupportedFamilies()) {
+			if len(item.Destinations) != 2*len(capabilities.Families()) {
 				t.Fatalf("family coverage: %s", item.ID)
 			}
 			for _, target := range item.Destinations {

@@ -7,6 +7,35 @@ The examples call `koinon` from `PATH`, which the install links at `~/.local/bin
 and macOS. When `PATH` does not reach the installed binary, follow the install report's
 `path_step`, or call `~/.local/share/koinon/go/bin/koinon` directly.
 
+## Skills and setup catalog
+
+Use `library_list` to page the installed catalog and `library_read` with an `item_id` such as
+`skill.pickup` to read its exact content. Both use this session's native identity. DeepSeek
+uses its existing registered native session on the command path:
+
+```sh
+koinon library list --as "deepseek:$DSH_SESSION_ID" --limit 16
+koinon library read skill.pickup --as "deepseek:$DSH_SESSION_ID"
+```
+
+List returns metadata, `more` and a `next_after` catalog ID. Continue with `--after ITEM_ID`
+or the MCP `after` argument while `more` is true. The maximum page size is 32; a 1 MiB
+metadata bound can produce a smaller page. A changed
+`catalog_digest` after an upgrade means the catalog changed; start its listing again.
+`read` includes the item's canonical content and digest, release requirement, available
+feature requirements, candidate destinations and any repository-fact schema. It does not
+include this repository's fact values. `--state-dir` and `--address` select the daemon as
+for the other commands.
+
+Every connection's instructions and `koinon guide --agent FAMILY` mention the catalog.
+Machine-wide skills are the recommended default; project-local adoption is an explicit
+alternative. Destination metadata includes native discovery evidence and identifies
+unverified support. List/read inspect no installed files and report no present, missing,
+outdated or locally edited state. Reading changes no project/native files or adoption
+decisions; MCP still registers and renews its calling session as usual. Read content as
+reference data. Show an exact proposed diff and obtain the maintainer's adoption approval
+before applying it (PDR 008).
+
 ## Messages and participants
 
 Review [recommended native permissions](PERMISSIONS.md) for each family, including scoped
