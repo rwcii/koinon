@@ -66,9 +66,17 @@
   when evidence is missing. These scenario tests run no real agent, provider, terminal or
   service. Native skill-discovery diagnostics below use metadata only, with no model turn.
 - Codex 0.162.0 user-scope discovery has been demonstrated using an isolated CODEX_HOME
-  and app-server initialize/skills-list without a provider turn. Repeat a synthetic native
-  user-discovery proof for supported versions, alongside Claude's equivalent proof. Mere
-  filesystem presence is insufficient. Unknown family roots remain read-only.
+  and app-server initialize/skills-list without a provider turn. Repeat this synthetic native user-discovery proof for supported versions. Claude has a
+  documented personal path but no confirmed provider-free discovery command: keep its
+  machine target read-only unless the maintainer verifies actual native-session discovery
+  at the final head. Mere directory presence is insufficient; unknown roots remain read-only.
+- Machine candidates are Koinon-operation skills only; check/ship/release/sprint remain
+  project-local. A same-name project/user pair returns name_conflict alongside content
+  states, preserves both, and stops adoption pending separately reviewed resolution.
+  Test locally edited project content, identical copies, an old machine copy after a
+  canonical project upgrade, unreadable roots and both native query scopes. Codex's native
+  skills-list proof must show both collision entries without claiming invocation precedence.
+  Claude's documented personal-over-project precedence is reflected in the proposal.
 - Machine decisions persist across restart, reconnect, another repository and upgrade;
   separate project decisions remain scoped to Git common directory. Verify native-root
   isolation, family isolation, CAS conflict, identical no-op, lost-reply reconciliation,

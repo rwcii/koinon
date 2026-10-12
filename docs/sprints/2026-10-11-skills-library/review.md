@@ -48,3 +48,14 @@ ordinary daemon rows from project decisions in existing repository memory. Codex
 skill discovery was demonstrated through isolated app-server skills-list at 0.162.0;
 unverified family roots remain read-only. Requirement metadata names available features
 only. Changed-scope review is pending; this proposal is not Gate B approval.
+
+
+Changed-scope review (Claude, `3279482522f214b2479e39371da1b489ec6dfb51`):
+
+| Finding | Disposition |
+| --- | --- |
+| MEDIUM: machine-wide copies can shadow same-name project workflows; a stale global skill can hide changed canonical source. | Accepted and fixed: generic check/ship/release/sprint are project-only; operation skills are machine candidates. Inspect both applicable scopes, report name_conflict separately from file state, preserve both and stop adoption pending separately reviewed conflict resolution. Tests cover local edits and stale global copies. Claude precedence is documented; Codex native skills-list lists both and is not invocation proof. |
+| Evidence limitation: no confirmed provider-free Claude user-skill discovery command | Accepted: its documented candidate target stays read-only unless maintainer native-session discovery is verified at the final head. Do not invent a CLI or claim directory presence as proof. |
+
+Bounded fix verification is pending; unchanged canonical-source/storage/scope review carries
+forward. No product or adoption authorization is inferred from either review.

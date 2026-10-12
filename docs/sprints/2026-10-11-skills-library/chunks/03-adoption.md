@@ -45,6 +45,19 @@ and every existing skill; do not read its contents, move, merge or delete it. St
 adoption and report the conflict. Other independently approved canonical-file items remain
 available; this sprint adds no implicit per-skill-link fallback.
 
+Before either scope's adoption proposal, inspect known same-name native skills in both
+the verified machine root and the selected verified project directory, using catalog-derived
+bounded targets. Return a separate `name_conflict` discovery result when both exist; do not
+claim that a present file is the skill the native agent will invoke. Show family precedence
+only where verified, and otherwise say selection is unverified. Preserve both copies and
+stop the adoption pending a separately reviewed resolution of the collision; approval of
+the skill's contents alone is insufficient. Never delete, rename or overwrite either copy
+as an implicit remedy. The inspection covers the calling project, not an unbounded scan of
+all projects on the machine. Include this limit in the proposed machine change. A locally
+edited same-name project skill remains untouched and visible; an upgrade that leaves an old
+machine copy alongside changed canonical project content must still report the collision.
+An unreadable/unverified native root yields an inspection limitation, not proof of no conflict.
+
 Report content state separately from adoption decision:
 
 - present: target content/marked fragment matches the current catalog digest;

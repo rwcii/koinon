@@ -28,7 +28,8 @@ changed. Locally edited items and declined recommendations must survive an upgra
    decisions are shared by worktrees through their Git common directory;
    each query inspects the session's registered directory, or an explicitly selected verified
    worktree of the same repository, and the relevant native configuration roots.
-5. Machine-wide skills are the default recommendation. A project-local target is an
+5. Machine-wide Koinon-operation skills are the default recommendation; generic project
+   workflow skills (check, ship, release, sprint) remain project-local only. A project-local target is an
    explicitly selected alternative. An agent shows exact proposed file changes and obtains the maintainer's approval before
    applying one item. It records adoption or decline. Repeating a completed adoption changes
    nothing, and a declined item is not offered again as new.
@@ -39,9 +40,10 @@ changed. Locally edited items and declined recommendations must survive an upgra
    Koinon uses those files through `.agents/skills`, `.codex/skills` and `.claude/skills`
    symlinks to the shared directory. Add the requested spin-up, spin-down and recover-team
    skills there, plus a guide reference usable from a verified Claude native-home target.
-   Each skill has verified family-native machine destinations and the shared project
-   destination. Unverified native roots permit catalog reading only. Feature metadata
-   explains which available operations need a skill; context-management requirements are
+   Koinon-operation skills have candidate family-native machine destinations and the
+   shared project destination; project workflow skills have only the project destination. Unverified native roots permit catalog reading only. Feature metadata
+   explains which available operations need a skill; a same-name skill in another native
+   scope is reported before adoption, so discovery cannot silently replace project behavior; context-management requirements are
    advertised only once #196 is available. The catalog also offers shared skill instructions,
    discovery links, generated OpenCode
    wrappers, a repository guidance reference and #253's permission recommendations.
