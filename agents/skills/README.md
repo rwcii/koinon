@@ -15,7 +15,7 @@ slash-command wrappers that load these same skills. Rules for writing a skill ar
 | [check](check/SKILL.md) | Run the checks that must pass before a push. |
 | [pair](pair/SKILL.md) | Share one checkout, trade the driver role at committed checkpoints, and finish within fixed criteria and bounded review. |
 | [ship](ship/SKILL.md) | Take one change from a work branch to a squash merge on `develop`. |
-| [peer-tmux](peer-tmux/SKILL.md) | Inspect a peer terminal or run an authorized handoff, context reset and pickup cycle through tmux. |
+| [peer-tmux](peer-tmux/SKILL.md) | Inspect a peer terminal, clear a launched agent's startup prompts, or run a handoff, context reset and pickup cycle through tmux. |
 | [peer-review](peer-review/SKILL.md) | Review another agent's frozen commit and record the verdict bound to it. |
 | [release](release/SKILL.md) | Promote `develop` to `main` once the release is shown to install and upgrade. |
 
@@ -64,10 +64,11 @@ See OpenCode's [commands](https://opencode.ai/docs/commands/) and
 
 ## Handoffs
 
-Each agent writes only `_handoff/<agent>/` in the main checkout, and `pickup` reads only the
-caller's own directory unless the maintainer names another agent. `_handoff/` is ignored by Git:
-handoffs are session state, not part of the product, and are never committed. Never keep a
-handoff in a linked worktree: worktrees are removed when their work merges.
+Each agent writes only `_handoff/<agent>/` in the main checkout, and `pickup` reads the
+caller's own directory unless the maintainer names another agent (WDR 005, Decision 2).
+`_handoff/` is ignored by Git: handoffs are session state, not part of the product, and stay
+out of commits. A `_handoff/` in a linked worktree is removed with the worktree when its work
+merges (WDR 005, Decision 1).
 
 ## Layout
 

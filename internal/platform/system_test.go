@@ -347,3 +347,37 @@ func TestSystemWithoutGUIDomain(t *testing.T) {
 		t.Fatalf("unreadable domain: %v", err)
 	}
 }
+
+// Restart names the service mode and its restart command and runs no sudo (#283 chunk 03).
+func TestRestartCommand(t *testing.T) {
+	s, f := systemServices(t)
+	if mode, command, note := s.Restart(context.Background()); mode != "agent" ||
+		command != "launchctl kickstart -k gui/501/"+label || !strings.Contains(note, "desktop login session") {
+		t.Fatalf("agent: %s %q %q", mode, command, note)
+	}
+	os.WriteFile(s.SystemArtifact(), s.RenderSystemDaemon("/p/bin/koinon", "/state"), 0644)
+	if mode, command, _ := s.Restart(context.Background()); mode != "system" || command != "sudo launchctl kickstart -k system/"+label {
+		t.Fatalf("system: %s %q", mode, command)
+	}
+	bob := s
+	bob.User = "bob"
+	os.WriteFile(s.SystemArtifact(), bob.RenderSystemDaemon("/b/bin/koinon", "/bob"), 0644)
+	os.Remove(s.DaemonArtifact())
+	if mode, command, _ := s.Restart(context.Background()); mode != "manual" || command != "" {
+		t.Fatalf("another user's daemon: %s %q", mode, command)
+	}
+	for _, call := range f.Calls {
+		if strings.HasPrefix(call, "sudo ") || strings.HasPrefix(call, "launchctl ") {
+			t.Fatalf("Restart ran %s", call)
+		}
+	}
+	l := platform.Services{Backend: "systemd", Home: t.TempDir(), Run: f.Run}
+	if mode, _, _ := l.Restart(context.Background()); mode != "manual" {
+		t.Fatalf("linux without a unit: %s", mode)
+	}
+	os.MkdirAll(filepath.Dir(l.DaemonArtifact()), 0755)
+	os.WriteFile(l.DaemonArtifact(), l.RenderDaemon("/p/bin/koinon", "/state"), 0644)
+	if mode, command, _ := l.Restart(context.Background()); mode != "systemd" || command != "systemctl --user restart koinon.service" {
+		t.Fatalf("systemd: %s %q", mode, command)
+	}
+}
