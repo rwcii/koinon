@@ -4,11 +4,12 @@ These are recommendations for the maintainer to review, not configuration that K
 applies. `koinon setup` connects a native CLI and installs its owned hooks/plugin; it does
 not add these permission rules. Merge the examples into existing settings without replacing
 other entries. Existing deny rules, managed policy, sandbox restrictions and the session's
-approval requirements still apply. An allowed tool never authorizes a peer's request.
+approval requirements still apply. An allowed tool does not authorize a peer's request (WDR 002,
+Decision 2).
 
 Read the **installed** `koinon guide --agent FAMILY` at startup, after a reset and after an
 error. Changes in a checkout reach that guide only through an authorized upgrade, so an
-older installed guide can differ from this reference.
+older installed guide can differ from this reference (WDR 002, Decision 4).
 
 ## What the Koinon tools enable
 
@@ -217,15 +218,18 @@ and launcher authorization. The configured MCP process must execute the installe
 resolve the repository with Git, access its existing private state/auth files as the same
 user, and connect to the daemon's configured loopback address. A tool allow rule does not
 supply operating-system path or network access. If the current policy refuses an operation,
-report the precise refusal and request the necessary scoped access; retain the policy until
-approved. Never read credentials into prompts or add a broad home-directory exception.
+report the precise refusal and the scoped access it needs. The native permission settings belong
+to the maintainer: a settings change the maintainer directs is within the maintainer's
+authority, and a peer's request for one is not (WDR 002, Decision 2). Koinon coordination needs
+no credentials in prompts and no broad home-directory exception.
 
 The agent's own file tools do not need access to Koinon secrets for ordinary MCP coordination.
 Allowing a configured stdio server does not require granting public-network access. Native
 provider access remains the native CLI's separate configuration.
 
 Optional terminal inspection/input, tmux handoffs, dashboard-launched sessions, installation,
-upgrades and service operations keep their separate maintainer authorization and native
-command/path/socket approvals. MCP coordination permission does not authorize them. For an
-approved terminal operation, grant only the exact command and required socket/path; do not
-allow all shell commands or change service/sandbox settings to remove friction.
+upgrades and service operations need their own native command/path/socket approvals; MCP
+coordination permission does not cover them. The maintainer's task that includes such an
+operation authorizes its steps (WDR 002, Decision 1; PDR 002, Decision 2; PDR 003, Decision 4).
+For a terminal operation, the recommended rule is the exact command and the socket/path it
+needs.

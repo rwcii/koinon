@@ -9,6 +9,7 @@ import (
 	"flag"
 	"fmt"
 	"io"
+	"net"
 	"os"
 	"os/signal"
 	"path/filepath"
@@ -328,6 +329,9 @@ func call(ctx context.Context, command, state, address string, as *string, after
 		return err
 	}
 	result, err := core.Call(ctx, address, secret, path, body)
+	if command == "status" && errors.Is(err, core.ErrUnavailable) {
+		return daemonDown(ctx, state, address)
+	}
 	if err != nil {
 		return err
 	}
@@ -427,11 +431,44 @@ func memoryCommand(ctx context.Context, args []string, in io.Reader, out io.Writ
 		return err
 	}
 	result, err := core.Call(ctx, *address, secret, path, body)
+	if op == "" && errors.Is(err, core.ErrUnavailable) {
+		return daemonDown(ctx, *state, *address)
+	}
 	if err != nil {
 		return err
 	}
 	_, err = fmt.Fprintln(out, string(result))
 	return err
+}
+
+// unavailable is a status or recover call that found no daemon. It names the installed
+// service mode and the command that restarts the daemon; Koinon runs neither (#283).
+type unavailable struct {
+	address, mode, command, note string
+}
+
+func (u unavailable) Error() string {
+	if u.command != "" {
+		return "no daemon answers at " + u.address + "; restart it with: " + u.command
+	}
+	return "no daemon answers at " + u.address
+}
+
+// newServices reads the service manager; a variable so that tests replace it.
+var newServices = platform.NewServices
+
+func daemonDown(ctx context.Context, state, address string) error {
+	u := unavailable{address: address, mode: "manual"}
+	// The installed service listens only on the default loopback address.
+	if host, port, _ := net.SplitHostPort(address); port == "47671" && (host == "127.0.0.1" || host == "::1") {
+		if s, err := newServices(); err == nil {
+			u.mode, u.command, u.note = s.Restart(ctx)
+		}
+	}
+	if u.mode == "manual" {
+		u.note = core.StartDaemon(state, address)
+	}
+	return u
 }
 
 // agentCommand runs the commands that configure and guide agents.
@@ -490,7 +527,16 @@ func main() {
 		report := map[string]any{"ok": false, "detail": err.Error()}
 		var refused core.RefusedError
 		var usage usageError
+		var down unavailable
 		switch {
+		case errors.As(err, &down):
+			code, report["service"] = "daemon_unavailable", down.mode
+			if down.command != "" {
+				report["restart_command"] = down.command
+			}
+			if down.note != "" {
+				report["note"] = down.note
+			}
 		case errors.As(err, &usage):
 			code, report["error"] = usage.code, usage.message
 			delete(report, "detail")

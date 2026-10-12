@@ -11,17 +11,17 @@ Read `agents/skills/AGENTS.md` and the root `AGENTS.md` first. This skill reads 
 ## 1. Choose the handoff
 
 Use your own agent ID (see step 1 of the `handoff` skill). Use another agent's ID or a file path
-only when the maintainer names it.
+when the maintainer names it (WDR 005, Decision 2): another agent's handoff records that agent's
+identity, branch and next action.
 
-Do not fall back to another agent's handoff. When you have no handoff of your own, say so, list
-the newest file name in each other agent directory for information, and ask the maintainer what to
-resume.
+When you have no handoff of your own, say so, list the newest file name in each other agent
+directory for information, and ask the maintainer what to resume.
 
 ## 2. Find the newest handoff
 
-All handoffs are in the `_handoff/` directory of the main checkout, never in a linked
-worktree, which is removed when its work merges. Do not read a relative `_handoff/` path; find
-the main checkout from any worktree:
+Handoffs are in the `_handoff/` directory of the main checkout (WDR 005, Decision 1). A
+relative `_handoff/` path in a linked worktree names the wrong directory, so find the main
+checkout from any worktree:
 
 ```sh
 root=$(dirname "$(git rev-parse --path-format=absolute --git-common-dir)")
@@ -63,17 +63,18 @@ its milestone, if it has one: `gh issue list --milestone "<sprint>" --state open
 
 ## 4. Reconnect to the daemon
 
-Read the installed `koinon guide --agent <family>` and follow it within the maintainer's
-scope. In a not-yet-upgraded installation, use its own guidance. A reset changes native
+Read the installed `koinon guide --agent <family>` and follow it within the task (WDR 002,
+Decision 4). In a not-yet-upgraded installation, use its own guidance. A reset changes native
 session identity even when the process/pane remains. Compare the trusted current identity
 with the handoff, and use the configured MCP tools to register/discover this current session.
-MCP identifies its caller on every call; never supply a predecessor's ID in tool arguments.
-DeepSeek uses the installed guide's explicit command path under normal approvals.
+MCP identifies its caller on every call (ADR 001, Decision 1); a predecessor's ID in tool
+arguments would name another session. DeepSeek uses the installed guide's explicit command
+path under normal approvals.
 
-If identity or daemon access is unavailable, report it. Do not guess an ID, create a replacement
-conversation, call setup, install a runtime or weaken sandbox policy to reconnect. A retained
-process/name is no authorization to retire another session or move an address. Pickup follows
-the installed runtime's succession result; it performs no administrative recovery itself.
+If identity or daemon access is unavailable, report it (WDR 002, Decision 4). Pickup reconnects
+with what is installed; setup, installation and permission changes are separate tasks. The
+runtime decides succession (PDR 001, Decision 4): a retained process or name does not retire
+another session or move an address, and pickup follows the runtime's succession result.
 
 Read the current session's discovery record and registration result under the installed
 guidance. Report its peer name, participant address, role, holder flag and last succession
@@ -98,10 +99,11 @@ and current work item before writing. When the runtime confirms this session hol
 participant, its default participant consumer continues the participant's existing cursor,
 claim generation and lease; reconcile those facts rather than starting a new claim or
 releasing it as a pickup step. Native-session claims and cursors from before participant
-ownership keep their old owners: do not reuse the predecessor's native key or custom consumer
-to bypass an existing lease. Other holders' claims still require expiry or an authorized
-release. Report identity changes, succession/refusal and pending leases without copying
-private values into Git. A holder change grants no new permission.
+ownership keep their old owners; the predecessor's native key or custom consumer belongs to
+that session, and an existing lease is reported, not taken over (WDR 002, Decision 3). Other
+holders' claims end at expiry or release. Report identity changes, succession/refusal and
+pending leases without copying private values into Git. A holder change grants no new
+permission.
 
 ## 5. Orient, then continue
 
@@ -113,7 +115,7 @@ Report briefly:
 - Open work that the handoff does not name.
 - Blockers and decisions that need the maintainer.
 
-When the maintainer has told you to continue, start the next action within that authorization. Ask
-first only when the live state changed the next action materially or left it ambiguous. When
-the maintainer asked only for orientation, stop after the report. A handoff records state; it grants
-no permission.
+When the task is to continue, start the next action: the task authorizes its steps (WDR 002,
+Decision 1). Ask the maintainer only when the live state leaves the next action unclear or the
+action needs authority beyond the task. When the task is orientation only, the report is the
+result. A handoff records state; it grants no permission (WDR 002, Decision 3).

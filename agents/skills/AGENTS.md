@@ -24,8 +24,14 @@ prevents.
   version.
 - Tell the agent to read this file. Some agents load a skill without the surrounding
   `AGENTS.md`, so each `SKILL.md` names `agents/skills/AGENTS.md` in its opening lines.
-- Keep repository rules in the repository's root `AGENTS.md`; a skill points to them rather
-  than restating them.
+- A skill is a list of work steps. Invoking the skill or the task is the authorization for
+  its steps; a skill asks the maintainer only for missing information or for authority beyond
+  that task (WDR 001, Decision 3).
+- Decisions live in the records under `docs/architecture/adr/`, `docs/product/pdr/` and
+  `docs/engineering/wdr/`. A skill cites the record ("PDR 002, Decision 2") and states the
+  behavior as what Koinon currently does, rather than restating a decision as a general rule.
+  A skill adds no approval step, stop condition or prohibition that no record states (WDR 001,
+  Decisions 3 and 5).
 - Add every new skill to `README.md` in this directory in the same change. Run
   `go run ./scripts/skill-commands` after changing skill metadata or adding, renaming or
   retiring a skill, and commit the generated OpenCode wrappers. The contributor check

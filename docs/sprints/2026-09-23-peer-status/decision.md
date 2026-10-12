@@ -1,5 +1,7 @@
 # Sprint 2026-09-23 — peer status — Decision
 
+> Historical sprint plan. Its non-goals and constraints limited this sprint only. Current decisions are in the [decision records](../../engineering/wdr/README.md); see WDR 001.
+
 ## Problem
 
 A peer cannot see how full another agent's context is, which model it runs, or what it works

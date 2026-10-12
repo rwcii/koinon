@@ -162,13 +162,17 @@ func isParticipantID(id string) bool { return strings.HasPrefix(id, participantP
 // inbox rows, for every query that lists or counts agent sessions.
 const notParticipantRow = `substr(s.id,1,12)!='participant:'`
 
+// participantQualifier applies to sessions aliased as s. Native plain peers do not qualify;
+// DeepSeek retains its launch-free command registration and participant behavior.
+const participantQualifier = `(s.family='deepseek' OR COALESCE(json_extract(s.wake_target,'$.launch_id'),'')!='')`
+
 // heldAddress returns the address that the caller holds now, or "": an address recorded
 // for it whose participant matches its current repository and role while it is active and
 // not a sub-agent. A session that moved can still be recorded on an earlier participant.
 func heldAddress(ctx context.Context, tx *sql.Tx, now int64, caller Key) (string, error) {
 	var address string
 	err := tx.QueryRowContext(ctx, `SELECT n.name FROM names n JOIN sessions s ON s.family=n.family AND s.id=n.holder_id
-		AND s.repository=n.repository AND s.role=n.role AND s.subagent=0 AND s.retired_at=0 AND s.expires_at>?
+		AND s.repository=n.repository AND s.role=n.role AND s.subagent=0 AND s.retired_at=0 AND s.expires_at>? AND `+participantQualifier+`
 		WHERE n.kind='alias' AND n.family=? AND n.holder_id=? ORDER BY n.name LIMIT 1`, now, caller.Family, caller.ID).Scan(&address)
 	if errors.Is(err, sql.ErrNoRows) {
 		return "", nil
