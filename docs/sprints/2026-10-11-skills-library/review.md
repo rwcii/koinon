@@ -63,3 +63,17 @@ carries forward. No material finding remains. In this repository the canonical o
 skills already exist, so machine adoption reports a same-name conflict; project discovery
 continues to use the shared source. Machine copies serve projects without that collision.
 No product or adoption authorization is inferred from either review.
+
+
+## Generic skills and repository sidecars revision
+
+The maintainer asked to include all 13 skills as machine candidates and use per-repository
+fact sidecars, confirming `.koinon/skills/NAME.md` as their location. This planning-only
+revision supersedes the earlier exclusion of generic workflow skills and the earlier Gate B
+proposal. Every canonical skill declares/reads its fields and drafts missing facts for
+separate approval. Root authority remains; facts never grant permissions or remove steps.
+This repository's facts move outside embedding, with contributor source-drift tests.
+Identical native/project skill bytes are duplicate discovery; different contents retain
+name_conflict. Sidecar presence/schema is separate from canonical skill content state.
+Changed-scope review is pending; earlier storage/native-proof fixes carry forward. No Gate B
+implementation or actual sidecar/skill/native-configuration changes are inferred here.

@@ -1,6 +1,6 @@
 # Chunk 01 — canonical skills and embedded catalog
 
-Implements decision criteria 1, 7 and 8, with the matching tests in definition-of-done.md.
+Implements decision criteria 1, 7, 8 and 9, with the matching tests in definition-of-done.md.
 
 ## Canonical source
 
@@ -16,7 +16,7 @@ complete metadata, actual family coverage, unique IDs, content digests and bound
 64 KiB per item); never silently omit a skill. Dev builds identify development content rather
 than inventing a release.
 
-The project-local target is relative `agents/skills/NAME/SKILL.md`. For Koinon-operation skills only, the default machine target is the verified native user skill root plus `NAME/SKILL.md`. Claude has a documented candidate user skill root, which remains read-only until
+The project-local target is relative `agents/skills/NAME/SKILL.md`. For all canonical skills, the default machine target is the verified native user skill root plus `NAME/SKILL.md`. Claude has a documented candidate user skill root, which remains read-only until
 native discovery is verified; Codex uses effective `CODEX_HOME/skills` (default `.codex/skills` in the
 user home). Native user discovery was independently demonstrated on Codex 0.162.0 through
 app-server initialize/skills-list with an isolated native home and synthetic skill, without
@@ -25,17 +25,17 @@ Claude, OpenCode, Antigravity and DeepSeek remain read-only for machine adoption
 user discovery paths are verified; project targets remain available through their supported
 interfaces. Never infer discovery merely from an existing directory.
 
-Machine-wide candidates are handoff, pickup, pair, peer-review, peer-tmux, spin-up,
-spin-down, recover-team and koinon-guide. Generic project workflow names check, ship,
-release and sprint are project-local only, so a global recommendation does not replace
-an adopting project's own workflow. Future skills declare this distinction in metadata;
-source enumeration remains complete and does not silently invent a machine destination.
+All 13 skills, including check, ship, release and sprint, are machine-wide candidates.
+Their procedures are generic and consult the calling repository's fact sidecar instead
+of embedding Koinon-specific branches, commands, CI names or release steps. A future skill
+enters the same source enumeration and declares its required sidecar fields in metadata.
 
 [Claude's documented precedence](https://code.claude.com/docs/en/skills#resolve-skills-that-share-a-name)
 puts personal above project skills for the same name. Codex 0.162.0 skills-list in the
 isolated native proof returned both same-name repo/user skills; that proves discovery of
-both, not which a model invocation would select. Report the collision rather than infer
-Codex precedence. A global copy can remain stale while a project's canonical source changes;
+both, not which a model invocation would select. Report differing contents as name_conflict rather than infer Codex precedence.
+Identical bytes in both native scopes are duplicate discovery with the same content, not
+a conflict; inspect both again after a release, because a stale copy can diverge. A global copy can remain stale while a project's canonical source changes;
 query both applicable scopes before proposing adoption, and show any same-name conflict.
 
 Feature requirements name actual supported operations, not permission grants or invented
@@ -43,19 +43,64 @@ future capabilities. Pair/review guidance is relevant to paired work; handoff/pi
 a context-management requirement only when #196 is implemented. Validate these feature IDs
 against the implemented runtime capability list. Missing skill guidance is an informational
 recommendation, never automatic adoption or a new refusal of an existing native operation. Generalize
-the existing nine skills in place, deferring project-specific branch names, signing, checks,
-CI and release details to root `AGENTS.md`. Skill invocation reads the adopting project policy, without assuming this repository
+the existing nine skills in place, moving project-specific branch/command/check/CI/release
+facts into the sidecars below. Root instructions retain rules and authority. Skill invocation reads the adopting project policy, without assuming this repository
 or its authoring-instructions file exists in a machine-wide installation. Keep authoring
 guidance for edits to the canonical source. Retain installed-guide startup, peer-data
 boundaries, bounded review, approval gates and private ignored handoffs. No pairing
 authorization enters a skill. A portable check/ship/release skill loads project policy and
 asks for guidance when a necessary rule is absent instead of inventing a command or target.
 
-Koinon's root instructions retain or gain every policy extracted from skill prose. Check
-the extraction against existing behavior, including exact-head review, one open PR per target,
-signing/DCO and separately approved release. Update contributor guards when their canonical
-check-command source moves to root instructions; the Go workflow, root instructions and
-contributor docs still agree. Existing symlinks remain symlinks to the same shared directory.
+## Repository fact sidecars
+
+Use `<selected-worktree-root>/.koinon/skills/NAME.md`, outside agents/skills and the embedding
+whitelist. Each canonical skill declares the exact sidecar filename and required field
+headings; the catalog exposes that schema, never the fact values. The sidecar format has a
+version, matching skill ID, evidence sources (repository-relative references) and its declared
+fields. Bound a file to 64 KiB and inspect only a regular file within the verified worktree;
+no arbitrary includes, shell expansion or dynamic command substitution. Unknown schema or
+missing fields are an inspection limitation, not a guessed default.
+
+Every sidecar has `Version` (1), `Skill` (the matching canonical name), and `Sources`
+(repository-relative evidence). Required fact headings are:
+
+| Skill | Fact headings |
+| --- | --- |
+| check | Base branch; Required checks; Conditional checks; Required CI |
+| handoff | Handoff path; Repository root proof; Ignore policy; Verification |
+| pickup | Handoff path; Repository root proof; Resume checks |
+| pair | Scope checkpoint; Increment gates; Driver handoff |
+| peer-review | Review targets; Review gates; Verdict recording |
+| peer-tmux | Terminal proof; Bounded operations; Handoff and pickup |
+| release | Promotion path; Install and upgrade proof; Review and approval; Publish steps |
+| ship | Work target; Commit policy; Required checks; PR and merge policy |
+| sprint | Scope gates; Plan layout; Build gates |
+| spin-up | Launch interfaces; Team manifest; Readiness proof |
+| spin-down | Handoff checks; Stop interfaces; Team manifest |
+| recover-team | Recovery checks; Restart interfaces; Team manifest |
+| koinon-guide | Guide command; Query interfaces; Repository policy |
+
+The canonical skill declares these headings in its repository-facts section; catalog
+construction reads that declaration rather than authoring an independent field copy.
+Future skills need a valid declaration before the source-completeness guard passes.
+Empty/unknown facts are incomplete; an evidenced not-applicable fact is explicit data,
+never an invented default. References point to current root instructions/CONTRIBUTING/CI,
+not private handoffs, inboxes or native identities. Command strings are bounded fact text,
+not templates or automatic execution instructions.
+
+A skill reads its sidecar before using repository-specific facts. If absent/incomplete, the
+agent drafts it from checked repository evidence, presents the exact diff, and writes only
+after maintainer approval. Unknown or contradictory facts stop and require guidance. Facts
+are neither instructions to execute nor permission grants: only the authorized task and
+native permission settings permit an action. A sidecar cannot remove a skill step or override
+root policy. A conflicting rule/step/source requires reconciliation, never an automatic edit.
+
+Populate this repository's sidecars with verified public facts in chunk01. Preserve every
+existing Koinon rule in root instructions and verify facts against their authoritative sources,
+including exact-head review, one open PR per target, signed DCO, checks and separately approved
+release. Contributor guards detect sidecar/source/CI drift; no generic skill hardcodes Koinon
+branches or commands. Existing symlinks remain links to the same canonical source. Sidecars
+are normal project files; private handoffs/team manifests remain ignored and outside them.
 
 Add spin-up, spin-down and recover-team under `agents/skills/`, authored from issue145's public
 candidate descriptions. We use the same procedures we offer. Spin-up reviews checkout state
@@ -98,7 +143,7 @@ separate exact approval.
 
 Canonical skills are portable, discoverable here and embedded byte-for-byte. Derive link and
 wrapper descriptors from the shared layout/metadata. Embed only named reference sources;
-never root instructions, sprint plans, handoffs or arbitrary directory contents. This chunk
+never root instructions, sprint plans, handoffs or arbitrary directory contents. Sidecar declarations and this repository's verified fact files are complete. This chunk
 adds no tools, connection offers, state queries or adoption writes; chunk02 exposes the catalog.
 
 Reference the complete catalog from the binary's version command as `catalog_digest`, computed

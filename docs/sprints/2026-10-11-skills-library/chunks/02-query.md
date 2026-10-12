@@ -17,6 +17,7 @@ and project-local changes an explicit alternative. Initialize can offer the libr
 registration; it performs no query or adoption itself.
 
 Document available commands in PROTOCOL.md, USAGE.md and INSTALL.md; add Unreleased content.
-Verify actual tool/family coverage including #253's purpose guards. State and decision writes
+Verify actual tool/family coverage including #253's purpose guards. Sidecar schemas/required headings are metadata only; never expose this repository's facts.
+State and decision writes
 arrive in chunk03 and are not advertised here. Missing/outdated recommendations require
 chunk03 inspection; this chunk never claims an item is absent without inspecting it.

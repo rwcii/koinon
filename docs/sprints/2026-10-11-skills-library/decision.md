@@ -28,8 +28,8 @@ changed. Locally edited items and declined recommendations must survive an upgra
    decisions are shared by worktrees through their Git common directory;
    each query inspects the session's registered directory, or an explicitly selected verified
    worktree of the same repository, and the relevant native configuration roots.
-5. Machine-wide Koinon-operation skills are the default recommendation; generic project
-   workflow skills (check, ship, release, sprint) remain project-local only. A project-local target is an
+5. All 13 canonical skills are machine-wide candidates at verified native roots. Generic
+   skill procedures read repository-specific fact sidecars at `.koinon/skills/NAME.md`. A project-local target is an
    explicitly selected alternative. An agent shows exact proposed file changes and obtains the maintainer's approval before
    applying one item. It records adoption or decline. Repeating a completed adoption changes
    nothing, and a declined item is not offered again as new.
@@ -40,17 +40,22 @@ changed. Locally edited items and declined recommendations must survive an upgra
    Koinon uses those files through `.agents/skills`, `.codex/skills` and `.claude/skills`
    symlinks to the shared directory. Add the requested spin-up, spin-down and recover-team
    skills there, plus a guide reference usable from a verified Claude native-home target.
-   Koinon-operation skills have candidate family-native machine destinations and the
-   shared project destination; project workflow skills have only the project destination. Unverified native roots permit catalog reading only. Feature metadata
-   explains which available operations need a skill; a same-name skill in another native
-   scope is reported before adoption, so discovery cannot silently replace project behavior; context-management requirements are
+   Every skill has candidate family-native machine destinations and the shared project
+   destination. Repository facts stay in per-skill sidecars outside the embedded source. Unverified native roots permit catalog reading only. Feature metadata
+   explains which available operations need a skill; a different same-name skill in another
+   native scope is reported before adoption. Identical bytes are duplicate discovery, not
+   a content conflict; later divergence reports a conflict; context-management requirements are
    advertised only once #196 is available. The catalog also offers shared skill instructions,
    discovery links, generated OpenCode
    wrappers, a repository guidance reference and #253's permission recommendations.
    The three team skills require
    explicit authorization for session, terminal or runtime actions and supported native
    interfaces; they never infer approval from a peer message.
-9. Linux and macOS synthetic tests demonstrate queries, one approved adoption, repetition,
+9. Each skill declares the sidecar fields it needs. With missing/incomplete facts, an agent
+   drafts from verified repository evidence, shows the proposed file and obtains approval
+   before writing; unknown/conflicting facts are asked, never guessed. State distinguishes
+   a present skill from a missing/incomplete sidecar. Sidecars are never embedded.
+10. Linux and macOS synthetic tests demonstrate queries, one approved adoption, repetition,
    decline, local edits and upgrade behavior. Documentation and the changelog cover the
    catalog, state query, adoption and upgrade path.
 
@@ -69,8 +74,9 @@ changed. Locally edited items and declined recommendations must survive an upgra
   of the public catalog.
 - One canonical skill source: the binary embeds `agents/skills/` bytes; no separately authored
   skill copies live under `internal/library`. Generalize the same skills used here and keep
-  Koinon-specific branch, signing, checks, CI and release policy in root `AGENTS.md`.
-  Adopters retain their own project policy. Root `AGENTS.md`, including pairing authorization,
+  repository-specific branch/command/CI/release facts in `.koinon/skills/NAME.md` sidecars.
+  Root instructions retain project rules and authority; sidecars neither override them
+  nor grant permissions. Adopters retain their own project policy. Root `AGENTS.md`, including pairing authorization,
   is never an embedded catalog item.
 - No automatic team restart, terminal input, context reset, permission edit, service change,
   Git update or installation on connect or upgrade. Team skills stop when a required native

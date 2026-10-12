@@ -8,8 +8,8 @@
   the same enumeration; changing canonical content changes the embedded read result.
 - `.agents/skills`, `.codex/skills` and `.claude/skills` remain relative symlinks to the shared
   tree. The wrapper generator/check covers every actual skill, including the new team skills.
-  A policy-extraction review verifies that Koinon's existing gates still live in root instructions;
-  contributor tests still catch drift between the actual Go workflow and project check policy.
+  A policy-extraction review verifies that Koinon's rules remain in root instructions and
+  its repository facts move to sidecars; contributor tests catch sidecar/source/CI drift.
 - The raw embedding whitelist excludes root `AGENTS.md`/pairing authorization, handoffs,
   sprint plans and private state. Shared skill authoring instructions are reference data.
 - Catalog IDs are unique, metadata is complete, content digests match, supported families
@@ -70,9 +70,10 @@
   documented personal path but no confirmed provider-free discovery command: keep its
   machine target read-only unless the maintainer verifies actual native-session discovery
   at the final head. Mere directory presence is insufficient; unknown roots remain read-only.
-- Machine candidates are Koinon-operation skills only; check/ship/release/sprint remain
-  project-local. A same-name project/user pair returns name_conflict alongside content
-  states, preserves both, and stops adoption pending separately reviewed resolution.
+- All 13 skills are machine candidates at verified roots. A different-content same-name
+  project/user pair returns name_conflict alongside content states, preserves both, and
+  stops adoption pending separately reviewed resolution. Identical copies report duplicate
+  discovery without conflict; after divergence the same pair reports conflict.
   Test locally edited project content, identical copies, an old machine copy after a
   canonical project upgrade, unreadable roots and both native query scopes. Codex's native
   skills-list proof must show both collision entries without claiming invocation precedence.
@@ -84,6 +85,15 @@
   Saturate 256 rows, 8192-byte record and 2 MiB body limits, and ordinary page/byte budgets;
   refusal leaves decisions/files unchanged and cannot use promised work-control reserves.
   Exercise migration and older-writer refusal on committed fixtures.
+- Each skill declares bounded sidecar fields/filename. This repo's `.koinon/skills/` facts
+  are verified against root/CONTRIBUTING/CI, and excluded from the embedded catalog. Test
+  absent, incomplete, invalid-schema, unreadable, symlink escape and locally edited facts;
+  a present skill with a missing sidecar is explicitly reported. Worktree selection uses
+  the existing verified boundary; unknown repo context never guesses a sidecar path.
+- A missing sidecar is drafted from synthetic repo evidence, approved as a separate exact
+  change, applied, recorded and repeated without another write. Unknown/conflicting facts
+  require guidance. Sidecar commands remain data: no executor, permission grant, removed
+  skill step, root-policy override or dynamic include. No machine approval writes a sidecar.
 - Scan embedded catalog bytes for repository-specific authority, private IDs, credentials,
   messages and absolute home paths. Review every canonical skill text as product content.
 

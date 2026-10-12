@@ -1,6 +1,6 @@
 # Chunk 03 — scoped state and explicit adoption
 
-Implements decision criteria 4, 5 and 6 and completes criterion 9. Depends on chunk02.
+Implements decision criteria 4, 5 and 6 and completes criterion 10. Depends on chunk02.
 Use the corresponding tests and integration gate in definition-of-done.md.
 
 ## State query
@@ -47,16 +47,32 @@ available; this sprint adds no implicit per-skill-link fallback.
 
 Before either scope's adoption proposal, inspect known same-name native skills in both
 the verified machine root and the selected verified project directory, using catalog-derived
-bounded targets. Return a separate `name_conflict` discovery result when both exist; do not
-claim that a present file is the skill the native agent will invoke. Show family precedence
-only where verified, and otherwise say selection is unverified. Preserve both copies and
-stop the adoption pending a separately reviewed resolution of the collision; approval of
-the skill's contents alone is insufficient. Never delete, rename or overwrite either copy
-as an implicit remedy. The inspection covers the calling project, not an unbounded scan of
-all projects on the machine. Include this limit in the proposed machine change. A locally
-edited same-name project skill remains untouched and visible; an upgrade that leaves an old
-machine copy alongside changed canonical project content must still report the collision.
-An unreadable/unverified native root yields an inspection limitation, not proof of no conflict.
+bounded targets. Different bytes return `name_conflict` separately from content state;
+identical bytes report duplicate discovery with matching content, without claiming which
+copy a native invocation selects. Preserve both copies. A differing-content adoption stops
+pending separately reviewed conflict resolution; a skill-content approval alone is not
+permission to replace a project's workflow. Recheck after upgrades for a stale machine copy.
+No implicit delete/rename or source replacement. The inspection covers the calling project,
+not an unbounded machine scan. Unreadable/unverified roots report a limitation, not no conflict.
+Link-item directory_conflict remains non-traversing; collision inspection may read only its
+independently declared, bounded regular-file targets, never enumerate that directory.
+
+Report sidecar state alongside the selected skill's content state. Inspect the fixed
+`.koinon/skills/NAME.md` in the selected verified worktree, even for a machine skill.
+A missing project context is unavailable, not a guessed sidecar path. Sidecars report
+present-valid, missing, incomplete (required headings/facts absent), invalid schema/skill ID,
+or inspection error. Their local facts are never compared with a canonical embedded body;
+only the declared schema is part of the catalog. Thus `skill present, sidecar missing` is
+explicit, not overall present. A changed local fact remains local; never call it a catalog
+update or replace it from this repository's facts. Catalog read/list carries no sidecar body.
+
+A sidecar proposal is separate from the skill file proposal: draft from repository evidence,
+show the exact fact file, ask about missing/conflicting facts, obtain exact approval and then
+write with normal editing tools. A machine-skill approval does not approve any project file.
+Record approved sidecar schema/content digests as scoped project evidence, without copying
+its fact body into the catalog or machine decision. Repeating approved matching facts is a
+no-op; a missing/edited sidecar still requires a fresh proposal and approval. Connection
+recommendations can name the missing sidecar without creating it or recording a decision.
 
 Report content state separately from adoption decision:
 
