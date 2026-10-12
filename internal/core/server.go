@@ -197,7 +197,7 @@ func failure(w http.ResponseWriter, err error) {
 	}
 	var conflict SessionConflict
 	if errors.As(err, &conflict) {
-		respond(w, http.StatusConflict, map[string]any{"ok": false, "code": "session_conflict", "details": map[string]string{"state": conflict.State}})
+		respond(w, http.StatusConflict, map[string]any{"ok": false, "code": "session_conflict", "details": map[string]any{"state": conflict.State, "fenced": conflict.Fenced}})
 		return
 	}
 	var inactive InactiveRecipient

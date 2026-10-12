@@ -301,16 +301,18 @@ func final(err error) bool {
 	return false
 }
 
-// expired reports a renewal refused because the session expired, not retired.
+// expired reports a renewal refused because the session expired, and was neither retired
+// nor fenced by a holder change while it was expired.
 func expired(err error) bool {
 	var refused core.RefusedError
 	if !errors.As(err, &refused) || refused.Code != "session_conflict" {
 		return false
 	}
 	var details struct {
-		State string `json:"state"`
+		State  string `json:"state"`
+		Fenced bool   `json:"fenced"`
 	}
-	return json.Unmarshal(refused.Details, &details) == nil && details.State == "expired"
+	return json.Unmarshal(refused.Details, &details) == nil && details.State == "expired" && !details.Fenced
 }
 
 func code(err error) string {

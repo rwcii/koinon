@@ -13,12 +13,15 @@ import (
 	"strings"
 	"sync"
 	"testing"
+	"time"
 
 	"github.com/rwcii/koinon/internal/core"
 )
 
 // outage stops the daemon, ends the session's lifetime in the state database, as an outage
 // longer than the session lifetime does, and starts the daemon again at the same address.
+// The expiry is a second ago, inside the retention period, so the retention sweep keeps the
+// session and its revision.
 func (h *harness) outage(id string) {
 	h.t.Helper()
 	address := h.d.Addresses()[0]
@@ -29,7 +32,8 @@ func (h *harness) outage(id string) {
 	if err != nil {
 		h.t.Fatal(err)
 	}
-	if _, err := db.Exec(`UPDATE sessions SET expires_at=1 WHERE family='codex' AND id=?`, id); err != nil {
+	if _, err := db.Exec(`UPDATE sessions SET expires_at=? WHERE family='codex' AND id=?`,
+		time.Now().Add(-time.Second).UnixMilli(), id); err != nil {
 		h.t.Fatal(err)
 	}
 	db.Close()
@@ -106,12 +110,17 @@ func TestRenewalRegistersExpiredSession(t *testing.T) {
 	}
 	// A renewal reply lost after its commit leaves the cached revision stale; an expiry is
 	// still recognized and the session comes back.
-	h.outage("synthetic-a")
 	h.s.mu.Lock()
-	stale := h.s.sessions[core.Key{Family: "codex", ID: "synthetic-a"}]
-	stale.revision--
-	h.s.sessions[core.Key{Family: "codex", ID: "synthetic-a"}] = stale
+	cached := h.s.sessions[core.Key{Family: "codex", ID: "synthetic-a"}].revision
 	h.s.mu.Unlock()
+	if _, err := h.s.daemon(context.Background(), "/v1/sessions/renew",
+		core.Mutation{Family: "codex", ID: "synthetic-a", IfRevision: cached}); err != nil {
+		t.Fatalf("renewal whose reply is lost: %v", err)
+	}
+	h.outage("synthetic-a")
+	if s := h.session("synthetic-a"); s.Revision <= cached {
+		t.Fatalf("the cached revision %d is not stale: %+v", cached, s)
+	}
 	h.s.renew(context.Background())
 	if s := h.session("synthetic-a"); s.State != "active" || !s.HoldsAddress {
 		t.Fatalf("after a renewal with a stale revision: %+v", s)
