@@ -34,6 +34,8 @@ printf '\033[2J\033[H'
 draft=
 [ "$state" = draft ] && draft="synthetic draft"
 box "$draft"
+# A deaf program never reads: typed keys stay in the box.
+[ "$state" = deaf ] && exec sleep 300
 while IFS= read -r line; do
 	printf '%s\n' "$line" >> "$received"
 	printf '\033[2J\033[H     ❯ %s\n' "$line"
@@ -109,36 +111,42 @@ type grokPaneUnderTest struct {
 	middle      int
 }
 
-func (f *grokFixture) pane(state string, deep bool) grokPaneUnderTest {
+func (f *grokFixture) pane(state string, depth int) grokPaneUnderTest {
 	f.t.Helper()
 	f.sessionCounter++
 	received := filepath.Join(f.dir, "received-"+strconv.Itoa(f.sessionCounter))
 	command := "sh " + f.program + " " + state + " " + received
-	if deep {
-		// A foreground child keeps the terminal; the trailing command stops the shell from
-		// replacing itself with the program.
+	// A foreground child keeps the terminal; the trailing command stops each shell from
+	// replacing itself with its child.
+	switch depth {
+	case 1:
 		command = "sh -c '" + command + "; exit'"
+	case 2:
+		command = `sh -c 'sh -c "` + command + `; exit"; exit'`
 	}
 	fields := strings.Split(f.run("new-window", "-d", "-P", "-F", "#{pane_id}\t#{pane_pid}", command), "\t")
 	shell, _ := strconv.Atoi(fields[1])
 	p := grokPaneUnderTest{id: fields[0], shell: shell, host: shell, received: received}
-	if deep {
+	// Walk down to the program: each level is the only child of the one above.
+	for level := 0; level < depth; level++ {
+		parent, child := p.host, 0
 		deadline := time.Now().Add(5 * time.Second)
-		for p.host == shell && time.Now().Before(deadline) {
+		for child == 0 && time.Now().Before(deadline) {
 			parents, err := platform.ProcessParents()
 			if err != nil {
 				f.t.Fatal(err)
 			}
-			for pid, parent := range parents {
-				if parent == shell {
-					p.host, p.middle = pid, shell
+			for pid, value := range parents {
+				if value == parent {
+					child = pid
 				}
 			}
 			time.Sleep(20 * time.Millisecond)
 		}
-		if p.host == shell {
+		if child == 0 {
 			f.t.Fatal("the deep pane's program did not start")
 		}
+		p.middle, p.host = parent, child
 	}
 	// Wait until the program has drawn its box.
 	deadline := time.Now().Add(5 * time.Second)
@@ -184,8 +192,8 @@ const grokTestNotice = `Koinon inbox "grok":"synthetic" has waiting sequence ran
 
 func TestGrokWakeTypesTheNoticeIntoTheProvenIdlePane(t *testing.T) {
 	f := newGrokFixture(t)
-	p := f.pane("idle", false)
-	other := f.pane("idle", false)
+	p := f.pane("idle", 0)
+	other := f.pane("idle", 0)
 	session := f.session(p.host, p.id)
 	if got := f.s.providerWake(context.Background(), session, grokTestNotice); got != accepted() {
 		t.Fatalf("wake: %v", got)
@@ -202,31 +210,36 @@ func TestGrokWakeSendsNothingWithoutProofOrIdle(t *testing.T) {
 	f := newGrokFixture(t)
 	for name, c := range map[string]func() (Session, grokPaneUnderTest, string){
 		"busy turn": func() (Session, grokPaneUnderTest, string) {
-			p := f.pane("busy", false)
+			p := f.pane("busy", 0)
 			return f.session(p.host, p.id), p, "receiver_busy"
 		},
 		"draft in the box": func() (Session, grokPaneUnderTest, string) {
-			p := f.pane("draft", false)
+			p := f.pane("draft", 0)
 			return f.session(p.host, p.id), p, "receiver_busy"
 		},
 		"foreign pane": func() (Session, grokPaneUnderTest, string) {
-			p, foreign := f.pane("idle", false), f.pane("idle", false)
+			p, foreign := f.pane("idle", 0), f.pane("idle", 0)
 			// The recorded pane does not hold the host.
 			return f.session(p.host, foreign.id), foreign, "grok_target_unavailable"
 		},
 		"reused host": func() (Session, grokPaneUnderTest, string) {
-			p := f.pane("idle", false)
+			p := f.pane("idle", 0)
 			session := f.session(p.host, p.id)
 			f.s.db.Exec(`UPDATE sessions SET host_start=host_start+1 WHERE family='grok' AND id=?`, session.ID)
 			return session, p, "grok_target_unavailable"
 		},
-		"intervening agent": func() (Session, grokPaneUnderTest, string) {
-			p := f.pane("idle", true)
+		"agent in the pane": func() (Session, grokPaneUnderTest, string) {
+			p := f.pane("idle", 1)
+			f.agents[p.middle] = true
+			return f.session(p.host, p.id), p, "grok_target_unavailable"
+		},
+		"agent between the pane and the host": func() (Session, grokPaneUnderTest, string) {
+			p := f.pane("idle", 2)
 			f.agents[p.middle] = true
 			return f.session(p.host, p.id), p, "grok_target_unavailable"
 		},
 		"no host record": func() (Session, grokPaneUnderTest, string) {
-			p := f.pane("idle", false)
+			p := f.pane("idle", 0)
 			session := f.session(p.host, p.id)
 			f.s.db.Exec(`UPDATE sessions SET host_pid=0,host_start=0,tmux_socket='',tmux_pane='' WHERE family='grok' AND id=?`, session.ID)
 			return session, p, "grok_target_unavailable"
@@ -246,10 +259,37 @@ func TestGrokWakeSendsNothingWithoutProofOrIdle(t *testing.T) {
 			}
 		})
 	}
-	// An intervening process that is not an agent is allowed.
-	p := f.pane("idle", true)
+	// Intervening processes that are not agents are allowed.
+	p := f.pane("idle", 2)
 	if got := f.s.providerWake(context.Background(), f.session(p.host, p.id), grokTestNotice); got != accepted() {
-		t.Fatalf("wake through a plain shell: %v", got)
+		t.Fatalf("wake through plain shells: %v", got)
+	}
+	// tmux must answer for the recorded pane itself.
+	p = f.pane("idle", 0)
+	session := f.session(p.host, p.id)
+	real := f.s.tmux
+	f.s.tmux = func(ctx context.Context, socket string, args ...string) (string, error) {
+		out, err := real(ctx, socket, args...)
+		if len(args) > 0 && args[0] == "display-message" {
+			out = strings.Replace(out, p.id, "%999", 1)
+		}
+		return out, err
+	}
+	if got := f.s.providerWake(context.Background(), session, grokTestNotice); got != waiting("grok_target_unavailable") {
+		t.Fatalf("wake when tmux names another pane: %v", got)
+	}
+	f.s.tmux = real
+	if got := f.received(p); got != "" {
+		t.Fatalf("received %q", got)
+	}
+}
+
+// A notice that does not leave the input box is not recorded as delivered.
+func TestGrokWakeUnconfirmedSubmission(t *testing.T) {
+	f := newGrokFixture(t)
+	p := f.pane("deaf", 0)
+	if got := f.s.providerWake(context.Background(), f.session(p.host, p.id), grokTestNotice); got != uncertain("pane_submission_unconfirmed") {
+		t.Fatalf("wake: %v", got)
 	}
 }
 
