@@ -10,3 +10,17 @@ Claude accepted this correction on 2026-10-12; other framing content carries for
 
 This is a framing review. The definition of done and technical chunks still need their
 own frozen plan review and the maintainer's Gate B approval before implementation.
+
+## Maintainer-choice reconciliation, 2026-10-12
+
+The [fixed scope](https://github.com/rwcii/koinon/issues/206#issuecomment-6123696469)
+applies PDR 007, Decisions 1 and 3, and PDR 005, Decision 3. Claude agreed to this bounded
+scope before edits. The earlier plain-text framing is superseded by Markdown for card
+context, recommendation and comments, code blocks, and ASD-STE100 card prose. Printable
+ASCII remains required for terminal-copy commands, with the original rejected character
+classes; read-only code blocks are outside that restriction. An authenticated dashboard
+verdict is the maintainer's instruction and approval, without a new human-presence check.
+
+The original human-only verdict, frozen text, durable delivery, archive and waiting-query
+requirements carry forward. Technical mechanisms remain to be specified and reviewed;
+this reconciliation adds no board runtime, schema or external publication.

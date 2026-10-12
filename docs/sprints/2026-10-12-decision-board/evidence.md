@@ -4,6 +4,22 @@ This inventory records existing code and required verification. It is not a tech
 chunk specification or product implementation. Source baseline: develop 496ec52,
 read on 2026-10-12.
 
+## Maintainer choices applied after the inventory
+
+- PDR 007, Decision 1, records Markdown for card context, recommendation and comments,
+  code in code blocks, and ASD-STE100 card prose
+  ([#206 comment 6119203856](https://github.com/rwcii/koinon/issues/206#issuecomment-6119203856)).
+  The static reference's plain-text renderer is a starting point, not the final text format.
+- PDR 007, Decision 3, scopes printable ASCII to terminal-copy commands
+  ([#306 comment 6119251724](https://github.com/rwcii/koinon/issues/306#issuecomment-6119251724)).
+  Code displayed only for reading can contain non-ASCII text. Terminal-copy entries keep
+  the original line-break, zero-width, bidirectional and look-alike exclusions.
+- PDR 005, Decision 3, makes the authenticated dashboard verdict the maintainer's
+  instruction and approval; no separate human-presence check is added. The existing
+  dashboard-only verdict write path still distinguishes that origin from peer text.
+  The source guide and MCP instructions now describe this origin after PR #311; the
+  installed guide changes when that runtime is upgraded.
+
 ## Existing dashboard boundary
 
 - `internal/core/dashboard.go` and `dashboard_auth.go` enforce loopback literal Host,
@@ -83,8 +99,10 @@ The maintainer supplied a static board template. Its generic layout uses a maxim
 of 1180 pixels, system fonts and system light/dark colors, responsive cards, a horizontally
 scrollable agent table, context meters, count indicators, optional verdict notes, disabled
 pending buttons, inline save errors, separate command boxes and read-only reference lookup.
-Context and recommendation render line breaks. The existing item convention for manual work
-is an fyi title beginning `ACTION FOR YOU`; the board sorts those items first.
+The reference shows context and recommendation line breaks. The new board renders those
+fields and comments from Markdown, with code blocks and ASD-STE100 prose as stated above.
+The existing item convention for manual work is an fyi title beginning `ACTION FOR YOU`;
+the board sorts those items first.
 
 The template's provider API, private live data, labels, repository policy and previous
 missing-telemetry assumptions are not this deliverable. No private board was imported.
@@ -95,8 +113,14 @@ missing-telemetry assumptions are not this deliverable. No private board was imp
 - Dashboard auth/Origin/CSRF failures, stale displayed revision, concurrent author edits,
   and a verdict whose audit or recipient admission fails atomically.
 - Forged telemetry, unknown context, participant versus native claims, and unsafe work text.
-- Command line breaks, DEL, tabs, zero-width, bidi and look-alike characters; ordinary
-  context/recommendation line breaks; inert HTML/script; known credential signatures.
+- Terminal-copy command line breaks, DEL, tabs, zero-width, bidi and look-alike characters;
+  Markdown paragraphs, lists, line breaks and code blocks in context, recommendation and
+  comments; non-ASCII code displayed only for reading; inert HTML/script; known credential
+  signatures. Review author-written card prose against ASD-STE100; the requirement does
+  not specify a daemon grammar checker.
+- The typed dashboard verdict reaches the recipient as the maintainer's instruction and
+  approval. A peer's body, quote or display label cannot create that origin. Existing native
+  permissions apply without a second board approval for already approved work.
 - Lost verdict-write/ack replies, restart before and after commit, repeated wakes,
   acknowledgement races, holder changes, expiry and purging of retained recipients.
 - Complete multi-page waiting/archive reads and immutable snapshot/reference lookup.

@@ -13,6 +13,12 @@ Codex drives the plan; Claude observes. The maintainer supplied the current boar
 UI design as a reference on 2026-10-12. Its generic appearance and interactions apply;
 its external provider, private data and repository policies do not.
 
+The maintainer's later text-format choices are in PDR 007, Decisions 1 and 3
+([Markdown and ASD-STE100](https://github.com/rwcii/koinon/issues/206#issuecomment-6119203856),
+[terminal-copy commands](https://github.com/rwcii/koinon/issues/306#issuecomment-6119251724)).
+Dashboard input from the maintainer is instruction and approval under PDR 005, Decision 3.
+This reconciliation applies those choices; it does not ask for them again.
+
 ## Acceptance criteria
 
 1. The board shows daemon-owned agent name, observed busy/idle/unknown state, current
@@ -30,11 +36,15 @@ its external provider, private data and repository policies do not.
    approval. Manual work uses the supplied design's existing item convention: kind fyi
    and a title starting with the exact ASCII marker `ACTION FOR YOU`. Those items sort
    before the rest, then by item order and reference. No separate agent-row order is added.
-6. Each command appears in its own copy box and contains printable ASCII only. Line breaks,
+6. Each terminal-copy command appears in its own code block with a copy action and contains
+   printable ASCII only (PDR 007, Decision 3). Line breaks,
    zero-width, bidirectional and non-ASCII look-alike characters are rejected on write and
    hidden if encountered on read. Hidden commands cannot be approved as displayed.
-7. Context and recommendation retain visible line breaks. All other author text is inert
-   and escaped; no displayed content becomes code or terminal input.
+7. Card context, recommendation and comments render from Markdown. Code appears in code
+   blocks, and agents write all card prose in ASD-STE100 Simplified Technical English
+   (PDR 007, Decision 1). Paragraphs and line breaks remain visible. Code shown only for
+   reading is outside the command-box ASCII rule. The renderer keeps author-supplied HTML
+   and scripts inert under the existing dashboard content boundary (ADR 001, Decision 4).
 8. Each accepted verdict has a durable delivery record for each valid recipient. A crash
    cannot lose one; repeated content-free wakes carry the same verdict ID. Recipients read
    the actual record and acknowledge after handling it, ignoring an already handled ID.
@@ -56,15 +66,17 @@ its external provider, private data and repository policies do not.
 ## Constraints
 
 - Linux and macOS, one CGO-free binary, existing SQLite store and storage limits.
-- One same-user trust boundary. Dashboard origin records provenance; it does not override
-  the receiving agent's native permissions or turn a peer relay into maintainer authority.
-  No additional human-identity service is part of this deliverable.
+- One same-user trust boundary (ADR 001, Decisions 1 and 2). An authenticated dashboard
+  verdict is the maintainer's instruction and approval (PDR 005, Decision 3); the receiving
+  agent applies its native permissions. A peer relay cannot create that origin. No further
+  human-presence check is required by this deliverable (PDR 007, Decision 2).
 - The verdict and its audit record commit atomically with durable recipient records.
   Refused or uncertain writes must be reconciled without inventing an accepted verdict.
   No new queue may consume capacity reserved for existing controls without a storage proof.
 - Reads, pagination, archive lookup and wake delivery never acknowledge unrelated inbox
   messages or memory cursors. Unknown telemetry stays unknown, including after restart.
-- Public plans, tests and fixtures use synthetic data. The supplied private board is not
+- Public plans, tests and fixtures use synthetic data (WDR 006, Decisions 1 and 2).
+  The supplied private board is not
   imported, mirrored, published or contacted. Only its static UI design informs this work.
 - Existing native identities and exact-session authentication govern recipient access;
   addresses are display/resolution inputs, never caller identity supplied by a model.
@@ -76,6 +88,7 @@ its external provider, private data and repository policies do not.
 
 ## Framing status
 
-This decision restates the issue's settled requirements and the supplied UI reference.
-The native delivery, bounded storage and exact verdict snapshot specifications remain to
-be written and reviewed. No implementation or new permission is implied by this document.
+This decision applies the issue's requirements, the supplied UI reference and the
+maintainer's later text-format and dashboard-authority choices. The native delivery,
+bounded storage and exact verdict snapshot specifications remain to be written and
+reviewed. This branch reconciles framing; it does not implement the board.
