@@ -59,14 +59,16 @@ independently declared, bounded regular-file targets, never enumerate that direc
 
 Report sidecar state alongside the selected skill's content state. Inspect the fixed
 `.koinon/skills/NAME.md` in the selected verified worktree, even for a machine skill.
-A missing project context is unavailable, not a guessed sidecar path. Sidecars report
-present-valid, missing, incomplete (required headings/facts absent), invalid schema/skill ID,
+A missing project context is unavailable, not a guessed sidecar path. Sidecars report no-sidecar-needed when no required facts and no local overrides exist,
+present-valid, missing-required, incomplete (required headings/facts absent), invalid schema/skill ID,
 or inspection error. Their local facts are never compared with a canonical embedded body;
-only the declared schema is part of the catalog. Thus `skill present, sidecar missing` is
-explicit, not overall present. A changed local fact remains local; never call it a catalog
+only the declared schema is part of the catalog. Thus `skill present, required sidecar missing` is explicit; an absent optional sidecar
+does not prevent using the canonical skill/defaults. Supplied optional overrides still
+need bounded validation; malformed/conflicting data is never silently ignored. A changed local fact remains local; never call it a catalog
 update or replace it from this repository's facts. Catalog read/list carries no sidecar body.
 
-A sidecar proposal is separate from the skill file proposal: draft from repository evidence,
+Only absent required facts stop their dependent repository-specific step. A sidecar
+proposal is separate from the skill file proposal: draft from repository evidence,
 show the exact fact file, ask about missing/conflicting facts, obtain exact approval and then
 write with normal editing tools. A machine-skill approval does not approve any project file.
 Record approved sidecar schema/content digests as scoped project evidence, without copying

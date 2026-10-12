@@ -77,3 +77,13 @@ Identical native/project skill bytes are duplicate discovery; different contents
 name_conflict. Sidecar presence/schema is separate from canonical skill content state.
 Changed-scope review is pending; earlier storage/native-proof fixes carry forward. No Gate B
 implementation or actual sidecar/skill/native-configuration changes are inferred here.
+
+
+Sidecar-scope review (Claude, `abfce58573089fd773df1f110648de31163bdd51`):
+
+| Finding | Disposition |
+| --- | --- |
+| MEDIUM: required sidecars duplicate portable conventions and block skills unnecessarily | Accepted and fixed: declare required/optional facts plus defaults per skill. Check/ship/release need facts without portable answers; other skills need no sidecar unless project overrides exist. Native proof, handoff/root convention, guide interface and authorization gates remain canonical. Only missing required facts stop dependent steps. State/tests distinguish no-sidecar-needed and missing-required. |
+| MINOR: define required-skill behavior outside a repository | Dropped: chunk03 already reports unavailable project context, never a guessed missing path; required repository-specific steps cannot proceed. |
+
+Bounded verification pending; unchanged sidecar/native/store/conflict review carries forward.

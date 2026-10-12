@@ -54,48 +54,53 @@ asks for guidance when a necessary rule is absent instead of inventing a command
 ## Repository fact sidecars
 
 Use `<selected-worktree-root>/.koinon/skills/NAME.md`, outside agents/skills and the embedding
-whitelist. Each canonical skill declares the exact sidecar filename and required field
-headings; the catalog exposes that schema, never the fact values. The sidecar format has a
+whitelist. Each canonical skill declares the exact sidecar filename and required and optional fact headings with portable defaults; the catalog exposes that schema, never the fact values. The sidecar format has a
 version, matching skill ID, evidence sources (repository-relative references) and its declared
 fields. Bound a file to 64 KiB and inspect only a regular file within the verified worktree;
-no arbitrary includes, shell expansion or dynamic command substitution. Unknown schema or
-missing fields are an inspection limitation, not a guessed default.
+no arbitrary includes, shell expansion or dynamic command substitution. Unknown schema is an inspection limitation. Missing required facts stop the dependent
+repository-specific step; absent optional facts use only a default declared in the skill.
 
-Every sidecar has `Version` (1), `Skill` (the matching canonical name), and `Sources`
-(repository-relative evidence). Required fact headings are:
+A sidecar, when needed or supplied, has `Version` (1), `Skill` (the canonical name) and
+`Sources` (repository-relative evidence). Its field declarations distinguish required facts
+with no portable answer from optional project overrides with a default in the skill:
 
-| Skill | Fact headings |
-| --- | --- |
-| check | Base branch; Required checks; Conditional checks; Required CI |
-| handoff | Handoff path; Repository root proof; Ignore policy; Verification |
-| pickup | Handoff path; Repository root proof; Resume checks |
-| pair | Scope checkpoint; Increment gates; Driver handoff |
-| peer-review | Review targets; Review gates; Verdict recording |
-| peer-tmux | Terminal proof; Bounded operations; Handoff and pickup |
-| release | Promotion path; Install and upgrade proof; Review and approval; Publish steps |
-| ship | Work target; Commit policy; Required checks; PR and merge policy |
-| sprint | Scope gates; Plan layout; Build gates |
-| spin-up | Launch interfaces; Team manifest; Readiness proof |
-| spin-down | Handoff checks; Stop interfaces; Team manifest |
-| recover-team | Recovery checks; Restart interfaces; Team manifest |
-| koinon-guide | Guide command; Query interfaces; Repository policy |
+| Skill | Required repository facts | Optional facts and portable defaults |
+| --- | --- | --- |
+| check | Base branch; Required checks | Conditional checks: none; Required CI: project policy |
+| handoff | None | Handoff path: `_handoff/<agent>/` in main checkout; extra verification: none |
+| pickup | None | Handoff path: same convention; extra resume checks: none |
+| pair | None | Extra increment gates: project policy; checkpoint location: agreed task |
+| peer-review | None | Extra review gates and verdict format: project policy/agreed checkpoint |
+| peer-tmux | None | Extra repository checks: none; native proof stays a mandatory skill step |
+| release | Promotion path; Publish steps; Release checks | Extra proof: project policy |
+| ship | Work target; Commit policy; Required checks; PR and merge policy | Extra checks: none |
+| sprint | None | Plan layout: `docs/sprints/<date>-<slug>/`; build checks: project policy |
+| spin-up | None | Project readiness checks: project policy; manifest: private ignored skill convention |
+| spin-down | None | Project stop checks: project policy; manifest: same convention |
+| recover-team | None | Project recovery checks: project policy; manifest: same convention |
+| koinon-guide | None | None; installed `koinon guide --agent FAMILY` is a portable runtime interface |
 
-The canonical skill declares these headings in its repository-facts section; catalog
-construction reads that declaration rather than authoring an independent field copy.
-Future skills need a valid declaration before the source-completeness guard passes.
-Empty/unknown facts are incomplete; an evidenced not-applicable fact is explicit data,
-never an invented default. References point to current root instructions/CONTRIBUTING/CI,
-not private handoffs, inboxes or native identities. Command strings are bounded fact text,
-not templates or automatic execution instructions.
+Git common-directory resolution, private ignored handoffs, verified native terminal targets,
+authorization gates and supported runtime interfaces stay in portable skill text, rather than
+being required sidecar facts. Defaults referring to project policy mean read the authoritative
+instructions; they never invent a branch, check, permission or terminal target. If a required
+project rule/interface still cannot be established, ask for guidance before that action.
 
-A skill reads its sidecar before using repository-specific facts. If absent/incomplete, the
-agent drafts it from checked repository evidence, presents the exact diff, and writes only
+The canonical skill declares each field, whether required, and its optional default in its
+repository-facts section. Catalog construction reads that declaration, with no independent
+field/default copy. Future skills need a valid declaration (which may have no fields) before
+the source-completeness guard passes. A skill with no required facts needs no sidecar. Unknown
+required values are incomplete; evidenced not-applicable is explicit data. Sources are checked
+root instructions/CONTRIBUTING/CI, never private handoffs, inboxes or native identities.
+Command strings are bounded facts, not templates or automatic execution instructions.
+
+A skill reads its sidecar before using repository-specific facts. If required facts are absent/incomplete, the agent drafts a sidecar from checked repository evidence, presents the exact diff, and writes only
 after maintainer approval. Unknown or contradictory facts stop and require guidance. Facts
 are neither instructions to execute nor permission grants: only the authorized task and
 native permission settings permit an action. A sidecar cannot remove a skill step or override
 root policy. A conflicting rule/step/source requires reconciliation, never an automatic edit.
 
-Populate this repository's sidecars with verified public facts in chunk01. Preserve every
+Populate this repository's needed/optional sidecars with verified public facts in chunk01. Preserve every
 existing Koinon rule in root instructions and verify facts against their authoritative sources,
 including exact-head review, one open PR per target, signed DCO, checks and separately approved
 release. Contributor guards detect sidecar/source/CI drift; no generic skill hardcodes Koinon

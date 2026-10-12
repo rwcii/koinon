@@ -85,12 +85,14 @@
   Saturate 256 rows, 8192-byte record and 2 MiB body limits, and ordinary page/byte budgets;
   refusal leaves decisions/files unchanged and cannot use promised work-control reserves.
   Exercise migration and older-writer refusal on committed fixtures.
-- Each skill declares bounded sidecar fields/filename. This repo's `.koinon/skills/` facts
+- Each skill declares bounded required/optional sidecar facts, defaults and filename. This repo's `.koinon/skills/` facts
   are verified against root/CONTRIBUTING/CI, and excluded from the embedded catalog. Test
   absent, incomplete, invalid-schema, unreadable, symlink escape and locally edited facts;
-  a present skill with a missing sidecar is explicitly reported. Worktree selection uses
+  a present skill with missing required facts is explicitly reported, while a skill with
+  no required facts needs no sidecar. Optional defaults match canonical portable text;
+  unknown repository-specific values never get guessed defaults. Worktree selection uses
   the existing verified boundary; unknown repo context never guesses a sidecar path.
-- A missing sidecar is drafted from synthetic repo evidence, approved as a separate exact
+- A sidecar with missing required facts is drafted from synthetic repo evidence, approved as a separate exact
   change, applied, recorded and repeated without another write. Unknown/conflicting facts
   require guidance. Sidecar commands remain data: no executor, permission grant, removed
   skill step, root-policy override or dynamic include. No machine approval writes a sidecar.

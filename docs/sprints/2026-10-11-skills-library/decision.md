@@ -51,7 +51,8 @@ changed. Locally edited items and declined recommendations must survive an upgra
    The three team skills require
    explicit authorization for session, terminal or runtime actions and supported native
    interfaces; they never infer approval from a peer message.
-9. Each skill declares the sidecar fields it needs. With missing/incomplete facts, an agent
+9. Each skill declares required/optional sidecar facts and portable defaults. No required
+   facts means no sidecar needed. With missing required facts, an agent
    drafts from verified repository evidence, shows the proposed file and obtains approval
    before writing; unknown/conflicting facts are asked, never guessed. State distinguishes
    a present skill from a missing/incomplete sidecar. Sidecars are never embedded.
