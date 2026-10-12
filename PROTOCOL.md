@@ -311,7 +311,10 @@ of inbox storage and acknowledgement. While a message waits for a further notice
 
 Replies include `ok`. Success returns `session` or `sessions`; failures report a fixed `code`:
 `unauthorized` (401), `foreign_origin` (403), `invalid_request` (400), `session_not_found` (404),
-`session_conflict` (409), the message codes above, or `storage_error` (500). Mutations commit
+`session_conflict` (409), `repository_git_unavailable` (503), `repository_git_timeout` (503),
+the message codes above, or `storage_error` (500). Repository discovery reports the Git
+execution or timeout category without returning command stderr or machine paths. Its
+three-second limit and invalid-input/repository validation remain unchanged. Mutations commit
 before replying. A lost reply does not prove rollback; read the retained record before
 retrying.
 

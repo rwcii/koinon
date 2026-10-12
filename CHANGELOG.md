@@ -5,6 +5,9 @@ into a dated release section when promoted to `main`.
 
 ## Unreleased
 
+- Repository registration distinguishes an unavailable Git executable or Git discovery
+  timeout from invalid input, with fixed diagnostic error codes (#319).
+
 - `koinon claude|codex|agy|opencode` without `--cli` and without a recorded CLI now finds the
   family's CLI on `PATH`, records its absolute path in `launchers.json`, prints
   `koinon: recorded the FAMILY CLI PATH in launchers.json` and starts it. Later launches use the

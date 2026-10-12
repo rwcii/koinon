@@ -239,6 +239,10 @@ func plainError(err error) (int, string) {
 	switch {
 	case errors.Is(err, ErrInvalid):
 		status, code = http.StatusBadRequest, "invalid_request"
+	case errors.Is(err, ErrRepositoryGitUnavailable):
+		status, code = http.StatusServiceUnavailable, "repository_git_unavailable"
+	case errors.Is(err, ErrRepositoryGitTimeout):
+		status, code = http.StatusServiceUnavailable, "repository_git_timeout"
 	case errors.Is(err, ErrMissing):
 		status, code = http.StatusNotFound, "session_not_found"
 	case errors.Is(err, ErrConflict):
@@ -441,6 +445,9 @@ type RefusedError struct {
 }
 
 func (e RefusedError) Error() string {
+	if e.Code == "repository_git_unavailable" || e.Code == "repository_git_timeout" {
+		return "daemon could not complete repository discovery: " + e.Code
+	}
 	if e.Message != "" {
 		return "daemon refused request: " + e.Code + ": " + e.Message
 	}

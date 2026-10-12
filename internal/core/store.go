@@ -23,6 +23,8 @@ import (
 var ErrInvalid = errors.New("invalid request")
 var ErrMissing = errors.New("session not found")
 var ErrConflict = errors.New("session revision or lifecycle conflict")
+var ErrRepositoryGitUnavailable = errors.New("repository discovery cannot execute Git")
+var ErrRepositoryGitTimeout = errors.New("repository discovery Git command timed out")
 
 // SessionConflict is ErrConflict for a renewal of a session that is no longer active, with
 // its state (expired or retired) and whether a holder change fenced it, so that a client can
@@ -653,6 +655,14 @@ func repository(ctx context.Context, path string) (string, error) {
 	cmd.Env = CleanGitEnvironment()
 	data, err := cmd.Output()
 	if err != nil {
+		if errors.Is(ctx.Err(), context.DeadlineExceeded) {
+			return "", ErrRepositoryGitTimeout
+		}
+		var lookup *exec.Error
+		var execution *os.PathError
+		if errors.As(err, &lookup) || errors.As(err, &execution) {
+			return "", ErrRepositoryGitUnavailable
+		}
 		return "", ErrInvalid
 	}
 	common, err := filepath.EvalSymlinks(strings.TrimSpace(string(data)))
