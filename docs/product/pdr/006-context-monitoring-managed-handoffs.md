@@ -91,9 +91,10 @@ verified observations from the session start a cycle; unknown or stale context s
 
 **Provenance:** Monitoring, the threshold and per-session enabling: Requested in #196 (issue
 body, "The cycle the user decided" and "Bounds"); a request record, no maintainer quote in
-it. "Family defaults; enable each session" is recorded as the maintainer's direct choice on
-2026-10-12 in #196 comment 6115978138 and in the unpublished #196 plan draft (9206a1d); both are
-agent-written, and the original words were not located. The Codex default and freshness rule:
+it. Family defaults with per-session enabling: Maintainer, 2026-10-12, session transcript:
+"Family defaults; enable each session (recommended)", the answer to the plan's choice of how
+the cycle is enabled (relayed in #196 comment 6115978138). It decides that choice only. The
+Codex default and freshness rule:
 Proposed in the unpublished #196 plan draft (9206a1d); not decided. Current observations: Shipped in PR
 #193 (merge commit a19bc2b); no maintainer decision found.
 

@@ -3,7 +3,8 @@
 > Vendored from [rwcii/engineering-standards](https://github.com/rwcii/engineering-standards/tree/425b2efc7d829c1f61c9f44df671c4525d5d9158) at 425b2ef. Koinon changes: the review
 > path is the `peer-review` and `check` skills, each series is numbered from 001 in this
 > repository, commit titles follow Koinon's sentence style, and upstream records are cited
-> by link, not imported.
+> by link, not imported. The vendored process guides, PDR template and directory guides carry
+> the upstream MIT notice in [docs/ENGINEERING-STANDARDS-LICENSE](../../ENGINEERING-STANDARDS-LICENSE).
 
 Rules for creating, updating, and referencing PDRs in `docs/product/pdr/`.
 

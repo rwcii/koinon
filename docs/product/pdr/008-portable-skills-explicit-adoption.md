@@ -143,8 +143,9 @@ explicitly selected alternative, each approved on its own. Machine decisions go 
 daemon table and project decisions in the repository's memory store.
 
 **Provenance:** Requested in #145 (issue body, requirements 5–7); a request record. Machine
-default plus approved project-local target: the plan's decision.md says the maintainer chose
-it; that is agent-written and the original words were not located. Covered by the Gate B
+default plus approved project-local target: Maintainer, 2026-10-12, session transcript:
+"Machine-wide and approved project-local", the answer to the plan's choice of adoption target.
+It decides that choice only. Covered by the Gate B
 approval of the #145 plan (9055630 on feature/skills-library-catalog) (#145 comment 6116403867); not built.
 
 ### Alternatives Considered

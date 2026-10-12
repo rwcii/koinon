@@ -136,7 +136,8 @@ command to run. A refusal names the command that starts or restarts the daemon.
 On macOS, `koinon install --system` currently installs the daemon as a LaunchDaemon that runs
 as the installing user, with the agent's state directory and `Umask` 077, starts at boot and
 restarts after any exit. The command refuses to run as root (`system_mode_root`) and asks
-`sudo` for each privileged step, so the person approves each step at the `sudo` prompt. It
+`sudo` for each privileged step: it runs `sudo` with that step's command. Whether `sudo` asks
+for a password depends on the host's sudo policy and cached credentials. It
 disables the user agent, verifies that the system daemon answers, and restores the agent if a
 step fails. Later installs keep system mode; `koinon uninstall` removes the owned plist and
 keeps the state. `koinon recover` prints the `sudo launchctl kickstart` command and does not run
@@ -154,20 +155,20 @@ found. The maintainer's live checks on a Mac are open on #283.
 | ----------- | ----------- | ------------ |
 | Keep only the launchd agent | Document the logout limit | The daemon stops at logout and cannot be managed over SSH (#283) |
 | Run the daemon as root | A LaunchDaemon without `UserName` | Breaks the same-user state and secret boundary (ADR 001) |
-| Run the installer under `sudo` | `sudo koinon install --system` | Refused (`system_mode_root`): the daemon runs as the user, and one approval would cover every step |
+| Run the installer under `sudo` | `sudo koinon install --system` | Refused (`system_mode_root`): the daemon runs as the user, and the whole installer would run as root |
 | Linux system unit | Add a system-wide systemd unit | Not requested; #283 names only macOS |
 
 ### Rationale
 
 1. A LaunchDaemon survives logout and can be managed from SSH (#283; Background-session proof in
    #283 comment 6114915869).
-2. A `sudo` prompt per step shows the person each privileged operation.
+2. Each privileged operation is a separate `sudo` command under the host's own sudo policy.
 3. One daemon holds the state; the user agent stays disabled while system mode is installed.
 
 ### User Impact
 
 A Mac user who wants the daemon to survive logout runs `koinon install --system` as themselves
-and approves each `sudo` step. Linux users keep the user unit and get a fixed error for
+and authenticates to `sudo` as the host's policy requires. Linux users keep the user unit and get a fixed error for
 `--system`.
 
 ---
@@ -262,7 +263,7 @@ upgrade task carries it out and reports the result.
 
 | Inventory row | Statement (short) | Where it appears | Why not adopted |
 | ------------- | ----------------- | ---------------- | --------------- |
-| C052 | Agents never run `--system` or `sudo` on the maintainer's machine | AGENTS.md (Installation, upgrade and security); docs/INSTALL.md (System mode on macOS); docs/sprints/2026-10-11-macos-system-service/decision.md (Sudo boundary) | No maintainer words found; #283 and its comments were checked. Its only source is a sentence in the plan approved at Gate B, and that approval covers the plan, not each sentence. It bans an operation the maintainer may assign; the `sudo` prompt and native permission settings already govern each privileged step. |
+| C052 | Agents never run `--system` or `sudo` on the maintainer's machine | AGENTS.md (Installation, upgrade and security); docs/INSTALL.md (System mode on macOS); docs/sprints/2026-10-11-macos-system-service/decision.md (Sudo boundary) | No maintainer words found; #283 and its comments were checked. Its only source is a sentence in the plan approved at Gate B, and that approval covers the plan, not each sentence. It bans an operation the maintainer may assign; the host's sudo policy and the native permission settings already govern each privileged step. |
 
 ---
 

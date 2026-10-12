@@ -207,7 +207,9 @@ works, and tests that wrong-target and data-corruption cases stay handled.
 
 ### Rationale
 
-1. Code blocks are product behavior; the maintainer decides product behavior.
+1. A disputed consequential block is product behavior, and the maintainer decides product
+   behavior. A routine fix to code-enforced behavior, such as a parser that refuses ordinary
+   input, continues under the existing mandate (Decision 2).
 
 ---
 
@@ -240,8 +242,8 @@ finding. A change of mind supersedes the record, and later agents read its statu
 ## Conclusion
 
 Every significant constraint lives in one record with its source, scope and status. Routine
-work needs no record. Other text cites records instead of restating them, and code-enforced
-behavior changes only after its PDR is decided.
+work needs no record. Other text cites records instead of restating them. A disputed consequential
+code-enforced behavior changes only after its PDR is decided; routine fixes do not wait for one.
 
 ---
 
