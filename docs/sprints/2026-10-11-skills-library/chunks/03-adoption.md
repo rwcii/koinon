@@ -6,8 +6,13 @@ Use the corresponding tests and integration gate in definition-of-done.md.
 ## State query
 
 Add `library_state` and `koinon library state`. It takes optional catalog item IDs and an
-optional directory, never arbitrary target paths or a caller identity. Inspect only the
-manifest's target descriptors. The default repository directory is the session's registered
+optional directory and target scope (`machine` or `project`), never arbitrary target paths
+or a caller identity. Skills default to machine scope; project-only setup items require
+project scope. Unsupported/unverified native roots permit list/read but return an explicit
+inspection limitation for machine state. Inspect only the
+manifest's target descriptors. With no item IDs, select items applicable to the chosen scope;
+an explicitly selected inapplicable item reports unsupported scope rather than guessed state.
+For project scope, the default repository directory is the session's registered
 directory (the MCP/client directory at registration), not a guessed editor location. Resolve
 an optional directory relative to that directory; require its Git common directory to match
 the registered repository and its containing worktree to appear in that repository's
@@ -17,7 +22,14 @@ the validated Git common directory remains the decision-store scope. The existin
 read-only inspection; it has the caller's working directory and native environment, unlike
 the daemon's global HOME. Inject filesystem/environment readers for synthetic tests.
 
-The daemon supplies trusted catalog bytes and repository-scoped decisions; the client returns
+For machine scope, derive the effective native root from trusted launch/client metadata,
+not a model parameter or the daemon's own HOME. Codex uses effective CODEX_HOME/skills;
+Claude uses its verified user skill root. Verify custom root semantics before accepting
+them. Scope digests separate different native roots on the same machine. A machine-wide
+query/decline follows the family/root across repositories; project decisions never suppress
+a machine offer, and machine decisions never suppress a separately selected project offer.
+
+The daemon supplies trusted catalog bytes and scope-specific decisions; the client returns
 the combined result through the native identity path. Inspection observations are same-user
 reported data, not an attestation or a permission grant. No model-controlled observation,
 family, environment-root or target-path argument is exposed. Refuse symlink escapes and
@@ -50,41 +62,61 @@ collection is outdated when the new catalog adds a wrapper, even though that new
 absent. An edited target wins over an automatic update recommendation. Bound each collection
 to 32 declared targets and the existing item-size ceiling.
 
-## Decisions in existing memory
+## Scope-specific decisions
 
-Reuse the calling repository's existing memory store and `memory_record`/`memory_recall`
-interfaces, not a new database or schema. Adoption decisions are bounded versioned JSON
-`decision` entries with an explicit library marker, item ID, family, target scope digest,
-catalog digest, observed pre-edit digest, result digest, decision (adopted or declined) and
-an inert approval/evidence reference. Collection receipts additionally retain bounded typed
-target IDs and digests, not arbitrary paths; only registry-derived safe targets can be inspected
-when comparing an old collection. Unknown or malformed descriptor data reports an inspection
-limitation and never causes an arbitrary filesystem read. They contain no private identity, file content, secret
-or absolute native-home path. Repository items use the Git common-directory scope, so a
-decline is shared by worktrees even when their inspected bytes differ. A native-runtime item,
-when supplied, uses a native-root scope digest without publishing that path. Memory's recorded caller provenance remains authoritative
-for who reported the decision; the body never proves human approval.
+Project decisions reuse the calling repository's existing memory store and
+`memory_record`/`memory_recall` interfaces. Bounded versioned JSON `decision` entries have
+an explicit library marker, item ID, family, target scope digest, catalog digest,
+pre-edit/result digests, adopted or declined decision, and an inert approval/evidence
+reference. Project scope is the Git common directory, so linked worktrees share decisions
+while inspected file bytes may differ. Page all relevant live receipts, validate the
+schema, preserve fixed retry deadlines and the existing supersession/conflict semantics.
+A competing live receipt is a conflict, not approval. Neither a record body nor a named
+author supplies trusted caller identity. A decline receipt retains the last adopted target
+digests so superseding an earlier receipt cannot lose the unchanged-old-content baseline.
 
-Retrieve every relevant live receipt page and validate its schema and catalog namespace.
-Supersede the prior decision using the existing memory revision/conflict behavior; unresolved
-competing live decisions are reported as conflicting and never treated as approval. A decline
-persists for the item/scope across reconnects and releases until the maintainer explicitly
-reconsiders it. A changed catalog item can be listed as changed while still declined; it is
-not reoffered as a newly approved adoption. Do not silently reset decisions when a record is
-unavailable, capacity is refused or history has been revoked: report the condition.
+Machine decisions need their own scope in the existing daemon database, not a synthetic
+repository or another repository's memory. Add `library_decision` / `koinon library decision`
+for machine decision recording and read the current machine record through `library_state`.
+Native identity/family follows the existing admission path. The client supplies its verified
+native-root digest through internal metadata, never a model-controlled filesystem path.
+The record is keyed by family, root digest and catalog item ID. Add one ordinary table and
+its primary-key index, at most 256 rows total and 8192 bytes per decision body, with at most
+2 MiB of body data. All row/index/byte/page usage is included in ordinary storage accounting;
+recording has no funded control or reserved-storage exemption. A schema migration preserves
+existing state and makes incompatible older writers refuse. Unknown catalog/family/scope
+values refuse before writing; reaching row, byte or page capacity refuses without eviction.
 
-Use existing fixed idempotency deadlines. Before repeating a completed record, inspect the
-current matching decision and return it without a write. A lost reply is reconciled using
-the original key and deadline; passing the deadline is not permission to invent a replacement
-approval. Existing memory limits, retention, revocation and same-user data boundaries apply.
+The bounded record retains adopted digests separately from decline status, so declining an
+update does not lose the old baseline used to distinguish outdated content from local edits.
+Write with a compared revision in one transaction. Repeating the exact current decision
+returns it without a write; changed revision/content returns a conflict and leaves the
+current record intact. Reconcile a lost reply by reading the current record: matching outcome
+is data evidence, while an intervening different decision is a conflict, never inferred
+approval. This is compare-and-set state, not the repository memory keyed-write API; do not
+promise replay of an overwritten historical machine decision. Persist writer provenance
+internally, but do not return private native IDs in catalog state. No arbitrary author or
+approval flag can authorize a file edit.
+
+Collection receipts retain at most 32 typed target IDs and digests, never arbitrary paths.
+Only catalog-derived safe targets can be inspected when comparing prior contents. Unknown
+or malformed descriptor data reports an inspection limitation and never triggers an arbitrary
+read. Records contain no file bodies, secrets or absolute native-home paths. A decline
+persists for its item/scope across reconnects and releases until explicitly reconsidered;
+a changed item can be listed as changed while still declined. Preserve records for removed
+items as inert data, and never silently reset decisions when a record is unavailable,
+capacity is refused or history has been revoked. Receipts assert outcomes; they are not
+attestations of human approval.
 
 ## Adoption procedure
 
 The agent reads an item and state, produces the exact diff and explains optional native
-pointers separately, then obtains approval within the adopting project's rules. It applies
+pointers separately, explicitly selects machine or project scope, then obtains approval under the maintainer's
+rules. Project-local installation always requires approval of the exact change; a machine
+recommendation never implicitly authorizes project changes. It applies
 only that approved item using normal editing tools. A changed target since review requires a
 fresh diff and approval; existing local edits are not overwritten. It then verifies content
-and records the outcome through existing memory tools. If recording fails, preserve the
+and records the outcome through the scope's decision interface above. If recording fails, preserve the
 applied files and report an unrecorded outcome; do not pretend the operation was atomic.
 
 A decline records no file edits. Repeating an adopted item with matching bytes is a no-op.
@@ -92,8 +124,16 @@ Fragment adoption preserves surrounding instructions and requires separate appro
 ignore rule or discovery pointer. Neither the daemon nor a new adoption command writes project
 or native runtime files. This choice keeps the approval decision in the agent's conversation.
 
+After state inspection exists, initialize/guide recommend only missing/outdated skills
+needed by currently available features for the verified calling family; other catalog
+skills are optional. Declined/edited/unverified items are not offered as automatic updates.
+With no verified native root or caller scope, mention read-only catalog access rather than
+guessing installation state. Inspection is bounded/read-only; connection offers never
+record a decision. An inability to read decisions is an explicit limitation, not missing.
+
 Update initialize/guide to offer state and explain adoption, update protocol/usage/install
 docs and Unreleased. Exercise an old/new synthetic catalog, private temporary project and
 native roots, shared-store worktrees, all receipt pages, conflicts and unchanged files under
-refusal. Carry the existing storage guarantees forward; no new tables or funded controls are
-introduced.
+refusal. Test a machine decline followed by connection from another repository, a separate
+project choice, custom verified native roots, decision conflicts, lost replies, and row/byte/
+page capacity. Preserve all existing funded controls; the new machine table is ordinary data.

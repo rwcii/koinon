@@ -17,17 +17,19 @@
   Invalid IDs, unsupported families and oversized items are refused. Build the binary,
   remove the checkout from its search path and still list/read its catalog.
 - MCP list/read/state use native identity; guessed caller fields and arbitrary target paths
-  are refused. State defaults to the registered directory; an optional directory must resolve
+  are refused. Project state defaults to the registered directory; an optional directory must resolve
   into a worktree listed for the same Git common directory. Exercise each MCP family with synthetic native metadata and DeepSeek's
   command path with its existing identity/admission rules. Native identity is never returned
   in catalog content.
-- Initialize and guide always offer the catalog, including repeated initialize/reconnect.
-  Offers are informational; these calls neither inspect nor change adopter files nor
-  record a decision. Actual tool-purpose and family coverage guards from #253 remain current.
+- Initialize and guide always mention the catalog, including repeated initialize/reconnect.
+  Chunk02 makes only an informational offer. Chunk03 adds bounded read-only inspection
+  and requirement-driven recommendations, with no file or decision writes. Tests verify
+  only available-feature requirements, a verified native root, decline suppression and
+  no missing/outdated claim when inspection fails. Actual tool-purpose and family coverage guards from #253 remain current.
 - Temporary repositories, linked worktrees and temporary native homes exercise present,
   missing, outdated, edited, unreadable and symlink/escape cases. Outside files stay
   unread. An inspection failure returns a reason, not a guessed state. Inspect the real
-  `setup.claude-user-skill` item under a temporary HOME for all four content states; no synthetic
+  `skill.koinon-guide` item under a temporary verified native home for all four content states; no synthetic
   catalog item substitutes for the required agent-home proof. Test a session registered in the
   main checkout selecting its linked worktree, and refuse foreign repository/plain directories.
 - Test the actual discovery-link item: correct link bytes are present; a custom link is edited;
@@ -56,17 +58,32 @@
   proposed file bytes before an adoption; if bytes changed since review, rebuild the proposal
   and get approval for the changed diff. Native pointers/config recommendations are shown
   as separate changes and never bundled into a skill adoption implicitly.
+  Test machine-wide and approved project-local adoption independently; neither scope's
+  decision or approval grants the other. A decline preserves the prior adopted baseline.
 - Team skill scenario tests cover a dirty checkout, first-run prompt, unavailable launcher,
   lost registration, uncertain wake, resumed session and unverified terminal target. The
   written procedure requires authorization and verified interfaces before action and stops
-  when evidence is missing. No test runs a real agent, provider, terminal or service.
+  when evidence is missing. These scenario tests run no real agent, provider, terminal or
+  service. Native skill-discovery diagnostics below use metadata only, with no model turn.
+- Codex 0.162.0 user-scope discovery has been demonstrated using an isolated CODEX_HOME
+  and app-server initialize/skills-list without a provider turn. Repeat a synthetic native
+  user-discovery proof for supported versions, alongside Claude's equivalent proof. Mere
+  filesystem presence is insufficient. Unknown family roots remain read-only.
+- Machine decisions persist across restart, reconnect, another repository and upgrade;
+  separate project decisions remain scoped to Git common directory. Verify native-root
+  isolation, family isolation, CAS conflict, identical no-op, lost-reply reconciliation,
+  retained adopted baseline after update decline, and preserved removed-item data.
+  Saturate 256 rows, 8192-byte record and 2 MiB body limits, and ordinary page/byte budgets;
+  refusal leaves decisions/files unchanged and cannot use promised work-control reserves.
+  Exercise migration and older-writer refusal on committed fixtures.
 - Scan embedded catalog bytes for repository-specific authority, private IDs, credentials,
   messages and absolute home paths. Review every canonical skill text as product content.
 
 ## Integration and gate
 
 Use the existing HTTP client/server, MCP identity guard, command path and repository memory
-store; no parallel persistence or identity mechanism. Document any new tool in the actual
+store for project decisions and bounded ordinary rows in the same daemon DB for machine
+decisions; no replacement store, extra database or parallel identity mechanism. Document any new tool in the actual
 tool-purpose table. Existing installation and upgrade proof must demonstrate that catalog
 content requires no file beside the binary and an upgrade applies no catalog item.
 

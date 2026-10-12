@@ -7,8 +7,8 @@ claim at a driver handoff. Close #145 only after all three chunks and required e
 | --- | --- | --- | --- |
 | [01 Canonical skills and catalog](chunks/01-catalog.md) | Same generalized skills used here and offered, embedded canonical bytes, shared symlinks/wrappers and source-completeness guards | 1, 7, 8; part of 9 | None |
 | [02 Queries and offers](chunks/02-query.md) | List/read through supported transports and initialize/guide offer, using embedded bytes without runtime checkout | 2, 3; part of 9 | 01 |
-| [03 State and adoption](chunks/03-adoption.md) | Scoped read-only state query, exact-change agent adoption procedure, durable decisions, decline/local-edit preservation across upgrades | 4, 5, 6; remaining 9 | 02 |
+| [03 State and adoption](chunks/03-adoption.md) | Machine/project scoped read-only state query, exact-change agent adoption procedure, durable decisions, decline/local-edit preservation across upgrades | 4, 5, 6; remaining 9 | 02 |
 
 Chunk01 improves the skills used here and embeds a tested catalog without advertising tools
 that do not exist. Chunk02's list/read are useful before state/adoption arrives; chunk03 adds
-the remaining guidance. Keep one open PR per target branch; no plan PR while #300 is open.
+the remaining guidance. Keep one open PR per target branch; no plan PR while the system-service PR occupies the target.

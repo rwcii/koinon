@@ -35,5 +35,16 @@ Changed-scope review (Claude, `743003e9ff1da26c2bd50cf6c3a63e0b978d6311`):
 | Minor: choose an exact filename for the permissions embedding file. | Dropped: its canonical source directory is already fixed (`docs/PERMISSIONS.md`); the Go filename is a routine implementation choice and changes no boundary. |
 | Minor: the plan PR must wait for the service PR. | Dropped as a new change: the root one-open-PR rule already applies. No plan publication races that target; Gate B uses the reviewed branch artifact. |
 
-Bounded verification of the accepted directory fix is pending; unchanged scope review carries
+Bounded verification (Claude): PASS at `07bbf67e678dc05456c46399970d31dfc1e85511`; unchanged scope review carries
 forward. No product work is authorized before direct maintainer Gate B approval.
+
+
+## Machine-wide and explicitly approved project-local revision
+
+The maintainer selected both targets. This proposal keeps the canonical-source and
+preservation decisions, makes machine-wide native copies the default recommendation,
+retains explicit project-local approval, and separates machine decisions in bounded
+ordinary daemon rows from project decisions in existing repository memory. Codex user
+skill discovery was demonstrated through isolated app-server skills-list at 0.162.0;
+unverified family roots remain read-only. Requirement metadata names available features
+only. Changed-scope review is pending; this proposal is not Gate B approval.

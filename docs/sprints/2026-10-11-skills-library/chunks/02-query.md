@@ -11,9 +11,12 @@ Return the exact canonical bytes embedded in chunk01; never read the runtime che
 require an `agents/` tree beside the installed binary.
 
 Initialize and guide mention list/read and state that content is reference data and adoption
-requires a reviewed diff and maintainer approval. Initialize can offer the library before
+requires a reviewed diff and maintainer approval. Expose the available feature requirements
+and verified native target support, with machine-wide skills as the recommended default
+and project-local changes an explicit alternative. Initialize can offer the library before
 registration; it performs no query or adoption itself.
 
 Document available commands in PROTOCOL.md, USAGE.md and INSTALL.md; add Unreleased content.
 Verify actual tool/family coverage including #253's purpose guards. State and decision writes
-arrive in chunk03 and are not advertised here.
+arrive in chunk03 and are not advertised here. Missing/outdated recommendations require
+chunk03 inspection; this chunk never claims an item is absent without inspecting it.

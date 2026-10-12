@@ -3,14 +3,15 @@
 Issue [#145](https://github.com/rwcii/koinon/issues/145) supplies the approved problem and
 seven outcomes. Its [team-operation candidates](https://github.com/rwcii/koinon/issues/145#issuecomment-6052782627)
 are included. This plan proposes the catalog contents and adoption mechanism for Gate B;
-it does not authorize an adoption in any project. This revision proposes a single source:
+it does not authorize an adoption on any machine or in any project. This revision proposes a single source:
 the skills used to develop Koinon are the same canonical files offered to adopting projects.
-It supersedes the earlier proposal for separate portable copies; Gate B is still pending.
+It supersedes the earlier proposal for separate portable copies; Gate B is still pending. The maintainer has chosen machine-wide recommendations plus
+project-local installation after explicit approval; neither target is installed automatically.
 
 ## Problem
 
 Adopting projects copy skills, guidance and permission recommendations by hand. The installed
-runtime does not tell agents which items exist, which their project has, or what a release
+runtime does not tell agents which items exist, which their machine or project has, or what a release
 changed. Locally edited items and declined recommendations must survive an upgrade.
 
 ## Acceptance criteria
@@ -21,12 +22,14 @@ changed. Locally edited items and declined recommendations must survive an upgra
    the existing native-session command path for DeepSeek. Reading changes no project or
    runtime files and records no adoption decision.
 3. Every MCP initialize and `guide --agent FAMILY` mentions the catalog and its query path.
-4. A query for the calling repository and family distinguishes present, missing, outdated
-   and edited items. It identifies inspection failures explicitly rather than treating an
-   unreadable file as missing. Worktrees share decisions through their Git common directory;
+4. A query for the selected machine-wide or project-local target and calling family
+   distinguishes present, missing, outdated and edited items. It identifies inspection failures explicitly rather than treating an
+   unreadable file as missing. Machine decisions follow the verified native root and family in daemon state; project
+   decisions are shared by worktrees through their Git common directory;
    each query inspects the session's registered directory, or an explicitly selected verified
    worktree of the same repository, and the relevant native configuration roots.
-5. An agent shows exact proposed file changes and obtains the maintainer's approval before
+5. Machine-wide skills are the default recommendation. A project-local target is an
+   explicitly selected alternative. An agent shows exact proposed file changes and obtains the maintainer's approval before
    applying one item. It records adoption or decline. Repeating a completed adoption changes
    nothing, and a declined item is not offered again as new.
 6. A new release exposes changed items without applying them. Local edits remain untouched.
@@ -36,7 +39,11 @@ changed. Locally edited items and declined recommendations must survive an upgra
    Koinon uses those files through `.agents/skills`, `.codex/skills` and `.claude/skills`
    symlinks to the shared directory. Add the requested spin-up, spin-down and recover-team
    skills there, plus a guide reference usable from a verified Claude native-home target.
-   The catalog also offers shared skill instructions, discovery links, generated OpenCode
+   Each skill has verified family-native machine destinations and the shared project
+   destination. Unverified native roots permit catalog reading only. Feature metadata
+   explains which available operations need a skill; context-management requirements are
+   advertised only once #196 is available. The catalog also offers shared skill instructions,
+   discovery links, generated OpenCode
    wrappers, a repository guidance reference and #253's permission recommendations.
    The three team skills require
    explicit authorization for session, terminal or runtime actions and supported native
@@ -47,7 +54,9 @@ changed. Locally edited items and declined recommendations must survive an upgra
 
 ## Constraints
 
-- One Go binary and the existing same-user daemon. No separate catalog service or store.
+- One Go binary and the existing same-user daemon/database. No separate catalog service
+  or database; machine decisions use bounded ordinary rows, project decisions use existing
+  repository memory. No global decision is stored as a repository decision.
 - No daemon filesystem writes into projects or native agent homes. Adoption is an agent
   edit after approval, with ordinary filesystem/approval rules still in force.
 - List/read queries accept item IDs, not arbitrary paths, URLs or caller identities. State

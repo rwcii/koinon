@@ -8,15 +8,34 @@ Add an embedding Go package in `agents/skills/`, where `go:embed` can include `*
 and shared `AGENTS.md` without escaping its directory. A small `internal/library` package
 reads that filesystem and constructs the catalog; it has no authored skill-body copies.
 Enumerate every canonical `NAME/SKILL.md` as `skill.NAME`, deriving name/description from
-existing metadata. A manifest policy supplies purpose, requiring release and typed destinations.
+existing metadata. A manifest policy supplies purpose, requiring release, feature requirements and typed
+machine-wide/project-local destinations. Every skill offers the same canonical bytes at
+either destination; native copies are separate, explicitly approved files, never symlinks
+to the installation or binary.
 A newly added canonical skill enters the catalog through that same enumeration. Validate
 complete metadata, actual family coverage, unique IDs, content digests and bounds (32 items,
 64 KiB per item); never silently omit a skill. Dev builds identify development content rather
 than inventing a release.
 
-Each skill targets the same relative `agents/skills/NAME/SKILL.md` in an adopter. Generalize
+The project-local target is relative `agents/skills/NAME/SKILL.md`. The default machine
+target is the verified native user skill root plus `NAME/SKILL.md`. Claude uses its verified
+user skill root; Codex uses effective `CODEX_HOME/skills` (default `.codex/skills` in the
+user home). Native user discovery was independently demonstrated on Codex 0.162.0 through
+app-server initialize/skills-list with an isolated native home and synthetic skill, without
+a thread or provider turn. Repeat that native proof in the supported test environment.
+OpenCode, Antigravity and DeepSeek remain read-only for machine adoption until their native
+user discovery paths are verified; project targets remain available through their supported
+interfaces. Never infer discovery merely from an existing directory.
+
+Feature requirements name actual supported operations, not permission grants or invented
+future capabilities. Pair/review guidance is relevant to paired work; handoff/pickup becomes
+a context-management requirement only when #196 is implemented. Validate these feature IDs
+against the implemented runtime capability list. Missing skill guidance is an informational
+recommendation, never automatic adoption or a new refusal of an existing native operation. Generalize
 the existing nine skills in place, deferring project-specific branch names, signing, checks,
-CI and release details to root `AGENTS.md`. Retain installed-guide startup, peer-data
+CI and release details to root `AGENTS.md`. Skill invocation reads the adopting project policy, without assuming this repository
+or its authoring-instructions file exists in a machine-wide installation. Keep authoring
+guidance for edits to the canonical source. Retain installed-guide startup, peer-data
 boundaries, bounded review, approval gates and private ignored handoffs. No pairing
 authorization enters a skill. A portable check/ship/release skill loads project policy and
 asks for guidance when a necessary rule is absent instead of inventing a command or target.
@@ -49,14 +68,18 @@ files are imported. No skill types an unverified command or infers new permissio
   through an embedding file in its directory rather than an independently maintained copy.
 
 Add a canonical `koinon-guide` reference skill under the shared directory, offered as
-`skill.koinon-guide` and used here. `setup.claude-user-skill` offers those same bytes, separately
-approved, at `~/.claude/skills/koinon-guide/SKILL.md`. Its name/description and plain instructions
+`skill.koinon-guide` and used here. The same `skill.koinon-guide` item has separately approved machine-wide and project-local
+targets, like the other skills; it is not a second authored guide or a second catalog item. Its name/description and plain instructions
 refer to project rules and the installed guide/catalog, with no dynamic command substitution,
 tool grant, launch/reset step or pairing authorization. The
 [personal skill location](https://code.claude.com/docs/en/skills#choose-where-skills-load)
 is documented by Claude. Verify named-version discovery in a temporary home without a provider
 call before shipping; an unverified nondefault configuration root is reported, never guessed.
-Other families can always read the canonical files directly; do not invent native syntax.
+Codex machine discovery has the isolated native proof above. Other families can always
+read the canonical files directly; do not invent native syntax. Setup instructions, links,
+wrappers and project guidance are project-local items, never implicit machine-wide changes.
+Permission recommendations remain inert reference content; native permission edits need
+separate exact approval.
 
 ## Complete outcome
 
