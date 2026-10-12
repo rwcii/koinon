@@ -9,7 +9,7 @@ pull request. All chunks reuse the work item of #254.
 | --- | --- | --- | --- |
 | [01 Evidence](chunks/01-evidence.md) | `spike.md` records Grok Build's MCP spawn topology, per-call identity, launch-fixed session IDs, reset/resume, subagents and wake paths from real sessions in the container, and the plan files agree with it. | 1 (versions), 2, 3, 5 (facts only) | — |
 | [02 Adapter](chunks/02-adapter.md) | `koinon grok` in Grok's default mode: launch-fixed first session, per-call identity from `GROK_SESSION_ID` under the proven host, leader mode refused, reset and resume through existing succession, setup, guide, permissions and docs. | 1, 2, 3, 4, 6, 7 | 01 |
-| [03 Wake](chunks/03-wake.md) | `wake_unsupported` reported for Grok, the leader-mode wake filed as a follow-up, and the live check in the development container. | 5, 6 | 02 |
+| [03 Wake](chunks/03-wake.md) | A content-free wake typed into the session's proven, idle tmux pane; the leader-mode path filed as a follow-up; the live check in the development container. | 5, 6 | 02 |
 
 Chunk 01's results are in `spike.md`; chunks 02 and 03 were specified from them, and the plan
 passes gate B again before chunk 02 starts.

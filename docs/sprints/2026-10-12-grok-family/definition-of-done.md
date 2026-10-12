@@ -43,17 +43,17 @@ CI never runs Grok Build and never contacts the xAI provider.
   session gets the identity chunk 01 shows it presents.
 - **Messaging (4).** Peer discovery, send, inbox, acknowledgement, delivery, memory and
   work claims run end to end from a synthetic Grok session against a test daemon.
-- **Wake (5).** Chunk 01 found an exact-session prompt path only in Grok's leader mode, which
-  chunk 02 refuses. The guide and `peers` report `wake_unsupported`, and a test proves that a
-  Grok session is never woken through another family's path.
+- **Wake (5).** The `grok` provider types the fixed notice only into the session's proven,
+  idle pane (chunk 03); tests on private tmux servers cover a foreign pane, a reused host, an
+  intervening agent and a busy prompt, none of which receive input.
 - **No regression (7).** The full suite passes for every existing family.
 
 ## Integration points exercised for real
 
 - Chunk 01 records each fact from real Grok Build sessions in the container above.
 - The final chunk's live check runs in the same container: two concurrent Grok sessions
-  register through the launcher, exchange a message with each other, and a `/clear` in one
-  moves its participant to the new session. The record names the Grok Build version.
+  register through the launcher, exchange a message, the idle receiver is woken through its
+  pane, and a `/clear` in one moves its participant to the new session. The record names the Grok Build version.
 
 ## Edge cases that must have tests
 
