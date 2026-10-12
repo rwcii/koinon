@@ -289,6 +289,7 @@ func TestLaunchRecordsRelativePathResultAbsolute(t *testing.T) {
 	}
 	t.Chdir(work)
 	t.Setenv("PATH", "bin")
+	t.Setenv("GODEBUG", "execerrdot=1")
 	state := filepath.Join(t.TempDir(), "state")
 	if _, err := launchCLI(context.Background(), Options{Family: "codex", StateDir: state}, io.Discard); err == nil || entries(t, state) != nil {
 		t.Fatalf("default ErrDot: %v %v", err, entries(t, state))
