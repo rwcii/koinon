@@ -101,6 +101,8 @@ func (s *Store) providerWake(ctx context.Context, session Session, notice string
 		return s.wakeDeepSeek(ctx, session, target, notice)
 	case "opencode":
 		return s.wakeOpenCode(ctx, session, target.LaunchID, notice)
+	case "grok":
+		return s.wakeGrok(ctx, session, notice)
 	default:
 		return waiting("adapter_unavailable")
 	}

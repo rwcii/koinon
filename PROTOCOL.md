@@ -384,6 +384,20 @@ uses the launcher's private password on its literal loopback server. A fresh `/s
 read precedes `/session/ID/prompt_async`; an omitted status counts as idle only when read-only
 `GET /session/ID` confirms this exact ID exists. Busy/retry and unknown sessions are not woken.
 
+Grok (#254) types the notice into the session's own tmux pane: the socket and pane that
+`koinon mcp` proved at the launched session's registration to hold its host, never a path or
+pane from model input. Before each wake the daemon proves the pane again: the host process
+still has its recorded start value, and the pane's process is the host or an ancestor of it
+with no other agent process between them. Otherwise the wake waits with
+`grok_target_unavailable` and sends nothing. It then reads the pane and types only when Grok
+is idle: the last input box (`│ ❯`) is empty, no line shows a running turn's `[stop]`, and no
+line below the box shows a cancel shortcut (Grok Build 1.0.50 keeps the box empty during a
+turn). Otherwise it waits with `receiver_busy`. It sends the notice with `send-keys -l` and
+then Enter, nothing else, and records `notified` only when a second read shows the box empty
+and the notice as a submitted prompt (`❯ NOTICE`); otherwise `uncertain` with
+`pane_submission_unconfirmed`. A directly started Grok session has no host record and gets
+no pane wake. Leader mode stays refused.
+
 `POST /v1/wake/agy-stop` takes `caller` with family `agy` and the hook's native conversation ID.
 It offers a due unhandled notice at that turn boundary, leaving delivery `uncertain` with
 `stop_offered`; the offer counts as a notice (see Handled wakes). The
@@ -777,8 +791,8 @@ returns `{ok: false, code: "not_launched", launcher: "koinon FAMILY", message: .
 `tools/list` remains available. Failed pending background admission retries at the next tool
 call. A plain peer's renewal or reconnect can recover an expired registration with the same
 peer name. Direct Codex starts have no launcher CLI wake target, and direct OpenCode starts
-have no launcher wake endpoint; their inboxes remain available through tool calls. Grok has no
-wake provider yet; its inbox remains available through tool calls.
+have no launcher wake endpoint; their inboxes remain available through tool calls. A direct
+Grok start has no host record and no pane wake; its inbox remains available through tool calls.
 
 `koinon grok` adds `--session-id` with a new UUID, recorded in the launch, unless its
 arguments hold `--session-id`, `--resume`, `-r`, `--continue` or `-c`.

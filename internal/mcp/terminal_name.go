@@ -388,22 +388,6 @@ func (s *server) otherAgentPane(ctx context.Context, socket, sessionID, paneID s
 
 // agentProcess reports whether pid runs an agent CLI: Claude Code, Codex, agy, OpenCode or Grok.
 func (s *server) agentProcess(pid int) bool {
-	if claudeProcess(s.c.Command, pid) {
-		return true
-	}
 	executable, args, err := s.c.Command(pid)
-	if err != nil {
-		return false
-	}
-	names := []string{filepath.Base(executable)}
-	if len(args) > 0 {
-		names = append(names, filepath.Base(args[0]))
-	}
-	for _, name := range names {
-		switch name {
-		case "codex", "agy", "opencode", "grok", "grok-native":
-			return true
-		}
-	}
-	return false
+	return err == nil && platform.AgentCommand(executable, args)
 }

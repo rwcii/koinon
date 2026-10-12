@@ -5,6 +5,11 @@ into a dated release section when promoted to `main`.
 
 ## Unreleased
 
+- A Grok session started with `koinon grok` is woken through its own tmux pane (#254, chunk
+  03). Before each wake the daemon proves that the recorded pane still holds the session's
+  host, and it types Koinon's fixed notice and Enter only while Grok's input box is empty and
+  no turn is running; otherwise nothing is sent and the wake waits.
+
 - A worker reports a held item's result with a summary and evidence (`work_report`,
   `koinon work report`); the claim is released and the item stays `reported` until another
   worker accepts or rejects it (`work_accept`, `work_reject`). The reporting consumer and
