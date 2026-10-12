@@ -57,5 +57,9 @@ Changed-scope review (Claude, `3279482522f214b2479e39371da1b489ec6dfb51`):
 | MEDIUM: machine-wide copies can shadow same-name project workflows; a stale global skill can hide changed canonical source. | Accepted and fixed: generic check/ship/release/sprint are project-only; operation skills are machine candidates. Inspect both applicable scopes, report name_conflict separately from file state, preserve both and stop adoption pending separately reviewed conflict resolution. Tests cover local edits and stale global copies. Claude precedence is documented; Codex native skills-list lists both and is not invocation proof. |
 | Evidence limitation: no confirmed provider-free Claude user-skill discovery command | Accepted: its documented candidate target stays read-only unless maintainer native-session discovery is verified at the final head. Do not invent a CLI or claim directory presence as proof. |
 
-Bounded fix verification is pending; unchanged canonical-source/storage/scope review carries
-forward. No product or adoption authorization is inferred from either review.
+Bounded fix verification (Claude): PASS at
+`43192873803b24b824d97dbf52de62d9f70e5a48`; unchanged canonical-source/storage/scope review
+carries forward. No material finding remains. In this repository the canonical operation
+skills already exist, so machine adoption reports a same-name conflict; project discovery
+continues to use the shared source. Machine copies serve projects without that collision.
+No product or adoption authorization is inferred from either review.
