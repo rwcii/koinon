@@ -46,8 +46,8 @@ documentation cover it. Leader mode is refused with a stated reason.
    `[[hooks.PreToolUse]]` entry, matcher `koinon__.*`, running `<prefix>/bin/koinon hook
    grok-pre-tool-use`. The hook reads the event and returns `deny` ("a Grok subagent cannot
    call Koinon") when `subagentType` is present; otherwise it prints nothing and exits 0. It
-   writes nothing and is time-bounded. A subagent therefore never acts as its parent on
-   Koinon. **Residual:** Grok hooks fail open, so if the hook crashes or times out, that one
+   writes nothing and is time-bounded. While the hook runs, a subagent's Koinon call is
+   refused instead of acting as its parent. **Residual:** Grok hooks fail open, so if the hook crashes or times out, that one
    subagent call reaches Koinon as the parent's call. The guide and PROTOCOL state this
    limit. Setup keeps all other hook content and is idempotent; removal takes out only its
    entry.
