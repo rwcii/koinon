@@ -419,6 +419,23 @@ and memory/work operations are in [USAGE.md](USAGE.md). Setup and runtime replac
 host; they run as part of a task the maintainer assigns, such as an install or upgrade, and that
 task authorizes their steps (PDR 003, Decision 4; WDR 002).
 
+## Installed skills and setup catalog
+
+The binary carries the canonical skill/setup catalog; installation needs no checkout or
+catalog directory beside it. Query it with `library_list`/`library_read`, or
+`koinon library list/read --as FAMILY:NATIVE_SESSION_ID` for the existing command path.
+See [USAGE.md](USAGE.md#skills-and-setup-catalog) for paging and examples. The version
+report's `catalog_digest` identifies the catalog, including its canonical content and
+metadata. Every MCP connection and family guide mention the query paths.
+
+Machine-wide skills are the recommended default; project-local adoption is an explicit
+alternative. The metadata includes supported destinations and native discovery evidence.
+Unknown/unverified native roots support catalog reading; reading is not evidence of an
+installed skill. List/read inspect no project or native-home files and record no adoption
+decision. Installation and upgrade apply no catalog items. An adoption uses an exact
+reviewed diff approved by the maintainer (PDR 008); locally edited files remain as they are.
+Current queries provide reference content and metadata, with no installed-state query.
+
 ## Launcher paths in launchers.json
 
 After successful `koinon setup claude`, `codex`, `agy`, `opencode` or `grok`, setup records the absolute

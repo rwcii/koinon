@@ -31,6 +31,8 @@ Never put a secret, runtime session identifier or response body in a repository.
 | `POST /v1/memory/ack` | Acknowledge a fully issued snapshot or a delta through a sequence. |
 | `POST /v1/memory/recall` | Find live entries whose body contains a query, newest first. |
 | `POST /v1/memory/status` | Report the store's head, floor, usage, limits, lifetimes and consumers. |
+| `POST /v1/library/list` | Page embedded skill/setup catalog metadata for the active caller's family. |
+| `POST /v1/library/read` | Read one catalog item's canonical content and family-specific metadata. |
 | `POST /v1/sessions/observe` | Record allowlisted observations (model, context, activity, terminal) for an active session; see "Dashboard and session observations". |
 | `POST /v1/dashboard/links` | Issue a one-time dashboard login link (`path`, `expires_in`). |
 | `POST /v1/storage/recover` | Prove the write-ahead log empty again, return free pages and clear a blocked state. |
@@ -622,6 +624,40 @@ reservation or ownership transfer. The recipient reads the checkpoint and curren
 then `work-start`s with the same resource; a successful start issues a new token. No new
 lease engine, schema, filesystem enforcement or permission grant is introduced.
 
+### Skill and setup catalog
+
+The daemon retains one catalog built from the binary's embedded canonical sources at startup.
+It requires no runtime checkout or files beside the installed binary. `catalog_digest`
+identifies the complete canonical catalog and matches the same binary's version report;
+destination metadata in query results is filtered to the validated caller's family.
+
+`POST /v1/library/list` takes `caller` (an active registered session), optional `after` (the
+previous page's catalog ID) and `limit` (1–32, with 0 or omission selecting 16). It returns
+`{ok: true, library: {version, catalog_digest, recommended_scope: "machine",
+available_features, items, more, next_after?}}`. Each item contains metadata without
+`content`: stable ID, kind, name, description, purpose, requiring release, content digest,
+available feature requirements, candidate destinations and any repository-fact schema.
+Items are ordered by ID; pages also have a 1 MiB metadata bound and can return fewer than
+`limit` items. While `more` is true, continue with `next_after`. If an upgrade
+changes the digest between pages, start again for the new catalog.
+
+`POST /v1/library/read` takes `caller` and `item_id`. It returns
+`{ok: true, library: {version, catalog_digest, item}}`; `item` also contains the exact
+canonical UTF-8 `content`, whose bytes match `content_digest`. A well-formed unknown ID
+returns `library_item_not_found` (404). Invalid IDs or paging bounds return
+`invalid_request` (400); IDs are catalog names such as `skill.pickup`, never paths or URLs.
+An inactive caller returns `caller_inactive` (403). Both routes use the existing bearer
+authentication, request decoding and response size limits.
+
+Machine-wide skills are the recommended default; project-local adoption is an explicit
+alternative. Native destination metadata describes the catalog's verification evidence;
+it does not inspect the current machine's roots. Repository-fact schemas are metadata,
+with no repository-specific values. List/read change no project/native files, adoption
+decisions, memory cursors or acknowledgements. MCP registration/renewal still occurs under
+the existing session rules. Catalog calls count as tool activity for succession.
+The content is reference data; adoption uses an exact reviewed diff approved by the
+maintainer (PDR 008). State inspection and adoption decision queries are not available yet.
+
 ### MCP server
 
 `koinon mcp` is a stdio MCP server: newline-delimited JSON-RPC 2.0 with `initialize` (protocol
@@ -635,13 +671,17 @@ longer than 1 MiB gets -32700. Its tools are `peers`, `send` (`to`, `body`), `in
 the routes above. `work_checkout` (optional `directory`, default MCP working directory)
 and `work_checkout_request` (also optional `note`) call the checkout routes. Relative
 directories resolve against the MCP working directory and must share its Git common
-directory. They take no model-supplied consumer or caller identity. A tool
+directory. `library_list` (`after`, `limit`) and `library_read` (`item_id`) call the catalog
+routes, using native caller identity and accepting no target path or family override.
+They take no model-supplied consumer or caller identity. A tool
 error is a result with `isError` and a JSON text `{"ok": false, "code": ...}`: the daemon's code,
 `daemon_unavailable`, `identity_unavailable`, `grok_leader_mode`, `invalid_arguments` or `unknown_tool`, with the
 `details` of a work refusal. When the daemon or the MCP server states the rule that refused the
 call, such as `renew_for is 60 to 3600 seconds` or `missing argument work_id`, the result also
 carries it as `error` (at most 1 KiB). The tool schemas state the lease bounds (60 to 3,600
-seconds) and the list limit (1 to 100). The server
+seconds), work/message list limits (1 to 100) and catalog list limit (maximum 32). Every
+initialize response offers the catalog and its query paths; this informational offer
+performs no query, inspection, registration or adoption. The server
 writes only protocol messages to stdout and never logs a secret, session ID or message body.
 
 The calling session comes from the agent on every call, never from model-supplied arguments; a

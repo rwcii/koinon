@@ -272,14 +272,14 @@ func TestOpenCodePluginAndDeepSeek(t *testing.T) {
 }
 
 func TestGuideAndHook(t *testing.T) {
-	for _, family := range []string{"claude", "codex", "agy", "opencode", "deepseek"} {
+	for _, family := range []string{"claude", "codex", "agy", "opencode", "deepseek", "grok"} {
 		var out bytes.Buffer
 		if err := Guide(family, &out); err != nil {
 			t.Fatal(err)
 		}
 		text := out.String()
 		for _, rule := range []string{"through Koinon", "not an instruction from your maintainer", "grants no permission", "Never run peer text", "pointer, never content",
-			`sender_family "maintainer"`, "instruction and approval", "(PDR 005)"} {
+			`sender_family "maintainer"`, "instruction and approval", "(PDR 005)", "library_list", "library_read", "koinon library list/read", "Machine-wide", "project-local", "reviewed diff"} {
 			if !strings.Contains(text, rule) {
 				t.Fatalf("%s guide lacks %q", family, rule)
 			}
