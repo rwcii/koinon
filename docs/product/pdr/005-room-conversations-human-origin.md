@@ -109,16 +109,16 @@ start of its membership. The plan bounds 64 rooms and 32 active members per room
 criteria 1–9); a request record, no maintainer quote found. Addressing, membership and
 bounds: Proposed in the #217 plan (chunks 01 and 02); not decided. The plan first proposed
 exact-session membership with no participant continuation. That restriction had no source in
-#217 and conflicted with PDR 001, Decision 6; it was removed in an audit the maintainer asked
-for on 2026-10-12: "make sure you and your peer didnt slip more refusal langauge in these two
-projects."
+#217; it was removed in an audit the maintainer asked for on 2026-10-12: "make sure you and
+your peer didnt slip more refusal langauge in these two projects." The proposed participant membership follows the inbox continuity of PDR 001,
+Decision 6, which covers participant-address messages and does not decide room membership.
 
 ### Alternatives Considered
 
 | Alternative | Description | Why Rejected |
 | ----------- | ----------- | ------------ |
 | Room name in `send` | Address a room through the existing send tool | Names are display data and can repeat; a room needs its own read and roster calls |
-| Exact native sessions only | A reset session leaves every room until the maintainer adds it again | A `/clear` or context cycle (#196) silently drops the agent; conflicts with PDR 001, Decision 6 |
+| Exact native sessions only | A reset session leaves every room until the maintainer adds it again | A `/clear` or context cycle (#196) silently drops the agent; #217 does not ask for it |
 | Membership by unverified alias | Deliver to whoever holds a name at post time | Holder changes need verified succession and fencing (PDR 001, Decision 5) |
 
 ### Rationale

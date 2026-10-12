@@ -31,8 +31,9 @@ On 2026-10-12 the maintainer asked: "make sure you and your peer didnt slip more
 langauge in these two projects." Claude audited every restriction, refusal and gate in the
 plan against #217 and the records. Corrected: exact-session-only membership, which refused
 participant addresses and dropped a member from every room at a `/clear` or context cycle.
-#217 does not ask for it, and PDR 001, Decision 6 gives address state to the participant.
-Members that hold a participant now follow its verified holder. Removed: "does not replace
+#217 does not ask for it. The plan now proposes, for Gate B, that members that hold a
+participant follow its verified holder, like the participant inbox (PDR 001, Decision 6, which
+does not decide room membership). Removed: "does not replace
 that issue's authority boundary" (conflicts with PDR 005, Decision 3), "do not change live
 instructions/config" and "The plan adds no installed-runtime changes" (no source). Kept with
 their sources: the allowance (PDR 005, Decision 2), typed maintainer origin (Decision 3),

@@ -41,4 +41,5 @@ consuming-project non-goal stays in the decision), and the limit of role routing
 with verified participant roles", which excluded DeepSeek's default participant. Gate text now
 records the approval. Kept with their sources: #140's non-goals, no claim inheritance, the
 verdict rule (PDR 004, Decision 3), content-free wakes (ADR 001, Decision 3) and reported data
-(WDR 002, Decision 3). The storage bounds remain proposed product limits with visible refusal.
+(WDR 002, Decision 3). The storage bounds are approved product limits with visible refusal,
+not yet built.

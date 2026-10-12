@@ -1,7 +1,7 @@
 ---
 pdr: "004"
 title: "Coordinated Work Results and Role Routing"
-status: draft
+status: accepted
 created: "2026-10-12"
 updated: "2026-10-12"
 authors:
@@ -24,7 +24,7 @@ tags:
 # PDR 004: Coordinated Work Results and Role Routing
 
 **Date:** 2026-10-12
-**Status:** Draft
+**Status:** Accepted
 **Authors:** Robert Capps
 
 ---
@@ -254,4 +254,4 @@ maintainer decided the verdict rule (Decision 3) and approved the plan's mechani
 | 2026-10-12 | Initial creation |
 | 2026-10-12 | Recorded the maintainer's decision on who records the verdict (#306) |
 | 2026-10-12 | Clarified the reporting-worker exclusion against the framed question: changing consumer labels does not make the same native session another worker (#140 reconciliation) |
-| 2026-10-12 | Recorded the maintainer's Gate B approval of the #140 plan; role routing covers default participants |
+| 2026-10-12 | Recorded the maintainer's Gate B approval of the #140 plan; status accepted; role routing covers default participants |
