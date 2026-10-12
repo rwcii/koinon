@@ -19,7 +19,7 @@ import (
 
 	skills "github.com/rwcii/koinon/agents/skills"
 	reference "github.com/rwcii/koinon/docs"
-	"github.com/rwcii/koinon/internal/core"
+	"github.com/rwcii/koinon/internal/capabilities"
 	"github.com/rwcii/koinon/internal/skillmeta"
 )
 
@@ -59,7 +59,7 @@ type Item struct {
 	FeatureRequirements []string      `json:"feature_requirements"`
 	Destinations        []Destination `json:"destinations"`
 	Facts               *Facts        `json:"repository_facts,omitempty"`
-	Content             string        `json:"content"`
+	Content             string        `json:"content,omitempty"`
 	ContentDigest       string        `json:"content_digest"`
 }
 type Catalog struct {
@@ -186,8 +186,8 @@ func Build(source, permissions fs.FS, release string) (Catalog, error) {
 	if len(release) > 128 || strings.ContainsFunc(release, unicode.IsControl) {
 		return Catalog{}, errors.New("invalid catalog release")
 	}
-	families := core.SupportedFamilies()
-	features := core.SupportedFeatures()
+	families := capabilities.Families()
+	features := capabilities.Features()
 	entries, err := fs.ReadDir(source, ".")
 	if err != nil {
 		return Catalog{}, err

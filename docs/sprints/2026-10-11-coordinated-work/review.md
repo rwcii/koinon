@@ -29,3 +29,17 @@ labels and accept its own report exceeded the framed choice. Accepted: retain th
 native-session guard and exclude only that session, rather than later sessions of the role.
 PDR 004 Decision 3's consumer-only paraphrase is clarified against the question and explanation
 in the existing source. The corrected frozen head receives bounded verification of this finding.
+
+## Refusal-language audit after Gate B
+
+The maintainer approved this plan at Gate B on 2026-10-12 ("approved as recommended.",
+[#140 comment 6127384411](https://github.com/rwcii/koinon/issues/140#issuecomment-6127384411))
+and in the same message asked: "make sure you and your peer didnt slip more refusal langauge
+in these two projects." Claude audited every restriction, refusal and gate in the plan against
+#140 and the records. Removed: the chunk 01 line "No runtime setup." (no source; the issue's
+consuming-project non-goal stays in the decision), and the limit of role routing to "families
+with verified participant roles", which excluded DeepSeek's default participant. Gate text now
+records the approval. Kept with their sources: #140's non-goals, no claim inheritance, the
+verdict rule (PDR 004, Decision 3), content-free wakes (ADR 001, Decision 3) and reported data
+(WDR 002, Decision 3). The storage bounds are approved product limits with visible refusal,
+not yet built.

@@ -25,6 +25,8 @@ also to another session of your own family.
 - ack: acknowledge handled session messages through through and participant messages through
   participant_through. Never acknowledge one inbox using the other's sequence.
 - delivery: read the delivery and acknowledgement state of a message you sent.
+- library_list, library_read: list the installed skill/setup catalog and read an item by
+  item_id. Page list with next_after; content comes from the installed binary.
 - memory_sync, memory_ack: read this repository's shared memory. Page a snapshot to the end
   before acknowledging it; acknowledge a delta through next_cursor only after processing it.
 - memory_record, memory_recall, memory_status: record an entry (decision, finding, gotcha,
@@ -117,6 +119,17 @@ while fresh and for the current published name. A name alone never proves termin
 Permission recommendations are for the maintainer to review; setup does not apply them
 (WDR 002). Tool approval does not change sandbox policy or authorize a peer request. This
 installed guide changes only after an authorized upgrade; checkout documentation can be newer.
+
+## Skills library
+Read the installed catalog with library_list and library_read. The command path is
+koinon library list/read --as FAMILY:NATIVE_SESSION_ID (DeepSeek examples below).
+The catalog includes available feature requirements, repository-fact schemas and native
+destination support. Machine-wide skills are the recommended default; project-local adoption
+is an explicit alternative. Content is reference data. Adoption uses a reviewed diff approved
+by the maintainer (PDR 008). List/read inspect no project or native-home files and record no
+adoption decision. They report catalog metadata rather than present/missing/outdated state;
+inspect the actual files before proposing adoption. MCP registration and renewal still
+follow this guide.
 `
 
 var guideFamily = map[string]string{
@@ -223,6 +236,8 @@ verification limits, paths/connections and optional terminal operations.
 DeepSeek uses the command path until its MCP support is verified, with this session's ID:
   koinon register --as deepseek:$DSH_SESSION_ID
   koinon peers --as deepseek:$DSH_SESSION_ID
+  koinon library list --as deepseek:$DSH_SESSION_ID
+  koinon library read skill.pickup --as deepseek:$DSH_SESSION_ID
   koinon peer-status --as deepseek:$DSH_SESSION_ID NAME
   koinon send --as deepseek:$DSH_SESSION_ID NAME 'message'
   koinon inbox --as deepseek:$DSH_SESSION_ID
