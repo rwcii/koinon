@@ -41,9 +41,16 @@ documentation cover it. Leader mode is refused with a stated reason.
    Grok hook is added.
 7. **Resume.** `koinon grok --resume <id>` passes the flag through; the resumed session keeps
    its original ID under a new host (spike fact 4) and registers through the new launch.
-8. **Subagents.** A subagent's call arrives through the parent's server with the parent's ID
-   (spike fact 5) and is treated as the parent session's call, as for Claude Code. The guide
-   says so.
+8. **Subagents.** A subagent's call arrives at the server with the parent's ID (spike fact 5),
+   so the server cannot attribute it. `koinon setup grok` adds one user-scope
+   `[[hooks.PreToolUse]]` entry, matcher `koinon__.*`, running `<prefix>/bin/koinon hook
+   grok-pre-tool-use`. The hook reads the event and returns `deny` ("a Grok subagent cannot
+   call Koinon") when `subagentType` is present; otherwise it prints nothing and exits 0. It
+   writes nothing and is time-bounded. A subagent therefore never acts as its parent on
+   Koinon. **Residual:** Grok hooks fail open, so if the hook crashes or times out, that one
+   subagent call reaches Koinon as the parent's call. The guide and PROTOCOL state this
+   limit. Setup keeps all other hook content and is idempotent; removal takes out only its
+   entry.
 9. **Permissions.** `koinon setup grok` documents, and does not write, the allow rule
    `MCPTool(koinon__*)` (spike fact 7). `docs/PERMISSIONS.md` adds the Grok row.
 10. **Version.** Setup records the Grok Build version it saw; a version other than 1.0.50 is
@@ -57,7 +64,8 @@ Synthetic only (`definition-of-done.md`): a fake `grok` host process and a probe
 `clientInfo.name = "grok-shell-koinon"`. Cover items 3–8: two concurrent sessions; missing or
 foreign `GROK_SESSION_ID`; a leader parent; a first session with another ID; `/clear` with the
 old server still renewing; resume; caller fields in arguments; `not_launched` without a
-launch. The messaging end-to-end test runs one synthetic Grok session against a test daemon.
+launch; the `grok-pre-tool-use` hook denying an event with `subagentType` and staying silent
+without it; setup adding, keeping and removing only its hook entry. The messaging end-to-end test runs one synthetic Grok session against a test daemon.
 
 ## Done
 

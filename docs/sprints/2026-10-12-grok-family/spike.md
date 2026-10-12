@@ -5,7 +5,8 @@ describes: Grok Build 1.0.50 (`grok 1.0.50 (c58f321264ba)`, npm `@xai-official/g
 `latest` tag), signed in with `grok login --device-auth`, Grok 4.7 model, UID 1000, all
 capabilities dropped, `no-new-privileges`, no host mounts and no route to the host's loopback
 services (a connection to the host daemon's port was refused on 127.0.0.1 and timed out on
-the Docker gateway). Session IDs below are shortened; they belonged to throwaway sessions.
+the Docker gateway). Native session IDs are replaced by labels (A, B, …); equal labels mean
+equal IDs. Only the chosen `--session-id` value in fact 3 is real, because the probe chose it.
 
 The probe MCP server logged its PID, parent PID, working directory, `GROK_SESSION_ID`,
 `TMUX_PANE` and every JSON-RPC message, and answered one tool, `probe_echo`, with its own PID
@@ -34,9 +35,9 @@ A `tools/call` carries only `params._meta.progressToken`, the tool name and the 
 session marker reaches the server in either mode. Each server received only its own session's
 calls, and its `GROK_SESSION_ID` named that session, in both modes:
 
-- default: `from-g1` reached the server of `01a12e19-1c8d…`, `from-g2` the server of
-  `01a12e19-2b44…`;
-- leader: `from-L2` reached only the second session's server (`01a12e1d-57ae…`).
+- default: `from-g1` reached the server of A, `from-g2` the server of
+  B;
+- leader: `from-L2` reached only the second session's server (L2).
 
 So the server process's `GROK_SESSION_ID` identifies the calling session. In leader mode the
 server's parent process, working directory and `TMUX_PANE` do not identify its session.
@@ -49,7 +50,7 @@ had exactly that `GROK_SESSION_ID`. A launcher can choose the ID of the first se
 ## 4. Reset and resume
 
 - `/clear` ("Start a new session") in a default TUI started a new MCP server (PID 1352) under
-  the same TUI process and pane, with a new `GROK_SESSION_ID` (`01a12e1b-899d…`). The next call
+  the same TUI process and pane, with a new `GROK_SESSION_ID` (B′). The next call
   reached only the new server. **The old server (PID 1198) kept running with stdin open**, so a
   Koinon MCP server in that position would keep renewing the cleared session.
 - `grok --resume <id>` in a new TUI process started a server with the resumed session's
@@ -57,11 +58,27 @@ had exactly that `GROK_SESSION_ID`. A launcher can choose the ID of the first se
 
 ## 5. Subagents
 
-A subagent ran as its own Grok session (`01a12e1a-8444…`, its own directory under
+A subagent ran as its own Grok session (A-sub, its own directory under
 `~/.grok/sessions`), but its `probe_echo` call went to the **parent session's** server and
-carried the parent's `GROK_SESSION_ID`, with no subagent marker. A server cannot tell a
-subagent's call from its parent's. (Claude Code subagents also call through the parent's
-server under the parent's identity.)
+carried the parent's `GROK_SESSION_ID`, with no subagent marker. The MCP server cannot tell a
+subagent's call from its parent's.
+
+A `PreToolUse` hook can (Grok's `10-hooks.md`; probed with a `[[hooks.PreToolUse]]` entry in
+the user `config.toml`, matcher `probe__.*`, which ran without a trust prompt):
+
+- The hook's input names the **calling** session: the parent's call carried `sessionId` C and
+  no `subagentType`; the subagent's call carried its own `sessionId` C-sub and
+  `subagentType: "general-purpose"`. `permissionMode` was `default` or `bypassPermissions`.
+- A `deny` (`hookSpecificOutput.permissionDecision: "deny"`) for the subagent's call blocked
+  it: the call never reached the MCP server, and the model saw "Hook denied: …". The parent's
+  call in the same turn ran normally. Tested without `--always-approve`, with `--allow
+  "MCPTool(probe__*)"`.
+- An `updatedInput` rewrite was **not** applied to MCP tool calls, with or without
+  `--always-approve`, neither for an undeclared field nor for the declared `text` field. So a
+  hook cannot stamp the caller into the call.
+- Hooks fail open: a hook that crashes, times out or prints malformed output never blocks a
+  call (`10-hooks.md`, "Fail open"). A subagent's call then reaches the server as the
+  parent's call.
 
 ## 6. Wake
 
@@ -83,7 +100,9 @@ Models reach MCP tools through Grok's `search_tool`/`use_tool` meta-tools.
 
 ## Consequences for the plan
 
-- Per-call identity exists: one MCP server per session with the session's `GROK_SESSION_ID`.
+- Per-call identity exists for top-level sessions: one MCP server per session with the
+  session's `GROK_SESSION_ID`. A subagent's call carries its parent's ID at the server; only a
+  `PreToolUse` hook sees the real caller, and it can refuse the call but not relabel it.
 - Host, pane and directory evidence from process ancestry and environment holds only in the
   default mode. In leader mode it names the leader and the first TUI for every session.
 - An exact-session wake exists only in leader mode.

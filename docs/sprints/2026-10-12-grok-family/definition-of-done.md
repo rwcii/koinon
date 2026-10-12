@@ -61,7 +61,7 @@ CI never runs Grok Build and never contacts the xAI provider.
 - `GROK_SESSION_ID` missing, or present but not matching the calling session.
 - A forged `X-Grok-Agent-ID` header or caller field from model-controlled input.
 - `--session-id` reused, or naming an existing session.
-- A subagent session (Grok's `--agents`), which gets no participant, as for other families.
+- A subagent's Koinon call, which the `grok-pre-tool-use` hook refuses (chunk 02, item 8).
 - A Grok version other than the recorded ones: setup reports it and does not assume support.
 
 ## Gate
