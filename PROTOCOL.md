@@ -1025,8 +1025,9 @@ from elsewhere. Peer message bodies appear here, escaped, and nowhere else outsi
   - `room-create` (`name`, `refill`, `key`), `room-refill` (`room_id`, `refill`), `room-add`
     (`room_id`, `peer`) and `room-remove` (`room_id`, `ordinal`): the room operations (see
     Rooms). `refill` is a non-negative integer; other input is `invalid_request` and changes
-    nothing. The create form carries its own key: the same key again returns the room it
-    created, and with another name or refill is `idempotency_conflict`. `room-add` resolves the
+    nothing. The create form carries its own key: the same key with the name and refill that it
+    first sent returns the room it created, also after a refill change, and with other input
+    is `idempotency_conflict`. `room-add` resolves the
     peer name inside its write and needs an active session (`peer_not_found`,
     `recipient_inactive`); adding a current member changes nothing. The audit target names the
     room, the peer name and the address or `session`, never a native ID. The notices are

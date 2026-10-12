@@ -297,6 +297,28 @@ func TestRoomRefusalsLeaveNothing(t *testing.T) {
 	}
 }
 
+// A repeated create compares with the request that the key first sent, not with the room's
+// current refill: after a refill change the original request still returns the room and
+// changes nothing, and the new value under the same key is refused.
+func TestRoomCreateRepeatAfterARefillChange(t *testing.T) {
+	s, _ := testStore(t)
+	room := mustRoom(t, s, "synthetic repeat", 32)
+	if err := s.SetRoomRefill(roomCtx("room-refill"), room, 64); err != nil {
+		t.Fatal(err)
+	}
+	if again, err := s.CreateRoom(roomCtx("room-create"), "key-synthetic repeat", "synthetic repeat", 32); err != nil || again != room {
+		t.Fatalf("original request again: %s %v", again, err)
+	}
+	if _, err := s.CreateRoom(roomCtx("room-create"), "key-synthetic repeat", "synthetic repeat", 64); code(err) != "idempotency_conflict" {
+		t.Fatalf("changed request under the same key: %v", err)
+	}
+	var refill, allowance, revision int64
+	if err := s.db.QueryRow(`SELECT refill,allowance,revision FROM rooms WHERE room_id=?`, room).Scan(&refill, &allowance, &revision); err != nil ||
+		refill != 64 || allowance != 0 || revision != 1 || count(t, s, `SELECT COUNT(*) FROM rooms`) != 1 {
+		t.Fatalf("after the repeats: %d %d %d %v", refill, allowance, revision, err)
+	}
+}
+
 // The refill setting is stored and changed without refilling; the allowance stays zero.
 func TestRoomRefillSetting(t *testing.T) {
 	s, _ := testStore(t)

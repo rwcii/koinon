@@ -104,8 +104,8 @@ func validRoomID(id string) bool {
 }
 
 // CreateRoom creates an empty room with its agent-post refill setting and no allowance.
-// key is the form's idempotency key: a repeat with the same name and refill returns the
-// room it created, and with another name or refill is refused.
+// key is the form's idempotency key: a repeat with the name and refill that it first sent
+// returns the room it created, also after a refill change, and other input is refused.
 func (s *Store) CreateRoom(ctx context.Context, key, name string, refill int64) (string, error) {
 	if !validRoomName(name) || refill < 0 || key == "" || len(key) > 64 {
 		return "", ErrInvalid
@@ -123,7 +123,7 @@ func (s *Store) CreateRoom(ctx context.Context, key, name string, refill int64) 
 	tx.audited = true
 	var existing, existingName string
 	var existingRefill int64
-	err = tx.QueryRowContext(ctx, `SELECT room_id,name,refill FROM rooms WHERE create_key=?`, key).Scan(&existing, &existingName, &existingRefill)
+	err = tx.QueryRowContext(ctx, `SELECT room_id,name,create_refill FROM rooms WHERE create_key=?`, key).Scan(&existing, &existingName, &existingRefill)
 	if err == nil {
 		if existingName != name || existingRefill != refill {
 			return "", ErrRoomKeyConflict
@@ -141,8 +141,8 @@ func (s *Store) CreateRoom(ctx context.Context, key, name string, refill int64) 
 	if rooms >= maxRooms {
 		return "", ErrRoomLimit
 	}
-	if _, err := tx.ExecContext(ctx, `INSERT INTO rooms(room_id,name,revision,refill,allowance,post_head,created_at,create_key)
-		VALUES (?,?,1,?,0,0,?,?)`, id, name, refill, s.now().UnixMilli(), key); err != nil {
+	if _, err := tx.ExecContext(ctx, `INSERT INTO rooms(room_id,name,revision,refill,allowance,post_head,created_at,create_key,create_refill)
+		VALUES (?,?,1,?,0,0,?,?,?)`, id, name, refill, s.now().UnixMilli(), key, refill); err != nil {
 		return "", tx.fail(err)
 	}
 	setAuditTarget(ctx, "room "+id+" name bytes "+strconv.Itoa(len(name))+" refill "+strconv.FormatInt(refill, 10))

@@ -652,6 +652,8 @@ func migrate(db *sql.DB, version, target int) error {
 		// Version 19: dashboard rooms and membership (#217, chunk 01). A member is a
 		// participant inbox key or an exact native session; removed rows stay for awareness.
 		// refill, allowance, post_head and start_seq are kept for room posts (chunk 02).
+		// create_key and create_refill are the create form's request, which a later refill
+		// change does not alter, so a repeated create compares with what it first sent.
 		// Membership notices carry typed room metadata on their message.
 		if _, err := tx.Exec(`CREATE TABLE rooms (
 			room_id TEXT PRIMARY KEY CHECK (length(room_id)=32),
@@ -661,7 +663,8 @@ func migrate(db *sql.DB, version, target int) error {
 			allowance INTEGER NOT NULL DEFAULT 0 CHECK (allowance>=0),
 			post_head INTEGER NOT NULL DEFAULT 0 CHECK (post_head>=0),
 			created_at INTEGER NOT NULL,
-			create_key TEXT NOT NULL UNIQUE CHECK (length(create_key) BETWEEN 1 AND 64));
+			create_key TEXT NOT NULL UNIQUE CHECK (length(create_key) BETWEEN 1 AND 64),
+			create_refill INTEGER NOT NULL CHECK (create_refill>=0));
 		CREATE TABLE room_members (
 			room_id TEXT NOT NULL, ordinal INTEGER NOT NULL CHECK (ordinal>0),
 			family TEXT NOT NULL, member_id TEXT NOT NULL, label TEXT NOT NULL,
