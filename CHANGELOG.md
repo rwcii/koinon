@@ -5,6 +5,11 @@ into a dated release section when promoted to `main`.
 
 ## Unreleased
 
+- When no daemon answers, `koinon status` and `koinon recover` name the service mode and the
+  exact command that restarts the daemon (`sudo launchctl kickstart -k system/...` in macOS
+  system mode); Koinon never runs it. An idle agent session whose registration expired during an
+  outage registers again at its next renewal and takes back its address when it is unheld (#283).
+
 - On macOS, `koinon install --system` runs the daemon as a LaunchDaemon under your user, so it
   keeps running after a desktop logout, starts at boot and can be managed over SSH. It asks
   `sudo` for each step, stops and disables the user agent, verifies the new daemon and restores

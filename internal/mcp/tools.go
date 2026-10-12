@@ -301,6 +301,18 @@ func final(err error) bool {
 	return false
 }
 
+// expired reports a renewal refused because the session expired, not retired.
+func expired(err error) bool {
+	var refused core.RefusedError
+	if !errors.As(err, &refused) || refused.Code != "session_conflict" {
+		return false
+	}
+	var details struct {
+		State string `json:"state"`
+	}
+	return json.Unmarshal(refused.Details, &details) == nil && details.State == "expired"
+}
+
 func code(err error) string {
 	var refused core.RefusedError
 	switch {
@@ -352,8 +364,14 @@ func (s *server) ensure(ctx context.Context, caller core.Key) error {
 }
 
 func (s *server) register(ctx context.Context, caller core.Key) error {
-	// register is called only by a native tool call, never by the renewal timer.
-	r := core.Registration{Family: caller.Family, ID: caller.ID, Directory: s.c.Directory, ToolCall: true}
+	return s.registerAs(ctx, caller, true)
+}
+
+// registerAs registers the caller. toolCall says that the session's own tool call caused the
+// registration; only the renewal of an expired session registers without one, and it can then
+// take back an unheld participant address but never take one from its holder.
+func (s *server) registerAs(ctx context.Context, caller core.Key, toolCall bool) error {
+	r := core.Registration{Family: caller.Family, ID: caller.ID, Directory: s.c.Directory, ToolCall: toolCall}
 	if gitRepository(ctx, s.c.Directory) {
 		r.Repository = s.c.Directory
 	}
@@ -436,11 +454,16 @@ func (s *server) renew(ctx context.Context) {
 	if err != nil || json.Unmarshal(data, &reply) != nil {
 		// A refusal that ends this registration stops renewal; the next tool call registers
 		// again. An unreachable daemon, blocked storage or a timeout is tried again at the
-		// next interval, so an idle session is not lost to one failure (#249).
+		// next interval, so an idle session is not lost to one failure (#249). A session
+		// that expired, for example while the daemon was down, registers again at once with
+		// the same identity and launch (#283); a retired or fenced one stays dropped.
 		if final(err) {
 			delete(s.sessions, caller)
 		}
 		s.mu.Unlock()
+		if expired(err) {
+			s.registerAs(ctx, caller, false)
+		}
 		return
 	}
 	s.setInterval(reply.Renewal)

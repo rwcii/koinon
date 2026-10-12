@@ -59,8 +59,10 @@ can omit `repository`; its stored repository is empty. Memory and work operation
 selected repository. Wake targets are local registration metadata used by the adapters below.
 
 Renew/retire take `family`, `id`, and `if_revision`; renew also accepts `ttl_seconds`. A stale
-revision, expired session or retired session is refused with `session_conflict`. Re-register
-to return an expired/retired session to active without deleting its retained data.
+revision, expired session or retired session is refused with `session_conflict`. When a renewal
+names the current revision of a session that is no longer active, the refusal's `details` give
+its `state` (`expired` or `retired`). Re-register to return an expired/retired session to
+active without deleting its retained data.
 
 Liveness keeps a running session without renewals. Every 30 seconds the daemon reads the host
 process of each active, launched session that is not a sub-agent and has a host record. When
@@ -642,7 +644,10 @@ to 1,800), and five minutes before a reply carries one. A renewal that fails bec
 daemon is unreachable, its storage is blocked or the call times out is tried again at the next
 interval. A refusal that ends the registration (`session_conflict`, `session_not_found`,
 `not_launched`, `caller_inactive`, `stale_holder` or `invalid_request`) stops the renewals
-until the next tool call registers the session again. Registration passes
+until the next tool call registers the session again. A `session_conflict` whose `details.state`
+is `expired`, such as after an outage longer than the session lifetime, instead registers the
+session again at once, with `tool_call` false: it takes back its participant address only when
+no other session holds it, and a retired or fenced session stays dropped. Registration passes
 `KOINON_LAUNCH_ID` as `launch_id` and the server's process ancestors, nearest first, from the
 native process table. Claude also passes its parent's `claude_pid`; the daemon binds the
 foreground host or background job as described above. A server without a launch ID does not

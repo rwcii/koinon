@@ -195,6 +195,11 @@ func failure(w http.ResponseWriter, err error) {
 		respond(w, status, body)
 		return
 	}
+	var conflict SessionConflict
+	if errors.As(err, &conflict) {
+		respond(w, http.StatusConflict, map[string]any{"ok": false, "code": "session_conflict", "details": map[string]string{"state": conflict.State}})
+		return
+	}
 	var inactive InactiveRecipient
 	if errors.As(err, &inactive) {
 		respond(w, http.StatusConflict, map[string]any{"ok": false, "code": "recipient_inactive",

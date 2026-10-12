@@ -24,6 +24,14 @@ var ErrInvalid = errors.New("invalid request")
 var ErrMissing = errors.New("session not found")
 var ErrConflict = errors.New("session revision or lifecycle conflict")
 
+// SessionConflict is ErrConflict for a renewal of a session that is no longer active, with
+// its state (expired or retired), so that a client can tell an expiry during an outage from
+// a retirement (#283).
+type SessionConflict struct{ State string }
+
+func (e SessionConflict) Error() string        { return ErrConflict.Error() + ": the session is " + e.State }
+func (e SessionConflict) Is(target error) bool { return target == ErrConflict }
+
 type Session struct {
 	Family       string          `json:"family"`
 	ID           string          `json:"id"`
@@ -853,6 +861,9 @@ func (s *Store) Mutate(ctx context.Context, r Mutation, retire bool) (Session, e
 		return Session{}, err
 	}
 	if current.Revision != r.IfRevision || current.State != "active" {
+		if current.Revision == r.IfRevision && !retire {
+			return Session{}, SessionConflict{State: current.State}
+		}
 		return Session{}, ErrConflict
 	}
 	// A session registered without its launch, such as one an older store holds, is not
