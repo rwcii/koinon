@@ -1,7 +1,7 @@
 ---
 pdr: "005"
 title: "Room Conversations and Human Origin"
-status: draft
+status: accepted
 created: "2026-10-12"
 updated: "2026-10-12"
 authors:
@@ -24,7 +24,7 @@ tags:
 # PDR 005: Room Conversations and Human Origin
 
 **Date:** 2026-10-12
-**Status:** Draft
+**Status:** Accepted
 **Authors:** Robert Capps
 
 ---
@@ -38,10 +38,9 @@ several sessions, writes once to all of them, and follows every reply in one con
 
 Rooms are not built. #217 leaves three choices to the plan: how a room is addressed, how an
 agent learns that a post came from the maintainer, and a bound on agent-to-agent exchanges.
-The reviewed plan proposes answers to all three. Gate B for #217 has not been given. On
-2026-10-12 the maintainer decided the exchange bound and that a dashboard post is the
-maintainer's instruction and approval (#306); room addressing and membership remain plan
-proposals, so the record stays `draft`.
+The reviewed plan answers all three. On 2026-10-12 the maintainer decided the exchange bound
+and that a dashboard post is the maintainer's instruction and approval (#306), and approved
+the plan's room addressing and membership at Gate B (#217 comment 6129177109).
 
 ---
 
@@ -107,11 +106,15 @@ start of its membership. The plan bounds 64 rooms and 32 active members per room
 
 **Provenance:** Rooms, membership and the transcript: Requested in #217 (issue body,
 criteria 1–9); a request record, no maintainer quote found. Addressing, membership and
-bounds: Proposed in the #217 plan (chunks 01 and 02); not decided. The plan first proposed
+bounds: Proposed in the #217 plan (chunks 01 and 02); approved at Gate B. Maintainer,
+2026-10-12: "217 gate b approved"
+([#217 comment 6129177109](https://github.com/rwcii/koinon/issues/217#issuecomment-6129177109)).
+The plan first proposed
 exact-session membership with no participant continuation. That restriction had no source in
 #217; it was removed in an audit the maintainer asked for on 2026-10-12: "make sure you and
-your peer didnt slip more refusal langauge in these two projects." The proposed participant membership follows the inbox continuity of PDR 001,
-Decision 6, which covers participant-address messages and does not decide room membership.
+your peer didnt slip more refusal langauge in these two projects." The participant membership
+follows the inbox continuity of PDR 001, Decision 6, which covers participant-address
+messages and does not decide room membership.
 
 ### Alternatives Considered
 
@@ -218,7 +221,7 @@ agent's terminal.
 #217 requests rooms, an ordered conversation and a bound on agent exchanges. The maintainer
 decided the bound (an allowance set in the dashboard, refilled by maintainer posts) and that a
 dashboard post is the maintainer's instruction and approval, because only the maintainer can
-reach the local bridge. Participant membership and the room tools remain plan proposals.
+reach the local bridge, and approved participant membership and the room tools at Gate B.
 
 ---
 
@@ -230,3 +233,4 @@ reach the local bridge. Participant membership and the room tools remain plan pr
 | 2026-10-12 | Recorded the maintainer's decisions on the exchange bound and dashboard origin (#306) |
 | 2026-10-12 | Reconciled the room plan with configured refill and maintainer authority; updated the guide implementation fact after PR #311 |
 | 2026-10-12 | Membership follows a member participant's verified holder; removed the exact-session-only restriction (refusal-language audit) |
+| 2026-10-12 | Recorded the maintainer's Gate B approval of the #217 plan; status accepted |

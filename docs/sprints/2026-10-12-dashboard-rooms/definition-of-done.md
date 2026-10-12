@@ -56,5 +56,5 @@
   incompatible old writers refuse. No runtime fixture generator or replacement state.
 
 Each chunk uses check/ship and WDR 004 for publication, WDR 003 for exact-head review and
-WDR 006 for native evidence. Every PR enables squash auto-merge. Gate B for the remaining
-product mechanisms is pending (WDR 002, Decision 5); the two decided room rules add no new gate.
+WDR 006 for native evidence. Every PR enables squash auto-merge. Gate B is approved
+([#217 comment 6129177109](https://github.com/rwcii/koinon/issues/217#issuecomment-6129177109)).

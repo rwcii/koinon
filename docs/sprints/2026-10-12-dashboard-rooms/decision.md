@@ -2,11 +2,12 @@
 
 Issue [#217](https://github.com/rwcii/koinon/issues/217) requests the problem and nine criteria.
 The maintainer selected a dashboard-configured allowance, default 32, and dashboard posts
-as the maintainer's instruction and approval (PDR 005, Decisions 2 and 3). The remaining
-membership, tools, storage and conversation mechanisms are proposals (Decision 1).
+as the maintainer's instruction and approval (PDR 005, Decisions 2 and 3). The maintainer
+approved the membership, tools, storage and conversation mechanisms at Gate B (Decision 1;
+[#217 comment 6129177109](https://github.com/rwcii/koinon/issues/217#issuecomment-6129177109)).
 The paired planning boundary is recorded in its
 [scope checkpoint](https://github.com/rwcii/koinon/issues/217#issuecomment-6115488464).
-Codex drives the plan and Claude observes. Gate B for product implementation is pending.
+Codex drives the plan and Claude observes.
 
 ## Problem
 
@@ -42,8 +43,8 @@ others' replies and the maintainer can follow delivery and acknowledgement.
 - The existing daemon/private store and native caller source remain as in ADR 001,
   Decisions 1 and 2. Existing wake and inbox/read/ack semantics remain; notices are
   content-free (Decision 3).
-- The maintainer selects an active session by its verified peer name. Plan proposal for
-  Gate B: a session that holds a participant address joins as that participant. Its
+- The maintainer selects an active session by its verified peer name. A session that holds
+  a participant address joins as that participant. Its
   membership, membership start and room copies continue with the participant's verified
   holder, as its address state does (PDR 001, Decision 6). A session without a
   participant joins as its exact native session.
