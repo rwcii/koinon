@@ -261,7 +261,7 @@ func usage(ctx context.Context, q querier, repo string) (memoryUsage, error) {
 		(SELECT COUNT(*) FROM work_replays WHERE store=?1),
 		(SELECT COALESCE(SUM(?2+`+textBytes("store", "work_id", "lifecycle", "title", "criteria", "non_goals", "proposed_assignee",
 		"created_consumer", "proposed_role", "progress", "checkpoint", "next_artifact", "blocker", "last_writer", "outcome", "reason",
-		"references_json")+`),0) FROM work_items WHERE store=?1)+
+		"references_json", "report_consumer", "report_actor", "verdict")+`),0) FROM work_items WHERE store=?1)+
 		(SELECT COALESCE(SUM(?2+`+textBytes("store", "work_id", "consumer", "author", "title", "criteria", "non_goals")+`),0)
 			FROM work_scope_revisions WHERE store=?1)+
 		(SELECT COALESCE(SUM(?2+`+textBytes("store", "work_id", "consumer", "native_actor")+`),0) FROM claim_bundles WHERE store=?1)+

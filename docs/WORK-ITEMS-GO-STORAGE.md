@@ -95,9 +95,12 @@ bytes: the image, the event and the scope revision at most 16 KiB each, the 2 Ki
 up to 14 KiB of keys, provenance and row charges. The report checks the item's own scope
 revision limit. A mutation's
 view must leave 1 KiB of the 16 KiB free, which covers what a later observation adds (overdue
-and expiry reasons, longer counters and times), so a funded due event is never refused for size. A verdict event drops the report's
-summary, so its outcome, pointers and short evidence fit where the report fitted;
-`TestWorkVerdictOnAMaximumItem` checks both verdicts on an item at its admission bound.
+and expiry reasons, longer counters and times), so a funded due event is never refused for size. A verdict clears the reported round's
+progress, checkpoint, next artifact and blocker and replaces the references with its
+evidence, so the item holds at most its scope, eight references and fixed fields; a verdict
+with the maximum scope and plain maximum references fits, which `TestWorkVerdictAtTheBounds`
+checks with maximum-length consumer keys on an item at its admission bound and on one with a
+short scope.
 
 ## Evidence
 

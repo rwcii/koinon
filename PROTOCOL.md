@@ -588,9 +588,11 @@ and refuses start, edit, update, release, finish and another report with
 (`if_revision`, the current `report_seq`, one to eight `references`, `key`, `deadline`;
 reject also `criteria`, `non_goals` and optional `title`) are control writes that spend the
 item's verdict credit. Accept finishes the item as `completed`, and its 30-day retention
-starts. Reject writes a new scope revision and returns the item open with no claim. Each
-writes an `accepted` or `rejected` event whose payload adds `verdict_evidence`
-(`report_seq`, `references`). A stale `report_seq` refuses with `stale_report`; a verdict on
+starts. Reject writes a new scope revision and returns the item open with no claim. A
+verdict ends the reported round: it clears the item's `progress`, `checkpoint`,
+`next_artifact` and `blocker`, and its evidence replaces the item's `references`, as a finish
+does; the report keeps its own in its frozen event. Each writes an `accepted` or `rejected`
+event whose payload adds `verdict_evidence` (`report_seq`). A stale `report_seq` refuses with `stale_report`; a verdict on
 an item that is not reported with `invalid_transition`. The reporting consumer, and every
 consumer of the native session that reported, refuse with `own_report` before a replay and
 again in the committing transaction; another native session's consumer may record the
@@ -600,9 +602,9 @@ A report that cannot fund its verdict refuses with `capacity` and keeps its clai
 pending verdicts per store and 32 across the daemon, a free scope revision on the item, and
 the verdict's pages, slots and bytes after every other promise. Each pending verdict holds
 1,024 pages of the page debt and one entry, event, replay and scope revision slot and 64 KiB
-of logical bytes in the store's ceilings (`docs/WORK-ITEMS-GO-STORAGE.md`). A verdict
-event drops the report's summary, so its outcome, pointers and short evidence fit where the
-report fitted; larger verdict references can refuse with `record_too_large`.
+of logical bytes in the store's ceilings (`docs/WORK-ITEMS-GO-STORAGE.md`). A verdict with
+the maximum scope and eight 512-byte references fits its event bound; references whose JSON
+encoding grows (escaped characters) can refuse with `record_too_large`, as for a finish.
 
 `work-list` accepts `assigned_to_me` and keyset `after`. Responses retain `truncated`, add
 `more` and nullable `next_after`, and keep their 100-item/48-KiB bounds. Matching proposals

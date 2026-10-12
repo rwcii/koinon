@@ -468,51 +468,120 @@ func TestWorkVerdictCreditAcrossRestartAndRollback(t *testing.T) {
 	}
 }
 
-// A maximum-size reported item still takes either verdict within its bounds.
-func TestWorkVerdictOnAMaximumItem(t *testing.T) {
+// Every valid verdict fits its bounds: maximum evidence, and for a rejection the maximum
+// corrected scope, on an item at its admission bound or with a short original scope.
+// Consumer keys have their maximum length.
+func TestWorkVerdictAtTheBounds(t *testing.T) {
+	big := strings.Repeat("x", 4096)
+	refs := []string{big[:512], big[:512], big[:512], big[:512], big[:512], big[:512], big[:512], big[:512]}
 	for _, op := range []string{"work-accept", "work-reject"} {
-		t.Run(op, func(t *testing.T) {
-			s, _, m := workStore(t)
-			s.memory.limits.logical, s.memory.limits.workLogical = 1<<40, 1<<40
-			reviewer := other(m, "codex:synthetic-reviewer")
-			big := strings.Repeat("x", 4096)
-			refs := []string{big[:512], big[:512], big[:512], big[:512], big[:512], big[:512], big[:512], big[:512]}
-			out := mustWork(t, s, m, "work-create", map[string]any{"title": big[:256], "criteria": big, "non_goals": big[:2048],
-				"proposed_assignee": strings.Repeat("a", 128), "references": refs, "key": key(), "deadline": now(s) + 600})
-			id := out["work_id"].(string)
-			generation := mustStart(t, s, m, id, map[string]any{"checkpoint": big[:1024], "next_artifact": big[:1024]})
-			// The largest progress and then the largest report that the item admits, so
-			// the reported view is at its admission bound.
-			for progress := 2048; ; progress -= 16 {
-				_, err := work(s, m, "work-update", map[string]any{"work_id": id, "if_revision": revision(t, s, m, id), "claim_generation": generation,
-					"progress": big[:progress], "checkpoint": big[:1024], "next_artifact": big[:1024], "progress_deadline": now(s) + 60,
-					"references": refs, "key": key(), "deadline": now(s) + 600})
-				if err == nil {
-					break
+		for _, short := range []bool{false, true} {
+			t.Run(fmt.Sprint(op, " short scope ", short), func(t *testing.T) {
+				s, _, m := workStore(t)
+				s.memory.limits.logical, s.memory.limits.workLogical = 1<<40, 1<<40
+				m.Consumer = "w" + strings.Repeat("o", 127)
+				reviewer := other(m, "r"+strings.Repeat("e", 127))
+				fields := map[string]any{"title": big[:256], "criteria": big, "non_goals": big[:2048], "proposed_assignee": strings.Repeat("a", 128),
+					"references": refs, "key": key(), "deadline": now(s) + 600}
+				if short {
+					fields["title"], fields["criteria"], fields["non_goals"] = "t", "c", "n"
 				}
-				if wcode(err) != "record_too_large" || progress <= 16 {
-					t.Fatalf("update: %v", err)
+				id := mustWork(t, s, m, "work-create", fields)["work_id"].(string)
+				generation := mustStart(t, s, m, id, map[string]any{"checkpoint": big[:1024], "next_artifact": big[:1024]})
+				// The largest progress, and then the largest report, that the item admits.
+				for progress := 2048; ; progress -= 16 {
+					_, err := work(s, m, "work-update", map[string]any{"work_id": id, "if_revision": revision(t, s, m, id), "claim_generation": generation,
+						"progress": big[:progress], "checkpoint": big[:1024], "next_artifact": big[:1024], "progress_deadline": now(s) + 60,
+						"references": refs, "key": key(), "deadline": now(s) + 600})
+					if err == nil {
+						break
+					}
+					if wcode(err) != "record_too_large" || progress <= 16 {
+						t.Fatalf("update: %v", err)
+					}
 				}
-			}
-			var seq int64
-			for summary := 2048; ; summary -= 16 {
-				out, err := report(s, m, id, generation, map[string]any{"summary": big[:summary], "references": refs})
-				if err == nil {
-					seq = int64(out["seq"].(float64))
-					break
+				var seq int64
+				for summary := 2048; ; summary -= 16 {
+					out, err := report(s, m, id, generation, map[string]any{"summary": big[:summary], "references": refs})
+					if err == nil {
+						seq = int64(out["seq"].(float64))
+						break
+					}
+					if wcode(err) != "record_too_large" || summary <= 16 {
+						t.Fatalf("report: %v", err)
+					}
 				}
-				if wcode(err) != "record_too_large" || summary <= 16 {
-					t.Fatalf("report: %v", err)
+				extra := map[string]any{"references": refs}
+				if op == "work-reject" {
+					extra["title"], extra["criteria"], extra["non_goals"] = big[:256], big, big[:2048]
 				}
-			}
-			extra := map[string]any{"references": []string{"r"}}
-			if op == "work-reject" {
-				extra["title"], extra["criteria"], extra["non_goals"] = big[:256], big, big[:2048]
-			}
-			if _, err := verdict(s, reviewer, op, id, seq, extra); err != nil {
-				t.Fatalf("%s of a maximum item: %v", op, err)
-			}
-		})
+				if _, err := verdict(s, reviewer, op, id, seq, extra); err != nil {
+					t.Fatalf("%s at the bounds: %v", op, err)
+				}
+				item := get(t, s, reviewer, id)
+				if item["progress"] != "" || item["checkpoint"] != "" || item["next_artifact"] != "" || len(item["references"].([]any)) != len(refs) ||
+					item["report"].(map[string]any)["summary"] == "" {
+					t.Fatalf("verdict view: %v", item)
+				}
+			})
+		}
+	}
+}
+
+// The store's logical charge counts the report and verdict columns, as the row charge does,
+// so an ordinary write stops at the actual logical ceiling.
+func TestWorkVerdictMetadataIsCharged(t *testing.T) {
+	s, _, m := workStore(t)
+	reviewer := other(m, "codex:synthetic-reviewer")
+	id := create(t, s, m, "synthetic accounting")
+	seq := mustReport(t, s, m, id, mustStart(t, s, m, id, nil))
+	if _, err := verdict(s, reviewer, "work-accept", id, seq, nil); err != nil {
+		t.Fatal(err)
+	}
+	ctx := context.Background()
+	store, err := storeOf(ctx, s.db, m.Repository)
+	if err != nil {
+		t.Fatal(err)
+	}
+	w, err := current(ctx, s.db, store, id, now(s))
+	if err != nil {
+		t.Fatal(err)
+	}
+	u, err := usage(ctx, s.db, m.Repository)
+	if err != nil {
+		t.Fatal(err)
+	}
+	expected := int64(w.rowCost(store))
+	for _, row := range []struct {
+		table    string
+		overhead int64
+		fields   []string
+	}{
+		{"work_scope_revisions", workRowOverhead, []string{"store", "work_id", "consumer", "author", "title", "criteria", "non_goals"}},
+		{"claim_bundles", workRowOverhead, []string{"store", "work_id", "consumer", "native_actor"}},
+		{"claim_resources", workRowOverhead, []string{"store", "kind", "resource"}},
+		{"work_events", workRowOverhead, []string{"store", "work_id", "kind", "payload", "actor"}},
+		{"work_replays", workReplayOverhead, []string{"key", "consumer", "operation", "result", "native_actor"}},
+	} {
+		var bytes int64
+		if err := s.db.QueryRow("SELECT COALESCE(SUM(?+"+textBytes(row.fields...)+"),0) FROM "+row.table+" WHERE store=?", row.overhead, store).Scan(&bytes); err != nil {
+			t.Fatal(err)
+		}
+		expected += bytes
+	}
+	var entryBytes int64
+	if err := s.db.QueryRow("SELECT COALESCE(SUM(?+"+textBytes("body", "path", "author", "scope_target", "consumer")+"),0) FROM memory_entries WHERE repository=? AND type='work-event'",
+		entryOverhead, m.Repository).Scan(&entryBytes); err != nil {
+		t.Fatal(err)
+	}
+	expected += entryBytes
+	if u.WorkLogical != expected {
+		t.Fatalf("work charge %d, exact row charges %d", u.WorkLogical, expected)
+	}
+	body := "synthetic next note"
+	s.memory.limits.logical = u.Logical + int64(entryOverhead+len(m.Consumer)+len(body)) + s.limits().reservedBytes - 1
+	if _, err := s.MemoryRecord(ctx, m, MemoryRecordRequest{Type: "finding", Body: body}); code(err) != "capacity" {
+		t.Fatalf("a note beyond the logical ceiling was admitted: %v", err)
 	}
 }
 

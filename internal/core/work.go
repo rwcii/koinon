@@ -458,10 +458,10 @@ type workReport struct {
 	ClaimGeneration int64    `json:"claim_generation"`
 }
 
-// workVerdictEvidence is the evidence in an accepted or rejected event's payload.
+// workVerdictEvidence names the report that an accepted or rejected event judges; the
+// verdict's evidence is the item's references in the same payload.
 type workVerdictEvidence struct {
-	ReportSeq  int64    `json:"report_seq"`
-	References []string `json:"references"`
+	ReportSeq int64 `json:"report_seq"`
 }
 
 func deref(v *string) string {
@@ -1435,14 +1435,21 @@ func (s *Store) apply(ctx context.Context, tx *writeTx, store string, m MemoryCa
 			kind, w.Lifecycle, w.VerdictCredit, w.ProgressDeadline, w.Blocker = "reported", "reported", true, nil, ""
 			w.References, w.ReportConsumer, w.ReportActor, w.Verdict, w.VerdictSeq = r.refs, &consumer, nativeWorkActor(m), nil, nil
 			w.report = &workReport{Summary: r.text["summary"], ScopeRevision: w.ScopeRevision, ClaimGeneration: generation}
-		case "work-accept":
-			verdict, outcome, at, expires := "accepted", "completed", now, now+workRetention
-			kind, w.Lifecycle, w.VerdictCredit, w.Verdict = "accepted", "finished", false, &verdict
-			w.Outcome, w.FinishedAt, w.ExpiresAt = &outcome, &at, &expires
-			w.evidence = &workVerdictEvidence{ReportSeq: *w.ReportSeq, References: r.refs}
-		case "work-reject":
+		case "work-accept", "work-reject":
+			// A verdict ends the reported round: the claim's progress fields are cleared and
+			// the verdict's evidence replaces the references, as a finish does. The report
+			// keeps its own in its frozen event. The item then holds at most its scope, eight
+			// references and fixed fields, so every valid verdict fits its event bound.
+			w.Progress, w.Checkpoint, w.NextArtifact, w.Blocker, w.References = "", "", "", "", r.refs
+			w.VerdictCredit, w.evidence = false, &workVerdictEvidence{ReportSeq: *w.ReportSeq}
+			if r.op == "work-accept" {
+				verdict, outcome, at, expires := "accepted", "completed", now, now+workRetention
+				kind, w.Lifecycle, w.Verdict = "accepted", "finished", &verdict
+				w.Outcome, w.FinishedAt, w.ExpiresAt = &outcome, &at, &expires
+				break
+			}
 			verdict := "rejected"
-			kind, w.Lifecycle, w.VerdictCredit, w.Verdict = "rejected", "open", false, &verdict
+			kind, w.Lifecycle, w.Verdict = "rejected", "open", &verdict
 			if r.has("title") {
 				w.Title = r.text["title"]
 			}
@@ -1450,7 +1457,6 @@ func (s *Store) apply(ctx context.Context, tx *writeTx, store string, m MemoryCa
 			if err := s.scope(ctx, tx, store, w, m.Consumer, author, now); err != nil {
 				return nil, err
 			}
-			w.evidence = &workVerdictEvidence{ReportSeq: *w.ReportSeq, References: r.refs}
 		}
 	}
 	if err := s.event(ctx, tx, store, m, &w, kind, m.Consumer, author, now, advanced); err != nil {

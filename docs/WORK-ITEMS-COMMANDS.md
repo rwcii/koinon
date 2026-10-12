@@ -72,8 +72,10 @@ session that reported. Another native session may record the verdict with any co
 including a later holder of the same participant whose default consumer differs from the
 report's. Accept finishes the item as completed and starts its 30-day retention. Reject
 writes the corrected scope as a new revision and returns the item open with no claim; a
-fresh start and report follow. Report, accept and reject events stay in the item's history,
-with the verdict's evidence in its event. The verdict is the recording agent's data and
+fresh start and report follow. A verdict clears the progress, checkpoint, next artifact and
+blocker of the reported round, and its evidence replaces the item's references; get still
+shows the frozen report with its own references. Report, accept and reject events stay in
+the item's history. The verdict is the recording agent's data and
 grants no authority.
 
 List accepts `assigned_to_me` (`--assigned-to-me`), matching explicit consumer proposals or
