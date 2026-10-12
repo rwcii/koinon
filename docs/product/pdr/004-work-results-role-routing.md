@@ -39,8 +39,8 @@ discover the transitions that concern them.
 
 None of this is built. Gate B for #140 has not been given ("the rest come after", #145
 comment 6116403867). This record states what #140 requests and what the reviewed plan
-proposes; the plan's exclusion of the reporter's whole logical participant goes beyond the
-request and is recorded separately.
+proposes. The maintainer decided on 2026-10-12 that only the reporting consumer is refused
+the verdict, as #140 asks; the plan's wider exclusion is not adopted.
 
 ---
 
@@ -49,7 +49,7 @@ request and is recorded separately.
 1. Problem Context
 2. Decision 1: Route a proposal to a role without claim inheritance
 3. Decision 2: A reported state and a verdict by a different consumer
-4. Decision 3: Exclude the reporter's logical participant from the verdict
+4. Decision 3: The reporting consumer cannot record the verdict
 5. Decision 4: Discovery through current queries and coalesced wakes
 6. Conclusion
 7. Document History
@@ -164,34 +164,35 @@ one. The item's history shows every report, verdict and scope revision.
 
 ---
 
-## 4. Decision 3: Exclude the reporter's logical participant from the verdict
+## 4. Decision 3: The reporting consumer cannot record the verdict
 
 ### Decision
 
-Beyond #140, the plan refuses a verdict from any current session of the same logical worker
-participant (the same validated family and role in the store) as the reporter, so a reset
-cannot turn a worker into its own coordinator. #140 asks only that the owner cannot verdict
-its own reported item and that another consumer can.
+The consumer that reported an item cannot accept or reject it; any other consumer can. The
+verdict is a second look by a session other than the one that did the work; without this
+rule, "accepted" means only that the worker says it is done. The plan's wider exclusion of
+every session in the reporter's logical worker participant is not adopted.
 
-**Provenance:** Proposed in the unpublished #140 plan draft (742a6f2) (chunk 02; decision criterion 4);
-not decided. No source found for extending the exclusion past the owner.
+**Provenance:** Requested in #140 (owner cannot verdict its own reported item). Maintainer,
+2026-10-12: "a, next item", choosing the #140 rule over the plan's logical-participant
+exclusion and over no rule, after asking "why is any agent refusing to accept the work of a
+peer session?" ([#306 comment 6119167156](https://github.com/rwcii/koinon/issues/306#issuecomment-6119167156)).
 
 ### Alternatives Considered
 
 | Alternative | Description | Why Rejected |
 | ----------- | ----------- | ------------ |
-| Owner and native actor only | Refuse the reporting consumer and its native session, as #140 states | The plan judged that a reset successor in the worker role could self-verdict |
-| No participant check | Any consumer other than the owner | Same reason |
+| Logical-participant exclusion (plan) | Refuse every current session of the reporter's family and role | Blocks a role the maintainer reassigns; #140 did not ask for it |
+| No rule | Any consumer, the reporter included, records the verdict | "Accepted" would mean only that the worker says it is done |
 
 ### Rationale
 
-1. The plan's stated reason: a session reset should not let the worker accept its own work.
+1. The smallest rule that keeps the verdict independent of the work.
 
 ### User Impact
 
-A new session that holds the worker role cannot accept or reject its predecessor's report,
-even when the maintainer moves that role to a coordinating task. This is stricter than v1's
-claim-owner check. The maintainer has not decided whether to keep it.
+A worker cannot accept its own report. A coordinator, or a session the maintainer moves into
+that work, can.
 
 ---
 
@@ -233,9 +234,8 @@ An agent that was reset or missed a wake lists what waits for it and acts on eac
 ## Conclusion
 
 #140 requests role routing without claim inheritance, a reported result with a verdict by
-another consumer, and catch-up discovery. The plan proposes concrete mechanisms for each.
-All are undecided, and the logical-participant exclusion is a plan addition beyond the
-request.
+another consumer, and catch-up discovery. The plan proposes concrete mechanisms for each. The
+maintainer decided the verdict rule (Decision 3); the other mechanisms are undecided.
 
 ---
 
@@ -244,3 +244,4 @@ request.
 | Date       | Change           |
 | ---------- | ---------------- |
 | 2026-10-12 | Initial creation |
+| 2026-10-12 | Recorded the maintainer's decision on who records the verdict (#306) |
