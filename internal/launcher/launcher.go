@@ -111,8 +111,12 @@ func launchCLI(ctx context.Context, o Options, report io.Writer) (string, error)
 	if o.CLI != "" || !errors.As(err, &missing) {
 		return cli, err
 	}
+	// A lookup that succeeds through a relative PATH entry is recorded as its absolute path.
 	found, lookErr := exec.LookPath(o.Family)
-	if lookErr != nil || !filepath.IsAbs(found) {
+	if lookErr == nil {
+		found, lookErr = filepath.Abs(found)
+	}
+	if lookErr != nil {
 		return "", err
 	}
 	recorded, err := recordCLI(ctx, o.StateDir, o.Family, found, false)

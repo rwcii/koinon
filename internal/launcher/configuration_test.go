@@ -277,6 +277,32 @@ func TestLaunchRecordsCLIFromPath(t *testing.T) {
 	}
 }
 
+// A lookup that the person allowed through a relative PATH entry records the absolute path
+// of the CLI it found; Go's default refusal of such a result still records nothing.
+func TestLaunchRecordsRelativePathResultAbsolute(t *testing.T) {
+	work := t.TempDir()
+	if err := os.Mkdir(filepath.Join(work, "bin"), 0700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(work, "bin", "codex"), []byte("#!/bin/sh\nexit 0\n"), 0700); err != nil {
+		t.Fatal(err)
+	}
+	t.Chdir(work)
+	t.Setenv("PATH", "bin")
+	state := filepath.Join(t.TempDir(), "state")
+	if _, err := launchCLI(context.Background(), Options{Family: "codex", StateDir: state}, io.Discard); err == nil || entries(t, state) != nil {
+		t.Fatalf("default ErrDot: %v %v", err, entries(t, state))
+	}
+	t.Setenv("GODEBUG", "execerrdot=0")
+	want, err := filepath.Abs(filepath.Join("bin", "codex"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if path, err := launchCLI(context.Background(), Options{Family: "codex", StateDir: state}, io.Discard); err != nil || path != want || entries(t, state)["codex"] != want {
+		t.Fatalf("relative PATH result: %q %v %v", path, err, entries(t, state))
+	}
+}
+
 // Racing first launches keep the first recorded CLI: the launch rechecks the entry under the
 // lock and never replaces it, while setup still replaces it.
 func TestLaunchKeepsRecordedCLIUnderLock(t *testing.T) {
