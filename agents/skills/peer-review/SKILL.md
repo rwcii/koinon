@@ -35,6 +35,9 @@ of the changed scope.
   the diff.
 - **Correctness**: the change does what it claims on Linux and macOS, error paths included, and
   its tests would fail without it.
+- **Records**: the change agrees with the accepted ADRs, PDRs and WDRs under `docs/`. Judge the
+  actual effect of new text, tests and code conditions: a new restriction, gate or refusal with
+  no record that covers its case is a finding (WDR 001).
 
 ## 3. Verify each finding
 

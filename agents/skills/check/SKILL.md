@@ -1,6 +1,6 @@
 ---
 name: check
-description: Run the checks that must pass before a Koinon branch is pushed - that it contains the latest develop, the test suite, whitespace, shell syntax for shell edits, the changelog rule and a scan for private content in the diff. Use before every push, and as the gate that the ship and sprint skills name.
+description: Run the checks that must pass before a Koinon branch is pushed - that it contains the latest develop, the test suite, whitespace, shell syntax for shell edits, the changelog rule, the decision-record indexes and a scan for private content in the diff. Use before every push, and as the gate that the ship and sprint skills name.
 ---
 
 # Check
@@ -51,7 +51,13 @@ A change that a Koinon participant can see (runtime behaviour, commands, install
 documented interfaces) needs an entry in `CHANGELOG.md` in the same branch. Contributor tooling,
 tests and internal refactors do not.
 
-## 5. Private content
+## 5. Records
+
+When the branch adds a record or changes a record's status under `docs/architecture/adr/`,
+`docs/product/pdr/` or `docs/engineering/wdr/`, the series `README.md` index lists it with the
+same number, title and status.
+
+## 6. Private content
 
 This repository is public. Scan the added lines:
 
