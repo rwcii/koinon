@@ -267,12 +267,16 @@ upgrade task carries it out and reports the result.
 
 Decided: when `launchers.json` has no CLI path for the family, `koinon <family>` finds the
 family's CLI on PATH, records its absolute path in `launchers.json`, reports the path it chose
-and starts the agent. Later launches use the recorded path; `--cli` still overrides it. Until
-that change ships, the shipped behavior applies: the launcher uses only the recorded path or
-`--cli`, and without one it stops and names `koinon setup <family>`, which finds, checks and
-records the CLI.
+and starts the agent. Later launches use the recorded path; `--cli` still overrides it.
 
-**Provenance:** Shipped behavior in PR #186 (merge commit e2bc2f3); no reason recorded.
+Implemented: `launchCLI` in `internal/launcher` searches `PATH` only when there is no `--cli`
+and the family has no entry or an empty entry. It reads the file again under
+`launchers.lock` and uses an entry recorded meanwhile instead of replacing it. When the CLI is
+not on `PATH`, the launch stops and names `koinon setup <family>` or `--cli`, as before. An
+invalid file or a relative or missing recorded path still refuses and is not changed.
+
+**Provenance:** The recorded-path-only launcher shipped in PR #186 (merge commit e2bc2f3); no
+reason recorded.
 Maintainer, 2026-10-12: "b, next item", choosing the PATH lookup that records and reports the
 path over the recorded-path-only launcher ([#306 comment 6119328447](https://github.com/rwcii/koinon/issues/306#issuecomment-6119328447)).
 
@@ -280,7 +284,7 @@ path over the recorded-path-only launcher ([#306 comment 6119328447](https://git
 
 | Alternative | Description | Why Rejected |
 | ----------- | ----------- | ------------ |
-| Recorded path only (shipped) | Stop and ask for `koinon setup` when no path is recorded | Adds a step before the first launch |
+| Recorded path only (previous behavior) | Stop and ask for `koinon setup` when no path is recorded | Adds a step before the first launch |
 | Search PATH on every launch | Resolve the CLI anew each time | A change to PATH or an upgrade could start a different program than the one recorded |
 
 ### Rationale
@@ -320,3 +324,4 @@ the maintainer has not yet decided.
 | ---------- | ---------------- |
 | 2026-10-12 | Initial creation |
 | 2026-10-12 | Recorded the maintainer's decisions on the launcher PATH lookup and the `--system`/`sudo` sentence (#306) |
+| 2026-10-12 | Decision 5 implemented: the launcher records the CLI it finds on PATH (#306) |

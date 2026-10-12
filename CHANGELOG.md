@@ -5,6 +5,12 @@ into a dated release section when promoted to `main`.
 
 ## Unreleased
 
+- `koinon claude|codex|agy|opencode` without `--cli` and without a recorded CLI now finds the
+  family's CLI on `PATH`, records its absolute path in `launchers.json`, prints
+  `koinon: recorded the FAMILY CLI PATH in launchers.json` and starts it. Later launches use the
+  recorded path. A path recorded meanwhile by another launch is kept; when the CLI is not on
+  `PATH`, the launch still names `koinon setup FAMILY` or `--cli` (PDR 003, Decision 5; #306).
+
 - Direct Claude, Codex, Antigravity and OpenCode starts register as plain peers through their
   native MCP identity. They can send/read/ack their own inbox and use repository memory/work;
   participant addresses, roles, succession and terminal naming remain launcher features.

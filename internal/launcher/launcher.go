@@ -102,6 +102,38 @@ func configuredCLI(o Options) (string, error) {
 	return ConfiguredCLI(o.StateDir, o.Family, o.CLI)
 }
 
+// launchCLI returns the CLI of a launch. When neither --cli nor launchers.json names one, it
+// records the family's CLI from PATH and reports the recorded path (PDR 003, Decision 5).
+// An entry recorded meanwhile by another launch or setup is used, not replaced.
+func launchCLI(ctx context.Context, o Options, report io.Writer) (string, error) {
+	cli, err := configuredCLI(o)
+	var missing missingCLIError
+	if o.CLI != "" || !errors.As(err, &missing) {
+		return cli, err
+	}
+	found, lookErr := exec.LookPath(o.Family)
+	if lookErr != nil || !filepath.IsAbs(found) {
+		return "", err
+	}
+	recorded, err := recordCLI(ctx, o.StateDir, o.Family, found, false)
+	if err != nil {
+		return "", fmt.Errorf("record the %s CLI found on PATH: %w", o.Family, err)
+	}
+	if cli, err = configuredCLI(o); err != nil {
+		return "", err
+	}
+	if recorded {
+		fmt.Fprintf(report, "koinon: recorded the %s CLI %s in launchers.json\n", o.Family, cli)
+	}
+	return cli, nil
+}
+
+// missingCLIError reports that launchers.json has no usable entry for the family: no file,
+// no entry or an empty entry. Other failures leave the configuration to the person.
+type missingCLIError struct{ message string }
+
+func (e missingCLIError) Error() string { return e.message }
+
 // ConfiguredCLI returns the absolute agent CLI path: the override when given, else the
 // family's entry in private launchers.json. It never searches PATH.
 func ConfiguredCLI(stateDir, family, override string) (string, error) {
@@ -109,7 +141,7 @@ func ConfiguredCLI(stateDir, family, override string) (string, error) {
 	if path == "" {
 		f, err := platform.OpenPrivate(filepath.Join(stateDir, "launchers.json"), os.O_RDONLY)
 		if errors.Is(err, fs.ErrNotExist) {
-			return "", errors.New("no " + family + " CLI is configured in launchers.json; " + recordCLI(stateDir, family))
+			return "", missingCLIError{"no " + family + " CLI is configured in launchers.json; " + remedy(stateDir, family)}
 		}
 		if err != nil {
 			return "", errors.New("configure an absolute CLI path in private launchers.json or use --cli")
@@ -125,10 +157,10 @@ func ConfiguredCLI(stateDir, family, override string) (string, error) {
 		}
 		var found bool
 		if path, found = config[family]; !found {
-			return "", errors.New("no " + family + " CLI is configured in launchers.json; " + recordCLI(stateDir, family))
+			return "", missingCLIError{"no " + family + " CLI is configured in launchers.json; " + remedy(stateDir, family)}
 		}
 		if path == "" {
-			return "", errors.New("the " + family + " CLI entry in launchers.json is empty; " + recordCLI(stateDir, family))
+			return "", missingCLIError{"the " + family + " CLI entry in launchers.json is empty; " + remedy(stateDir, family)}
 		}
 	}
 	if !filepath.IsAbs(path) {
@@ -141,9 +173,9 @@ func ConfiguredCLI(stateDir, family, override string) (string, error) {
 	return path, nil
 }
 
-// recordCLI names the two remedies for a family without a recorded CLI: setup records it in
+// remedy names the two remedies for a family without a recorded CLI: setup records it in
 // this state directory's launchers.json, and --cli selects it for one launch.
-func recordCLI(stateDir, family string) string {
+func remedy(stateDir, family string) string {
 	command := "koinon setup " + family
 	if root, err := filepath.Abs(stateDir); err == nil {
 		if standard, err := platform.DefaultStateDir(); err != nil || root != filepath.Clean(standard) {
@@ -519,12 +551,12 @@ func Run(ctx context.Context, o Options, out io.Writer) error {
 	if err != nil {
 		return err
 	}
-	cli, err := configuredCLI(o)
+	// Resolve before entering tmux so its new shell cannot retarget state/config.
+	o.StateDir, err = filepath.Abs(o.StateDir)
 	if err != nil {
 		return err
 	}
-	// Resolve before entering tmux so its new shell cannot retarget state/config.
-	o.StateDir, err = filepath.Abs(o.StateDir)
+	cli, err := launchCLI(ctx, o, os.Stderr)
 	if err != nil {
 		return err
 	}

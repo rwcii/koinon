@@ -429,14 +429,15 @@ updates and replaces the JSON atomically. Repeat setup with the same path leaves
 
 An install or upgrade runs setup for each `--agent` family. For another family it records the
 CLI only when an earlier setup configured that family for the installed binary (step 6 of
-the install). A launcher for a family without an entry refuses with `no FAMILY CLI is
-configured in launchers.json` and names `koinon setup FAMILY` or `--cli ABS_PATH`; see
+the install). A launcher for a family without an entry records the family's CLI from `PATH`
+and reports it; when the CLI is not on `PATH`, it refuses with `no FAMILY CLI is configured
+in launchers.json` and names `koinon setup FAMILY` or `--cli ABS_PATH`; see
 [USAGE.md](USAGE.md#launcher-paths-in-launchersjson).
 
 To change a recorded path, rerun the authorized setup operation with
-`koinon setup codex --cli /absolute/path/to/codex` (or the other family). Setup resolves
-`PATH` only when selecting a CLI; launchers use the recorded absolute path and never search
-`PATH` at launch time. `koinon codex --cli /absolute/path/to/codex` overrides it for that
+`koinon setup codex --cli /absolute/path/to/codex` (or the other family). A launcher searches
+`PATH` only when the family has no entry; with an entry it uses the recorded absolute path.
+`koinon codex --cli /absolute/path/to/codex` overrides it for that
 launch without editing the file. Match `--state-dir` between setup and launches. Uninstall
 preserves this state-root configuration along with other retained state.
 
