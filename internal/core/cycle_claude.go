@@ -29,6 +29,9 @@ const claudeCycleVersion = "claude-tmux-1"
 // proves; another version is unavailable until its own evidence run.
 var claudeEvidencedVersions = map[string]bool{"2.1.296": true}
 
+// claudeAnyVersion admits every Claude Code version; only a livecheck build sets it.
+var claudeAnyVersion bool
+
 // claudeEvidencedPlatforms are the operating systems with native evidence; macOS follows its
 // own evidence run (docs/sprints/2026-10-12-context-handoff/macos-live-check.md).
 var claudeEvidencedPlatforms = map[string]bool{"linux": true}
@@ -147,7 +150,7 @@ func (claudeCycle) Probe(ctx context.Context, t CycleTarget) CycleProbe {
 	if err != nil {
 		return CycleProbe{Reason: "native_registry_unavailable"}
 	}
-	if !claudeEvidencedVersions[record.Version] {
+	if !claudeEvidencedVersions[record.Version] && !claudeAnyVersion {
 		return CycleProbe{Reason: "native_version_unverified"}
 	}
 	if !provePane(ctx, t.tools, t.HostPID, t.HostStart, t.Socket, t.Pane) {

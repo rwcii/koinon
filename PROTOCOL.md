@@ -339,7 +339,9 @@ the cycle's reason (`typed_not_read_back`, `escape_changed_input`, `submit_not_r
 Probe decides whether a session's cycle can run, for Enable, at admission and before each
 input. It needs Linux (`platform_unverified` elsewhere until the macOS evidence run); the host's
 own Claude Code registry record (`sessions/<pid>.json` under the host's `CLAUDE_CONFIG_DIR`, else
-`~/.claude`) for the same process start (`native_registry_unavailable`); a host version in the
+`~/.claude`, read from the host's initial environment) for the same process start
+(`native_registry_unavailable`; on macOS the record's start is `ps -o lstart` text in UTC, compared
+to the whole second); a host version in the
 evidenced set, now 2.1.296 (`native_version_unverified`); the pane (`pane_unproven`); and the
 pickup entry that a bare `/pickup` runs. A personal skill (`skills/pickup` under the config root)
 ranks over a project skill (`.claude/skills/pickup` in the session directory or a parent up to
