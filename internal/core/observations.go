@@ -273,37 +273,44 @@ func (s *Store) Observe(ctx context.Context, o Observation) error {
 		}
 		s.forget(active)
 	}
-	s.observed.mu.Lock()
-	defer s.observed.mu.Unlock()
-	if s.observed.byKey == nil {
-		s.observed.byKey = map[Key]map[string]storedValue{}
-	}
-	current, found := s.observed.byKey[o.Caller]
-	if !found {
-		if len(s.observed.byKey) >= maxObservedSessions {
-			return Refusal{Code: "capacity", Message: "too many observed sessions"}
+	err = func() error {
+		s.observed.mu.Lock()
+		defer s.observed.mu.Unlock()
+		if s.observed.byKey == nil {
+			s.observed.byKey = map[Key]map[string]storedValue{}
 		}
-		current = map[string]storedValue{}
-		s.observed.byKey[o.Caller] = current
-	}
-	for group, v := range groups {
-		if v == nil {
-			continue
+		current, found := s.observed.byKey[o.Caller]
+		if !found {
+			if len(s.observed.byKey) >= maxObservedSessions {
+				return Refusal{Code: "capacity", Message: "too many observed sessions"}
+			}
+			current = map[string]storedValue{}
+			s.observed.byKey[o.Caller] = current
 		}
-		// A newer report replaces the value; a report of the same content confirms it; an
-		// older, different report changes nothing.
-		previous, found := current[group]
-		value, epoch := *v, v.Epoch
-		value.Epoch = ""
-		switch {
-		case !found || v.At > previous.At:
-			current[group] = storedValue{value, now, epoch}
-		case sameContent(value, previous.ObservedValue) && epoch == previous.epoch:
-			previous.seen = now
-			current[group] = previous
+		for group, v := range groups {
+			if v == nil {
+				continue
+			}
+			// A newer report replaces the value; a report of the same content confirms it; an
+			// older, different report changes nothing.
+			previous, found := current[group]
+			value, epoch := *v, v.Epoch
+			value.Epoch = ""
+			switch {
+			case !found || v.At > previous.At:
+				current[group] = storedValue{value, now, epoch}
+			case sameContent(value, previous.ObservedValue) && epoch == previous.epoch:
+				previous.seen = now
+				current[group] = previous
+			}
 		}
+		return nil
+	}()
+	if err == nil && o.Context != nil {
+		// Cycle admission and epoch fencing write outside the observation lock (#196).
+		s.contextObserved(context.WithoutCancel(ctx), o.Caller)
 	}
-	return nil
+	return err
 }
 
 func (s *Store) activeKeys(ctx context.Context) (map[Key]bool, error) {

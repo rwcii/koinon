@@ -364,6 +364,18 @@ or is not at its threshold, with the age of its context reading. Enabling is ref
 verified for that family; disabling always works. A stored mode or threshold that is not valid
 keeps the family default, and the Settings page names the error.
 
+When a cycle adapter exists for a family (chunk 03 supplies the first), an enabled session
+whose context reaches its threshold gets a request from `overwatch`, Koinon's reserved system
+requester, in its inbox. The session writes its handoff and reports it with
+`context_cycle_ready`; the daemon then clears the session's context in its tmux pane, enters
+its pickup, and the new context reports with `context_cycle_pickup`. The Sessions page shows
+each session's current or newest cycle: its stage, the stage deadline and each recorded step.
+Disabling, retiring or purging the session, a family mode without the cycle, or a holder
+choice for its address ends the cycle; a cycle that fails or cannot be proven ends the
+session's Enable. A session must report its pickup within two minutes of the pickup input.
+While a retained name record is called `overwatch`, no cycle starts and the Sessions page
+names the conflict. See PROTOCOL.md, Managed context cycles.
+
 A holder change retires and persistently fences the former holder. Registering again gives
 it its native peer name only; only **Make holder** lifts its fence. Address messages now
 belong to the participant inbox, and a holder's default memory/work consumer is

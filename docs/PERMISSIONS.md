@@ -28,6 +28,7 @@ wake accounting can still update internal metadata while these tools read that d
 | `peer_status` | Read native activity/context observations. |
 | `inbox` | Read waiting messages before handling and acknowledging them. |
 | `delivery` | Check delivery and acknowledgement of a sent message. |
+| `context_cycle_status` | Read this session's own managed context cycle; it moves no cursor. |
 | `library_list` | Page the installed skill/setup catalog metadata for the calling family. |
 | `library_read` | Read one catalog item's canonical content and destination metadata. |
 | `library_state` | Inspect bounded catalog targets, collisions, repository facts and decisions in the native client's verified scope. |
@@ -50,6 +51,8 @@ Allow them when the maintainer has authorized the corresponding coordination wor
 | `send` | Send an authorized message to a verified peer. |
 | `room_post` | Post to a room in which the caller is a member; uses the room's agent-post allowance. |
 | `ack` | Acknowledge inbox sequences after handling them. |
+| `context_cycle_ready` | Report this session's written handoff for the managed cycle that its Enable authorized. |
+| `context_cycle_pickup` | Report the restored checkpoint after the managed cycle cleared the context. |
 | `memory_ack` | Advance the memory cursor after processing all pages/deltas. |
 | `memory_record` | Write a memory entry; its content grants no permission. |
 | `work_create` | Record a proposed work item's scope. |

@@ -5,6 +5,14 @@ into a dated release section when promoted to `main`.
 
 ## Unreleased
 
+- Managed context cycle contract (#196, chunk 02): schema 23 adds durable cycles with a
+  bounded event history, page credit for every remaining stage and the terminal outcome, the
+  typed request from the reserved `overwatch` identity (its type, cycle and Enable revision in
+  inbox reads), the `context_cycle_status`, `context_cycle_ready` and
+  `context_cycle_pickup` tools (and DeepSeek `cycle-*` commands), handoff-file checks in the
+  main checkout, cycle fences on Disable, mode changes, retirement, purge and holder choice,
+  pane wake deferral, the Sessions page cycle history and the guide's Managed cycle reporting
+  section. No cycle adapter is registered yet, so Enable stays refused and no cycle runs.
 - A macOS system-mode install after a desktop logout no longer stops at `observe_agent`
   (#344): launchctl's error 125 for the user's GUI domain counts as no desktop login, as
   `Could not find domain` does after a reboot, and the agent steps are skipped.

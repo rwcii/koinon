@@ -218,6 +218,11 @@ func (s *Store) submitWake(ctx context.Context, key Key, offer bool) (string, er
 	if (b.Target.Family == "agy") != offer {
 		return "", nil
 	}
+	// A managed context cycle owns the target's pane from ready through pickup (#196): the
+	// wake waits, still due and not delivered, so no notice text interleaves with its input.
+	if held, err := s.paneHeldByCycle(ctx, Key{b.Target.Family, b.Target.ID}); err != nil || held {
+		return "", err
+	}
 	if b.Notices >= wakeNoticeLimit {
 		if err = s.failUnhandled(ctx, key); err != nil {
 			return "", err

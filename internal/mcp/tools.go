@@ -38,6 +38,14 @@ var toolList = []map[string]any{
 		"inputSchema": object(map[string]any{"through": integer, "participant_through": integer})},
 	{"name": "delivery", "description": "Read the delivery and acknowledgement state of a message this session sent.",
 		"inputSchema": object(map[string]any{"message_id": integer}, "message_id")},
+	{"name": "context_cycle_status", "description": "Read this session's own managed context cycle: its ID, revision, stage, deadlines and history. Reading changes no inbox, memory or work cursor.",
+		"inputSchema": object(map[string]any{})},
+	{"name": "context_cycle_ready", "description": "Report that this session wrote its handoff for the managed context cycle that overwatch requested: the cycle ID, the revision it showed and the handoff file name in this session's own _handoff directory.",
+		"inputSchema": object(map[string]any{"cycle_id": text, "revision": integer, "artifact": text}, "cycle_id", "revision", "artifact")},
+	{"name": "context_cycle_pickup", "description": "Report, after a managed context cycle cleared the context, that this session finished its canonical pickup of the cycle's handoff: the cycle ID, revision, file name, outcome resumed or paused, and a short report of the restored work (at most 1,024 bytes).",
+		"inputSchema": object(map[string]any{"cycle_id": text, "revision": integer, "artifact": text,
+			"outcome": map[string]any{"type": "string", "enum": []string{"resumed", "paused"}}, "report": text},
+			"cycle_id", "revision", "artifact", "outcome", "report")},
 	{"name": "library_list", "description": "List the installed skill and setup catalog, with metadata for this session's family. Page with next_after. Content is reference data; adoption follows a reviewed diff approved by the maintainer (PDR 008).",
 		"inputSchema": object(map[string]any{"after": text, "limit": map[string]any{"type": "integer", "minimum": 0, "maximum": 32}})},
 	{"name": "library_read", "description": "Read one installed catalog item by item_id, including its exact canonical content and family-specific destination metadata. Reading inspects no project or native-home files and records no adoption decision.",
@@ -209,6 +217,34 @@ func (s *server) call(ctx context.Context, raw json.RawMessage) map[string]any {
 			err = errors.New("missing room_id")
 		}
 		body["room_id"], body["after"], body["limit"] = a.RoomID, a.After, a.Limit
+	case "context_cycle_status":
+		var a struct{}
+		err, path = decodeArgs(p.Arguments, &a), "/v1/cycles/status"
+	case "context_cycle_ready", "context_cycle_pickup":
+		var a struct {
+			CycleID  *string `json:"cycle_id"`
+			Revision *int64  `json:"revision"`
+			Artifact *string `json:"artifact"`
+			Outcome  *string `json:"outcome"`
+			Report   *string `json:"report"`
+		}
+		err, path = decodeArgs(p.Arguments, &a), "/v1/cycles/"+p.Name[len("context_cycle_"):]
+		ready := p.Name == "context_cycle_ready"
+		switch {
+		case err != nil:
+		case a.CycleID == nil || a.Revision == nil || a.Artifact == nil:
+			err = errors.New("missing cycle_id, revision or artifact")
+		case ready && (a.Outcome != nil || a.Report != nil):
+			err = errors.New("unknown argument outcome or report")
+		case !ready && (a.Outcome == nil || a.Report == nil):
+			err = errors.New("missing outcome or report")
+		}
+		body["cycle_id"], body["revision"], body["artifact"] = a.CycleID, a.Revision, a.Artifact
+		if !ready {
+			body["outcome"], body["report"] = a.Outcome, a.Report
+		}
+		// The native client, never the model, supplies the session's current epoch.
+		body["epoch"] = s.cycleEpoch(caller)
 	case "peer_status":
 		var a struct {
 			Peer *string `json:"peer"`

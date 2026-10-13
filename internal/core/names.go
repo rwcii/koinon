@@ -39,6 +39,11 @@ func label(repository, directory string) string {
 }
 
 func nameTaken(ctx context.Context, tx *sql.Tx, name string) (bool, error) {
+	// overwatch is Koinon's reserved system requester (#196): no session or participant
+	// takes its name, though it has no names row.
+	if name == overwatchName {
+		return true, nil
+	}
 	var found int
 	err := tx.QueryRowContext(ctx, `SELECT 1 FROM names WHERE name=?`, name).Scan(&found)
 	if errors.Is(err, sql.ErrNoRows) {

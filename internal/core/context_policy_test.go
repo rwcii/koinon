@@ -340,7 +340,7 @@ func TestContextSchemaTwentyTwoKeepsExistingState(t *testing.T) {
 	room := mustRoom(t, s, "synthetic kept room", 7)
 	mustHumanPost(t, s, room, "synthetic kept post")
 	before := rowsOf(t, s.db)
-	if _, err := s.db.Exec(undoSchemaTwentyTwo + `PRAGMA user_version=21`); err != nil {
+	if _, err := s.db.Exec(undoSchemaTwentyThree + undoSchemaTwentyTwo + `PRAGMA user_version=21`); err != nil {
 		t.Fatal(err)
 	}
 	if err := checkCatalog(s.db, 21); err != nil {
@@ -352,7 +352,7 @@ func TestContextSchemaTwentyTwoKeepsExistingState(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer upgraded.db.Close()
-	if count(t, upgraded, `PRAGMA user_version`) != 22 || count(t, upgraded, `SELECT COUNT(*) FROM context_enables`) != 0 || rowsOf(t, upgraded.db) != before {
+	if count(t, upgraded, `PRAGMA user_version`) != schemaVersion || count(t, upgraded, `SELECT COUNT(*) FROM context_enables`) != 0 || rowsOf(t, upgraded.db) != before {
 		t.Fatal("schema 22 changed existing state")
 	}
 	if err := checkCatalog(upgraded.db, 21); err == nil {

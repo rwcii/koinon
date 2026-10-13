@@ -74,6 +74,10 @@ func (s *Store) ChooseHolder(ctx context.Context, address string, k Key, revisio
 		return tx.fail(err)
 	}
 	if holder != k.ID {
+		// The maintainer's holder choice ends the address's managed cycle (#196).
+		if err := s.fenceCyclesTx(ctx, tx, "holder_changed", `address=?`, address); err != nil {
+			return tx.fail(err)
+		}
 		if err := setHolder(ctx, tx.Tx, now, address, holder, k.ID, "maintainer_choice", "maintainer", ""); err != nil {
 			return tx.fail(err)
 		}

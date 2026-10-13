@@ -83,7 +83,8 @@ func debtPages(ctx context.Context, q interface {
 }) (int64, error) {
 	var pages int64
 	err := q.QueryRowContext(ctx, `SELECT (SELECT COALESCE(SUM(overdue_credit),0)*?+COALESCE(SUM(end_credit),0)*? FROM claim_bundles)+
-		(SELECT COALESCE(SUM(verdict_credit),0)*? FROM work_items)`, overdueCreditPages, endCreditPages, verdictCreditPages).Scan(&pages)
+		(SELECT COALESCE(SUM(verdict_credit),0)*? FROM work_items)+(SELECT COALESCE(SUM(credit),0) FROM context_cycles)`,
+		overdueCreditPages, endCreditPages, verdictCreditPages).Scan(&pages)
 	return pages, err
 }
 

@@ -85,12 +85,12 @@ func run(ctx context.Context, args []string, in io.Reader, out io.Writer) error 
 		listen = flags.String("listen", "127.0.0.1:47671", "IPv4 loopback listener")
 		listen6 = flags.String("listen-v6", "[::1]:47671", "IPv6 loopback listener")
 		lockWait = flags.Duration("lock-wait", 0, "wait this long for the daemon lock, then exit with status 0")
-	case "status", "peers", "peer-status", "send", "inbox", "ack":
+	case "status", "peers", "peer-status", "send", "inbox", "ack", "cycle-status", "cycle-ready", "cycle-pickup":
 		address = flags.String("address", "127.0.0.1:47671", "daemon loopback address")
 		if args[0] != "status" {
 			as = flags.String("as", "", "calling session as FAMILY:ID")
 		}
-		positional = map[string]int{"peer-status": 1, "send": 2, "ack": 1}[args[0]]
+		positional = map[string]int{"peer-status": 1, "send": 2, "ack": 1, "cycle-ready": 3, "cycle-pickup": 5}[args[0]]
 		if args[0] == "inbox" {
 			after = flags.Int64("after", 0, "read messages after this sequence")
 			limit = flags.Int64("limit", 50, "most messages to read")
@@ -249,7 +249,10 @@ const usage = `Usage: koinon install [--prefix DIR] [--state-dir DIR] [--agent F
        koinon send --as FAMILY:ID [--state-dir DIR] [--address 127.0.0.1:PORT] NAME BODY
        koinon inbox --as FAMILY:ID [--after SEQ] [--limit N] [--state-dir DIR] [--address 127.0.0.1:PORT]
        koinon ack --as FAMILY:ID [--state-dir DIR] [--address 127.0.0.1:PORT] SEQ
-A BODY of - reads the message body from standard input.`
+       koinon cycle-status --as deepseek:ID [--state-dir DIR] [--address 127.0.0.1:PORT]
+       koinon cycle-ready --as deepseek:ID [--state-dir DIR] [--address 127.0.0.1:PORT] CYCLE_ID REVISION HANDOFF_FILE
+       koinon cycle-pickup --as deepseek:ID [--state-dir DIR] [--address 127.0.0.1:PORT] CYCLE_ID REVISION HANDOFF_FILE resumed|paused REPORT
+A BODY of - reads the message body from standard input; a REPORT of - reads the pickup report.`
 
 // DeepSeek's MCP support remains unverified. The harness's command path registers
 // its exact native session and wake metadata explicitly, without creating a session.
@@ -330,6 +333,34 @@ func call(ctx context.Context, command, state, address string, as *string, after
 			request["participant_after"] = *participant
 		}
 		path, body = "/v1/inbox/read", request
+	case "cycle-status", "cycle-ready", "cycle-pickup":
+		// The own-cycle commands keep DeepSeek's explicit native guard (#196): the harness
+		// session names itself, and its session is its epoch.
+		if caller.Family != "deepseek" {
+			return errors.New("the cycle commands are for an exact DeepSeek session: --as deepseek:ID")
+		}
+		if command == "cycle-status" {
+			path, body = "/v1/cycles/status", map[string]any{"caller": caller}
+			break
+		}
+		revision, err := strconv.ParseInt(args[1], 10, 64)
+		if err != nil {
+			return errors.New("REVISION must be a number")
+		}
+		request := map[string]any{"caller": caller, "epoch": caller.ID, "cycle_id": args[0], "revision": revision, "artifact": args[2]}
+		path = "/v1/cycles/ready"
+		if command == "cycle-pickup" {
+			report := args[4]
+			if report == "-" {
+				data, err := io.ReadAll(io.LimitReader(in, 1025))
+				if err != nil {
+					return err
+				}
+				report = string(data)
+			}
+			request["outcome"], request["report"], path = args[3], report, "/v1/cycles/pickup"
+		}
+		body = request
 	case "ack":
 		through, err := strconv.ParseInt(args[0], 10, 64)
 		if err != nil {
