@@ -2,6 +2,7 @@ package core
 
 import (
 	"context"
+	"database/sql"
 	"net/http"
 	"net/url"
 	"strconv"
@@ -25,6 +26,8 @@ type roomsData struct {
 type roomPage struct {
 	Room       Room
 	Transcript RoomTranscript
+	// Deliveries holds each shown post's recipient rows by room sequence.
+	Deliveries map[int64][]RoomDelivery
 	Earlier    *int64
 	Later      *int64
 }
@@ -62,26 +65,32 @@ func (d *Daemon) roomsView(ctx context.Context, q url.Values) (roomsData, error)
 	if data.Open == nil {
 		return data, ErrInvalid
 	}
-	// Without after, the page shows the newest posts.
+	// Without after, the page shows the newest posts. The head, posts, recipient rows and
+	// their inbox states come from one read transaction; reading acknowledges nothing.
 	var after int64
-	if v := q.Get("after"); v != "" {
-		if after, err = strconv.ParseInt(v, 10, 64); err != nil || after < 0 {
+	explicit := q.Get("after") != ""
+	if explicit {
+		if after, err = strconv.ParseInt(q.Get("after"), 10, 64); err != nil || after < 0 {
 			return data, ErrInvalid
 		}
-	} else {
-		var head int64
-		if err := d.store.db.QueryRowContext(ctx, `SELECT post_head FROM rooms WHERE room_id=?`, id).Scan(&head); err != nil {
-			return data, err
-		}
-		after = max(0, head-dashboardRoomPage)
 	}
 	tx, err := d.store.db.BeginTx(ctx, nil)
 	if err != nil {
 		return data, err
 	}
 	defer tx.Rollback()
+	if !explicit {
+		if after, err = roomTailStart(ctx, tx, id); err != nil {
+			return data, err
+		}
+	}
 	if data.Open.Transcript, err = roomTranscript(ctx, tx, id, 0, after, dashboardRoomPage); err != nil {
 		return data, err
+	}
+	if posts := data.Open.Transcript.Posts; len(posts) > 0 {
+		if data.Open.Deliveries, err = roomDeliveries(ctx, tx, id, posts[0].Seq, posts[len(posts)-1].Seq); err != nil {
+			return data, err
+		}
 	}
 	if after > 0 {
 		earlier := max(0, after-dashboardRoomPage)
@@ -154,4 +163,32 @@ func roomTarget(id string) string {
 		return id
 	}
 	return "invalid"
+}
+
+// roomTailStart returns the sequence after which the newest page starts: the newest posts,
+// at most dashboardRoomPage of them and, past the first, about one MiB of bodies, as
+// roomTranscript then reads them in order.
+func roomTailStart(ctx context.Context, tx *sql.Tx, roomID string) (int64, error) {
+	var head int64
+	if err := tx.QueryRowContext(ctx, `SELECT post_head FROM rooms WHERE room_id=?`, roomID).Scan(&head); err != nil {
+		return 0, err
+	}
+	rows, err := tx.QueryContext(ctx, `SELECT seq,length(CAST(body AS BLOB)) FROM room_posts WHERE room_id=? ORDER BY seq DESC LIMIT ?`, roomID, dashboardRoomPage)
+	if err != nil {
+		return 0, err
+	}
+	defer rows.Close()
+	start, size, n := head, 0, 0
+	for rows.Next() {
+		var seq int64
+		var bytes int
+		if err := rows.Scan(&seq, &bytes); err != nil {
+			return 0, err
+		}
+		if n > 0 && size+bytes > 1<<20 {
+			break
+		}
+		start, size, n = seq-1, size+bytes, n+1
+	}
+	return start, rows.Err()
 }
