@@ -86,8 +86,10 @@ func TestContextFamilyPolicy(t *testing.T) {
 	if p := policyOf(t, s, "codex"); p.Threshold != stored || p.Mode != "handoff_cycle" {
 		t.Fatalf("concurrent changes: applied %+v, stored %d", p, stored)
 	}
-	// A restart reads the stored values; a value that is not valid keeps the default.
-	if _, err := s.db.Exec(`INSERT INTO settings(name,value,updated_at) VALUES ('context_mode_agy',1,1),('context_threshold_agy',50,1)`); err != nil {
+	// A restart reads the stored values; a value that is not valid keeps the default, also
+	// one that is not an integer, and it does not stop the store from opening.
+	if _, err := s.db.Exec(`INSERT INTO settings(name,value,updated_at) VALUES ('context_mode_agy',1,1),('context_threshold_agy',50,1),
+		('context_mode_grok',0,1),('context_threshold_grok','synthetic-not-an-integer',1),('context_mode_opencode',0.5,1),('context_threshold_opencode',75,1)`); err != nil {
 		t.Fatal(err)
 	}
 	s.db.Close()
@@ -99,8 +101,13 @@ func TestContextFamilyPolicy(t *testing.T) {
 	if p := policyOf(t, s, "claude"); p.Mode != "observe" || p.Threshold != 60 {
 		t.Fatalf("after restart: %+v", p)
 	}
-	if p := policyOf(t, s, "agy"); p.Mode != "observe" || p.Threshold != 75 || p.Error != "stored_value_invalid" {
-		t.Fatalf("invalid stored value: %+v", p)
+	for _, family := range []string{"agy", "grok", "opencode"} {
+		if p := policyOf(t, s, family); p.Mode != "observe" || p.Threshold != 75 || p.Error != "stored_value_invalid" {
+			t.Fatalf("invalid stored value: %+v", p)
+		}
+	}
+	if got := s.Settings(); got != DefaultSettings {
+		t.Fatalf("timing settings after invalid context values: %+v", got)
 	}
 }
 
@@ -182,7 +189,8 @@ func TestContextTriggerSelection(t *testing.T) {
 		"unknown limit":              {func(in *ContextTriggerInput) { in.Evidence.LimitTokens, in.Evidence.UsedTokens = nil, nil }, "context_counts_unavailable"},
 		"zero limit":                 {func(in *ContextTriggerInput) { in.Evidence.LimitTokens = int64p(0) }, "context_counts_invalid"},
 		"no epoch":                   {func(in *ContextTriggerInput) { in.Evidence.Epoch = "" }, "epoch_unverified"},
-		"future source":              {func(in *ContextTriggerInput) { in.Evidence.SourceAt = now + 61_000 }, "observation_future"},
+		"future source":              {func(in *ContextTriggerInput) { in.Evidence.SourceAt = now + 1 }, "observation_future"},
+		"future confirmation":        {func(in *ContextTriggerInput) { in.Evidence.ConfirmedAt = now + 1 }, "observation_future"},
 		"old usage confirmed lately": {func(in *ContextTriggerInput) { in.Evidence = evidence(90, 100, 2*time.Hour, time.Minute) }, "source_stale"},
 		"stale confirmation":         {func(in *ContextTriggerInput) { in.Evidence = evidence(90, 100, time.Minute, 91*time.Second) }, "confirmation_stale"},
 		"latched epoch":              {func(in *ContextTriggerInput) { in.LatchedEpoch = "synthetic-epoch" }, "already_selected_for_epoch"},
@@ -315,8 +323,8 @@ func TestDashboardContextPolicy(t *testing.T) {
 		t.Fatalf("enable: %s", got)
 	}
 	page := dashboardDo(t, d, "GET", "/dashboard/sessions", client.cookie, nil, nil)
-	if page.status != 200 || !strings.Contains(page.body, "handoff handoff_cycle at 80%, not enabled; not_enabled; source 0 s, confirmed 0 s ago") ||
-		!strings.Contains(page.body, "Enable handoff") || strings.Contains(page.body, "synthetic-private-epoch") {
+	if page.status != 200 || !strings.Contains(page.body, "handoff handoff_cycle at 80%, not enabled; cycle unavailable: no verified handoff cycle for this family yet; not_enabled; source 0 s, confirmed 0 s ago") ||
+		!strings.Contains(page.body, `<button type="submit" disabled title="No verified handoff cycle is available for this family yet.">Enable handoff</button>`) || strings.Contains(page.body, "synthetic-private-epoch") {
 		t.Fatalf("sessions page: %d %s", page.status, page.body)
 	}
 	settings := dashboardDo(t, d, "GET", "/dashboard/settings", client.cookie, nil, nil)

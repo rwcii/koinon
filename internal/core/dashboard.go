@@ -240,6 +240,7 @@ type contextRow struct {
 	Enable                ContextEnable
 	Mode                  string
 	Threshold             int64
+	Available             bool // a verified cycle adapter exists for the session's family
 	Eligible              bool
 	Reason                string
 	SourceAge, ConfirmAge int64 // seconds; -1 when unknown
@@ -254,9 +255,10 @@ func (s *Store) contextRowOf(session Session, enable ContextEnable, now int64) c
 	s.observed.mu.Lock()
 	latched := s.latches.latched(k, evidence, policy.Threshold)
 	s.observed.mu.Unlock()
+	available := contextCycleAvailable(session.Family)
 	eligible, reason := SelectContextTrigger(ContextTriggerInput{Active: session.State == "active", Enabled: enable.Enabled, Policy: policy,
-		CycleAvailable: contextCycleAvailable(session.Family), Evidence: evidence, Now: now, LatchedEpoch: latched})
-	row := contextRow{Enable: enable, Mode: policy.Mode, Threshold: policy.Threshold, Eligible: eligible, Reason: reason, SourceAge: -1, ConfirmAge: -1}
+		CycleAvailable: available, Evidence: evidence, Now: now, LatchedEpoch: latched})
+	row := contextRow{Enable: enable, Mode: policy.Mode, Threshold: policy.Threshold, Available: available, Eligible: eligible, Reason: reason, SourceAge: -1, ConfirmAge: -1}
 	if evidence.Found {
 		row.SourceAge, row.ConfirmAge = max(0, now-evidence.SourceAt)/1000, max(0, now-evidence.ConfirmedAt)/1000
 	}

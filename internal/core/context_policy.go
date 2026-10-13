@@ -100,19 +100,25 @@ func (s *Store) familyContextPolicy(family string) ContextFamilyPolicy {
 // loadContextPolicy reads the stored family values. A stored pair that is not valid keeps
 // the family's default and names the error.
 func (s *Store) loadContextPolicy(ctx context.Context) error {
-	stored := map[string]int64{}
+	stored, invalid := map[string]int64{}, map[string]bool{}
 	rows, err := s.db.QueryContext(ctx, `SELECT name,value FROM settings WHERE name LIKE 'context_%'`)
 	if err != nil {
 		return err
 	}
 	defer rows.Close()
 	for rows.Next() {
+		// The column accepts any SQLite value; one that is not an integer is invalid, not a
+		// failure to open the store.
 		var name string
-		var value int64
+		var value any
 		if err := rows.Scan(&name, &value); err != nil {
 			return err
 		}
-		stored[name] = value
+		if n, ok := value.(int64); ok {
+			stored[name] = n
+		} else {
+			invalid[name] = true
+		}
 	}
 	if err := rows.Err(); err != nil {
 		return err
@@ -122,7 +128,9 @@ func (s *Store) loadContextPolicy(ctx context.Context) error {
 		p := defaultContextPolicy(family)
 		modeValue, hasMode := stored["context_mode_"+family]
 		threshold, hasThreshold := stored["context_threshold_"+family]
-		if hasMode || hasThreshold {
+		if invalid["context_mode_"+family] || invalid["context_threshold_"+family] {
+			p.Error = "stored_value_invalid"
+		} else if hasMode || hasThreshold {
 			mode := ""
 			for name, value := range contextModeValues {
 				if value == modeValue {
@@ -344,7 +352,7 @@ func SelectContextTrigger(in ContextTriggerInput) (bool, string) {
 		return false, "context_counts_invalid"
 	case e.Epoch == "":
 		return false, "epoch_unverified"
-	case e.SourceAt > in.Now+60_000 || e.ConfirmedAt > in.Now+60_000:
+	case e.SourceAt > in.Now || e.ConfirmedAt > in.Now:
 		return false, "observation_future"
 	case in.Now-e.SourceAt > contextSourceMaxAge.Milliseconds():
 		return false, "source_stale"

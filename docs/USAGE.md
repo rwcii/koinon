@@ -358,9 +358,11 @@ The Settings page also sets each family's context handoff mode and threshold: Cl
 `handoff_cycle`, Codex `native_compaction` (its own compaction) and the others `observe`, at
 75 percent by default. These are defaults only: a session runs no handoff cycle until it is
 enabled on the Sessions page, and changing a family enables nothing. The Sessions page shows
-each session's mode, threshold, Enable and why it is or is not at its threshold, with the age
-of its context reading. Enabling is refused (`context_cycle_unavailable`) until the managed
-cycle is built and verified for that family; disabling always works.
+each session's mode, threshold, Enable, whether its family has a verified cycle, and why it is
+or is not at its threshold, with the age of its context reading. Enabling is refused
+(`context_cycle_unavailable`) and its button is inactive until the managed cycle is built and
+verified for that family; disabling always works. A stored mode or threshold that is not valid
+keeps the family default, and the Settings page names the error.
 
 A holder change retires and persistently fences the former holder. Registering again gives
 it its native peer name only; only **Make holder** lifts its fence. Address messages now

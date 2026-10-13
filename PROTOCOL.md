@@ -204,7 +204,8 @@ The trigger selection reads the session's state, Enable, family policy, cycle av
 and its stored context observation. It is eligible when used tokens reach the threshold
 percentage of a positive limit (equality and use above the limit included), the context
 source is at most 120 seconds old and its last confirmation at most 90 seconds old, and the
-observation's native epoch has not been selected already. Otherwise it names one reason:
+observation's native epoch has not been selected already. A source or confirmation time later
+than the daemon's clock is `observation_future`. Otherwise it names one reason:
 `session_inactive`, `mode_observe`, `mode_native_compaction`, `not_enabled`,
 `context_cycle_unavailable`, `context_unknown`, `context_counts_unavailable`,
 `context_counts_invalid`, `epoch_unverified`, `observation_future`, `source_stale`,
