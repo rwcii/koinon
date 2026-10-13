@@ -53,5 +53,7 @@ Gate B proposals; settled per-session Enable and terminal input remain unchanged
   guide's Managed cycle reporting section is reached by canonical pickup reconnect and
   the proven missing-skill bootstrap. D9 must show the model queried/reported its cycle.
 
-Accepted fixes await bounded review; unchanged reviewed content carries forward.
-Gate B and implementation remain pending.
+Bounded review passed at `b874f57157a78b6113184b76401dda6caef0867d`: F1 and F2 closed,
+peer and refusal verdicts passed. The [commit-bound evidence](https://github.com/rwcii/koinon/issues/196#issuecomment-6135869078)
+records the source clarification for inbox clear and the native reporting proof.
+Unchanged reviewed content carries forward. Gate B and implementation remain pending.
