@@ -5,6 +5,9 @@ into a dated release section when promoted to `main`.
 
 ## Unreleased
 
+- A macOS system-mode install after a desktop logout no longer stops at `observe_agent`
+  (#344): launchctl's error 125 for the user's GUI domain counts as no desktop login, as
+  `Could not find domain` does after a reboot, and the agent steps are skipped.
 - Wake-pass diagnostics (#335) report the error class, stage, time and bounded error-type
   details, including SQLite result codes, in health and daemon logs. A successful pass
   clears the current fault while retaining the last failure; repeated identical faults

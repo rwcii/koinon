@@ -321,6 +321,20 @@ func TestSystemWithoutGUIDomain(t *testing.T) {
 	if err := installSystem(s, f); err != nil {
 		t.Fatalf("upgrade without a gui domain: %v", err)
 	}
+	// After a desktop logout launchctl answers error 125 instead (#344): the same upgrade.
+	f.Calls, f.LoggedOut = nil, true
+	if err := installSystem(s, f); err != nil {
+		t.Fatalf("upgrade after a desktop logout: %v", err)
+	}
+	if got := strings.Join(calls(f, s), "\n"); strings.Contains(got, "disable") || strings.Contains(got, "bootout") || !strings.Contains(got, "kickstart") {
+		t.Fatalf("calls after a logout:\n%s", got)
+	}
+	// A first transition after a desktop logout skips the agent steps too.
+	s5, f5 := systemServices(t)
+	f5.NoDomain, f5.LoggedOut, f5.AgentLoaded = true, true, false
+	if err := installSystem(s5, f5); err != nil || !f5.SystemLoaded {
+		t.Fatalf("transition after a desktop logout: %v", err)
+	}
 	// A failure rolls back the system service and touches no agent.
 	s2, f2 := systemServices(t)
 	f2.NoDomain, f2.AgentLoaded, f2.Fail = true, false, "kickstart"
