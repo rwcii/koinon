@@ -5,6 +5,13 @@ into a dated release section when promoted to `main`.
 
 ## Unreleased
 
+- Decision verdicts (#206, chunk 02): the dashboard's Decisions page gives Approve and Decline
+  on decision items and Dismiss on fyi items, on the revision shown, with a snapshot of that
+  text. Each named agent gets a typed inbox message and a wake that names the verdict ID, and
+  reads `decision_pending`, `decision_get` and `decision_history` and acknowledges with
+  `decision_ack`. Approved work is closed with `decision_close`. Editing a decided item
+  reopens it. 30 days after archiving, records move to a monthly log file in the state
+  directory, and `decision_restore` brings one back; nothing is deleted. Schema 26.
 - Decision items (#206, chunk 01): agents create, edit, list and read items for the
   maintainer's decision board with `decision_create`, `decision_edit`, `decision_list` and
   `decision_get` (MCP, `POST /v1/decisions/*` and `koinon decision ... --as`). Lists are
