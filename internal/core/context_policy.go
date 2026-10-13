@@ -157,7 +157,13 @@ func (s *Store) SetContextPolicy(ctx context.Context, family, mode string, thres
 	}
 	s.settings.write.Lock()
 	defer s.settings.write.Unlock()
-	tx, err := s.begin(ctx, ordinary)
+	// A mode without the cycle cancels pending cycles: it is a control and may use the
+	// reserve, for its two bounded settings rows as well.
+	class := ordinary
+	if mode != ContextHandoffCycle {
+		class = control
+	}
+	tx, err := s.begin(ctx, class)
 	if err != nil {
 		return err
 	}
@@ -170,6 +176,13 @@ func (s *Store) SetContextPolicy(ctx context.Context, family, mode string, thres
 	}{{"context_mode_" + family, contextModeValues[mode]}, {"context_threshold_" + family, threshold}} {
 		if _, err := tx.ExecContext(ctx, `INSERT INTO settings(name,value,updated_at) VALUES (?,?,?)
 			ON CONFLICT(name) DO UPDATE SET value=excluded.value,updated_at=excluded.updated_at`, setting.name, setting.value, now); err != nil {
+			return tx.fail(err)
+		}
+	}
+	if mode != ContextHandoffCycle {
+		// A mode without the cycle cancels the family's pending cycles; a threshold change
+		// applies to the next request only.
+		if err := s.fenceCyclesTx(ctx, tx, "mode_changed", `family=?`, family); err != nil {
 			return tx.fail(err)
 		}
 	}
@@ -209,7 +222,12 @@ func (s *Store) SetContextEnable(ctx context.Context, peer string, sessionRevisi
 	if peer == "" || sessionRevision < 1 || ifRevision < 0 {
 		return ContextEnable{}, ErrInvalid
 	}
-	tx, err := s.begin(ctx, ordinary)
+	// Disabling ends a funded cycle, so it may use the reserve, as every cycle control does.
+	class := ordinary
+	if !enabled {
+		class = control
+	}
+	tx, err := s.begin(ctx, class)
 	if err != nil {
 		return ContextEnable{}, err
 	}
@@ -258,6 +276,12 @@ func (s *Store) SetContextEnable(ctx context.Context, peer string, sessionRevisi
 		return current, tx.Commit()
 	}
 	next := ContextEnable{Enabled: enabled, Revision: current.Revision + 1, UpdatedAt: now}
+	if !enabled {
+		// Disable fences the session's cycle at once, also one that is already waiting.
+		if err := s.fenceCyclesTx(ctx, tx, "disabled", `family=? AND session_id=?`, k.Family, k.ID); err != nil {
+			return current, tx.fail(err)
+		}
+	}
 	if _, err := tx.ExecContext(ctx, `INSERT INTO context_enables(family,session_id,enabled,revision,session_revision,address,host_pid,host_start,tmux_socket,tmux_pane,updated_at)
 		VALUES (?,?,?,?,?,?,?,?,?,?,?) ON CONFLICT(family,session_id) DO UPDATE SET enabled=excluded.enabled,revision=excluded.revision,
 		session_revision=excluded.session_revision,address=excluded.address,host_pid=excluded.host_pid,host_start=excluded.host_start,

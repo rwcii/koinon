@@ -259,6 +259,11 @@ func (s *Store) deleteSession(ctx context.Context, k Key, condition string, arg 
 		return false, err
 	}
 	defer tx.Rollback()
+	// A deleted session's unfinished cycle ends first, keeping its terminal evidence and
+	// releasing its credit (#196).
+	if err := s.fenceCyclesTx(ctx, tx, "session_deleted", `family=? AND (session_id=? OR successor_id=?)`, k.Family, k.ID, k.ID); err != nil {
+		return false, tx.fail(err)
+	}
 	result, err := tx.ExecContext(ctx, `DELETE FROM sessions AS s WHERE s.family=?2 AND s.id=?3 AND s.family!='maintainer'
 		AND `+condition+` AND NOT `+liveClaim+` AND NOT `+anyMessage, arg, k.Family, k.ID)
 	if err != nil {
@@ -456,6 +461,9 @@ func (s *Store) markPurge(ctx context.Context, k Key, revision int64, mark bool)
 		_, err = tx.ExecContext(ctx, `UPDATE sessions SET purge_at=?1,
 			retired_at=CASE WHEN retired_at=0 AND expires_at>?1 THEN ?1 ELSE retired_at END,revision=revision+1
 			WHERE family=?2 AND id=?3`, now, k.Family, k.ID)
+		if err == nil {
+			err = s.fenceCyclesTx(ctx, tx, "purged", `family=? AND (session_id=? OR successor_id=?)`, k.Family, k.ID, k.ID)
+		}
 	} else {
 		_, err = tx.ExecContext(ctx, `UPDATE sessions SET purge_at=0,revision=revision+1 WHERE family=? AND id=?`, k.Family, k.ID)
 	}

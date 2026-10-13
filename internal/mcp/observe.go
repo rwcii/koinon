@@ -536,3 +536,47 @@ func (r *rollout) event(line []byte) {
 		}
 	}
 }
+
+// cycleEpoch is the calling session's current native epoch for the own-cycle calls (#196):
+// for Claude, the transcript session that the registry record of this server's host
+// process names, with the host pinned at initialization; for Codex, the call's own
+// thread. Other families have none, and their calls are refused.
+func (s *server) cycleEpoch(caller core.Key) string {
+	switch caller.Family {
+	case "codex":
+		return caller.ID
+	case "claude":
+		return s.claudeTranscript()
+	}
+	return ""
+}
+
+// claudeTranscript reads the transcript session ID from the Claude Code registry record of
+// this server's parent process. /clear changes it; the host must be the one pinned at
+// initialization, never just a reused PID.
+func (s *server) claudeTranscript() string {
+	dir := s.home("CLAUDE_CONFIG_DIR", ".claude")
+	if dir == "" {
+		return ""
+	}
+	data, err := readOwned(filepath.Join(dir, "sessions", strconv.Itoa(s.c.ParentPID)+".json"), registryRecordMax)
+	if err != nil {
+		return ""
+	}
+	var record struct {
+		PID        int    `json:"pid"`
+		SessionID  string `json:"sessionId"`
+		Entrypoint string `json:"entrypoint"`
+	}
+	if json.Unmarshal(data, &record) != nil || record.PID != s.c.ParentPID || record.Entrypoint != "cli" {
+		return ""
+	}
+	s.mu.Lock()
+	start := s.claudeHostStart
+	s.mu.Unlock()
+	current, err := s.processStart(s.c.ParentPID)
+	if start <= 0 || err != nil || current != start {
+		return ""
+	}
+	return record.SessionID
+}

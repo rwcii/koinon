@@ -141,6 +141,8 @@ func Start(c Config) (*Daemon, error) {
 	d.wg.Add(1)
 	go d.maintainWake()
 	d.wg.Add(1)
+	go d.maintainCycles()
+	d.wg.Add(1)
 	go d.maintainWorkNotices()
 	for _, listener := range d.listeners {
 		server := &http.Server{Handler: d.handler(), ReadHeaderTimeout: 5 * time.Second, ReadTimeout: 10 * time.Second, WriteTimeout: 10 * time.Second, IdleTimeout: 30 * time.Second, MaxHeaderBytes: 8192}
@@ -416,6 +418,7 @@ func (d *Daemon) handler() http.Handler {
 	d.memoryRoutes(mux)
 	d.workRoutes(mux)
 	d.observationRoutes(mux)
+	d.cycleRoutes(mux)
 	d.libraryRoutes(mux)
 	d.roomRoutes(mux)
 	mux.HandleFunc("POST /v1/dashboard/links", func(w http.ResponseWriter, r *http.Request) {

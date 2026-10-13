@@ -290,7 +290,7 @@ func checkFormat(db *sql.DB, path string) error {
 	return nil
 }
 
-const schemaVersion = 22
+const schemaVersion = 23
 
 // workItemsV16Columns are the work item columns before schema 17, which its rebuild copies.
 const workItemsV16Columns = `store,work_id,revision,lifecycle,title,criteria,non_goals,proposed_assignee,created_at,created_consumer,
@@ -738,6 +738,17 @@ func migrate(db *sql.DB, version, target int) error {
 			return err
 		}
 	}
+	if version < 23 && target >= 23 {
+		// Version 23: managed context cycles (#196, chunk 02), their bounded event history,
+		// and the typed overwatch request metadata of a message. The 0/1 credit flag funds
+		// one terminal outcome (docs/CONTEXT-CYCLE-STORAGE.md); no index covers it.
+		if _, err := tx.Exec(contextCyclesTable + contextCycleEventsTable + `
+			ALTER TABLE messages ADD COLUMN system_kind TEXT NOT NULL DEFAULT '';
+			ALTER TABLE messages ADD COLUMN cycle_id TEXT NOT NULL DEFAULT '';
+			ALTER TABLE messages ADD COLUMN cycle_enable_revision INTEGER NOT NULL DEFAULT 0;`); err != nil {
+			return err
+		}
+	}
 	if _, err := tx.Exec(fmt.Sprintf("PRAGMA user_version=%d", target)); err != nil {
 		return err
 	}
@@ -1074,6 +1085,10 @@ func (s *Store) Mutate(ctx context.Context, r Mutation, retire bool) (Session, e
 	}
 	if retire {
 		_, err = tx.ExecContext(ctx, `UPDATE sessions SET retired_at=?,revision=revision+1 WHERE family=? AND id=?`, now, r.Family, r.ID)
+		if err == nil {
+			// A retired requester or successor ends its managed cycle (#196).
+			err = s.fenceCyclesTx(ctx, tx, "retired", `family=? AND (session_id=? OR successor_id=?)`, r.Family, r.ID, r.ID)
+		}
 	} else {
 		if current.Family != "deepseek" && !launched(current) {
 			// Retained pre-launch records become plain peers without losing their inbox,

@@ -244,6 +244,9 @@ type contextRow struct {
 	Eligible              bool
 	Reason                string
 	SourceAge, ConfirmAge int64 // seconds; -1 when unknown
+	// Managed is the session's current or newest managed cycle (#196, chunk 02), as its
+	// requester or successor: stage, deadline, reason and event history, no private value.
+	Managed *CycleView
 }
 
 // contextRowOf selects a session's trigger state from the stored policy and evidence. It
@@ -261,6 +264,16 @@ func (s *Store) contextRowOf(session Session, enable ContextEnable, now int64) c
 	row := contextRow{Enable: enable, Mode: policy.Mode, Threshold: policy.Threshold, Available: available, Eligible: eligible, Reason: reason, SourceAge: -1, ConfirmAge: -1}
 	if evidence.Found {
 		row.SourceAge, row.ConfirmAge = max(0, now-evidence.SourceAt)/1000, max(0, now-evidence.ConfirmedAt)/1000
+	}
+	if cycles, err := cyclesWhere(context.Background(), s.db, `family=? AND (session_id=? OR successor_id=?) ORDER BY created_at DESC LIMIT 1`,
+		session.Family, session.ID, session.ID); err == nil && len(cycles) > 0 {
+		role := "requester"
+		if cycles[0].SessionID != session.ID {
+			role = "successor"
+		}
+		if v, err := cycles[0].view(context.Background(), s.db, role); err == nil {
+			row.Managed = &v
+		}
 	}
 	return row
 }

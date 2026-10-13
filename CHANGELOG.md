@@ -5,6 +5,13 @@ into a dated release section when promoted to `main`.
 
 ## Unreleased
 
+- Managed context cycle contract (#196, chunk 02): schema 23 adds durable cycles with a
+  bounded event history and a funded terminal outcome, the typed request from the reserved
+  `overwatch` identity, the `context_cycle_status`, `context_cycle_ready` and
+  `context_cycle_pickup` tools (and DeepSeek `cycle-*` commands), handoff-file checks in the
+  main checkout, cycle fences on Disable, mode changes, retirement, purge and holder choice,
+  pane wake deferral, the Sessions page cycle history and the guide's Managed cycle reporting
+  section. No cycle adapter is registered yet, so Enable stays refused and no cycle runs.
 - Context policy (#196, chunk 01): the Settings page sets each family's context handoff mode
   and threshold, and the Sessions page shows each session's Enable switch and whether its
   fresh context reading reaches the threshold. Enabling is refused until the managed cycle is
