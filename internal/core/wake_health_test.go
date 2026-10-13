@@ -99,3 +99,33 @@ func TestWakeMaintenanceRecordsFailureThenSuccessfulPass(t *testing.T) {
 		t.Fatalf("maintenance health: %v %v", health, err)
 	}
 }
+
+func TestDashboardWakeHistorySurvivesRecovery(t *testing.T) {
+	s, _ := testStore(t)
+	d := &Daemon{store: s}
+	var ignored int
+	err := s.db.QueryRow(`SELECT * FROM synthetic_private_native_id`).Scan(&ignored)
+	d.recordWakePass(context.Background(), wakePassError{"list_due", err})
+	d.recordWakePass(context.Background(), nil)
+	wake, err := s.WakeHealth(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	var out strings.Builder
+	pages, err := dashboardTemplates()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := pages["health"].ExecuteTemplate(&out, "list", dashboardPage{Data: healthData{Wake: wake}}); err != nil {
+		t.Fatal(err)
+	}
+	page := out.String()
+	for _, want := range []string{"last fault", "sqlite_error", "list_due", "SQLite code 1"} {
+		if !strings.Contains(page, want) {
+			t.Fatalf("recovered health lacks %q", want)
+		}
+	}
+	if strings.Contains(page, "<strong>fault") || strings.Contains(page, "synthetic_private_native_id") {
+		t.Fatal("recovery page shows an active fault or raw error content")
+	}
+}
