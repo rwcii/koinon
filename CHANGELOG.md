@@ -5,6 +5,10 @@ into a dated release section when promoted to `main`.
 
 ## Unreleased
 
+- Room conversation view (#217, chunk 03): an open room on the Rooms page lists each post's
+  recipients as they were at the post, with the delivery state and acknowledgement of each
+  inbox copy, skipped inactive members, and `not retained` once a copy is deleted, plus the
+  retained floor. Viewing acknowledges nothing.
 - Room posts (#217, chunk 02): the maintainer posts to a room from its dashboard page, and
   members post with `room_post` or `koinon room post`. One write stores the ordered post, an
   inbox copy for each active member with typed `room` metadata (`seq`, `origin`

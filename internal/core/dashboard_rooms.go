@@ -25,6 +25,8 @@ type roomsData struct {
 type roomPage struct {
 	Room       Room
 	Transcript RoomTranscript
+	// Deliveries holds each shown post's recipient rows by room sequence.
+	Deliveries map[int64][]RoomDelivery
 	Earlier    *int64
 	Later      *int64
 }
@@ -62,26 +64,34 @@ func (d *Daemon) roomsView(ctx context.Context, q url.Values) (roomsData, error)
 	if data.Open == nil {
 		return data, ErrInvalid
 	}
-	// Without after, the page shows the newest posts.
+	// Without after, the page shows the newest posts. The head, posts, recipient rows and
+	// their inbox states come from one read transaction; reading acknowledges nothing.
 	var after int64
-	if v := q.Get("after"); v != "" {
-		if after, err = strconv.ParseInt(v, 10, 64); err != nil || after < 0 {
+	explicit := q.Get("after") != ""
+	if explicit {
+		if after, err = strconv.ParseInt(q.Get("after"), 10, 64); err != nil || after < 0 {
 			return data, ErrInvalid
 		}
-	} else {
-		var head int64
-		if err := d.store.db.QueryRowContext(ctx, `SELECT post_head FROM rooms WHERE room_id=?`, id).Scan(&head); err != nil {
-			return data, err
-		}
-		after = max(0, head-dashboardRoomPage)
 	}
 	tx, err := d.store.db.BeginTx(ctx, nil)
 	if err != nil {
 		return data, err
 	}
 	defer tx.Rollback()
+	if !explicit {
+		var head int64
+		if err := tx.QueryRowContext(ctx, `SELECT post_head FROM rooms WHERE room_id=?`, id).Scan(&head); err != nil {
+			return data, err
+		}
+		after = max(0, head-dashboardRoomPage)
+	}
 	if data.Open.Transcript, err = roomTranscript(ctx, tx, id, 0, after, dashboardRoomPage); err != nil {
 		return data, err
+	}
+	if posts := data.Open.Transcript.Posts; len(posts) > 0 {
+		if data.Open.Deliveries, err = roomDeliveries(ctx, tx, id, posts[0].Seq, posts[len(posts)-1].Seq); err != nil {
+			return data, err
+		}
 	}
 	if after > 0 {
 		earlier := max(0, after-dashboardRoomPage)

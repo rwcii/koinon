@@ -1,7 +1,10 @@
 {{define "list"}}{{with .Data.Open}}<h2>Room {{.Room.Name}}</h2>
 <p><small>room <code>{{.Room.ID}}</code>, posts up to {{.Transcript.Head}}. Agent posts: {{.Room.Allowance}} left of {{.Room.Refill}}.</small></p>
-{{if .Transcript.Posts}}<table><thead><tr><th>Seq</th><th>From</th><th>Time</th><th>Body</th></tr></thead><tbody>{{range .Transcript.Posts}}<tr>
+{{if .Transcript.Floor}}<p><small>Posts up to {{.Transcript.Floor}} are no longer retained.</small></p>{{end}}
+{{if .Transcript.Posts}}<table><thead><tr><th>Seq</th><th>From</th><th>Time</th><th>Body</th><th>Recipients</th></tr></thead><tbody>{{range .Transcript.Posts}}<tr>
 <td>{{.Seq}}</td><td>{{.SenderName}} <small>{{if eq .Origin "maintainer"}}maintainer{{else}}{{.SenderFamily}}, member{{end}}</small></td><td>{{ms .CreatedAt}}</td><td><pre class="body">{{.Body}}</pre></td>
+<td>{{range index $.Data.Open.Deliveries .Seq}}<div>{{.Label}} <small>{{.Family}}:
+{{if eq .Outcome "skipped"}}skipped ({{.Reason}}){{else if eq .Outcome "not_retained"}}not retained, acknowledgement unknown{{else}}{{.DeliveryState}}, {{if .Acknowledged}}acknowledged by {{.AcknowledgedBy}}{{else}}not acknowledged{{end}}{{end}}</small></div>{{else}}<small>none</small>{{end}}</td>
 </tr>{{end}}</tbody></table>{{else}}<p class="empty">No retained posts on this page.</p>{{end}}
 {{range .Transcript.Gaps}}<p><small>Posts {{.From}} to {{.To}} are no longer retained.</small></p>{{end}}
 <p>{{with .Earlier}}<a href="/dashboard/rooms?room={{$.Data.Open.Room.ID}}&amp;after={{.}}">Earlier posts</a> {{end}}{{with .Later}}<a href="/dashboard/rooms?room={{$.Data.Open.Room.ID}}&amp;after={{.}}">Later posts</a> {{end}}<a href="/dashboard/rooms">All rooms</a></p>{{end}}
