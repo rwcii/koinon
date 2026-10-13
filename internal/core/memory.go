@@ -14,6 +14,8 @@ import (
 	"strings"
 	"sync"
 	"unicode/utf8"
+
+	"github.com/rwcii/koinon/internal/library"
 )
 
 // Memory follows the protocol of PROTOCOL.md ("Memory stores") and
@@ -434,15 +436,23 @@ func (s *Store) expireMemory(ctx context.Context, repo string, reclaim bool) err
 	for {
 		removed := int64(0)
 		err := s.memoryExpiryStep(ctx, func(tx *writeTx) error {
-			rows, err := tx.QueryContext(ctx, `SELECT seq FROM memory_entries WHERE repository=? AND expires IS NOT NULL
+			rows, err := tx.QueryContext(ctx, `SELECT seq,type,body FROM memory_entries WHERE repository=? AND expires IS NOT NULL
 				AND expires<? ORDER BY seq LIMIT 200`, repo, now)
 			if err != nil {
 				return err
 			}
 			var seqs []int64
+			libraryFloor := int64(0)
 			for rows.Next() {
 				var seq int64
-				rows.Scan(&seq)
+				var kind, body string
+				if err := rows.Scan(&seq, &kind, &body); err != nil {
+					rows.Close()
+					return err
+				}
+				if kind == "decision" && libraryDecisionMarked(body) {
+					libraryFloor = max(libraryFloor, seq)
+				}
 				seqs = append(seqs, seq)
 			}
 			rows.Close()
@@ -455,7 +465,7 @@ func (s *Store) expireMemory(ctx context.Context, repo string, reclaim bool) err
 					return err
 				}
 			}
-			_, err = tx.ExecContext(ctx, `UPDATE memory_stores SET floor=MAX(floor,?) WHERE repository=?`, seqs[len(seqs)-1], repo)
+			_, err = tx.ExecContext(ctx, `UPDATE memory_stores SET floor=MAX(floor,?),library_floor=MAX(library_floor,?) WHERE repository=?`, seqs[len(seqs)-1], libraryFloor, repo)
 			return err
 		})
 		if err != nil {
@@ -605,6 +615,9 @@ func (s *Store) MemoryRecord(ctx context.Context, m MemoryCaller, r MemoryRecord
 		if result, found, err := s.duplicate(ctx, s.db, m, r, print); found || err != nil {
 			return result, err
 		}
+	}
+	if err := s.validateProjectDecision(ctx, m, r); err != nil {
+		return MemoryRecordResult{}, err
 	}
 	if err := s.maybeExpire(ctx, m.Repository); err != nil {
 		return MemoryRecordResult{}, err
@@ -1236,7 +1249,15 @@ func (s *Store) MemoryRecall(ctx context.Context, m MemoryCaller, query string, 
 	if page == nil {
 		page = []json.RawMessage{}
 	}
-	return map[string]any{"entries": page, "more": more, "indexed": false, "next_before": next}, nil
+	result := map[string]any{"entries": page, "more": more, "indexed": false, "next_before": next}
+	if query == library.DecisionMarker {
+		history, err := s.libraryReceiptHistory(ctx, m)
+		if err != nil {
+			return nil, err
+		}
+		result["library_history"] = history
+	}
+	return result, nil
 }
 
 // MemoryStatus reports the store's head, floor, usage, limits, lifetimes and consumers.
