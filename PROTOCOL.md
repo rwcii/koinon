@@ -415,10 +415,12 @@ hook as a child of its host process at the first turn of the thread that `/clear
 with `source: "clear"`; the hook registers that thread through its own launch and ancestors,
 writes nothing and always exits 0. A `clear` registration with the holder's host PID and
 start value succeeds at once with `host_cleared`, also within the guard: the host itself no
-longer shows the holder. Every other rule applies unchanged. Codex runs no hook at `/clear`
-itself, so until the new thread's first turn the cleared thread stays the holder (#275). On
-Linux a participant notice for a launched holder with a tmux pane is typed into that pane
-(see the Codex pane wake below), so it runs as the new thread's first turn.
+longer shows the holder. The hook has no terminal, so a cleared thread that registers without
+a pane keeps the holder's recorded tmux socket and pane (each wake proves it again). Every
+other rule applies unchanged. Codex runs no hook at `/clear` itself, so until the new thread's
+first turn the cleared thread stays the holder (#275). On Linux a participant notice for a
+launched holder with a tmux pane is typed into that pane (see the Codex pane wake below), so
+it runs as the new thread's first turn.
 
 The session and `peers` expose `succession: {result, reason, address, holder, at,
 retry_after_ms}` when present; `at` is daemon Unix milliseconds and `holder` is the former or
