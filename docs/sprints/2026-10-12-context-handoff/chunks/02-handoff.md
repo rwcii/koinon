@@ -48,3 +48,10 @@ private native ID or body. Audit quota/retention must not consume promised final
 Update PROTOCOL/USAGE/Unreleased and tool-purpose/family-guard contributor coverage. Use
 the full DoD publication gates, exact-head review and squash auto-merge. The next chunk
 depends on this merged contract, not an unpublished author checkout.
+
+Implement the shared wake/dashboard interaction: retire/purge/holder-change fencing,
+cancelled versus uncertain outcome and Enable ended, while inbox clear retains its
+acknowledgement semantics and the cycle query. Add the guide's Managed cycle reporting
+section in `internal/setup/guide.go`; MCP initialization and canonical pickup reconnect
+lead the model to that section. Its text names the own-cycle query and pickup report.
+Test these paths as D6/D9/D11 specify; no second skill prose is introduced.

@@ -37,3 +37,21 @@ remaining native cycle proof. The full technical specification and Gate B remain
 Bounded reconciliation review at `5793020`: one accepted source-attribution finding in the
 paragraph above. Fixed by linking the correction and requirement and quoting the actual
 words with their intent. The rest of the reviewed reconciliation carries forward.
+
+## Technical plan — frozen c99ef83
+
+Claude reviewed S1–S6 at `c99ef83e2be90dccae1f307d9a05ba5ffbe524c1` against `52ab15a`.
+Refusal review had no findings. New engineering values and compaction choices remain
+Gate B proposals; settled per-session Enable and terminal input remain unchanged.
+
+- F1, medium, accepted: serialize pane-typing wakes with clear/pickup, retain pending
+  delivery and map session-changing dashboard actions to fenced terminal outcomes with
+  Enable ended. D6/D11 now test these races. Source clarification: dashboard inbox clear
+  acknowledges messages, not native context; it preserves the cycle/query and cannot
+  report ready. The plan does not add a cancellation rule to that acknowledgement.
+- F2, low, accepted: name the receiving model's reporting instruction. The installed
+  guide's Managed cycle reporting section is reached by canonical pickup reconnect and
+  the proven missing-skill bootstrap. D9 must show the model queried/reported its cycle.
+
+Accepted fixes await bounded review; unchanged reviewed content carries forward.
+Gate B and implementation remain pending.

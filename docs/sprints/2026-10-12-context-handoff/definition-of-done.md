@@ -72,6 +72,21 @@ The test report states CLI version, OS, fixture and result. Preserve captures pr
 public evidence contains synthetic labels and the observations needed to judge the result.
 Service-manager tests remain in guarded disposable CI; native model tests are separate.
 
+## Reviewed interaction tests — D6, D9 and D11
+
+- D6: race a Grok-style pane-typing wake with clear and pickup under the shared host/pane
+  serializer. During ready through waiting_pickup, no notice text or Enter interleaves;
+  its inbox/wake record stays pending. Scheduling resumes after the cycle ends.
+- D9: both installed-skill and missing-skill native evidence show the cleared model read
+  the installed guide's Managed cycle reporting section, queried its own cycle and issued
+  the pickup report. Prove the guide reference survives the missing-skill bootstrap.
+- D11: race retire, purge and participant-holder choice against every active stage. End
+  Enable and cancel when all entered effects are reconciled; an unreceipted input makes
+  the outcome uncertain. Preserve terminal evidence/debt before purge removes its target.
+  The existing dashboard inbox clear only acknowledges that inbox: it neither cancels a
+  cycle nor supplies readiness. Its cleared request remains recoverable through the cycle
+  query. An unrelated native clear/epoch change ends the pinned cycle separately.
+
 ## Publication and review
 
 Each implementation chunk uses the repository's check and ship facts: signed human DCO,

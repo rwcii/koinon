@@ -63,11 +63,22 @@ cycle, never model-supplied shell text. Fixed command bytes come from the family
 
 ## Crash and dashboard behavior
 
+Native installed/missing-skill proof must show the cleared model reading the installed
+guide's Managed cycle reporting section, querying its cycle and issuing its pickup report.
+The missing-skill bootstrap supplies the same guide reference; prove model receipt rather
+than assuming the old MCP initialization text is reread.
+
 Inject crashes around literal text, Enter, native reset and receipt commits. On restart,
 inspect rather than replay pending intents. Proven native receipts may advance the same
 cycle; ambiguous output ends it as uncertain and retains the saved artifact metadata.
 No status refresh submits a native command. Serialize by exact host/pane so two callers,
 duplicate requests or overlapping roles cannot type into the same target concurrently.
+
+Include pane-typing wakes in that serialization. Defer their text/Enter from ready through
+waiting_pickup and retain pending delivery until the cycle ends. Race retire/purge/holder
+choice against each input stage; fence further input and apply the shared cancellation or
+uncertainty rule with Enable ended. Inbox clear stays an acknowledgement, and the own-cycle
+query remains available. Detect unrelated native clear by epoch, not that inbox action.
 
 Finish capability display and session Enable, family settings, live stage/history, source
 ages, missing-skill fallback indication, fixed reasons and prompt response UI. Existing
