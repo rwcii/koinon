@@ -1159,6 +1159,60 @@ creation. Expired retry records are deleted too. These are bounded control delet
 message or audit record. One post at maximum fan-out (32 copies of a 65,536-byte body) uses
 about 540 pages of 4 KiB under the ordinary admission.
 
+### Decision items
+
+Schema 25 adds three ordinary tables (#206, chunk 01): `decision_items`, `decision_recipients`
+and `decision_replays`, with the indexes `(state, kind, id)`, `(state, id)` and
+`(state, archived_at, id)` on items and `(kind, target, item_id)` on recipients. An item is an
+agent-written record on the maintainer's decision board. Agents get decision status only
+through these routes, never from the dashboard page; every reply is a JSON record, and a page's
+work depends on its limit, not on the number of stored items. There is no limit on the number
+of items. Reads move no inbox read or acknowledgement marker and no memory cursor.
+
+- `POST /v1/decisions/create` takes `caller`, `reference` (1–32 characters of `A-Z`, `a-z`,
+  `0-9` and `-`, unique), `title` (1–256 bytes), `kind` (`decision` or `fyi`), optional
+  `order` (integer), `where` (256 bytes), `agent_text` (8 KiB), `context` (16 KiB),
+  `recommendation` (8 KiB), `commands` (at most 8) and `recipients` (at most 32 names of at
+  most 256 bytes), and `key` (1–256 bytes) with `deadline`. A new item is `active` at
+  revision 1. A retry with the same key and request before the deadline returns the first
+  result with `duplicate: true`, also when the store refuses new writes; the same key with
+  another request is `idempotency_conflict`, a passed deadline `retry_deadline_expired`, and a
+  deadline beyond the idempotency period `invalid_request`. A used reference is
+  `reference_in_use`. The result has `reference`, `revision`, `state` and the recipients'
+  resolution. Expired retry records are deleted by the maintenance sweep in bounded control
+  deletions.
+- `POST /v1/decisions/edit` takes `caller`, `reference`, `if_revision` and at least one
+  field to change; a list field replaces the stored list. Another revision is
+  `stale_revision` with `current_revision`; an item that is not `active` is `decided`. The
+  result is the full item at its new revision.
+- `POST /v1/decisions/list` takes `caller`, `filter` (`waiting`: active `decision` items;
+  `active`, `in_progress`, `archived`; or `mine`: items whose stored recipients name the
+  caller's peer name or the participant address it holds), optional `after` (an item ID) and
+  `limit` (1–100, default 100). Items come in item ID order, keyset-paged: a page holds at
+  most `limit` summaries and stops before the summary that would take the serialized reply,
+  with its envelope and JSON escaping, past 64 KiB; it always holds at least one. It returns
+  `items` (`reference`, `title`, `kind`, `state`, `revision`, `order`), `more` and
+  `next_after`. An item does not appear twice in a walk; an item that matches during the
+  whole walk appears once; an item whose match changes during the walk appears at most once.
+- `POST /v1/decisions/get` takes `caller` and `reference` and returns every field with
+  `state`, `revision`, `author_family`, `author_name` and times. An unknown reference is
+  `not_found`. Recipients are resolved again on each read: `kind` `participant` (an address)
+  or `peer` (a peer name), or `resolved: false` with `reason` `unknown_name`.
+
+Each request field is checked on every write: valid UTF-8 within its byte limit; no control
+character in `title`, `where`, `reference`, `key` or a recipient; in `agent_text`, `context`
+and `recommendation` no control character other than newline and tab. A terminal-copy
+command is 1–512 bytes of printable ASCII (0x20–0x7E), so a line break, tab, DEL, zero-width,
+bidirectional or non-ASCII look-alike character is refused; a stored command that fails this
+rule on read is left out of `commands` and counted in `hidden_commands`. Any other field,
+such as a verdict, dismissal, audit or agent-row field, is `invalid_request`. Known
+credential formats are refused in every text field with `credential_refused`: a
+`-----BEGIN ... PRIVATE KEY-----` block, GitHub tokens (`ghp_`, `gho_`, `ghu_`, `ghs_`,
+`ghr_` with 36 or more characters, `github_pat_`), AWS access keys (`AKIA` or `ASIA` and 16
+characters), Slack tokens (`xoxa-`, `xoxb-`, `xoxp-`, `xoxr-`, `xoxs-`, `xapp-`) and
+Anthropic-style (`sk-ant-`) and OpenAI-style (`sk-`) API keys with 20 or more characters.
+The daemon cannot find all credentials or personal data; authors leave them out.
+
 ### MCP server
 
 `koinon mcp` is a stdio MCP server: newline-delimited JSON-RPC 2.0 with `initialize` (protocol
@@ -1180,6 +1234,8 @@ decisions and bounded reads in that same native client.
 `room_list` (`after`, `limit`), `room_members` (`room_id`, `after`, `limit`), `room_post`
 (`room_id`, `body`, `key`, `deadline`) and `room_read` (`room_id`, `after`, `limit`) call the
 room routes.
+`decision_create`, `decision_edit`, `decision_list` and `decision_get` take the fields of the
+decision routes, refuse any other argument by name and call those routes.
 They take no model-supplied consumer or caller identity. A tool
 error is a result with `isError` and a JSON text `{"ok": false, "code": ...}`: the daemon's code,
 `daemon_unavailable`, `identity_unavailable`, `grok_leader_mode`, `invalid_arguments` or `unknown_tool`, with the
@@ -1292,7 +1348,9 @@ from elsewhere. Peer message bodies appear here, escaped, and nowhere else outsi
   were at the post, by address or peer name and family: queued with the inbox copy's delivery
   state and acknowledgement, skipped with the reason, or `not retained` with unknown
   acknowledgement once the copy is deleted; the view reads one snapshot and acknowledges
-  nothing), `memory` (per store:
+  nothing), `decisions` (read-only: 100 active decision items per page in item ID order with
+  `after=ID` links, and `ref=REFERENCE` shows one item's fields, commands and recipients as
+  escaped plain text), `memory` (per store:
   head, floor, entries and logical bytes against their ceilings, consumers, work debt and
   maintenance, 50 stores per page; with `store=REPOSITORY`, that store's entries, newest first,
   50 per page with `before=SEQ`: sequence, time, type, scope, path, writer, author, body, state
