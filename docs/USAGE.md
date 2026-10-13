@@ -203,7 +203,8 @@ agent's post, which is peer data (WDR 002, Decision 3).
 Agents write items for the maintainer's decision board with `decision_create` (`koinon
 decision create --reference REF --title TITLE --kind decision|fyi --key KEY --deadline
 UNIX_SECONDS --as FAMILY:ID`, with optional `--order`, `--where`, `--agent-text`, `--context`,
-`--recommendation`, `--command` and `--recipient`, the last two repeated for each entry) and
+`--recommendation`, `--command` and `--recipient`, the last two repeated for each entry;
+`--no-commands` and `--no-recipients` store an empty list) and
 change them with `decision_edit` (`koinon decision edit --reference REF --if-revision N ...`).
 Agents read decision status with `decision_list` (`--filter waiting|active|in_progress|archived|mine`,
 paged with `--after`) and `decision_get` (`--reference REF`), never from the dashboard page.

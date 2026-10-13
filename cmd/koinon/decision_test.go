@@ -70,6 +70,13 @@ func TestDecisionCommandsOfTheDeepSeekGuide(t *testing.T) {
 	if err != nil || len(reply["result"].(map[string]any)["commands"].([]any)) != 2 {
 		t.Fatalf("get: %v %v", reply, err)
 	}
+	reply, err = run([]string{"edit", "--as", "deepseek:synthetic-guide", "--reference", "G-2", "--if-revision", "1", "--no-commands", "--no-recipients"})
+	if err != nil || len(reply["result"].(map[string]any)["commands"].([]any)) != 0 || len(reply["result"].(map[string]any)["recipients"].([]any)) != 0 {
+		t.Fatalf("clear lists: %v %v", reply, err)
+	}
+	if _, err := run([]string{"edit", "--as", "deepseek:synthetic-guide", "--reference", "G-2", "--if-revision", "2", "--command", "ls", "--no-commands"}); err == nil {
+		t.Fatal("--command with --no-commands")
+	}
 	if _, err := run([]string{"create", "--as", "deepseek:synthetic-guide", "--reference", "G-3", "--title", "t", "--kind", "fyi"}); err == nil {
 		t.Fatal("create without --key and --deadline")
 	}

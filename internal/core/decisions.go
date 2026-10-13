@@ -41,7 +41,9 @@ const (
 
 // Version 25: decision items and their recipients (#206, chunk 01). Every list reads one
 // index range in item ID order: (state, kind, id) for waiting, (state, id) for a state,
-// and (kind, target, item_id) for the caller's own items. (state, archived_at, id) serves
+// and (name, item_id) for the caller's own items. Peer names and addresses share one
+// namespace, so a recipient name names the caller exactly when it is the caller's peer name
+// or held address now, also when it did not resolve at the write. (state, archived_at, id) serves
 // the deep-archive sweep (chunk 02).
 const decisionTables = `
 	CREATE TABLE decision_items (
@@ -58,9 +60,9 @@ const decisionTables = `
 	CREATE INDEX decision_items_archive ON decision_items(state, archived_at, id);
 	CREATE TABLE decision_recipients (
 		item_id INTEGER NOT NULL, ordinal INTEGER NOT NULL, name TEXT NOT NULL,
-		kind TEXT NOT NULL CHECK (kind IN ('participant','peer','')), target TEXT NOT NULL,
-		reason TEXT NOT NULL, PRIMARY KEY (item_id, ordinal));
-	CREATE INDEX decision_recipients_target ON decision_recipients(kind, target, item_id);
+		kind TEXT NOT NULL CHECK (kind IN ('participant','peer','')), reason TEXT NOT NULL,
+		PRIMARY KEY (item_id, ordinal));
+	CREATE INDEX decision_recipients_name ON decision_recipients(name, item_id);
 	CREATE TABLE decision_replays (
 		family TEXT NOT NULL, caller_id TEXT NOT NULL, key TEXT NOT NULL,
 		fingerprint TEXT NOT NULL, deadline REAL NOT NULL, result TEXT NOT NULL,
@@ -337,12 +339,8 @@ func storeRecipients(ctx context.Context, tx *writeTx, id int64, recipients []De
 		return tx.fail(err)
 	}
 	for i, r := range recipients {
-		target := ""
-		if r.Resolved {
-			target = r.Name
-		}
-		if _, err := tx.ExecContext(ctx, `INSERT INTO decision_recipients(item_id,ordinal,name,kind,target,reason) VALUES (?,?,?,?,?,?)`,
-			id, i, r.Name, r.Kind, target, r.Reason); err != nil {
+		if _, err := tx.ExecContext(ctx, `INSERT INTO decision_recipients(item_id,ordinal,name,kind,reason) VALUES (?,?,?,?,?)`,
+			id, i, r.Name, r.Kind, r.Reason); err != nil {
 			return tx.fail(err)
 		}
 	}
@@ -667,7 +665,7 @@ func (s *Store) DecisionList(ctx context.Context, caller Key, filter string, aft
 	if err := active(ctx, tx, now, caller); err != nil {
 		return DecisionPage{}, err
 	}
-	var targets [][2]string
+	var targets []string
 	if filter == "mine" {
 		peer, err := peerOf(ctx, tx, caller.Family, caller.ID)
 		if err != nil {
@@ -677,11 +675,10 @@ func (s *Store) DecisionList(ctx context.Context, caller Key, filter string, aft
 		if err != nil {
 			return DecisionPage{}, err
 		}
-		if peer != "" {
-			targets = append(targets, [2]string{"peer", peer})
-		}
-		if address != "" {
-			targets = append(targets, [2]string{"participant", address})
+		for _, name := range []string{peer, address} {
+			if name != "" {
+				targets = append(targets, name)
+			}
 		}
 	}
 	return decisionPage(ctx, tx, filter, targets, after, limit)
@@ -690,7 +687,7 @@ func (s *Store) DecisionList(ctx context.Context, caller Key, filter string, aft
 // decisionPage reads one index range in item ID order. The page stops at limit items or
 // before the summary that would take the serialized reply past decisionPageBytes, and
 // always holds at least one summary.
-func decisionPage(ctx context.Context, q querier, filter string, targets [][2]string, after int64, limit int) (DecisionPage, error) {
+func decisionPage(ctx context.Context, q querier, filter string, targets []string, after int64, limit int) (DecisionPage, error) {
 	if limit <= 0 || limit > decisionPageItems {
 		limit = decisionPageItems
 	}
@@ -699,8 +696,9 @@ func decisionPage(ctx context.Context, q querier, filter string, targets [][2]st
 	if filter == "mine" {
 		seen := map[int64]bool{}
 		for _, t := range targets {
-			rows, err := q.QueryContext(ctx, `SELECT item_id FROM decision_recipients WHERE kind=? AND target=? AND item_id>?
-				ORDER BY item_id LIMIT ?`, t[0], t[1], after, limit+1)
+			// DISTINCT: an item may name the caller more than once.
+			rows, err := q.QueryContext(ctx, `SELECT DISTINCT item_id FROM decision_recipients WHERE name=? AND item_id>?
+				ORDER BY item_id LIMIT ?`, t, after, limit+1)
 			if err != nil {
 				return DecisionPage{}, err
 			}

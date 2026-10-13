@@ -239,7 +239,7 @@ const usage = `Usage: koinon install [--prefix DIR] [--state-dir DIR] [--agent F
        koinon room members ROOM_ID --as FAMILY:ID [--after ORDINAL] [--limit N]
        koinon room post ROOM_ID BODY --as FAMILY:ID --key KEY --deadline UNIX_SECONDS
        koinon room read ROOM_ID --as FAMILY:ID [--after SEQ] [--limit N]
-       koinon decision create --as FAMILY:ID --reference REF --title TITLE --kind decision|fyi --key KEY --deadline UNIX_SECONDS [--order N] [--where TEXT] [--agent-text TEXT] [--context TEXT] [--recommendation TEXT] [--command CMD]... [--recipient NAME]...
+       koinon decision create --as FAMILY:ID --reference REF --title TITLE --kind decision|fyi --key KEY --deadline UNIX_SECONDS [--order N] [--where TEXT] [--agent-text TEXT] [--context TEXT] [--recommendation TEXT] [--command CMD]... [--recipient NAME]... [--no-commands] [--no-recipients]
        koinon decision edit --as FAMILY:ID --reference REF --if-revision N [field flags as for create]
        koinon decision list --as FAMILY:ID --filter waiting|active|in_progress|archived|mine [--after ID] [--limit N]
        koinon decision get --as FAMILY:ID --reference REF

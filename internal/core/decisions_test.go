@@ -247,8 +247,44 @@ func TestDecisionRecipientsAndMine(t *testing.T) {
 	if err != nil || got.Recipients[0].Kind != "participant" {
 		t.Fatalf("participant: %+v %v", got.Recipients, err)
 	}
+	// An item that names the caller several times is one row of mine, and the page after it
+	// is still reached.
+	mustCreate(t, s, callerOther, "P-5", DecisionFields{Title: ptr("Named three times"), Kind: ptr("decision"), Recipients: &[]string{holder.Name, holder.Name, holder.Alias}})
+	var walked []string
+	for after := int64(0); ; {
+		page, err := s.DecisionList(ctx, callerHolder, "mine", after, 1)
+		if err != nil {
+			t.Fatal(err)
+		}
+		for _, item := range page.Items {
+			walked = append(walked, item.Reference)
+		}
+		if !page.More {
+			break
+		}
+		after = *page.NextAfter
+	}
+	if strings.Join(walked, ",") != "P-1,P-2,P-5" {
+		t.Fatalf("mine walk: %v", walked)
+	}
+	// A name that resolves only after the write still names its holder in mine.
+	later := testRepo(t)
+	address := AddressBase("codex", later, later, "rx")
+	mustCreate(t, s, callerOther, "P-6", DecisionFields{Title: ptr("Before registration"), Kind: ptr("decision"), Recipients: &[]string{address}})
+	created, err := s.DecisionGet(ctx, callerOther, "P-6")
+	if err != nil || created.Recipients[0].Resolved {
+		t.Fatalf("unregistered recipient: %+v %v", created.Recipients, err)
+	}
+	newcomer := joinAs(t, s, "codex", "synthetic-decision-newcomer", later, "rx")
+	if newcomer.Alias != address {
+		t.Fatalf("address %q, want %q", newcomer.Alias, address)
+	}
+	mine, err = s.DecisionList(ctx, Key{"codex", newcomer.ID}, "mine", 0, 0)
+	if err != nil || len(mine.Items) != 1 || mine.Items[0].Reference != "P-6" {
+		t.Fatalf("mine after registration: %+v %v", mine, err)
+	}
 	waiting, err := s.DecisionList(ctx, callerHolder, "waiting", 0, 0)
-	if err != nil || len(waiting.Items) != 3 {
+	if err != nil || len(waiting.Items) != 5 {
 		t.Fatalf("waiting excludes fyi: %+v %v", waiting, err)
 	}
 	// A stored command that fails the rule on read is hidden.
@@ -323,7 +359,7 @@ func TestDecisionListBoundedAtScale(t *testing.T) {
 			fmt.Sprintf("S-%d", i), i, title, []string{"decision", "fyi"}[i%2], states[i%3]); err != nil {
 			t.Fatal(err)
 		}
-		if _, err := tx.Exec(`INSERT INTO decision_recipients(item_id,ordinal,name,kind,target,reason) VALUES (?,0,?,'peer',?,'')`, i, session.Name, session.Name); err != nil {
+		if _, err := tx.Exec(`INSERT INTO decision_recipients(item_id,ordinal,name,kind,reason) VALUES (?,0,?,'peer','')`, i, session.Name); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -346,7 +382,7 @@ func TestDecisionListBoundedAtScale(t *testing.T) {
 	plans := map[string]string{
 		"waiting": `SELECT id FROM decision_items WHERE state='active' AND kind='decision' AND id>0 ORDER BY id LIMIT 101`,
 		"state":   `SELECT id FROM decision_items WHERE state='archived' AND id>0 ORDER BY id LIMIT 101`,
-		"mine":    `SELECT item_id FROM decision_recipients WHERE kind='peer' AND target='x' AND item_id>0 ORDER BY item_id LIMIT 101`,
+		"mine":    `SELECT DISTINCT item_id FROM decision_recipients WHERE name='x' AND item_id>0 ORDER BY item_id LIMIT 101`,
 	}
 	for name, query := range plans {
 		rows, err := s.db.Query(`EXPLAIN QUERY PLAN ` + query)

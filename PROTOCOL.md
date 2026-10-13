@@ -1163,7 +1163,7 @@ about 540 pages of 4 KiB under the ordinary admission.
 
 Schema 25 adds three ordinary tables (#206, chunk 01): `decision_items`, `decision_recipients`
 and `decision_replays`, with the indexes `(state, kind, id)`, `(state, id)` and
-`(state, archived_at, id)` on items and `(kind, target, item_id)` on recipients. An item is an
+`(state, archived_at, id)` on items and `(name, item_id)` on recipients. An item is an
 agent-written record on the maintainer's decision board. Agents get decision status only
 through these routes, never from the dashboard page; every reply is a JSON record, and a page's
 work depends on its limit, not on the number of stored items. There is no limit on the number
@@ -1186,8 +1186,9 @@ of items. Reads move no inbox read or acknowledgement marker and no memory curso
   `stale_revision` with `current_revision`; an item that is not `active` is `decided`. The
   result is the full item at its new revision.
 - `POST /v1/decisions/list` takes `caller`, `filter` (`waiting`: active `decision` items;
-  `active`, `in_progress`, `archived`; or `mine`: items whose stored recipients name the
-  caller's peer name or the participant address it holds), optional `after` (an item ID) and
+  `active`, `in_progress`, `archived`; or `mine`: items with a recipient name that is now the
+  caller's peer name or the participant address it holds, also when the name did not resolve
+  at the write), optional `after` (an item ID) and
   `limit` (1–100, default 100). Items come in item ID order, keyset-paged: a page holds at
   most `limit` summaries and stops before the summary that would take the serialized reply,
   with its envelope and JSON escaping, past 64 KiB; it always holds at least one. It returns

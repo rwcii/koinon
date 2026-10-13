@@ -43,6 +43,8 @@ func decisionCommand(ctx context.Context, args []string, out io.Writer) error {
 		}
 		flags.Var(&commands, "command", "terminal-copy command (repeat for each)")
 		flags.Var(&recipients, "recipient", "participant address or peer name (repeat for each)")
+		flags.Bool("no-commands", false, "store an empty command list")
+		flags.Bool("no-recipients", false, "store an empty recipient list")
 		if op == "create" {
 			text("key", "idempotency key, fixed before the first attempt")
 			deadline = flags.Float64("deadline", 0, "retry deadline in Unix seconds, at most 24 hours ahead")
@@ -79,11 +81,14 @@ func decisionCommand(ctx context.Context, args []string, out io.Writer) error {
 			body[strings.ReplaceAll(name, "-", "_")] = *value
 		}
 	}
-	if set["command"] {
-		body["commands"] = []string(commands)
+	if set["command"] && set["no-commands"] || set["recipient"] && set["no-recipients"] {
+		return usageError{"invalid_request", "use --command or --no-commands, and --recipient or --no-recipients, not both"}
 	}
-	if set["recipient"] {
-		body["recipients"] = []string(recipients)
+	if set["command"] || set["no-commands"] {
+		body["commands"] = append([]string{}, commands...)
+	}
+	if set["recipient"] || set["no-recipients"] {
+		body["recipients"] = append([]string{}, recipients...)
 	}
 	switch op {
 	case "create":
