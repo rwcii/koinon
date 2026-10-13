@@ -65,7 +65,7 @@ built because a specification names it.
 | Antigravity | No admitted context source | Show context-source unavailable; no cycle support claim. |
 | OpenCode | No admitted context source | Show context-source unavailable; no cycle support claim. |
 | Grok | No admitted context source; leader support separately tracked by #329 | Show context-source unavailable; no cycle support claim. |
-| DeepSeek | No admitted context source; live wake proof pending #199 | Show the missing source/proof; command identity continues to guard its existing tools. |
+| DeepSeek | No admitted context source; live wake proven under #199 | Show the missing source/proof; command identity continues to guard its existing tools. |
 
 Native cases run in dedicated temporary repositories and private tmux sessions with the
 installed family's normal permissions. Never reset an ongoing work session for a test.
