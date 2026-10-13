@@ -123,8 +123,9 @@ it was recorded: loaded or not, enabled or disabled. The error names the step
 (`system_step_failed: STEP`). When the restore fails too, the error lists the `sudo` commands that
 finish it (`rollback_failed`).
 
-Without a desktop login, for example after a reboot, the user has no `gui/<uid>` domain:
-no agent runs, and `launchctl` refuses every command on that domain. The install then skips
+Without a desktop login, after a reboot or a desktop logout, the user has no `gui/<uid>`
+domain: no agent runs, and `launchctl` refuses every command on that domain (`Could not find
+domain` after a reboot, error 125 after a logout). The install then skips
 the agent steps and removes the agent plist that it wrote, so nothing starts at the next login.
 It refuses an agent plist with the daemon's label that it did not write, because that one would
 start then.

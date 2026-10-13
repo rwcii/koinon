@@ -248,13 +248,16 @@ func (s Services) reconcileSystem(ctx context.Context, in SystemInstall, staged 
 // gui/<uid> domain: no agent runs, and launchctl refuses every command on that domain.
 type agentState struct{ loaded, disabled, noDomain bool }
 
-// guiDomain reports whether the user's gui/<uid> domain exists.
+// guiDomain reports whether the user's gui/<uid> domain exists. launchctl answers "Could not
+// find domain" (exit 112) after a boot without a desktop login, and error 125 "Domain does not
+// support specified action" after a desktop logout (#344); root sees both only without a
+// console login.
 func (s Services) guiDomain(ctx context.Context) (bool, error) {
 	out, err := s.sudo(ctx, "launchctl", "print", s.domain())
 	switch {
 	case err == nil:
 		return true, nil
-	case strings.Contains(string(out), "Could not find domain"):
+	case strings.Contains(string(out), "Could not find domain"), strings.Contains(string(out), "Domain does not support specified action"):
 		return false, nil
 	}
 	return false, stepError("observe_agent", out, err)

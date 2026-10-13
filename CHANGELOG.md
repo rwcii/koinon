@@ -5,6 +5,9 @@ into a dated release section when promoted to `main`.
 
 ## Unreleased
 
+- A macOS system-mode install after a desktop logout no longer stops at `observe_agent`
+  (#344): launchctl's error 125 for the user's GUI domain counts as no desktop login, as
+  `Could not find domain` does after a reboot, and the agent steps are skipped.
 - Installer failure reports (#342) have `ok: false` while retaining completed-step details.
   macOS installation checks an existing log directory before replacing the binary or
   link, and creates a missing directory during the system step.
