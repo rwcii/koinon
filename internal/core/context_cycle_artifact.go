@@ -59,8 +59,11 @@ func (s *Store) verifyArtifact(ctx context.Context, c cycleRow, name string) (ar
 	if st, ok := info.Sys().(*syscall.Stat_t); ok {
 		file.dev, file.ino = int64(st.Dev), int64(st.Ino)
 	}
-	if c.Artifact == name && c.ArtifactIno != 0 && (file.dev != c.ArtifactDev || file.ino != c.ArtifactIno) {
-		return artifactFile{}, ErrCycleArtifact // replaced since ready: a new ready check is needed
+	// The recorded identity is the device, inode, size and modification time: a file
+	// replaced under a reused inode, or rewritten in place, changes it.
+	if c.Artifact == name && c.ArtifactIno != 0 && (file.dev != c.ArtifactDev || file.ino != c.ArtifactIno ||
+		file.size != c.ArtifactSize || file.mtime != c.ArtifactMtime) {
+		return artifactFile{}, ErrCycleArtifact // changed since ready: a new ready check is needed
 	}
 	if !gitIgnored(ctx, main, relative) || gitTracks(ctx, main, filepath.Join("_handoff", agent)) {
 		return artifactFile{}, ErrCycleArtifact

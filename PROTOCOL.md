@@ -264,7 +264,8 @@ caller, epoch, host, pane, socket or another session.
   timestamped name of at most 128 bytes, a regular file of 1 byte to 1 MiB modified after the
   request, ignored by Git, in a directory where Git tracks nothing. The main checkout is the
   first worktree that Git lists for the registered common directory. The daemon reads only
-  the file's metadata, through a root opened at the main checkout, and keeps its inode. The
+  the file's metadata, through a root opened at the main checkout, and keeps its device, inode,
+  size and modification time; a change to any of them is a changed file. The
   registered directory must itself be a worktree that Git lists.
 - `POST /v1/cycles/pickup` (`context_cycle_pickup`) takes `cycle_id`, `revision`, the same file
   name, `outcome` `resumed` or `paused` and a `report` of 1 to 1,024 UTF-8 bytes. A

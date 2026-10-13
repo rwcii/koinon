@@ -184,14 +184,31 @@ func TestContextCycleArtifactRecheckedBeforeInput(t *testing.T) {
 	if v = f.status(t, f.k); v.State != cycleClearReceived {
 		t.Fatalf("after a new ready: %+v", v)
 	}
-	// A replaced file fails the identical ready retry.
-	g := newCycleFixture(t)
-	ready, name = g.readyCycle(t)
-	path = filepath.Join(g.repo, "_handoff", "claude", name)
-	os.Remove(path)
-	g.handoff(t, "claude", name, "synthetic replacement")
-	if _, err := g.s.ContextCycleReady(context.Background(), g.k, "synthetic-epoch-1", ready.ID, ready.Revision-1, name); !errors.Is(err, ErrCycleArtifact) {
-		t.Fatalf("retry over a replaced file: %v", err)
+	// A replacement under a new inode (the original kept elsewhere, so the inode cannot be
+	// reused, with content of the same size), a replacement that may reuse the inode, and
+	// a rewrite in place under the same inode all fail the identical ready retry.
+	for _, replace := range []func(t *testing.T, path string){
+		func(t *testing.T, path string) {
+			before, _ := os.Stat(path)
+			os.Rename(path, path+".kept")
+			os.WriteFile(path, []byte("synthetic HANDOFF"), 0o600)
+			after, _ := os.Stat(path)
+			if before.Size() != after.Size() || os.SameFile(before, after) {
+				t.Fatal("the fixture did not replace the inode at the same size")
+			}
+		},
+		func(t *testing.T, path string) {
+			os.Remove(path)
+			os.WriteFile(path, []byte("synthetic replacement"), 0o600)
+		},
+		func(t *testing.T, path string) { os.WriteFile(path, []byte("synthetic rewritten in place"), 0o600) },
+	} {
+		g := newCycleFixture(t)
+		ready, name := g.readyCycle(t)
+		replace(t, filepath.Join(g.repo, "_handoff", "claude", name))
+		if _, err := g.s.ContextCycleReady(context.Background(), g.k, "synthetic-epoch-1", ready.ID, ready.Revision-1, name); !errors.Is(err, ErrCycleArtifact) {
+			t.Fatalf("retry over a changed file: %v", err)
+		}
 	}
 	// After the clear, a changed handoff fails the cycle before the pickup input.
 	h := newCycleFixture(t)
