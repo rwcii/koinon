@@ -24,3 +24,56 @@ verdict is the maintainer's instruction and approval, without a new human-presen
 The original human-only verdict, frozen text, durable delivery, archive and waiting-query
 requirements carry forward. Technical mechanisms remain to be specified and reviewed;
 this reconciliation adds no board runtime, schema or external publication.
+
+## Gate A and plan, 2026-10-13
+
+The maintainer approved `decision.md` with a correction to criterion 4 (a change to decided
+text reopens the item for a new verdict; the record keeps the history) and the requirement
+that agents query stored records, never the page
+([#206 comment 6148016252](https://github.com/rwcii/koinon/issues/206#issuecomment-6148016252),
+[6148194337](https://github.com/rwcii/koinon/issues/206#issuecomment-6148194337)). Criteria 4
+and 10 and PDR 007 Decisions 2 and 4 record both. Claude and Codex agreed the plan criteria
+before these edits. The definition of done, `sprint.md` and chunks 01–03 wait for Codex's frozen review.
+
+## Plan review 1823064, 2026-10-13
+
+Codex requested changes ([#206 comment 6149542089](https://github.com/rwcii/koinon/issues/206#issuecomment-6149542089)).
+Claude accepted all four findings and the refusal note:
+
+- F1: `decision_history` pages verdict history; lists page on the immutable item ID, with
+  the stated walk result and the `mine` index.
+- F2: a reopen does not cancel an unacknowledged delivery. Nothing deletes decision records
+  automatically; a 64 MiB text bound and the item bound refuse new writes instead.
+- F3: acknowledgement is an ordinary write, refused visibly when the ordinary band is full.
+- F4: a wake whose range holds verdict messages names their verdict IDs.
+- Refusal note: the HTML rule covers decision-status retrieval only.
+
+Bounded review of f66be95: Codex accepted the F2–F4 and refusal-note fixes. One F1 case
+remained: a maximum-size verdict serialized with JSON escaping passed the 64 KiB history
+page. Claude accepted it: page limits count the serialized reply, the history page is
+256 KiB, and a test reads the largest possible record in a page.
+
+## Gate B request at 22aa63c, 2026-10-13
+
+The maintainer did not give Gate B. The plan refused new items and verdicts at fixed
+decision bounds; the maintainer requires a board that does not fail at a fixed limit, with
+the lifecycle active, in progress, archive and deep archive, where nothing is deleted
+([#206 comment 6150321526](https://github.com/rwcii/koinon/issues/206#issuecomment-6150321526),
+states in [6150362521](https://github.com/rwcii/koinon/issues/206#issuecomment-6150362521)).
+The plan now removes the item and text bounds, adds `decision_close`, the deep-archive log
+file with crash-safe moves, and `decision_restore`. Criteria 2, 5 and 9 and PDR 007
+Decision 1 record the lifecycle.
+
+Bounded review of 54a5e2a ([#206 comment 6150459141](https://github.com/rwcii/koinon/issues/206#issuecomment-6150459141)):
+the state transitions and the removal of fixed limits pass. Claude accepted all three
+findings: L1, the move now checks the marked revision and state before the delete, and a
+partial line gets a newline instead of a rewrite; L2, a locator row keeps a moved reference
+reserved and answers `decision_get` without reading the log; L3, skipped deliveries are
+final and do not hold an item in the archive.
+
+## Gate B, 2026-10-13
+
+Codex's bounded review of b3a6535 passed with no remaining findings
+([#206 comment 6150523140](https://github.com/rwcii/koinon/issues/206#issuecomment-6150523140)).
+The maintainer approved the plan at b3a6535
+([#206 comment 6150911355](https://github.com/rwcii/koinon/issues/206#issuecomment-6150911355)).
