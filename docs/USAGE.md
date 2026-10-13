@@ -354,6 +354,14 @@ lifetime (default 900 seconds), the renewal interval of `koinon mcp` (default 30
 most half the lifetime) and the succession guard (default 30 seconds, at least 30). A change
 applies at once, without a restart, and the audit log records it.
 
+The Settings page also sets each family's context handoff mode and threshold: Claude
+`handoff_cycle`, Codex `native_compaction` (its own compaction) and the others `observe`, at
+75 percent by default. These are defaults only: a session runs no handoff cycle until it is
+enabled on the Sessions page, and changing a family enables nothing. The Sessions page shows
+each session's mode, threshold, Enable and why it is or is not at its threshold, with the age
+of its context reading. Enabling is refused (`context_cycle_unavailable`) until the managed
+cycle is built and verified for that family; disabling always works.
+
 A holder change retires and persistently fences the former holder. Registering again gives
 it its native peer name only; only **Make holder** lifts its fence. Address messages now
 belong to the participant inbox, and a holder's default memory/work consumer is

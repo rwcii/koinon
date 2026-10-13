@@ -5,6 +5,11 @@ into a dated release section when promoted to `main`.
 
 ## Unreleased
 
+- Context policy (#196, chunk 01): the Settings page sets each family's context handoff mode
+  and threshold, and the Sessions page shows each session's Enable switch and whether its
+  fresh context reading reaches the threshold. Enabling is refused until the managed cycle is
+  available; family changes enable nothing. Claude and Codex context reports carry their
+  native transcript or thread, kept private. The state database moves to schema 22.
 - Room conversation view (#217, chunk 03): an open room on the Rooms page lists each post's
   recipients as they were at the post, with the delivery state and acknowledgement of each
   inbox copy, skipped inactive members, and `not retained` once a copy is deleted, plus the

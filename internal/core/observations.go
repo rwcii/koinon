@@ -69,6 +69,9 @@ type ObservedValue struct {
 	LimitTokens    *int64 `json:"limit_tokens,omitempty"`
 	UsedTokens     *int64 `json:"used_tokens,omitempty"`
 	UsageAvailable *bool  `json:"usage_available,omitempty"`
+	// Epoch is the native session of a context value: the Claude transcript or the Codex
+	// thread that the reporter read (#196). The store keeps it private; no view shows it.
+	Epoch string `json:"epoch,omitempty"`
 	// activity. TurnError is the fixed code of a failed Codex turn on an idle activity (#250).
 	State     string `json:"state,omitempty"`
 	TurnError string `json:"turn_error,omitempty"`
@@ -100,7 +103,8 @@ type Observation struct {
 // separate from the time its source recorded it.
 type storedValue struct {
 	ObservedValue
-	seen int64
+	seen  int64
+	epoch string
 }
 
 // Freshness windows: a value that no report confirmed within its window is shown as
@@ -132,6 +136,7 @@ var (
 	tmuxSession  = regexp.MustCompile(`^[^\x00-\x1f\x7f]{1,128}$`)
 	namingTarget = regexp.MustCompile(`^[a-z0-9][a-z0-9-]{0,127}$`)
 	maxSafeInt   = int64(1<<53 - 1)
+	nativeEpoch  = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$`)
 	activityKind = map[string]bool{"busy": true, "idle": true, "waiting": true}
 	// turnErrors are the Codex turn error codes (codex_error_info) that an activity can carry.
 	turnErrors = map[string]bool{"server_overloaded": true, "usage_limit_exceeded": true, "unauthorized": true,
@@ -174,6 +179,9 @@ func (v *ObservedValue) valid(group string, now int64) bool {
 		return true
 	}
 	if !allowed(group, v.Source) || v.At <= 0 || v.At > now+60_000 {
+		return false
+	}
+	if v.Epoch != "" && (group != "context" || v.Source != "claude_statusline" && v.Source != "codex_rollout" || !nativeEpoch.MatchString(v.Epoch)) {
 		return false
 	}
 	if v.TurnError != "" && (group != "activity" || v.Source != "codex_rollout" || v.State != "idle" || !turnErrors[v.TurnError]) {
@@ -285,10 +293,12 @@ func (s *Store) Observe(ctx context.Context, o Observation) error {
 		// A newer report replaces the value; a report of the same content confirms it; an
 		// older, different report changes nothing.
 		previous, found := current[group]
+		value, epoch := *v, v.Epoch
+		value.Epoch = ""
 		switch {
 		case !found || v.At > previous.At:
-			current[group] = storedValue{*v, now}
-		case sameContent(*v, previous.ObservedValue):
+			current[group] = storedValue{value, now, epoch}
+		case sameContent(value, previous.ObservedValue) && epoch == previous.epoch:
 			previous.seen = now
 			current[group] = previous
 		}
@@ -354,7 +364,8 @@ func (s *Store) sessionObservations(ctx context.Context, session Session) map[st
 	if extras != nil {
 		for group, v := range extras(ctx, session) {
 			if v.At >= current[group].At {
-				current[group] = storedValue{v, now}
+				v.Epoch = ""
+				current[group] = storedValue{v, now, ""}
 			}
 		}
 	}
@@ -450,4 +461,16 @@ func (d *Daemon) observationRoutes(mux *http.ServeMux) {
 		}
 		respond(w, 200, map[string]any{"ok": true})
 	})
+}
+
+// contextEvidence returns a session's stored context observation for the trigger, with its
+// private native epoch and the daemon's confirmation time.
+func (s *Store) contextEvidence(k Key) ContextEvidence {
+	s.observed.mu.Lock()
+	defer s.observed.mu.Unlock()
+	v, found := s.observed.byKey[k]["context"]
+	if !found {
+		return ContextEvidence{}
+	}
+	return ContextEvidence{Found: true, UsedTokens: v.UsedTokens, LimitTokens: v.LimitTokens, Epoch: v.epoch, SourceAt: v.At, ConfirmedAt: v.seen}
 }
