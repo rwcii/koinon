@@ -4,7 +4,6 @@ import (
 	"errors"
 	"os"
 	"os/exec"
-	"runtime"
 	"syscall"
 	"testing"
 )
@@ -67,18 +66,16 @@ func TestProcessStart(t *testing.T) {
 
 func TestProcessGroups(t *testing.T) {
 	groups, err := ProcessGroups()
-	if runtime.GOOS != "linux" {
-		if err == nil {
-			t.Fatal("process groups read outside Linux")
-		}
-		return
-	}
 	if err != nil {
 		t.Fatal(err)
 	}
 	own, found := groups[os.Getpid()]
 	if !found || own.Group != syscall.Getpgrp() {
 		t.Fatalf("own group %+v, found %v, want %d", own, found, syscall.Getpgrp())
+	}
+	// A terminal always has a foreground group; without a terminal the device is 0.
+	if (own.Terminal != 0) != (own.Foreground > 0) {
+		t.Fatalf("own terminal %+v", own)
 	}
 	// A child started in its own group reports that group.
 	cmd := exec.Command("sleep", "30")

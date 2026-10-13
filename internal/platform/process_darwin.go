@@ -74,7 +74,29 @@ func ProcessEnvironment(pid int, name string) (string, error) {
 	return "", errors.New("process environment is not available on macOS")
 }
 
-// ProcessGroups is not read on macOS: no native evidence for a pane wake there yet (#275).
+// ProcessGroups reports the process group, controlling terminal and that terminal's
+// foreground process group of every process, from one kern.proc.all sysctl read without cgo:
+// e_pgid, e_tdev and e_tpgid of each kinfo_proc. A process without a terminal (NODEV) has
+// Terminal 0.
 func ProcessGroups() (map[int]ProcessGroup, error) {
-	return nil, errors.New("process groups are not read on macOS")
+	procs, err := unix.SysctlKinfoProcSlice("kern.proc.all")
+	if err != nil {
+		return nil, err
+	}
+	groups := make(map[int]ProcessGroup, len(procs))
+	for _, p := range procs {
+		pid := int(p.Proc.P_pid)
+		if pid <= 0 {
+			continue
+		}
+		terminal := int(p.Eproc.Tdev)
+		if terminal == -1 {
+			terminal = 0
+		}
+		groups[pid] = ProcessGroup{Group: int(p.Eproc.Pgid), Terminal: terminal, Foreground: int(p.Eproc.Tpgid)}
+	}
+	if len(groups) == 0 {
+		return nil, errors.New("process table unreadable")
+	}
+	return groups, nil
 }
