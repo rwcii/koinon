@@ -24,3 +24,13 @@ verdict is the maintainer's instruction and approval, without a new human-presen
 The original human-only verdict, frozen text, durable delivery, archive and waiting-query
 requirements carry forward. Technical mechanisms remain to be specified and reviewed;
 this reconciliation adds no board runtime, schema or external publication.
+
+## Gate A and plan, 2026-10-13
+
+The maintainer approved `decision.md` with a correction to criterion 4 (a change to decided
+text reopens the item for a new verdict; the record keeps the history) and the requirement
+that agents query stored records, never the page
+([#206 comment 6148016252](https://github.com/rwcii/koinon/issues/206#issuecomment-6148016252),
+[6148194337](https://github.com/rwcii/koinon/issues/206#issuecomment-6148194337)). Criteria 4
+and 10 and PDR 007 Decisions 2 and 4 record both. Claude and Codex agreed the plan criteria
+before these edits. The definition of done, `sprint.md` and chunks 01–03 wait for Codex's frozen review.

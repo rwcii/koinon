@@ -3,7 +3,7 @@ pdr: "007"
 title: "Human Decision Board"
 status: draft
 created: "2026-10-12"
-updated: "2026-10-12"
+updated: "2026-10-13"
 authors:
   - "Robert Capps"
 reviewers: []
@@ -47,7 +47,7 @@ is agent-written and the requester's original words were not located.
 
 1. Problem Context
 2. Decision 1: A dashboard board of daemon-owned rows and agent-written items
-3. Decision 2: Only a dashboard action records a verdict, and the text then freezes
+3. Decision 2: Only a dashboard action records a verdict; a later text change reopens the item
 4. Decision 3: Command code blocks hold printable ASCII only
 5. Decision 4: Each recipient reads the verdict record once
 6. Conclusion
@@ -70,7 +70,7 @@ From #206's twelve requirements, in short:
    limit or "not reported", and the decision refs each agent waits on.
 2. Agent-written decision items, `fyi` items with Dismiss only, manual work sorted first,
    line breaks shown in context and recommendation.
-3. Human-only verdicts with a snapshot of what the human saw, frozen afterwards.
+3. Human-only verdicts with a snapshot of what the human saw.
 4. Printable-ASCII command boxes.
 5. Delivery of each verdict to each named recipient once, an archive, and a waiting query.
 6. Loopback dashboard only; no credentials, keys, personal data, session IDs or peer bodies.
@@ -124,7 +124,7 @@ The maintainer sees all agents and open decisions on one page in the dashboard.
 
 ---
 
-## 3. Decision 2: Only a dashboard action records a verdict, and the text then freezes
+## 3. Decision 2: Only a dashboard action records a verdict; a later text change reopens the item
 
 ### Decision
 
@@ -132,14 +132,21 @@ A verdict is `approved` or `declined`, with `verdictAt`, an optional note, an au
 and `verdictOn`: a copy of the title, context, recommendation and commands the human saw.
 No agent interface (MCP, CLI or bearer API) writes a verdict field; only an authenticated
 dashboard action does, with no further check under the same-user trust model (PDR 005,
-Decision 3). Item text can
-change before the verdict and not after it; new facts make a new item that refers to the old
-one. The plan adds that a concurrent edit cannot make a verdict apply to unseen text. This
+Decision 3). Decided text
+stays unchanged in ordinary use. When the facts around a decision change, the text can change:
+the change reopens the item for a new verdict, and the record keeps every earlier verdict with
+the text it was given on. A concurrent edit cannot make a verdict apply to unseen text. This
 covers the maintainer's verdicts on this board, not agent-to-agent work verdicts (PDR 004).
 
 **Provenance:** Requested in #206 (issue body, requirements 3 and 4, and the settled point
 on verdict writes); a request record, original words not located. The concurrent-edit
 guarantee: Proposed in the unpublished #206 plan draft (d325228) (criterion 4); not decided.
+Text changes after a verdict: Maintainer, 2026-10-13, on the statement "A decision's text
+can't change after your verdict.": "it can, if the facts surrouding the decision dictate a
+change.  but in general use, they do not." Asked whether the item then reopens for a new
+verdict: "yes, reopen it for a new verdict.  history of decisons is carried on the record."
+(#206 comments 6148016252 and 6148194337). Intent: a verdict always matches the text the
+maintainer saw, and the history stays on the record.
 
 ### Alternatives Considered
 
@@ -147,16 +154,19 @@ guarantee: Proposed in the unpublished #206 plan draft (d325228) (criterion 4); 
 | ----------- | ----------- | ------------ |
 | Agents relay verdicts | A peer writes the verdict it was told | #206: the record is the authority, not a peer's relay |
 | A separate human-identity check | Extra authentication beyond the dashboard login | #206 settled point: no further check under the same-user model |
-| Editable after verdict | Update the item and keep the verdict | The verdict would no longer match the text the human saw |
+| Editable after verdict, verdict kept | Update the item and keep the verdict | The verdict would no longer match the text the human saw |
+| Frozen after verdict | New facts need a new item | Maintainer, 2026-10-13: the text can change when the facts change |
 
 ### Rationale
 
-1. A verdict written only from the dashboard, on frozen text, means what the human saw.
+1. A verdict written only from the dashboard, on the revision the human saw, means what the
+   human saw; a later change asks for a new verdict.
 
 ### User Impact
 
 Approve and Decline exist only in the dashboard; agents read verdicts but cannot set them.
-To change a decided item, an agent opens a new item that cites the old one.
+When the facts change, an agent edits the decided item; it returns to the board for a new
+verdict, and the earlier verdict stays in its history.
 
 ---
 
@@ -201,12 +211,18 @@ Each new verdict reaches each `relayTo` session once, with no loss and no duplic
 without a valid `relayTo` is flagged. Each recipient has a durable delivery record with an
 acknowledgement. The content-free wake notice carries the verdict ID; it can repeat after a
 crash, and the receiver ignores an ID it has handled. Each agent reads the verdict record
-itself through an interface every family can use. Delivery or acknowledgement does not show
-that an action was done.
+itself through an interface every family can use. The records are stored data that agents
+query in bounded pages through Koinon; agents never read or parse the dashboard HTML.
+Delivery or acknowledgement does not show that an action was done.
 
 **Provenance:** Requested in #206 (issue body, requirement 9 and the settled point on
 delivery); a request record. "Not proof that an action was performed": Proposed in
-the unpublished #206 plan draft (d325228) (criterion 8); not decided.
+the unpublished #206 plan draft (d325228) (criterion 8); not decided. Stored, queryable
+records: Maintainer, 2026-10-13: "are agents reading the HTML, or are the decision records a
+dfataset they can query efficently?  I ask, because this was an issue in the original
+incarnation, the page grew ubounded and each agent had to pull down a full html file and parse
+it to get status of decisions." (#206 comment 6148016252). Intent: an agent's cost to read
+decision status does not grow with the board.
 
 ### Alternatives Considered
 
@@ -228,7 +244,8 @@ The maintainer decides once; each named agent receives the verdict without a ter
 ## Conclusion
 
 #206 asks for one board in the dashboard where agents write items, only the human records
-verdicts, decided text stays frozen, and every family reads each verdict once. The maintainer
+verdicts, and every family reads each verdict once. A change to decided text reopens the item
+for a new verdict, and agents query stored records, never the page. The maintainer
 decided that card text is Markdown with code blocks and ASD-STE100 prose, and that command code
 blocks, which the maintainer copies into a terminal, hold printable ASCII only. The plan's manual-work marker and write-time rules are not decided.
 
@@ -240,3 +257,4 @@ blocks, which the maintainer copies into a terminal, hold printable ASCII only. 
 | ---------- | ---------------- |
 | 2026-10-12 | Initial creation |
 | 2026-10-12 | Recorded the maintainer's card text requirement and the ASCII decision for command code blocks (#206, #306) |
+| 2026-10-13 | Recorded the maintainer's reopen-on-change decision and the stored-query requirement (#206) |

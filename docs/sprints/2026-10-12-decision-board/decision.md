@@ -30,8 +30,10 @@ This reconciliation applies those choices; it does not ask for them again.
 3. Only an authenticated dashboard action can approve or decline, with its time, optional
    note, audit record and exact snapshot of the title, context, recommendation and commands
    the human saw. MCP, CLI and bearer API cannot write verdict fields.
-4. Item text is immutable after a verdict. New facts require a new item referring to the
-   earlier one. A concurrent edit cannot make a verdict apply to unseen text.
+4. Decided text stays unchanged in ordinary use. When the facts change, an agent edit of a
+   decided item reopens it for a new verdict. The record keeps every earlier verdict with the
+   exact text it was given on. A concurrent edit cannot make a verdict apply to unseen text
+   ([maintainer, 2026-10-13](https://github.com/rwcii/koinon/issues/206#issuecomment-6148194337)).
 5. An fyi item offers Dismiss only. Dismissal records done and its time, and grants no
    approval. Manual work uses the supplied design's existing item convention: kind fyi
    and a title starting with the exact ASCII marker `ACTION FOR YOU`. Those items sort
@@ -53,7 +55,10 @@ This reconciliation applies those choices; it does not ask for them again.
    bounded and readable. Current and archived records can be found by reference, read-only.
 10. A complete paged waiting query returns exactly open decision items without a verdict,
     excluding fyi, decided and archived items. Every supported agent family can use it and
-    read its own verdict records through its existing authenticated interface.
+    read its own verdict records through its existing authenticated interface. Decision
+    records are stored data that agents query in bounded pages through Koinon; no agent reads
+    or parses the dashboard HTML, and an agent's cost does not grow with the board
+    ([maintainer, 2026-10-13](https://github.com/rwcii/koinon/issues/206#issuecomment-6148016252)).
 11. The board remains on the loopback dashboard with existing login, Host/Origin and CSRF
     checks. Known key formats and forbidden control characters are refused; personal data,
     credentials, private session IDs and peer message bodies are excluded by the author.
@@ -88,7 +93,8 @@ This reconciliation applies those choices; it does not ask for them again.
 
 ## Framing status
 
-This decision applies the issue's requirements, the supplied UI reference and the
-maintainer's later text-format and dashboard-authority choices. The native delivery,
-bounded storage and exact verdict snapshot specifications remain to be written and
-reviewed. This branch reconciles framing; it does not implement the board.
+The maintainer approved this decision (Gate A) on 2026-10-13 with the correction in
+criterion 4 and the storage requirement in criterion 10
+([record](https://github.com/rwcii/koinon/issues/206#issuecomment-6148016252)). The
+definition of done, `sprint.md` and the chunks specify storage, delivery and snapshots.
+Implementation waits for Gate B.
