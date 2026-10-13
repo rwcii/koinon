@@ -154,13 +154,19 @@ func (claudeCycle) Probe(ctx context.Context, t CycleTarget) CycleProbe {
 			break
 		}
 	}
-	// A legacy command, or two project skills whose order is not evidenced, leaves the
-	// effective entry unknown.
+	// Personal entries rank first; a personal legacy command beside a personal skill leaves
+	// their order unknown. Project entries matter only without a personal skill: there a
+	// legacy command, or two project skills, leaves the effective entry unknown.
+	personal := filepath.Join(root, "skills", "pickup", "SKILL.md")
+	hasPersonal := exists(personal)
 	if exists(filepath.Join(root, "commands", "pickup.md")) {
 		return CycleProbe{Reason: "pickup_entry_unverified"}
 	}
 	var project []string
 	for _, dir := range dirs {
+		if hasPersonal {
+			break
+		}
 		if exists(filepath.Join(dir, ".claude", "commands", "pickup.md")) {
 			return CycleProbe{Reason: "pickup_entry_unverified"}
 		}
@@ -182,8 +188,8 @@ func (claudeCycle) Probe(ctx context.Context, t CycleTarget) CycleProbe {
 		return ""
 	}
 	loader := filepath.Join(t.LoaderDir, ".claude", "skills", "pickup", "SKILL.md")
-	switch personal := filepath.Join(root, "skills", "pickup", "SKILL.md"); {
-	case exists(personal):
+	switch {
+	case hasPersonal:
 		return CycleProbe{Reason: matches(personal, t.Pickup.Content), Bootstrap: "personal"}
 	case len(project) == 1:
 		return CycleProbe{Reason: matches(project[0], t.Pickup.Content), Bootstrap: "project"}
@@ -346,15 +352,36 @@ func (claudeCycle) key(ctx context.Context, t CycleTarget, fence CycleFence, arg
 	return err
 }
 
+// keyIf proves the pane, calls the fence, reads the pane again and sends the keys only when
+// check holds on that read, so the keys reach the screen that the check saw.
+func (claudeCycle) keyIf(ctx context.Context, t CycleTarget, fence CycleFence, check func(claudeScreen) bool, refused error, args ...string) error {
+	if !provePane(ctx, t.tools, t.HostPID, t.HostStart, t.Socket, t.Pane) {
+		return errClaudeUnproven
+	}
+	if err := fence(ctx); err != nil {
+		return err
+	}
+	screen, err := readClaude(ctx, t)
+	if err != nil {
+		return err
+	}
+	if !check(screen) {
+		return refused
+	}
+	_, err = t.tools.tmux(ctx, t.Socket, append([]string{"send-keys", "-t", t.Pane}, args...)...)
+	return err
+}
+
 // erase deletes text that the adapter typed into an input line that was empty before it: one
-// Backspace per byte and two more, whatever the cursor did, then reads back an empty line. It
-// restores the input line and enters nothing, so it needs only the pane proof.
-func (a claudeCycle) erase(ctx context.Context, t CycleTarget, text string) error {
+// Backspace per byte and two more, whatever the cursor did, then reads back an empty line. Like
+// every key it passes the fence, and it runs only while the input line still holds exactly that
+// text: a rejected fence or another draft leaves the input line as it is.
+func (a claudeCycle) erase(ctx context.Context, t CycleTarget, fence CycleFence, text string) error {
 	keys := []string{}
 	for range len(text) + 2 {
 		keys = append(keys, "BSpace")
 	}
-	if err := a.key(ctx, t, func(context.Context) error { return nil }, keys...); err != nil {
+	if err := a.keyIf(ctx, t, fence, func(s claudeScreen) bool { return s.found && s.input == text }, errClaudeErase, keys...); err != nil {
 		return err
 	}
 	if !await(ctx, t, func(s claudeScreen) bool { return s.found && s.input == "" }) {
@@ -394,7 +421,7 @@ func (a claudeCycle) command(ctx context.Context, t CycleTarget, fence CycleFenc
 		return false, err
 	}
 	abandon := func(err error) (bool, error) {
-		a.erase(ctx, t, text)
+		a.erase(ctx, t, fence, text)
 		return false, err
 	}
 	if !await(ctx, t, func(s claudeScreen) bool { return s.input == text }) {
@@ -456,15 +483,15 @@ func (a claudeCycle) Bootstrap(ctx context.Context, t CycleTarget, fence CycleFe
 		return false, err
 	}
 	if !await(ctx, t, func(s claudeScreen) bool { return s.input == text }) {
-		a.erase(ctx, t, text)
+		a.erase(ctx, t, fence, text)
 		return false, errClaudeTyped
 	}
 	if err := a.escape(ctx, t, fence); err != nil {
-		a.erase(ctx, t, text)
+		a.erase(ctx, t, fence, text)
 		return false, err
 	}
 	if err := a.key(ctx, t, fence, "Enter"); err != nil {
-		a.erase(ctx, t, text)
+		a.erase(ctx, t, fence, text)
 		return false, err
 	}
 	if !await(ctx, t, func(s claudeScreen) bool { return s.dialog == "add_dir_scope" }) {
@@ -477,7 +504,7 @@ func (a claudeCycle) Bootstrap(ctx context.Context, t CycleTarget, fence CycleFe
 		return false, err
 	}
 	listed := await(ctx, t, func(s claudeScreen) bool { return s.input == "/pickup" && describes(menuFirst(s), t.Loader) })
-	if err := a.erase(ctx, t, "/pickup"); err != nil {
+	if err := a.erase(ctx, t, fence, "/pickup"); err != nil {
 		return false, err
 	}
 	if !listed {
@@ -611,14 +638,11 @@ func (claudeCycle) Dialog(ctx context.Context, t CycleTarget) (CycleDialog, erro
 // Choose enters one option number while the pane shows the same dialog, then reads back that
 // the dialog is gone.
 func (a claudeCycle) Choose(ctx context.Context, t CycleTarget, digest, option string, fence CycleFence) (bool, error) {
-	dialog, err := a.Dialog(ctx, t)
-	if err != nil {
-		return false, err
+	same := func(s claudeScreen) bool {
+		dialog := dialogOf(s)
+		return s.dialog != "" && dialog.Digest == digest && slices.Contains(dialog.Options, option)
 	}
-	if dialog.Digest != digest || !slices.Contains(dialog.Options, option) {
-		return false, ErrCycleDialogChanged
-	}
-	if err := a.key(ctx, t, fence, "-l", option); err != nil {
+	if err := a.keyIf(ctx, t, fence, same, ErrCycleDialogChanged, "-l", option); err != nil {
 		return false, err
 	}
 	return await(ctx, t, func(s claudeScreen) bool { return s.dialog == "" || dialogOf(s).Digest != digest }), nil

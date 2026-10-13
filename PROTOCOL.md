@@ -308,8 +308,9 @@ ten for a prompt, and 30 minutes for the whole cycle; no stage deadline passes t
 report at or after a deadline is `cycle_changed`. While a cycle is in `ready` through
 `waiting_pickup`, ordinary wakes to its pane wait, still due and not delivered.
 
-A new native epoch of the requester before any input (`waiting_ready`, `ready`) cancels the
-cycle (`epoch_changed`). Disable, a family mode without the cycle, retiring or purging the
+A new native epoch of the requester before the managed clear (`waiting_ready`, `ready`,
+`bootstrap_intent`, `bootstrap_verified`) cancels the cycle (`epoch_changed`; uncertain while the
+bootstrap input is unproven). Disable, a family mode without the cycle, retiring or purging the
 requester or successor, deleting it and the maintainer's holder choice for its address end
 the cycle in their own transaction. A cycle that ends after an input whose effect is not
 proven (an intent, or `clear_received` without a proven reset) is `uncertain`, with the
@@ -329,7 +330,9 @@ again (the host's PID and start, the pane's process ancestry, no other agent bet
 rechecks, in one read transaction, that the cycle is still at its revision and stage, before its
 deadlines, under the Enable that admitted it. A failed check stops the input before that key.
 Typed text that is not submitted is erased again with one Backspace per typed character (the
-input line was empty before); the erase needs only the pane proof. A failed step is recorded as
+input line was empty before). The erase passes the same proof and fence and runs only while the
+input line still holds exactly that text: after a rejected fence, or over another draft, the
+input line stays as it is. A failed step is recorded as
 the cycle's reason (`typed_not_read_back`, `escape_changed_input`, `submit_not_read_back`,
 `pickup_entry_not_listed`, `dialog_not_shown`, `erase_not_read_back`, `pane_unproven`).
 
@@ -342,8 +345,9 @@ pickup entry that a bare `/pickup` runs. A personal skill (`skills/pickup` under
 ranks over a project skill (`.claude/skills/pickup` in the session directory or a parent up to
 its worktree root), which ranks over Koinon's loader. Only that effective entry is checked: it
 must be byte-equal to the catalog item `skill.pickup`, or for the loader to the loader
-(`pickup_entry_differs`, `pickup_entry_unreadable`). A legacy `pickup` command, or two project
-skills, leave the order unknown (`pickup_entry_unverified`). Nothing is adopted automatically.
+(`pickup_entry_differs`, `pickup_entry_unreadable`); entries it shadows are not checked. A
+personal legacy `pickup` command, or, without a personal skill, a project legacy command or two
+project skills, leave the order unknown (`pickup_entry_unverified`). Nothing is adopted automatically.
 The Sessions page shows Probe's reason, or the entry the pickup runs (`personal`, `project`,
 `loader` or `interactive`).
 
@@ -368,7 +372,8 @@ registration is unchanged, because the MCP process keeps its caller across `/cle
 
 The add-directory dialog is the only dialog the adapter answers. Another dialog
 (`native_dialog`) puts the cycle in `waiting_prompt`, and the Sessions page shows its text and
-numbered options. The session's native permission settings, or the maintainer in the session,
+numbered options. Before entering a dashboard option the adapter proves the pane, passes the
+fence and reads the dialog again. The session's native permission settings, or the maintainer in the session,
 may answer it; the cycle returns to its stage once it is gone, or the prompt wait ends it. The
 dashboard action `context-cycle-answer` (`cycle_id`, `revision`, `digest` of the dialog as shown,
 `option` 1 to 9) records `prompt_intent` with the action's audit record, enters the option only

@@ -9,8 +9,8 @@ import (
 )
 
 // contextObserved runs after a context observation was stored, outside the observation
-// lock. A new native epoch of a requester whose cycle has not entered any input yet is an
-// unrelated clear: it cancels the cycle. Otherwise the observation may admit a cycle.
+// lock. A new native epoch of a requester whose cycle has not entered its managed clear yet is
+// an unrelated clear: it cancels the cycle. Otherwise the observation may admit a cycle.
 func (s *Store) contextObserved(ctx context.Context, k Key) {
 	evidence := s.contextEvidence(k)
 	cycles, err := cyclesWhere(ctx, s.db, activeCycle+` AND family=? AND session_id=?`, k.Family, k.ID)
@@ -18,7 +18,10 @@ func (s *Store) contextObserved(ctx context.Context, k Key) {
 		return
 	}
 	for _, c := range cycles {
-		if evidence.Epoch != "" && evidence.Epoch != c.Epoch && (c.State == cycleWaitingReady || c.State == cycleReady) {
+		// Before the managed clear, a new native epoch is an unrelated clear; a bootstrap whose
+		// input is not yet proven ends uncertain by the shared rule.
+		if evidence.Epoch != "" && evidence.Epoch != c.Epoch && (c.State == cycleWaitingReady || c.State == cycleReady ||
+			c.State == cycleBootstrapIntent || c.State == cycleBootstrapVerified) {
 			s.endCycle(ctx, c.ID, c.Revision, cycleCancelled, "epoch_changed")
 		}
 	}

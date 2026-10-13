@@ -249,6 +249,16 @@ func TestClaudeProbe(t *testing.T) {
 		{"legacy command", func(tg *CycleTarget) {
 			writeEntry(t, filepath.Join(tg.Checkout, ".claude", "commands", "pickup.md"), []byte("legacy\n"))
 		}, CycleProbe{Reason: "pickup_entry_unverified"}},
+		{"personal shadows two project levels", func(tg *CycleTarget) {
+			tg.Directory = filepath.Join(tg.Checkout, "nested")
+			writeEntry(t, personal(*tg), tg.Pickup.Content)
+			writeEntry(t, filepath.Join(tg.Directory, ".claude", "skills", "pickup", "SKILL.md"), []byte("older pickup\n"))
+			writeEntry(t, project(*tg), []byte("older pickup\n"))
+		}, CycleProbe{Bootstrap: "personal"}},
+		{"personal command beside a personal skill", func(tg *CycleTarget) {
+			writeEntry(t, personal(*tg), tg.Pickup.Content)
+			writeEntry(t, filepath.Join(term.home, ".claude", "commands", "pickup.md"), []byte("legacy\n"))
+		}, CycleProbe{Reason: "pickup_entry_unverified"}},
 		{"two project levels", func(tg *CycleTarget) {
 			tg.Directory = filepath.Join(tg.Checkout, "nested")
 			writeEntry(t, filepath.Join(tg.Directory, ".claude", "skills", "pickup", "SKILL.md"), tg.Pickup.Content)
@@ -256,6 +266,7 @@ func TestClaudeProbe(t *testing.T) {
 		}, CycleProbe{Reason: "pickup_entry_unverified"}},
 	} {
 		os.RemoveAll(filepath.Join(term.home, ".claude", "skills"))
+		os.RemoveAll(filepath.Join(term.home, ".claude", "commands"))
 		term.args = []string{"claude"}
 		tg := term.target(t)
 		c.setup(&tg)
@@ -374,14 +385,15 @@ func TestClaudeBootstrap(t *testing.T) {
 	}
 	erase := strings.TrimSpace(strings.Repeat("BSpace ", len("/pickup")+2))
 	want := []string{"-l /add-dir " + tg.LoaderDir, "Escape", "Enter", "-l 1", "-l /pickup", erase}
-	// Every key but the erase passes the fence; the erase only restores the input line.
-	if !slices.Equal(term.keys, want) || term.fences != len(want)-1 || !slices.Equal(term.added, []string{tg.LoaderDir}) || term.input != "" {
+	// Every key, the erase included, passes the fence.
+	if !slices.Equal(term.keys, want) || term.fences != len(want) || !slices.Equal(term.added, []string{tg.LoaderDir}) || term.input != "" {
 		t.Fatalf("keys %q fences %d added %q input %q", term.keys, term.fences, term.added, term.input)
 	}
 }
 
 // A permission dialog that the adapter does not answer is read without input; the maintainer's
-// option is entered behind the fence only while the same dialog shows.
+// option is entered behind the fence only while the same dialog shows. Each attempt passes the
+// fence before the dialog is read again; refused attempts send no key.
 func TestClaudeDialogChoice(t *testing.T) {
 	ctx := context.Background()
 	term := newClaudeTerminal(t)
@@ -402,7 +414,7 @@ func TestClaudeDialogChoice(t *testing.T) {
 		t.Fatalf("absent option: %v %v", ok, err)
 	}
 	if ok, err := (claudeCycle{}).Choose(ctx, tg, dialog.Digest, "2", term.fence); !ok || err != nil ||
-		!slices.Equal(term.keys, []string{"-l 2"}) || term.fences != 1 || term.asks {
+		!slices.Equal(term.keys, []string{"-l 2"}) || term.fences != 3 || term.asks {
 		t.Fatalf("choose: %v %v keys %q fences %d", ok, err, term.keys, term.fences)
 	}
 }
@@ -418,5 +430,56 @@ func TestClaudeEscapeSettles(t *testing.T) {
 	escape := slices.Index(term.keys, "Escape")
 	if escape < 0 || escape+1 >= len(term.keys) || term.at[escape+1].Sub(term.at[escape]) < claudeEscapeSettle {
 		t.Fatalf("keys %q at %v", term.keys, term.at)
+	}
+}
+
+// A fence that rejects the input also stops the erase: a draft that replaced the typed text
+// stays as it is, and nothing is submitted.
+func TestClaudeRejectedFenceKeepsTheInputLine(t *testing.T) {
+	term := newClaudeTerminal(t)
+	calls := 0
+	fence := func(context.Context) error {
+		calls++
+		if calls >= 3 {
+			term.mu.Lock()
+			term.input = "a synthetic draft"
+			term.mu.Unlock()
+			return ErrCycleChanged
+		}
+		return nil
+	}
+	ok, err := (claudeCycle{}).Clear(context.Background(), term.target(t), fence)
+	if ok || !errors.Is(err, ErrCycleChanged) || slices.Contains(term.keys, "Enter") || term.input != "a synthetic draft" ||
+		!slices.Equal(term.keys, []string{"-l /clear", "Escape"}) {
+		t.Fatalf("rejected fence: %v %v keys %q input %q", ok, err, term.keys, term.input)
+	}
+	// An erase finds another draft in place of its own text and leaves it.
+	other := newClaudeTerminal(t)
+	other.input = "a synthetic draft"
+	if err := (claudeCycle{}).erase(context.Background(), other.target(t), other.fence, "/clear"); !errors.Is(err, errClaudeErase) ||
+		len(other.keys) != 0 || other.input != "a synthetic draft" {
+		t.Fatalf("erase over another draft: %v keys %q input %q", err, other.keys, other.input)
+	}
+}
+
+// The option goes only to the dialog that was observed: a dialog that changes during the pane
+// proof and fence receives no key.
+func TestClaudeChoiceRecheckedAfterFence(t *testing.T) {
+	term := newClaudeTerminal(t)
+	tg := term.target(t)
+	term.asks = true
+	dialog, err := (claudeCycle{}).Dialog(context.Background(), tg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	fence := func(context.Context) error {
+		term.mu.Lock()
+		defer term.mu.Unlock()
+		term.asks, term.dialog, term.input = false, true, "/add-dir /tmp/synthetic/unrelated"
+		return nil
+	}
+	if ok, err := (claudeCycle{}).Choose(context.Background(), tg, dialog.Digest, "1", fence); ok || !errors.Is(err, ErrCycleDialogChanged) ||
+		len(term.keys) != 0 || len(term.added) != 0 {
+		t.Fatalf("changed dialog: %v %v keys %q added %q", ok, err, term.keys, term.added)
 	}
 }

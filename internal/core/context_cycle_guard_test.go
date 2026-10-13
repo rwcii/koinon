@@ -461,3 +461,32 @@ func TestContextCycleClearIntentReconciledByEpoch(t *testing.T) {
 		t.Fatalf("after reconciliation: %+v %v", v, f.adapter.calls)
 	}
 }
+
+// A new native epoch before the managed clear is an unrelated clear in the bootstrap stages
+// too: after a proven bootstrap it cancels the cycle and ends the Enable; with the bootstrap
+// input unproven it is uncertain. No managed clear follows.
+func TestContextCycleUnrelatedClearDuringBootstrap(t *testing.T) {
+	f := newCycleFixture(t)
+	f.adapter.probe, f.adapter.boot = CycleProbe{Bootstrap: "interactive"}, true
+	f.readyCycle(t)
+	f.step(t)
+	if v := f.status(t, f.k); v.State != cycleBootstrapVerified {
+		t.Fatalf("setup: %+v", v)
+	}
+	f.observe(t, f.k, 20, "synthetic-unrelated-clear")
+	f.step(t)
+	enables, _ := f.s.contextEnables(context.Background())
+	if v := f.status(t, f.k); v.State != cycleCancelled || v.Reason != "epoch_changed" || enables[f.k].Enabled || f.adapter.count("clear") != 0 {
+		t.Fatalf("after bootstrap: %+v Enable %v clears %d", v, enables[f.k].Enabled, f.adapter.count("clear"))
+	}
+	g := newCycleFixture(t)
+	g.adapter.probe = CycleProbe{Bootstrap: "interactive"}
+	ready, _ := g.readyCycle(t)
+	if _, err := g.s.advanceCycle(context.Background(), ready.ID, ready.Revision, cycleReady, cycleBootstrapIntent, "", nil, nil); err != nil {
+		t.Fatal(err)
+	}
+	g.observe(t, g.k, 20, "synthetic-unrelated-clear")
+	if v := g.status(t, g.k); v.State != cycleUncertain || v.Reason != "epoch_changed" || g.adapter.count("clear") != 0 {
+		t.Fatalf("during the bootstrap intent: %+v", v)
+	}
+}
