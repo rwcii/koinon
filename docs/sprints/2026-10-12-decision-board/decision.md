@@ -25,8 +25,9 @@ This reconciliation applies those choices; it does not ask for them again.
    claimed work, context used and limit or “not reported”, and waiting decision refs.
    Agents cannot write these rows. Rows have no role, group or agent-defined order.
 2. Agents can create and update decision items with ref, item order, title, where, agent
-   text, context, recommendation, open/done status, decision/fyi kind, optional commands,
-   and named recipients. Unknown or missing recipients are visibly flagged.
+   text, context, recommendation, decision/fyi kind, optional commands, and named
+   recipients, and close an approved item when its work is done. The item's state follows
+   the lifecycle in criterion 9. Unknown or missing recipients are visibly flagged.
 3. Only an authenticated dashboard action can approve or decline, with its time, optional
    note, audit record and exact snapshot of the title, context, recommendation and commands
    the human saw. MCP, CLI and bearer API cannot write verdict fields.
@@ -34,7 +35,7 @@ This reconciliation applies those choices; it does not ask for them again.
    decided item reopens it for a new verdict. The record keeps every earlier verdict with the
    exact text it was given on. A concurrent edit cannot make a verdict apply to unseen text
    ([maintainer, 2026-10-13](https://github.com/rwcii/koinon/issues/206#issuecomment-6148194337)).
-5. An fyi item offers Dismiss only. Dismissal records done and its time, and grants no
+5. An fyi item offers Dismiss only. Dismissal archives the item with its time, and grants no
    approval. Manual work uses the supplied design's existing item convention: kind fyi
    and a title starting with the exact ASCII marker `ACTION FOR YOU`. Those items sort
    before the rest, then by item order and reference. No separate agent-row order is added.
@@ -51,8 +52,12 @@ This reconciliation applies those choices; it does not ask for them again.
    cannot lose one; repeated content-free wakes carry the same verdict ID. Recipients read
    the actual record and acknowledge after handling it, ignoring an already handled ID.
    Delivery or acknowledgement is not proof that an action was performed.
-9. Decided items enter an archive unchanged and remain readable. The current list stays
-   bounded and readable. Current and archived records can be found by reference, read-only.
+9. Items follow the lifecycle active, in progress, archive, deep archive. A closed item is
+   archived unchanged and remains readable by reference. After 30 days in the archive, it
+   moves to a log file; nothing is deleted, and an old decision can be restored. The board
+   does not fail at a fixed number of items
+   ([maintainer, 2026-10-13](https://github.com/rwcii/koinon/issues/206#issuecomment-6150321526),
+   [states](https://github.com/rwcii/koinon/issues/206#issuecomment-6150362521)).
 10. A complete paged waiting query returns exactly open decision items without a verdict,
     excluding fyi, decided and archived items. Every supported agent family can use it and
     read its own verdict records through its existing authenticated interface. Decision

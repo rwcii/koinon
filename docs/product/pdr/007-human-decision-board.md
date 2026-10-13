@@ -90,9 +90,12 @@ are told that dashboard input comes from the maintainer is in PDR 005.
 The board lives on the loopback dashboard. The daemon fills the agent rows from its own
 session, claim and context data; agents do not write them, and the rows have no role, group
 or order. Agents create and update decision items (ref, order, title, where, agent text,
-context, recommendation, status, kind, optional commands, `relayTo`). An `fyi` item has only
-Dismiss, which sets `done` and is not an approval. Decided items move unchanged to a readable
-archive. A waiting query lists open decisions with no verdict. The plan marks manual work as
+context, recommendation, kind, optional commands, `relayTo`). An item follows the lifecycle
+active (waiting for a verdict), in progress (approved; the agent does the work and closes
+it), archive (closed, declined or dismissed; readable by reference) and deep archive (after
+30 days, moved to a log file; nothing is deleted, and it can be restored). The board does
+not fail at a fixed number of items. An `fyi` item has only Dismiss, which archives it and
+is not an approval. A waiting query lists active decision items. The plan marks manual work as
 an `fyi` item whose title starts with `ACTION FOR YOU`, taken from the existing board design,
 and sorts those first. Card text (context, recommendation and comments) is rendered from
 Markdown, code and commands appear in code blocks, and agents write card prose in ASD-STE100
@@ -105,7 +108,13 @@ design to the dashboard." (posted from the maintainer's account without agent fr
 authorship not otherwise verified). Card text: Maintainer, 2026-10-12: "card comments should be
 formattable in markdown. code should be displayed in code blocks so it's readable, and all
 prose should be in asd-ste100" (#206 comment 6119203856). The `ACTION FOR YOU` marker: Proposed in
-the unpublished #206 plan draft (d325228); not decided.
+the unpublished #206 plan draft (d325228); not decided. Lifecycle: Maintainer, 2026-10-13:
+"we don't build systems that fail at some arbitrary limit. closed items should be archived.
+after 30 days, archived items should be moved to a log file in case an old decision needs to
+be resurrected. nothing gets deleted, but the lifecycle becomes active > in progress >
+archive > deep archive" (#206 comment 6150321526); the meaning of each state was confirmed
+in #206 comment 6150362521. Intent: the board keeps working as it grows, and no decision is
+lost.
 
 ### Alternatives Considered
 
@@ -142,9 +151,9 @@ covers the maintainer's verdicts on this board, not agent-to-agent work verdicts
 on verdict writes); a request record, original words not located. The concurrent-edit
 guarantee: Proposed in the unpublished #206 plan draft (d325228) (criterion 4); not decided.
 Text changes after a verdict: Maintainer, 2026-10-13, on the statement "A decision's text
-can't change after your verdict.": "it can, if the facts surrouding the decision dictate a
+can't change after your verdict.": "it can, if the facts surrounding the decision dictate a
 change.  but in general use, they do not." Asked whether the item then reopens for a new
-verdict: "yes, reopen it for a new verdict.  history of decisons is carried on the record."
+verdict: "yes, reopen it for a new verdict.  history of decisions is carried on the record."
 (#206 comments 6148016252 and 6148194337). Intent: a verdict always matches the text the
 maintainer saw, and the history stays on the record.
 
@@ -220,8 +229,8 @@ Delivery or acknowledgement does not show that an action was done.
 delivery); a request record. "Not proof that an action was performed": Proposed in
 the unpublished #206 plan draft (d325228) (criterion 8); not decided. Stored, queryable
 records: Maintainer, 2026-10-13: "are agents reading the HTML, or are the decision records a
-dfataset they can query efficently?  I ask, because this was an issue in the original
-incarnation, the page grew ubounded and each agent had to pull down a full html file and parse
+dataset they can query efficiently?  I ask, because this was an issue in the original
+incarnation, the page grew unbounded and each agent had to pull down a full html file and parse
 it to get status of decisions." (#206 comment 6148016252). Intent: an agent's cost to read
 decision status does not grow with the board.
 

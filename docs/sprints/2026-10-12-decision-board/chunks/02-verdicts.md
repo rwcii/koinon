@@ -20,7 +20,8 @@ The next free schema version adds:
 Approve and Decline on a decision item, and Dismiss on an fyi item, are dashboard actions
 through `run` with the existing login, Host, Origin and CSRF checks. The form sends the
 reference, the displayed revision and the optional note. One ordinary write checks the
-revision, stores the verdict and snapshot, sets the item done, resolves the recipients,
+revision, stores the verdict and snapshot, sets the item in progress (Approve) or archived
+(Decline, Dismiss), resolves the recipients,
 stores one delivery and one typed inbox message per resolved recipient (skipped with a reason
 otherwise), and commits with its audit record. Dismiss stores no delivery. The audit target
 holds the reference and verdict only, not card text. No `/v1` route or MCP tool reaches
@@ -28,7 +29,8 @@ these actions.
 
 ## Reopen
 
-`decision_edit` on a decided item now increments the revision, sets the item open and sets
+`decision_edit` on an in-progress or archived item now increments the revision, sets the
+item active and sets
 `superseded` on the current verdict, in one transaction. Its deliveries do not change: an
 unacknowledged one stays queued until the recipient acknowledges it. History keeps every
 verdict with its snapshot. `decision_get` returns the current verdict and the history count;
@@ -58,14 +60,21 @@ and inbox read and acknowledgement do not change.
 Pending deliveries do not depend on the inbox message: after it fails or ages out, the
 delivery stays pending until the recipient acknowledges it.
 
-## Archive
+## Close, archive and deep archive
 
-Done items are archived and kept. Nothing deletes decision records automatically; the bounds
-in the definition of done refuse new writes instead.
+- `decision_close`: reference, `if_revision`, optional outcome note. It moves an in-progress
+  item to archived and records the caller's name and the time. Other states are refused
+  with `not_in_progress`. A retry with the same key returns the first result.
+- `decision_items` gains the closer, the outcome note and the deep-archive mark (file and
+  offset).
+- The deep-archive sweep, the log file, crash recovery and `decision_restore` /
+  `koinon decision restore` are as the definition of done states. The sweep runs in the
+  existing daemon sweep and moves at most 64 items per pass.
 
 ## Docs
 
-PROTOCOL (verdicts, reopen, delivery, pending and acknowledgement), USAGE, the guide (the
+PROTOCOL (verdicts, the lifecycle, reopen, delivery, pending and acknowledgement, close,
+deep archive and restore), USAGE, the guide (the
 dashboard verdict is the maintainer's instruction and approval, PDR 005, Decision 3; a
 peer's relay or quote is not), tool descriptions and CHANGELOG. PDR 007 Decisions 2 and 4
 match the shipped behavior.

@@ -52,3 +52,14 @@ Bounded review of f66be95: Codex accepted the F2–F4 and refusal-note fixes. On
 remained: a maximum-size verdict serialized with JSON escaping passed the 64 KiB history
 page. Claude accepted it: page limits count the serialized reply, the history page is
 256 KiB, and a test reads the largest possible record in a page.
+
+## Gate B request at 22aa63c, 2026-10-13
+
+The maintainer did not give Gate B. The plan refused new items and verdicts at fixed
+decision bounds; the maintainer requires a board that does not fail at a fixed limit, with
+the lifecycle active, in progress, archive and deep archive, where nothing is deleted
+([#206 comment 6150321526](https://github.com/rwcii/koinon/issues/206#issuecomment-6150321526),
+states in [6150362521](https://github.com/rwcii/koinon/issues/206#issuecomment-6150362521)).
+The plan now removes the item and text bounds, adds `decision_close`, the deep-archive log
+file with crash-safe moves, and `decision_restore`. Criteria 2, 5 and 9 and PDR 007
+Decision 1 record the lifecycle.

@@ -11,22 +11,39 @@ is enforced. A later chunk adds only its own cases.
   This is about status retrieval; dashboard work and UI testing are not affected. A test
   calls every agent operation and asserts that the replies are JSON records with no
   dashboard markup, and that each reply's work is bounded by its page limit, not by the
-  number of stored items or verdicts. The test fills the store to its item cap, with one
-  item reopened to many verdicts, and measures this.
+  number of stored items or verdicts. The test stores 10 000 items, with one item reopened
+  to many verdicts, and measures this. 10 000 is a test size, not a limit.
 - Create, edit, get and list work for every supported family, using synthetic native
   metadata and DeepSeek's command path. Guessed caller identity, `maintainer` as a caller and
   unknown arguments are refused. Arguments that name a verdict, dismissal, audit or agent-row
   field are refused as unknown fields on every interface.
-- Lists: `waiting` (open decision items without a current verdict), `open`, `archived`,
-  and `mine` (items whose recipients resolve to the caller's session or held participant).
+## Lifecycle
+
+- An item has one state: `active` (it waits for the maintainer's verdict), `in_progress`
+  (approved; the agent does the work), `archived` (closed) or deep-archived (moved to the
+  log file). A new item is active. Approve moves it to in progress. Decline, and Dismiss
+  of an fyi item, move it to archived. An agent closes an in-progress item with
+  `decision_close` when the work is done, which moves it to archived and records the
+  caller's name, the time and an optional Markdown outcome note (4 KiB). An agent edit of an
+  in-progress or archived item reopens it to active (see Verdicts).
+- There is no limit on the number of items or verdicts. Field byte limits and 32 recipients
+  per item are input rules for one item. A write fails only for a reason that applies to
+  that write (a validation error, a stale revision, or a full store under the daemon's
+  existing storage bound), never because the board holds many items.
+
+## Agent lists
+
+- Lists: `waiting` (active decision items), `active`, `in_progress`, `archived`, and `mine`
+  (items whose recipients resolve to the caller's session or held participant).
   Each list is keyset-paged on the immutable item ID, with at most 100 items and 64 KiB per
   page, and returns `more` and `next_after`. Items created, edited, decided and archived
   during a walk give this result: no item appears twice; an item that matches for the whole
   walk appears once; an item whose match changes during the walk appears at most once. A test
   edits item order and inserts an item during a walk and checks each case. Summaries hold the
-  reference, title, kind, status, revision and current verdict, not the full text.
+  reference, title, kind, state, revision and current verdict, not the full text.
 - `decision_get` by reference returns the full item, its current revision, its current
-  verdict and the number of verdicts in its history, for open and archived items.
+  verdict and the number of verdicts in its history, for active, in-progress and archived
+  items. A deep-archived reference is `deep_archived`, with the restore command.
   `decision_history` pages the item's verdicts by verdict ID, at most 16 verdicts and
   256 KiB per page. An unknown reference is `not_found`.
 - Page byte limits count the serialized JSON reply, with its envelope and JSON escaping.
@@ -68,9 +85,10 @@ is enforced. A later chunk adds only its own cases.
   resolved recipient, or nothing. A test fails each insert in turn and shows that no part
   remains. A lost reply is resolved by reading the item, which shows the stored verdict or
   none.
-- An fyi item offers Dismiss only. Dismiss sets done and its time. It is not an approval and
-  creates no delivery.
-- Reopen: an agent edit of a decided item increments the revision, sets the item open, and
+- An fyi item offers Dismiss only. Dismiss archives the item and records its time. It is not
+  an approval and creates no delivery.
+- Reopen: an agent edit of an in-progress or archived item increments the revision, sets the
+  item active, and
   marks the current verdict `superseded` in the same transaction. The earlier verdict, its
   snapshot and its deliveries stay in the history. Supersession does not acknowledge a
   delivery: an unacknowledged delivery of a superseded verdict stays pending, shows the
@@ -112,14 +130,25 @@ is enforced. A later chunk adds only its own cases.
 
 - New tables and indexes are created through the schema migration and pass the catalog
   check. Old-schema fixtures migrate without changing messages, claims, aliases or cursors.
-- Bounds: 256 open items, 10 000 items in all, 32 recipients per item, and 64 MiB of
-  decision text. The text bound counts the UTF-8 bytes of every item's text fields and of
-  every verdict's note and snapshot. A create, edit or verdict past a bound is refused with
-  `decision_store_full` and changes nothing. The dashboard shows the refusal inline.
-- Nothing deletes decision records automatically. Archived items, verdicts, snapshots and
-  deliveries are kept. Removing history needs a later maintainer decision; this deliverable
-  adds none.
-- Agent writes, verdicts and acknowledgements are ordinary writes under the existing
+- Deep archive: 30 days after an item was archived, the existing sweep moves its whole
+  record (item, recipients, verdicts with snapshots, deliveries) to an append-only log file
+  in the daemon's state directory, one JSON line per record, in a file per month
+  (`decisions/YYYY-MM.jsonl`, mode 0600). The sweep moves an item only when all its
+  deliveries are acknowledged; an item with a pending delivery stays archived until then.
+  Each sweep moves a bounded batch. The mark and the delete are ordinary writes; when the
+  ordinary band is full, the item stays archived and the next sweep tries again.
+- The move loses nothing. The sweep marks the item with the target file and offset,
+  appends and syncs the line, then deletes the rows in one transaction. After a crash, a
+  marked item is checked against its line at the recorded offset: a complete line finishes
+  the delete; a missing or partial line is written again. Tests crash at each step and show
+  exactly one complete line and no remaining rows, or the rows and no complete line.
+- Nothing is deleted. `decision_restore` (reference) and `koinon decision restore` read the
+  monthly files from the newest, find the latest line for the reference, and insert the
+  record again as archived, with a new 30-day period. The line stays in the log. A restore
+  whose reference an existing item uses is refused with `reference_in_use`. Restore reads
+  only the log, so its cost grows with the log; it is a rare recovery action and the guide
+  says so.
+- Agent writes, verdicts, closes, restores and acknowledgements are ordinary writes under the existing
   ordinary page ceiling, so they never use the reserve that existing controls keep. When the
   ordinary band is full, they are refused visibly and nothing is half written; an
   unacknowledged delivery stays pending. A storage test at a full ordinary band shows the

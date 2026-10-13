@@ -14,7 +14,8 @@ It is used for context, recommendation, agent text and verdict notes.
 
 The Decisions view becomes the designed board:
 
-- Counts (waiting, open fyi, decided), then cards: `ACTION FOR YOU` fyi items first, then
+- Counts (waiting, in progress, open fyi, archived), then cards for active and in-progress
+  items: `ACTION FOR YOU` fyi items first, then
   item order and reference. Each card shows the kind, status, where, Markdown text, the
   recipients with any resolution flag, terminal-copy commands in separate boxes with a copy
   action, the optional note field and the actions for its kind. A hidden command (one that

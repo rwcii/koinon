@@ -9,16 +9,15 @@ Schema: the next free version on develop. Two ordinary tables, created in `migra
 
 - `decision_items`: integer ID; unique reference (`[A-Za-z0-9-]`, at most 32 bytes); item
   order; title; where; agent text; context; recommendation; kind (`decision` or `fyi`);
-  status (`open` or `done`); commands (JSON array); revision; author family and peer name;
-  created, updated and archived times. Indexes: (archived, status, kind, ID) for the
-  lists, and the unique reference.
+  state (`active`, `in_progress` or `archived`); commands (JSON array); revision; author
+  family and peer name; created, updated and archived times. Indexes: (state, kind, ID) for
+  the lists, (state, archived time, ID) for the deep-archive sweep, and the unique
+  reference. Agents do not write the state; this chunk creates every item active.
 - `decision_recipients`: item ID, ordinal, the name as written, the resolved kind
   (`participant` or `peer`) and target, or the reason it did not resolve. Index: (kind,
   target, item ID) for the `mine` list.
-- `decision_usage`: one row with the decision text byte total that the text bound checks.
-  Every item write and verdict updates it in its own transaction.
 
-Bounds and limits are in the definition of done. Field byte limits: reference 32, title 256,
+Limits are in the definition of done. Field byte limits: reference 32, title 256,
 where 256, agent text 8 KiB, context 16 KiB, recommendation 8 KiB. Recipients are resolved
 when the item is written and again when the board or a verdict reads them.
 
@@ -33,7 +32,8 @@ identity from native metadata as for every tool:
 - `decision_edit`: reference, `if_revision`, and the fields to change. A stale revision is
   `stale_revision`. Editing a decided item is refused in this chunk with `decided`; chunk 02
   replaces this with reopen.
-- `decision_list`: `filter` (`waiting`, `open`, `archived`, `mine`), `after`, `limit`.
+- `decision_list`: `filter` (`waiting`, `active`, `in_progress`, `archived`, `mine`),
+  `after`, `limit`.
   Summaries only, keyset-paged on item ID as the definition of done states.
 - `decision_get`: reference. The full record, with its recipients and their resolution.
   Chunk 02 adds the current verdict, the history count and `decision_history`.
@@ -43,7 +43,7 @@ guide's new Decisions section names the tools and the ASD-STE100 rule for card p
 
 ## Dashboard
 
-A read-only Decisions view lists open items as escaped plain text, with a reference lookup,
+A read-only Decisions view lists active items as escaped plain text, with a reference lookup,
 so that the chunk is usable on its own. Chunk 03 replaces it with the designed board.
 
 ## Docs
