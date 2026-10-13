@@ -12,6 +12,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/rwcii/koinon/internal/platform"
 )
 
 // memoryStore is a store with an adjustable clock and limits, and one synthetic caller.
@@ -631,7 +633,16 @@ func TestMemoryChangeHookAfterCommitOnly(t *testing.T) {
 }
 
 func TestStorageBound(t *testing.T) {
-	s, root := testStore(t)
+	// A store created from nothing, not from the seeded template: no shared-memory file.
+	root, err := platform.PrivateDir(filepath.Join(t.TempDir(), "state"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	s, err := openStore(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { s.db.Close() })
 	ctx := context.Background()
 	path := filepath.Join(root, "state.sqlite3")
 	if _, err := os.Stat(path + "-shm"); !errors.Is(err, os.ErrNotExist) {
