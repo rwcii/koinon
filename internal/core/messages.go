@@ -182,6 +182,7 @@ func (s *Store) Peers(ctx context.Context, caller Key) ([]Peer, bool, error) {
 		if err != nil {
 			return nil, false, err
 		}
+		s.annotate(&own) // as List annotates every listed row
 		peers = append(peers, peer(own))
 	}
 	// Agents can send to the maintainer, who reads the inbox in the dashboard (chunk 09).

@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"reflect"
 	"strings"
 	"testing"
 )
@@ -61,11 +62,34 @@ func TestPeersRouteMarksTheCaller(t *testing.T) {
 }
 
 // A truncated list keeps its first rows in order; the caller's row follows them, before the
-// maintainer row, which stays last.
+// maintainer row, which stays last, and it is the same row, with its liveness evidence, as in
+// the untruncated list.
 func TestPeersTruncatedListKeepsTheCaller(t *testing.T) {
 	s, _ := testStore(t)
 	template := join(t, s, "agy", "synthetic-template", "")
-	caller := join(t, s, "codex", "synthetic-caller", "")
+	caller := join(t, s, "codex", "synthetic-caller", namedRepo(t, "peers-truncated"))
+	if _, err := s.db.Exec(`UPDATE sessions SET host_pid=4242,host_start=77 WHERE family=? AND id=?`, caller.Family, caller.ID); err != nil {
+		t.Fatal(err)
+	}
+	s.alive.set(Key{caller.Family, caller.ID}, s.now().UnixMilli())
+	ownRow := func() Peer {
+		t.Helper()
+		peers, _, err := s.Peers(context.Background(), Key{caller.Family, caller.ID})
+		if err != nil {
+			t.Fatal(err)
+		}
+		for _, p := range peers {
+			if p.Self {
+				return p
+			}
+		}
+		t.Fatal("no own row")
+		return Peer{}
+	}
+	before := ownRow()
+	if before.Liveness != "host" || before.HostVerifiedAt == 0 {
+		t.Fatalf("setup: %+v", before)
+	}
 	var columns []string
 	rows, err := s.db.Query(`SELECT name FROM pragma_table_info('sessions')`)
 	if err != nil {
@@ -97,7 +121,7 @@ func TestPeersTruncatedListKeepsTheCaller(t *testing.T) {
 			t.Fatalf("row %d: %+v", i, peers[i])
 		}
 	}
-	if own, last := peers[len(peers)-2], peers[len(peers)-1]; !own.Self || own.Name != caller.Name || last.Family != "maintainer" || last.Self {
-		t.Fatalf("tail: %+v %+v", own, last)
+	if own, last := peers[len(peers)-2], peers[len(peers)-1]; !reflect.DeepEqual(own, before) || last.Family != "maintainer" || last.Self {
+		t.Fatalf("tail: %+v (untruncated %+v) %+v", own, before, last)
 	}
 }
