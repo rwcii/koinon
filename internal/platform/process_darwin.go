@@ -73,3 +73,8 @@ func ProcessStart(pid int) (int64, error) {
 func ProcessEnvironment(pid int, name string) (string, error) {
 	return "", errors.New("process environment is not available on macOS")
 }
+
+// ProcessGroups is not read on macOS: no native evidence for a pane wake there yet (#275).
+func ProcessGroups() (map[int]ProcessGroup, error) {
+	return nil, errors.New("process groups are not read on macOS")
+}

@@ -192,6 +192,15 @@ func (s *Store) succeed(ctx context.Context, tx *sql.Tx, now int64, k Key, repos
 		result.Reason = "other_participant"
 	case sameHost && clear:
 		evidence = "host_cleared"
+		// The hook that registers a cleared thread has no terminal; the same host keeps the
+		// holder's proven pane, so a wake before the new thread's own registration reaches
+		// it through the pane rather than the queue (#275). Each wake proves the pane again.
+		if sh.pane == "" && hh.pane != "" {
+			if _, err := tx.ExecContext(ctx, `UPDATE sessions SET tmux_socket=?,tmux_pane=? WHERE family=? AND id=?`,
+				hh.socket, hh.pane, k.Family, k.ID); err != nil {
+				return nil, err
+			}
+		}
 	case sameHost:
 		if left := s.guardLeft(Key{k.Family, holder}, now); left > 0 {
 			result.Reason, result.RetryAfterMS = "holder_active", left

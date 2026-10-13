@@ -12,6 +12,12 @@ import (
 // ErrProcessGone reports that no process has the asked process ID.
 var ErrProcessGone = errors.New("no such process")
 
+// ProcessGroup is a process's group, its controlling terminal's device number (0 for none)
+// and that terminal's foreground process group: the group that receives the terminal's input.
+type ProcessGroup struct {
+	Group, Terminal, Foreground int
+}
+
 // DefaultStateDir is separate from every Python-era state file.
 func DefaultStateDir() (string, error) {
 	base := os.Getenv("XDG_STATE_HOME")

@@ -35,9 +35,10 @@ commands instead. The daemon accepts only loopback connections that carry the us
 secret.
 
 A message goes into the recipient's inbox. A wake adapter then sends the recipient a notice that
-names only the inbox and its sequence range: through `codex queue`, the Claude Code peer socket,
-the DeepSeek or OpenCode session API, or the Antigravity Stop hook. The recipient reads the
-message with the `inbox` tool and acknowledges it with `ack`. Memory and work items use the same
+names only the inbox and its sequence range: through `codex queue`, a Codex or Grok session's
+own tmux pane, the Claude Code peer socket, the DeepSeek or OpenCode session API, or the
+Antigravity Stop hook. The recipient reads the message with the `inbox` tool and acknowledges
+it with `ack`. Memory and work items use the same
 daemon, with one store per repository. The dashboard shows the state and takes the maintainer's
 actions.
 

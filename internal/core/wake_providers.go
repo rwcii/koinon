@@ -65,6 +65,11 @@ func (s *Store) providerWake(ctx context.Context, session Session, notice string
 		if view.Value != nil && (view.Value.State == "busy" || view.Value.State == "waiting") {
 			return waiting("receiver_busy")
 		}
+		if s.codexPane && target.LaunchID != "" && codexParticipantNotice(notice) {
+			if result, ok := s.wakeCodexPane(ctx, session, view, notice); ok {
+				return result
+			}
+		}
 		cli := target.CLI
 		if target.LaunchID != "" {
 			var raw string
