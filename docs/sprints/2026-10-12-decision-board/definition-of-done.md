@@ -27,9 +27,14 @@ is enforced. A later chunk adds only its own cases.
   reference, title, kind, status, revision and current verdict, not the full text.
 - `decision_get` by reference returns the full item, its current revision, its current
   verdict and the number of verdicts in its history, for open and archived items.
-  `decision_history` pages the item's verdicts by verdict ID, at most 16 verdicts and 64 KiB
-  per page. A page always holds at least one verdict; the field limits bound the size of one
-  verdict with its snapshot. An unknown reference is `not_found`.
+  `decision_history` pages the item's verdicts by verdict ID, at most 16 verdicts and
+  256 KiB per page. An unknown reference is `not_found`.
+- Page byte limits count the serialized JSON reply, with its envelope and JSON escaping.
+  A page stops before the record that would pass its limit, and always holds at least one
+  complete record. The largest record a page can hold fits within the limit: a verdict with
+  every snapshot and note field at its byte limit, written only in characters with the
+  longest JSON escape, serializes below 256 KiB; a list summary with its title at its limit
+  serializes below 64 KiB. A test writes those maximum records and reads each in a page.
 - Reads move no inbox read or acknowledgement marker and no memory cursor.
 
 ## Content

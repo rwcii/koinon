@@ -47,3 +47,8 @@ Claude accepted all four findings and the refusal note:
 - F3: acknowledgement is an ordinary write, refused visibly when the ordinary band is full.
 - F4: a wake whose range holds verdict messages names their verdict IDs.
 - Refusal note: the HTML rule covers decision-status retrieval only.
+
+Bounded review of f66be95: Codex accepted the F2–F4 and refusal-note fixes. One F1 case
+remained: a maximum-size verdict serialized with JSON escaping passed the 64 KiB history
+page. Claude accepted it: page limits count the serialized reply, the history page is
+256 KiB, and a test reads the largest possible record in a page.
