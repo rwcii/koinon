@@ -24,6 +24,12 @@ into a dated release section when promoted to `main`.
   attempt types the notice once and presses Enter once, reading it back before Enter and after.
   On macOS, `platform.ProcessGroups` reads the process groups and terminals from
   `kern.proc.all`. Sessions outside tmux and session inbox notices keep the queue.
+- Codex queue wait after `/clear` (#275): Codex starts a new `koinon mcp` server under the host
+  at each `/clear`, before the new thread's first turn. A `codex queue` wake of the address
+  holder, outside tmux or for its session inbox, waits with `codex_thread_unproven` while such a
+  server started after, or up to 1 second before, the holder's first registration, last tool
+  call and last rollout event (less 2 seconds), so the cleared thread does not read the
+  message. `platform.ProcessStartTime` reads a process's wall-clock start on Linux and macOS.
 - `peers` marks the calling session's own row with `self` (#348), so a session finds its own
   peer name, address, holder flag and succession result when several sessions of its family
   share a repository.

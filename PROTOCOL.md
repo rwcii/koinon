@@ -628,6 +628,27 @@ submitted prompt; otherwise `uncertain` with `pane_submission_unconfirmed`. The 
 retries above apply unchanged: a message still unread after its read wait gets a new attempt. A
 session inbox notice, a session without a pane and a direct start keep the queue.
 
+Before a `codex queue` wake of a launched Codex session that holds its participant address,
+the daemon checks that the host still shows that thread (#275). Codex CLI 0.162.0 with
+`--no-daemon`, as `koinon codex` starts it, starts a new `koinon mcp` server under the host at
+each `/clear`, before the new thread's first turn, and for a sub-agent thread. The daemon reads
+the children of the session's recorded host process (PID and start value), keeps those whose
+executable is `koinon` with first argument `mcp`, and reads when each started (Linux:
+`/proc/<pid>/stat` start ticks against `/proc/uptime`; macOS: `p_starttime`). A server that
+started after the holder's latest proof, at the same time or up to 1 second before it (the
+start read can be early by that much), makes the wake wait with `codex_thread_unproven`, so no
+turn runs in a thread that the host may no longer show. The proof is the latest of the
+holder's first registration, its last tool call, and its last `codex_rollout` activity event
+less 2 seconds (a turn that `/clear` ends can record its end at about the time the new server
+starts). While the wait lasts, a cleared thread runs no turn, so a later event or call proves
+the holder; a new thread that takes the address (`host_cleared` or same-host succession) ends
+the wait too. A process table, host or server start that cannot be read also waits. A
+sub-agent's server starts within the holder's turn, while the wake waits for the turn anyway;
+one started in the last 2 seconds of that turn delays the wake until the holder's next call or
+turn. Tool-call stamps and observations are kept in memory: after a daemon restart the proof is
+the first registration until the session's server reports the rollout again. A session that
+holds no participant address keeps the queue.
+
 `POST /v1/wake/agy-stop` takes `caller` with family `agy` and the hook's native conversation ID.
 It offers a due unhandled notice at that turn boundary, leaving delivery `uncertain` with
 `stop_offered`; the offer counts as a notice (see Handled wakes). The

@@ -6,6 +6,7 @@ import (
 	"os/exec"
 	"syscall"
 	"testing"
+	"time"
 )
 
 func runLockHelper(t *testing.T, path string) {
@@ -86,5 +87,27 @@ func TestProcessGroups(t *testing.T) {
 	defer func() { cmd.Process.Kill(); cmd.Wait() }()
 	if groups, err = ProcessGroups(); err != nil || groups[cmd.Process.Pid].Group != cmd.Process.Pid {
 		t.Fatalf("child group %+v: %v", groups[cmd.Process.Pid], err)
+	}
+}
+
+// A process's start time is on the wall clock: this test's process started before now, and
+// a child started now reads within a second of now (#275).
+func TestProcessStartTime(t *testing.T) {
+	own, err := ProcessStartTime(os.Getpid())
+	if err != nil || own.After(time.Now()) || time.Since(own) > 24*time.Hour {
+		t.Fatalf("own start %v: %v", own, err)
+	}
+	before := time.Now()
+	cmd := exec.Command("sleep", "30")
+	if err := cmd.Start(); err != nil {
+		t.Fatal(err)
+	}
+	defer func() { cmd.Process.Kill(); cmd.Wait() }()
+	child, err := ProcessStartTime(cmd.Process.Pid)
+	if err != nil || child.Before(before.Add(-time.Second)) || child.After(time.Now().Add(time.Second)) {
+		t.Fatalf("child start %v, started at %v: %v", child, before, err)
+	}
+	if _, err := ProcessStartTime(-1); !errors.Is(err, ErrProcessGone) {
+		t.Fatalf("no process: %v", err)
 	}
 }

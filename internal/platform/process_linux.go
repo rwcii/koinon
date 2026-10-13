@@ -5,6 +5,7 @@ import (
 	"os"
 	"strconv"
 	"strings"
+	"time"
 )
 
 // ProcessCommand reports a process's executable path and arguments.
@@ -138,4 +139,33 @@ func ProcessGroups() (map[int]ProcessGroup, error) {
 		return nil, errors.New("process table unreadable")
 	}
 	return groups, nil
+}
+
+// userHZ is the clock tick of /proc/<pid>/stat start times: USER_HZ, 100 on every Linux
+// architecture that Koinon builds for.
+const userHZ = 100
+
+// ProcessStartTime reports when a process started, on the wall clock: its start in clock
+// ticks since boot (/proc/<pid>/stat) against the time since boot (/proc/uptime), which both
+// count suspended time. The precision is one tick.
+func ProcessStartTime(pid int) (time.Time, error) {
+	ticks, err := ProcessStart(pid)
+	if err != nil {
+		return time.Time{}, err
+	}
+	now := time.Now()
+	data, err := os.ReadFile("/proc/uptime")
+	if err != nil {
+		return time.Time{}, err
+	}
+	fields := strings.Fields(string(data))
+	if len(fields) == 0 {
+		return time.Time{}, errors.New("uptime unreadable")
+	}
+	uptime, err := strconv.ParseFloat(fields[0], 64)
+	if err != nil {
+		return time.Time{}, errors.New("uptime unreadable")
+	}
+	since := time.Duration(uptime*float64(time.Second)) - time.Duration(ticks)*time.Second/userHZ
+	return now.Add(-since), nil
 }

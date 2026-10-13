@@ -5,6 +5,7 @@ import (
 	"os/exec"
 	"strconv"
 	"strings"
+	"time"
 
 	"golang.org/x/sys/unix"
 )
@@ -99,4 +100,14 @@ func ProcessGroups() (map[int]ProcessGroup, error) {
 		return nil, errors.New("process table unreadable")
 	}
 	return groups, nil
+}
+
+// ProcessStartTime reports when a process started, on the wall clock: ProcessStart is
+// p_starttime in microseconds since the epoch.
+func ProcessStartTime(pid int) (time.Time, error) {
+	start, err := ProcessStart(pid)
+	if err != nil {
+		return time.Time{}, err
+	}
+	return time.UnixMicro(start), nil
 }

@@ -158,8 +158,10 @@ through the SessionStart hook that `koinon setup codex` adds, once Codex trusts 
 `host_cleared`); without the hook, at its first Koinon tool call. Until that turn, the cleared
 thread stays the holder. On Linux and macOS, a participant notice for a session started with
 `koinon codex` in tmux is typed into its pane while it is idle and its input is empty, so the
-new thread's first turn reads it. Outside tmux and for a session inbox, the wake still reaches
-the cleared thread (#275).
+new thread's first turn reads it. A wake for the holder that still goes through `codex queue`
+(outside tmux, or a notice for the session's own inbox) waits with `codex_thread_unproven` from
+the `/clear` until the new thread's first turn moves the address, so the cleared thread does
+not read the message (#275).
 
 Shell `--as` selects an already registered session; it does not create a replacement
 conversation. Refresh discovery before sending. A delayed notice for an acknowledged sequence

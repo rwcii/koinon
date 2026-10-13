@@ -138,6 +138,9 @@ type Store struct {
 	// pane wake, on Linux and macOS (#275).
 	processGroups func() (map[int]platform.ProcessGroup, error)
 	codexPane     bool
+	// processStartTime reads when a process started on the wall clock: a Codex host's MCP
+	// servers (#275).
+	processStartTime func(int) (time.Time, error)
 	// alive holds when the liveness sweep last read each session's host as running (#249).
 	alive liveness
 	// settings holds the session timing values in force (#249).
@@ -235,7 +238,7 @@ func openStoreFile(root, name string) (*Store, error) {
 		processParents: platform.ProcessParents, processCommand: platform.ProcessCommand,
 		processEnvironment: platform.ProcessEnvironment, tmux: runTmux,
 		processGroups: platform.ProcessGroups,
-		codexPane:     runtime.GOOS == "linux" || runtime.GOOS == "darwin"}
+		codexPane:     runtime.GOOS == "linux" || runtime.GOOS == "darwin", processStartTime: platform.ProcessStartTime}
 	// The Claude pickup loader that a running session can add before its clear (#196, chunk 03).
 	// A failure is not fatal: the adapter's Probe then reports the loader as unreadable.
 	EnsureCycleLoader(root)
