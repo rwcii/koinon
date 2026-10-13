@@ -224,6 +224,22 @@ func (s Services) WriteDaemon(binary, state string) (bool, error) {
 	return true, WriteAtomic(path, want, 0644)
 }
 
+// CheckLogDir checks an existing log directory without creating or changing it. A missing
+// directory is permitted; the service installation creates it and checks it again.
+func (s Services) CheckLogDir() error { return s.checkLogDir(true) }
+
+func (s Services) checkLogDir(allowMissing bool) error {
+	dir := filepath.Dir(s.DaemonLog())
+	info, err := os.Lstat(dir)
+	if allowMissing && errors.Is(err, os.ErrNotExist) {
+		return nil
+	}
+	if err != nil || owned(info, true) != nil {
+		return fmt.Errorf("service_log_unsafe: %s must be a directory owned by this user with mode 0700", dir)
+	}
+	return nil
+}
+
 // logDir creates the private log directory: launchd opens the log as the user and does not
 // create its directory. An existing directory must already be private; it is refused, never
 // changed.
@@ -232,10 +248,7 @@ func (s Services) logDir() error {
 	if err := os.MkdirAll(dir, 0700); err != nil {
 		return err
 	}
-	if info, err := os.Lstat(dir); err != nil || owned(info, true) != nil {
-		return fmt.Errorf("service_log_unsafe: %s must be a directory owned by this user with mode 0700", dir)
-	}
-	return nil
+	return s.checkLogDir(false)
 }
 
 // StartDaemon enables and (re)starts the daemon from its written artifact, so a replaced

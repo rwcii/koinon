@@ -5,6 +5,11 @@
 The Go runtime is one `koinon` binary and one daemon per user. It needs no Python. The checkout no longer carries the Python runtime. The pinned previous release
 remains a supported input to the import and upgrade commands below. Every command prints a JSON report; a refusal prints `ok: false` with a fixed `code`.
 
+Install and uninstall keep completed-step details in their report when a later step fails;
+the report then has `ok: false`, and the command exits unsuccessfully.
+On macOS, both agent and system-mode installs check an existing log directory before
+replacing the binary or its link.
+
 ### Homebrew
 
 On macOS or Linux, the tap `rwcii/koinon` installs the release binary for your platform:
@@ -95,7 +100,13 @@ it starts only after the disk is unlocked at boot.
 
 Run it as yourself, not with `sudo`: it refuses to run as root (`system_mode_root`) and runs
 `sudo` with each privileged step's command. Whether `sudo` asks for a password depends on the
-host's sudo policy and cached credentials (PDR 003, Decision 2). The steps:
+host's sudo policy and cached credentials (PDR 003, Decision 2).
+
+Before replacing the binary or its link, the installer checks an existing log directory
+against the same ownership and mode requirements used by the system step. A missing directory
+is created by that step; an existing invalid directory is left unchanged.
+
+The steps:
 
 1. Render the plist to a private temporary file and check it with `plutil -lint`. Record whether
    the user agent is loaded and whether it is disabled.

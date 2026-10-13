@@ -152,7 +152,7 @@ func TestCodexRolloutAndTerminalAttribution(t *testing.T) {
 		}
 	}
 	if first == nil || first.Model == nil || first.Model.ID != "gpt-rollout" || first.Context == nil || *first.Context.UsedTokens != 50000 ||
-		*first.Context.LimitTokens != 200000 || first.Activity == nil || first.Activity.State != "busy" {
+		*first.Context.LimitTokens != 200000 || first.Context.Epoch != "synthetic-thread-1" || first.Activity == nil || first.Activity.State != "busy" {
 		t.Fatalf("rollout report: %+v", reports)
 	}
 	data, _ := json.Marshal(reports)

@@ -97,7 +97,7 @@ func TestInstallAndUninstall(t *testing.T) {
 			e := newEnv(t, backend)
 			e.o.Agents = []string{"codex", "claude"}
 			r, err := Install(context.Background(), e.o)
-			if err != nil || r.Service != "running" || r.BinaryResult != "replaced" {
+			if err != nil || !r.OK || r.Service != "running" || r.BinaryResult != "replaced" {
 				t.Fatalf("install %+v %v", r, err)
 			}
 			data, err := os.ReadFile(r.Binary)
@@ -120,12 +120,12 @@ func TestInstallAndUninstall(t *testing.T) {
 			}
 			// A repeated install keeps the binary and artifact and restarts the service.
 			again, err := Install(context.Background(), e.o)
-			if err != nil || again.BinaryResult != "unchanged" {
+			if err != nil || !again.OK || again.BinaryResult != "unchanged" {
 				t.Fatalf("repeat %+v %v", again, err)
 			}
 			u, err := Uninstall(context.Background(), e.o)
 			// Uninstall removes setup for the agents given, here codex and claude.
-			if err != nil || u.Service != "removed" || u.BinaryResult != "removed" || len(e.removals) != 2 {
+			if err != nil || !u.OK || u.Service != "removed" || u.BinaryResult != "removed" || len(e.removals) != 2 {
 				t.Fatalf("uninstall %+v %v %v", u, err, e.removals)
 			}
 			if _, err := os.Stat(r.Artifact); !os.IsNotExist(err) {
@@ -135,7 +135,7 @@ func TestInstallAndUninstall(t *testing.T) {
 				t.Fatalf("state removed: %v", err)
 			}
 			repeat, err := Uninstall(context.Background(), e.o)
-			if err != nil || repeat.Service != "absent" || repeat.BinaryResult != "absent" {
+			if err != nil || !repeat.OK || repeat.Service != "absent" || repeat.BinaryResult != "absent" {
 				t.Fatalf("repeat uninstall %+v %v", repeat, err)
 			}
 		})
@@ -147,17 +147,17 @@ func TestInstallRefusals(t *testing.T) {
 	// An artifact at the daemon's path without the marker is never replaced.
 	os.MkdirAll(filepath.Dir(e.o.Services.DaemonArtifact()), 0755)
 	os.WriteFile(e.o.Services.DaemonArtifact(), []byte("[Service]\nExecStart=/usr/bin/other\n"), 0644)
-	if _, err := Install(context.Background(), e.o); err == nil || !strings.Contains(err.Error(), "service_artifact_unowned") {
+	if r, err := Install(context.Background(), e.o); err == nil || r.OK || !strings.Contains(err.Error(), "service_artifact_unowned") {
 		t.Fatalf("unowned artifact: %v", err)
 	}
-	if _, err := Uninstall(context.Background(), e.o); err == nil || !strings.Contains(err.Error(), "service_artifact_unowned") {
+	if r, err := Uninstall(context.Background(), e.o); err == nil || r.OK || !strings.Contains(err.Error(), "service_artifact_unowned") {
 		t.Fatalf("unowned removal: %v", err)
 	}
 	os.Remove(e.o.Services.DaemonArtifact())
 	// A Python-era installation refuses a plain install.
 	os.MkdirAll(e.o.PythonPrefix, 0700)
 	os.WriteFile(filepath.Join(e.o.PythonPrefix, "install.json"), []byte(`{"state_root": "/x"}`), 0600)
-	if _, err := Install(context.Background(), e.o); err == nil || !strings.Contains(err.Error(), "python_install_present") {
+	if r, err := Install(context.Background(), e.o); err == nil || r.OK || !strings.Contains(err.Error(), "python_install_present") {
 		t.Fatalf("python present: %v", err)
 	}
 	e.o.Upgrade = true

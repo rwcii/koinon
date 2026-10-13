@@ -8,6 +8,15 @@ into a dated release section when promoted to `main`.
 - A macOS system-mode install after a desktop logout no longer stops at `observe_agent`
   (#344): launchctl's error 125 for the user's GUI domain counts as no desktop login, as
   `Could not find domain` does after a reboot, and the agent steps are skipped.
+- Installer failure reports (#342) have `ok: false` while retaining completed-step details.
+  macOS installation checks an existing log directory before replacing the binary or
+  link, and creates a missing directory during the system step.
+
+- Context policy (#196, chunk 01): the Settings page sets each family's context handoff mode
+  and threshold, and the Sessions page shows each session's Enable switch and whether its
+  fresh context reading reaches the threshold. Enabling is refused until the managed cycle is
+  available; family changes enable nothing. Claude and Codex context reports carry their
+  native transcript or thread, kept private. The state database moves to schema 22.
 - Wake-pass diagnostics (#335) report the error class, stage, time and bounded error-type
   details, including SQLite result codes, in health and daemon logs. A successful pass
   clears the current fault while retaining the last failure; repeated identical faults

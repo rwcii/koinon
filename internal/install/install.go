@@ -348,7 +348,7 @@ func Install(ctx context.Context, o Options) (Report, error) {
 	if err := o.defaults(); err != nil {
 		return Report{}, err
 	}
-	r := Report{OK: true, Binary: Binary(o.Prefix), Backend: o.Services.Backend, Artifact: o.Services.DaemonArtifact(),
+	r := Report{Binary: Binary(o.Prefix), Backend: o.Services.Backend, Artifact: o.Services.DaemonArtifact(),
 		StateDir: o.StateDir, Agents: []setup.Report{}}
 	if !o.Upgrade {
 		i, err := legacy.ReadInstall(o.PythonPrefix)
@@ -402,6 +402,7 @@ func Install(ctx context.Context, o Options) (Report, error) {
 			r.Agents = append(r.Agents, report)
 		}
 	}
+	r.OK = true
 	return r, nil
 }
 
@@ -444,6 +445,9 @@ func systemMode(ctx context.Context, o Options) (*platform.SystemPlist, error) {
 	}
 	switch {
 	case !o.System && !p.Present:
+		if err := o.Services.CheckLogDir(); err != nil {
+			return nil, err
+		}
 		return nil, nil
 	case o.Services.UID == 0:
 		return nil, errors.New("system_mode_root: run koinon install --system as the user the daemon runs as; it asks sudo for each privileged step")
@@ -453,6 +457,9 @@ func systemMode(ctx context.Context, o Options) (*platform.SystemPlist, error) {
 		if err := o.Services.CheckSystem(p, Binary(o.Prefix), o.StateDir); err != nil {
 			return nil, err
 		}
+	}
+	if err := o.Services.CheckLogDir(); err != nil {
+		return nil, err
 	}
 	return &p, nil
 }
@@ -505,7 +512,7 @@ func Uninstall(ctx context.Context, o Options) (Report, error) {
 	if err := o.defaults(); err != nil {
 		return Report{}, err
 	}
-	r := Report{OK: true, Binary: Binary(o.Prefix), Backend: o.Services.Backend, Artifact: o.Services.DaemonArtifact(),
+	r := Report{Binary: Binary(o.Prefix), Backend: o.Services.Backend, Artifact: o.Services.DaemonArtifact(),
 		StateDir: o.StateDir, Agents: []setup.Report{}}
 	agents := o.Agents
 	if len(agents) == 0 {
@@ -551,6 +558,7 @@ func Uninstall(ctx context.Context, o Options) (Report, error) {
 	// Empty directories of the prefix go too; anything else in them stays.
 	os.Remove(filepath.Dir(r.Binary))
 	os.Remove(o.Prefix)
+	r.OK = true
 	return r, nil
 }
 

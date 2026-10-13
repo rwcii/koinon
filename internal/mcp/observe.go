@@ -366,7 +366,14 @@ func (s *server) codexRollout(thread string) (model, context, activity *core.Obs
 		*r = rollout{searched: now}
 		return nil, nil, nil
 	}
-	return r.model, r.context, r.activity
+	// The rollout's first record proved its thread, which is the context's native epoch.
+	context = r.context
+	if context != nil {
+		value := *context
+		value.Epoch = thread
+		context = &value
+	}
+	return r.model, context, r.activity
 }
 
 // findRollout returns the one rollout file whose name holds the thread ID, or "".
