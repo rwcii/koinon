@@ -66,5 +66,8 @@ cycle/Enable metadata, native-name reservation and guide meaning, with D3/D4 tes
 Sources are the maintainer's sender/reservation decisions (6136143253/6136161569).
 Gate B approves the reviewed plan plus that addition
 ([record](https://github.com/rwcii/koinon/issues/196#issuecomment-6136155493)).
-Future agentic capabilities are identity context, outside this deliverable. F3 awaits
-bounded review; b874's general/fix review and d788's integration carry forward.
+Future agentic capabilities are identity context, outside this deliverable.
+Bounded F3 review passed at `923e4899806807c79d43a804316dd2bce828dcda`
+([peer and refusal evidence](https://github.com/rwcii/koinon/issues/196#issuecomment-6136351144)).
+Mechanical integration `9f7f18c` preserves the reviewed plan/PDR content unchanged.
+The b874 general/fix review and earlier integration evidence carry forward.
