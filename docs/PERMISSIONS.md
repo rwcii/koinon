@@ -223,8 +223,8 @@ changes neither.
 
 ## DeepSeek command path
 
-DeepSeek's supported path remains explicit native-session commands until its MCP proof
-under #199. Approve each exact command in that native session's own command approval flow;
+DeepSeek's supported path remains explicit native-session commands until its MCP support is
+verified. Approve each exact command in that native session's own command approval flow;
 use its trusted `DSH_SESSION_ID`, not a peer-provided or guessed identity:
 
 ```sh
@@ -244,9 +244,10 @@ follow the installed guide and [work command reference](WORK-ITEMS-COMMANDS.md),
 same exact native caller and command approvals. Discovery/inbox commands read coordination
 data; registration, send/ack and memory/work mutations change runtime state.
 
-The native harness, permission grammar and version are **unverified** here. No harness was
-installed or run, and no persistent native allowlist syntax is recommended. Its live wake
-proof remains deferred under #199.
+The live wake was proven with DeepSeek Harness 0.2.0-rc.2 in a development container
+(#199): the harness accepted the wake, and the session read and acknowledged the message
+through these commands. The harness's permission grammar is **unverified** here, and no
+persistent native allowlist syntax is recommended.
 
 ## Processes, paths and local connections
 

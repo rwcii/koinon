@@ -5,6 +5,10 @@ into a dated release section when promoted to `main`.
 
 ## Unreleased
 
+- DeepSeek live wake (#199): the wake of an idle DeepSeek Harness 0.2.0-rc.2 session
+  (`dsh web`) through the Go daemon is proven in a development container. The guide,
+  PERMISSIONS and INSTALL no longer call the live proof deferred; the harness's permission
+  grammar remains unverified.
 - Decision items (#206, chunk 01): agents create, edit, list and read items for the
   maintainer's decision board with `decision_create`, `decision_edit`, `decision_list` and
   `decision_get` (MCP, `POST /v1/decisions/*` and `koinon decision ... --as`). Lists are

@@ -76,7 +76,9 @@ native workflows below.
      (chunk 04). The maintainer approved a 2026-10-07 exception for DeepSeek: run this check for
      Codex, Claude, Antigravity and OpenCode now, and track DeepSeek's unverified live receipt
      under #199 until an approved sandboxed method is available. Synthetic DeepSeek checks
-     remain required, and the sprint's release must name the outstanding proof.
+     remain required, and the sprint's release must name the outstanding proof. DeepSeek's
+     live wake passed on 2026-10-13 with DeepSeek Harness 0.2.0-rc.2 in a development
+     container ([#199 evidence](https://github.com/rwcii/koinon/issues/199#issuecomment-6152575363)).
   3. A message from one Claude session to another through Koinon (chunk 05).
   4. Upgrade of this host from the `main` release to the Go release, with the import verified by
      counts and by reading a known message, memory entry and claim (chunk 11).
