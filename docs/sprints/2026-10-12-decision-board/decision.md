@@ -103,4 +103,5 @@ The maintainer approved this decision (Gate A) on 2026-10-13 with the correction
 criterion 4 and the storage requirement in criterion 10
 ([record](https://github.com/rwcii/koinon/issues/206#issuecomment-6148016252)). The
 definition of done, `sprint.md` and the chunks specify storage, delivery and snapshots.
-Implementation waits for Gate B.
+The maintainer approved the plan (Gate B) on 2026-10-13
+([record](https://github.com/rwcii/koinon/issues/206#issuecomment-6150911355)).

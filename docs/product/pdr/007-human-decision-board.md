@@ -36,8 +36,8 @@ family can read. Issue #206 asks for a
 decision board in the Koinon dashboard: agents create and update decision items, only the
 human records a verdict in the dashboard, and every family reads the verdict record itself.
 
-The board is not built. Its plan (the unpublished #206 plan draft (d325228)) is a reviewed framing; the
-technical chunks are not written and Gate B has not been given. The decisions below are what
+The board is not built. Its plan (`docs/sprints/2026-10-12-decision-board/`) is reviewed,
+and the maintainer approved it (Gate B) on 2026-10-13 (#206 comment 6150911355). The decisions below are what
 #206 requests. #206 says its settled points "were settled with the requester"; that sentence
 is agent-written and the requester's original words were not located.
 
@@ -107,8 +107,7 @@ the settled point on rows); a request record. Using the existing board's UI desi
 design to the dashboard." (posted from the maintainer's account without agent framing;
 authorship not otherwise verified). Card text: Maintainer, 2026-10-12: "card comments should be
 formattable in markdown. code should be displayed in code blocks so it's readable, and all
-prose should be in asd-ste100" (#206 comment 6119203856). The `ACTION FOR YOU` marker: Proposed in
-the unpublished #206 plan draft (d325228); not decided. Lifecycle: Maintainer, 2026-10-13:
+prose should be in asd-ste100" (#206 comment 6119203856). The `ACTION FOR YOU` marker: Proposed in the #206 plan; approved with the plan at Gate B (#206 comment 6150911355). Lifecycle: Maintainer, 2026-10-13:
 "we don't build systems that fail at some arbitrary limit. closed items should be archived.
 after 30 days, archived items should be moved to a log file in case an old decision needs to
 be resurrected. nothing gets deleted, but the lifecycle becomes active > in progress >
@@ -149,7 +148,7 @@ covers the maintainer's verdicts on this board, not agent-to-agent work verdicts
 
 **Provenance:** Requested in #206 (issue body, requirements 3 and 4, and the settled point
 on verdict writes); a request record, original words not located. The concurrent-edit
-guarantee: Proposed in the unpublished #206 plan draft (d325228) (criterion 4); not decided.
+guarantee: Proposed in the #206 plan (criterion 4); approved with the plan at Gate B (#206 comment 6150911355).
 Text changes after a verdict: Maintainer, 2026-10-13, on the statement "A decision's text
 can't change after your verdict.": "it can, if the facts surrounding the decision dictate a
 change.  but in general use, they do not." Asked whether the item then reopens for a new
@@ -192,8 +191,7 @@ text cannot be shown in a command box under this rule.
 
 **Provenance:** Requested in #206 (issue body, requirement 7). Maintainer, 2026-10-12: "yes,
 next item", keeping the printable-ASCII check for code blocks that the maintainer copies into a
-terminal ([#306 comment 6119251724](https://github.com/rwcii/koinon/issues/306#issuecomment-6119251724)). Reject on write and hide on read: Proposed
-in the unpublished #206 plan draft (d325228) (criterion 6); not decided.
+terminal ([#306 comment 6119251724](https://github.com/rwcii/koinon/issues/306#issuecomment-6119251724)). Reject on write and hide on read: Proposed in the #206 plan (criterion 6); approved with the plan at Gate B (#206 comment 6150911355).
 
 ### Alternatives Considered
 
@@ -226,8 +224,7 @@ by reading or parsing the dashboard HTML. A reopen does not cancel an unacknowle
 Delivery or acknowledgement does not show that an action was done.
 
 **Provenance:** Requested in #206 (issue body, requirement 9 and the settled point on
-delivery); a request record. "Not proof that an action was performed": Proposed in
-the unpublished #206 plan draft (d325228) (criterion 8); not decided. Stored, queryable
+delivery); a request record. "Not proof that an action was performed": Proposed in the #206 plan (criterion 8); approved with the plan at Gate B (#206 comment 6150911355). Stored, queryable
 records: Maintainer, 2026-10-13: "are agents reading the HTML, or are the decision records a
 dataset they can query efficiently?  I ask, because this was an issue in the original
 incarnation, the page grew unbounded and each agent had to pull down a full html file and parse
@@ -257,7 +254,7 @@ The maintainer decides once; each named agent receives the verdict without a ter
 verdicts, and every family reads each verdict once. A change to decided text reopens the item
 for a new verdict, and agents query stored records, never the page. The maintainer
 decided that card text is Markdown with code blocks and ASD-STE100 prose, and that command code
-blocks, which the maintainer copies into a terminal, hold printable ASCII only. The plan's manual-work marker and write-time rules are not decided.
+blocks, which the maintainer copies into a terminal, hold printable ASCII only. The plan's manual-work marker and write-time rules were approved with the plan at Gate B.
 
 ---
 

@@ -70,3 +70,10 @@ findings: L1, the move now checks the marked revision and state before the delet
 partial line gets a newline instead of a rewrite; L2, a locator row keeps a moved reference
 reserved and answers `decision_get` without reading the log; L3, skipped deliveries are
 final and do not hold an item in the archive.
+
+## Gate B, 2026-10-13
+
+Codex's bounded review of b3a6535 passed with no remaining findings
+([#206 comment 6150523140](https://github.com/rwcii/koinon/issues/206#issuecomment-6150523140)).
+The maintainer approved the plan at b3a6535
+([#206 comment 6150911355](https://github.com/rwcii/koinon/issues/206#issuecomment-6150911355)).
