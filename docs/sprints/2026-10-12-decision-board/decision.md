@@ -56,8 +56,9 @@ This reconciliation applies those choices; it does not ask for them again.
 10. A complete paged waiting query returns exactly open decision items without a verdict,
     excluding fyi, decided and archived items. Every supported agent family can use it and
     read its own verdict records through its existing authenticated interface. Decision
-    records are stored data that agents query in bounded pages through Koinon; no agent reads
-    or parses the dashboard HTML, and an agent's cost does not grow with the board
+    records are stored data that agents query in bounded pages through Koinon; agents get
+    decision status from those queries, not by reading or parsing the dashboard HTML, and an
+    agent's cost does not grow with the board
     ([maintainer, 2026-10-13](https://github.com/rwcii/koinon/issues/206#issuecomment-6148016252)).
 11. The board remains on the loopback dashboard with existing login, Host/Origin and CSRF
     checks. Known key formats and forbidden control characters are refused; personal data,

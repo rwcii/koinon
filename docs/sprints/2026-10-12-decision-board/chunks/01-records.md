@@ -10,10 +10,13 @@ Schema: the next free version on develop. Two ordinary tables, created in `migra
 - `decision_items`: integer ID; unique reference (`[A-Za-z0-9-]`, at most 32 bytes); item
   order; title; where; agent text; context; recommendation; kind (`decision` or `fyi`);
   status (`open` or `done`); commands (JSON array); revision; author family and peer name;
-  created, updated and archived times. Indexes: (status, archived, item order, ID) for the
+  created, updated and archived times. Indexes: (archived, status, kind, ID) for the
   lists, and the unique reference.
 - `decision_recipients`: item ID, ordinal, the name as written, the resolved kind
-  (`participant` or `peer`) and target, or the reason it did not resolve.
+  (`participant` or `peer`) and target, or the reason it did not resolve. Index: (kind,
+  target, item ID) for the `mine` list.
+- `decision_usage`: one row with the decision text byte total that the text bound checks.
+  Every item write and verdict updates it in its own transaction.
 
 Bounds and limits are in the definition of done. Field byte limits: reference 32, title 256,
 where 256, agent text 8 KiB, context 16 KiB, recommendation 8 KiB. Recipients are resolved
@@ -31,8 +34,9 @@ identity from native metadata as for every tool:
   `stale_revision`. Editing a decided item is refused in this chunk with `decided`; chunk 02
   replaces this with reopen.
 - `decision_list`: `filter` (`waiting`, `open`, `archived`, `mine`), `after`, `limit`.
-  Summaries only, paged as the definition of done states.
+  Summaries only, keyset-paged on item ID as the definition of done states.
 - `decision_get`: reference. The full record, with its recipients and their resolution.
+  Chunk 02 adds the current verdict, the history count and `decision_history`.
 
 Validation, credential-format refusal and the command rule apply on every write. The
 guide's new Decisions section names the tools and the ASD-STE100 rule for card prose.

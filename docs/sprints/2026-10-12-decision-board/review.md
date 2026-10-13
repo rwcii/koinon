@@ -34,3 +34,16 @@ that agents query stored records, never the page
 [6148194337](https://github.com/rwcii/koinon/issues/206#issuecomment-6148194337)). Criteria 4
 and 10 and PDR 007 Decisions 2 and 4 record both. Claude and Codex agreed the plan criteria
 before these edits. The definition of done, `sprint.md` and chunks 01–03 wait for Codex's frozen review.
+
+## Plan review 1823064, 2026-10-13
+
+Codex requested changes ([#206 comment 6149542089](https://github.com/rwcii/koinon/issues/206#issuecomment-6149542089)).
+Claude accepted all four findings and the refusal note:
+
+- F1: `decision_history` pages verdict history; lists page on the immutable item ID, with
+  the stated walk result and the `mine` index.
+- F2: a reopen does not cancel an unacknowledged delivery. Nothing deletes decision records
+  automatically; a 64 MiB text bound and the item bound refuse new writes instead.
+- F3: acknowledgement is an ordinary write, refused visibly when the ordinary band is full.
+- F4: a wake whose range holds verdict messages names their verdict IDs.
+- Refusal note: the HTML rule covers decision-status retrieval only.

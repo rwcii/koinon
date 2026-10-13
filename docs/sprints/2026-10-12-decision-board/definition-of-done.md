@@ -6,23 +6,30 @@ is enforced. A later chunk adds only its own cases.
 
 ## Records and agent queries
 
-- Agents read the board only through Koinon: MCP tools, `POST /v1/decisions/*` and
-  `koinon decision ... --as`. No agent interface returns, needs or parses dashboard HTML. A
-  test calls every agent operation and asserts that the replies are JSON records with no
+- Agents get decision status only through Koinon: MCP tools, `POST /v1/decisions/*` and
+  `koinon decision ... --as`. No agent interface returns, needs or parses dashboard HTML.
+  This is about status retrieval; dashboard work and UI testing are not affected. A test
+  calls every agent operation and asserts that the replies are JSON records with no
   dashboard markup, and that each reply's work is bounded by its page limit, not by the
-  number of stored items. The test fills the store to its item cap and measures this.
+  number of stored items or verdicts. The test fills the store to its item cap, with one
+  item reopened to many verdicts, and measures this.
 - Create, edit, get and list work for every supported family, using synthetic native
   metadata and DeepSeek's command path. Guessed caller identity, `maintainer` as a caller and
   unknown arguments are refused. Arguments that name a verdict, dismissal, audit or agent-row
   field are refused as unknown fields on every interface.
 - Lists: `waiting` (open decision items without a current verdict), `open`, `archived`,
   and `mine` (items whose recipients resolve to the caller's session or held participant).
-  Each list is keyset-paged by a stable cursor, with at most 100 items and 64 KiB per page,
-  and returns `more` and `next_after`. A complete walk returns every match exactly once while
-  items are created, edited, decided and archived during the walk. Summaries hold the
+  Each list is keyset-paged on the immutable item ID, with at most 100 items and 64 KiB per
+  page, and returns `more` and `next_after`. Items created, edited, decided and archived
+  during a walk give this result: no item appears twice; an item that matches for the whole
+  walk appears once; an item whose match changes during the walk appears at most once. A test
+  edits item order and inserts an item during a walk and checks each case. Summaries hold the
   reference, title, kind, status, revision and current verdict, not the full text.
-- `decision_get` by reference returns the full item, its current revision and its verdict
-  history, for open and archived items. An unknown reference is `not_found`.
+- `decision_get` by reference returns the full item, its current revision, its current
+  verdict and the number of verdicts in its history, for open and archived items.
+  `decision_history` pages the item's verdicts by verdict ID, at most 16 verdicts and 64 KiB
+  per page. A page always holds at least one verdict; the field limits bound the size of one
+  verdict with its snapshot. An unknown reference is `not_found`.
 - Reads move no inbox read or acknowledgement marker and no memory cursor.
 
 ## Content
@@ -60,8 +67,10 @@ is enforced. A later chunk adds only its own cases.
   creates no delivery.
 - Reopen: an agent edit of a decided item increments the revision, sets the item open, and
   marks the current verdict `superseded` in the same transaction. The earlier verdict, its
-  snapshot and its deliveries stay in the history. A superseded verdict's unacknowledged
-  deliveries show `superseded`. The item waits for a new verdict on the new text.
+  snapshot and its deliveries stay in the history. Supersession does not acknowledge a
+  delivery: an unacknowledged delivery of a superseded verdict stays pending, shows the
+  verdict's superseded time, and stays until the recipient acknowledges it. The item waits
+  for a new verdict on the new text.
 
 ## Delivery
 
@@ -70,7 +79,10 @@ is enforced. A later chunk adds only its own cases.
   records a skipped delivery with that reason.
 - Each delivery is a stored record (verdict, recipient, outcome, acknowledgement time) and
   one typed inbox message with `system_kind` `decision_verdict` and the verdict ID. The
-  existing wake path delivers that message. A participant's delivery follows its current
+  existing wake path delivers that message. When a wake's sequence range holds
+  `decision_verdict` messages, its notice also names their verdict IDs, at most 8, then
+  `+N more`. The IDs are integers and carry no card text. Target selection and inbox
+  semantics do not change. A test shows that repeated wakes carry the same verdict IDs. A participant's delivery follows its current
   holder through succession.
 - `decision_pending` lists the caller's unacknowledged deliveries, also after the inbox
   message has failed or aged out. `decision_ack` acknowledges by verdict ID. It is
@@ -95,13 +107,19 @@ is enforced. A later chunk adds only its own cases.
 
 - New tables and indexes are created through the schema migration and pass the catalog
   check. Old-schema fixtures migrate without changing messages, claims, aliases or cursors.
-- Bounds: 256 open items, 10 000 items in all, 32 recipients per item, 4 000 verdicts kept.
-  Creating past a bound is refused with a fixed code. Archive retention removes the oldest
-  archived items whose deliveries are all acknowledged or superseded, in bounded control
-  deletions that allocate no new notice or audit.
-- Agent writes and verdicts are ordinary writes. When the store is full, they are refused
-  visibly and nothing is half written. Acknowledgement is a fixed-size control update. A
-  storage test at the bounds shows that existing funded work and cycle controls keep their
+- Bounds: 256 open items, 10 000 items in all, 32 recipients per item, and 64 MiB of
+  decision text. The text bound counts the UTF-8 bytes of every item's text fields and of
+  every verdict's note and snapshot. A create, edit or verdict past a bound is refused with
+  `decision_store_full` and changes nothing. The dashboard shows the refusal inline.
+- Nothing deletes decision records automatically. Archived items, verdicts, snapshots and
+  deliveries are kept. Removing history needs a later maintainer decision; this deliverable
+  adds none.
+- Agent writes, verdicts and acknowledgements are ordinary writes under the existing
+  ordinary page ceiling, so they never use the reserve that existing controls keep. When the
+  ordinary band is full, they are refused visibly and nothing is half written; an
+  unacknowledged delivery stays pending. A storage test at a full ordinary band shows the
+  refused acknowledgement, the delivery still pending, and a successful acknowledgement after
+  space is freed. The same test shows that existing funded work and cycle controls keep their
   guarantees.
 
 ## Publication

@@ -212,7 +212,8 @@ without a valid `relayTo` is flagged. Each recipient has a durable delivery reco
 acknowledgement. The content-free wake notice carries the verdict ID; it can repeat after a
 crash, and the receiver ignores an ID it has handled. Each agent reads the verdict record
 itself through an interface every family can use. The records are stored data that agents
-query in bounded pages through Koinon; agents never read or parse the dashboard HTML.
+query in bounded pages through Koinon; agents get decision status from those queries, not
+by reading or parsing the dashboard HTML. A reopen does not cancel an unacknowledged delivery.
 Delivery or acknowledgement does not show that an action was done.
 
 **Provenance:** Requested in #206 (issue body, requirement 9 and the settled point on
