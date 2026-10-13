@@ -441,3 +441,23 @@ func TestContextCycleMaintainerAnswersDialog(t *testing.T) {
 		t.Fatalf("after the answer: %+v audit %d", v, count(t, s, `SELECT COUNT(*) FROM audit WHERE action='context-cycle-answer'`))
 	}
 }
+
+// A crash after the clear's Enter and before its receipt commit leaves clear_intent: on the
+// next step the proven new epoch reconciles it to reset_verified, and no second clear is sent.
+// Without the new epoch the same state is uncertain (TestContextCycleDeadlinesAndIntentRecovery).
+func TestContextCycleClearIntentReconciledByEpoch(t *testing.T) {
+	f := newCycleFixture(t)
+	ready, _ := f.readyCycle(t)
+	if _, err := f.s.advanceCycle(context.Background(), ready.ID, ready.Revision, cycleReady, cycleClearIntent, "", nil, nil); err != nil {
+		t.Fatal(err)
+	}
+	f.step(t)
+	if v := f.status(t, f.k); v.State != cycleResetVerified || f.adapter.count("clear") != 0 {
+		t.Fatalf("reconciled clear: %+v %v", v, f.adapter.calls)
+	}
+	f.step(t)
+	f.step(t)
+	if v := f.status(t, f.k); v.State != cycleWaitingPickup || f.adapter.count("clear") != 0 || f.adapter.count("pickup") != 1 {
+		t.Fatalf("after reconciliation: %+v %v", v, f.adapter.calls)
+	}
+}
