@@ -920,7 +920,7 @@ func TestContextCycleSchemaTwentyFourKeepsCycles(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer upgraded.db.Close()
-	if count(t, upgraded, `PRAGMA user_version`) != 24 || rowText(upgraded.db) != before || rowsOf(t, upgraded.db) != rows {
+	if count(t, upgraded, `PRAGMA user_version`) != schemaVersion || rowText(upgraded.db) != before || rowsOf(t, upgraded.db) != rows {
 		t.Fatal("schema 24 changed a cycle row")
 	}
 	if err := checkCatalog(upgraded.db, 23); err == nil {
