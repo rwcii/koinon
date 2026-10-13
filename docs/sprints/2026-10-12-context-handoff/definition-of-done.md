@@ -2,7 +2,8 @@
 
 This is a proposed technical plan for [decision.md](decision.md). Gate A and the
 maintainer's configuration, Enable carry-over and terminal-input choices are settled.
-The values, interfaces and implementation split below are proposals for Gate B.
+Gate B approved the reviewed values, interfaces and three-chunk split on 2026-10-13,
+with the reserved overwatch sender added (decision comments 6136155493/6136161569).
 Codex's native-compaction default and leaving native compaction settings unchanged are
 plan proposals, as recorded in PDR 006; they are not a new maintainer quotation.
 
@@ -71,6 +72,16 @@ installed family's normal permissions. Never reset an ongoing work session for a
 The test report states CLI version, OS, fixture and result. Preserve captures privately;
 public evidence contains synthetic labels and the observations needed to judge the result.
 Service-manager tests remain in guarded disposable CI; native model tests are separate.
+
+## Reserved system sender — D3 and D4
+
+The handoff request comes from reserved system identity `overwatch`, with its own sender
+family/key and typed cycle/Enable-revision metadata. It has system origin, never maintainer
+origin. Test native registration, aliasing and participant holding cannot claim it; peer
+text and model arguments cannot forge its typed request. Its guide instruction identifies
+Enable as the authorization for this cycle, rather than inventing a human chat post.
+Existing name collisions preserve state and report a conflict; migration cannot silently
+rename or take over another record. Future agentic capabilities are outside this deliverable.
 
 ## Reviewed interaction tests — D6, D9 and D11
 

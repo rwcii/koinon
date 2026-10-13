@@ -3,7 +3,7 @@ pdr: "006"
 title: "Context Monitoring and Managed Handoffs"
 status: draft
 created: "2026-10-12"
-updated: "2026-10-12"
+updated: "2026-10-13"
 authors:
   - "Robert Capps"
 reviewers: []
@@ -38,7 +38,7 @@ nears its limit. Issue #196 asks for a managed cycle: the daemon watches context
 threshold, asks the session over Koinon to write its handoff, and after the ready reply enters
 the family's reset and pickup commands in the agent's own tmux pane.
 
-The cycle is not built; Gate A for #196 is approved. The maintainer's recorded words cover
+The cycle is not built; Gate A and Gate B for #196 are approved. The maintainer's recorded words cover
 Enable carry-over across a verified reset and terminal commands as a required part of the
 cycle. The rest is requested in #196 or proposed in its plan.
 
@@ -150,7 +150,11 @@ fails or the session moves.
 
 ### Decision
 
-At the threshold, Koinon asks the session over Koinon to start its handoff. The agent
+At the threshold, Koinon asks the session to start its handoff through `overwatch`, a
+reserved system identity like `maintainer`, with its own sender and never maintainer origin.
+No native session registers, aliases or holds that name. The request identifies its cycle
+and the maintainer's Enable; a peer body claiming that identity carries no system origin.
+The agent
 finishes or pauses its step, writes its handoff and replies that it is ready; a peer cannot
 reply ready for another session. After the reply, Koinon enters the family's commands in the
 agent's own pane, proven as in the #156 rename (the pane process is an ancestor of the
@@ -167,6 +171,15 @@ tmux session is a required part of the cycle, not an exception.
 for context management handoffs." (#196 comment 6117338153). The steps, commands and stop
 conditions: Requested in #196 (issue body); a request record. The ready-reply form: open in
 #196 ("To decide in the plan").
+
+Sender provenance: Maintainer, 2026-10-13, answering the recommendation for a distinct daemon
+sender: “I agree, let's call it "overwatch"”
+([record](https://github.com/rwcii/koinon/issues/196#issuecomment-6136143253)); then “its a
+reserved system identity as well” ([record](https://github.com/rwcii/koinon/issues/196#issuecomment-6136161569)).
+Gate B approves the reviewed three-chunk plan with the sender addition
+([record](https://github.com/rwcii/koinon/issues/196#issuecomment-6136155493)). Eventual
+agentic capabilities are future context, outside this managed-cycle deliverable.
+
 
 ### Alternatives Considered
 
@@ -243,4 +256,5 @@ and terminal commands have the maintainer's words; the rest is requested or prop
 | Date       | Change           |
 | ---------- | ---------------- |
 | 2026-10-12 | Initial creation |
+| 2026-10-13 | Recorded Gate B and the maintainer's reserved overwatch system sender |
 | 2026-10-12 | Reconciled the framing and active issue body with intended terminal commands and prompt handling; retained bare native commands without appended task text |

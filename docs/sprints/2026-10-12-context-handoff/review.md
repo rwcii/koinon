@@ -56,4 +56,15 @@ Gate B proposals; settled per-session Enable and terminal input remain unchanged
 Bounded review passed at `b874f57157a78b6113184b76401dda6caef0867d`: F1 and F2 closed,
 peer and refusal verdicts passed. The [commit-bound evidence](https://github.com/rwcii/koinon/issues/196#issuecomment-6135869078)
 records the source clarification for inbox clear and the native reporting proof.
-Unchanged reviewed content carries forward. Gate B and implementation remain pending.
+Unchanged reviewed content carries forward. The later Gate B decision is recorded below.
+
+## Maintainer sender decision and Gate B — 2026-10-13
+
+F3 was reopened by the maintainer's sender question. The request had no specified sender.
+Accepted: name reserved system identity overwatch, its own sender family/key, system origin,
+cycle/Enable metadata, native-name reservation and guide meaning, with D3/D4 tests.
+Sources are the maintainer's sender/reservation decisions (6136143253/6136161569).
+Gate B approves the reviewed plan plus that addition
+([record](https://github.com/rwcii/koinon/issues/196#issuecomment-6136155493)).
+Future agentic capabilities are identity context, outside this deliverable. F3 awaits
+bounded review; b874's general/fix review and d788's integration carry forward.

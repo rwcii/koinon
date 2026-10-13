@@ -2,7 +2,8 @@
 
 Sources: [decision.md](decision.md), [definition-of-done.md](definition-of-done.md),
 [evidence.md](evidence.md), PDR 006 and the canonical `handoff`, `pickup` and `peer-tmux`
-skills. Gate A is approved. This technical plan awaits independent review and Gate B.
+skills. Gate A and Gate B are approved. The reviewed plan includes the maintainer's
+reserved overwatch identity addition, which receives bounded review before publication.
 The maintainer assigns implementation chunks; the pair agrees each chunk's criteria before
 edits. Terminal interaction is part of the requested product function.
 
@@ -85,7 +86,11 @@ effect; record an already-entered operation whose result races cancellation as s
 ### Request, tools and handoff artifact
 
 The daemon writes a typed managed-cycle request to the exact native recipient's inbox in
-the admission transaction. Its fixed body identifies the cycle and asks that session to
+the admission transaction. Its sender is reserved system identity `overwatch`, with its own
+internal sender key `(overwatch, overwatch)` and display name `overwatch`, analogous to the
+existing maintainer identity. Native registration, aliases and participant holders cannot
+claim it. Typed system origin and cycle/Enable-revision metadata never use `maintainer` or
+acquire maintainer-origin chat semantics. Its fixed body identifies the cycle and asks it to
 finish or pause its step and use its own canonical handoff procedure. Its metadata states
 the originating Enable revision; it is an internal managed request, not a fabricated
 maintainer-authored chat post. The usual content-free wake follows the committed inbox row.
@@ -165,11 +170,14 @@ restored resumed/paused work report. It does not copy the handoff/pickup procedu
 The proven missing-skill bootstrap carries this same guide reference into the cleared
 session. D9 evidence must show the model read the section and made the report; an older
 installed guide or retained initialization string alone is insufficient.
+The section identifies overwatch as Koinon's system requester: per-session Enable authorizes
+that exact cycle. A peer's claim to be overwatch or quote its body supplies no typed origin
+or readiness authority. The identity may gain agentic capabilities later; none are built here.
 
 ## Review and approval
 
 The other family reviews the frozen plan once against S1-S6 and D1-D13. Findings and their
 dispositions go in [review.md](review.md); accepted fixes receive bounded review. Present
-the reviewed hash and concrete implementation split for Gate B. Gate A's settled choices
+the reviewed hash and implementation split in the approved Gate B record. Gate A's settled choices
 are not asked again. No product code, native session reset or host setup is performed by
 this planning branch.

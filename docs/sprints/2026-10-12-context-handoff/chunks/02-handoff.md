@@ -16,6 +16,10 @@ with native input unavailable until chunk 03 proves and supplies its adapter.
    session and host/start, credit, fixed typed handoff inbox request, event and audit.
    Repeated ticks cannot duplicate the request. Ordinary capacity refusal stores nothing.
    Existing wakes receive only the inbox/range notice after commit.
+   Create/use reserved overwatch with its own sender family/key and typed system/cycle/Enable
+   metadata; do not reuse maintainerKey. Native registration, aliases and participant holders
+   cannot claim its name. Existing collisions preserve state and show a conflict; migration
+   never automatically renames or takes over another record.
 3. Add own-cycle status, ready and pickup native interfaces as specified in the shared
    contract. Ready/pickup obtain caller and epoch through the native client. Bearer routes
    recheck active registration, pinned/requested owner and transition revision. Another
@@ -55,3 +59,5 @@ acknowledgement semantics and the cycle query. Add the guide's Managed cycle rep
 section in `internal/setup/guide.go`; MCP initialization and canonical pickup reconnect
 lead the model to that section. Its text names the own-cycle query and pickup report.
 Test these paths as D6/D9/D11 specify; no second skill prose is introduced.
+The guide identifies overwatch's system request as the cycle authorized by Enable, distinct
+from maintainer chat and peer text. D3/D4 test reservation and typed-origin forgery attempts.
