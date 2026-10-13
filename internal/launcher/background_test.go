@@ -88,10 +88,19 @@ func TestClaudeBackgroundJob(t *testing.T) {
 	}
 	data, _ := os.ReadFile(args)
 	got := strings.Split(strings.TrimSpace(string(data)), "\n")
-	if len(got) != 5 || got[0] != "--bg" || got[1] != "--model" || got[2] != "synthetic" || got[3] != "--settings" {
+	// The pickup loader follows the launch's own options (#196, chunk 03).
+	if len(got) != 7 || got[0] != "--bg" || got[1] != "--model" || got[2] != "synthetic" || got[3] != "--add-dir" ||
+		got[4] != core.CycleLoaderDir(state) || got[5] != "--settings" {
 		t.Fatalf("claude arguments: %q", got)
 	}
-	settings := got[4]
+	loader := filepath.Join(got[4], ".claude", "skills", "pickup", "SKILL.md")
+	if info, err := os.Stat(loader); err != nil || info.Mode().Perm() != 0o600 && info.Mode().Perm() != 0o644 {
+		t.Fatalf("loader: %v %v", info, err)
+	}
+	if info, err := os.Stat(got[4]); err != nil || info.Mode().Perm() != 0o700 {
+		t.Fatalf("loader directory: %v %v", info, err)
+	}
+	settings := got[6]
 	// The settings path is canonical: a macOS temporary directory is under a symbolic link.
 	launches, _ := filepath.EvalSymlinks(filepath.Join(state, "launches"))
 	info, err := os.Stat(settings)
@@ -133,10 +142,10 @@ func TestClaudeBackgroundJob(t *testing.T) {
 	after, _ := os.ReadDir(filepath.Join(state, "launches"))
 	data, _ = os.ReadFile(args)
 	failed := strings.Split(strings.TrimSpace(string(data)), "\n")
-	if len(after) != len(before) || len(failed) != 5 {
+	if len(after) != len(before) || len(failed) != 7 {
 		t.Fatalf("settings file left: %d -> %d", len(before), len(after))
 	}
-	retired := strings.TrimSuffix(filepath.Base(failed[4]), ".json")
+	retired := strings.TrimSuffix(filepath.Base(failed[6]), ".json")
 	if err := register("0123abcd-1111-4222-8333-444455556666", retired); !errors.As(err, &refusal) || refusal.Code != "not_launched" {
 		t.Fatalf("retired launch admitted: %v", err)
 	}

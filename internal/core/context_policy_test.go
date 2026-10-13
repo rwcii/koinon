@@ -16,9 +16,9 @@ import (
 // withCycleAvailable makes a verified cycle adapter available to every family for one test.
 func withCycleAvailable(t *testing.T) {
 	t.Helper()
-	previous := contextCycleAvailable
-	contextCycleAvailable = func(string) bool { return true }
-	t.Cleanup(func() { contextCycleAvailable = previous })
+	previous := contextCycleProbe
+	contextCycleProbe = func(*Store, context.Context, Key) CycleProbe { return CycleProbe{Bootstrap: "project"} }
+	t.Cleanup(func() { contextCycleProbe = previous })
 }
 
 func policyOf(t *testing.T, s *Store, family string) ContextFamilyPolicy {
@@ -323,8 +323,8 @@ func TestDashboardContextPolicy(t *testing.T) {
 		t.Fatalf("enable: %s", got)
 	}
 	page := dashboardDo(t, d, "GET", "/dashboard/sessions", client.cookie, nil, nil)
-	if page.status != 200 || !strings.Contains(page.body, "handoff handoff_cycle at 80%, not enabled; cycle unavailable: no verified handoff cycle for this family yet; not_enabled; source 0 s, confirmed 0 s ago") ||
-		!strings.Contains(page.body, `<button type="submit" disabled title="No verified handoff cycle is available for this family yet.">Enable handoff</button>`) || strings.Contains(page.body, "synthetic-private-epoch") {
+	if page.status != 200 || !strings.Contains(page.body, "handoff handoff_cycle at 80%, not enabled; cycle unavailable: host_unpinned; not_enabled; source 0 s, confirmed 0 s ago") ||
+		!strings.Contains(page.body, `<button type="submit" disabled title="The handoff cycle is unavailable for this session: host_unpinned.">Enable handoff</button>`) || strings.Contains(page.body, "synthetic-private-epoch") {
 		t.Fatalf("sessions page: %d %s", page.status, page.body)
 	}
 	settings := dashboardDo(t, d, "GET", "/dashboard/settings", client.cookie, nil, nil)
@@ -340,7 +340,7 @@ func TestContextSchemaTwentyTwoKeepsExistingState(t *testing.T) {
 	room := mustRoom(t, s, "synthetic kept room", 7)
 	mustHumanPost(t, s, room, "synthetic kept post")
 	before := rowsOf(t, s.db)
-	if _, err := s.db.Exec(undoSchemaTwentyThree + undoSchemaTwentyTwo + `PRAGMA user_version=21`); err != nil {
+	if _, err := s.db.Exec(undoSchemaTwentyFour + undoSchemaTwentyThree + undoSchemaTwentyTwo + `PRAGMA user_version=21`); err != nil {
 		t.Fatal(err)
 	}
 	if err := checkCatalog(s.db, 21); err != nil {

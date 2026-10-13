@@ -204,8 +204,9 @@ Schema 22 adds `context_enables`, one private row per session with its Enable sw
 revision and the session revision, participant address, host and tmux pane it was set for;
 none of these leave the store. The action `context-enable` (`peer`, `revision` of the session
 as shown, `if_revision` of the Enable, `enabled` `on` or `off`) changes one session with its
-audit record. Enabling needs an active session and a verified cycle for its family; until one
-exists it refuses with `context_cycle_unavailable` and writes nothing. Disabling is always
+audit record. Enabling needs an active session whose family adapter's Probe passes for its
+pinned host and pane (Claude Code cycle adapter, below); otherwise it refuses with
+`context_cycle_unavailable` and writes nothing. Disabling is always
 accepted. A changed session refuses `revision_changed`, a changed Enable
 `context_enable_changed`. Deleting a session deletes its Enable.
 
@@ -228,8 +229,8 @@ are unknown, so no session is eligible until fresh native reports arrive.
 Chunk 02 adds the durable cycle. A context observation that makes an enabled session
 eligible admits a cycle when the family has a registered cycle adapter, the session still has
 the host and tmux pane that its Enable pinned, it has no unfinished cycle (nor has its host),
-and fewer than 16 cycles are unfinished. No adapter is registered yet (chunk 03 supplies the
-first), so Enable is still refused and no cycle runs. Admission is one ordinary transaction:
+and fewer than 16 cycles are unfinished. Chunk 03 registers the Claude Code adapter; the other
+families have none, so their Enable is refused. Admission is one ordinary transaction:
 the cycle row, its first event `requested admitted`, an audit record and the typed request in
 the session's own inbox. The request's sender is the reserved system identity `overwatch`
 (`sender_family` and `sender_id` `overwatch`, `sender_name` `overwatch`), with `system_kind`
@@ -249,6 +250,9 @@ The states are `requested`, `waiting_ready`, `ready`, `clear_intent`, `clear_rec
 `reset_verified`, `pickup_intent`, `waiting_pickup`, `waiting_prompt`, `prompt_intent`, and the terminal
 `complete`, `cancelled`, `failed` and `uncertain`. The last event slot is kept for the
 terminal outcome; a stage that would take it fails the cycle with `event_limit`.
+
+Schema 24 rebuilds `context_cycles` with two more states, `bootstrap_intent` and
+`bootstrap_verified` (below), copying every row unchanged.
 
 The session reports through three own-cycle calls. The native client names the caller and
 attaches its current native epoch: Claude's transcript session from the registry record of
@@ -304,8 +308,9 @@ ten for a prompt, and 30 minutes for the whole cycle; no stage deadline passes t
 report at or after a deadline is `cycle_changed`. While a cycle is in `ready` through
 `waiting_pickup`, ordinary wakes to its pane wait, still due and not delivered.
 
-A new native epoch of the requester before any input (`waiting_ready`, `ready`) cancels the
-cycle (`epoch_changed`). Disable, a family mode without the cycle, retiring or purging the
+A new native epoch of the requester before the managed clear (`waiting_ready`, `ready`,
+`bootstrap_intent`, `bootstrap_verified`) cancels the cycle (`epoch_changed`; uncertain while the
+bootstrap input is unproven). Disable, a family mode without the cycle, retiring or purging the
 requester or successor, deleting it and the maintainer's holder choice for its address end
 the cycle in their own transaction. A cycle that ends after an input whose effect is not
 proven (an intent, or `clear_received` without a proven reset) is `uncertain`, with the
@@ -316,6 +321,66 @@ stage, and each audit record it writes, is a control write that debits 280 pages
 outcome and these controls release the rest. The page debt includes every unfinished cycle's
 remaining credit ([derivation](docs/CONTEXT-CYCLE-STORAGE.md)). Finished cycles are kept for 30 days, at most
 the newest 1,024, with their events; unfinished cycles are never removed.
+
+### Claude Code cycle adapter
+
+Chunk 03 adds the adapter for Claude Code (version `claude-tmux-1`). It acts only in the
+session's own tmux pane, on the stored socket and pane ID. Before every key it proves the pane
+again (the host's PID and start, the pane's process ancestry, no other agent between them) and
+rechecks, in one read transaction, that the cycle is still at its revision and stage, before its
+deadlines, under the Enable that admitted it. A failed check stops the input before that key.
+Typed text that is not submitted is erased again with one Backspace per typed character (the
+input line was empty before). The erase passes the same proof and fence and runs only while the
+input line still holds exactly that text: after a rejected fence, or over another draft, the
+input line stays as it is. A failed step is recorded as
+the cycle's reason (`typed_not_read_back`, `escape_changed_input`, `submit_not_read_back`,
+`pickup_entry_not_listed`, `dialog_not_shown`, `erase_not_read_back`, `pane_unproven`).
+
+Probe decides whether a session's cycle can run, for Enable, at admission and before each
+input. It needs Linux (`platform_unverified` elsewhere until the macOS evidence run); the host's
+own Claude Code registry record (`sessions/<pid>.json` under the host's `CLAUDE_CONFIG_DIR`, else
+`~/.claude`) for the same process start (`native_registry_unavailable`); a host version in the
+evidenced set, now 2.1.296 (`native_version_unverified`); the pane (`pane_unproven`); and the
+pickup entry that a bare `/pickup` runs. A personal skill (`skills/pickup` under the config root)
+ranks over a project skill (`.claude/skills/pickup` in the session directory or a parent up to
+its worktree root), which ranks over Koinon's loader. Only that effective entry is checked: it
+must be byte-equal to the catalog item `skill.pickup`, or for the loader to the loader
+(`pickup_entry_differs`, `pickup_entry_unreadable`); entries it shadows are not checked. A
+personal legacy `pickup` command, or, without a personal skill, a project legacy command or two
+project skills, leave the order unknown (`pickup_entry_unverified`). Nothing is adopted automatically.
+The Sessions page shows Probe's reason, or the entry the pickup runs (`personal`, `project`,
+`loader` or `interactive`).
+
+The loader is `cycle/claude-loader/.claude/skills/pickup/SKILL.md` under the state directory,
+written by the daemon at start and by `koinon claude`, which adds `--add-dir` for it to every
+Claude launch, after the launch's own options and before a `--`. Its body only reads
+`skill.pickup` with `library_read` and requires its catalog digest to equal the cycle's
+`catalog_digest`, which `context_cycle_status` returns. A session launched without it gets it
+before the clear: `bootstrap_intent` is recorded, `/add-dir <loader>` is entered, the
+add-directory dialog is answered with option 1 ("Yes, for this session"; the persistent option
+is never chosen), and `/pickup` is typed to read that the menu lists the loader first, then
+erased unsubmitted; `bootstrap_verified` records the proof. An unproven bootstrap is uncertain.
+
+The adapter is ready for input when the registry `status` is `idle` and the input line (`❯`
+followed by a no-break space) is empty; text drawn dim there is a placeholder or a suggestion,
+any other text a draft, and the cycle waits. A pane in copy mode is returned to its prompt
+first. The clear and the pickup type the command, read it back (for `/pickup`, the menu's first
+entry must be the expected one), close the menu with Escape, wait 400 ms (an escape byte
+followed at once by Enter reaches Claude Code as Alt+Enter, which does not submit), read back
+that the input line holds exactly the command with the menu closed, and submit with one Enter. The reset is proven by a new registry `sessionId` for the same host process; Koinon
+registration is unchanged, because the MCP process keeps its caller across `/clear`.
+
+The add-directory dialog is the only dialog the adapter answers. Another dialog
+(`native_dialog`) puts the cycle in `waiting_prompt`, and the Sessions page shows its text and
+numbered options. Before entering a dashboard option the adapter proves the pane, passes the
+fence and reads the dialog again. The session's native permission settings, or the maintainer in the session,
+may answer it; the cycle returns to its stage once it is gone, or the prompt wait ends it. The
+dashboard action `context-cycle-answer` (`cycle_id`, `revision`, `digest` of the dialog as shown,
+`option` 1 to 9) records `prompt_intent` with the action's audit record, enters the option only
+while the pane still shows the same dialog, and records the return to the cycle's stage. A
+changed dialog before any key returns the cycle to `waiting_prompt` (`cycle_dialog_changed`); an
+unproven answer is uncertain. Enable authorizes the managed cycle; native permission choices
+follow the existing task authorization and the native permission interface.
 
 ### Verified succession
 

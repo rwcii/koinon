@@ -197,6 +197,17 @@ func (d *Daemon) dashboardActions(mux *http.ServeMux, authed func(int64, func(ht
 				return err
 			}, "context_enable_saved", nil)
 	}))
+	mux.HandleFunc("POST /dashboard/actions/context-cycle-answer", authed(actionFormLimit, func(w http.ResponseWriter, r *http.Request, _ string) {
+		id, digest, option := r.PostForm.Get("cycle_id"), r.PostForm.Get("digest"), r.PostForm.Get("option")
+		revision, ok := formInt(r, "revision")
+		valid := ok && revision > 0 && len(id) == 32 && len(digest) == 64 && len(option) == 1 && option >= "1" && option <= "9"
+		target := "context cycle answer invalid"
+		if valid {
+			target = "context cycle " + id + " option " + option
+		}
+		run(w, r, "context-cycle-answer", target, "sessions", nil, valid,
+			func(ctx context.Context) error { return d.store.AnswerCycleDialog(ctx, id, revision, digest, option) }, "cycle_dialog_answered", nil)
+	}))
 	mux.HandleFunc("POST /dashboard/actions/participant-holder", authed(actionFormLimit, func(w http.ResponseWriter, r *http.Request, _ string) {
 		k, valid := sessionKey(r)
 		revision, ok := formInt(r, "revision")

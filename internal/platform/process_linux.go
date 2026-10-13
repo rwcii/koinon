@@ -83,3 +83,18 @@ func ProcessStart(pid int) (int64, error) {
 	}
 	return strconv.ParseInt(fields[19], 10, 64)
 }
+
+// ProcessEnvironment reports one variable of a process this user owns, from its initial
+// environment. A missing variable is "" with no error.
+func ProcessEnvironment(pid int, name string) (string, error) {
+	data, err := os.ReadFile("/proc/" + strconv.Itoa(pid) + "/environ")
+	if err != nil {
+		return "", err
+	}
+	for _, entry := range strings.Split(string(data), "\x00") {
+		if value, ok := strings.CutPrefix(entry, name+"="); ok {
+			return value, nil
+		}
+	}
+	return "", nil
+}

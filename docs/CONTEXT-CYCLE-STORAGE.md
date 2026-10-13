@@ -68,6 +68,12 @@ At most 16 cycles are unfinished, so the cycle debt is at most 16 × 4,411 = 70,
 debt, and every write ceiling subtracts it after the mutation. An admission that does not fit
 below the ordinary ceiling with its credit is refused and stores nothing.
 
+Schema 24 (#196, chunk 03) adds the interactive bootstrap stages `bootstrap_intent` and
+`bootstrap_verified`. They are non-terminal stages like the others: each debits 280 pages, and a
+cycle with a bootstrap still has at most 14 stages under the 16-event bound, so the credit is
+unchanged. The migration rebuilds `context_cycles` and returns the old table's pages before the
+first write.
+
 ## Retention
 
 Finished cycles are deleted with their events after 30 days, or beyond the newest 1,024, in a

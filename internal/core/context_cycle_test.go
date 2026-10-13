@@ -23,7 +23,12 @@ type fakeAdapter struct {
 	epoch    string
 	pickup   bool
 	answered bool
+	probe    CycleProbe
+	boot     bool
 	calls    []string
+	// beforeClear runs as the clear starts, before its fence: a race with a dashboard action.
+	beforeClear func()
+	dialog      CycleDialog
 }
 
 func (f *fakeAdapter) Version() string { return "synthetic-1" }
@@ -32,11 +37,30 @@ func (f *fakeAdapter) record(call string) {
 	defer f.mu.Unlock()
 	f.calls = append(f.calls, call)
 }
-func (f *fakeAdapter) Inspect(_ context.Context, t CycleTarget) (PaneState, error) {
+func (f *fakeAdapter) Probe(context.Context, CycleTarget) CycleProbe {
+	f.record("probe")
+	return f.probe
+}
+func (f *fakeAdapter) Inspect(_ context.Context, t CycleTarget, _ CycleFence) (PaneState, error) {
 	f.record("inspect " + t.Pane)
 	return f.pane, f.inspect
 }
-func (f *fakeAdapter) Clear(context.Context, CycleTarget) (bool, error) {
+
+// Every input passes the fence first, as the real adapter does before each key.
+func (f *fakeAdapter) Bootstrap(ctx context.Context, _ CycleTarget, fence CycleFence) (bool, error) {
+	if err := fence(ctx); err != nil {
+		return false, err
+	}
+	f.record("bootstrap")
+	return f.boot, nil
+}
+func (f *fakeAdapter) Clear(ctx context.Context, _ CycleTarget, fence CycleFence) (bool, error) {
+	if f.beforeClear != nil {
+		f.beforeClear()
+	}
+	if err := fence(ctx); err != nil {
+		return false, err
+	}
 	f.record("clear")
 	return f.clear, nil
 }
@@ -44,13 +68,34 @@ func (f *fakeAdapter) NewEpoch(context.Context, CycleTarget) (string, error) {
 	f.record("epoch")
 	return f.epoch, nil
 }
-func (f *fakeAdapter) Pickup(context.Context, CycleTarget) (bool, error) {
-	f.record("pickup")
+func (f *fakeAdapter) Pickup(ctx context.Context, _ CycleTarget, bootstrap string, fence CycleFence) (bool, error) {
+	if err := fence(ctx); err != nil {
+		return false, err
+	}
+	f.record("pickup " + bootstrap)
 	return f.pickup, nil
 }
-func (f *fakeAdapter) Answer(_ context.Context, _ CycleTarget, prompt string) (bool, error) {
+func (f *fakeAdapter) Answerable(prompt string) bool { return prompt != "native_dialog" }
+func (f *fakeAdapter) Answer(ctx context.Context, _ CycleTarget, prompt string, fence CycleFence) (bool, error) {
+	if err := fence(ctx); err != nil {
+		return false, err
+	}
 	f.record("answer " + prompt)
 	return f.answered, nil
+}
+func (f *fakeAdapter) Dialog(context.Context, CycleTarget) (CycleDialog, error) {
+	f.record("dialog")
+	return f.dialog, nil
+}
+func (f *fakeAdapter) Choose(ctx context.Context, _ CycleTarget, digest, option string, fence CycleFence) (bool, error) {
+	if digest != f.dialog.Digest {
+		return false, ErrCycleDialogChanged
+	}
+	if err := fence(ctx); err != nil {
+		return false, err
+	}
+	f.record("choose " + option)
+	return true, nil
 }
 func (f *fakeAdapter) count(prefix string) int {
 	f.mu.Lock()
@@ -79,7 +124,7 @@ type cycleFixture struct {
 func newCycleFixture(t *testing.T) *cycleFixture {
 	t.Helper()
 	s, root := testStore(t)
-	f := &cycleFixture{s: s, root: root, adapter: &fakeAdapter{pane: PaneState{Idle: true}, clear: true, epoch: "synthetic-epoch-2", pickup: true, answered: true}}
+	f := &cycleFixture{s: s, root: root, adapter: &fakeAdapter{pane: PaneState{Idle: true}, clear: true, epoch: "synthetic-epoch-2", pickup: true, answered: true, probe: CycleProbe{Bootstrap: "project"}}}
 	f.clock = time.Now().Truncate(time.Millisecond)
 	s.now = func() time.Time { return f.clock }
 	previous := cycleAdapters
@@ -761,7 +806,7 @@ func TestContextCycleControlsAtSaturation(t *testing.T) {
 func TestContextCycleDashboardAndRoutes(t *testing.T) {
 	d, root := startTestDaemon(t)
 	s := d.store
-	adapter := &fakeAdapter{pane: PaneState{Idle: true}}
+	adapter := &fakeAdapter{pane: PaneState{Idle: true}, probe: CycleProbe{Bootstrap: "project"}}
 	previous := cycleAdapters
 	cycleAdapters = map[string]CycleAdapter{"claude": adapter}
 	t.Cleanup(func() { cycleAdapters = previous })
@@ -824,7 +869,7 @@ func TestContextCycleSchemaTwentyThreeKeepsExistingState(t *testing.T) {
 	room := mustRoom(t, s, "synthetic kept room", 7)
 	mustHumanPost(t, s, room, "synthetic kept post")
 	before := rowsOf(t, s.db)
-	if _, err := s.db.Exec(undoSchemaTwentyThree + `PRAGMA user_version=22`); err != nil {
+	if _, err := s.db.Exec(undoSchemaTwentyFour + undoSchemaTwentyThree + `PRAGMA user_version=22`); err != nil {
 		t.Fatal(err)
 	}
 	if err := checkCatalog(s.db, 22); err != nil {
@@ -836,12 +881,53 @@ func TestContextCycleSchemaTwentyThreeKeepsExistingState(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer upgraded.db.Close()
-	if count(t, upgraded, `PRAGMA user_version`) != 23 || count(t, upgraded, `SELECT COUNT(*) FROM context_cycles`) != 0 ||
+	if count(t, upgraded, `PRAGMA user_version`) != schemaVersion || count(t, upgraded, `SELECT COUNT(*) FROM context_cycles`) != 0 ||
 		count(t, upgraded, `SELECT COUNT(*) FROM messages WHERE system_kind!='' OR cycle_id!=''`) != 0 || rowsOf(t, upgraded.db) != before {
 		t.Fatal("schema 23 changed existing state")
 	}
 	if err := checkCatalog(upgraded.db, 22); err == nil {
 		t.Fatal("a schema 22 writer would accept the schema 23 store")
+	}
+}
+
+// A schema 23 store keeps every cycle row unchanged when schema 24 rebuilds the table with the
+// bootstrap states, which a schema 23 table refuses; a schema 23 writer refuses the result.
+func TestContextCycleSchemaTwentyFourKeepsCycles(t *testing.T) {
+	f := newCycleFixture(t)
+	f.readyCycle(t)
+	rowText := func(q querier) string {
+		t.Helper()
+		var text string
+		if err := q.QueryRowContext(context.Background(), `SELECT group_concat(quote(cycle_id)||quote(credit)||quote(state)||quote(artifact)||quote(epoch)||quote(socket_sum), '|')
+			FROM (SELECT *, length(tmux_socket) AS socket_sum FROM context_cycles)`).Scan(&text); err != nil {
+			t.Fatal(err)
+		}
+		return text
+	}
+	before, rows := rowText(f.s.db), rowsOf(t, f.s.db)
+	if _, err := f.s.db.Exec(undoSchemaTwentyFour + `PRAGMA user_version=23`); err != nil {
+		t.Fatal(err)
+	}
+	if err := checkCatalog(f.s.db, 23); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := f.s.db.Exec(`UPDATE context_cycles SET state='bootstrap_intent'`); err == nil {
+		t.Fatal("a schema 23 table accepted a bootstrap state")
+	}
+	f.s.db.Close()
+	upgraded, err := openStore(f.root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer upgraded.db.Close()
+	if count(t, upgraded, `PRAGMA user_version`) != 24 || rowText(upgraded.db) != before || rowsOf(t, upgraded.db) != rows {
+		t.Fatal("schema 24 changed a cycle row")
+	}
+	if err := checkCatalog(upgraded.db, 23); err == nil {
+		t.Fatal("a schema 23 writer would accept the schema 24 store")
+	}
+	if _, err := upgraded.db.Exec(`UPDATE context_cycles SET state='bootstrap_verified'`); err != nil {
+		t.Fatalf("schema 24 refused a bootstrap state: %v", err)
 	}
 }
 

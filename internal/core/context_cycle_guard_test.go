@@ -3,9 +3,12 @@ package core
 import (
 	"context"
 	"errors"
+	"net/url"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strconv"
+	"strings"
 	"testing"
 	"time"
 )
@@ -290,5 +293,200 @@ func TestContextCycleListedCheckoutOnly(t *testing.T) {
 	os.WriteFile(filepath.Join(unlisted, ".git"), pointer, 0o600)
 	if got, err := mainCheckout(context.Background(), unlisted, registered.Repository); err == nil {
 		t.Fatalf("copied pointer resolved %q", got)
+	}
+}
+
+// Without a loader at launch, the cycle adds it before the clear behind its own intent; an
+// unproven bootstrap is uncertain and never repeated, and the pickup expects the loader.
+func TestContextCycleInteractiveBootstrap(t *testing.T) {
+	f := newCycleFixture(t)
+	f.adapter.probe, f.adapter.boot = CycleProbe{Bootstrap: "interactive"}, true
+	f.readyCycle(t)
+	f.step(t)
+	if v := f.status(t, f.k); v.State != cycleBootstrapVerified || f.adapter.count("bootstrap") != 1 || f.adapter.count("clear") != 0 {
+		t.Fatalf("bootstrap: %+v %v", v, f.adapter.calls)
+	}
+	f.step(t)
+	f.step(t)
+	f.step(t)
+	if v := f.status(t, f.k); v.State != cycleWaitingPickup || f.adapter.count("pickup interactive") != 1 || f.adapter.count("bootstrap") != 1 {
+		t.Fatalf("after bootstrap: %+v %v", v, f.adapter.calls)
+	}
+	g := newCycleFixture(t)
+	g.adapter.probe = CycleProbe{Bootstrap: "interactive"}
+	g.readyCycle(t)
+	g.step(t)
+	if v := g.status(t, g.k); v.State != cycleUncertain || v.Reason != "bootstrap_intent_unreceived" || g.adapter.count("clear") != 0 {
+		t.Fatalf("unproven bootstrap: %+v", v)
+	}
+	h := newCycleFixture(t)
+	h.adapter.probe = CycleProbe{Bootstrap: "interactive"}
+	ready, _ := h.readyCycle(t)
+	if _, err := h.s.advanceCycle(context.Background(), ready.ID, ready.Revision, cycleReady, cycleBootstrapIntent, "", nil, nil); err != nil {
+		t.Fatal(err)
+	}
+	h.step(t)
+	if v := h.status(t, h.k); v.State != cycleUncertain || v.Reason != "bootstrap_unreceipted" || h.adapter.count("bootstrap") != 0 {
+		t.Fatalf("bootstrap intent after a crash: %+v %v", v, h.adapter.calls)
+	}
+}
+
+// A pickup entry that Probe cannot verify fails the cycle before any input.
+func TestContextCycleProbeBeforeClear(t *testing.T) {
+	f := newCycleFixture(t)
+	f.readyCycle(t)
+	f.adapter.probe = CycleProbe{Reason: "pickup_entry_differs", Bootstrap: "project"}
+	f.step(t)
+	if v := f.status(t, f.k); v.State != cycleFailed || v.Reason != "pickup_entry_differs" || f.adapter.count("clear") != 0 {
+		t.Fatalf("probe before the clear: %+v %v", v, f.adapter.calls)
+	}
+}
+
+// A dialog the adapter does not answer waits for the native session or the maintainer; the
+// cycle returns to its stage when the dialog is gone, without an answer of its own.
+func TestContextCycleNativeDialogWaits(t *testing.T) {
+	f := newCycleFixture(t)
+	f.readyCycle(t)
+	f.adapter.pane = PaneState{Prompt: "native_dialog"}
+	f.step(t)
+	f.step(t)
+	if v := f.status(t, f.k); v.State != cycleWaitingPrompt || v.Reason != "native_dialog" || f.adapter.count("answer") != 0 {
+		t.Fatalf("waiting: %+v %v", v, f.adapter.calls)
+	}
+	f.adapter.pane = PaneState{Idle: true}
+	f.step(t)
+	if v := f.status(t, f.k); v.State != cycleReady || f.adapter.count("answer") != 0 || f.adapter.count("clear") != 0 {
+		t.Fatalf("resolved: %+v %v", v, f.adapter.calls)
+	}
+}
+
+// A Disable that lands between the clear intent and its first key fences the input: no key
+// is sent, and the recorded intent makes the cycle uncertain.
+func TestContextCycleFenceStopsInput(t *testing.T) {
+	f := newCycleFixture(t)
+	f.readyCycle(t)
+	f.adapter.beforeClear = func() {
+		s := f.reload(t, f.k)
+		e, _ := f.s.contextEnables(context.Background())
+		if _, err := f.s.SetContextEnable(roomCtx("context-enable"), s.Name, s.Revision, e[f.k].Revision, false); err != nil {
+			t.Fatal(err)
+		}
+	}
+	f.step(t)
+	if v := f.status(t, f.k); v.State != cycleUncertain || f.adapter.count("clear") != 0 {
+		t.Fatalf("fenced clear: %+v %v", v, f.adapter.calls)
+	}
+}
+
+// A dialog the adapter does not answer shows on the Sessions page; the maintainer's option is
+// applied behind its recorded intent and audit record, only at the shown revision and dialog.
+func TestContextCycleMaintainerAnswersDialog(t *testing.T) {
+	d, root := startTestDaemon(t)
+	s := d.store
+	adapter := &fakeAdapter{pane: PaneState{Prompt: "native_dialog"}, probe: CycleProbe{Bootstrap: "project"},
+		dialog: CycleDialog{Lines: []string{"Do you want to proceed?", "❯ 1. Yes", "2. No"}, Options: []string{"1", "2"}, Digest: strings.Repeat("d", 64)}}
+	previous := cycleAdapters
+	cycleAdapters = map[string]CycleAdapter{"claude": adapter}
+	t.Cleanup(func() { cycleAdapters = previous })
+	repo := namedRepo(t, "cycle-dialog")
+	os.WriteFile(filepath.Join(repo, ".gitignore"), []byte("_handoff/\n"), 0o644)
+	a := join(t, s, "claude", "synthetic-dialog-a", repo)
+	s.db.Exec(`UPDATE sessions SET host_pid=4242,host_start=77,tmux_socket='/tmp/synthetic-socket',tmux_pane='%3' WHERE family='claude' AND id=?`, a.ID)
+	a, _ = scanSession(s.db.QueryRow(sessionQuery+` WHERE s.family=? AND s.id=?`, "claude", a.ID), s.now().UnixMilli())
+	if _, err := s.SetContextEnable(roomCtx("context-enable"), a.Name, a.Revision, 0, true); err != nil {
+		t.Fatal(err)
+	}
+	k := Key{"claude", a.ID}
+	if err := s.Observe(context.Background(), Observation{Caller: k, Context: &ObservedValue{Source: "claude_statusline",
+		At: s.now().UnixMilli(), LimitTokens: int64p(1000), UsedTokens: int64p(950), Epoch: "synthetic-epoch-1"}}); err != nil {
+		t.Fatal(err)
+	}
+	v, _ := s.ContextCycleStatus(context.Background(), k)
+	dir := filepath.Join(repo, "_handoff", "claude")
+	os.MkdirAll(dir, 0o700)
+	os.WriteFile(filepath.Join(dir, "2026-10-13-120000.md"), []byte("synthetic"), 0o600)
+	if _, err := s.ContextCycleReady(context.Background(), k, "synthetic-epoch-1", v.ID, v.Revision, "2026-10-13-120000.md"); err != nil {
+		t.Fatal(err)
+	}
+	for range 2 {
+		if err := s.cycleStep(context.Background()); err != nil {
+			t.Fatal(err)
+		}
+	}
+	v, _ = s.ContextCycleStatus(context.Background(), k)
+	if v.State != cycleWaitingPrompt || adapter.count("choose") != 0 {
+		t.Fatalf("waiting: %+v", v)
+	}
+	client := newActionClient(t, d, root)
+	page := dashboardDo(t, d, "GET", "/dashboard/sessions", client.cookie, nil, nil)
+	if !strings.Contains(page.body, "Do you want to proceed?") || !strings.Contains(page.body, `name="digest" value="`+adapter.dialog.Digest+`"`) ||
+		!strings.Contains(page.body, "Choose 2") {
+		t.Fatalf("sessions page: %s", page.body)
+	}
+	answer := func(revision int64, digest, option string) string {
+		return client.do("context-cycle-answer", url.Values{"cycle_id": {v.ID}, "revision": {strconv.FormatInt(revision, 10)}, "digest": {digest}, "option": {option}})
+	}
+	if got := answer(v.Revision+1, adapter.dialog.Digest, "1"); got != "cycle_changed" {
+		t.Fatalf("stale revision: %s", got)
+	}
+	if got := answer(v.Revision, strings.Repeat("e", 64), "1"); got != "cycle_dialog_changed" || adapter.count("choose") != 0 {
+		t.Fatalf("other dialog: %s", got)
+	}
+	if got := answer(v.Revision, adapter.dialog.Digest, "2"); got != "cycle_dialog_answered" || adapter.count("choose 2") != 1 {
+		t.Fatalf("answer: %s %v", got, adapter.calls)
+	}
+	v, _ = s.ContextCycleStatus(context.Background(), k)
+	if v.State != cycleReady || count(t, s, `SELECT COUNT(*) FROM audit WHERE action='context-cycle-answer' AND result='accepted'`) != 1 ||
+		count(t, s, `SELECT COUNT(*) FROM audit WHERE action='context-cycle-answer' AND result='refused'`) != 2 {
+		t.Fatalf("after the answer: %+v audit %d", v, count(t, s, `SELECT COUNT(*) FROM audit WHERE action='context-cycle-answer'`))
+	}
+}
+
+// A crash after the clear's Enter and before its receipt commit leaves clear_intent: on the
+// next step the proven new epoch reconciles it to reset_verified, and no second clear is sent.
+// Without the new epoch the same state is uncertain (TestContextCycleDeadlinesAndIntentRecovery).
+func TestContextCycleClearIntentReconciledByEpoch(t *testing.T) {
+	f := newCycleFixture(t)
+	ready, _ := f.readyCycle(t)
+	if _, err := f.s.advanceCycle(context.Background(), ready.ID, ready.Revision, cycleReady, cycleClearIntent, "", nil, nil); err != nil {
+		t.Fatal(err)
+	}
+	f.step(t)
+	if v := f.status(t, f.k); v.State != cycleResetVerified || f.adapter.count("clear") != 0 {
+		t.Fatalf("reconciled clear: %+v %v", v, f.adapter.calls)
+	}
+	f.step(t)
+	f.step(t)
+	if v := f.status(t, f.k); v.State != cycleWaitingPickup || f.adapter.count("clear") != 0 || f.adapter.count("pickup") != 1 {
+		t.Fatalf("after reconciliation: %+v %v", v, f.adapter.calls)
+	}
+}
+
+// A new native epoch before the managed clear is an unrelated clear in the bootstrap stages
+// too: after a proven bootstrap it cancels the cycle and ends the Enable; with the bootstrap
+// input unproven it is uncertain. No managed clear follows.
+func TestContextCycleUnrelatedClearDuringBootstrap(t *testing.T) {
+	f := newCycleFixture(t)
+	f.adapter.probe, f.adapter.boot = CycleProbe{Bootstrap: "interactive"}, true
+	f.readyCycle(t)
+	f.step(t)
+	if v := f.status(t, f.k); v.State != cycleBootstrapVerified {
+		t.Fatalf("setup: %+v", v)
+	}
+	f.observe(t, f.k, 20, "synthetic-unrelated-clear")
+	f.step(t)
+	enables, _ := f.s.contextEnables(context.Background())
+	if v := f.status(t, f.k); v.State != cycleCancelled || v.Reason != "epoch_changed" || enables[f.k].Enabled || f.adapter.count("clear") != 0 {
+		t.Fatalf("after bootstrap: %+v Enable %v clears %d", v, enables[f.k].Enabled, f.adapter.count("clear"))
+	}
+	g := newCycleFixture(t)
+	g.adapter.probe = CycleProbe{Bootstrap: "interactive"}
+	ready, _ := g.readyCycle(t)
+	if _, err := g.s.advanceCycle(context.Background(), ready.ID, ready.Revision, cycleReady, cycleBootstrapIntent, "", nil, nil); err != nil {
+		t.Fatal(err)
+	}
+	g.observe(t, g.k, 20, "synthetic-unrelated-clear")
+	if v := g.status(t, g.k); v.State != cycleUncertain || v.Reason != "epoch_changed" || g.adapter.count("clear") != 0 {
+		t.Fatalf("during the bootstrap intent: %+v", v)
 	}
 }

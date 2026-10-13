@@ -67,3 +67,9 @@ func ProcessStart(pid int) (int64, error) {
 	start := info.Proc.P_starttime
 	return int64(start.Sec)*1_000_000 + int64(start.Usec), nil
 }
+
+// ProcessEnvironment is not available on macOS: no supported interface reads another
+// process's environment.
+func ProcessEnvironment(pid int, name string) (string, error) {
+	return "", errors.New("process environment is not available on macOS")
+}

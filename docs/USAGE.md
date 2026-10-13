@@ -360,11 +360,14 @@ The Settings page also sets each family's context handoff mode and threshold: Cl
 enabled on the Sessions page, and changing a family enables nothing. The Sessions page shows
 each session's mode, threshold, Enable, whether its family has a verified cycle, and why it is
 or is not at its threshold, with the age of its context reading. Enabling is refused
-(`context_cycle_unavailable`) and its button is inactive until the managed cycle is built and
-verified for that family; disabling always works. A stored mode or threshold that is not valid
+(`context_cycle_unavailable`) and its button is inactive while the cycle cannot run for that
+session; the page names the reason (for example a Claude Code version without native evidence,
+or a pickup skill that differs from the catalog). Disabling always works. A stored mode or threshold that is not valid
 keeps the family default, and the Settings page names the error.
 
-When a cycle adapter exists for a family (chunk 03 supplies the first), an enabled session
+Claude Code sessions launched with `koinon claude` on Linux can run the cycle (Claude Code
+2.1.296); `koinon claude` adds Koinon's pickup loader so that `/pickup` works after the clear even
+without an installed pickup skill. An enabled session
 whose context reaches its threshold gets a request from `overwatch`, Koinon's reserved system
 requester, in its inbox. The session writes its handoff and reports it with
 `context_cycle_ready`; the daemon then clears the session's context in its tmux pane, enters
@@ -372,7 +375,9 @@ its pickup, and the new context reports with `context_cycle_pickup`. The Session
 each session's current or newest cycle: its stage, the stage deadline and each recorded step.
 Disabling, retiring or purging the session, a family mode without the cycle, or a holder
 choice for its address ends the cycle; a cycle that fails or cannot be proven ends the
-session's Enable. A session must report its pickup within two minutes of the pickup input.
+session's Enable. A session must report its pickup within two minutes of the pickup input. When
+the session shows a dialog that the cycle does not answer itself, the Sessions page shows it
+with one button per option; your choice applies only to that dialog.
 While a retained name record is called `overwatch`, no cycle starts and the Sessions page
 names the conflict. See PROTOCOL.md, Managed context cycles.
 
