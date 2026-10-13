@@ -10,13 +10,16 @@ into a dated release section when promoted to `main`.
   clears the current fault while retaining the last failure; repeated identical faults
   do not flood logs. Raw error text, message bodies and native IDs are excluded.
 
+- Room conversation view (#217, chunk 03): an open room on the Rooms page lists each post's
+  recipients as they were at the post, with the delivery state and acknowledgement of each
+  inbox copy, skipped inactive members, and `not retained` once a copy is deleted, plus the
+  retained floor. Viewing acknowledges nothing.
 - Inspect installed skills and setup targets with `library_state` and `koinon library state`
   (#145, chunk 03), including content, native name collisions, repository facts and scoped
   adoption decisions. Machine decisions use compared revisions and retain adopted digests
   through a decline; project receipts use repository memory. Connection guidance explains
   exact-change adoption and recommends required skills from verified state. These interfaces
   edit no adopted files. Schema 21 adds one ordinary machine-decision table.
-
 - Room posts (#217, chunk 02): the maintainer posts to a room from its dashboard page, and
   members post with `room_post` or `koinon room post`. One write stores the ordered post, an
   inbox copy for each active member with typed `room` metadata (`seq`, `origin`

@@ -1068,7 +1068,11 @@ from elsewhere. Peer message bodies appear here, escaped, and nowhere else outsi
   revision and current and former members by address or peer name and state, with Remove
   buttons; the add form suggests the peer names of active sessions; `room=ROOM_ID` opens a
   room with its post form and 50 posts in order, the newest by default, with `after=SEQ`
-  links and the retention gaps), `memory` (per store:
+  links, the retained floor and the retention gaps; each post lists its recipients as they
+  were at the post, by address or peer name and family: queued with the inbox copy's delivery
+  state and acknowledgement, skipped with the reason, or `not retained` with unknown
+  acknowledgement once the copy is deleted; the view reads one snapshot and acknowledges
+  nothing), `memory` (per store:
   head, floor, entries and logical bytes against their ceilings, consumers, work debt and
   maintenance, 50 stores per page; with `store=REPOSITORY`, that store's entries, newest first,
   50 per page with `before=SEQ`: sequence, time, type, scope, path, writer, author, body, state

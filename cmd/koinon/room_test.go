@@ -3,8 +3,13 @@ package main
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"errors"
+	"io"
+	"net/http"
+	"net/url"
 	"path/filepath"
+	"regexp"
 	"strconv"
 	"strings"
 	"testing"
@@ -82,5 +87,76 @@ func TestRoomCommandsOfTheDeepSeekGuide(t *testing.T) {
 	}
 	if code := refusal(run([]string{"post", "--as", "deepseek:synthetic-guide", room, "a", "b", "--key", "k", "--deadline", deadline})); code != "invalid_request" {
 		t.Fatalf("three positional arguments: %s", code)
+	}
+	// As a member of a dashboard room, the guide's commands read the maintainer's post and
+	// post a reply.
+	address := d.Addresses()[0]
+	link, err := core.Call(context.Background(), address, secret, "/v1/dashboard/links", map[string]any{})
+	var login struct{ Path string }
+	if err != nil || json.Unmarshal(link, &login) != nil {
+		t.Fatalf("dashboard link: %v", err)
+	}
+	client := &http.Client{CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}
+	var cookie string
+	dashboard := func(method, path string, form url.Values) (*http.Response, string) {
+		var body io.Reader
+		if form != nil {
+			body = strings.NewReader(form.Encode())
+		}
+		r, _ := http.NewRequest(method, "http://"+address+path, body)
+		if form != nil {
+			r.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+			r.Header.Set("Origin", "http://"+address)
+		}
+		if cookie != "" {
+			r.AddCookie(&http.Cookie{Name: "koinon_dashboard", Value: cookie})
+		}
+		response, err := client.Do(r)
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer response.Body.Close()
+		data, _ := io.ReadAll(response.Body)
+		return response, string(data)
+	}
+	response, _ := dashboard("GET", login.Path, nil)
+	for _, c := range response.Cookies() {
+		cookie = c.Value
+	}
+	_, page := dashboard("GET", "/dashboard/rooms", nil)
+	csrf := regexp.MustCompile(`name="csrf" value="([0-9a-f]{64})"`).FindStringSubmatch(page)
+	if csrf == nil {
+		t.Fatal("dashboard login")
+	}
+	action := func(name string, form url.Values) {
+		form.Set("csrf", csrf[1])
+		if r, _ := dashboard("POST", "/dashboard/actions/"+name, form); r.StatusCode != http.StatusSeeOther || !strings.Contains(r.Header.Get("Location"), "notice=room_") {
+			t.Fatalf("%s: %d %s", name, r.StatusCode, r.Header.Get("Location"))
+		}
+	}
+	action("room-create", url.Values{"name": {"synthetic command room"}, "refill": {"2"}, "key": {"create"}})
+	_, page = dashboard("GET", "/dashboard/rooms", nil)
+	room = regexp.MustCompile(`room=([0-9a-f]{32})`).FindStringSubmatch(page)[1]
+	var registered struct{ Sessions []core.Session }
+	list, _ := core.Call(context.Background(), address, secret, "/v1/sessions", nil)
+	json.Unmarshal(list, &registered)
+	for _, session := range registered.Sessions {
+		if session.Family == "deepseek" {
+			action("room-add", url.Values{"room_id": {room}, "peer": {session.Name}})
+		}
+	}
+	action("room-post", url.Values{"room_id": {room}, "body": {"synthetic task"}, "key": {"task"}, "deadline": {deadline}})
+	var out bytes.Buffer
+	if err := roomCommand(context.Background(), []string{"read", "--state-dir", root, "--address", address, "--as", "deepseek:synthetic-guide", room}, &out); err != nil ||
+		!strings.Contains(out.String(), `"body":"synthetic task"`) || !strings.Contains(out.String(), `"origin":"maintainer"`) {
+		t.Fatalf("command read: %s %v", out.String(), err)
+	}
+	out.Reset()
+	if err := roomCommand(context.Background(), []string{"post", "--state-dir", root, "--address", address, "--as", "deepseek:synthetic-guide", room, "synthetic reply", "--key", "reply", "--deadline", deadline}, &out); err != nil ||
+		!strings.Contains(out.String(), `"seq":2`) {
+		t.Fatalf("command post: %s %v", out.String(), err)
+	}
+	if _, page = dashboard("GET", "/dashboard/rooms?room="+room, nil); !strings.Contains(page, "synthetic reply") {
+		t.Fatal("the reply is not on the room page")
 	}
 }
