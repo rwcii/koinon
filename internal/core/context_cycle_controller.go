@@ -175,7 +175,7 @@ func (s *Store) enterInput(ctx context.Context, c cycleRow, intent, received str
 	}
 	ok, err := input(s.cycleFence(c))
 	if err != nil || !ok {
-		_, err := s.endCycle(ctx, c.ID, c.Revision, cycleUncertain, intent+"_unreceived")
+		_, err := s.endCycle(ctx, c.ID, c.Revision, cycleUncertain, inputReason(intent, err))
 		return err
 	}
 	_, err = s.advanceCycle(ctx, c.ID, c.Revision, intent, received, "", nil, nil)
@@ -349,4 +349,17 @@ func (s *Store) AnswerCycleDialog(ctx context.Context, id string, revision int64
 	}
 	_, err = s.advanceCycle(ctx, id, c.Revision, cyclePromptIntent, c.PromptFrom, "prompt_answered", nil, func(n *cycleRow) { n.PromptFrom = "" })
 	return err
+}
+
+// inputReason is the fixed reason of an input that did not complete: the adapter's step code
+// when it names one, else the intent left unreceived.
+func inputReason(intent string, err error) string {
+	var refusal Refusal
+	switch {
+	case errors.As(err, &refusal):
+		return refusal.Code
+	case err != nil && cycleCode.MatchString(err.Error()):
+		return err.Error()
+	}
+	return intent + "_unreceived"
 }

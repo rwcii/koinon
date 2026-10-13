@@ -328,7 +328,10 @@ session's own tmux pane, on the stored socket and pane ID. Before every key it p
 again (the host's PID and start, the pane's process ancestry, no other agent between them) and
 rechecks, in one read transaction, that the cycle is still at its revision and stage, before its
 deadlines, under the Enable that admitted it. A failed check stops the input before that key.
-Typed text that is not submitted is erased again (Ctrl-U); the erase needs only the pane proof.
+Typed text that is not submitted is erased again with one Backspace per typed character (the
+input line was empty before); the erase needs only the pane proof. A failed step is recorded as
+the cycle's reason (`typed_not_read_back`, `escape_changed_input`, `submit_not_read_back`,
+`pickup_entry_not_listed`, `dialog_not_shown`, `erase_not_read_back`, `pane_unproven`).
 
 Probe decides whether a session's cycle can run, for Enable, at admission and before each
 input. It needs Linux (`platform_unverified` elsewhere until the macOS evidence run); the host's
@@ -358,8 +361,9 @@ The adapter is ready for input when the registry `status` is `idle` and the inpu
 followed by a no-break space) is empty; text drawn dim there is a placeholder or a suggestion,
 any other text a draft, and the cycle waits. A pane in copy mode is returned to its prompt
 first. The clear and the pickup type the command, read it back (for `/pickup`, the menu's first
-entry must be the expected one), close the menu with Escape, read back, and submit with one
-Enter. The reset is proven by a new registry `sessionId` for the same host process; Koinon
+entry must be the expected one), close the menu with Escape, wait 400 ms (an escape byte
+followed at once by Enter reaches Claude Code as Alt+Enter, which does not submit), read back
+that the input line holds exactly the command with the menu closed, and submit with one Enter. The reset is proven by a new registry `sessionId` for the same host process; Koinon
 registration is unchanged, because the MCP process keeps its caller across `/clear`.
 
 The add-directory dialog is the only dialog the adapter answers. Another dialog

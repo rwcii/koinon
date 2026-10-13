@@ -62,7 +62,9 @@ type claudeTerminal struct {
 	cleared int
 	added   []string
 	menu    string // the description that /pickup lists first
+	closed  bool   // Escape closed the menu since the last typed text
 	keys    []string
+	at      []time.Time // when each key arrived
 	fences  int
 	failAt  int // the fence call that fails, 0 for none
 	home    string
@@ -75,9 +77,9 @@ func newClaudeTerminal(t *testing.T) *claudeTerminal {
 	term := &claudeTerminal{t: t, status: "idle", epoch: "synthetic-epoch-1", home: t.TempDir(), pid: 4242, start: 77,
 		args: []string{"claude"}}
 	term.write()
-	previous, wait := claudeEvidencedPlatforms, claudeKeyWait
-	claudeEvidencedPlatforms, claudeKeyWait = map[string]bool{runtime.GOOS: true}, 300*time.Millisecond
-	t.Cleanup(func() { claudeEvidencedPlatforms, claudeKeyWait = previous, wait })
+	previous, wait, settle := claudeEvidencedPlatforms, claudeKeyWait, claudeEscapeSettle
+	claudeEvidencedPlatforms, claudeKeyWait, claudeEscapeSettle = map[string]bool{runtime.GOOS: true}, 300*time.Millisecond, 0
+	t.Cleanup(func() { claudeEvidencedPlatforms, claudeKeyWait, claudeEscapeSettle = previous, wait, settle })
 	return term
 }
 
@@ -101,7 +103,7 @@ func (c *claudeTerminal) screen() string {
 	}
 	var b strings.Builder
 	b.WriteString("● synthetic transcript\n")
-	if strings.HasPrefix(c.input, "/pickup") && c.menu != "" {
+	if strings.HasPrefix(c.input, "/pickup") && c.menu != "" && !c.closed {
 		b.WriteString("  ❯ /pickup                     " + c.menu + "\n")
 	}
 	b.WriteString("────────\n\x1b[39m" + claudeInputMark)
@@ -130,6 +132,7 @@ func (c *claudeTerminal) tmux(_ context.Context, socket string, args ...string) 
 	case args[0] == "send-keys":
 		key := strings.Join(args[3:], " ")
 		c.keys = append(c.keys, key)
+		c.at = append(c.at, time.Now())
 		switch {
 		case key == "-X cancel":
 			c.mode = false
@@ -143,9 +146,16 @@ func (c *claudeTerminal) tmux(_ context.Context, socket string, args ...string) 
 				c.input = ""
 			} else {
 				c.input += text
+				c.closed = false
 			}
-		case key == "C-u":
-			c.input = ""
+		case key == "Escape":
+			c.closed = true
+		case strings.HasPrefix(key, "BSpace"):
+			for range strings.Fields(key) {
+				if c.input != "" {
+					c.input = c.input[:len(c.input)-1]
+				}
+			}
 		case key == "Enter":
 			switch {
 			case c.input == "/clear":
@@ -325,7 +335,7 @@ func TestClaudeClearAndEpoch(t *testing.T) {
 	again := newClaudeTerminal(t)
 	again.failAt = 3
 	if ok, err := (claudeCycle{}).Clear(ctx, again.target(t), again.fence); ok || !errors.Is(err, ErrCycleChanged) ||
-		slices.Contains(again.keys, "Enter") || again.cleared != 0 || again.input != "" || again.keys[len(again.keys)-1] != "C-u" {
+		slices.Contains(again.keys, "Enter") || again.cleared != 0 || again.input != "" || !strings.HasPrefix(again.keys[len(again.keys)-1], "BSpace") {
 		t.Fatalf("fenced clear: %v %v keys %q input %q", ok, err, again.keys, again.input)
 	}
 }
@@ -344,7 +354,7 @@ func TestClaudePickupEntry(t *testing.T) {
 	tg = other.target(t)
 	other.menu = tg.Loader.Description
 	if ok, err := (claudeCycle{}).Pickup(ctx, tg, "project", other.fence); ok || err == nil || slices.Contains(other.keys, "Enter") ||
-		other.input != "" || other.keys[len(other.keys)-1] != "C-u" {
+		other.input != "" || !strings.HasPrefix(other.keys[len(other.keys)-1], "BSpace") || !errors.Is(err, errClaudeMenuEntry) {
 		t.Fatalf("wrong entry: %v %v keys %q input %q", ok, err, other.keys, other.input)
 	}
 	if ok, err := (claudeCycle{}).Pickup(ctx, tg, "interactive", other.fence); !ok || err != nil {
@@ -362,8 +372,10 @@ func TestClaudeBootstrap(t *testing.T) {
 	if ok, err := (claudeCycle{}).Bootstrap(ctx, tg, term.fence); !ok || err != nil {
 		t.Fatalf("bootstrap: %v %v keys %q", ok, err, term.keys)
 	}
-	want := []string{"-l /add-dir " + tg.LoaderDir, "Escape", "Enter", "-l 1", "-l /pickup", "C-u"}
-	if !slices.Equal(term.keys, want) || term.fences != len(want) || !slices.Equal(term.added, []string{tg.LoaderDir}) || term.input != "" {
+	erase := strings.TrimSpace(strings.Repeat("BSpace ", len("/pickup")+2))
+	want := []string{"-l /add-dir " + tg.LoaderDir, "Escape", "Enter", "-l 1", "-l /pickup", erase}
+	// Every key but the erase passes the fence; the erase only restores the input line.
+	if !slices.Equal(term.keys, want) || term.fences != len(want)-1 || !slices.Equal(term.added, []string{tg.LoaderDir}) || term.input != "" {
 		t.Fatalf("keys %q fences %d added %q input %q", term.keys, term.fences, term.added, term.input)
 	}
 }
@@ -392,5 +404,19 @@ func TestClaudeDialogChoice(t *testing.T) {
 	if ok, err := (claudeCycle{}).Choose(ctx, tg, dialog.Digest, "2", term.fence); !ok || err != nil ||
 		!slices.Equal(term.keys, []string{"-l 2"}) || term.fences != 1 || term.asks {
 		t.Fatalf("choose: %v %v keys %q fences %d", ok, err, term.keys, term.fences)
+	}
+}
+
+// An Escape followed at once by Enter reaches Claude Code as Alt+Enter, which does not submit
+// (native evidence): the adapter waits out the settle time after every Escape.
+func TestClaudeEscapeSettles(t *testing.T) {
+	term := newClaudeTerminal(t)
+	claudeEscapeSettle = 80 * time.Millisecond
+	if ok, err := (claudeCycle{}).Clear(context.Background(), term.target(t), term.fence); !ok || err != nil {
+		t.Fatalf("clear: %v %v", ok, err)
+	}
+	escape := slices.Index(term.keys, "Escape")
+	if escape < 0 || escape+1 >= len(term.keys) || term.at[escape+1].Sub(term.at[escape]) < claudeEscapeSettle {
+		t.Fatalf("keys %q at %v", term.keys, term.at)
 	}
 }

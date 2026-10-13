@@ -43,6 +43,22 @@ const claudeInputMark = "❯ "
 // claudeKeyWait bounds the read-back after each key.
 var claudeKeyWait = 3 * time.Second
 
+// claudeEscapeSettle separates Escape from the next key: an escape byte followed at once by
+// another key reaches Claude Code as one Alt combination, and Alt+Enter does not submit (native
+// evidence, #196 chunk 03).
+var claudeEscapeSettle = 400 * time.Millisecond
+
+// Fixed reasons of an input step that did not complete; the cycle records them.
+var (
+	errClaudeTyped     = errors.New("typed_not_read_back")
+	errClaudeEscape    = errors.New("escape_changed_input")
+	errClaudeSubmit    = errors.New("submit_not_read_back")
+	errClaudeErase     = errors.New("erase_not_read_back")
+	errClaudeDialog    = errors.New("dialog_not_shown")
+	errClaudeUnproven  = errors.New("pane_unproven")
+	errClaudeMenuEntry = errors.New("pickup_entry_not_listed")
+)
+
 type claudeCycle struct{}
 
 func (claudeCycle) Version() string { return claudeCycleVersion }
@@ -292,7 +308,7 @@ func stripSGR(line string) string {
 // record and the input line is empty. A pane in copy mode is returned to its prompt first.
 func (claudeCycle) Inspect(ctx context.Context, t CycleTarget, fence CycleFence) (PaneState, error) {
 	if !provePane(ctx, t.tools, t.HostPID, t.HostStart, t.Socket, t.Pane) {
-		return PaneState{}, errors.New("pane unproven")
+		return PaneState{}, errClaudeUnproven
 	}
 	if mode, err := t.tools.tmux(ctx, t.Socket, "display-message", "-p", "-t", t.Pane, "#{pane_in_mode}"); err != nil {
 		return PaneState{}, err
@@ -321,13 +337,39 @@ func (claudeCycle) Inspect(ctx context.Context, t CycleTarget, fence CycleFence)
 // key proves the pane, calls the fence and sends one key or literal text.
 func (claudeCycle) key(ctx context.Context, t CycleTarget, fence CycleFence, args ...string) error {
 	if !provePane(ctx, t.tools, t.HostPID, t.HostStart, t.Socket, t.Pane) {
-		return errors.New("pane unproven")
+		return errClaudeUnproven
 	}
 	if err := fence(ctx); err != nil {
 		return err
 	}
 	_, err := t.tools.tmux(ctx, t.Socket, append([]string{"send-keys", "-t", t.Pane}, args...)...)
 	return err
+}
+
+// erase deletes text that the adapter typed into an input line that was empty before it: one
+// Backspace per byte and two more, whatever the cursor did, then reads back an empty line. It
+// restores the input line and enters nothing, so it needs only the pane proof.
+func (a claudeCycle) erase(ctx context.Context, t CycleTarget, text string) error {
+	keys := []string{}
+	for range len(text) + 2 {
+		keys = append(keys, "BSpace")
+	}
+	if err := a.key(ctx, t, func(context.Context) error { return nil }, keys...); err != nil {
+		return err
+	}
+	if !await(ctx, t, func(s claudeScreen) bool { return s.found && s.input == "" }) {
+		return errClaudeErase
+	}
+	return nil
+}
+
+// escape closes an open menu and waits out the escape settle before any next key.
+func (a claudeCycle) escape(ctx context.Context, t CycleTarget, fence CycleFence) error {
+	if err := a.key(ctx, t, fence, "Escape"); err != nil {
+		return err
+	}
+	time.Sleep(claudeEscapeSettle)
+	return nil
 }
 
 // await reads the pane until ok holds or the key wait ends.
@@ -346,33 +388,38 @@ func await(ctx context.Context, t CycleTarget, ok func(claudeScreen) bool) bool 
 
 // command types a slash command, closes its menu, checks the input line holds exactly the
 // command, and submits it with one Enter. check runs on the screen with the menu open. Typed
-// text that is not submitted, also after a failed fence, is erased again: the erase restores
-// the input line and enters nothing, so it needs only the pane proof.
-func (a claudeCycle) command(ctx context.Context, t CycleTarget, fence CycleFence, text string, check func(claudeScreen) bool) (bool, error) {
+// text that is not submitted, also after a failed fence, is erased again.
+func (a claudeCycle) command(ctx context.Context, t CycleTarget, fence CycleFence, text string, check func(claudeScreen) bool, refused error) (bool, error) {
 	if err := a.key(ctx, t, fence, "-l", text); err != nil {
 		return false, err
 	}
 	abandon := func(err error) (bool, error) {
-		a.key(ctx, t, func(context.Context) error { return nil }, "C-u")
+		a.erase(ctx, t, text)
 		return false, err
 	}
-	if !await(ctx, t, func(s claudeScreen) bool { return s.input == text && (check == nil || check(s)) }) {
-		return abandon(errors.New("typed command not read back"))
+	if !await(ctx, t, func(s claudeScreen) bool { return s.input == text }) {
+		return abandon(errClaudeTyped)
 	}
-	if err := a.key(ctx, t, fence, "Escape"); err != nil {
+	if check != nil && !await(ctx, t, check) {
+		return abandon(refused)
+	}
+	if err := a.escape(ctx, t, fence); err != nil {
 		return abandon(err)
 	}
-	if !await(ctx, t, func(s claudeScreen) bool { return s.input == text }) {
-		return abandon(errors.New("command changed after Escape"))
+	if !await(ctx, t, func(s claudeScreen) bool { return s.input == text && menuFirst(s) == "" }) {
+		return abandon(errClaudeEscape)
 	}
 	if err := a.key(ctx, t, fence, "Enter"); err != nil {
 		return abandon(err)
 	}
-	return await(ctx, t, func(s claudeScreen) bool { return s.found && s.input == "" }), nil
+	if !await(ctx, t, func(s claudeScreen) bool { return s.found && s.input == "" }) {
+		return false, errClaudeSubmit
+	}
+	return true, nil
 }
 
 func (a claudeCycle) Clear(ctx context.Context, t CycleTarget, fence CycleFence) (bool, error) {
-	return a.command(ctx, t, fence, "/clear", nil)
+	return a.command(ctx, t, fence, "/clear", nil, nil)
 }
 
 // menuFirst is the description of the first pickup entry that the open command menu lists.
@@ -398,17 +445,30 @@ func (a claudeCycle) Pickup(ctx context.Context, t CycleTarget, bootstrap string
 	if bootstrap == "loader" || bootstrap == "interactive" {
 		want = t.Loader
 	}
-	return a.command(ctx, t, fence, "/pickup", func(s claudeScreen) bool { return describes(menuFirst(s), want) })
+	return a.command(ctx, t, fence, "/pickup", func(s claudeScreen) bool { return describes(menuFirst(s), want) }, errClaudeMenuEntry)
 }
 
 // Bootstrap adds the loader for this session only, then proves that /pickup lists the
 // loader first and erases that text without submitting it.
 func (a claudeCycle) Bootstrap(ctx context.Context, t CycleTarget, fence CycleFence) (bool, error) {
-	if _, err := a.command(ctx, t, fence, "/add-dir "+t.LoaderDir, nil); err != nil {
+	text := "/add-dir " + t.LoaderDir
+	if err := a.key(ctx, t, fence, "-l", text); err != nil {
+		return false, err
+	}
+	if !await(ctx, t, func(s claudeScreen) bool { return s.input == text }) {
+		a.erase(ctx, t, text)
+		return false, errClaudeTyped
+	}
+	if err := a.escape(ctx, t, fence); err != nil {
+		a.erase(ctx, t, text)
+		return false, err
+	}
+	if err := a.key(ctx, t, fence, "Enter"); err != nil {
+		a.erase(ctx, t, text)
 		return false, err
 	}
 	if !await(ctx, t, func(s claudeScreen) bool { return s.dialog == "add_dir_scope" }) {
-		return false, errors.New("add-dir dialog not shown")
+		return false, errClaudeDialog
 	}
 	if ok, err := a.Answer(ctx, t, "add_dir_scope", fence); err != nil || !ok {
 		return false, err
@@ -417,13 +477,13 @@ func (a claudeCycle) Bootstrap(ctx context.Context, t CycleTarget, fence CycleFe
 		return false, err
 	}
 	listed := await(ctx, t, func(s claudeScreen) bool { return s.input == "/pickup" && describes(menuFirst(s), t.Loader) })
-	if err := a.key(ctx, t, fence, "C-u"); err != nil {
+	if err := a.erase(ctx, t, "/pickup"); err != nil {
 		return false, err
 	}
-	if !await(ctx, t, func(s claudeScreen) bool { return s.found && s.input == "" }) {
-		return false, errors.New("typed text not erased")
+	if !listed {
+		return false, errClaudeMenuEntry
 	}
-	return listed, nil
+	return true, nil
 }
 
 func (claudeCycle) Answerable(prompt string) bool { return prompt == "add_dir_scope" }
@@ -536,7 +596,7 @@ func dialogOf(s claudeScreen) CycleDialog {
 // Dialog reads the dialog the pane shows. It sends nothing.
 func (claudeCycle) Dialog(ctx context.Context, t CycleTarget) (CycleDialog, error) {
 	if !provePane(ctx, t.tools, t.HostPID, t.HostStart, t.Socket, t.Pane) {
-		return CycleDialog{}, errors.New("pane unproven")
+		return CycleDialog{}, errClaudeUnproven
 	}
 	screen, err := readClaude(ctx, t)
 	if err != nil {
