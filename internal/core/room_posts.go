@@ -438,6 +438,51 @@ func roomTranscript(ctx context.Context, tx *sql.Tx, roomID string, start, from 
 	return t, nil
 }
 
+// RoomDelivery is one recipient of a post as the dashboard shows it: the member label (a
+// peer name or participant address) and family frozen at the post, the outcome, and, for a
+// queued copy, its inbox delivery state and acknowledgement. A copy that retention or a
+// purge deleted is not_retained, with acknowledgement unknown.
+type RoomDelivery struct {
+	Ordinal        int64
+	Label          string
+	Family         string
+	Outcome        string // queued, skipped or not_retained
+	Reason         string // why a recipient was skipped
+	DeliveryState  string
+	Acknowledged   bool
+	AcknowledgedBy string
+}
+
+// roomDeliveries reads the recipient rows of a room's posts from first to last sequence, at
+// most 32 per post, joined with their inbox messages in the caller's read transaction.
+func roomDeliveries(ctx context.Context, tx *sql.Tx, roomID string, first, last int64) (map[int64][]RoomDelivery, error) {
+	rows, err := tx.QueryContext(ctx, `SELECT p.seq,d.ordinal,d.label,d.family,d.outcome,d.reason,d.message_id IS NOT NULL AND m.id IS NULL,
+		COALESCE(m.delivery_state,''),COALESCE(m.seq<=s.acked_through,0),COALESCE(m.maintainer_ack,0)
+		FROM room_posts p JOIN room_deliveries d ON d.post_id=p.post_id
+		LEFT JOIN messages m ON m.id=d.message_id
+		LEFT JOIN sessions s ON s.family=m.recipient_family AND s.id=m.recipient_id
+		WHERE p.room_id=? AND p.seq>=? AND p.seq<=? ORDER BY p.seq,d.ordinal`, roomID, first, last)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	result := map[int64][]RoomDelivery{}
+	for rows.Next() {
+		var seq int64
+		var d RoomDelivery
+		var gone, maintainer bool
+		if err := rows.Scan(&seq, &d.Ordinal, &d.Label, &d.Family, &d.Outcome, &d.Reason, &gone, &d.DeliveryState, &d.Acknowledged, &maintainer); err != nil {
+			return nil, err
+		}
+		if gone {
+			d.Outcome, d.DeliveryState, d.Acknowledged = "not_retained", "", false
+		}
+		d.AcknowledgedBy = acknowledgedBy(d.Acknowledged, maintainer)
+		result[seq] = append(result[seq], d)
+	}
+	return result, rows.Err()
+}
+
 // cullRoomPosts deletes, in bounded control writes, the posts whose inbox copies are all
 // gone, the posts without copies after the message retention period, their delivery rows,
 // and expired retry records. It writes no notice or audit record.
