@@ -236,6 +236,9 @@ session. Run koinon setup codex once to add the server. Start through koinon cod
 it uses --no-daemon and forwards the launch environment to the configured MCP server.
 A direct codex start registers as a plain peer using its native thread identity. It has no
 automatic wake because it has no launcher CLI wake target; read waiting messages with inbox.
+On Linux, a participant notice for a session started with koinon codex in tmux is typed
+into this session's own pane, only while the session is idle and its input is empty, so after
+/clear the new thread reads it. Other wakes use codex queue.
 Sub-agent threads get peer names, are listed with subagent: true and never hold an alias.
 ### Recommended permissions
 In $CODEX_HOME/config.toml (default ~/.codex/config.toml), merge into the existing table:

@@ -98,3 +98,44 @@ func ProcessEnvironment(pid int, name string) (string, error) {
 	}
 	return "", nil
 }
+
+// ProcessGroups reports the process group, controlling terminal and that terminal's
+// foreground process group of every process this user can see: fields 5, 7 and 8 of
+// /proc/<pid>/stat. A process without a terminal has Terminal 0. A process that exits during
+// the scan is left out.
+func ProcessGroups() (map[int]ProcessGroup, error) {
+	entries, err := os.ReadDir("/proc")
+	if err != nil {
+		return nil, err
+	}
+	groups := map[int]ProcessGroup{}
+	for _, entry := range entries {
+		pid, err := strconv.Atoi(entry.Name())
+		if err != nil || pid <= 0 {
+			continue
+		}
+		data, err := os.ReadFile("/proc/" + entry.Name() + "/stat")
+		if err != nil {
+			continue
+		}
+		end := strings.LastIndexByte(string(data), ')')
+		if end < 0 {
+			continue
+		}
+		// Fields after the command name start with field 3 (the state).
+		fields := strings.Fields(string(data[end+1:]))
+		if len(fields) < 6 {
+			continue
+		}
+		group, groupErr := strconv.Atoi(fields[2])
+		terminal, terminalErr := strconv.Atoi(fields[4])
+		foreground, foregroundErr := strconv.Atoi(fields[5])
+		if groupErr == nil && terminalErr == nil && foregroundErr == nil {
+			groups[pid] = ProcessGroup{Group: group, Terminal: terminal, Foreground: foreground}
+		}
+	}
+	if len(groups) == 0 {
+		return nil, errors.New("process table unreadable")
+	}
+	return groups, nil
+}

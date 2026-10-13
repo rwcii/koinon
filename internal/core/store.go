@@ -13,6 +13,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"regexp"
+	"runtime"
 	"strings"
 	"time"
 
@@ -133,6 +134,10 @@ type Store struct {
 	processEnvironment func(pid int, name string) (string, error)
 	// tmux runs one command on the tmux server at a socket (the Grok wake, #254).
 	tmux func(ctx context.Context, socket string, args ...string) (string, error)
+	// processGroups reads each process's group and terminal; codexPane enables the Codex
+	// pane wake, on Linux only (#275).
+	processGroups func() (map[int]platform.ProcessGroup, error)
+	codexPane     bool
 	// alive holds when the liveness sweep last read each session's host as running (#249).
 	alive liveness
 	// settings holds the session timing values in force (#249).
@@ -228,7 +233,8 @@ func openStoreFile(root, name string) (*Store, error) {
 	}
 	s := &Store{db: db, now: time.Now, storage: storage{path: path, maxPages: defaultMaxPages}, processStart: platform.ProcessStart,
 		processParents: platform.ProcessParents, processCommand: platform.ProcessCommand,
-		processEnvironment: platform.ProcessEnvironment, tmux: runTmux}
+		processEnvironment: platform.ProcessEnvironment, tmux: runTmux,
+		processGroups: platform.ProcessGroups, codexPane: runtime.GOOS == "linux"}
 	// The Claude pickup loader that a running session can add before its clear (#196, chunk 03).
 	// A failure is not fatal: the adapter's Probe then reports the loader as unreadable.
 	EnsureCycleLoader(root)

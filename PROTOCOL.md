@@ -416,7 +416,9 @@ with `source: "clear"`; the hook registers that thread through its own launch an
 writes nothing and always exits 0. A `clear` registration with the holder's host PID and
 start value succeeds at once with `host_cleared`, also within the guard: the host itself no
 longer shows the holder. Every other rule applies unchanged. Codex runs no hook at `/clear`
-itself, so until the new thread's first turn the cleared thread stays the holder (#275).
+itself, so until the new thread's first turn the cleared thread stays the holder (#275). On
+Linux a participant notice for a launched holder with a tmux pane is typed into that pane
+(see the Codex pane wake below), so it runs as the new thread's first turn.
 
 The session and `peers` expose `succession: {result, reason, address, holder, at,
 retry_after_ms}` when present; `at` is daemon Unix milliseconds and `holder` is the former or
@@ -571,7 +573,8 @@ Each notice names only the quoted family/ID inbox and its sequence range: the fi
 due unhandled messages, which stops before a message whose read wait has not ended. A participant
 notice names `participant:<address>` and is delivered to its current active holder's native
 wake endpoint; without one its messages wait. Codex uses
-the configured absolute CLI with `queue --thread ID --message NOTICE`. Claude requires a
+the configured absolute CLI with `queue --thread ID --message NOTICE`, except for the pane
+wake below. Claude requires a
 same-user registry record matching its native session ID and CLI entrypoint, the status
 `idle` or `shell` (the prompt with a background shell task running; the session takes the
 `next`-priority notice at its turn boundary), an owned private socket/directory, and the
@@ -603,6 +606,23 @@ then Enter, nothing else, and records `notified` only when a second read shows t
 and the notice as a submitted prompt (`❯ NOTICE`); otherwise `uncertain` with
 `pane_submission_unconfirmed`. A directly started Grok session has no host record and gets
 no pane wake. Leader mode stays refused.
+
+Codex (#275): after `/clear`, `codex queue --thread` reaches the cleared thread, which the host
+no longer shows. On Linux, a participant notice for a session started with `koinon codex` and a
+recorded tmux socket and pane is typed into that pane instead. Before each key the daemon
+proves the pane as for Grok and proves that the pane's terminal gives input to the host: the
+host shares the pane process's terminal and is in its foreground process group, and every
+other member of that group is an ancestor of the host. A child of the host that holds the
+foreground is refused. Otherwise the wake waits with `codex_target_unavailable`. Codex CLI
+0.162.0 shows no busy marker while a reply streams, so the wake also requires the session's
+observed activity to be `idle`; an unknown or busy activity, or a screen whose last input line
+(`›`) holds text other than the dim placeholder or that shows the running-turn status
+(`Working (… esc to interrupt)`), waits with `receiver_busy`. The daemon sends the notice with
+`send-keys -l`, reads the input line back, and sends Enter only when it holds exactly the
+notice. It records `notified` only when a later read shows the input line empty and the notice
+as the latest submitted prompt; otherwise `uncertain` with `pane_submission_unconfirmed`, never
+resent. A session inbox notice, a session without a pane, a direct start and macOS keep the
+queue.
 
 `POST /v1/wake/agy-stop` takes `caller` with family `agy` and the hook's native conversation ID.
 It offers a due unhandled notice at that turn boundary, leaving delivery `uncertain` with

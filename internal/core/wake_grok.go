@@ -70,7 +70,7 @@ func (s *Store) grokPane(ctx context.Context, pid, start int64, socket, pane str
 // hostTools are the store's process and tmux readers, for pane proof and cycle adapters.
 func (s *Store) hostTools() hostTools {
 	return hostTools{tmux: s.tmux, processStart: s.processStart, processParents: s.processParents,
-		processCommand: s.processCommand, processEnvironment: s.processEnvironment}
+		processCommand: s.processCommand, processEnvironment: s.processEnvironment, processGroups: s.processGroups}
 }
 
 // hostTools reach the host process and its tmux pane; tests replace each one.
@@ -80,31 +80,39 @@ type hostTools struct {
 	processParents     func() (map[int]int, error)
 	processCommand     func(int) (string, []string, error)
 	processEnvironment func(pid int, name string) (string, error)
+	processGroups      func() (map[int]platform.ProcessGroup, error)
 }
 
 // provePane proves that pane still holds the session's host: the host process has its
 // recorded start value, and the pane's process is the host or an ancestor of it with no
 // other agent process between them, the rule of terminal naming (#156).
 func provePane(ctx context.Context, h hostTools, pid, start int64, socket, pane string) bool {
+	_, _, ok := provenPane(ctx, h, pid, start, socket, pane)
+	return ok
+}
+
+// provenPane is provePane that also returns the pane's process and the process table it
+// proved the host's ancestry with.
+func provenPane(ctx context.Context, h hostTools, pid, start int64, socket, pane string) (int, map[int]int, bool) {
 	if pid <= 1 || start == 0 || !(&TmuxPane{Socket: socket, Pane: pane}).valid() || socket == "" {
-		return false
+		return 0, nil, false
 	}
 	if current, err := h.processStart(int(pid)); err != nil || current != start {
-		return false
+		return 0, nil, false
 	}
 	// A space separates the fields: tmux before 3.4 prints a tab in a format as "_".
 	out, err := h.tmux(ctx, socket, "display-message", "-p", "-t", pane, "#{pane_id} #{pane_pid}")
 	fields := strings.Fields(out)
 	if err != nil || len(fields) != 2 || fields[0] != pane {
-		return false
+		return 0, nil, false
 	}
 	panePID, err := strconv.Atoi(fields[1])
 	if err != nil || panePID <= 1 {
-		return false
+		return 0, nil, false
 	}
 	parents, err := h.processParents()
 	if err != nil {
-		return false
+		return 0, nil, false
 	}
 	agent := func(pid int) bool {
 		executable, args, err := h.processCommand(pid)
@@ -112,15 +120,15 @@ func provePane(ctx context.Context, h hostTools, pid, start int64, socket, pane 
 	}
 	for current, steps := int(pid), 0; current != panePID; steps++ {
 		if current != int(pid) && agent(current) {
-			return false
+			return 0, nil, false
 		}
 		parent, found := parents[current]
 		if !found || parent <= 1 || steps >= maxGrokAncestors {
-			return false
+			return 0, nil, false
 		}
 		current = parent
 	}
-	return panePID == int(pid) || !agent(panePID)
+	return panePID, parents, panePID == int(pid) || !agent(panePID)
 }
 
 // grokComposer reads Grok's input box: the last line that starts with the box border and the
