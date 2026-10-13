@@ -1,9 +1,10 @@
 # Managed context handoff — evidence inventory
 
 This file records existing interfaces and gaps. It is not a specification, a support
-claim or permission to reset a native session. Evidence is from develop 496ec52 and
-installed guidance read on 2026-10-12.
-The post-clear source correction below was checked against develop 5170f1c. PDR 006
+claim or permission to reset a native session. The source inventory was rechecked against
+published develop `52ab15a` on 2026-10-13. Installed guidance still comes from the installed
+runtime; a checkout change does not upgrade it.
+The post-clear source correction below was originally checked against develop 5170f1c. PDR 006
 records the settled settings, Enable carry-over and terminal input; its remaining
 verification mechanisms are plan proposals.
 
@@ -44,10 +45,13 @@ verification mechanisms are plan proposals.
 
 ## Embedded skills and bootstrap
 
-The reviewed #145 proposal supplies canonical library reads in chunk 02, but that chunk
-is approved for ordered implementation; chunk 01 is underway and chunk 02 is not implemented.
-Existing catalog plan files live in
-`docs/sprints/2026-10-11-skills-library/` on their own branch; they are not runtime behavior.
+The #145 canonical catalog and library queries are delivered by
+[PR #320](https://github.com/rwcii/koinon/pull/320) and
+[PR #323](https://github.com/rwcii/koinon/pull/323). Published source embeds the canonical
+skills and exposes `library_list`/`library_read` through native MCP and command interfaces.
+The state/decision chunk is independently reviewed at `2717575` and awaits publication;
+the cycle fallback needs the delivered catalog/read interface, not adoption or installation.
+An installed predecessor keeps its own interface until an authorized upgrade.
 
 An agent can read a catalog skill before reset and still lose that context during reset.
 An absent native pickup command cannot be assumed to load the catalog. Before declaring
@@ -127,3 +131,24 @@ The full cycle still needs native read-back and reset/bootstrap proof. The exist
 labels a shell prompt with a background shell task as idle; that display value alone does
 not establish reset readiness. The specification must distinguish current native transcript,
 retained MCP caller identity and the verified cycle result.
+
+## Checked technical-plan inputs — 2026-10-13
+
+- `settings.go` stores integer settings atomically with the accepted dashboard audit and
+  applies them after commit. Family mode/threshold rows can reuse that mechanism; session
+  Enable and cycle state need new bounded schema. Current schema 20 is published by PR #333.
+  Choose later migration numbers from the actual implementation base, not this plan.
+- `observations.go` display freshness uses readable confirmation time. The plan proposes
+  a separate trigger check of both source and confirmation ages. This is a specification
+  choice for Gate B, not an existing cycle capability.
+- `terminal_name.go`'s `hostPane` checks host-to-pane ancestry and an intervening agent.
+  Registration pins host start and the unresolved socket/pane. The executor must recheck
+  those facts before input; a previously successful rename is not current readiness.
+- `storage.go`'s `debtPages` currently funds work-claim and work-verdict obligations.
+  Adding cycle state or audit rows does not fund them automatically. Chunk 02 must derive
+  its actual allocation bound and test shared saturation before admission promises exist.
+- Codex's proposed native-compaction default and leaving native settings unchanged are
+  identified as proposals in PDR 006. They are not separately settled maintainer decisions.
+- No native reset, receiving-model pickup, absent-skill bootstrap or prompt-response test
+  was run by this planning increment. The DoD native matrix records the evidence required
+  before the implementation can declare a family/version/platform available.

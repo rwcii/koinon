@@ -88,6 +88,8 @@ PDR 002, Decisions 2 and 4, describe terminal interaction. Gate A is approved
 ## Framing status
 
 Gate A and the configuration, Enable carry-over and terminal-input choices are settled.
+The Codex native-compaction default and leaving native settings unchanged are proposed
+technical choices for Gate B, as PDR 006 records; they are not new maintainer decisions.
 Source freshness, ready correlation, native
 reset/pickup proof, fallback bootstrap and crash reconciliation need a checked specification.
 This branch reconciles framing and evidence; it does not implement or run the cycle.
