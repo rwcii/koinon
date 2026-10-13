@@ -5,6 +5,11 @@ into a dated release section when promoted to `main`.
 
 ## Unreleased
 
+- Wake-pass diagnostics (#335) report the error class, stage, time and bounded error-type
+  details, including SQLite result codes, in health and daemon logs. A successful pass
+  clears the current fault while retaining the last failure; repeated identical faults
+  do not flood logs. Raw error text, message bodies and native IDs are excluded.
+
 - Room conversation view (#217, chunk 03): an open room on the Rooms page lists each post's
   recipients as they were at the post, with the delivery state and acknowledgement of each
   inbox copy, skipped inactive members, and `not retained` once a copy is deleted, plus the

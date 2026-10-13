@@ -15,6 +15,7 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+	"sync"
 	"syscall"
 	"time"
 
@@ -133,7 +134,10 @@ var daemonLog io.Writer = os.Stderr
 // session ID.
 func lifecycleLog() func(event string, fields map[string]any) {
 	w := daemonLog
+	var mu sync.Mutex
 	return func(event string, fields map[string]any) {
+		mu.Lock()
+		defer mu.Unlock()
 		line := map[string]any{"at": time.Now().UTC().Format(time.RFC3339Nano), "event": event}
 		for key, value := range fields {
 			line[key] = value
@@ -164,7 +168,7 @@ func serve(ctx context.Context, state string, listen []string, lockWait time.Dur
 	var d *core.Daemon
 	for {
 		var err error
-		d, err = core.Start(core.Config{StateDir: state, Listen: listen, Release: version})
+		d, err = core.Start(core.Config{StateDir: state, Listen: listen, Release: version, LogEvent: logEvent})
 		if err == nil {
 			break
 		}
