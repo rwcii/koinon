@@ -28,6 +28,7 @@ type fakeAdapter struct {
 	calls    []string
 	// beforeClear runs as the clear starts, before its fence: a race with a dashboard action.
 	beforeClear func()
+	dialog      CycleDialog
 }
 
 func (f *fakeAdapter) Version() string { return "synthetic-1" }
@@ -81,6 +82,20 @@ func (f *fakeAdapter) Answer(ctx context.Context, _ CycleTarget, prompt string, 
 	}
 	f.record("answer " + prompt)
 	return f.answered, nil
+}
+func (f *fakeAdapter) Dialog(context.Context, CycleTarget) (CycleDialog, error) {
+	f.record("dialog")
+	return f.dialog, nil
+}
+func (f *fakeAdapter) Choose(ctx context.Context, _ CycleTarget, digest, option string, fence CycleFence) (bool, error) {
+	if digest != f.dialog.Digest {
+		return false, ErrCycleDialogChanged
+	}
+	if err := fence(ctx); err != nil {
+		return false, err
+	}
+	f.record("choose " + option)
+	return true, nil
 }
 func (f *fakeAdapter) count(prefix string) int {
 	f.mu.Lock()

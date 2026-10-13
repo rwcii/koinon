@@ -287,3 +287,66 @@ func (d *Daemon) maintainCycles() {
 		}
 	}
 }
+
+// cycleActionKey marks a dashboard action whose audit record joins its cycle transition.
+type cycleActionKey struct{}
+
+// CycleDialogOf reads the dialog that a waiting cycle's pane shows, for the dashboard. It
+// sends nothing.
+func (s *Store) CycleDialogOf(ctx context.Context, id string) (CycleDialog, error) {
+	c, err := scanCycle(s.db.QueryRowContext(ctx, `SELECT `+cycleColumns+` FROM context_cycles WHERE cycle_id=?`, id))
+	if err != nil || c.State != cycleWaitingPrompt {
+		return CycleDialog{}, ErrCycleChanged
+	}
+	adapter := cycleAdapterOf(c.Family)
+	if adapter == nil || adapter.Answerable(c.Reason) {
+		return CycleDialog{}, ErrCycleChanged
+	}
+	return adapter.Dialog(ctx, s.cycleTarget(ctx, c))
+}
+
+// AnswerCycleDialog applies the maintainer's option to a dialog that the adapter does not
+// answer itself, only while the cycle is at revision and its pane shows the same dialog
+// (digest). Its intent is recorded first, with the action's audit record; an unproven answer
+// is uncertain and is never entered again.
+func (s *Store) AnswerCycleDialog(ctx context.Context, id string, revision int64, digest, option string) error {
+	c, err := scanCycle(s.db.QueryRowContext(ctx, `SELECT `+cycleColumns+` FROM context_cycles WHERE cycle_id=?`, id))
+	if errors.Is(err, sql.ErrNoRows) {
+		return ErrCycleNotFound
+	}
+	if err != nil {
+		return err
+	}
+	adapter := cycleAdapterOf(c.Family)
+	if c.State != cycleWaitingPrompt || c.Revision != revision || adapter == nil || adapter.Answerable(c.Reason) {
+		return ErrCycleChanged
+	}
+	t := s.cycleTarget(ctx, c)
+	s.wake.mu.Lock()
+	defer s.wake.mu.Unlock()
+	if dialog, err := adapter.Dialog(ctx, t); err != nil || dialog.Digest != digest {
+		return ErrCycleDialogChanged
+	}
+	c, err = s.advanceCycle(context.WithValue(ctx, cycleActionKey{}, true), id, revision, cycleWaitingPrompt, cyclePromptIntent, "maintainer_option", nil, nil)
+	if err != nil {
+		return err
+	}
+	answered, err := adapter.Choose(ctx, t, digest, option, s.cycleFence(c))
+	if errors.Is(err, ErrCycleDialogChanged) {
+		// Choose found another dialog before any key: nothing was entered, so the cycle
+		// waits again for a response to the dialog that shows now.
+		if _, err := s.advanceCycle(ctx, id, c.Revision, cyclePromptIntent, cycleWaitingPrompt, "native_dialog", nil, nil); err != nil {
+			return err
+		}
+		return ErrCycleDialogChanged
+	}
+	if err != nil || !answered {
+		_, endErr := s.endCycle(ctx, id, c.Revision, cycleUncertain, "prompt_unanswered")
+		if err == nil {
+			err = endErr
+		}
+		return err
+	}
+	_, err = s.advanceCycle(ctx, id, c.Revision, cyclePromptIntent, c.PromptFrom, "prompt_answered", nil, func(n *cycleRow) { n.PromptFrom = "" })
+	return err
+}

@@ -2,12 +2,16 @@ package core
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"io"
 	"os"
 	"path/filepath"
+	"regexp"
 	"runtime"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
@@ -234,7 +238,7 @@ func parseClaudeScreen(out string) claudeScreen {
 	switch {
 	case strings.Contains(plain, "Add directory to workspace") && strings.Contains(plain, "1. Yes, for this session"):
 		screen.dialog = "add_dir_scope"
-	case !screen.found && strings.Contains(plain, "Enter to confirm"):
+	case !screen.found && (strings.Contains(plain, "Enter to confirm") || dialogOf(screen).Digest != ""):
 		screen.dialog = "native_dialog"
 	}
 	return screen
@@ -495,4 +499,67 @@ func EnsureCycleLoader(stateRoot string) error {
 		return err
 	}
 	return os.Rename(tmp.Name(), path)
+}
+
+// claudeOption is a numbered dialog option, the selected one marked with the prompt mark.
+var claudeOption = regexp.MustCompile(`^\s*(?:❯\s*)?([1-9])\.\s+\S`)
+
+// claudeDialogLines bounds the dialog text read above its first option.
+const claudeDialogLines = 8
+
+// dialogOf is the dialog that a screen shows: the lines above its options and the options.
+func dialogOf(s claudeScreen) CycleDialog {
+	first, last := -1, -1
+	var options []string
+	for i, line := range s.lines {
+		if m := claudeOption.FindStringSubmatch(line); m != nil {
+			if first < 0 {
+				first = i
+			}
+			last = i
+			options = append(options, m[1])
+		}
+	}
+	if first < 0 {
+		return CycleDialog{}
+	}
+	var lines []string
+	for _, line := range s.lines[max(0, first-claudeDialogLines) : last+1] {
+		if line = strings.TrimSpace(line); line != "" && !strings.HasPrefix(line, "──") {
+			lines = append(lines, line)
+		}
+	}
+	sum := sha256.Sum256([]byte(strings.Join(lines, "\n")))
+	return CycleDialog{Lines: lines, Options: options, Digest: hex.EncodeToString(sum[:])}
+}
+
+// Dialog reads the dialog the pane shows. It sends nothing.
+func (claudeCycle) Dialog(ctx context.Context, t CycleTarget) (CycleDialog, error) {
+	if !provePane(ctx, t.tools, t.HostPID, t.HostStart, t.Socket, t.Pane) {
+		return CycleDialog{}, errors.New("pane unproven")
+	}
+	screen, err := readClaude(ctx, t)
+	if err != nil {
+		return CycleDialog{}, err
+	}
+	if screen.dialog == "" {
+		return CycleDialog{}, errors.New("no dialog")
+	}
+	return dialogOf(screen), nil
+}
+
+// Choose enters one option number while the pane shows the same dialog, then reads back that
+// the dialog is gone.
+func (a claudeCycle) Choose(ctx context.Context, t CycleTarget, digest, option string, fence CycleFence) (bool, error) {
+	dialog, err := a.Dialog(ctx, t)
+	if err != nil {
+		return false, err
+	}
+	if dialog.Digest != digest || !slices.Contains(dialog.Options, option) {
+		return false, ErrCycleDialogChanged
+	}
+	if err := a.key(ctx, t, fence, "-l", option); err != nil {
+		return false, err
+	}
+	return await(ctx, t, func(s claudeScreen) bool { return s.dialog == "" || dialogOf(s).Digest != digest }), nil
 }

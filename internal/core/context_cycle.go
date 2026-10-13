@@ -279,10 +279,11 @@ var errCycleEventLimit = errors.New("cycle event limit")
 
 // Refusals of the own-cycle calls.
 var (
-	ErrCycleNotFound = Refusal{"cycle_not_found", "this session has no managed cycle with that ID"}
-	ErrCycleChanged  = Refusal{"cycle_changed", "the cycle is not at that revision or stage; read its current state"}
-	ErrCycleEpoch    = Refusal{"cycle_epoch_unverified", "the native client did not supply this session's verified current epoch"}
-	ErrCycleArtifact = Refusal{"cycle_artifact_invalid", "the handoff artifact is not a new, bounded, ignored and untracked file in this session's own handoff directory"}
+	ErrCycleNotFound      = Refusal{"cycle_not_found", "this session has no managed cycle with that ID"}
+	ErrCycleChanged       = Refusal{"cycle_changed", "the cycle is not at that revision or stage; read its current state"}
+	ErrCycleEpoch         = Refusal{"cycle_epoch_unverified", "the native client did not supply this session's verified current epoch"}
+	ErrCycleDialogChanged = Refusal{"cycle_dialog_changed", "the pane no longer shows that dialog or option; read the current one"}
+	ErrCycleArtifact      = Refusal{"cycle_artifact_invalid", "the handoff artifact is not a new, bounded, ignored and untracked file in this session's own handoff directory"}
 )
 
 // CycleTarget is what a cycle adapter acts on: the pinned native host and pane, the session's
@@ -355,6 +356,18 @@ type CycleAdapter interface {
 	Answerable(prompt string) bool
 	// Answer responds to an answerable dialog and reports whether the response was read back.
 	Answer(ctx context.Context, t CycleTarget, prompt string, fence CycleFence) (bool, error)
+	// Dialog reads, without input, the dialog the pane shows: its text, numbered options and
+	// a digest of both, for the maintainer's response on the dashboard.
+	Dialog(ctx context.Context, t CycleTarget) (CycleDialog, error)
+	// Choose enters the maintainer's option while the pane still shows the dialog with digest.
+	Choose(ctx context.Context, t CycleTarget, digest, option string, fence CycleFence) (bool, error)
+}
+
+// CycleDialog is a native dialog as the pane shows it.
+type CycleDialog struct {
+	Lines   []string
+	Options []string // the option numbers
+	Digest  string
 }
 
 // cycleAdapters holds the registered adapters by family. Tests register synthetic ones.
@@ -547,11 +560,17 @@ func cycleAudit(ctx context.Context, tx *writeTx, now int64, c cycleRow, result,
 func (s *Store) advanceCycle(ctx context.Context, id string, revision int64, from, to, reason string,
 	guard func(tx *writeTx, c cycleRow, now int64) error, change func(*cycleRow)) (cycleRow, error) {
 	now := s.now().UnixMilli()
-	tx, err := s.begin(noAudit(ctx), control)
+	// A maintainer's dashboard response carries its action's audit record in this transaction.
+	actx, audited := noAudit(ctx), ctx.Value(cycleActionKey{}) != nil
+	if audited {
+		actx = ctx
+	}
+	tx, err := s.begin(actx, control)
 	if err != nil {
 		return cycleRow{}, err
 	}
 	defer tx.Rollback()
+	tx.audited = audited
 	c, err := scanCycle(tx.QueryRowContext(ctx, `SELECT `+cycleColumns+` FROM context_cycles WHERE cycle_id=?`, id))
 	if err != nil {
 		return cycleRow{}, err

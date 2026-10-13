@@ -56,6 +56,7 @@ type claudeTerminal struct {
 	input   string
 	dialog  bool
 	mode    bool
+	asks    bool // a native permission dialog
 	status  string
 	epoch   string
 	cleared int
@@ -92,6 +93,9 @@ func (c *claudeTerminal) write() {
 }
 
 func (c *claudeTerminal) screen() string {
+	if c.asks {
+		return "● synthetic transcript\n────────\n Bash command\n   synthetic command\n Do you want to proceed?\n ❯ 1. Yes\n   2. No, and tell Claude what to do differently\n"
+	}
 	if c.dialog {
 		return "   Add directory to workspace\n   /tmp/synthetic/loader\n   ❯ 1. Yes, for this session\n     2. Yes, and remember this directory\n     3. No\n   Enter to confirm · Esc to cancel\n"
 	}
@@ -131,7 +135,9 @@ func (c *claudeTerminal) tmux(_ context.Context, socket string, args ...string) 
 			c.mode = false
 		case strings.HasPrefix(key, "-l "):
 			text := strings.TrimPrefix(key, "-l ")
-			if c.dialog && text == "1" {
+			if c.asks && (text == "1" || text == "2") {
+				c.asks = false
+			} else if c.dialog && text == "1" {
 				c.dialog = false
 				c.added = append(c.added, strings.TrimPrefix(c.input, "/add-dir "))
 				c.input = ""
@@ -359,5 +365,32 @@ func TestClaudeBootstrap(t *testing.T) {
 	want := []string{"-l /add-dir " + tg.LoaderDir, "Escape", "Enter", "-l 1", "-l /pickup", "C-u"}
 	if !slices.Equal(term.keys, want) || term.fences != len(want) || !slices.Equal(term.added, []string{tg.LoaderDir}) || term.input != "" {
 		t.Fatalf("keys %q fences %d added %q input %q", term.keys, term.fences, term.added, term.input)
+	}
+}
+
+// A permission dialog that the adapter does not answer is read without input; the maintainer's
+// option is entered behind the fence only while the same dialog shows.
+func TestClaudeDialogChoice(t *testing.T) {
+	ctx := context.Background()
+	term := newClaudeTerminal(t)
+	tg := term.target(t)
+	term.asks = true
+	if state, _ := (claudeCycle{}).Inspect(ctx, tg, term.fence); state.Prompt != "native_dialog" {
+		t.Fatalf("inspect: %+v", state)
+	}
+	dialog, err := (claudeCycle{}).Dialog(ctx, tg)
+	if err != nil || !slices.Equal(dialog.Options, []string{"1", "2"}) || len(dialog.Digest) != 64 ||
+		!slices.Contains(dialog.Lines, "Do you want to proceed?") || len(term.keys) != 0 {
+		t.Fatalf("dialog: %+v %v keys %q", dialog, err, term.keys)
+	}
+	if ok, err := (claudeCycle{}).Choose(ctx, tg, strings.Repeat("0", 64), "2", term.fence); ok || !errors.Is(err, ErrCycleDialogChanged) || len(term.keys) != 0 {
+		t.Fatalf("other digest: %v %v keys %q", ok, err, term.keys)
+	}
+	if ok, err := (claudeCycle{}).Choose(ctx, tg, dialog.Digest, "3", term.fence); ok || !errors.Is(err, ErrCycleDialogChanged) || len(term.keys) != 0 {
+		t.Fatalf("absent option: %v %v", ok, err)
+	}
+	if ok, err := (claudeCycle{}).Choose(ctx, tg, dialog.Digest, "2", term.fence); !ok || err != nil ||
+		!slices.Equal(term.keys, []string{"-l 2"}) || term.fences != 1 || term.asks {
+		t.Fatalf("choose: %v %v keys %q fences %d", ok, err, term.keys, term.fences)
 	}
 }

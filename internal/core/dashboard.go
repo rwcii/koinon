@@ -249,6 +249,9 @@ type contextRow struct {
 	// Managed is the session's current or newest managed cycle (#196, chunk 02), as its
 	// requester or successor: stage, deadline, reason and event history, no private value.
 	Managed *CycleView
+	// Dialog is the native dialog that the managed cycle waits on and that the adapter does
+	// not answer itself: the maintainer's response applies only to this dialog.
+	Dialog *CycleDialog
 }
 
 // contextRowOf selects a session's trigger state from the stored policy and evidence. It
@@ -278,6 +281,11 @@ func (s *Store) contextRowOf(session Session, enable ContextEnable, now int64) c
 		}
 		if v, err := cycles[0].view(context.Background(), s.db, role); err == nil {
 			row.Managed = &v
+			if v.State == cycleWaitingPrompt {
+				if dialog, err := s.CycleDialogOf(context.Background(), v.ID); err == nil {
+					row.Dialog = &dialog
+				}
+			}
 		}
 	}
 	return row

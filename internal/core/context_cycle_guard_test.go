@@ -3,9 +3,12 @@ package core
 import (
 	"context"
 	"errors"
+	"net/url"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strconv"
+	"strings"
 	"testing"
 	"time"
 )
@@ -372,5 +375,69 @@ func TestContextCycleFenceStopsInput(t *testing.T) {
 	f.step(t)
 	if v := f.status(t, f.k); v.State != cycleUncertain || f.adapter.count("clear") != 0 {
 		t.Fatalf("fenced clear: %+v %v", v, f.adapter.calls)
+	}
+}
+
+// A dialog the adapter does not answer shows on the Sessions page; the maintainer's option is
+// applied behind its recorded intent and audit record, only at the shown revision and dialog.
+func TestContextCycleMaintainerAnswersDialog(t *testing.T) {
+	d, root := startTestDaemon(t)
+	s := d.store
+	adapter := &fakeAdapter{pane: PaneState{Prompt: "native_dialog"}, probe: CycleProbe{Bootstrap: "project"},
+		dialog: CycleDialog{Lines: []string{"Do you want to proceed?", "❯ 1. Yes", "2. No"}, Options: []string{"1", "2"}, Digest: strings.Repeat("d", 64)}}
+	previous := cycleAdapters
+	cycleAdapters = map[string]CycleAdapter{"claude": adapter}
+	t.Cleanup(func() { cycleAdapters = previous })
+	repo := namedRepo(t, "cycle-dialog")
+	os.WriteFile(filepath.Join(repo, ".gitignore"), []byte("_handoff/\n"), 0o644)
+	a := join(t, s, "claude", "synthetic-dialog-a", repo)
+	s.db.Exec(`UPDATE sessions SET host_pid=4242,host_start=77,tmux_socket='/tmp/synthetic-socket',tmux_pane='%3' WHERE family='claude' AND id=?`, a.ID)
+	a, _ = scanSession(s.db.QueryRow(sessionQuery+` WHERE s.family=? AND s.id=?`, "claude", a.ID), s.now().UnixMilli())
+	if _, err := s.SetContextEnable(roomCtx("context-enable"), a.Name, a.Revision, 0, true); err != nil {
+		t.Fatal(err)
+	}
+	k := Key{"claude", a.ID}
+	if err := s.Observe(context.Background(), Observation{Caller: k, Context: &ObservedValue{Source: "claude_statusline",
+		At: s.now().UnixMilli(), LimitTokens: int64p(1000), UsedTokens: int64p(950), Epoch: "synthetic-epoch-1"}}); err != nil {
+		t.Fatal(err)
+	}
+	v, _ := s.ContextCycleStatus(context.Background(), k)
+	dir := filepath.Join(repo, "_handoff", "claude")
+	os.MkdirAll(dir, 0o700)
+	os.WriteFile(filepath.Join(dir, "2026-10-13-120000.md"), []byte("synthetic"), 0o600)
+	if _, err := s.ContextCycleReady(context.Background(), k, "synthetic-epoch-1", v.ID, v.Revision, "2026-10-13-120000.md"); err != nil {
+		t.Fatal(err)
+	}
+	for range 2 {
+		if err := s.cycleStep(context.Background()); err != nil {
+			t.Fatal(err)
+		}
+	}
+	v, _ = s.ContextCycleStatus(context.Background(), k)
+	if v.State != cycleWaitingPrompt || adapter.count("choose") != 0 {
+		t.Fatalf("waiting: %+v", v)
+	}
+	client := newActionClient(t, d, root)
+	page := dashboardDo(t, d, "GET", "/dashboard/sessions", client.cookie, nil, nil)
+	if !strings.Contains(page.body, "Do you want to proceed?") || !strings.Contains(page.body, `name="digest" value="`+adapter.dialog.Digest+`"`) ||
+		!strings.Contains(page.body, "Choose 2") {
+		t.Fatalf("sessions page: %s", page.body)
+	}
+	answer := func(revision int64, digest, option string) string {
+		return client.do("context-cycle-answer", url.Values{"cycle_id": {v.ID}, "revision": {strconv.FormatInt(revision, 10)}, "digest": {digest}, "option": {option}})
+	}
+	if got := answer(v.Revision+1, adapter.dialog.Digest, "1"); got != "cycle_changed" {
+		t.Fatalf("stale revision: %s", got)
+	}
+	if got := answer(v.Revision, strings.Repeat("e", 64), "1"); got != "cycle_dialog_changed" || adapter.count("choose") != 0 {
+		t.Fatalf("other dialog: %s", got)
+	}
+	if got := answer(v.Revision, adapter.dialog.Digest, "2"); got != "cycle_dialog_answered" || adapter.count("choose 2") != 1 {
+		t.Fatalf("answer: %s %v", got, adapter.calls)
+	}
+	v, _ = s.ContextCycleStatus(context.Background(), k)
+	if v.State != cycleReady || count(t, s, `SELECT COUNT(*) FROM audit WHERE action='context-cycle-answer' AND result='accepted'`) != 1 ||
+		count(t, s, `SELECT COUNT(*) FROM audit WHERE action='context-cycle-answer' AND result='refused'`) != 2 {
+		t.Fatalf("after the answer: %+v audit %d", v, count(t, s, `SELECT COUNT(*) FROM audit WHERE action='context-cycle-answer'`))
 	}
 }
