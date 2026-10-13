@@ -59,6 +59,15 @@ same state.
 The Sessions page showed each stage with its time and the fixed reason. A recorded intent was
 never entered again after the restart.
 
+### Second interactive bootstrap, 2026-10-13
+
+A Linux run of the macOS steps found a defect. In a session launched without the loader, the
+first cycle's bootstrap added the loader directory. The session keeps it across `/clear`, so
+the next cycle's `/add-dir` got the reply "… is already added as a working directory." and no
+dialog, and the cycle ended `uncertain` (`dialog_not_shown`) with Enable off. With the fix the
+same session's next cycle ran requested, ready, bootstrap_intent, bootstrap_verified,
+clear_intent, clear_received, reset_verified, pickup_intent, waiting_pickup, complete (resumed).
+
 ## macOS
 
 Not run yet. The adapter reports `platform_unverified` on macOS. The steps are in

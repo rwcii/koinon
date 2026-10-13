@@ -361,7 +361,10 @@ Claude launch, after the launch's own options and before a `--`. Its body only r
 before the clear: `bootstrap_intent` is recorded, `/add-dir <loader>` is entered, the
 add-directory dialog is answered with option 1 ("Yes, for this session"; the persistent option
 is never chosen), and `/pickup` is typed to read that the menu lists the loader first, then
-erased unsubmitted; `bootstrap_verified` records the proof. An unproven bootstrap is uncertain.
+erased unsubmitted; `bootstrap_verified` records the proof. The session keeps an added directory
+across `/clear`, so a later cycle's `/add-dir` gets Claude Code's reply that the directory is
+already added instead of the dialog; then no option is entered, and the `/pickup` menu check
+still applies. An unproven bootstrap is uncertain.
 
 The adapter is ready for input when the registry `status` is `idle` and the input line (`❯`
 followed by a no-break space) is empty; text drawn dim there is a placeholder or a suggestion,

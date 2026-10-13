@@ -61,8 +61,9 @@ type claudeTerminal struct {
 	epoch   string
 	cleared int
 	added   []string
-	menu    string // the description that /pickup lists first
-	closed  bool   // Escape closed the menu since the last typed text
+	said    []string // transcript lines after the synthetic transcript's first line
+	menu    string   // the description that /pickup lists first
+	closed  bool     // Escape closed the menu since the last typed text
 	keys    []string
 	at      []time.Time // when each key arrived
 	fences  int
@@ -134,6 +135,9 @@ func (c *claudeTerminal) screen() string {
 	}
 	var b strings.Builder
 	b.WriteString("● synthetic transcript\n")
+	for _, line := range c.said {
+		b.WriteString(line + "\n")
+	}
 	if strings.HasPrefix(c.input, "/pickup") && c.menu != "" && !c.closed {
 		b.WriteString("  ❯ /pickup                     " + c.menu + "\n")
 	}
@@ -193,6 +197,10 @@ func (c *claudeTerminal) tmux(_ context.Context, socket string, args ...string) 
 				c.cleared++
 				c.epoch = "synthetic-epoch-" + strconv.Itoa(c.cleared+1)
 				c.write()
+				c.input = ""
+			case strings.HasPrefix(c.input, "/add-dir ") && slices.Contains(c.added, strings.TrimPrefix(c.input, "/add-dir ")):
+				dir := strings.TrimPrefix(c.input, "/add-dir ")
+				c.said = append(c.said, "❯ "+c.input, "  ⎿  "+dir+" is already added as a working directory.")
 				c.input = ""
 			case strings.HasPrefix(c.input, "/add-dir "):
 				c.dialog = true
@@ -419,6 +427,42 @@ func TestClaudeBootstrap(t *testing.T) {
 	// Every key, the erase included, passes the fence.
 	if !slices.Equal(term.keys, want) || term.fences != len(want) || !slices.Equal(term.added, []string{tg.LoaderDir}) || term.input != "" {
 		t.Fatalf("keys %q fences %d added %q input %q", term.keys, term.fences, term.added, term.input)
+	}
+}
+
+// A second bootstrap in the same session (an earlier cycle added the loader, and /clear keeps
+// it) gets Claude Code's "already added" reply instead of the dialog: no option is entered, and
+// /pickup must still list the loader.
+func TestClaudeBootstrapAlreadyAdded(t *testing.T) {
+	ctx := context.Background()
+	term := newClaudeTerminal(t)
+	tg := term.target(t)
+	term.menu = tg.Loader.Description
+	term.added = []string{tg.LoaderDir}
+	if ok, err := (claudeCycle{}).Bootstrap(ctx, tg, term.fence); !ok || err != nil {
+		t.Fatalf("bootstrap: %v %v keys %q", ok, err, term.keys)
+	}
+	erase := strings.TrimSpace(strings.Repeat("BSpace ", len("/pickup")+2))
+	want := []string{"-l /add-dir " + tg.LoaderDir, "Escape", "Enter", "-l /pickup", erase}
+	if !slices.Equal(term.keys, want) || term.input != "" {
+		t.Fatalf("keys %q input %q", term.keys, term.input)
+	}
+	// The reply must answer this /add-dir: an older reply above a later /add-dir of the same
+	// directory, or a reply for another directory, is not one.
+	for _, lines := range [][]string{
+		{"❯ /add-dir " + tg.LoaderDir, "  ⎿  " + tg.LoaderDir + " is already added as a working directory.", "❯ /add-dir " + tg.LoaderDir},
+		{"❯ /add-dir " + tg.LoaderDir, "  ⎿  /tmp/other is already added as a working directory."},
+	} {
+		if claudeAlreadyAdded(claudeScreen{lines: lines, found: true}, tg.LoaderDir) {
+			t.Fatalf("reply accepted: %q", lines)
+		}
+	}
+	// Without the loader in the menu the bootstrap still fails.
+	term = newClaudeTerminal(t)
+	tg = term.target(t)
+	term.added = []string{tg.LoaderDir}
+	if ok, err := (claudeCycle{}).Bootstrap(ctx, tg, term.fence); ok || !errors.Is(err, errClaudeMenuEntry) {
+		t.Fatalf("bootstrap without the menu entry: %v %v", ok, err)
 	}
 }
 

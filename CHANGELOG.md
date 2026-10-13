@@ -5,6 +5,14 @@ into a dated release section when promoted to `main`.
 
 ## Unreleased
 
+- Managed context cycle for Claude Code (#196, #356): a session that needed the interactive bootstrap
+  ran only its first cycle; the next one ended `uncertain` (`dialog_not_shown`), because the
+  session keeps the added loader directory across `/clear` and Claude Code then shows no
+  dialog. The adapter now accepts that reply and still checks the `/pickup` menu. On macOS the
+  adapter reads the host's configuration directory and process start (the platform stays
+  unverified until its live check, `docs/sprints/2026-10-12-context-handoff/macos-live-check.md`).
+  Linux live evidence for a native dialog inside a cycle and for daemon crashes around the
+  clear and pickup inputs is in `native-evidence.md` of that sprint.
 - DeepSeek live wake (#199): the wake of an idle DeepSeek Harness 0.2.0-rc.2 session
   (`dsh web`) through the Go daemon is proven in a development container. The guide,
   PERMISSIONS and INSTALL no longer call the live proof deferred; the harness's permission

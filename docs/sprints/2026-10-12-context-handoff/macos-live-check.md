@@ -15,7 +15,7 @@ do not change.
 | M0 Probe | The Sessions row of a test session shows `pickup through loader`, not `platform_unverified`, `native_registry_unavailable` or `pickup_entry_unverified`. |
 | M1 Loader cycle | The cycle reaches `complete (resumed)`; the pane shows one `/clear` and one `/pickup`. |
 | M2 Project skill | The Sessions row shows `pickup through project`; the cycle reaches `complete (resumed)`. |
-| M3 Interactive bootstrap | The Sessions row shows `pickup through interactive`; the stages include `bootstrap_intent` and `bootstrap_verified`; the cycle reaches `complete (resumed)`. |
+| M3 Interactive bootstrap | The Sessions row shows `pickup through interactive`; the stages include `bootstrap_intent` and `bootstrap_verified`; the first and the second cycle reach `complete (resumed)`. |
 | M4 Dialog | The cycle stops at `waiting_prompt (native_dialog)`; the Sessions page shows the dialog and its options; "Choose 1" continues the cycle to `complete (resumed)`. |
 | M5 Crash | Each crash case gives the result in the table of step 9. No command is typed again after a restart. |
 
@@ -123,8 +123,9 @@ cycles() { sqlite3 -readonly "$DB" "SELECT n.name, c.state, c.reason, (SELECT gr
 
 For each case: start the session (`newcase m1`, `newcase m2 project`, `newcase m3 old`) and do
 the first turn. Click Enable handoff on its Sessions row. Enter `Reply with the single word ok.`
-in the pane. Run `cycles` until the first cycle of that session is `complete`, then click
-Disable. Record the stage list and the Sessions row. Save the pane history privately:
+in the pane. Run `cycles` until the first cycle of that session is `complete` (for M3, the
+second cycle), then click Disable. If no cycle starts within two minutes, record the reason on
+the Sessions row and enter one more turn. Record the stage list and the Sessions row. Save the pane history privately:
 
 ```bash
 tmux -S "$S" capture-pane -p -S -400 -t "$P" > "$K/pane-NAME.txt"
@@ -146,8 +147,8 @@ Use the M1 session. Each case kills the daemon at a stage of the next cycle:
 ```bash
 crash() { # crash STAGE DELAY
   n=$(sqlite3 -readonly "$DB" "SELECT count(*) FROM context_cycles")
-  while :; do
-    s=$(sqlite3 -readonly "$DB" "SELECT CASE WHEN count(*) > $n THEN (SELECT state FROM context_cycles ORDER BY created_at DESC LIMIT 1) END FROM context_cycles")
+  while :; do # a read can fail while the daemon writes; the next poll reads again
+    s=$(sqlite3 -readonly "$DB" "SELECT CASE WHEN count(*) > $n THEN (SELECT state FROM context_cycles ORDER BY created_at DESC LIMIT 1) END FROM context_cycles" 2>/dev/null)
     if [ "$s" = "$1" ]; then sleep "$2"; kill -9 "$(pgrep -f "^$K/koinon serve")"; date -u +%T; return; fi
     sleep 0.01
   done
@@ -168,7 +169,8 @@ After the kill, record the pane's input line, run `restart`, wait 20 seconds and
 | E3 | `crash pickup_intent 0` | `uncertain (pickup_unreceipted)`; no `/pickup` typed after the restart; Enable is off |
 | E4 | `crash clear_intent 0.25` | `/clear` stays in the input line, not submitted; `uncertain (reset_unproven)`; Enable is off |
 
-The timing on a Mac can be different. If a case shows the result of another case, record it
+If the cycle ends before the stage, `crash` keeps waiting: stop it with Ctrl-C before the
+next case. The timing on a Mac can be different. If a case shows the result of another case, record it
 and try again with another delay. Erase a text that stays in the input line before the next
 case.
 

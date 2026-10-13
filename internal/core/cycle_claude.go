@@ -509,11 +509,19 @@ func (a claudeCycle) Bootstrap(ctx context.Context, t CycleTarget, fence CycleFe
 		a.erase(ctx, t, fence, text)
 		return false, err
 	}
-	if !await(ctx, t, func(s claudeScreen) bool { return s.dialog == "add_dir_scope" }) {
+	// A directory that this session already added (an earlier bootstrap; /clear keeps it) gets
+	// Claude Code's reply instead of the dialog (native evidence, #196).
+	added := false
+	if !await(ctx, t, func(s claudeScreen) bool {
+		added = claudeAlreadyAdded(s, t.LoaderDir)
+		return added || s.dialog == "add_dir_scope"
+	}) {
 		return false, errClaudeDialog
 	}
-	if ok, err := a.Answer(ctx, t, "add_dir_scope", fence); err != nil || !ok {
-		return false, err
+	if !added {
+		if ok, err := a.Answer(ctx, t, "add_dir_scope", fence); err != nil || !ok {
+			return false, err
+		}
 	}
 	if err := a.key(ctx, t, fence, "-l", "/pickup"); err != nil {
 		return false, err
@@ -526,6 +534,26 @@ func (a claudeCycle) Bootstrap(ctx context.Context, t CycleTarget, fence CycleFe
 		return false, errClaudeMenuEntry
 	}
 	return true, nil
+}
+
+// claudeAlreadyAdded reports Claude Code's reply to /add-dir for a directory that the session
+// already has: the input line is empty again, and the last /add-dir of dir in the transcript is
+// followed by that reply.
+func claudeAlreadyAdded(s claudeScreen, dir string) bool {
+	if !s.found || s.input != "" || s.dialog != "" {
+		return false
+	}
+	for i := len(s.lines) - 1; i >= 0; i-- {
+		if strings.TrimSpace(s.lines[i]) == "❯ /add-dir "+dir {
+			for _, line := range s.lines[i+1:] {
+				if strings.Contains(line, dir+" is already added as a working directory.") {
+					return true
+				}
+			}
+			return false
+		}
+	}
+	return false
 }
 
 func (claudeCycle) Answerable(prompt string) bool { return prompt == "add_dir_scope" }
