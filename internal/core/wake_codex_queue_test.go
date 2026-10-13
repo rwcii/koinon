@@ -23,6 +23,8 @@ type codexChild struct {
 	args       []string
 	started    time.Time
 	err        error
+	// commandErr fails the command read; the process still runs unless alive is false.
+	commandErr error
 }
 
 func (c *codexHost) parents() (map[int]int, error) {
@@ -45,6 +47,9 @@ func (c *codexHost) command(pid int) (string, []string, error) {
 	if !ok {
 		return "", nil, platform.ErrProcessGone
 	}
+	if child.commandErr != nil {
+		return "", nil, child.commandErr
+	}
 	return child.executable, child.args, nil
 }
 
@@ -65,7 +70,7 @@ func (c *codexHost) add(pid int, child codexChild) {
 }
 
 func server(started time.Time) codexChild {
-	return codexChild{"/opt/koinon/bin/koinon", []string{"koinon", "mcp"}, started, nil}
+	return codexChild{"/opt/koinon/bin/koinon", []string{"koinon", "mcp"}, started, nil, nil}
 }
 
 // The queue wake of a launched Codex holder waits while a koinon mcp server under its host
@@ -107,13 +112,13 @@ func TestCodexQueueWaitsWhileTheHostMayShowAnotherThread(t *testing.T) {
 	if !holder.HoldsAddress {
 		t.Fatalf("not the holder: %+v", holder)
 	}
-	host.add(601, codexChild{"/bin/sh", []string{"sh", "-c", "synthetic"}, s.now().Add(time.Hour), nil})
-	host.add(602, codexChild{"/opt/koinon/bin/koinon", []string{"koinon", "serve"}, s.now().Add(time.Hour), nil})
+	host.add(601, codexChild{"/bin/sh", []string{"sh", "-c", "synthetic"}, s.now().Add(time.Hour), nil, nil})
+	host.add(602, codexChild{"/opt/koinon/bin/koinon", []string{"koinon", "serve"}, s.now().Add(time.Hour), nil, nil})
 	wake("thread-1", "cli_unavailable")
 
 	// A /clear or a sub-agent: a new server and no call yet. A replaced binary still counts.
 	advance(10 * time.Second)
-	host.add(502, codexChild{"/opt/koinon/bin/koinon (deleted)", []string{"/opt/koinon/bin/koinon", "mcp"}, s.now(), nil})
+	host.add(502, codexChild{"/opt/koinon/bin/koinon (deleted)", []string{"/opt/koinon/bin/koinon", "mcp"}, s.now(), nil, nil})
 	wake("thread-1", "codex_thread_unproven")
 	advance(10 * time.Second)
 	s.ToolCall(Key{"codex", "thread-1"})
@@ -150,13 +155,22 @@ func TestCodexQueueWaitsWhileTheHostMayShowAnotherThread(t *testing.T) {
 	host.failing = true
 	wake("thread-1", "codex_thread_unproven")
 	host.failing = false
-	host.add(505, codexChild{"/opt/koinon/bin/koinon", []string{"koinon", "mcp"}, time.Time{}, errors.New("synthetic")})
+	host.add(505, codexChild{"/opt/koinon/bin/koinon", []string{"koinon", "mcp"}, time.Time{}, errors.New("synthetic"), nil})
 	wake("thread-1", "codex_thread_unproven")
-	host.add(505, codexChild{"/opt/koinon/bin/koinon", []string{"koinon", "mcp"}, time.Time{}, platform.ErrProcessGone})
+	host.add(505, codexChild{"/opt/koinon/bin/koinon", []string{"koinon", "mcp"}, time.Time{}, platform.ErrProcessGone, nil})
 	wake("thread-1", "cli_unavailable")
 	h.set(100, 8)
 	wake("thread-1", "codex_thread_unproven")
 	h.set(100, 7)
+	// A child whose command cannot be read waits while it runs, and not once it has ended.
+	h.set(508, 508)
+	host.add(508, codexChild{commandErr: errors.New("synthetic command error")})
+	wake("thread-1", "codex_thread_unproven")
+	h.set(508, 0)
+	wake("thread-1", "cli_unavailable")
+	h.fail(508, true)
+	wake("thread-1", "codex_thread_unproven")
+	h.fail(508, false)
 
 	// After a daemon restart no call or event is known: the first registration is the proof.
 	s.calls.mu.Lock()

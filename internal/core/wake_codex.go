@@ -135,10 +135,16 @@ func (s *Store) codexThreadUnproven(ctx context.Context, session Session) bool {
 		if parent != int(pid) {
 			continue
 		}
-		// A child that ended during the scan is no server; a server whose start cannot be
-		// read counts as a new one.
+		// A child that ended during the scan is no server. A child whose command or start
+		// cannot be read may be a new server.
 		executable, args, err := s.processCommand(child)
-		if err != nil || filepath.Base(strings.TrimSuffix(executable, " (deleted)")) != "koinon" || len(args) < 2 || args[1] != "mcp" {
+		if err != nil {
+			if _, err := s.processStart(child); errors.Is(err, platform.ErrProcessGone) {
+				continue
+			}
+			return true
+		}
+		if filepath.Base(strings.TrimSuffix(executable, " (deleted)")) != "koinon" || len(args) < 2 || args[1] != "mcp" {
 			continue
 		}
 		started, err := s.processStartTime(child)
