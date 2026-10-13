@@ -15,6 +15,7 @@ import (
 	"strconv"
 	"strings"
 	"time"
+	"unicode"
 )
 
 // The Claude Code cycle adapter (#196, chunk 03). It acts only through the session's own tmux
@@ -537,23 +538,25 @@ func (a claudeCycle) Bootstrap(ctx context.Context, t CycleTarget, fence CycleFe
 }
 
 // claudeAlreadyAdded reports Claude Code's reply to /add-dir for a directory that the session
-// already has: the input line is empty again, and the last /add-dir of dir in the transcript is
-// followed by that reply.
+// already has: the input line is empty again, and the last /add-dir in the transcript is of dir
+// and is followed at once by that reply. Claude Code wraps a long echo or reply onto more lines,
+// so the lines from that /add-dir on are compared without their whitespace.
 func claudeAlreadyAdded(s claudeScreen, dir string) bool {
 	if !s.found || s.input != "" || s.dialog != "" {
 		return false
 	}
 	for i := len(s.lines) - 1; i >= 0; i-- {
-		if strings.TrimSpace(s.lines[i]) == "❯ /add-dir "+dir {
-			for _, line := range s.lines[i+1:] {
-				if strings.Contains(line, dir+" is already added as a working directory.") {
-					return true
-				}
-			}
-			return false
+		if strings.HasPrefix(strings.TrimSpace(s.lines[i]), "❯ /add-dir ") {
+			want := withoutSpace("❯ /add-dir " + dir + " ⎿ " + dir + " is already added as a working directory.")
+			return strings.HasPrefix(withoutSpace(strings.Join(s.lines[i:], "\n")), want)
 		}
 	}
 	return false
+}
+
+// withoutSpace removes every whitespace character, the no-break space included.
+func withoutSpace(text string) string {
+	return strings.Join(strings.FieldsFunc(text, unicode.IsSpace), "")
 }
 
 func (claudeCycle) Answerable(prompt string) bool { return prompt == "add_dir_scope" }

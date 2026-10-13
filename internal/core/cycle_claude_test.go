@@ -447,14 +447,31 @@ func TestClaudeBootstrapAlreadyAdded(t *testing.T) {
 	if !slices.Equal(term.keys, want) || term.input != "" {
 		t.Fatalf("keys %q input %q", term.keys, term.input)
 	}
-	// The reply must answer this /add-dir: an older reply above a later /add-dir of the same
-	// directory, or a reply for another directory, is not one.
+	// Claude Code wraps a long echo or reply onto more lines (an 80-column pane).
+	dir := "/home/synthetic/.local/state/koinon/cycle/claude-loader"
 	for _, lines := range [][]string{
-		{"❯ /add-dir " + tg.LoaderDir, "  ⎿  " + tg.LoaderDir + " is already added as a working directory.", "❯ /add-dir " + tg.LoaderDir},
-		{"❯ /add-dir " + tg.LoaderDir, "  ⎿  /tmp/other is already added as a working directory."},
+		{"❯ /add-dir " + dir, "  ⎿  " + dir + " is already added as", " a working directory.", "", "────", "❯\u00a0"},
+		{"❯ /add-dir /home/synthetic/.local/state/koinon/cy", "cle/claude-loader", "  ⎿  " + dir, " is already added as a working directory."},
 	} {
-		if claudeAlreadyAdded(claudeScreen{lines: lines, found: true}, tg.LoaderDir) {
-			t.Fatalf("reply accepted: %q", lines)
+		if !claudeAlreadyAdded(claudeScreen{lines: lines, found: true}, dir) {
+			t.Fatalf("wrapped reply refused: %q", lines)
+		}
+	}
+	// The reply must answer this /add-dir of this directory: an older reply above a later
+	// /add-dir, a reply for another directory, another command's echo, a line between the echo
+	// and the reply, or a reply with text still in the input line is not one.
+	for _, c := range []struct {
+		lines []string
+		input string
+	}{
+		{[]string{"❯ /add-dir " + dir, "  ⎿  " + dir + " is already added as a working directory.", "❯ /add-dir " + dir}, ""},
+		{[]string{"❯ /add-dir " + dir, "  ⎿  /tmp/other is already added as a working directory."}, ""},
+		{[]string{"❯ /add-dir " + dir + "-other", "  ⎿  " + dir + "-other is already added as a working directory."}, ""},
+		{[]string{"❯ /add-dir " + dir, "● other output", "  ⎿  " + dir + " is already added as a working directory."}, ""},
+		{[]string{"❯ /add-dir " + dir, "  ⎿  " + dir + " is already added as a working directory."}, "draft"},
+	} {
+		if claudeAlreadyAdded(claudeScreen{lines: c.lines, found: true, input: c.input}, dir) {
+			t.Fatalf("reply accepted: %q input %q", c.lines, c.input)
 		}
 	}
 	// Without the loader in the menu the bootstrap still fails.
