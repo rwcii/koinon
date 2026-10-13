@@ -5,6 +5,13 @@ into a dated release section when promoted to `main`.
 
 ## Unreleased
 
+- Decision board (#206, chunk 03): the dashboard's Decisions page is the designed board. It
+  shows counts, a table of the active agents (name, activity, claimed work, a context meter or
+  "not reported", and the waiting items that name the agent), and cards with `ACTION FOR YOU`
+  fyi items first. Context, recommendation, agent text and notes render from a fixed Markdown
+  subset with HTML, links and images as literal text. Each command has its own box with a
+  Copy button; verdict buttons are disabled while a request runs, and the answer shows on the
+  card. The archive and a read-only lookup show each verdict with its text.
 - Decision verdicts (#206, chunk 02): the dashboard's Decisions page gives Approve and Decline
   on decision items and Dismiss on fyi items, on the revision shown, with a snapshot of that
   text. Each named agent gets a typed inbox message and a wake that names the verdict ID, and

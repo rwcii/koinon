@@ -73,8 +73,10 @@ The decision board is stored data. Get decision status with decision_list and de
 (waiting, active, in_progress, archived or mine, paged with next_after), never from the
 dashboard page. decision_create needs reference, title, kind (decision or fyi), key and
 deadline; decision_edit needs the if_revision you read. Write card prose in ASD-STE100
-Simplified Technical English; context, recommendation and agent_text are Markdown.
-Terminal-copy commands are printable ASCII only. Name recipients by participant address or
+Simplified Technical English; context, recommendation and agent_text are Markdown
+(paragraphs, line breaks, lists, emphasis, inline code and fenced code blocks; links, images
+and HTML show as literal text). Start an fyi title with ACTION FOR YOU when the maintainer
+must do manual work. Terminal-copy commands are printable ASCII only. Name recipients by participant address or
 peer name; an unknown name is flagged. Known key formats are refused, but Koinon cannot find
 every credential or item of personal data: do not write credentials, personal data, private
 session IDs or peer message bodies. Only the maintainer gives a verdict, in the dashboard.

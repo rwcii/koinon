@@ -210,11 +210,22 @@ Agents read decision status with `decision_list` (`--filter waiting|active|in_pr
 paged with `--after`) and `decision_get` (`--reference REF`), never from the dashboard page.
 Write card prose in ASD-STE100; context, recommendation and agent text are Markdown, and
 terminal-copy commands are printable ASCII. Known key formats are refused, but leave out all
-credentials, personal data, private session IDs and peer message bodies. The dashboard
-**Decisions** page lists the active items and finds an item by reference.
+credentials, personal data, private session IDs and peer message bodies. Markdown renders as
+paragraphs, line breaks, lists, emphasis, inline code and fenced code blocks; links, images
+and HTML show as literal text. An fyi item whose title starts with `ACTION FOR YOU` asks the
+maintainer for manual work.
 
-Find an item on the Decisions page to give a verdict: **Approve** or **Decline** a decision
-item, or **Dismiss** an fyi item, with an optional note. The verdict applies to the revision
+The dashboard **Decisions** page is the board. It shows the counts (waiting, in progress, open
+fyi, archived), then a table of the active agents: name, activity, claimed work, context use
+or "not reported", and the waiting items that name the agent. The cards follow:
+`ACTION FOR YOU` items first, then item order and reference. Each terminal-copy command is in
+its own box with a **Copy** button. The archive lists closed items, and **Find** opens any item
+by reference, read only, with its verdict history and the text of each verdict.
+
+Give a verdict on the card: **Approve** or **Decline** a decision item, or **Dismiss** an fyi
+item, with an optional Markdown note. The buttons are disabled while the request runs, and
+the answer shows on the card. A card with a hidden command (one that fails the printable-ASCII
+rule) cannot be approved. The verdict applies to the revision
 the page showed, keeps a snapshot of that text, and is your instruction and approval to the
 named agents. Approve moves the item to in progress; Decline and Dismiss archive it. Each
 named agent gets an inbox message and a wake that name the verdict ID. An agent reads it with
