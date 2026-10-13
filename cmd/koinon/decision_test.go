@@ -70,11 +70,20 @@ func TestDecisionCommandsOfTheDeepSeekGuide(t *testing.T) {
 	if err != nil || len(reply["result"].(map[string]any)["commands"].([]any)) != 2 {
 		t.Fatalf("get: %v %v", reply, err)
 	}
-	reply, err = run([]string{"edit", "--as", "deepseek:synthetic-guide", "--reference", "G-2", "--if-revision", "1", "--no-commands", "--no-recipients"})
+	// A false clear flag changes nothing.
+	reply, err = run([]string{"edit", "--as", "deepseek:synthetic-guide", "--reference", "G-2", "--if-revision", "1", "--title", "Kept lists",
+		"--no-commands=false", "--no-recipients=false"})
+	if err != nil || len(reply["result"].(map[string]any)["commands"].([]any)) != 2 || len(reply["result"].(map[string]any)["recipients"].([]any)) != 1 {
+		t.Fatalf("false clear flags: %v %v", reply, err)
+	}
+	if _, err := run([]string{"edit", "--as", "deepseek:synthetic-guide", "--reference", "G-2", "--if-revision", "2", "--command", "ls", "--no-commands=false"}); err != nil {
+		t.Fatalf("--command with --no-commands=false: %v", err)
+	}
+	reply, err = run([]string{"edit", "--as", "deepseek:synthetic-guide", "--reference", "G-2", "--if-revision", "3", "--no-commands", "--no-recipients"})
 	if err != nil || len(reply["result"].(map[string]any)["commands"].([]any)) != 0 || len(reply["result"].(map[string]any)["recipients"].([]any)) != 0 {
 		t.Fatalf("clear lists: %v %v", reply, err)
 	}
-	if _, err := run([]string{"edit", "--as", "deepseek:synthetic-guide", "--reference", "G-2", "--if-revision", "2", "--command", "ls", "--no-commands"}); err == nil {
+	if _, err := run([]string{"edit", "--as", "deepseek:synthetic-guide", "--reference", "G-2", "--if-revision", "4", "--command", "ls", "--no-commands"}); err == nil {
 		t.Fatal("--command with --no-commands")
 	}
 	if _, err := run([]string{"create", "--as", "deepseek:synthetic-guide", "--reference", "G-3", "--title", "t", "--kind", "fyi"}); err == nil {
