@@ -46,12 +46,17 @@ var (
 	ErrNotRoomMember = Refusal{"not_room_member", "this session is not a current member of that room"}
 )
 
-// RoomEvent is the typed metadata of a membership notice. The daemon writes it from the
-// dashboard change; message body text never supplies it.
+// RoomEvent is the typed room metadata of an inbox message: a membership notice from a
+// dashboard change, or a copy of a room post. Message body text never supplies it.
 type RoomEvent struct {
-	RoomID   string `json:"room_id"`
-	Revision int64  `json:"revision"`
+	RoomID string `json:"room_id"`
+	// Revision is the roster revision of a membership change (added or removed).
+	Revision int64  `json:"revision,omitempty"`
 	Event    string `json:"event"`
+	// Seq and Origin are a post's room sequence and typed origin, maintainer or member
+	// (chunk 02); the origin comes from the posting path, never from the body.
+	Seq    int64  `json:"seq,omitempty"`
+	Origin string `json:"origin,omitempty"`
 }
 
 // Room is one room as the dashboard shows it, with its current and former members.

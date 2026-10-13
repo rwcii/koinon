@@ -281,7 +281,7 @@ func checkFormat(db *sql.DB, path string) error {
 	return nil
 }
 
-const schemaVersion = 19
+const schemaVersion = 20
 
 // workItemsV16Columns are the work item columns before schema 17, which its rebuild copies.
 const workItemsV16Columns = `store,work_id,revision,lifecycle,title,criteria,non_goals,proposed_assignee,created_at,created_consumer,
@@ -679,6 +679,33 @@ func migrate(db *sql.DB, version, target int) error {
 		ALTER TABLE messages ADD COLUMN room_id TEXT NOT NULL DEFAULT '';
 		ALTER TABLE messages ADD COLUMN room_revision INTEGER NOT NULL DEFAULT 0;
 		ALTER TABLE messages ADD COLUMN room_event TEXT NOT NULL DEFAULT '';`); err != nil {
+			return err
+		}
+	}
+	if version < 20 && target >= 20 {
+		// Version 20: room posts (#217, chunk 02). One canonical post per room sequence, one
+		// delivery row per member in the post's roster snapshot (queued with its inbox copy,
+		// or skipped with a reason), and the posters' retry records. A post's inbox copies
+		// carry its room sequence and typed origin.
+		if _, err := tx.Exec(`CREATE TABLE room_posts (
+			post_id INTEGER PRIMARY KEY AUTOINCREMENT,
+			room_id TEXT NOT NULL, seq INTEGER NOT NULL CHECK (seq>0),
+			sender_family TEXT NOT NULL, sender_id TEXT NOT NULL, sender_name TEXT NOT NULL,
+			origin TEXT NOT NULL CHECK (origin IN ('maintainer','member')),
+			body TEXT NOT NULL, created_at INTEGER NOT NULL,
+			UNIQUE (room_id, seq));
+		CREATE TABLE room_deliveries (
+			post_id INTEGER NOT NULL, ordinal INTEGER NOT NULL, family TEXT NOT NULL,
+			member_id TEXT NOT NULL, label TEXT NOT NULL,
+			outcome TEXT NOT NULL CHECK (outcome IN ('queued','skipped')),
+			reason TEXT NOT NULL DEFAULT '', message_id INTEGER,
+			PRIMARY KEY (post_id, ordinal));
+		CREATE TABLE room_replays (
+			family TEXT NOT NULL, caller_id TEXT NOT NULL, key TEXT NOT NULL,
+			fingerprint TEXT NOT NULL, deadline REAL NOT NULL, result TEXT NOT NULL,
+			PRIMARY KEY (family, caller_id, key));
+		ALTER TABLE messages ADD COLUMN room_seq INTEGER NOT NULL DEFAULT 0;
+		ALTER TABLE messages ADD COLUMN room_origin TEXT NOT NULL DEFAULT '';`); err != nil {
 			return err
 		}
 	}

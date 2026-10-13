@@ -771,7 +771,7 @@ maintainer (PDR 008). State inspection and adoption decision queries are not ava
 ### Rooms
 
 Schema 19 adds dashboard rooms (#217, chunk 01). The maintainer creates a room and changes its
-roster in the dashboard; there are no room posts yet. A room has an opaque 32-character
+roster in the dashboard. Schema 20 adds room posts (chunk 02, below). A room has an opaque 32-character
 `room_id`, a display `name` of 1–128 bytes of UTF-8 (names may repeat), a roster `revision`,
 the agent-post `refill` setting (a non-negative integer, default 32; PDR 005, Decision 2) and
 an `allowance` that starts at 0. A refill change applies at the next maintainer post and does
@@ -816,6 +816,53 @@ target. An inactive or guessed caller gets `caller_inactive` (403), invalid fiel
 `invalid_request` (400). Both routes use the existing bearer authentication and request and
 response bounds; a full page is far below the one-MiB inbox envelope.
 
+#### Room posts
+
+A post has the room's next sequence, its sender (family and the address that the sender holds,
+else its peer name), a typed `origin` and its body (1–65,536 bytes of UTF-8). The origin is
+`maintainer` only for a post from the dashboard's `room-post` action; every native post has
+`member`, and no request field or body text sets it. One ordinary write stores the post,
+snapshots the current members, and for each member except the poster's own memberships
+stores either an inbox copy with a delivery row (`queued`) or a delivery row `skipped` with
+the reason `inactive`, `unheld` or `conflicting`. A participant's copy goes to the
+participant's inbox. The write also sets the room's allowance, stores the poster's retry
+record and, for a dashboard post, the audit record. It commits completely or not at all;
+wakes follow through the existing queue and are content-free. A copy is an ordinary inbox
+message from the poster with the full body and `room: {room_id, event: "post", seq, origin}`.
+
+The allowance starts at 0. A dashboard post sets it to the room's refill setting at that
+moment (PDR 005, Decision 2); each new member post uses one, and at 0 a member post refuses
+with `exchange_limit` until the maintainer posts again. A refill change, a membership change,
+a restart or body text never refills. Koinon does not write replies.
+
+`POST /v1/rooms/post` takes `caller`, `room_id`, `body`, `key` (1–256 bytes) and `deadline`
+(Unix seconds, after now and at most 24 hours ahead). The caller must be active and a current
+member, checked before its retry record, so an accepted earlier post grants nothing after
+removal. The same key with the same room, body and deadline returns the first receipt with
+`duplicate: true` and writes nothing; other input is `idempotency_conflict` (409), an
+expired deadline `retry_deadline_expired`. It returns `{ok: true, result: {room_id, seq,
+queued, skipped, allowance, duplicate?}}`; the receipt names no recipient. The daemon
+retains at most 10,000 posts and 10,000 retry records (`room_post_limit`,
+`room_replay_limit`); a post has at most 32 delivery rows. The request may be up to
+6 × 65,536 + 4,096 bytes, as for `send`.
+
+`POST /v1/rooms/read` takes `caller`, `room_id`, optional `after` (a room sequence) and
+`limit` (1–100). A current member reads the posts after its membership start, which an add
+or re-add sets to the room's post head; expiry, re-registration and a participant holder
+change keep it. It returns `{ok: true, result: {room_id, start, floor, head, posts, gaps,
+more, next_after?}}`: posts in order with `seq`, `sender_family`, `sender_name`, `origin`,
+`body` and `created_at`, about one MiB of bodies per page, `gaps` with the `from`–`to`
+sequences in the page's range that retention no longer holds, and `floor`, the highest
+sequence below the room's oldest retained post (the head when none is retained). Membership,
+floor and posts come from one read snapshot. A read moves no inbox read or acknowledgement marker and no memory cursor.
+
+Retention: message culling stays the clock. A post stays while any of its inbox copies is
+retained, also after its member was removed or expired. The maintenance sweep then deletes it
+with its delivery rows; a post without copies waits the message retention period from its
+creation. Expired retry records are deleted too. These are bounded control deletions with no
+message or audit record. One post at maximum fan-out (32 copies of a 65,536-byte body) uses
+about 540 pages of 4 KiB under the ordinary admission.
+
 ### MCP server
 
 `koinon mcp` is a stdio MCP server: newline-delimited JSON-RPC 2.0 with `initialize` (protocol
@@ -831,8 +878,9 @@ and `work_checkout_request` (also optional `note`) call the checkout routes. Rel
 directories resolve against the MCP working directory and must share its Git common
 directory. `library_list` (`after`, `limit`) and `library_read` (`item_id`) call the catalog
 routes, using native caller identity and accepting no target path or family override.
-`room_list` (`after`, `limit`) and `room_members` (`room_id`, `after`, `limit`) call the room
-routes.
+`room_list` (`after`, `limit`), `room_members` (`room_id`, `after`, `limit`), `room_post`
+(`room_id`, `body`, `key`, `deadline`) and `room_read` (`room_id`, `after`, `limit`) call the
+room routes.
 They take no model-supplied consumer or caller identity. A tool
 error is a result with `isError` and a JSON text `{"ok": false, "code": ...}`: the daemon's code,
 `daemon_unavailable`, `identity_unavailable`, `grok_leader_mode`, `invalid_arguments` or `unknown_tool`, with the
@@ -939,7 +987,9 @@ from elsewhere. Peer message bodies appear here, escaped, and nowhere else outsi
   sessions with their family and state, and with `peers=all` of every session, active first,
   never a session ID or directory), `rooms` (every room with its refill setting, allowance,
   revision and current and former members by address or peer name and state, with Remove
-  buttons; the add form suggests the peer names of active sessions), `memory` (per store:
+  buttons; the add form suggests the peer names of active sessions; `room=ROOM_ID` opens a
+  room with its post form and 50 posts in order, the newest by default, with `after=SEQ`
+  links and the retention gaps), `memory` (per store:
   head, floor, entries and logical bytes against their ceilings, consumers, work debt and
   maintenance, 50 stores per page; with `store=REPOSITORY`, that store's entries, newest first,
   50 per page with `before=SEQ`: sequence, time, type, scope, path, writer, author, body, state
@@ -1047,6 +1097,10 @@ from elsewhere. Peer message bodies appear here, escaped, and nowhere else outsi
     `recipient_inactive`); adding a current member changes nothing. The audit target names the
     room, the peer name and the address or `session`, never a native ID. The notices are
     `room_created`, `room_refill_saved`, `room_member_added` and `room_member_removed`.
+  - `room-post` (`room_id`, `body`, `key`, `deadline`): a post with origin `maintainer` (see
+    Room posts). It reaches every active member and sets the allowance. The form takes up to
+    3 × 65,536 + 4,096 bytes, as the send form does, and each rendered form has its own key, so
+    a resubmitted form repeats the first post. The notice is `room_posted`.
   - `send` (`to`, `body`): a message from `maintainer`; the recipient's wake works as for any
     message.
   - `launch` (`family` `claude`, `codex`, `agy`, `opencode` or `grok`; `directory`; optional `name`): the daemon runs

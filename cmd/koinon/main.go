@@ -228,6 +228,8 @@ const usage = `Usage: koinon install [--prefix DIR] [--state-dir DIR] [--agent F
        koinon library read ITEM_ID --as FAMILY:ID
        koinon room list --as FAMILY:ID [--after ROOM_ID] [--limit N]
        koinon room members ROOM_ID --as FAMILY:ID [--after ORDINAL] [--limit N]
+       koinon room post ROOM_ID BODY --as FAMILY:ID --key KEY --deadline UNIX_SECONDS
+       koinon room read ROOM_ID --as FAMILY:ID [--after SEQ] [--limit N]
        koinon work <create|list> --as FAMILY:ID [--consumer KEY] [options]
        koinon work checkout [--directory DIR]
        koinon work checkout <status|request> --as FAMILY:ID [--directory DIR] [options]

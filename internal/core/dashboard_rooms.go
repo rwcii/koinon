@@ -6,17 +6,33 @@ import (
 	"net/url"
 	"strconv"
 	"strings"
+	"unicode/utf8"
 )
 
-// roomsData is the rooms view (#217, chunk 01): every room with its current and former
-// members, the active peer names that the add form suggests and the create form's key.
+// roomsData is the rooms view (#217): every room with its current and former members, the
+// active peer names that the add form suggests, the forms' key and deadline, and the open
+// room's transcript page.
 type roomsData struct {
-	Rooms []Room
-	Peers []peerOption
-	Key   string
+	Rooms    []Room
+	Peers    []peerOption
+	Key      string
+	Deadline int64
+	Open     *roomPage
 }
 
-func (d *Daemon) roomsView(ctx context.Context) (roomsData, error) {
+// roomPage is one page of an open room's transcript, oldest first, with the links to the
+// pages before and after it.
+type roomPage struct {
+	Room       Room
+	Transcript RoomTranscript
+	Earlier    *int64
+	Later      *int64
+}
+
+// dashboardRoomPage is the number of posts that the open room shows.
+const dashboardRoomPage = 50
+
+func (d *Daemon) roomsView(ctx context.Context, q url.Values) (roomsData, error) {
 	rooms, err := d.store.dashboardRooms(ctx)
 	if err != nil {
 		return roomsData{}, err
@@ -33,7 +49,46 @@ func (d *Daemon) roomsView(ctx context.Context) (roomsData, error) {
 		}
 	}
 	key, err := formKey()
-	return roomsData{Rooms: rooms, Peers: peers, Key: key}, err
+	data := roomsData{Rooms: rooms, Peers: peers, Key: key, Deadline: int64(d.store.clock() + d.store.limits().idemTTL - 60)}
+	if err != nil || q.Get("room") == "" {
+		return data, err
+	}
+	id := q.Get("room")
+	for _, r := range rooms {
+		if r.ID == id {
+			data.Open = &roomPage{Room: r}
+		}
+	}
+	if data.Open == nil {
+		return data, ErrInvalid
+	}
+	// Without after, the page shows the newest posts.
+	var after int64
+	if v := q.Get("after"); v != "" {
+		if after, err = strconv.ParseInt(v, 10, 64); err != nil || after < 0 {
+			return data, ErrInvalid
+		}
+	} else {
+		var head int64
+		if err := d.store.db.QueryRowContext(ctx, `SELECT post_head FROM rooms WHERE room_id=?`, id).Scan(&head); err != nil {
+			return data, err
+		}
+		after = max(0, head-dashboardRoomPage)
+	}
+	tx, err := d.store.db.BeginTx(ctx, nil)
+	if err != nil {
+		return data, err
+	}
+	defer tx.Rollback()
+	if data.Open.Transcript, err = roomTranscript(ctx, tx, id, 0, after, dashboardRoomPage); err != nil {
+		return data, err
+	}
+	if after > 0 {
+		earlier := max(0, after-dashboardRoomPage)
+		data.Open.Earlier = &earlier
+	}
+	data.Open.Later = data.Open.Transcript.NextAfter
+	return data, nil
 }
 
 // roomActions adds the dashboard's room actions: create a room, change its refill setting,
@@ -69,6 +124,20 @@ func (d *Daemon) roomActions(mux *http.ServeMux, authed func(int64, func(http.Re
 			_, err := d.store.AddRoomMember(ctx, room, peer)
 			return err
 		}, "room_member_added", nil)
+	}))
+	mux.HandleFunc("POST /dashboard/actions/room-post", authed(sendFormLimit, func(w http.ResponseWriter, r *http.Request, _ string) {
+		room, body, key := r.PostForm.Get("room_id"), r.PostForm.Get("body"), r.PostForm.Get("key")
+		deadline, err := strconv.ParseFloat(r.PostForm.Get("deadline"), 64)
+		valid := err == nil && validRoomID(room) && body != "" && len(body) <= maxBody && utf8.ValidString(body) && key != "" && len(key) <= 256
+		var query url.Values
+		if validRoomID(room) {
+			query = url.Values{"room": {room}}
+		}
+		run(w, r, "room-post", "room "+roomTarget(room)+" bytes "+strconv.Itoa(len(body)), "rooms", query, valid,
+			func(ctx context.Context) error {
+				_, err := d.store.DashboardRoomPost(ctx, room, body, key, deadline)
+				return err
+			}, "room_posted", nil)
 	}))
 	mux.HandleFunc("POST /dashboard/actions/room-remove", authed(actionFormLimit, func(w http.ResponseWriter, r *http.Request, _ string) {
 		room := r.PostForm.Get("room_id")

@@ -1,4 +1,11 @@
-{{define "list"}}{{if not .Data.Rooms}}<p class="empty">No rooms.</p>{{end}}{{range $room := .Data.Rooms}}<h2>{{.Name}}</h2>
+{{define "list"}}{{with .Data.Open}}<h2>Room {{.Room.Name}}</h2>
+<p><small>room <code>{{.Room.ID}}</code>, posts up to {{.Transcript.Head}}. Agent posts: {{.Room.Allowance}} left of {{.Room.Refill}}.</small></p>
+{{if .Transcript.Posts}}<table><thead><tr><th>Seq</th><th>From</th><th>Time</th><th>Body</th></tr></thead><tbody>{{range .Transcript.Posts}}<tr>
+<td>{{.Seq}}</td><td>{{.SenderName}} <small>{{if eq .Origin "maintainer"}}maintainer{{else}}{{.SenderFamily}}, member{{end}}</small></td><td>{{ms .CreatedAt}}</td><td><pre class="body">{{.Body}}</pre></td>
+</tr>{{end}}</tbody></table>{{else}}<p class="empty">No retained posts on this page.</p>{{end}}
+{{range .Transcript.Gaps}}<p><small>Posts {{.From}} to {{.To}} are no longer retained.</small></p>{{end}}
+<p>{{with .Earlier}}<a href="/dashboard/rooms?room={{$.Data.Open.Room.ID}}&amp;after={{.}}">Earlier posts</a> {{end}}{{with .Later}}<a href="/dashboard/rooms?room={{$.Data.Open.Room.ID}}&amp;after={{.}}">Later posts</a> {{end}}<a href="/dashboard/rooms">All rooms</a></p>{{end}}
+{{if not .Data.Rooms}}<p class="empty">No rooms.</p>{{end}}{{range $room := .Data.Rooms}}<h2><a href="/dashboard/rooms?room={{.ID}}">{{.Name}}</a></h2>
 <p><small>room <code>{{.ID}}</code>, revision {{.Revision}}, created {{ms .CreatedAt}}. Agent posts: refill {{.Refill}} at each maintainer post, {{.Allowance}} left.</small></p>
 {{if .Members}}<table>
 <thead><tr><th>Member</th><th>Family</th><th>State</th><th>Revision</th><th></th></tr></thead>
@@ -9,7 +16,12 @@
 <td>{{.Revision}}</td>
 <td>{{if .Current}}<form method="post" action="/dashboard/actions/room-remove" class="inline"><input type="hidden" name="csrf" value="{{$.CSRF}}"><input type="hidden" name="room_id" value="{{$room.ID}}"><input type="hidden" name="ordinal" value="{{.Ordinal}}"><button type="submit">Remove</button></form>{{end}}</td>
 </tr>{{end}}</tbody></table>{{else}}<p class="empty">No members.</p>{{end}}{{end}}{{end}}
-{{define "actions"}}<details class="action"><summary>Create a room</summary>
+{{define "actions"}}{{with .Data.Open}}<details class="action" open><summary>Post to {{.Room.Name}}</summary>
+<form method="post" action="/dashboard/actions/room-post"><input type="hidden" name="csrf" value="{{$.CSRF}}"><input type="hidden" name="room_id" value="{{.Room.ID}}"><input type="hidden" name="key" value="{{$.Data.Key}}-post"><input type="hidden" name="deadline" value="{{$.Data.Deadline}}">
+<label class="wide">Message <textarea name="body" rows="4" required maxlength="65536"></textarea></label>
+<button type="submit">Post as maintainer</button></form>
+<p><small>The post reaches every active member and sets the agents' allowance to {{.Room.Refill}} posts. It is your instruction and approval to the members (PDR 005, Decision 3).</small></p></details>{{end}}
+<details class="action"><summary>Create a room</summary>
 <form method="post" action="/dashboard/actions/room-create"><input type="hidden" name="csrf" value="{{.CSRF}}"><input type="hidden" name="key" value="{{.Data.Key}}">
 <label>Name <input name="name" maxlength="128" required></label>
 <label>Agent posts per maintainer post <input name="refill" type="number" min="0" required value="32"></label>
