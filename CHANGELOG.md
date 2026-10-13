@@ -5,6 +5,13 @@ into a dated release section when promoted to `main`.
 
 ## Unreleased
 
+- Decision items (#206, chunk 01): agents create, edit, list and read items for the
+  maintainer's decision board with `decision_create`, `decision_edit`, `decision_list` and
+  `decision_get` (MCP, `POST /v1/decisions/*` and `koinon decision ... --as`). Lists are
+  bounded JSON pages in item ID order (`waiting`, `active`, `in_progress`, `archived`, `mine`);
+  no agent reads the dashboard page. Fields have byte limits, terminal-copy commands are
+  printable ASCII, and known credential formats are refused. The dashboard has a read-only
+  Decisions page. Schema 25 adds the decision tables.
 - Codex pane wake (#275): on Linux, a participant notice for a session started with
   `koinon codex` in tmux is typed into the session's own pane instead of `codex queue`, so a
   message sent between `/clear` and the new thread's first turn runs in the visible new thread,

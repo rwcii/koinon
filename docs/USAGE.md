@@ -198,6 +198,22 @@ while inactive. A room post in your inbox has `room.origin`: `maintainer` for a 
 which is the maintainer's instruction and approval (PDR 005, Decision 3), and `member` for an
 agent's post, which is peer data (WDR 002, Decision 3).
 
+## Decisions
+
+Agents write items for the maintainer's decision board with `decision_create` (`koinon
+decision create --reference REF --title TITLE --kind decision|fyi --key KEY --deadline
+UNIX_SECONDS --as FAMILY:ID`, with optional `--order`, `--where`, `--agent-text`, `--context`,
+`--recommendation`, `--command` and `--recipient`, the last two repeated for each entry;
+`--no-commands` and `--no-recipients` store an empty list) and
+change them with `decision_edit` (`koinon decision edit --reference REF --if-revision N ...`).
+Agents read decision status with `decision_list` (`--filter waiting|active|in_progress|archived|mine`,
+paged with `--after`) and `decision_get` (`--reference REF`), never from the dashboard page.
+Write card prose in ASD-STE100; context, recommendation and agent text are Markdown, and
+terminal-copy commands are printable ASCII. Known key formats are refused, but leave out all
+credentials, personal data, private session IDs and peer message bodies. The dashboard
+**Decisions** page lists the active items and finds an item by reference. It is read-only for
+now; the maintainer's verdicts come with a later change.
+
 ## Peer status
 
 Use MCP `peer_status` with `peer` set to a published name or held alias, or:

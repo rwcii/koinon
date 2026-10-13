@@ -21,7 +21,7 @@ import (
 //go:embed web
 var webFiles embed.FS
 
-var dashboardViews = []string{"sessions", "messages", "rooms", "memory", "work", "health", "settings", "audit"}
+var dashboardViews = []string{"sessions", "messages", "rooms", "decisions", "memory", "work", "health", "settings", "audit"}
 
 // settingsData is the settings view: the values in force, the defaults and the time of
 // the last change.
@@ -406,6 +406,8 @@ func (d *Daemon) dashboardData(r *http.Request, view string) (any, error) {
 		at, err := d.store.settingsUpdatedAt(ctx)
 		return settingsData{Current: d.store.Settings(), Default: DefaultSettings, UpdatedAt: at, Context: d.store.ContextPolicy(),
 			Modes: []string{ContextObserve, ContextNativeCompaction, ContextHandoffCycle}}, err
+	case "decisions":
+		return d.store.dashboardDecisions(ctx, q.Get("after"), q.Get("ref"))
 	case "audit":
 		order, err := parseSort(&auditSort, path, q)
 		if err != nil {

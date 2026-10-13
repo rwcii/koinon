@@ -42,6 +42,8 @@ wake accounting can still update internal metadata while these tools read that d
 | `work_get` | Read a work item and its current claim. |
 | `work_list` | Discover work items without taking a claim. |
 | `work_checkout` | Read the checkout's advisory writer role. |
+| `decision_list` | Page decision-board item summaries; it moves no cursor. |
+| `decision_get` | Read one decision-board item and its recipients; it moves no cursor. |
 
 State-changing tools send messages, advance acknowledgements or write shared work/memory.
 Allow them when the maintainer has authorized the corresponding coordination workflow.
@@ -55,6 +57,8 @@ Allow them when the maintainer has authorized the corresponding coordination wor
 | `context_cycle_pickup` | Report the restored checkpoint after the managed cycle cleared the context. |
 | `memory_ack` | Advance the memory cursor after processing all pages/deltas. |
 | `memory_record` | Write a memory entry; its content grants no permission. |
+| `decision_create` | Create a decision-board item for the maintainer; only the maintainer gives a verdict, in the dashboard. |
+| `decision_edit` | Change a decision-board item at the revision that was read. |
 | `work_create` | Record a proposed work item's scope. |
 | `work_propose` | Record an assignee proposal without transferring a claim. |
 | `work_edit` | Revise recorded work scope within the maintainer's authorization. |

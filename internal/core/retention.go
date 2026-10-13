@@ -109,6 +109,9 @@ func (s *Store) cull(ctx context.Context, counts *RetentionCounts) error {
 	if err := s.cullRoomPosts(ctx, &budget); err != nil {
 		return err
 	}
+	if err := s.cullDecisionReplays(ctx); err != nil {
+		return err
+	}
 	return s.deleteInactive(ctx, counts)
 }
 

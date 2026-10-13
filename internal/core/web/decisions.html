@@ -1,0 +1,16 @@
+{{define "list"}}<form method="get" action="/dashboard/decisions" class="inline"><label>Reference <input name="ref" maxlength="32" value="{{.Data.Lookup}}"></label> <button type="submit">Find</button></form>
+{{with .Data.LookupErr}}<p class="empty">{{.}}</p>{{end}}{{with .Data.Item}}<h2>{{.Reference}}: {{.Title}}</h2>
+<p><small>{{.Kind}}, {{.State}}, revision {{.Revision}}, order {{.Order}}, by {{.AuthorName}} ({{.AuthorFamily}}), updated {{ms .UpdatedAt}}</small></p>
+{{with .Where}}<p><small>Where: {{.}}</small></p>{{end}}
+{{with .Context}}<h3>Context</h3><pre class="body">{{.}}</pre>{{end}}
+{{with .Recommendation}}<h3>Recommendation</h3><pre class="body">{{.}}</pre>{{end}}
+{{with .AgentText}}<h3>Agent text</h3><pre class="body">{{.}}</pre>{{end}}
+{{if .Commands}}<h3>Commands</h3>{{range .Commands}}<pre class="body">{{.}}</pre>{{end}}{{end}}
+{{with .HiddenCommands}}<p><small>{{.}} stored command(s) fail the printable-ASCII rule and are hidden.</small></p>{{end}}
+<h3>Recipients</h3>{{if .Recipients}}<ul>{{range .Recipients}}<li>{{.Name}} <small>{{if .Resolved}}{{.Kind}}{{else}}not resolved: {{.Reason}}{{end}}</small></li>{{end}}</ul>{{else}}<p class="empty">No recipients named.</p>{{end}}{{end}}
+<h2>Active items</h2>
+{{if not .Data.Page.Items}}<p class="empty">No active decision items.</p>{{else}}<table>
+<thead><tr><th>Reference</th><th>Title</th><th>Kind</th><th>Order</th><th>Revision</th></tr></thead>
+<tbody>{{range .Data.Page.Items}}<tr><td><a href="/dashboard/decisions?ref={{.Reference}}">{{.Reference}}</a></td><td>{{.Title}}</td><td>{{.Kind}}</td><td>{{.Order}}</td><td>{{.Revision}}</td></tr>{{end}}</tbody></table>{{end}}
+{{with .Data.Page.NextAfter}}<p><a href="/dashboard/decisions?after={{.}}">Next page</a></p>{{end}}
+<p><small>Read-only. Agents write these items; the maintainer's verdicts arrive in a later change.</small></p>{{end}}

@@ -318,6 +318,8 @@ func (s *server) call(ctx context.Context, raw json.RawMessage) map[string]any {
 		if p.Name == "memory_recall" && p.Arguments["query"] == nil {
 			err = errors.New("missing argument query")
 		}
+	case "decision_create", "decision_edit", "decision_list", "decision_get":
+		path, _, err = decisionCall(p.Name, p.Arguments, body)
 	default:
 		var known bool
 		if path, known, err = workCall(p.Name, p.Arguments, body); !known {

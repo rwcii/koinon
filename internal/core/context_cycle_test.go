@@ -869,7 +869,7 @@ func TestContextCycleSchemaTwentyThreeKeepsExistingState(t *testing.T) {
 	room := mustRoom(t, s, "synthetic kept room", 7)
 	mustHumanPost(t, s, room, "synthetic kept post")
 	before := rowsOf(t, s.db)
-	if _, err := s.db.Exec(undoSchemaTwentyFour + undoSchemaTwentyThree + `PRAGMA user_version=22`); err != nil {
+	if _, err := s.db.Exec(undoSchemaTwentyFive + undoSchemaTwentyFour + undoSchemaTwentyThree + `PRAGMA user_version=22`); err != nil {
 		t.Fatal(err)
 	}
 	if err := checkCatalog(s.db, 22); err != nil {
@@ -905,7 +905,7 @@ func TestContextCycleSchemaTwentyFourKeepsCycles(t *testing.T) {
 		return text
 	}
 	before, rows := rowText(f.s.db), rowsOf(t, f.s.db)
-	if _, err := f.s.db.Exec(undoSchemaTwentyFour + `PRAGMA user_version=23`); err != nil {
+	if _, err := f.s.db.Exec(undoSchemaTwentyFive + undoSchemaTwentyFour + `PRAGMA user_version=23`); err != nil {
 		t.Fatal(err)
 	}
 	if err := checkCatalog(f.s.db, 23); err != nil {
@@ -920,7 +920,7 @@ func TestContextCycleSchemaTwentyFourKeepsCycles(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer upgraded.db.Close()
-	if count(t, upgraded, `PRAGMA user_version`) != 24 || rowText(upgraded.db) != before || rowsOf(t, upgraded.db) != rows {
+	if count(t, upgraded, `PRAGMA user_version`) != schemaVersion || rowText(upgraded.db) != before || rowsOf(t, upgraded.db) != rows {
 		t.Fatal("schema 24 changed a cycle row")
 	}
 	if err := checkCatalog(upgraded.db, 23); err == nil {
