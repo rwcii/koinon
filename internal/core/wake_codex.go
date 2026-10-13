@@ -13,8 +13,8 @@ import (
 // For a launched participant holder with a proven tmux pane, the notice is typed into the
 // pane instead: the visible thread runs it, and after /clear that is the new thread's first
 // turn, whose SessionStart hook moves the participant (host_cleared). The evidence is Codex
-// CLI 0.162.0 on Linux (#275 T1); other platforms, a session without a pane and a session
-// inbox keep the queue.
+// CLI 0.162.0 on Linux (#275 T1). It runs on Linux and macOS, where platform.ProcessGroups
+// reads the terminal groups; a session without a pane and a session inbox keep the queue.
 
 // codexSubmitPause separates the typed notice from Enter, as in the T1 evidence: Codex submits
 // a typed line on Enter, and the composer is read back in between.

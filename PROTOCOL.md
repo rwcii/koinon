@@ -418,9 +418,9 @@ start value succeeds at once with `host_cleared`, also within the guard: the hos
 longer shows the holder. The hook has no terminal, so a cleared thread that registers without
 a pane keeps the holder's recorded tmux socket and pane (each wake proves it again). Every
 other rule applies unchanged. Codex runs no hook at `/clear` itself, so until the new thread's
-first turn the cleared thread stays the holder (#275). On Linux a participant notice for a
-launched holder with a tmux pane is typed into that pane (see the Codex pane wake below), so
-it runs as the new thread's first turn.
+first turn the cleared thread stays the holder (#275). On Linux and macOS a participant notice
+for a launched holder with a tmux pane is typed into that pane (see the Codex pane wake
+below), so it runs as the new thread's first turn.
 
 The session and `peers` expose `succession: {result, reason, address, holder, at,
 retry_after_ms}` when present; `at` is daemon Unix milliseconds and `holder` is the former or
@@ -610,12 +610,12 @@ and the notice as a submitted prompt (`❯ NOTICE`); otherwise `uncertain` with
 no pane wake. Leader mode stays refused.
 
 Codex (#275): after `/clear`, `codex queue --thread` reaches the cleared thread, which the host
-no longer shows. On Linux, a participant notice for a session started with `koinon codex` and a
-recorded tmux socket and pane is typed into that pane instead. Before each key the daemon
-proves the pane as for Grok and proves that the pane's terminal gives input to the host: the
-host shares the pane process's terminal and is in its foreground process group, and every
-other member of that group is an ancestor of the host. A child of the host that holds the
-foreground is refused. Otherwise the wake waits with `codex_target_unavailable`. Codex CLI
+no longer shows. On Linux and macOS, a participant notice for a session started with
+`koinon codex` and a recorded tmux socket and pane is typed into that pane instead. Before each
+key the daemon proves the pane as for Grok and proves that the pane's terminal gives input to
+the host: the host shares the pane process's terminal and is in its foreground process group,
+and every other member of that group is an ancestor of the host. A child of the host that holds
+the foreground is refused. Otherwise the wake waits with `codex_target_unavailable`. Codex CLI
 0.162.0 shows no busy marker while a reply streams, so the wake also requires the session's
 observed activity to be `idle`. An unknown or busy activity waits with `receiver_busy`, as does
 a screen that shows the running-turn status (`Working (… esc to interrupt)`) or whose input
@@ -625,8 +625,8 @@ without that footer counts as busy. Each attempt sends the notice once with `sen
 reads the input back, and sends Enter once, only when the input holds exactly the notice. It
 records `notified` only when a later read shows the input empty and the notice as the latest
 submitted prompt; otherwise `uncertain` with `pane_submission_unconfirmed`. The read wait and
-retries above apply unchanged: a message still unread after its read wait gets a new attempt.
-A session inbox notice, a session without a pane, a direct start and macOS keep the queue.
+retries above apply unchanged: a message still unread after its read wait gets a new attempt. A
+session inbox notice, a session without a pane and a direct start keep the queue.
 
 `POST /v1/wake/agy-stop` takes `caller` with family `agy` and the hook's native conversation ID.
 It offers a due unhandled notice at that turn boundary, leaving delivery `uncertain` with
