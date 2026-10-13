@@ -15,10 +15,11 @@ check
 origin/develop
 ## Required checks
 go vet ./...
+gofmt -l .
 go test -race -timeout 30m ./...
 git diff --check origin/develop...HEAD
 git diff --check
-Scan added lines and read the final diff for private content; inspect every matching path or
+`gofmt -l .` must print nothing. Scan added lines and read the final diff for private content; inspect every matching path or
 address individually. Confirm visible changes have an Unreleased CHANGELOG.md entry.
 ## Conditional checks
 For shell edits: bash -n scripts/setup-repo.sh and sh -n .githooks/pre-commit.

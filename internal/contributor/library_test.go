@@ -52,7 +52,7 @@ func TestRepositoryFactsMatchCanonicalSchemasAndPolicy(t *testing.T) {
 	// Facts keep the project's concrete gates while generic procedures no longer hardcode
 	// its Go checks or branches. Authoritative policy remains in root instructions.
 	for name, terms := range map[string][]string{
-		"check":   {"origin/develop", raceTests, "go vet ./...", "CGO_ENABLED=0", "bash -n scripts/setup-repo.sh", "sh -n .githooks/pre-commit", "Unreleased"},
+		"check":   {"origin/develop", raceTests, "go vet ./...", "gofmt -l .", "CGO_ENABLED=0", "bash -n scripts/setup-repo.sh", "sh -n .githooks/pre-commit", "Unreleased"},
 		"ship":    {"isolated worktree", "git commit -S -s", "One open PR per target", "peer-review", "squash auto-merge", "never\nrewrite"},
 		"release": {"develop to main", "release approval", "Dated changelog", "scratch prefix", "Homebrew"},
 	} {

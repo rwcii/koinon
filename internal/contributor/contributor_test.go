@@ -136,7 +136,7 @@ func TestRuntimeRetirementAndCICoverage(t *testing.T) {
 		}
 	}
 	workflow := read(t, ".github/workflows/tests.yml")
-	for _, command := range []string{"go vet ./...", raceTests, "CGO_ENABLED=0", "ubuntu-latest", "macos-latest"} {
+	for _, command := range []string{"go vet ./...", "gofmt -l .", raceTests, "CGO_ENABLED=0", "ubuntu-latest", "macos-latest"} {
 		if !strings.Contains(workflow, command) {
 			t.Errorf("missing Go CI coverage: %s", command)
 		}
