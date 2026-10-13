@@ -13,6 +13,13 @@ into a dated release section when promoted to `main`.
   main checkout, cycle fences on Disable, mode changes, retirement, purge and holder choice,
   pane wake deferral, the Sessions page cycle history and the guide's Managed cycle reporting
   section. No cycle adapter is registered yet, so Enable stays refused and no cycle runs.
+- A macOS system-mode install after a desktop logout no longer stops at `observe_agent`
+  (#344): launchctl's error 125 for the user's GUI domain counts as no desktop login, as
+  `Could not find domain` does after a reboot, and the agent steps are skipped.
+- Installer failure reports (#342) have `ok: false` while retaining completed-step details.
+  macOS installation checks an existing log directory before replacing the binary or
+  link, and creates a missing directory during the system step.
+
 - Context policy (#196, chunk 01): the Settings page sets each family's context handoff mode
   and threshold, and the Sessions page shows each session's Enable switch and whether its
   fresh context reading reaches the threshold. Enabling is refused until the managed cycle is

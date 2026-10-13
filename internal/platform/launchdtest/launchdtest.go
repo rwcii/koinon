@@ -25,8 +25,10 @@ type Fake struct {
 	// Stale makes status keep answering with the agent's PID, as when the former agent
 	// still holds the address. StatusDown makes status fail.
 	Stale, StatusDown bool
-	// NoDomain models a user without a console login: every command on gui/<uid> fails.
-	NoDomain bool
+	// NoDomain models a user without a console login: every command on gui/<uid> fails, with
+	// "Could not find domain" after a boot, or with error 125 when LoggedOut (after a desktop
+	// logout, #344).
+	NoDomain, LoggedOut bool
 	// PlistJSON is what plutil -convert json prints for the system plist.
 	PlistJSON string
 	// Fail makes the first command that contains it fail, after FailSkip matching commands
@@ -57,6 +59,9 @@ func (f *Fake) Run(_ context.Context, argv ...string) ([]byte, error) {
 	}
 	if f.Rollback != "" && strings.Contains(command, f.Rollback) {
 		return []byte("refused"), errors.New("exit status 1")
+	}
+	if f.NoDomain && f.LoggedOut && strings.Contains(command, "launchctl") && strings.Contains(command, " "+f.gui()) {
+		return []byte("Could not print domain: 125: Domain does not support specified action"), errors.New("exit status 125")
 	}
 	if f.NoDomain && strings.Contains(command, "launchctl") && strings.Contains(command, " "+f.gui()) {
 		return []byte("Bad request.\nCould not find domain for user gui: " + strconv.Itoa(f.UID)), errors.New("exit status 112")
