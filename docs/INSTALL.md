@@ -321,7 +321,7 @@ requires the selected agent CLI. Codex must support `queue`, `--no-daemon` and t
 OpenCode must support its server. Claude background jobs require Claude Code's `--bg` and
 `--settings` support. Grok Build must support `--session-id` and `grok mcp list --json`
 (verified with Grok Build 1.0.50); setup reports another version and does not refuse it.
-DeepSeek requires a running harness, but its live wake proof remains deferred under #199.
+DeepSeek requires a running harness (live wake verified with DeepSeek Harness 0.2.0-rc.2, #199).
 
 A legacy upgrade additionally needs Python 3.11+ to run the **installed previous release's**
 uninstaller. The Go importer reads SQLite itself; it does not import a Python package from

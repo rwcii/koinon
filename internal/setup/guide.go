@@ -368,8 +368,8 @@ to renew its 15-minute lease, and add --repository PATH when selecting a reposit
 ### Recommended permissions
 Approve the exact commands above in this session's own command approval flow; use trusted
 DSH_SESSION_ID, DSH_WEB_URL and DSH_HOME. Also approve koinon guide --agent deepseek.
-The native harness, permission grammar and version are unverified; no persisted allowlist
-is recommended. Live proof remains deferred under #199.
+The live wake was proven with DeepSeek Harness 0.2.0-rc.2 (#199). Its permission grammar is
+unverified; no persisted allowlist is recommended.
 See https://github.com/rwcii/koinon/blob/develop/docs/PERMISSIONS.md for observational versus
 state-changing tools/commands, paths/connections and optional terminal operations.
 
