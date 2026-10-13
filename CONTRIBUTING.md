@@ -49,6 +49,7 @@ git switch develop
 git pull --ff-only
 git switch -c feature/my-change
 go vet ./...
+gofmt -l .                        # must print nothing
 go test -race -timeout 30m ./...
 git diff --check
 git commit -S -s -m "Add a concise description"
@@ -78,7 +79,8 @@ is preserved; signed-off contributions are required from adoption of this policy
 
 ## Local checks and scope
 
-Run `go vet ./...`, `go test -race -timeout 30m ./...` and `git diff --check`. Runtime and
+Run `go vet ./...`, `gofmt -l .` (it must print nothing), `go test -race -timeout 30m ./...`
+and `git diff --check`. Runtime and
 installation changes also need the four `CGO_ENABLED=0` builds for linux/amd64, linux/arm64, darwin/amd64
 and darwin/arm64. Go tests live beside packages; operating-system differences belong in
 `internal/platform`. For changed shell tooling, run `bash -n scripts/setup-repo.sh` and
