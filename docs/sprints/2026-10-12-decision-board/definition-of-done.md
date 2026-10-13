@@ -133,21 +133,33 @@ is enforced. A later chunk adds only its own cases.
 - Deep archive: 30 days after an item was archived, the existing sweep moves its whole
   record (item, recipients, verdicts with snapshots, deliveries) to an append-only log file
   in the daemon's state directory, one JSON line per record, in a file per month
-  (`decisions/YYYY-MM.jsonl`, mode 0600). The sweep moves an item only when all its
-  deliveries are acknowledged; an item with a pending delivery stays archived until then.
-  Each sweep moves a bounded batch. The mark and the delete are ordinary writes; when the
+  (`decisions/YYYY-MM.jsonl`, mode 0600). The sweep moves an item only when every delivery
+  is acknowledged or skipped; a skipped delivery is final and never waits. An item with a
+  queued delivery stays archived until it is acknowledged. A test covers an item with
+  acknowledged and skipped deliveries (moved) and one with a queued delivery (kept) at 30
+  days. Each sweep moves a bounded batch. The mark and the delete are ordinary writes; when the
   ordinary band is full, the item stays archived and the next sweep tries again.
-- The move loses nothing. The sweep marks the item with the target file and offset,
-  appends and syncs the line, then deletes the rows in one transaction. After a crash, a
-  marked item is checked against its line at the recorded offset: a complete line finishes
-  the delete; a missing or partial line is written again. Tests crash at each step and show
-  exactly one complete line and no remaining rows, or the rows and no complete line.
+- The move loses nothing. Only the sweep writes the log, one append at a time under the
+  daemon's lock. The sweep marks the item with its revision, state, target file and offset,
+  appends and syncs the line, then, in one transaction, deletes the rows and writes the
+  locator. The delete runs only when the item still has the marked revision, state and
+  mark. An agent edit or a verdict clears the mark, so a change during the move keeps the
+  rows; the line already written stays in the log as an earlier copy and the item waits for
+  its next 30 days. After a crash, a marked item is checked against its line at the recorded
+  offset: a complete line finishes the delete; otherwise the sweep writes the line again at
+  the end of the file. Before an append, a file that does not end in a newline gets one, so
+  a partial line from a crash becomes a line of its own that readers skip; no byte of the
+  log is removed. Tests crash at each step and edit the item between the steps, and show
+  that the rows or a complete line for the current revision always remain.
+- The locator: one `decision_deep_archive` row per moved reference (reference, file,
+  offset, length, moved time), keyed by reference. `decision_get` of a moved reference
+  returns `deep_archived` with the moved time and the restore command, from this row only,
+  without reading the log. A reference stays reserved: `decision_create` with a reference
+  that an item or a locator holds is refused with `reference_in_use`.
 - Nothing is deleted. `decision_restore` (reference) and `koinon decision restore` read the
-  monthly files from the newest, find the latest line for the reference, and insert the
-  record again as archived, with a new 30-day period. The line stays in the log. A restore
-  whose reference an existing item uses is refused with `reference_in_use`. Restore reads
-  only the log, so its cost grows with the log; it is a rare recovery action and the guide
-  says so.
+  one line at the locator's file and offset, check its reference and length, insert the
+  record again as archived with a new 30-day period, and remove the locator, in one
+  transaction. The line stays in the log. An unknown reference is `not_found`.
 - Agent writes, verdicts, closes, restores and acknowledgements are ordinary writes under the existing
   ordinary page ceiling, so they never use the reserve that existing controls keep. When the
   ordinary band is full, they are refused visibly and nothing is half written; an

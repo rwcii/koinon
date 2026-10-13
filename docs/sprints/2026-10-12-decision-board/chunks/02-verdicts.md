@@ -65,8 +65,9 @@ delivery stays pending until the recipient acknowledges it.
 - `decision_close`: reference, `if_revision`, optional outcome note. It moves an in-progress
   item to archived and records the caller's name and the time. Other states are refused
   with `not_in_progress`. A retry with the same key returns the first result.
-- `decision_items` gains the closer, the outcome note and the deep-archive mark (file and
-  offset).
+- `decision_items` gains the closer, the outcome note and the deep-archive mark
+  (revision, state, file and offset). `decision_deep_archive` holds the locator of each
+  moved reference.
 - The deep-archive sweep, the log file, crash recovery and `decision_restore` /
   `koinon decision restore` are as the definition of done states. The sweep runs in the
   existing daemon sweep and moves at most 64 items per pass.

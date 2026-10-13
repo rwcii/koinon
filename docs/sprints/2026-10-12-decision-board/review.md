@@ -63,3 +63,10 @@ states in [6150362521](https://github.com/rwcii/koinon/issues/206#issuecomment-6
 The plan now removes the item and text bounds, adds `decision_close`, the deep-archive log
 file with crash-safe moves, and `decision_restore`. Criteria 2, 5 and 9 and PDR 007
 Decision 1 record the lifecycle.
+
+Bounded review of 54a5e2a ([#206 comment 6150459141](https://github.com/rwcii/koinon/issues/206#issuecomment-6150459141)):
+the state transitions and the removal of fixed limits pass. Claude accepted all three
+findings: L1, the move now checks the marked revision and state before the delete, and a
+partial line gets a newline instead of a rewrite; L2, a locator row keeps a moved reference
+reserved and answers `decision_get` without reading the log; L3, skipped deliveries are
+final and do not hold an item in the archive.
