@@ -17,6 +17,13 @@ PDR 006, Decisions 1 and 2, records these settings and Enable carry-over; Decisi
 PDR 002, Decisions 2 and 4, describe terminal interaction. Gate A is approved
 ([maintainer decision](https://github.com/rwcii/koinon/issues/196#issuecomment-6116403721)).
 
+Gate B is approved with the sender addition
+([decision](https://github.com/rwcii/koinon/issues/196#issuecomment-6136155493)).
+The request comes from `overwatch`, a reserved system identity with its own sender,
+never maintainer origin. No native session registers, aliases or holds that name
+([sender decision](https://github.com/rwcii/koinon/issues/196#issuecomment-6136143253),
+[reservation decision](https://github.com/rwcii/koinon/issues/196#issuecomment-6136161569)).
+
 ## Acceptance criteria
 
 1. The dashboard provides family defaults for context mode and threshold. Codex defaults
@@ -88,6 +95,9 @@ PDR 002, Decisions 2 and 4, describe terminal interaction. Gate A is approved
 ## Framing status
 
 Gate A and the configuration, Enable carry-over and terminal-input choices are settled.
+The Codex native-compaction default and leaving native settings unchanged are proposed
+technical choices for Gate B, as PDR 006 records; they are not new maintainer decisions.
 Source freshness, ready correlation, native
 reset/pickup proof, fallback bootstrap and crash reconciliation need a checked specification.
-This branch reconciles framing and evidence; it does not implement or run the cycle.
+The reviewed specification has Gate B with the reserved overwatch identity added.
+This branch records the plan and evidence; it does not implement or run the cycle.

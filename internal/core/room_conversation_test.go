@@ -2,6 +2,7 @@ package core
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"net/url"
 	"strconv"
@@ -382,5 +383,49 @@ func TestDashboardRoomNewestPageAtTheByteLimit(t *testing.T) {
 	}
 	if p := newest(); span(p) != "2..18" || fmt.Sprint(p.Transcript.Gaps) != "[{17 17}]" {
 		t.Fatalf("newest page with a gap: %s %v", span(p), p.Transcript.Gaps)
+	}
+}
+
+// Room writes are ordinary: at the ordinary ceiling a post or membership change refuses
+// and borrows no funded work debt, while a funded work finish, an inbox acknowledgement and
+// the room cleanup still complete.
+func TestRoomWritesDoNotConsumeFundedWorkControls(t *testing.T) {
+	s, _ := testStore(t)
+	ctx := context.Background()
+	a, b := join(t, s, "codex", "synthetic-a", ""), join(t, s, "claude", "synthetic-b", "")
+	room := mustRoom(t, s, "synthetic saturation", 32)
+	mustAdd(t, s, room, a.Name)
+	mustHumanPost(t, s, room, "synthetic before the ceiling")
+	m := MemoryCaller{Family: "codex", Repository: "/synthetic/room-work/.git", Consumer: "synthetic-room-worker", Name: "synthetic-room-worker"}
+	id := create(t, s, m, "synthetic funded work")
+	generation := mustStart(t, s, m, id, nil)
+	debt := mustDebt(t, s)
+	s.storage.maxPages = count(t, s, `PRAGMA page_count`) + reservePages + commitSlack + debt + appendAllowance - 1
+	if _, err := s.DashboardRoomPost(roomCtx("room-post"), room, "synthetic maintainer post", key(), s.clock()+600); !errors.Is(err, ErrCapacity) {
+		t.Fatalf("maintainer post borrowed work debt: %v", err)
+	}
+	if _, err := s.RoomPost(ctx, Key{"codex", "synthetic-a"}, room, "synthetic member post", key(), s.clock()+600); !errors.Is(err, ErrCapacity) {
+		t.Fatalf("member post borrowed work debt: %v", err)
+	}
+	if _, err := s.AddRoomMember(roomCtx("room-add"), room, b.Name); !errors.Is(err, ErrCapacity) {
+		t.Fatalf("membership change borrowed work debt: %v", err)
+	}
+	if mustDebt(t, s) != debt || count(t, s, `SELECT COUNT(*) FROM room_posts`) != 1 {
+		t.Fatal("a refused room write changed state or funded obligations")
+	}
+	mustWork(t, s, m, "work-finish", map[string]any{"work_id": id, "if_revision": revision(t, s, m, id), "claim_generation": generation, "outcome": "withdrawn", "reason": "synthetic completed control test", "key": key(), "deadline": now(s) + 600})
+	inbox, err := s.ReadInbox(ctx, Key{"codex", "synthetic-a"}, 0, 50)
+	if err != nil || len(inbox.Messages) == 0 {
+		t.Fatalf("inbox: %v", err)
+	}
+	if _, err := s.Ack(ctx, Key{"codex", "synthetic-a"}, inbox.Messages[len(inbox.Messages)-1].Seq); err != nil {
+		t.Fatalf("acknowledgement at the ceiling: %v", err)
+	}
+	if _, err := s.db.Exec(`DELETE FROM messages WHERE room_event='post'`); err != nil {
+		t.Fatal(err)
+	}
+	budget := int64(cullBudget)
+	if err := s.cullRoomPosts(ctx, &budget); err != nil || count(t, s, `SELECT COUNT(*) FROM room_posts`) != 0 {
+		t.Fatalf("room cleanup at the ceiling: %v", err)
 	}
 }

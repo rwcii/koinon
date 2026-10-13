@@ -31,6 +31,11 @@ jobs:
             else sudo apt-get update && sudo apt-get install -y tmux; fi
           fi
       - run: go vet ./...
+      - name: Check formatting
+        shell: bash
+        run: |
+          unformatted="$(gofmt -l .)"
+          if [ -n "$unformatted" ]; then echo "$unformatted"; exit 1; fi
       - run: go test -race -timeout 30m ./...
       - name: Build the four CGO-free targets
         shell: bash
