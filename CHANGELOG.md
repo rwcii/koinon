@@ -5,6 +5,13 @@ into a dated release section when promoted to `main`.
 
 ## Unreleased
 
+- Codex pane wake (#275): on Linux, a participant notice for a session started with
+  `koinon codex` in tmux is typed into the session's own pane instead of `codex queue`, so a
+  message sent between `/clear` and the new thread's first turn runs in the visible new thread,
+  not in the cleared one. The daemon proves the pane and that the host holds the terminal's
+  foreground, types only while the observed activity is idle and the input is empty, and in each
+  attempt types the notice once and presses Enter once, reading it back before Enter and after.
+  macOS, sessions outside tmux and session inbox notices keep the queue.
 - `peers` marks the calling session's own row with `self` (#348), so a session finds its own
   peer name, address, holder flag and succession result when several sessions of its family
   share a repository.

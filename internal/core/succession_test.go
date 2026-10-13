@@ -169,11 +169,22 @@ func TestSuccessionHostCleared(t *testing.T) {
 	repo := namedRepo(t, "koinon")
 	h.set(100, 7)
 	h.set(200, 8)
-	held := arrive(t, s, arrival{family: "codex", id: "thread-1", repo: repo, pid: 100, toolCall: true})
+	held := arrive(t, s, arrival{family: "codex", id: "thread-1", repo: repo, pid: 100, pane: "%1", toolCall: true})
 	advance(5 * time.Second)
 	next := arrive(t, s, arrival{family: "codex", id: "thread-2", repo: repo, pid: 100, toolCall: true, clear: true})
 	if !next.HoldsAddress {
 		t.Fatalf("cleared thread does not hold: %+v", next)
+	}
+	// The hook's registration has no terminal: the same host keeps the holder's pane.
+	pane := func(id string) (socket, pane string) {
+		t.Helper()
+		if err := s.db.QueryRow(`SELECT tmux_socket,tmux_pane FROM sessions WHERE family='codex' AND id=?`, id).Scan(&socket, &pane); err != nil {
+			t.Fatal(err)
+		}
+		return socket, pane
+	}
+	if socket, p := pane("thread-2"); socket != "/synthetic/tmux/default" || p != "%1" {
+		t.Fatalf("cleared thread's pane %q %q", socket, p)
 	}
 	wantSuccession(t, next, "succeeded", "host_cleared", held.Name)
 	if former := sessionOf(t, s, "codex", "thread-1"); former.State != "retired" || !former.Fenced {
@@ -184,6 +195,9 @@ func TestSuccessionHostCleared(t *testing.T) {
 	}
 	other := arrive(t, s, arrival{family: "codex", id: "thread-3", repo: repo, pid: 200, toolCall: true, clear: true})
 	wantSuccession(t, other, "refused", "other_pane", next.Name)
+	if socket, p := pane("thread-3"); socket != "" || p != "" {
+		t.Fatalf("a refused thread took the pane: %q %q", socket, p)
+	}
 	sub := arrive(t, s, arrival{family: "codex", id: "thread-4", repo: repo, pid: 100, toolCall: true, subagent: true, clear: true})
 	wantSuccession(t, sub, "refused", "subagent", next.Name)
 	if got := sessionOf(t, s, "codex", "thread-2"); !got.HoldsAddress {

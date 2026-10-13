@@ -156,7 +156,10 @@ Claude uses `CLAUDE_CODE_SESSION_ID`; DeepSeek uses `DSH_SESSION_ID` and registe
 After a Codex `/clear`, the new thread takes the participant address at its first turn
 through the SessionStart hook that `koinon setup codex` adds, once Codex trusts it (succession
 `host_cleared`); without the hook, at its first Koinon tool call. Until that turn, the cleared
-thread stays the holder, and a wake still reaches it.
+thread stays the holder. On Linux, a participant notice for a session started with
+`koinon codex` in tmux is typed into its pane while it is idle and its input is empty, so the
+new thread's first turn reads it. On macOS, outside tmux, and for a session inbox, the wake
+still reaches the cleared thread (#275).
 
 Shell `--as` selects an already registered session; it does not create a replacement
 conversation. Refresh discovery before sending. A delayed notice for an acknowledged sequence

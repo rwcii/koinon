@@ -4,6 +4,8 @@ import (
 	"errors"
 	"os"
 	"os/exec"
+	"runtime"
+	"syscall"
 	"testing"
 )
 
@@ -60,5 +62,32 @@ func TestProcessStart(t *testing.T) {
 	}
 	if _, err := ProcessStart(0); !errors.Is(err, ErrProcessGone) {
 		t.Fatalf("pid 0: %v", err)
+	}
+}
+
+func TestProcessGroups(t *testing.T) {
+	groups, err := ProcessGroups()
+	if runtime.GOOS != "linux" {
+		if err == nil {
+			t.Fatal("process groups read outside Linux")
+		}
+		return
+	}
+	if err != nil {
+		t.Fatal(err)
+	}
+	own, found := groups[os.Getpid()]
+	if !found || own.Group != syscall.Getpgrp() {
+		t.Fatalf("own group %+v, found %v, want %d", own, found, syscall.Getpgrp())
+	}
+	// A child started in its own group reports that group.
+	cmd := exec.Command("sleep", "30")
+	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
+	if err := cmd.Start(); err != nil {
+		t.Fatal(err)
+	}
+	defer func() { cmd.Process.Kill(); cmd.Wait() }()
+	if groups, err = ProcessGroups(); err != nil || groups[cmd.Process.Pid].Group != cmd.Process.Pid {
+		t.Fatalf("child group %+v: %v", groups[cmd.Process.Pid], err)
 	}
 }
