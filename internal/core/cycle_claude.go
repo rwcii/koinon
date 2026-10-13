@@ -30,7 +30,7 @@ const claudeCycleVersion = "claude-tmux-1"
 var claudeEvidencedVersions = map[string]bool{"2.1.296": true}
 
 // claudeEvidencedPlatforms are the operating systems with native evidence; macOS follows its
-// own evidence run.
+// own evidence run (docs/sprints/2026-10-12-context-handoff/macos-live-check.md).
 var claudeEvidencedPlatforms = map[string]bool{"linux": true}
 
 // claudeRegistryMax bounds a registry record read.
@@ -103,10 +103,22 @@ func readClaudeRecord(t CycleTarget) (claudeRecord, error) {
 	if err := json.Unmarshal(data, &r); err != nil {
 		return claudeRecord{}, err
 	}
-	if int64(r.PID) != t.HostPID || r.Entrypoint != "cli" || r.ProcStart != "" && r.ProcStart != strconv.FormatInt(t.HostStart, 10) {
+	if int64(r.PID) != t.HostPID || r.Entrypoint != "cli" || r.ProcStart != "" && !claudeSameStart(runtime.GOOS, r.ProcStart, t.HostStart) {
 		return claudeRecord{}, errors.New("registry record of another process")
 	}
 	return r, nil
+}
+
+// claudeSameStart reports whether a registry record's procStart names the process start
+// that Koinon read. On Linux both are field 22 of /proc/<pid>/stat. On macOS Claude Code
+// writes `LC_ALL=C TZ=UTC ps -o lstart=` (the C locale's %c, whole seconds) and Koinon reads
+// p_starttime in microseconds.
+func claudeSameStart(goos, recorded string, start int64) bool {
+	if goos != "darwin" {
+		return recorded == strconv.FormatInt(start, 10)
+	}
+	at, err := time.Parse("Mon Jan 2 15:04:05 2006", strings.Join(strings.Fields(recorded), " "))
+	return err == nil && start >= 0 && at.Unix() == start/1_000_000
 }
 
 // readBounded reads a regular file of at most limit bytes.

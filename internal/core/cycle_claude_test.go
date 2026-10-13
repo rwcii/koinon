@@ -83,11 +83,42 @@ func newClaudeTerminal(t *testing.T) *claudeTerminal {
 	return term
 }
 
+// claudeStartText is the procStart that Claude Code writes for a process start: the stat
+// field on Linux, `ps -o lstart=` in UTC on macOS.
+func claudeStartText(goos string, start int64) string {
+	if goos == "darwin" {
+		return time.UnixMicro(start).UTC().Format("Mon Jan _2 15:04:05 2006")
+	}
+	return strconv.FormatInt(start, 10)
+}
+
+// claudeSameStart compares each platform's own form; macOS has whole seconds.
+func TestClaudeSameStart(t *testing.T) {
+	for _, c := range []struct {
+		goos, recorded string
+		start          int64
+		want           bool
+	}{
+		{"linux", "43460610", 43460610, true},
+		{"linux", "43460611", 43460610, false},
+		{"linux", "Sat Oct  3 22:13:05 2026", 43460610, false},
+		{"darwin", "Sat Oct  3 22:13:05 2026", 1791065585_999999, true},
+		{"darwin", "Sat Oct 3 22:13:05 2026", 1791065585_000000, true},
+		{"darwin", "Sat Oct  3 22:13:05 2026", 1791065586_000000, false},
+		{"darwin", "1791065585", 1791065585_000000, false},
+		{"darwin", claudeStartText("darwin", 1791929754_123456), 1791929754_123456, true},
+	} {
+		if got := claudeSameStart(c.goos, c.recorded, c.start); got != c.want {
+			t.Errorf("%s %q %d: %v", c.goos, c.recorded, c.start, got)
+		}
+	}
+}
+
 // write stores the registry record of the synthetic host.
 func (c *claudeTerminal) write() {
 	dir := filepath.Join(c.home, ".claude", "sessions")
 	os.MkdirAll(dir, 0o700)
-	data, _ := json.Marshal(map[string]any{"pid": c.pid, "sessionId": c.epoch, "procStart": strconv.FormatInt(c.start, 10),
+	data, _ := json.Marshal(map[string]any{"pid": c.pid, "sessionId": c.epoch, "procStart": claudeStartText(runtime.GOOS, c.start),
 		"version": "2.1.296", "status": c.status, "entrypoint": "cli"})
 	if err := os.WriteFile(filepath.Join(dir, strconv.FormatInt(c.pid, 10)+".json"), data, 0o600); err != nil {
 		c.t.Fatal(err)
@@ -286,7 +317,7 @@ func TestClaudeProbe(t *testing.T) {
 			data, _ := os.ReadFile(filepath.Join(term.home, ".claude", "sessions", "4242.json"))
 			os.WriteFile(filepath.Join(term.home, ".claude", "sessions", "4242.json"), []byte(strings.Replace(string(data), "2.1.296", "2.1.295", 1)), 0o600)
 		}, "native_version_unverified"},
-		{"reused PID", func() { term.write(); term.start = 78 }, "native_registry_unavailable"},
+		{"reused PID", func() { term.write(); term.start = 77 + 1_000_000 }, "native_registry_unavailable"},
 		{"unevidenced platform", func() { term.start = 77; term.write(); claudeEvidencedPlatforms = map[string]bool{} }, "platform_unverified"},
 	} {
 		c.change()

@@ -7,6 +7,7 @@ import (
 	"runtime"
 	"syscall"
 	"testing"
+	"time"
 )
 
 func runLockHelper(t *testing.T, path string) {
@@ -89,5 +90,29 @@ func TestProcessGroups(t *testing.T) {
 	defer func() { cmd.Process.Kill(); cmd.Wait() }()
 	if groups, err = ProcessGroups(); err != nil || groups[cmd.Process.Pid].Group != cmd.Process.Pid {
 		t.Fatalf("child group %+v: %v", groups[cmd.Process.Pid], err)
+	}
+}
+
+// ProcessEnvironment reads a variable from another process of this user; a missing variable
+// is "" with no error.
+func TestProcessEnvironment(t *testing.T) {
+	cmd := exec.Command("sleep", "30")
+	cmd.Env = append(os.Environ(), "KOINON_TEST_VALUE=a b=c")
+	if err := cmd.Start(); err != nil {
+		t.Fatal(err)
+	}
+	defer func() { cmd.Process.Kill(); cmd.Wait() }()
+	// The child has its own environment once it has run exec.
+	got, err := "", error(nil)
+	for deadline := time.Now().Add(5 * time.Second); time.Now().Before(deadline); time.Sleep(20 * time.Millisecond) {
+		if got, err = ProcessEnvironment(cmd.Process.Pid, "KOINON_TEST_VALUE"); err == nil && got != "" {
+			break
+		}
+	}
+	if err != nil || got != "a b=c" {
+		t.Fatalf("variable: %q, %v", got, err)
+	}
+	if got, err := ProcessEnvironment(cmd.Process.Pid, "KOINON_TEST_ABSENT"); err != nil || got != "" {
+		t.Fatalf("absent variable: %q, %v", got, err)
 	}
 }
