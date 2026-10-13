@@ -36,6 +36,7 @@ binary describes the installed runtime (WDR 002, Decision 4).
 
 ```sh
 go vet ./...
+gofmt -l .                        # must print nothing
 go test -race -timeout 30m ./...
 git diff --check
 bash -n scripts/setup-repo.sh     # when shell files change

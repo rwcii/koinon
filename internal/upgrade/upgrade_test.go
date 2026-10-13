@@ -69,7 +69,7 @@ func newFixture(t *testing.T) *fixture {
 		keys: map[string]string{}, paths: map[string]string{}}
 	var m struct {
 		Repositories map[string]struct{ Path, Key string } `json:"repositories"`
-		Sessions     map[string]struct{ Directory string }  `json:"sessions"`
+		Sessions     map[string]struct{ Directory string } `json:"sessions"`
 	}
 	data, _ := os.ReadFile(filepath.Join(tree, "fixture.json"))
 	json.Unmarshal(data, &m)
