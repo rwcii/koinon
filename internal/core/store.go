@@ -129,6 +129,8 @@ type Store struct {
 	processStart   func(int) (int64, error)
 	processParents func() (map[int]int, error)
 	processCommand func(int) (string, []string, error)
+	// processEnvironment reads one variable of a host process (a Claude host's config root).
+	processEnvironment func(pid int, name string) (string, error)
 	// tmux runs one command on the tmux server at a socket (the Grok wake, #254).
 	tmux func(ctx context.Context, socket string, args ...string) (string, error)
 	// alive holds when the liveness sweep last read each session's host as running (#249).
@@ -225,7 +227,11 @@ func openStoreFile(root, name string) (*Store, error) {
 		return nil, err
 	}
 	s := &Store{db: db, now: time.Now, storage: storage{path: path, maxPages: defaultMaxPages}, processStart: platform.ProcessStart,
-		processParents: platform.ProcessParents, processCommand: platform.ProcessCommand, tmux: runTmux}
+		processParents: platform.ProcessParents, processCommand: platform.ProcessCommand,
+		processEnvironment: platform.ProcessEnvironment, tmux: runTmux}
+	// The Claude pickup loader that a running session can add before its clear (#196, chunk 03).
+	// A failure is not fatal: the adapter's Probe then reports the loader as unreadable.
+	EnsureCycleLoader(root)
 	if err := s.loadContextPolicy(context.Background()); err != nil {
 		db.Close()
 		return nil, err
@@ -290,7 +296,7 @@ func checkFormat(db *sql.DB, path string) error {
 	return nil
 }
 
-const schemaVersion = 23
+const schemaVersion = 24
 
 // workItemsV16Columns are the work item columns before schema 17, which its rebuild copies.
 const workItemsV16Columns = `store,work_id,revision,lifecycle,title,criteria,non_goals,proposed_assignee,created_at,created_consumer,
@@ -743,10 +749,21 @@ func migrate(db *sql.DB, version, target int) error {
 		// and the typed overwatch request metadata of a message. A cycle's credit is the page
 		// count that funds its remaining stages and terminal outcome
 		// (docs/CONTEXT-CYCLE-STORAGE.md).
-		if _, err := tx.Exec(contextCyclesTable + contextCycleEventsTable + `
+		if _, err := tx.Exec(contextCyclesTableV23 + contextCycleEventsTable + `
 			ALTER TABLE messages ADD COLUMN system_kind TEXT NOT NULL DEFAULT '';
 			ALTER TABLE messages ADD COLUMN cycle_id TEXT NOT NULL DEFAULT '';
 			ALTER TABLE messages ADD COLUMN cycle_enable_revision INTEGER NOT NULL DEFAULT 0;`); err != nil {
+			return err
+		}
+	}
+	if version < 24 && target >= 24 {
+		// Version 24: the interactive pickup bootstrap states (#196, chunk 03). SQLite cannot
+		// widen a CHECK in place, so the cycle table is rebuilt under its own name; every row
+		// is copied unchanged.
+		if _, err := tx.Exec(`ALTER TABLE context_cycles RENAME TO context_cycles_v23;
+			` + contextCyclesTable + `
+			INSERT INTO context_cycles(` + cycleColumns + `) SELECT ` + cycleColumns + ` FROM context_cycles_v23;
+			DROP TABLE context_cycles_v23;`); err != nil {
 			return err
 		}
 	}

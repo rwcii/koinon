@@ -292,3 +292,85 @@ func TestContextCycleListedCheckoutOnly(t *testing.T) {
 		t.Fatalf("copied pointer resolved %q", got)
 	}
 }
+
+// Without a loader at launch, the cycle adds it before the clear behind its own intent; an
+// unproven bootstrap is uncertain and never repeated, and the pickup expects the loader.
+func TestContextCycleInteractiveBootstrap(t *testing.T) {
+	f := newCycleFixture(t)
+	f.adapter.probe, f.adapter.boot = CycleProbe{Bootstrap: "interactive"}, true
+	f.readyCycle(t)
+	f.step(t)
+	if v := f.status(t, f.k); v.State != cycleBootstrapVerified || f.adapter.count("bootstrap") != 1 || f.adapter.count("clear") != 0 {
+		t.Fatalf("bootstrap: %+v %v", v, f.adapter.calls)
+	}
+	f.step(t)
+	f.step(t)
+	f.step(t)
+	if v := f.status(t, f.k); v.State != cycleWaitingPickup || f.adapter.count("pickup interactive") != 1 || f.adapter.count("bootstrap") != 1 {
+		t.Fatalf("after bootstrap: %+v %v", v, f.adapter.calls)
+	}
+	g := newCycleFixture(t)
+	g.adapter.probe = CycleProbe{Bootstrap: "interactive"}
+	g.readyCycle(t)
+	g.step(t)
+	if v := g.status(t, g.k); v.State != cycleUncertain || v.Reason != "bootstrap_intent_unreceived" || g.adapter.count("clear") != 0 {
+		t.Fatalf("unproven bootstrap: %+v", v)
+	}
+	h := newCycleFixture(t)
+	h.adapter.probe = CycleProbe{Bootstrap: "interactive"}
+	ready, _ := h.readyCycle(t)
+	if _, err := h.s.advanceCycle(context.Background(), ready.ID, ready.Revision, cycleReady, cycleBootstrapIntent, "", nil, nil); err != nil {
+		t.Fatal(err)
+	}
+	h.step(t)
+	if v := h.status(t, h.k); v.State != cycleUncertain || v.Reason != "bootstrap_unreceipted" || h.adapter.count("bootstrap") != 0 {
+		t.Fatalf("bootstrap intent after a crash: %+v %v", v, h.adapter.calls)
+	}
+}
+
+// A pickup entry that Probe cannot verify fails the cycle before any input.
+func TestContextCycleProbeBeforeClear(t *testing.T) {
+	f := newCycleFixture(t)
+	f.readyCycle(t)
+	f.adapter.probe = CycleProbe{Reason: "pickup_entry_differs", Bootstrap: "project"}
+	f.step(t)
+	if v := f.status(t, f.k); v.State != cycleFailed || v.Reason != "pickup_entry_differs" || f.adapter.count("clear") != 0 {
+		t.Fatalf("probe before the clear: %+v %v", v, f.adapter.calls)
+	}
+}
+
+// A dialog the adapter does not answer waits for the native session or the maintainer; the
+// cycle returns to its stage when the dialog is gone, without an answer of its own.
+func TestContextCycleNativeDialogWaits(t *testing.T) {
+	f := newCycleFixture(t)
+	f.readyCycle(t)
+	f.adapter.pane = PaneState{Prompt: "native_dialog"}
+	f.step(t)
+	f.step(t)
+	if v := f.status(t, f.k); v.State != cycleWaitingPrompt || v.Reason != "native_dialog" || f.adapter.count("answer") != 0 {
+		t.Fatalf("waiting: %+v %v", v, f.adapter.calls)
+	}
+	f.adapter.pane = PaneState{Idle: true}
+	f.step(t)
+	if v := f.status(t, f.k); v.State != cycleReady || f.adapter.count("answer") != 0 || f.adapter.count("clear") != 0 {
+		t.Fatalf("resolved: %+v %v", v, f.adapter.calls)
+	}
+}
+
+// A Disable that lands between the clear intent and its first key fences the input: no key
+// is sent, and the recorded intent makes the cycle uncertain.
+func TestContextCycleFenceStopsInput(t *testing.T) {
+	f := newCycleFixture(t)
+	f.readyCycle(t)
+	f.adapter.beforeClear = func() {
+		s := f.reload(t, f.k)
+		e, _ := f.s.contextEnables(context.Background())
+		if _, err := f.s.SetContextEnable(roomCtx("context-enable"), s.Name, s.Revision, e[f.k].Revision, false); err != nil {
+			t.Fatal(err)
+		}
+	}
+	f.step(t)
+	if v := f.status(t, f.k); v.State != cycleUncertain || f.adapter.count("clear") != 0 {
+		t.Fatalf("fenced clear: %+v %v", v, f.adapter.calls)
+	}
+}

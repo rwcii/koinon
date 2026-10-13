@@ -210,9 +210,9 @@ var ErrContextCycleUnavailable = Refusal{"context_cycle_unavailable", "no verifi
 // dashboard showed it.
 var errSessionRevisionChanged = Refusal{"revision_changed", "the session changed since the page was loaded"}
 
-// contextCycleAvailable reports whether a verified cycle adapter exists for a family on this
-// platform. None does until chunk 03 admits one.
-var contextCycleAvailable = func(family string) bool { return false }
+// contextCycleProbe asks the session's family adapter whether its cycle can run for the
+// session's pinned host and pane (sessionProbe); tests replace it.
+var contextCycleProbe = func(s *Store, ctx context.Context, k Key) CycleProbe { return s.sessionProbe(ctx, k) }
 
 // SetContextEnable turns one session's Enable on or off. The session is named by its peer
 // name and the revision the dashboard showed; ifRevision is the Enable record's revision
@@ -221,6 +221,17 @@ var contextCycleAvailable = func(family string) bool { return false }
 func (s *Store) SetContextEnable(ctx context.Context, peer string, sessionRevision, ifRevision int64, enabled bool) (ContextEnable, error) {
 	if peer == "" || sessionRevision < 1 || ifRevision < 0 {
 		return ContextEnable{}, ErrInvalid
+	}
+	// The adapter's Probe reads the host, its pane and its files, so it runs before the
+	// transaction; an Enable for a session that changed meanwhile is refused below by its
+	// revision.
+	var probe CycleProbe
+	if enabled {
+		var k Key
+		if err := s.db.QueryRowContext(ctx, `SELECT family,session_id FROM names WHERE kind='peer' AND name=? AND family!='maintainer'`, peer).
+			Scan(&k.Family, &k.ID); err == nil {
+			probe = contextCycleProbe(s, ctx, k)
+		}
 	}
 	// Disabling ends a funded cycle, so it may use the reserve, as every cycle control does.
 	class := ordinary
@@ -267,7 +278,7 @@ func (s *Store) SetContextEnable(ctx context.Context, peer string, sessionRevisi
 		if err := active(ctx, tx.Tx, now, k); err != nil {
 			return current, err
 		}
-		if !contextCycleAvailable(k.Family) {
+		if probe.Reason != "" || probe.Bootstrap == "" {
 			return current, ErrContextCycleUnavailable
 		}
 	}

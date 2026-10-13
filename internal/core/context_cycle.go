@@ -31,10 +31,13 @@ const (
 	cycleWaitingPickup = "waiting_pickup"
 	cycleWaitingPrompt = "waiting_prompt"
 	cyclePromptIntent  = "prompt_intent"
-	cycleComplete      = "complete"
-	cycleCancelled     = "cancelled"
-	cycleFailed        = "failed"
-	cycleUncertain     = "uncertain"
+	// The interactive pickup bootstrap (#196 chunk 03): its input intent and its proof.
+	cycleBootstrapIntent   = "bootstrap_intent"
+	cycleBootstrapVerified = "bootstrap_verified"
+	cycleComplete          = "complete"
+	cycleCancelled         = "cancelled"
+	cycleFailed            = "failed"
+	cycleUncertain         = "uncertain"
 )
 
 // Page credits of one cycle (docs/CONTEXT-CYCLE-STORAGE.md). Admission funds every remaining
@@ -73,11 +76,33 @@ const overwatchName = "overwatch"
 // cycleRequestKind is the system_kind of the typed managed-cycle request message.
 const cycleRequestKind = "context_cycle_request"
 
-const contextCyclesTable = `CREATE TABLE context_cycles (
+// contextCyclesTableV23 is the cycle table as schema 23 published it; schema 24 rebuilds it
+// with the bootstrap states.
+const contextCyclesTableV23 = `CREATE TABLE context_cycles (
 	cycle_id TEXT PRIMARY KEY, credit INTEGER NOT NULL CHECK (credit>=0), held INTEGER NOT NULL CHECK (held IN (0,1)),
 	revision INTEGER NOT NULL CHECK (revision>0),
 	state TEXT NOT NULL CHECK (state IN ('requested','waiting_ready','ready','clear_intent','clear_received',
 		'reset_verified','pickup_intent','waiting_pickup','waiting_prompt','prompt_intent','complete','cancelled','failed','uncertain')),
+	prompt_from TEXT NOT NULL DEFAULT '', reason TEXT NOT NULL DEFAULT '',
+	family TEXT NOT NULL, session_id TEXT NOT NULL, peer TEXT NOT NULL, address TEXT NOT NULL,
+	host_pid INTEGER NOT NULL, host_start INTEGER NOT NULL, tmux_socket TEXT NOT NULL, tmux_pane TEXT NOT NULL,
+	enable_revision INTEGER NOT NULL, epoch TEXT NOT NULL, mode TEXT NOT NULL, threshold INTEGER NOT NULL,
+	used_tokens INTEGER NOT NULL, limit_tokens INTEGER NOT NULL, source_at INTEGER NOT NULL, confirmed_at INTEGER NOT NULL,
+	message_seq INTEGER NOT NULL, created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL,
+	stage_deadline INTEGER NOT NULL, cycle_deadline INTEGER NOT NULL,
+	artifact TEXT NOT NULL DEFAULT '', artifact_dev INTEGER NOT NULL DEFAULT 0, artifact_ino INTEGER NOT NULL DEFAULT 0,
+	artifact_size INTEGER NOT NULL DEFAULT 0, artifact_mtime INTEGER NOT NULL DEFAULT 0,
+	adapter TEXT NOT NULL DEFAULT '', catalog_digest TEXT NOT NULL DEFAULT '',
+	successor_id TEXT NOT NULL DEFAULT '', successor_epoch TEXT NOT NULL DEFAULT '',
+	outcome TEXT NOT NULL DEFAULT '', report TEXT NOT NULL DEFAULT '',
+	events INTEGER NOT NULL, finished_at INTEGER NOT NULL DEFAULT 0);`
+
+const contextCyclesTable = `CREATE TABLE context_cycles (
+	cycle_id TEXT PRIMARY KEY, credit INTEGER NOT NULL CHECK (credit>=0), held INTEGER NOT NULL CHECK (held IN (0,1)),
+	revision INTEGER NOT NULL CHECK (revision>0),
+	state TEXT NOT NULL CHECK (state IN ('requested','waiting_ready','ready','clear_intent','clear_received',
+		'reset_verified','pickup_intent','waiting_pickup','waiting_prompt','prompt_intent','bootstrap_intent','bootstrap_verified','complete','cancelled',
+		'failed','uncertain')),
 	prompt_from TEXT NOT NULL DEFAULT '', reason TEXT NOT NULL DEFAULT '',
 	family TEXT NOT NULL, session_id TEXT NOT NULL, peer TEXT NOT NULL, address TEXT NOT NULL,
 	host_pid INTEGER NOT NULL, host_start INTEGER NOT NULL, tmux_socket TEXT NOT NULL, tmux_pane TEXT NOT NULL,
@@ -106,8 +131,8 @@ func cycleTerminal(state string) bool {
 // wakes wait until it ends, so no notice text interleaves with cycle input.
 func cycleHoldsPane(state string) bool {
 	switch state {
-	case cycleReady, cycleClearIntent, cycleClearReceived, cycleResetVerified, cyclePickupIntent, cycleWaitingPickup, cycleWaitingPrompt,
-		cyclePromptIntent:
+	case cycleReady, cycleBootstrapIntent, cycleBootstrapVerified, cycleClearIntent, cycleClearReceived, cycleResetVerified,
+		cyclePickupIntent, cycleWaitingPickup, cycleWaitingPrompt, cyclePromptIntent:
 		return true
 	}
 	return false
@@ -116,7 +141,7 @@ func cycleHoldsPane(state string) bool {
 // cycleIntent reports the states that recorded an external input whose receipt is not
 // recorded yet: their result is unknown until the adapter proves it.
 func cycleIntent(state string) bool {
-	return state == cycleClearIntent || state == cyclePickupIntent || state == cyclePromptIntent
+	return state == cycleBootstrapIntent || state == cycleClearIntent || state == cyclePickupIntent || state == cyclePromptIntent
 }
 
 // cycleInputUnproven reports the states after an entered input whose effect is not proven:
@@ -136,21 +161,24 @@ type CycleEvent struct {
 // CycleView is a cycle as its own session and the dashboard see it. It holds no native
 // ID, epoch, host, pane, socket or report text.
 type CycleView struct {
-	ID            string       `json:"cycle_id"`
-	Revision      int64        `json:"revision"`
-	State         string       `json:"state"`
-	PromptFrom    string       `json:"prompt_from,omitempty"`
-	Reason        string       `json:"reason,omitempty"`
-	Peer          string       `json:"peer"`
-	Address       string       `json:"address,omitempty"`
-	Mode          string       `json:"mode"`
-	Threshold     int64        `json:"threshold"`
-	CreatedAt     int64        `json:"created_at"`
-	UpdatedAt     int64        `json:"updated_at"`
-	StageDeadline int64        `json:"stage_deadline"`
-	CycleDeadline int64        `json:"cycle_deadline"`
-	Artifact      string       `json:"artifact,omitempty"`
-	ArtifactBytes int64        `json:"artifact_bytes,omitempty"`
+	ID            string `json:"cycle_id"`
+	Revision      int64  `json:"revision"`
+	State         string `json:"state"`
+	PromptFrom    string `json:"prompt_from,omitempty"`
+	Reason        string `json:"reason,omitempty"`
+	Peer          string `json:"peer"`
+	Address       string `json:"address,omitempty"`
+	Mode          string `json:"mode"`
+	Threshold     int64  `json:"threshold"`
+	CreatedAt     int64  `json:"created_at"`
+	UpdatedAt     int64  `json:"updated_at"`
+	StageDeadline int64  `json:"stage_deadline"`
+	CycleDeadline int64  `json:"cycle_deadline"`
+	Artifact      string `json:"artifact,omitempty"`
+	ArtifactBytes int64  `json:"artifact_bytes,omitempty"`
+	// CatalogDigest is the catalog the cycle pinned at admission: the pickup procedure that
+	// library_read returns must carry the same digest.
+	CatalogDigest string       `json:"catalog_digest,omitempty"`
 	Outcome       string       `json:"outcome,omitempty"`
 	ReportBytes   int          `json:"report_bytes,omitempty"`
 	FinishedAt    int64        `json:"finished_at,omitempty"`
@@ -211,7 +239,8 @@ func (c cycleRow) view(ctx context.Context, q querier, role string) (CycleView, 
 	v := CycleView{ID: c.ID, Revision: c.Revision, State: c.State, PromptFrom: c.PromptFrom, Reason: c.Reason, Peer: c.Peer,
 		Address: c.Address, Mode: c.Mode, Threshold: c.Threshold, CreatedAt: c.CreatedAt, UpdatedAt: c.UpdatedAt,
 		StageDeadline: c.StageDeadline, CycleDeadline: c.CycleDeadline, Artifact: c.Artifact, ArtifactBytes: c.ArtifactSize,
-		Outcome: c.Outcome, ReportBytes: len(c.Report), FinishedAt: c.FinishedAt, Role: role, Events: []CycleEvent{}}
+		CatalogDigest: c.CatalogDigest,
+		Outcome:       c.Outcome, ReportBytes: len(c.Report), FinishedAt: c.FinishedAt, Role: role, Events: []CycleEvent{}}
 	rows, err := q.QueryContext(ctx, `SELECT ordinal,at,stage,result,reason FROM context_cycle_events WHERE cycle_id=? ORDER BY ordinal`, c.ID)
 	if err != nil {
 		return v, err
@@ -256,7 +285,8 @@ var (
 	ErrCycleArtifact = Refusal{"cycle_artifact_invalid", "the handoff artifact is not a new, bounded, ignored and untracked file in this session's own handoff directory"}
 )
 
-// cycleTarget is what a cycle adapter acts on: the pinned native host and pane.
+// CycleTarget is what a cycle adapter acts on: the pinned native host and pane, the session's
+// checkout, and the pickup entries the session may load.
 type CycleTarget struct {
 	CycleID   string
 	Family    string
@@ -265,7 +295,19 @@ type CycleTarget struct {
 	HostStart int64
 	Socket    string
 	Pane      string
-	Epoch     string // the pre-reset native epoch
+	Epoch     string      // the pre-reset native epoch
+	Directory string      // the session's registered directory
+	Checkout  string      // the worktree root that holds it
+	LoaderDir string      // the daemon's pickup loader directory for the family
+	Pickup    PickupEntry // the catalog item skill.pickup
+	Loader    PickupEntry // the loader's pickup entry
+	tools     hostTools
+}
+
+// PickupEntry is the bytes and the menu description of one pickup entry.
+type PickupEntry struct {
+	Content     []byte
+	Description string
 }
 
 func (c cycleRow) target() CycleTarget {
@@ -275,23 +317,44 @@ func (c cycleRow) target() CycleTarget {
 
 // PaneState is a cycle adapter's fresh inspection of the pinned pane.
 type PaneState struct {
-	Idle   bool   // an idle prompt that accepts input, with no intervening agent
-	Prompt string // a recognized native prompt's fixed code, or ""
+	Idle   bool   // an idle, empty input line, with no intervening agent
+	Prompt string // a native dialog's fixed code, or ""
 }
 
-// CycleAdapter enters cycle input into one family's native session. Chunk 03 supplies the
-// first verified adapter; until then none is registered and Enable is refused. Each method
-// proves its own target before acting and returns whether its effect was received.
+// CycleProbe is an adapter's verdict on whether a session's cycle can run. Bootstrap names
+// the pickup entry that a bare pickup command runs: personal, project, loader, or interactive
+// (the loader, added before the clear).
+type CycleProbe struct {
+	Reason    string // "" when the cycle can run, else a fixed unavailable reason
+	Bootstrap string
+}
+
+// CycleFence rechecks, before each key an adapter sends, that the cycle is still at its
+// revision and stage under the Enable that admitted it; an error stops the input.
+type CycleFence func(context.Context) error
+
+// CycleAdapter enters cycle input into one family's native session. Each input method
+// proves its target and calls the fence before every key, and returns whether its input
+// was received; the effect itself is proven separately (NewEpoch, the pickup report).
 type CycleAdapter interface {
 	Version() string
-	Inspect(ctx context.Context, t CycleTarget) (PaneState, error)
-	Clear(ctx context.Context, t CycleTarget) (received bool, err error)
+	Probe(ctx context.Context, t CycleTarget) CycleProbe
+	Inspect(ctx context.Context, t CycleTarget, fence CycleFence) (PaneState, error)
+	// Bootstrap adds the loader to a running session before the clear and proves that the
+	// pickup command lists it.
+	Bootstrap(ctx context.Context, t CycleTarget, fence CycleFence) (received bool, err error)
+	Clear(ctx context.Context, t CycleTarget, fence CycleFence) (received bool, err error)
 	// NewEpoch returns the native epoch that replaced t.Epoch in the same host and pane,
 	// or "" while none is proven.
 	NewEpoch(ctx context.Context, t CycleTarget) (string, error)
-	Pickup(ctx context.Context, t CycleTarget) (received bool, err error)
-	// Answer responds to a recognized prompt and reports whether the response was read back.
-	Answer(ctx context.Context, t CycleTarget, prompt string) (bool, error)
+	// Pickup enters the pickup command after checking that the entry named by bootstrap
+	// (CycleProbe.Bootstrap) is the one it runs.
+	Pickup(ctx context.Context, t CycleTarget, bootstrap string, fence CycleFence) (received bool, err error)
+	// Answerable reports whether the adapter answers a dialog itself; any other dialog waits
+	// for the native session or the maintainer.
+	Answerable(prompt string) bool
+	// Answer responds to an answerable dialog and reports whether the response was read back.
+	Answer(ctx context.Context, t CycleTarget, prompt string, fence CycleFence) (bool, error)
 }
 
 // cycleAdapters holds the registered adapters by family. Tests register synthetic ones.
@@ -304,7 +367,32 @@ func cycleAdapterOf(family string) CycleAdapter { return cycleAdapters[family] }
 var cycleCode = regexp.MustCompile(`^[a-z0-9][a-z0-9._-]{0,63}$`)
 
 func init() {
-	contextCycleAvailable = func(family string) bool { return cycleAdapters[family] != nil }
+	// The Claude Code adapter (chunk 03); Probe limits it to evidenced platforms and versions.
+	cycleAdapters["claude"] = claudeCycle{}
+}
+
+// contextCycleEnabledFor is the admission's cheap pre-check: an enabled session only; Probe
+// runs after it, so ordinary observations of sessions without an Enable cost no probe.
+func contextCycleEnabledFor(s *Store, ctx context.Context, k Key) bool {
+	enables, err := s.contextEnables(ctx)
+	return err == nil && enables[k].Enabled
+}
+
+// sessionProbe asks k's family adapter whether k's cycle can run in its pinned host and pane.
+func (s *Store) sessionProbe(ctx context.Context, k Key) CycleProbe {
+	adapter := cycleAdapterOf(k.Family)
+	if adapter == nil {
+		return CycleProbe{Reason: "context_cycle_unavailable"}
+	}
+	row := cycleRow{Family: k.Family, SessionID: k.ID}
+	if err := s.db.QueryRowContext(ctx, `SELECT host_pid,host_start,tmux_socket,tmux_pane FROM sessions WHERE family=? AND id=?`, k.Family, k.ID).
+		Scan(&row.HostPID, &row.HostStart, &row.Socket, &row.Pane); err != nil {
+		return CycleProbe{Reason: "session_unknown"}
+	}
+	if row.HostPID <= 0 || row.Pane == "" {
+		return CycleProbe{Reason: "host_unpinned"}
+	}
+	return adapter.Probe(ctx, s.cycleTarget(ctx, row))
 }
 
 // cycleRequestBody is the fixed text of the typed request. It names the cycle and asks the
@@ -321,7 +409,7 @@ func cycleRequestBody(id string, revision int64) string {
 // ordinary transaction; a refusal stores nothing. It reports whether a cycle was admitted.
 func (s *Store) admitContextCycle(ctx context.Context, k Key) (bool, error) {
 	adapter := cycleAdapterOf(k.Family)
-	if adapter == nil || !cycleCode.MatchString(adapter.Version()) {
+	if adapter == nil || !cycleCode.MatchString(adapter.Version()) || !contextCycleEnabledFor(s, ctx, k) {
 		return false, nil
 	}
 	policy := s.familyContextPolicy(k.Family)
@@ -340,6 +428,10 @@ func (s *Store) admitContextCycle(ctx context.Context, k Key) (bool, error) {
 	}
 	if eligible, _ := SelectContextTrigger(ContextTriggerInput{Active: true, Enabled: true, Policy: policy, CycleAvailable: true,
 		OverwatchConflict: conflict, Evidence: evidence, Now: now, LatchedEpoch: latched}); !eligible {
+		return false, nil
+	}
+	// The adapter's checks of the host, pane and pickup entry run before the write.
+	if contextCycleProbe(s, ctx, k).Reason != "" {
 		return false, nil
 	}
 	tx, err := s.begin(noAudit(ctx), ordinary)

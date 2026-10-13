@@ -77,6 +77,12 @@ with the handoff, and use the configured MCP tools to register/discover this cur
 MCP identifies its caller on every call; never supply a predecessor's ID in tool arguments.
 DeepSeek uses the installed guide's explicit command path under normal approvals.
 
+When the installed guide has a Managed cycle reporting section, read all of it. After a
+clear, query your own cycle with the guide's own-cycle status tool or command. For a cycle in
+`waiting_pickup`, restore the handoff file that the cycle names, not merely the newest file,
+then report your pickup with the guide's pickup tool or command as that section says. A
+runtime without these tools or commands keeps the steps above.
+
 If identity or daemon access is unavailable, report it. Do not guess an ID, create a replacement
 conversation, call setup, install a runtime or weaken sandbox policy to reconnect. A retained
 process/name is no authorization to retire another session or move an address. Pickup follows

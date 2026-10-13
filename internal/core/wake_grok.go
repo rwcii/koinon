@@ -62,18 +62,38 @@ func (s *Store) wakeGrok(ctx context.Context, session Session, notice string) wa
 	return uncertain("pane_submission_unconfirmed")
 }
 
-// grokPane proves that pane still holds the session's host: the host process has its
+// grokPane proves that pane still holds the session's host (provePane).
+func (s *Store) grokPane(ctx context.Context, pid, start int64, socket, pane string) bool {
+	return provePane(ctx, s.hostTools(), pid, start, socket, pane)
+}
+
+// hostTools are the store's process and tmux readers, for pane proof and cycle adapters.
+func (s *Store) hostTools() hostTools {
+	return hostTools{tmux: s.tmux, processStart: s.processStart, processParents: s.processParents,
+		processCommand: s.processCommand, processEnvironment: s.processEnvironment}
+}
+
+// hostTools reach the host process and its tmux pane; tests replace each one.
+type hostTools struct {
+	tmux               func(ctx context.Context, socket string, args ...string) (string, error)
+	processStart       func(int) (int64, error)
+	processParents     func() (map[int]int, error)
+	processCommand     func(int) (string, []string, error)
+	processEnvironment func(pid int, name string) (string, error)
+}
+
+// provePane proves that pane still holds the session's host: the host process has its
 // recorded start value, and the pane's process is the host or an ancestor of it with no
 // other agent process between them, the rule of terminal naming (#156).
-func (s *Store) grokPane(ctx context.Context, pid, start int64, socket, pane string) bool {
+func provePane(ctx context.Context, h hostTools, pid, start int64, socket, pane string) bool {
 	if pid <= 1 || start == 0 || !(&TmuxPane{Socket: socket, Pane: pane}).valid() || socket == "" {
 		return false
 	}
-	if current, err := s.processStart(int(pid)); err != nil || current != start {
+	if current, err := h.processStart(int(pid)); err != nil || current != start {
 		return false
 	}
 	// A space separates the fields: tmux before 3.4 prints a tab in a format as "_".
-	out, err := s.tmux(ctx, socket, "display-message", "-p", "-t", pane, "#{pane_id} #{pane_pid}")
+	out, err := h.tmux(ctx, socket, "display-message", "-p", "-t", pane, "#{pane_id} #{pane_pid}")
 	fields := strings.Fields(out)
 	if err != nil || len(fields) != 2 || fields[0] != pane {
 		return false
@@ -82,12 +102,12 @@ func (s *Store) grokPane(ctx context.Context, pid, start int64, socket, pane str
 	if err != nil || panePID <= 1 {
 		return false
 	}
-	parents, err := s.processParents()
+	parents, err := h.processParents()
 	if err != nil {
 		return false
 	}
 	agent := func(pid int) bool {
-		executable, args, err := s.processCommand(pid)
+		executable, args, err := h.processCommand(pid)
 		return err != nil || platform.AgentCommand(executable, args)
 	}
 	for current, steps := int(pid), 0; current != panePID; steps++ {

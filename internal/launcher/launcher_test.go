@@ -724,3 +724,24 @@ func TestLaunchIDs(t *testing.T) {
 		}
 	}
 }
+
+// A Claude launch adds the pickup loader after its own options and before a "--" that ends
+// them; other families are unchanged (#196, chunk 03).
+func TestCycleLoaderArgs(t *testing.T) {
+	state := t.TempDir()
+	loader := core.CycleLoaderDir(state)
+	for _, c := range []struct {
+		family string
+		args   []string
+		want   []string
+	}{
+		{"claude", nil, []string{"--add-dir", loader}},
+		{"claude", []string{"--model", "synthetic", "do the synthetic task"}, []string{"--model", "synthetic", "do the synthetic task", "--add-dir", loader}},
+		{"claude", []string{"--model", "synthetic", "--", "--literal prompt"}, []string{"--model", "synthetic", "--add-dir", loader, "--", "--literal prompt"}},
+		{"codex", []string{"--model", "synthetic"}, []string{"--model", "synthetic"}},
+	} {
+		if got := cycleLoaderArgs(Options{Family: c.family, StateDir: state}, c.args); !slices.Equal(got, c.want) {
+			t.Fatalf("%s %q: %q", c.family, c.args, got)
+		}
+	}
+}

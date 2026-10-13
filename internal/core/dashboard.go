@@ -240,7 +240,9 @@ type contextRow struct {
 	Enable                ContextEnable
 	Mode                  string
 	Threshold             int64
-	Available             bool // a verified cycle adapter exists for the session's family
+	Available             bool   // the family's adapter can run this session's cycle (its Probe)
+	Unavailable           string // Probe's fixed reason when it cannot
+	Pickup                string // the pickup entry a bare pickup runs: personal, project, loader or interactive
 	Eligible              bool
 	Reason                string
 	SourceAge, ConfirmAge int64 // seconds; -1 when unknown
@@ -258,11 +260,13 @@ func (s *Store) contextRowOf(session Session, enable ContextEnable, now int64) c
 	s.observed.mu.Lock()
 	latched := s.latches.latched(k, evidence, policy.Threshold)
 	s.observed.mu.Unlock()
-	available := contextCycleAvailable(session.Family)
+	probe := contextCycleProbe(s, context.Background(), k)
+	available := probe.Reason == ""
 	conflict, _ := overwatchNameHeld(context.Background(), s.db)
 	eligible, reason := SelectContextTrigger(ContextTriggerInput{Active: session.State == "active", Enabled: enable.Enabled, Policy: policy,
 		CycleAvailable: available, OverwatchConflict: conflict, Evidence: evidence, Now: now, LatchedEpoch: latched})
-	row := contextRow{Enable: enable, Mode: policy.Mode, Threshold: policy.Threshold, Available: available, Eligible: eligible, Reason: reason, SourceAge: -1, ConfirmAge: -1}
+	row := contextRow{Enable: enable, Mode: policy.Mode, Threshold: policy.Threshold, Available: available, Unavailable: probe.Reason,
+		Pickup: probe.Bootstrap, Eligible: eligible, Reason: reason, SourceAge: -1, ConfirmAge: -1}
 	if evidence.Found {
 		row.SourceAge, row.ConfirmAge = max(0, now-evidence.SourceAt)/1000, max(0, now-evidence.ConfirmedAt)/1000
 	}
