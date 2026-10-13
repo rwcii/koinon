@@ -85,6 +85,8 @@ func readReason(err error) string {
 		return "unreadable"
 	case errors.Is(err, errNotRegular):
 		return "non_regular_target"
+	case errors.Is(err, errTargetChanged):
+		return "target_changed"
 	case errors.Is(err, ErrInvalidQuery):
 		return "item_too_large"
 	default:
@@ -118,9 +120,6 @@ func fragment(data []byte) ([]byte, string) {
 		return nil, "edited"
 	}
 	last += len(end)
-	if last < len(data) && data[last] == '\n' {
-		last++
-	}
 	return data[first:last], ""
 }
 
@@ -136,6 +135,7 @@ func inspectTarget(root ReadRoot, rootPath string, target Target, previous strin
 		return result
 	}
 	var data []byte
+	expected := target.Expected
 	if target.Kind == "link" {
 		if info.IsDir() {
 			result.Reason = "directory_conflict"
@@ -193,11 +193,12 @@ func inspectTarget(root ReadRoot, rootPath string, target Target, previous strin
 				result.State = state
 				return result
 			}
+			expected, _ = fragment(expected)
 		}
 	}
 	result.Digest = digest(data)
 	switch {
-	case bytes.Equal(data, target.Expected):
+	case bytes.Equal(data, expected):
 		result.State = "present"
 	case previous != "" && result.Digest == previous:
 		result.State = "outdated"

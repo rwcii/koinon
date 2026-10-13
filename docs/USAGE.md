@@ -64,7 +64,11 @@ Comparison includes the proposed catalog bytes: an absent selected target can st
 with a custom same-name copy. Discovery aliases of one physical file count once.
 Codex 0.162.0 metadata probes verified `CODEX_HOME/skills`, `HOME/.agents/skills`, and
 project `.agents/skills` and `.codex/skills`; the primary machine adoption target stays
-`CODEX_HOME/skills`. Claude machine discovery remains unverified metadata. A real directory
+`CODEX_HOME/skills`. Claude machine discovery remains unverified metadata.
+The default Codex root is verified when the managed launcher proves environment forwarding;
+a direct MCP connection with no visible CODEX_HOME reports an unverified-root limitation
+because the native client can filter a custom home out of its child environment.
+A real directory
 at a discovery-link target reports `directory_conflict`; link inspection does not traverse
 or replace it. Independently declared skill targets can still be read within their bounds.
 
@@ -101,7 +105,8 @@ bodies. Linked worktrees share receipt scope but can have different inspected by
 
 `library_state` pages relevant `memory_recall` receipts to the end. Competing live receipts
 report a conflict. Revocation, expiry, unreadable decisions and missing retained history
-remain explicit, rather than resetting a decline. Recommendations cover only verified
+remain explicit, rather than resetting a decline. The history floor tracks removed library
+receipts, not unrelated memory/work expiry. Recommendations cover only verified
 missing/outdated skills required by currently available features; other skills are optional.
 Declined and edited items remain visible. Read-only state changes no memory cursor or decision.
 

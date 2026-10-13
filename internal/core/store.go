@@ -684,6 +684,9 @@ func migrate(db *sql.DB, version, target int) error {
 		}
 	}
 	if version < 20 && target >= 20 {
+		if _, err := tx.Exec(`ALTER TABLE memory_stores ADD COLUMN library_floor INTEGER NOT NULL DEFAULT 0 CHECK(library_floor>=0)`); err != nil {
+			return err
+		}
 		if _, err := tx.Exec(machineDecisionsTable); err != nil {
 			return err
 		}

@@ -436,15 +436,23 @@ func (s *Store) expireMemory(ctx context.Context, repo string, reclaim bool) err
 	for {
 		removed := int64(0)
 		err := s.memoryExpiryStep(ctx, func(tx *writeTx) error {
-			rows, err := tx.QueryContext(ctx, `SELECT seq FROM memory_entries WHERE repository=? AND expires IS NOT NULL
+			rows, err := tx.QueryContext(ctx, `SELECT seq,type,body FROM memory_entries WHERE repository=? AND expires IS NOT NULL
 				AND expires<? ORDER BY seq LIMIT 200`, repo, now)
 			if err != nil {
 				return err
 			}
 			var seqs []int64
+			libraryFloor := int64(0)
 			for rows.Next() {
 				var seq int64
-				rows.Scan(&seq)
+				var kind, body string
+				if err := rows.Scan(&seq, &kind, &body); err != nil {
+					rows.Close()
+					return err
+				}
+				if kind == "decision" && libraryDecisionMarked(body) {
+					libraryFloor = max(libraryFloor, seq)
+				}
 				seqs = append(seqs, seq)
 			}
 			rows.Close()
@@ -457,7 +465,7 @@ func (s *Store) expireMemory(ctx context.Context, repo string, reclaim bool) err
 					return err
 				}
 			}
-			_, err = tx.ExecContext(ctx, `UPDATE memory_stores SET floor=MAX(floor,?) WHERE repository=?`, seqs[len(seqs)-1], repo)
+			_, err = tx.ExecContext(ctx, `UPDATE memory_stores SET floor=MAX(floor,?),library_floor=MAX(library_floor,?) WHERE repository=?`, seqs[len(seqs)-1], libraryFloor, repo)
 			return err
 		})
 		if err != nil {

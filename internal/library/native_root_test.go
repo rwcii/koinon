@@ -20,6 +20,10 @@ func TestNativeRootUsesEffectiveCustomCodexHome(t *testing.T) {
 		t.Fatalf("effective home: %q %q", root, reason)
 	}
 	delete(env, "CODEX_HOME")
+	if root, reason := NativeRoot("codex", getenv); root != "" || reason != "native_root_unverified" {
+		t.Fatal("direct missing environment guessed a default root", root, reason)
+	}
+	env["KOINON_LAUNCH_ID"] = "synthetic verified managed launch"
 	root, reason = NativeRoot("codex", getenv)
 	if root != filepath.Join(home, ".codex") || reason != "" {
 		t.Fatalf("default home: %q %q", root, reason)

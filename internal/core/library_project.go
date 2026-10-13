@@ -64,7 +64,7 @@ type libraryUnavailableReceipt struct {
 // It never revives an inactive receipt, moves a cursor, or returns its body.
 func (s *Store) libraryReceiptHistory(ctx context.Context, m MemoryCaller) (map[string]any, error) {
 	var floor int64
-	if err := s.db.QueryRowContext(ctx, `SELECT COALESCE(MAX(floor),0) FROM memory_stores WHERE repository=?`, m.Repository).Scan(&floor); err != nil {
+	if err := s.db.QueryRowContext(ctx, `SELECT COALESCE(MAX(library_floor),0) FROM memory_stores WHERE repository=?`, m.Repository).Scan(&floor); err != nil {
 		return nil, err
 	}
 	rows, err := s.db.QueryContext(ctx, `SELECT body,writer_family,revoked_by,expires FROM memory_entries WHERE repository=? AND type='decision' AND superseded_by IS NULL AND (revoked_by IS NOT NULL OR expires<=?) AND body LIKE ? ORDER BY seq DESC`, m.Repository, s.clock(), "%"+library.DecisionMarker+"%")

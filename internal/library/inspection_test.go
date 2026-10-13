@@ -296,3 +296,24 @@ func TestSharedDiscoveryAliasesDoNotCreateAnUpdateConflict(t *testing.T) {
 		t.Fatalf("independent stale copy concealed: %+v", state)
 	}
 }
+
+func TestGuidanceFragmentDoesNotDependOnOutsideFinalNewline(t *testing.T) {
+	c, _ := Embedded("dev")
+	read, _ := c.Read("codex", "setup.guidance")
+	ctx := InspectionContext{Family: "codex", Scope: "project", ProjectRoot: t.TempDir(), Repository: "/synthetic/common"}
+	var previous string
+	for _, suffix := range []string{"", "\n", "\n\nSynthetic surrounding text.\n"} {
+		body := "Synthetic preceding instructions.\n" + strings.TrimSuffix(read.Item.Content, "\n") + suffix
+		if err := os.WriteFile(filepath.Join(ctx.ProjectRoot, "AGENTS.md"), []byte(body), 0600); err != nil {
+			t.Fatal(err)
+		}
+		state := (Inspector{}).InspectItem(c, ctx, read.Item.ID, nil)
+		if state.State != "present" || state.Reason != "" {
+			t.Fatal("outside newline changed fragment state", state)
+		}
+		if previous != "" && previous != state.Targets[0].Digest {
+			t.Fatal("outside newline changed normalized digest")
+		}
+		previous = state.Targets[0].Digest
+	}
+}

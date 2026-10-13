@@ -32,13 +32,29 @@ func OpenReadRoot(name string) (ReadRoot, error) {
 }
 
 var errNotRegular = errors.New("inspection target is not a regular file")
+var errTargetChanged = errors.New("inspection target changed during open")
 
 func (r diskRoot) ReadRegular(name string, limit int) ([]byte, error) {
+	return r.readRegular(name, limit, nil)
+}
+
+func (r diskRoot) readRegular(name string, limit int, beforeOpen func()) ([]byte, error) {
 	if limit < 0 || limit > MaxItemBytes {
 		return nil, ErrInvalidQuery
 	}
-	// No-follow prevents a swapped leaf from becoming a symlink. Nonblocking lets
-	// fstat reject a swapped FIFO/device without waiting for input from it.
+	before, err := r.Lstat(name)
+	if err != nil {
+		return nil, err
+	}
+	if !before.Mode().IsRegular() {
+		return nil, errNotRegular
+	}
+	if beforeOpen != nil {
+		beforeOpen()
+	}
+	// os.Root resolves in-root links itself, including with O_NOFOLLOW. Revalidate
+	// both the opened file and the leaf. Nonblocking prevents a swapped FIFO from
+	// waiting for input before fstat rejects it.
 	f, err := r.OpenFile(name, os.O_RDONLY|unix.O_NOFOLLOW|unix.O_NONBLOCK, 0)
 	if err != nil {
 		return nil, err
@@ -50,6 +66,13 @@ func (r diskRoot) ReadRegular(name string, limit int) ([]byte, error) {
 	}
 	if !info.Mode().IsRegular() {
 		return nil, errNotRegular
+	}
+	after, err := r.Lstat(name)
+	if err != nil {
+		return nil, err
+	}
+	if !after.Mode().IsRegular() || !os.SameFile(before, info) || !os.SameFile(after, info) {
+		return nil, errTargetChanged
 	}
 	if info.Size() > int64(limit) {
 		return nil, ErrInvalidQuery

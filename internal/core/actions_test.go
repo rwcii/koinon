@@ -20,7 +20,7 @@ import (
 // Dashboard action tests (sprint chunk 09): a real daemon on ephemeral loopback ports,
 // temporary state, synthetic sessions and a patched launcher.
 
-const undoSchemaTwenty = `DROP TABLE library_decisions; `
+const undoSchemaTwenty = `DROP TABLE library_decisions; ALTER TABLE memory_stores DROP COLUMN library_floor; `
 
 // undoSchemaNineteen removes rooms and the room metadata of messages.
 const undoSchemaNineteen = `DROP INDEX room_members_member; DROP TABLE room_members; DROP TABLE rooms;

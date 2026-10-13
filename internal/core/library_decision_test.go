@@ -200,6 +200,9 @@ func TestLibrarySchemaTwentyPreservesSchemaNineteenState(t *testing.T) {
 	if count(t, upgraded, `PRAGMA user_version`) != 20 || count(t, upgraded, `SELECT COUNT(*) FROM library_decisions`) != 0 || rowsOf(t, upgraded.db) != before {
 		t.Fatal("schema20 changed retained state")
 	}
+	if count(t, upgraded, `SELECT library_floor FROM memory_stores WHERE repository=?`, m.Repository) != 0 {
+		t.Fatal("migration inferred lost library history from unrelated data")
+	}
 	if count(t, upgraded, `SELECT create_refill FROM rooms WHERE room_id=?`, room) != 7 || count(t, upgraded, `SELECT refill FROM rooms WHERE room_id=?`, room) != 64 {
 		t.Fatal("room retry inputs lost in migration")
 	}

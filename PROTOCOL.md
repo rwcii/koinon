@@ -824,7 +824,10 @@ independently of body/author fields. A decline superseding a receipt must preser
 baseline. State pages every relevant live receipt; multiple live receipts or a retained
 replacement conflict stay conflicts. Literal `memory_recall` of the library marker also
 returns bounded `library_history` absence reasons for revoked/expired receipts, retained floor
-and an incomplete flag. This metadata revives nothing and moves no cursor. Unavailable
+and an incomplete flag. This metadata revives nothing and moves no cursor.
+The retained floor is library-specific: expiry raises `memory_stores.library_floor` only
+for a removed library-marked decision; unrelated memory/work retention does not suppress offers.
+This is a scalar in the existing memory store, with no new table or index. Unavailable
 history never silently resets a decline. Receipts are reported outcomes, not approval attestations.
 
 The approved #145 procedure has the agent present an exact scoped diff, apply the approved

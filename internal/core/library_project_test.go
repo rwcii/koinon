@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"testing"
+	"time"
 
 	"github.com/rwcii/koinon/internal/library"
 )
@@ -84,5 +85,38 @@ func TestProjectLibraryReceiptBindsFamilyScopeAndBaseline(t *testing.T) {
 	}
 	if count(t, s, `SELECT COUNT(*) FROM memory_entries`) != 1 {
 		t.Fatal("invalid receipt wrote data")
+	}
+}
+
+func TestLibraryHistoryFloorIgnoresUnrelatedExpiredMemory(t *testing.T) {
+	s, clock, m := memoryStore(t)
+	ctx := context.Background()
+	expiry := s.clock() + 5
+	note(t, s, m, MemoryRecordRequest{Type: "finding", Body: "synthetic unrelated expiring finding", Expires: &expiry})
+	*clock = clock.Add(6 * time.Second)
+	if err := s.expireMemory(ctx, m.Repository, false); err != nil {
+		t.Fatal(err)
+	}
+	history, err := s.libraryReceiptHistory(ctx, m)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if count(t, s, `SELECT floor FROM memory_stores`) != 1 || history["floor"].(int64) != 0 {
+		t.Fatal("unrelated retention suppressed library decisions", history)
+	}
+	d := projectDecisionFixture(t, m)
+	d.Choice = "declined"
+	d.Result = nil
+	d.Adopted = nil
+	body, _ := d.Encode()
+	expiry = s.clock() + 5
+	seq := note(t, s, m, MemoryRecordRequest{Type: "decision", Body: string(body), Expires: &expiry})
+	*clock = clock.Add(6 * time.Second)
+	if err := s.expireMemory(ctx, m.Repository, false); err != nil {
+		t.Fatal(err)
+	}
+	history, err = s.libraryReceiptHistory(ctx, m)
+	if err != nil || history["floor"] != seq {
+		t.Fatal("removed library receipt history silently reset", history, err)
 	}
 }

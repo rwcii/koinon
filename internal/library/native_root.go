@@ -20,6 +20,12 @@ func NativeRootAt(family string, getenv func(string) string, nativeDirectory str
 	}
 	root := getenv("CODEX_HOME")
 	if root == "" {
+		// Managed Codex forwards CODEX_HOME even when it is unset. A direct MCP
+		// connection without that forwarding proof cannot distinguish the parent's
+		// default home from a custom home filtered out by the native environment.
+		if getenv("KOINON_LAUNCH_ID") == "" {
+			return "", "native_root_unverified"
+		}
 		home := getenv("HOME")
 		if home == "" {
 			return "", "native_root_unavailable"

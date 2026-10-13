@@ -195,3 +195,36 @@ func TestProjectLibraryReceiptsSharedAcrossListedWorktrees(t *testing.T) {
 		t.Fatalf("worktree receipt/content conflated: main=%v linked=%v", mainState, linkedState)
 	}
 }
+
+func TestDirectCodexWithoutHomeForwardingDoesNotInspectDefaultRoot(t *testing.T) {
+	h := newHarness(t, "codex-mcp-client")
+	h.env["HOME"] = t.TempDir()
+	defaultRoot := filepath.Join(h.env["HOME"], ".codex")
+	canary := filepath.Join(defaultRoot, "skills", "pair", "SKILL.md")
+	if err := os.MkdirAll(filepath.Dir(canary), 0700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(canary, []byte("synthetic wrong default root"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	openedDefault := false
+	h.s.c.LibraryReadRoot = func(root string) (library.ReadRoot, error) {
+		if root == defaultRoot {
+			openedDefault = true
+		}
+		return library.OpenReadRoot(root)
+	}
+	value, failed := h.tool("library_state", map[string]any{"item_ids": []string{"skill.pair"}}, map[string]any{"threadId": "synthetic-direct-no-forwarding"})
+	if failed {
+		t.Fatal(value)
+	}
+	state := value["library"].(map[string]any)
+	found := false
+	for _, reason := range state["limitations"].([]any) {
+		found = found || reason == "native_root_unverified"
+	}
+	item := state["items"].([]any)[0].(map[string]any)
+	if openedDefault || !found || item["state"] != nil || item["recommended"] != false {
+		t.Fatal("unknown native home was reported as verified default", value)
+	}
+}
