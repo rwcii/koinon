@@ -30,6 +30,8 @@ wake accounting can still update internal metadata while these tools read that d
 | `delivery` | Check delivery and acknowledgement of a sent message. |
 | `library_list` | Page the installed skill/setup catalog metadata for the calling family. |
 | `library_read` | Read one catalog item's canonical content and destination metadata. |
+| `library_state` | Inspect bounded catalog targets, collisions, repository facts and decisions in the native client's verified scope. |
+| `library_decision` | Record compared-revision machine adoption or decline data; it edits no adopted files. |
 | `room_list` | List the dashboard rooms of this session or its participant, current and former. |
 | `room_members` | Read the current roster of a room in which the caller is a member. |
 | `room_read` | Page a room's retained posts from the caller's membership start. |

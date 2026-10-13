@@ -2,6 +2,7 @@ package core
 
 import (
 	"context"
+	"github.com/rwcii/koinon/internal/library"
 	"net/http"
 )
 
@@ -17,6 +18,62 @@ func (s *Store) libraryCaller(ctx context.Context, caller Key) error {
 }
 
 func (d *Daemon) libraryRoutes(mux *http.ServeMux) {
+	mux.HandleFunc("POST /v1/library/context", func(w http.ResponseWriter, r *http.Request) {
+		var request struct {
+			Caller Key `json:"caller"`
+		}
+		if err := decode(w, r, &request); err != nil {
+			failure(w, err)
+			return
+		}
+		if err := d.store.libraryCaller(r.Context(), request.Caller); err != nil {
+			failure(w, err)
+			return
+		}
+		// Internal native-client context: never exposed as a model tool response.
+		var directory, repository string
+		if err := d.store.db.QueryRowContext(r.Context(), `SELECT directory,repository FROM sessions WHERE family=? AND id=?`, request.Caller.Family, request.Caller.ID).Scan(&directory, &repository); err != nil {
+			failure(w, err)
+			return
+		}
+		respond(w, 200, map[string]any{"ok": true, "directory": directory, "repository": repository})
+	})
+	mux.HandleFunc("POST /v1/library/decision/read", func(w http.ResponseWriter, r *http.Request) {
+		var request struct {
+			Caller Key    `json:"caller"`
+			Root   string `json:"root_digest"`
+			Item   string `json:"item_id"`
+		}
+		if err := decode(w, r, &request); err != nil {
+			failure(w, err)
+			return
+		}
+		value, err := d.store.LibraryDecisionRead(r.Context(), request.Caller, request.Root, request.Item)
+		if err != nil {
+			failure(w, err)
+			return
+		}
+		respond(w, 200, map[string]any{"ok": true, "result": value})
+	})
+	mux.HandleFunc("POST /v1/library/decision", func(w http.ResponseWriter, r *http.Request) {
+		var request struct {
+			Caller   Key              `json:"caller"`
+			Root     string           `json:"root_digest"`
+			Compared int64            `json:"if_revision"`
+			Decision library.Decision `json:"decision"`
+		}
+		if err := decodeLimit(w, r, &request, 6*library.MaxDecisionBytes+16384); err != nil {
+			failure(w, err)
+			return
+		}
+		value, err := d.store.LibraryDecision(r.Context(), request.Caller, d.catalog, request.Root, request.Compared, request.Decision)
+		if err != nil {
+			failure(w, err)
+			return
+		}
+		d.store.ToolCall(request.Caller)
+		respond(w, 200, map[string]any{"ok": true, "result": value})
+	})
 	mux.HandleFunc("POST /v1/library/list", func(w http.ResponseWriter, r *http.Request) {
 		var request struct {
 			Caller Key    `json:"caller"`

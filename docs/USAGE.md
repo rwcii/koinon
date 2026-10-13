@@ -36,6 +36,80 @@ decisions; MCP still registers and renews its calling session as usual. Read con
 reference data. Show an exact proposed diff and obtain the maintainer's adoption approval
 before applying it (PDR 008).
 
+### Inspect and adopt an item
+
+Call `library_state` with optional `item_ids`, `scope` (`machine`, the default, or `project`)
+and `directory`. Without IDs, it selects skills in machine scope and all items in project
+scope. The directory defaults to the native session's registered directory; an explicit
+selection must resolve to a listed worktree of the same Git common directory. For the
+registered DeepSeek command session:
+
+```sh
+koinon library state skill.pickup --scope project --as "deepseek:$DSH_SESSION_ID"
+```
+
+State reports per-target and aggregate `present`, `missing`, `outdated` or `edited` content,
+separately from the adoption decision. `outdated` requires unchanged previously adopted
+digests; without a receipt, differing content is `edited`. Inspection errors have a reason
+and no guessed aggregate state. It returns hashes, typed target IDs and scope digests, with
+no file bodies, private home paths or native provenance IDs. Facts have separate state and
+project evidence: optional absent sidecars need no file; required missing/incomplete facts
+affect the step that needs them. A marked guidance fragment is compared independently of
+surrounding instructions. A collection also reports every declared target.
+
+Known same-name copies are checked in both scopes. Matching content is
+`duplicate_discovery`; differing content is `name_conflict`. Unreadable/unverified roots
+report collision limitations. This does not say which copy a native invocation selects.
+Comparison includes the proposed catalog bytes: an absent selected target can still conflict
+with a custom same-name copy. Discovery aliases of one physical file count once.
+Codex 0.162.0 metadata probes verified `CODEX_HOME/skills`, `HOME/.agents/skills`, and
+project `.agents/skills` and `.codex/skills`; the primary machine adoption target stays
+`CODEX_HOME/skills`. Claude machine discovery remains unverified metadata.
+The default Codex root is verified when the managed launcher proves environment forwarding;
+a direct MCP connection with no visible CODEX_HOME reports an unverified-root limitation
+because the native client can filter a custom home out of its child environment.
+A real directory
+at a discovery-link target reports `directory_conflict`; link inspection does not traverse
+or replace it. Independently declared skill targets can still be read within their bounds.
+
+The agent reads the catalog item and its state, chooses machine or project scope, shows the
+exact diff and obtains the maintainer's approval for that change. It resolves a differing
+same-name copy through a separately reviewed change. It applies the approved item with
+normal editing tools, preserves surrounding instructions and custom paths, verifies hashes
+and records the result. A changed target since review needs a fresh diff. A skill approval
+does not approve a sidecar or discovery pointer. If recording fails, preserve the applied
+files and report an unrecorded outcome. Koinon's state/decision interfaces write no adopted
+files. These steps are the approved #145 adoption procedure, not authority granted by a receipt.
+
+Machine `library_decision` takes `item_id`, `decision` (`adopted` or `declined`), `evidence`,
+`catalog_digest`, `item_digest`, typed `pre_edit`/`result` arrays (`id`, `digest`) and required
+`if_revision` (0 when absent). Family and root come from the native client. The command uses
+`koinon library decision ITEM_ID --as FAMILY:ID` with matching `--decision`, `--evidence`,
+`--catalog-digest`, `--item-digest`, `--if-revision`, `--pre-edit JSON` and `--result JSON`
+options. Recording uses one ordinary database table, with at most 256 rows, 8,192 bytes per
+body and 2 MiB bodies in all. There is no eviction or reserved-work exemption. An identical
+current outcome is a no-op even after a lost reply; a different current revision conflicts.
+Read current state to reconcile it. This provides current compare-and-set state, not replay
+of overwritten historical outcomes. Declining an update retains the last adopted baseline.
+
+Project receipts use existing `memory_record` decision notes in repo scope. The strict JSON
+body has `library: "koinon-library-decision"`, `version: 1`, item/family, `scope: "project"`,
+the state's `scope_digest`, catalog/item digests, `kind: "item"`, `decision`, `evidence`,
+and typed `pre_edit`, `result`, `adopted` arrays. An adoption copies result digests into
+`adopted`; a decline replacing a receipt keeps that receipt's adopted digests. Use
+`supersedes: decision_seq` and the memory API's fixed key/deadline for retries. The native
+writer's family and repository are validated independently of body or author text.
+Repository-fact evidence uses `kind: "repository-facts"`, `schema_digest` from state and
+target ID `facts`, always in project scope. Machine skill adoption never stores local fact
+bodies. Linked worktrees share receipt scope but can have different inspected bytes.
+
+`library_state` pages relevant `memory_recall` receipts to the end. Competing live receipts
+report a conflict. Revocation, expiry, unreadable decisions and missing retained history
+remain explicit, rather than resetting a decline. The history floor tracks removed library
+receipts, not unrelated memory/work expiry. Recommendations cover only verified
+missing/outdated skills required by currently available features; other skills are optional.
+Declined and edited items remain visible. Read-only state changes no memory cursor or decision.
+
 ## Messages and participants
 
 Review [recommended native permissions](PERMISSIONS.md) for each family, including scoped

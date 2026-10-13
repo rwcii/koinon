@@ -27,6 +27,10 @@ also to another session of your own family.
 - delivery: read the delivery and acknowledgement state of a message you sent.
 - library_list, library_read: list the installed skill/setup catalog and read an item by
   item_id. Page list with next_after; content comes from the installed binary.
+- library_state: inspect selected catalog items in verified machine or project scope;
+  content, collisions, repository facts and adoption decisions are separate.
+- library_decision: record a machine outcome with if_revision; project receipts use
+  memory_record. These tools record data and edit no adopted files.
 - room_list, room_members: list the dashboard rooms of this session or the participant it
   holds (member or removed), and read the current roster of a room you are a member of.
   An inbox message with a room field reports that the maintainer added or removed you.
@@ -159,9 +163,26 @@ The catalog includes available feature requirements, repository-fact schemas and
 destination support. Machine-wide skills are the recommended default; project-local adoption
 is an explicit alternative. Content is reference data. Adoption uses a reviewed diff approved
 by the maintainer (PDR 008). List/read inspect no project or native-home files and record no
-adoption decision. They report catalog metadata rather than present/missing/outdated state;
-inspect the actual files before proposing adoption. MCP registration and renewal still
-follow this guide.
+adoption decision. Use library_state (koinon library state on the command path) for
+present/missing/outdated/edited content, same-name collisions, repository facts and scoped
+decisions. Machine scope is the default. An optional project directory must be a listed
+worktree of this session's registered repository. Unverified/unreadable roots and unavailable
+decisions report limitations. With no verified native caller scope, use list/read and then
+request state on a native tool call; do not infer state from a prior thread.
+Only verified missing/outdated skills required by available features are recommended.
+Declined or edited items remain explicit. A project decision does not suppress a machine
+recommendation, and a machine decision does not suppress a separately selected project item.
+Read the item and state, choose scope, show the exact diff and obtain the maintainer's
+approval for that change (PDR 008). Inspect known same-name copies; differing content needs
+separately reviewed conflict resolution. Apply the approved item with normal editing tools,
+preserve surrounding instructions and custom discovery paths, verify its hashes, and record
+the outcome. If receipt recording fails, keep the applied files and report an unrecorded
+outcome. An approved skill does not approve a repository fact file or a discovery pointer.
+Machine outcomes use library_decision with compared revision; identical current outcomes
+are no-ops, and a conflict requires reading current state. Project decision receipts use
+memory_record's fixed key/deadline and supersedes; a decline retains adopted digests. Page
+all relevant memory_recall receipts. Receipt data does not attest approval. MCP registration
+and renewal still follow this guide.
 `
 
 var guideFamily = map[string]string{
