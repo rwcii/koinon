@@ -6,7 +6,7 @@ into a dated release section when promoted to `main`.
 ## Unreleased
 
 - Installer failure reports (#342) have `ok: false` while retaining completed-step details.
-  System-mode installation checks an existing log directory before replacing the binary or
+  macOS installation checks an existing log directory before replacing the binary or
   link, and creates a missing directory during the system step.
 
 - Wake-pass diagnostics (#335) report the error class, stage, time and bounded error-type

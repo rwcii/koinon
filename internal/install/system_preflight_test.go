@@ -8,13 +8,14 @@ import (
 	"testing"
 )
 
-// An existing invalid log directory refuses both an explicit transition and an upgrade
-// detected from the existing system plist before either one changes installed artifacts.
+// An existing invalid log directory refuses plain agent installs, explicit transitions and
+// upgrades detected from the system plist before any one changes installed artifacts.
 func TestSystemLogPreflightPreservesInstalledArtifacts(t *testing.T) {
-	for _, detected := range []bool{false, true} {
-		t.Run(map[bool]string{false: "explicit", true: "detected"}[detected], func(t *testing.T) {
+	for _, mode := range []string{"agent", "explicit", "detected"} {
+		t.Run(mode, func(t *testing.T) {
 			e, f := systemEnv(t)
-			e.o.System = !detected
+			detected := mode == "detected"
+			e.o.System = mode == "explicit"
 			binary := Binary(e.o.Prefix)
 			link := filepath.Join(e.o.Services.Home, ".local", "bin", "koinon")
 			if err := os.MkdirAll(filepath.Dir(binary), 0755); err != nil {
