@@ -163,7 +163,8 @@ func claudeStatus(data []byte, now int64) (core.Observation, string, bool) {
 	}
 	if w := input.Window; w != nil {
 		available := len(w.CurrentUsage) > 0 && string(w.CurrentUsage) != "null"
-		o.Context = &core.ObservedValue{Source: "claude_statusline", At: now, UsageAvailable: &available}
+		// The transcript is the context's native epoch: /clear starts a new one (#196).
+		o.Context = &core.ObservedValue{Source: "claude_statusline", At: now, UsageAvailable: &available, Epoch: input.SessionID}
 		if w.Size != nil && w.Input != nil {
 			o.Context.LimitTokens, o.Context.UsedTokens = w.Size, w.Input
 		}

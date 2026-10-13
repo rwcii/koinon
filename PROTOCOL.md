@@ -186,6 +186,43 @@ registration, renewal, liveness sweep and succession check read it, and each `ko
 takes the interval from its next reply. A stored set that is not valid as a whole is not
 applied at start, and the defaults apply.
 
+### Context policy
+
+The managed context handoff (#196, PDR 006) is configured per family and switched on per
+session; chunk 01 adds the policy, the Enable switch and the trigger selection, and no cycle
+runs yet. The `settings` table holds `context_mode_FAMILY` (0 `observe`, 1
+`native_compaction`, 2 `handoff_cycle`) and `context_threshold_FAMILY` (1–100 percent of the
+context limit) for each supported family. Defaults: Claude `handoff_cycle`, Codex
+`native_compaction`, every other family `observe`; threshold 75. `native_compaction` is
+Codex's only; it leaves compaction to the client, and no mode edits a native setting. A
+stored pair that is not valid keeps the family's default, and the Settings page names the
+error. The action `context-family-settings` (`family`, `mode`, `threshold`) stores one family
+in one transaction with its audit record and applies after the commit; it enables no present
+or future session.
+
+Schema 22 adds `context_enables`, one private row per session with its Enable switch and
+revision and the session revision, participant address, host and tmux pane it was set for;
+none of these leave the store. The action `context-enable` (`peer`, `revision` of the session
+as shown, `if_revision` of the Enable, `enabled` `on` or `off`) changes one session with its
+audit record. Enabling needs an active session and a verified cycle for its family; until one
+exists it refuses with `context_cycle_unavailable` and writes nothing. Disabling is always
+accepted. A changed session refuses `revision_changed`, a changed Enable
+`context_enable_changed`. Deleting a session deletes its Enable.
+
+The trigger selection reads the session's state, Enable, family policy, cycle availability
+and its stored context observation. It is eligible when used tokens reach the threshold
+percentage of a positive limit (equality and use above the limit included), the context
+source is at most 120 seconds old and its last confirmation at most 90 seconds old, and the
+observation's native epoch has not been selected already. A source or confirmation time later
+than the daemon's clock is `observation_future`. Otherwise it names one reason:
+`session_inactive`, `mode_observe`, `mode_native_compaction`, `not_enabled`,
+`context_cycle_unavailable`, `context_unknown`, `context_counts_unavailable`,
+`context_counts_invalid`, `epoch_unverified`, `observation_future`, `source_stale`,
+`confirmation_stale`, `below_threshold` or `already_selected_for_epoch`. A new epoch or a
+fall below the threshold clears the selected epoch. Selection writes nothing; the Sessions
+page shows its result and the source and confirmation ages. After a restart the observations
+are unknown, so no session is eligible until fresh native reports arrive.
+
 ### Verified succession
 
 Schema 13 adds a private host record to each session: host PID, process start value,
@@ -1228,6 +1265,8 @@ Agents read these same observations without a dashboard login through `peer_stat
 object: the discovery fields (`name`, held `alias`, `family`, registration `state`,
 `repository`), `observed_at` in Unix milliseconds, and `model`, `context`, `activity`.
 Each group has `known` and `stale_after_ms`; an unknown group has `reason` and no value fields.
+A context report may carry `epoch`, the native transcript or thread it was read from; the
+daemon keeps it for the context policy and returns it in no view.
 A known group carries `source`, source timestamp `at`, last confirmation timestamp
 `confirmed_at`, and its allowlisted value fields: model `id`; context `limit_tokens`,
 `used_tokens`, `usage_available` when reported; activity `state`. Source time may be old while
@@ -1243,7 +1282,7 @@ activity. Message delivery and acknowledgement do not establish activity or inbo
 | Group | Sources |
 | --- | --- |
 | Model | `claude_statusline`; `codex_rollout` (the session's own rollout under `CODEX_HOME`) and `codex_mcp_meta` (`x-codex-turn-metadata.model` of a tool call); `agy_hook` (`modelName` of the Stop hook) |
-| Context | `claude_statusline` (`context_window_size`, `total_input_tokens`); `codex_rollout` (`model_context_window`, `last_token_usage.input_tokens`) |
+| Context | `claude_statusline` (`context_window_size`, `total_input_tokens`; epoch: the transcript `session_id`); `codex_rollout` (`model_context_window`, `last_token_usage.input_tokens`; epoch: the rollout's thread) |
 | Activity | `claude_registry` (the parent Claude process's registry record for this session, `entrypoint: cli`; `shell`, the prompt with a background shell task running, is idle); `codex_rollout` (task started and completed); `agy_hook` (idle at Stop) and `mcp_call` (an agy tool call); `opencode_status` (`GET /session/status` on a launched OpenCode server, with its password, cached 5 seconds) |
 | Terminal | `tmux_env`: the MCP server's `TMUX` and `TMUX_PANE`, and the pane's session name |
 | Naming | `koinon_mcp`: the last terminal naming result and the published name it was computed for; no socket or pane required |

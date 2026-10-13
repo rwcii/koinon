@@ -136,6 +136,10 @@ type Store struct {
 	// settings holds the session timing values in force (#249).
 	settings settingsState
 	library  libraryState
+	// contextPolicy holds the family context policy in force (#196); latches remembers
+	// selected crossings per native epoch.
+	contextPolicy contextPolicyState
+	latches       contextLatches
 }
 
 func openStore(root string) (*Store, error) { return openStoreFile(root, "state.sqlite3") }
@@ -222,6 +226,10 @@ func openStoreFile(root, name string) (*Store, error) {
 	}
 	s := &Store{db: db, now: time.Now, storage: storage{path: path, maxPages: defaultMaxPages}, processStart: platform.ProcessStart,
 		processParents: platform.ProcessParents, processCommand: platform.ProcessCommand, tmux: runTmux}
+	if err := s.loadContextPolicy(context.Background()); err != nil {
+		db.Close()
+		return nil, err
+	}
 	if err := s.loadSettings(context.Background()); err != nil {
 		db.Close()
 		return nil, err
@@ -282,7 +290,7 @@ func checkFormat(db *sql.DB, path string) error {
 	return nil
 }
 
-const schemaVersion = 21
+const schemaVersion = 22
 
 // workItemsV16Columns are the work item columns before schema 17, which its rebuild copies.
 const workItemsV16Columns = `store,work_id,revision,lifecycle,title,criteria,non_goals,proposed_assignee,created_at,created_consumer,
@@ -715,6 +723,18 @@ func migrate(db *sql.DB, version, target int) error {
 			return err
 		}
 		if _, err := tx.Exec(machineDecisionsTable); err != nil {
+			return err
+		}
+	}
+	if version < 22 && target >= 22 {
+		// Version 22: each session's context-cycle Enable switch (#196, chunk 01), with the
+		// session revision, participant address, host and tmux pane it was set for.
+		if _, err := tx.Exec(`CREATE TABLE context_enables (
+			family TEXT NOT NULL, session_id TEXT NOT NULL, enabled INTEGER NOT NULL CHECK (enabled IN (0,1)),
+			revision INTEGER NOT NULL CHECK (revision>0), session_revision INTEGER NOT NULL,
+			address TEXT NOT NULL, host_pid INTEGER NOT NULL, host_start INTEGER NOT NULL,
+			tmux_socket TEXT NOT NULL, tmux_pane TEXT NOT NULL, updated_at INTEGER NOT NULL,
+			PRIMARY KEY (family, session_id));`); err != nil {
 			return err
 		}
 	}

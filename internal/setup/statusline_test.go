@@ -304,7 +304,7 @@ func TestClaudeStatusHook(t *testing.T) {
 		t.Fatal("input without a session reported")
 	}
 	o, _, ok := claudeStatus([]byte(`{"session_id":"s","context_window":{"current_usage":null}}`), 1)
-	if !ok || o.Model != nil || o.Context == nil || o.Context.LimitTokens != nil || *o.Context.UsageAvailable {
+	if !ok || o.Model != nil || o.Context == nil || o.Context.LimitTokens != nil || *o.Context.UsageAvailable || o.Context.Epoch != "s" {
 		t.Fatalf("no usage: %+v", o)
 	}
 	if _, _, ok := claudeStatus([]byte(`{"session_id":"s","model":{"id":"`+strings.Repeat("m", hookInputMax)+`"}}`), 1); ok {
