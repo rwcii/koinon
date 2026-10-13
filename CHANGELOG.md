@@ -5,6 +5,11 @@ into a dated release section when promoted to `main`.
 
 ## Unreleased
 
+- Wake-pass diagnostics (#335) report the error class, stage, time and bounded error-type
+  details, including SQLite result codes, in health and daemon logs. A successful pass
+  clears the current fault while retaining the last failure; repeated identical faults
+  do not flood logs. Raw error text, message bodies and native IDs are excluded.
+
 - Inspect installed skills and setup targets with `library_state` and `koinon library state`
   (#145, chunk 03), including content, native name collisions, repository facts and scoped
   adoption decisions. Machine decisions use compared revisions and retain adopted digests
