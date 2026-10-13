@@ -43,7 +43,7 @@ type Message struct {
 	// the message; acknowledgements from before schema 15 have none (#250).
 	AcknowledgedSession string `json:"acknowledged_session,omitempty"`
 	AcknowledgedVia     string `json:"acknowledged_via,omitempty"`
-	// Room is the typed metadata of a room membership notice from the dashboard (#217).
+	// Room is the typed room metadata of a membership notice or a room post copy (#217).
 	Room *RoomEvent `json:"room,omitempty"`
 	// Inbox is session for the caller's own inbox and participant for the inbox of the
 	// participant that the caller holds (chunk 03).
@@ -408,7 +408,7 @@ func readMessages(ctx context.Context, tx *sql.Tx, inbox Key, after, limit int64
 		return 0, 0, false, err
 	}
 	rows, err := tx.QueryContext(ctx, `SELECT id,seq,sender_family,sender_name,body,created_at,delivery_state,delivery_reason,maintainer_ack,
-		ack_session,ack_via,room_id,room_revision,room_event FROM messages WHERE recipient_family=? AND recipient_id=? AND seq>? ORDER BY seq LIMIT ?`,
+		ack_session,ack_via,room_id,room_revision,room_event,room_seq,room_origin FROM messages WHERE recipient_family=? AND recipient_id=? AND seq>? ORDER BY seq LIMIT ?`,
 		inbox.Family, inbox.ID, after, limit+1)
 	if err != nil {
 		return 0, 0, false, err
@@ -420,7 +420,7 @@ func readMessages(ctx context.Context, tx *sql.Tx, inbox Key, after, limit int64
 		var maintainer bool
 		var room RoomEvent
 		if err := rows.Scan(&m.ID, &m.Seq, &m.SenderFamily, &m.SenderName, &m.Body, &m.CreatedAt, &m.DeliveryState, &m.DeliveryReason, &maintainer,
-			&m.AcknowledgedSession, &m.AcknowledgedVia, &room.RoomID, &room.Revision, &room.Event); err != nil {
+			&m.AcknowledgedSession, &m.AcknowledgedVia, &room.RoomID, &room.Revision, &room.Event, &room.Seq, &room.Origin); err != nil {
 			return 0, 0, false, err
 		}
 		if room.RoomID != "" {

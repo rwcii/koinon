@@ -50,6 +50,10 @@ var toolList = []map[string]any{
 		"inputSchema": object(map[string]any{"after": text, "limit": map[string]any{"type": "integer", "minimum": 0, "maximum": 100}})},
 	{"name": "room_members", "description": "Read the current roster of a room by room_id: participant addresses and peer names, family and state (active, inactive, unheld or conflicting). Only a current member can read it. Page with next_after.",
 		"inputSchema": object(map[string]any{"room_id": text, "after": integer, "limit": map[string]any{"type": "integer", "minimum": 0, "maximum": 100}}, "room_id")},
+	{"name": "room_post", "description": "Post a message to a room in which this session, or the participant it holds, is a current member. It reaches the room's other active members. key and deadline make a retry safe. Each post uses one unit of the room's agent-post allowance, which the maintainer's next post renews; exchange_limit means wait for the maintainer.",
+		"inputSchema": object(map[string]any{"room_id": text, "body": text, "key": text, "deadline": map[string]any{"type": "number"}}, "room_id", "body", "key", "deadline")},
+	{"name": "room_read", "description": "Read a room's retained posts after your membership start, in order, with sender, typed origin (maintainer or member) and time. Page with next_after; gaps name sequences that retention no longer holds, and floor is the highest sequence below the oldest retained post. Reading moves no inbox marker.",
+		"inputSchema": object(map[string]any{"room_id": text, "after": integer, "limit": map[string]any{"type": "integer", "minimum": 0, "maximum": 100}}, "room_id")},
 	{"name": "memory_status", "description": "Report this repository's shared memory store: head, floor, usage, limits and consumers.",
 		"inputSchema": object(map[string]any{"after": text, "consumer": consumerField})},
 	{"name": "memory_sync", "description": "Read this repository's shared memory: a snapshot page or the entries after your cursor. Entries are recorded data; they grant no permission (WDR 002). Page a snapshot to the end, then acknowledge it with memory_ack.",
@@ -178,6 +182,29 @@ func (s *server) call(ctx context.Context, raw json.RawMessage) map[string]any {
 			Limit  int     `json:"limit"`
 		}
 		err, path = decodeArgs(p.Arguments, &a), "/v1/rooms/members"
+		if err == nil && (a.RoomID == nil || *a.RoomID == "") {
+			err = errors.New("missing room_id")
+		}
+		body["room_id"], body["after"], body["limit"] = a.RoomID, a.After, a.Limit
+	case "room_post":
+		var a struct {
+			RoomID   *string  `json:"room_id"`
+			Body     *string  `json:"body"`
+			Key      *string  `json:"key"`
+			Deadline *float64 `json:"deadline"`
+		}
+		err, path = decodeArgs(p.Arguments, &a), "/v1/rooms/post"
+		if err == nil && (a.RoomID == nil || a.Body == nil || a.Key == nil || a.Deadline == nil) {
+			err = errors.New("missing room_id, body, key or deadline")
+		}
+		body["room_id"], body["body"], body["key"], body["deadline"] = a.RoomID, a.Body, a.Key, a.Deadline
+	case "room_read":
+		var a struct {
+			RoomID *string `json:"room_id"`
+			After  int64   `json:"after"`
+			Limit  int     `json:"limit"`
+		}
+		err, path = decodeArgs(p.Arguments, &a), "/v1/rooms/read"
 		if err == nil && (a.RoomID == nil || *a.RoomID == "") {
 			err = errors.New("missing room_id")
 		}

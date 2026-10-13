@@ -173,20 +173,23 @@ func TestMachineDecisionsDoNotConsumeFundedWorkControls(t *testing.T) {
 	}
 }
 
-func TestLibrarySchemaTwentyPreservesSchemaNineteenState(t *testing.T) {
+func TestLibrarySchemaTwentyOnePreservesPublishedSchemaTwentyState(t *testing.T) {
 	s, root := testStore(t)
 	ctx := context.Background()
 	room := mustRoom(t, s, "synthetic preserved room", 7)
+	member := join(t, s, "codex", "synthetic-published-room-member", "")
+	mustAdd(t, s, room, member.Name)
+	mustHumanPost(t, s, room, "synthetic retained published-schema20 post")
 	if err := s.SetRoomRefill(roomCtx("room-refill"), room, 64); err != nil {
 		t.Fatal(err)
 	}
 	m := MemoryCaller{Family: "codex", Repository: "/synthetic/migration/.git", Consumer: "synthetic-migration", Name: "synthetic-migration"}
 	note(t, s, m, MemoryRecordRequest{Type: "finding", Body: "synthetic retained schema19 note"})
 	before := rowsOf(t, s.db)
-	if _, err := s.db.Exec(undoSchemaTwenty + `PRAGMA user_version=19`); err != nil {
+	if _, err := s.db.Exec(undoSchemaTwentyOne + `PRAGMA user_version=20`); err != nil {
 		t.Fatal(err)
 	}
-	if err := checkCatalog(s.db, 19); err != nil {
+	if err := checkCatalog(s.db, 20); err != nil {
 		t.Fatal(err)
 	}
 	if err := s.db.Close(); err != nil {
@@ -197,8 +200,8 @@ func TestLibrarySchemaTwentyPreservesSchemaNineteenState(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer upgraded.db.Close()
-	if count(t, upgraded, `PRAGMA user_version`) != 20 || count(t, upgraded, `SELECT COUNT(*) FROM library_decisions`) != 0 || rowsOf(t, upgraded.db) != before {
-		t.Fatal("schema20 changed retained state")
+	if count(t, upgraded, `PRAGMA user_version`) != 21 || count(t, upgraded, `SELECT COUNT(*) FROM library_decisions`) != 0 || rowsOf(t, upgraded.db) != before {
+		t.Fatal("schema21 changed retained published state")
 	}
 	if count(t, upgraded, `SELECT library_floor FROM memory_stores WHERE repository=?`, m.Repository) != 0 {
 		t.Fatal("migration inferred lost library history from unrelated data")
@@ -206,7 +209,10 @@ func TestLibrarySchemaTwentyPreservesSchemaNineteenState(t *testing.T) {
 	if count(t, upgraded, `SELECT create_refill FROM rooms WHERE room_id=?`, room) != 7 || count(t, upgraded, `SELECT refill FROM rooms WHERE room_id=?`, room) != 64 {
 		t.Fatal("room retry inputs lost in migration")
 	}
-	if err := checkCatalog(upgraded.db, 19); err == nil {
+	if count(t, upgraded, `SELECT COUNT(*) FROM room_posts`) != 1 || count(t, upgraded, `SELECT COUNT(*) FROM room_deliveries`) != 1 || count(t, upgraded, `SELECT COUNT(*) FROM room_replays`) != 1 {
+		t.Fatal("library migration altered published room rows")
+	}
+	if err := checkCatalog(upgraded.db, 20); err == nil {
 		t.Fatal("older schema writer accepted the new ordinary table")
 	}
 	if _, err := upgraded.StorageStatus(ctx); err != nil {

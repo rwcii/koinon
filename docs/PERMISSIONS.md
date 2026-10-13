@@ -34,6 +34,7 @@ wake accounting can still update internal metadata while these tools read that d
 | `library_decision` | Record compared-revision machine adoption or decline data; it edits no adopted files. |
 | `room_list` | List the dashboard rooms of this session or its participant, current and former. |
 | `room_members` | Read the current roster of a room in which the caller is a member. |
+| `room_read` | Page a room's retained posts from the caller's membership start. |
 | `memory_status` | Inspect this repository's memory inventory and limits. |
 | `memory_sync` | Page a snapshot or process a cursor delta. |
 | `memory_recall` | Find retained memory entries. |
@@ -47,6 +48,7 @@ Allow them when the maintainer has authorized the corresponding coordination wor
 | Tool | Purpose |
 | --- | --- |
 | `send` | Send an authorized message to a verified peer. |
+| `room_post` | Post to a room in which the caller is a member; uses the room's agent-post allowance. |
 | `ack` | Acknowledge inbox sequences after handling them. |
 | `memory_ack` | Advance the memory cursor after processing all pages/deltas. |
 | `memory_record` | Write a memory entry; its content grants no permission. |

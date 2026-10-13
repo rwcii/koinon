@@ -315,7 +315,7 @@ func (d *Daemon) dashboardData(r *http.Request, view string) (any, error) {
 		}
 		return result, nil
 	case "rooms":
-		return d.roomsView(ctx)
+		return d.roomsView(ctx, q)
 	case "messages":
 		order, err := parseSort(&messageSort, path, q, "to", "peers")
 		if err != nil {

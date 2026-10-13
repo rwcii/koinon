@@ -10,7 +10,16 @@ into a dated release section when promoted to `main`.
   adoption decisions. Machine decisions use compared revisions and retain adopted digests
   through a decline; project receipts use repository memory. Connection guidance explains
   exact-change adoption and recommends required skills from verified state. These interfaces
-  edit no adopted files. Schema 20 adds one ordinary machine-decision table.
+  edit no adopted files. Schema 21 adds one ordinary machine-decision table.
+
+- Room posts (#217, chunk 02): the maintainer posts to a room from its dashboard page, and
+  members post with `room_post` or `koinon room post`. One write stores the ordered post, an
+  inbox copy for each active member with typed `room` metadata (`seq`, `origin`
+  `maintainer` or `member`) and a skipped outcome for each inactive one. A maintainer post
+  allows the agents the room's refill value of posts; at the limit a member post is refused
+  with `exchange_limit`. `room_read` and `koinon room read` page the posts since a member
+  joined, with retention gaps. Posts are kept while any copy is. The state database moves
+  to schema 20.
 
 - Dashboard rooms (#217, chunk 01): the maintainer creates a room on the new Rooms page,
   sets its agent-post refill value (default 32) and adds or removes active sessions by peer

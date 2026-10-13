@@ -439,7 +439,7 @@ client's verified environment. Codex's effective `CODEX_HOME` selects its machin
 known same-name shared-user and project discovery copies are checked for collisions.
 Unverified roots report an inspection limitation. Machine decisions are shared across
 repositories for that family/root; project receipts share the repository's Git common
-directory. Schema 20 preserves existing state and adds ordinary bounded machine decisions.
+directory. Schema 21 preserves existing state and adds ordinary bounded machine decisions.
 See [the adoption procedure](USAGE.md#inspect-and-adopt-an-item) before applying an item.
 
 ## Launcher paths in launchers.json

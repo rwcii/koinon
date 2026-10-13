@@ -105,6 +105,10 @@ func (s *Store) cull(ctx context.Context, counts *RetentionCounts) error {
 	if err := s.deleteAcknowledged(ctx, counts, &budget); err != nil {
 		return err
 	}
+	// Room posts follow their inbox copies (#217, chunk 02).
+	if err := s.cullRoomPosts(ctx, &budget); err != nil {
+		return err
+	}
 	return s.deleteInactive(ctx, counts)
 }
 
