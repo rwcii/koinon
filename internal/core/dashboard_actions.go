@@ -40,6 +40,10 @@ var (
 var noticeText = map[string]string{
 	"participant_chosen":        "The session now holds the participant address.",
 	"settings_saved":            "The session timing was saved and applies now.",
+	"context_policy_saved":      "The family's context mode and threshold were saved; no session was enabled.",
+	"context_enable_saved":      "The session's context-cycle Enable was saved.",
+	"context_cycle_unavailable": "Refused: no verified handoff cycle is available for this session yet.",
+	"context_enable_changed":    "Refused: the session's Enable changed since the page was loaded. Reload and try again.",
 	"not_participant":           "Refused: the session does not belong to that participant.",
 	"retired":                   "The session was retired.",
 	"purge_marked":              "The session is marked for purge. An active session was retired; the next maintenance sweep deletes it with its whole inbox.",
@@ -166,6 +170,32 @@ func (d *Daemon) dashboardActions(mux *http.ServeMux, authed func(int64, func(ht
 		v.GuardSeconds, ok[2] = formInt(r, "guard_seconds")
 		run(w, r, "settings", v.String(), "settings", nil, ok[0] && ok[1] && ok[2] && v.Valid(),
 			func(ctx context.Context) error { return d.store.SetSettings(ctx, v) }, "settings_saved", nil)
+	}))
+	mux.HandleFunc("POST /dashboard/actions/context-family-settings", authed(actionFormLimit, func(w http.ResponseWriter, r *http.Request, _ string) {
+		family, mode := r.PostForm.Get("family"), r.PostForm.Get("mode")
+		threshold, ok := formInt(r, "threshold")
+		valid := ok && contextFamily(family) && validContextPolicy(family, mode, threshold)
+		target := "context invalid"
+		if contextFamily(family) {
+			target = "context " + family
+		}
+		run(w, r, "context-family-settings", target, "settings", nil, valid,
+			func(ctx context.Context) error { return d.store.SetContextPolicy(ctx, family, mode, threshold) }, "context_policy_saved", nil)
+	}))
+	mux.HandleFunc("POST /dashboard/actions/context-enable", authed(actionFormLimit, func(w http.ResponseWriter, r *http.Request, _ string) {
+		peer, state := r.PostForm.Get("peer"), r.PostForm.Get("enabled")
+		revision, ok1 := formInt(r, "revision")
+		ifRevision, ok2 := formInt(r, "if_revision")
+		valid := ok1 && ok2 && revision > 0 && len(peer) > 0 && len(peer) <= 256 && !strings.ContainsAny(peer, "\x00\r\n") && (state == "on" || state == "off")
+		target := "context enable invalid"
+		if valid {
+			target = "context enable " + peer + " " + state
+		}
+		run(w, r, "context-enable", target, "sessions", nil, valid,
+			func(ctx context.Context) error {
+				_, err := d.store.SetContextEnable(ctx, peer, revision, ifRevision, state == "on")
+				return err
+			}, "context_enable_saved", nil)
 	}))
 	mux.HandleFunc("POST /dashboard/actions/participant-holder", authed(actionFormLimit, func(w http.ResponseWriter, r *http.Request, _ string) {
 		k, valid := sessionKey(r)

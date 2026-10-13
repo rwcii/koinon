@@ -186,7 +186,7 @@ func TestLibrarySchemaTwentyOnePreservesPublishedSchemaTwentyState(t *testing.T)
 	m := MemoryCaller{Family: "codex", Repository: "/synthetic/migration/.git", Consumer: "synthetic-migration", Name: "synthetic-migration"}
 	note(t, s, m, MemoryRecordRequest{Type: "finding", Body: "synthetic retained schema19 note"})
 	before := rowsOf(t, s.db)
-	if _, err := s.db.Exec(undoSchemaTwentyOne + `PRAGMA user_version=20`); err != nil {
+	if _, err := s.db.Exec(undoSchemaTwentyTwo + undoSchemaTwentyOne + `PRAGMA user_version=20`); err != nil {
 		t.Fatal(err)
 	}
 	if err := checkCatalog(s.db, 20); err != nil {
@@ -200,7 +200,7 @@ func TestLibrarySchemaTwentyOnePreservesPublishedSchemaTwentyState(t *testing.T)
 		t.Fatal(err)
 	}
 	defer upgraded.db.Close()
-	if count(t, upgraded, `PRAGMA user_version`) != 21 || count(t, upgraded, `SELECT COUNT(*) FROM library_decisions`) != 0 || rowsOf(t, upgraded.db) != before {
+	if count(t, upgraded, `PRAGMA user_version`) != schemaVersion || count(t, upgraded, `SELECT COUNT(*) FROM library_decisions`) != 0 || rowsOf(t, upgraded.db) != before {
 		t.Fatal("schema21 changed retained published state")
 	}
 	if count(t, upgraded, `SELECT library_floor FROM memory_stores WHERE repository=?`, m.Repository) != 0 {

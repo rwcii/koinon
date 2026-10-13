@@ -28,6 +28,9 @@ var dashboardViews = []string{"sessions", "messages", "rooms", "memory", "work",
 type settingsData struct {
 	Current, Default Settings
 	UpdatedAt        int64
+	// Context is each family's context policy (#196); Modes are the selectable modes.
+	Context []ContextFamilyPolicy
+	Modes   []string
 }
 
 type dashboardPage struct {
@@ -227,6 +230,39 @@ type sessionRow struct {
 	Work        []SessionWork
 	Observed    map[string]SessionView
 	Participant *Participant
+	Cycle       contextRow
+}
+
+// contextRow is a session's context-cycle state as the dashboard shows it (#196): its
+// Enable, its family mode and threshold, and the trigger's reason, with the ages of the
+// context source and of its confirmation. It holds no native epoch, host or pane.
+type contextRow struct {
+	Enable                ContextEnable
+	Mode                  string
+	Threshold             int64
+	Available             bool // a verified cycle adapter exists for the session's family
+	Eligible              bool
+	Reason                string
+	SourceAge, ConfirmAge int64 // seconds; -1 when unknown
+}
+
+// contextRowOf selects a session's trigger state from the stored policy and evidence. It
+// writes nothing and marks no latch.
+func (s *Store) contextRowOf(session Session, enable ContextEnable, now int64) contextRow {
+	k := Key{session.Family, session.ID}
+	policy := s.familyContextPolicy(session.Family)
+	evidence := s.contextEvidence(k)
+	s.observed.mu.Lock()
+	latched := s.latches.latched(k, evidence, policy.Threshold)
+	s.observed.mu.Unlock()
+	available := contextCycleAvailable(session.Family)
+	eligible, reason := SelectContextTrigger(ContextTriggerInput{Active: session.State == "active", Enabled: enable.Enabled, Policy: policy,
+		CycleAvailable: available, Evidence: evidence, Now: now, LatchedEpoch: latched})
+	row := contextRow{Enable: enable, Mode: policy.Mode, Threshold: policy.Threshold, Available: available, Eligible: eligible, Reason: reason, SourceAge: -1, ConfirmAge: -1}
+	if evidence.Found {
+		row.SourceAge, row.ConfirmAge = max(0, now-evidence.SourceAt)/1000, max(0, now-evidence.ConfirmedAt)/1000
+	}
+	return row
 }
 
 type sessionsData struct {
@@ -309,9 +345,15 @@ func (d *Daemon) dashboardData(r *http.Request, view string) (any, error) {
 		if err != nil {
 			return nil, err
 		}
+		enables, err := d.store.contextEnables(ctx)
+		if err != nil {
+			return nil, err
+		}
+		now := d.store.now().UnixMilli()
 		result := sessionsData{Rows: make([]sessionRow, 0, len(sessions)), Search: q.Get("q"), Counts: counts, Sort: order, Next: next}
 		for _, s := range sessions {
-			result.Rows = append(result.Rows, sessionRow{Session: s, Work: claims[s.Family+":"+s.ID], Observed: d.store.sessionObservations(pull, s), Participant: byAddress[s.Address]})
+			result.Rows = append(result.Rows, sessionRow{Session: s, Work: claims[s.Family+":"+s.ID], Observed: d.store.sessionObservations(pull, s), Participant: byAddress[s.Address],
+				Cycle: d.store.contextRowOf(s, enables[Key{s.Family, s.ID}], now)})
 		}
 		return result, nil
 	case "rooms":
@@ -336,7 +378,8 @@ func (d *Daemon) dashboardData(r *http.Request, view string) (any, error) {
 		return result, err
 	case "settings":
 		at, err := d.store.settingsUpdatedAt(ctx)
-		return settingsData{Current: d.store.Settings(), Default: DefaultSettings, UpdatedAt: at}, err
+		return settingsData{Current: d.store.Settings(), Default: DefaultSettings, UpdatedAt: at, Context: d.store.ContextPolicy(),
+			Modes: []string{ContextObserve, ContextNativeCompaction, ContextHandoffCycle}}, err
 	case "audit":
 		order, err := parseSort(&auditSort, path, q)
 		if err != nil {

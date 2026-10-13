@@ -54,7 +54,7 @@ func (s *Store) Settings() Settings {
 // A stored set that is not valid as a whole is not applied.
 func (s *Store) loadSettings(ctx context.Context) error {
 	v := DefaultSettings
-	rows, err := s.db.QueryContext(ctx, `SELECT name,value FROM settings`)
+	rows, err := s.db.QueryContext(ctx, `SELECT name,value FROM settings WHERE name IN ('lifetime_seconds','renewal_seconds','guard_seconds')`)
 	if err != nil {
 		return err
 	}

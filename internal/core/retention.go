@@ -275,6 +275,9 @@ func (s *Store) deleteSession(ctx context.Context, k Key, condition string, arg 
 	if _, err := tx.ExecContext(ctx, `DELETE FROM names WHERE kind='peer' AND family=? AND session_id=?`, k.Family, k.ID); err != nil {
 		return false, tx.fail(err)
 	}
+	if _, err := tx.ExecContext(ctx, `DELETE FROM context_enables WHERE family=? AND session_id=?`, k.Family, k.ID); err != nil {
+		return false, tx.fail(err)
+	}
 	return true, tx.Commit()
 }
 
