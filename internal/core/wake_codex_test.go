@@ -3,8 +3,10 @@ package core
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"runtime"
 	"strconv"
@@ -211,6 +213,100 @@ func TestCodexWakeSendsNothingWithoutProofOrIdle(t *testing.T) {
 			}
 			f.untouched(p)
 		})
+	}
+}
+
+// A multi-line draft whose first rows are blank still holds text: nothing is typed.
+func TestCodexWakeLeavesADraftBelowBlankRows(t *testing.T) {
+	f := newCodexFixture(t)
+	program := strings.Replace(codexScreenProgram, `composer "$draft"`, `if [ "$state" = blankdraft ]; then
+	printf '\033[1m›\033[0m \n\n  synthetic draft\n\n  synthetic-model · /tmp/synthetic/repo · Context 0%% used\n'
+	printf '\033[5A\r\033[2C'
+else
+	composer "$draft"
+fi`, 1)
+	if err := os.WriteFile(f.program, []byte(program), 0700); err != nil {
+		t.Fatal(err)
+	}
+	p := f.pane("blankdraft", "")
+	if !strings.Contains(f.run("capture-pane", "-p", "-t", p.id), "synthetic draft") {
+		t.Fatal("the synthetic draft did not draw")
+	}
+	if got := f.s.providerWake(context.Background(), f.session(p.host, p.id, "idle"), codexTestNotice); got != waiting("receiver_busy") {
+		t.Fatalf("wake: %v", got)
+	}
+	f.untouched(p)
+}
+
+// Through the scheduler, each attempt types the notice once and presses Enter once. An
+// unconfirmed submission is uncertain, and the existing read wait (#250) offers the unread
+// message again after it, as for every provider.
+func TestCodexWakeAttemptsThroughTheScheduler(t *testing.T) {
+	f := newCodexFixture(t)
+	ctx := context.Background()
+	p := f.pane("idle", "")
+	if out, err := exec.Command("git", "init", "-q", f.dir).CombinedOutput(); err != nil {
+		t.Fatalf("repository: %v %s", err, out)
+	}
+	clock := time.Now()
+	f.s.now = func() time.Time { return clock }
+	launch, err := f.s.CreateLaunch(ctx, LaunchTarget{Family: "codex", Directory: f.dir, CLI: "/synthetic/codex", HostPID: p.host})
+	if err != nil {
+		t.Fatal(err)
+	}
+	receiver, err := f.s.Register(ctx, Registration{Family: "codex", ID: "00000000-0000-4000-8000-000000000001",
+		Repository: f.dir, Directory: f.dir, TTLSeconds: 3600, LaunchID: launch, Ancestors: []int{p.host},
+		Tmux: &TmuxPane{Socket: f.socket, Pane: p.id}})
+	if err != nil || !receiver.HoldsAddress {
+		t.Fatalf("launched receiver: %v %+v", err, receiver)
+	}
+	sender, err := f.s.Register(ctx, Registration{Family: "deepseek", ID: "synthetic-sender", Directory: f.dir, TTLSeconds: 3600})
+	if err != nil {
+		t.Fatal(err)
+	}
+	idle := func() {
+		t.Helper()
+		if err := f.s.Observe(ctx, Observation{Caller: Key{"codex", receiver.ID},
+			Activity: &ObservedValue{Source: "codex_rollout", At: clock.UnixMilli(), State: "idle"}}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	idle()
+	message, err := f.s.Send(ctx, Key{sender.Family, sender.ID}, receiver.Address, "synthetic payload")
+	if err != nil {
+		t.Fatal(err)
+	}
+	real := f.s.tmux
+	captures, typed, enters := 0, 0, 0
+	f.s.tmux = func(ctx context.Context, socket string, args ...string) (string, error) {
+		switch {
+		case args[0] == "capture-pane":
+			captures++
+			// The reads after Enter fail: the submission stays unconfirmed.
+			if captures >= 3 && captures <= 7 {
+				return "", errors.New("synthetic capture failure")
+			}
+		case args[0] == "send-keys" && len(args) > 3 && args[3] == "-l":
+			typed++
+		case args[0] == "send-keys" && args[len(args)-1] == "Enter":
+			enters++
+		}
+		return real(ctx, socket, args...)
+	}
+	f.s.wake.send = f.s.providerWake
+	step(t, f.s)
+	if row := messageRow(t, f.s, message.ID); typed != 1 || enters != 1 || row.state != "uncertain" || row.wake != "pane_submission_unconfirmed" {
+		t.Fatalf("first attempt: typed %d, enters %d, %+v", typed, enters, row)
+	}
+	step(t, f.s)
+	if typed != 1 {
+		t.Fatalf("typed again within the read wait: %d", typed)
+	}
+	clock = clock.Add(wakeReadWait + time.Millisecond)
+	idle()
+	step(t, f.s)
+	if typed != 2 || enters != 2 {
+		t.Fatalf("after the read wait: typed %d, enters %d", typed, enters)
 	}
 }
 

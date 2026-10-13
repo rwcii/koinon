@@ -617,14 +617,16 @@ host shares the pane process's terminal and is in its foreground process group, 
 other member of that group is an ancestor of the host. A child of the host that holds the
 foreground is refused. Otherwise the wake waits with `codex_target_unavailable`. Codex CLI
 0.162.0 shows no busy marker while a reply streams, so the wake also requires the session's
-observed activity to be `idle`; an unknown or busy activity, or a screen whose last input line
-(`›`) holds text other than the dim placeholder or that shows the running-turn status
-(`Working (… esc to interrupt)`), waits with `receiver_busy`. The daemon sends the notice with
-`send-keys -l`, reads the input line back, and sends Enter only when it holds exactly the
-notice. It records `notified` only when a later read shows the input line empty and the notice
-as the latest submitted prompt; otherwise `uncertain` with `pane_submission_unconfirmed`, never
-resent. A session inbox notice, a session without a pane, a direct start and macOS keep the
-queue.
+observed activity to be `idle`. An unknown or busy activity waits with `receiver_busy`, as does
+a screen that shows the running-turn status (`Working (… esc to interrupt)`) or whose input
+area holds text: any text after the mark (`›`) other than the dim placeholder, or on any row
+from there down to the footer, the last run of at most two rows after a blank row. A screen
+without that footer counts as busy. Each attempt sends the notice once with `send-keys -l`,
+reads the input back, and sends Enter once, only when the input holds exactly the notice. It
+records `notified` only when a later read shows the input empty and the notice as the latest
+submitted prompt; otherwise `uncertain` with `pane_submission_unconfirmed`. The read wait and
+retries above apply unchanged: a message still unread after its read wait gets a new attempt.
+A session inbox notice, a session without a pane, a direct start and macOS keep the queue.
 
 `POST /v1/wake/agy-stop` takes `caller` with family `agy` and the hook's native conversation ID.
 It offers a due unhandled notice at that turn boundary, leaving delivery `uncertain` with

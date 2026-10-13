@@ -145,14 +145,50 @@ func (c codexScreen) composer() int {
 	return -1
 }
 
-// empty reports whether the composer holds no text: after the mark only blanks or the dim
-// placeholder ("Ask Codex to do anything"), and no continuation line below it.
-func (c codexScreen) empty(i int) bool {
-	_, rest, _ := strings.Cut(c.raw[i], "›")
-	if _, typed := sgrText(rest); typed {
-		return false
+// footer is the index of the first footer row below the composer at line i: the last run of
+// non-blank rows on the screen, the status line and, while the composer is empty, the
+// shortcut hint. In every T1 capture a blank row separates it from the composer. Another
+// layout, such as a longer last run or none, gives -1, and the composer counts as not empty.
+func (c codexScreen) footer(i int) int {
+	end := len(c.plain) - 1
+	for end > i && strings.TrimSpace(c.plain[end]) == "" {
+		end--
 	}
-	return i+1 >= len(c.plain) || strings.TrimSpace(c.plain[i+1]) == ""
+	start := end
+	for start-1 > i && strings.TrimSpace(c.plain[start-1]) != "" {
+		start--
+	}
+	if end <= i || start-1 <= i || end-start+1 > 2 {
+		return -1
+	}
+	return start
+}
+
+// composerText is the composer's text: the rest of the mark's line unless it is only the dim
+// placeholder ("Ask Codex to do anything"), and every non-blank row down to the footer, also
+// after blank rows. ok is false when the footer is not found.
+func (c codexScreen) composerText(i int) (text string, ok bool) {
+	footer := c.footer(i)
+	if footer < 0 {
+		return "", false
+	}
+	var parts []string
+	_, rest, _ := strings.Cut(c.raw[i], "›")
+	if first, typed := sgrText(rest); typed {
+		parts = append(parts, strings.TrimSpace(first))
+	}
+	for _, line := range c.plain[i+1 : footer] {
+		if line = strings.TrimSpace(line); line != "" {
+			parts = append(parts, line)
+		}
+	}
+	return strings.Join(parts, "\n"), true
+}
+
+// empty reports whether the composer at line i holds no text.
+func (c codexScreen) empty(i int) bool {
+	text, ok := c.composerText(i)
+	return ok && text == ""
 }
 
 // codexIdle reports whether a Codex 0.162.0 screen shows an empty composer and no running-turn
@@ -178,19 +214,19 @@ func codexIdle(screen string) bool {
 	return true
 }
 
-// codexDraft is the composer's text: its first line after the mark and its continuation lines,
-// or "" when it shows only the placeholder.
+// codexDraft is the composer's text, or "" when it shows only the placeholder or cannot be read.
 func codexDraft(screen string) string {
 	c := readCodexScreen(screen)
 	i := c.composer()
-	if i < 0 || c.empty(i) {
+	if i < 0 {
 		return ""
 	}
-	return c.block(i)
+	text, _ := c.composerText(i)
+	return text
 }
 
-// block is the text of the entry that starts at line i with the mark: the rest of that line
-// and the indented lines that follow it up to a blank or unindented line.
+// block is the text of a submitted prompt that starts at line i with the mark: the rest of
+// that line and the indented lines that follow it up to a blank or unindented line.
 func (c codexScreen) block(i int) string {
 	parts := []string{strings.TrimSpace(strings.TrimPrefix(c.plain[i], "›"))}
 	for j := i + 1; j < len(c.plain) && strings.TrimSpace(c.plain[j]) != "" && strings.HasPrefix(c.plain[j], " "); j++ {
