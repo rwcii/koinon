@@ -2,6 +2,7 @@ package core
 
 import (
 	"context"
+	"fmt"
 	"net/url"
 	"strconv"
 	"strings"
@@ -339,5 +340,47 @@ func TestRoomConversationEndToEnd(t *testing.T) {
 	}
 	if *notified == 0 {
 		t.Fatal("no wake after restart")
+	}
+}
+
+// The newest page is the newest posts within the page's count and byte bounds: at the byte
+// limit a new post appears on refresh, the Earlier link reaches the older ones, and a
+// retention gap inside the newest posts is named.
+func TestDashboardRoomNewestPageAtTheByteLimit(t *testing.T) {
+	s, _ := testStore(t)
+	d := &Daemon{store: s}
+	ctx := context.Background()
+	room := mustRoom(t, s, "synthetic newest page", 32)
+	for i := 0; i < 17; i++ {
+		mustHumanPost(t, s, room, strings.Repeat("x", maxBody))
+	}
+	newest := func() roomPage {
+		t.Helper()
+		data, err := d.roomsView(ctx, url.Values{"room": {room}})
+		if err != nil {
+			t.Fatal(err)
+		}
+		return *data.Open
+	}
+	span := func(p roomPage) string {
+		posts := p.Transcript.Posts
+		return strconv.FormatInt(posts[0].Seq, 10) + ".." + strconv.FormatInt(posts[len(posts)-1].Seq, 10)
+	}
+	if p := newest(); span(p) != "2..17" || p.Transcript.More || p.Earlier == nil || *p.Earlier != 0 {
+		t.Fatalf("newest page: %s more %v", span(p), p.Transcript.More)
+	}
+	mustHumanPost(t, s, room, strings.Repeat("y", maxBody))
+	if p := newest(); span(p) != "3..18" {
+		t.Fatalf("refreshed newest page: %s", span(p))
+	}
+	earlier, err := d.roomsView(ctx, url.Values{"room": {room}, "after": {"0"}})
+	if err != nil || earlier.Open.Transcript.Posts[0].Seq != 1 || !earlier.Open.Transcript.More {
+		t.Fatalf("earlier page: %v", err)
+	}
+	if _, err := s.db.Exec(`DELETE FROM room_posts WHERE room_id=? AND seq=17`, room); err != nil {
+		t.Fatal(err)
+	}
+	if p := newest(); span(p) != "2..18" || fmt.Sprint(p.Transcript.Gaps) != "[{17 17}]" {
+		t.Fatalf("newest page with a gap: %s %v", span(p), p.Transcript.Gaps)
 	}
 }

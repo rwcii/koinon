@@ -2,6 +2,7 @@ package core
 
 import (
 	"context"
+	"database/sql"
 	"net/http"
 	"net/url"
 	"strconv"
@@ -79,11 +80,9 @@ func (d *Daemon) roomsView(ctx context.Context, q url.Values) (roomsData, error)
 	}
 	defer tx.Rollback()
 	if !explicit {
-		var head int64
-		if err := tx.QueryRowContext(ctx, `SELECT post_head FROM rooms WHERE room_id=?`, id).Scan(&head); err != nil {
+		if after, err = roomTailStart(ctx, tx, id); err != nil {
 			return data, err
 		}
-		after = max(0, head-dashboardRoomPage)
 	}
 	if data.Open.Transcript, err = roomTranscript(ctx, tx, id, 0, after, dashboardRoomPage); err != nil {
 		return data, err
@@ -164,4 +163,32 @@ func roomTarget(id string) string {
 		return id
 	}
 	return "invalid"
+}
+
+// roomTailStart returns the sequence after which the newest page starts: the newest posts,
+// at most dashboardRoomPage of them and, past the first, about one MiB of bodies, as
+// roomTranscript then reads them in order.
+func roomTailStart(ctx context.Context, tx *sql.Tx, roomID string) (int64, error) {
+	var head int64
+	if err := tx.QueryRowContext(ctx, `SELECT post_head FROM rooms WHERE room_id=?`, roomID).Scan(&head); err != nil {
+		return 0, err
+	}
+	rows, err := tx.QueryContext(ctx, `SELECT seq,length(CAST(body AS BLOB)) FROM room_posts WHERE room_id=? ORDER BY seq DESC LIMIT ?`, roomID, dashboardRoomPage)
+	if err != nil {
+		return 0, err
+	}
+	defer rows.Close()
+	start, size, n := head, 0, 0
+	for rows.Next() {
+		var seq int64
+		var bytes int
+		if err := rows.Scan(&seq, &bytes); err != nil {
+			return 0, err
+		}
+		if n > 0 && size+bytes > 1<<20 {
+			break
+		}
+		start, size, n = seq-1, size+bytes, n+1
+	}
+	return start, rows.Err()
 }
