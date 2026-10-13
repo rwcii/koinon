@@ -47,9 +47,10 @@ func (s *Store) stepCycle(ctx context.Context, c cycleRow) error {
 	now := s.now().UnixMilli()
 	switch {
 	case now >= c.CycleDeadline:
+		// endCycleTx makes an unproven input uncertain.
 		_, err := s.endCycle(ctx, c.ID, c.Revision, cycleFailed, "cycle_timeout")
 		return err
-	case now >= c.StageDeadline && !cycleIntent(c.State):
+	case now >= c.StageDeadline && !cycleInputUnproven(c.State):
 		_, err := s.endCycle(ctx, c.ID, c.Revision, cycleFailed, c.State+"_timeout")
 		return err
 	}
@@ -58,7 +59,7 @@ func (s *Store) stepCycle(ctx context.Context, c cycleRow) error {
 		_, err := s.endCycle(ctx, c.ID, c.Revision, cycleCancelled, "adapter_unavailable")
 		return err
 	}
-	if ok, err := s.cycleStillEnabled(ctx, c); err != nil || !ok {
+	if ok, err := cycleEnabled(ctx, s.db, c); err != nil || !ok {
 		if err == nil {
 			_, err = s.endCycle(ctx, c.ID, c.Revision, cycleCancelled, "enable_changed")
 		}
@@ -78,21 +79,33 @@ func (s *Store) stepCycle(ctx context.Context, c cycleRow) error {
 			return err
 		}
 		if pane.Prompt != "" {
-			_, err := s.advanceCycle(ctx, c.ID, c.Revision, c.State, cycleWaitingPrompt, pane.Prompt, func(n *cycleRow) { n.PromptFrom = c.State })
+			_, err := s.advanceCycle(ctx, c.ID, c.Revision, c.State, cycleWaitingPrompt, pane.Prompt, nil, func(n *cycleRow) { n.PromptFrom = c.State })
 			return err
 		}
 		if !pane.Idle {
 			return nil
 		}
-		if c.State == cycleReady {
-			return s.enterInput(ctx, c, cycleClearIntent, cycleClearReceived, func() (bool, error) { return adapter.Clear(ctx, t) })
+		// The saved handoff must still be the reported file before any input. A changed
+		// file before the clear needs a new ready report; after it, the cycle fails.
+		if _, err := s.verifyArtifact(ctx, c, c.Artifact); err != nil {
+			if c.State == cycleReady {
+				_, err = s.advanceCycle(ctx, c.ID, c.Revision, cycleReady, cycleWaitingReady, "artifact_changed", nil, func(n *cycleRow) {
+					n.Artifact, n.ArtifactDev, n.ArtifactIno, n.ArtifactSize, n.ArtifactMtime = "", 0, 0, 0, 0
+				})
+			} else {
+				_, err = s.endCycle(ctx, c.ID, c.Revision, cycleFailed, "artifact_changed")
+			}
+			return err
 		}
-		return s.enterInput(ctx, c, cyclePickupIntent, cycleWaitingPickup, func() (bool, error) { return adapter.Pickup(ctx, t) })
+		if c.State == cycleReady {
+			return s.enterInput(ctx, c, cycleClearIntent, cycleClearReceived, pinnedRequester(ctx), func() (bool, error) { return adapter.Clear(ctx, t) })
+		}
+		return s.enterInput(ctx, c, cyclePickupIntent, cycleWaitingPickup, nil, func() (bool, error) { return adapter.Pickup(ctx, t) })
 	case cycleClearIntent, cycleClearReceived:
 		// An intent without its receipt is reconciled only by proof, never by sending again.
 		epoch, err := adapter.NewEpoch(ctx, t)
 		if err == nil && epoch != "" && epoch != c.Epoch && nativeEpoch.MatchString(epoch) {
-			_, err := s.advanceCycle(ctx, c.ID, c.Revision, c.State, cycleResetVerified, "", func(n *cycleRow) { n.SuccessorEpoch = epoch })
+			_, err := s.advanceCycle(ctx, c.ID, c.Revision, c.State, cycleResetVerified, "", nil, func(n *cycleRow) { n.SuccessorEpoch = epoch })
 			return err
 		}
 		if c.State == cycleClearIntent || now >= c.StageDeadline {
@@ -102,22 +115,33 @@ func (s *Store) stepCycle(ctx context.Context, c cycleRow) error {
 	case cyclePickupIntent:
 		_, err := s.endCycle(ctx, c.ID, c.Revision, cycleUncertain, "pickup_unreceipted")
 		return err
+	case cyclePromptIntent:
+		_, err := s.endCycle(ctx, c.ID, c.Revision, cycleUncertain, "prompt_unreceipted")
+		return err
 	case cycleWaitingPrompt:
-		answered, err := adapter.Answer(ctx, t, c.Reason)
-		if err != nil || !answered {
-			_, err := s.endCycle(ctx, c.ID, c.Revision, cycleFailed, "prompt_unanswered")
+		// The response is an input like any other: its intent is recorded first, and it is
+		// never entered again without proof.
+		c, err := s.advanceCycle(ctx, c.ID, c.Revision, cycleWaitingPrompt, cyclePromptIntent, c.Reason, nil, nil)
+		if err != nil {
 			return err
 		}
-		_, err = s.advanceCycle(ctx, c.ID, c.Revision, cycleWaitingPrompt, c.PromptFrom, "prompt_answered", func(n *cycleRow) { n.PromptFrom = "" })
+		answered, err := adapter.Answer(ctx, t, c.Reason)
+		if err != nil || !answered {
+			_, err := s.endCycle(ctx, c.ID, c.Revision, cycleUncertain, "prompt_unanswered")
+			return err
+		}
+		_, err = s.advanceCycle(ctx, c.ID, c.Revision, cyclePromptIntent, c.PromptFrom, "prompt_answered", nil, func(n *cycleRow) { n.PromptFrom = "" })
 		return err
 	}
 	return nil
 }
 
-// enterInput records the intent, makes the input and records its receipt. A failed or
-// unreceived input is uncertain: its effect is unknown, and it is never sent again.
-func (s *Store) enterInput(ctx context.Context, c cycleRow, intent, received string, input func() (bool, error)) error {
-	c, err := s.advanceCycle(ctx, c.ID, c.Revision, c.State, intent, "", nil)
+// enterInput records the intent, makes the input and records its receipt. guard adds the
+// caller's checks to the intent's transaction. A failed or unreceived input is uncertain:
+// its effect is unknown, and it is never sent again.
+func (s *Store) enterInput(ctx context.Context, c cycleRow, intent, received string, guard func(*writeTx, cycleRow, int64) error,
+	input func() (bool, error)) error {
+	c, err := s.advanceCycle(ctx, c.ID, c.Revision, c.State, intent, "", guard, nil)
 	if err != nil {
 		return err
 	}
@@ -126,20 +150,8 @@ func (s *Store) enterInput(ctx context.Context, c cycleRow, intent, received str
 		_, err := s.endCycle(ctx, c.ID, c.Revision, cycleUncertain, intent+"_unreceived")
 		return err
 	}
-	_, err = s.advanceCycle(ctx, c.ID, c.Revision, intent, received, "", nil)
+	_, err = s.advanceCycle(ctx, c.ID, c.Revision, intent, received, "", nil, nil)
 	return err
-}
-
-// cycleStillEnabled checks that the session's Enable is the one that admitted the cycle.
-func (s *Store) cycleStillEnabled(ctx context.Context, c cycleRow) (bool, error) {
-	var enabled bool
-	var revision int64
-	err := s.db.QueryRowContext(ctx, `SELECT enabled,revision FROM context_enables WHERE family=? AND session_id=?`, c.Family, c.SessionID).
-		Scan(&enabled, &revision)
-	if err != nil {
-		return false, nil
-	}
-	return enabled && revision == c.EnableRevision, nil
 }
 
 // paneHeldByCycle reports whether an unfinished cycle owns the target session's pane, so
@@ -147,7 +159,7 @@ func (s *Store) cycleStillEnabled(ctx context.Context, c cycleRow) (bool, error)
 func (s *Store) paneHeldByCycle(ctx context.Context, target Key) (bool, error) {
 	var held int
 	err := s.db.QueryRowContext(ctx, `SELECT COUNT(*) FROM context_cycles c JOIN sessions s ON s.family=? AND s.id=?
-		WHERE c.state IN ('ready','clear_intent','clear_received','reset_verified','pickup_intent','waiting_pickup','waiting_prompt')
+		WHERE c.state IN ('ready','clear_intent','clear_received','reset_verified','pickup_intent','waiting_pickup','waiting_prompt','prompt_intent')
 		AND c.host_pid=s.host_pid AND c.host_start=s.host_start AND c.tmux_socket=s.tmux_socket AND c.tmux_pane=s.tmux_pane`,
 		target.Family, target.ID).Scan(&held)
 	return held > 0, err

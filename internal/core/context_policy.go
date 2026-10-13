@@ -350,9 +350,12 @@ type ContextTriggerInput struct {
 	Enabled        bool
 	Policy         ContextFamilyPolicy
 	CycleAvailable bool
-	Evidence       ContextEvidence
-	Now            int64  // ms
-	LatchedEpoch   string // the epoch whose crossing was already selected, or ""
+	// OverwatchConflict reports a retained name record named overwatch, the reserved
+	// sender of the cycle request (#196): no cycle is admitted until it is resolved.
+	OverwatchConflict bool
+	Evidence          ContextEvidence
+	Now               int64  // ms
+	LatchedEpoch      string // the epoch whose crossing was already selected, or ""
 }
 
 // SelectContextTrigger returns whether a session's context has reached its threshold for
@@ -368,6 +371,8 @@ func SelectContextTrigger(in ContextTriggerInput) (bool, string) {
 		return false, "not_enabled"
 	case !in.CycleAvailable:
 		return false, "context_cycle_unavailable"
+	case in.OverwatchConflict:
+		return false, "overwatch_name_conflict"
 	case !e.Found:
 		return false, "context_unknown"
 	case e.UsedTokens == nil || e.LimitTokens == nil:

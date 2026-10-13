@@ -69,8 +69,8 @@ func (s *Store) verifyArtifact(ctx context.Context, c cycleRow, name string) (ar
 }
 
 // mainCheckout returns the main working tree of the registered repository: the first
-// worktree that Git lists, with the same common directory. A copied Git pointer cannot
-// name an unlisted root.
+// worktree that Git lists, with the same common directory. The registered directory must
+// itself be a listed worktree, so a copied Git pointer in an unlisted directory is refused.
 func mainCheckout(ctx context.Context, directory, repository string) (string, error) {
 	base, err := CheckoutResource(ctx, directory)
 	if err != nil || repository != "" && base.Repository != repository {
@@ -84,6 +84,7 @@ func mainCheckout(ctx context.Context, directory, repository string) (string, er
 	if err != nil {
 		return "", ErrInvalid
 	}
+	main, listed := "", false
 	for _, record := range bytes.Split(data, []byte{0}) {
 		root, ok := bytes.CutPrefix(record, []byte("worktree "))
 		if !ok {
@@ -91,15 +92,24 @@ func mainCheckout(ctx context.Context, directory, repository string) (string, er
 		}
 		resolved, err := filepath.EvalSymlinks(string(root))
 		if err != nil {
-			return "", ErrInvalid
+			if main == "" {
+				return "", ErrInvalid
+			}
+			continue
 		}
-		main, err := CheckoutResource(ctx, resolved)
-		if err != nil || main.Repository != base.Repository || main.Directory != resolved {
-			return "", ErrInvalid
+		if main == "" {
+			checkout, err := CheckoutResource(ctx, resolved)
+			if err != nil || checkout.Repository != base.Repository || checkout.Directory != resolved {
+				return "", ErrInvalid
+			}
+			main = resolved
 		}
-		return resolved, nil
+		listed = listed || resolved == base.Directory
 	}
-	return "", ErrInvalid
+	if main == "" || !listed {
+		return "", ErrInvalid
+	}
+	return main, nil
 }
 
 func gitIgnored(ctx context.Context, root, relative string) bool {

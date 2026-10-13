@@ -1,35 +1,35 @@
 # Managed context cycle storage
 
-A managed context cycle (#196, chunk 02) promises one terminal outcome: complete, cancelled,
-failed or uncertain. This note derives the page credit that keeps that outcome possible when
-ordinary storage is full. It uses the method and the source assumptions of the
-[work-items storage note](WORK-ITEMS-GO-STORAGE.md): 4,096-byte pages, at most 130,681
-database pages, SQLite 3.53.4 as `modernc.org/sqlite` v1.60.1 builds it, header schema format
-4, and the catalog check that refuses any schema object the daemon did not create.
+A managed context cycle (#196, chunk 02) promises every remaining transition after its
+admission and one terminal outcome: complete, cancelled, failed or uncertain. This note derives
+the page credit that keeps those transitions possible when ordinary storage is full. It uses
+the method and the source assumptions of the [work-items storage note](WORK-ITEMS-GO-STORAGE.md):
+4,096-byte pages, at most 130,681 database pages, SQLite 3.53.4 as `modernc.org/sqlite` v1.60.1
+builds it, header schema format 4, and the catalog check that refuses any schema object the
+daemon did not create. One insertion or size-changing update of a B-tree allows 4 × 17 + 1 =
+69 pages plus its overflow pages.
 
 ## What a cycle funds
 
-The plan proposed a credit of 512 pages per active cycle that funds every remaining
-transition. One transition changes at least the cycle row, an event and an audit row. At a
-B-tree height of 17, each changed object allows 4 × 17 + 1 = 69 pages, so 15 funded
-transitions would need more than 5,000 pages, ten times the proposal. This chunk therefore
-funds only the terminal outcome, which the definition of done requires to complete at
-ordinary saturation, and corrects the allocation as the plan asks:
+A cycle has at most 16 events. Admission writes the first, and the last is kept for the
+terminal outcome, so at most 14 non-terminal stages follow admission. Every one of them is
+funded, as the plan's shared contract requires:
 
-- Non-terminal stages (`ready`, the intents and receipts, `reset_verified`, `waiting_pickup`,
-  `waiting_prompt`) are ordinary writes. At ordinary saturation they are refused; the cycle
-  then waits until its stage or cycle deadline, and that deadline's terminal outcome is funded.
-  An intent is recorded before its input, so a refused intent enters no input.
-- The terminal outcome is a control write that clears the cycle's 0/1 `credit` flag in its
-  own transaction. Every control that ends a cycle (Disable, a family mode without the cycle,
-  retirement, purge, deletion, the maintainer's holder choice, a deadline, an unproven intent
-  and a pickup completion) is a control write.
-- The last of the 16 event slots is kept for the terminal outcome, so the outcome never needs
-  a seventeenth event.
+- Each non-terminal stage (`ready`, the intents and receipts, `reset_verified`,
+  `waiting_pickup`, `waiting_prompt`, and the return to `waiting_ready` or a prompt's preceding
+  stage) is a control write that debits **280 pages** from the cycle's credit in its own
+  transaction.
+- The terminal outcome is a control write that sets the credit to 0. Every control that ends a
+  cycle (Disable, a family mode without the cycle, retirement, purge, deletion, the
+  maintainer's holder choice, a deadline, an unproven input, the event bound and a pickup
+  completion) is a control write.
+- A stage that would take the 16th event slot ends the cycle instead, so a cycle never needs
+  more than 14 stage debits and one terminal outcome.
 
-## Allocation of a terminal outcome
+The credit at admission is 14 × 280 + 491 = **4,411 pages**. A cycle that ends early releases
+the rest at its terminal commit.
 
-The largest terminal outcome is a completion by a successor, which also moves the Enable.
+## Allocation of a stage
 
 | Changed object | Pages |
 | --- | ---: |
@@ -37,18 +37,36 @@ The largest terminal outcome is a completion by a successor, which also moves th
 | `context_cycle_events` row (a `WITHOUT ROWID` table: its key is its row, under 300 bytes) | 69 |
 | `audit` row (fixed codes and the cycle ID and peer name) | 69 |
 | its `audit_at` index entry | 69 |
+
+The sum is 278 pages, with ceil(278 / 819) + 1 = 2 pointer-map pages, **280**. `audit` is an
+`AUTOINCREMENT` table, so each audit insert also rewrites its `sqlite_sequence` row. That table
+holds one row of under 64 bytes for each of the database's four `AUTOINCREMENT` tables, so it
+stays a single page that never splits, and the rewrite allocates nothing.
+
+## Allocation of a terminal outcome
+
+The largest terminal outcome is a completion by a successor, which also moves the Enable.
+
+| Changed object | Pages |
+| --- | ---: |
+| `context_cycles` row rewrite | 69 + 2 |
+| `context_cycle_events` row | 69 |
+| `audit` row | 69 |
+| its `audit_at` index entry | 69 |
 | the requester's `context_enables` row (it holds the socket path) | 69 + 2 |
 | the successor's `context_enables` row | 69 + 2 |
+| its primary-key index entry `(family, session_id)` | 69 |
 
-The sum is 414 pages and 6 overflow pages, 420 pages, with ceil(420 / 819) + 1 = 2
-pointer-map pages, **422**. The credit is rounded up to **512 pages per unfinished cycle**.
-Other terminal outcomes change a subset of these objects. A dashboard action that ends a cycle
-also writes its own change and its own audit record; those are control writes that use the
-2,048-page reserve, as retirement, purge and the holder choice did before this chunk.
+The sum is 483 pages and 6 overflow pages, 489 pages, with ceil(489 / 819) + 1 = 2 pointer-map
+pages, **491**. Other terminal outcomes change a subset of these objects. A dashboard action
+that ends a cycle also writes its own change and its own audit record; those are control writes
+that use the 2,048-page reserve, as retirement, purge and the holder choice did before this
+chunk.
 
-The `credit` flag has no index, and the catalog check refuses an index on it. At most 16
-cycles are unfinished, so the cycle debt is at most 16 × 512 = 8,192 pages (32 MiB), added to
-the work debt in `debtPages` and subtracted, after the mutation, in every write ceiling.
+At most 16 cycles are unfinished, so the cycle debt is at most 16 × 4,411 = 70,576 pages
+(about 276 MiB). `debtPages` adds the remaining credits of the unfinished cycles to the work
+debt, and every write ceiling subtracts it after the mutation. An admission that does not fit
+below the ordinary ceiling with its credit is refused and stores nothing.
 
 ## Retention
 
@@ -60,9 +78,13 @@ database already relies on.
 ## Evidence
 
 `TestContextCycleControlsAtSaturation` admits 16 cycles with a 4,096-byte socket path, long
-session IDs and epochs, drives four of them to `waiting_pickup`, fills ordinary storage, and
-then commits four Disables, four retirements, four timeouts and four pickup completions with
-1,024-byte reports. It checks each control's page growth against the 512-page credit, that
-no credit remains and the database's integrity. These observations illustrate the bound;
-the sum above establishes it. A changed SQLite version, schema or allocation path requires
-revisiting this derivation.
+session IDs and epochs, the longest handoff file name, a funded work claim and a pending work
+verdict. It fragments the audit, cycle and event trees (rows in random key order, then every
+other row deleted) and fills ordinary storage. Then one cycle spends all 14 funded stages on
+the most prompt rounds the event bound allows and ends at the bound; three clear, prove the
+reset and enter pickup; one completes as the retained caller and two as managed successors
+with 1,024-byte reports; and the rest end by Disable, retirement and timeouts. The work finish
+and verdict also commit. Each control's page growth is checked against the credit it releases,
+and no cycle or verdict credit remains. These observations illustrate the bound; the sums above
+establish it. A changed SQLite version, schema or allocation path requires revisiting this
+derivation.

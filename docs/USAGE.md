@@ -372,7 +372,9 @@ its pickup, and the new context reports with `context_cycle_pickup`. The Session
 each session's current or newest cycle: its stage, the stage deadline and each recorded step.
 Disabling, retiring or purging the session, a family mode without the cycle, or a holder
 choice for its address ends the cycle; a cycle that fails or cannot be proven ends the
-session's Enable. See PROTOCOL.md, Managed context cycles.
+session's Enable. A session must report its pickup within two minutes of the pickup input.
+While a retained name record is called `overwatch`, no cycle starts and the Sessions page
+names the conflict. See PROTOCOL.md, Managed context cycles.
 
 A holder change retires and persistently fences the former holder. Registering again gives
 it its native peer name only; only **Make holder** lifts its fence. Address messages now

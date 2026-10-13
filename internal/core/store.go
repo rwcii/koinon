@@ -740,8 +740,9 @@ func migrate(db *sql.DB, version, target int) error {
 	}
 	if version < 23 && target >= 23 {
 		// Version 23: managed context cycles (#196, chunk 02), their bounded event history,
-		// and the typed overwatch request metadata of a message. The 0/1 credit flag funds
-		// one terminal outcome (docs/CONTEXT-CYCLE-STORAGE.md); no index covers it.
+		// and the typed overwatch request metadata of a message. A cycle's credit is the page
+		// count that funds its remaining stages and terminal outcome
+		// (docs/CONTEXT-CYCLE-STORAGE.md).
 		if _, err := tx.Exec(contextCyclesTable + contextCycleEventsTable + `
 			ALTER TABLE messages ADD COLUMN system_kind TEXT NOT NULL DEFAULT '';
 			ALTER TABLE messages ADD COLUMN cycle_id TEXT NOT NULL DEFAULT '';

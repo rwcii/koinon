@@ -2,7 +2,9 @@ package core
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
+	"math/rand/v2"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -377,7 +379,7 @@ func TestContextCycleFences(t *testing.T) {
 	if _, err := f.s.ContextCycleReady(context.Background(), f.k, "synthetic-epoch-1", v.ID, 1, name); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := f.s.advanceCycle(context.Background(), v.ID, 2, cycleReady, cycleClearIntent, "", nil); err != nil {
+	if _, err := f.s.advanceCycle(context.Background(), v.ID, 2, cycleReady, cycleClearIntent, "", nil, nil); err != nil {
 		t.Fatal(err)
 	}
 	e, _ := f.s.contextEnables(context.Background())
@@ -385,7 +387,7 @@ func TestContextCycleFences(t *testing.T) {
 	if _, err := f.s.SetContextEnable(roomCtx("context-enable"), s.Name, s.Revision, e[f.k].Revision, false); err != nil {
 		t.Fatal(err)
 	}
-	if v = f.status(t, f.k); v.State != cycleUncertain || v.Reason != "input_unreconciled" {
+	if v = f.status(t, f.k); v.State != cycleUncertain || v.Reason != "disabled" {
 		t.Fatalf("intent fenced: %+v", v)
 	}
 }
@@ -414,7 +416,7 @@ func TestContextCycleDeadlinesAndIntentRecovery(t *testing.T) {
 	g.step(t)
 	g.step(t)
 	v = g.status(t, g.k)
-	if _, err := g.s.advanceCycle(context.Background(), v.ID, v.Revision, cycleResetVerified, cyclePickupIntent, "", nil); err != nil {
+	if _, err := g.s.advanceCycle(context.Background(), v.ID, v.Revision, cycleResetVerified, cyclePickupIntent, "", nil, nil); err != nil {
 		t.Fatal(err)
 	}
 	g.step(t)
@@ -434,8 +436,8 @@ func TestContextCycleDeadlinesAndIntentRecovery(t *testing.T) {
 	}
 }
 
-// A recognized prompt is answered and the cycle returns to its stage; an unanswered one
-// fails the cycle.
+// A recognized prompt is answered after its recorded intent and the cycle returns to its
+// stage; an unanswered response has an unknown effect, so the cycle is uncertain.
 func TestContextCyclePrompt(t *testing.T) {
 	f := newCycleFixture(t)
 	f.adapter.pane = PaneState{Prompt: "synthetic_trust_prompt"}
@@ -455,7 +457,7 @@ func TestContextCyclePrompt(t *testing.T) {
 	f.adapter.pane, f.adapter.answered = PaneState{Prompt: "synthetic_trust_prompt"}, false
 	f.step(t)
 	f.step(t)
-	if v = f.status(t, f.k); v.State != cycleFailed || v.Reason != "prompt_unanswered" {
+	if v = f.status(t, f.k); v.State != cycleUncertain || v.Reason != "prompt_unanswered" {
 		t.Fatalf("unanswered: %+v", v)
 	}
 }
@@ -528,11 +530,14 @@ func TestContextCycleSuccessorFlow(t *testing.T) {
 	}
 }
 
-// With 16 admitted cycles at their maximum field sizes and ordinary storage full, every
-// terminal control still completes within the credit: Disable, retirement, a timeout, an
-// unproven intent and a pickup completion. The credit is spent and the database is intact.
+// With 16 admitted cycles at their maximum field sizes, a funded work claim and a pending
+// work verdict beside them, and ordinary storage full over fragmented trees, every funded
+// stage and every terminal control commits within the credit it releases: the most prompt
+// rounds the event bound allows, intents and receipts, retained-caller and successor
+// pickups, Disable, retirement and timeouts. No credit remains and the database is intact.
 func TestContextCycleControlsAtSaturation(t *testing.T) {
 	f := newCycleFixture(t)
+	f.s.memory.limits.logical, f.s.memory.limits.workLogical, f.s.memory.limits.entries = 1<<40, 1<<40, 1<<20
 	socket := "/" + strings.Repeat("s", 4095)
 	keys := []Key{}
 	for i := range maxActiveCycles {
@@ -557,22 +562,69 @@ func TestContextCycleControlsAtSaturation(t *testing.T) {
 	if count(t, f.s, `SELECT COUNT(*) FROM context_cycles`) != maxActiveCycles {
 		t.Fatal("admitted beyond the active bound")
 	}
-	// Four cycles reach waiting_pickup before storage fills.
 	cycles, _ := cyclesWhere(context.Background(), f.s.db, activeCycle+` ORDER BY session_id`)
-	name := f.handoff(t, "claude", "2026-10-13-120000.md", "synthetic handoff")
-	for _, c := range cycles[12:] {
-		if _, err := f.s.ContextCycleReady(context.Background(), Key{"claude", c.SessionID}, c.Epoch, c.ID, 1, name); err != nil {
+	name := f.handoff(t, "claude", "2026-10-13-120000-"+strings.Repeat("l", 96)+".md", "synthetic handoff")
+	// Two managed successors wait in the pinned host and pane of cycles 14 and 15.
+	successors := map[int]Key{}
+	for _, i := range []int{14, 15} {
+		k := Key{"claude", "synthetic-successor-" + strings.Repeat("u", 180) + string(rune('a'+i))}
+		join(t, f.s, "claude", k.ID, f.repo)
+		if _, err := f.s.db.Exec(`UPDATE sessions SET host_pid=?,host_start=77,tmux_socket=?,tmux_pane='%3',expires_at=? WHERE family='claude' AND id=?`,
+			cycles[i].HostPID, socket, f.clock.Add(24*time.Hour).UnixMilli(), k.ID); err != nil {
+			t.Fatal(err)
+		}
+		successors[i] = k
+	}
+	// A funded work claim and a pending work verdict stand beside the cycles.
+	big := strings.Repeat("x", 4096)
+	m := participantCaller(t, f.s, f.k)
+	claimed := mustWork(t, f.s, m, "work-create", map[string]any{"title": big[:256], "criteria": big, "non_goals": big[:2048], "key": key(), "deadline": now(f.s) + 600})["work_id"].(string)
+	generation := mustStart(t, f.s, m, claimed, map[string]any{"checkpoint": big[:1024], "next_artifact": big[:1024], "progress_deadline": now(f.s) + 3600, "lease_seconds": 3600})
+	reported := mustWork(t, f.s, m, "work-create", map[string]any{"title": big[:256], "criteria": big, "non_goals": big[:2048], "key": key(), "deadline": now(f.s) + 600})["work_id"].(string)
+	writer := other(m, "synthetic-writer")
+	out, err := report(f.s, writer, reported, mustStart(t, f.s, writer, reported, nil), map[string]any{"summary": big[:2048]})
+	if err != nil {
+		t.Fatal(err)
+	}
+	seq := int64(out["seq"].(float64))
+	join(t, f.s, "codex", "synthetic-reviewer", f.repo)
+	reviewer := participantCaller(t, f.s, Key{"codex", "synthetic-reviewer"})
+	// Fragment the trees a transition writes: rows in random key order, then every other
+	// one deleted, so their pages are partly used and free pages are scattered.
+	for i := range 3000 {
+		if _, err := f.s.db.Exec(`INSERT INTO audit(at,action,target,result,reason) VALUES (?,'synthetic',?,'synthetic','')`,
+			rand.Int64N(1<<40), big[:200+i%100]); err != nil {
 			t.Fatal(err)
 		}
 	}
-	for range 3 {
-		f.step(t)
+	tx, err := f.s.begin(context.Background(), control)
+	if err != nil {
+		t.Fatal(err)
 	}
-	// A funded work claim stands beside the cycles: its end control must complete too.
-	m := participantCaller(t, f.s, f.k)
-	work := mustWork(t, f.s, m, "work-create", map[string]any{"title": "synthetic saturation", "criteria": "synthetic", "non_goals": "synthetic", "key": key(), "deadline": now(f.s) + 600})
-	workID := work["work_id"].(string)
-	generation := mustStart(t, f.s, m, workID, map[string]any{"checkpoint": "synthetic", "next_artifact": "synthetic", "progress_deadline": now(f.s) + 3600, "lease_seconds": 3600})
+	for range 200 {
+		c := cycles[0]
+		c.ID, c.State, c.Outcome, c.Credit, c.FinishedAt, c.Events = newCycleID(), cycleFailed, cycleFailed, 0, f.clock.UnixMilli(), maxCycleEvents
+		if err := insertCycle(context.Background(), tx, c); err != nil {
+			t.Fatal(err)
+		}
+		for ordinal := range maxCycleEvents {
+			if _, err := tx.Exec(`INSERT INTO context_cycle_events(cycle_id,ordinal,at,stage,result,reason) VALUES (?,?,0,'synthetic','synthetic',?)`,
+				c.ID, ordinal+1, strings.Repeat("r", 64)); err != nil {
+				t.Fatal(err)
+			}
+		}
+	}
+	if err := tx.Commit(); err != nil {
+		t.Fatal(err)
+	}
+	for _, query := range []string{`DELETE FROM audit WHERE action='synthetic' AND id%2=0`,
+		`DELETE FROM context_cycle_events WHERE stage='synthetic' AND ordinal%2=0`,
+		`DELETE FROM context_cycles WHERE state='failed' AND rowid%2=0`} {
+		if _, err := f.s.db.Exec(query); err != nil {
+			t.Fatal(err)
+		}
+	}
+	// Fill ordinary storage.
 	f.s.storage.maxPages = count(t, f.s, `PRAGMA page_count`) + reservePages + commitSlack + f.debt(t) + 64
 	sender := Key{"claude", keys[0].ID}
 	for {
@@ -584,58 +636,119 @@ func TestContextCycleControlsAtSaturation(t *testing.T) {
 			break
 		}
 	}
-	end := func(label string, i int, run func(c cycleRow) error) {
+	// funded runs one control and checks that it grew the database by no more than the
+	// credit it released.
+	largest := map[string]int64{}
+	funded := func(label string, run func() error) {
 		t.Helper()
-		before := count(t, f.s, `PRAGMA page_count`)
-		if err := run(cycles[i]); err != nil {
-			t.Fatalf("%s %d: %v", label, i, err)
+		pages, debt := count(t, f.s, `PRAGMA page_count`), f.debt(t)
+		if err := run(); err != nil {
+			t.Fatalf("%s: %v", label, err)
 		}
-		if growth := count(t, f.s, `PRAGMA page_count`) - before; growth > cycleCreditPages {
-			t.Fatalf("%s growth %d", label, growth)
+		growth, released := count(t, f.s, `PRAGMA page_count`)-pages, debt-f.debt(t)
+		if growth > released {
+			t.Fatalf("%s grew %d pages and released %d", label, growth, released)
 		}
-		var state string
-		f.s.db.QueryRow(`SELECT state FROM context_cycles WHERE cycle_id=?`, cycles[i].ID).Scan(&state)
-		if !cycleTerminal(state) {
-			t.Fatalf("%s %d left %s", label, i, state)
+		largest[label] = max(largest[label], growth)
+	}
+	current := func(i int) cycleRow {
+		t.Helper()
+		c, err := cyclesWhere(context.Background(), f.s.db, `cycle_id=?`, cycles[i].ID)
+		if err != nil || len(c) != 1 {
+			t.Fatal(err)
 		}
+		return c[0]
 	}
-	for i := range 4 {
-		end("disable", i, func(c cycleRow) error {
-			s := f.reload(t, Key{"claude", c.SessionID})
-			e, _ := f.s.contextEnables(context.Background())
-			_, err := f.s.SetContextEnable(roomCtx("context-enable"), s.Name, s.Revision, e[Key{"claude", c.SessionID}].Revision, false)
-			return err
-		})
-	}
-	for i := 4; i < 8; i++ {
-		end("retire", i, func(c cycleRow) error {
-			s := f.reload(t, Key{"claude", c.SessionID})
-			_, err := f.s.Mutate(context.Background(), Mutation{Family: "claude", ID: c.SessionID, IfRevision: s.Revision}, true)
-			return err
-		})
-	}
-	for i := 8; i < 12; i++ {
-		end("timeout", i, func(c cycleRow) error {
-			_, err := f.s.endCycle(context.Background(), c.ID, 0, cycleFailed, "waiting_ready_timeout")
-			return err
-		})
-	}
+	stepOne := func(i int) error { return f.s.stepCycle(context.Background(), current(i)) }
+	state := func(i int) string { return current(i).State }
 	for i := 12; i < 16; i++ {
-		end("pickup", i, func(c cycleRow) error {
-			current, _ := cyclesWhere(context.Background(), f.s.db, `cycle_id=?`, c.ID)
-			_, err := f.s.ContextCyclePickup(context.Background(), Key{"claude", c.SessionID}, "synthetic-epoch-2", c.ID, current[0].Revision, name,
+		funded("ready", func() error {
+			_, err := f.s.ContextCycleReady(context.Background(), Key{"claude", cycles[i].SessionID}, cycles[i].Epoch, cycles[i].ID, 1, name)
+			return err
+		})
+	}
+	// Cycle 12 spends every funded stage on prompt rounds, then its clear intent; its
+	// receipt would need a 16th event, so the cycle ends uncertain with the slot kept.
+	for range (cycleFundedStages - 2) / 3 {
+		f.adapter.pane = PaneState{Prompt: strings.Repeat("p", 64)}
+		funded("prompt", func() error { return stepOne(12) })
+		f.adapter.pane = PaneState{Idle: true}
+		funded("answer", func() error { return stepOne(12) })
+	}
+	if c := current(12); c.State != cycleReady || c.Events != maxCycleEvents-2 {
+		t.Fatalf("prompt rounds: %s with %d events", c.State, c.Events)
+	}
+	funded("event limit", func() error { return stepOne(12) })
+	if c := current(12); c.State != cycleUncertain || c.Reason != "event_limit" || c.Events != maxCycleEvents {
+		t.Fatalf("event limit: %s %s with %d events", c.State, c.Reason, c.Events)
+	}
+	// Cycles 13 to 15 clear, prove the reset and enter pickup at saturation.
+	for i := 13; i < 16; i++ {
+		for _, want := range []string{cycleClearReceived, cycleResetVerified, cycleWaitingPickup} {
+			funded("stage", func() error { return stepOne(i) })
+			if got := state(i); got != want {
+				t.Fatalf("cycle %d: %s, want %s", i, got, want)
+			}
+		}
+	}
+	pickup := func(i int, caller Key) {
+		funded("pickup", func() error {
+			_, err := f.s.ContextCyclePickup(context.Background(), caller, "synthetic-epoch-2", cycles[i].ID, current(i).Revision, name,
 				"resumed", strings.Repeat("r", maxPickupReport))
 			return err
 		})
 	}
-	before := count(t, f.s, `PRAGMA page_count`)
-	mustWork(t, f.s, m, "work-finish", map[string]any{"work_id": workID, "if_revision": revision(t, f.s, m, workID),
-		"claim_generation": generation, "outcome": "withdrawn", "reason": "synthetic", "key": key(), "deadline": now(f.s) + 600})
-	if growth := count(t, f.s, `PRAGMA page_count`) - before; growth > endCreditPages {
-		t.Fatalf("work end growth %d", growth)
+	pickup(13, Key{"claude", cycles[13].SessionID})
+	// The work controls run before a successor takes the participant that m holds.
+	funded("work finish", func() error {
+		_, err := work(f.s, m, "work-finish", map[string]any{"work_id": claimed, "if_revision": revision(t, f.s, m, claimed),
+			"claim_generation": generation, "outcome": "withdrawn", "reason": "synthetic", "key": key(), "deadline": now(f.s) + 600})
+		return err
+	})
+	funded("work verdict", func() error {
+		_, err := verdict(f.s, reviewer, "work-accept", reported, seq, nil)
+		return err
+	})
+	for _, i := range []int{14, 15} {
+		if _, err := f.s.db.Exec(`UPDATE names SET holder_id=? WHERE name=?`, successors[i].ID, cycles[i].Address); err != nil || cycles[i].Address == "" {
+			t.Fatalf("successor %d address %q: %v", i, cycles[i].Address, err)
+		}
+		pickup(i, successors[i])
+		if e, _ := f.s.contextEnables(context.Background()); !e[successors[i]].Enabled {
+			t.Fatalf("successor %d has no Enable", i)
+		}
 	}
-	if f.debt(t) != 0 {
-		t.Fatalf("credit left: %d", f.debt(t))
+	for i := range 4 {
+		funded("disable", func() error {
+			s := f.reload(t, Key{"claude", cycles[i].SessionID})
+			e, _ := f.s.contextEnables(context.Background())
+			_, err := f.s.SetContextEnable(roomCtx("context-enable"), s.Name, s.Revision, e[Key{"claude", cycles[i].SessionID}].Revision, false)
+			return err
+		})
+	}
+	for i := 4; i < 8; i++ {
+		funded("retire", func() error {
+			s := f.reload(t, Key{"claude", cycles[i].SessionID})
+			_, err := f.s.Mutate(context.Background(), Mutation{Family: "claude", ID: cycles[i].SessionID, IfRevision: s.Revision}, true)
+			return err
+		})
+	}
+	for i := 8; i < 12; i++ {
+		funded("timeout", func() error {
+			_, err := f.s.endCycle(context.Background(), cycles[i].ID, 0, cycleFailed, "waiting_ready_timeout")
+			return err
+		})
+	}
+	for i := range cycles {
+		if !cycleTerminal(state(i)) {
+			t.Fatalf("cycle %d left %s", i, state(i))
+		}
+	}
+	var version string
+	f.s.db.QueryRow(`SELECT sqlite_version()`).Scan(&version)
+	t.Logf("SQLite %s: largest growth: %v", version, largest)
+	if credit := count(t, f.s, `SELECT COALESCE(SUM(credit),0) FROM context_cycles`); credit != 0 || verdictCredits(t, f.s) != 0 {
+		t.Fatalf("cycle credit left %d, verdict credit %d", credit, verdictCredits(t, f.s))
 	}
 	var integrity string
 	if err := f.s.db.QueryRow(`PRAGMA integrity_check`).Scan(&integrity); err != nil || integrity != "ok" {
@@ -692,6 +805,14 @@ func TestContextCycleDashboardAndRoutes(t *testing.T) {
 	if status, reply := post(t, address, secret, "/v1/cycles/ready", map[string]any{"caller": caller, "epoch": "synthetic-private-epoch",
 		"cycle_id": id, "revision": 3, "artifact": "2026-10-13-120000.md"}); status != 409 || reply["code"] != "cycle_changed" {
 		t.Fatalf("stale ready: %d %v", status, reply)
+	}
+	// The native inbox read carries the typed request's metadata.
+	status, reply := post(t, address, secret, "/v1/inbox/read", map[string]any{"caller": caller, "after": 0, "limit": 10})
+	data, _ := json.Marshal(reply)
+	for _, field := range []string{`"system_kind":"` + cycleRequestKind + `"`, `"cycle_id":"` + id + `"`, `"cycle_enable_revision":1`} {
+		if status != 200 || !strings.Contains(string(data), field) {
+			t.Fatalf("inbox read lacks %s: %d %s", field, status, data)
+		}
 	}
 }
 

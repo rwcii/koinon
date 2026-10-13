@@ -45,6 +45,11 @@ type Message struct {
 	AcknowledgedVia     string `json:"acknowledged_via,omitempty"`
 	// Room is the typed room metadata of a membership notice or a room post copy (#217).
 	Room *RoomEvent `json:"room,omitempty"`
+	// SystemKind, CycleID and CycleEnableRevision type a system request: overwatch's
+	// managed-cycle request names its cycle and the Enable revision that admitted it (#196).
+	SystemKind          string `json:"system_kind,omitempty"`
+	CycleID             string `json:"cycle_id,omitempty"`
+	CycleEnableRevision int64  `json:"cycle_enable_revision,omitempty"`
 	// Inbox is session for the caller's own inbox and participant for the inbox of the
 	// participant that the caller holds (chunk 03).
 	Inbox string `json:"inbox"`
@@ -408,7 +413,8 @@ func readMessages(ctx context.Context, tx *sql.Tx, inbox Key, after, limit int64
 		return 0, 0, false, err
 	}
 	rows, err := tx.QueryContext(ctx, `SELECT id,seq,sender_family,sender_name,body,created_at,delivery_state,delivery_reason,maintainer_ack,
-		ack_session,ack_via,room_id,room_revision,room_event,room_seq,room_origin FROM messages WHERE recipient_family=? AND recipient_id=? AND seq>? ORDER BY seq LIMIT ?`,
+		ack_session,ack_via,room_id,room_revision,room_event,room_seq,room_origin,system_kind,cycle_id,cycle_enable_revision FROM messages
+		WHERE recipient_family=? AND recipient_id=? AND seq>? ORDER BY seq LIMIT ?`,
 		inbox.Family, inbox.ID, after, limit+1)
 	if err != nil {
 		return 0, 0, false, err
@@ -420,18 +426,21 @@ func readMessages(ctx context.Context, tx *sql.Tx, inbox Key, after, limit int64
 		var maintainer bool
 		var room RoomEvent
 		if err := rows.Scan(&m.ID, &m.Seq, &m.SenderFamily, &m.SenderName, &m.Body, &m.CreatedAt, &m.DeliveryState, &m.DeliveryReason, &maintainer,
-			&m.AcknowledgedSession, &m.AcknowledgedVia, &room.RoomID, &room.Revision, &room.Event, &room.Seq, &room.Origin); err != nil {
+			&m.AcknowledgedSession, &m.AcknowledgedVia, &room.RoomID, &room.Revision, &room.Event, &room.Seq, &room.Origin,
+			&m.SystemKind, &m.CycleID, &m.CycleEnableRevision); err != nil {
 			return 0, 0, false, err
 		}
 		if room.RoomID != "" {
 			m.Room = &room
 		}
-		// The bound counts bodies; room metadata is at most 64 bytes more per message.
-		if count == limit || (count > 0 && size+len(m.Body)+len(room.RoomID)+len(room.Event) > 1<<20) {
+		// The bound counts bodies with room and system metadata, at most 128 bytes more
+		// per message.
+		extra := len(room.RoomID) + len(room.Event) + len(m.SystemKind) + len(m.CycleID)
+		if count == limit || (count > 0 && size+len(m.Body)+extra > 1<<20) {
 			more = true
 			break
 		}
-		size += len(m.Body) + len(room.RoomID) + len(room.Event)
+		size += len(m.Body) + extra
 		count++
 		m.Acknowledged = m.Seq <= acked
 		m.AcknowledgedBy = acknowledgedBy(m.Acknowledged, maintainer)

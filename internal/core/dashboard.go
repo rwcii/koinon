@@ -259,8 +259,9 @@ func (s *Store) contextRowOf(session Session, enable ContextEnable, now int64) c
 	latched := s.latches.latched(k, evidence, policy.Threshold)
 	s.observed.mu.Unlock()
 	available := contextCycleAvailable(session.Family)
+	conflict, _ := overwatchNameHeld(context.Background(), s.db)
 	eligible, reason := SelectContextTrigger(ContextTriggerInput{Active: session.State == "active", Enabled: enable.Enabled, Policy: policy,
-		CycleAvailable: available, Evidence: evidence, Now: now, LatchedEpoch: latched})
+		CycleAvailable: available, OverwatchConflict: conflict, Evidence: evidence, Now: now, LatchedEpoch: latched})
 	row := contextRow{Enable: enable, Mode: policy.Mode, Threshold: policy.Threshold, Available: available, Eligible: eligible, Reason: reason, SourceAge: -1, ConfirmAge: -1}
 	if evidence.Found {
 		row.SourceAge, row.ConfirmAge = max(0, now-evidence.SourceAt)/1000, max(0, now-evidence.ConfirmedAt)/1000

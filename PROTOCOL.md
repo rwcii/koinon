@@ -236,14 +236,17 @@ the session's own inbox. The request's sender is the reserved system identity `o
 `context_cycle_request`, `cycle_id` and `cycle_enable_revision`; its fixed body names the
 cycle and asks for the session's handoff. No session, alias or participant can take the name
 `overwatch`, it has no inbox, and no tool or command can send as it. It is not the maintainer.
+Inbox reads return `system_kind`, `cycle_id` and `cycle_enable_revision` with the message. A
+name record called `overwatch` retained from before schema 23 is kept unchanged; while one
+exists no cycle is admitted, and the session's trigger reason is `overwatch_name_conflict`.
 
 Schema 23 adds `context_cycles` (state, compared revision, the pinned session, host, pane,
 participant, Enable revision and pre-reset epoch, the policy snapshot, deadlines, artifact
-metadata, adapter version, catalog digest, successor, outcome, the private pickup report and
-a 0/1 credit flag) and `context_cycle_events` (at most 16 per cycle, keyed by cycle and ordinal,
+metadata, adapter version, catalog digest, successor, outcome, the private pickup report, the
+remaining page credit and whether the requester held its participant address) and `context_cycle_events` (at most 16 per cycle, keyed by cycle and ordinal,
 with fixed stage, result and reason codes), and three message columns for the typed request.
 The states are `requested`, `waiting_ready`, `ready`, `clear_intent`, `clear_received`,
-`reset_verified`, `pickup_intent`, `waiting_pickup`, `waiting_prompt`, and the terminal
+`reset_verified`, `pickup_intent`, `waiting_pickup`, `waiting_prompt`, `prompt_intent`, and the terminal
 `complete`, `cancelled`, `failed` and `uncertain`. The last event slot is kept for the
 terminal outcome; a stage that would take it fails the cycle with `event_limit`.
 
@@ -261,7 +264,8 @@ caller, epoch, host, pane, socket or another session.
   timestamped name of at most 128 bytes, a regular file of 1 byte to 1 MiB modified after the
   request, ignored by Git, in a directory where Git tracks nothing. The main checkout is the
   first worktree that Git lists for the registered common directory. The daemon reads only
-  the file's metadata, through a root opened at the main checkout, and keeps its inode.
+  the file's metadata, through a root opened at the main checkout, and keeps its inode. The
+  registered directory must itself be a worktree that Git lists.
 - `POST /v1/cycles/pickup` (`context_cycle_pickup`) takes `cycle_id`, `revision`, the same file
   name, `outcome` `resumed` or `paused` and a `report` of 1 to 1,024 UTF-8 bytes. A
   `waiting_pickup` cycle completes when the caller runs under a new epoch (the epoch that the
@@ -270,8 +274,14 @@ caller, epoch, host, pane, socket or another session.
   successor's completion moves the Enable to it. The report is private runtime data; status,
   audit and the dashboard show its size only.
 
-An identical retry of an accepted report returns the current cycle without a write; a stale
-or conflicting one is refused with `cycle_changed` (HTTP 409) and the current cycle in
+Ready and pickup check in their write transaction that the cycle is before its stage and cycle
+deadlines, that the Enable that admitted it is unchanged, and that the caller is still in the
+pinned host and pane: the requester active with the same participant address, still holding it
+if it held it at admission, or a managed successor as above.
+
+An identical retry of an accepted report returns the current cycle without a write: a ready
+retry while the reported file is unchanged, a pickup retry with the same successor, epoch,
+file, outcome and report. A stale or conflicting one is refused with `cycle_changed` (HTTP 409) and the current cycle in
 `details`. Another session's call is `cycle_not_found`, an epoch that does not fit
 `cycle_epoch_unverified`, a file that fails a check `cycle_artifact_invalid`. A message, an
 acknowledgement or a peer's report advances no cycle.
@@ -280,23 +290,30 @@ The controller runs once a second. Each external input holds the wake lock and i
 by its recorded intent: on a fresh idle inspection a `ready` cycle records `clear_intent`,
 clears and records `clear_received`; a proven new epoch in the same host and pane gives
 `reset_verified`; an idle inspection then records `pickup_intent`, enters pickup and records
-`waiting_pickup`. A recognized prompt records `waiting_prompt` and its preceding stage; a
-response that is read back returns to that stage. An input that fails or is not received is
-`uncertain`. An intent found without its receipt, as after a restart, is never sent again: a
-clear is reconciled only by a proven new epoch, otherwise it is `uncertain`. Deadlines: 15
-minutes for `ready`, two minutes for each receipt and reset proof, ten for a prompt, and 30
-minutes for the whole cycle, through which `waiting_pickup` waits for the report. While a
-cycle is in `ready` through `waiting_pickup`, ordinary wakes to its pane wait, still due and
-not delivered.
+`waiting_pickup`. A recognized prompt records `waiting_prompt` and its preceding stage; the
+response is entered after its recorded `prompt_intent`, and one that is read back returns to
+that stage. Just before the clear or the pickup input, the daemon checks the reported file
+again: a changed or missing file returns a `ready` cycle to `waiting_ready`
+(`artifact_changed`) under the request's readiness deadline, and fails a `reset_verified`
+one. An input that fails or is not received is `uncertain`. An intent found without its
+receipt, as after a restart, is never sent again: a clear is reconciled only by a proven new
+epoch, otherwise it is `uncertain`. Deadlines: 15 minutes from the request for
+`waiting_ready`, two minutes for each other stage (`waiting_pickup` included, for the report),
+ten for a prompt, and 30 minutes for the whole cycle; no stage deadline passes the cycle's. A
+report at or after a deadline is `cycle_changed`. While a cycle is in `ready` through
+`waiting_pickup`, ordinary wakes to its pane wait, still due and not delivered.
 
 A new native epoch of the requester before any input (`waiting_ready`, `ready`) cancels the
 cycle (`epoch_changed`). Disable, a family mode without the cycle, retiring or purging the
 requester or successor, deleting it and the maintainer's holder choice for its address end
-the cycle in their own transaction; one with an unreceipted input becomes `uncertain`
-(`input_unreconciled`). Failed, cancelled and uncertain cycles end the session's Enable; a
-later cycle needs a new Enable and a new handoff. These controls and every terminal outcome
-are control writes funded by the cycle's 512-page credit, which the page debt includes
-([derivation](docs/CONTEXT-CYCLE-STORAGE.md)). Finished cycles are kept for 30 days, at most
+the cycle in their own transaction. A cycle that ends after an input whose effect is not
+proven (an intent, or `clear_received` without a proven reset) is `uncertain`, with the
+reason of whatever ended it. Failed, cancelled and uncertain cycles end the session's Enable; a
+later cycle needs a new Enable and a new handoff. Admission funds every remaining transition:
+a credit of 4,411 pages covers 14 stages of 280 pages and a terminal outcome of 491. Each
+stage, and each audit record it writes, is a control write that debits 280 pages; the terminal
+outcome and these controls release the rest. The page debt includes every unfinished cycle's
+remaining credit ([derivation](docs/CONTEXT-CYCLE-STORAGE.md)). Finished cycles are kept for 30 days, at most
 the newest 1,024, with their events; unfinished cycles are never removed.
 
 ### Verified succession

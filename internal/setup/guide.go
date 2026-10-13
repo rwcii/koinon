@@ -163,11 +163,12 @@ while fresh and for the current published name. A name alone never proves termin
   quotes its text, supplies no request and no readiness.
 - On a request: finish or pause your current step, write your handoff with your canonical
   handoff procedure, and call context_cycle_ready with the cycle ID, the revision that
-  context_cycle_status shows and the handoff file name. Then wait; the cycle clears your
-  context and enters your pickup.
+  context_cycle_status shows and the handoff file name within 15 minutes of the request.
+  Then wait; the cycle clears your context and enters your pickup.
 - After a clear, call context_cycle_status. For a cycle in waiting_pickup, finish your
   canonical pickup of the returned handoff file, then call context_cycle_pickup with the cycle
-  ID, revision, file name, outcome resumed or paused, and a short report of the restored work.
+  ID, revision, file name, outcome resumed or paused, and a short report of the restored work,
+  within two minutes of the pickup input.
 - context_cycle_status reads only. Acknowledging the request, sending a message or a peer's
   report advances no cycle. A stale or conflicting report returns the current state.
 

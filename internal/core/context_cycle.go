@@ -17,8 +17,8 @@ import (
 // context reaches its family threshold; it asks the session, through a typed overwatch
 // request in its inbox, to write its own handoff. The session reports ready, a cycle
 // adapter clears its context and enters pickup, and the successor reports its pickup.
-// Each stage is a durable state with a compared revision; one funded terminal outcome
-// ends every cycle (docs/CONTEXT-CYCLE-STORAGE.md).
+// Each stage is a durable state with a compared revision. Admission funds every remaining
+// stage and the one terminal outcome that ends the cycle (docs/CONTEXT-CYCLE-STORAGE.md).
 
 const (
 	cycleRequested     = "requested"
@@ -30,16 +30,24 @@ const (
 	cyclePickupIntent  = "pickup_intent"
 	cycleWaitingPickup = "waiting_pickup"
 	cycleWaitingPrompt = "waiting_prompt"
+	cyclePromptIntent  = "prompt_intent"
 	cycleComplete      = "complete"
 	cycleCancelled     = "cancelled"
 	cycleFailed        = "failed"
 	cycleUncertain     = "uncertain"
 )
 
-// cycleCreditPages funds one cycle's terminal outcome (docs/CONTEXT-CYCLE-STORAGE.md): the
-// cycle row rewrite, its event, its audit row with the audit_at entry and two Enable rows,
-// 422 pages at a B-tree height of 17 with overflow and pointer-map pages, rounded up.
-const cycleCreditPages = 512
+// Page credits of one cycle (docs/CONTEXT-CYCLE-STORAGE.md). Admission funds every remaining
+// transition: each non-terminal stage is a control write that debits cycleStagePages (the
+// cycle row rewrite, its event, its audit row and audit_at entry), and the terminal outcome
+// (with two Enable rows and an Enable key) releases the rest. Every event slot but the
+// admission's and the one kept for the terminal outcome is a funded stage.
+const (
+	cycleStagePages    = 280
+	cycleTerminalPages = 491
+	cycleFundedStages  = maxCycleEvents - 2
+	cycleCreditPages   = cycleFundedStages*cycleStagePages + cycleTerminalPages
+)
 
 // Cycle bounds (#196 definition of done, approved at Gate B).
 const (
@@ -66,10 +74,10 @@ const overwatchName = "overwatch"
 const cycleRequestKind = "context_cycle_request"
 
 const contextCyclesTable = `CREATE TABLE context_cycles (
-	cycle_id TEXT PRIMARY KEY, credit INTEGER NOT NULL CHECK (credit IN (0,1)),
+	cycle_id TEXT PRIMARY KEY, credit INTEGER NOT NULL CHECK (credit>=0), held INTEGER NOT NULL CHECK (held IN (0,1)),
 	revision INTEGER NOT NULL CHECK (revision>0),
 	state TEXT NOT NULL CHECK (state IN ('requested','waiting_ready','ready','clear_intent','clear_received',
-		'reset_verified','pickup_intent','waiting_pickup','waiting_prompt','complete','cancelled','failed','uncertain')),
+		'reset_verified','pickup_intent','waiting_pickup','waiting_prompt','prompt_intent','complete','cancelled','failed','uncertain')),
 	prompt_from TEXT NOT NULL DEFAULT '', reason TEXT NOT NULL DEFAULT '',
 	family TEXT NOT NULL, session_id TEXT NOT NULL, peer TEXT NOT NULL, address TEXT NOT NULL,
 	host_pid INTEGER NOT NULL, host_start INTEGER NOT NULL, tmux_socket TEXT NOT NULL, tmux_pane TEXT NOT NULL,
@@ -98,7 +106,8 @@ func cycleTerminal(state string) bool {
 // wakes wait until it ends, so no notice text interleaves with cycle input.
 func cycleHoldsPane(state string) bool {
 	switch state {
-	case cycleReady, cycleClearIntent, cycleClearReceived, cycleResetVerified, cyclePickupIntent, cycleWaitingPickup, cycleWaitingPrompt:
+	case cycleReady, cycleClearIntent, cycleClearReceived, cycleResetVerified, cyclePickupIntent, cycleWaitingPickup, cycleWaitingPrompt,
+		cyclePromptIntent:
 		return true
 	}
 	return false
@@ -106,7 +115,14 @@ func cycleHoldsPane(state string) bool {
 
 // cycleIntent reports the states that recorded an external input whose receipt is not
 // recorded yet: their result is unknown until the adapter proves it.
-func cycleIntent(state string) bool { return state == cycleClearIntent || state == cyclePickupIntent }
+func cycleIntent(state string) bool {
+	return state == cycleClearIntent || state == cyclePickupIntent || state == cyclePromptIntent
+}
+
+// cycleInputUnproven reports the states after an entered input whose effect is not proven:
+// a recorded intent, and a received clear whose reset is not verified. A cycle that ends in
+// one of them is uncertain, never failed or cancelled.
+func cycleInputUnproven(state string) bool { return cycleIntent(state) || state == cycleClearReceived }
 
 // CycleEvent is one durable stage change, with fixed codes and no captured text.
 type CycleEvent struct {
@@ -153,18 +169,18 @@ type cycleRow struct {
 	ArtifactDev, ArtifactIno, ArtifactSize, ArtifactMtime     int64
 	Adapter, CatalogDigest, SuccessorID, SuccessorEpoch       string
 	Outcome, Report                                           string
-	Events, FinishedAt                                        int64
-	Credit                                                    bool
+	Events, FinishedAt, Credit                                int64
+	Held                                                      bool // the requester held Address at admission
 }
 
-const cycleColumns = `cycle_id,credit,revision,state,prompt_from,reason,family,session_id,peer,address,host_pid,host_start,
+const cycleColumns = `cycle_id,credit,held,revision,state,prompt_from,reason,family,session_id,peer,address,host_pid,host_start,
 	tmux_socket,tmux_pane,enable_revision,epoch,mode,threshold,used_tokens,limit_tokens,source_at,confirmed_at,message_seq,
 	created_at,updated_at,stage_deadline,cycle_deadline,artifact,artifact_dev,artifact_ino,artifact_size,artifact_mtime,
 	adapter,catalog_digest,successor_id,successor_epoch,outcome,report,events,finished_at`
 
 func scanCycle(row interface{ Scan(...any) error }) (cycleRow, error) {
 	var c cycleRow
-	err := row.Scan(&c.ID, &c.Credit, &c.Revision, &c.State, &c.PromptFrom, &c.Reason, &c.Family, &c.SessionID, &c.Peer, &c.Address,
+	err := row.Scan(&c.ID, &c.Credit, &c.Held, &c.Revision, &c.State, &c.PromptFrom, &c.Reason, &c.Family, &c.SessionID, &c.Peer, &c.Address,
 		&c.HostPID, &c.HostStart, &c.Socket, &c.Pane, &c.EnableRevision, &c.Epoch, &c.Mode, &c.Threshold, &c.Used, &c.Limit,
 		&c.SourceAt, &c.ConfirmedAt, &c.MessageSeq, &c.CreatedAt, &c.UpdatedAt, &c.StageDeadline, &c.CycleDeadline,
 		&c.Artifact, &c.ArtifactDev, &c.ArtifactIno, &c.ArtifactSize, &c.ArtifactMtime, &c.Adapter, &c.CatalogDigest,
@@ -318,8 +334,12 @@ func (s *Store) admitContextCycle(ctx context.Context, k Key) (bool, error) {
 	if enables, err := s.contextEnables(ctx); err != nil || !enables[k].Enabled {
 		return false, err
 	}
+	conflict, err := overwatchNameHeld(ctx, s.db)
+	if err != nil {
+		return false, err
+	}
 	if eligible, _ := SelectContextTrigger(ContextTriggerInput{Active: true, Enabled: true, Policy: policy, CycleAvailable: true,
-		Evidence: evidence, Now: now, LatchedEpoch: latched}); !eligible {
+		OverwatchConflict: conflict, Evidence: evidence, Now: now, LatchedEpoch: latched}); !eligible {
 		return false, nil
 	}
 	tx, err := s.begin(noAudit(ctx), ordinary)
@@ -335,8 +355,11 @@ func (s *Store) admitContextCycle(ctx context.Context, k Key) (bool, error) {
 	if err != nil {
 		return false, err
 	}
+	if conflict, err = overwatchNameHeld(ctx, tx); err != nil {
+		return false, err
+	}
 	eligible, _ := SelectContextTrigger(ContextTriggerInput{Active: session.State == "active", Enabled: enable.Enabled, Policy: policy,
-		CycleAvailable: true, Evidence: evidence, Now: now, LatchedEpoch: latched})
+		CycleAvailable: true, OverwatchConflict: conflict, Evidence: evidence, Now: now, LatchedEpoch: latched})
 	if !eligible {
 		return false, nil
 	}
@@ -370,11 +393,11 @@ func (s *Store) admitContextCycle(ctx context.Context, k Key) (bool, error) {
 		return false, nil
 	}
 	c := cycleRow{ID: newCycleID(), Revision: 1, State: cycleWaitingReady, Family: k.Family, SessionID: k.ID, Peer: session.Name,
-		Address: session.Address, HostPID: hostPID, HostStart: hostStart, Socket: socket, Pane: pane, EnableRevision: enable.Revision,
+		Address: session.Address, Held: session.HoldsAddress, HostPID: hostPID, HostStart: hostStart, Socket: socket, Pane: pane, EnableRevision: enable.Revision,
 		Epoch: evidence.Epoch, Mode: policy.Mode, Threshold: policy.Threshold, Used: *evidence.UsedTokens, Limit: *evidence.LimitTokens,
 		SourceAt: evidence.SourceAt, ConfirmedAt: evidence.ConfirmedAt, CreatedAt: now, UpdatedAt: now,
 		StageDeadline: now + cycleReadyWait.Milliseconds(), CycleDeadline: now + cycleLifetime.Milliseconds(),
-		Adapter: adapter.Version(), CatalogDigest: s.library.catalog.Digest, Credit: true}
+		Adapter: adapter.Version(), CatalogDigest: s.library.catalog.Digest, Credit: cycleCreditPages}
 	var seq int64
 	if err := tx.QueryRowContext(ctx, `UPDATE sessions SET last_seq=last_seq+1 WHERE family=? AND id=? RETURNING last_seq`, k.Family, k.ID).Scan(&seq); err != nil {
 		return false, tx.fail(err)
@@ -408,8 +431,8 @@ func (s *Store) admitContextCycle(ctx context.Context, k Key) (bool, error) {
 }
 
 func insertCycle(ctx context.Context, tx *writeTx, c cycleRow) error {
-	_, err := tx.ExecContext(ctx, `INSERT INTO context_cycles(`+cycleColumns+`) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
-		c.ID, c.Credit, c.Revision, c.State, c.PromptFrom, c.Reason, c.Family, c.SessionID, c.Peer, c.Address, c.HostPID, c.HostStart,
+	_, err := tx.ExecContext(ctx, `INSERT INTO context_cycles(`+cycleColumns+`) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+		c.ID, c.Credit, c.Held, c.Revision, c.State, c.PromptFrom, c.Reason, c.Family, c.SessionID, c.Peer, c.Address, c.HostPID, c.HostStart,
 		c.Socket, c.Pane, c.EnableRevision, c.Epoch, c.Mode, c.Threshold, c.Used, c.Limit, c.SourceAt, c.ConfirmedAt, c.MessageSeq,
 		c.CreatedAt, c.UpdatedAt, c.StageDeadline, c.CycleDeadline, c.Artifact, c.ArtifactDev, c.ArtifactIno, c.ArtifactSize,
 		c.ArtifactMtime, c.Adapter, c.CatalogDigest, c.SuccessorID, c.SuccessorEpoch, c.Outcome, c.Report, c.Events, c.FinishedAt)
@@ -424,12 +447,15 @@ func cycleAudit(ctx context.Context, tx *writeTx, now int64, c cycleRow, result,
 	return err
 }
 
-// advanceCycle moves an unfinished cycle to a non-terminal stage in an ordinary write,
-// after checking that it is still at the expected revision and state. A stage that would
-// take the event slot kept for the terminal outcome ends the cycle as failed instead.
-func (s *Store) advanceCycle(ctx context.Context, id string, revision int64, from, to, reason string, change func(*cycleRow)) (cycleRow, error) {
+// advanceCycle moves an unfinished cycle to a non-terminal stage in a control write that
+// debits cycleStagePages from the cycle's credit. In its transaction it checks that the
+// cycle is still at the expected revision and stage, before its stage and cycle deadlines,
+// with the Enable that admitted it, and runs guard for the caller's own checks. A stage that
+// would take the event slot kept for the terminal outcome ends the cycle as failed instead.
+func (s *Store) advanceCycle(ctx context.Context, id string, revision int64, from, to, reason string,
+	guard func(tx *writeTx, c cycleRow, now int64) error, change func(*cycleRow)) (cycleRow, error) {
 	now := s.now().UnixMilli()
-	tx, err := s.begin(noAudit(ctx), ordinary)
+	tx, err := s.begin(noAudit(ctx), control)
 	if err != nil {
 		return cycleRow{}, err
 	}
@@ -438,8 +464,23 @@ func (s *Store) advanceCycle(ctx context.Context, id string, revision int64, fro
 	if err != nil {
 		return cycleRow{}, err
 	}
-	if c.Revision != revision || c.State != from {
+	if c.Revision != revision || c.State != from || now >= c.StageDeadline || now >= c.CycleDeadline {
 		return c, ErrCycleChanged
+	}
+	if ok, err := cycleEnabled(ctx, tx, c); err != nil || !ok {
+		if err == nil {
+			err = ErrCycleChanged
+		}
+		return c, err
+	}
+	if guard != nil {
+		if err := guard(tx, c, now); err != nil {
+			return c, err
+		}
+	}
+	if c.Credit < cycleStagePages+cycleTerminalPages {
+		tx.Rollback()
+		return s.endCycle(ctx, id, revision, cycleFailed, "event_limit")
 	}
 	if err := cycleEvent(ctx, tx, &c, now, to, "entered", reason); err != nil {
 		if errors.Is(err, errCycleEventLimit) {
@@ -449,25 +490,82 @@ func (s *Store) advanceCycle(ctx context.Context, id string, revision int64, fro
 		return c, tx.fail(err)
 	}
 	c.Revision++
+	c.Credit -= cycleStagePages
 	c.State, c.Reason, c.UpdatedAt = to, reason, now
 	switch to {
-	case cycleReady, cycleClearIntent, cycleResetVerified, cyclePickupIntent:
-		c.StageDeadline = now + cycleReceiptWait.Milliseconds()
-	case cycleClearReceived:
-		c.StageDeadline = now + cycleReceiptWait.Milliseconds()
-	case cycleWaitingPickup:
-		// The successor's pickup report may take the rest of the cycle's lifetime.
-		c.StageDeadline = c.CycleDeadline
+	case cycleWaitingReady:
+		// A return to readiness keeps the request's readiness deadline.
+		c.StageDeadline = c.CreatedAt + cycleReadyWait.Milliseconds()
 	case cycleWaitingPrompt:
 		c.StageDeadline = now + cyclePromptWait.Milliseconds()
+	default:
+		c.StageDeadline = now + cycleReceiptWait.Milliseconds()
 	}
+	c.StageDeadline = min(c.StageDeadline, c.CycleDeadline)
 	if change != nil {
 		change(&c)
 	}
 	if err := updateCycle(ctx, tx, c); err != nil {
 		return c, tx.fail(err)
 	}
+	if err := cycleAudit(ctx, tx, now, c, to, reason); err != nil {
+		return c, tx.fail(err)
+	}
 	return c, tx.Commit()
+}
+
+// cycleEnabled reports whether the requester's Enable is still the one that admitted c.
+func cycleEnabled(ctx context.Context, q querier, c cycleRow) (bool, error) {
+	var enabled bool
+	var revision int64
+	err := q.QueryRowContext(ctx, `SELECT enabled,revision FROM context_enables WHERE family=? AND session_id=?`, c.Family, c.SessionID).
+		Scan(&enabled, &revision)
+	if errors.Is(err, sql.ErrNoRows) {
+		return false, nil
+	}
+	return err == nil && enabled && revision == c.EnableRevision, err
+}
+
+// requesterPinned reports whether c's requester is still active in its pinned host and pane,
+// with the same participant address, and still holding it if it held it at admission.
+func requesterPinned(ctx context.Context, q querier, c cycleRow, now int64) (bool, error) {
+	session, err := scanSession(q.QueryRowContext(ctx, sessionQuery+` WHERE s.family=? AND s.id=?`, c.Family, c.SessionID), now)
+	if errors.Is(err, ErrMissing) {
+		return false, nil
+	}
+	if err != nil {
+		return false, err
+	}
+	var hostPID, hostStart int64
+	var socket, pane string
+	if err := q.QueryRowContext(ctx, `SELECT host_pid,host_start,tmux_socket,tmux_pane FROM sessions WHERE family=? AND id=?`, c.Family, c.SessionID).
+		Scan(&hostPID, &hostStart, &socket, &pane); err != nil {
+		return false, err
+	}
+	return session.State == "active" && hostPID == c.HostPID && hostStart == c.HostStart && socket == c.Socket && pane == c.Pane &&
+		session.Address == c.Address && (!c.Held || session.HoldsAddress), nil
+}
+
+// pinnedRequester is the advanceCycle guard of a requester's own report and of the clear
+// that acts on its pane.
+func pinnedRequester(ctx context.Context) func(*writeTx, cycleRow, int64) error {
+	return func(tx *writeTx, c cycleRow, now int64) error {
+		ok, err := requesterPinned(ctx, tx, c, now)
+		if err == nil && !ok {
+			err = ErrCycleChanged
+		}
+		return err
+	}
+}
+
+// overwatchNameHeld reports whether a retained name record (a peer name, alias or
+// participant address) is named overwatch, the reserved sender of the cycle request.
+func overwatchNameHeld(ctx context.Context, q interface {
+	QueryRowContext(context.Context, string, ...any) *sql.Row
+}) (bool, error) {
+	var held bool
+	err := q.QueryRowContext(ctx, `SELECT EXISTS(SELECT 1 FROM names WHERE name=?)`, overwatchName).Scan(&held)
+	return held, err
 }
 
 func updateCycle(ctx context.Context, tx *writeTx, c cycleRow) error {
@@ -500,18 +598,19 @@ func (s *Store) endCycle(ctx context.Context, id string, revision int64, outcome
 	return c, tx.Commit()
 }
 
-// endCycleTx ends c inside tx. A terminal outcome of an intent state that is not proven
-// becomes uncertain. complete carries the Enable to the successor through carry.
+// endCycleTx ends c inside tx and releases its credit. A cycle that ends after an input
+// whose effect is not proven is uncertain. complete carries the Enable to the successor
+// through carry.
 func (s *Store) endCycleTx(ctx context.Context, tx *writeTx, c *cycleRow, outcome, reason string, carry func() error) error {
 	now := s.now().UnixMilli()
-	if outcome == cycleCancelled && cycleIntent(c.State) {
-		outcome, reason = cycleUncertain, "input_unreconciled"
+	if outcome != cycleComplete && cycleInputUnproven(c.State) {
+		outcome = cycleUncertain
 	}
 	if err := cycleEvent(ctx, tx, c, now, outcome, outcome, reason); err != nil {
 		return err
 	}
 	c.Revision++
-	c.State, c.Reason, c.Outcome, c.UpdatedAt, c.FinishedAt, c.Credit = outcome, reason, outcome, now, now, false
+	c.State, c.Reason, c.Outcome, c.UpdatedAt, c.FinishedAt, c.Credit = outcome, reason, outcome, now, now, 0
 	if err := updateCycle(ctx, tx, *c); err != nil {
 		return err
 	}
@@ -574,7 +673,9 @@ func (s *Store) cycleOfCaller(ctx context.Context, q querier, caller Key, id str
 // successorOf reports whether caller is a managed successor of c: an active session of the
 // same family in the same host and pane that holds c's participant address.
 func (s *Store) successorOf(ctx context.Context, q querier, c cycleRow, caller Key, now int64) (bool, error) {
-	if c.State != cycleResetVerified && c.State != cyclePickupIntent && c.State != cycleWaitingPickup && c.State != cycleWaitingPrompt {
+	switch c.State {
+	case cycleResetVerified, cyclePickupIntent, cycleWaitingPickup, cycleWaitingPrompt, cyclePromptIntent:
+	default:
 		return false, nil
 	}
 	session, err := scanSession(q.QueryRowContext(ctx, sessionQuery+` WHERE s.family=? AND s.id=?`, caller.Family, caller.ID), now)
@@ -647,7 +748,8 @@ func (s *Store) ContextCycleStatus(ctx context.Context, caller Key) (*CycleView,
 
 // ContextCycleReady records the requester's report that its handoff artifact is written.
 // epoch is the caller's verified current native epoch, attached by its native client.
-// An identical retry of an accepted report returns the current state without a write.
+// An identical retry of an accepted report returns the current state without a write while
+// the artifact is unchanged.
 func (s *Store) ContextCycleReady(ctx context.Context, caller Key, epoch, id string, revision int64, artifact string) (CycleView, error) {
 	if id == "" || revision < 1 || !validArtifactName(artifact) {
 		return CycleView{}, ErrInvalid
@@ -666,7 +768,11 @@ func (s *Store) ContextCycleReady(ctx context.Context, caller Key, epoch, id str
 	if role != "requester" {
 		return CycleView{}, ErrCycleNotFound
 	}
-	if c.State == cycleReady && c.Revision == revision+1 && c.Artifact == artifact {
+	if c.State == cycleReady && c.Revision == revision+1 && c.Artifact == artifact && epoch == c.Epoch {
+		// The recorded file must still be the one that was reported.
+		if _, err := s.verifyArtifact(ctx, c, artifact); err != nil {
+			return CycleView{}, err
+		}
 		return c.view(ctx, s.db, role)
 	}
 	if c.State != cycleWaitingReady || c.Revision != revision {
@@ -680,7 +786,7 @@ func (s *Store) ContextCycleReady(ctx context.Context, caller Key, epoch, id str
 	if err != nil {
 		return CycleView{}, err
 	}
-	next, err := s.advanceCycle(ctx, id, revision, cycleWaitingReady, cycleReady, "", func(c *cycleRow) {
+	next, err := s.advanceCycle(ctx, id, revision, cycleWaitingReady, cycleReady, "", pinnedRequester(ctx), func(c *cycleRow) {
 		c.Artifact, c.ArtifactDev, c.ArtifactIno, c.ArtifactSize, c.ArtifactMtime = artifact, file.dev, file.ino, file.size, file.mtime
 	})
 	if err != nil {
@@ -692,7 +798,8 @@ func (s *Store) ContextCycleReady(ctx context.Context, caller Key, epoch, id str
 
 // ContextCyclePickup records the managed successor's report that it restored the
 // checkpoint from the cycle's artifact. It completes the cycle and carries the Enable to
-// the successor. report is private runtime data, never audit text.
+// the successor. report is private runtime data, never audit text. Only a retry with the
+// same successor, epoch, artifact, outcome and report returns the completed cycle.
 func (s *Store) ContextCyclePickup(ctx context.Context, caller Key, epoch, id string, revision int64, artifact, outcome, report string) (CycleView, error) {
 	if id == "" || revision < 1 || !validArtifactName(artifact) || outcome != "resumed" && outcome != "paused" ||
 		report == "" || len(report) > maxPickupReport || !utf8.ValidString(report) {
@@ -709,8 +816,12 @@ func (s *Store) ContextCyclePickup(ctx context.Context, caller Key, epoch, id st
 	if err != nil {
 		return CycleView{}, err
 	}
-	if c.State == cycleComplete && c.Revision == revision+1 && c.SuccessorID == caller.ID && c.SuccessorEpoch == epoch && c.Artifact == artifact {
-		return c.view(ctx, s.db, "successor")
+	if c.State == cycleComplete && c.Revision == revision+1 && c.SuccessorID == caller.ID {
+		v, err := c.view(ctx, s.db, "successor")
+		if err == nil && (c.SuccessorEpoch != epoch || c.Artifact != artifact || c.Reason != outcome || c.Report != report) {
+			err = ErrCycleChanged
+		}
+		return v, err
 	}
 	if c.State != cycleWaitingPickup || c.Revision != revision || c.Artifact != artifact {
 		v, _ := c.view(ctx, s.db, role)
@@ -733,17 +844,24 @@ func (s *Store) ContextCyclePickup(ctx context.Context, caller Key, epoch, id st
 	if err != nil {
 		return CycleView{}, err
 	}
-	if current.Revision != revision || current.State != cycleWaitingPickup {
+	if current.Revision != revision || current.State != cycleWaitingPickup || now >= current.StageDeadline || now >= current.CycleDeadline {
 		return CycleView{}, ErrCycleChanged
 	}
-	if role == "successor" {
-		ok, err := s.successorOf(ctx, tx, current, caller, now)
-		if err != nil {
-			return CycleView{}, err
+	// The caller must still be the managed successor in the pinned pane, or the requester
+	// itself still pinned there, under the Enable that admitted the cycle.
+	pinned, err := cycleEnabled(ctx, tx, current)
+	if err == nil && pinned {
+		if role == "successor" {
+			pinned, err = s.successorOf(ctx, tx, current, caller, now)
+		} else {
+			pinned, err = requesterPinned(ctx, tx, current, now)
 		}
-		if !ok {
-			return CycleView{}, ErrCycleNotFound
-		}
+	}
+	if err != nil {
+		return CycleView{}, err
+	}
+	if !pinned {
+		return CycleView{}, ErrCycleChanged
 	}
 	current.SuccessorID, current.SuccessorEpoch, current.Report = caller.ID, epoch, report
 	carry := func() error {
