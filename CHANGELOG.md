@@ -5,6 +5,10 @@ into a dated release section when promoted to `main`.
 
 ## Unreleased
 
+- Installer failure reports (#342) have `ok: false` while retaining completed-step details.
+  System-mode installation checks an existing log directory before replacing the binary or
+  link, and creates a missing directory during the system step.
+
 - Room conversation view (#217, chunk 03): an open room on the Rooms page lists each post's
   recipients as they were at the post, with the delivery state and acknowledgement of each
   inbox copy, skipped inactive members, and `not retained` once a copy is deleted, plus the
