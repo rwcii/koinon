@@ -226,6 +226,9 @@ const usage = `Usage: koinon install [--prefix DIR] [--state-dir DIR] [--agent F
        koinon memory <status|sync|ack|record|recall> --as FAMILY:ID [--consumer KEY] [options]
        koinon library list --as FAMILY:ID [--after ITEM_ID] [--limit N]
        koinon library read ITEM_ID --as FAMILY:ID
+       koinon library state [ITEM_ID ...] --as FAMILY:ID [--scope machine|project] [--directory DIR]
+       koinon library decision ITEM_ID --as FAMILY:ID --decision adopted|declined --evidence REF
+         --catalog-digest SHA256 --item-digest SHA256 --if-revision N [--pre-edit JSON] [--result JSON]
        koinon room list --as FAMILY:ID [--after ROOM_ID] [--limit N]
        koinon room members ROOM_ID --as FAMILY:ID [--after ORDINAL] [--limit N]
        koinon room post ROOM_ID BODY --as FAMILY:ID --key KEY --deadline UNIX_SECONDS

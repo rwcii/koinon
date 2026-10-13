@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"os/exec"
 	"path/filepath"
 	"testing"
 
@@ -76,6 +77,40 @@ func TestLibraryCommandRequiresItsExistingIdentity(t *testing.T) {
 		var usage usageError
 		if !errors.As(err, &usage) || usage.code != "invalid_request" {
 			t.Fatalf("%v: %v", args, err)
+		}
+	}
+}
+
+func TestLibraryStateCommandDeepSeekRegisteredDirectory(t *testing.T) {
+	root, repo := filepath.Join(t.TempDir(), "state"), t.TempDir()
+	if out, err := exec.Command("git", "init", "-q", repo).CombinedOutput(); err != nil {
+		t.Fatal(err, string(out))
+	}
+	d, err := core.Start(core.Config{StateDir: root, Listen: []string{"127.0.0.1:0"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer d.Close()
+	secret, _ := core.ReadSecret(root)
+	if _, err := core.Call(context.Background(), d.Addresses()[0], secret, "/v1/sessions/register", core.Registration{Family: "deepseek", ID: "synthetic-library-state-cli", Directory: repo, Repository: repo}); err != nil {
+		t.Fatal(err)
+	}
+	options := []string{"--as", "deepseek:synthetic-library-state-cli", "--state-dir", root, "--address", d.Addresses()[0]}
+	for _, args := range [][]string{append([]string{"state", "skill.pickup", "--scope", "project"}, options...), append(append([]string{"state", "--scope", "project"}, options...), "skill.pickup")} {
+		var out bytes.Buffer
+		if err := libraryCommand(context.Background(), args, &out); err != nil {
+			t.Fatal(err)
+		}
+		var reply struct {
+			Library struct {
+				Items []library.ItemState `json:"items"`
+			} `json:"library"`
+		}
+		if err := json.Unmarshal(out.Bytes(), &reply); err != nil || len(reply.Library.Items) != 1 || reply.Library.Items[0].State != "missing" {
+			t.Fatal(out.String(), err)
+		}
+		if bytes.Contains(out.Bytes(), []byte(repo)) {
+			t.Fatal("private project root in command state")
 		}
 	}
 }

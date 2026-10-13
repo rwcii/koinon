@@ -1,5 +1,5 @@
-// Package library builds inert adoption recommendations from canonical embedded sources.
-// It reads no runtime checkout, installs no files and edits no native configuration.
+// Package library embeds canonical adoption references and provides bounded inspection
+// of their declared targets. Inspection runs in the native client and writes no files.
 package library
 
 import (
@@ -160,6 +160,13 @@ func destinations(name string, families []string) []Destination {
 			machine.Path = "skills/" + name + "/SKILL.md"
 			machine.Discovery = "verified"
 			machine.Evidence = "Codex 0.162.0 isolated app-server skills/list; effective CODEX_HOME, default user .codex"
+			for _, root := range []struct{ scope, root, path string }{
+				{"project", "worktree", ".agents/skills/" + name + "/SKILL.md"},
+				{"project", "worktree", ".codex/skills/" + name + "/SKILL.md"},
+				{"machine", "user-home", ".agents/skills/" + name + "/SKILL.md"},
+			} {
+				result = append(result, Destination{Family: family, Scope: root.scope, Root: root.root, Path: root.path, Discovery: "collision-only", Evidence: "Codex 0.162.0 isolated skills/list: shared user skills and both project roots; inspected for same-name collisions, primary adoption destination unchanged"})
+			}
 		case "claude":
 			machine.Root = "claude-default-home"
 			machine.Path = "skills/" + name + "/SKILL.md"
@@ -256,7 +263,7 @@ func Build(source, permissions fs.FS, release string) (Catalog, error) {
 	wrappers, _ := json.Marshal(struct {
 		Ownership string    `json:"ownership"`
 		Commands  []Command `json:"commands"`
-	}{"Generated ownership marker; preserve custom commands and refuse collisions or symlinks. Adopt only the nine unchanged original templates; removal affects only owned wrappers.", commands})
+	}{"Generated ownership marker; preserve custom commands and refuse collisions or symlinks. The listed commands are the catalog's bounded targets; removal affects only owned wrappers.", commands})
 	guidance := []byte("<!-- koinon:catalog-guidance -->\nRead the installed `koinon guide --agent FAMILY` within the task. Inspect the installed catalog before proposing skill adoption. Each proposed skill or setup adoption requires exact-change approval (PDR 008); permission recommendations are inert.\n<!-- /koinon:catalog-guidance -->\n")
 	for _, setup := range []struct {
 		id, target, purpose string

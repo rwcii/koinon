@@ -135,6 +135,7 @@ type Store struct {
 	alive liveness
 	// settings holds the session timing values in force (#249).
 	settings settingsState
+	library  libraryState
 }
 
 func openStore(root string) (*Store, error) { return openStoreFile(root, "state.sqlite3") }
@@ -281,7 +282,7 @@ func checkFormat(db *sql.DB, path string) error {
 	return nil
 }
 
-const schemaVersion = 20
+const schemaVersion = 21
 
 // workItemsV16Columns are the work item columns before schema 17, which its rebuild copies.
 const workItemsV16Columns = `store,work_id,revision,lifecycle,title,criteria,non_goals,proposed_assignee,created_at,created_consumer,
@@ -706,6 +707,14 @@ func migrate(db *sql.DB, version, target int) error {
 			PRIMARY KEY (family, caller_id, key));
 		ALTER TABLE messages ADD COLUMN room_seq INTEGER NOT NULL DEFAULT 0;
 		ALTER TABLE messages ADD COLUMN room_origin TEXT NOT NULL DEFAULT '';`); err != nil {
+			return err
+		}
+	}
+	if version < 21 && target >= 21 {
+		if _, err := tx.Exec(`ALTER TABLE memory_stores ADD COLUMN library_floor INTEGER NOT NULL DEFAULT 0 CHECK(library_floor>=0)`); err != nil {
+			return err
+		}
+		if _, err := tx.Exec(machineDecisionsTable); err != nil {
 			return err
 		}
 	}

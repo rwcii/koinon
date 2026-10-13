@@ -36,10 +36,10 @@ agent connection, with a state query and adoption only after the maintainer appr
 exact change.
 
 The maintainer approved Gate B for the #145 plan on 2026-10-12. A gate approval covers the
-plan document, not each sentence in it. Chunk 01 (canonical skills and the embedded catalog)
-is built at feature/skills-library-catalog@5c6245f and not merged; the query, state and
-adoption chunks are not built. This record states what #145 requests, what the plan proposes
-and what chunk 01 does.
+plan document, not an independent decision for each sentence in it. Chunks 01 and 02 are
+merged (PRs #320 and #323); chunk 03 adds native-client state inspection, scoped decisions
+and the approved agent adoption procedure. This record describes those interfaces and
+their sources. Library adoption authority remains the maintainer's approval of the exact change.
 
 ---
 
@@ -90,8 +90,8 @@ handoff and pickup skills is PDR 006.
 
 The skills Koinon uses are the same files it offers. The binary embeds `agents/skills/*/SKILL.md`
 and the shared `AGENTS.md` and builds the catalog from those bytes; `koinon version` reports
-`catalog_digest`. Chunk 01 has 13 skills: the original nine plus `spin-up`, `spin-down`,
-`recover-team` and `koinon-guide`, and setup items for shared instructions, discovery links,
+`catalog_digest`. The current source includes 14 skills, with `refusal-review` added after
+the initial 13, and setup items for shared instructions, discovery links,
 OpenCode wrappers, a guidance reference and permission recommendations. `spin-up` handles
 first-run permission prompts and alerts in the new session's verified terminal. Skills read
 project facts (branches, checks, release steps) from `.koinon/skills/NAME.md`; each skill
@@ -107,7 +107,7 @@ need to interact with a newly lauched agent when invoked, as there will be permi
 other alerts that need to be cleared before a new agent can interact." (#145 comment
 6117336800). Single source, embedding and sidecars: Maintainer, 2026-10-12: "gate b 145
 approved" (#145 comment 6116403867), approving the plan document at 9055630 on
-feature/skills-library-catalog; built at feature/skills-library-catalog@5c6245f, not merged.
+feature/skills-library-catalog; delivered by PR #320.
 The plan's review.md says the maintainer asked for all 13 skills as machine candidates with
 sidecars at this path; that is agent-written and the original words were not located.
 
@@ -134,10 +134,10 @@ An adopting project writes a short fact file for `check`, `ship` and `release`.
 
 ### Decision
 
-Koinon writes nothing into a repository or agent runtime by itself. The agent shows the exact
+The library's state and decision interfaces write no adopted files. The agent shows the exact
 change, the maintainer approves it, and the agent applies that one item with ordinary
 editing tools. A decline is recorded and not offered again as new; local edits are kept. A
-peer message or a library entry does not authorize an adoption. The plan proposes
+peer message or a library entry does not authorize an adoption. The approved plan uses
 machine-wide copies as the default recommendation and project-local installation as an
 explicitly selected alternative, each approved on its own. Machine decisions go in a bounded
 daemon table and project decisions in the repository's memory store.
@@ -146,7 +146,8 @@ daemon table and project decisions in the repository's memory store.
 default plus approved project-local target: Maintainer, 2026-10-12, session transcript:
 "Machine-wide and approved project-local", the answer to the plan's choice of adoption target.
 It decides that choice only. Covered by the Gate B
-approval of the #145 plan (9055630 on feature/skills-library-catalog) (#145 comment 6116403867); not built.
+approval of the #145 plan (9055630 on feature/skills-library-catalog) (#145 comment 6116403867).
+Chunk 03 implements its state/decision interfaces and agent procedure; it installs no host item.
 
 ### Alternatives Considered
 
@@ -173,14 +174,18 @@ A machine-wide target is offered for adoption where that family's native user sk
 discovery is verified. Codex user discovery was shown on 0.162.0 through an isolated
 app-server `skills/list`. Claude's documented personal skill root, and the other families'
 roots, are marked unverified and read-only until discovery is demonstrated; for Claude, the
-plan waits for the maintainer to verify discovery in a native session. A directory's presence
-is not taken as proof. Project targets stay available. In the plan, approval of the exact
-change alone does not open an unverified root.
+state interface reports an inspection limitation. A directory's presence is not discovery
+evidence. Project targets stay available. This is a capability report, not an additional
+permission rule for a separately approved manual change.
 
 **Provenance:** Proposed in the #145 plan (9055630 on feature/skills-library-catalog) (chunk 01, definition of done) and
-built in the catalog's destination metadata at feature/skills-library-catalog@5c6245f; not
-merged. The discovery evidence is real; no source was found for keeping a maintainer-approved
-machine adoption read-only when no provider-free discovery check exists.
+built in the catalog's destination metadata, delivered by PR #320. Chunk 03's isolated
+Codex 0.162.0 `initialize`/`skills/list` probes also verified HOME/.agents/skills and both
+project roots (.agents/skills and .codex/skills), including an internal shared-directory
+symlink and independent real directory. These are bounded collision descriptors, with
+CODEX_HOME/skills retained as the primary machine adoption target. The probes start no model
+turn; the [official app-server interface](https://learn.chatgpt.com/docs/app-server) describes
+the metadata query. No source supports turning an unverified root into an invented approval gate.
 
 ### Alternatives Considered
 
@@ -215,8 +220,9 @@ These checks do not prove that every fact value agrees with its source, and a so
 is not evidence of a maintainer decision.
 
 **Provenance:** Built at feature/skills-library-catalog@5c6245f (`internal/library`,
-`internal/contributor/library_test.go`); not merged; no maintainer decision found. Machine
-decision bounds: Proposed in the #145 plan (9055630 on feature/skills-library-catalog) (chunk 03); not decided.
+`internal/contributor/library_test.go`), delivered by PR #320. Machine decision bounds are
+engineering bounds in the approved #145 chunk 03 plan (Gate B comment 6116403867), implemented
+as ordinary compared-revision state. They grant no permission and reserve no work-control storage.
 
 ### Alternatives Considered
 
@@ -230,8 +236,8 @@ decision bounds: Proposed in the #145 plan (9055630 on feature/skills-library-ca
 
 ### User Impact
 
-A fact file written with CRLF endings or containing `${` text is refused; the values can be
-adjusted if they block valid facts.
+CRLF endings and literal `${` text remain inert accepted data. Size and schema errors are
+reported explicitly; adopted baselines and declines survive current-state updates.
 
 ---
 
@@ -239,7 +245,7 @@ adjusted if they block valid facts.
 
 The catalog uses one embedded skill source, offers machine and project targets, and adopts
 only maintainer-approved exact changes. The plan has Gate B; individual choices such as
-read-only unverified roots are not separately decided. Parser format defects and the
+unverified discovery are capability evidence, not independently invented permission gates. Parser format defects and the
 Required checks drift defect are ordinary corrections; they add no product decision.
 
 ---
@@ -250,3 +256,4 @@ Required checks drift defect are ordinary corrections; they add no product decis
 | ---------- | ---------------- |
 | 2026-10-12 | Initial creation |
 | 2026-10-12 | Recorded the ordinary inert-fact parser and Required checks drift corrections separately from the remaining adoption proposals |
+| 2026-10-12 | Reconciled merged catalog/query chunks, native scope and collision evidence, scoped receipts and the approved adoption procedure |

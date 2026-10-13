@@ -42,6 +42,10 @@ var toolList = []map[string]any{
 		"inputSchema": object(map[string]any{"after": text, "limit": map[string]any{"type": "integer", "minimum": 0, "maximum": 32}})},
 	{"name": "library_read", "description": "Read one installed catalog item by item_id, including its exact canonical content and family-specific destination metadata. Reading inspects no project or native-home files and records no adoption decision.",
 		"inputSchema": object(map[string]any{"item_id": text}, "item_id")},
+	{"name": "library_state", "description": "Inspect catalog-derived files in this native client's verified machine or project scope. Returns content, collision, repository-fact and decision states without file bodies or private home paths. Project directory must be a listed worktree of this session's registered repository. Reading changes no files, decisions or cursors.",
+		"inputSchema": object(map[string]any{"item_ids": map[string]any{"type": "array", "items": text, "maxItems": 32}, "directory": text, "scope": map[string]any{"type": "string", "enum": []string{"machine", "project"}}})},
+	{"name": "library_decision", "description": "Record a reported machine adoption or decline for a catalog item, with compared revision. Native family and effective root come from the client. An identical current outcome is a no-op; a conflict requires reading current state. Decline preserves adopted digests. This records data and writes no skill files; project receipts use memory_record.",
+		"inputSchema": object(map[string]any{"item_id": text, "decision": map[string]any{"type": "string", "enum": []string{"adopted", "declined"}}, "evidence": text, "catalog_digest": text, "item_digest": text, "pre_edit": map[string]any{"type": "array", "maxItems": 32, "items": object(map[string]any{"id": text, "digest": text}, "id", "digest")}, "result": map[string]any{"type": "array", "maxItems": 32, "items": object(map[string]any{"id": text, "digest": text}, "id", "digest")}, "if_revision": integer}, "item_id", "decision", "evidence", "catalog_digest", "item_digest", "if_revision")},
 	{"name": "room_list", "description": "List the dashboard rooms in which this session, or the participant whose address it holds, is a current or former member: room ID, name, roster revision and status (member or removed). Page with next_after.",
 		"inputSchema": object(map[string]any{"after": text, "limit": map[string]any{"type": "integer", "minimum": 0, "maximum": 100}})},
 	{"name": "room_members", "description": "Read the current roster of a room by room_id: participant addresses and peer names, family and state (active, inactive, unheld or conflicting). Only a current member can read it. Page with next_after.",
@@ -132,6 +136,9 @@ func (s *server) call(ctx context.Context, raw json.RawMessage) map[string]any {
 	}
 	if err != nil {
 		return failure("identity_unavailable")
+	}
+	if p.Name == "library_state" || p.Name == "library_decision" {
+		return s.libraryStateCall(ctx, caller, p.Name, p.Arguments, p.Meta)
 	}
 	var path string
 	body := map[string]any{"caller": caller}

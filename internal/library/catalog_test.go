@@ -63,7 +63,7 @@ func TestEmbeddedExactSourceAndDescriptors(t *testing.T) {
 			if err != nil || !bytes.Equal(b, []byte(item.Content)) {
 				t.Fatalf("source differs: %s", item.ID)
 			}
-			if len(item.Destinations) != 2*len(capabilities.Families()) {
+			if len(item.Destinations) != 2*len(capabilities.Families())+3 {
 				t.Fatalf("family coverage: %s", item.ID)
 			}
 			for _, target := range item.Destinations {
