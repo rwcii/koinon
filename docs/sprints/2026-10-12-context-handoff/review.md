@@ -37,3 +37,37 @@ remaining native cycle proof. The full technical specification and Gate B remain
 Bounded reconciliation review at `5793020`: one accepted source-attribution finding in the
 paragraph above. Fixed by linking the correction and requirement and quoting the actual
 words with their intent. The rest of the reviewed reconciliation carries forward.
+
+## Technical plan — frozen c99ef83
+
+Claude reviewed S1–S6 at `c99ef83e2be90dccae1f307d9a05ba5ffbe524c1` against `52ab15a`.
+Refusal review had no findings. New engineering values and compaction choices remain
+Gate B proposals; settled per-session Enable and terminal input remain unchanged.
+
+- F1, medium, accepted: serialize pane-typing wakes with clear/pickup, retain pending
+  delivery and map session-changing dashboard actions to fenced terminal outcomes with
+  Enable ended. D6/D11 now test these races. Source clarification: dashboard inbox clear
+  acknowledges messages, not native context; it preserves the cycle/query and cannot
+  report ready. The plan does not add a cancellation rule to that acknowledgement.
+- F2, low, accepted: name the receiving model's reporting instruction. The installed
+  guide's Managed cycle reporting section is reached by canonical pickup reconnect and
+  the proven missing-skill bootstrap. D9 must show the model queried/reported its cycle.
+
+Bounded review passed at `b874f57157a78b6113184b76401dda6caef0867d`: F1 and F2 closed,
+peer and refusal verdicts passed. The [commit-bound evidence](https://github.com/rwcii/koinon/issues/196#issuecomment-6135869078)
+records the source clarification for inbox clear and the native reporting proof.
+Unchanged reviewed content carries forward. The later Gate B decision is recorded below.
+
+## Maintainer sender decision and Gate B — 2026-10-13
+
+F3 was reopened by the maintainer's sender question. The request had no specified sender.
+Accepted: name reserved system identity overwatch, its own sender family/key, system origin,
+cycle/Enable metadata, native-name reservation and guide meaning, with D3/D4 tests.
+Sources are the maintainer's sender/reservation decisions (6136143253/6136161569).
+Gate B approves the reviewed plan plus that addition
+([record](https://github.com/rwcii/koinon/issues/196#issuecomment-6136155493)).
+Future agentic capabilities are identity context, outside this deliverable.
+Bounded F3 review passed at `923e4899806807c79d43a804316dd2bce828dcda`
+([peer and refusal evidence](https://github.com/rwcii/koinon/issues/196#issuecomment-6136351144)).
+Mechanical integration `9f7f18c` preserves the reviewed plan/PDR content unchanged.
+The b874 general/fix review and earlier integration evidence carry forward.
