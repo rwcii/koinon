@@ -16,14 +16,16 @@ import (
 // Wake attempts and acknowledgements share the submission boundary: an ack committed
 // before submission can never be included in a notice. Provider calls are bounded.
 type wakeState struct {
-	mu        sync.Mutex
-	send      func(context.Context, Session, string) wakeResult
-	fault     string
-	registry  string
-	allowed   []string
-	reply     string
-	cleanup   func()
-	replyDone chan struct{}
+	mu           sync.Mutex
+	send         func(context.Context, Session, string) wakeResult
+	fault        string
+	currentFault *wakeFault
+	lastFault    *wakeFault
+	registry     string
+	allowed      []string
+	reply        string
+	cleanup      func()
+	replyDone    chan struct{}
 	// turns is the time of each Codex session's failed turn that checkTurns applied.
 	turns map[Key]int64
 }
@@ -439,7 +441,7 @@ func (s *Store) wakeKeys(ctx context.Context, agy bool, condition string, args .
 
 func (s *Store) wakeStep(ctx context.Context) error {
 	if err := s.checkTurns(ctx); err != nil {
-		return err
+		return wakePassError{"check_turns", err}
 	}
 	// Messages at the notice limit fail when their wait ends, in every family's inbox,
 	// Antigravity's too, and whether or not a participant has an active holder. They leave
@@ -447,19 +449,19 @@ func (s *Store) wakeStep(ctx context.Context) error {
 	now, later := s.dueArgs()
 	exhausted, err := s.wakeKeys(ctx, true, dueWake+` AND m.wake_notices>=?`, now, later, wakeNoticeLimit)
 	if err != nil {
-		return err
+		return wakePassError{"list_exhausted", err}
 	}
 	for _, k := range exhausted {
 		s.wake.mu.Lock()
 		err = s.failUnhandled(ctx, k)
 		s.wake.mu.Unlock()
 		if err != nil {
-			return err
+			return wakePassError{"fail_unhandled", err}
 		}
 	}
 	keys, err := s.wakeKeys(ctx, false, dueWake, now, later)
 	if err != nil {
-		return err
+		return wakePassError{"list_due", err}
 	}
 	for _, k := range keys {
 		if err = ctx.Err(); err != nil {
@@ -469,7 +471,7 @@ func (s *Store) wakeStep(ctx context.Context) error {
 		_, err = s.submitWake(ctx, k, false)
 		s.wake.mu.Unlock()
 		if err != nil {
-			return err
+			return wakePassError{"submit_wake", err}
 		}
 	}
 	return nil
@@ -493,11 +495,7 @@ func (d *Daemon) maintainWake() {
 			return
 		default:
 		}
-		if err := d.store.wakeStep(ctx); err != nil && ctx.Err() == nil {
-			d.store.wake.mu.Lock()
-			d.store.wake.fault = "storage_error"
-			d.store.wake.mu.Unlock()
-		}
+		d.recordWakePass(ctx, d.wakePass(ctx))
 		select {
 		case <-ctx.Done():
 			return
@@ -537,8 +535,18 @@ func (s *Store) WakeHealth(ctx context.Context) (map[string]any, error) {
 	// The database reads are finished before taking the submission boundary.
 	s.wake.mu.Lock()
 	fault := s.wake.fault
+	var lastFault *wakeFault
+	if s.wake.lastFault != nil {
+		copy := *s.wake.lastFault
+		copy.ErrorTypes = append([]string(nil), copy.ErrorTypes...)
+		if copy.SQLiteCode != nil {
+			code := *copy.SQLiteCode
+			copy.SQLiteCode = &code
+		}
+		lastFault = &copy
+	}
 	s.wake.mu.Unlock()
-	return map[string]any{"waiting": waiting, "uncertain": uncertain, "notified": notified, "failed": failed, "reasons": reasons, "fault": fault}, nil
+	return map[string]any{"waiting": waiting, "uncertain": uncertain, "notified": notified, "failed": failed, "reasons": reasons, "fault": fault, "last_fault": lastFault}, nil
 }
 
 func (s *Store) closeWake() {

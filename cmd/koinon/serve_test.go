@@ -43,6 +43,35 @@ func serveArgs(root string, extra ...string) []string {
 	return append([]string{"serve", "--state-dir", root, "--listen", "127.0.0.1:0", "--listen-v6", "[::1]:0"}, extra...)
 }
 
+// Wake diagnostics share the lifecycle writer with shutdown; concurrent events must remain
+// complete JSON lines even when the supplied writer is not itself synchronized.
+func TestLifecycleLogSerializesCoreEvents(t *testing.T) {
+	var out bytes.Buffer
+	previous := daemonLog
+	daemonLog = &out
+	defer func() { daemonLog = previous }()
+	logEvent := lifecycleLog()
+	var wg sync.WaitGroup
+	for range 16 {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			logEvent("wake_fault", map[string]any{"class": "sqlite_error", "fault_at": int64(1000), "error_types": []string{"sqlite.Error"}, "sqlite_code": 1})
+		}()
+	}
+	wg.Wait()
+	lines := strings.Split(strings.TrimSpace(out.String()), "\n")
+	if len(lines) != 16 {
+		t.Fatalf("log lines: %d", len(lines))
+	}
+	for _, line := range lines {
+		var event map[string]any
+		if err := json.Unmarshal([]byte(line), &event); err != nil || event["event"] != "wake_fault" || event["class"] != "sqlite_error" || event["at"] == "" {
+			t.Fatalf("event: %s %v", line, err)
+		}
+	}
+}
+
 // The daemon logs its start, stop and lock contention; with --lock-wait a second daemon waits,
 // then exits with status 0, and takes over when the lock frees within the wait (#283).
 func TestServeLifecycleLogAndLockWait(t *testing.T) {
