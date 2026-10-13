@@ -5,6 +5,9 @@ into a dated release section when promoted to `main`.
 
 ## Unreleased
 
+- `peers` marks the calling session's own row with `self` (#348), so a session finds its own
+  peer name, address, holder flag and succession result when several sessions of its family
+  share a repository.
 - Claude Code cycle adapter (#196, chunk 03): the managed context cycle runs for Claude Code
   2.1.296 sessions on Linux. It types `/clear` and `/pickup` into the session's own tmux pane,
   proving the pane and rechecking the cycle and Enable before every key, and proves the reset by

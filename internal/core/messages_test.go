@@ -308,12 +308,13 @@ func TestMessagesBetweenEveryFamilyPair(t *testing.T) {
 	if status != 200 || len(listing["peers"].([]any)) != len(families)+1 {
 		t.Fatalf("peers: %d %v", status, listing)
 	}
-	// Peers see names, aliases, families, states, repositories, participants and liveness
-	// evidence, never another session's wake target, directory, host process or key.
+	// Peers see names, aliases, families, states, repositories, participants, liveness
+	// evidence and the true-only mark of their own row, never another session's wake target,
+	// directory, host process or key.
 	for _, p := range listing["peers"].([]any) {
 		for field := range p.(map[string]any) {
 			switch field {
-			case "name", "alias", "family", "state", "repository", "subagent", "role", "address", "holds_address", "liveness", "host_verified_at":
+			case "name", "alias", "family", "state", "repository", "subagent", "role", "address", "holds_address", "liveness", "host_verified_at", "self":
 			default:
 				t.Fatalf("peer field %q: %v", field, p)
 			}
