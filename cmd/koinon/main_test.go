@@ -139,10 +139,18 @@ func TestMessageCommands(t *testing.T) {
 		t.Fatal(err)
 	}
 	var recipient string
+	var self []string
 	for _, p := range peers["peers"].([]any) {
 		if p := p.(map[string]any); p["family"] == "opencode" {
 			recipient = p["name"].(string)
 		}
+		if p := p.(map[string]any); p["self"] == true {
+			self = append(self, p["family"].(string))
+		}
+	}
+	// The --as caller's own row is the only one marked (#348).
+	if len(self) != 1 || self[0] != "codex" {
+		t.Fatalf("self rows: %v", self)
 	}
 	peerStatus, err := command("", "peer-status", "--as", "codex:synthetic-a", recipient)
 	if err != nil {

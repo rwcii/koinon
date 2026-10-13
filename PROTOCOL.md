@@ -16,7 +16,7 @@ Never put a secret, runtime session identifier or response body in a repository.
 | `POST /v1/sessions/register` | Register or reactivate one session identified by `(family, id)`. |
 | `POST /v1/sessions/renew` | Renew an active session's expiry. |
 | `POST /v1/sessions/retire` | Mark an active session retired, retaining its record. |
-| `POST /v1/peers` | Each session's `name`, held `alias`, `family`, `state`, `repository`, optional `role` and `address`, true-only `holds_address` and `subagent`, and optional `succession` and fresh `naming`, for an active caller; never a wake target, directory or session ID. |
+| `POST /v1/peers` | Each session's `name`, held `alias`, `family`, `state`, `repository`, optional `role` and `address`, true-only `holds_address` and `subagent`, and optional `succession` and fresh `naming`, for an active caller; never a wake target, directory or session ID. The caller's own row has true-only `self`, matched by its family and session; when the list is truncated, that row follows the listed rows, before the maintainer row. |
 | `POST /v1/peers/status` | Resolve a published peer name or held alias and read public identity plus observed model, context and activity for an active caller. |
 | `POST /v1/messages/send` | Store one message for the session that a peer name or alias names. |
 | `POST /v1/inbox/read` | Read session and held participant inboxes after their independent sequences. |

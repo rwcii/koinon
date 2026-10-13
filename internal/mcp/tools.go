@@ -26,7 +26,7 @@ func object(properties map[string]any, required ...string) map[string]any {
 var integer = map[string]any{"type": "integer", "minimum": 0}
 
 var toolList = []map[string]any{
-	{"name": "peers", "description": "List the agent sessions that Koinon knows: peer name, alias, family, state and repository.",
+	{"name": "peers", "description": "List the agent sessions that Koinon knows: peer name, alias, family, state and repository. Your own row has self true.",
 		"inputSchema": object(map[string]any{})},
 	{"name": "peer_status", "description": "Read a peer's observed model, context and activity by published name or held alias. Registration state is separate from activity; unknown values carry reasons, and known values carry source and freshness timestamps. Message acknowledgement does not establish activity.",
 		"inputSchema": object(map[string]any{"peer": text}, "peer")},

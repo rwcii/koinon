@@ -143,6 +143,8 @@ type Peer struct {
 	// agent runs (#249).
 	Liveness       string `json:"liveness,omitempty"`
 	HostVerifiedAt int64  `json:"host_verified_at,omitempty"`
+	// Self marks the calling session's own row (#348), by its resolved family and ID.
+	Self bool `json:"self,omitempty"`
 }
 
 // Peers lists every session for an active caller.
@@ -162,11 +164,25 @@ func (s *Store) Peers(ctx context.Context, caller Key) ([]Peer, bool, error) {
 	if err != nil {
 		return nil, false, err
 	}
-	peers := make([]Peer, 0, len(items)+1)
-	for _, item := range items {
-		peers = append(peers, Peer{Name: item.Name, Alias: item.Alias, Family: item.Family, State: item.State, Repository: item.Repository,
+	peer := func(item Session) Peer {
+		return Peer{Name: item.Name, Alias: item.Alias, Family: item.Family, State: item.State, Repository: item.Repository,
 			Subagent: item.Subagent, Role: item.Role, Address: item.Address, HoldsAddress: item.HoldsAddress, Succession: item.Succession,
-			Naming: s.namingOf(item), Liveness: item.Liveness, HostVerifiedAt: item.HostVerifiedAt})
+			Naming: s.namingOf(item), Liveness: item.Liveness, HostVerifiedAt: item.HostVerifiedAt,
+			Self: item.Family == caller.Family && item.ID == caller.ID}
+	}
+	peers := make([]Peer, 0, len(items)+2)
+	found := false
+	for _, item := range items {
+		peers = append(peers, peer(item))
+		found = found || peers[len(peers)-1].Self
+	}
+	// A truncated list can leave the caller out; its own row follows the listed rows.
+	if !found {
+		own, err := scanSession(s.db.QueryRowContext(ctx, sessionQuery+` WHERE s.family=? AND s.id=?`, caller.Family, caller.ID), s.now().UnixMilli())
+		if err != nil {
+			return nil, false, err
+		}
+		peers = append(peers, peer(own))
 	}
 	// Agents can send to the maintainer, who reads the inbox in the dashboard (chunk 09).
 	peers = append(peers, Peer{Name: "maintainer", Family: maintainerKey.Family, State: "active"})
