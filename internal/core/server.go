@@ -24,6 +24,8 @@ type Config struct {
 	StateDir string
 	Listen   []string
 	Release  string
+	// LogEvent receives fixed, content-free daemon diagnostics.
+	LogEvent func(string, map[string]any)
 }
 
 type Daemon struct {
@@ -50,6 +52,8 @@ type Daemon struct {
 	launchMu         sync.Mutex
 	unfinished       map[int64][2]string
 	workNoticeSignal chan struct{}
+	logEvent         func(string, map[string]any)
+	wakePass         func(context.Context) error // the real pass, injectable in loop tests
 }
 
 func validAddress(address string) bool {
@@ -88,6 +92,7 @@ func Start(c Config) (*Daemon, error) {
 		return nil, err
 	}
 	d := &Daemon{lock: lock, errors: make(chan error, 2), stop: make(chan struct{}), root: root, launch: runLauncher, catalog: catalog, workNoticeSignal: make(chan struct{}, 1)}
+	d.logEvent = c.LogEvent
 	defer func() {
 		if err != nil {
 			d.Close()
@@ -110,6 +115,7 @@ func Start(c Config) (*Daemon, error) {
 	// A launch whose result a previous daemon never recorded stays visibly open no longer.
 	d.store.closeStartedLaunches(context.Background())
 	d.store.wake.send = d.store.providerWake
+	d.wakePass = d.store.wakeStep
 	d.store.OnMemoryChange(func(string) { d.signalWorkNotices() })
 	if d.auth, err = newDashboardAuth(func() time.Time { return d.store.now() }); err != nil {
 		return nil, err

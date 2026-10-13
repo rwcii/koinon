@@ -10,6 +10,11 @@ into a dated release section when promoted to `main`.
   fresh context reading reaches the threshold. Enabling is refused until the managed cycle is
   available; family changes enable nothing. Claude and Codex context reports carry their
   native transcript or thread, kept private. The state database moves to schema 22.
+- Wake-pass diagnostics (#335) report the error class, stage, time and bounded error-type
+  details, including SQLite result codes, in health and daemon logs. A successful pass
+  clears the current fault while retaining the last failure; repeated identical faults
+  do not flood logs. Raw error text, message bodies and native IDs are excluded.
+
 - Room conversation view (#217, chunk 03): an open room on the Rooms page lists each post's
   recipients as they were at the post, with the delivery state and acknowledgement of each
   inbox copy, skipped inactive members, and `not retained` once a copy is deleted, plus the

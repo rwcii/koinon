@@ -37,6 +37,15 @@ Never put a secret, runtime session identifier or response body in a repository.
 | `POST /v1/dashboard/links` | Issue a one-time dashboard login link (`path`, `expires_in`). |
 | `POST /v1/storage/recover` | Prove the write-ahead log empty again, return free pages and clear a blocked state. |
 
+Wake health keeps `fault` as the current wake-pass error class, empty after a successful
+pass. `last_fault` retains the latest failure's `class`, fixed operation `stage`, Unix-ms
+`at`, bounded `error_types` and optional numeric `sqlite_code` until daemon restart.
+The daemon logs `wake_fault` when these diagnostics change and `wake_recovered` on recovery;
+repeated identical failures update the health time without flooding logs. Diagnostics hold
+no raw error/provider text, message body, credential or native session ID. Normal shutdown
+cancellation creates no wake fault. Provider delivery outcomes remain in the existing counts
+and reason codes, separately from pass failures.
+
 POST requests use `Content-Type: application/json`, at most 16 KiB, with unknown fields refused.
 Registration fields are `family` (`claude`, `codex`, `deepseek`, `agy`, `opencode`, `grok`), `id` (1–256
 bytes), an absolute `directory` path, an optional absolute `repository` path,

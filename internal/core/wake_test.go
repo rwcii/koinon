@@ -5,6 +5,7 @@ import (
 	"context"
 	"database/sql"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"os/exec"
@@ -385,8 +386,13 @@ func TestWakeRefusedDurableBoundarySendsNothing(t *testing.T) {
 		t.Fatal("submitted before durable boundary")
 		return accepted()
 	}
-	if err := s.wakeStep(context.Background()); err != ErrStorageBlocked {
+	err := s.wakeStep(context.Background())
+	if !errors.Is(err, ErrStorageBlocked) {
 		t.Fatalf("storage refusal %v", err)
+	}
+	var stage wakePassError
+	if !errors.As(err, &stage) || stage.stage != "submit_wake" {
+		t.Fatalf("storage refusal lost its operation: %v", err)
 	}
 }
 
