@@ -44,7 +44,7 @@ func TestDashboardRoomConversationView(t *testing.T) {
 	if _, err := s.Ack(ctx, Key{"claude", b.ID}, inbox.Messages[len(inbox.Messages)-1].Seq); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := s.db.Exec(`DELETE FROM messages WHERE id=(SELECT d.message_id FROM room_deliveries d JOIN room_posts p ON p.post_id=d.post_id
+	if _, err := fixtureExec(s, `DELETE FROM messages WHERE id=(SELECT d.message_id FROM room_deliveries d JOIN room_posts p ON p.post_id=d.post_id
 		WHERE p.seq=1 AND d.family='codex')`); err != nil {
 		t.Fatal(err)
 	}
@@ -296,7 +296,7 @@ func TestRoomConversationEndToEnd(t *testing.T) {
 		t.Fatalf("acknowledged row: %+v", r)
 	}
 	// A culled copy is not retained, with acknowledgement unknown.
-	if _, err := s.db.Exec(`DELETE FROM messages WHERE id=(SELECT d.message_id FROM room_deliveries d JOIN room_posts p ON p.post_id=d.post_id
+	if _, err := fixtureExec(s, `DELETE FROM messages WHERE id=(SELECT d.message_id FROM room_deliveries d JOIN room_posts p ON p.post_id=d.post_id
 		WHERE p.room_id=? AND p.seq=1 AND d.family='deepseek')`, room); err != nil {
 		t.Fatal(err)
 	}
@@ -378,7 +378,7 @@ func TestDashboardRoomNewestPageAtTheByteLimit(t *testing.T) {
 	if err != nil || earlier.Open.Transcript.Posts[0].Seq != 1 || !earlier.Open.Transcript.More {
 		t.Fatalf("earlier page: %v", err)
 	}
-	if _, err := s.db.Exec(`DELETE FROM room_posts WHERE room_id=? AND seq=17`, room); err != nil {
+	if _, err := fixtureExec(s, `DELETE FROM room_posts WHERE room_id=? AND seq=17`, room); err != nil {
 		t.Fatal(err)
 	}
 	if p := newest(); span(p) != "2..18" || fmt.Sprint(p.Transcript.Gaps) != "[{17 17}]" {
@@ -421,7 +421,7 @@ func TestRoomWritesDoNotConsumeFundedWorkControls(t *testing.T) {
 	if _, err := s.Ack(ctx, Key{"codex", "synthetic-a"}, inbox.Messages[len(inbox.Messages)-1].Seq); err != nil {
 		t.Fatalf("acknowledgement at the ceiling: %v", err)
 	}
-	if _, err := s.db.Exec(`DELETE FROM messages WHERE room_event='post'`); err != nil {
+	if _, err := fixtureExec(s, `DELETE FROM messages WHERE room_event='post'`); err != nil {
 		t.Fatal(err)
 	}
 	budget := int64(cullBudget)

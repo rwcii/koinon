@@ -487,7 +487,7 @@ func TestStorageRefusalHasNoPartialRecord(t *testing.T) {
 			s, _ := testStore(t)
 			repo := testRepo(t)
 			if fault == "read-only" {
-				if _, err := s.db.Exec("PRAGMA query_only=ON"); err != nil {
+				if _, err := fixtureExec(s, "PRAGMA query_only=ON"); err != nil {
 					t.Fatal(err)
 				}
 			} else {
@@ -495,7 +495,7 @@ func TestStorageRefusalHasNoPartialRecord(t *testing.T) {
 				if err := s.db.QueryRow("PRAGMA page_count").Scan(&pages); err != nil {
 					t.Fatal(err)
 				}
-				if _, err := s.db.Exec("PRAGMA max_page_count=" + fmt.Sprint(pages)); err != nil {
+				if _, err := fixtureExec(s, "PRAGMA max_page_count="+fmt.Sprint(pages)); err != nil {
 					t.Fatal(err)
 				}
 			}

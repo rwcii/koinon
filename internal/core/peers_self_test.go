@@ -68,7 +68,7 @@ func TestPeersTruncatedListKeepsTheCaller(t *testing.T) {
 	s, _ := testStore(t)
 	template := join(t, s, "agy", "synthetic-template", "")
 	caller := join(t, s, "codex", "synthetic-caller", namedRepo(t, "peers-truncated"))
-	if _, err := s.db.Exec(`UPDATE sessions SET host_pid=4242,host_start=77 WHERE family=? AND id=?`, caller.Family, caller.ID); err != nil {
+	if _, err := fixtureExec(s, `UPDATE sessions SET host_pid=4242,host_start=77 WHERE family=? AND id=?`, caller.Family, caller.ID); err != nil {
 		t.Fatal(err)
 	}
 	s.alive.set(Key{caller.Family, caller.ID}, s.now().UnixMilli())
@@ -103,7 +103,7 @@ func TestPeersTruncatedListKeepsTheCaller(t *testing.T) {
 	rows.Close()
 	selected := strings.Replace(strings.Join(columns, ","), "id,", "?,", 1)
 	for i := range 1001 {
-		if _, err := s.db.Exec(`INSERT INTO sessions(`+strings.Join(columns, ",")+`) SELECT `+selected+` FROM sessions WHERE family='agy' AND id=?`,
+		if _, err := fixtureExec(s, `INSERT INTO sessions(`+strings.Join(columns, ",")+`) SELECT `+selected+` FROM sessions WHERE family='agy' AND id=?`,
 			fmt.Sprintf("synthetic-%04d", i), template.ID); err != nil {
 			t.Fatal(err)
 		}

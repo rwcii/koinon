@@ -273,7 +273,7 @@ func TestMemoryIdempotency(t *testing.T) {
 		t.Fatalf("idempotency rows kept past their deadline: %d", rows)
 	}
 	// A row of another scheme (an imported one) is never matched by this scheme.
-	s.db.Exec(`INSERT INTO memory_idem(repository,consumer,key,scheme,fingerprint,seq,ts,deadline) VALUES (?,?,?,?,?,?,?,?)`,
+	fixtureExec(s, `INSERT INTO memory_idem(repository,consumer,key,scheme,fingerprint,seq,ts,deadline) VALUES (?,?,?,?,?,?,?,?)`,
 		m.Repository, m.Consumer, "imported", "python1", "0", 1, 0, float64(clock.Unix())+100)
 	imported := r
 	imported.Key, imported.Deadline = ptr("imported"), ptr(float64(clock.Unix())+100)
@@ -457,7 +457,7 @@ func TestMemorySnapshotsAndDeltas(t *testing.T) {
 		t.Fatalf("activity: %v", updated)
 	}
 	// A cursor below the floor returns to a snapshot.
-	s.db.Exec(`UPDATE memory_stores SET floor=head+5`)
+	fixtureExec(s, `UPDATE memory_stores SET floor=head+5`)
 	if d, err := s.MemorySync(ctx, m, MemorySyncRequest{}); err != nil || d["kind"] != "snapshot" {
 		t.Fatalf("below floor: %v %v", d, err)
 	}
@@ -486,14 +486,14 @@ func TestMemorySnapshotExpiryAndObligation(t *testing.T) {
 		t.Fatalf("progress advanced without an acknowledgement: %d", cursor)
 	}
 	// A cleared snapshot keeps its obligation.
-	s.db.Exec(`UPDATE memory_cursors SET snapshot='bogus'`)
+	fixtureExec(s, `UPDATE memory_cursors SET snapshot='bogus'`)
 	if d, err := s.MemorySync(ctx, m, MemorySyncRequest{}); err != nil || d["kind"] != "snapshot" {
 		t.Fatalf("obligation: %v %v", d, err)
 	}
 	// Four retained snapshots per consumer.
-	s.db.Exec(`UPDATE memory_cursors SET snapshot=NULL,resnapshot=1`)
+	fixtureExec(s, `UPDATE memory_cursors SET snapshot=NULL,resnapshot=1`)
 	for i := 0; i < 4; i++ {
-		s.db.Exec(`UPDATE memory_cursors SET snapshot=NULL,resnapshot=1`)
+		fixtureExec(s, `UPDATE memory_cursors SET snapshot=NULL,resnapshot=1`)
 		if _, err := s.MemorySync(ctx, m, MemorySyncRequest{}); err != nil && code(err) != "snapshot_capacity" {
 			t.Fatal(err)
 		}
@@ -678,7 +678,7 @@ func TestStorageBound(t *testing.T) {
 	s.storage.maxPages = defaultMaxPages
 	// The engine ceiling rolls a write back whole and keeps integrity.
 	pages, _ = s.pages(ctx, s.db)
-	s.db.Exec(fmt.Sprintf("PRAGMA max_page_count=%d", pages))
+	fixtureExec(s, fmt.Sprintf("PRAGMA max_page_count=%d", pages))
 	big := strings.Repeat("x", 8000)
 	for i := 0; i < 3; i++ {
 		if _, err := s.MemoryRecord(ctx, m, MemoryRecordRequest{Type: "finding", Body: big + fmt.Sprint(i)}); err != nil && code(err) != "capacity" {
@@ -690,7 +690,7 @@ func TestStorageBound(t *testing.T) {
 	if integrity != "ok" {
 		t.Fatal(integrity)
 	}
-	s.db.Exec(fmt.Sprintf("PRAGMA max_page_count=%d", defaultMaxPages))
+	fixtureExec(s, fmt.Sprintf("PRAGMA max_page_count=%d", defaultMaxPages))
 	// A failed log proof blocks writes; reads and status stay; recovery clears it.
 	real := s.storage.path
 	fake := filepath.Join(t.TempDir(), "fake")
@@ -851,7 +851,7 @@ func TestEngineFullOnReservedWriteBlocksInsideTheBoundary(t *testing.T) {
 	ctx := context.Background()
 	first := note(t, s, m, MemoryRecordRequest{})
 	pages, _ := s.pages(ctx, s.db)
-	s.db.Exec(fmt.Sprintf("PRAGMA max_page_count=%d", pages))
+	fixtureExec(s, fmt.Sprintf("PRAGMA max_page_count=%d", pages))
 	done, stopped := make(chan struct{}), make(chan struct{})
 	go func() {
 		defer close(stopped)

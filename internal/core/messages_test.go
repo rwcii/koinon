@@ -116,7 +116,7 @@ func TestLabelsAndPeerNames(t *testing.T) {
 	// All 256 two-hex names taken: the next name uses four hex digits.
 	other := namedRepo(t, "busy")
 	for i := range 256 {
-		if _, err := s.db.Exec(`INSERT INTO names(name,kind,family,session_id) VALUES (?,'peer','codex',?)`, fmt.Sprintf("codex-busy-%02x", i), fmt.Sprint("filler-", i)); err != nil {
+		if _, err := fixtureExec(s, `INSERT INTO names(name,kind,family,session_id) VALUES (?,'peer','codex',?)`, fmt.Sprintf("codex-busy-%02x", i), fmt.Sprint("filler-", i)); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -150,7 +150,7 @@ func TestAliasUniquenessAcrossRepositories(t *testing.T) {
 		t.Fatal(err)
 	}
 	digest := fmt.Sprintf("%x", sha256Sum(common))
-	if _, err := s.db.Exec(`INSERT INTO names(name,kind,family,session_id) VALUES (?,'peer','codex','filler')`, "codex-koinon-"+digest[:4]); err != nil {
+	if _, err := fixtureExec(s, `INSERT INTO names(name,kind,family,session_id) VALUES (?,'peer','codex','filler')`, "codex-koinon-"+digest[:4]); err != nil {
 		t.Fatal(err)
 	}
 	if got := join(t, s, "codex", "synthetic-six", c); got.Alias != "codex-koinon-"+digest[:6] {

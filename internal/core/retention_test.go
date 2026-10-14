@@ -254,7 +254,7 @@ func TestImportedAndReregisteredSessions(t *testing.T) {
 	back := join(t, s, "claude", "synthetic-back", repo)
 	ki, kb := Key{"codex", "synthetic-imported"}, Key{"claude", "synthetic-back"}
 	// An imported session can carry registration, renewal and expiry time 0.
-	if _, err := s.db.Exec(`UPDATE sessions SET registered_at=0,renewed_at=0,expires_at=0 WHERE family='codex' AND id='synthetic-imported'`); err != nil {
+	if _, err := fixtureExec(s, `UPDATE sessions SET registered_at=0,renewed_at=0,expires_at=0 WHERE family='codex' AND id='synthetic-imported'`); err != nil {
 		t.Fatal(err)
 	}
 	if got := cull(t, s); got.SessionsByRetention != 1 || sessionExists(t, s, ki) {

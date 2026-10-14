@@ -209,7 +209,7 @@ func TestUnlaunchedSessionRenewsAfterUpgrade(t *testing.T) {
 		t.Fatal(err)
 	}
 	// As the earlier runtime stored it: a Claude wake target without a launch.
-	if _, err := s.db.Exec(`UPDATE sessions SET wake_target='{"claude_pid":4242}' WHERE family='claude' AND id='synthetic-old'`); err != nil {
+	if _, err := fixtureExec(s, `UPDATE sessions SET wake_target='{"claude_pid":4242}' WHERE family='claude' AND id='synthetic-old'`); err != nil {
 		t.Fatal(err)
 	}
 	var expires, acked int64

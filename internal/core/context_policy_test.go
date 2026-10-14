@@ -88,7 +88,7 @@ func TestContextFamilyPolicy(t *testing.T) {
 	}
 	// A restart reads the stored values; a value that is not valid keeps the default, also
 	// one that is not an integer, and it does not stop the store from opening.
-	if _, err := s.db.Exec(`INSERT INTO settings(name,value,updated_at) VALUES ('context_mode_agy',1,1),('context_threshold_agy',50,1),
+	if _, err := fixtureExec(s, `INSERT INTO settings(name,value,updated_at) VALUES ('context_mode_agy',1,1),('context_threshold_agy',50,1),
 		('context_mode_grok',0,1),('context_threshold_grok','synthetic-not-an-integer',1),('context_mode_opencode',0.5,1),('context_threshold_opencode',75,1)`); err != nil {
 		t.Fatal(err)
 	}
@@ -340,7 +340,7 @@ func TestContextSchemaTwentyTwoKeepsExistingState(t *testing.T) {
 	room := mustRoom(t, s, "synthetic kept room", 7)
 	mustHumanPost(t, s, room, "synthetic kept post")
 	before := rowsOf(t, s.db)
-	if _, err := s.db.Exec(undoSchemaTwentySix + undoSchemaTwentyFive + undoSchemaTwentyFour + undoSchemaTwentyThree + undoSchemaTwentyTwo + `PRAGMA user_version=21`); err != nil {
+	if _, err := fixtureExec(s, undoSchemaTwentySix+undoSchemaTwentyFive+undoSchemaTwentyFour+undoSchemaTwentyThree+undoSchemaTwentyTwo+`PRAGMA user_version=21`); err != nil {
 		t.Fatal(err)
 	}
 	if err := checkCatalog(s.db, 21); err != nil {

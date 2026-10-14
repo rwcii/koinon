@@ -61,7 +61,7 @@ func TestDecisionBoard(t *testing.T) {
 		t.Fatalf("decline: %s", got)
 	}
 	// A stored command that fails the printable-ASCII rule is hidden on read.
-	if _, err := d.store.db.Exec(`UPDATE decision_items SET commands=? WHERE reference='D-2'`, `["echo ok","echo\tbad"]`); err != nil {
+	if _, err := fixtureExec(d.store, `UPDATE decision_items SET commands=? WHERE reference='D-2'`, `["echo ok","echo\tbad"]`); err != nil {
 		t.Fatal(err)
 	}
 	// Claimed work of the agent, on its native consumer.

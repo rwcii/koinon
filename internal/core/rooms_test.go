@@ -232,7 +232,7 @@ func TestRoomMembershipFollowsTheParticipantHolder(t *testing.T) {
 	if strings.Join(states, ",") != "unheld,inactive" {
 		t.Fatalf("expired states: %v", states)
 	}
-	if _, err := s.db.Exec(`UPDATE names SET conflict='["x","y"]',holder_id='' WHERE name='codex-koinon'`); err != nil {
+	if _, err := fixtureExec(s, `UPDATE names SET conflict='["x","y"]',holder_id='' WHERE name='codex-koinon'`); err != nil {
 		t.Fatal(err)
 	}
 	before := count(t, s, `SELECT COUNT(*) FROM messages`)
@@ -463,7 +463,7 @@ func TestRoomsUpgradeKeepsExistingState(t *testing.T) {
 		t.Fatal("fixture was not migrated")
 	}
 	rows := rowsOf(t, s.db)
-	if _, err := s.db.Exec(undoSchemaTwentySix + undoSchemaTwentyFive + undoSchemaTwentyFour + undoSchemaTwentyThree + undoSchemaTwentyTwo + undoSchemaTwentyOne + undoSchemaTwenty + undoSchemaNineteen + `PRAGMA user_version=18`); err != nil {
+	if _, err := fixtureExec(s, undoSchemaTwentySix+undoSchemaTwentyFive+undoSchemaTwentyFour+undoSchemaTwentyThree+undoSchemaTwentyTwo+undoSchemaTwentyOne+undoSchemaTwenty+undoSchemaNineteen+`PRAGMA user_version=18`); err != nil {
 		t.Fatal(err)
 	}
 	if err := checkCatalog(s.db, 18); err != nil {

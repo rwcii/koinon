@@ -96,7 +96,7 @@ func TestDashboardSearchAndSuggestionPages(t *testing.T) {
 	active := join(t, s, "codex", "synthetic-active", repo)
 	expired := join(t, s, "agy", "synthetic-expired", "")
 	// A recent expiry: retention deletes sessions that expired more than 30 days ago.
-	if _, err := s.db.ExecContext(ctx, `UPDATE sessions SET expires_at=? WHERE family=? AND id=?`, s.now().UnixMilli()-1000, expired.Family, expired.ID); err != nil {
+	if _, err := fixtureExecContext(ctx, s, `UPDATE sessions SET expires_at=? WHERE family=? AND id=?`, s.now().UnixMilli()-1000, expired.Family, expired.ID); err != nil {
 		t.Fatal(err)
 	}
 	if err := s.Cull(ctx); err != nil {
