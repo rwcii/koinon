@@ -577,6 +577,12 @@ func (s *Store) DecisionHistory(ctx context.Context, caller Key, reference strin
 	if err := active(ctx, tx, s.now().UnixMilli(), caller); err != nil {
 		return DecisionHistoryPage{}, err
 	}
+	return decisionHistory(ctx, tx, reference, after, limit)
+}
+
+// decisionHistory reads one page of an item's verdicts with their snapshots, bounded by
+// limit verdicts and by decisionHistoryBytes of serialized reply.
+func decisionHistory(ctx context.Context, tx querier, reference string, after int64, limit int) (DecisionHistoryPage, error) {
 	id, _, err := decisionRow(ctx, tx, reference)
 	if err != nil {
 		return DecisionHistoryPage{}, err
