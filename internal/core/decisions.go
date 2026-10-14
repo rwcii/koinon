@@ -411,8 +411,9 @@ func (s *Store) DecisionCreate(ctx context.Context, caller Key, reference string
 		return DecisionCreated{}, workError("retry_deadline_expired", "the retry deadline has passed")
 	}
 	print := decisionFingerprint(reference, f, deadline)
-	// Each operation has its own key space, so a create and a close may use the same key.
-	key = "create\x00" + key
+	// Create keys keep the key space of schema 25, so a receipt stored before the upgrade
+	// still answers its retry. Close keys carry a NUL prefix, which no caller key can hold
+	// (checkLine refuses control characters), so a create and a close may use the same key.
 	// A repeat writes nothing, so it is answered before write admission.
 	read, err := s.db.BeginTx(ctx, &sql.TxOptions{ReadOnly: true})
 	if err != nil {
@@ -590,11 +591,11 @@ func decisionRow(ctx context.Context, q querier, reference string) (int64, Decis
 	var item DecisionItem
 	var commands string
 	err := q.QueryRowContext(ctx, `SELECT id,reference,item_order,title,location,agent_text,context,recommendation,kind,state,
-		commands,revision,author_family,author_name,created_at,updated_at,archived_at,closed_by,closed_at,outcome_note
+		commands,revision,author_family,author_name,created_at,updated_at,archived_at,closed_by,closed_at,outcome_note,verdict_count
 		FROM decision_items WHERE reference=?`, reference).
 		Scan(&id, &item.Reference, &item.Order, &item.Title, &item.Where, &item.AgentText, &item.Context, &item.Recommendation,
 			&item.Kind, &item.State, &commands, &item.Revision, &item.AuthorFamily, &item.AuthorName, &item.CreatedAt, &item.UpdatedAt,
-			&item.ArchivedAt, &item.ClosedBy, &item.ClosedAt, &item.OutcomeNote)
+			&item.ArchivedAt, &item.ClosedBy, &item.ClosedAt, &item.OutcomeNote, &item.Verdicts)
 	if errors.Is(err, sql.ErrNoRows) {
 		// A deep-archived reference is answered from its locator, without reading the log.
 		at, moved, err := deepArchived(ctx, q, reference)
@@ -652,10 +653,8 @@ func decisionItem(ctx context.Context, q querier, reference string) (DecisionIte
 	if item.Recipients, err = decisionRecipients(ctx, q, names); err != nil {
 		return item, err
 	}
-	if item.Verdict, err = currentVerdict(ctx, q, id, true); err != nil {
-		return item, err
-	}
-	err = q.QueryRowContext(ctx, `SELECT COUNT(*) FROM decision_verdicts WHERE item_id=?`, id).Scan(&item.Verdicts)
+	// The verdict count is stored on the item, so a read does not count the history.
+	item.Verdict, err = currentVerdict(ctx, q, id, true)
 	return item, err
 }
 
@@ -762,7 +761,7 @@ func decisionPage(ctx context.Context, q querier, filter string, targets []strin
 		}
 		for _, id := range ids {
 			var s DecisionSummary
-			if err := q.QueryRowContext(ctx, `SELECT id,reference,title,kind,state,revision,item_order,COALESCE((SELECT verdict FROM decision_verdicts v WHERE v.item_id=decision_items.id AND v.superseded_at=0
+			if err := q.QueryRowContext(ctx, `SELECT id,reference,title,kind,state,revision,item_order,COALESCE((SELECT CASE WHEN v.superseded_at=0 THEN v.verdict ELSE '' END FROM decision_verdicts v WHERE v.item_id=decision_items.id
 				ORDER BY v.id DESC LIMIT 1),'') FROM decision_items WHERE id=?`, id).
 				Scan(&s.id, &s.Reference, &s.Title, &s.Kind, &s.State, &s.Revision, &s.Order, &s.Verdict); err != nil {
 				return DecisionPage{}, err
@@ -770,11 +769,11 @@ func decisionPage(ctx context.Context, q querier, filter string, targets []strin
 			summaries = append(summaries, s)
 		}
 	} else {
-		query, args := `SELECT id,reference,title,kind,state,revision,item_order,COALESCE((SELECT verdict FROM decision_verdicts v WHERE v.item_id=decision_items.id AND v.superseded_at=0
+		query, args := `SELECT id,reference,title,kind,state,revision,item_order,COALESCE((SELECT CASE WHEN v.superseded_at=0 THEN v.verdict ELSE '' END FROM decision_verdicts v WHERE v.item_id=decision_items.id
 				ORDER BY v.id DESC LIMIT 1),'') FROM decision_items WHERE state=? AND id>? ORDER BY id LIMIT ?`,
 			[]any{filter, after, limit + 1}
 		if filter == "waiting" {
-			query, args = `SELECT id,reference,title,kind,state,revision,item_order,COALESCE((SELECT verdict FROM decision_verdicts v WHERE v.item_id=decision_items.id AND v.superseded_at=0
+			query, args = `SELECT id,reference,title,kind,state,revision,item_order,COALESCE((SELECT CASE WHEN v.superseded_at=0 THEN v.verdict ELSE '' END FROM decision_verdicts v WHERE v.item_id=decision_items.id
 				ORDER BY v.id DESC LIMIT 1),'') FROM decision_items WHERE state='active' AND kind='decision'
 				AND id>? ORDER BY id LIMIT ?`, []any{after, limit + 1}
 		}

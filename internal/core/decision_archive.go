@@ -471,6 +471,7 @@ func (s *Store) DecisionRestore(ctx context.Context, caller Key, reference strin
 	}
 	record.Item["state"], record.Item["archived_at"], record.Item["updated_at"] = "archived", now, now
 	record.Item["mark_revision"], record.Item["mark_file"], record.Item["mark_offset"] = 0, "", 0
+	record.Item["verdict_count"] = int64(len(record.Verdicts))
 	for table, rows := range map[string][]map[string]any{"decision_items": {record.Item}, "decision_recipients": record.Recipients,
 		"decision_verdicts": record.Verdicts, "decision_deliveries": record.Deliveries} {
 		for _, row := range rows {

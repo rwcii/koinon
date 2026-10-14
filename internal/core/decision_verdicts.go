@@ -52,7 +52,8 @@ const decisionVerdictTables = `
 	ALTER TABLE decision_items ADD COLUMN outcome_note TEXT NOT NULL DEFAULT '';
 	ALTER TABLE decision_items ADD COLUMN mark_revision INTEGER NOT NULL DEFAULT 0;
 	ALTER TABLE decision_items ADD COLUMN mark_file TEXT NOT NULL DEFAULT '';
-	ALTER TABLE decision_items ADD COLUMN mark_offset INTEGER NOT NULL DEFAULT 0;`
+	ALTER TABLE decision_items ADD COLUMN mark_offset INTEGER NOT NULL DEFAULT 0;
+	ALTER TABLE decision_items ADD COLUMN verdict_count INTEGER NOT NULL DEFAULT 0;`
 
 // DecisionSnapshot is the text that the maintainer saw when giving a verdict.
 type DecisionSnapshot struct {
@@ -113,14 +114,16 @@ func verdictNoticeBody(reference string, id int64) string {
 	return fmt.Sprintf("Decision %s has a verdict (%d). Read it with decision_get.", reference, id)
 }
 
-// currentVerdict is the item's latest verdict that is not superseded, or nil.
+// currentVerdict is the item's current verdict, or nil. A reopen supersedes the current
+// verdict and a new verdict needs an active item, so only the latest verdict can be current:
+// one index seek, however long the history is.
 func currentVerdict(ctx context.Context, q querier, itemID int64, deliveries bool) (*DecisionVerdict, error) {
 	var v DecisionVerdict
 	var snapshot string
 	err := q.QueryRowContext(ctx, `SELECT id,revision,verdict,note,created_at,superseded_at,snapshot FROM decision_verdicts
-		WHERE item_id=? AND superseded_at=0 ORDER BY id DESC LIMIT 1`, itemID).
+		WHERE item_id=? ORDER BY id DESC LIMIT 1`, itemID).
 		Scan(&v.ID, &v.Revision, &v.Verdict, &v.Note, &v.At, &v.SupersededAt, &snapshot)
-	if errors.Is(err, sql.ErrNoRows) {
+	if errors.Is(err, sql.ErrNoRows) || err == nil && v.SupersededAt != 0 {
 		return nil, nil
 	}
 	if err != nil {
@@ -192,9 +195,9 @@ func (s *Store) DecisionVerdict(ctx context.Context, reference string, revision 
 		return DecisionVerdict{}, workError("invalid_verdict", "a decision item takes approve or decline; an fyi item takes dismiss")
 	}
 	// A command that fails the printable-ASCII rule is hidden, so the item cannot be
-	// approved as displayed.
+	// approved as displayed (PDR 007, Decision 3). Decline and Dismiss approve nothing.
 	for _, c := range item.Commands {
-		if !printableCommand(c) {
+		if verdict == "approved" && !printableCommand(c) {
 			return DecisionVerdict{}, workError("hidden_command", "a stored command is hidden; the item cannot be approved as displayed")
 		}
 	}
@@ -212,7 +215,8 @@ func (s *Store) DecisionVerdict(ctx context.Context, reference string, revision 
 	if verdict != "approved" {
 		state, archived = "archived", now
 	}
-	if _, err := tx.ExecContext(ctx, `UPDATE decision_items SET state=?,archived_at=?,updated_at=?,mark_revision=0,mark_file='',mark_offset=0 WHERE id=?`,
+	if _, err := tx.ExecContext(ctx, `UPDATE decision_items SET state=?,archived_at=?,updated_at=?,mark_revision=0,mark_file='',mark_offset=0,
+		verdict_count=verdict_count+1 WHERE id=?`,
 		state, archived, now, id); err != nil {
 		return DecisionVerdict{}, tx.fail(err)
 	}
@@ -473,13 +477,10 @@ func (s *Store) DecisionClose(ctx context.Context, caller Key, reference string,
 		read.Rollback()
 		return DecisionItem{}, err
 	}
-	original, err := decisionRepeat(ctx, read, caller, key, print)
+	original, err := closeRepeat(ctx, read, caller, key, print)
 	read.Rollback()
-	if err != nil {
-		return DecisionItem{}, err
-	}
-	if original != nil {
-		return s.decisionRead(ctx, reference)
+	if err != nil || original != nil {
+		return orItem(original), err
 	}
 	tx, err := s.begin(ctx, ordinary)
 	if err != nil {
@@ -490,12 +491,8 @@ func (s *Store) DecisionClose(ctx context.Context, caller Key, reference string,
 	if err := active(ctx, tx.Tx, now, caller); err != nil {
 		return DecisionItem{}, err
 	}
-	if original, err := decisionRepeat(ctx, tx.Tx, caller, key, print); err != nil || original != nil {
-		if err != nil {
-			return DecisionItem{}, err
-		}
-		tx.Rollback()
-		return s.decisionRead(ctx, reference)
+	if original, err := closeRepeat(ctx, tx.Tx, caller, key, print); err != nil || original != nil {
+		return orItem(original), err
 	}
 	id, item, err := decisionRow(ctx, tx.Tx, reference)
 	if err != nil {
@@ -516,15 +513,46 @@ func (s *Store) DecisionClose(ctx context.Context, caller Key, reference string,
 		now, now, closer, now, note, id); err != nil {
 		return DecisionItem{}, tx.fail(err)
 	}
-	receipt, _ := json.Marshal(DecisionCreated{Reference: reference, Revision: item.Revision, State: "archived", Recipients: []DecisionRecipient{}})
+	// The receipt is the closed item itself, so a retry returns this result even after a
+	// later edit or verdict changed the item.
+	closed, err := decisionItem(ctx, tx.Tx, reference)
+	if err != nil {
+		return DecisionItem{}, err
+	}
+	receipt, _ := json.Marshal(closed)
 	if _, err := tx.ExecContext(ctx, `INSERT INTO decision_replays(family,caller_id,key,fingerprint,deadline,result) VALUES (?,?,?,?,?,?)`,
 		caller.Family, caller.ID, key, print, deadline, string(receipt)); err != nil {
 		return DecisionItem{}, tx.fail(err)
 	}
-	if err := tx.Commit(); err != nil {
-		return DecisionItem{}, err
+	return closed, tx.Commit()
+}
+
+// closeRepeat returns the first result of a close with this key, or nil.
+func closeRepeat(ctx context.Context, q querier, caller Key, key, print string) (*DecisionItem, error) {
+	var stored, result string
+	err := q.QueryRowContext(ctx, `SELECT fingerprint,result FROM decision_replays WHERE family=? AND caller_id=? AND key=?`,
+		caller.Family, caller.ID, key).Scan(&stored, &result)
+	if errors.Is(err, sql.ErrNoRows) {
+		return nil, nil
 	}
-	return s.decisionRead(ctx, reference)
+	if err != nil {
+		return nil, err
+	}
+	if stored != print {
+		return nil, workError("idempotency_conflict", "this key was used for a different request")
+	}
+	var original DecisionItem
+	if err := json.Unmarshal([]byte(result), &original); err != nil {
+		return nil, err
+	}
+	return &original, nil
+}
+
+func orItem(item *DecisionItem) DecisionItem {
+	if item == nil {
+		return DecisionItem{}
+	}
+	return *item
 }
 
 // DecisionHistory pages an item's verdicts with their snapshots in verdict ID order. A page
