@@ -5,6 +5,12 @@ into a dated release section when promoted to `main`.
 
 ## Unreleased
 
+- Dashboard actions keep the view (#373): an action on Sessions, Messages, Memory or Work
+  returns to the same sort order, search and filters, on the first page. Before, Enable
+  handoff, Retire and the other actions reloaded the view with the default order and no search.
+  An open read-only disclosure, such as a session's nested repositories, no longer stops the
+  5-second refresh, and it stays open across it. Before, it kept the view stale until closed.
+
 ## 2026-10-14 — Participants, rooms, the decision board and managed context cycles
 
 This release adds participant addresses with roles and verified succession, rooms and the
