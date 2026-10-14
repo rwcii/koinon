@@ -2,10 +2,14 @@ package core
 
 import (
 	"context"
+	"errors"
+	"path/filepath"
 	"strings"
 	"time"
 	"unicode"
 	"unicode/utf8"
+
+	"github.com/rwcii/koinon/internal/platform"
 )
 
 // The Codex pane wake (#275). After /clear, a Codex host keeps the cleared thread until the
@@ -13,8 +17,8 @@ import (
 // For a launched participant holder with a proven tmux pane, the notice is typed into the
 // pane instead: the visible thread runs it, and after /clear that is the new thread's first
 // turn, whose SessionStart hook moves the participant (host_cleared). The evidence is Codex
-// CLI 0.162.0 on Linux (#275 T1); other platforms, a session without a pane and a session
-// inbox keep the queue.
+// CLI 0.162.0 on Linux (#275 T1). It runs on Linux and macOS, where platform.ProcessGroups
+// reads the terminal groups; a session without a pane and a session inbox keep the queue.
 
 // codexSubmitPause separates the typed notice from Enter, as in the T1 evidence: Codex submits
 // a typed line on Enter, and the composer is read back in between.
@@ -77,6 +81,81 @@ func (s *Store) wakeCodexPane(ctx context.Context, session Session, activity Ses
 		}
 	}
 	return uncertain("pane_submission_unconfirmed"), true
+}
+
+// rolloutMargin is how much later than an MCP server's start a holder's rollout event must be
+// to prove a turn after it: a turn that /clear ends can record its end at about that time.
+const rolloutMargin = 2 * time.Second
+
+// startUncertainty bounds the error of a process start time read against the proof: a server
+// that started up to this long before the proof, or at the same time, counts as later.
+const startUncertainty = time.Second
+
+// codexThreadUnproven reports whether the host of a launched Codex holder may show another
+// thread, so that `codex queue` would run a turn in a thread the host no longer shows (#275).
+// Codex CLI 0.162.0 with --no-daemon, as koinon codex starts it, starts a new koinon mcp server
+// under the host at each /clear, before the new thread's first turn, and for a sub-agent. The
+// daemon reads those servers itself: one that started after the holder's latest proof (its
+// first registration, its last tool call, or its last rollout event less the margin), or
+// within startUncertainty before it, may serve a thread that replaced the holder. While the wait lasts, a cleared thread runs no
+// turn, so a later rollout event proves the holder. Anything unreadable counts as unproven.
+// A session that holds no participant address is never held: its own inbox has no other
+// reader.
+func (s *Store) codexThreadUnproven(ctx context.Context, session Session) bool {
+	var holds bool
+	var pid, start, proof int64
+	if err := s.db.QueryRowContext(ctx, `SELECT EXISTS(SELECT 1 FROM names WHERE kind='alias' AND family='codex' AND holder_id=s.id),
+		host_pid,host_start,registered_at FROM sessions s WHERE family='codex' AND id=?`, session.ID).Scan(&holds, &pid, &start, &proof); err != nil {
+		return true
+	}
+	if !holds {
+		return false
+	}
+	key := Key{"codex", session.ID}
+	s.calls.mu.Lock()
+	proof = max(proof, s.calls.at[key])
+	s.calls.mu.Unlock()
+	s.observed.mu.Lock()
+	activity := s.observed.byKey[key]["activity"]
+	s.observed.mu.Unlock()
+	if activity.Source == "codex_rollout" {
+		proof = max(proof, activity.At-rolloutMargin.Milliseconds())
+	}
+	if pid <= 0 || s.processParents == nil || s.processCommand == nil || s.processStartTime == nil {
+		return true
+	}
+	if current, err := s.processStart(int(pid)); err != nil || current != start {
+		return true
+	}
+	parents, err := s.processParents()
+	if err != nil {
+		return true
+	}
+	for child, parent := range parents {
+		if parent != int(pid) {
+			continue
+		}
+		// A child that ended during the scan is no server. A child whose command or start
+		// cannot be read may be a new server.
+		executable, args, err := s.processCommand(child)
+		if err != nil {
+			if _, err := s.processStart(child); errors.Is(err, platform.ErrProcessGone) {
+				continue
+			}
+			return true
+		}
+		if filepath.Base(strings.TrimSuffix(executable, " (deleted)")) != "koinon" || len(args) < 2 || args[1] != "mcp" {
+			continue
+		}
+		started, err := s.processStartTime(child)
+		if errors.Is(err, platform.ErrProcessGone) {
+			continue
+		}
+		if err != nil || started.UnixMilli() >= proof-startUncertainty.Milliseconds() {
+			return true
+		}
+	}
+	return false
 }
 
 // pause waits d, or reports false when ctx ends first.

@@ -70,6 +70,10 @@ func (s *Store) providerWake(ctx context.Context, session Session, notice string
 				return result
 			}
 		}
+		// The queue runs a turn in this thread, which the host may no longer show (#275).
+		if target.LaunchID != "" && s.codexThreadUnproven(ctx, session) {
+			return waiting("codex_thread_unproven")
+		}
 		cli := target.CLI
 		if target.LaunchID != "" {
 			var raw string

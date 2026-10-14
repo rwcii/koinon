@@ -34,13 +34,20 @@ into a dated release section when promoted to `main`.
   no agent reads the dashboard page. Fields have byte limits, terminal-copy commands are
   printable ASCII, and known credential formats are refused. The dashboard has a read-only
   Decisions page. Schema 25 adds the decision tables.
-- Codex pane wake (#275): on Linux, a participant notice for a session started with
+- Codex pane wake (#275): on Linux and macOS, a participant notice for a session started with
   `koinon codex` in tmux is typed into the session's own pane instead of `codex queue`, so a
   message sent between `/clear` and the new thread's first turn runs in the visible new thread,
   not in the cleared one. The daemon proves the pane and that the host holds the terminal's
   foreground, types only while the observed activity is idle and the input is empty, and in each
   attempt types the notice once and presses Enter once, reading it back before Enter and after.
-  macOS, sessions outside tmux and session inbox notices keep the queue.
+  On macOS, `platform.ProcessGroups` reads the process groups and terminals from
+  `kern.proc.all`. Sessions outside tmux and session inbox notices keep the queue.
+- Codex queue wait after `/clear` (#275): Codex starts a new `koinon mcp` server under the host
+  at each `/clear`, before the new thread's first turn. A `codex queue` wake of the address
+  holder, outside tmux or for its session inbox, waits with `codex_thread_unproven` while such a
+  server started after, or up to 1 second before, the holder's first registration, last tool
+  call and last rollout event (less 2 seconds), so the cleared thread does not read the
+  message. `platform.ProcessStartTime` reads a process's wall-clock start on Linux and macOS.
 - `peers` marks the calling session's own row with `self` (#348), so a session finds its own
   peer name, address, holder flag and succession result when several sessions of its family
   share a repository.
