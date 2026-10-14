@@ -28,11 +28,12 @@ Claude Code. Record the facts of the run:
 sw_vers; uname -m; claude --version; tmux -V; go version
 ```
 
-Set the variables. The path must not contain spaces. `PR` is the head commit of the #196
-pull request.
+Set the variables. The path must not contain spaces. `PR` is a develop commit that contains
+#196's pull request #361 (`0795a65` or later). A clone does not contain the pull request's own
+head commit.
 
 ```bash
-K=$HOME/.cache/koinon-mac-cycle-$(date +%s); PR=<head commit>; PORT=47699
+K=$HOME/.cache/koinon-mac-cycle-$(date +%s); PR=<develop commit>; PORT=47699
 mkdir -p "$K" && chmod 700 "$K"
 S="$K/tmux.sock"; DB="$K/state/state.sqlite3"
 ```
