@@ -16,7 +16,7 @@ import (
 	"time"
 )
 
-// TestUpgradeFromGoRelease installs the current main release (v0.1.0), seeds state through
+// TestUpgradeFromGoRelease installs the current main release (v0.2.0), seeds state through
 // its own commands, and upgrades it as INSTALL.md describes: the candidate's install with
 // the same prefix and state directory. The daemon restarts on the candidate and every
 // seeded item reads back.
@@ -40,7 +40,7 @@ func TestUpgradeFromGoRelease(t *testing.T) {
 		t.Fatal("the release install did not install the release binary")
 	}
 	before := health(t, state)
-	if before.Schema != 8 || before.PID == 0 {
+	if before.Schema != goReleaseSchema || before.PID == 0 {
 		t.Fatalf("release daemon: %+v", before)
 	}
 
@@ -90,7 +90,7 @@ func TestUpgradeFromGoRelease(t *testing.T) {
 		after = health(t, state)
 		return after.PID != 0 && after.PID != before.PID
 	})
-	if after.Schema <= before.Schema {
+	if after.Schema < before.Schema {
 		t.Fatalf("candidate daemon: %+v", after)
 	}
 	if _, err := os.Stat(filepath.Join(state, "state.sqlite3-shm")); !errors.Is(err, os.ErrNotExist) {
@@ -131,7 +131,7 @@ type daemonHealth struct {
 }
 
 // health reads the running daemon's schema from its status and its process ID from the
-// manager (v0.1.0's status has no pid), or a zero value when the daemon does not answer.
+// manager (v0.1.0's status had no pid), or a zero value when the daemon does not answer.
 func health(t *testing.T, state string) daemonHealth {
 	t.Helper()
 	var h daemonHealth

@@ -5,6 +5,12 @@ into a dated release section when promoted to `main`.
 
 ## Unreleased
 
+## 2026-10-14 — Fixes: Homebrew upgrades, the dashboard view and release notes
+
+This release fixes the Homebrew upgrade step, keeps the dashboard's sort and search across
+actions and refreshes, and publishes release notes from the tag without a manual step. The
+state schema stays 26; `koinon install` upgrades a v0.2.0 installation in place.
+
 - Homebrew upgrades name the Homebrew binary (#380): the formula's caveat, README and
   docs/INSTALL.md say `$(brew --prefix)/bin/koinon install` (`#{opt_bin}/koinon install` in the
   caveat). Once `~/.local/bin` came first on `PATH`, the documented bare `koinon install` ran the
