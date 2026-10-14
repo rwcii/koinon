@@ -11,6 +11,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"testing"
 	"time"
@@ -80,6 +81,14 @@ func TestUpgradeFromGoRelease(t *testing.T) {
 		"--checkpoint", "claimed before the upgrade", "--next-artifact", "the upgrade", "--progress-deadline", deadline,
 		"--key", "upgrade-start", "--deadline", deadline)
 
+	// The claim's consumer as the release recorded it: v0.2.0 records the claim of a
+	// participant's session under the participant.
+	claimed, _ := json.Marshal(release("work", "get", work, "--state-dir", state, "--as", "deepseek:upgrade-a"))
+	consumer := regexp.MustCompile(`"consumer":"[^"]+"`).Find(claimed)
+	if consumer == nil {
+		t.Fatalf("work get before the upgrade: no consumer in %s", claimed)
+	}
+
 	// Upgrade with the candidate, as INSTALL.md documents.
 	must(t, "install", "--prefix", prefix, "--state-dir", state)
 	if sum(t, installed) != sum(t, binary) {
@@ -97,12 +106,12 @@ func TestUpgradeFromGoRelease(t *testing.T) {
 		t.Fatalf("shared-memory file after the upgrade: %v", err)
 	}
 	reads := map[string][]string{
-		message:                           {"inbox", "--state-dir", state, "--as", "deepseek:upgrade-b", "--after", "0"},
-		note:                              {"memory", "recall", "--state-dir", state, "--as", "deepseek:upgrade-b", "release"},
-		"claimed before the upgrade":      {"work", "get", work, "--state-dir", state, "--as", "deepseek:upgrade-a"},
-		names["upgrade-a"]:                {"peers", "--state-dir", state, "--as", "deepseek:upgrade-b"},
-		names["upgrade-b"]:                {"peers", "--state-dir", state, "--as", "deepseek:upgrade-a"},
-		`"consumer":"deepseek:upgrade-a"`: {"work", "get", work, "--state-dir", state, "--as", "deepseek:upgrade-a"},
+		message:                      {"inbox", "--state-dir", state, "--as", "deepseek:upgrade-b", "--after", "0"},
+		note:                         {"memory", "recall", "--state-dir", state, "--as", "deepseek:upgrade-b", "release"},
+		"claimed before the upgrade": {"work", "get", work, "--state-dir", state, "--as", "deepseek:upgrade-a"},
+		names["upgrade-a"]:           {"peers", "--state-dir", state, "--as", "deepseek:upgrade-b"},
+		names["upgrade-b"]:           {"peers", "--state-dir", state, "--as", "deepseek:upgrade-a"},
+		string(consumer):             {"work", "get", work, "--state-dir", state, "--as", "deepseek:upgrade-a"},
 	}
 	for want, args := range reads {
 		result := must(t, args...)
