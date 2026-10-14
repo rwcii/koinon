@@ -168,7 +168,7 @@ func TestDecisionCallerAndFieldRefusals(t *testing.T) {
 	if _, err := s.DecisionGet(ctx, caller, "R-9"); refusalCode(err) != "not_found" {
 		t.Fatalf("missing get: %v", err)
 	}
-	if _, err := s.db.Exec(`UPDATE decision_items SET state='in_progress' WHERE reference='R-2'`); err != nil {
+	if _, err := fixtureExec(s, `UPDATE decision_items SET state='in_progress' WHERE reference='R-2'`); err != nil {
 		t.Fatal(err)
 	}
 	// An edit of a decided item reopens it (chunk 02).
@@ -211,7 +211,7 @@ func TestDecisionCreateRetryReturnsFirstResult(t *testing.T) {
 		t.Fatal("a retry created a second item")
 	}
 	// Expired replays are culled in the sweep; the item stays.
-	if _, err := s.db.Exec(`UPDATE decision_replays SET deadline=1`); err != nil {
+	if _, err := fixtureExec(s, `UPDATE decision_replays SET deadline=1`); err != nil {
 		t.Fatal(err)
 	}
 	if err := s.cullDecisionReplays(ctx); err != nil {
@@ -289,7 +289,7 @@ func TestDecisionRecipientsAndMine(t *testing.T) {
 		t.Fatalf("waiting excludes fyi: %+v %v", waiting, err)
 	}
 	// A stored command that fails the rule on read is hidden.
-	if _, err := s.db.Exec(`UPDATE decision_items SET commands=? WHERE reference='P-1'`, `["ls -l","rm​ -rf"]`); err != nil {
+	if _, err := fixtureExec(s, `UPDATE decision_items SET commands=? WHERE reference='P-1'`, `["ls -l","rm​ -rf"]`); err != nil {
 		t.Fatal(err)
 	}
 	got, err = s.DecisionGet(ctx, callerHolder, "P-1")
@@ -517,7 +517,7 @@ func TestDecisionSchemaUpgradeKeepsRetainedState(t *testing.T) {
 	m := MemoryCaller{Family: "codex", Repository: "/synthetic/schema25/.git", Consumer: "synthetic-schema25", Name: "synthetic-schema25"}
 	note(t, s, m, MemoryRecordRequest{Type: "finding", Body: "synthetic retained schema24 note"})
 	before := rowsOf(t, s.db)
-	if _, err := s.db.Exec(undoSchemaTwentySix + undoSchemaTwentyFive + `PRAGMA user_version=24`); err != nil {
+	if _, err := fixtureExec(s, undoSchemaTwentySix+undoSchemaTwentyFive+`PRAGMA user_version=24`); err != nil {
 		t.Fatal(err)
 	}
 	if err := checkCatalog(s.db, 24); err != nil {

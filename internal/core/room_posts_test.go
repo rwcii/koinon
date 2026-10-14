@@ -324,13 +324,13 @@ func TestRoomPostRefusalsLeaveNothing(t *testing.T) {
 	s.storage.mu.Lock()
 	s.storage.maxPages = limit
 	s.storage.mu.Unlock()
-	if _, err := s.db.Exec(`INSERT INTO room_replays(family,caller_id,key,fingerprint,deadline,result)
+	if _, err := fixtureExec(s, `INSERT INTO room_replays(family,caller_id,key,fingerprint,deadline,result)
 		WITH RECURSIVE n(v) AS (SELECT 1 UNION ALL SELECT v+1 FROM n WHERE v<?)
 		SELECT 'codex','synthetic-filler',v,'x',1e12,'{}' FROM n`, maxRoomReplays-1); err != nil {
 		t.Fatal(err)
 	}
 	refuse("replay limit", "room_replay_limit")
-	if _, err := s.db.Exec(`DELETE FROM room_replays WHERE caller_id='synthetic-filler'`); err != nil {
+	if _, err := fixtureExec(s, `DELETE FROM room_replays WHERE caller_id='synthetic-filler'`); err != nil {
 		t.Fatal(err)
 	}
 }
@@ -343,7 +343,7 @@ func TestRoomPostLimit(t *testing.T) {
 	mustAdd(t, s, room, a.Name)
 	mustAdd(t, s, room, b.Name)
 	mustHumanPost(t, s, room, "go")
-	if _, err := s.db.Exec(`INSERT INTO room_posts(room_id,seq,sender_family,sender_id,sender_name,origin,body,created_at)
+	if _, err := fixtureExec(s, `INSERT INTO room_posts(room_id,seq,sender_family,sender_id,sender_name,origin,body,created_at)
 		WITH RECURSIVE n(v) AS (SELECT 1 UNION ALL SELECT v+1 FROM n WHERE v<?)
 		SELECT ?,v,'codex','x','x','member','x',0 FROM n`, maxRoomPosts-1, strings.Repeat("f", 32)); err != nil {
 		t.Fatal(err)
@@ -389,7 +389,7 @@ func TestRoomReadPagesAndGaps(t *testing.T) {
 		t.Fatalf("limit over 100: %v", err)
 	}
 	// Retention removed posts 2 to 4 and 20: the read names both gaps.
-	if _, err := s.db.Exec(`DELETE FROM room_posts WHERE seq IN (2,3,4,20)`); err != nil {
+	if _, err := fixtureExec(s, `DELETE FROM room_posts WHERE seq IN (2,3,4,20)`); err != nil {
 		t.Fatal(err)
 	}
 	page, err := s.RoomRead(ctx, reader, room, 0, 10)
@@ -404,13 +404,13 @@ func TestRoomReadPagesAndGaps(t *testing.T) {
 		t.Fatalf("floor with post 1 retained: %d %d", page.Floor, last.Floor)
 	}
 	// Retention removed the oldest posts too: a page after them still reports the floor.
-	if _, err := s.db.Exec(`DELETE FROM room_posts WHERE seq IN (1,5)`); err != nil {
+	if _, err := fixtureExec(s, `DELETE FROM room_posts WHERE seq IN (1,5)`); err != nil {
 		t.Fatal(err)
 	}
 	if last, err = s.RoomRead(ctx, reader, room, 16, 0); err != nil || last.Floor != 5 {
 		t.Fatalf("floor beyond the page: %d %v", last.Floor, err)
 	}
-	if _, err := s.db.Exec(`DELETE FROM room_posts`); err != nil {
+	if _, err := fixtureExec(s, `DELETE FROM room_posts`); err != nil {
 		t.Fatal(err)
 	}
 	if last, err = s.RoomRead(ctx, reader, room, 0, 0); err != nil || last.Floor != 20 || last.Head != 20 {
@@ -442,7 +442,7 @@ func TestRoomPostRetention(t *testing.T) {
 	}
 	messages, audits := count(t, s, `SELECT COUNT(*) FROM messages`), count(t, s, `SELECT COUNT(*) FROM audit`)
 	// One copy is gone (acknowledged and culled, or purged): the post stays.
-	if _, err := s.db.Exec(`DELETE FROM messages WHERE room_event='post' AND recipient_family='codex'`); err != nil {
+	if _, err := fixtureExec(s, `DELETE FROM messages WHERE room_event='post' AND recipient_family='codex'`); err != nil {
 		t.Fatal(err)
 	}
 	cull()
@@ -450,7 +450,7 @@ func TestRoomPostRetention(t *testing.T) {
 		t.Fatal("a post with a retained copy was deleted")
 	}
 	// The last copy goes: the post and its deliveries go; the post without copies stays.
-	if _, err := s.db.Exec(`DELETE FROM messages WHERE room_event='post'`); err != nil {
+	if _, err := fixtureExec(s, `DELETE FROM messages WHERE room_event='post'`); err != nil {
 		t.Fatal(err)
 	}
 	cull()
