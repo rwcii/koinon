@@ -147,3 +147,42 @@ func outsideReader(path string) int {
 	}
 	return 0
 }
+
+// TestReopenedStoreHasNoSharedMemory opens an existing database again, as a daemon restart
+// does: exclusive locking still keeps the log index in memory, and a second connection is
+// refused (#355).
+func TestReopenedStoreHasNoSharedMemory(t *testing.T) {
+	root := t.TempDir()
+	s, err := openStore(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := write(context.Background(), s); err != nil {
+		t.Fatal(err)
+	}
+	s.db.Close()
+	if s, err = openStore(root); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { s.db.Close() })
+	if err := write(context.Background(), s); err != nil {
+		t.Fatal(err)
+	}
+	path := filepath.Join(root, "state.sqlite3")
+	if _, err := os.Stat(path + "-shm"); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("shared-memory file after reopen: %v", err)
+	}
+	var mode string
+	if err := s.db.QueryRow("PRAGMA locking_mode").Scan(&mode); err != nil || mode != "exclusive" {
+		t.Fatalf("locking mode: %q %v", mode, err)
+	}
+	other, err := sql.Open("sqlite", "file:"+path+"?_pragma=busy_timeout(0)")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer other.Close()
+	var n int
+	if err := other.QueryRow("SELECT count(*) FROM sqlite_schema").Scan(&n); err == nil {
+		t.Fatal("a second connection reads the reopened store")
+	}
+}

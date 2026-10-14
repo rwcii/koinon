@@ -5,6 +5,9 @@ into a dated release section when promoted to `main`.
 
 ## Unreleased
 
+- Store reopen (#355): a restarted daemon no longer creates the state database's
+  shared-memory file. The driver sorted its connection settings, so exclusive locking came
+  after the log mode; the store now applies them in its own order on each connection.
 - Decision verdicts (#206, chunk 02): the dashboard's Decisions page gives Approve and Decline
   on decision items and Dismiss on fyi items, on the revision shown, with a snapshot of that
   text. Each named agent gets a typed inbox message and a wake that names the verdict ID, and
