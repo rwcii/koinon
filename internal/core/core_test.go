@@ -74,12 +74,55 @@ func TestPlainDirectorySession(t *testing.T) {
 	}
 }
 
+// templateState is a state database migrated once per test binary. Under the race detector
+// a migration from schema 0 takes seconds, and nearly every test opens a new store; a copy of
+// the template still passes every check that openStore runs on an existing database.
+var templateState struct {
+	once sync.Once
+	data []byte
+	err  error
+}
+
+// seedState writes a copy of the migrated template database into root, which it creates.
+func seedState(t *testing.T, root string) {
+	t.Helper()
+	templateState.once.Do(func() {
+		dir, err := os.MkdirTemp("", "koinon-template-state-")
+		if err != nil {
+			templateState.err = err
+			return
+		}
+		defer os.RemoveAll(dir)
+		state, err := platform.PrivateDir(filepath.Join(dir, "state"))
+		if err == nil {
+			var s *Store
+			if s, err = openStore(state); err == nil {
+				err = s.db.Close()
+			}
+		}
+		if err == nil {
+			templateState.data, err = os.ReadFile(filepath.Join(state, "state.sqlite3"))
+		}
+		templateState.err = err
+	})
+	if templateState.err != nil {
+		t.Fatal(templateState.err)
+	}
+	if _, err := platform.PrivateDir(root); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(root, "state.sqlite3"), templateState.data, 0o600); err != nil {
+		t.Fatal(err)
+	}
+}
+
 func testStore(t *testing.T) (*Store, string) {
 	t.Helper()
 	root, err := platform.PrivateDir(filepath.Join(t.TempDir(), "state"))
 	if err != nil {
 		t.Fatal(err)
 	}
+	seedState(t, root)
 	s, err := openStore(root)
 	if err != nil {
 		t.Fatal(err)
@@ -268,6 +311,7 @@ func TestRegistrationValidationAndRepositoryIdentity(t *testing.T) {
 func startTestDaemon(t *testing.T) (*Daemon, string) {
 	t.Helper()
 	root := filepath.Join(t.TempDir(), "state")
+	seedState(t, root)
 	d, err := Start(Config{StateDir: root, Listen: []string{"127.0.0.1:0", "[::1]:0"}})
 	if err != nil {
 		t.Fatal(err)

@@ -13,6 +13,10 @@ into a dated release section when promoted to `main`.
   unverified until its live check, `docs/sprints/2026-10-12-context-handoff/macos-live-check.md`).
   Linux live evidence for a native dialog inside a cycle and for daemon crashes around the
   clear and pickup inputs is in `native-evidence.md` of that sprint.
+- Faster store open: the expected schema catalog of each version is built once per process
+  instead of by migrating an in-memory database twice at each open. The tests copy a
+  migrated template store, so the race suite of `internal/core` fits its 30-minute limit
+  again (about 13 minutes on the maintainer's Linux host, from about 29).
 - DeepSeek live wake (#199): the wake of an idle DeepSeek Harness 0.2.0-rc.2 session
   (`dsh web`) through the Go daemon is proven in a development container. The guide,
   PERMISSIONS and INSTALL no longer call the live proof deferred; the harness's permission
