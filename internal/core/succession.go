@@ -181,6 +181,12 @@ func (s *Store) succeed(ctx context.Context, tx *sql.Tx, now int64, k Key, repos
 	if err != nil {
 		return nil, err
 	}
+	link := false
+	if fenced != 1 && !subagent && sh.start != 0 && hh.start != 0 && !other && sameHost && samePane {
+		if link, err = cycleResetLink(ctx, tx, now, k, address, holder, sh); err != nil {
+			return nil, err
+		}
+	}
 	switch {
 	case fenced == 1:
 		result.Reason = "fenced"
@@ -190,6 +196,9 @@ func (s *Store) succeed(ctx context.Context, tx *sql.Tx, now int64, k Key, repos
 		result.Reason = "no_host"
 	case other:
 		result.Reason = "other_participant"
+	case link:
+		// The holder's managed cycle proved this thread as the one its reset started (#196).
+		evidence = "cycle_reset"
 	case sameHost && clear:
 		evidence = "host_cleared"
 		// The hook that registers a cleared thread has no terminal; the same host keeps the
@@ -274,6 +283,27 @@ func holdsElsewhere(ctx context.Context, tx *sql.Tx, now int64, k Key, h host, a
 	err := tx.QueryRowContext(ctx, `SELECT 1 FROM sessions s JOIN names n ON n.kind='alias' AND n.family=s.family AND n.holder_id=s.id
 		WHERE s.family=? AND s.id!=? AND s.host_pid=? AND s.host_start=? AND s.retired_at=0 AND s.expires_at>? AND n.name!=? LIMIT 1`,
 		k.Family, k.ID, h.pid, h.start, now, address).Scan(&found)
+	if errors.Is(err, sql.ErrNoRows) {
+		return false, nil
+	}
+	return err == nil, err
+}
+
+// cycleResetLink reports whether k is the native successor that the holder's unfinished
+// managed cycle proved (#196): the cycle of this address and holder, pinned to k's host,
+// start, socket and pane, whose reset proved k's ID as its successor epoch, in a stage from
+// the proven reset through the pickup report, under the Enable that admitted it, before its
+// deadlines. A Codex thread's ID is its native epoch. Every other candidate keeps the
+// ordinary rules.
+func cycleResetLink(ctx context.Context, tx *sql.Tx, now int64, k Key, address, holder string, sh host) (bool, error) {
+	var found int
+	err := tx.QueryRowContext(ctx, `SELECT 1 FROM context_cycles c JOIN context_enables e ON e.family=c.family AND e.session_id=c.session_id
+		WHERE c.finished_at=0 AND c.family=? AND c.address=? AND c.session_id=? AND c.successor_epoch=?
+		AND c.host_pid=? AND c.host_start=? AND c.tmux_socket=? AND c.tmux_pane=?
+		AND (c.state IN ('reset_verified','pickup_intent','waiting_pickup')
+			OR c.state IN ('waiting_prompt','prompt_intent') AND c.prompt_from IN ('reset_verified','pickup_intent','waiting_pickup'))
+		AND e.enabled=1 AND e.revision=c.enable_revision AND c.stage_deadline>? AND c.cycle_deadline>? LIMIT 1`,
+		k.Family, address, holder, k.ID, sh.pid, sh.start, sh.socket, sh.pane, now, now).Scan(&found)
 	if errors.Is(err, sql.ErrNoRows) {
 		return false, nil
 	}

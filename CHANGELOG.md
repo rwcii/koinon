@@ -5,6 +5,17 @@ into a dated release section when promoted to `main`.
 
 ## Unreleased
 
+- Managed context cycle for Codex (#196, chunk 04): a session started with `koinon codex` in tmux
+  on Linux (Codex CLI 0.162.0) can run the cycle. The daemon enters `/clear`, then `/status`,
+  whose card names the new thread for the reset proof, then a bare `$pickup` only when every
+  pickup skill that Codex lists is the catalog item and no `skills.config` entry turns one off
+  (each configuration layer is read as TOML, with the new dependency
+  `github.com/BurntSushi/toml`). The new thread takes the address at once as `cycle_reset`,
+  only as the reset's proven successor. A session that holds no participant address reports
+  `participant_unheld`. For every family, the epoch is proven again right before the pickup
+  (`epoch_changed`), a dialog during the pickup wait is shown on the Sessions page, and the
+  report is accepted during it with the revision of the pickup wait. macOS stays unverified
+  until its live check.
 - `refusal-review` skill: the review also checks each maintainer decision a change records or
   cites. The record states the question it answered, the options, the answer quoted with its
   date, and the reason with its scope; a bare quote is a finding (WDR 001, Decision 6).

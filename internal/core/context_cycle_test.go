@@ -29,6 +29,8 @@ type fakeAdapter struct {
 	// beforeClear runs as the clear starts, before its fence: a race with a dashboard action.
 	beforeClear func()
 	dialog      CycleDialog
+	// afterChoose runs once the option is entered: the call that the dialog approved.
+	afterChoose func()
 }
 
 func (f *fakeAdapter) Version() string { return "synthetic-1" }
@@ -95,6 +97,9 @@ func (f *fakeAdapter) Choose(ctx context.Context, _ CycleTarget, digest, option 
 		return false, err
 	}
 	f.record("choose " + option)
+	if f.afterChoose != nil {
+		f.afterChoose()
+	}
 	return true, nil
 }
 func (f *fakeAdapter) count(prefix string) int {

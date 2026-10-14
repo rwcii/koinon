@@ -116,8 +116,25 @@ func (s *Store) stepCycle(ctx context.Context, c cycleRow) error {
 			return s.enterInput(ctx, c, cycleClearIntent, cycleClearReceived, pinnedRequester(ctx),
 				func(fence CycleFence) (bool, error) { return adapter.Clear(ctx, t, fence) })
 		}
+		// The pane must still show the epoch that the reset proved: another clear or a new
+		// session since then never gets the pending pickup.
+		if epoch, err := adapter.NewEpoch(ctx, t); err != nil {
+			return nil
+		} else if epoch != c.SuccessorEpoch {
+			_, err := s.endCycle(ctx, c.ID, c.Revision, cycleFailed, "epoch_changed")
+			return err
+		}
 		return s.enterInput(ctx, c, cyclePickupIntent, cycleWaitingPickup, nil,
 			func(fence CycleFence) (bool, error) { return adapter.Pickup(ctx, t, probe.Bootstrap, fence) })
+	case cycleWaitingPickup:
+		// A dialog that the successor's first calls raise, such as a tool approval, waits for
+		// the native session or the maintainer like any other; the report may come during it.
+		// The read sends nothing: the maintainer may be reading the pane in copy mode.
+		if dialog, err := adapter.Dialog(ctx, t); err != nil || dialog.Digest == "" {
+			return nil
+		}
+		_, err := s.advanceCycle(ctx, c.ID, c.Revision, c.State, cycleWaitingPrompt, "native_dialog", nil, func(n *cycleRow) { n.PromptFrom = c.State })
+		return err
 	case cycleClearIntent, cycleClearReceived:
 		// An intent without its receipt is reconciled only by proof, never by sending again.
 		epoch, err := adapter.NewEpoch(ctx, t)
@@ -222,6 +239,8 @@ func (s *Store) cycleTarget(ctx context.Context, c cycleRow) CycleTarget {
 	if read, err := s.library.catalog.Read(c.Family, "skill.pickup"); err == nil {
 		t.Pickup = PickupEntry{Content: []byte(read.Item.Content), Description: read.Item.Description}
 	}
+	var held int
+	t.Holds = s.db.QueryRowContext(ctx, `SELECT 1 FROM names WHERE kind='alias' AND family=? AND holder_id=? LIMIT 1`, c.Family, c.SessionID).Scan(&held) == nil
 	if s.db.QueryRowContext(ctx, `SELECT directory FROM sessions WHERE family=? AND id=?`, c.Family, c.SessionID).Scan(&t.Directory) == nil {
 		if checkout, err := CheckoutResource(ctx, t.Directory); err == nil {
 			t.Checkout = checkout.Directory
@@ -351,6 +370,13 @@ func (s *Store) AnswerCycleDialog(ctx context.Context, id string, revision int64
 		return err
 	}
 	_, err = s.advanceCycle(ctx, id, c.Revision, cyclePromptIntent, c.PromptFrom, "prompt_answered", nil, func(n *cycleRow) { n.PromptFrom = "" })
+	if errors.Is(err, ErrCycleChanged) {
+		// The approved call can be the pickup report itself, which completes the cycle
+		// before the return to its stage is recorded: the answer was received.
+		if now, rerr := scanCycle(s.db.QueryRowContext(ctx, `SELECT `+cycleColumns+` FROM context_cycles WHERE cycle_id=?`, id)); rerr == nil && now.State == cycleComplete {
+			return nil
+		}
+	}
 	return err
 }
 

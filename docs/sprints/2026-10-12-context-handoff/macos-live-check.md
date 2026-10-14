@@ -1,7 +1,8 @@
 # Managed context handoff — macOS live check
 
 These steps produce the macOS rows of [native-evidence.md](native-evidence.md) for the Claude
-Code cycle adapter. Until they pass, the adapter reports `platform_unverified` on macOS.
+Code and the Codex cycle adapters. Until they pass, each adapter reports `platform_unverified`
+on macOS. Steps 4 to 9 are for Claude Code, step 10 is for Codex.
 
 The maintainer runs them on a Mac. All sessions are new test sessions in temporary
 repositories, on a private tmux server, with a separate daemon, state directory and port. Do
@@ -18,14 +19,18 @@ do not change.
 | M3 Interactive bootstrap | The Sessions row shows `pickup through interactive`; the stages include `bootstrap_intent` and `bootstrap_verified`; the first and the second cycle reach `complete (resumed)`. |
 | M4 Dialog | The cycle stops at `waiting_prompt (native_dialog)`; the Sessions page shows the dialog and its options; "Choose 1" continues the cycle to `complete (resumed)`. |
 | M5 Crash | Each crash case gives the result in the table of step 9. No command is typed again after a restart. |
+| X0 Codex probe | The Sessions row of a Codex test session shows `pickup through project`. |
+| X1 Codex cycle | Two cycles in sequence reach `complete (resumed)`; the participant event of the first is `cycle_reset`. |
+| X2 Codex approval | A `context_cycle_pickup` approval in `waiting_pickup` shows on the Sessions page; "Choose 1" completes the cycle. |
+| X3 Codex crash | E1 and E3 of step 9 give `uncertain` with `reset_unproven` and `pickup_unreceipted`; nothing is typed after the restart. |
 
 ## 1. Prepare
 
-Use `bash`. You need Go (the version in `go.mod`), Git, tmux, `sqlite3` and a logged-in
-Claude Code. Record the facts of the run:
+Use `bash`. You need Go (the version in `go.mod`), Git, tmux, `sqlite3`, a logged-in Claude
+Code and, for step 10, a logged-in Codex CLI. Record the facts of the run:
 
 ```bash
-sw_vers; uname -m; claude --version; tmux -V; go version
+sw_vers; uname -m; claude --version; codex --version; tmux -V; go version
 ```
 
 Set the variables. The path must not contain spaces. `PR` is a develop commit that contains
@@ -175,7 +180,51 @@ next case. The timing on a Mac can be different. If a case shows the result of a
 and try again with another delay. Erase a text that stays in the input line before the next
 case.
 
-## 10. Report and clean up
+## 10. Codex: X0 to X3
+
+A Codex test session runs the private build as its MCP server and trusts its temporary
+repository in memory only, so Codex's own configuration does not change. The `approve` case
+asks for `context_cycle_pickup` only.
+
+```bash
+newcodex() { # newcodex NAME [approve]
+  r="$K/repo-$1"; mkdir -p "$r/_handoff/codex" "$r/.agents/skills/pickup" && cd "$r" && git init -q
+  printf '_handoff/\n' > .gitignore && cp "$K/src/agents/skills/pickup/SKILL.md" .agents/skills/pickup/ && git add -A
+  git -c user.name=Synthetic -c user.email=s@example.invalid -c commit.gpgsign=false commit -qm init
+  extra=""
+  [ "${2:-}" = approve ] && extra="-c mcp_servers.koinon.default_tools_approval_mode=\"approve\" -c mcp_servers.koinon.tools.context_cycle_pickup.approval_mode=\"prompt\""
+  p="$K:$(dirname "$(command -v codex)"):$(dirname "$(command -v tmux)"):/usr/bin:/bin"
+  cat > "$K/launch-$1.sh" <<EOF
+#!/bin/sh
+exec env -i HOME="$HOME" USER="$USER" LOGNAME="$USER" LANG=en_US.UTF-8 TERM=xterm-256color SHELL=/bin/zsh TMUX="\$TMUX" TMUX_PANE="\$TMUX_PANE" PATH="$p" "$K/koinon" codex --state-dir "$K/state" --address 127.0.0.1:$PORT --cli "$(command -v codex)" -- $extra -c 'projects={"$r"={trust_level="trusted"}}' -c 'mcp_servers.koinon.command="$K/koinon"'
+EOF
+  chmod 700 "$K/launch-$1.sh"
+  tmux -S "$S" new-session -d -s "$1" -x 200 -y 50 -c "$r" "$K/launch-$1.sh; sleep 36000"
+  sleep 2; tmux -S "$S" list-panes -t "$1" -F 'pane #{pane_id}'
+}
+```
+
+On the Settings page, set the codex family to mode `handoff_cycle` and threshold `1`.
+
+- X0: `newcodex x1`, then enter `Call the koinon peers tool once.` Record the Sessions row
+  of `codex-repo-x1-xx`.
+- X1: click Enable handoff on that row and enter `Reply with the single word ok.` Run `cycles`
+  until two cycles of the session are `complete`, then click Disable on the row that shows
+  the Enable. Record the stage lists and the participant events:
+  `sqlite3 -readonly "$DB" "SELECT reason FROM participant_events ORDER BY id DESC LIMIT 3"`.
+- X2: `newcodex x2 approve`, the first turn as in X0, Enable, and `Reply with the single word
+  ok.` When `cycles` shows `waiting_prompt` after `waiting_pickup`, open the Sessions page,
+  record the dialog and click "Choose 1". Record the stage list, then click Disable.
+- X3: on the X1 session, as in step 9. Before each case, the session that holds the address
+  must have had a turn after its last clear (enter `Call the koinon peers tool once.`), and
+  you click Enable on its row. Run `crash clear_intent 0` (E1) and `crash pickup_intent 0`
+  (E3), each with `Reply with the single word ok.` in the pane, then `restart`, and record
+  `cycles` and the pane.
+
+If the Sessions row shows a reason other than `pickup through project`, or Codex asks to
+trust the folder, record it and stop the Codex part.
+
+## 11. Report and clean up
 
 Send the facts of step 1, the M0 lines and, for each case, the stage list and the result to
 claude-koinon-cycle over Koinon or as a #196 comment. Do not publish pane captures or

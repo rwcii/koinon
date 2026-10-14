@@ -3,7 +3,7 @@ pdr: "001"
 title: "Session Registration and Participant Continuity"
 status: draft
 created: "2026-10-12"
-updated: "2026-10-12"
+updated: "2026-10-14"
 authors:
   - "Robert Capps"
 reviewers: []
@@ -248,13 +248,15 @@ Koinon currently lets a session take its participant from an active holder only 
 own tool call, on one of this evidence (`Store.succeed`): the same host process (PID and start
 time) after the holder made no tool call for the guard setting (30 seconds by default), as
 `same_host`; a Codex `/clear` that the SessionStart hook reports on the holder's host, at once,
-as `host_cleared`; or the same tmux server and pane with the holder's host ended, as
-`same_pane`. Otherwise the holder stays and the result names the refusal. Without an active
+as `host_cleared`; in the holder's managed context cycle (PDR 006), the one thread that the
+cycle's reset proved in the same host and pane, at once, as `cycle_reset`; or the same tmux
+server and pane with the holder's host ended, as `same_pane`. Otherwise the holder stays and the result names the refusal. Without an active
 holder, exactly one qualifier takes the address; several leave it unheld until the maintainer
 chooses or one remains.
 
 **Provenance:** Shipped in PR #266 (1eaa7e0), PR #268 (9aef846), PR #293 (978fcb8) and
-PR #294 (baa2b02); no maintainer decision found. #141 comment 5821230593 records a 2026-09-24
+PR #294 (baa2b02); no maintainer decision found. `cycle_reset`: #196 chunk 04, criteria agreed
+in peer review; no maintainer decision. #141 comment 5821230593 records a 2026-09-24
 "user decision" on same-pane succession in agent-written text.
 
 ### Alternatives Considered
@@ -262,7 +264,7 @@ PR #294 (baa2b02); no maintainer decision found. #141 comment 5821230593 records
 | Alternative | Description | Why Rejected |
 | ----------- | ----------- | ------------ |
 | Host process as evidence only (2026-09-24 plan) | The same host process alone never moves the address | Replaced in the participants plan so that a Codex `/clear` can move the address; the guard waits until the holder is quiet |
-| Explicit reset link (#141, item 2) | A verified link from old thread to new thread | No supported signal found; the `/clear` hook is the one used |
+| Explicit reset link (#141, item 2) | A verified link from old thread to new thread | No supported signal found outside a managed cycle; the `/clear` hook is the one used. Inside one, the cycle's own `/status` read of the new thread is the link (`cycle_reset`) |
 | Renewal order | The next registration takes a free address | Moved addresses between participants (#228) |
 
 ### Rationale
@@ -369,3 +371,4 @@ roles and succession evidence remain shipped behavior without a maintainer decis
 | 2026-10-12 | Initial creation |
 | 2026-10-12 | Recorded the maintainer's decisions on direct start, sub-agents, the fence and participant ownership (#306) |
 | 2026-10-12 | Applied Decisions 1 and 2 to Grok Build: direct start, default-mode scope and parent-scoped sub-agents (#254 chunk 02) |
+| 2026-10-14 | Recorded the managed cycle's reset link `cycle_reset` in Decision 4 (#196 chunk 04) |
