@@ -264,6 +264,12 @@ func lookPathAll(path string) []string {
 	return found
 }
 
+// shellQuote quotes a word for a POSIX shell: in single quotes, where each embedded single
+// quote closes the quoting, is escaped with a backslash and reopens it.
+func shellQuote(s string) string {
+	return "'" + strings.ReplaceAll(s, "'", `'\''`) + "'"
+}
+
 // otherBinary returns the first koinon on the search path with other content than the
 // installed binary, when the install ran the installed binary itself; otherwise "".
 // That install copied nothing, and the other one, such as a Homebrew copy, may be the
@@ -403,7 +409,7 @@ func Install(ctx context.Context, o Options) (Report, error) {
 	r.OnPath = lookPath(o.Path)
 	r.PathStep = pathStep(r, o.LinkDir, o.Path)
 	if r.OtherBinary = otherBinary(o.Source, r.Binary, o.Path); r.OtherBinary != "" {
-		r.SourceStep = fmt.Sprintf("this ran the installed binary, so nothing was copied; to install %s, run %s install", r.OtherBinary, r.OtherBinary)
+		r.SourceStep = fmt.Sprintf("this ran the installed binary, so nothing was copied; to install %s, run %s install", r.OtherBinary, shellQuote(r.OtherBinary))
 	}
 	if system != nil {
 		r.Artifact = o.Services.SystemArtifact()

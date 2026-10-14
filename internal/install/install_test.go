@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"reflect"
 	"strings"
@@ -291,9 +292,23 @@ func TestInstallNamesOtherBinaryWhenTheInstalledCopyRuns(t *testing.T) {
 	os.WriteFile(other, []byte("newer binary"), 0755)
 	r, err := Install(ctx, e.o)
 	if err != nil || !r.OK || r.BinaryResult != "unchanged" || r.OnPath != e.o.Source || r.OtherBinary != other ||
-		r.SourceStep != "this ran the installed binary, so nothing was copied; to install "+other+", run "+other+" install" {
+		r.SourceStep != "this ran the installed binary, so nothing was copied; to install "+other+", run '"+other+"' install" {
 		t.Fatalf("newer other %+v %v", r, err)
 	}
+
+	// The step's command runs in a POSIX shell, also from a directory with a space and a quote.
+	quoted := filepath.Join(e.o.Services.Home, "brew source's copy", "bin")
+	os.MkdirAll(quoted, 0755)
+	os.WriteFile(filepath.Join(quoted, "koinon"), []byte("#!/bin/sh\necho ran \"$0\" \"$@\"\n"), 0755)
+	e.o.Path = linkDir + string(filepath.ListSeparator) + quoted
+	r, err = Install(ctx, e.o)
+	_, command, _ := strings.Cut(r.SourceStep, ", run ")
+	out, runErr := exec.Command("/bin/sh", "-c", command).CombinedOutput()
+	if err != nil || r.OtherBinary != filepath.Join(quoted, "koinon") || runErr != nil ||
+		string(out) != "ran "+filepath.Join(quoted, "koinon")+" install\n" {
+		t.Fatalf("quoted step %+v %v: %q %v", r, err, out, runErr)
+	}
+	e.o.Path = linkDir + string(filepath.ListSeparator) + brew
 
 	// Installing from the other binary copies it and names nothing.
 	e.o.Source = other
