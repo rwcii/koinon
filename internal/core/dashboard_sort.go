@@ -53,6 +53,46 @@ type dashboardSort struct {
 	after  []any // the cursor's values; nil for the first page
 }
 
+// viewFilters names the filter parameters of each view whose actions return to it: its
+// sort and page links keep them, and so does the redirect after an action (#373).
+var viewFilters = map[string][]string{
+	"sessions": {"q"},
+	"messages": {"to", "peers"},
+	"memory":   {"store", "q", "type", "all"},
+	"work":     {"lifecycle", "store", "item"},
+}
+
+// backLimit bounds the encoded back field: a longest supported view query, a repository
+// and a search with every byte percent-encoded, plus 256 bytes for the parameter names and
+// the short values. It exceeds the request line that the daemon reads (MaxHeaderBytes 8192
+// and the 4096 bytes net/http reads beyond it), so every view it serves carries its back.
+const backLimit = 3 * (repositoryMax + dashboardSearchMax + 256)
+
+// viewOrder is the order and filters of a view's query, without its page position: the
+// form field "back" that an action returns to. It keeps the first value of each known
+// parameter.
+func viewOrder(view string, q url.Values) url.Values {
+	result := url.Values{}
+	filters, ok := viewFilters[view]
+	if !ok {
+		return result
+	}
+	for _, name := range append([]string{"sort", "dir"}, filters...) {
+		if v := q.Get(name); v != "" {
+			result.Set(name, v)
+		}
+	}
+	return result
+}
+
+// backField is the back field of a view's action forms, or "" when it would exceed backLimit.
+func backField(view string, q url.Values) string {
+	if back := viewOrder(view, q).Encode(); len(back) <= backLimit {
+		return back
+	}
+	return ""
+}
+
 // parseSort reads sort, dir and after from a view's query. An unknown column gives the
 // default order; a malformed cursor is invalid. keep names the filter parameters that
 // sort and page links carry.

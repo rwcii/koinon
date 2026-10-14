@@ -10,10 +10,11 @@
   // A refresh replaces the list, which would close an open disclosure (a purge
   // confirmation) and drop what was typed in a form inside it, so it waits meanwhile. It
   // checks again when the answer arrives: a form opened while the request was in flight
-  // keeps its content, and the answer is dropped.
+  // keeps its content, and the answer is dropped. A read-only disclosure with a data-key
+  // does not hold the refresh; the refresh opens it again in the new list.
   function busy() {
     var active = document.activeElement;
-    return list.querySelector("details[open], form[data-busy]") !== null ||
+    return list.querySelector("details[open]:not([data-key]), details[open] form, form[data-busy]") !== null ||
       (active !== null && list.contains(active) && /^(INPUT|TEXTAREA|SELECT)$/.test(active.tagName));
   }
   function refresh() {
@@ -33,7 +34,15 @@
         if (document.visibilityState !== "visible" || busy()) {
           return;
         }
+        var open = Array.prototype.map.call(list.querySelectorAll("details[open][data-key]"), function (d) {
+          return d.dataset.key;
+        });
         list.innerHTML = html;
+        list.querySelectorAll("details[data-key]").forEach(function (d) {
+          if (open.indexOf(d.dataset.key) >= 0) {
+            d.open = true;
+          }
+        });
         list.removeAttribute("data-stale");
       })
       .catch(function () {

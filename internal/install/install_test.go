@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"reflect"
 	"strings"
@@ -258,6 +259,64 @@ func TestInstallPathLink(t *testing.T) {
 	}
 	if _, err := os.Stat(e.o.Prefix); !os.IsNotExist(err) {
 		t.Fatalf("prefix left: %v", err)
+	}
+}
+
+// An install that the installed binary runs copies nothing. When another koinon on PATH,
+// such as the Homebrew copy after brew upgrade, has other content, the report names it and
+// the step that installs it (#380).
+func TestInstallNamesOtherBinaryWhenTheInstalledCopyRuns(t *testing.T) {
+	ctx := context.Background()
+	e := newEnv(t, "systemd")
+	linkDir := filepath.Join(e.o.Services.Home, ".local", "bin")
+	brew := filepath.Join(e.o.Services.Home, "brew", "bin")
+	other := filepath.Join(brew, "koinon")
+	os.MkdirAll(brew, 0755)
+	e.o.Path = linkDir + string(filepath.ListSeparator) + brew
+	if r, err := Install(ctx, e.o); err != nil || r.BinaryResult != "replaced" || r.OtherBinary != "" || r.SourceStep != "" {
+		t.Fatalf("first install %+v %v", r, err)
+	}
+	e.o.Source = filepath.Join(linkDir, "koinon")
+
+	// No other koinon, then an identical copy: nothing to name.
+	for _, content := range []string{"", "synthetic binary"} {
+		if content != "" {
+			os.WriteFile(other, []byte(content), 0755)
+		}
+		if r, err := Install(ctx, e.o); err != nil || r.BinaryResult != "unchanged" || r.OtherBinary != "" || r.SourceStep != "" {
+			t.Fatalf("other %q: %+v %v", content, r, err)
+		}
+	}
+
+	// A newer copy later on PATH is named, with its install step.
+	os.WriteFile(other, []byte("newer binary"), 0755)
+	r, err := Install(ctx, e.o)
+	if err != nil || !r.OK || r.BinaryResult != "unchanged" || r.OnPath != e.o.Source || r.OtherBinary != other ||
+		r.SourceStep != "this ran the installed binary, so nothing was copied; to install "+other+", run '"+other+"' install" {
+		t.Fatalf("newer other %+v %v", r, err)
+	}
+
+	// The step's command runs in a POSIX shell, also from a directory with a space and a quote.
+	quoted := filepath.Join(e.o.Services.Home, "brew source's copy", "bin")
+	os.MkdirAll(quoted, 0755)
+	os.WriteFile(filepath.Join(quoted, "koinon"), []byte("#!/bin/sh\necho ran \"$0\" \"$@\"\n"), 0755)
+	e.o.Path = linkDir + string(filepath.ListSeparator) + quoted
+	r, err = Install(ctx, e.o)
+	_, command, _ := strings.Cut(r.SourceStep, ", run ")
+	out, runErr := exec.Command("/bin/sh", "-c", command).CombinedOutput()
+	if err != nil || r.OtherBinary != filepath.Join(quoted, "koinon") || runErr != nil ||
+		string(out) != "ran "+filepath.Join(quoted, "koinon")+" install\n" {
+		t.Fatalf("quoted step %+v %v: %q %v", r, err, out, runErr)
+	}
+	e.o.Path = linkDir + string(filepath.ListSeparator) + brew
+
+	// Installing from the other binary copies it and names nothing.
+	e.o.Source = other
+	if r, err := Install(ctx, e.o); err != nil || r.BinaryResult != "replaced" || r.OtherBinary != "" || r.SourceStep != "" {
+		t.Fatalf("from other %+v %v", r, err)
+	}
+	if data, _ := os.ReadFile(r.Binary); string(data) != "newer binary" {
+		t.Fatalf("installed %q", data)
 	}
 }
 

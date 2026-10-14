@@ -11,12 +11,13 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"testing"
 	"time"
 )
 
-// TestUpgradeFromGoRelease installs the current main release (v0.1.0), seeds state through
+// TestUpgradeFromGoRelease installs the current main release (v0.2.0), seeds state through
 // its own commands, and upgrades it as INSTALL.md describes: the candidate's install with
 // the same prefix and state directory. The daemon restarts on the candidate and every
 // seeded item reads back.
@@ -40,7 +41,7 @@ func TestUpgradeFromGoRelease(t *testing.T) {
 		t.Fatal("the release install did not install the release binary")
 	}
 	before := health(t, state)
-	if before.Schema != 8 || before.PID == 0 {
+	if before.Schema != goReleaseSchema || before.PID == 0 {
 		t.Fatalf("release daemon: %+v", before)
 	}
 
@@ -80,6 +81,14 @@ func TestUpgradeFromGoRelease(t *testing.T) {
 		"--checkpoint", "claimed before the upgrade", "--next-artifact", "the upgrade", "--progress-deadline", deadline,
 		"--key", "upgrade-start", "--deadline", deadline)
 
+	// The claim's consumer as the release recorded it: v0.2.0 records the claim of a
+	// participant's session under the participant.
+	claimed, _ := json.Marshal(release("work", "get", work, "--state-dir", state, "--as", "deepseek:upgrade-a"))
+	consumer := regexp.MustCompile(`"consumer":"[^"]+"`).Find(claimed)
+	if consumer == nil {
+		t.Fatalf("work get before the upgrade: no consumer in %s", claimed)
+	}
+
 	// Upgrade with the candidate, as INSTALL.md documents.
 	must(t, "install", "--prefix", prefix, "--state-dir", state)
 	if sum(t, installed) != sum(t, binary) {
@@ -90,19 +99,19 @@ func TestUpgradeFromGoRelease(t *testing.T) {
 		after = health(t, state)
 		return after.PID != 0 && after.PID != before.PID
 	})
-	if after.Schema <= before.Schema {
+	if after.Schema < before.Schema {
 		t.Fatalf("candidate daemon: %+v", after)
 	}
 	if _, err := os.Stat(filepath.Join(state, "state.sqlite3-shm")); !errors.Is(err, os.ErrNotExist) {
 		t.Fatalf("shared-memory file after the upgrade: %v", err)
 	}
 	reads := map[string][]string{
-		message:                           {"inbox", "--state-dir", state, "--as", "deepseek:upgrade-b", "--after", "0"},
-		note:                              {"memory", "recall", "--state-dir", state, "--as", "deepseek:upgrade-b", "release"},
-		"claimed before the upgrade":      {"work", "get", work, "--state-dir", state, "--as", "deepseek:upgrade-a"},
-		names["upgrade-a"]:                {"peers", "--state-dir", state, "--as", "deepseek:upgrade-b"},
-		names["upgrade-b"]:                {"peers", "--state-dir", state, "--as", "deepseek:upgrade-a"},
-		`"consumer":"deepseek:upgrade-a"`: {"work", "get", work, "--state-dir", state, "--as", "deepseek:upgrade-a"},
+		message:                      {"inbox", "--state-dir", state, "--as", "deepseek:upgrade-b", "--after", "0"},
+		note:                         {"memory", "recall", "--state-dir", state, "--as", "deepseek:upgrade-b", "release"},
+		"claimed before the upgrade": {"work", "get", work, "--state-dir", state, "--as", "deepseek:upgrade-a"},
+		names["upgrade-a"]:           {"peers", "--state-dir", state, "--as", "deepseek:upgrade-b"},
+		names["upgrade-b"]:           {"peers", "--state-dir", state, "--as", "deepseek:upgrade-a"},
+		string(consumer):             {"work", "get", work, "--state-dir", state, "--as", "deepseek:upgrade-a"},
 	}
 	for want, args := range reads {
 		result := must(t, args...)
@@ -131,7 +140,7 @@ type daemonHealth struct {
 }
 
 // health reads the running daemon's schema from its status and its process ID from the
-// manager (v0.1.0's status has no pid), or a zero value when the daemon does not answer.
+// manager (v0.1.0's status had no pid), or a zero value when the daemon does not answer.
 func health(t *testing.T, state string) daemonHealth {
 	t.Helper()
 	var h daemonHealth

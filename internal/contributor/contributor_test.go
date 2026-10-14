@@ -419,7 +419,7 @@ func TestHomebrewFormula(t *testing.T) {
 	if strings.Contains(formula, "\n  version ") {
 		t.Error("an explicit version is redundant with the URL and fails brew audit --strict")
 	}
-	for _, want := range []string{`license "MIT"`, `=> "koinon"`, "koinon install", `#{bin}/koinon version`} {
+	for _, want := range []string{`license "MIT"`, `=> "koinon"`, "#{opt_bin}/koinon install --agent", "run #{opt_bin}/koinon install again", `#{bin}/koinon version`} {
 		if !strings.Contains(formula, want) {
 			t.Errorf("formula lacks %s", want)
 		}
@@ -435,6 +435,12 @@ func TestHomebrewFormula(t *testing.T) {
 		}
 	}
 	workflow := read(t, ".github/workflows/release.yml")
+	publish, _, _ := strings.Cut(workflow[strings.Index(workflow, "\n  publish:"):], "\n  homebrew:")
+	for _, want := range []string{"uses: actions/checkout@v4", `--force origin "+refs/tags/$GITHUB_REF_NAME:refs/tags/$GITHUB_REF_NAME"`, "--notes-from-tag"} {
+		if !strings.Contains(publish, want) {
+			t.Errorf("release publish job lacks %s", want)
+		}
+	}
 	for _, want := range []string{"homebrew:", "needs: publish", "scripts/homebrew-formula.sh \"$GITHUB_REF_NAME\" dist/SHA256SUMS", "secrets.HOMEBREW_TAP_DEPLOY_KEY", "rwcii/homebrew-koinon"} {
 		if !strings.Contains(workflow, want) {
 			t.Errorf("release workflow lacks %s", want)

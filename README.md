@@ -48,11 +48,12 @@ With Homebrew, on macOS or Linux:
 
 ```sh
 brew install rwcii/koinon/koinon
-koinon install --agent claude --agent codex
+$(brew --prefix)/bin/koinon install --agent claude --agent codex
 ```
 
-After each `brew upgrade koinon`, run `koinon install` again: it copies the new binary into
-its own prefix and restarts the daemon.
+After each `brew upgrade koinon`, run `$(brew --prefix)/bin/koinon install` again: it copies the
+new binary into its own prefix and restarts the daemon. A bare `koinon install` can run the copy
+already installed in `~/.local/bin`, which changes nothing.
 
 Or download the binary for your operating system and CPU with `SHA256SUMS`, verify its
 checksum, and follow [docs/INSTALL.md](docs/INSTALL.md). Build from source with:

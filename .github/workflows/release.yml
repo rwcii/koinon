@@ -43,6 +43,10 @@ jobs:
     permissions:
       contents: write
     steps:
+      - uses: actions/checkout@v4
+      # Checkout stores the tag as a lightweight ref, which gives --notes-from-tag the commit message.
+      - name: Fetch the annotated tag for the release notes
+        run: git fetch --no-tags --depth=1 --force origin "+refs/tags/$GITHUB_REF_NAME:refs/tags/$GITHUB_REF_NAME"
       - uses: actions/download-artifact@v4
         with:
           name: koinon-binaries

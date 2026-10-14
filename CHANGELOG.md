@@ -5,6 +5,28 @@ into a dated release section when promoted to `main`.
 
 ## Unreleased
 
+## 2026-10-14 — Fixes: Homebrew upgrades, the dashboard view and release notes
+
+This release fixes the Homebrew upgrade step, keeps the dashboard's sort and search across
+actions and refreshes, and publishes release notes from the tag without a manual step. The
+state schema stays 26; `koinon install` upgrades a v0.2.0 installation in place.
+
+- Homebrew upgrades name the Homebrew binary (#380): the formula's caveat, README and
+  docs/INSTALL.md say `$(brew --prefix)/bin/koinon install` (`#{opt_bin}/koinon install` in the
+  caveat). Once `~/.local/bin` came first on `PATH`, the documented bare `koinon install` ran the
+  copy already installed and copied it onto itself, so a `brew upgrade` changed nothing. When
+  the installed binary runs the install and another `koinon` on `PATH` has other content, the
+  report now names it in `other_binary`, with the command in `source_step`.
+- Dashboard actions keep the view (#373): an action on Sessions, Messages, Memory or Work
+  returns to the same sort order, search and filters, on the first page. Before, Enable
+  handoff, Retire and the other actions reloaded the view with the default order and no search.
+  An open read-only disclosure, such as a session's nested repositories, no longer stops the
+  5-second refresh, and it stays open across it. Before, it kept the view stale until closed.
+- Release notes from the tag (#377): the release workflow fetches the annotated tag before it
+  creates the GitHub release, so `--notes-from-tag` reads the tag message. Before, the publish
+  job had no local tag and failed, as it did for v0.2.0, whose release was then created by hand
+  from the tag message.
+
 ## 2026-10-14 — Participants, rooms, the decision board and managed context cycles
 
 This release adds participant addresses with roles and verified succession, rooms and the

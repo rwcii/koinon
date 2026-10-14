@@ -75,6 +75,9 @@ const dashboardSessionView = `SELECT s.family AS family,s.id AS id,s.repository 
 // dashboardSearchMax bounds a sessions search, in bytes.
 const dashboardSearchMax = 256
 
+// repositoryMax bounds a repository path in a dashboard request.
+const repositoryMax = 4096
+
 // likePattern matches text as a substring with LIKE ... ESCAPE '\', so the wildcards % and _
 // in the text match literally.
 func likePattern(text string) string {
@@ -84,7 +87,7 @@ func likePattern(text string) string {
 // validRepository accepts a repository path from a dashboard form or query: absolute, at
 // most 4,096 bytes, without NUL or line breaks.
 func validRepository(repository string) bool {
-	return filepath.IsAbs(repository) && len(repository) <= 4096 && !strings.ContainsAny(repository, "\x00\r\n")
+	return filepath.IsAbs(repository) && len(repository) <= repositoryMax && !strings.ContainsAny(repository, "\x00\r\n")
 }
 
 // dashboardSessions lists agent sessions in the sort's order after its cursor, those that
