@@ -457,7 +457,7 @@ func TestDashboardSendFormLimit(t *testing.T) {
 		t.Fatalf("invalid UTF-8: %s", got)
 	}
 	// Other actions keep the small form limit.
-	big := url.Values{"family": {"codex"}, "id": {"x"}, "revision": {"1"}, "pad": {strings.Repeat("p", 8192)}, "csrf": {client.csrf}}
+	big := url.Values{"family": {"codex"}, "id": {"x"}, "revision": {"1"}, "pad": {strings.Repeat("p", actionFormLimit+len("&back=")+3*backLimit)}, "csrf": {client.csrf}}
 	if r := dashboardDo(t, d, "POST", "/dashboard/actions/retire", client.cookie, client.sameOrigin, big); r.status != 400 && r.status != 403 {
 		t.Fatalf("large form: %d", r.status)
 	}

@@ -41,6 +41,7 @@ type dashboardPage struct {
 	Data   any
 	Now    time.Time
 	Notice string
+	Back   string // the view's order and filters, which its action forms return to
 }
 
 func dashboardTemplates() (map[string]*template.Template, error) {
@@ -126,6 +127,7 @@ func (d *Daemon) dashboardHandler() (http.Handler, error) {
 			name = "list"
 		}
 		page.Views, page.Now = dashboardViews, d.store.now()
+		page.Back = backField(page.View, r.URL.Query())
 		if page.CSRF != "" {
 			page.Notice = notice(r.URL.Query().Get("notice"))
 		}
@@ -157,7 +159,8 @@ func (d *Daemon) dashboardHandler() (http.Handler, error) {
 				return
 			}
 			if r.Method != http.MethodGet && r.Method != http.MethodHead {
-				r.Body = http.MaxBytesReader(w, r.Body, limit)
+				// Form encoding can triple the back field that each action form carries.
+				r.Body = http.MaxBytesReader(w, r.Body, limit+int64(len("&back="))+3*backLimit)
 				parsed := r.ParseForm() == nil
 				token := r.Header.Get(dashboardCSRF)
 				if token == "" && parsed {
@@ -346,7 +349,7 @@ func (d *Daemon) dashboardData(r *http.Request, view string) (any, error) {
 	ctx, q, path := r.Context(), r.URL.Query(), "/dashboard/"+view
 	switch view {
 	case "sessions":
-		order, err := parseSort(&sessionSort, path, q, "q")
+		order, err := parseSort(&sessionSort, path, q, viewFilters["sessions"]...)
 		if err != nil {
 			return nil, err
 		}
@@ -393,7 +396,7 @@ func (d *Daemon) dashboardData(r *http.Request, view string) (any, error) {
 	case "rooms":
 		return d.roomsView(ctx, q)
 	case "messages":
-		order, err := parseSort(&messageSort, path, q, "to", "peers")
+		order, err := parseSort(&messageSort, path, q, viewFilters["messages"]...)
 		if err != nil {
 			return nil, err
 		}
@@ -425,7 +428,7 @@ func (d *Daemon) dashboardData(r *http.Request, view string) (any, error) {
 		return auditData{Records: records, Sort: order, Next: next}, err
 	case "memory":
 		// Sort links keep the selected store and its filters.
-		order, err := parseSort(&storeSort, path, q, "store", "q", "type", "all")
+		order, err := parseSort(&storeSort, path, q, viewFilters["memory"]...)
 		if err != nil {
 			return nil, err
 		}
@@ -440,7 +443,7 @@ func (d *Daemon) dashboardData(r *http.Request, view string) (any, error) {
 		after := q.Get("after")
 		q.Del("after")
 		// Sort links keep the lifecycle filter and the open item.
-		order, err := parseSort(&workSort, path, q, "lifecycle", "store", "item")
+		order, err := parseSort(&workSort, path, q, viewFilters["work"]...)
 		if err != nil {
 			return nil, err
 		}

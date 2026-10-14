@@ -5,6 +5,11 @@ into a dated release section when promoted to `main`.
 
 ## Unreleased
 
+- Dashboard actions keep the view (#373): an action on Sessions, Messages, Memory or Work
+  returns to the same sort order, search and filters, on the first page. Before, Enable
+  handoff, Retire and the other actions reloaded the view with the default order and no search.
+  An open read-only disclosure, such as a session's nested repositories, no longer stops the
+  5-second refresh, and it stays open across it. Before, it kept the view stale until closed.
 - Release notes from the tag (#377): the release workflow fetches the annotated tag before it
   creates the GitHub release, so `--notes-from-tag` reads the tag message. Before, the publish
   job had no local tag and failed, as it did for v0.2.0, whose release was then created by hand

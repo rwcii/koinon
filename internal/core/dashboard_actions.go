@@ -124,10 +124,18 @@ func notice(code string) string {
 	return ""
 }
 
-// done answers an action with 303 to its view and a notice code.
+// done answers an action with 303 to its view and a notice code. The redirect keeps the
+// order and filters that the form's back field names, unless the action sets them.
 func done(w http.ResponseWriter, r *http.Request, view string, query url.Values, code string) {
 	if query == nil {
 		query = url.Values{}
+	}
+	if back, err := url.ParseQuery(r.PostForm.Get("back")); err == nil && len(r.PostForm.Get("back")) <= backLimit {
+		for name, values := range viewOrder(view, back) {
+			if !query.Has(name) {
+				query[name] = values
+			}
+		}
 	}
 	query.Set("notice", code)
 	http.Redirect(w, r, "/dashboard/"+view+"?"+query.Encode(), http.StatusSeeOther)
