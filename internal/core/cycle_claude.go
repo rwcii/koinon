@@ -292,14 +292,7 @@ func visibleText(line string) string {
 			if end < 0 {
 				break
 			}
-			for _, param := range strings.Split(line[i+2:i+end], ";") {
-				switch param {
-				case "2":
-					dim = true
-				case "", "0", "22":
-					dim = false
-				}
-			}
+			dim = sgrDim(line[i+2:i+end], dim)
 			i += end + 1
 			continue
 		}

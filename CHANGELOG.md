@@ -5,6 +5,12 @@ into a dated release section when promoted to `main`.
 
 ## Unreleased
 
+- Screen reads in a truecolor terminal (#371): the Codex pane wake and the Codex and Claude Code
+  cycle adapters read a 24-bit color (`48;2;R;G;B`) or a 256-color index of 0, 2 or 22 as color
+  data, not as the dim or reset attribute. Before, a notice typed on a truecolor Codex composer
+  read as the dim placeholder, so the wake never pressed Enter and ended
+  `pane_submission_unconfirmed`, and typed text on a truecolor Claude Code input line read as
+  empty.
 - Managed context cycle for Codex (#196, chunk 04): a session started with `koinon codex` in tmux
   on Linux (Codex CLI 0.162.0) can run the cycle. The daemon enters `/clear`, then `/status`,
   whose card names the new thread for the reset proof, then a bare `$pickup` only when every

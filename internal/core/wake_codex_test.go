@@ -39,6 +39,9 @@ printf '\033[2J\033[H'
 draft=
 [ "$state" = draft ] && draft="synthetic draft"
 composer "$draft"
+# A truecolor terminal draws the composer on a 24-bit background (#371), and typed keys echo
+# on it.
+[ "$state" = truecolor ] && printf '\033[48;2;30;68;78m'
 # A deaf program never reads: typed keys stay in the composer.
 [ "$state" = deaf ] && exec sleep 300
 # Without echo the typed notice never shows in the composer.
@@ -163,6 +166,19 @@ func TestCodexWakeTypesTheNoticeIntoTheProvenIdlePane(t *testing.T) {
 	}
 	if got := f.received(other); got != "" {
 		t.Fatalf("another pane received %q", got)
+	}
+}
+
+// A notice typed on a truecolor composer reads back as the draft, so Enter is sent (#371).
+func TestCodexWakeTruecolorComposer(t *testing.T) {
+	f := newCodexFixture(t)
+	p := f.pane("truecolor", "sh -c 'PROGRAM; exit'")
+	session := f.session(f.child(p.shell), p.id, "idle")
+	if got := f.s.providerWake(context.Background(), session, codexTestNotice); got != accepted() {
+		t.Fatalf("wake: %v\n%s", got, f.run("capture-pane", "-p", "-e", "-t", p.id))
+	}
+	if got := f.received(p); got != codexTestNotice+"\n" {
+		t.Fatalf("received %q", got)
 	}
 }
 
