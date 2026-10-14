@@ -62,9 +62,11 @@ var viewFilters = map[string][]string{
 	"work":     {"lifecycle", "store", "item"},
 }
 
-// backLimit bounds the encoded back field; a longer view query is not carried, and the
-// action returns to the view's default order.
-const backLimit = 1024
+// backLimit bounds the encoded back field: a longest supported view query, a repository
+// and a search with every byte percent-encoded, plus 256 bytes for the parameter names and
+// the short values. It exceeds the request line that the daemon reads (MaxHeaderBytes 8192
+// and the 4096 bytes net/http reads beyond it), so every view it serves carries its back.
+const backLimit = 3 * (repositoryMax + dashboardSearchMax + 256)
 
 // viewOrder is the order and filters of a view's query, without its page position: the
 // form field "back" that an action returns to. It keeps the first value of each known

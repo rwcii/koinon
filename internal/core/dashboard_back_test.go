@@ -28,6 +28,19 @@ func TestActionsReturnToTheViewOrder(t *testing.T) {
 		}
 	}
 
+	// A long repository path and the longest search, in multibyte UTF-8, within the request
+	// line that the daemon reads.
+	longest := url.Values{"sort": {"entries"}, "dir": {"desc"}, "store": {"/" + strings.Repeat("ж", 1100)},
+		"q": {strings.Repeat("ж", dashboardSearchMax/2)}, "type": {"finding"}, "all": {"1"}}
+	longestWant := url.Values{"notice": {"invalid_request"}}
+	for name, values := range longest {
+		longestWant[name] = values
+	}
+	page := dashboardDo(t, d, "GET", "/dashboard/memory?"+longest.Encode(), client.cookie, nil, nil)
+	if want := `name="back" value="` + html.EscapeString(longest.Encode()) + `"`; page.status != 200 || !strings.Contains(page.body, want) {
+		t.Fatalf("longest memory view: %d, no back field", page.status)
+	}
+
 	location := func(action string, form url.Values) url.Values {
 		t.Helper()
 		form.Set("csrf", client.csrf)
@@ -47,7 +60,8 @@ func TestActionsReturnToTheViewOrder(t *testing.T) {
 		// Unknown parameters, the page position and an oversized value are dropped.
 		{"retire", "sort=name&dir=desc&q=synthetic&fragment=1&after=abc&csrf=x&notice=retired&state=" + long,
 			url.Values{"sort": {"name"}, "dir": {"desc"}, "q": {"synthetic"}, "notice": {"invalid_request"}}},
-		// A back longer than backLimit is not read.
+		// The longest supported memory view is kept; a back longer than backLimit is not read.
+		{"memory-record", longest.Encode(), longestWant},
 		{"retire", "sort=name&q=" + strings.Repeat("x", backLimit), url.Values{"notice": {"invalid_request"}}},
 		// The action's own query wins over back.
 		{"send", "sort=sent&dir=asc&to=codex-synthetic&peers=all",
