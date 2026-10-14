@@ -362,6 +362,10 @@ func TestCodexActivation(t *testing.T) {
 	elsewhere := filepath.Join(target.Directory, ".agents", "skills", "other", "SKILL.md")
 	writeEntry(t, elsewhere, []byte("---\nname: other\n---\n"))
 	config := filepath.Join(term.codex, "config.toml")
+	relative, err := filepath.Rel(term.codex, file)
+	if err != nil {
+		t.Fatal(err)
+	}
 	project := filepath.Join(target.Directory, ".codex", "config.toml")
 	quote := strconv.Quote
 	for _, c := range []struct {
@@ -378,7 +382,8 @@ func TestCodexActivation(t *testing.T) {
 		{name: "disable by qualified name", user: "[[skills.config]]\nname = \"plugin:pickup\"\nenabled = false\n", refused: "pickup_entry_unverified"},
 		{name: "disable by path", user: "[[skills.config]]\npath = " + quote(file) + "\nenabled = false\n", refused: "pickup_entry_unverified"},
 		{name: "disable by directory", user: "[[skills.config]]\npath = " + quote(filepath.Dir(file)) + "\nenabled = false\n", refused: "pickup_entry_unverified"},
-		{name: "disable by relative path", project: "[[skills.config]]\npath = \"../.agents/skills/pickup/SKILL.md\"\nenabled = false\n", refused: "pickup_entry_unverified"},
+		{name: "disable by a path relative to the user file", user: "[[skills.config]]\npath = " + quote(relative) + "\nenabled = false\n", refused: "pickup_entry_unverified"},
+		{name: "a project disable has no effect (P10)", project: "[[skills.config]]\nname = \"pickup\"\nenabled = false\n"},
 		{name: "disable an unresolvable path", user: "[[skills.config]]\npath = \"/nonexistent/SKILL.md\"\nenabled = false\n", refused: "pickup_entry_unverified"},
 		{name: "escaped key", user: "[[\"\\u0073kills\".\"config\"]]\nname = \"pickup\"\nenabled = false\n", refused: "pickup_entry_unverified"},
 		{name: "missing enabled", user: "[[skills.config]]\nname = \"pickup\"\n", refused: "pickup_entry_unverified"},
@@ -403,12 +408,13 @@ func TestCodexActivation(t *testing.T) {
 		{name: "a legacy profile table has no effect", user: "[profiles.p.skills]\nconfig = [{name = \"pickup\", enabled = false}]\n"},
 		{name: "a higher -c array replaces a disabling user entry", user: "[[skills.config]]\npath = " + quote(file) + "\nenabled = false\n",
 			args: []string{"-c", `skills.config=[{path=` + quote(file) + `,enabled=true}]`}},
-		{name: "a project entry over an enabling user entry", user: "[[skills.config]]\nname = \"pickup\"\nenabled = true\n",
-			project: "[[skills.config]]\nname = \"pickup\"\nenabled = false\n", refused: "pickup_entry_unverified"},
+		{name: "a project entry does not replace an enabling user entry", user: "[[skills.config]]\nname = \"pickup\"\nenabled = true\n",
+			project: "[[skills.config]]\nname = \"pickup\"\nenabled = false\n"},
 		{name: "a -c array over a disabling project entry", project: "[[skills.config]]\nname = \"pickup\"\nenabled = false\n",
 			args: []string{"-c", `skills.config=[{name="other",enabled=false}]`}},
-		{name: "a project value in place of the skills table", user: "[[skills.config]]\nname = \"pickup\"\nenabled = false\n",
+		{name: "a project value does not replace a user disable", user: "[[skills.config]]\nname = \"pickup\"\nenabled = false\n",
 			project: "skills = \"off\"\n", refused: "pickup_entry_unverified"},
+		{name: "a -c value in place of the skills table", args: []string{"-c", `skills="off"`}, refused: "pickup_entry_unverified"},
 	} {
 		os.Remove(config)
 		os.Remove(project)
@@ -423,7 +429,7 @@ func TestCodexActivation(t *testing.T) {
 			writeEntry(t, project, []byte(c.project))
 		}
 		term.args = append([]string{"--no-daemon"}, c.args...)
-		err := codexActivation(target, term.codex, []string{target.Directory}, []string{real})
+		err := codexActivation(target, term.codex, []string{real})
 		if got := ""; err != nil && err.Error() != c.refused || err == nil && c.refused != "" {
 			if err != nil {
 				got = err.Error()

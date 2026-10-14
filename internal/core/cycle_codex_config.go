@@ -28,13 +28,14 @@ type codexLayer struct {
 // codexActivation checks the effective skills.config of the host's configuration, layer by
 // layer in Codex's order from lowest to highest: /etc/codex/config.toml, $CODEX_HOME/config.toml,
 // the profile that the host's -p/--profile names ($CODEX_HOME/<name>.config.toml, which
-// Codex 0.162.0 layers on top of the base user configuration), the .codex/config.toml of each
-// directory from the checkout root down to the session's directory (dirs lists them upward),
-// the host's own -c/--config arguments, and /etc/codex/managed_config.toml. Tables merge and any other value of a higher layer replaces
+// Codex 0.162.0 layers on top of the base user configuration), the host's own -c/--config
+// arguments, and /etc/codex/managed_config.toml. A project's .codex/config.toml loads, but
+// its skills.config does not change the skills that the launched TUI lists (P10), so it
+// takes no part. Tables merge and any other value of a higher layer replaces
 // the lower one, so the effective entries are those of the highest layer that sets them.
 // /etc/codex/requirements.toml constrains rather than sets values: a disabling entry there
 // refuses as well.
-func codexActivation(t CycleTarget, codex string, dirs []string, files []string) error {
+func codexActivation(t CycleTarget, codex string, files []string) error {
 	read := func(path string) (*codexLayer, error) {
 		data, err := readBounded(path, codexConfigMax)
 		if errors.Is(err, os.ErrNotExist) {
@@ -65,9 +66,6 @@ func codexActivation(t CycleTarget, codex string, dirs []string, files []string)
 			return errors.New("pickup_entry_unverified")
 		}
 		paths = append(paths, path)
-	}
-	for i := len(dirs) - 1; i >= 0; i-- {
-		paths = append(paths, filepath.Join(dirs[i], ".codex", "config.toml"))
 	}
 	var layers []codexLayer
 	for _, path := range paths {

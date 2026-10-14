@@ -39,6 +39,9 @@ account data, paths and thread IDs replaced.
 - P8 One file reached through two symlinked roots is one row.
 - P9 No native view shows a skill's path before a turn. Codex turns a skill on or off only
   through `skills.config` entries, selected by name or by path.
+- P10 A project `.codex/config.toml` loads (its `model_reasoning_effort` shows in the footer),
+  but its `skills.config` disable of `pickup` leaves the `$pickup` menu row; the same entry as
+  a `-c` argument removes it (`no matches`).
 
 ## Criteria
 
@@ -71,10 +74,10 @@ account data, paths and thread IDs replaced.
   first: `/etc/codex/config.toml`, `$CODEX_HOME/config.toml`, the profile file that the
   host's `-p`/`--profile` (also `-pNAME`) selects, `$CODEX_HOME/<name>.config.toml` (Codex
   0.162.0 layers it on top of the user file; legacy profile tables are not its profile form),
-  the `.codex/config.toml` of each directory from the checkout root down, the host's own
-  `-c`/`--config` arguments and `/etc/codex/managed_config.toml` (tables merge; a higher
-  layer's array replaces a lower one), and the entries of `/etc/codex/requirements.toml`. A
-  selected profile without its file is not proven. An entry whose `enabled` is not `true` and that
+  the host's own `-c`/`--config` arguments and `/etc/codex/managed_config.toml` (tables merge;
+  a higher layer's array replaces a lower one), and the entries of
+  `/etc/codex/requirements.toml`. A selected profile without its file is not proven. Project
+  `.codex/config.toml` files take no part (P10). An entry whose `enabled` is not `true` and that
   names `pickup`, a verified file or its directory, or a path that does not resolve, or
   another value in place of a table on the path, gives `pickup_entry_unverified`; a layer that
   does not parse gives `pickup_entry_unreadable`. Entries that turn a skill on, name other

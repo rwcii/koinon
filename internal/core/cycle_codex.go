@@ -256,9 +256,7 @@ func codexPickupEntry(t CycleTarget) (codexEntry, error) {
 		personal bool
 	}
 	var roots []root
-	var dirs []string
 	for dir := filepath.Clean(t.Directory); ; dir = filepath.Dir(dir) {
-		dirs = append(dirs, dir)
 		roots = append(roots, root{filepath.Join(dir, ".agents", "skills"), false}, root{filepath.Join(dir, ".codex", "skills"), false})
 		if dir == filepath.Clean(t.Checkout) || dir == filepath.Dir(dir) {
 			break
@@ -308,7 +306,7 @@ func codexPickupEntry(t CycleTarget) (codexEntry, error) {
 	if len(entry.files) == 0 {
 		return codexEntry{}, errors.New("pickup_entry_unverified")
 	}
-	if err := codexActivation(t, codex, dirs, entry.files); err != nil {
+	if err := codexActivation(t, codex, entry.files); err != nil {
 		return codexEntry{}, err
 	}
 	return entry, nil
