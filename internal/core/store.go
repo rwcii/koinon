@@ -15,6 +15,7 @@ import (
 	"regexp"
 	"runtime"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/rwcii/koinon/internal/platform"
@@ -816,16 +817,7 @@ func catalog(db *sql.DB) ([]string, error) {
 // creates for version: an extra index or trigger would break the storage proof, whose
 // claim controls assume the published tables and indexes and nothing else.
 func checkCatalog(db *sql.DB, version int) error {
-	reference, err := sql.Open("sqlite", "file::memory:")
-	if err != nil {
-		return err
-	}
-	defer reference.Close()
-	reference.SetMaxOpenConns(1)
-	if err := migrate(reference, 0, version); err != nil {
-		return err
-	}
-	want, err := catalog(reference)
+	want, err := referenceCatalog(version)
 	if err != nil {
 		return err
 	}
@@ -837,6 +829,31 @@ func checkCatalog(db *sql.DB, version int) error {
 		return fmt.Errorf("unsupported_runtime: the state database's schema objects differ from schema %d", version)
 	}
 	return nil
+}
+
+// referenceCatalogs holds the schema objects of each version, migrated once from nothing in
+// memory. The migrations are fixed in the binary, so a version's catalog never changes.
+var referenceCatalogs sync.Map
+
+func referenceCatalog(version int) ([]string, error) {
+	if want, ok := referenceCatalogs.Load(version); ok {
+		return want.([]string), nil
+	}
+	reference, err := sql.Open("sqlite", "file::memory:")
+	if err != nil {
+		return nil, err
+	}
+	defer reference.Close()
+	reference.SetMaxOpenConns(1)
+	if err := migrate(reference, 0, version); err != nil {
+		return nil, err
+	}
+	want, err := catalog(reference)
+	if err != nil {
+		return nil, err
+	}
+	referenceCatalogs.Store(version, want)
+	return want, nil
 }
 
 // maintainerKey is the built-in session of the maintainer (sprint chunk 09). Only the
