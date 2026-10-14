@@ -13,4 +13,7 @@ func TestClaudeEvidenceOfOrdinaryBuild(t *testing.T) {
 	if !maps.Equal(claudeEvidencedPlatforms, map[string]bool{"linux": true}) || claudeAnyVersion {
 		t.Fatalf("platforms %v, any version %v", claudeEvidencedPlatforms, claudeAnyVersion)
 	}
+	if !maps.Equal(codexEvidencedPlatforms, map[string]bool{"linux": true}) || codexAnyVersion {
+		t.Fatalf("Codex platforms %v, any version %v", codexEvidencedPlatforms, codexAnyVersion)
+	}
 }

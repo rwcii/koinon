@@ -266,6 +266,8 @@ On Linux and macOS, a participant notice for a session started with koinon codex
 typed into this session's own pane, only while the session is idle and its input is empty, so
 after /clear the new thread reads it. Other wakes use codex queue; for the address holder they
 wait from a /clear until the new thread's first turn (codex_thread_unproven).
+A managed context cycle (Managed cycle reporting) enters /clear, /status and a bare $pickup
+in this pane; the new thread then takes the address (cycle_reset) and reports the pickup.
 Sub-agent threads get peer names, are listed with subagent: true and never hold an alias.
 ### Recommended permissions
 In $CODEX_HOME/config.toml (default ~/.codex/config.toml), merge into the existing table:

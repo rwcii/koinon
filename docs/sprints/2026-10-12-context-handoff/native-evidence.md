@@ -1,7 +1,7 @@
 # Managed context handoff — native evidence
 
-This file records the native runs of the Claude Code cycle adapter (chunk 03) against the
-[definition of done](definition-of-done.md). Each run used a dedicated temporary repository, a
+This file records the native runs of the Claude Code cycle adapter (chunk 03) and the Codex
+cycle adapter (chunk 04) against the [definition of done](definition-of-done.md). Each run used a dedicated temporary repository, a
 private tmux server (`tmux -S`), a clean environment and an ephemeral daemon with its own state
 directory and port. No ongoing work session was cleared. Captures, transcripts and native IDs
 stay private; this file holds the observations needed to judge each result.
@@ -74,8 +74,55 @@ Not run yet. The adapter reports `platform_unverified` on macOS. The steps are i
 [macos-live-check.md](macos-live-check.md); its results go here, and the evidenced platform and
 version are added in the same change.
 
+## Codex CLI 0.162.0, Linux, 2026-10-14
+
+Sessions started with `koinon codex` in new standalone repositories, each with a project
+`pickup` skill byte-equal to the catalog item and trusted in memory
+(`-c 'projects={...}'`). The Codex family mode was `handoff_cycle` at 1%. Stages are in
+order; `/clear` erases the pane history, so the pane shows only what followed it.
+
+| Case | Stages and result |
+| --- | --- |
+| Cycles in sequence (two) | requested, ready, clear_intent, clear_received, reset_verified, pickup_intent, waiting_pickup, complete (resumed). The new thread took the address with succession evidence `cycle_reset`, and the Enable moved to it; the next cycle ran for it. |
+| Daemon restart while waiting_ready | as above; the ready report after the restart was accepted. |
+| Command approval before the clear, answered on the dashboard | requested, ready, waiting_prompt (`native_dialog`), prompt_intent (`maintainer_option`), ready (`prompt_answered`), clear_intent … complete (resumed). |
+| The same, answered in the pane | requested, ready, waiting_prompt (`native_dialog`), ready (`prompt_resolved`), clear_intent … waiting_pickup. |
+| `context_cycle_pickup` approval in the pickup wait, answered on the dashboard | … waiting_pickup, waiting_prompt (`native_dialog`), prompt_intent (`maintainer_option`), complete (resumed): the approved call was the report. |
+| The same, answered in the pane | … waiting_pickup, waiting_prompt (`native_dialog`), complete (resumed). |
+
+The receiving thread's own transcript shows, in order: `$pickup` as its first input, the
+project skill, `context_cycle_status`, the read of the handoff file that the cycle named, the
+guide's Managed cycle reporting section and `context_cycle_pickup` with outcome `resumed` (D8,
+D9).
+
+The dialog cases used `-a on-request`, `approvals_reviewer="user"`, Koinon tools approved and
+`context_cycle_pickup` set to `prompt`. They found two defects that are fixed (chunk 04 C14,
+C15): a requester that did not hold its address (a stale holder in another pane) was cleared
+and its cycle failed `waiting_pickup_timeout`, because the new thread could not take the
+address; and the approved report named the waiting_pickup revision that the dialog wait had
+moved, so each report raised a new approval.
+
+Daemon crashes (D11), with the helper of the Claude runs:
+
+| Case | Kill | Pane at the kill | Result after the restart |
+| --- | --- | --- | --- |
+| E1 | at clear_intent | composer empty | uncertain (`reset_unproven`); nothing typed; Enable ended |
+| E2 | 1.5 s after clear_intent | `/clear` and `/status` done; clear_received and reset_verified recorded | pickup_intent, waiting_pickup, complete (resumed); one `$pickup` |
+| E3 | at pickup_intent | composer empty | uncertain (`pickup_unreceipted`); no `$pickup` typed; Enable ended |
+| E4 | 0.25 s after clear_intent | `/clear` typed, not submitted | uncertain (`reset_unproven`); the text stayed unsubmitted and no Enter was sent; Enable ended |
+
+With the default automatic approval review ("Approve for me"), one run's reviewer denied
+`context_cycle_ready`, because the user's Codex instructions say that a peer request never
+authorizes a context reset; it read the overwatch request as one. The same review allowed the
+report in the other runs. The cycle waited in waiting_ready and entered nothing; Koinon does
+not work around a native denial.
+
+## macOS, Codex
+
+Not run yet. The adapter reports `platform_unverified` on macOS; the steps are in
+[macos-live-check.md](macos-live-check.md).
+
 ## Other families
 
-Codex stays unavailable until #275's clear-to-first-native-call gap is closed and its own
-adapter matrix passes. Antigravity, OpenCode, Grok and DeepSeek have no admitted context
-source (see the native proof matrix in the definition of done).
+Antigravity, OpenCode, Grok and DeepSeek have no admitted context source (see the native
+proof matrix in the definition of done).

@@ -296,7 +296,12 @@ type CycleTarget struct {
 	HostStart int64
 	Socket    string
 	Pane      string
-	Epoch     string      // the pre-reset native epoch
+	Epoch     string // the pre-reset native epoch
+	// SuccessorEpoch is the native epoch that the reset proved, from reset_verified on, or "".
+	SuccessorEpoch string
+	// Holds reports that the session holds a participant address, which a new native session
+	// after the reset must take over to report the pickup (Codex).
+	Holds     bool
 	Directory string      // the session's registered directory
 	Checkout  string      // the worktree root that holds it
 	LoaderDir string      // the daemon's pickup loader directory for the family
@@ -313,7 +318,7 @@ type PickupEntry struct {
 
 func (c cycleRow) target() CycleTarget {
 	return CycleTarget{CycleID: c.ID, Family: c.Family, SessionID: c.SessionID, HostPID: c.HostPID, HostStart: c.HostStart,
-		Socket: c.Socket, Pane: c.Pane, Epoch: c.Epoch}
+		Socket: c.Socket, Pane: c.Pane, Epoch: c.Epoch, SuccessorEpoch: c.SuccessorEpoch}
 }
 
 // PaneState is a cycle adapter's fresh inspection of the pinned pane.
@@ -380,8 +385,10 @@ func cycleAdapterOf(family string) CycleAdapter { return cycleAdapters[family] }
 var cycleCode = regexp.MustCompile(`^[a-z0-9][a-z0-9._-]{0,63}$`)
 
 func init() {
-	// The Claude Code adapter (chunk 03); Probe limits it to evidenced platforms and versions.
+	// The Claude Code adapter (chunk 03) and the Codex adapter (chunk 04); Probe limits each
+	// to evidenced platforms and versions.
 	cycleAdapters["claude"] = claudeCycle{}
+	cycleAdapters["codex"] = codexCycle{}
 }
 
 // contextCycleEnabledFor is the admission's cheap pre-check: an enabled session only; Probe
@@ -907,6 +914,24 @@ func (s *Store) ContextCycleReady(ctx context.Context, caller Key, epoch, id str
 	return next.view(ctx, s.db, role)
 }
 
+// pickupRevision reports whether revision is that of one of the cycle's waiting_pickup
+// stages: each stage adds one revision and one event, so it is that event's ordinal.
+func pickupRevision(ctx context.Context, q querier, id string, revision int64) (bool, error) {
+	var found int
+	err := q.QueryRowContext(ctx, `SELECT 1 FROM context_cycle_events WHERE cycle_id=? AND stage=? AND ordinal=?`, id, cycleWaitingPickup, revision).Scan(&found)
+	if errors.Is(err, sql.ErrNoRows) {
+		return false, nil
+	}
+	return err == nil, err
+}
+
+// awaitingPickup reports whether c waits for the successor's pickup report: in waiting_pickup,
+// or in a dialog wait that began there, because the approved call can be the report itself.
+func awaitingPickup(c cycleRow) bool {
+	return c.State == cycleWaitingPickup ||
+		(c.State == cycleWaitingPrompt || c.State == cyclePromptIntent) && c.PromptFrom == cycleWaitingPickup
+}
+
 // ContextCyclePickup records the managed successor's report that it restored the
 // checkpoint from the cycle's artifact. It completes the cycle and carries the Enable to
 // the successor. report is private runtime data, never audit text. Only a retry with the
@@ -927,14 +952,21 @@ func (s *Store) ContextCyclePickup(ctx context.Context, caller Key, epoch, id st
 	if err != nil {
 		return CycleView{}, err
 	}
-	if c.State == cycleComplete && c.Revision == revision+1 && c.SuccessorID == caller.ID {
+	// The report names the revision of a waiting_pickup stage that the successor read: a
+	// dialog wait from it, such as the approval of this report, and its return change the
+	// cycle's revision, and the approved call can arrive after either.
+	read, err := pickupRevision(ctx, s.db, id, revision)
+	if err != nil {
+		return CycleView{}, err
+	}
+	if c.State == cycleComplete && (c.Revision == revision+1 || read) && c.SuccessorID == caller.ID {
 		v, err := c.view(ctx, s.db, "successor")
 		if err == nil && (c.SuccessorEpoch != epoch || c.Artifact != artifact || c.Reason != outcome || c.Report != report) {
 			err = ErrCycleChanged
 		}
 		return v, err
 	}
-	if c.State != cycleWaitingPickup || c.Revision != revision || c.Artifact != artifact {
+	if !awaitingPickup(c) || !read || c.Artifact != artifact {
 		v, _ := c.view(ctx, s.db, role)
 		return v, ErrCycleChanged
 	}
@@ -955,7 +987,7 @@ func (s *Store) ContextCyclePickup(ctx context.Context, caller Key, epoch, id st
 	if err != nil {
 		return CycleView{}, err
 	}
-	if current.Revision != revision || current.State != cycleWaitingPickup || now >= current.StageDeadline || now >= current.CycleDeadline {
+	if current.Revision != c.Revision || !awaitingPickup(current) || now >= current.StageDeadline || now >= current.CycleDeadline {
 		return CycleView{}, ErrCycleChanged
 	}
 	// The caller must still be the managed successor in the pinned pane, or the requester

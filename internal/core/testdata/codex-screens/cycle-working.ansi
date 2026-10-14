@@ -1,0 +1,50 @@
+
+  [38;5;75m>_ [1m[39mOpenAI Codex[0;2m (v0.162.0)
+[0m     [2m/tmp/synthetic/repo
+
+[0m[38;5;5m/status
+
+[39m  [38;5;75m>_ [1m[39mOpenAI Codex[0;2m (v0.162.0)
+
+[0m  [38;5;75mVisit [4m]8;;https://chatgpt.com/settings/usage\https://chatgpt.com/settings/usage[0m[38;5;75m]8;;\ for up-to-date
+[39m  [38;5;75minformation on rate limits and credits
+
+[2m[39m  Model:               [0mGPT-6.1-Sol[2m (reasoning high, summaries auto)
+  Model provider:      [0mopenai
+[2m  Directory:           [0m/tmp/synthetic/repo
+[2m  Permissions:         [0mWorkspace [/tmp/synthetic/state, /tmp/synthetic/share] (Approve for me)
+[2m  Agents.md:           [0m~/.codex/AGENTS.md
+[2m  Account:             [0msynthetic@example.invalid (synthetic)
+[2m  Collaboration mode:  [0mDefault
+[2m  Session:             [0m01a13800-0000-7000-8000-000000000001
+
+[2m  Weekly limit:        [0m[██████████░░░░░░░░░░] 50% left[2m (resets synthetic)[0m
+[2m  Credits:             [0m0 credits
+
+
+[1;2m› [0mReply with the single word ok.
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+• [2mWorking[0m [2m(0s • [0;1mesc[0;2m to interrupt)[0m
+
+
+[1m›[0m [2mAsk Codex to do anything[0m
+
+  [38;5;223mGPT-6.1-Sol high[39m · [38;5;151m/tmp/synthetic/repo[39m · [38;5;216mContext 0% used[39m · [38;5;175mweekly 50% left
+[39m  [1m?[0m for shortcuts
