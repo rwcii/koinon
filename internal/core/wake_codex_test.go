@@ -8,7 +8,6 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
-	"runtime"
 	"strconv"
 	"strings"
 	"testing"
@@ -59,9 +58,6 @@ type codexFixture struct {
 
 func newCodexFixture(t *testing.T) *codexFixture {
 	t.Helper()
-	if runtime.GOOS != "linux" {
-		t.Skip("the Codex pane wake runs on Linux only (#275)")
-	}
 	f := &codexFixture{newGrokFixture(t)}
 	if err := os.WriteFile(f.program, []byte(codexScreenProgram), 0700); err != nil {
 		t.Fatal(err)

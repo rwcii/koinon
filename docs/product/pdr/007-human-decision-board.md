@@ -136,8 +136,10 @@ The maintainer sees all agents and open decisions on one page in the dashboard.
 
 ### Decision
 
-A verdict is `approved` or `declined`, with `verdictAt`, an optional note, an audit record,
-and `verdictOn`: a copy of the title, context, recommendation and commands the human saw.
+A verdict is `approved` or `declined` (an `fyi` item is `dismissed`), with its time
+(`at`; #206 calls it `verdictAt`), an optional note, an audit record, and a `snapshot`
+(#206's `verdictOn`): a copy of the title, context, recommendation and commands the human
+saw. Approve moves the item to in progress; Decline and Dismiss archive it.
 No agent interface (MCP, CLI or bearer API) writes a verdict field; only an authenticated
 dashboard action does, with no further check under the same-user trust model (PDR 005,
 Decision 3). Decided text
@@ -214,8 +216,9 @@ Command boxes show plain ASCII. A command with other characters is refused when 
 
 ### Decision
 
-Each new verdict reaches each `relayTo` session once, with no loss and no duplicate. An item
-without a valid `relayTo` is flagged. Each recipient has a durable delivery record with an
+Each new verdict reaches each named recipient (#206's `relayTo`) once, with no loss and no
+duplicate record; the notice can repeat. A recipient that does not resolve is flagged, and
+its delivery is recorded as skipped with the reason. Each recipient has a durable delivery record with an
 acknowledgement. The content-free wake notice carries the verdict ID; it can repeat after a
 crash, and the receiver ignores an ID it has handled. Each agent reads the verdict record
 itself through an interface every family can use. The records are stored data that agents

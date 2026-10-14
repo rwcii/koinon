@@ -56,6 +56,13 @@ var noticeText = map[string]string{
 	"launched":                  "The session was started in a new tmux session.",
 	"invalid_request":           "Refused: the request was not valid.",
 	"room_created":              "The room was created. Add members to it below.",
+	"decision_approved":         "The verdict Approve was saved with the text you saw. Each named agent gets the verdict.",
+	"decision_declined":         "The verdict Decline was saved with the text you saw. Each named agent gets the verdict.",
+	"decision_dismissed":        "The fyi item was dismissed and archived. This is not an approval.",
+	"stale_revision":            "The item changed after the page showed it. Read it again; nothing was saved.",
+	"decided":                   "The item already has a verdict; nothing was saved.",
+	"hidden_command":            "A stored command is hidden, so the item cannot be approved as displayed; nothing was saved.",
+	"invalid_verdict":           "A decision item takes Approve or Decline; an fyi item takes Dismiss. Nothing was saved.",
 	"room_refill_saved":         "The refill value was saved. It applies at the next maintainer post; the current allowance is unchanged.",
 	"room_member_added":         "The session is a member of the room.",
 	"room_member_removed":       "The member was removed from the room.",
@@ -354,6 +361,7 @@ func (d *Daemon) dashboardActions(mux *http.ServeMux, authed func(int64, func(ht
 	d.memoryActions(mux, authed)
 	d.workActions(mux, authed, run)
 	d.roomActions(mux, authed, run)
+	d.decisionActions(mux, authed, run)
 
 	mux.HandleFunc("POST /dashboard/actions/launch", authed(actionFormLimit, func(w http.ResponseWriter, r *http.Request, _ string) {
 		family, directory, name := r.PostForm.Get("family"), r.PostForm.Get("directory"), r.PostForm.Get("name")

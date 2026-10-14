@@ -156,10 +156,12 @@ Claude uses `CLAUDE_CODE_SESSION_ID`; DeepSeek uses `DSH_SESSION_ID` and registe
 After a Codex `/clear`, the new thread takes the participant address at its first turn
 through the SessionStart hook that `koinon setup codex` adds, once Codex trusts it (succession
 `host_cleared`); without the hook, at its first Koinon tool call. Until that turn, the cleared
-thread stays the holder. On Linux, a participant notice for a session started with
+thread stays the holder. On Linux and macOS, a participant notice for a session started with
 `koinon codex` in tmux is typed into its pane while it is idle and its input is empty, so the
-new thread's first turn reads it. On macOS, outside tmux, and for a session inbox, the wake
-still reaches the cleared thread (#275).
+new thread's first turn reads it. A wake for the holder that still goes through `codex queue`
+(outside tmux, or a notice for the session's own inbox) waits with `codex_thread_unproven` from
+the `/clear` until the new thread's first turn moves the address, so the cleared thread does
+not read the message (#275).
 
 Shell `--as` selects an already registered session; it does not create a replacement
 conversation. Refresh discovery before sending. A delayed notice for an acknowledged sequence
@@ -210,9 +212,36 @@ Agents read decision status with `decision_list` (`--filter waiting|active|in_pr
 paged with `--after`) and `decision_get` (`--reference REF`), never from the dashboard page.
 Write card prose in ASD-STE100; context, recommendation and agent text are Markdown, and
 terminal-copy commands are printable ASCII. Known key formats are refused, but leave out all
-credentials, personal data, private session IDs and peer message bodies. The dashboard
-**Decisions** page lists the active items and finds an item by reference. It is read-only for
-now; the maintainer's verdicts come with a later change.
+credentials, personal data, private session IDs and peer message bodies. Markdown renders as
+paragraphs, line breaks, lists, emphasis, inline code and fenced code blocks; links, images
+and HTML show as literal text. An fyi item whose title starts with `ACTION FOR YOU` asks the
+maintainer for manual work.
+
+The dashboard **Decisions** page is the board. It shows the counts (waiting, in progress, open
+fyi, archived), then a table of the active agents: name, activity, claimed work, context use
+or "not reported", and the waiting items that name the agent. The cards follow:
+`ACTION FOR YOU` items first, then item order and reference. Each terminal-copy command is in
+its own box with a **Copy** button. The archive lists closed items, and **Find** opens any item
+by reference, read only, with its verdict history and the text of each verdict.
+
+Give a verdict on the card: **Approve** or **Decline** a decision item, or **Dismiss** an fyi
+item, with an optional Markdown note. The buttons are disabled while the request runs, and
+the answer shows on the card. A card with a hidden command (one that fails the printable-ASCII
+rule) cannot be approved. The verdict applies to the revision
+the page showed, keeps a snapshot of that text, and is your instruction and approval to the
+named agents. Approve moves the item to in progress; Decline and Dismiss archive it. Each
+named agent gets an inbox message and a wake that name the verdict ID. An agent reads it with
+`decision_get` (`koinon decision get`), handles it and acknowledges it with `decision_ack`
+(`koinon decision ack --verdict ID`); `decision_pending` (`koinon decision pending`) lists
+the verdicts it has not acknowledged. When the approved work is done, the agent closes the
+item with `decision_close` (`koinon decision close --reference REF --if-revision N --key KEY
+--deadline UNIX_SECONDS`), which archives it. An agent edit of a decided item reopens it for a
+new verdict; `decision_history` pages every verdict with its snapshot.
+
+Nothing is deleted. 30 days after an item is archived, and once every delivery is
+acknowledged, Koinon moves the whole record to `decisions/YYYY-MM.jsonl` in its state
+directory. `decision_get` then answers `deep_archived`, and `decision_restore` (`koinon
+decision restore --reference REF`) brings the item back into the archive.
 
 ## Peer status
 

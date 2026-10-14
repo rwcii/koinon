@@ -5,6 +5,7 @@ import (
 	"flag"
 	"fmt"
 	"io"
+	"strconv"
 	"strings"
 
 	"github.com/rwcii/koinon/internal/core"
@@ -12,11 +13,13 @@ import (
 )
 
 // decisionCommand is the command path of decision_create, decision_edit, decision_list and
-// decision_get (#206, chunk 01).
+// decision_get (#206, chunk 01) and decision_history, decision_pending, decision_ack,
+// decision_close and decision_restore (chunk 02).
 func decisionCommand(ctx context.Context, args []string, out io.Writer) error {
-	ops := map[string]bool{"create": true, "edit": true, "list": true, "get": true}
+	ops := map[string]bool{"create": true, "edit": true, "list": true, "get": true, "history": true, "pending": true,
+		"ack": true, "close": true, "restore": true}
 	if len(args) == 0 || !ops[args[0]] {
-		return usageError{"invalid_request", "use koinon decision create, edit, list or get"}
+		return usageError{"invalid_request", "use koinon decision create, edit, list, get, history, pending, ack, close or restore"}
 	}
 	op, rest := args[0], args[1:]
 	root, err := platform.DefaultStateDir()
@@ -30,7 +33,7 @@ func decisionCommand(ctx context.Context, args []string, out io.Writer) error {
 	as := flags.String("as", "", "calling session as FAMILY:ID")
 	strs := map[string]*string{}
 	ints := map[string]*int64{}
-	var commands, recipients repeated
+	var commands, recipients, verdicts repeated
 	var deadline *float64
 	var limit *int
 	noCommands, noRecipients := new(bool), new(bool)
@@ -56,8 +59,23 @@ func decisionCommand(ctx context.Context, args []string, out io.Writer) error {
 		text("filter", "waiting, active, in_progress, archived or mine")
 		ints["after"] = flags.Int64("after", 0, "item ID from the previous page's next_after")
 		limit = flags.Int("limit", 0, "page size (default and maximum 100)")
-	case "get":
+	case "get", "restore":
 		text("reference", "item reference")
+	case "history":
+		text("reference", "item reference")
+		ints["after"] = flags.Int64("after", 0, "verdict ID from the previous page's next_after")
+		limit = flags.Int("limit", 0, "page size (default and maximum 16)")
+	case "pending":
+		ints["after"] = flags.Int64("after", 0, "verdict ID from the previous page's next_after")
+		limit = flags.Int("limit", 0, "page size (default and maximum 100)")
+	case "ack":
+		flags.Var(&verdicts, "verdict", "handled verdict ID (repeat for each, at most 32)")
+	case "close":
+		text("reference", "item reference")
+		ints["if-revision"] = flags.Int64("if-revision", 0, "the revision that was read")
+		text("note", "optional Markdown outcome note")
+		text("key", "idempotency key, fixed before the first attempt")
+		deadline = flags.Float64("deadline", 0, "retry deadline in Unix seconds, at most 24 hours ahead")
 	}
 	if err := flags.Parse(rest); err != nil {
 		return usageError{"invalid_request", err.Error()}
@@ -101,8 +119,23 @@ func decisionCommand(ctx context.Context, args []string, out io.Writer) error {
 		if !set["if-revision"] {
 			return usageError{"invalid_request", "koinon decision edit needs --if-revision"}
 		}
-	case "list":
+	case "list", "history", "pending":
 		body["limit"] = *limit
+	case "ack":
+		ids := []int64{}
+		for _, v := range verdicts {
+			n, err := strconv.ParseInt(v, 10, 64)
+			if err != nil || n < 1 {
+				return usageError{"invalid_request", "--verdict takes a verdict ID"}
+			}
+			ids = append(ids, n)
+		}
+		body["verdict_ids"] = ids
+	case "close":
+		if !set["if-revision"] || !set["key"] || !set["deadline"] {
+			return usageError{"invalid_request", "koinon decision close needs --if-revision, --key and --deadline"}
+		}
+		body["deadline"] = *deadline
 	}
 	secret, err := core.ClientSecret(*state, *address)
 	if err != nil {

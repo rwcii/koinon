@@ -1,16 +1,58 @@
-{{define "list"}}<form method="get" action="/dashboard/decisions" class="inline"><label>Reference <input name="ref" maxlength="32" value="{{.Data.Lookup}}"></label> <button type="submit">Find</button></form>
-{{with .Data.LookupErr}}<p class="empty">{{.}}</p>{{end}}{{with .Data.Item}}<h2>{{.Reference}}: {{.Title}}</h2>
-<p><small>{{.Kind}}, {{.State}}, revision {{.Revision}}, order {{.Order}}, by {{.AuthorName}} ({{.AuthorFamily}}), updated {{ms .UpdatedAt}}</small></p>
-{{with .Where}}<p><small>Where: {{.}}</small></p>{{end}}
-{{with .Context}}<h3>Context</h3><pre class="body">{{.}}</pre>{{end}}
-{{with .Recommendation}}<h3>Recommendation</h3><pre class="body">{{.}}</pre>{{end}}
-{{with .AgentText}}<h3>Agent text</h3><pre class="body">{{.}}</pre>{{end}}
-{{if .Commands}}<h3>Commands</h3>{{range .Commands}}<pre class="body">{{.}}</pre>{{end}}{{end}}
-{{with .HiddenCommands}}<p><small>{{.}} stored command(s) fail the printable-ASCII rule and are hidden.</small></p>{{end}}
-<h3>Recipients</h3>{{if .Recipients}}<ul>{{range .Recipients}}<li>{{.Name}} <small>{{if .Resolved}}{{.Kind}}{{else}}not resolved: {{.Reason}}{{end}}</small></li>{{end}}</ul>{{else}}<p class="empty">No recipients named.</p>{{end}}{{end}}
-<h2>Active items</h2>
-{{if not .Data.Page.Items}}<p class="empty">No active decision items.</p>{{else}}<table>
-<thead><tr><th>Reference</th><th>Title</th><th>Kind</th><th>Order</th><th>Revision</th></tr></thead>
-<tbody>{{range .Data.Page.Items}}<tr><td><a href="/dashboard/decisions?ref={{.Reference}}">{{.Reference}}</a></td><td>{{.Title}}</td><td>{{.Kind}}</td><td>{{.Order}}</td><td>{{.Revision}}</td></tr>{{end}}</tbody></table>{{end}}
-{{with .Data.Page.NextAfter}}<p><a href="/dashboard/decisions?after={{.}}">Next page</a></p>{{end}}
-<p><small>Read-only. Agents write these items; the maintainer's verdicts arrive in a later change.</small></p>{{end}}
+{{define "list"}}<div class="board">
+<form method="get" action="/dashboard/decisions" class="inline lookup"><label>Reference <input name="ref" maxlength="32" value="{{.Data.Lookup}}"></label> <button type="submit">Find</button></form>
+{{with .Data.Counts}}<ul class="tally">
+<li><b>{{.Waiting}}</b> waiting</li><li><b>{{.InProgress}}</b> in progress</li><li><b>{{.OpenFYI}}</b> open fyi</li><li><b>{{.Archived}}</b> archived</li>
+</ul>{{end}}
+{{if .Data.Lookup}}<section class="lookup-result">{{with .Data.LookupErr}}<p class="empty">{{.}}</p>{{end}}
+{{with .Data.MovedAt}}<p>{{$.Data.Lookup}} moved to the deep archive at {{ms .}}. An agent restores it with <code>decision_restore</code> or <code>koinon decision restore</code>.</p>{{end}}
+{{with .Data.Item}}<h2>{{.Reference}}: {{.Title}}</h2>
+<p><small>{{.Kind}}, {{if eq .State "in_progress"}}in progress{{else}}{{.State}}{{end}}, revision {{.Revision}}, order {{.Order}}, by {{.AuthorName}} ({{.AuthorFamily}}), updated {{ms .UpdatedAt}}{{with .ArchivedAt}}, archived {{ms .}}{{end}}, {{.Verdicts}} verdict(s) in history. Read only.</small></p>
+{{template "body" .}}
+{{with .ClosedBy}}<p><small>Closed by {{.}}{{with $.Data.Item.ClosedAt}} at {{ms .}}{{end}}</small></p>{{end}}{{with .OutcomeNote}}<h4>Outcome</h4><div class="md">{{markdown .}}</div>{{end}}
+{{with $.Data.History}}<h3>Verdict history</h3>{{if not .Verdicts}}<p class="empty">No verdicts.</p>{{end}}
+{{range .Verdicts}}<article class="verdict-record"><p><strong>{{.Verdict}}</strong> on revision {{.Revision}}, {{ms .At}}, verdict {{.ID}}{{with .SupersededAt}}; superseded {{ms .}}{{end}}</p>
+{{with .Note}}<h4>Note</h4><div class="md">{{markdown .}}</div>{{end}}
+<details><summary>Text of revision {{.Revision}} as shown</summary>{{with .Snapshot}}<p><b>{{.Title}}</b></p>
+{{with .Context}}<h4>Context</h4><div class="md">{{markdown .}}</div>{{end}}
+{{with .Recommendation}}<h4>Recommendation</h4><div class="md">{{markdown .}}</div>{{end}}
+{{range .Commands}}<div class="command"><pre><code>{{.}}</code></pre></div>{{end}}{{end}}</details></article>{{end}}
+{{with .NextAfter}}<p><a href="/dashboard/decisions?ref={{$.Data.Lookup}}&amp;history={{.}}">Older verdicts</a></p>{{end}}{{end}}{{end}}</section>{{end}}
+<h2>Agents</h2>
+{{if not .Data.Agents}}<p class="empty">No active agent sessions.</p>{{else}}<div class="scroll"><table class="agents">
+<thead><tr><th>Agent</th><th>Activity</th><th>Claimed work</th><th>Context</th><th>Waiting for a verdict</th></tr></thead>
+<tbody>{{range .Data.Agents}}<tr><td>{{.Name}}</td>
+<td>{{with .Activity}}{{if .Value}}{{.Value.State}}<br><small>{{.Value.Source}}, since {{ms .Value.At}}</small>{{else}}unknown<br><small>{{.Reason}}</small>{{end}}{{end}}</td>
+<td>{{range .Work}}<div>{{.Title}} <small>{{.WorkID}}</small></div>{{else}}<small>none</small>{{end}}</td>
+<td>{{with .Context}}{{if and .Value .Value.UsedTokens .Value.LimitTokens}}<meter min="0" max="{{.Value.LimitTokens}}" value="{{.Value.UsedTokens}}"></meter><br>{{end}}{{if .Value}}<small>{{tokens .Value}}</small>{{else}}not reported<br><small>{{.Reason}}</small>{{end}}{{end}}</td>
+<td>{{range .Waiting}}<a href="/dashboard/decisions?ref={{.}}">{{.}}</a> {{else}}<small>none</small>{{end}}{{with .More}}<small>+{{.}} more</small>{{end}}</td></tr>{{end}}</tbody></table></div>
+{{if .Data.MoreAgents}}<p><small>More agents are active than this table shows; the Sessions view lists them all.</small></p>{{end}}{{end}}
+<h2>Items</h2>
+{{if not .Data.Cards}}<p class="empty">No active or in-progress items.</p>{{end}}
+<div class="cards">{{range .Data.Cards}}<article class="card kind-{{.Kind}}" id="card-{{.Reference}}">
+<p class="card-head"><span class="tag">{{.Kind}}</span> <span class="tag state-{{.State}}">{{if eq .State "in_progress"}}in progress{{else if eq .Kind "fyi"}}open{{else}}waiting{{end}}</span> <a href="/dashboard/decisions?ref={{.Reference}}">{{.Reference}}</a></p>
+<h3>{{.Title}}</h3>
+{{if and (eq $.Data.Card .Reference) $.Data.CardNotice}}<p class="card-notice{{if $.Data.CardRefused}} refused{{end}}" role="status">{{$.Data.CardNotice}}</p>{{end}}
+{{template "body" .}}
+{{if eq .State "in_progress"}}{{with .Verdict}}<p><small>Approved on revision {{.Revision}}, {{ms .At}}.</small></p>{{with .Note}}<h4>Your note</h4><div class="md">{{markdown .}}</div>{{end}}
+{{if .Deliveries}}<ul class="deliveries">{{range .Deliveries}}<li>{{.Name}} <small>{{.Outcome}}{{with .Reason}} ({{.}}){{end}}</small></li>{{end}}</ul>{{end}}{{end}}<p><small>An agent closes the item when the work is done.</small></p>{{end}}
+{{if eq .State "active"}}<form method="post" class="verdict"><input type="hidden" name="csrf" value="{{$.CSRF}}"><input type="hidden" name="reference" value="{{.Reference}}"><input type="hidden" name="revision" value="{{.Revision}}"><input type="hidden" name="cards" value="{{$.Data.CardsAt}}">
+<label>Note (optional) <textarea name="note" rows="2" maxlength="4096"></textarea></label>
+<p class="buttons">{{if eq .Kind "fyi"}}<button type="submit" formaction="/dashboard/actions/decision-dismiss">Dismiss</button>{{else}}<button type="submit" formaction="/dashboard/actions/decision-approve"{{if .HiddenCommands}} disabled{{end}}>Approve</button> <button type="submit" formaction="/dashboard/actions/decision-decline">Decline</button>{{end}}</p></form>
+<p><small>{{if eq .Kind "fyi"}}Dismiss archives this item. It is not an approval.{{else}}Your verdict applies to revision {{.Revision}} as shown here. It is your instruction and approval to the named agents (PDR 005, Decision 3).{{end}}</small></p>{{end}}
+<p class="card-foot"><small>Revision {{.Revision}}, order {{.Order}}, by {{.AuthorName}}, updated {{ms .UpdatedAt}}</small></p>
+</article>{{end}}</div>
+{{with .Data.NextCards}}<p><a href="/dashboard/decisions?cards={{.}}">Next items</a></p>{{end}}
+<h2>Archive</h2>
+{{if not .Data.Archive.Items}}<p class="empty">No archived items.</p>{{else}}<div class="scroll"><table>
+<thead><tr><th>Reference</th><th>Title</th><th>Kind</th><th>Verdict</th><th>Revision</th></tr></thead>
+<tbody>{{range .Data.Archive.Items}}<tr><td><a href="/dashboard/decisions?ref={{.Reference}}">{{.Reference}}</a></td><td>{{.Title}}</td><td>{{.Kind}}</td><td>{{with .Verdict}}{{.}}{{else}}—{{end}}</td><td>{{.Revision}}</td></tr>{{end}}</tbody></table></div>{{end}}
+{{with .Data.Archive.NextAfter}}<p><a href="/dashboard/decisions?archived={{.}}">More archived items</a></p>{{end}}
+<p><small>Agents write these items. Agents read verdicts through Koinon, not from this page.</small></p>
+</div>{{end}}
+{{define "body"}}{{with .Where}}<p class="where"><small>Where: {{.}}</small></p>{{end}}
+{{with .Context}}<h4>Context</h4><div class="md">{{markdown .}}</div>{{end}}
+{{with .Recommendation}}<h4>Recommendation</h4><div class="md">{{markdown .}}</div>{{end}}
+{{with .AgentText}}<h4>Agent text</h4><div class="md">{{markdown .}}</div>{{end}}
+{{if .Commands}}<h4>Commands</h4>{{range .Commands}}<div class="command"><pre><code>{{.}}</code></pre><button type="button" class="copy">Copy</button></div>{{end}}{{end}}
+{{with .HiddenCommands}}<p class="refused">{{.}} stored command(s) fail the printable-ASCII rule and are hidden. This item cannot be approved as shown.</p>{{end}}
+<h4>Recipients</h4>{{if .Recipients}}<ul class="recipients">{{range .Recipients}}<li>{{.Name}}{{if .Resolved}} <small>{{.Kind}}</small>{{else}} <span class="refused">not resolved: {{.Reason}}</span>{{end}}</li>{{end}}</ul>{{else}}<p class="refused">No recipients named.</p>{{end}}{{end}}

@@ -113,6 +113,14 @@ type DecisionItem struct {
 	CreatedAt      int64               `json:"created_at"`
 	UpdatedAt      int64               `json:"updated_at"`
 	ArchivedAt     int64               `json:"archived_at,omitempty"`
+	// ClosedBy, ClosedAt and OutcomeNote record the last close of the work (chunk 02).
+	ClosedBy    string `json:"closed_by,omitempty"`
+	ClosedAt    int64  `json:"closed_at,omitempty"`
+	OutcomeNote string `json:"outcome_note,omitempty"`
+	// Verdict is the current verdict with its deliveries, and Verdicts the number of
+	// verdicts in the item's history (decision_history pages them).
+	Verdict  *DecisionVerdict `json:"verdict"`
+	Verdicts int64            `json:"verdicts"`
 }
 
 // DecisionSummary is one list row: never the full text.
@@ -123,7 +131,9 @@ type DecisionSummary struct {
 	State     string `json:"state"`
 	Revision  int64  `json:"revision"`
 	Order     int64  `json:"order"`
-	id        int64
+	// Verdict is the current verdict: approved, declined, dismissed or empty (chunk 02).
+	Verdict string `json:"verdict,omitempty"`
+	id      int64
 }
 
 // DecisionPage is one keyset page of summaries in item ID order.
@@ -401,6 +411,9 @@ func (s *Store) DecisionCreate(ctx context.Context, caller Key, reference string
 		return DecisionCreated{}, workError("retry_deadline_expired", "the retry deadline has passed")
 	}
 	print := decisionFingerprint(reference, f, deadline)
+	// Create keys keep the key space of schema 25, so a receipt stored before the upgrade
+	// still answers its retry. Close keys carry a NUL prefix, which no caller key can hold
+	// (checkLine refuses control characters), so a create and a close may use the same key.
 	// A repeat writes nothing, so it is answered before write admission.
 	read, err := s.db.BeginTx(ctx, &sql.TxOptions{ReadOnly: true})
 	if err != nil {
@@ -427,8 +440,10 @@ func (s *Store) DecisionCreate(ctx context.Context, caller Key, reference string
 	if original, err := decisionRepeat(ctx, tx.Tx, caller, key, print); err != nil || original != nil {
 		return orCreated(original), err
 	}
+	// A deep-archived item keeps its reference reserved (chunk 02).
 	var taken int
-	if err := tx.QueryRowContext(ctx, `SELECT COUNT(*) FROM decision_items WHERE reference=?`, reference).Scan(&taken); err != nil {
+	if err := tx.QueryRowContext(ctx, `SELECT (SELECT COUNT(*) FROM decision_items WHERE reference=?)+
+		(SELECT COUNT(*) FROM decision_deep_archive WHERE reference=?)`, reference, reference).Scan(&taken); err != nil {
 		return DecisionCreated{}, err
 	}
 	if taken > 0 {
@@ -488,7 +503,10 @@ func derefOrder(v *int64) int64 {
 	return *v
 }
 
-// DecisionEdit changes the present fields of an active item at revision ifRevision.
+// DecisionEdit changes the present fields of an item at revision ifRevision. An edit of an
+// in-progress or archived item reopens it for a new verdict: the item becomes active, its
+// current verdict is superseded and any deep-archive mark is cleared, in the same
+// transaction. The verdict's deliveries do not change; an unacknowledged one stays queued.
 func (s *Store) DecisionEdit(ctx context.Context, caller Key, reference string, ifRevision int64, f DecisionFields) (DecisionItem, error) {
 	if !validKey(caller.Family, caller.ID) {
 		return DecisionItem{}, ErrInvalid
@@ -520,8 +538,12 @@ func (s *Store) DecisionEdit(ctx context.Context, caller Key, reference string, 
 			Details: map[string]any{"current_revision": item.Revision}}
 	}
 	if item.State != "active" {
-		// Chunk 02 replaces this with reopen.
-		return DecisionItem{}, workError("decided", "the decision item has a verdict")
+		if _, err := tx.ExecContext(ctx, `UPDATE decision_verdicts SET superseded_at=? WHERE item_id=? AND superseded_at=0`, now, id); err != nil {
+			return DecisionItem{}, tx.fail(err)
+		}
+		if _, err := tx.ExecContext(ctx, `UPDATE decision_items SET state='active',archived_at=0,mark_revision=0,mark_file='',mark_offset=0 WHERE id=?`, id); err != nil {
+			return DecisionItem{}, tx.fail(err)
+		}
 	}
 	set := func(dst *string, src *string) {
 		if src != nil {
@@ -569,10 +591,21 @@ func decisionRow(ctx context.Context, q querier, reference string) (int64, Decis
 	var item DecisionItem
 	var commands string
 	err := q.QueryRowContext(ctx, `SELECT id,reference,item_order,title,location,agent_text,context,recommendation,kind,state,
-		commands,revision,author_family,author_name,created_at,updated_at,archived_at FROM decision_items WHERE reference=?`, reference).
+		commands,revision,author_family,author_name,created_at,updated_at,archived_at,closed_by,closed_at,outcome_note,verdict_count
+		FROM decision_items WHERE reference=?`, reference).
 		Scan(&id, &item.Reference, &item.Order, &item.Title, &item.Where, &item.AgentText, &item.Context, &item.Recommendation,
-			&item.Kind, &item.State, &commands, &item.Revision, &item.AuthorFamily, &item.AuthorName, &item.CreatedAt, &item.UpdatedAt, &item.ArchivedAt)
+			&item.Kind, &item.State, &commands, &item.Revision, &item.AuthorFamily, &item.AuthorName, &item.CreatedAt, &item.UpdatedAt,
+			&item.ArchivedAt, &item.ClosedBy, &item.ClosedAt, &item.OutcomeNote, &item.Verdicts)
 	if errors.Is(err, sql.ErrNoRows) {
+		// A deep-archived reference is answered from its locator, without reading the log.
+		at, moved, err := deepArchived(ctx, q, reference)
+		if err != nil {
+			return 0, item, err
+		}
+		if moved {
+			return 0, item, WorkRefusal{Code: "deep_archived", Message: "the item moved to the deep archive; restore it with decision_restore",
+				Details: map[string]any{"moved_at": at, "restore": "decision_restore"}}
+		}
 		return 0, item, workError("not_found", "no decision item has this reference")
 	}
 	if err != nil {
@@ -617,7 +650,11 @@ func decisionItem(ctx context.Context, q querier, reference string) (DecisionIte
 	if err := rows.Err(); err != nil {
 		return item, err
 	}
-	item.Recipients, err = decisionRecipients(ctx, q, names)
+	if item.Recipients, err = decisionRecipients(ctx, q, names); err != nil {
+		return item, err
+	}
+	// The verdict count is stored on the item, so a read does not count the history.
+	item.Verdict, err = currentVerdict(ctx, q, id, true)
 	return item, err
 }
 
@@ -724,17 +761,20 @@ func decisionPage(ctx context.Context, q querier, filter string, targets []strin
 		}
 		for _, id := range ids {
 			var s DecisionSummary
-			if err := q.QueryRowContext(ctx, `SELECT id,reference,title,kind,state,revision,item_order FROM decision_items WHERE id=?`, id).
-				Scan(&s.id, &s.Reference, &s.Title, &s.Kind, &s.State, &s.Revision, &s.Order); err != nil {
+			if err := q.QueryRowContext(ctx, `SELECT id,reference,title,kind,state,revision,item_order,COALESCE((SELECT CASE WHEN v.superseded_at=0 THEN v.verdict ELSE '' END FROM decision_verdicts v WHERE v.item_id=decision_items.id
+				ORDER BY v.id DESC LIMIT 1),'') FROM decision_items WHERE id=?`, id).
+				Scan(&s.id, &s.Reference, &s.Title, &s.Kind, &s.State, &s.Revision, &s.Order, &s.Verdict); err != nil {
 				return DecisionPage{}, err
 			}
 			summaries = append(summaries, s)
 		}
 	} else {
-		query, args := `SELECT id,reference,title,kind,state,revision,item_order FROM decision_items WHERE state=? AND id>? ORDER BY id LIMIT ?`,
+		query, args := `SELECT id,reference,title,kind,state,revision,item_order,COALESCE((SELECT CASE WHEN v.superseded_at=0 THEN v.verdict ELSE '' END FROM decision_verdicts v WHERE v.item_id=decision_items.id
+				ORDER BY v.id DESC LIMIT 1),'') FROM decision_items WHERE state=? AND id>? ORDER BY id LIMIT ?`,
 			[]any{filter, after, limit + 1}
 		if filter == "waiting" {
-			query, args = `SELECT id,reference,title,kind,state,revision,item_order FROM decision_items WHERE state='active' AND kind='decision'
+			query, args = `SELECT id,reference,title,kind,state,revision,item_order,COALESCE((SELECT CASE WHEN v.superseded_at=0 THEN v.verdict ELSE '' END FROM decision_verdicts v WHERE v.item_id=decision_items.id
+				ORDER BY v.id DESC LIMIT 1),'') FROM decision_items WHERE state='active' AND kind='decision'
 				AND id>? ORDER BY id LIMIT ?`, []any{after, limit + 1}
 		}
 		rows, err := q.QueryContext(ctx, query, args...)
@@ -743,7 +783,7 @@ func decisionPage(ctx context.Context, q querier, filter string, targets []strin
 		}
 		for rows.Next() {
 			var s DecisionSummary
-			if err := rows.Scan(&s.id, &s.Reference, &s.Title, &s.Kind, &s.State, &s.Revision, &s.Order); err != nil {
+			if err := rows.Scan(&s.id, &s.Reference, &s.Title, &s.Kind, &s.State, &s.Revision, &s.Order, &s.Verdict); err != nil {
 				rows.Close()
 				return DecisionPage{}, err
 			}

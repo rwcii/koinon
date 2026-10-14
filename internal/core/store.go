@@ -114,11 +114,14 @@ type Mutation struct {
 }
 
 type Store struct {
-	db      *sql.DB
-	now     func() time.Time
-	storage storage
-	memory  memoryState
-	work    workState
+	db *sql.DB
+	// root is the state directory; the decision deep archive writes its log files there.
+	root      string
+	decisions decisionState
+	now       func() time.Time
+	storage   storage
+	memory    memoryState
+	work      workState
 	// observed and openCode hold session observations, memory-only (sprint chunk 08).
 	observed observations
 	openCode openCodeCache
@@ -136,9 +139,12 @@ type Store struct {
 	// tmux runs one command on the tmux server at a socket (the Grok wake, #254).
 	tmux func(ctx context.Context, socket string, args ...string) (string, error)
 	// processGroups reads each process's group and terminal; codexPane enables the Codex
-	// pane wake, on Linux only (#275).
+	// pane wake, on Linux and macOS (#275).
 	processGroups func() (map[int]platform.ProcessGroup, error)
 	codexPane     bool
+	// processStartTime reads when a process started on the wall clock: a Codex host's MCP
+	// servers (#275).
+	processStartTime func(int) (time.Time, error)
 	// alive holds when the liveness sweep last read each session's host as running (#249).
 	alive liveness
 	// settings holds the session timing values in force (#249).
@@ -232,10 +238,11 @@ func openStoreFile(root, name string) (*Store, error) {
 		db.Close()
 		return nil, err
 	}
-	s := &Store{db: db, now: time.Now, storage: storage{path: path, maxPages: defaultMaxPages}, processStart: platform.ProcessStart,
+	s := &Store{db: db, root: root, now: time.Now, storage: storage{path: path, maxPages: defaultMaxPages}, processStart: platform.ProcessStart,
 		processParents: platform.ProcessParents, processCommand: platform.ProcessCommand,
 		processEnvironment: platform.ProcessEnvironment, tmux: runTmux,
-		processGroups: platform.ProcessGroups, codexPane: runtime.GOOS == "linux"}
+		processGroups: platform.ProcessGroups,
+		codexPane:     runtime.GOOS == "linux" || runtime.GOOS == "darwin", processStartTime: platform.ProcessStartTime}
 	// The Claude pickup loader that a running session can add before its clear (#196, chunk 03).
 	// A failure is not fatal: the adapter's Probe then reports the loader as unreadable.
 	EnsureCycleLoader(root)
@@ -303,7 +310,7 @@ func checkFormat(db *sql.DB, path string) error {
 	return nil
 }
 
-const schemaVersion = 25
+const schemaVersion = 26
 
 // workItemsV16Columns are the work item columns before schema 17, which its rebuild copies.
 const workItemsV16Columns = `store,work_id,revision,lifecycle,title,criteria,non_goals,proposed_assignee,created_at,created_consumer,
@@ -777,6 +784,12 @@ func migrate(db *sql.DB, version, target int) error {
 	if version < 25 && target >= 25 {
 		// Version 25: decision items, their recipients and create replays (#206, chunk 01).
 		if _, err := tx.Exec(decisionTables); err != nil {
+			return err
+		}
+	}
+	if version < 26 && target >= 26 {
+		// Version 26: decision verdicts, deliveries, close and deep archive (#206, chunk 02).
+		if _, err := tx.Exec(decisionVerdictTables); err != nil {
 			return err
 		}
 	}

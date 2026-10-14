@@ -7,6 +7,7 @@ import (
 	"os/exec"
 	"strconv"
 	"strings"
+	"time"
 
 	"golang.org/x/sys/unix"
 )
@@ -124,7 +125,39 @@ func procargsEnvironment(data []byte, name string) (string, error) {
 	return "", nil
 }
 
-// ProcessGroups is not read on macOS: no native evidence for a pane wake there yet (#275).
+// ProcessGroups reports the process group, controlling terminal and that terminal's
+// foreground process group of every process, from one kern.proc.all sysctl read without cgo:
+// e_pgid, e_tdev and e_tpgid of each kinfo_proc. A process without a terminal (NODEV) has
+// Terminal 0.
 func ProcessGroups() (map[int]ProcessGroup, error) {
-	return nil, errors.New("process groups are not read on macOS")
+	procs, err := unix.SysctlKinfoProcSlice("kern.proc.all")
+	if err != nil {
+		return nil, err
+	}
+	groups := make(map[int]ProcessGroup, len(procs))
+	for _, p := range procs {
+		pid := int(p.Proc.P_pid)
+		if pid <= 0 {
+			continue
+		}
+		terminal := int(p.Eproc.Tdev)
+		if terminal == -1 {
+			terminal = 0
+		}
+		groups[pid] = ProcessGroup{Group: int(p.Eproc.Pgid), Terminal: terminal, Foreground: int(p.Eproc.Tpgid)}
+	}
+	if len(groups) == 0 {
+		return nil, errors.New("process table unreadable")
+	}
+	return groups, nil
+}
+
+// ProcessStartTime reports when a process started, on the wall clock: ProcessStart is
+// p_starttime in microseconds since the epoch.
+func ProcessStartTime(pid int) (time.Time, error) {
+	start, err := ProcessStart(pid)
+	if err != nil {
+		return time.Time{}, err
+	}
+	return time.UnixMicro(start), nil
 }

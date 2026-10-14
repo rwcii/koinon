@@ -13,6 +13,20 @@ into a dated release section when promoted to `main`.
   unverified until its live check, `docs/sprints/2026-10-12-context-handoff/macos-live-check.md`).
   Linux live evidence for a native dialog inside a cycle and for daemon crashes around the
   clear and pickup inputs is in `native-evidence.md` of that sprint.
+- Decision board (#206, chunk 03): the dashboard's Decisions page is the designed board. It
+  shows counts, a table of the active agents (name, activity, claimed work, a context meter or
+  "not reported", and the waiting items that name the agent), and cards with `ACTION FOR YOU`
+  fyi items first. Context, recommendation, agent text and notes render from a fixed Markdown
+  subset with HTML, links and images as literal text. Each command has its own box with a
+  Copy button; verdict buttons are disabled while a request runs, and the answer shows on the
+  card. The archive and a read-only lookup show each verdict with its text.
+- Decision verdicts (#206, chunk 02): the dashboard's Decisions page gives Approve and Decline
+  on decision items and Dismiss on fyi items, on the revision shown, with a snapshot of that
+  text. Each named agent gets a typed inbox message and a wake that names the verdict ID, and
+  reads `decision_pending`, `decision_get` and `decision_history` and acknowledges with
+  `decision_ack`. Approved work is closed with `decision_close`. Editing a decided item
+  reopens it. 30 days after archiving, records move to a monthly log file in the state
+  directory, and `decision_restore` brings one back; nothing is deleted. Schema 26.
 - Faster store open: the expected schema catalog of each version is built once per process
   instead of by migrating an in-memory database twice at each open. The tests copy a
   migrated template store, so the race suite of `internal/core` fits its 30-minute limit
@@ -28,13 +42,20 @@ into a dated release section when promoted to `main`.
   no agent reads the dashboard page. Fields have byte limits, terminal-copy commands are
   printable ASCII, and known credential formats are refused. The dashboard has a read-only
   Decisions page. Schema 25 adds the decision tables.
-- Codex pane wake (#275): on Linux, a participant notice for a session started with
+- Codex pane wake (#275): on Linux and macOS, a participant notice for a session started with
   `koinon codex` in tmux is typed into the session's own pane instead of `codex queue`, so a
   message sent between `/clear` and the new thread's first turn runs in the visible new thread,
   not in the cleared one. The daemon proves the pane and that the host holds the terminal's
   foreground, types only while the observed activity is idle and the input is empty, and in each
   attempt types the notice once and presses Enter once, reading it back before Enter and after.
-  macOS, sessions outside tmux and session inbox notices keep the queue.
+  On macOS, `platform.ProcessGroups` reads the process groups and terminals from
+  `kern.proc.all`. Sessions outside tmux and session inbox notices keep the queue.
+- Codex queue wait after `/clear` (#275): Codex starts a new `koinon mcp` server under the host
+  at each `/clear`, before the new thread's first turn. A `codex queue` wake of the address
+  holder, outside tmux or for its session inbox, waits with `codex_thread_unproven` while such a
+  server started after, or up to 1 second before, the holder's first registration, last tool
+  call and last rollout event (less 2 seconds), so the cleared thread does not read the
+  message. `platform.ProcessStartTime` reads a process's wall-clock start on Linux and macOS.
 - `peers` marks the calling session's own row with `self` (#348), so a session finds its own
   peer name, address, holder flag and succession result when several sessions of its family
   share a repository.

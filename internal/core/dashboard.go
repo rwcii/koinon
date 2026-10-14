@@ -46,6 +46,7 @@ type dashboardPage struct {
 func dashboardTemplates() (map[string]*template.Template, error) {
 	funcs := template.FuncMap{
 		"namingReason": NamingReason,
+		"markdown":     renderMarkdown,
 		"ms": func(v int64) string {
 			if v == 0 {
 				return "—"
@@ -127,6 +128,13 @@ func (d *Daemon) dashboardHandler() (http.Handler, error) {
 		page.Views, page.Now = dashboardViews, d.store.now()
 		if page.CSRF != "" {
 			page.Notice = notice(r.URL.Query().Get("notice"))
+		}
+		// A decision action's notice shows inline on the card it changed, when the page shows it.
+		if board, ok := page.Data.(decisionsData); ok && board.cardShown() {
+			code := r.URL.Query().Get("notice")
+			board.CardNotice, page.Notice = page.Notice, ""
+			board.CardRefused = code != "decision_approved" && code != "decision_declined" && code != "decision_dismissed"
+			page.Data = board
 		}
 		if err := pages[page.View].ExecuteTemplate(&out, name, page); err != nil {
 			http.Error(w, "dashboard render failed", http.StatusInternalServerError)
@@ -407,7 +415,7 @@ func (d *Daemon) dashboardData(r *http.Request, view string) (any, error) {
 		return settingsData{Current: d.store.Settings(), Default: DefaultSettings, UpdatedAt: at, Context: d.store.ContextPolicy(),
 			Modes: []string{ContextObserve, ContextNativeCompaction, ContextHandoffCycle}}, err
 	case "decisions":
-		return d.store.dashboardDecisions(ctx, q.Get("after"), q.Get("ref"))
+		return d.store.dashboardDecisions(ctx, q)
 	case "audit":
 		order, err := parseSort(&auditSort, path, q)
 		if err != nil {

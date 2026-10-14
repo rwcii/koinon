@@ -423,9 +423,9 @@ start value succeeds at once with `host_cleared`, also within the guard: the hos
 longer shows the holder. The hook has no terminal, so a cleared thread that registers without
 a pane keeps the holder's recorded tmux socket and pane (each wake proves it again). Every
 other rule applies unchanged. Codex runs no hook at `/clear` itself, so until the new thread's
-first turn the cleared thread stays the holder (#275). On Linux a participant notice for a
-launched holder with a tmux pane is typed into that pane (see the Codex pane wake below), so
-it runs as the new thread's first turn.
+first turn the cleared thread stays the holder (#275). On Linux and macOS a participant notice
+for a launched holder with a tmux pane is typed into that pane (see the Codex pane wake
+below), so it runs as the new thread's first turn.
 
 The session and `peers` expose `succession: {result, reason, address, holder, at,
 retry_after_ms}` when present; `at` is daemon Unix milliseconds and `holder` is the former or
@@ -615,12 +615,12 @@ and the notice as a submitted prompt (`❯ NOTICE`); otherwise `uncertain` with
 no pane wake. Leader mode stays refused.
 
 Codex (#275): after `/clear`, `codex queue --thread` reaches the cleared thread, which the host
-no longer shows. On Linux, a participant notice for a session started with `koinon codex` and a
-recorded tmux socket and pane is typed into that pane instead. Before each key the daemon
-proves the pane as for Grok and proves that the pane's terminal gives input to the host: the
-host shares the pane process's terminal and is in its foreground process group, and every
-other member of that group is an ancestor of the host. A child of the host that holds the
-foreground is refused. Otherwise the wake waits with `codex_target_unavailable`. Codex CLI
+no longer shows. On Linux and macOS, a participant notice for a session started with
+`koinon codex` and a recorded tmux socket and pane is typed into that pane instead. Before each
+key the daemon proves the pane as for Grok and proves that the pane's terminal gives input to
+the host: the host shares the pane process's terminal and is in its foreground process group,
+and every other member of that group is an ancestor of the host. A child of the host that holds
+the foreground is refused. Otherwise the wake waits with `codex_target_unavailable`. Codex CLI
 0.162.0 shows no busy marker while a reply streams, so the wake also requires the session's
 observed activity to be `idle`. An unknown or busy activity waits with `receiver_busy`, as does
 a screen that shows the running-turn status (`Working (… esc to interrupt)`) or whose input
@@ -630,8 +630,29 @@ without that footer counts as busy. Each attempt sends the notice once with `sen
 reads the input back, and sends Enter once, only when the input holds exactly the notice. It
 records `notified` only when a later read shows the input empty and the notice as the latest
 submitted prompt; otherwise `uncertain` with `pane_submission_unconfirmed`. The read wait and
-retries above apply unchanged: a message still unread after its read wait gets a new attempt.
-A session inbox notice, a session without a pane, a direct start and macOS keep the queue.
+retries above apply unchanged: a message still unread after its read wait gets a new attempt. A
+session inbox notice, a session without a pane and a direct start keep the queue.
+
+Before a `codex queue` wake of a launched Codex session that holds its participant address, the
+daemon checks that the host still shows that thread (#275). Codex CLI 0.162.0 with
+`--no-daemon`, as `koinon codex` starts it, starts a new `koinon mcp` server under the host at
+each `/clear`, before the new thread's first turn, and for a sub-agent thread. The daemon reads
+the children of the session's recorded host process (PID and start value), keeps those whose
+executable is `koinon` with first argument `mcp`, and reads when each started (Linux:
+`/proc/<pid>/stat` start ticks against `/proc/uptime`; macOS: `p_starttime`). A server that
+started after the holder's latest proof, at the same time or up to 1 second before it (the
+start read can be early by that much), makes the wake wait with `codex_thread_unproven`, so no
+turn runs in a thread that the host may no longer show. The proof is the latest of the holder's
+first registration, its last tool call, and its last `codex_rollout` activity event less 2
+seconds (a turn that `/clear` ends can record its end at about the time the new server starts).
+While the wait lasts, a cleared thread runs no turn, so a later event or call proves the
+holder; a new thread that takes the address (`host_cleared` or same-host succession) ends the
+wait too. A process table, host, child command or server start that cannot be read also waits,
+unless the child has ended. A sub-agent's server starts within the holder's turn, while the
+wake waits for the turn anyway; one started in the last 2 seconds of that turn delays the wake
+until the holder's next call or turn. Tool-call stamps and observations are kept in memory:
+after a daemon restart the proof is the first registration until the session's server reports
+the rollout again. A session that holds no participant address keeps the queue.
 
 `POST /v1/wake/agy-stop` takes `caller` with family `agy` and the hook's native conversation ID.
 It offers a due unhandled notice at that turn boundary, leaving delivery `uncertain` with
@@ -1188,8 +1209,10 @@ of items. Reads move no inbox read or acknowledgement marker and no memory curso
   deletions.
 - `POST /v1/decisions/edit` takes `caller`, `reference`, `if_revision` and at least one
   field to change; a list field replaces the stored list. Another revision is
-  `stale_revision` with `current_revision`; an item that is not `active` is `decided`. The
-  result is the full item at its new revision.
+  `stale_revision` with `current_revision`. An edit of an `in_progress` or `archived` item
+  reopens it: the item becomes `active`, its current verdict gets `superseded_at`, in the
+  same transaction; the verdict's deliveries do not change. The result is the full item at
+  its new revision.
 - `POST /v1/decisions/list` takes `caller`, `filter` (`waiting`: active `decision` items;
   `active`, `in_progress`, `archived`; or `mine`: items with a recipient name that is now the
   caller's peer name or the participant address it holds, also when the name did not resolve
@@ -1197,11 +1220,15 @@ of items. Reads move no inbox read or acknowledgement marker and no memory curso
   `limit` (1–100, default 100). Items come in item ID order, keyset-paged: a page holds at
   most `limit` summaries and stops before the summary that would take the serialized reply,
   with its envelope and JSON escaping, past 64 KiB; it always holds at least one. It returns
-  `items` (`reference`, `title`, `kind`, `state`, `revision`, `order`), `more` and
+  `items` (`reference`, `title`, `kind`, `state`, `revision`, `order`, and `verdict` when
+  the item has a current one), `more` and
   `next_after`. An item does not appear twice in a walk; an item that matches during the
   whole walk appears once; an item whose match changes during the walk appears at most once.
 - `POST /v1/decisions/get` takes `caller` and `reference` and returns every field with
-  `state`, `revision`, `author_family`, `author_name` and times. An unknown reference is
+  `state`, `revision`, `author_family`, `author_name`, times, the last close (`closed_by`,
+  `closed_at`, `outcome_note`), the current `verdict` with its snapshot and deliveries (or
+  `null`) and `verdicts`, the number of verdicts in its history. A deep-archived reference
+  is `deep_archived` with `details` `moved_at` and `restore`. An unknown reference is
   `not_found`. Recipients are resolved again on each read: `kind` `participant` (an address)
   or `peer` (a peer name), or `resolved: false` with `reason` `unknown_name`.
 
@@ -1218,6 +1245,79 @@ credential formats are refused in every text field with `credential_refused`: a
 characters), Slack tokens (`xoxa-`, `xoxb-`, `xoxp-`, `xoxr-`, `xoxs-`, `xapp-`) and
 Anthropic-style (`sk-ant-`) and OpenAI-style (`sk-`) API keys with 20 or more characters.
 The daemon cannot find all credentials or personal data; authors leave them out.
+
+Schema 26 adds verdicts, deliveries and the deep archive (#206, chunk 02): the tables
+`decision_verdicts` (index `(item_id, id)`), `decision_deliveries` (index
+`(name, outcome, verdict_id)`) and `decision_deep_archive` (keyed by reference), the column
+`messages.decision_verdict`, and the item columns `closed_by`, `closed_at`, `outcome_note`,
+`mark_revision`, `mark_file`, `mark_offset` and `verdict_count`. `verdict_count` holds the
+number of verdicts in the item's history, so `decision_get` reads it and the current verdict
+(the latest verdict, unless it is superseded) without a scan of the history.
+
+**Verdicts.** Only the dashboard gives a verdict (see Dashboard actions); no `/v1` route,
+MCP tool or command does. Approve and Decline apply to a `decision` item, Dismiss to an
+`fyi` item; another combination is `invalid_verdict`, a revision other than the one the page
+showed is `stale_revision`, an item that is not `active` is `decided`, and an item with a
+hidden command cannot be approved (`hidden_command`); Decline and Dismiss still apply. An optional note is Markdown of at
+most 4 KiB with the credential check. One ordinary write stores the verdict, a snapshot of
+the item's title, context, recommendation and commands at that revision, the item's new
+state (`in_progress` after Approve; `archived` after Decline or Dismiss), and for Approve and
+Decline one delivery per named recipient, resolved now, and the audit record with target
+`decision REF revision N VERDICT verdict ID` (no card text); a failure of any part stores
+nothing. A delivery to a participant address is `queued` with one message in the
+participant inbox, read by its current holder also after a holder change; to an active
+peer it is `queued` with one message in that session's inbox. Otherwise it is `skipped`
+with `reason` `unknown_name`, `maintainer` or `recipient_inactive`. The message comes from
+`maintainer` with `system_kind` `decision_verdict`, the typed `decision_verdict` ID and the
+fixed body `Decision REF has a verdict (ID). Read it with decision_get.` A wake whose range
+holds such messages ends its notice with ` Decision verdicts ID, ID.`: at most 8 IDs in
+sequence order, then ` +N more`; target selection, coalescing, retries and inbox reads and
+acknowledgements do not change.
+
+- `POST /v1/decisions/history` takes `caller`, `reference`, optional `after` (a verdict ID)
+  and `limit` (1–16, default 16) and returns `verdicts` (`verdict_id`, `revision`,
+  `verdict`, `note`, `at`, `superseded_at`, `snapshot`) in verdict ID order with `more` and
+  `next_after`. A page stops before the verdict that would take the serialized reply past
+  256 KiB and always holds one: the largest verdict, every snapshot and note field at its
+  limit in characters with the longest JSON escape, serializes below that.
+- `POST /v1/decisions/pending` takes `caller`, optional `after` (a verdict ID) and `limit`
+  (1–100) and returns the caller's `queued` deliveries (its peer name and the participant
+  address it holds) as `deliveries` (`verdict_id`, `reference`, `verdict`, `revision`, `at`,
+  `superseded_at`) with `more` and `next_after`, also after the inbox message failed or aged
+  out. A reopen does not acknowledge a delivery; `superseded_at` shows it.
+- `POST /v1/decisions/ack` takes `caller` and `verdict_ids` (1–32) and sets the caller's
+  queued deliveries of those verdicts `acknowledged` with the time; it returns
+  `acknowledged`, the IDs it changed. A repeated or late acknowledgement changes nothing. It
+  is an ordinary write: at the ordinary storage ceiling it is `capacity` and the deliveries
+  stay queued. Delivery and acknowledgement record only that; they do not show that an action
+  was done.
+- `POST /v1/decisions/close` takes `caller`, `reference`, `if_revision`, optional `note`
+  (Markdown, 4 KiB), `key` and `deadline`, and moves an `in_progress` item to `archived` with
+  the caller's peer name, the time and the note; another state is `not_in_progress`. A retry
+  with the same key returns the item as this close returned it, also after a later edit or
+  verdict. Create and close keep separate key spaces; create keys are unchanged from schema
+  25, so a create receipt from before the upgrade still answers its retry.
+
+**Deep archive.** Nothing deletes a decision record. 30 days after an item was archived,
+once every delivery is `acknowledged` or `skipped`, the maintenance sweep moves its whole
+record (item, recipients, verdicts with snapshots, deliveries) to one JSON line in
+`STATE/decisions/YYYY-MM.jsonl` (mode 0600, the month of the move). A pass moves at most 64
+items and reads at most 256 candidates from a cursor that passes items still waiting for an
+acknowledgement. Only the sweep writes the log. It marks the item with its revision, file
+and offset, appends and syncs the line, then in one transaction deletes the rows and writes
+the locator (`reference`, `file`, `offset`, `length`, `moved_at`); the delete runs only while
+the item still has the marked revision and mark, and an edit or verdict clears the mark. A
+file that does not end in a newline gets one before the next line, so a partial line from a
+crash is a line that readers skip; no byte of the log is removed. After a crash a marked item
+is checked against its line: a complete line finishes the delete, otherwise the line is
+written again at the end. The mark and the delete are ordinary writes; at the ceiling the
+item waits for a later pass. A moved reference stays reserved: `decision_create` refuses it
+with `reference_in_use`.
+
+- `POST /v1/decisions/restore` takes `caller` and `reference`, reads the one line at the
+  locator, checks its reference and length, and inserts the record again as `archived` with
+  a new 30-day period, removing the locator, in one transaction; the line stays in the log.
+  An unknown reference is `not_found`; a line that does not match is `decision_unavailable`.
 
 ### MCP server
 
@@ -1240,7 +1340,8 @@ decisions and bounded reads in that same native client.
 `room_list` (`after`, `limit`), `room_members` (`room_id`, `after`, `limit`), `room_post`
 (`room_id`, `body`, `key`, `deadline`) and `room_read` (`room_id`, `after`, `limit`) call the
 room routes.
-`decision_create`, `decision_edit`, `decision_list` and `decision_get` take the fields of the
+`decision_create`, `decision_edit`, `decision_list`, `decision_get`, `decision_history`,
+`decision_pending`, `decision_ack`, `decision_close` and `decision_restore` take the fields of the
 decision routes, refuse any other argument by name and call those routes.
 They take no model-supplied consumer or caller identity. A tool
 error is a result with `isError` and a JSON text `{"ok": false, "code": ...}`: the daemon's code,
@@ -1354,9 +1455,10 @@ from elsewhere. Peer message bodies appear here, escaped, and nowhere else outsi
   were at the post, by address or peer name and family: queued with the inbox copy's delivery
   state and acknowledgement, skipped with the reason, or `not retained` with unknown
   acknowledgement once the copy is deleted; the view reads one snapshot and acknowledges
-  nothing), `decisions` (read-only: 100 active decision items per page in item ID order with
-  `after=ID` links, and `ref=REFERENCE` shows one item's fields, commands and recipients as
-  escaped plain text), `memory` (per store:
+  nothing), `decisions` (100 active decision items per page in item ID order with
+  `after=ID` links, and `ref=REFERENCE` shows one item's fields, commands, recipients, current
+  verdict with its deliveries and last close as escaped plain text, with the verdict form of
+  an active item), `memory` (per store:
   head, floor, entries and logical bytes against their ceilings, consumers, work debt and
   maintenance, 50 stores per page; with `store=REPOSITORY`, that store's entries, newest first,
   50 per page with `before=SEQ`: sequence, time, type, scope, path, writer, author, body, state
@@ -1468,6 +1570,12 @@ from elsewhere. Peer message bodies appear here, escaped, and nowhere else outsi
     Room posts). It reaches every active member and sets the allowance. The form takes up to
     3 × 65,536 + 4,096 bytes, as the send form does, and each rendered form has its own key, so
     a resubmitted form repeats the first post. The notice is `room_posted`.
+  - `decision-approve` and `decision-decline` on a `decision` item and `decision-dismiss` on an
+    `fyi` item (`reference`, `revision`, optional `note`): the maintainer's verdict on the
+    revision the page showed (see Decision items). The form takes up to 3 × 4,096 + 4,096
+    bytes. The verdict is the maintainer's instruction and approval (PDR 005, Decision 3). The
+    notices are `decision_approved`, `decision_declined` and `decision_dismissed`; refusals
+    are `stale_revision`, `decided`, `invalid_verdict` and `hidden_command`.
   - `send` (`to`, `body`): a message from `maintainer`; the recipient's wake works as for any
     message.
   - `launch` (`family` `claude`, `codex`, `agy`, `opencode` or `grok`; `directory`; optional `name`): the daemon runs
