@@ -208,7 +208,7 @@ func (s *Store) decisionCards(ctx context.Context, tx *sql.Tx, after string, dat
 func (s *Store) decisionAgents(ctx context.Context) ([]decisionAgent, bool, error) {
 	now := s.now().UnixMilli()
 	rows, err := s.db.QueryContext(ctx, sessionQuery+` WHERE s.family!='maintainer' AND `+notParticipantRow+`
-		AND s.retired_at=0 AND s.expires_at>? AND s.subagent=0 ORDER BY s.family,s.id LIMIT `+strconv.Itoa(decisionBoardAgents+1), now)
+		AND s.retired_at=0 AND s.expires_at>? ORDER BY s.family,s.id LIMIT `+strconv.Itoa(decisionBoardAgents+1), now)
 	if err != nil {
 		return nil, false, err
 	}

@@ -144,6 +144,39 @@ func TestDecisionBoard(t *testing.T) {
 	}
 }
 
+// TestDecisionBoardSubagentRow shows an active subagent like any other agent session: its
+// public name, its native work and the waiting references that name it.
+func TestDecisionBoardSubagentRow(t *testing.T) {
+	d, root := startTestDaemon(t)
+	client := newActionClient(t, d, root)
+	sub, err := d.store.Register(context.Background(), withLaunch(t, d.store, Registration{
+		Family: "codex", ID: "synthetic-board-sub", Directory: t.TempDir(), TTLSeconds: 60, Subagent: true,
+	}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	mustCreate(t, d.store, Key{"codex", sub.ID}, "S-1", DecisionFields{Title: ptr("Subagent decision"), Kind: ptr("decision"), Recipients: &[]string{sub.Name}})
+	m := MemoryCaller{Repository: "/synthetic/board/.git", Family: "codex", Name: sub.Name, Consumer: "codex:" + sub.ID}
+	id := create_(t, d.store, m, "Synthetic subagent work")
+	if _, err := start(d.store, m, id, revision(t, d.store, m, id), nil); err != nil {
+		t.Fatal(err)
+	}
+	body := dashboardDo(t, d, "GET", "/dashboard/decisions", client.cookie, nil, nil).body
+	if !strings.Contains(body, `<table class="agents">`) {
+		t.Fatalf("no agent table: %s", body)
+	}
+	row := body[strings.Index(body, `<table class="agents">`):]
+	row = row[:strings.Index(row, "</table>")]
+	for _, want := range []string{sub.Name, "Synthetic subagent work", "?ref=S-1"} {
+		if !strings.Contains(row, want) {
+			t.Errorf("subagent row: no %q in %s", want, row)
+		}
+	}
+	if strings.Contains(body, sub.ID) {
+		t.Error("the board shows the subagent's native ID")
+	}
+}
+
 // create_ creates a work item; create is a local name in TestDecisionBoard.
 func create_(t *testing.T, s *Store, m MemoryCaller, title string) string {
 	t.Helper()
