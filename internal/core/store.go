@@ -3,6 +3,7 @@ package core
 import (
 	"context"
 	"database/sql"
+	"database/sql/driver"
 	"encoding/binary"
 	"encoding/json"
 	"errors"
@@ -19,7 +20,7 @@ import (
 	"time"
 
 	"github.com/rwcii/koinon/internal/platform"
-	_ "modernc.org/sqlite"
+	"modernc.org/sqlite"
 )
 
 var ErrInvalid = errors.New("invalid request")
@@ -158,6 +159,29 @@ type Store struct {
 
 func openStore(root string) (*Store, error) { return openStoreFile(root, "state.sqlite3") }
 
+// orderedConnector runs its pragmas in their listed order on each new connection of the
+// registered driver. The driver's _pragma parameter sorts its values, which runs
+// journal_mode and auto_vacuum before locking_mode: an existing database then gets a
+// shared-memory file (#355).
+type orderedConnector struct {
+	driver.Connector
+	pragmas []string
+}
+
+func (c orderedConnector) Connect(ctx context.Context) (driver.Conn, error) {
+	conn, err := c.Connector.Connect(ctx)
+	if err != nil {
+		return nil, err
+	}
+	for _, pragma := range c.pragmas {
+		if _, err := conn.(driver.ExecerContext).ExecContext(ctx, "PRAGMA "+pragma, nil); err != nil {
+			conn.Close()
+			return nil, err
+		}
+	}
+	return conn, nil
+}
+
 // openStoreFile opens the state database file name in root; an import stages its
 // database under another name and renames it into place (sprint chunk 11).
 func openStoreFile(root, name string) (*Store, error) {
@@ -181,20 +205,17 @@ func openStoreFile(root, name string) (*Store, error) {
 			return nil, err
 		}
 	}
-	u := url.URL{Scheme: "file", Path: path}
-	q := url.Values{}
 	// Exclusive locking keeps the log index in process memory, so no shared-memory file
-	// exists; page size and incremental auto-vacuum must precede the first table.
-	for _, pragma := range []string{"locking_mode(EXCLUSIVE)", "page_size(4096)", "auto_vacuum(INCREMENTAL)",
-		"busy_timeout(5000)", "journal_mode(WAL)", "synchronous(FULL)", "cache_spill(0)", "temp_store(MEMORY)",
-		fmt.Sprintf("max_page_count(%d)", defaultMaxPages)} {
-		q.Add("_pragma", pragma)
-	}
-	u.RawQuery = q.Encode()
-	db, err := sql.Open("sqlite", u.String())
+	// exists, also when an existing database opens again; page size and incremental
+	// auto-vacuum must precede the first table.
+	connector, err := sqlite.NewConnector((&url.URL{Scheme: "file", Path: path}).String())
 	if err != nil {
 		return nil, err
 	}
+	db := sql.OpenDB(orderedConnector{Connector: connector, pragmas: []string{
+		"locking_mode(EXCLUSIVE)", "page_size(4096)", "auto_vacuum(INCREMENTAL)", "busy_timeout(5000)",
+		"journal_mode(WAL)", "synchronous(FULL)", "cache_spill(0)", "temp_store(MEMORY)",
+		fmt.Sprintf("max_page_count(%d)", defaultMaxPages)}})
 	db.SetMaxOpenConns(1)
 	var version int
 	if err := db.QueryRow("PRAGMA user_version").Scan(&version); err != nil {

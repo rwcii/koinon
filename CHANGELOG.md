@@ -5,6 +5,9 @@ into a dated release section when promoted to `main`.
 
 ## Unreleased
 
+- Store reopen (#355): a restarted daemon no longer creates the state database's
+  shared-memory file. The driver sorted its connection settings, so exclusive locking came
+  after the log mode; the store now applies them in its own order on each connection.
 - Managed context cycle for Claude Code (#196, #356): a session that needed the interactive bootstrap
   ran only its first cycle; the next one ended `uncertain` (`dialog_not_shown`), because the
   session keeps the added loader directory across `/clear` and Claude Code then shows no
