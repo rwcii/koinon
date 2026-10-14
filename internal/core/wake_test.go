@@ -5,6 +5,7 @@ import (
 	"context"
 	"database/sql"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"os/exec"
@@ -58,7 +59,9 @@ func TestWakeCrashAfterAcceptanceRetries(t *testing.T) {
 	if err = restored.db.QueryRow("SELECT wake_reason FROM messages WHERE id=?", message.ID).Scan(&reason); err != nil || reason != "attempt_in_progress" {
 		t.Fatalf("lost durable boundary: %s %v", reason, err)
 	}
-	*clock = clock.Add(2 * time.Second)
+	// The child recorded its attempt with the real clock, after its start; the retry is due
+	// two seconds after the restart however long that start took.
+	*clock = time.Now().Add(2 * time.Second)
 	restored.now = func() time.Time { return *clock }
 	calls := 0
 	restored.wake.send = func(context.Context, Session, string) wakeResult { calls++; return accepted() }
@@ -78,7 +81,7 @@ func TestWakeCrashAfterAcceptanceRetries(t *testing.T) {
 }
 func TestWakeSchemaFiveMigrationAndFutureRefusal(t *testing.T) {
 	s, root, sender, receiver, message, _ := wakeFixture(t, "agy")
-	if _, err := s.db.Exec(undoSchemaEight + undoSchemaSeven + `DROP INDEX messages_wake; ALTER TABLE messages DROP COLUMN wake_attempts; ALTER TABLE messages DROP COLUMN wake_next_at; ALTER TABLE messages DROP COLUMN wake_reason; PRAGMA user_version=5`); err != nil {
+	if _, err := s.db.Exec(undoSchemaTwentySix + undoSchemaTwentyFive + undoSchemaTwentyFour + undoSchemaTwentyThree + undoSchemaTwentyTwo + undoSchemaTwentyOne + undoSchemaTwenty + undoSchemaNineteen + undoSchemaEighteen + undoSchemaSeventeen + undoSchemaSixteen + undoSchemaFifteen + undoSchemaFourteen + undoSchemaThirteen + undoSchemaTwelve + undoSchemaEleven + undoSchemaTen + undoSchemaNine + undoSchemaEight + undoSchemaSeven + `DROP INDEX messages_wake; ALTER TABLE messages DROP COLUMN wake_attempts; ALTER TABLE messages DROP COLUMN wake_next_at; ALTER TABLE messages DROP COLUMN wake_reason; PRAGMA user_version=5`); err != nil {
 		t.Fatal(err)
 	}
 	s.db.Close()
@@ -93,7 +96,7 @@ func TestWakeSchemaFiveMigrationAndFutureRefusal(t *testing.T) {
 	if _, err = restored.MessageOutcome(context.Background(), Key{sender.Family, sender.ID}, message.ID); err != nil {
 		t.Fatal(err)
 	}
-	if _, err = restored.db.Exec("PRAGMA user_version=9"); err != nil {
+	if _, err = restored.db.Exec(fmt.Sprintf("PRAGMA user_version=%d", schemaVersion+1)); err != nil {
 		t.Fatal(err)
 	}
 	restored.db.Close()
@@ -108,7 +111,7 @@ func TestWakeSchemaFiveMigrationAndFutureRefusal(t *testing.T) {
 	var version, count int
 	db.QueryRow("PRAGMA user_version").Scan(&version)
 	db.QueryRow("SELECT COUNT(*) FROM messages").Scan(&count)
-	if version != 9 || count != 1 {
+	if version != schemaVersion+1 || count != 1 {
 		t.Fatal("refused future schema modified")
 	}
 }
@@ -194,7 +197,7 @@ func TestWakeBusyThenIdleIsPrompt(t *testing.T) {
 			s, _, sender, receiver, message, clock := wakeFixture(t, family)
 			ctx := context.Background()
 			for _, session := range []Session{sender, receiver} {
-				if _, err := s.Register(ctx, Registration{Family: session.Family, ID: session.ID, Repository: session.Repository, Directory: session.Directory, TTLSeconds: 900}); err != nil {
+				if _, err := s.Register(ctx, withLaunch(t, s, Registration{Family: session.Family, ID: session.ID, Repository: session.Repository, Directory: session.Directory, TTLSeconds: 900})); err != nil {
 					t.Fatal(err)
 				}
 			}
@@ -244,8 +247,11 @@ func TestWakeUncertaintySurvivesRestart(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer restored.db.Close()
-	*clock = clock.Add(time.Second)
+	// An uncertain transport may have reached the agent: the retry waits for the read wait.
+	*clock = clock.Add(wakeReadWait)
 	restored.now = func() time.Time { return *clock }
+	join(t, restored, sender.Family, sender.ID, sender.Directory)
+	join(t, restored, receiver.Family, receiver.ID, receiver.Directory)
 	calls := 0
 	restored.wake.send = func(context.Context, Session, string) wakeResult { calls++; return wakeResult{"notified", "accepted"} }
 	if err := restored.wakeStep(ctx); err != nil || calls != 1 {
@@ -305,7 +311,7 @@ func TestWakeExpiryRetirementAndClockJump(t *testing.T) {
 	if err := s.wakeStep(ctx); err != nil || calls != 2 {
 		t.Fatalf("expired delivery %d %v", calls, err)
 	}
-	if _, err := s.Register(ctx, Registration{Family: receiver.Family, ID: receiver.ID, Directory: receiver.Directory}); err != nil {
+	if _, err := s.Register(ctx, withLaunch(t, s, Registration{Family: receiver.Family, ID: receiver.ID, Directory: receiver.Directory})); err != nil {
 		t.Fatal(err)
 	}
 	if err := s.wakeStep(ctx); err != nil || calls != 3 {
@@ -380,8 +386,13 @@ func TestWakeRefusedDurableBoundarySendsNothing(t *testing.T) {
 		t.Fatal("submitted before durable boundary")
 		return accepted()
 	}
-	if err := s.wakeStep(context.Background()); err != ErrStorageBlocked {
+	err := s.wakeStep(context.Background())
+	if !errors.Is(err, ErrStorageBlocked) {
 		t.Fatalf("storage refusal %v", err)
+	}
+	var stage wakePassError
+	if !errors.As(err, &stage) || stage.stage != "submit_wake" {
+		t.Fatalf("storage refusal lost its operation: %v", err)
 	}
 }
 

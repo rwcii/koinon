@@ -13,6 +13,8 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"io/fs"
+	"net"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -353,6 +355,129 @@ func (g *Guard) Release() {
 		platform.Unlock(f)
 	}
 	g.files = nil
+}
+
+// fallbackSockets is the directory where the Python runtime put a control socket whose
+// direct path was too long for an AF_UNIX address.
+var fallbackSockets = "/tmp/cc-socks"
+
+// resolve resolves symbolic links as Python's Path.resolve does: a missing final
+// part is kept as written.
+func resolve(path string) string {
+	resolved, err := filepath.EvalSymlinks(path)
+	if err == nil {
+		return resolved
+	}
+	if parent := filepath.Dir(path); parent != path {
+		return filepath.Join(resolve(parent), filepath.Base(path))
+	}
+	return path
+}
+
+// endpoints lists the control socket paths that the Python runtime's session stop
+// checks for one bridge or notifier directory: the direct socket under the written and
+// the resolved directory, when short enough to bind, and the fallback socket.
+func endpoints(root string) []string {
+	resolved := resolve(root)
+	var paths []string
+	for _, dir := range []string{resolved, root} {
+		path := filepath.Join(dir, "control.sock")
+		if len(path) < platform.UnixPathBytes() && (len(paths) == 0 || paths[0] != path) {
+			paths = append(paths, path)
+		}
+	}
+	sum := sha256.Sum256([]byte(resolved))
+	return append(paths, filepath.Join(fallbackSockets, hex.EncodeToString(sum[:])[:16]+"-control.sock"))
+}
+
+// deadSocket reports whether path is a socket of this user that has no live owner. A
+// refused connection alone is no proof: a socket that is bound but not yet listening, and
+// on macOS a full listener, refuse too. The kernel's socket table, read after the refusal,
+// lists every socket that a process still holds. A missing path is not dead; a socket
+// that accepts a connection or that the table lists is python_running.
+func deadSocket(path string) (bool, error) {
+	unverified := func(why string) error {
+		return fmt.Errorf("python_endpoint_unverified: cannot prove that nothing listens on %s (%s); stop its owner, verify that it is gone, remove the file and run the upgrade again", path, why)
+	}
+	info, err := os.Lstat(path)
+	if errors.Is(err, fs.ErrNotExist) {
+		return false, nil
+	}
+	if err != nil {
+		return false, unverified(err.Error())
+	}
+	stat, ok := info.Sys().(*syscall.Stat_t)
+	if info.Mode()&os.ModeSocket == 0 || !ok || stat.Uid != uint32(os.Geteuid()) {
+		return false, unverified("not a socket of this user")
+	}
+	conn, err := net.DialTimeout("unix", path, time.Second)
+	if err == nil {
+		conn.Close()
+		return false, fmt.Errorf("python_running: a Python process listens on %s", path)
+	}
+	if !errors.Is(err, syscall.ECONNREFUSED) {
+		return false, unverified(err.Error())
+	}
+	// The table prints an address raw, one socket a line: a line break in the path
+	// would split its row, and the table could not show its owner.
+	if strings.ContainsAny(path, "\n\r") {
+		return false, unverified("the socket table cannot show a path with a line break")
+	}
+	bound, err := platform.BoundUnixPaths()
+	if err != nil {
+		return false, unverified("cannot read the socket table: " + err.Error())
+	}
+	target := resolve(path)
+	for _, owned := range bound {
+		if owned == path || resolve(owned) == target {
+			return false, fmt.Errorf("python_running: a process still holds %s", path)
+		}
+	}
+	return true, nil
+}
+
+// ClearDeadEndpoints removes the control sockets that Python sessions left when their
+// processes crashed or were killed. The installed uninstall.py treats any remaining
+// endpoint as a running session and stops. A file is removed only while this process
+// holds the session's writer locks, which its running supervisor and notifier hold, and
+// only when it is a socket of this user that refuses a connection and that no process
+// holds. It returns the removed paths, also when it stops at a path that it cannot
+// prove dead.
+func ClearDeadEndpoints(stateRoot string) ([]string, error) {
+	components, err := Components(stateRoot)
+	if err != nil {
+		return nil, err
+	}
+	var sessions []Component
+	for _, c := range components {
+		if c.Kind == "session" {
+			sessions = append(sessions, c)
+		}
+	}
+	guard, err := HoldWriters(sessions)
+	if err != nil {
+		return nil, err
+	}
+	defer guard.Release()
+	var removed []string
+	for _, c := range sessions {
+		for _, root := range []string{c.Home, filepath.Join(c.Home, "notifier")} {
+			for _, path := range endpoints(root) {
+				dead, err := deadSocket(path)
+				if err != nil {
+					return removed, err
+				}
+				if !dead {
+					continue
+				}
+				if err := os.Remove(path); err != nil && !errors.Is(err, fs.ErrNotExist) {
+					return removed, err
+				}
+				removed = append(removed, path)
+			}
+		}
+	}
+	return removed, nil
 }
 
 // Units lists the services a Python installation runs: the memory services of its

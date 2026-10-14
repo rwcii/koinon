@@ -17,8 +17,10 @@
 <h1>{{.Title}}</h1>
 {{if .Notice}}<p class="notice" role="status">{{.Notice}}</p>{{end}}
 {{if .CSRF}}{{block "actions" .}}{{end}}{{end}}
+{{block "filter" .}}{{end}}
 <div id="list"{{if .CSRF}} data-refresh="5000"{{end}}>{{template "list" .}}</div>
 </main>
 </body>
 </html>
 {{end}}
+{{define "th"}}<th{{with .Sort}} aria-sort="{{.}}"{{end}}><a href="{{.Href}}">{{.Label}}</a>{{if eq .Sort "ascending"}} ▲{{else if eq .Sort "descending"}} ▼{{end}}</th>{{end}}

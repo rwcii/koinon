@@ -76,6 +76,7 @@ type Journal struct {
 	Intent        string            `json:"intent"`
 	Error         string            `json:"error,omitempty"`
 	Report        *importer.Report  `json:"import,omitempty"`
+	Cleared       []string          `json:"cleared_endpoints,omitempty"`
 }
 
 // Result is the JSON report of an upgrade run.
@@ -86,6 +87,7 @@ type Result struct {
 	Import  *importer.Report `json:"import,omitempty"`
 	Install *install.Report  `json:"install,omitempty"`
 	Resume  string           `json:"resume,omitempty"`
+	Cleared []string         `json:"cleared_endpoints,omitempty"`
 }
 
 func (o *Options) defaults() error {
@@ -256,7 +258,7 @@ func Run(ctx context.Context, o Options) (Result, error) {
 		return Result{}, err
 	}
 	if r.j != nil && r.j.Phase == phaseComplete {
-		return Result{OK: true, Phase: phaseComplete, Attempt: r.j.Attempt, Import: r.j.Report}, nil
+		return Result{OK: true, Phase: phaseComplete, Attempt: r.j.Attempt, Import: r.j.Report, Cleared: r.j.Cleared}, nil
 	}
 	if r.j == nil {
 		if err := r.begin(ctx); err != nil {
@@ -298,7 +300,7 @@ func Run(ctx context.Context, o Options) (Result, error) {
 }
 
 func (r *run) result() Result {
-	res := Result{Phase: r.j.Phase, Attempt: r.j.Attempt, Import: r.j.Report}
+	res := Result{Phase: r.j.Phase, Attempt: r.j.Attempt, Import: r.j.Report, Cleared: r.j.Cleared}
 	res.OK = r.j.Phase == phaseComplete
 	return res
 }
@@ -529,6 +531,18 @@ func (r *run) advance(ctx context.Context) (Result, error) {
 				}
 				if i == nil {
 					return nil // a previous run's uninstall completed
+				}
+				// uninstall.py stops each session and takes a socket that a crashed session
+				// left as a running one; only a proven dead socket is removed.
+				removed, err := legacy.ClearDeadEndpoints(j.StateRoot)
+				if len(removed) > 0 {
+					j.Cleared = append(j.Cleared, removed...)
+					if serr := r.save(); serr != nil {
+						return serr
+					}
+				}
+				if err != nil {
+					return err
 				}
 				if out, err := o.Uninstall(ctx, o.Python, j.PythonPrefix); err != nil {
 					return fmt.Errorf("python_uninstall_failed: %v: %s", err, strings.TrimSpace(string(out)))

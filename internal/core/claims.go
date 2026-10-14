@@ -145,17 +145,18 @@ type lease struct {
 type heldBundle struct {
 	Generation, Revision, ProgressEpoch               int64
 	WorkID, Consumer                                  string
+	NativeActor                                       string
 	IssuedAt, RenewedAt, ExpiresAt                    float64
 	OverdueRecorded, Active, OverdueCredit, EndCredit bool
 }
 
 const bundleColumns = `generation,work_id,consumer,revision,issued_at,renewed_at,expires_at,progress_epoch,
-	overdue_recorded,active,overdue_credit,end_credit`
+	overdue_recorded,active,overdue_credit,end_credit,native_actor`
 
 func scanBundle(row scanner) (heldBundle, error) {
 	var b heldBundle
 	err := row.Scan(&b.Generation, &b.WorkID, &b.Consumer, &b.Revision, &b.IssuedAt, &b.RenewedAt, &b.ExpiresAt,
-		&b.ProgressEpoch, &b.OverdueRecorded, &b.Active, &b.OverdueCredit, &b.EndCredit)
+		&b.ProgressEpoch, &b.OverdueRecorded, &b.Active, &b.OverdueCredit, &b.EndCredit, &b.NativeActor)
 	return b, err
 }
 

@@ -11,6 +11,7 @@ import (
 	"fmt"
 	"math"
 	"strings"
+	"sync"
 )
 
 // Work items follow docs/WORK-ITEMS-V1.md with the limits of the implementation design
@@ -33,22 +34,25 @@ const (
 )
 
 var workTextLimits = map[string]int{"title": 256, "criteria": 4096, "non_goals": 2048, "progress": 2048,
-	"checkpoint": 1024, "next_artifact": 1024, "blocker": 1024, "reason": 1024}
+	"checkpoint": 1024, "next_artifact": 1024, "blocker": 1024, "reason": 1024, "summary": 2048}
 
 // workFields are the request fields of each operation; mutations also take author, key
 // and deadline.
 var workFields = map[string][]string{
-	"work-create":  {"title", "criteria", "non_goals", "proposed_assignee", "references"},
+	"work-create":  {"title", "criteria", "non_goals", "proposed_assignee", "proposed_role", "references"},
 	"work-get":     {"work_id", "revision"},
-	"work-list":    {"lifecycle", "owner", "proposed_assignee", "stale", "blocked", "limit"},
-	"work-propose": {"work_id", "if_revision", "proposed_assignee"},
+	"work-list":    {"lifecycle", "owner", "proposed_assignee", "assigned_to_me", "created_by_me", "after", "stale", "blocked", "limit"},
+	"work-propose": {"work_id", "if_revision", "proposed_assignee", "proposed_role"},
 	"work-edit":    {"work_id", "if_revision", "claim_generation", "title", "criteria", "non_goals"},
 	"work-start":   {"work_id", "if_revision", "checkpoint", "next_artifact", "progress_deadline", "lease_seconds", "resources"},
 	"work-update": {"work_id", "if_revision", "claim_generation", "progress", "checkpoint", "next_artifact",
 		"progress_deadline", "lifecycle", "blocker", "references", "renew_for"},
-	"work-release": {"work_id", "if_revision", "claim_generation", "checkpoint"},
+	"work-release": {"work_id", "if_revision", "claim_generation", "checkpoint", "handoff_to", "checkout_resource"},
 	"work-finish":  {"work_id", "if_revision", "claim_generation", "outcome", "reason", "references"},
 	"claim-renew":  {"work_id", "claim_generation", "if_claim_revision", "lease_seconds"},
+	"work-report":  {"work_id", "if_revision", "claim_generation", "summary", "references"},
+	"work-accept":  {"work_id", "if_revision", "report_seq", "references"},
+	"work-reject":  {"work_id", "if_revision", "report_seq", "references", "title", "criteria", "non_goals"},
 }
 
 // WorkRequired are the unconditional fields of each operation, which the command line
@@ -56,20 +60,26 @@ var workFields = map[string][]string{
 var WorkRequired = map[string][]string{
 	"work-create":  {"title", "criteria", "non_goals", "key", "deadline"},
 	"work-get":     {"work_id"},
-	"work-propose": {"work_id", "if_revision", "proposed_assignee"},
+	"work-propose": {"work_id", "if_revision"},
 	"work-edit":    {"work_id", "if_revision"},
 	"work-start":   {"work_id", "if_revision", "checkpoint", "next_artifact", "progress_deadline", "key", "deadline"},
 	"work-update":  {"work_id", "if_revision", "claim_generation", "progress", "checkpoint", "next_artifact", "progress_deadline"},
 	"work-release": {"work_id", "if_revision", "claim_generation", "checkpoint"},
 	"work-finish":  {"work_id", "if_revision", "claim_generation", "outcome"},
 	"claim-renew":  {"work_id", "claim_generation", "if_claim_revision"},
+	"work-report":  {"work_id", "if_revision", "claim_generation", "summary", "references", "key", "deadline"},
+	"work-accept":  {"work_id", "if_revision", "report_seq", "references", "key", "deadline"},
+	"work-reject":  {"work_id", "if_revision", "report_seq", "references", "criteria", "non_goals", "key", "deadline"},
 }
 
 // WorkOperations lists the wire operations.
 func WorkOperations() []string {
 	return []string{"work-create", "work-get", "work-list", "work-propose", "work-edit", "work-start", "work-update",
-		"work-release", "work-finish", "claim-renew"}
+		"work-release", "work-finish", "claim-renew", "work-report", "work-accept", "work-reject"}
 }
+
+// workVerdict reports whether op records a verdict on a reported item.
+func workVerdict(op string) bool { return op == "work-accept" || op == "work-reject" }
 
 func workRead(op string) bool { return op == "work-get" || op == "work-list" }
 
@@ -85,6 +95,9 @@ type workRequest struct {
 	bools   map[string]bool
 	refs    []string
 	res     []claimResource
+	role    *WorkRole
+	// actor is set from validated transport metadata for a native-bound operation.
+	actor string
 }
 
 func (r *workRequest) has(name string) bool { return r.present[name] }
@@ -143,6 +156,23 @@ func parseWork(op string, fields map[string]json.RawMessage) (*workRequest, erro
 		r.present[name] = true
 		kind := jsonKind(raw)
 		switch name {
+		case "proposed_role":
+			if kind == "null" {
+				r.nulls[name] = true
+				continue
+			}
+			var fields map[string]json.RawMessage
+			if kind != "object" || json.Unmarshal(raw, &fields) != nil || len(fields) != 2 ||
+				fields["family"] == nil || fields["role"] == nil {
+				return nil, invalid("proposed_role is an object with family and role")
+			}
+			var role WorkRole
+			if json.Unmarshal(fields["family"], &role.Family) != nil || jsonKind(fields["family"]) != "string" ||
+				json.Unmarshal(fields["role"], &role.Role) != nil || jsonKind(fields["role"]) != "string" ||
+				!validKey(role.Family, "synthetic") || role.Role != "" && !ValidRole(role.Role) {
+				return nil, invalid("proposed_role uses a supported family and the launcher role grammar; empty role means default")
+			}
+			r.role = &role
 		case "proposed_assignee", "owner", "author":
 			if kind == "null" {
 				r.nulls[name] = true
@@ -150,13 +180,13 @@ func parseWork(op string, fields map[string]json.RawMessage) (*workRequest, erro
 			}
 			fallthrough
 		case "work_id", "title", "criteria", "non_goals", "progress", "checkpoint", "next_artifact", "blocker", "reason",
-			"outcome", "lifecycle", "key":
+			"outcome", "lifecycle", "key", "handoff_to", "checkout_resource", "after", "summary":
 			var v string
 			if kind != "string" || json.Unmarshal(raw, &v) != nil {
 				return nil, invalid(name + " must be text")
 			}
 			r.text[name] = v
-		case "revision", "if_revision", "claim_generation", "if_claim_revision", "limit", "lease_seconds", "renew_for":
+		case "revision", "if_revision", "claim_generation", "if_claim_revision", "limit", "lease_seconds", "renew_for", "report_seq":
 			var v int64
 			if kind != "number" || json.Unmarshal(raw, &v) != nil {
 				return nil, invalid(name + " must be an integer")
@@ -168,7 +198,7 @@ func parseWork(op string, fields map[string]json.RawMessage) (*workRequest, erro
 				return nil, invalid(name + " must be a finite nonnegative time")
 			}
 			r.numbers[name] = v
-		case "stale", "blocked":
+		case "stale", "blocked", "assigned_to_me", "created_by_me":
 			var v bool
 			if kind != "bool" || json.Unmarshal(raw, &v) != nil {
 				return nil, invalid(name + " must be a boolean")
@@ -203,6 +233,17 @@ func parseWork(op string, fields map[string]json.RawMessage) (*workRequest, erro
 
 func (r *workRequest) validate() error {
 	op := r.op
+	if r.has("proposed_assignee") && r.has("proposed_role") {
+		return invalid("proposed_assignee and proposed_role are mutually exclusive")
+	}
+	if op == "work-propose" && !r.has("proposed_assignee") && !r.has("proposed_role") {
+		return invalid("a proposal supplies proposed_assignee or proposed_role")
+	}
+	if r.has("after") {
+		if err := checkWorkID(r.text["after"]); err != nil {
+			return err
+		}
+	}
 	required := append([]string{}, WorkRequired[op]...)
 	if !workRead(op) && (r.has("key") || r.has("deadline")) {
 		required = append(required, "key", "deadline")
@@ -229,7 +270,7 @@ func (r *workRequest) validate() error {
 			return err
 		}
 	}
-	for _, name := range []string{"revision", "if_revision", "claim_generation", "if_claim_revision"} {
+	for _, name := range []string{"revision", "if_revision", "claim_generation", "if_claim_revision", "report_seq"} {
 		if v, ok := r.ints[name]; ok && v < 1 {
 			return invalid(name + " must be a positive integer")
 		}
@@ -242,7 +283,11 @@ func (r *workRequest) validate() error {
 		}
 	}
 	nonempty := map[string][]string{"work-create": {"title", "criteria", "non_goals"}, "work-start": {"checkpoint", "next_artifact"},
-		"work-update": {"progress", "checkpoint", "next_artifact"}, "work-release": {"checkpoint"}}[op]
+		"work-update": {"progress", "checkpoint", "next_artifact"}, "work-release": {"checkpoint"}, "work-report": {"summary"},
+		"work-reject": {"criteria", "non_goals"}}[op]
+	if op == "work-reject" && r.has("title") {
+		nonempty = append(nonempty, "title")
+	}
 	if op == "work-edit" {
 		nonempty = nil
 		for _, name := range []string{"title", "criteria", "non_goals"} {
@@ -269,6 +314,20 @@ func (r *workRequest) validate() error {
 			return err
 		}
 	}
+	if r.has("handoff_to") != r.has("checkout_resource") {
+		return invalid("handoff_to and checkout_resource must be supplied together")
+	}
+	if r.has("handoff_to") {
+		if err := checkText(r.text["handoff_to"], "handoff_to", 256); err != nil {
+			return err
+		}
+		if err := checkCheckoutKey(r.text["checkout_resource"]); err != nil {
+			return err
+		}
+	}
+	if (op == "work-report" || workVerdict(op)) && len(r.refs) == 0 {
+		return invalid("a report or verdict needs evidence references")
+	}
 	if op == "work-finish" {
 		switch r.text["outcome"] {
 		case "completed":
@@ -286,7 +345,7 @@ func (r *workRequest) validate() error {
 	if v, ok := r.text["lifecycle"]; ok {
 		valid := v == "active" || v == "blocked"
 		if op == "work-list" {
-			valid = valid || v == "open" || v == "finished"
+			valid = valid || v == "open" || v == "reported" || v == "finished"
 		}
 		if !valid {
 			return invalid("invalid lifecycle filter or transition")
@@ -326,6 +385,8 @@ func (r *workRequest) fingerprint(consumer string) string {
 				pairs = append(pairs, []string{res.Kind, res.Key})
 			}
 			content[name] = pairs
+		case name == "proposed_role":
+			content[name] = r.role
 		default:
 			if v, ok := r.text[name]; ok {
 				content[name] = v
@@ -345,52 +406,93 @@ func (r *workRequest) fingerprint(consumer string) string {
 
 // workItem is one stored work record.
 type workItem struct {
-	WorkID             string   `json:"work_id"`
-	Revision           int64    `json:"revision"`
-	Lifecycle          string   `json:"lifecycle"`
-	Title              string   `json:"title"`
-	Criteria           string   `json:"criteria"`
-	NonGoals           string   `json:"non_goals"`
-	ProposedAssignee   *string  `json:"proposed_assignee"`
-	CreatedAt          float64  `json:"created_at"`
-	CreatedConsumer    string   `json:"created_consumer"`
-	FirstStartRevision *int64   `json:"first_start_revision"`
-	ScopeRevision      int64    `json:"scope_revision"`
-	ProgressEpoch      int64    `json:"progress_epoch"`
-	LastProgressAt     *float64 `json:"last_progress_at"`
-	ProgressDeadline   *float64 `json:"progress_deadline"`
-	Progress           string   `json:"progress"`
-	Checkpoint         string   `json:"checkpoint"`
-	NextArtifact       string   `json:"next_artifact"`
-	Blocker            string   `json:"blocker"`
-	LastWriter         *string  `json:"last_writer"`
-	LastGeneration     *int64   `json:"last_generation"`
-	LastLeaseExpires   *float64 `json:"last_lease_expires"`
-	LeaseExpired       bool     `json:"lease_expired"`
-	Outcome            *string  `json:"outcome"`
-	Reason             string   `json:"reason"`
-	References         []string `json:"references"`
-	FinishedAt         *float64 `json:"finished_at"`
-	ExpiresAt          *float64 `json:"expires_at"`
-	LatestSeq          int64    `json:"latest_seq"`
+	WorkID             string    `json:"work_id"`
+	Revision           int64     `json:"revision"`
+	Lifecycle          string    `json:"lifecycle"`
+	Title              string    `json:"title"`
+	Criteria           string    `json:"criteria"`
+	NonGoals           string    `json:"non_goals"`
+	ProposedAssignee   *string   `json:"proposed_assignee"`
+	ProposedRole       *WorkRole `json:"proposed_role"`
+	CreatedAt          float64   `json:"created_at"`
+	CreatedConsumer    string    `json:"created_consumer"`
+	FirstStartRevision *int64    `json:"first_start_revision"`
+	ScopeRevision      int64     `json:"scope_revision"`
+	ProgressEpoch      int64     `json:"progress_epoch"`
+	LastProgressAt     *float64  `json:"last_progress_at"`
+	ProgressDeadline   *float64  `json:"progress_deadline"`
+	Progress           string    `json:"progress"`
+	Checkpoint         string    `json:"checkpoint"`
+	NextArtifact       string    `json:"next_artifact"`
+	Blocker            string    `json:"blocker"`
+	LastWriter         *string   `json:"last_writer"`
+	LastGeneration     *int64    `json:"last_generation"`
+	LastLeaseExpires   *float64  `json:"last_lease_expires"`
+	LeaseExpired       bool      `json:"lease_expired"`
+	Outcome            *string   `json:"outcome"`
+	Reason             string    `json:"reason"`
+	References         []string  `json:"references"`
+	FinishedAt         *float64  `json:"finished_at"`
+	ExpiresAt          *float64  `json:"expires_at"`
+	LatestSeq          int64     `json:"latest_seq"`
+	// The latest report and verdict events; their payloads hold the frozen report and the
+	// verdict's evidence. A reported item holds the credit that funds its verdict.
+	ReportSeq      *int64  `json:"report_seq"`
+	ReportConsumer *string `json:"report_consumer"`
+	Verdict        *string `json:"verdict"`
+	VerdictSeq     *int64  `json:"verdict_seq"`
+	ReportActor    string  `json:"-"`
+	VerdictCredit  bool    `json:"-"`
+	// The frozen report or the verdict's evidence of the event being written; only that
+	// event's payload carries it.
+	report   *workReport
+	evidence *workVerdictEvidence
+}
+
+// workReport is the frozen report in a reported event's payload. Its evidence is the
+// item's references in the same payload; a read adds them here.
+type workReport struct {
+	Summary         string    `json:"summary"`
+	References      []string  `json:"references,omitempty"`
+	ScopeRevision   int64     `json:"scope_revision"`
+	ClaimGeneration int64     `json:"claim_generation"`
+	ParticipantRole *WorkRole `json:"participant_role,omitempty"`
+}
+
+// workVerdictEvidence names the report that an accepted or rejected event judges; the
+// verdict's evidence is the item's references in the same payload.
+type workVerdictEvidence struct {
+	ReportSeq int64 `json:"report_seq"`
+}
+
+func deref(v *string) string {
+	if v == nil {
+		return ""
+	}
+	return *v
 }
 
 const workColumns = `work_id,revision,lifecycle,title,criteria,non_goals,proposed_assignee,created_at,created_consumer,
 	first_start_revision,scope_revision,progress_epoch,last_progress_at,progress_deadline,progress,checkpoint,next_artifact,
-	blocker,last_writer,last_generation,last_lease_expires,lease_expired,outcome,reason,references_json,finished_at,expires_at,latest_seq`
+	blocker,last_writer,last_generation,last_lease_expires,lease_expired,outcome,reason,references_json,finished_at,expires_at,latest_seq,proposed_role,
+	report_seq,NULLIF(report_consumer,''),verdict,verdict_seq,report_actor,verdict_credit`
 
 func scanWork(row scanner) (workItem, error) {
 	var w workItem
-	var refs string
+	var refs, role string
 	err := row.Scan(&w.WorkID, &w.Revision, &w.Lifecycle, &w.Title, &w.Criteria, &w.NonGoals, &w.ProposedAssignee, &w.CreatedAt,
 		&w.CreatedConsumer, &w.FirstStartRevision, &w.ScopeRevision, &w.ProgressEpoch, &w.LastProgressAt, &w.ProgressDeadline,
 		&w.Progress, &w.Checkpoint, &w.NextArtifact, &w.Blocker, &w.LastWriter, &w.LastGeneration, &w.LastLeaseExpires,
-		&w.LeaseExpired, &w.Outcome, &w.Reason, &refs, &w.FinishedAt, &w.ExpiresAt, &w.LatestSeq)
+		&w.LeaseExpired, &w.Outcome, &w.Reason, &refs, &w.FinishedAt, &w.ExpiresAt, &w.LatestSeq, &role,
+		&w.ReportSeq, &w.ReportConsumer, &w.Verdict, &w.VerdictSeq, &w.ReportActor, &w.VerdictCredit)
 	if err == nil {
 		err = json.Unmarshal([]byte(refs), &w.References)
 	}
 	if w.References == nil {
 		w.References = []string{}
+	}
+	if err == nil && role != "" {
+		err = json.Unmarshal([]byte(role), &w.ProposedRole)
 	}
 	return w, err
 }
@@ -408,8 +510,8 @@ func (w workItem) referencesJSON() string {
 func (w workItem) rowCost(store string) int {
 	cost := workRowOverhead + len(store) + len(w.WorkID) + len(w.Lifecycle) + len(w.Title) + len(w.Criteria) + len(w.NonGoals) +
 		len(w.CreatedConsumer) + len(w.Progress) + len(w.Checkpoint) + len(w.NextArtifact) + len(w.Blocker) + len(w.Reason) +
-		len(w.referencesJSON())
-	for _, v := range []*string{w.ProposedAssignee, w.LastWriter, w.Outcome} {
+		len(w.referencesJSON()) + len(w.ProposedRole.encoded()) + len(w.ReportActor)
+	for _, v := range []*string{w.ProposedAssignee, w.LastWriter, w.Outcome, w.ReportConsumer, w.Verdict} {
 		if v != nil {
 			cost += len(*v)
 		}
@@ -423,20 +525,20 @@ type workCaller struct {
 	store string // the store's store_id; empty before the store's first write
 }
 
-// ResolveWorkCaller resolves a work caller. Without an explicit consumer the consumer is
-// the session key FAMILY:ID, not the peer name, which a successor can inherit: a
-// replacement session must respect its predecessor's lease.
+// ResolveWorkCaller uses the held participant's key by default; a non-holder keeps its
+// native FAMILY:ID key. Existing native-session claims are never transferred implicitly.
 func (s *Store) ResolveWorkCaller(ctx context.Context, caller Key, consumer *string) (MemoryCaller, error) {
 	m, err := s.ResolveMemoryCaller(ctx, caller, consumer)
 	if err != nil {
 		return m, err
 	}
-	if consumer == nil {
+	if consumer == nil && !isParticipantID(m.Consumer) {
 		m.Consumer = caller.Family + ":" + caller.ID
 	}
 	if err := checkConsumer(m.Consumer, "consumer"); err != nil {
 		return m, workError("invalid_request", "the session key is too long for a consumer key; pass a consumer of 1 to 128 characters")
 	}
+	m.ConsumerExplicit = consumer != nil
 	return m, nil
 }
 
@@ -473,27 +575,42 @@ type workClaimView struct {
 	Revision   int64      `json:"revision"`
 	ExpiresAt  float64    `json:"expires_at"`
 	Resources  [][]string `json:"resources"`
+	Ownership  string     `json:"ownership"`
 }
 
 // WorkView is a work item observed at ObservedAt.
 type WorkView struct {
 	workItem
-	Type                      string         `json:"type"`
-	Seq                       int64          `json:"seq"`
-	ObservedAt                float64        `json:"observed_at"`
-	ObservedLeaseExpires      *float64       `json:"observed_lease_expires"`
-	CurrentClaim              *workClaimView `json:"current_claim"`
-	LeaseValid                bool           `json:"lease_valid"`
-	ProgressOverdue           bool           `json:"progress_overdue"`
-	ProgressUnverified        bool           `json:"progress_unverified"`
-	ProgressUnverifiedReasons []string       `json:"progress_unverified_reasons"`
-	ScopeRevisions            []int64        `json:"scope_revisions"`
-	CriteriaChangedAfterStart bool           `json:"criteria_changed_after_start"`
+	Type                      string               `json:"type"`
+	Seq                       int64                `json:"seq"`
+	ObservedAt                float64              `json:"observed_at"`
+	ObservedLeaseExpires      *float64             `json:"observed_lease_expires"`
+	CurrentClaim              *workClaimView       `json:"current_claim"`
+	LeaseValid                bool                 `json:"lease_valid"`
+	ProgressOverdue           bool                 `json:"progress_overdue"`
+	ProgressUnverified        bool                 `json:"progress_unverified"`
+	ProgressUnverifiedReasons []string             `json:"progress_unverified_reasons"`
+	ScopeRevisions            []int64              `json:"scope_revisions"`
+	CriteriaChangedAfterStart bool                 `json:"criteria_changed_after_start"`
+	RoleResolution            *WorkRoleResolution  `json:"role_resolution,omitempty"`
+	Report                    *workReport          `json:"report,omitempty"`
+	VerdictEvidence           *workVerdictEvidence `json:"verdict_evidence,omitempty"`
 }
 
 // view overlays the live claim observation and the scope history on a stored item.
 func view(ctx context.Context, q querier, store string, w workItem, now float64) (WorkView, error) {
 	v := WorkView{workItem: w, Type: "work-item", Seq: w.LatestSeq, ObservedAt: now, ProgressUnverifiedReasons: []string{}}
+	var repo string
+	if w.ProposedRole != nil {
+		if err := q.QueryRowContext(ctx, `SELECT repository FROM memory_stores WHERE store_id=?`, store).Scan(&repo); err != nil {
+			return v, err
+		}
+		var err error
+		v.RoleResolution, err = roleResolution(ctx, q, repo, w.ProposedRole, now)
+		if err != nil {
+			return v, err
+		}
+	}
 	held, err := bundleFor(ctx, q, store, w.WorkID)
 	if err != nil {
 		return v, err
@@ -512,7 +629,10 @@ func view(ctx context.Context, q querier, store string, w workItem, now float64)
 			return v, err
 		}
 		claim := &workClaimView{Consumer: held.Consumer, Generation: held.Generation, Revision: held.Revision, ExpiresAt: held.ExpiresAt,
-			Resources: [][]string{}}
+			Resources: [][]string{}, Ownership: "legacy"}
+		if held.NativeActor != "" {
+			claim.Ownership = "native"
+		}
 		for _, r := range resources {
 			claim.Resources = append(claim.Resources, []string{r.Kind, r.Key})
 		}
@@ -582,6 +702,26 @@ func (s *Store) workViews(ctx context.Context, repo string, now float64) ([]Work
 	return views, nil
 }
 
+// frozenReport reads the report from its reported event's payload.
+func frozenReport(ctx context.Context, q querier, store string, seq int64) (*workReport, error) {
+	var payload string
+	if err := q.QueryRowContext(ctx, `SELECT payload FROM work_events WHERE store=? AND seq=? AND kind='reported'`, store, seq).Scan(&payload); err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return nil, workError("incompatible_store", "a reported event is missing")
+		}
+		return nil, err
+	}
+	var event struct {
+		Report     *workReport `json:"report"`
+		References []string    `json:"references"`
+	}
+	if err := json.Unmarshal([]byte(payload), &event); err != nil || event.Report == nil {
+		return nil, workError("incompatible_store", "a reported event has no report")
+	}
+	event.Report.References = event.References
+	return event.Report, nil
+}
+
 // workPayloads adds the immutable payload of each work event in entries; it never
 // substitutes the current record.
 func (s *Store) workPayloads(ctx context.Context, repo string, entries []MemoryEntry) error {
@@ -596,8 +736,8 @@ func (s *Store) workPayloads(ctx context.Context, repo string, entries []MemoryE
 				return err
 			}
 		}
-		var kind, payload string
-		err := s.db.QueryRowContext(ctx, `SELECT kind,payload FROM work_events WHERE store=? AND seq=?`, store, entries[i].Seq).Scan(&kind, &payload)
+		var kind, payload, actor string
+		err := s.db.QueryRowContext(ctx, `SELECT kind,payload,actor FROM work_events WHERE store=? AND seq=?`, store, entries[i].Seq).Scan(&kind, &payload, &actor)
 		if errors.Is(err, sql.ErrNoRows) {
 			return workError("incompatible_store", "a work stream payload is missing")
 		}
@@ -605,6 +745,7 @@ func (s *Store) workPayloads(ctx context.Context, repo string, entries []MemoryE
 			return err
 		}
 		entries[i].EventKind, entries[i].Payload = kind, json.RawMessage(payload)
+		entries[i].Actor = actor
 		if entries[i].ScopeTarget != nil {
 			entries[i].WorkID = *entries[i].ScopeTarget
 		}
@@ -649,20 +790,29 @@ func (s *Store) event(ctx context.Context, tx *writeTx, store string, m MemoryCa
 		return err
 	}
 	w.LatestSeq = seq
+	switch kind {
+	case "reported":
+		w.ReportSeq = &seq
+	case "accepted", "rejected":
+		w.VerdictSeq = &seq
+	}
 	if _, err := tx.ExecContext(ctx, `UPDATE work_items SET revision=?,lifecycle=?,title=?,criteria=?,non_goals=?,proposed_assignee=?,
 		first_start_revision=?,scope_revision=?,progress_epoch=?,last_progress_at=?,progress_deadline=?,progress=?,checkpoint=?,
 		next_artifact=?,blocker=?,last_writer=?,last_generation=?,last_lease_expires=?,lease_expired=?,outcome=?,reason=?,
-		references_json=?,finished_at=?,expires_at=?,latest_seq=? WHERE store=? AND work_id=?`,
+		references_json=?,finished_at=?,expires_at=?,latest_seq=?,proposed_role=?,report_seq=?,report_consumer=?,verdict=?,verdict_seq=?,
+		report_actor=?,verdict_credit=? WHERE store=? AND work_id=?`,
 		w.Revision, w.Lifecycle, w.Title, w.Criteria, w.NonGoals, w.ProposedAssignee, w.FirstStartRevision, w.ScopeRevision,
 		w.ProgressEpoch, w.LastProgressAt, w.ProgressDeadline, w.Progress, w.Checkpoint, w.NextArtifact, w.Blocker, w.LastWriter,
 		w.LastGeneration, w.LastLeaseExpires, w.LeaseExpired, w.Outcome, w.Reason, w.referencesJSON(), w.FinishedAt, w.ExpiresAt,
-		w.LatestSeq, store, w.WorkID); err != nil {
+		w.LatestSeq, w.ProposedRole.encoded(), w.ReportSeq, deref(w.ReportConsumer), w.Verdict, w.VerdictSeq, w.ReportActor,
+		w.VerdictCredit, store, w.WorkID); err != nil {
 		return err
 	}
 	payload, err := view(ctx, tx, store, *w, now)
 	if err != nil {
 		return err
 	}
+	payload.Report, payload.VerdictEvidence = w.report, w.evidence
 	data, _ := json.Marshal(payload)
 	limit := maxWorkRecord - viewHeadroom
 	if kind == "progress-overdue" || kind == "lease-expired" {
@@ -684,8 +834,8 @@ func (s *Store) event(ctx context.Context, tx *writeTx, store string, m MemoryCa
 		family, name, consumer, w.Revision); err != nil {
 		return err
 	}
-	if _, err := tx.ExecContext(ctx, `INSERT INTO work_events(store,seq,work_id,revision,kind,payload) VALUES (?,?,?,?,?,?)`,
-		store, seq, w.WorkID, w.Revision, kind, string(data)); err != nil {
+	if _, err := tx.ExecContext(ctx, `INSERT INTO work_events(store,seq,work_id,revision,kind,payload,actor) VALUES (?,?,?,?,?,?,?)`,
+		store, seq, w.WorkID, w.Revision, kind, string(data), nativeActor(m)); err != nil {
 		return err
 	}
 	tx.onCommit(func() { *advanced = true })
@@ -709,8 +859,38 @@ func (s *Store) scope(ctx context.Context, tx *writeTx, store string, w workItem
 func (s *Store) Work(ctx context.Context, m MemoryCaller, op string, fields map[string]json.RawMessage) (any, error) {
 	r, err := parseWork(op, fields)
 	if err != nil {
+		// Preserve the existing participant fence before argument errors, including
+		// cached callers and malformed keyed attempts from a former holder.
+		_, finish, guardErr := s.participantCall(ctx, m)
+		if guardErr != nil {
+			return nil, guardErr
+		}
+		finish()
 		return nil, err
 	}
+	var finish func()
+	if validKey(m.Native.Family, m.Native.ID) {
+		// Explicit native consumers also need holder serialization for role routing.
+		// Resolve their claim/replay binding before the legacy participant guard.
+		s.wake.mu.Lock()
+		finish = sync.OnceFunc(s.wake.mu.Unlock)
+		m, err = s.roleWorkCaller(ctx, m, r, s.clock())
+		if err != nil {
+			finish()
+			return nil, err
+		}
+		ctx = context.WithValue(ctx, participantCallKey{}, m)
+		if err := s.checkParticipantCall(ctx); err != nil {
+			finish()
+			return nil, err
+		}
+	} else {
+		ctx, finish, err = s.participantCall(ctx, m)
+		if err != nil {
+			return nil, err
+		}
+	}
+	defer finish()
 	if workRead(op) {
 		return s.workRead(ctx, m, r, s.clock())
 	}
@@ -718,6 +898,7 @@ func (s *Store) Work(ctx context.Context, m MemoryCaller, op string, fields map[
 	advanced := false
 	defer func() {
 		s.memory.op.Unlock()
+		finish()
 		if advanced {
 			s.changed(m.Repository)
 		}
@@ -733,19 +914,28 @@ func (s *Store) workRead(ctx context.Context, m MemoryCaller, r *workRequest, no
 		return nil, err
 	}
 	defer tx.Rollback()
+	if err := s.requireParticipantCaller(ctx, tx, m); err != nil {
+		return nil, err
+	}
 	store, err := storeOf(ctx, tx, m.Repository)
 	if err != nil {
 		return nil, err
 	}
 	if r.op == "work-list" {
-		return listing(ctx, tx, store, r, now)
+		return listing(ctx, tx, store, m, r, now)
 	}
 	w, err := current(ctx, tx, store, r.text["work_id"], now)
 	if err != nil {
 		return nil, err
 	}
 	if !r.has("revision") {
-		return view(ctx, tx, store, w, now)
+		v, err := view(ctx, tx, store, w, now)
+		if err == nil && w.ReportSeq != nil {
+			// A read shows the current report from its frozen event; later event
+			// payloads carry only its sequence.
+			v.Report, err = frozenReport(ctx, tx, store, *w.ReportSeq)
+		}
+		return v, err
 	}
 	scope := map[string]any{"work_id": w.WorkID}
 	var revision int64
@@ -770,8 +960,8 @@ func (s *Store) workRead(ctx context.Context, m MemoryCaller, r *workRequest, no
 
 // listing returns capped summaries from one read transaction in work-ID order, with an
 // explicit truncated flag: a truncated result is not a complete inventory.
-func listing(ctx context.Context, q querier, store string, r *workRequest, now float64) (map[string]any, error) {
-	result := map[string]any{"items": []map[string]any{}, "truncated": false, "observed_at": now}
+func listing(ctx context.Context, q *sql.Tx, store string, m MemoryCaller, r *workRequest, now float64) (map[string]any, error) {
+	result := map[string]any{"items": []map[string]any{}, "truncated": false, "more": false, "next_after": nil, "observed_at": now}
 	if store == "" {
 		return result, nil
 	}
@@ -779,25 +969,55 @@ func listing(ctx context.Context, q querier, store string, r *workRequest, now f
 	if v, ok := r.ints["limit"]; ok {
 		limit = v
 	}
+	var assignedRole *WorkRole
+	if r.has("assigned_to_me") && validKey(m.Native.Family, m.Native.ID) {
+		address, err := heldAddress(ctx, q, int64(now*1000), m.Native)
+		if err != nil {
+			return nil, err
+		}
+		if address != "" {
+			assignedRole = &WorkRole{}
+			if err := q.QueryRowContext(ctx, `SELECT family,role FROM names WHERE kind='alias' AND name=? AND repository=?`,
+				address, m.Repository).Scan(&assignedRole.Family, &assignedRole.Role); err != nil {
+				return nil, err
+			}
+		}
+	}
 	rows, err := q.QueryContext(ctx, `SELECT w.work_id,w.revision,w.title,w.lifecycle,w.proposed_assignee,w.progress_deadline,
-		b.consumer,COALESCE(b.active,0),COALESCE(b.expires_at,0),w.checkpoint FROM work_items w LEFT JOIN claim_bundles b
-		ON b.store=w.store AND b.work_id=w.work_id WHERE w.store=? AND (w.expires_at IS NULL OR w.expires_at>?) ORDER BY w.work_id`, store, now)
+		b.consumer,COALESCE(b.active,0),COALESCE(b.expires_at,0),w.checkpoint,w.proposed_role,w.report_seq,w.verdict,w.verdict_seq,w.created_consumer
+		FROM work_items w LEFT JOIN claim_bundles b
+		ON b.store=w.store AND b.work_id=w.work_id WHERE w.store=? AND (w.expires_at IS NULL OR w.expires_at>?) AND w.work_id>? ORDER BY w.work_id`, store, now, r.text["after"])
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
 	items := []map[string]any{}
 	base, _ := json.Marshal(result)
-	used := len(base)
+	used := len(base) + 32 // next_after becomes a full work ID when another page exists.
 	for rows.Next() {
-		var workID, title, lifecycle, checkpoint string
+		var workID, title, lifecycle, checkpoint, roleJSON, creator string
 		var revision int64
-		var proposed, consumer *string
+		var proposed, consumer, verdict *string
+		var reportSeq, verdictSeq *int64
 		var deadline *float64
 		var active bool
 		var expires float64
-		if err := rows.Scan(&workID, &revision, &title, &lifecycle, &proposed, &deadline, &consumer, &active, &expires, &checkpoint); err != nil {
+		if err := rows.Scan(&workID, &revision, &title, &lifecycle, &proposed, &deadline, &consumer, &active, &expires, &checkpoint, &roleJSON,
+			&reportSeq, &verdict, &verdictSeq, &creator); err != nil {
 			return nil, err
+		}
+		var role *WorkRole
+		if roleJSON != "" {
+			if err := json.Unmarshal([]byte(roleJSON), &role); err != nil {
+				return nil, err
+			}
+		}
+		assigned := proposed != nil && *proposed == m.Consumer || role != nil && assignedRole != nil && *role == *assignedRole
+		if r.has("assigned_to_me") && assigned != r.bools["assigned_to_me"] {
+			continue
+		}
+		if r.has("created_by_me") && (creator == m.Consumer) != r.bools["created_by_me"] {
+			continue
 		}
 		live, _, stale := freshness(lifecycle, deadline, active, expires, now)
 		var owner *string
@@ -810,12 +1030,22 @@ func listing(ctx context.Context, q querier, store string, r *workRequest, now f
 			continue
 		}
 		summary := map[string]any{"work_id": workID, "revision": revision, "title": title, "lifecycle": lifecycle,
-			"proposed_assignee": proposed, "progress_unverified": stale, "progress_deadline": deadline, "lease_valid": live,
-			"owner": owner, "observed_at": now, "checkpoint": checkpoint}
+			"proposed_assignee": proposed, "proposed_role": role, "progress_unverified": stale, "progress_deadline": deadline, "lease_valid": live,
+			"owner": owner, "observed_at": now, "checkpoint": checkpoint, "report_seq": reportSeq, "verdict": verdict, "verdict_seq": verdictSeq}
+		if role != nil {
+			resolved, err := roleResolution(ctx, q, m.Repository, role, now)
+			if err != nil {
+				return nil, err
+			}
+			summary["role_resolution"] = resolved
+		}
 		data, _ := json.Marshal(summary)
 		size := len(data) + 1
 		if int64(len(items)) >= limit || used+size > maxWorkList {
-			result["truncated"] = true
+			result["truncated"], result["more"] = true, true
+			if len(items) > 0 {
+				result["next_after"] = items[len(items)-1]["work_id"]
+			}
 			break
 		}
 		items, used = append(items, summary), used+size
@@ -841,6 +1071,14 @@ func (s *Store) replay(ctx context.Context, m MemoryCaller, r *workRequest, now 
 	if !r.keyed() {
 		return "", nil, nil
 	}
+	tx, err := s.db.BeginTx(ctx, &sql.TxOptions{ReadOnly: true})
+	if err != nil {
+		return "", nil, err
+	}
+	defer tx.Rollback()
+	if err := s.requireParticipantCaller(ctx, tx, m); err != nil {
+		return "", nil, err
+	}
 	l := s.limits()
 	deadline := r.numbers["deadline"]
 	if deadline <= now {
@@ -850,17 +1088,20 @@ func (s *Store) replay(ctx context.Context, m MemoryCaller, r *workRequest, now 
 		return "", nil, invalid(fmt.Sprintf("the retry deadline is beyond the %.0f s horizon", l.idemTTL))
 	}
 	print := r.fingerprint(m.Consumer)
-	store, err := storeOf(ctx, s.db, m.Repository)
+	store, err := storeOf(ctx, tx, m.Repository)
 	if err != nil || store == "" {
 		return print, nil, err
 	}
-	var scheme, stored, operation, result string
-	err = s.db.QueryRowContext(ctx, `SELECT scheme,fingerprint,operation,result FROM work_replays WHERE store=? AND consumer=? AND key=?`,
-		store, m.Consumer, r.text["key"]).Scan(&scheme, &stored, &operation, &result)
+	var scheme, stored, operation, result, actor string
+	err = tx.QueryRowContext(ctx, `SELECT scheme,fingerprint,operation,result,native_actor FROM work_replays WHERE store=? AND consumer=? AND key=?`,
+		store, m.Consumer, r.text["key"]).Scan(&scheme, &stored, &operation, &result, &actor)
 	if errors.Is(err, sql.ErrNoRows) {
 		return print, nil, nil
 	}
 	if err != nil {
+		return "", nil, err
+	}
+	if err := requireNativeWorkCaller(ctx, tx, m, actor, now); err != nil {
 		return "", nil, err
 	}
 	// A row is compared by the scheme it was written with; an unknown scheme conflicts.
@@ -885,13 +1126,29 @@ func storeReplay(ctx context.Context, tx *writeTx, store string, m MemoryCaller,
 	if !r.keyed() {
 		return nil
 	}
-	_, err := tx.ExecContext(ctx, `INSERT INTO work_replays(store,consumer,key,operation,scheme,fingerprint,seq,ts,deadline,result)
-		VALUES (?,?,?,?,?,?,?,?,?,?)`, store, m.Consumer, r.text["key"], r.op, fingerprintScheme, print, result["seq"], now,
-		r.numbers["deadline"], string(data))
+	_, err := tx.ExecContext(ctx, `INSERT INTO work_replays(store,consumer,key,operation,scheme,fingerprint,seq,ts,deadline,result,native_actor)
+		VALUES (?,?,?,?,?,?,?,?,?,?,?)`, store, m.Consumer, r.text["key"], r.op, fingerprintScheme, print, result["seq"], now,
+		r.numbers["deadline"], string(data), r.actor)
 	return err
 }
 
 func (s *Store) workMutation(ctx context.Context, m MemoryCaller, r *workRequest, now float64, advanced *bool) (any, error) {
+	if workVerdict(r.op) {
+		// The reporting worker is refused before any replay can answer it; apply checks
+		// again in the committing transaction.
+		store, err := storeOf(ctx, s.db, m.Repository)
+		if err != nil {
+			return nil, err
+		}
+		if store != "" {
+			// An absent item is refused below, after replay, as for any operation.
+			if w, err := current(ctx, s.db, store, r.text["work_id"], now); err == nil {
+				if err := requireVerdictCaller(m, w); err != nil {
+					return nil, err
+				}
+			}
+		}
+	}
 	print, original, err := s.replay(ctx, m, r, now)
 	if err != nil || original != nil {
 		return original, err
@@ -921,34 +1178,13 @@ func (s *Store) workMutation(ctx context.Context, m MemoryCaller, r *workRequest
 		}
 	}
 	if r.op == "work-start" {
-		// The target's inactive bundle is reclaimed under ordinary admission first; a
-		// start never overwrites it to avoid paying for the deletion.
-		store, err := storeOf(ctx, s.db, m.Repository)
-		if err != nil {
+		if err := s.reclaimInactive(ctx, m.Repository, workID); err != nil {
 			return nil, err
-		}
-		held, err := bundleFor(ctx, s.db, store, workID)
-		if err != nil {
-			return nil, err
-		}
-		if held != nil && !held.Active {
-			if err := s.workWrite(ctx, m.Repository, ordinary, func(tx *writeTx, store string) error {
-				held, err := bundleFor(ctx, tx, store, workID)
-				if err != nil || held == nil || held.Active {
-					return err
-				}
-				if _, err := tx.ExecContext(ctx, `DELETE FROM claim_resources WHERE store=? AND generation=?`, store, held.Generation); err != nil {
-					return err
-				}
-				_, err = tx.ExecContext(ctx, `DELETE FROM claim_bundles WHERE store=? AND generation=? AND active=0`, store, held.Generation)
-				return err
-			}); err != nil {
-				return nil, err
-			}
 		}
 	}
 	class := ordinary
-	if r.op == "work-release" || r.op == "work-finish" {
+	if (r.op == "work-release" && !r.has("handoff_to")) || r.op == "work-finish" || workVerdict(r.op) {
+		// A verdict spends the credit that its report reserved.
 		class = control
 	}
 	var result map[string]any
@@ -962,10 +1198,37 @@ func (s *Store) workMutation(ctx context.Context, m MemoryCaller, r *workRequest
 	return result, err
 }
 
+// reclaimInactive deletes the target's inactive bundle under ordinary admission before a
+// start; a start never overwrites it to avoid paying for the deletion.
+func (s *Store) reclaimInactive(ctx context.Context, repo, workID string) error {
+	store, err := storeOf(ctx, s.db, repo)
+	if err != nil {
+		return err
+	}
+	held, err := bundleFor(ctx, s.db, store, workID)
+	if err != nil || held == nil || held.Active {
+		return err
+	}
+	return s.workWrite(ctx, repo, ordinary, func(tx *writeTx, store string) error {
+		held, err := bundleFor(ctx, tx, store, workID)
+		if err != nil || held == nil || held.Active {
+			return err
+		}
+		if _, err := tx.ExecContext(ctx, `DELETE FROM claim_resources WHERE store=? AND generation=?`, store, held.Generation); err != nil {
+			return err
+		}
+		_, err = tx.ExecContext(ctx, `DELETE FROM claim_bundles WHERE store=? AND generation=? AND active=0`, store, held.Generation)
+		return err
+	})
+}
+
 // apply runs a validated mutation inside its transaction.
 func (s *Store) apply(ctx context.Context, tx *writeTx, store string, m MemoryCaller, r *workRequest, now float64, print string,
 	advanced *bool) (map[string]any, error) {
 	engine := leaseEngine{ctx: ctx, tx: tx, store: store}
+	if err := requireNativeWorkCaller(ctx, tx.Tx, m, r.actor, now); err != nil {
+		return nil, err
+	}
 	author := r.optional("author")
 	var w workItem
 	var kind string
@@ -979,7 +1242,7 @@ func (s *Store) apply(ctx context.Context, tx *writeTx, store string, m MemoryCa
 			return nil, err
 		}
 		w = workItem{WorkID: fmt.Sprintf("%032x", n), Revision: 1, Lifecycle: "open", Title: r.text["title"], Criteria: r.text["criteria"],
-			NonGoals: r.text["non_goals"], ProposedAssignee: r.optional("proposed_assignee"), CreatedAt: now, CreatedConsumer: m.Consumer,
+			NonGoals: r.text["non_goals"], ProposedAssignee: r.optional("proposed_assignee"), ProposedRole: r.role, CreatedAt: now, CreatedConsumer: m.Consumer,
 			ScopeRevision: 1, References: r.refs, LatestSeq: head + 1}
 		if _, err := tx.ExecContext(ctx, `INSERT INTO work_items(store,work_id,revision,lifecycle,title,criteria,non_goals,proposed_assignee,
 			created_at,created_consumer,scope_revision,references_json,latest_seq) VALUES (?,?,1,'open',?,?,?,?,?,?,1,?,?)`, store, w.WorkID,
@@ -998,13 +1261,31 @@ func (s *Store) apply(ctx context.Context, tx *writeTx, store string, m MemoryCa
 		if w.Lifecycle == "finished" {
 			return nil, workError("invalid_transition", "finished work is terminal")
 		}
+		if w.Lifecycle == "reported" && r.op != "work-propose" && !workVerdict(r.op) {
+			return nil, workError("invalid_transition", "reported work awaits accept or reject")
+		}
+		if workVerdict(r.op) {
+			if w.Lifecycle != "reported" {
+				return nil, workError("invalid_transition", "only reported work takes a verdict")
+			}
+			if err := requireVerdictCaller(m, w); err != nil {
+				return nil, err
+			}
+			if w.ReportSeq == nil || r.ints["report_seq"] != *w.ReportSeq {
+				return nil, WorkRefusal{Code: "stale_report", Message: "the report sequence is not this item's current report; read the item again",
+					Details: map[string]any{"current_report_seq": w.ReportSeq}}
+			}
+		}
 		held, err := bundleFor(ctx, tx, store, w.WorkID)
 		if err != nil {
 			return nil, err
 		}
 		owned := r.op == "work-update" || r.op == "work-release" || r.op == "work-finish" || r.op == "claim-renew" ||
-			r.op == "work-edit" && held != nil && held.Active && held.ExpiresAt > now
+			r.op == "work-report" || r.op == "work-edit" && held != nil && held.Active && held.ExpiresAt > now
 		if owned {
+			if held != nil && held.NativeActor != "" && m.Family != maintainerKey.Family && held.NativeActor != nativeWorkActor(m) {
+				return nil, workError("stale_claim", "this claim belongs to another native session")
+			}
 			if !r.has("claim_generation") {
 				return nil, invalid("a live claim exists; its owner's claim_generation is required")
 			}
@@ -1014,6 +1295,11 @@ func (s *Store) apply(ctx context.Context, tx *writeTx, store string, m MemoryCa
 			}
 			if b.ProgressEpoch != w.ProgressEpoch {
 				return nil, workError("incompatible_store", "work and claim progress epochs disagree")
+			}
+			// Administrative ownership replays keep the claim's binding too, so a
+			// copied consumer never becomes a native-session replay after reclamation.
+			if b.NativeActor != "" {
+				r.actor = b.NativeActor
 			}
 		}
 		if r.op == "claim-renew" {
@@ -1039,6 +1325,7 @@ func (s *Store) apply(ctx context.Context, tx *writeTx, store string, m MemoryCa
 		switch r.op {
 		case "work-propose":
 			kind, w.ProposedAssignee = "proposed", r.optional("proposed_assignee")
+			w.ProposedRole = r.role
 		case "work-edit":
 			kind = "edited"
 			for name, field := range map[string]*string{"title": &w.Title, "criteria": &w.Criteria, "non_goals": &w.NonGoals} {
@@ -1053,6 +1340,15 @@ func (s *Store) apply(ctx context.Context, tx *writeTx, store string, m MemoryCa
 		case "work-start", "work-update":
 			w.ProgressEpoch++
 			if r.op == "work-start" {
+				if w.ProposedRole != nil && m.Family != maintainerKey.Family {
+					if r.actor == "" {
+						return nil, WorkRefusal{Code: "revision_conflict", Message: "the proposal changed to a role while this start waited; read the item and retry",
+							Details: map[string]any{"current_revision": w.Revision - 1}}
+					}
+					if err := requireWorkRole(ctx, tx.Tx, m, w.ProposedRole, now); err != nil {
+						return nil, err
+					}
+				}
 				kind = "started"
 				duration := int64(defaultLease)
 				if v, ok := r.ints["lease_seconds"]; ok {
@@ -1061,6 +1357,12 @@ func (s *Store) apply(ctx context.Context, tx *writeTx, store string, m MemoryCa
 				got, err := engine.acquire(w.WorkID, m.Consumer, w.ProgressEpoch, r.res, now, duration)
 				if err != nil {
 					return nil, err
+				}
+				if r.actor != "" {
+					if _, err := tx.ExecContext(ctx, `UPDATE claim_bundles SET native_actor=? WHERE store=? AND generation=?`,
+						r.actor, store, got.Generation); err != nil {
+						return nil, err
+					}
 				}
 				writer := m.Consumer
 				w.LastWriter, w.LastGeneration, w.LastLeaseExpires, w.LeaseExpired = &writer, &got.Generation, &got.ExpiresAt, false
@@ -1099,6 +1401,19 @@ func (s *Store) apply(ctx context.Context, tx *writeTx, store string, m MemoryCa
 				w.References = r.refs
 			}
 		case "work-release", "work-finish":
+			if r.has("handoff_to") {
+				resources, err := bundleResources(ctx, tx, store, r.ints["claim_generation"])
+				if err != nil {
+					return nil, err
+				}
+				found := false
+				for _, resource := range resources {
+					found = found || resource == (claimResource{"exact", r.text["checkout_resource"]})
+				}
+				if !found {
+					return nil, workError("checkout_not_held", "this claim does not hold the named checkout resource")
+				}
+			}
 			if err := engine.release(w.WorkID, m.Consumer, r.ints["claim_generation"], now); err != nil {
 				return nil, err
 			}
@@ -1110,12 +1425,64 @@ func (s *Store) apply(ctx context.Context, tx *writeTx, store string, m MemoryCa
 				kind, w.Lifecycle, w.Outcome, w.Reason = "finished", "finished", &outcome, r.text["reason"]
 				w.References, w.FinishedAt, w.ExpiresAt = r.refs, &at, &expires
 			}
+		case "work-report":
+			// The report promises a verdict: it reserves that verdict's slots, bytes, scope
+			// revision and pages before it releases the claim, in this ordinary write.
+			if err := reserveVerdict(ctx, tx, store, w.WorkID, s.limits()); err != nil {
+				return nil, err
+			}
+			generation := r.ints["claim_generation"]
+			if err := engine.release(w.WorkID, m.Consumer, generation, now); err != nil {
+				return nil, err
+			}
+			consumer := m.Consumer
+			kind, w.Lifecycle, w.VerdictCredit, w.ProgressDeadline, w.Blocker = "reported", "reported", true, nil, ""
+			w.References, w.ReportConsumer, w.ReportActor, w.Verdict, w.VerdictSeq = r.refs, &consumer, nativeWorkActor(m), nil, nil
+			w.report = &workReport{Summary: r.text["summary"], ScopeRevision: w.ScopeRevision, ClaimGeneration: generation}
+			if validKey(m.Native.Family, m.Native.ID) {
+				session, err := scanSession(tx.QueryRowContext(ctx, sessionQuery+` WHERE s.family=? AND s.id=?`, m.Native.Family, m.Native.ID), int64(now*1000))
+				if err != nil {
+					return nil, err
+				}
+				if session.Address != "" {
+					w.report.ParticipantRole = &WorkRole{Family: session.Family, Role: session.Role}
+				}
+			}
+		case "work-accept", "work-reject":
+			// A verdict ends the reported round: the claim's progress fields are cleared and
+			// the verdict's evidence replaces the references, as a finish does. The report
+			// keeps its own in its frozen event. The item then holds at most its scope, eight
+			// references and fixed fields, so every valid verdict fits its event bound.
+			w.Progress, w.Checkpoint, w.NextArtifact, w.Blocker, w.References = "", "", "", "", r.refs
+			w.VerdictCredit, w.evidence = false, &workVerdictEvidence{ReportSeq: *w.ReportSeq}
+			if r.op == "work-accept" {
+				verdict, outcome, at, expires := "accepted", "completed", now, now+workRetention
+				kind, w.Lifecycle, w.Verdict = "accepted", "finished", &verdict
+				w.Outcome, w.FinishedAt, w.ExpiresAt = &outcome, &at, &expires
+				break
+			}
+			verdict := "rejected"
+			kind, w.Lifecycle, w.Verdict = "rejected", "open", &verdict
+			if r.has("title") {
+				w.Title = r.text["title"]
+			}
+			w.Criteria, w.NonGoals, w.ScopeRevision = r.text["criteria"], r.text["non_goals"], w.Revision
+			if err := s.scope(ctx, tx, store, w, m.Consumer, author, now); err != nil {
+				return nil, err
+			}
 		}
 	}
 	if err := s.event(ctx, tx, store, m, &w, kind, m.Consumer, author, now, advanced); err != nil {
 		return nil, err
 	}
 	result := map[string]any{"work_id": w.WorkID, "revision": w.Revision, "seq": w.LatestSeq, "duplicate": false}
+	if r.has("handoff_to") {
+		message, err := s.notifyCheckoutHandoff(ctx, tx, m, r)
+		if err != nil {
+			return nil, err
+		}
+		result["message"], result["role_released"] = message, true
+	}
 	if r.op == "work-start" || r.op == "work-update" {
 		held, err := bundleFor(ctx, tx, store, w.WorkID)
 		if err != nil {

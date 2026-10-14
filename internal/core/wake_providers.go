@@ -65,6 +65,15 @@ func (s *Store) providerWake(ctx context.Context, session Session, notice string
 		if view.Value != nil && (view.Value.State == "busy" || view.Value.State == "waiting") {
 			return waiting("receiver_busy")
 		}
+		if s.codexPane && target.LaunchID != "" && codexParticipantNotice(notice) {
+			if result, ok := s.wakeCodexPane(ctx, session, view, notice); ok {
+				return result
+			}
+		}
+		// The queue runs a turn in this thread, which the host may no longer show (#275).
+		if target.LaunchID != "" && s.codexThreadUnproven(ctx, session) {
+			return waiting("codex_thread_unproven")
+		}
 		cli := target.CLI
 		if target.LaunchID != "" {
 			var raw string
@@ -101,6 +110,8 @@ func (s *Store) providerWake(ctx context.Context, session Session, notice string
 		return s.wakeDeepSeek(ctx, session, target, notice)
 	case "opencode":
 		return s.wakeOpenCode(ctx, session, target.LaunchID, notice)
+	case "grok":
+		return s.wakeGrok(ctx, session, notice)
 	default:
 		return waiting("adapter_unavailable")
 	}
@@ -134,13 +145,19 @@ func (s *Store) wakeClaude(ctx context.Context, session Session, target wakeTarg
 		Socket     string `json:"messagingSocketPath"`
 		Status     string `json:"status"`
 	}
-	if json.Unmarshal(data, &peer) != nil || peer.PID != target.ClaudePID || peer.SessionID != session.ID || peer.Entrypoint != "cli" {
+	// After /clear the registry names the new transcript while Koinon keeps the session
+	// (live check F3): the entry still belongs to the session when its process is the
+	// session's recorded host with the start time read at registration (#269).
+	if json.Unmarshal(data, &peer) != nil || peer.PID != target.ClaudePID || peer.Entrypoint != "cli" ||
+		peer.SessionID != session.ID && !s.sameHost(ctx, session, target.ClaudePID) {
 		return waiting("claude_identity_mismatch")
 	}
-	if peer.Status == "busy" || peer.Status == "shell" || peer.Status == "waiting" {
+	// shell is the prompt with a background shell task running: the session takes the
+	// next-priority notice at its turn boundary, as it does when idle.
+	if peer.Status == "busy" || peer.Status == "waiting" {
 		return waiting("receiver_busy")
 	}
-	if peer.Status != "idle" {
+	if peer.Status != "idle" && peer.Status != "shell" {
 		return waiting("receiver_state_unknown")
 	}
 	allowed := s.wake.allowed
@@ -381,4 +398,16 @@ func deepSeekDestination(ctx context.Context, raw string) (*url.URL, []string, e
 	u.Host = canonical
 	u.Path = "/api/session/prompt"
 	return u, pinned, nil
+}
+
+// sameHost reports whether pid is still the session's recorded host process: the host
+// record names pid, and the process with that ID has the start time read at registration.
+func (s *Store) sameHost(ctx context.Context, session Session, pid int) bool {
+	var hostPID, start int64
+	if s.db.QueryRowContext(ctx, `SELECT host_pid,host_start FROM sessions WHERE family=? AND id=?`, session.Family, session.ID).
+		Scan(&hostPID, &start) != nil || hostPID != int64(pid) || start == 0 {
+		return false
+	}
+	current, err := s.processStart(pid)
+	return err == nil && current == start
 }

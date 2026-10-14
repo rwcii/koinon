@@ -7,9 +7,47 @@ import (
 	"strings"
 
 	"github.com/rwcii/koinon/internal/core"
+	"github.com/rwcii/koinon/internal/platform"
 )
 
 var errIdentity = errors.New("identity_unavailable")
+
+// errGrokLeader refuses a Grok session served through Grok's leader process: the server's
+// directory and pane are the first terminal's, so its repository and host would be wrong
+// (#254 spike fact 1). Gate B covers Grok's default mode only (#254 comment 6118290944).
+var errGrokLeader = errors.New("grok_leader_mode")
+
+// grokClient is the clientInfo name that Grok Build sends for a server named koinon
+// ("grok-shell-<server>", #254 spike fact 1).
+const grokClient = "grok-shell-koinon"
+
+type grokParent int
+
+const (
+	grokNone   grokParent = iota // the parent is not a Grok process
+	grokTUI                      // a Grok terminal session in the default mode
+	grokLeader                   // Grok's leader process (`grok-native agent leader`)
+)
+
+// grokProcess classifies the server's parent by its executable: grok-native, or the grok
+// link that macOS ps can report for it. The arguments only tell the leader
+// (`grok-native agent leader ...`) from a terminal session; they never admit a process.
+func grokProcess(command func(int) (string, []string, error), pid int) grokParent {
+	if command == nil || pid <= 1 {
+		return grokNone
+	}
+	executable, args, err := command(pid)
+	if err != nil {
+		return grokNone
+	}
+	if name := filepath.Base(executable); name != "grok-native" && name != "grok" {
+		return grokNone
+	}
+	if len(args) >= 3 && args[1] == "agent" && args[2] == "leader" {
+		return grokLeader
+	}
+	return grokTUI
+}
 
 // openCodeField is the argument that the Koinon OpenCode plugin sets on every Koinon tool
 // call from the calling session's ID (spike fact 6); OpenCode gives MCP servers no other
@@ -24,23 +62,23 @@ func claudeProcess(command func(int) (string, []string, error), pid int) bool {
 		return false
 	}
 	executable, args, err := command(pid)
-	if err != nil {
-		return false
+	return err == nil && platform.ClaudeCommand(executable, args)
+}
+
+// codexSubagent reports whether a Codex call may come from a thread other than the user's
+// own: its turn metadata, an object or a JSON string, names a thread_source other than
+// "user" ("subagent", live-checks F2, or a value not yet known). A call without that
+// metadata is the user's thread.
+func codexSubagent(meta map[string]json.RawMessage) bool {
+	raw := meta["x-codex-turn-metadata"]
+	var text string
+	if json.Unmarshal(raw, &text) == nil {
+		raw = json.RawMessage(text)
 	}
-	// The native installer runs `claude` from .../claude/versions/<version>; an npm
-	// installation runs node with the @anthropic-ai/claude-code entry point.
-	if filepath.Base(executable) == "claude" || strings.Contains(executable, "/claude/versions/") {
-		return true
+	var turn struct {
+		ThreadSource string `json:"thread_source"`
 	}
-	if len(args) > 0 && filepath.Base(args[0]) == "claude" {
-		return true
-	}
-	for _, arg := range args {
-		if strings.Contains(arg, "@anthropic-ai/claude-code/") {
-			return true
-		}
-	}
-	return false
+	return json.Unmarshal(raw, &turn) == nil && turn.ThreadSource != "" && turn.ThreadSource != "user"
 }
 
 // identity names the calling session from the family's own per-call source, or from the
@@ -52,7 +90,7 @@ func (s *server) identity(meta map[string]json.RawMessage, args map[string]json.
 		}
 	}
 	s.mu.Lock()
-	client, claude := s.client, s.claude
+	client, claude, grok := s.client, s.claude, s.grok
 	s.mu.Unlock()
 	text := func(raw json.RawMessage) string {
 		var value string
@@ -78,6 +116,15 @@ func (s *server) identity(meta map[string]json.RawMessage, args map[string]json.
 	case client == "opencode":
 		if plugin {
 			key = core.Key{Family: "opencode", ID: text(session)}
+		}
+	case client == grokClient && !plugin:
+		// A Grok sub-agent's call arrives with its parent's ID and is the parent's call
+		// (PDR 001, Decision 2).
+		switch grok {
+		case grokLeader:
+			return core.Key{}, errGrokLeader
+		case grokTUI:
+			key = core.Key{Family: "grok", ID: s.c.Getenv("GROK_SESSION_ID")}
 		}
 	}
 	if plugin && key.Family != "opencode" {

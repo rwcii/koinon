@@ -51,7 +51,7 @@ type observer struct {
 	rollouts map[string]*rollout
 	terminal *core.ObservedValue
 	checked  time.Time
-	naming   map[core.Key]string // the last terminal naming result of each session
+	naming   map[core.Key]namingResult // the last terminal naming result of each session
 }
 
 // observeCall reports what one tool call shows: the model of a Codex turn, and that an
@@ -103,7 +103,7 @@ func (s *server) report(ctx context.Context, o core.Observation) {
 		s.obs.sent[o.Caller] = last
 	}
 	changed := false
-	for group, field := range map[string]**core.ObservedValue{"model": &o.Model, "context": &o.Context, "activity": &o.Activity, "terminal": &o.Terminal} {
+	for group, field := range map[string]**core.ObservedValue{"model": &o.Model, "context": &o.Context, "activity": &o.Activity, "terminal": &o.Terminal, "naming": &o.Naming} {
 		if *field == nil {
 			continue
 		}
@@ -125,7 +125,7 @@ func (s *server) report(ctx context.Context, o core.Observation) {
 	}
 	s.obs.mu.Lock()
 	defer s.obs.mu.Unlock()
-	for group, v := range map[string]*core.ObservedValue{"model": o.Model, "context": o.Context, "activity": o.Activity, "terminal": o.Terminal} {
+	for group, v := range map[string]*core.ObservedValue{"model": o.Model, "context": o.Context, "activity": o.Activity, "terminal": o.Terminal, "naming": o.Naming} {
 		if v != nil {
 			last[group] = sentValue{*v, now}
 		}
@@ -194,11 +194,15 @@ func (s *server) observeOnce(ctx context.Context) {
 		// reported as another session's terminal.
 		if terminal != nil && (c.key.Family == "claude" && claude || s.c.Getenv("KOINON_LAUNCH_ID") != "") {
 			v := *terminal
-			s.obs.mu.Lock()
-			v.Naming = s.obs.naming[c.key]
-			s.obs.mu.Unlock()
 			o.Terminal = &v
 		}
+		// The naming result is reported on its own, also without a terminal: a session
+		// outside tmux or a background job without its attach client reports why.
+		s.obs.mu.Lock()
+		if named, ok := s.obs.naming[c.key]; ok {
+			o.Naming = &core.ObservedValue{Source: "koinon_mcp", At: named.at, Naming: named.result, Target: named.target}
+		}
+		s.obs.mu.Unlock()
 		s.report(ctx, o)
 	}
 }
@@ -291,10 +295,22 @@ func (s *server) claudeActivity(session string) *core.ObservedValue {
 		StatusUpdatedAt int64  `json:"statusUpdatedAt"`
 		Entrypoint      string `json:"entrypoint"`
 	}
-	if json.Unmarshal(data, &record) != nil || record.PID != s.c.ParentPID || record.SessionID != session || record.Entrypoint != "cli" {
+	if json.Unmarshal(data, &record) != nil || record.PID != s.c.ParentPID || record.SessionID == "" ||
+		len(record.SessionID) > 256 || strings.ContainsAny(record.SessionID, "\x00\r\n") || record.Entrypoint != "cli" {
 		return nil
 	}
-	state := map[string]string{"busy": "busy", "shell": "busy", "idle": "idle", "waiting": "waiting"}[record.Status]
+	s.mu.Lock()
+	start := s.claudeHostStart
+	s.mu.Unlock()
+	current, startErr := s.processStart(s.c.ParentPID)
+	// /clear changes the transcript ID but leaves this MCP process and its native host
+	// in place. A changed ID needs the host pinned at initialization, never just a PID.
+	sameHost := start > 0 && startErr == nil && current == start
+	if record.SessionID != session && !sameHost || start > 0 && !sameHost {
+		return nil
+	}
+	// shell is the prompt with a background shell task running, so the agent is idle.
+	state := map[string]string{"busy": "busy", "shell": "idle", "idle": "idle", "waiting": "waiting"}[record.Status]
 	if state == "" || record.StatusUpdatedAt <= 0 || record.StatusUpdatedAt > s.c.Now().UnixMilli() {
 		return nil
 	}
@@ -350,7 +366,14 @@ func (s *server) codexRollout(thread string) (model, context, activity *core.Obs
 		*r = rollout{searched: now}
 		return nil, nil, nil
 	}
-	return r.model, r.context, r.activity
+	// The rollout's first record proved its thread, which is the context's native epoch.
+	context = r.context
+	if context != nil {
+		value := *context
+		value.Epoch = thread
+		context = &value
+	}
+	return r.model, context, r.activity
 }
 
 // findRollout returns the one rollout file whose name holds the thread ID, or "".
@@ -470,7 +493,12 @@ func (r *rollout) event(line []byte) {
 		Type   string `json:"type"`
 		Model  string `json:"model"`
 		TurnID string `json:"turn_id"`
-		Info   *struct {
+		// Error is a failed turn's error; only its codex_error_info code is read, never its
+		// message text (#250).
+		Error *struct {
+			Info json.RawMessage `json:"codex_error_info"`
+		} `json:"error"`
+		Info *struct {
 			Window *int64 `json:"model_context_window"`
 			Last   *struct {
 				Input *int64 `json:"input_tokens"`
@@ -502,6 +530,53 @@ func (r *rollout) event(line []byte) {
 	case "task_complete", "turn_aborted":
 		if payload.TurnID != "" && payload.TurnID == r.turn {
 			r.activity = &core.ObservedValue{Source: "codex_rollout", At: at, State: "idle"}
+			if payload.Type == "task_complete" && payload.Error != nil {
+				r.activity.TurnError = core.TurnErrorCode(payload.Error.Info)
+			}
 		}
 	}
+}
+
+// cycleEpoch is the calling session's current native epoch for the own-cycle calls (#196):
+// for Claude, the transcript session that the registry record of this server's host
+// process names, with the host pinned at initialization; for Codex, the call's own
+// thread. Other families have none, and their calls are refused.
+func (s *server) cycleEpoch(caller core.Key) string {
+	switch caller.Family {
+	case "codex":
+		return caller.ID
+	case "claude":
+		return s.claudeTranscript()
+	}
+	return ""
+}
+
+// claudeTranscript reads the transcript session ID from the Claude Code registry record of
+// this server's parent process. /clear changes it; the host must be the one pinned at
+// initialization, never just a reused PID.
+func (s *server) claudeTranscript() string {
+	dir := s.home("CLAUDE_CONFIG_DIR", ".claude")
+	if dir == "" {
+		return ""
+	}
+	data, err := readOwned(filepath.Join(dir, "sessions", strconv.Itoa(s.c.ParentPID)+".json"), registryRecordMax)
+	if err != nil {
+		return ""
+	}
+	var record struct {
+		PID        int    `json:"pid"`
+		SessionID  string `json:"sessionId"`
+		Entrypoint string `json:"entrypoint"`
+	}
+	if json.Unmarshal(data, &record) != nil || record.PID != s.c.ParentPID || record.Entrypoint != "cli" {
+		return ""
+	}
+	s.mu.Lock()
+	start := s.claudeHostStart
+	s.mu.Unlock()
+	current, err := s.processStart(s.c.ParentPID)
+	if start <= 0 || err != nil || current != start {
+		return ""
+	}
+	return record.SessionID
 }

@@ -36,9 +36,12 @@ h2 { font-size: 15px; margin: 20px 0 8px; word-break: break-all; }
 table { border-collapse: collapse; width: 100%; }
 th, td { text-align: left; vertical-align: top; padding: 6px 8px; border-bottom: 1px solid var(--line); }
 th { font-weight: 600; color: var(--muted); white-space: nowrap; }
+th a { color: inherit; text-decoration: none; }
+th a:hover, th a:focus-visible { text-decoration: underline; }
+th[aria-sort] { color: var(--fg); }
 tbody tr:nth-child(even) { background: var(--row); }
 tr.state-expired, tr.state-retired { color: var(--muted); }
-small, .empty { color: var(--muted); }
+small, .empty, .counts { color: var(--muted); }
 code { font: 12px/1.4 ui-monospace, SFMono-Regular, Menlo, monospace; word-break: break-all; }
 pre.body { margin: 0; max-width: 60ch; max-height: 16em; overflow: auto; white-space: pre-wrap; word-break: break-word; font: 12px/1.4 ui-monospace, SFMono-Regular, Menlo, monospace; }
 strong { color: var(--warn); }
@@ -58,3 +61,31 @@ input, select, textarea { font: inherit; color: var(--fg); background: var(--bg)
 textarea { width: 100%; resize: vertical; }
 form.inline { display: inline-flex; gap: 6px; margin: 4px 0 0; }
 tr.result-refused { color: var(--warn); }
+.board { max-width: 1180px; }
+.tally { display: flex; flex-wrap: wrap; gap: 8px; list-style: none; padding: 0; margin: 10px 0; }
+.tally li { padding: 4px 10px; border: 1px solid var(--line); border-radius: 6px; background: var(--row); color: var(--muted); }
+.tally b { font-size: 16px; color: var(--fg); }
+.scroll { overflow-x: auto; }
+.cards { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, 340px), 1fr)); gap: 12px; }
+.card { min-width: 0; padding: 10px 12px; border: 1px solid var(--line); border-radius: 6px; }
+.card h3 { font-size: 15px; margin: 4px 0 8px; overflow-wrap: anywhere; }
+.card-head, .card-foot { margin: 0; }
+.board h4 { font-size: 13px; margin: 10px 0 4px; color: var(--muted); }
+.tag { display: inline-block; padding: 0 6px; border: 1px solid var(--line); border-radius: 10px; font-size: 12px; color: var(--muted); }
+.tag.state-active { color: var(--accent); border-color: var(--accent); }
+.md { overflow-wrap: anywhere; }
+.md p, .md ul, .md ol { margin: 0 0 6px; }
+.md strong { color: inherit; }
+.md pre, .command pre { margin: 0 0 6px; padding: 6px 8px; background: var(--row); border-radius: 4px; overflow-x: auto; font: 12px/1.4 ui-monospace, SFMono-Regular, Menlo, monospace; }
+.md pre code, .command code { word-break: normal; white-space: pre; }
+.command { display: flex; gap: 6px; align-items: flex-start; }
+.command pre { flex: 1; min-width: 0; }
+.refused { color: var(--warn); }
+.card-notice { margin: 0 0 8px; padding: 4px 8px; border-left: 3px solid var(--accent); background: var(--row); }
+.card-notice.refused { border-left-color: var(--warn); }
+form.verdict { margin: 10px 0 0; }
+form.verdict label { display: flex; flex-direction: column; gap: 2px; color: var(--muted); }
+form.verdict .buttons { display: flex; gap: 8px; margin: 6px 0 0; }
+button:disabled { opacity: 0.5; cursor: not-allowed; }
+meter { width: 8em; }
+.verdict-record { margin-top: 8px; padding-top: 6px; border-top: 1px solid var(--line); }

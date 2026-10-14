@@ -50,7 +50,8 @@ func newObserveHarness(t *testing.T, client, parent string) *observeHarness {
 		}
 	}))
 	t.Cleanup(daemon.Close)
-	h := &harness{t: t, root: root, out: &bytes.Buffer{}, env: map[string]string{}, parent: parent}
+	// A launched session: this fake daemon accepts its registration.
+	h := &harness{t: t, root: root, out: &bytes.Buffer{}, env: map[string]string{"KOINON_LAUNCH_ID": strings.Repeat("a", 64)}, parent: parent}
 	h.s = &server{c: Config{StateDir: root, Address: strings.TrimPrefix(daemon.URL, "http://"), Directory: t.TempDir(), ParentPID: 4242,
 		Getenv:      func(k string) string { return h.env[k] },
 		Command:     func(int) (string, []string, error) { return h.parent, []string{h.parent}, nil },
@@ -122,8 +123,6 @@ func TestCodexRolloutAndTerminalAttribution(t *testing.T) {
 	o := newObserveHarness(t, "codex-mcp-client", "/opt/agent/bin/codex")
 	home := t.TempDir()
 	o.env["CODEX_HOME"] = home
-	o.env["TMUX"] = "/tmp/tmux-synthetic/default,1,0"
-	o.env["TMUX_PANE"] = "%9"
 	dir := filepath.Join(home, "sessions", "2026", "10", "07")
 	os.MkdirAll(dir, 0700)
 	rollout := filepath.Join(dir, "rollout-2026-10-07T00-00-00-synthetic-thread-1.jsonl")
@@ -135,7 +134,7 @@ func TestCodexRolloutAndTerminalAttribution(t *testing.T) {
 		map[string]any{"timestamp": "2026-10-07T00:00:04.000Z", "type": "event_msg", "payload": map[string]any{"type": "token_count",
 			"info": map[string]any{"model_context_window": 200000, "last_token_usage": map[string]any{"input_tokens": 50000}}}},
 		`{"timestamp":"2026-10-07T00:00:05.000Z","type":"event_msg","payload":{"type":"task_complete","turn_id":"turn-a"}}`) // no newline yet
-	// Two threads served by one unlaunched server: neither gets the server's terminal.
+	// Two threads served by one server outside tmux: neither reports a terminal.
 	o.tool("peers", map[string]any{}, map[string]any{"threadId": "synthetic-thread-1"})
 	o.tool("peers", map[string]any{}, map[string]any{"threadId": "synthetic-thread-2"})
 	o.s.observeOnce(context.Background())
@@ -143,7 +142,7 @@ func TestCodexRolloutAndTerminalAttribution(t *testing.T) {
 	var first *core.Observation
 	for i := range reports {
 		if reports[i].Terminal != nil {
-			t.Fatalf("unlaunched server attributed its terminal: %+v", reports[i])
+			t.Fatalf("terminal reported outside tmux: %+v", reports[i])
 		}
 		if reports[i].Caller.ID == "synthetic-thread-1" {
 			first = &reports[i]
@@ -153,7 +152,7 @@ func TestCodexRolloutAndTerminalAttribution(t *testing.T) {
 		}
 	}
 	if first == nil || first.Model == nil || first.Model.ID != "gpt-rollout" || first.Context == nil || *first.Context.UsedTokens != 50000 ||
-		*first.Context.LimitTokens != 200000 || first.Activity == nil || first.Activity.State != "busy" {
+		*first.Context.LimitTokens != 200000 || first.Context.Epoch != "synthetic-thread-1" || first.Activity == nil || first.Activity.State != "busy" {
 		t.Fatalf("rollout report: %+v", reports)
 	}
 	data, _ := json.Marshal(reports)
@@ -243,11 +242,17 @@ func TestClaudeRegistryActivity(t *testing.T) {
 	if reports := o.taken(1); len(reports) != 1 || reports[0].Activity.State != "waiting" {
 		t.Fatalf("waiting: %+v", reports)
 	}
+	// shell is the prompt with a background shell task running: idle, not busy.
+	write(map[string]any{"pid": 4242, "sessionId": "synthetic-claude", "status": "shell", "statusUpdatedAt": stamp + 3, "entrypoint": "cli"})
+	o.s.observeOnce(context.Background())
+	if reports := o.taken(1); len(reports) != 1 || reports[0].Activity.State != "idle" {
+		t.Fatalf("shell: %+v", reports)
+	}
 	// A symlinked record is not followed.
 	target := filepath.Join(t.TempDir(), "elsewhere.json")
 	os.Rename(record, target)
 	os.Symlink(target, record)
-	write(map[string]any{"pid": 4242, "sessionId": "synthetic-claude", "status": "idle", "statusUpdatedAt": stamp + 3, "entrypoint": "cli"})
+	write(map[string]any{"pid": 4242, "sessionId": "synthetic-claude", "status": "idle", "statusUpdatedAt": stamp + 4, "entrypoint": "cli"})
 	o.s.observeOnce(context.Background())
 	for _, r := range o.taken(0) {
 		if r.Activity != nil {
@@ -353,5 +358,45 @@ func TestUnchangedValuesAreConfirmedAndUnreadableSourcesAreNot(t *testing.T) {
 		if r.Activity != nil {
 			t.Fatalf("unreadable source confirmed: %+v", r)
 		}
+	}
+}
+
+// A failed Codex turn reports its fixed error code on the idle activity, never the error's
+// message text (#250).
+func TestRolloutTurnErrorCode(t *testing.T) {
+	complete := func(turn, errorJSON string) []byte {
+		payload := `{"type":"task_complete","turn_id":"` + turn + `"`
+		if errorJSON != "" {
+			payload += `,"error":` + errorJSON
+		}
+		return []byte(`{"timestamp":"2026-10-08T20:38:18.427Z","type":"event_msg","payload":` + payload + `}}`)
+	}
+	for _, c := range []struct{ errorJSON, want string }{
+		{`{"message":"Selected model is at capacity. PRIVATE","codex_error_info":"server_overloaded"}`, "server_overloaded"},
+		{`{"message":"PRIVATE","codex_error_info":{"response_too_many_failed_attempts":{"http_status_code":429}}}`, "response_too_many_failed_attempts"},
+		{`{"message":"PRIVATE","codex_error_info":"a_new_code"}`, "other"},
+		{`{"message":"PRIVATE"}`, "other"},
+		{``, ""},
+	} {
+		r := &rollout{turn: "turn-a"}
+		r.event(complete("turn-a", c.errorJSON))
+		if r.activity == nil || r.activity.State != "idle" || r.activity.TurnError != c.want {
+			t.Fatalf("%s: %+v", c.errorJSON, r.activity)
+		}
+		data, _ := json.Marshal(r.activity)
+		if strings.Contains(string(data), "PRIVATE") || strings.Contains(string(data), "capacity") {
+			t.Fatalf("error text reported: %s", data)
+		}
+	}
+	// An aborted turn carries no error, and a new turn clears the last one.
+	r := &rollout{turn: "turn-a"}
+	r.event([]byte(`{"timestamp":"2026-10-08T20:38:18.427Z","type":"event_msg","payload":{"type":"turn_aborted","turn_id":"turn-a","error":{"codex_error_info":"server_overloaded"}}}`))
+	if r.activity == nil || r.activity.TurnError != "" {
+		t.Fatalf("aborted turn: %+v", r.activity)
+	}
+	r.event(complete("turn-a", `{"codex_error_info":"unauthorized"}`))
+	r.event([]byte(`{"timestamp":"2026-10-08T20:39:00.000Z","type":"event_msg","payload":{"type":"task_started","turn_id":"turn-b"}}`))
+	if r.activity == nil || r.activity.State != "busy" || r.activity.TurnError != "" {
+		t.Fatalf("new turn: %+v", r.activity)
 	}
 }

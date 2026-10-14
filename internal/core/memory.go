@@ -14,6 +14,8 @@ import (
 	"strings"
 	"sync"
 	"unicode/utf8"
+
+	"github.com/rwcii/koinon/internal/library"
 )
 
 // Memory follows the protocol of PROTOCOL.md ("Memory stores") and
@@ -29,6 +31,7 @@ type memoryLimits struct {
 	snapshotTTL, ackRetention, idemTTL, consumerTTL, retiredTTL, expiryInterval    float64
 	// Work limits (docs/WORK-ITEMS-IMPLEMENTATION-DESIGN.md, "Capacity").
 	workLogical, workEvents, workItems, workScopes, workScopesPerItem, creditBytes int64
+	verdictBytes                                                                   int64
 }
 
 var defaultMemoryLimits = memoryLimits{
@@ -37,6 +40,7 @@ var defaultMemoryLimits = memoryLimits{
 	rowWindow: 500, snapshotTTL: 3600, ackRetention: 86400, idemTTL: 86400, consumerTTL: 30 * 86400,
 	retiredTTL: 90 * 86400, expiryInterval: 30,
 	workLogical: 12 << 20, workEvents: 2048, workItems: 128, workScopes: 1024, workScopesPerItem: 64, creditBytes: 48 << 10,
+	verdictBytes: 64 << 10,
 }
 
 const entryOverhead = 512
@@ -64,6 +68,11 @@ type MemoryCaller struct {
 	Family     string
 	Name       string
 	Consumer   string
+	// Native is trusted caller identity from the transport, never a consumer argument.
+	Native Key
+	// ConsumerExplicit distinguishes a transport's explicit work consumer from its
+	// legacy default. Only the new role-claim path derives a different default.
+	ConsumerExplicit bool
 }
 
 type MemoryEntry struct {
@@ -89,6 +98,7 @@ type MemoryEntry struct {
 	EventKind string          `json:"event_kind,omitempty"`
 	WorkID    string          `json:"work_id,omitempty"`
 	Payload   json.RawMessage `json:"payload,omitempty"`
+	Actor     string          `json:"actor,omitempty"`
 }
 
 const entryColumns = `seq,ts,type,scope,scope_target,path,body,author,writer_family,writer_name,consumer,revision,
@@ -122,18 +132,22 @@ func (s *Store) OnMemoryChange(f func(repository string)) {
 }
 
 // ResolveMemoryCaller names the store and provenance for an active caller: its recorded
-// repository, its family and peer name, and the consumer key (its peer name by default).
+// repository, native identity and peer name. A holder defaults to its participant key;
+// a non-holder keeps its peer-name cursor.
 func (s *Store) ResolveMemoryCaller(ctx context.Context, caller Key, consumer *string) (MemoryCaller, error) {
 	tx, err := s.db.BeginTx(ctx, &sql.TxOptions{ReadOnly: true})
 	if err != nil {
 		return MemoryCaller{}, err
 	}
 	defer tx.Rollback()
-	if err := active(ctx, tx, s.now().UnixMilli(), caller); err != nil {
-		return MemoryCaller{}, err
+	if consumer == nil || !isParticipantID(strings.TrimSpace(*consumer)) {
+		if err := active(ctx, tx, s.now().UnixMilli(), caller); err != nil {
+			return MemoryCaller{}, err
+		}
 	}
 	var m MemoryCaller
 	m.Family = caller.Family
+	m.Native = caller
 	if err := tx.QueryRowContext(ctx, `SELECT s.repository,COALESCE(n.name,'') FROM sessions s LEFT JOIN names n
 		ON n.kind='peer' AND n.family=s.family AND n.session_id=s.id WHERE s.family=? AND s.id=?`,
 		caller.Family, caller.ID).Scan(&m.Repository, &m.Name); err != nil {
@@ -143,12 +157,27 @@ func (s *Store) ResolveMemoryCaller(ctx context.Context, caller Key, consumer *s
 		return MemoryCaller{}, memoryError("repo_unresolved", "this session has no Git repository, so it has no memory store")
 	}
 	m.Consumer = m.Name
+	if consumer == nil {
+		address, err := heldAddress(ctx, tx, s.now().UnixMilli(), caller)
+		if err != nil {
+			return MemoryCaller{}, err
+		}
+		if address != "" {
+			m.Consumer = participantKey(address)
+		}
+	}
 	if consumer != nil {
 		// A consumer key names a cursor; it is asserted provenance, never authority.
 		if utf8.RuneCountInString(*consumer) > 128 || strings.TrimSpace(*consumer) == "" {
 			return MemoryCaller{}, memoryError("invalid_request", "a consumer key is 1 to 128 characters and not blank")
 		}
 		m.Consumer = strings.TrimSpace(*consumer)
+	}
+	if err := s.requireParticipantCaller(ctx, tx, m); err != nil {
+		return MemoryCaller{}, err
+	}
+	if err := active(ctx, tx, s.now().UnixMilli(), caller); err != nil {
+		return MemoryCaller{}, err
 	}
 	return m, nil
 }
@@ -176,6 +205,7 @@ type memoryUsage struct {
 	ClaimResources    int64 `json:"claim_resources"`
 	WorkEvents        int64 `json:"work_events"`
 	WorkReplays       int64 `json:"work_replays"`
+	WorkAudiences     int64 `json:"work_audiences"`
 }
 
 // textBytes is the SQL charge of text columns: their UTF-8 bytes, NULL as zero.
@@ -204,7 +234,7 @@ func usage(ctx context.Context, q querier, repo string) (memoryUsage, error) {
 		(SELECT COUNT(*) FROM memory_idem WHERE repository=?1),
 		(SELECT COALESCE(SUM(length(CAST(key AS BLOB))+length(CAST(consumer AS BLOB))+64),0) FROM memory_idem WHERE repository=?1),
 		(SELECT COUNT(*) FROM memory_cursors WHERE repository=?1),
-		(SELECT COALESCE(SUM(length(CAST(consumer AS BLOB))+64),0) FROM memory_cursors WHERE repository=?1),
+		(SELECT COALESCE(SUM(length(CAST(consumer AS BLOB))+length(CAST(actor AS BLOB))+64),0) FROM memory_cursors WHERE repository=?1),
 		(SELECT COUNT(*) FROM memory_retired WHERE repository=?1),
 		(SELECT COALESCE(SUM(length(CAST(consumer AS BLOB))+64),0) FROM memory_retired WHERE repository=?1),
 		(SELECT COUNT(*) FROM memory_snapshots WHERE repository=?1),
@@ -233,14 +263,14 @@ func usage(ctx context.Context, q querier, repo string) (memoryUsage, error) {
 		(SELECT COUNT(*) FROM work_events WHERE store=?1),
 		(SELECT COUNT(*) FROM work_replays WHERE store=?1),
 		(SELECT COALESCE(SUM(?2+`+textBytes("store", "work_id", "lifecycle", "title", "criteria", "non_goals", "proposed_assignee",
-		"created_consumer", "progress", "checkpoint", "next_artifact", "blocker", "last_writer", "outcome", "reason",
-		"references_json")+`),0) FROM work_items WHERE store=?1)+
+		"created_consumer", "proposed_role", "progress", "checkpoint", "next_artifact", "blocker", "last_writer", "outcome", "reason",
+		"references_json", "report_consumer", "report_actor", "verdict")+`),0) FROM work_items WHERE store=?1)+
 		(SELECT COALESCE(SUM(?2+`+textBytes("store", "work_id", "consumer", "author", "title", "criteria", "non_goals")+`),0)
 			FROM work_scope_revisions WHERE store=?1)+
-		(SELECT COALESCE(SUM(?2+`+textBytes("store", "work_id", "consumer")+`),0) FROM claim_bundles WHERE store=?1)+
+		(SELECT COALESCE(SUM(?2+`+textBytes("store", "work_id", "consumer", "native_actor")+`),0) FROM claim_bundles WHERE store=?1)+
 		(SELECT COALESCE(SUM(?2+`+textBytes("store", "kind", "resource")+`),0) FROM claim_resources WHERE store=?1)+
-		(SELECT COALESCE(SUM(?2+`+textBytes("store", "work_id", "kind", "payload")+`),0) FROM work_events WHERE store=?1),
-		(SELECT COALESCE(SUM(?3+`+textBytes("key", "consumer", "operation", "result")+`),0) FROM work_replays WHERE store=?1),
+		(SELECT COALESCE(SUM(?2+`+textBytes("store", "work_id", "kind", "payload", "actor")+`),0) FROM work_events WHERE store=?1),
+		(SELECT COALESCE(SUM(?3+`+textBytes("key", "consumer", "operation", "result", "native_actor")+`),0) FROM work_replays WHERE store=?1),
 		(SELECT COALESCE(SUM(?4+`+textBytes("body", "path", "author", "scope_target", "consumer")+`),0) FROM memory_entries
 			WHERE repository=?5 AND type='work-event')`,
 		store, workRowOverhead, workReplayOverhead, entryOverhead, repo).Scan(&u.WorkItems, &u.WorkScopes, &u.WorkScopesPerItem,
@@ -249,29 +279,40 @@ func usage(ctx context.Context, q querier, repo string) (memoryUsage, error) {
 	u.Logical += tableBytes + replayBytes
 	u.Idem += u.WorkReplays
 	u.WorkLogical = tableBytes + replayBytes + eventEntryBytes
+	if err == nil {
+		var audienceBytes int64
+		err = q.QueryRowContext(ctx, `SELECT COUNT(*),COALESCE(SUM(?+`+textBytes("store", "audience", "data", "reason")+`),0) FROM work_audiences WHERE store=?`, workRowOverhead, store).Scan(&u.WorkAudiences, &audienceBytes)
+		u.Logical += audienceBytes
+		u.WorkLogical += audienceBytes
+	}
 	return u, err
 }
 
 // workDebt is a store's funded work obligations, from the durable credit flags of its
-// retained bundles: each credit reserves one event and entry slot and its logical
-// bytes; an end credit also reserves one replay slot (docs/WORK-ITEMS-STORAGE.md).
-type workDebt struct{ overdue, end int64 }
+// retained bundles and reported items: each credit reserves one event and entry slot and
+// its logical bytes; an end credit also reserves one replay slot, and a verdict credit
+// one replay and one scope revision slot (docs/WORK-ITEMS-GO-STORAGE.md).
+type workDebt struct{ overdue, end, verdict int64 }
 
 func storeDebt(ctx context.Context, q querier, repo string) (workDebt, error) {
 	var d workDebt
 	err := q.QueryRowContext(ctx, `SELECT COALESCE(SUM(b.overdue_credit),0),COALESCE(SUM(b.end_credit),0) FROM claim_bundles b
 		JOIN memory_stores s ON s.store_id=b.store WHERE s.repository=?`, repo).Scan(&d.overdue, &d.end)
+	if err == nil {
+		err = q.QueryRowContext(ctx, `SELECT COALESCE(SUM(w.verdict_credit),0) FROM work_items w
+			JOIN memory_stores s ON s.store_id=w.store WHERE s.repository=?`, repo).Scan(&d.verdict)
+	}
 	return d, err
 }
 
 // caps are one store's ceilings for a write class after keeping its work debt free:
 // ordinary writes also leave the note reserve for withdrawals and progress.
-type storeCaps struct{ entries, logical, idem, workLogical, workEvents int64 }
+type storeCaps struct{ entries, logical, idem, workLogical, workEvents, workScopes int64 }
 
 func (l memoryLimits) caps(class writeClass, d workDebt) storeCaps {
-	slots, bytes := d.overdue+d.end, (d.overdue+d.end)*l.creditBytes
-	c := storeCaps{entries: l.entries - slots, logical: l.logical - bytes, idem: l.idem - d.end,
-		workLogical: l.workLogical - bytes, workEvents: l.workEvents - slots}
+	slots, bytes := d.overdue+d.end+d.verdict, (d.overdue+d.end)*l.creditBytes+d.verdict*l.verdictBytes
+	c := storeCaps{entries: l.entries - slots, logical: l.logical - bytes, idem: l.idem - d.end - d.verdict,
+		workLogical: l.workLogical - bytes, workEvents: l.workEvents - slots, workScopes: l.workScopes - d.verdict}
 	if class != control {
 		c.entries -= l.reservedEntries
 		c.logical -= l.reservedBytes
@@ -286,7 +327,8 @@ func (l memoryLimits) exceeded(u memoryUsage, c storeCaps, need, slots int64) er
 		return memoryError("capacity", "this store's capacity is reached after keeping promised work controls; nothing was written and stored data is intact")
 	case u.Idem > c.idem:
 		return memoryError("idem_capacity", "the idempotency window is full; nothing was written")
-	case u.WorkItems > l.workItems || u.WorkScopes > l.workScopes || u.WorkScopesPerItem > l.workScopesPerItem ||
+	case u.WorkItems > l.workItems || u.WorkScopes > c.workScopes || u.WorkScopesPerItem > l.workScopesPerItem ||
+		u.WorkAudiences > maxWorkAudiences ||
 		u.ClaimBundles > maxBundles || u.ClaimResources > maxBundles*(maxResources+1):
 		return memoryError("capacity", "a work row limit is reached; nothing was written and stored data is intact")
 	}
@@ -342,6 +384,11 @@ func (s *Store) memoryWrite(ctx context.Context, repo string, class writeClass, 
 	if err := body(tx); err != nil {
 		return tx.fail(err)
 	}
+	if m, guarded := ctx.Value(participantCallKey{}).(MemoryCaller); guarded {
+		if _, err := tx.ExecContext(ctx, `UPDATE memory_cursors SET actor=? WHERE repository=? AND consumer=?`, nativeActor(m), repo, m.Consumer); err != nil {
+			return tx.fail(err)
+		}
+	}
 	if err := s.enforce(ctx, tx, repo); err != nil {
 		tx.Rollback()
 		return err
@@ -389,15 +436,23 @@ func (s *Store) expireMemory(ctx context.Context, repo string, reclaim bool) err
 	for {
 		removed := int64(0)
 		err := s.memoryExpiryStep(ctx, func(tx *writeTx) error {
-			rows, err := tx.QueryContext(ctx, `SELECT seq FROM memory_entries WHERE repository=? AND expires IS NOT NULL
+			rows, err := tx.QueryContext(ctx, `SELECT seq,type,body FROM memory_entries WHERE repository=? AND expires IS NOT NULL
 				AND expires<? ORDER BY seq LIMIT 200`, repo, now)
 			if err != nil {
 				return err
 			}
 			var seqs []int64
+			libraryFloor := int64(0)
 			for rows.Next() {
 				var seq int64
-				rows.Scan(&seq)
+				var kind, body string
+				if err := rows.Scan(&seq, &kind, &body); err != nil {
+					rows.Close()
+					return err
+				}
+				if kind == "decision" && libraryDecisionMarked(body) {
+					libraryFloor = max(libraryFloor, seq)
+				}
 				seqs = append(seqs, seq)
 			}
 			rows.Close()
@@ -410,7 +465,7 @@ func (s *Store) expireMemory(ctx context.Context, repo string, reclaim bool) err
 					return err
 				}
 			}
-			_, err = tx.ExecContext(ctx, `UPDATE memory_stores SET floor=MAX(floor,?) WHERE repository=?`, seqs[len(seqs)-1], repo)
+			_, err = tx.ExecContext(ctx, `UPDATE memory_stores SET floor=MAX(floor,?),library_floor=MAX(library_floor,?) WHERE repository=?`, seqs[len(seqs)-1], libraryFloor, repo)
 			return err
 		})
 		if err != nil {
@@ -496,10 +551,16 @@ func fingerprint(r MemoryRecordRequest) string {
 }
 
 func (s *Store) MemoryRecord(ctx context.Context, m MemoryCaller, r MemoryRecordRequest) (MemoryRecordResult, error) {
+	ctx, finish, guardErr := s.participantCall(ctx, m)
+	if guardErr != nil {
+		return MemoryRecordResult{}, guardErr
+	}
+	defer finish()
 	s.memory.op.Lock()
 	advanced := false
 	defer func() {
 		s.memory.op.Unlock()
+		finish()
 		// The hook runs after the commit and outside every lock, so it may start any operation.
 		if advanced {
 			s.changed(m.Repository)
@@ -555,6 +616,9 @@ func (s *Store) MemoryRecord(ctx context.Context, m MemoryCaller, r MemoryRecord
 			return result, err
 		}
 	}
+	if err := s.validateProjectDecision(ctx, m, r); err != nil {
+		return MemoryRecordResult{}, err
+	}
 	if err := s.maybeExpire(ctx, m.Repository); err != nil {
 		return MemoryRecordResult{}, err
 	}
@@ -577,6 +641,8 @@ func (s *Store) MemoryRecord(ctx context.Context, m MemoryCaller, r MemoryRecord
 	}
 	var result MemoryRecordResult
 	err := s.memoryWrite(ctx, m.Repository, class, need, 1, func(tx *writeTx) error {
+		// A dashboard record's audit record joins the transaction that writes the entry.
+		tx.audited = true
 		if r.Key != nil {
 			// A retry that raced the first attempt finds its row here.
 			if found, ok, err := s.duplicate(ctx, tx, m, r, print); ok || err != nil {
@@ -714,7 +780,7 @@ func (s *Store) register(ctx context.Context, m MemoryCaller) (memoryCursor, err
 		return c, memoryError("capacity", "this store's consumer capacity is reached")
 	}
 	// The charge covers the cursor and its eventual tombstone.
-	need := 2 * (int64(len(m.Consumer)) + 64)
+	need := 2*(int64(len(m.Consumer))+64) + int64(len(nativeActor(m)))
 	err = s.memoryWrite(ctx, m.Repository, ordinary, need, 0, func(tx *writeTx) error {
 		_, err := tx.ExecContext(ctx, `INSERT OR IGNORE INTO memory_cursors(repository,consumer,seq,issued,snapshot,bootstrapped,
 			resnapshot,updated) VALUES (?,?,0,0,NULL,0,0,?)`, m.Repository, m.Consumer, now)
@@ -730,6 +796,20 @@ func (s *Store) register(ctx context.Context, m MemoryCaller) (memoryCursor, err
 func (s *Store) touch(ctx context.Context, m MemoryCaller) error {
 	return s.memoryProgress(ctx, m.Repository, func(tx *writeTx) error {
 		_, err := tx.ExecContext(ctx, `UPDATE memory_cursors SET updated=? WHERE repository=? AND consumer=?`, s.clock(), m.Repository, m.Consumer)
+		if err != nil {
+			return err
+		}
+		// Custom consumers also record the actual session using the cursor. This is
+		// transport provenance for discovery, without deriving identity from its label.
+		if validKey(m.Native.Family, m.Native.ID) && m.Native.Family == m.Family {
+			var eligible bool
+			if err := tx.QueryRowContext(ctx, `SELECT EXISTS(SELECT 1 FROM sessions WHERE family=? AND id=? AND repository=? AND retired_at=0 AND expires_at>?)`, m.Native.Family, m.Native.ID, m.Repository, s.now().UnixMilli()).Scan(&eligible); err != nil {
+				return err
+			}
+			if eligible {
+				_, err = tx.ExecContext(ctx, `UPDATE memory_cursors SET actor=? WHERE repository=? AND consumer=?`, nativeActor(m), m.Repository, m.Consumer)
+			}
+		}
 		return err
 	})
 }
@@ -761,6 +841,11 @@ type MemorySyncRequest struct {
 
 // MemorySync returns a snapshot page or a delta batch and never moves the cursor.
 func (s *Store) MemorySync(ctx context.Context, m MemoryCaller, r MemorySyncRequest) (map[string]any, error) {
+	ctx, finish, guardErr := s.participantCall(ctx, m)
+	if guardErr != nil {
+		return nil, guardErr
+	}
+	defer finish()
 	s.memory.op.Lock()
 	defer s.memory.op.Unlock()
 	l := s.limits()
@@ -1038,6 +1123,11 @@ type MemoryAckRequest struct {
 // MemoryAck moves the cursor: through a fully issued snapshot, or monotonically through
 // an issued delta.
 func (s *Store) MemoryAck(ctx context.Context, m MemoryCaller, r MemoryAckRequest) (map[string]any, error) {
+	ctx, finish, guardErr := s.participantCall(ctx, m)
+	if guardErr != nil {
+		return nil, guardErr
+	}
+	defer finish()
 	s.memory.op.Lock()
 	defer s.memory.op.Unlock()
 	l := s.limits()
@@ -1111,6 +1201,11 @@ func (s *Store) MemoryAck(ctx context.Context, m MemoryCaller, r MemoryAckReques
 // MemoryRecall finds live entries whose body contains the query, newest first. The scan is
 // complete and matches the query literally.
 func (s *Store) MemoryRecall(ctx context.Context, m MemoryCaller, query string, before int64) (map[string]any, error) {
+	ctx, finish, guardErr := s.participantCall(ctx, m)
+	if guardErr != nil {
+		return nil, guardErr
+	}
+	defer finish()
 	l := s.limits()
 	if strings.TrimSpace(query) == "" {
 		return nil, memoryError("invalid_request", "the query is empty")
@@ -1154,11 +1249,24 @@ func (s *Store) MemoryRecall(ctx context.Context, m MemoryCaller, query string, 
 	if page == nil {
 		page = []json.RawMessage{}
 	}
-	return map[string]any{"entries": page, "more": more, "indexed": false, "next_before": next}, nil
+	result := map[string]any{"entries": page, "more": more, "indexed": false, "next_before": next}
+	if query == library.DecisionMarker {
+		history, err := s.libraryReceiptHistory(ctx, m)
+		if err != nil {
+			return nil, err
+		}
+		result["library_history"] = history
+	}
+	return result, nil
 }
 
 // MemoryStatus reports the store's head, floor, usage, limits, lifetimes and consumers.
 func (s *Store) MemoryStatus(ctx context.Context, m MemoryCaller, after string) (map[string]any, error) {
+	ctx, finish, guardErr := s.participantCall(ctx, m)
+	if guardErr != nil {
+		return nil, guardErr
+	}
+	defer finish()
 	l := s.limits()
 	var head, floor int64
 	storeID := ""
@@ -1170,7 +1278,7 @@ func (s *Store) MemoryStatus(ctx context.Context, m MemoryCaller, after string) 
 	if err != nil {
 		return nil, err
 	}
-	rows, err := s.db.QueryContext(ctx, `SELECT consumer,seq,snapshot,bootstrapped FROM memory_cursors WHERE repository=? AND consumer>?
+	rows, err := s.db.QueryContext(ctx, `SELECT consumer,seq,snapshot,bootstrapped,actor FROM memory_cursors WHERE repository=? AND consumer>?
 		ORDER BY consumer LIMIT ?`, m.Repository, after, l.rowWindow+1)
 	if err != nil {
 		return nil, err
@@ -1178,12 +1286,12 @@ func (s *Store) MemoryStatus(ctx context.Context, m MemoryCaller, after string) 
 	var consumers []map[string]any
 	var sizes []int64
 	for rows.Next() {
-		var consumer string
+		var consumer, actor string
 		var seq int64
 		var snapshot sql.NullString
 		var bootstrapped bool
-		rows.Scan(&consumer, &seq, &snapshot, &bootstrapped)
-		item := map[string]any{"consumer": consumer, "cursor": seq, "lag": head - seq, "snapshot": nil, "bootstrapped": bootstrapped}
+		rows.Scan(&consumer, &seq, &snapshot, &bootstrapped, &actor)
+		item := map[string]any{"consumer": consumer, "cursor": seq, "lag": head - seq, "snapshot": nil, "bootstrapped": bootstrapped, "actor": actor}
 		if snapshot.Valid {
 			item["snapshot"] = snapshot.String
 		}
@@ -1220,16 +1328,22 @@ func (s *Store) MemoryStatus(ctx context.Context, m MemoryCaller, after string) 
 	if err != nil {
 		return nil, err
 	}
+	notices, err := s.workNoticeStatus(ctx, m.Repository)
+	if err != nil {
+		return nil, err
+	}
 	return map[string]any{"work_maintenance": maintenance,
-		"work_debt":  map[string]any{"overdue_credits": debt.overdue, "end_credits": debt.end},
-		"repository": m.Repository, "store_id": storeID, "head": head, "floor": floor, "usage": u, "fts": false, "indexed": false,
+		"work_notifications": notices,
+		"work_debt":          map[string]any{"overdue_credits": debt.overdue, "end_credits": debt.end, "verdict_credits": debt.verdict},
+		"repository":         m.Repository, "store_id": storeID, "head": head, "floor": floor, "usage": u, "fts": false, "indexed": false,
 		"record_format": 2, "storage": storage, "consumers": page, "more": more, "next_after": next,
 		"limits": map[string]any{"entries": l.entries, "logical_bytes": l.logical, "body": l.body, "reserved_entries": l.reservedEntries,
 			"reserved_bytes": l.reservedBytes, "idempotency_rows": l.idem, "consumers": l.consumers, "retired": l.retired,
 			"snapshots_per_consumer": l.snapshotsPerConsumer, "page_bytes": l.frameBudget, "work_logical_bytes": l.workLogical,
 			"work_events": l.workEvents, "work_items": l.workItems, "work_scope_revisions": l.workScopes,
 			"work_scopes_per_item": l.workScopesPerItem, "claim_bundles": maxBundles, "daemon_claim_bundles": maxDaemonBundles,
-			"credit_bytes": l.creditBytes},
+			"credit_bytes": l.creditBytes, "pending_verdicts": maxStoreVerdicts, "daemon_pending_verdicts": maxDaemonVerdicts,
+			"verdict_credit_bytes": l.verdictBytes},
 		"lifetimes": map[string]any{"snapshot": l.snapshotTTL, "acknowledgement": l.ackRetention, "idempotency": l.idemTTL,
 			"consumer": l.consumerTTL, "retired": l.retiredTTL, "expiry_interval": l.expiryInterval},
 	}, nil

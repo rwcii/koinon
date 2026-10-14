@@ -134,7 +134,7 @@ func TestDashboardLoginAndRequestProtection(t *testing.T) {
 	}
 	for name, want := range map[string]string{
 		"Content-Security-Policy": "default-src 'none'; script-src 'self'; style-src 'self'; connect-src 'self'; img-src 'self'; form-action 'self'; frame-ancestors 'none'; base-uri 'none'",
-		"X-Frame-Options":         "DENY", "X-Content-Type-Options": "nosniff", "Referrer-Policy": "no-referrer",
+		"X-Frame-Options":         "DENY", "X-Content-Type-Options": "nosniff", "Referrer-Policy": "same-origin",
 		"Cache-Control": "no-store", "Cross-Origin-Opener-Policy": "same-origin",
 	} {
 		if got := page.header.Get(name); got != want {
@@ -336,11 +336,13 @@ func TestDashboardViewsRenderSyntheticState(t *testing.T) {
 	if err := os.Mkdir(sub, 0700); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := s.Register(ctx, Registration{Family: "claude", ID: "synthetic-sub", Directory: sub, TTLSeconds: 60}); err != nil {
+	standalone, err := s.Register(ctx, withLaunch(t, s, Registration{Family: "claude", ID: "synthetic-sub", Directory: sub, TTLSeconds: 60}))
+	if err != nil {
 		t.Fatal(err)
 	}
 	if err := s.Observe(ctx, Observation{Caller: Key{"claude", "synthetic-sub"}, Terminal: &ObservedValue{Source: "tmux_env",
-		At: s.now().UnixMilli(), Socket: "/tmp/tmux-synthetic/default", Pane: "%5", Session: "synthetic-work", Naming: "name_taken"}}); err != nil {
+		At: s.now().UnixMilli(), Socket: "/tmp/tmux-synthetic/default", Pane: "%5", Session: "synthetic-work", Naming: "renamed"},
+		Naming: &ObservedValue{Source: "koinon_mcp", At: s.now().UnixMilli(), Naming: "name_taken", Target: standalone.Name}}); err != nil {
 		t.Fatal(err)
 	}
 	hostile := `<script>alert("x")</script> <a href="javascript:alert(1)">link</a> 'quote' & more`
@@ -378,7 +380,10 @@ func TestDashboardViewsRenderSyntheticState(t *testing.T) {
 	}
 	sessions := page("/dashboard/sessions")
 	contains(sessions, a.Name, b.Name, retired.Name, "state-retired", repo, "Synthetic held item &lt;b&gt;bold&lt;/b&gt;", held,
-		"directory "+sub, "synthetic-work <code>%5</code>", "tmux_env, ", "naming: name_taken", "unknown: terminal_unverified")
+		"directory "+sub, "synthetic-work <code>%5</code>", "tmux_env, ", "naming: name_taken", NamingReason("name_taken"), "unknown: not_observed")
+	if strings.Contains(sessions, "naming: renamed") {
+		t.Fatal("legacy terminal naming shown instead of the independent naming result")
+	}
 	if strings.Contains(sessions, "More sessions") {
 		t.Fatal("a single page links to more")
 	}
@@ -394,7 +399,7 @@ func TestDashboardViewsRenderSyntheticState(t *testing.T) {
 	if strings.Contains(messages, "<script>alert") || strings.Contains(messages, `href="javascript:`) {
 		t.Fatal("message body not escaped")
 	}
-	if got := strings.Count(messages, "<td>yes<br><small>by recipient</small></td>"); got != 1 {
+	if got := strings.Count(messages, "<td>yes<br><small>by recipient ("+b.Name+", ack)</small></td>"); got != 1 {
 		t.Fatalf("acknowledged messages: %d", got)
 	}
 	contains(page("/dashboard/messages?to="+b.Name), "first message")
@@ -404,14 +409,14 @@ func TestDashboardViewsRenderSyntheticState(t *testing.T) {
 	if body := page("/dashboard/messages?to=nobody"); !strings.Contains(body, "No messages.") {
 		t.Fatal("unknown recipient listed messages")
 	}
-	if r := dashboardDo(t, d, "GET", "/dashboard/messages?before=x", cookie, nil, nil); r.status != 400 {
+	if r := dashboardDo(t, d, "GET", "/dashboard/messages?after=x", cookie, nil, nil); r.status != 400 {
 		t.Fatalf("bad cursor: %d", r.status)
 	}
 	contains(page("/dashboard/memory"), "/synthetic/view/.git", "overdue, ")
 	work := page("/dashboard/work")
 	contains(work, open, held, "codex:synthetic-a", "internal/core", "db:schema", "valid until", "open", "active")
 	health := page("/dashboard/health")
-	contains(health, "running since", "schema 8", d.Addresses()[0], "1 retired")
+	contains(health, "running since", fmt.Sprintf("schema %d", schemaVersion), d.Addresses()[0], "1 retired", "acknowledged messages 30 days, inactive sessions 30 days")
 	// A fragment is the list alone, for the in-place refresh.
 	fragment := page("/dashboard/work?fragment=1")
 	if strings.Contains(fragment, "<html") || !strings.Contains(fragment, held) {
@@ -429,12 +434,11 @@ func TestDashboardViewsRenderSyntheticState(t *testing.T) {
 		join(t, s, "codex", fmt.Sprintf("synthetic-many-%03d", i), "")
 	}
 	first := page("/dashboard/sessions")
-	link := regexp.MustCompile(`href="/dashboard/sessions\?after=([^"]+)"`).FindStringSubmatch(first)
+	link := regexp.MustCompile(`href="(/dashboard/sessions\?after=[^"]+)"`).FindStringSubmatch(first)
 	if link == nil {
 		t.Fatal("no link to the next page")
 	}
-	cursor, _ := url.QueryUnescape(strings.ReplaceAll(link[1], "&amp;", "&"))
-	if second := page("/dashboard/sessions?after=" + url.QueryEscape(cursor)); !strings.Contains(second, "<tr") {
+	if second := page(strings.ReplaceAll(link[1], "&amp;", "&")); !strings.Contains(second, "<tr") {
 		t.Fatal("next page empty")
 	}
 }
@@ -466,9 +470,9 @@ func TestDashboardMessagePagingAcrossInboxes(t *testing.T) {
 	}
 	_ = sender
 	seen := map[int64]bool{}
-	previous, before, pages := int64(1<<62), int64(0), 0
+	previous, after, pages := int64(1<<62), "", 0
 	for {
-		page, next, err := s.dashboardMessages(ctx, nil, before)
+		page, next, err := s.dashboardMessages(ctx, nil, sortOrder(t, &messageSort, "", "", after))
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -482,13 +486,13 @@ func TestDashboardMessagePagingAcrossInboxes(t *testing.T) {
 			}
 			seen[m.ID], previous = true, m.ID
 		}
-		if next == 0 {
+		if next == "" {
 			break
 		}
-		if next != page[len(page)-1].ID {
-			t.Fatalf("cursor %d is not the last listed ID", next)
+		if want := sortOrder(t, &messageSort, "", "", "").cursor([]any{page[len(page)-1].ID, page[len(page)-1].ID}); next != want {
+			t.Fatalf("cursor %s is not the last listed ID", next)
 		}
-		before = next
+		after = next
 	}
 	if len(seen) != total || pages < 2 {
 		t.Fatalf("listed %d of %d in %d pages", len(seen), total, pages)
@@ -498,9 +502,9 @@ func TestDashboardMessagePagingAcrossInboxes(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	count, before := 0, int64(0)
+	count, after := 0, ""
 	for {
-		page, next, err := s.dashboardMessages(ctx, k, before)
+		page, next, err := s.dashboardMessages(ctx, k, sortOrder(t, &messageSort, "", "", after))
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -510,10 +514,10 @@ func TestDashboardMessagePagingAcrossInboxes(t *testing.T) {
 			}
 		}
 		count += len(page)
-		if next == 0 {
+		if next == "" {
 			break
 		}
-		before = next
+		after = next
 	}
 	if count != 47 {
 		t.Fatalf("recipient listed %d of 47", count)
@@ -525,9 +529,9 @@ func TestDashboardMessagePagingAcrossInboxes(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	page, next, err := s.dashboardMessages(ctx, nil, 0)
-	if err != nil || next == 0 || len(page) == 0 {
-		t.Fatalf("large page: %d %d %v", len(page), next, err)
+	page, next, err := s.dashboardMessages(ctx, nil, sortOrder(t, &messageSort, "", "", ""))
+	if err != nil || next == "" || len(page) == 0 {
+		t.Fatalf("large page: %d %q %v", len(page), next, err)
 	}
 	size := 0
 	for _, m := range page {
@@ -536,7 +540,15 @@ func TestDashboardMessagePagingAcrossInboxes(t *testing.T) {
 	if size > 1<<20 && len(page) > 1 {
 		t.Fatalf("page of %d bytes", size)
 	}
-	if _, _, err := s.dashboardMessages(ctx, nil, -1); err != ErrInvalid {
-		t.Fatalf("negative cursor: %v", err)
+}
+
+// sortOrder is a view's order as a request names it: a column key ("" for the default),
+// a direction ("" for the column's first direction) and a cursor.
+func sortOrder(t *testing.T, spec *sortSpec, key, dir, after string) dashboardSort {
+	t.Helper()
+	order, err := parseSort(spec, "/dashboard/test", url.Values{"sort": {key}, "dir": {dir}, "after": {after}})
+	if err != nil {
+		t.Fatal(err)
 	}
+	return order
 }

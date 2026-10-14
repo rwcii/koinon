@@ -66,6 +66,56 @@ func TestSharedSkillsAndGuidance(t *testing.T) {
 	}
 }
 
+// raceTests is the race-enabled suite command. Under the race detector the core package runs
+// close to go test's default 10-minute timeout, so every place that runs it names one limit
+// (#296).
+const raceTests = "go test -race -timeout 30m ./..."
+
+func TestRaceCommandIsTheSameEverywhere(t *testing.T) {
+	for _, file := range []string{".github/workflows/tests.yml", ".koinon/skills/check.md", ".koinon/skills/ship.md", "AGENTS.md", "CONTRIBUTING.md", "README.md"} {
+		text := read(t, file)
+		if !strings.Contains(text, raceTests) {
+			t.Errorf("%s does not run %q", file, raceTests)
+		}
+		if strings.Count(text, "go test -race") != strings.Count(text, raceTests) {
+			t.Errorf("%s runs another go test -race command", file)
+		}
+	}
+	// The job limit must exceed the go test limit, or the job ends without the stack of a
+	// hung test.
+	if !strings.Contains(read(t, ".github/workflows/tests.yml"), "timeout-minutes: 40") {
+		t.Error("the Go CI job needs a 40-minute limit above the 30-minute go test timeout")
+	}
+}
+
+// Run the real repository command so missing, stale and retired wrappers fail CI.
+func TestOpenCodeSkillCommandsCurrent(t *testing.T) {
+	// Subprocess reads are invisible to Go's test cache. Read its inputs here too,
+	// so a cached passing check cannot hide changed wrappers or generator code.
+	for _, tree := range []string{"agents/skills", ".opencode/commands", "scripts/skill-commands"} {
+		err := filepath.WalkDir(filepath.Join(root(t), tree), func(path string, entry os.DirEntry, err error) error {
+			if err != nil {
+				return err
+			}
+			if entry.Type().IsRegular() {
+				_, err = os.ReadFile(path)
+				return err
+			}
+			// Record path metadata without following custom symlinks or reading special files.
+			_, err = os.Lstat(path)
+			return err
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+	}
+	cmd := exec.Command("go", "run", "./scripts/skill-commands", "--check")
+	cmd.Dir = root(t)
+	if out, err := cmd.CombinedOutput(); err != nil {
+		t.Fatalf("OpenCode commands are out of date: %v\n%s", err, out)
+	}
+}
+
 func TestRuntimeRetirementAndCICoverage(t *testing.T) {
 	for _, name := range []string{"koinon", "tests", "bridge.py", "notify.py", "session.py", "memory.py", "memory_service.py", "session_service.py", "codex_launch.py", "statusline.py", "usage_report.py", "scripts/install.py", "scripts/upgrade.py", "scripts/uninstall.py", "scripts/make-import-fixtures.py"} {
 		if _, err := os.Lstat(filepath.Join(root(t), name)); !os.IsNotExist(err) {
@@ -80,13 +130,13 @@ func TestRuntimeRetirementAndCICoverage(t *testing.T) {
 	if strings.Contains(nativeWorkflow, "paths-ignore:") {
 		t.Fatal("required native jobs must always report")
 	}
-	for _, contract := range []string{"--no-renames", "steps.scope.outputs.exempt", "agents/|docs/sprints/|", "fetch-depth: 0"} {
+	for _, contract := range []string{"--no-renames", "steps.scope.outputs.exempt", "docs/sprints/|", "fetch-depth: 0"} {
 		if !strings.Contains(nativeWorkflow, contract) {
 			t.Errorf("missing native scope contract: %s", contract)
 		}
 	}
 	workflow := read(t, ".github/workflows/tests.yml")
-	for _, command := range []string{"go vet ./...", "go test -race ./...", "CGO_ENABLED=0", "ubuntu-latest", "macos-latest"} {
+	for _, command := range []string{"go vet ./...", "gofmt -l .", raceTests, "CGO_ENABLED=0", "ubuntu-latest", "macos-latest"} {
 		if !strings.Contains(workflow, command) {
 			t.Errorf("missing Go CI coverage: %s", command)
 		}
@@ -120,6 +170,17 @@ func TestFreshInstallWithoutPython(t *testing.T) {
 	if out, err := build.CombinedOutput(); err != nil {
 		t.Fatalf("build: %v\n%s", err, out)
 	}
+	// The built binary reports its embedded catalog from an unrelated empty directory.
+	version := exec.Command(binary, "version")
+	version.Dir = t.TempDir()
+	versionOut, err := version.Output()
+	if err != nil {
+		t.Fatal(err)
+	}
+	var fingerprint map[string]string
+	if err := json.Unmarshal(versionOut, &fingerprint); err != nil || len(fingerprint["catalog_digest"]) != 64 {
+		t.Fatalf("embedded catalog version: %s %v", versionOut, err)
+	}
 	prefix := filepath.Join(dir, "prefix")
 	state := filepath.Join(dir, "state")
 	cmd := exec.Command(binary, "install", "--no-start", "--prefix", prefix, "--state-dir", state)
@@ -144,6 +205,12 @@ func TestFreshInstallWithoutPython(t *testing.T) {
 	if report["ok"] != true {
 		t.Fatalf("install report: %s", out)
 	}
+	installedVersion := exec.Command(filepath.Join(prefix, "bin/koinon"), "version")
+	installedVersion.Dir = version.Dir
+	installedOut, err := installedVersion.Output()
+	if err != nil || string(installedOut) != string(versionOut) {
+		t.Fatalf("installed catalog needs checkout/files: %v %s", err, installedOut)
+	}
 	if _, err := os.Stat(filepath.Join(prefix, "bin/koinon")); err != nil {
 		t.Fatal(err)
 	}
@@ -161,7 +228,7 @@ func TestNativeScope(t *testing.T) {
 		t.Fatal("no native scope script")
 	}
 	script := strings.ReplaceAll(match[1], "          ", "")
-	for _, scenario := range []string{"skill", "skill-and-readme", "rename-runtime"} {
+	for _, scenario := range []string{"skill", "skill-and-readme", "rename-runtime", "plan"} {
 		t.Run(scenario, func(t *testing.T) {
 			dir := t.TempDir()
 			git := func(args ...string) string {
@@ -181,6 +248,11 @@ func TestNativeScope(t *testing.T) {
 			base := git("rev-parse", "HEAD")
 			os.MkdirAll(filepath.Join(dir, "agents/skills/x"), 0700)
 			os.WriteFile(filepath.Join(dir, "agents/skills/x/SKILL.md"), []byte("skill\n"), 0600)
+			if scenario == "plan" {
+				os.Remove(filepath.Join(dir, "agents/skills/x/SKILL.md"))
+				os.MkdirAll(filepath.Join(dir, "docs/sprints/x"), 0700)
+				os.WriteFile(filepath.Join(dir, "docs/sprints/x/decision.md"), []byte("plan\n"), 0600)
+			}
 			if scenario == "skill-and-readme" {
 				os.WriteFile(filepath.Join(dir, "README.md"), []byte("changed\n"), 0600)
 			}
@@ -198,7 +270,7 @@ func TestNativeScope(t *testing.T) {
 			}
 			out, _ := os.ReadFile(output)
 			exempt := strings.Contains(string(out), "exempt=true")
-			if exempt != (scenario == "skill") {
+			if exempt != (scenario == "plan") {
 				t.Fatalf("%s exempt=%v", scenario, exempt)
 			}
 		})
@@ -297,12 +369,17 @@ esac
 				}
 			}
 		}
-		for _, name := range []string{"go (ubuntu-latest)", "go (macos-latest)", "go-lifecycle (ubuntu-latest, systemd)", "go-lifecycle (macos-latest, launchd)"} {
+		required := []string{"go (ubuntu-latest)", "go (macos-latest)", "go-lifecycle (ubuntu-latest, systemd)", "go-lifecycle (macos-latest, launchd)"}
+		// develop also requires the reviewer's sign-offs on the head; main takes develop heads.
+		if branch == "develop" {
+			required = append(required, "peer-review", "refusal-review")
+		}
+		for _, name := range required {
 			if !checks[name] {
 				t.Errorf("missing required check %s", name)
 			}
 		}
-		if len(checks) != 4 || !rules["non_fast_forward"] || !rules["deletion"] || !rules["pull_request"] {
+		if len(checks) != len(required) || !rules["non_fast_forward"] || !rules["deletion"] || !rules["pull_request"] {
 			t.Fatalf("protection changed: %s", data)
 		}
 	}
@@ -339,7 +416,10 @@ func TestHomebrewFormula(t *testing.T) {
 			}
 		}
 	}
-	for _, want := range []string{`version "1.2.3"`, `license "MIT"`, `=> "koinon"`, "koinon install", `#{bin}/koinon version`} {
+	if strings.Contains(formula, "\n  version ") {
+		t.Error("an explicit version is redundant with the URL and fails brew audit --strict")
+	}
+	for _, want := range []string{`license "MIT"`, `=> "koinon"`, "koinon install", `#{bin}/koinon version`} {
 		if !strings.Contains(formula, want) {
 			t.Errorf("formula lacks %s", want)
 		}

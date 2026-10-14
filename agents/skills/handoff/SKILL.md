@@ -1,11 +1,15 @@
 ---
 name: handoff
-description: Write a timestamped snapshot of this agent's current work to its own directory under the Git-ignored _handoff/ so the next session of the same agent can resume it. Use at the end of a session, before a long or risky operation, when context is nearly full, or when the maintainer asks to hand off or save state. Each run adds a new file; it never edits an earlier one, and it never commits.
+description: "Write a timestamped snapshot of this agent's current work to its own directory under the Git-ignored _handoff/ so the next session of the same agent can resume it. Use at the end of a session, before a long or risky operation, when context is nearly full, or when the maintainer asks to hand off or save state. Each run adds a new file; it never edits an earlier one, and it never commits."
 ---
 
 # Handoff
 
-Read `agents/skills/AGENTS.md` and the root `AGENTS.md` first. The `pickup` skill reads what
+Koinon's procedure source is [WDR 005](https://github.com/rwcii/koinon/blob/develop/docs/engineering/wdr/005-private-handoffs-and-continuity.md). The adopting project's instructions govern its
+application. Invoking this skill or its task authorizes the work steps; ask only for necessary
+missing information or authority beyond that task (WDR 002, Decision 1).
+
+Read the adopting project's authoritative instructions first. Read `agents/skills/AGENTS.md` when editing its canonical source; a machine-wide installation need not contain that file. The `pickup` skill reads what
 this skill writes.
 
 A handoff is a snapshot of one agent's work, true at the time it is written. The reader is the
@@ -15,11 +19,15 @@ in the ignored `_handoff/` directory and never enter Git.
 
 ## 1. Name the agent
 
-The agent ID is the agent family in lower case: `claude`, `codex` or `deepseek`. When two
+The agent ID is the native agent family in lower case, such as `claude`, `codex`,
+`deepseek`, `agy` or `opencode`. When two
 agents of one family work in this repository at the same time, the maintainer assigns each a role
 suffix, for example `codex-review`. Use the same ID every session.
 
 ## 2. Create and check the directory
+
+Resolve Handoff path from the project facts or the declared default. The examples below use
+that default; apply an evidenced override consistently for writing and pickup.
 
 All handoffs belong in the `_handoff/` directory of the main checkout (the repository
 directory that holds `.git`). Never write one into a `_handoff/` inside a linked worktree:
@@ -101,7 +109,8 @@ state, pull request and issue states, CI state. Write:
 - Anything mid-operation: <uncommitted edits, running jobs>
 
 ## Bridge identity
-- Agent family, peer name, and the installed guide command
+- Agent family, peer name, participant address, role and holder flag, and the installed guide command
+- Last succession result or refusal, when the installed runtime reports one
 - Codex or DeepSeek: this session's thread or session ID and its state directory
 - In tmux: the values of `$TMUX` and `$TMUX_PANE`, which identify this terminal
 
@@ -118,6 +127,13 @@ register a session or return live observations. Record only values actually obse
 unknown values stated as unknown. In a not-yet-upgraded installation, follow that installed
 runtime's guidance instead; never replace runtime state merely to write a handoff.
 
+Record the participant address, role, holder flag and last succession result from the
+installed runtime's discovery/registration output, not from the peer name or directory.
+An older runtime that has no participant fields is recorded as such. Record the current work
+consumer, claim generation and lease when present, so pickup can distinguish continued
+participant claims from predecessor-owned native claims. Saving a handoff neither releases
+a claim nor moves an address; native-session ownership still follows the installed guidance.
+
 Record the native session ID from the family's trusted environment or the MCP caller metadata
 when available: CODEX_THREAD_ID, CLAUDE_CODE_SESSION_ID, DSH_SESSION_ID, or the native
 Antigravity/OpenCode identity. Record TMUX and TMUX_PANE when present. Never infer a native
@@ -129,3 +145,35 @@ keys, credentials or peer message bodies into it, and never copy it into a commi
 request or documentation.
 
 Do not commit, stage or push anything for a handoff. Report the path of the new file.
+
+## Repository facts
+
+Resolve the current worktree and Git common directory before reading project facts. The file
+below is local fact data with Version 1, matching Skill, Sources and the declared headings.
+It is outside the embedded catalog. No required fields means no sidecar is needed; optional
+fields use only the defaults declared here. A supplied sidecar must still be valid.
+Read required facts before the dependent step. When missing, derive and record them from
+checked project evidence within the task. Ask for necessary missing information or authority
+beyond that task; existing authorization counts. Project instructions govern the procedure,
+and facts supply its project data. Bound sidecars to 64 KiB. Their parser reads inert text;
+it does not include other files, expand shell syntax or execute values.
+
+<!-- koinon:repository-facts -->
+```json
+{
+  "version": 1,
+  "filename": ".koinon/skills/handoff.md",
+  "fields": [
+    {
+      "heading": "Handoff path",
+      "required": false,
+      "default": "_handoff/<agent>/ in main checkout"
+    },
+    {
+      "heading": "Extra verification",
+      "required": false,
+      "default": "none"
+    }
+  ]
+}
+```

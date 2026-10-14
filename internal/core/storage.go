@@ -20,6 +20,15 @@ func (r Refusal) Error() string { return r.Code + ": " + r.Message }
 var (
 	ErrCapacity       = Refusal{"capacity", "storage capacity reached; nothing was written and stored data is intact"}
 	ErrStorageBlocked = Refusal{"storage_blocked", "the write-ahead log could not be proven empty; writes wait for koinon recover"}
+	// ErrNotLaunched refuses a supplied launch that does not match the session.
+	// ErrLaunchPending refuses a background job before its job ID is recorded.
+	ErrNotLaunched   = Refusal{"not_launched", "the supplied launch does not match this session"}
+	ErrLaunchPending = Refusal{"launch_pending", "the background launch has not recorded its job yet; call again"}
+	// ErrIdentityUnavailable refuses a session ID that its launch does not admit.
+	ErrIdentityUnavailable = Refusal{"identity_unavailable", "the session ID does not match the launch's first session"}
+	// ErrStaleHolder refuses a call that acts for a participant from a session that does
+	// not hold it, such as a former holder after a change of holder.
+	ErrStaleHolder = Refusal{"stale_holder", "this session does not hold that participant; another session holds it now"}
 )
 
 // The daemon-wide physical bound (docs/PARITY-MEMORY-DESIGN.md, "Storage bound"), for the one
@@ -73,8 +82,9 @@ func debtPages(ctx context.Context, q interface {
 	QueryRowContext(context.Context, string, ...any) *sql.Row
 }) (int64, error) {
 	var pages int64
-	err := q.QueryRowContext(ctx, `SELECT COALESCE(SUM(overdue_credit),0)*?+COALESCE(SUM(end_credit),0)*? FROM claim_bundles`,
-		overdueCreditPages, endCreditPages).Scan(&pages)
+	err := q.QueryRowContext(ctx, `SELECT (SELECT COALESCE(SUM(overdue_credit),0)*?+COALESCE(SUM(end_credit),0)*? FROM claim_bundles)+
+		(SELECT COALESCE(SUM(verdict_credit),0)*? FROM work_items)+(SELECT COALESCE(SUM(credit),0) FROM context_cycles)`,
+		overdueCreditPages, endCreditPages, verdictCreditPages).Scan(&pages)
 	return pages, err
 }
 
@@ -100,6 +110,17 @@ func (s *Store) resetLog(ctx context.Context) error {
 		return fmt.Errorf("log holds %d bytes", info.Size())
 	}
 	return nil
+}
+
+// proofFailed records a failed log proof as a block. A proof that ended because the
+// request's context ended proved nothing about the log and wrote nothing: only that request
+// is refused, and the next write proves the log again.
+func (s *Store) proofFailed(ctx context.Context, err error) error {
+	if ctx.Err() != nil {
+		return ctx.Err()
+	}
+	s.storage.blocked = err.Error()
+	return ErrStorageBlocked
 }
 
 func (s *Store) pages(ctx context.Context, q interface {
@@ -129,10 +150,22 @@ type writeTx struct {
 // starts the transaction.
 func (s *Store) begin(ctx context.Context, class writeClass) (*writeTx, error) {
 	s.storage.mu.Lock()
+	// Refuse a stale participant before admission can reclaim or maintenance can write.
+	if err := s.checkParticipantCall(ctx); err != nil {
+		s.storage.mu.Unlock()
+		return nil, err
+	}
 	tx, err := s.enter(ctx, class)
 	if err != nil {
 		s.storage.mu.Unlock()
 		return nil, err
+	}
+	if m, guarded := ctx.Value(participantCallKey{}).(MemoryCaller); guarded {
+		if err := s.requireParticipantCaller(ctx, tx, m); err != nil {
+			tx.Rollback()
+			s.storage.mu.Unlock()
+			return nil, err
+		}
 	}
 	return &writeTx{Tx: tx, s: s, ctx: ctx, class: class}, nil
 }
@@ -142,8 +175,7 @@ func (s *Store) enter(ctx context.Context, class writeClass) (*sql.Tx, error) {
 		return nil, ErrStorageBlocked
 	}
 	if err := s.resetLog(ctx); err != nil {
-		s.storage.blocked = err.Error()
-		return nil, ErrStorageBlocked
+		return nil, s.proofFailed(ctx, err)
 	}
 	if class == ordinary {
 		pages, err := s.pages(ctx, s.db)
@@ -176,8 +208,7 @@ func (s *Store) reclaim(ctx context.Context) error {
 		return err
 	}
 	if err := s.resetLog(ctx); err != nil {
-		s.storage.blocked = err.Error()
-		return ErrStorageBlocked
+		return s.proofFailed(ctx, err)
 	}
 	return nil
 }
@@ -277,15 +308,13 @@ func (s *Store) recoverLocked(ctx context.Context) error {
 		return err
 	}
 	if err := s.resetLog(ctx); err != nil {
-		s.storage.blocked = err.Error()
-		return ErrStorageBlocked
+		return s.proofFailed(ctx, err)
 	}
 	if _, err := s.db.ExecContext(ctx, "PRAGMA incremental_vacuum"); err != nil {
 		return err
 	}
 	if err := s.resetLog(ctx); err != nil {
-		s.storage.blocked = err.Error()
-		return ErrStorageBlocked
+		return s.proofFailed(ctx, err)
 	}
 	after, err := s.pages(ctx, s.db)
 	if err != nil {

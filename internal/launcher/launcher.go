@@ -14,12 +14,26 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"slices"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/rwcii/koinon/internal/core"
 	"github.com/rwcii/koinon/internal/platform"
 )
+
+// Families are the agent families that the launcher starts. A started Claude session
+// registers through its own MCP server with its Claude Code session ID, as one started by
+// hand does; its launch record documents the start.
+var Families = map[string]bool{"claude": true, "codex": true, "agy": true, "opencode": true, "grok": true}
+
+// MCPVariables are the environment variables that koinon mcp reads and the launcher sets or
+// inherits. Codex passes an MCP server only the variables that its env_vars lists (#247).
+var MCPVariables = []string{"KOINON_LAUNCH_ID", "KOINON_STATE_DIR", "KOINON_DAEMON_ADDRESS", "TMUX", "TMUX_PANE", "CODEX_HOME"}
+
+// codexServer is the MCP server name that koinon setup codex configures.
+const codexServer = "koinon"
 
 type Options struct {
 	Family    string
@@ -28,7 +42,11 @@ type Options struct {
 	CLI       string
 	Directory string
 	Session   string
-	Args      []string
+	// Background starts a Claude background job (claude --bg) instead of a terminal.
+	Background bool
+	// Role is the maintainer's role for the session; its participant's address ends in it.
+	Role string
+	Args []string
 }
 
 // Parse consumes only leading launcher options; everything after -- is literal.
@@ -44,6 +62,11 @@ func Parse(family string, args []string) (Options, error) {
 			args = args[1:]
 			break
 		}
+		if key == "--bg" {
+			o.Background = true
+			args = args[1:]
+			continue
+		}
 		var field *string
 		switch key {
 		case "--state-dir":
@@ -56,12 +79,17 @@ func Parse(family string, args []string) (Options, error) {
 			field = &o.Directory
 		case "--tmux-session":
 			field = &o.Session
+		case "--role":
+			field = &o.Role
 		default:
 			o.Args = args
 			return o, nil
 		}
 		if len(args) < 2 || args[1] == "" {
 			return Options{}, fmt.Errorf("%s needs a value", key)
+		}
+		if key == "--role" && !core.ValidRole(args[1]) {
+			return Options{}, errors.New("--role must be 1 to 24 lower-case letters, digits and hyphens, start with a letter and not be only hexadecimal digits")
 		}
 		*field = args[1]
 		args = args[2:]
@@ -74,12 +102,51 @@ func configuredCLI(o Options) (string, error) {
 	return ConfiguredCLI(o.StateDir, o.Family, o.CLI)
 }
 
+// launchCLI returns the CLI of a launch. When neither --cli nor launchers.json names one, it
+// records the family's CLI from PATH and reports the recorded path (PDR 003, Decision 5).
+// An entry recorded meanwhile by another launch or setup is used, not replaced.
+func launchCLI(ctx context.Context, o Options, report io.Writer) (string, error) {
+	cli, err := configuredCLI(o)
+	var missing missingCLIError
+	if o.CLI != "" || !errors.As(err, &missing) {
+		return cli, err
+	}
+	// A lookup that succeeds through a relative PATH entry is recorded as its absolute path.
+	found, lookErr := exec.LookPath(o.Family)
+	if lookErr == nil {
+		found, lookErr = filepath.Abs(found)
+	}
+	if lookErr != nil {
+		return "", err
+	}
+	recorded, err := recordCLI(ctx, o.StateDir, o.Family, found, false)
+	if err != nil {
+		return "", fmt.Errorf("record the %s CLI found on PATH: %w", o.Family, err)
+	}
+	if cli, err = configuredCLI(o); err != nil {
+		return "", err
+	}
+	if recorded {
+		fmt.Fprintf(report, "koinon: recorded the %s CLI %s in launchers.json\n", o.Family, cli)
+	}
+	return cli, nil
+}
+
+// missingCLIError reports that launchers.json has no usable entry for the family: no file,
+// no entry or an empty entry. Other failures leave the configuration to the person.
+type missingCLIError struct{ message string }
+
+func (e missingCLIError) Error() string { return e.message }
+
 // ConfiguredCLI returns the absolute agent CLI path: the override when given, else the
 // family's entry in private launchers.json. It never searches PATH.
 func ConfiguredCLI(stateDir, family, override string) (string, error) {
 	path := override
 	if path == "" {
 		f, err := platform.OpenPrivate(filepath.Join(stateDir, "launchers.json"), os.O_RDONLY)
+		if errors.Is(err, fs.ErrNotExist) {
+			return "", missingCLIError{"no " + family + " CLI is configured in launchers.json; " + remedy(stateDir, family)}
+		}
 		if err != nil {
 			return "", errors.New("configure an absolute CLI path in private launchers.json or use --cli")
 		}
@@ -92,7 +159,13 @@ func ConfiguredCLI(stateDir, family, override string) (string, error) {
 		if json.Unmarshal(data, &config) != nil {
 			return "", errors.New("invalid launcher configuration")
 		}
-		path = config[family]
+		var found bool
+		if path, found = config[family]; !found {
+			return "", missingCLIError{"no " + family + " CLI is configured in launchers.json; " + remedy(stateDir, family)}
+		}
+		if path == "" {
+			return "", missingCLIError{"the " + family + " CLI entry in launchers.json is empty; " + remedy(stateDir, family)}
+		}
 	}
 	if !filepath.IsAbs(path) {
 		return "", errors.New("configured CLI path must be absolute")
@@ -104,8 +177,20 @@ func ConfiguredCLI(stateDir, family, override string) (string, error) {
 	return path, nil
 }
 
-// CheckDirectory refuses nested repositories, including worktree .git files.
-// A scan failure is a refusal, since an unreadable subtree cannot be verified.
+// remedy names the two remedies for a family without a recorded CLI: setup records it in
+// this state directory's launchers.json, and --cli selects it for one launch.
+func remedy(stateDir, family string) string {
+	command := "koinon setup " + family
+	if root, err := filepath.Abs(stateDir); err == nil {
+		if standard, err := platform.DefaultStateDir(); err != nil || root != filepath.Clean(standard) {
+			command += " --state-dir " + core.ShellWord(root)
+		}
+	}
+	return "run " + command + " to record it, or start with --cli ABS_PATH"
+}
+
+// CheckDirectory resolves the start directory: an existing directory, with symlinks
+// resolved. Nested repositories do not refuse a start; ScanNested reports them (#252).
 func CheckDirectory(path string) (string, error) {
 	if path == "" {
 		var err error
@@ -126,31 +211,186 @@ func CheckDirectory(path string) (string, error) {
 	if err != nil || !info.IsDir() {
 		return "", errors.New("start directory is not a directory")
 	}
-	err = filepath.WalkDir(abs, func(path string, entry fs.DirEntry, err error) error {
-		if err != nil {
-			return errors.New("cannot verify start directory")
-		}
-		if entry.Name() == ".git" {
-			if filepath.Dir(path) != abs {
-				return errors.New("start directory holds another repository; start in that repository instead")
-			}
-			if entry.IsDir() {
-				return filepath.SkipDir
-			}
-		}
-		return nil
-	})
-	return abs, err
+	return abs, nil
 }
 
-func cleanEnvironment(env []string) []string {
+// scanTime bounds a nested repository scan; a scan that stops early is incomplete.
+var scanTime = 3 * time.Second
+
+// ScanNested lists the repositories inside the start directory dir that are not part of
+// its repository: every nested checkout with a .git entry except a linked worktree of the
+// start repository. It descends into submodules and the start repository's worktrees, but
+// not into another repository, whose contents are its own; it never follows directory
+// symlinks or enters a .git directory. An unreadable subtree, the time bound, more than
+// core.MaxNested entries or a path longer than core.MaxNestedPath make the report
+// incomplete; none of them refuses the start.
+func ScanNested(dir string) core.NestedReport {
+	report := core.NestedReport{}
+	// One deadline bounds the whole scan, every Git query included.
+	ctx, cancel := context.WithTimeout(context.Background(), scanTime)
+	defer cancel()
+	start, _ := gitPath(ctx, dir, "--git-common-dir")
+	filepath.WalkDir(dir, func(path string, entry fs.DirEntry, err error) error {
+		if err != nil {
+			report.Incomplete = true
+			if entry != nil && entry.IsDir() {
+				return filepath.SkipDir
+			}
+			return nil
+		}
+		if ctx.Err() != nil {
+			report.Incomplete = true
+			return filepath.SkipAll
+		}
+		if !entry.IsDir() || path == dir {
+			return nil
+		}
+		if entry.Name() == ".git" {
+			return filepath.SkipDir
+		}
+		git, err := os.Lstat(filepath.Join(path, ".git"))
+		if err != nil {
+			return nil
+		}
+		kind := nestedKind(ctx, start, path, git.Mode())
+		if ctx.Err() != nil {
+			// A query cut short by the deadline leaves the kind unknown.
+			report.Incomplete = true
+			return filepath.SkipAll
+		}
+		if kind == "" {
+			return nil
+		}
+		// A path that the launch record cannot hold, such as one with a newline, is left out.
+		rel, _ := filepath.Rel(dir, path)
+		if len(report.List) == core.MaxNested || !core.ValidNestedPath(rel) {
+			report.Incomplete = true
+		} else {
+			report.List = append(report.List, core.NestedRepository{Path: rel, Kind: kind})
+		}
+		if kind == "submodule" {
+			return nil
+		}
+		return filepath.SkipDir
+	})
+	if ctx.Err() != nil {
+		report.Incomplete = true
+	}
+	return report
+}
+
+// nestedKind classifies the checkout at dir, whose .git entry has mode: "" for a linked
+// worktree of the start repository (common directory start); submodule when its enclosing
+// repository records exactly dir as a gitlink, whatever the .git layout; worktree for a
+// linked worktree of another repository; otherwise repository.
+func nestedKind(ctx context.Context, start, dir string, mode fs.FileMode) string {
+	if mode.IsRegular() {
+		common, err := gitPath(ctx, dir, "--git-common-dir")
+		if err == nil && start != "" && common == start {
+			return ""
+		}
+	}
+	if recordedGitlink(ctx, filepath.Dir(dir), filepath.Base(dir)) {
+		return "submodule"
+	}
+	if mode.IsRegular() {
+		common, commonErr := gitPath(ctx, dir, "--git-common-dir")
+		gitDir, dirErr := gitPath(ctx, dir, "--git-dir")
+		if commonErr == nil && dirErr == nil && gitDir != common {
+			return "worktree"
+		}
+	}
+	return "repository"
+}
+
+// NestedNotice is the launcher's report of a nested scan, or "" when it found nothing.
+func NestedNotice(dir string, report core.NestedReport) string {
+	if len(report.List) == 0 && !report.Incomplete {
+		return ""
+	}
+	var b strings.Builder
+	fmt.Fprintf(&b, "koinon: %d nested repositories in the start directory", len(report.List))
+	if report.Incomplete {
+		b.WriteString(" (list incomplete)")
+	}
+	fmt.Fprintf(&b, "; the session's Koinon repository is %s\n", dir)
+	for _, n := range report.List {
+		fmt.Fprintf(&b, "  %s (%s)\n", n.Path, n.Kind)
+	}
+	return b.String()
+}
+
+// recordedGitlink reports whether the index of the repository at dir holds an entry for
+// exactly name, as a gitlink. The pathspec is literal, and an entry below name, which a
+// directory pathspec also lists, does not count.
+func recordedGitlink(ctx context.Context, dir, name string) bool {
+	out, err := git(ctx, dir, "--literal-pathspecs", "ls-files", "--stage", "-z", "--", name)
+	if err != nil {
+		return false
+	}
+	for _, entry := range strings.Split(out, "\x00") {
+		meta, path, found := strings.Cut(entry, "\t")
+		if found && path == name && strings.HasPrefix(meta, "160000 ") {
+			return true
+		}
+	}
+	return false
+}
+
+// gitPath returns an absolute rev-parse path for the repository at dir, with symlinks
+// resolved so that paths compare on macOS too.
+func gitPath(ctx context.Context, dir, flag string) (string, error) {
+	out, err := git(ctx, dir, "rev-parse", "--path-format=absolute", flag)
+	if err != nil {
+		return "", err
+	}
+	return filepath.EvalSymlinks(strings.TrimSpace(out))
+}
+
+// git runs one read-only Git command in dir without inherited GIT_ variables and with the
+// file-system monitor off, so no repository configuration runs a command.
+func git(ctx context.Context, dir string, args ...string) (string, error) {
+	ctx, cancel := context.WithTimeout(ctx, 3*time.Second)
+	defer cancel()
+	cmd := exec.CommandContext(ctx, "git", append([]string{"-c", "core.fsmonitor=false", "-C", dir}, args...)...)
+	cmd.Env = core.CleanGitEnvironment()
+	// A child that keeps the output open cannot hold the caller past the deadline.
+	cmd.WaitDelay = 100 * time.Millisecond
+	out, err := cmd.Output()
+	return string(out), err
+}
+
+// carriedConfig carries the caller's CLAUDE_CONFIG_DIR into a new tmux pane, whose
+// environment otherwise comes from the tmux server; an empty value means the caller had none.
+const carriedConfig = "KOINON_CLAUDE_CONFIG_DIR"
+
+// cleanEnvironment drops the variables that would tie the started agent to another session:
+// Claude Code's session variables and nesting marker, Koinon's launch variables and the
+// OpenCode credential. A started Claude keeps CLAUDE_CONFIG_DIR, its user's configuration;
+// in a pane that the launcher created, the carried value of the caller replaces the server's.
+func cleanEnvironment(env []string, family string) []string {
 	result := []string{}
+	carried, isCarried := "", false
+	for _, entry := range env {
+		if value, ok := strings.CutPrefix(entry, carriedConfig+"="); ok {
+			carried, isCarried = value, true
+		}
+	}
 	for _, entry := range env {
 		key, _, _ := strings.Cut(entry, "=")
-		if strings.HasPrefix(key, "CLAUDE_") || strings.HasPrefix(key, "KOINON_") || key == "OPENCODE_SERVER_PASSWORD" || key == "OPENCODE_SERVER_USERNAME" {
+		if family == "claude" && key == "CLAUDE_CONFIG_DIR" {
+			if !isCarried {
+				result = append(result, entry)
+			}
+			continue
+		}
+		if strings.HasPrefix(key, "CLAUDE_") || key == "CLAUDECODE" || strings.HasPrefix(key, "KOINON_") || key == "OPENCODE_SERVER_PASSWORD" || key == "OPENCODE_SERVER_USERNAME" || key == "GROK_SESSION_ID" {
 			continue
 		}
 		result = append(result, entry)
+	}
+	if family == "claude" && carried != "" {
+		result = append(result, "CLAUDE_CONFIG_DIR="+carried)
 	}
 	return result
 }
@@ -189,29 +429,32 @@ func validSession(name string) bool {
 	return true
 }
 
-func directorySession(directory string) string {
-	name := strings.Map(func(r rune) rune {
-		if r >= 'a' && r <= 'z' || r >= 'A' && r <= 'Z' || r >= '0' && r <= '9' || r == '-' || r == '_' {
-			return r
-		}
-		return '_'
-	}, filepath.Base(directory))
-	if len(name) > 80 {
-		name = name[:80]
+// maxSessionSuffix bounds the default names a start tries: NAME, then NAME-2 to NAME-99.
+const maxSessionSuffix = 99
+
+// defaultSessions are the tmux session names a start without --tmux-session tries in order:
+// the participant address base, FAMILY-LABEL[-ROLE], so that agents of other families or
+// roles never collide and the first name is the later address, then numbered names for a
+// second agent of the same family and role.
+func defaultSessions(ctx context.Context, family, directory, role string) []string {
+	repository, _ := gitPath(ctx, directory, "--git-common-dir")
+	base := core.AddressBase(family, repository, directory, role)
+	names := []string{base}
+	for n := 2; n <= maxSessionSuffix; n++ {
+		names = append(names, base+"-"+strconv.Itoa(n))
 	}
-	if name == "" {
-		name = "koinon"
-	}
-	return name
+	return names
 }
 
 func startTmux(ctx context.Context, tmux, cli, directory string, o Options, out io.Writer) error {
-	name := o.Session
-	if name == "" {
-		name = directorySession(directory)
+	names := []string{o.Session}
+	if o.Session == "" {
+		names = defaultSessions(ctx, o.Family, directory, o.Role)
 	}
-	if !validSession(name) {
-		return errors.New("tmux session name must contain only letters, numbers, underscores and hyphens")
+	for _, name := range names {
+		if !validSession(name) {
+			return errors.New("tmux session name must contain only letters, numbers, underscores and hyphens")
+		}
 	}
 	socket := tmuxSocket()
 	self, err := os.Executable()
@@ -220,26 +463,65 @@ func startTmux(ctx context.Context, tmux, cli, directory string, o Options, out 
 	}
 	// tmux executes its pane command through a shell. Quote every argument; never
 	// interpolate a directory or model argument as executable shell text.
-	args := []string{self, o.Family, "--state-dir", o.StateDir, "--address", o.Address, "--cli", cli, "--directory", directory, "--"}
-	args = append(args, o.Args...)
+	args := []string{self, o.Family, "--state-dir", o.StateDir, "--address", o.Address, "--cli", cli, "--directory", directory}
+	if o.Role != "" {
+		args = append(args, "--role", o.Role)
+	}
+	args = append(append(args, "--"), o.Args...)
 	quoted := make([]string, len(args))
 	for i, value := range args {
 		quoted[i] = quote(value)
 	}
-	cmd := exec.CommandContext(ctx, tmux, tmuxArgs(socket, "new-session", "-d", "-P", "-F", "#{session_id}\t#{pane_id}", "-s", name, "-c", directory, "exec "+strings.Join(quoted, " "))...)
-	cmd.Env = cleanEnvironment(os.Environ())
-	data, err := cmd.Output()
-	if err != nil {
-		return errors.New("tmux did not create a new session; name may be taken or server unavailable")
+	var name string
+	var data []byte
+	for _, candidate := range names {
+		// Spaces separate the IDs: tmux before 3.4 prints a tab in a format as "_".
+		session := []string{"new-session", "-d", "-P", "-F", "#{session_id} #{pane_id}", "-s", candidate, "-c", directory}
+		if o.Family == "claude" {
+			// tmux sets it in the new session only, as one literal argument, never through a shell.
+			session = append(session, "-e", carriedConfig+"="+os.Getenv("CLAUDE_CONFIG_DIR"))
+		}
+		cmd := exec.CommandContext(ctx, tmux, tmuxArgs(socket, append(session, "exec "+strings.Join(quoted, " "))...)...)
+		cmd.Env = cleanEnvironment(os.Environ(), o.Family)
+		if data, err = cmd.Output(); err == nil {
+			name = candidate
+			break
+		}
+		// Only a session that exists under the exact name makes the next name worth trying.
+		exists := exec.CommandContext(ctx, tmux, tmuxArgs(socket, "has-session", "-t", "="+candidate)...)
+		exists.Env = cmd.Env
+		if exists.Run() != nil {
+			return errors.New("tmux did not create a new session; the tmux server is unavailable")
+		}
 	}
-	fields := strings.Split(strings.TrimSpace(string(data)), "\t")
-	if len(fields) != 2 {
-		return errors.New("invalid tmux launch result")
+	if name == "" {
+		if o.Session != "" {
+			return fmt.Errorf("tmux session %s exists; choose another name with --tmux-session NAME", o.Session)
+		}
+		return fmt.Errorf("tmux sessions %s to %s exist; choose a name with --tmux-session NAME", names[0], names[len(names)-1])
+	}
+	sessionID, paneID, err := launchIDs(data)
+	if err != nil {
+		return err
 	}
 	if o.Session != "" {
-		return json.NewEncoder(out).Encode(map[string]any{"ok": true, "session": name, "session_id": fields[0], "pane_id": fields[1], "socket": socket})
+		result := map[string]any{"ok": true, "session": name, "session_id": sessionID, "pane_id": paneID, "socket": socket}
+		// The launcher in the new pane records its own scan with the launch.
+		if nested := ScanNested(directory); len(nested.List) > 0 || nested.Incomplete {
+			result["nested"], result["nested_incomplete"] = nested.List, nested.Incomplete
+		}
+		return json.NewEncoder(out).Encode(result)
 	}
-	return platform.Exec(tmux, append([]string{tmux}, tmuxArgs(socket, "attach-session", "-t", fields[0])...), cleanEnvironment(os.Environ()))
+	return platform.Exec(tmux, append([]string{tmux}, tmuxArgs(socket, "attach-session", "-t", sessionID)...), cleanEnvironment(os.Environ(), o.Family))
+}
+
+// launchIDs reads the session and pane IDs that new-session -P printed, separated by a space.
+func launchIDs(data []byte) (string, string, error) {
+	fields := strings.Fields(string(data))
+	if len(fields) != 2 || !strings.HasPrefix(fields[0], "$") || !strings.HasPrefix(fields[1], "%") {
+		return "", "", errors.New("invalid tmux launch result")
+	}
+	return fields[0], fields[1], nil
 }
 
 func validateOpenCodeArgs(args []string) error {
@@ -276,14 +558,10 @@ func openCodeTarget(args []string) (string, string, error) {
 }
 
 func Run(ctx context.Context, o Options, out io.Writer) error {
-	if o.Family != "codex" && o.Family != "agy" && o.Family != "opencode" {
+	if !Families[o.Family] {
 		return errors.New("unsupported launcher family")
 	}
 	directory, err := CheckDirectory(o.Directory)
-	if err != nil {
-		return err
-	}
-	cli, err := configuredCLI(o)
 	if err != nil {
 		return err
 	}
@@ -292,12 +570,24 @@ func Run(ctx context.Context, o Options, out io.Writer) error {
 	if err != nil {
 		return err
 	}
-	secret, err := core.ReadSecret(o.StateDir)
+	cli, err := launchCLI(ctx, o, os.Stderr)
 	if err != nil {
-		return errors.New("cannot read private daemon secret; agent was not started")
-	}
-	if _, err := core.GetStatus(ctx, o.Address, secret); err != nil {
 		return err
+	}
+	secret, err := core.ClientSecret(o.StateDir, o.Address)
+	if err != nil {
+		return errors.New("agent was not started: " + err.Error())
+	}
+	if _, err := core.GetStatus(ctx, o.Address, secret); errors.Is(err, core.ErrUnavailable) {
+		return errors.New("agent was not started: no daemon answers at " + o.Address + "; " + core.StartDaemon(o.StateDir, o.Address))
+	} else if err != nil {
+		return err
+	}
+	if o.Background {
+		if o.Family != "claude" || o.Session != "" {
+			return errors.New("--bg starts only a Claude background job, outside tmux")
+		}
+		return runBackground(ctx, o, cli, directory, secret, out)
 	}
 	if o.Family == "opencode" {
 		// Validate before creating even a detached pane.
@@ -312,9 +602,11 @@ func Run(ctx context.Context, o Options, out io.Writer) error {
 		}
 		return startTmux(ctx, tmux, cli, directory, o, out)
 	}
-	target := core.LaunchTarget{Family: o.Family, Directory: directory, CLI: cli, HostPID: os.Getpid()}
-	args := append([]string{cli}, o.Args...)
-	env := cleanEnvironment(os.Environ())
+	nested := ScanNested(directory)
+	target := core.LaunchTarget{Family: o.Family, Directory: directory, CLI: cli, HostPID: os.Getpid(), Role: o.Role,
+		Nested: nested.List, NestedIncomplete: nested.Incomplete}
+	args := append([]string{cli}, cycleLoaderArgs(o, o.Args)...)
+	env := cleanEnvironment(os.Environ(), o.Family)
 	if o.Family == "opencode" {
 		target.Address, target.Password, err = openCodeTarget(o.Args)
 		if err != nil {
@@ -324,6 +616,19 @@ func Run(ctx context.Context, o Options, out io.Writer) error {
 		args = append(args, "--hostname", "127.0.0.1", "--port", port, "--mdns=false")
 		env = append(env, "OPENCODE_SERVER_PASSWORD="+target.Password, "OPENCODE_SERVER_USERNAME=opencode")
 	}
+	if o.Family == "grok" {
+		if target.SessionID, err = grokSessionID(o.Args); err != nil {
+			return err
+		}
+		if target.SessionID != "" {
+			// Grok's options end at a native "--"; the chosen ID goes before it.
+			end := len(args)
+			if i := slices.Index(args[1:], "--"); i >= 0 {
+				end = i + 1
+			}
+			args = slices.Concat(args[:end], []string{"--session-id", target.SessionID}, args[end:])
+		}
+	}
 	id, err := core.CreateLaunch(ctx, o.Address, secret, target)
 	if err != nil {
 		return err
@@ -331,11 +636,167 @@ func Run(ctx context.Context, o Options, out io.Writer) error {
 	env = append(env, "KOINON_LAUNCH_ID="+id, "KOINON_STATE_DIR="+o.StateDir, "KOINON_DAEMON_ADDRESS="+o.Address)
 	if o.Family == "codex" {
 		pid := strconv.Itoa(os.Getpid())
-		args = append([]string{cli, "-c", "shell_environment_policy.set.KOINON_CODEX_HOST=\"" + pid + "\""}, o.Args...)
+		args = append([]string{cli}, codexArgs(pid, o.Args)...)
 		env = append(env, "KOINON_CODEX_HOST="+pid)
 	}
 	if err := os.Chdir(directory); err != nil {
 		return errors.New("cannot enter start directory")
 	}
+	fmt.Fprint(os.Stderr, NestedNotice(directory, nested))
 	return platform.Exec(cli, args, env)
+}
+
+// grokSessionID chooses the first session's ID for a Grok launch, so that the launch admits
+// that session (#254 spike fact 3). Arguments that select a session themselves (a given ID,
+// a resume or a continue) keep their choice, and the launch records none.
+func grokSessionID(args []string) (string, error) {
+	for _, arg := range args {
+		name, _, _ := strings.Cut(arg, "=")
+		switch name {
+		case "--session-id", "--resume", "-r", "--continue", "-c":
+			return "", nil
+		}
+		if arg == "--" {
+			break
+		}
+	}
+	var b [16]byte
+	if _, err := rand.Read(b[:]); err != nil {
+		return "", err
+	}
+	b[6] = b[6]&0x0f | 0x40
+	b[8] = b[8]&0x3f | 0x80
+	h := hex.EncodeToString(b[:])
+	return h[:8] + "-" + h[8:12] + "-" + h[12:16] + "-" + h[16:20] + "-" + h[20:], nil
+}
+
+// codexArgs runs Codex on its own (--no-daemon), so that its MCP servers are children of
+// the launched process, and passes koinon mcp the launch variables (#247).
+func codexArgs(pid string, user []string) []string {
+	args := []string{}
+	if !slices.Contains(user, "--no-daemon") {
+		args = append(args, "--no-daemon")
+	}
+	quoted := make([]string, len(MCPVariables))
+	for i, name := range MCPVariables {
+		quoted[i] = strconv.Quote(name)
+	}
+	args = append(args, "-c", "shell_environment_policy.set.KOINON_CODEX_HOST=\""+pid+"\"",
+		"-c", "mcp_servers."+codexServer+".env_vars=["+strings.Join(quoted, ",")+"]")
+	return append(args, user...)
+}
+
+// jobID reads the job ID that claude --bg prints: one full session ID, or else one short
+// ID (its first eight characters). Anything else is no job ID.
+func jobID(output string) string {
+	var full, short []string
+	for _, field := range strings.FieldsFunc(output, func(r rune) bool {
+		return !(r >= '0' && r <= '9' || r >= 'a' && r <= 'f' || r == '-')
+	}) {
+		switch {
+		case core.FullJobID.MatchString(field) && !slices.Contains(full, field):
+			full = append(full, field)
+		case core.ShortJobID.MatchString(field) && !slices.Contains(short, field):
+			short = append(short, field)
+		}
+	}
+	if len(full) == 1 {
+		return full[0]
+	}
+	if len(full) == 0 && len(short) == 1 {
+		return short[0]
+	}
+	return ""
+}
+
+// runBackground starts a Claude background job with its own launch. A job inherits the
+// Claude background service's environment, not this one, so the launch variables reach
+// it only through a private --settings file; claude --bg itself runs without them, so a
+// service that it starts inherits no launch ID (live-checks F5). The job's ID admits it.
+func runBackground(ctx context.Context, o Options, cli, directory, secret string, out io.Writer) error {
+	for _, arg := range o.Args {
+		if arg == "--bg" || arg == "--background" || arg == "--settings" || strings.HasPrefix(arg, "--settings=") {
+			return errors.New("koinon sets --bg and --settings for a background job")
+		}
+	}
+	nested := ScanNested(directory)
+	target := core.LaunchTarget{Family: "claude", Directory: directory, CLI: cli, HostPID: os.Getpid(), Background: true, Role: o.Role,
+		Nested: nested.List, NestedIncomplete: nested.Incomplete}
+	id, err := core.CreateLaunch(ctx, o.Address, secret, target)
+	if err != nil {
+		return err
+	}
+	settings := ""
+	retire := func(reason string) error {
+		core.Call(ctx, o.Address, secret, "/v1/launches/retire", map[string]string{"launch_id": id})
+		if settings != "" {
+			os.Remove(settings)
+		}
+		return errors.New(reason)
+	}
+	settings, err = writeSettings(o.StateDir, id, map[string]string{"KOINON_LAUNCH_ID": id, "KOINON_STATE_DIR": o.StateDir, "KOINON_DAEMON_ADDRESS": o.Address})
+	if err != nil {
+		return retire("cannot write the private settings file; the job was not started")
+	}
+	cmd := exec.CommandContext(ctx, cli, append(append([]string{"--bg"}, cycleLoaderArgs(o, o.Args)...), "--settings", settings)...)
+	cmd.Dir = directory
+	cmd.Env = cleanEnvironment(os.Environ(), "claude")
+	cmd.Stderr = os.Stderr
+	var stdout strings.Builder
+	cmd.Stdout = &stdout
+	runErr := cmd.Run()
+	job := jobID(stdout.String())
+	if runErr != nil || job == "" {
+		return retire("claude --bg reported no job ID; the launch was retired")
+	}
+	if _, err := core.Call(ctx, o.Address, secret, "/v1/launches/job", map[string]string{"launch_id": id, "job_id": job}); err != nil {
+		return retire("cannot record background job " + job + "; it is not a Koinon session, stop it with claude stop " + job)
+	}
+	_, err = io.WriteString(out, stdout.String())
+	return err
+}
+
+// writeSettings writes a private Claude settings file that sets env, under the state
+// directory's launches/, and returns its path.
+func writeSettings(stateDir, id string, env map[string]string) (string, error) {
+	dir, err := platform.PrivateDir(filepath.Join(stateDir, "launches"))
+	if err != nil {
+		return "", err
+	}
+	data, err := json.Marshal(map[string]any{"env": env})
+	if err != nil {
+		return "", err
+	}
+	path := filepath.Join(dir, id+".json")
+	f, err := platform.OpenPrivate(path, os.O_WRONLY|os.O_CREATE|os.O_EXCL)
+	if err != nil {
+		return "", err
+	}
+	if _, err := f.Write(data); err != nil {
+		f.Close()
+		os.Remove(path)
+		return "", err
+	}
+	if err := f.Close(); err != nil {
+		os.Remove(path)
+		return "", err
+	}
+	return path, nil
+}
+
+// cycleLoaderArgs adds Koinon's pickup loader directory to a Claude launch (#196, chunk 03):
+// after a context clear, a bare /pickup then reaches the canonical catalog procedure even
+// where no pickup skill is installed. --add-dir takes several values, so it goes after the
+// launch's own options and before a "--" that ends them; a following prompt is never read
+// as a directory. Without the loader, the cycle adds it to the running session instead.
+func cycleLoaderArgs(o Options, args []string) []string {
+	if o.Family != "claude" || core.EnsureCycleLoader(o.StateDir) != nil {
+		return args
+	}
+	loader := []string{"--add-dir", core.CycleLoaderDir(o.StateDir)}
+	end := slices.Index(args, "--")
+	if end < 0 {
+		return slices.Concat(args, loader)
+	}
+	return slices.Concat(args[:end], loader, args[end:])
 }

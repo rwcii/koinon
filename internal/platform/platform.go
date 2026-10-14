@@ -9,6 +9,15 @@ import (
 	"syscall"
 )
 
+// ErrProcessGone reports that no process has the asked process ID.
+var ErrProcessGone = errors.New("no such process")
+
+// ProcessGroup is a process's group, its controlling terminal's device number (0 for none)
+// and that terminal's foreground process group: the group that receives the terminal's input.
+type ProcessGroup struct {
+	Group, Terminal, Foreground int
+}
+
 // DefaultStateDir is separate from every Python-era state file.
 func DefaultStateDir() (string, error) {
 	base := os.Getenv("XDG_STATE_HOME")
@@ -96,6 +105,11 @@ func Lock(path string) (*os.File, error) {
 	return f, nil
 }
 
+// LockHeld reports whether err is Lock's refusal because another process holds the lock.
+func LockHeld(err error) bool {
+	return errors.Is(err, syscall.EWOULDBLOCK)
+}
+
 func Unlock(f *os.File) error {
 	err := syscall.Flock(int(f.Fd()), syscall.LOCK_UN)
 	return errors.Join(err, f.Close())
@@ -145,4 +159,15 @@ func FileIdentity(f *os.File) (device, inode uint64, size int64, err error) {
 		return 0, 0, 0, errors.New("no file identity")
 	}
 	return uint64(stat.Dev), uint64(stat.Ino), info.Size(), nil
+}
+
+// TmuxSocketDir is the directory of this user's tmux server sockets, as tmux itself
+// chooses it on Linux and macOS: $TMUX_TMPDIR/tmux-<uid>, else /tmp/tmux-<uid>. The path is
+// kept unresolved, as tmux and its clients name it.
+func TmuxSocketDir(getenv func(string) string) string {
+	base := getenv("TMUX_TMPDIR")
+	if base == "" || !filepath.IsAbs(base) {
+		base = "/tmp"
+	}
+	return filepath.Join(base, fmt.Sprintf("tmux-%d", os.Getuid()))
 }

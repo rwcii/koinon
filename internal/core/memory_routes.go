@@ -21,6 +21,7 @@ func (d *Daemon) memoryRoutes(mux *http.ServeMux) {
 				failure(w, err)
 				return
 			}
+			d.store.ToolCall(common.Caller)
 			caller, err := d.store.ResolveMemoryCaller(r.Context(), common.Caller, common.Consumer)
 			if err != nil {
 				failure(w, err)

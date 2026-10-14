@@ -69,7 +69,7 @@ func newFixture(t *testing.T) *fixture {
 		keys: map[string]string{}, paths: map[string]string{}}
 	var m struct {
 		Repositories map[string]struct{ Path, Key string } `json:"repositories"`
-		Sessions     map[string]struct{ Directory string }  `json:"sessions"`
+		Sessions     map[string]struct{ Directory string } `json:"sessions"`
 	}
 	data, _ := os.ReadFile(filepath.Join(tree, "fixture.json"))
 	json.Unmarshal(data, &m)
@@ -504,7 +504,7 @@ func TestResumeRejectsAnUnrelatedTarget(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := other.Register(context.Background(), core.Registration{Family: "claude", ID: "unrelated", Directory: t.TempDir(), TTLSeconds: 60}); err != nil {
+	if _, err := other.Register(context.Background(), core.Registration{Family: "deepseek", ID: "unrelated", Directory: t.TempDir(), TTLSeconds: 60}); err != nil {
 		t.Fatal(err)
 	}
 	other.Close()
@@ -520,5 +520,33 @@ func TestResumeRejectsAnUnrelatedTarget(t *testing.T) {
 	}
 	if n := len(f.messages(t)); n != 0 {
 		t.Fatalf("the unrelated target received %d imported messages", n)
+	}
+}
+
+// TestUninstallWaitsForAPythonWriter: before uninstall.py runs, the session sockets are
+// checked under the sessions' writer locks. A Python writer that holds one stops the
+// step before uninstall.py; the import stays, and the rerun completes.
+func TestUninstallWaitsForAPythonWriter(t *testing.T) {
+	f := newFixture(t)
+	o := f.options(f.good())
+	var held *os.File
+	o.Hook = func(point string) error {
+		if point != "before:uninstall" || held != nil {
+			return nil
+		}
+		var err error
+		if held, err = os.OpenFile(filepath.Join(filepath.Dir(f.codex), "notifier.lock"), os.O_RDWR|os.O_CREATE, 0600); err != nil {
+			return err
+		}
+		return syscall.Flock(int(held.Fd()), syscall.LOCK_EX|syscall.LOCK_NB)
+	}
+	result, err := Run(context.Background(), o)
+	if err == nil || !strings.Contains(err.Error(), "python_running") || result.Resume == "" || f.uninstalls != 0 {
+		t.Fatalf("held lock %+v %v uninstalls %d", result, err, f.uninstalls)
+	}
+	held.Close()
+	result, err = Run(context.Background(), f.options(f.good()))
+	if err != nil || result.Phase != phaseComplete || f.uninstalls != 1 || len(result.Cleared) != 0 {
+		t.Fatalf("rerun %+v %v uninstalls %d", result, err, f.uninstalls)
 	}
 }

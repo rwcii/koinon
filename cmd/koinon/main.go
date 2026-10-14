@@ -9,11 +9,13 @@ import (
 	"flag"
 	"fmt"
 	"io"
+	"net"
 	"os"
 	"os/signal"
 	"path/filepath"
 	"strconv"
 	"strings"
+	"sync"
 	"syscall"
 	"time"
 
@@ -29,7 +31,7 @@ func run(ctx context.Context, args []string, in io.Reader, out io.Writer) error 
 		_, err := fmt.Fprintln(out, usage)
 		return err
 	}
-	if args[0] == "codex" || args[0] == "agy" || args[0] == "opencode" {
+	if launcher.Families[args[0]] {
 		o, err := launcher.Parse(args[0], args[1:])
 		if err != nil {
 			return err
@@ -45,6 +47,12 @@ func run(ctx context.Context, args []string, in io.Reader, out io.Writer) error 
 		return memoryCommand(ctx, args, in, out)
 	case "work", "claim":
 		return workCommand(ctx, args, out)
+	case "library":
+		return libraryCommand(ctx, args[1:], out)
+	case "room":
+		return roomCommand(ctx, args[1:], out)
+	case "decision":
+		return decisionCommand(ctx, args[1:], out)
 	case "dashboard":
 		return dashboardCommand(ctx, args[1:], out)
 	case "version":
@@ -60,7 +68,8 @@ func run(ctx context.Context, args []string, in io.Reader, out io.Writer) error 
 	flags.SetOutput(io.Discard)
 	state := flags.String("state-dir", root, "private Go state directory")
 	var listen, listen6, address, as *string
-	var after, limit *int64
+	var after, limit, participant *int64
+	var lockWait *time.Duration
 	positional := 0
 	switch args[0] {
 	case "mcp":
@@ -77,15 +86,20 @@ func run(ctx context.Context, args []string, in io.Reader, out io.Writer) error 
 	case "serve":
 		listen = flags.String("listen", "127.0.0.1:47671", "IPv4 loopback listener")
 		listen6 = flags.String("listen-v6", "[::1]:47671", "IPv6 loopback listener")
-	case "status", "peers", "send", "inbox", "ack":
+		lockWait = flags.Duration("lock-wait", 0, "wait this long for the daemon lock, then exit with status 0")
+	case "status", "peers", "peer-status", "send", "inbox", "ack", "cycle-status", "cycle-ready", "cycle-pickup":
 		address = flags.String("address", "127.0.0.1:47671", "daemon loopback address")
 		if args[0] != "status" {
 			as = flags.String("as", "", "calling session as FAMILY:ID")
 		}
-		positional = map[string]int{"send": 2, "ack": 1}[args[0]]
+		positional = map[string]int{"peer-status": 1, "send": 2, "ack": 1, "cycle-ready": 3, "cycle-pickup": 5}[args[0]]
 		if args[0] == "inbox" {
 			after = flags.Int64("after", 0, "read messages after this sequence")
 			limit = flags.Int64("limit", 50, "most messages to read")
+			participant = flags.Int64("participant-after", -1, "read the held participant's messages after this sequence")
+		}
+		if args[0] == "ack" {
+			participant = flags.Int64("participant", -1, "also acknowledge the held participant's inbox through this sequence")
 		}
 	default:
 		return errors.New("unknown command; use koinon --help")
@@ -107,51 +121,149 @@ func run(ctx context.Context, args []string, in io.Reader, out io.Writer) error 
 			Tmux:        mcp.RunTmux, Parents: platform.ProcessParents}, in, out)
 	}
 	if args[0] != "serve" {
-		return call(ctx, args[0], *state, *address, as, after, limit, flags.Args(), in, out)
+		return call(ctx, args[0], *state, *address, as, after, limit, participant, flags.Args(), in, out)
 	}
-	d, err := core.Start(core.Config{StateDir: *state, Listen: []string{*listen, *listen6}})
-	if err != nil {
-		return err
+	return serve(ctx, *state, []string{*listen, *listen6}, *lockWait, out)
+}
+
+// daemonLog receives the daemon's lifecycle lines; the service manager sends standard error
+// to the log file or journal (#283). A variable only so that tests can read it.
+var daemonLog io.Writer = os.Stderr
+
+// lifecycleLog writes one lifecycle line to the writer that daemonLog held when the run
+// began, so a run that ends late never writes into another run's log. Lines hold fixed codes,
+// the version, the state directory and listener addresses: never a secret, message body or
+// session ID.
+func lifecycleLog() func(event string, fields map[string]any) {
+	w := daemonLog
+	var mu sync.Mutex
+	return func(event string, fields map[string]any) {
+		mu.Lock()
+		defer mu.Unlock()
+		line := map[string]any{"at": time.Now().UTC().Format(time.RFC3339Nano), "event": event}
+		for key, value := range fields {
+			line[key] = value
+		}
+		json.NewEncoder(w).Encode(line)
+	}
+}
+
+// serve runs the daemon. With lockWait, a daemon that finds the lock held retries every 2
+// seconds for that long and then exits with status 0, so a service manager does not restart
+// it in a loop while another daemon runs.
+func serve(ctx context.Context, state string, listen []string, lockWait time.Duration, out io.Writer) error {
+	logEvent := lifecycleLog()
+	signals := make(chan os.Signal, 1)
+	signal.Notify(signals, os.Interrupt, syscall.SIGTERM)
+	defer signal.Stop(signals)
+	stopped := func() {
+		// The signal that canceled ctx reaches this channel too; give it a moment.
+		select {
+		case sig := <-signals:
+			logEvent("stop", map[string]any{"reason": "signal", "signal": sig.String()})
+		case <-time.After(100 * time.Millisecond):
+			logEvent("stop", map[string]any{"reason": "canceled"})
+		}
+	}
+	deadline := time.Now().Add(lockWait)
+	waited := false
+	var d *core.Daemon
+	for {
+		var err error
+		d, err = core.Start(core.Config{StateDir: state, Listen: listen, Release: version, LogEvent: logEvent})
+		if err == nil {
+			break
+		}
+		if lockWait <= 0 || !platform.LockHeld(err) {
+			logEvent("stop", map[string]any{"reason": "error", "code": "start_failed"})
+			return err
+		}
+		if !waited {
+			logEvent("lock_wait", map[string]any{"state_dir": state, "wait_seconds": lockWait.Seconds()})
+			waited = true
+		}
+		if !time.Now().Before(deadline) {
+			logEvent("stop", map[string]any{"reason": "lock_held"})
+			return nil
+		}
+		select {
+		case <-ctx.Done():
+			stopped()
+			return nil
+		case <-time.After(min(2*time.Second, time.Until(deadline))):
+		}
 	}
 	defer d.Close()
+	if waited {
+		logEvent("lock_acquired", nil)
+	}
+	logEvent("start", map[string]any{"version": version, "commit": commit, "state_dir": state, "listeners": d.Addresses()})
 	if err := json.NewEncoder(out).Encode(map[string]any{"ok": true, "daemon": "running", "listeners": d.Addresses()}); err != nil {
+		logEvent("stop", map[string]any{"reason": "error", "code": "report_failed"})
 		return err
 	}
 	select {
 	case <-ctx.Done():
+		stopped()
 		return d.Close()
 	case err := <-d.Errors():
+		logEvent("stop", map[string]any{"reason": "error", "code": "listener_error"})
 		return err
 	}
 }
 
-const usage = `Usage: koinon install [--prefix DIR] [--state-dir DIR] [--agent FAMILY]... [--no-start]
+const usage = `Usage: koinon install [--prefix DIR] [--state-dir DIR] [--agent FAMILY]... [--no-start] [--system]
        koinon uninstall [--prefix DIR] [--state-dir DIR] [--agent FAMILY]...
        koinon upgrade --from-python [--python-prefix DIR] [--prefix DIR] [--state-dir DIR] [--agent FAMILY]... [--repository KEY=PATH]... [--python PATH]
        koinon upgrade --status [--state-dir DIR]
        koinon import [--from DIR] [--python-prefix DIR] [--state-dir DIR] [--repository KEY=PATH]... [--verify]
        koinon version
-       koinon serve [--state-dir DIR] [--listen 127.0.0.1:PORT] [--listen-v6 [::1]:PORT]
+       koinon serve [--state-dir DIR] [--listen 127.0.0.1:PORT] [--listen-v6 [::1]:PORT] [--lock-wait 60s]
        koinon register --as deepseek:ID [--directory DIR] [--repository DIR] [--dsh-url URL] [--dsh-credentials FILE] [--state-dir DIR] [--address HOST:PORT]
        koinon status [--state-dir DIR] [--address 127.0.0.1:PORT]
        koinon dashboard [--state-dir DIR] [--address 127.0.0.1:PORT] [--no-open]
        koinon mcp [--state-dir DIR] [--address 127.0.0.1:PORT]
-       koinon setup <claude|codex|agy|opencode|deepseek> [--cli ABS_PATH] [--binary ABS_PATH]
+       koinon setup <claude|codex|agy|opencode|grok|deepseek> [--cli ABS_PATH] [--binary ABS_PATH]
        koinon setup claude --remove-status-line [--claude-config DIR] [--state-dir DIR]
-       koinon guide --agent <claude|codex|agy|opencode|deepseek>
+       koinon guide --agent <claude|codex|agy|opencode|grok|deepseek>
        koinon hook agy-stop
+       koinon hook codex-session-start
        koinon hook claude-status [--command COMMAND]
        koinon memory <status|sync|ack|record|recall> --as FAMILY:ID [--consumer KEY] [options]
+       koinon library list --as FAMILY:ID [--after ITEM_ID] [--limit N]
+       koinon library read ITEM_ID --as FAMILY:ID
+       koinon library state [ITEM_ID ...] --as FAMILY:ID [--scope machine|project] [--directory DIR]
+       koinon library decision ITEM_ID --as FAMILY:ID --decision adopted|declined --evidence REF
+         --catalog-digest SHA256 --item-digest SHA256 --if-revision N [--pre-edit JSON] [--result JSON]
+       koinon room list --as FAMILY:ID [--after ROOM_ID] [--limit N]
+       koinon room members ROOM_ID --as FAMILY:ID [--after ORDINAL] [--limit N]
+       koinon room post ROOM_ID BODY --as FAMILY:ID --key KEY --deadline UNIX_SECONDS
+       koinon room read ROOM_ID --as FAMILY:ID [--after SEQ] [--limit N]
+       koinon decision create --as FAMILY:ID --reference REF --title TITLE --kind decision|fyi --key KEY --deadline UNIX_SECONDS [--order N] [--where TEXT] [--agent-text TEXT] [--context TEXT] [--recommendation TEXT] [--command CMD]... [--recipient NAME]... [--no-commands] [--no-recipients]
+       koinon decision edit --as FAMILY:ID --reference REF --if-revision N [field flags as for create]
+       koinon decision list --as FAMILY:ID --filter waiting|active|in_progress|archived|mine [--after ID] [--limit N]
+       koinon decision get --as FAMILY:ID --reference REF
+       koinon decision history --as FAMILY:ID --reference REF [--after VERDICT_ID] [--limit N]
+       koinon decision pending --as FAMILY:ID [--after VERDICT_ID] [--limit N]
+       koinon decision ack --as FAMILY:ID --verdict VERDICT_ID...
+       koinon decision close --as FAMILY:ID --reference REF --if-revision N [--note TEXT] --key KEY --deadline UNIX_SECONDS
+       koinon decision restore --as FAMILY:ID --reference REF
        koinon work <create|list> --as FAMILY:ID [--consumer KEY] [options]
-       koinon work <get|propose|edit|start|update|release|finish> WORK_ID --as FAMILY:ID [--consumer KEY] [options]
+       koinon work checkout [--directory DIR]
+       koinon work checkout <status|request> --as FAMILY:ID [--directory DIR] [options]
+       koinon work <get|propose|edit|start|update|release|finish|report|accept|reject> WORK_ID --as FAMILY:ID [--consumer KEY] [options]
        koinon claim renew WORK_ID --as FAMILY:ID --claim-generation N --if-claim-revision N [--lease-seconds S]
        koinon recover [--state-dir DIR] [--address 127.0.0.1:PORT]
-       koinon <codex|agy|opencode> [--state-dir DIR] [--address HOST:PORT] [--cli ABS_PATH] [--directory DIR] [--tmux-session NAME] [--] [CLI arguments...]
+       koinon <claude|codex|agy|opencode|grok> [--state-dir DIR] [--address HOST:PORT] [--cli ABS_PATH] [--directory DIR] [--tmux-session NAME] [--] [CLI arguments...]
        koinon peers --as FAMILY:ID [--state-dir DIR] [--address 127.0.0.1:PORT]
+       koinon peer-status --as FAMILY:ID [--state-dir DIR] [--address 127.0.0.1:PORT] NAME
        koinon send --as FAMILY:ID [--state-dir DIR] [--address 127.0.0.1:PORT] NAME BODY
        koinon inbox --as FAMILY:ID [--after SEQ] [--limit N] [--state-dir DIR] [--address 127.0.0.1:PORT]
        koinon ack --as FAMILY:ID [--state-dir DIR] [--address 127.0.0.1:PORT] SEQ
-A BODY of - reads the message body from standard input.`
+       koinon cycle-status --as deepseek:ID [--state-dir DIR] [--address 127.0.0.1:PORT]
+       koinon cycle-ready --as deepseek:ID [--state-dir DIR] [--address 127.0.0.1:PORT] CYCLE_ID REVISION HANDOFF_FILE
+       koinon cycle-pickup --as deepseek:ID [--state-dir DIR] [--address 127.0.0.1:PORT] CYCLE_ID REVISION HANDOFF_FILE resumed|paused REPORT
+A BODY of - reads the message body from standard input; a REPORT of - reads the pickup report.`
 
 // DeepSeek's MCP support remains unverified. The harness's command path registers
 // its exact native session and wake metadata explicitly, without creating a session.
@@ -185,9 +297,9 @@ func registerDeepSeek(ctx context.Context, args []string, out io.Writer) error {
 		return errors.New("register requires an exact DeepSeek session, harness URL and absolute credential path")
 	}
 	wake, _ := json.Marshal(map[string]string{"dsh_url": *base, "dsh_credentials": *credential})
-	secret, err := core.ReadSecret(*state)
+	secret, err := core.ClientSecret(*state, *address)
 	if err != nil {
-		return errors.New("cannot read private daemon secret")
+		return err
 	}
 	data, err := core.Call(ctx, *address, secret, "/v1/sessions/register", core.Registration{Family: family, ID: id, Directory: *dir, Repository: *repo, WakeTarget: wake})
 	if err != nil {
@@ -198,7 +310,7 @@ func registerDeepSeek(ctx context.Context, args []string, out io.Writer) error {
 }
 
 // call runs one client command against the daemon's API and prints its JSON response.
-func call(ctx context.Context, command, state, address string, as *string, after, limit *int64, args []string, in io.Reader, out io.Writer) error {
+func call(ctx context.Context, command, state, address string, as *string, after, limit, participant *int64, args []string, in io.Reader, out io.Writer) error {
 	var caller core.Key
 	if as != nil {
 		family, id, found := strings.Cut(*as, ":")
@@ -214,6 +326,8 @@ func call(ctx context.Context, command, state, address string, as *string, after
 		path = "/v1/status"
 	case "peers":
 		path, body = "/v1/peers", map[string]any{"caller": caller}
+	case "peer-status":
+		path, body = "/v1/peers/status", map[string]any{"caller": caller, "peer": args[0]}
 	case "send":
 		text := args[1]
 		if text == "-" {
@@ -225,19 +339,58 @@ func call(ctx context.Context, command, state, address string, as *string, after
 		}
 		path, body = "/v1/messages/send", map[string]any{"caller": caller, "to": args[0], "body": text}
 	case "inbox":
-		path, body = "/v1/inbox/read", map[string]any{"caller": caller, "after": *after, "limit": *limit}
+		request := map[string]any{"caller": caller, "after": *after, "limit": *limit}
+		if *participant >= 0 {
+			request["participant_after"] = *participant
+		}
+		path, body = "/v1/inbox/read", request
+	case "cycle-status", "cycle-ready", "cycle-pickup":
+		// The own-cycle commands keep DeepSeek's explicit native guard (#196): the harness
+		// session names itself, and its session is its epoch.
+		if caller.Family != "deepseek" {
+			return errors.New("the cycle commands are for an exact DeepSeek session: --as deepseek:ID")
+		}
+		if command == "cycle-status" {
+			path, body = "/v1/cycles/status", map[string]any{"caller": caller}
+			break
+		}
+		revision, err := strconv.ParseInt(args[1], 10, 64)
+		if err != nil {
+			return errors.New("REVISION must be a number")
+		}
+		request := map[string]any{"caller": caller, "epoch": caller.ID, "cycle_id": args[0], "revision": revision, "artifact": args[2]}
+		path = "/v1/cycles/ready"
+		if command == "cycle-pickup" {
+			report := args[4]
+			if report == "-" {
+				data, err := io.ReadAll(io.LimitReader(in, 1025))
+				if err != nil {
+					return err
+				}
+				report = string(data)
+			}
+			request["outcome"], request["report"], path = args[3], report, "/v1/cycles/pickup"
+		}
+		body = request
 	case "ack":
 		through, err := strconv.ParseInt(args[0], 10, 64)
 		if err != nil {
 			return errors.New("SEQ must be a sequence number")
 		}
-		path, body = "/v1/inbox/ack", map[string]any{"caller": caller, "through": through}
+		request := map[string]any{"caller": caller, "through": through}
+		if *participant >= 0 {
+			request["participant_through"] = *participant
+		}
+		path, body = "/v1/inbox/ack", request
 	}
-	secret, err := core.ReadSecret(state)
+	secret, err := core.ClientSecret(state, address)
 	if err != nil {
-		return errors.New("cannot read private daemon secret")
+		return err
 	}
 	result, err := core.Call(ctx, address, secret, path, body)
+	if command == "status" && errors.Is(err, core.ErrUnavailable) {
+		return daemonDown(ctx, state, address)
+	}
 	if err != nil {
 		return err
 	}
@@ -332,16 +485,49 @@ func memoryCommand(ctx context.Context, args []string, in io.Reader, out io.Writ
 			body["query"] = flags.Arg(0)
 		}
 	}
-	secret, err := core.ReadSecret(*state)
+	secret, err := core.ClientSecret(*state, *address)
 	if err != nil {
-		return errors.New("cannot read private daemon secret")
+		return err
 	}
 	result, err := core.Call(ctx, *address, secret, path, body)
+	if op == "" && errors.Is(err, core.ErrUnavailable) {
+		return daemonDown(ctx, *state, *address)
+	}
 	if err != nil {
 		return err
 	}
 	_, err = fmt.Fprintln(out, string(result))
 	return err
+}
+
+// unavailable is a status or recover call that found no daemon. It names the installed
+// service mode and the command that restarts the daemon; Koinon runs neither (#283).
+type unavailable struct {
+	address, mode, command, note string
+}
+
+func (u unavailable) Error() string {
+	if u.command != "" {
+		return "no daemon answers at " + u.address + "; restart it with: " + u.command
+	}
+	return "no daemon answers at " + u.address
+}
+
+// newServices reads the service manager; a variable so that tests replace it.
+var newServices = platform.NewServices
+
+func daemonDown(ctx context.Context, state, address string) error {
+	u := unavailable{address: address, mode: "manual"}
+	// The installed service listens only on the default loopback address.
+	if host, port, _ := net.SplitHostPort(address); port == "47671" && (host == "127.0.0.1" || host == "::1") {
+		if s, err := newServices(); err == nil {
+			u.mode, u.command, u.note = s.Restart(ctx)
+		}
+	}
+	if u.mode == "manual" {
+		u.note = core.StartDaemon(state, address)
+	}
+	return u
 }
 
 // agentCommand runs the commands that configure and guide agents.
@@ -350,8 +536,12 @@ func agentCommand(ctx context.Context, args []string, in io.Reader, out io.Write
 	flags.SetOutput(io.Discard)
 	switch args[0] {
 	case "hook":
+		if len(args) == 2 && args[1] == "codex-session-start" {
+			setup.CodexSessionStart(in, setup.HookEnv{Getenv: os.Getenv, Now: time.Now, Parents: platform.ProcessParents})
+			return nil
+		}
 		if len(args) != 2 || args[1] != "agy-stop" {
-			return errors.New("unknown hook; use koinon hook agy-stop or koinon hook claude-status")
+			return errors.New("unknown hook; use koinon hook agy-stop, codex-session-start or claude-status")
 		}
 		return setup.AgyStop(in, out, setup.HookEnv{Getenv: os.Getenv, Now: time.Now})
 	case "guide":
@@ -396,7 +586,16 @@ func main() {
 		report := map[string]any{"ok": false, "detail": err.Error()}
 		var refused core.RefusedError
 		var usage usageError
+		var down unavailable
 		switch {
+		case errors.As(err, &down):
+			code, report["service"] = "daemon_unavailable", down.mode
+			if down.command != "" {
+				report["restart_command"] = down.command
+			}
+			if down.note != "" {
+				report["note"] = down.note
+			}
 		case errors.As(err, &usage):
 			code, report["error"] = usage.code, usage.message
 			delete(report, "detail")

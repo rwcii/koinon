@@ -7,7 +7,6 @@ import (
 	"html/template"
 	"io/fs"
 	"net/http"
-	"net/url"
 	"runtime/debug"
 	"strconv"
 	"strings"
@@ -22,7 +21,17 @@ import (
 //go:embed web
 var webFiles embed.FS
 
-var dashboardViews = []string{"sessions", "messages", "memory", "work", "health", "audit"}
+var dashboardViews = []string{"sessions", "messages", "rooms", "decisions", "memory", "work", "health", "settings", "audit"}
+
+// settingsData is the settings view: the values in force, the defaults and the time of
+// the last change.
+type settingsData struct {
+	Current, Default Settings
+	UpdatedAt        int64
+	// Context is each family's context policy (#196); Modes are the selectable modes.
+	Context []ContextFamilyPolicy
+	Modes   []string
+}
 
 type dashboardPage struct {
 	View   string
@@ -36,6 +45,8 @@ type dashboardPage struct {
 
 func dashboardTemplates() (map[string]*template.Template, error) {
 	funcs := template.FuncMap{
+		"namingReason": NamingReason,
+		"markdown":     renderMarkdown,
 		"ms": func(v int64) string {
 			if v == 0 {
 				return "—"
@@ -57,6 +68,16 @@ func dashboardTemplates() (map[string]*template.Template, error) {
 			}
 			return time.Unix(0, int64(f*1e9)).UTC().Format("2006-01-02 15:04:05Z")
 		},
+		"list": func(values ...string) []string { return values },
+		// anyWork reports whether a page of stores lists at least one work item.
+		"anyWork": func(stores []StoreSummary) bool {
+			for _, s := range stores {
+				if len(s.Work) > 0 {
+					return true
+				}
+			}
+			return false
+		},
 		"pct": func(used, limit int64) string {
 			if limit <= 0 {
 				return "—"
@@ -72,15 +93,6 @@ func dashboardTemplates() (map[string]*template.Template, error) {
 				text += " (" + strconv.FormatFloat(100*float64(*v.UsedTokens)/float64(*v.LimitTokens), 'f', 0, 64) + "%)"
 			}
 			return text
-		},
-		"query": func(pairs ...string) template.URL {
-			v := url.Values{}
-			for i := 0; i+1 < len(pairs); i += 2 {
-				if pairs[i+1] != "" {
-					v.Set(pairs[i], pairs[i+1])
-				}
-			}
-			return template.URL("?" + v.Encode())
 		},
 	}
 	layout, err := template.New("layout.html").Funcs(funcs).ParseFS(webFiles, "web/layout.html")
@@ -116,6 +128,13 @@ func (d *Daemon) dashboardHandler() (http.Handler, error) {
 		page.Views, page.Now = dashboardViews, d.store.now()
 		if page.CSRF != "" {
 			page.Notice = notice(r.URL.Query().Get("notice"))
+		}
+		// A decision action's notice shows inline on the card it changed, when the page shows it.
+		if board, ok := page.Data.(decisionsData); ok && board.cardShown() {
+			code := r.URL.Query().Get("notice")
+			board.CardNotice, page.Notice = page.Notice, ""
+			board.CardRefused = code != "decision_approved" && code != "decision_declined" && code != "decision_dismissed"
+			page.Data = board
 		}
 		if err := pages[page.View].ExecuteTemplate(&out, name, page); err != nil {
 			http.Error(w, "dashboard render failed", http.StatusInternalServerError)
@@ -216,29 +235,97 @@ func (d *Daemon) dashboardHandler() (http.Handler, error) {
 
 type sessionRow struct {
 	Session
-	Work     []SessionWork
-	Observed map[string]SessionView
+	Work        []SessionWork
+	Observed    map[string]SessionView
+	Participant *Participant
+	Cycle       contextRow
+}
+
+// contextRow is a session's context-cycle state as the dashboard shows it (#196): its
+// Enable, its family mode and threshold, and the trigger's reason, with the ages of the
+// context source and of its confirmation. It holds no native epoch, host or pane.
+type contextRow struct {
+	Enable                ContextEnable
+	Mode                  string
+	Threshold             int64
+	Available             bool   // the family's adapter can run this session's cycle (its Probe)
+	Unavailable           string // Probe's fixed reason when it cannot
+	Pickup                string // the pickup entry a bare pickup runs: personal, project, loader or interactive
+	Eligible              bool
+	Reason                string
+	SourceAge, ConfirmAge int64 // seconds; -1 when unknown
+	// Managed is the session's current or newest managed cycle (#196, chunk 02), as its
+	// requester or successor: stage, deadline, reason and event history, no private value.
+	Managed *CycleView
+	// Dialog is the native dialog that the managed cycle waits on and that the adapter does
+	// not answer itself: the maintainer's response applies only to this dialog.
+	Dialog *CycleDialog
+}
+
+// contextRowOf selects a session's trigger state from the stored policy and evidence. It
+// writes nothing and marks no latch.
+func (s *Store) contextRowOf(session Session, enable ContextEnable, now int64) contextRow {
+	k := Key{session.Family, session.ID}
+	policy := s.familyContextPolicy(session.Family)
+	evidence := s.contextEvidence(k)
+	s.observed.mu.Lock()
+	latched := s.latches.latched(k, evidence, policy.Threshold)
+	s.observed.mu.Unlock()
+	probe := contextCycleProbe(s, context.Background(), k)
+	available := probe.Reason == ""
+	conflict, _ := overwatchNameHeld(context.Background(), s.db)
+	eligible, reason := SelectContextTrigger(ContextTriggerInput{Active: session.State == "active", Enabled: enable.Enabled, Policy: policy,
+		CycleAvailable: available, OverwatchConflict: conflict, Evidence: evidence, Now: now, LatchedEpoch: latched})
+	row := contextRow{Enable: enable, Mode: policy.Mode, Threshold: policy.Threshold, Available: available, Unavailable: probe.Reason,
+		Pickup: probe.Bootstrap, Eligible: eligible, Reason: reason, SourceAge: -1, ConfirmAge: -1}
+	if evidence.Found {
+		row.SourceAge, row.ConfirmAge = max(0, now-evidence.SourceAt)/1000, max(0, now-evidence.ConfirmedAt)/1000
+	}
+	if cycles, err := cyclesWhere(context.Background(), s.db, `family=? AND (session_id=? OR successor_id=?) ORDER BY created_at DESC LIMIT 1`,
+		session.Family, session.ID, session.ID); err == nil && len(cycles) > 0 {
+		role := "requester"
+		if cycles[0].SessionID != session.ID {
+			role = "successor"
+		}
+		if v, err := cycles[0].view(context.Background(), s.db, role); err == nil {
+			row.Managed = &v
+			if v.State == cycleWaitingPrompt {
+				if dialog, err := s.CycleDialogOf(context.Background(), v.ID); err == nil {
+					row.Dialog = &dialog
+				}
+			}
+		}
+	}
+	return row
 }
 
 type sessionsData struct {
-	Rows []sessionRow
-	Next string
+	Rows   []sessionRow
+	Search string
+	Counts map[string]int64
+	Sort   dashboardSort
+	Next   string
 }
 
 type messagesData struct {
 	Recipient    string
 	RecipientKey *Key
+	Peers        []peerOption
+	AllPeers     bool
 	Messages     []MessageRecord
-	Next         int64
+	Sort         dashboardSort
+	Next         string
 }
 
 type auditData struct {
 	Records []AuditRecord
-	Next    int64
+	Sort    dashboardSort
+	Next    string
 }
 
 type storesData struct {
 	Stores []StoreSummary
+	Sort   dashboardSort
 	Next   string
 }
 
@@ -251,28 +338,33 @@ type healthData struct {
 	Storage   StorageStatus
 	Sweep     map[string]any
 	Wake      map[string]any
+	Retention RetentionStatus
 }
 
 // dashboardData reads one view's state. Every query is bounded and read-only.
 func (d *Daemon) dashboardData(r *http.Request, view string) (any, error) {
-	ctx, q := r.Context(), r.URL.Query()
+	ctx, q, path := r.Context(), r.URL.Query(), "/dashboard/"+view
 	switch view {
 	case "sessions":
-		var after *Key
-		if v := q.Get("after"); v != "" {
-			family, id, found := strings.Cut(v, ":")
-			if !found || !validKey(family, id) {
-				return nil, ErrInvalid
-			}
-			after = &Key{family, id}
+		order, err := parseSort(&sessionSort, path, q, "q")
+		if err != nil {
+			return nil, err
 		}
-		sessions, next, err := d.store.dashboardSessions(ctx, after)
+		sessions, next, err := d.store.dashboardSessions(ctx, order, q.Get("q"))
 		if err != nil {
 			return nil, err
 		}
 		claims, err := d.store.sessionClaims(ctx)
 		if err != nil {
 			return nil, err
+		}
+		participants, _, err := d.store.Participants(ctx)
+		if err != nil {
+			return nil, err
+		}
+		byAddress := make(map[string]*Participant, len(participants))
+		for i := range participants {
+			byAddress[participants[i].Address] = &participants[i]
 		}
 		// Observations of ended sessions are dropped here too, whatever page is shown.
 		active, err := d.store.activeKeys(ctx)
@@ -283,47 +375,97 @@ func (d *Daemon) dashboardData(r *http.Request, view string) (any, error) {
 		// Pulled observations share one short budget, so unreachable agents cannot stall the page.
 		pull, cancel := context.WithTimeout(ctx, 2*time.Second)
 		defer cancel()
-		result := sessionsData{Rows: make([]sessionRow, 0, len(sessions))}
-		if next != nil {
-			result.Next = next.Family + ":" + next.ID
+		counts, err := d.store.Counts(ctx)
+		if err != nil {
+			return nil, err
 		}
+		enables, err := d.store.contextEnables(ctx)
+		if err != nil {
+			return nil, err
+		}
+		now := d.store.now().UnixMilli()
+		result := sessionsData{Rows: make([]sessionRow, 0, len(sessions)), Search: q.Get("q"), Counts: counts, Sort: order, Next: next}
 		for _, s := range sessions {
-			result.Rows = append(result.Rows, sessionRow{Session: s, Work: claims[s.Family+":"+s.ID], Observed: d.store.sessionObservations(pull, s)})
+			result.Rows = append(result.Rows, sessionRow{Session: s, Work: claims[s.Family+":"+s.ID], Observed: d.store.sessionObservations(pull, s), Participant: byAddress[s.Address],
+				Cycle: d.store.contextRowOf(s, enables[Key{s.Family, s.ID}], now)})
 		}
 		return result, nil
+	case "rooms":
+		return d.roomsView(ctx, q)
 	case "messages":
-		var before int64
-		if v := q.Get("before"); v != "" {
-			var err error
-			if before, err = strconv.ParseInt(v, 10, 64); err != nil || before < 1 {
-				return nil, ErrInvalid
-			}
+		order, err := parseSort(&messageSort, path, q, "to", "peers")
+		if err != nil {
+			return nil, err
 		}
-		result := messagesData{Recipient: q.Get("to")}
+		result := messagesData{Recipient: q.Get("to"), AllPeers: q.Get("peers") == "all", Sort: order}
+		if result.Peers, err = d.store.dashboardPeerOptions(ctx, result.AllPeers); err != nil {
+			return nil, err
+		}
 		var recipient *Key
 		if result.Recipient != "" {
-			var err error
 			if recipient, err = d.store.sessionByName(ctx, result.Recipient); err != nil {
 				return result, nil
 			}
 			result.RecipientKey = recipient
 		}
-		var err error
-		result.Messages, result.Next, err = d.store.dashboardMessages(ctx, recipient, before)
+		result.Messages, result.Next, err = d.store.dashboardMessages(ctx, recipient, order)
 		return result, err
+	case "settings":
+		at, err := d.store.settingsUpdatedAt(ctx)
+		return settingsData{Current: d.store.Settings(), Default: DefaultSettings, UpdatedAt: at, Context: d.store.ContextPolicy(),
+			Modes: []string{ContextObserve, ContextNativeCompaction, ContextHandoffCycle}}, err
+	case "decisions":
+		return d.store.dashboardDecisions(ctx, q)
 	case "audit":
-		var before int64
-		if v := q.Get("before"); v != "" {
-			var err error
-			if before, err = strconv.ParseInt(v, 10, 64); err != nil || before < 1 {
-				return nil, ErrInvalid
-			}
+		order, err := parseSort(&auditSort, path, q)
+		if err != nil {
+			return nil, err
 		}
-		records, next, err := d.store.AuditPage(ctx, before)
-		return auditData{Records: records, Next: next}, err
-	case "memory", "work":
-		stores, next, err := d.store.dashboardStores(ctx, q.Get("after"), view == "work")
-		return storesData{Stores: stores, Next: next}, err
+		records, next, err := d.store.dashboardAudit(ctx, order)
+		return auditData{Records: records, Sort: order, Next: next}, err
+	case "memory":
+		// Sort links keep the selected store and its filters.
+		order, err := parseSort(&storeSort, path, q, "store", "q", "type", "all")
+		if err != nil {
+			return nil, err
+		}
+		stores, next, err := d.store.dashboardMemory(ctx, order)
+		if err != nil {
+			return nil, err
+		}
+		selected, err := d.selectedEntries(ctx, q)
+		return memoryData{storesData: storesData{Stores: stores, Sort: order, Next: next}, Selected: selected}, err
+	case "work":
+		// Stores page by repository; the sort orders the work rows in each store.
+		after := q.Get("after")
+		q.Del("after")
+		// Sort links keep the lifecycle filter and the open item.
+		order, err := parseSort(&workSort, path, q, "lifecycle", "store", "item")
+		if err != nil {
+			return nil, err
+		}
+		lifecycle := q.Get("lifecycle")
+		if !workLifecycles[lifecycle] {
+			return nil, ErrInvalid
+		}
+		stores, next, err := d.store.dashboardWork(ctx, after, lifecycle, order)
+		if err != nil {
+			return nil, err
+		}
+		data := workData{storesData: storesData{Stores: stores, Sort: order, Next: next}, Lifecycle: lifecycle}
+		if data.Open, err = d.openItem(ctx, q); err != nil {
+			return nil, err
+		}
+		if data.Key, err = formKey(); err != nil {
+			return nil, err
+		}
+		// The deadline leaves a minute of the idempotency horizon for the submission.
+		data.Deadline = int64(d.store.clock() + d.store.limits().idemTTL - 60)
+		all, err := d.store.storeList(ctx, "", -1)
+		for _, item := range all {
+			data.Repositories = append(data.Repositories, item.Repository)
+		}
+		return data, err
 	default:
 		counts, err := d.store.Counts(ctx)
 		if err != nil {
@@ -341,8 +483,12 @@ func (d *Daemon) dashboardData(r *http.Request, view string) (any, error) {
 		if err != nil {
 			return nil, err
 		}
+		retention, err := d.store.RetentionStatus(ctx)
+		if err != nil {
+			return nil, err
+		}
 		return healthData{Started: d.started, Revision: buildRevision(), Schema: schemaVersion, Listeners: d.Addresses(),
-			Sessions: counts, Storage: storage, Sweep: sweep, Wake: wake}, nil
+			Sessions: counts, Storage: storage, Sweep: sweep, Wake: wake, Retention: retention}, nil
 	}
 }
 

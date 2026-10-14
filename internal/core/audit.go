@@ -2,7 +2,6 @@ package core
 
 import (
 	"context"
-	"strconv"
 )
 
 // The audit log of dashboard actions (sprint chunk 09). A record names the time, the
@@ -33,6 +32,13 @@ type auditContextKey struct{}
 type pendingAudit struct {
 	action, target string
 	written        bool
+}
+
+// setAuditTarget names what an accepted change did, once the store knows it.
+func setAuditTarget(ctx context.Context, target string) {
+	if p, _ := ctx.Value(auditContextKey{}).(*pendingAudit); p != nil {
+		p.target = target
+	}
 }
 
 // withAudit returns a context under which the next committed write records the action.
@@ -131,8 +137,8 @@ func (s *Store) closeStartedLaunches(ctx context.Context) error {
 	return tx.Commit()
 }
 
-// trimAudit removes records past the retention and beyond the newest auditMax. Removal
-// is reclamation; it may use the reserve.
+// trimAudit removes audit records and participant events past the retention and beyond the
+// newest auditMax of each. Removal is reclamation; it may use the reserve.
 func (s *Store) trimAudit(ctx context.Context) error {
 	ctx = noAudit(ctx)
 	tx, err := s.begin(ctx, control)
@@ -144,35 +150,10 @@ func (s *Store) trimAudit(ctx context.Context) error {
 		s.now().UnixMilli()-auditRetention, auditMax); err != nil {
 		return tx.fail(err)
 	}
+	// Participant events follow the audit log's bounds.
+	if _, err := tx.ExecContext(ctx, `DELETE FROM participant_events WHERE at<? OR id<=(SELECT id FROM participant_events ORDER BY id DESC LIMIT 1 OFFSET ?)`,
+		s.now().UnixMilli()-auditRetention, auditMax); err != nil {
+		return tx.fail(err)
+	}
 	return tx.Commit()
-}
-
-// AuditPage lists records newest first, before an ID (0 for the newest); next is the
-// cursor for the following page, or 0.
-func (s *Store) AuditPage(ctx context.Context, before int64) ([]AuditRecord, int64, error) {
-	if before < 0 {
-		return nil, 0, ErrInvalid
-	}
-	rows, err := s.db.QueryContext(ctx, `SELECT id,at,action,target,result,reason FROM audit WHERE (?1=0 OR id<?1)
-		ORDER BY id DESC LIMIT `+strconv.Itoa(auditPage+1), before)
-	if err != nil {
-		return nil, 0, err
-	}
-	defer rows.Close()
-	result := []AuditRecord{}
-	for rows.Next() {
-		var r AuditRecord
-		if err := rows.Scan(&r.ID, &r.At, &r.Action, &r.Target, &r.Result, &r.Reason); err != nil {
-			return nil, 0, err
-		}
-		result = append(result, r)
-	}
-	if err := rows.Err(); err != nil {
-		return nil, 0, err
-	}
-	if len(result) > auditPage {
-		result = result[:auditPage]
-		return result, result[len(result)-1].ID, nil
-	}
-	return result, 0, nil
 }

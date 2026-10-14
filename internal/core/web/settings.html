@@ -1,0 +1,25 @@
+{{define "list"}}<dl>
+<dt>Registration lifetime</dt><dd>{{.Data.Current.LifetimeSeconds}} seconds <small>(default {{.Data.Default.LifetimeSeconds}}, 60 to 3600). A registration that names no lifetime gets it, and liveness extends a running session by it.</small></dd>
+<dt>Renewal interval</dt><dd>{{.Data.Current.RenewalSeconds}} seconds <small>(default {{.Data.Default.RenewalSeconds}}, 30 to half the lifetime). <code>koinon mcp</code> renews its session this often; it takes a new value with its next register or renew reply.</small></dd>
+<dt>Succession guard</dt><dd>{{.Data.Current.GuardSeconds}} seconds <small>(default {{.Data.Default.GuardSeconds}}, 30 to 600). Same-host succession waits this long after the holder's last tool call.</small></dd>
+<dt>Last change</dt><dd>{{ms .Data.UpdatedAt}}</dd>
+</dl>
+<h2>Context handoff</h2>
+<table><thead><tr><th>Family</th><th>Mode</th><th>Threshold</th></tr></thead><tbody>{{range .Data.Context}}<tr>
+<td>{{.Family}}</td><td>{{.Mode}}{{with .Error}}<br><small>stored value not applied: {{.}}</small>{{end}}</td><td>{{.Threshold}}%</td>
+</tr>{{end}}</tbody></table>
+<p><small>The family mode and threshold are defaults; no session runs a handoff cycle until it is enabled on the Sessions page. <code>native_compaction</code> (Codex only) leaves compaction to the client; no mode changes a native setting.</small></p>{{end}}
+{{define "actions"}}<details class="action" open><summary>Change the session timing</summary>
+<form method="post" action="/dashboard/actions/settings"><input type="hidden" name="csrf" value="{{.CSRF}}">
+<label>Registration lifetime, seconds <input name="lifetime_seconds" type="number" min="60" max="3600" required value="{{.Data.Current.LifetimeSeconds}}"></label>
+<label>Renewal interval, seconds <input name="renewal_seconds" type="number" min="30" max="1800" required value="{{.Data.Current.RenewalSeconds}}"></label>
+<label>Succession guard, seconds <input name="guard_seconds" type="number" min="30" max="600" required value="{{.Data.Current.GuardSeconds}}"></label>
+<button type="submit">Save</button></form>
+<p><small>The three values are checked together: the renewal interval must be at most half the lifetime. A change applies at once, without a restart, and the audit log records it.</small></p></details>
+<details class="action"><summary>Change a family's context handoff</summary>
+<form method="post" action="/dashboard/actions/context-family-settings"><input type="hidden" name="csrf" value="{{.CSRF}}">
+<label>Family <select name="family">{{range .Data.Context}}<option value="{{.Family}}">{{.Family}}</option>{{end}}</select></label>
+<label>Mode <select name="mode">{{range .Data.Modes}}<option value="{{.}}">{{.}}</option>{{end}}</select></label>
+<label>Threshold, percent of the context limit <input name="threshold" type="number" min="1" max="100" required value="75"></label>
+<button type="submit">Save</button></form>
+<p><small>A change applies to the family's sessions at once and enables none of them. The audit log records it.</small></p></details>{{end}}

@@ -33,19 +33,49 @@ const (
 
 var (
 	tmuxSessionName = regexp.MustCompile(`^[A-Za-z0-9_-]{1,80}$`)
-	launchFamilies  = map[string]bool{"codex": true, "agy": true, "opencode": true}
+	launchFamilies  = map[string]bool{"claude": true, "codex": true, "agy": true, "opencode": true, "grok": true}
 )
 
 // noticeText is every notice a view can show; any other code shows nothing.
 var noticeText = map[string]string{
+	"participant_chosen":        "The session now holds the participant address.",
+	"settings_saved":            "The session timing was saved and applies now.",
+	"context_policy_saved":      "The family's context mode and threshold were saved; no session was enabled.",
+	"context_enable_saved":      "The session's context-cycle Enable was saved.",
+	"context_cycle_unavailable": "Refused: no verified handoff cycle is available for this session yet.",
+	"context_enable_changed":    "Refused: the session's Enable changed since the page was loaded. Reload and try again.",
+	"not_participant":           "Refused: the session does not belong to that participant.",
 	"retired":                   "The session was retired.",
+	"purge_marked":              "The session is marked for purge. An active session was retired; the next maintenance sweep deletes it with its whole inbox.",
+	"purge_unmarked":            "The purge mark was removed. The session stays as it is.",
+	"confirmation_required":     "Refused: confirm the purge first.",
 	"released":                  "The claim was released.",
 	"acknowledged":              "The inbox was acknowledged.",
 	"cleared":                   "The inbox was cleared: every message is acknowledged.",
 	"sent":                      "The message was sent as maintainer.",
 	"launched":                  "The session was started in a new tmux session.",
 	"invalid_request":           "Refused: the request was not valid.",
-	"maintainer_session":        "Refused: the maintainer session cannot be retired.",
+	"room_created":              "The room was created. Add members to it below.",
+	"decision_approved":         "The verdict Approve was saved with the text you saw. Each named agent gets the verdict.",
+	"decision_declined":         "The verdict Decline was saved with the text you saw. Each named agent gets the verdict.",
+	"decision_dismissed":        "The fyi item was dismissed and archived. This is not an approval.",
+	"stale_revision":            "The item changed after the page showed it. Read it again; nothing was saved.",
+	"decided":                   "The item already has a verdict; nothing was saved.",
+	"hidden_command":            "A stored command is hidden, so the item cannot be approved as displayed; nothing was saved.",
+	"invalid_verdict":           "A decision item takes Approve or Decline; an fyi item takes Dismiss. Nothing was saved.",
+	"room_refill_saved":         "The refill value was saved. It applies at the next maintainer post; the current allowance is unchanged.",
+	"room_member_added":         "The session is a member of the room.",
+	"room_member_removed":       "The member was removed from the room.",
+	"room_posted":               "The post was sent to the room's active members. The agents' allowance is set to the refill value.",
+	"exchange_limit":            "Refused: the room's agent-post allowance is used up.",
+	"room_post_limit":           "Refused: the daemon already retains 10,000 room posts.",
+	"room_replay_limit":         "Refused: the daemon already retains 10,000 room post retry records.",
+	"room_not_found":            "Refused: no such room.",
+	"room_limit":                "Refused: the daemon already has 64 rooms.",
+	"room_member_limit":         "Refused: the room already has 32 active members.",
+	"room_history_limit":        "Refused: the room already has 128 current and former memberships.",
+	"room_member_not_found":     "Refused: the room has no such current member.",
+	"maintainer_session":        "Refused: the maintainer session cannot be retired or purged.",
 	"revision_changed":          "Refused: the session changed since the page was loaded. Reload and try again.",
 	"session_not_active":        "Refused: the session is not active.",
 	"session_not_found":         "Refused: no such session.",
@@ -63,6 +93,21 @@ var noticeText = map[string]string{
 	"invalid_transition":        "Refused: the work item is not in a state that can be released.",
 	"work_not_found":            "Refused: the work item is gone.",
 	"storage_error":             "Refused: the daemon could not complete the action.",
+	"memory_recorded":           "The entry was recorded as maintainer.",
+	"memory_superseded":         "The edit was recorded as a new entry that replaces the old one; the old entry stays readable.",
+	"memory_revoked":            "The entry was revoked; it stays readable with its revocation.",
+	"memory_conflict":           "Recorded, but another entry had already replaced or revoked that entry; both are kept and the new entry names the conflict.",
+	"reason_required":           "Refused: a revocation needs a reason.",
+	"store_not_found":           "Refused: no memory store has that repository.",
+	"no_such_entry":             "Refused: that entry does not exist.",
+	"entry_too_large":           "Refused: the entry is too large.",
+	"work_created":              "The work item was created as maintainer.",
+	"work_proposed":             "The proposed assignee was recorded.",
+	"work_edited":               "The scope was edited; the earlier revision stays in the history.",
+	"work_finished":             "The work item was finished.",
+	"work_claimed":              "Refused: the item has a live claim. Release the claim first, then edit.",
+	"idempotency_conflict":      "Refused: that form was already submitted with other content. Reload and try again.",
+	"retry_deadline_expired":    "Refused: the form is too old. Reload and try again.",
 }
 
 var noticeCode = regexp.MustCompile(`^[a-z_]{1,40}$`)
@@ -124,6 +169,77 @@ func (d *Daemon) dashboardActions(mux *http.ServeMux, authed func(int64, func(ht
 		done(w, r, view, query, accepted)
 	}
 
+	mux.HandleFunc("POST /dashboard/actions/settings", authed(actionFormLimit, func(w http.ResponseWriter, r *http.Request, _ string) {
+		var v Settings
+		var ok [3]bool
+		v.LifetimeSeconds, ok[0] = formInt(r, "lifetime_seconds")
+		v.RenewalSeconds, ok[1] = formInt(r, "renewal_seconds")
+		v.GuardSeconds, ok[2] = formInt(r, "guard_seconds")
+		run(w, r, "settings", v.String(), "settings", nil, ok[0] && ok[1] && ok[2] && v.Valid(),
+			func(ctx context.Context) error { return d.store.SetSettings(ctx, v) }, "settings_saved", nil)
+	}))
+	mux.HandleFunc("POST /dashboard/actions/context-family-settings", authed(actionFormLimit, func(w http.ResponseWriter, r *http.Request, _ string) {
+		family, mode := r.PostForm.Get("family"), r.PostForm.Get("mode")
+		threshold, ok := formInt(r, "threshold")
+		valid := ok && contextFamily(family) && validContextPolicy(family, mode, threshold)
+		target := "context invalid"
+		if contextFamily(family) {
+			target = "context " + family
+		}
+		run(w, r, "context-family-settings", target, "settings", nil, valid,
+			func(ctx context.Context) error { return d.store.SetContextPolicy(ctx, family, mode, threshold) }, "context_policy_saved", nil)
+	}))
+	mux.HandleFunc("POST /dashboard/actions/context-enable", authed(actionFormLimit, func(w http.ResponseWriter, r *http.Request, _ string) {
+		peer, state := r.PostForm.Get("peer"), r.PostForm.Get("enabled")
+		revision, ok1 := formInt(r, "revision")
+		ifRevision, ok2 := formInt(r, "if_revision")
+		valid := ok1 && ok2 && revision > 0 && len(peer) > 0 && len(peer) <= 256 && !strings.ContainsAny(peer, "\x00\r\n") && (state == "on" || state == "off")
+		target := "context enable invalid"
+		if valid {
+			target = "context enable " + peer + " " + state
+		}
+		run(w, r, "context-enable", target, "sessions", nil, valid,
+			func(ctx context.Context) error {
+				_, err := d.store.SetContextEnable(ctx, peer, revision, ifRevision, state == "on")
+				return err
+			}, "context_enable_saved", nil)
+	}))
+	mux.HandleFunc("POST /dashboard/actions/context-cycle-answer", authed(actionFormLimit, func(w http.ResponseWriter, r *http.Request, _ string) {
+		id, digest, option := r.PostForm.Get("cycle_id"), r.PostForm.Get("digest"), r.PostForm.Get("option")
+		revision, ok := formInt(r, "revision")
+		valid := ok && revision > 0 && len(id) == 32 && len(digest) == 64 && len(option) == 1 && option >= "1" && option <= "9"
+		target := "context cycle answer invalid"
+		if valid {
+			target = "context cycle " + id + " option " + option
+		}
+		run(w, r, "context-cycle-answer", target, "sessions", nil, valid,
+			func(ctx context.Context) error { return d.store.AnswerCycleDialog(ctx, id, revision, digest, option) }, "cycle_dialog_answered", nil)
+	}))
+	mux.HandleFunc("POST /dashboard/actions/participant-holder", authed(actionFormLimit, func(w http.ResponseWriter, r *http.Request, _ string) {
+		k, valid := sessionKey(r)
+		revision, ok := formInt(r, "revision")
+		address := r.PostForm.Get("address")
+		run(w, r, "participant-holder", address, "sessions", nil,
+			valid && k != maintainerKey && ok && revision > 0 && address != "" && len(address) <= 256,
+			func(ctx context.Context) error {
+				if err := d.store.ChooseHolder(ctx, address, k, revision); err != nil {
+					return err
+				}
+				d.signalWorkNotices()
+				return nil
+			},
+			"participant_chosen", func(err error) string {
+				if !errors.Is(err, ErrConflict) {
+					return errorCode(err)
+				}
+				s, readErr := scanSession(d.store.db.QueryRowContext(r.Context(), sessionQuery+` WHERE s.family=? AND s.id=?`, k.Family, k.ID), d.store.now().UnixMilli())
+				if readErr == nil && s.State != "active" {
+					return "session_not_active"
+				}
+				return "revision_changed"
+			})
+	}))
+
 	mux.HandleFunc("POST /dashboard/actions/retire", authed(actionFormLimit, func(w http.ResponseWriter, r *http.Request, _ string) {
 		k, valid := sessionKey(r)
 		revision, ok := formInt(r, "revision")
@@ -149,6 +265,41 @@ func (d *Daemon) dashboardActions(mux *http.ServeMux, authed func(int64, func(ht
 			return "revision_changed"
 		})
 	}))
+
+	// purge marks a session for the maintenance sweep to delete with its whole inbox, after an
+	// explicit confirmation (#216); unpurge removes the mark before the sweep runs.
+	purge := func(mark bool) func(http.ResponseWriter, *http.Request, string) {
+		action, accepted := "purge", "purge_marked"
+		if !mark {
+			action, accepted = "unpurge", "purge_unmarked"
+		}
+		return func(w http.ResponseWriter, r *http.Request, _ string) {
+			k, valid := sessionKey(r)
+			revision, ok := formInt(r, "revision")
+			target := k.Family + ":" + k.ID
+			ctx, pending := withAudit(r.Context(), action, target)
+			if valid && k == maintainerKey {
+				d.store.auditRefusal(ctx, pending, "maintainer_session")
+				done(w, r, "sessions", nil, "maintainer_session")
+				return
+			}
+			if valid && ok && mark && r.PostForm.Get("confirm") != "purge" {
+				d.store.auditRefusal(ctx, pending, "confirmation_required")
+				done(w, r, "sessions", nil, "confirmation_required")
+				return
+			}
+			run(w, r, action, target, "sessions", nil, valid && ok && revision > 0, func(ctx context.Context) error {
+				return d.store.markPurge(ctx, k, revision, mark)
+			}, accepted, func(err error) string {
+				if errors.Is(err, ErrConflict) {
+					return "revision_changed"
+				}
+				return errorCode(err)
+			})
+		}
+	}
+	mux.HandleFunc("POST /dashboard/actions/purge", authed(actionFormLimit, purge(true)))
+	mux.HandleFunc("POST /dashboard/actions/unpurge", authed(actionFormLimit, purge(false)))
 
 	mux.HandleFunc("POST /dashboard/actions/release", authed(actionFormLimit, func(w http.ResponseWriter, r *http.Request, _ string) {
 		repository, workID, consumer := r.PostForm.Get("repository"), r.PostForm.Get("work_id"), r.PostForm.Get("consumer")
@@ -206,6 +357,11 @@ func (d *Daemon) dashboardActions(mux *http.ServeMux, authed func(int64, func(ht
 			return err
 		}, "sent", nil)
 	}))
+
+	d.memoryActions(mux, authed)
+	d.workActions(mux, authed, run)
+	d.roomActions(mux, authed, run)
+	d.decisionActions(mux, authed, run)
 
 	mux.HandleFunc("POST /dashboard/actions/launch", authed(actionFormLimit, func(w http.ResponseWriter, r *http.Request, _ string) {
 		family, directory, name := r.PostForm.Get("family"), r.PostForm.Get("directory"), r.PostForm.Get("name")

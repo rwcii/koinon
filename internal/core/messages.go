@@ -38,6 +38,21 @@ type Message struct {
 	Acknowledged   bool   `json:"acknowledged"`
 	// AcknowledgedBy is recipient or maintainer for an acknowledged message (chunk 09).
 	AcknowledgedBy string `json:"acknowledged_by,omitempty"`
+	// AcknowledgedSession and AcknowledgedVia name the session (its peer name, or
+	// maintainer) and the operation (ack, participant_ack or dashboard) that acknowledged
+	// the message; acknowledgements from before schema 15 have none (#250).
+	AcknowledgedSession string `json:"acknowledged_session,omitempty"`
+	AcknowledgedVia     string `json:"acknowledged_via,omitempty"`
+	// Room is the typed room metadata of a membership notice or a room post copy (#217).
+	Room *RoomEvent `json:"room,omitempty"`
+	// SystemKind, CycleID and CycleEnableRevision type a system request: overwatch's
+	// managed-cycle request names its cycle and the Enable revision that admitted it (#196).
+	SystemKind          string `json:"system_kind,omitempty"`
+	CycleID             string `json:"cycle_id,omitempty"`
+	CycleEnableRevision int64  `json:"cycle_enable_revision,omitempty"`
+	// Inbox is session for the caller's own inbox and participant for the inbox of the
+	// participant that the caller holds (chunk 03).
+	Inbox string `json:"inbox"`
 }
 
 type Inbox struct {
@@ -45,6 +60,17 @@ type Inbox struct {
 	LastSeq      int64     `json:"last_seq"`
 	AckedThrough int64     `json:"acked_through"`
 	More         bool      `json:"more"`
+	// Participant is the inbox of the participant that the caller holds, if any; its
+	// messages are in Messages with Inbox "participant".
+	Participant *ParticipantInbox `json:"participant,omitempty"`
+}
+
+// ParticipantInbox is the sequence state of a participant's inbox.
+type ParticipantInbox struct {
+	Address      string `json:"address"`
+	LastSeq      int64  `json:"last_seq"`
+	AckedThrough int64  `json:"acked_through"`
+	More         bool   `json:"more"`
 }
 
 type Outcome struct {
@@ -53,9 +79,15 @@ type Outcome struct {
 	Seq            int64  `json:"seq"`
 	DeliveryState  string `json:"delivery_state"`
 	DeliveryReason string `json:"delivery_reason,omitempty"`
-	UpdatedAt      int64  `json:"updated_at"`
-	Acknowledged   bool   `json:"acknowledged"`
-	AcknowledgedBy string `json:"acknowledged_by,omitempty"`
+	// WakeReason is the result code of the last wake attempt, and Notices the number of
+	// notices that may have reached the agent (#250).
+	WakeReason          string `json:"wake_reason,omitempty"`
+	Notices             int64  `json:"notices,omitempty"`
+	UpdatedAt           int64  `json:"updated_at"`
+	Acknowledged        bool   `json:"acknowledged"`
+	AcknowledgedBy      string `json:"acknowledged_by,omitempty"`
+	AcknowledgedSession string `json:"acknowledged_session,omitempty"`
+	AcknowledgedVia     string `json:"acknowledged_via,omitempty"`
 }
 
 // acknowledgedBy names who acknowledged a message: the maintainer when the dashboard
@@ -97,6 +129,22 @@ type Peer struct {
 	Family     string `json:"family"`
 	State      string `json:"state"`
 	Repository string `json:"repository"`
+	// Subagent marks a Codex sub-agent thread; it never holds an alias.
+	Subagent bool `json:"subagent,omitempty"`
+	// Role, Address and HoldsAddress report the session's participant (chunk 02).
+	Role         string `json:"role,omitempty"`
+	Address      string `json:"address,omitempty"`
+	HoldsAddress bool   `json:"holds_address,omitempty"`
+	// Succession is the session's last succession result (chunk 04).
+	Succession *Succession `json:"succession,omitempty"`
+	// Naming is the session's last terminal naming result (chunk 05).
+	Naming *PeerNaming `json:"naming,omitempty"`
+	// Liveness and HostVerifiedAt report the evidence that keeps the session while its
+	// agent runs (#249).
+	Liveness       string `json:"liveness,omitempty"`
+	HostVerifiedAt int64  `json:"host_verified_at,omitempty"`
+	// Self marks the calling session's own row (#348), by its resolved family and ID.
+	Self bool `json:"self,omitempty"`
 }
 
 // Peers lists every session for an active caller.
@@ -116,9 +164,26 @@ func (s *Store) Peers(ctx context.Context, caller Key) ([]Peer, bool, error) {
 	if err != nil {
 		return nil, false, err
 	}
-	peers := make([]Peer, 0, len(items)+1)
+	peer := func(item Session) Peer {
+		return Peer{Name: item.Name, Alias: item.Alias, Family: item.Family, State: item.State, Repository: item.Repository,
+			Subagent: item.Subagent, Role: item.Role, Address: item.Address, HoldsAddress: item.HoldsAddress, Succession: item.Succession,
+			Naming: s.namingOf(item), Liveness: item.Liveness, HostVerifiedAt: item.HostVerifiedAt,
+			Self: item.Family == caller.Family && item.ID == caller.ID}
+	}
+	peers := make([]Peer, 0, len(items)+2)
+	found := false
 	for _, item := range items {
-		peers = append(peers, Peer{Name: item.Name, Alias: item.Alias, Family: item.Family, State: item.State, Repository: item.Repository})
+		peers = append(peers, peer(item))
+		found = found || peers[len(peers)-1].Self
+	}
+	// A truncated list can leave the caller out; its own row follows the listed rows.
+	if !found {
+		own, err := scanSession(s.db.QueryRowContext(ctx, sessionQuery+` WHERE s.family=? AND s.id=?`, caller.Family, caller.ID), s.now().UnixMilli())
+		if err != nil {
+			return nil, false, err
+		}
+		s.annotate(&own) // as List annotates every listed row
+		peers = append(peers, peer(own))
 	}
 	// Agents can send to the maintainer, who reads the inbox in the dashboard (chunk 09).
 	peers = append(peers, Peer{Name: "maintainer", Family: maintainerKey.Family, State: "active"})
@@ -136,19 +201,29 @@ func (s *Store) send(ctx context.Context, caller Key, to, body string, dashboard
 	if to == "" || len(to) > 256 || body == "" || len(body) > maxBody || !utf8.ValidString(body) {
 		return Outcome{}, ErrInvalid
 	}
-	now := s.now().UnixMilli()
 	tx, err := s.begin(ctx, ordinary)
 	if err != nil {
 		return Outcome{}, err
 	}
 	defer tx.Rollback()
 	tx.audited = true
+	outcome, err := s.sendTx(ctx, tx, caller, to, body, dashboard)
+	if err != nil {
+		return Outcome{}, err
+	}
+	return outcome, tx.Commit()
+}
+
+// sendTx lets an explicit work handoff commit its release and notification together.
+// Callers validate the body and use ordinary admission when adding a message.
+func (s *Store) sendTx(ctx context.Context, tx *writeTx, caller Key, to, body string, dashboard bool) (Outcome, error) {
+	now := s.now().UnixMilli()
 	if err := activeCaller(ctx, tx.Tx, now, caller, dashboard); err != nil {
 		return Outcome{}, err
 	}
-	var kind, family, sessionID, repository, holder string
-	err = tx.QueryRowContext(ctx, `SELECT kind,family,session_id,repository,holder_id FROM names WHERE name=?`, to).
-		Scan(&kind, &family, &sessionID, &repository, &holder)
+	var kind, family, sessionID, repository, holder, role string
+	err := tx.QueryRowContext(ctx, `SELECT kind,family,session_id,repository,holder_id,role FROM names WHERE name=?`, to).
+		Scan(&kind, &family, &sessionID, &repository, &holder, &role)
 	if errors.Is(err, sql.ErrNoRows) {
 		return Outcome{}, ErrPeerNotFound
 	}
@@ -158,25 +233,40 @@ func (s *Store) send(ctx context.Context, caller Key, to, body string, dashboard
 	if kind == "alias" {
 		held := false
 		if holder != "" {
-			if held, err = holds(ctx, tx.Tx, now, family, holder, repository); err != nil {
+			if held, err = holds(ctx, tx.Tx, now, family, holder, repository, role); err != nil {
 				return Outcome{}, err
 			}
 		}
 		if !held {
 			return Outcome{}, ErrAliasUnheld
 		}
-		sessionID = holder
+		// A message to an address belongs to the participant: its holder reads it, and a
+		// successor finds it unread (chunk 03).
+		if err := ensureParticipantInbox(ctx, tx.Tx, now, to); err != nil {
+			return Outcome{}, tx.fail(err)
+		}
+		sessionID = participantKey(to)
 	}
-	var sender string
-	if err := tx.QueryRowContext(ctx, `SELECT name FROM names WHERE kind='peer' AND family=? AND session_id=?`,
-		caller.Family, caller.ID).Scan(&sender); err != nil {
+	// A holder sends as its participant, so a reply reaches the participant's inbox.
+	sender, err := heldAddress(ctx, tx.Tx, now, caller)
+	if err != nil {
 		return Outcome{}, err
+	}
+	if sender == "" {
+		if err := tx.QueryRowContext(ctx, `SELECT name FROM names WHERE kind='peer' AND family=? AND session_id=?`,
+			caller.Family, caller.ID).Scan(&sender); err != nil {
+			return Outcome{}, err
+		}
 	}
 	var seq int64
 	err = tx.QueryRowContext(ctx, `UPDATE sessions SET last_seq=last_seq+1 WHERE family=? AND id=?
 		AND retired_at=0 AND expires_at>? RETURNING last_seq`, family, sessionID, now).Scan(&seq)
 	if errors.Is(err, sql.ErrNoRows) {
-		return Outcome{}, ErrRecipientInactive
+		reason, err := s.inactiveReason(ctx, tx, family, sessionID)
+		if err != nil {
+			return Outcome{}, err
+		}
+		return Outcome{}, InactiveRecipient{reason}
 	}
 	if err != nil {
 		return Outcome{}, err
@@ -192,10 +282,13 @@ func (s *Store) send(ctx context.Context, caller Key, to, body string, dashboard
 		return Outcome{}, err
 	}
 	submitted := to
-	// The outcome names the receiving session by its peer name, also for a send to an alias.
-	if err := tx.QueryRowContext(ctx, `SELECT name FROM names WHERE kind='peer' AND family=? AND session_id=?`,
-		family, sessionID).Scan(&to); err != nil {
-		return Outcome{}, err
+	// The outcome names the receiving session by its peer name, and a participant by its
+	// address.
+	if !isParticipantID(sessionID) {
+		if err := tx.QueryRowContext(ctx, `SELECT name FROM names WHERE kind='peer' AND family=? AND session_id=?`,
+			family, sessionID).Scan(&to); err != nil {
+			return Outcome{}, err
+		}
 	}
 	if p, _ := ctx.Value(auditContextKey{}).(*pendingAudit); p != nil && dashboard {
 		// The record names the session that received it: an alias can move later.
@@ -204,16 +297,24 @@ func (s *Store) send(ctx context.Context, caller Key, to, body string, dashboard
 			p.target += " via " + submitted
 		}
 	}
-	return Outcome{ID: id, Recipient: to, Seq: seq, DeliveryState: "waiting", UpdatedAt: now}, tx.Commit()
+	return Outcome{ID: id, Recipient: to, Seq: seq, DeliveryState: "waiting", UpdatedAt: now}, nil
 }
 
 // ReadInbox returns the caller's own messages after a sequence, at most limit of them
 // and about one MiB of bodies, so a page always fits a bounded response.
 func (s *Store) ReadInbox(ctx context.Context, caller Key, after, limit int64) (Inbox, error) {
+	return s.ReadInboxes(ctx, caller, after, nil, limit)
+}
+
+// ReadInboxes returns the caller's own messages after after and, while the caller holds a
+// participant, the participant's messages after participantAfter (0 when nil). Each inbox
+// takes at most limit messages and about one MiB of bodies. A participantAfter from a
+// caller that holds no participant is refused with ErrStaleHolder.
+func (s *Store) ReadInboxes(ctx context.Context, caller Key, after int64, participantAfter *int64, limit int64) (Inbox, error) {
 	if limit == 0 {
 		limit = 50
 	}
-	if after < 0 || limit < 1 || limit > 100 {
+	if after < 0 || limit < 1 || limit > 100 || participantAfter != nil && *participantAfter < 0 {
 		return Inbox{}, ErrInvalid
 	}
 	tx, err := s.db.BeginTx(ctx, nil)
@@ -221,47 +322,214 @@ func (s *Store) ReadInbox(ctx context.Context, caller Key, after, limit int64) (
 		return Inbox{}, err
 	}
 	defer tx.Rollback()
-	if err := active(ctx, tx, s.now().UnixMilli(), caller); err != nil {
+	now := s.now().UnixMilli()
+	if err := active(ctx, tx, now, caller); err != nil {
 		return Inbox{}, err
 	}
-	result := Inbox{Messages: []Message{}}
-	if err := tx.QueryRowContext(ctx, `SELECT last_seq,acked_through FROM sessions WHERE family=? AND id=?`,
-		caller.Family, caller.ID).Scan(&result.LastSeq, &result.AckedThrough); err != nil {
-		return Inbox{}, err
-	}
-	rows, err := tx.QueryContext(ctx, `SELECT id,seq,sender_family,sender_name,body,created_at,delivery_state,delivery_reason,maintainer_ack
-		FROM messages WHERE recipient_family=? AND recipient_id=? AND seq>? ORDER BY seq LIMIT ?`,
-		caller.Family, caller.ID, after, limit+1)
+	address, err := heldAddress(ctx, tx, now, caller)
 	if err != nil {
 		return Inbox{}, err
 	}
+	if participantAfter != nil && address == "" {
+		return Inbox{}, ErrStaleHolder
+	}
+	result := Inbox{Messages: []Message{}}
+	if result.LastSeq, result.AckedThrough, result.More, err = readMessages(ctx, tx, caller, after, limit, "session", &result.Messages); err != nil {
+		return Inbox{}, err
+	}
+	if address != "" {
+		from := int64(0)
+		if participantAfter != nil {
+			from = *participantAfter
+		}
+		p := &ParticipantInbox{Address: address}
+		// The participant's inbox row exists once a message was sent to the address.
+		var rows int
+		if err := tx.QueryRowContext(ctx, `SELECT COUNT(*) FROM sessions WHERE family=? AND id=?`, caller.Family, participantKey(address)).Scan(&rows); err != nil {
+			return Inbox{}, err
+		}
+		if rows == 1 {
+			if p.LastSeq, p.AckedThrough, p.More, err = readMessages(ctx, tx, Key{caller.Family, participantKey(address)}, from, limit, "participant", &result.Messages); err != nil {
+				return Inbox{}, err
+			}
+		}
+		result.Participant = p
+	}
+	tx.Rollback()
+	s.markRead(ctx, caller, address, after, participantAfter, result.Messages)
+	return result, nil
+}
+
+// markRead records the highest sequence that a read returned from each inbox (#250): the
+// wake loop sends no further notice for those messages. A read that started above the
+// inbox's handled sequence skipped messages and records nothing. It is progress and may use
+// the reserve. When it cannot be written, the read is still returned; the recipient then
+// gets one more notice for messages it has read.
+func (s *Store) markRead(ctx context.Context, caller Key, address string, after int64, participantAfter *int64, messages []Message) {
+	type read struct{ after, through int64 }
+	reads := map[Key]read{}
+	for _, m := range messages {
+		inbox, from := caller, after
+		if m.Inbox == "participant" {
+			inbox, from = Key{caller.Family, participantKey(address)}, 0
+			if participantAfter != nil {
+				from = *participantAfter
+			}
+		}
+		reads[inbox] = read{from, max(reads[inbox].through, m.Seq)}
+	}
+	if len(reads) == 0 {
+		return
+	}
+	tx, err := s.begin(ctx, control)
+	if err != nil {
+		return
+	}
+	defer tx.Rollback()
+	if address != "" {
+		// A holder change after the read has reset the participant's read for the new
+		// holder; the former holder's read must not advance it (#250).
+		held, err := heldAddress(ctx, tx.Tx, s.now().UnixMilli(), caller)
+		if err != nil {
+			return
+		}
+		if held != address {
+			delete(reads, Key{caller.Family, participantKey(address)})
+		}
+	}
+	for inbox, r := range reads {
+		if _, err := tx.ExecContext(ctx, `UPDATE sessions SET read_through=? WHERE family=? AND id=? AND read_through<?
+			AND max(read_through,acked_through)>=?`, r.through, inbox.Family, inbox.ID, r.through, r.after); err != nil {
+			tx.fail(err)
+			return
+		}
+	}
+	tx.Commit()
+}
+
+// ackedBy is the name that an acknowledgement records for its session: the peer name, or
+// maintainer for the dashboard.
+func ackedBy(ctx context.Context, tx *sql.Tx, caller Key) (string, error) {
+	if caller == maintainerKey {
+		return "maintainer", nil
+	}
+	var name string
+	err := tx.QueryRowContext(ctx, `SELECT name FROM names WHERE kind='peer' AND family=? AND session_id=?`,
+		caller.Family, caller.ID).Scan(&name)
+	if errors.Is(err, sql.ErrNoRows) {
+		return caller.Family, nil
+	}
+	return name, err
+}
+
+// readMessages appends the messages of one inbox after a sequence and returns its sequence
+// state and whether more remain.
+func readMessages(ctx context.Context, tx *sql.Tx, inbox Key, after, limit int64, kind string, messages *[]Message) (last, acked int64, more bool, err error) {
+	if err := tx.QueryRowContext(ctx, `SELECT last_seq,acked_through FROM sessions WHERE family=? AND id=?`,
+		inbox.Family, inbox.ID).Scan(&last, &acked); err != nil {
+		return 0, 0, false, err
+	}
+	rows, err := tx.QueryContext(ctx, `SELECT id,seq,sender_family,sender_name,body,created_at,delivery_state,delivery_reason,maintainer_ack,
+		ack_session,ack_via,room_id,room_revision,room_event,room_seq,room_origin,system_kind,cycle_id,cycle_enable_revision FROM messages
+		WHERE recipient_family=? AND recipient_id=? AND seq>? ORDER BY seq LIMIT ?`,
+		inbox.Family, inbox.ID, after, limit+1)
+	if err != nil {
+		return 0, 0, false, err
+	}
 	defer rows.Close()
-	size := 0
+	size, count := 0, int64(0)
 	for rows.Next() {
 		var m Message
 		var maintainer bool
-		if err := rows.Scan(&m.ID, &m.Seq, &m.SenderFamily, &m.SenderName, &m.Body, &m.CreatedAt, &m.DeliveryState, &m.DeliveryReason, &maintainer); err != nil {
-			return Inbox{}, err
+		var room RoomEvent
+		if err := rows.Scan(&m.ID, &m.Seq, &m.SenderFamily, &m.SenderName, &m.Body, &m.CreatedAt, &m.DeliveryState, &m.DeliveryReason, &maintainer,
+			&m.AcknowledgedSession, &m.AcknowledgedVia, &room.RoomID, &room.Revision, &room.Event, &room.Seq, &room.Origin,
+			&m.SystemKind, &m.CycleID, &m.CycleEnableRevision); err != nil {
+			return 0, 0, false, err
 		}
-		if int64(len(result.Messages)) == limit || (len(result.Messages) > 0 && size+len(m.Body) > 1<<20) {
-			result.More = true
+		if room.RoomID != "" {
+			m.Room = &room
+		}
+		// The bound counts bodies with room and system metadata, at most 128 bytes more
+		// per message.
+		extra := len(room.RoomID) + len(room.Event) + len(m.SystemKind) + len(m.CycleID)
+		if count == limit || (count > 0 && size+len(m.Body)+extra > 1<<20) {
+			more = true
 			break
 		}
-		size += len(m.Body)
-		m.Acknowledged = m.Seq <= result.AckedThrough
+		size += len(m.Body) + extra
+		count++
+		m.Acknowledged = m.Seq <= acked
 		m.AcknowledgedBy = acknowledgedBy(m.Acknowledged, maintainer)
-		result.Messages = append(result.Messages, m)
+		if !m.Acknowledged {
+			m.AcknowledgedSession, m.AcknowledgedVia = "", ""
+		}
+		m.Inbox = kind
+		*messages = append(*messages, m)
 	}
-	if err := rows.Err(); err != nil {
-		return Inbox{}, err
-	}
-	return result, nil
+	return last, acked, more, rows.Err()
 }
 
 // Ack acknowledges the caller's own inbox through a sequence. Acknowledgement only moves
 // forward; an earlier sequence leaves it unchanged.
 func (s *Store) Ack(ctx context.Context, caller Key, through int64) (int64, error) {
 	return s.ack(ctx, caller, through, false)
+}
+
+// AckParticipant acknowledges the inbox of the participant that the caller holds through
+// a sequence, and records the caller as the session that made it. A caller that does not
+// hold it is refused with ErrStaleHolder and nothing changes.
+func (s *Store) AckParticipant(ctx context.Context, caller Key, through int64) (string, int64, error) {
+	s.wake.mu.Lock()
+	defer s.wake.mu.Unlock()
+	if through < 0 {
+		return "", 0, ErrInvalid
+	}
+	tx, err := s.begin(ctx, control)
+	if err != nil {
+		return "", 0, err
+	}
+	defer tx.Rollback()
+	tx.audited = true
+	now := s.now().UnixMilli()
+	if err := active(ctx, tx.Tx, now, caller); err != nil {
+		return "", 0, err
+	}
+	address, err := heldAddress(ctx, tx.Tx, now, caller)
+	if err != nil {
+		return "", 0, err
+	}
+	if address == "" {
+		return "", 0, ErrStaleHolder
+	}
+	if err := ensureParticipantInbox(ctx, tx.Tx, now, address); err != nil {
+		return "", 0, tx.fail(err)
+	}
+	inbox := participantKey(address)
+	var last, acked int64
+	if err := tx.QueryRowContext(ctx, `SELECT last_seq,acked_through FROM sessions WHERE family=? AND id=?`,
+		caller.Family, inbox).Scan(&last, &acked); err != nil {
+		return "", 0, err
+	}
+	if through > last {
+		return "", 0, ErrAckBeyondLast
+	}
+	if through > acked {
+		if _, err := tx.ExecContext(ctx, `UPDATE sessions SET acked_through=?,acked_by=? WHERE family=? AND id=?`,
+			through, caller.Family+":"+caller.ID, caller.Family, inbox); err != nil {
+			return "", 0, tx.fail(err)
+		}
+		name, err := ackedBy(ctx, tx.Tx, caller)
+		if err != nil {
+			return "", 0, err
+		}
+		if _, err := tx.ExecContext(ctx, `UPDATE messages SET ack_session=?,ack_via='participant_ack' WHERE recipient_family=?
+			AND recipient_id=? AND seq>? AND seq<=?`, name, caller.Family, inbox, acked, through); err != nil {
+			return "", 0, tx.fail(err)
+		}
+		acked = through
+	}
+	return address, acked, tx.Commit()
 }
 
 // ack acknowledges an inbox through a sequence. The dashboard acknowledges any existing
@@ -305,12 +573,18 @@ func (s *Store) ack(ctx context.Context, caller Key, through int64, dashboard bo
 			through, caller.Family, caller.ID); err != nil {
 			return 0, tx.fail(err)
 		}
-		if dashboard {
-			// 0 becomes 1: format 4 stores both without a payload byte, so no page grows.
-			if _, err := tx.ExecContext(ctx, `UPDATE messages SET maintainer_ack=1 WHERE recipient_family=? AND recipient_id=?
-				AND seq>? AND seq<=?`, caller.Family, caller.ID, acked, through); err != nil {
-				return 0, tx.fail(err)
+		// maintainer_ack 0 becomes 1 without a payload byte; the session and the operation
+		// that acknowledged each message are recorded with it (#250).
+		name, via, flag := "maintainer", "dashboard", 1
+		if !dashboard {
+			if name, err = ackedBy(ctx, tx.Tx, caller); err != nil {
+				return 0, err
 			}
+			via, flag = "ack", 0
+		}
+		if _, err := tx.ExecContext(ctx, `UPDATE messages SET maintainer_ack=max(maintainer_ack,?),ack_session=?,ack_via=?
+			WHERE recipient_family=? AND recipient_id=? AND seq>? AND seq<=?`, flag, name, via, caller.Family, caller.ID, acked, through); err != nil {
+			return 0, tx.fail(err)
 		}
 		acked = through
 	}
@@ -330,16 +604,31 @@ func (s *Store) MessageOutcome(ctx context.Context, caller Key, id int64) (Outco
 	}
 	var result Outcome
 	var maintainer bool
-	err = tx.QueryRowContext(ctx, `SELECT m.id,COALESCE(n.name,''),m.seq,m.delivery_state,m.delivery_reason,
-		m.delivery_updated_at,m.seq<=s.acked_through,m.maintainer_ack FROM messages m
+	err = tx.QueryRowContext(ctx, `SELECT m.id,CASE WHEN substr(m.recipient_id,1,12)='participant:' THEN substr(m.recipient_id,13) ELSE COALESCE(n.name,'') END,m.seq,m.delivery_state,m.delivery_reason,
+		m.wake_reason,m.wake_notices,m.delivery_updated_at,m.seq<=s.acked_through,m.maintainer_ack,m.ack_session,m.ack_via FROM messages m
 		JOIN sessions s ON s.family=m.recipient_family AND s.id=m.recipient_id
 		LEFT JOIN names n ON n.kind='peer' AND n.family=m.recipient_family AND n.session_id=m.recipient_id
 		WHERE m.id=? AND m.sender_family=? AND m.sender_id=?`, id, caller.Family, caller.ID).
-		Scan(&result.ID, &result.Recipient, &result.Seq, &result.DeliveryState, &result.DeliveryReason, &result.UpdatedAt, &result.Acknowledged, &maintainer)
+		Scan(&result.ID, &result.Recipient, &result.Seq, &result.DeliveryState, &result.DeliveryReason, &result.WakeReason, &result.Notices,
+			&result.UpdatedAt, &result.Acknowledged, &maintainer, &result.AcknowledgedSession, &result.AcknowledgedVia)
 	if errors.Is(err, sql.ErrNoRows) {
+		// An ID that the daemon issued and no longer holds was deleted by retention or a
+		// purge (#216); its outcome is the fixed state deleted, whichever session sent it.
+		var issued int64
+		if err := tx.QueryRowContext(ctx, `SELECT COALESCE(MAX(seq),0) FROM sqlite_sequence WHERE name='messages'`).Scan(&issued); err != nil {
+			return Outcome{}, err
+		}
+		if id > 0 && id <= issued {
+			if err := tx.QueryRowContext(ctx, `SELECT 1 FROM messages WHERE id=?`, id).Scan(new(int)); errors.Is(err, sql.ErrNoRows) {
+				return Outcome{ID: id, DeliveryState: "deleted"}, nil
+			}
+		}
 		return Outcome{}, ErrMessageNotFound
 	}
 	result.AcknowledgedBy = acknowledgedBy(result.Acknowledged, maintainer)
+	if !result.Acknowledged {
+		result.AcknowledgedSession, result.AcknowledgedVia = "", ""
+	}
 	return result, err
 }
 

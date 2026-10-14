@@ -27,7 +27,7 @@ func Remove(ctx context.Context, o Options) (Report, error) {
 	case "deepseek":
 		report.Note = "DeepSeek setup changes nothing, so nothing was removed."
 		return report, nil
-	case "claude", "codex", "agy", "opencode":
+	case "claude", "codex", "agy", "opencode", "grok":
 	default:
 		return report, errors.New("unknown agent family")
 	}
@@ -62,9 +62,10 @@ func Remove(ctx context.Context, o Options) (Report, error) {
 			return out.String(), err
 		}
 		get := map[string][]string{"claude": {"mcp", "get", serverName}, "codex": {"mcp", "get", serverName, "--json"},
-			"agy": {"mcp", "list"}}[o.Family]
+			"agy": {"mcp", "list"}, "grok": {"mcp", "list", "--json"}}[o.Family]
 		remove := map[string][]string{"claude": {"mcp", "remove", "--scope", "user", serverName},
-			"codex": {"mcp", "remove", serverName}, "agy": {"mcp", "remove", serverName}}[o.Family]
+			"codex": {"mcp", "remove", serverName}, "agy": {"mcp", "remove", serverName},
+			"grok": {"mcp", "remove", "--scope", "user", serverName}}[o.Family]
 		current, getErr := run(get...)
 		if getErr == nil && owned(o.Family, current, o.Binary) {
 			if out, err := run(remove...); err != nil {
@@ -88,6 +89,8 @@ func Remove(ctx context.Context, o Options) (Report, error) {
 		result, err := ClaudeStatusLine(o.Binary, o.StateDir, o.ClaudeConfig, true)
 		report.StatusLine = &result
 		return report, err
+	case "codex":
+		return report, removeCodexHook(o, &report)
 	case "agy":
 		return report, removeAgyHook(o, &report)
 	}

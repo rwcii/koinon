@@ -8,6 +8,7 @@ import (
 	"os"
 	"os/exec"
 	"os/signal"
+	"path/filepath"
 	"syscall"
 	"time"
 
@@ -26,12 +27,28 @@ const hookInputMax = 1 << 20
 type HookEnv struct {
 	Getenv func(string) string
 	Now    func() time.Time
+	// ParentPID is the hook's parent process (the agent's host, 0 for os.Getppid), and
+	// Parents reads the process table; only the Codex SessionStart hook uses them.
+	ParentPID int
+	Parents   func() (map[int]int, error)
 }
 
 func (e HookEnv) report(o core.Observation) {
-	e.call("/v1/sessions/observe", o)
+	_, err := e.call("/v1/sessions/observe", o)
+	var refused core.RefusedError
+	if o.Caller.Family == "claude" && errors.As(err, &refused) && refused.Code == "session_not_found" {
+		pid := os.Getpid()
+		start, err := platform.ProcessStart(pid)
+		if err == nil && start > 0 {
+			o.ClaudeReporter = &core.ObservationReporter{PID: pid, Start: start}
+			e.call("/v1/sessions/observe", o)
+		}
+	}
 }
 func (e HookEnv) call(path string, body any) (json.RawMessage, error) {
+	return e.callWithin(time.Second, path, body)
+}
+func (e HookEnv) callWithin(limit time.Duration, path string, body any) (json.RawMessage, error) {
 	state := e.Getenv("KOINON_STATE_DIR")
 	if state == "" {
 		var err error
@@ -47,9 +64,75 @@ func (e HookEnv) call(path string, body any) (json.RawMessage, error) {
 	if err != nil {
 		return nil, err
 	}
-	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), limit)
 	defer cancel()
 	return core.Call(ctx, address, secret, path, body)
+}
+
+// codexClear reads one Codex SessionStart hook input. Only a thread that a /clear started
+// gives a registration (#275): Codex runs the hook at that thread's first turn, as a child
+// of its host process.
+func codexClear(data []byte) (id, directory string, ok bool) {
+	var input struct {
+		SessionID string `json:"session_id"`
+		Cwd       string `json:"cwd"`
+		Source    string `json:"source"`
+	}
+	if len(data) > hookInputMax || json.Unmarshal(data, &input) != nil || input.Source != "clear" ||
+		input.SessionID == "" || !filepath.IsAbs(input.Cwd) {
+		return "", "", false
+	}
+	return input.SessionID, input.Cwd, true
+}
+
+// CodexSessionStart registers the thread that a Codex host shows after /clear, so the
+// participant moves to it at its first turn rather than at its first Koinon tool call. The
+// hook writes nothing (Codex would add its output to the model's context), and its result
+// never depends on the daemon.
+func CodexSessionStart(in io.Reader, env HookEnv) {
+	data, err := io.ReadAll(io.LimitReader(in, hookInputMax+1))
+	if err != nil {
+		return
+	}
+	id, directory, ok := codexClear(data)
+	launch := env.Getenv("KOINON_LAUNCH_ID")
+	if !ok || launch == "" {
+		return
+	}
+	r := core.Registration{Family: "codex", ID: id, Directory: directory, LaunchID: launch,
+		Ancestors: env.ancestors(), ToolCall: true, Clear: true}
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	defer cancel()
+	git := exec.CommandContext(ctx, "git", "-C", directory, "rev-parse", "--git-dir")
+	git.Env = core.CleanGitEnvironment()
+	if git.Run() == nil {
+		r.Repository = directory
+	}
+	env.callWithin(5*time.Second, "/v1/sessions/register", r)
+}
+
+// ancestors is the hook's parent process and its ancestors, nearest first.
+func (e HookEnv) ancestors() []int {
+	parent := e.ParentPID
+	if parent == 0 {
+		parent = os.Getppid()
+	}
+	parents := map[int]int{}
+	if e.Parents != nil {
+		if table, err := e.Parents(); err == nil {
+			parents = table
+		}
+	}
+	result := []int{}
+	for pid := parent; pid > 1 && len(result) < 256; {
+		result = append(result, pid)
+		next, found := parents[pid]
+		if !found {
+			break
+		}
+		pid = next
+	}
+	return result
 }
 
 // claudeStatus reads the model and context use from one Claude Code status-line input, as
@@ -80,7 +163,8 @@ func claudeStatus(data []byte, now int64) (core.Observation, string, bool) {
 	}
 	if w := input.Window; w != nil {
 		available := len(w.CurrentUsage) > 0 && string(w.CurrentUsage) != "null"
-		o.Context = &core.ObservedValue{Source: "claude_statusline", At: now, UsageAvailable: &available}
+		// The transcript is the context's native epoch: /clear starts a new one (#196).
+		o.Context = &core.ObservedValue{Source: "claude_statusline", At: now, UsageAvailable: &available, Epoch: input.SessionID}
 		if w.Size != nil && w.Input != nil {
 			o.Context.LimitTokens, o.Context.UsedTokens = w.Size, w.Input
 		}

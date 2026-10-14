@@ -12,6 +12,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"reflect"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -46,6 +47,8 @@ type report struct {
 	Directory     string
 	Args          []string
 	ClaudeNames   []string
+	Nested        bool
+	ConfigDir     *string
 	Host          string
 	LaunchID      string
 	Session       core.Session
@@ -79,7 +82,12 @@ func TestFakeCLI(t *testing.T) {
 	if err != nil {
 		os.Exit(11)
 	}
-	r := report{PID: os.Getpid(), Directory: directory, Args: args, Host: os.Getenv("KOINON_CODEX_HOST"), LaunchID: os.Getenv("KOINON_LAUNCH_ID")}
+	_, nested := os.LookupEnv("CLAUDECODE")
+	var config *string
+	if value, ok := os.LookupEnv("CLAUDE_CONFIG_DIR"); ok {
+		config = &value
+	}
+	r := report{PID: os.Getpid(), Directory: directory, Args: args, Host: os.Getenv("KOINON_CODEX_HOST"), LaunchID: os.Getenv("KOINON_LAUNCH_ID"), Nested: nested, ConfigDir: config}
 	for _, entry := range os.Environ() {
 		name, _, _ := strings.Cut(entry, "=")
 		if strings.HasPrefix(name, "CLAUDE_") {
@@ -134,7 +142,20 @@ func TestFakeCLI(t *testing.T) {
 	if err != nil {
 		os.Exit(16)
 	}
-	body, _ := json.Marshal(core.Registration{Family: family, ID: "synthetic-" + family, Directory: directory, LaunchID: r.LaunchID})
+	// The launcher's exec keeps its process ID, so this process is the launch's host, as
+	// the agent CLI is; a Claude server also reports it as claude_pid.
+	own := core.Registration{Family: family, ID: "synthetic-" + family, Directory: directory, LaunchID: r.LaunchID, Ancestors: []int{os.Getpid()}}
+	// A Grok session takes the ID that the launcher chose with --session-id, as Grok does;
+	// Grok reads options only before its "--".
+	for i := 0; family == "grok" && i+1 < len(args) && args[i] != "--"; i++ {
+		if args[i] == "--session-id" {
+			own.ID = args[i+1]
+		}
+	}
+	if family == "claude" {
+		own.WakeTarget = json.RawMessage(fmt.Sprintf(`{"claude_pid":%d}`, os.Getpid()))
+	}
+	body, _ := json.Marshal(own)
 	request, _ := http.NewRequest("POST", "http://"+os.Getenv("KOINON_DAEMON_ADDRESS")+"/v1/sessions/register", bytes.NewReader(body))
 	request.Header.Set("Content-Type", "application/json")
 	request.Header.Set("Authorization", "Bearer "+secret)
@@ -184,6 +205,8 @@ func fixture(t *testing.T) (string, string, string, string) {
 	t.Setenv("CLAUDE_CODE_SESSION_ID", "synthetic-stale-caller")
 	t.Setenv("CLAUDE_CODE_MESSAGING_TOKEN", "synthetic-token")
 	t.Setenv("CLAUDE_OTHER_TEST", "synthetic-other")
+	t.Setenv("CLAUDE_CONFIG_DIR", filepath.Join(root, "claude-config"))
+	t.Setenv("CLAUDECODE", "1")
 	t.Setenv("KOINON_LAUNCH_ID", "synthetic-stale-launch")
 	return root, d.Addresses()[0], cli, directory
 }
@@ -212,7 +235,13 @@ func checkReport(t *testing.T, r report, family, directory string) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if r.Directory != canonical || len(r.ClaudeNames) != 0 || len(r.LaunchID) != 64 || r.Session.ID != "synthetic-"+family {
+	// Only a started Claude keeps its user's configuration directory; no agent inherits
+	// another Claude session's variables or nesting marker.
+	kept := len(r.ClaudeNames) == 0
+	if family == "claude" {
+		kept = len(r.ClaudeNames) == 1 && r.ClaudeNames[0] == "CLAUDE_CONFIG_DIR"
+	}
+	if r.Directory != canonical || !kept || r.Nested || len(r.LaunchID) != 64 || r.Session.ID != "synthetic-"+family {
 		t.Fatalf("invalid launch association or environment: %+v", r)
 	}
 	var target core.LaunchTarget
@@ -224,8 +253,11 @@ func checkReport(t *testing.T, r report, family, directory string) {
 	}
 	if family == "codex" {
 		expected := fmt.Sprint(r.PID)
-		if r.Host != expected || len(r.Args) < 2 || r.Args[0] != "-c" || r.Args[1] != "shell_environment_policy.set.KOINON_CODEX_HOST=\""+expected+"\"" {
-			t.Fatal("Codex host identity not preserved")
+		// Codex runs on its own, so its MCP servers are children of this process, and
+		// passes them the launch variables (#247).
+		if r.Host != expected || len(r.Args) < 5 || r.Args[0] != "--no-daemon" || r.Args[1] != "-c" || r.Args[2] != "shell_environment_policy.set.KOINON_CODEX_HOST=\""+expected+"\"" ||
+			r.Args[3] != "-c" || r.Args[4] != `mcp_servers.koinon.env_vars=["KOINON_LAUNCH_ID","KOINON_STATE_DIR","KOINON_DAEMON_ADDRESS","TMUX","TMUX_PANE","CODEX_HOME"]` {
+			t.Fatalf("Codex command line: %q", r.Args)
 		}
 	}
 	if family == "opencode" && !r.Authenticated {
@@ -247,7 +279,7 @@ func arguments(root, address, cli, directory, family, result string) []string {
 }
 
 func TestCurrentTerminalAndNoTmux(t *testing.T) {
-	for _, family := range []string{"codex", "agy", "opencode"} {
+	for _, family := range []string{"claude", "codex", "agy", "opencode"} {
 		for _, inside := range []bool{true, false} {
 			t.Run(fmt.Sprintf("%s-inside-%v", family, inside), func(t *testing.T) {
 				root, address, cli, directory := fixture(t)
@@ -280,7 +312,11 @@ func TestPrivateTmuxDetachedAndOutside(t *testing.T) {
 		}
 		t.Skip("tmux not installed")
 	}
-	for _, family := range []string{"codex", "agy", "opencode"} {
+	sleep, err := exec.LookPath("sleep")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, family := range []string{"claude", "codex", "agy", "opencode"} {
 		for _, detached := range []bool{true, false} {
 			t.Run(fmt.Sprintf("%s-detached-%v", family, detached), func(t *testing.T) {
 				root, address, cli, directory := fixture(t)
@@ -306,6 +342,8 @@ func TestPrivateTmuxDetachedAndOutside(t *testing.T) {
 				t.Setenv("PATH", wrapperDir)
 				result := filepath.Join(root, "result.json")
 				args := arguments(root, address, cli, directory, family, result)
+				// The role reaches the launch record through the launcher in the new pane.
+				args = append(args[:9], append([]string{"--role", "review"}, args[9:]...)...)
 				if detached {
 					t.Setenv("TMUX", socket+",1,0")
 					args = append(args[:9], append([]string{"--tmux-session", "detached"}, args[9:]...)...)
@@ -317,16 +355,31 @@ func TestPrivateTmuxDetachedAndOutside(t *testing.T) {
 				if err != nil {
 					t.Fatalf("tmux launch: %v %s", err, out)
 				}
-				checkReport(t, readReport(t, result), family, directory)
+				launched := readReport(t, result)
+				checkReport(t, launched, family, directory)
+				var target core.LaunchTarget
+				if json.Unmarshal(launched.Session.WakeTarget, &target) != nil || target.Role != "review" || launched.Session.Role != "review" {
+					t.Fatalf("role not recorded: %+v %s", launched.Session, launched.Session.WakeTarget)
+				}
 				if detached {
 					var result map[string]any
 					if json.Unmarshal(out, &result) != nil || result["ok"] != true || result["session"] != "detached" {
 						t.Fatalf("invalid detached result %s", out)
 					}
-					// A name collision must not reuse an existing session.
-					exec.Command(realTmux, "-S", socket, "new-session", "-d", "-s", "detached", "sleep 60").Run()
-					if err := exec.Command(launcherBinary, args...).Run(); err == nil {
-						t.Fatal("reused occupied session")
+					// A name collision must not reuse an existing session. The first session
+					// closes when its synthetic CLI exits, which can be after the report is
+					// written; occupy the name only once that session is gone. The occupant
+					// names sleep by its absolute path, since PATH holds only the wrapper.
+					deadline := time.Now().Add(10 * time.Second)
+					for exec.Command(realTmux, "-S", socket, "-f", "/dev/null", "new-session", "-d", "-s", "detached", quote(sleep)+" 60").Run() != nil {
+						if time.Now().After(deadline) {
+							t.Fatal("cannot occupy the session name")
+						}
+						time.Sleep(20 * time.Millisecond)
+					}
+					out, err := exec.Command(launcherBinary, args...).CombinedOutput()
+					if err == nil || !strings.Contains(string(out), "tmux session detached exists; choose another name with --tmux-session NAME") {
+						t.Fatalf("reused occupied session: %v %s", err, out)
 					}
 				} else {
 					data, err := os.ReadFile(attach)
@@ -340,13 +393,11 @@ func TestPrivateTmuxDetachedAndOutside(t *testing.T) {
 }
 
 func TestDirectoryGuardAndOptions(t *testing.T) {
+	// Nested repositories never refuse a start (#252).
 	for _, kind := range []string{"directory", "file", "symlink"} {
 		t.Run(kind, func(t *testing.T) {
 			root := t.TempDir()
 			os.Mkdir(filepath.Join(root, ".git"), 0700)
-			if _, err := CheckDirectory(root); err != nil {
-				t.Fatal(err)
-			}
 			nested := filepath.Join(root, "nested")
 			os.Mkdir(nested, 0700)
 			switch kind {
@@ -357,17 +408,18 @@ func TestDirectoryGuardAndOptions(t *testing.T) {
 			case "symlink":
 				os.Symlink(filepath.Join(root, ".git"), filepath.Join(nested, ".git"))
 			}
-			if _, err := CheckDirectory(root); err == nil {
-				t.Fatal("nested repository allowed")
+			if _, err := CheckDirectory(root); err != nil {
+				t.Fatal(err)
 			}
 		})
 	}
-	root := t.TempDir()
-	outside := t.TempDir()
-	os.Mkdir(filepath.Join(outside, ".git"), 0700)
-	os.Symlink(outside, filepath.Join(root, "linked"))
-	if _, err := CheckDirectory(root); err != nil {
-		t.Fatal("followed directory symlink")
+	if _, err := CheckDirectory(filepath.Join(t.TempDir(), "missing")); err == nil {
+		t.Fatal("missing start directory accepted")
+	}
+	file := filepath.Join(t.TempDir(), "file")
+	os.WriteFile(file, nil, 0600)
+	if _, err := CheckDirectory(file); err == nil {
+		t.Fatal("file accepted as start directory")
 	}
 	o, err := Parse("agy", []string{"--directory", "relative", "--", "--cli", "literal"})
 	if err != nil || o.Directory != "relative" || !reflect.DeepEqual(o.Args, []string{"--cli", "literal"}) {
@@ -402,14 +454,294 @@ func TestConfiguredPathAndFailures(t *testing.T) {
 	nested := filepath.Join(directory, "nested")
 	os.Mkdir(nested, 0700)
 	os.WriteFile(filepath.Join(nested, ".git"), nil, 0600)
+	// A name that the launch record cannot hold is left out and never refuses the start.
+	os.MkdirAll(filepath.Join(directory, "line\nbreak", ".git"), 0700)
+	// A start directory with a nested repository starts the agent, reports the repository
+	// before the CLI starts, and records it with the launch (#252).
+	// A TMUX value keeps the start in this process, never in a tmux server.
+	t.Setenv("TMUX", filepath.Join(root, "unused-socket")+",1,0")
 	cmd := exec.Command(launcherBinary, arguments(root, address, cli, directory, "agy", filepath.Join(root, "result"))...)
-	if err := cmd.Run(); err == nil {
-		t.Fatal("started agent above another repository")
+	var stderr strings.Builder
+	cmd.Stderr = &stderr
+	if err := cmd.Run(); err != nil {
+		t.Fatalf("start with a nested repository: %v %s", err, stderr.String())
 	}
-	if _, err := os.Stat(filepath.Join(root, "result")); !os.IsNotExist(err) {
-		t.Fatal("CLI ran before directory refusal")
+	if !strings.Contains(stderr.String(), "1 nested repositories in the start directory (list incomplete)") || !strings.Contains(stderr.String(), "nested (repository)") {
+		t.Fatalf("no nested notice: %q", stderr.String())
+	}
+	var target core.LaunchTarget
+	if err := json.Unmarshal(readReport(t, filepath.Join(root, "result")).Session.WakeTarget, &target); err != nil ||
+		!reflect.DeepEqual(target.Nested, []core.NestedRepository{{Path: "nested", Kind: "repository"}}) || !target.NestedIncomplete {
+		t.Fatalf("launch record lacks the nested repository: %+v %v", target, err)
 	}
 	if err := Run(context.Background(), Options{Family: "opencode", CLI: cli, Directory: directory, StateDir: filepath.Join(root, "state"), Address: address, Args: []string{"--hostname=0.0.0.0"}}, io.Discard); err == nil {
 		t.Fatal("unsafe launch succeeded")
+	}
+}
+
+// Without a running daemon the launcher names the cause and how to start one at its own
+// state directory and address, for a state directory that never held a daemon and for one
+// whose daemon stopped (#279).
+func TestNoDaemon(t *testing.T) {
+	root, _, cli, directory := fixture(t)
+	never := filepath.Join(root, "never started")
+	err := Run(context.Background(), Options{Family: "agy", CLI: cli, Directory: directory, StateDir: never, Address: "127.0.0.1:47671"}, io.Discard)
+	if err == nil || err.Error() != "agent was not started: no daemon has started with state directory "+never+
+		"; start it with koinon install --state-dir '"+never+"' from a login session, or run koinon serve --state-dir '"+never+"' in a persistent managed session" {
+		t.Fatalf("never-started state: %v", err)
+	}
+	stopped := filepath.Join(root, "stopped")
+	d, err := core.Start(core.Config{StateDir: stopped, Listen: []string{"127.0.0.1:0"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	address := d.Addresses()[0]
+	d.Close()
+	_, port, _ := net.SplitHostPort(address)
+	err = Run(context.Background(), Options{Family: "agy", CLI: cli, Directory: directory, StateDir: stopped, Address: address}, io.Discard)
+	if err == nil || err.Error() != "agent was not started: no daemon answers at "+address+"; start it with koinon serve --state-dir "+stopped+
+		" --listen "+address+" --listen-v6 '[::1]:"+port+"' in a persistent managed session" {
+		t.Fatalf("stopped daemon: %v", err)
+	}
+}
+
+// An existing tmux server has its own environment: a started Claude gets the caller's
+// CLAUDE_CONFIG_DIR, exactly, or none when the caller has none (#242 review).
+func TestTmuxCarriesClaudeConfiguration(t *testing.T) {
+	realTmux, err := exec.LookPath("tmux")
+	if err != nil {
+		if os.Getenv("CI") != "" {
+			t.Fatal("tmux required in CI")
+		}
+		t.Skip("tmux not installed")
+	}
+	for _, caller := range []*string{ptr("/synthetic/caller config $(touch x) 'q'"), nil} {
+		t.Run(fmt.Sprintf("caller-set-%v", caller != nil), func(t *testing.T) {
+			root, address, cli, directory := fixture(t)
+			socketDir, err := os.MkdirTemp("", "kl-tmux-")
+			if err != nil {
+				t.Fatal(err)
+			}
+			socket := filepath.Join(socketDir, "s")
+			t.Cleanup(func() { exec.Command(realTmux, "-S", socket, "kill-server").Run(); os.RemoveAll(socketDir) })
+			// The server starts with another configuration directory than the caller's.
+			server := exec.Command(realTmux, "-S", socket, "-f", "/dev/null", "new-session", "-d", "-s", "guard", "sleep 60")
+			server.Env = append(os.Environ(), "CLAUDE_CONFIG_DIR=/synthetic/server-config")
+			if out, err := server.CombinedOutput(); err != nil {
+				t.Fatalf("private tmux: %v %s", err, out)
+			}
+			wrapperDir := filepath.Join(root, "tools")
+			os.Mkdir(wrapperDir, 0700)
+			wrapper := "#!/bin/sh\nexec " + quote(realTmux) + " -S " + quote(socket) + " -f /dev/null \"$@\"\n"
+			os.WriteFile(filepath.Join(wrapperDir, "tmux"), []byte(wrapper), 0700)
+			t.Setenv("PATH", wrapperDir)
+			t.Setenv("TMUX", socket+",1,0")
+			if caller != nil {
+				t.Setenv("CLAUDE_CONFIG_DIR", *caller)
+			} else {
+				os.Unsetenv("CLAUDE_CONFIG_DIR")
+			}
+			result := filepath.Join(root, "result.json")
+			args := arguments(root, address, cli, directory, "claude", result)
+			args = append(args[:9], append([]string{"--tmux-session", "carried"}, args[9:]...)...)
+			if out, err := exec.Command(launcherBinary, args...).CombinedOutput(); err != nil {
+				t.Fatalf("tmux launch: %v %s", err, out)
+			}
+			r := readReport(t, result)
+			switch {
+			case caller == nil && r.ConfigDir != nil:
+				t.Fatalf("the server's configuration reached Claude: %q", *r.ConfigDir)
+			case caller != nil && (r.ConfigDir == nil || *r.ConfigDir != *caller):
+				got := "none"
+				if r.ConfigDir != nil {
+					got = *r.ConfigDir
+				}
+				t.Fatalf("Claude did not get the caller's configuration: %q", got)
+			}
+			for _, name := range r.ClaudeNames {
+				if name != "CLAUDE_CONFIG_DIR" {
+					t.Fatalf("Claude variable %s reached Claude", name)
+				}
+			}
+		})
+	}
+}
+
+func ptr(value string) *string { return &value }
+
+// The default tmux session name is the participant address base, so that agents of other
+// families or roles in one directory never collide; a repository gives its label.
+func TestDefaultSessionNames(t *testing.T) {
+	root := t.TempDir()
+	plain := filepath.Join(root, "My Project.v2")
+	repository := filepath.Join(root, "Repo")
+	inner := filepath.Join(repository, "sub")
+	for _, dir := range []string{plain, inner} {
+		if err := os.MkdirAll(dir, 0700); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if out, err := exec.Command("git", "init", "-q", repository).CombinedOutput(); err != nil {
+		t.Fatalf("git init: %v %s", err, out)
+	}
+	for _, c := range []struct{ family, directory, role, want string }{
+		{"claude", plain, "", "claude-my-project-v2"},
+		{"codex", plain, "", "codex-my-project-v2"},
+		{"claude", plain, "review", "claude-my-project-v2-review"},
+		{"codex", inner, "", "codex-repo"},
+	} {
+		names := defaultSessions(context.Background(), c.family, c.directory, c.role)
+		if names[0] != c.want || names[1] != c.want+"-2" || names[len(names)-1] != c.want+"-99" || len(names) != maxSessionSuffix {
+			t.Fatalf("%s %s %q: %v", c.family, c.directory, c.role, names)
+		}
+	}
+}
+
+// A start outside tmux takes the next numbered name when the default is taken, and the
+// refusal names --tmux-session when every default name is taken.
+func TestPrivateTmuxTakenDefaultName(t *testing.T) {
+	realTmux, err := exec.LookPath("tmux")
+	if err != nil {
+		if os.Getenv("CI") != "" {
+			t.Fatal("tmux required in CI")
+		}
+		t.Skip("tmux not installed")
+	}
+	sleep, err := exec.LookPath("sleep")
+	if err != nil {
+		t.Fatal(err)
+	}
+	root, address, cli, directory := fixture(t)
+	socketDir, err := os.MkdirTemp("", "kl-tmux-")
+	if err != nil {
+		t.Fatal(err)
+	}
+	socket := filepath.Join(socketDir, "s")
+	t.Cleanup(func() { exec.Command(realTmux, "-S", socket, "kill-server").Run(); os.RemoveAll(socketDir) })
+	occupy := func(name string) {
+		t.Helper()
+		// A launched session closes when its synthetic CLI exits; wait until its name is free.
+		deadline := time.Now().Add(10 * time.Second)
+		for exec.Command(realTmux, "-S", socket, "-f", "/dev/null", "new-session", "-d", "-s", name, quote(sleep)+" 60").Run() != nil {
+			if time.Now().After(deadline) {
+				t.Fatalf("cannot occupy %s", name)
+			}
+			time.Sleep(20 * time.Millisecond)
+		}
+	}
+	occupy("codex-project")
+	occupy("codex-project-2")
+	wrapperDir := filepath.Join(root, "tools")
+	os.Mkdir(wrapperDir, 0700)
+	calls := filepath.Join(root, "calls")
+	wrapper := "#!/bin/sh\nprintf '%s ' \"$@\" >> " + quote(calls) + "; echo >> " + quote(calls) + "\nif [ \"$1\" = attach-session ]; then exit 0; fi\nexec " + quote(realTmux) + " -S " + quote(socket) + " -f /dev/null \"$@\"\n"
+	os.WriteFile(filepath.Join(wrapperDir, "tmux"), []byte(wrapper), 0700)
+	t.Setenv("PATH", wrapperDir)
+	t.Setenv("TMUX", "")
+	result := filepath.Join(root, "result.json")
+	if out, err := exec.Command(launcherBinary, arguments(root, address, cli, directory, "codex", result)...).CombinedOutput(); err != nil {
+		t.Fatalf("launch: %v %s", err, out)
+	}
+	checkReport(t, readReport(t, result), "codex", directory)
+	data, _ := os.ReadFile(calls)
+	lines := strings.Split(strings.TrimSpace(string(data)), "\n")
+	if len(lines) < 2 || !strings.Contains(lines[len(lines)-2], "new-session -d -P -F #{session_id} #{pane_id} -s codex-project-3 ") ||
+		!strings.HasPrefix(lines[len(lines)-1], "attach-session -t $") {
+		t.Fatalf("did not start and attach codex-project-3:\n%s", data)
+	}
+	for n := 3; n <= maxSessionSuffix; n++ {
+		occupy(fmt.Sprintf("codex-project-%d", n))
+	}
+	out, err := exec.Command(launcherBinary, arguments(root, address, cli, directory, "codex", result)...).CombinedOutput()
+	if err == nil || !strings.Contains(string(out), "codex-project to codex-project-99 exist; choose a name with --tmux-session NAME") {
+		t.Fatalf("every name taken: %v %s", err, out)
+	}
+}
+
+// koinon grok chooses the first session's ID unless the arguments select a session, and the
+// launch admits that session (#254 chunk 02, item 2).
+func TestGrokLaunchChoosesTheFirstSession(t *testing.T) {
+	for _, chosen := range []string{"", "--resume", "--session-id=7f3c2a10-0000-4000-8000-00000000c0de", "-c"} {
+		t.Run(chosen, func(t *testing.T) {
+			if id, err := grokSessionID([]string{"--model", "synthetic", chosen}); err != nil || (chosen == "") != core.FullJobID.MatchString(id) {
+				t.Fatalf("grokSessionID(%q) = %q %v", chosen, id, err)
+			}
+		})
+	}
+	if a, _ := grokSessionID(nil); a == "" || a[14] != '4' || !strings.Contains("89ab", string(a[19])) {
+		t.Fatalf("not a version 4 UUID: %q", a)
+	}
+	root, address, cli, directory := fixture(t)
+	t.Setenv("TMUX", filepath.Join(root, "unused-socket")+",1,0")
+	result := filepath.Join(root, "result.json")
+	if out, err := exec.Command(launcherBinary, arguments(root, address, cli, directory, "grok", result)...).CombinedOutput(); err != nil {
+		t.Fatalf("grok launch: %v %s", err, out)
+	}
+	r := readReport(t, result)
+	var chosen string
+	for i := 0; i+1 < len(r.Args); i++ {
+		if r.Args[i] == "--session-id" {
+			chosen = r.Args[i+1]
+		}
+	}
+	var target core.LaunchTarget
+	if err := json.Unmarshal(r.Session.WakeTarget, &target); err != nil || !core.FullJobID.MatchString(chosen) ||
+		r.Session.ID != chosen || target.SessionID != chosen || target.Family != "grok" || len(r.LaunchID) != 64 {
+		t.Fatalf("grok launch record: %+v %+v %v", r, target, err)
+	}
+	// The chosen ID goes before a native "--", so text after it stays text (Codex review).
+	result = filepath.Join(root, "prompt.json")
+	args := append(arguments(root, address, cli, directory, "grok", result), "--", "synthetic prompt")
+	if out, err := exec.Command(launcherBinary, args...).CombinedOutput(); err != nil {
+		t.Fatalf("grok launch with a prompt: %v %s", err, out)
+	}
+	r = readReport(t, result)
+	option, marker := slices.Index(r.Args, "--session-id"), slices.Index(r.Args, "--")
+	if option < 0 || marker < option || r.Args[len(r.Args)-1] != "synthetic prompt" || r.Session.ID != r.Args[option+1] {
+		t.Fatalf("grok prompt arguments: %v %+v", r.Args, r.Session)
+	}
+	// A resumed session keeps its own ID; the launch chooses none.
+	result = filepath.Join(root, "resume.json")
+	args = append(arguments(root, address, cli, directory, "grok", result), "--resume", "synthetic-resumed")
+	if out, err := exec.Command(launcherBinary, args...).CombinedOutput(); err != nil {
+		t.Fatalf("grok resume: %v %s", err, out)
+	}
+	r = readReport(t, result)
+	if slices.Contains(r.Args, "--session-id") || r.Session.ID != "synthetic-grok" {
+		t.Fatalf("grok resume record: %+v", r)
+	}
+}
+
+// tmux before 3.4 prints a tab in a format as "_" (tmux 3.3a, #254 live check): the launch
+// reads space-separated IDs and refuses anything else.
+func TestLaunchIDs(t *testing.T) {
+	if session, pane, err := launchIDs([]byte("$3 %7\n")); err != nil || session != "$3" || pane != "%7" {
+		t.Fatalf("space-separated IDs: %q %q %v", session, pane, err)
+	}
+	for _, out := range []string{"$1_%1\n", "$1\t%1 extra\n", "", "%1 $1\n"} {
+		if _, _, err := launchIDs([]byte(out)); err == nil {
+			t.Errorf("accepted %q", out)
+		}
+	}
+}
+
+// A Claude launch adds the pickup loader after its own options and before a "--" that ends
+// them; other families are unchanged (#196, chunk 03).
+func TestCycleLoaderArgs(t *testing.T) {
+	state := t.TempDir()
+	loader := core.CycleLoaderDir(state)
+	for _, c := range []struct {
+		family string
+		args   []string
+		want   []string
+	}{
+		{"claude", nil, []string{"--add-dir", loader}},
+		{"claude", []string{"--model", "synthetic", "do the synthetic task"}, []string{"--model", "synthetic", "do the synthetic task", "--add-dir", loader}},
+		{"claude", []string{"--model", "synthetic", "--", "--literal prompt"}, []string{"--model", "synthetic", "--add-dir", loader, "--", "--literal prompt"}},
+		{"codex", []string{"--model", "synthetic"}, []string{"--model", "synthetic"}},
+	} {
+		if got := cycleLoaderArgs(Options{Family: c.family, StateDir: state}, c.args); !slices.Equal(got, c.want) {
+			t.Fatalf("%s %q: %q", c.family, c.args, got)
+		}
 	}
 }

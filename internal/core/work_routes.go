@@ -8,9 +8,10 @@ import (
 )
 
 // workRoutes adds the work API: one route per wire operation. The store is the caller's
-// recorded repository; the consumer is the caller's session key unless the request names
-// a stable consumer.
+// recorded repository; the consumer defaults to its held participant or native session
+// key. Explicit participant consumers require the current native holder too.
 func (d *Daemon) workRoutes(mux *http.ServeMux) {
+	d.checkoutRoutes(mux)
 	for _, op := range WorkOperations() {
 		mux.HandleFunc("POST /v1/work/"+op, func(w http.ResponseWriter, r *http.Request) {
 			var fields map[string]json.RawMessage
@@ -24,6 +25,7 @@ func (d *Daemon) workRoutes(mux *http.ServeMux) {
 				failure(w, ErrInvalid)
 				return
 			}
+			d.store.ToolCall(caller)
 			var consumer *string
 			if raw, ok := fields["consumer"]; ok {
 				if json.Unmarshal(raw, &consumer) != nil || consumer == nil {
@@ -56,6 +58,10 @@ func (d *Daemon) maintainWork() {
 	for {
 		ctx, cancel := contextUntil(d.stop, time.Minute)
 		d.store.MaintainWork(ctx)
+		// A running agent keeps its session without a renewal (#249).
+		d.store.MaintainLiveness(ctx)
+		// Retention runs after the work sweep, which has reconciled expired claims (#216).
+		d.store.Cull(ctx)
 		// The audit log keeps 90 days and at most auditMax records (sprint chunk 09), and
 		// launch results that could not be recorded at once are recorded now.
 		d.store.trimAudit(ctx)

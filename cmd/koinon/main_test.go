@@ -66,6 +66,12 @@ func TestServeStatusAndShutdown(t *testing.T) {
 	if err := run(context.Background(), []string{"status", "--state-dir", root, "--address", status.Listeners[0]}, nil, &out); err == nil {
 		t.Fatal("dead daemon reported running")
 	}
+	never := filepath.Join(t.TempDir(), "never-started")
+	if err := run(context.Background(), []string{"status", "--state-dir", never, "--address", status.Listeners[0]}, nil, &out); err == nil ||
+		err.Error() != "no daemon has started with state directory "+never+"; start it with koinon serve --state-dir "+never+
+			" --listen "+status.Listeners[0]+" --listen-v6 '[::1]:"+status.Listeners[0][strings.LastIndex(status.Listeners[0], ":")+1:]+"' in a persistent managed session" {
+		t.Fatalf("state without a daemon: %v", err)
+	}
 	secret, _ := os.ReadFile(filepath.Join(root, "secret"))
 	if bytes.Contains(body, secret) || bytes.Contains(out.Bytes(), secret) {
 		t.Fatal("secret in command output")
@@ -102,7 +108,16 @@ func TestMessageCommands(t *testing.T) {
 	directory := t.TempDir()
 	for _, key := range []string{"codex:synthetic-a", "opencode:synthetic-b"} {
 		family, id, _ := strings.Cut(key, ":")
-		if _, err := core.Call(context.Background(), address, secret, "/v1/sessions/register", core.Registration{Family: family, ID: id, Directory: directory}); err != nil {
+		// Each session registers with its own launch, as koinon <family> starts it.
+		target := core.LaunchTarget{Family: family, Directory: directory, CLI: "/synthetic/cli", HostPID: 4242}
+		if family == "opencode" {
+			target.Address, target.Password = "127.0.0.1:9", strings.Repeat("ab", 32)
+		}
+		launch, err := core.CreateLaunch(context.Background(), address, secret, target)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, err := core.Call(context.Background(), address, secret, "/v1/sessions/register", core.Registration{Family: family, ID: id, Directory: directory, LaunchID: launch, Ancestors: []int{4242}}); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -124,10 +139,26 @@ func TestMessageCommands(t *testing.T) {
 		t.Fatal(err)
 	}
 	var recipient string
+	var self []string
 	for _, p := range peers["peers"].([]any) {
 		if p := p.(map[string]any); p["family"] == "opencode" {
 			recipient = p["name"].(string)
 		}
+		if p := p.(map[string]any); p["self"] == true {
+			self = append(self, p["family"].(string))
+		}
+	}
+	// The --as caller's own row is the only one marked (#348).
+	if len(self) != 1 || self[0] != "codex" {
+		t.Fatalf("self rows: %v", self)
+	}
+	peerStatus, err := command("", "peer-status", "--as", "codex:synthetic-a", recipient)
+	if err != nil {
+		t.Fatal(err)
+	}
+	peer := peerStatus["peer"].(map[string]any)
+	if peer["name"] != recipient || peer["state"] != "active" || peer["context"].(map[string]any)["reason"] != "no_source" || peer["activity"].(map[string]any)["known"] != false {
+		t.Fatalf("peer-status: %v", peerStatus)
 	}
 	if _, err := command("", "send", "--as", "codex:synthetic-a", recipient, "first synthetic"); err != nil {
 		t.Fatal(err)
@@ -150,7 +181,7 @@ func TestMessageCommands(t *testing.T) {
 	if _, err := command("", "ack", "--as", "opencode:synthetic-b", "3"); !errors.As(err, &refused) || refused.Code != "ack_beyond_last" {
 		t.Fatalf("ack beyond last: %v", err)
 	}
-	for _, args := range [][]string{{"peers"}, {"peers", "--as", "codex"}, {"send", "--as", "codex:synthetic-a", recipient}, {"ack", "--as", "codex:synthetic-a", "two"}} {
+	for _, args := range [][]string{{"peers"}, {"peers", "--as", "codex"}, {"peer-status", "--as", "codex:synthetic-a"}, {"peer-status", recipient}, {"send", "--as", "codex:synthetic-a", recipient}, {"ack", "--as", "codex:synthetic-a", "two"}} {
 		if _, err := command("", args...); err == nil || errors.As(err, &refused) {
 			t.Fatalf("invalid command accepted: %v %v", args, err)
 		}
@@ -169,6 +200,11 @@ func TestAgentCommands(t *testing.T) {
 	out.Reset()
 	if err := run(context.Background(), []string{"hook", "agy-stop"}, strings.NewReader(`{}`), &out); err != nil || out.String() != "{}\n" {
 		t.Fatalf("hook: %v %q", err, out.String())
+	}
+	out.Reset()
+	// The Codex SessionStart hook writes nothing.
+	if err := run(context.Background(), []string{"hook", "codex-session-start"}, strings.NewReader(`{"session_id":"synthetic","cwd":"/","source":"clear"}`), &out); err != nil || out.Len() != 0 {
+		t.Fatalf("codex hook: %v %q", err, out.String())
 	}
 	out.Reset()
 	if err := run(context.Background(), []string{"setup", "deepseek"}, nil, &out); err != nil || !strings.Contains(out.String(), `"changed":[]`) {
@@ -307,7 +343,14 @@ func TestWorkCommands(t *testing.T) {
 	if out, err := exec.Command("git", "init", "-q", repo).CombinedOutput(); err != nil {
 		t.Fatalf("git init: %v %s", err, out)
 	}
-	if _, err := core.Call(context.Background(), address, secret, "/v1/sessions/register", core.Registration{Family: "deepseek", ID: "synthetic-d", Repository: repo, Directory: repo}); err != nil {
+	registration, err := core.Call(context.Background(), address, secret, "/v1/sessions/register", core.Registration{Family: "deepseek", ID: "synthetic-d", Repository: repo, Directory: repo})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var registered struct {
+		Session core.Session `json:"session"`
+	}
+	if err := json.Unmarshal(registration, &registered); err != nil {
 		t.Fatal(err)
 	}
 	work := func(args ...string) (map[string]any, error) {
@@ -321,6 +364,13 @@ func TestWorkCommands(t *testing.T) {
 		return result["result"].(map[string]any), nil
 	}
 	deadline := fmt.Sprint(time.Now().Unix() + 600)
+	if status, err := work("work", "checkout", "status", "--directory", repo); err != nil || status["state"] != "unclaimed" {
+		t.Fatalf("checkout status: %v %v", status, err)
+	}
+	var checkoutRefusal core.RefusedError
+	if _, err := work("work", "checkout", "request", "--directory", repo, "--note", "ready to drive"); !errors.As(err, &checkoutRefusal) || checkoutRefusal.Code != "checkout_unheld" {
+		t.Fatalf("unheld checkout request: %v", err)
+	}
 	created, err := work("work", "create", "--title", "t", "--criteria", "c", "--non-goals", "n", "--key", "k", "--deadline", deadline,
 		"--proposed-assignee", "codex:x", "--reference", "r1", "--reference", "r2")
 	if err != nil {
@@ -340,7 +390,7 @@ func TestWorkCommands(t *testing.T) {
 	}
 	generation := fmt.Sprint(started["claim"].(map[string]any)["generation"])
 	if item, err := work("work", "get", id); err != nil || len(item["current_claim"].(map[string]any)["resources"].([]any)) != 3 ||
-		item["current_claim"].(map[string]any)["consumer"] != "deepseek:synthetic-d" {
+		item["current_claim"].(map[string]any)["consumer"] != "participant:"+registered.Session.Address {
 		t.Fatalf("resources: %v %v", item, err)
 	}
 	if r, err := work("claim", "renew", id, "--claim-generation", generation, "--if-claim-revision", "1"); err != nil || r["seq"] != nil {
@@ -356,6 +406,33 @@ func TestWorkCommands(t *testing.T) {
 	}
 	if _, err := work("work", "finish", id, "--if-revision", "3", "--claim-generation", generation, "--outcome", "completed",
 		"--reference", "synthetic-pr"); err != nil {
+		t.Fatal(err)
+	}
+	// DeepSeek's native-session CLI path supports typed default-role proposals too.
+	roleCreated, err := work("work", "create", "--title", "role", "--criteria", "c", "--non-goals", "n", "--key", "role-create", "--deadline", deadline,
+		"--proposed-role", `{"family":"deepseek","role":""}`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	roleID := roleCreated["work_id"].(string)
+	if page, err := work("work", "list", "--created-by-me"); err != nil || len(page["items"].([]any)) != 2 {
+		t.Fatalf("creator CLI query: %v %v", page, err)
+	}
+	if page, err := work("work", "list", "--assigned-to-me", "--limit", "1"); err != nil || page["more"] != false || page["items"].([]any)[0].(map[string]any)["work_id"] != roleID {
+		t.Fatalf("role assignment query: %v %v", page, err)
+	}
+	roleStart, err := work("work", "start", roleID, "--if-revision", "1", "--checkpoint", "c", "--next-artifact", "a",
+		"--progress-deadline", deadline, "--key", "role-start", "--deadline", deadline)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if item, err := work("work", "get", roleID); err != nil || item["current_claim"].(map[string]any)["ownership"] != "native" {
+		t.Fatalf("role native ownership: %v %v", item, err)
+	}
+	if _, err := work("work", "propose", roleID, "--if-revision", "2", "--proposed-role", "null"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := work("work", "release", roleID, "--if-revision", "3", "--claim-generation", fmt.Sprint(roleStart["claim"].(map[string]any)["generation"]), "--checkpoint", "synthetic release"); err != nil {
 		t.Fatal(err)
 	}
 	cancel()

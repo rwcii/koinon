@@ -5,6 +5,477 @@ into a dated release section when promoted to `main`.
 
 ## Unreleased
 
+## 2026-10-14 — Participants, rooms, the decision board and managed context cycles
+
+This release adds participant addresses with roles and verified succession, rooms and the
+decision board on the dashboard, and managed context cycles for Claude Code (Linux and macOS)
+and Codex (Linux). It adds a macOS system service that survives logout, the Codex pane wake
+after `/clear`, the Grok family, and portable skills embedded in the binary. The state schema
+is 26; `koinon install` upgrades a v0.1.0 installation in place.
+
+Known limits:
+
+- The cycle adapters run only with the CLI versions that their evidence covers: Claude Code
+  2.1.296 and Codex CLI 0.162.0. Another version reports `native_version_unverified`.
+- The Codex cycle stays unverified on macOS until its approval case passes (#196).
+- On macOS, the system service's start at boot with nobody logged in and a reinstall while
+  logged out are not yet checked live (#283).
+- The DeepSeek harness's permission grammar remains unverified (#199).
+- A running agent session keeps the `koinon mcp` server it started with; tools that this
+  release adds appear when the session, or its MCP server, starts again (docs/INSTALL.md).
+
+Changes:
+
+- Managed context cycle for Claude Code on macOS (#196): the macOS live check passed with
+  Claude Code 2.1.296, so the adapter is available on macOS. The Codex adapter passed the same
+  run except its approval case, which the sheet now runs with user approvals; Codex stays
+  unverified on macOS until that case passes.
+- Screen reads in a truecolor terminal (#371): the Codex pane wake and the Codex and Claude Code
+  cycle adapters read a 24-bit color (`48;2;R;G;B`) or a 256-color index of 0, 2 or 22 as color
+  data, not as the dim or reset attribute. Before, a notice typed on a truecolor Codex composer
+  read as the dim placeholder, so the wake never pressed Enter and ended
+  `pane_submission_unconfirmed`, and typed text on a truecolor Claude Code input line read as
+  empty.
+- Managed context cycle for Codex (#196): a session started with `koinon codex` in tmux
+  on Linux (Codex CLI 0.162.0) can run the cycle. The daemon enters `/clear`, then `/status`,
+  whose card names the new thread for the reset proof, then a bare `$pickup` only when every
+  pickup skill that Codex lists is the catalog item and no `skills.config` entry turns one off
+  (each configuration layer is read as TOML, with the new dependency
+  `github.com/BurntSushi/toml`). The new thread takes the address at once as `cycle_reset`,
+  only as the reset's proven successor. A session that holds no participant address reports
+  `participant_unheld`. For every family, the epoch is proven again right before the pickup
+  (`epoch_changed`), a dialog during the pickup wait is shown on the Sessions page, and the
+  report is accepted during it with the revision of the pickup wait.
+- `refusal-review` skill: the review also checks each maintainer decision a change records or
+  cites. The record states the question it answered, the options, the answer quoted with its
+  date, and the reason with its scope; a bare quote is a finding (WDR 001, Decision 6).
+- Store reopen (#355): a restarted daemon no longer creates the state database's
+  shared-memory file. The driver sorted its connection settings, so exclusive locking came
+  after the log mode; the store now applies them in its own order on each connection.
+- Managed context cycle for Claude Code (#196, #356): a session that needed the interactive bootstrap
+  ran only its first cycle; the next one ended `uncertain` (`dialog_not_shown`), because the
+  session keeps the added loader directory across `/clear` and Claude Code then shows no
+  dialog. The adapter now accepts that reply and still checks the `/pickup` menu. On macOS the
+  adapter reads the host's configuration directory and process start.
+  Linux live evidence for a native dialog inside a cycle and for daemon crashes around the
+  clear and pickup inputs is in `native-evidence.md` of that sprint.
+- Decision board (#206): the dashboard's Decisions page is the designed board. It
+  shows counts, a table of the active agents (name, activity, claimed work, a context meter or
+  "not reported", and the waiting items that name the agent), and cards with `ACTION FOR YOU`
+  fyi items first. Context, recommendation, agent text and notes render from a fixed Markdown
+  subset with HTML, links and images as literal text. Each command has its own box with a
+  Copy button; verdict buttons are disabled while a request runs, and the answer shows on the
+  card. The archive and a read-only lookup show each verdict with its text.
+- Decision verdicts (#206): the dashboard's Decisions page gives Approve and Decline
+  on decision items and Dismiss on fyi items, on the revision shown, with a snapshot of that
+  text. Each named agent gets a typed inbox message and a wake that names the verdict ID, and
+  reads `decision_pending`, `decision_get` and `decision_history` and acknowledges with
+  `decision_ack`. Approved work is closed with `decision_close`. Editing a decided item
+  reopens it. 30 days after archiving, records move to a monthly log file in the state
+  directory, and `decision_restore` brings one back; nothing is deleted. Schema 26.
+- Faster store open: the expected schema catalog of each version is built once per process
+  instead of by migrating an in-memory database twice at each open. The tests copy a
+  migrated template store, so the race suite of `internal/core` fits its 30-minute limit
+  again (about 13 minutes on the maintainer's Linux host, from about 29).
+- DeepSeek live wake (#199): the wake of an idle DeepSeek Harness 0.2.0-rc.2 session
+  (`dsh web`) through the Go daemon is proven in a development container. The guide,
+  PERMISSIONS and INSTALL no longer call the live proof deferred; the harness's permission
+  grammar remains unverified.
+- Decision items (#206): agents create, edit, list and read items for the
+  maintainer's decision board with `decision_create`, `decision_edit`, `decision_list` and
+  `decision_get` (MCP, `POST /v1/decisions/*` and `koinon decision ... --as`). Lists are
+  bounded JSON pages in item ID order (`waiting`, `active`, `in_progress`, `archived`, `mine`);
+  no agent reads the dashboard page. Fields have byte limits, terminal-copy commands are
+  printable ASCII, and known credential formats are refused. The dashboard has a read-only
+  Decisions page. Schema 25 adds the decision tables.
+- Codex pane wake (#275): on Linux and macOS, a participant notice for a session started with
+  `koinon codex` in tmux is typed into the session's own pane instead of `codex queue`, so a
+  message sent between `/clear` and the new thread's first turn runs in the visible new thread,
+  not in the cleared one. The daemon proves the pane and that the host holds the terminal's
+  foreground, types only while the observed activity is idle and the input is empty, and in each
+  attempt types the notice once and presses Enter once, reading it back before Enter and after.
+  On macOS, `platform.ProcessGroups` reads the process groups and terminals from
+  `kern.proc.all`. Sessions outside tmux and session inbox notices keep the queue.
+- Codex queue wait after `/clear` (#275): Codex starts a new `koinon mcp` server under the host
+  at each `/clear`, before the new thread's first turn. A `codex queue` wake of the address
+  holder, outside tmux or for its session inbox, waits with `codex_thread_unproven` while such a
+  server started after, or up to 1 second before, the holder's first registration, last tool
+  call and last rollout event (less 2 seconds), so the cleared thread does not read the
+  message. `platform.ProcessStartTime` reads a process's wall-clock start on Linux and macOS.
+- `peers` marks the calling session's own row with `self` (#348), so a session finds its own
+  peer name, address, holder flag and succession result when several sessions of its family
+  share a repository.
+- Claude Code cycle adapter (#196): the managed context cycle runs for Claude Code
+  2.1.296 sessions on Linux. It types `/clear` and `/pickup` into the session's own tmux pane,
+  proving the pane and rechecking the cycle and Enable before every key, and proves the reset by
+  the session's new native ID. `koinon claude` adds Koinon's pickup loader (`--add-dir`); a
+  session without it gets it before the clear. The Sessions page names why a session cannot run
+  the cycle and shows a dialog the cycle does not answer, with one button per option. The pickup
+  skill now names the cycle query and pickup report after a clear. The state database moves to
+  schema 24.
+- Managed context cycle contract (#196): schema 23 adds durable cycles with a
+  bounded event history, page credit for every remaining stage and the terminal outcome, the
+  typed request from the reserved `overwatch` identity (its type, cycle and Enable revision in
+  inbox reads), the `context_cycle_status`, `context_cycle_ready` and
+  `context_cycle_pickup` tools (and DeepSeek `cycle-*` commands), handoff-file checks in the
+  main checkout, cycle fences on Disable, mode changes, retirement, purge and holder choice,
+  pane wake deferral, the Sessions page cycle history and the guide's Managed cycle reporting
+  section.
+- A macOS system-mode install after a desktop logout no longer stops at `observe_agent`
+  (#344): launchctl's error 125 for the user's GUI domain counts as no desktop login, as
+  `Could not find domain` does after a reboot, and the agent steps are skipped.
+- Installer failure reports (#342) have `ok: false` while retaining completed-step details.
+  macOS installation checks an existing log directory before replacing the binary or
+  link, and creates a missing directory during the system step.
+
+- Context policy (#196): the Settings page sets each family's context handoff mode
+  and threshold, and the Sessions page shows each session's Enable switch and whether its
+  fresh context reading reaches the threshold. Enabling is refused until the managed cycle is
+  available; family changes enable nothing. Claude and Codex context reports carry their
+  native transcript or thread, kept private. The state database moves to schema 22.
+- Wake-pass diagnostics (#335) report the error class, stage, time and bounded error-type
+  details, including SQLite result codes, in health and daemon logs. A successful pass
+  clears the current fault while retaining the last failure; repeated identical faults
+  do not flood logs. Raw error text, message bodies and native IDs are excluded.
+
+- Room conversation view (#217): an open room on the Rooms page lists each post's
+  recipients as they were at the post, with the delivery state and acknowledgement of each
+  inbox copy, skipped inactive members, and `not retained` once a copy is deleted, plus the
+  retained floor. Viewing acknowledges nothing.
+- Inspect installed skills and setup targets with `library_state` and `koinon library state`
+  (#145), including content, native name collisions, repository facts and scoped
+  adoption decisions. Machine decisions use compared revisions and retain adopted digests
+  through a decline; project receipts use repository memory. Connection guidance explains
+  exact-change adoption and recommends required skills from verified state. These interfaces
+  edit no adopted files. Schema 21 adds one ordinary machine-decision table.
+- Room posts (#217): the maintainer posts to a room from its dashboard page, and
+  members post with `room_post` or `koinon room post`. One write stores the ordered post, an
+  inbox copy for each active member with typed `room` metadata (`seq`, `origin`
+  `maintainer` or `member`) and a skipped outcome for each inactive one. A maintainer post
+  allows the agents the room's refill value of posts; at the limit a member post is refused
+  with `exchange_limit`. `room_read` and `koinon room read` page the posts since a member
+  joined, with retention gaps. Posts are kept while any copy is. The state database moves
+  to schema 20.
+
+- Dashboard rooms (#217): the maintainer creates a room on the new Rooms page,
+  sets its agent-post refill value (default 32) and adds or removes active sessions by peer
+  name. A session that holds a participant address joins as that participant and keeps the
+  membership across holder succession. Each member gets an inbox message with typed `room`
+  metadata; `room_list`/`room_members` and `koinon room list|members` read your rooms and a
+  room's roster. At most 64 rooms, 32 active members and 128 memberships per room. The state
+  database moves to schema 19.
+
+- A Grok session started with `koinon grok` is woken through its own tmux pane (#254).
+  Before each wake the daemon proves that the recorded pane still holds the session's
+  host, and it types Koinon's fixed notice and Enter only while Grok's input box is empty and
+  no turn is running; otherwise nothing is sent and the wake waits.
+
+- Koinon reads tmux's answers with space-separated fields. tmux before 3.4 (for example 3.3a
+  on Debian 12) prints a tab in a format as `_`, so `koinon FAMILY --tmux-session` reported
+  `invalid tmux launch result` after starting the session, and a launched session's pane was
+  not proven for terminal naming, same-pane succession or the Grok wake (#254).
+
+- Discover work by creator and current assignment, and receive coalesced daemon work
+  notices through the existing inbox and wake adapters. Durable audience watermarks
+  reconcile missed notices after restart or holder changes; ordinary notification
+  admission preserves funded work controls. Status shows the 256-audience limit and
+  unresolved or omitted audiences, with complete paged queries as the fallback.
+  Worker progress does not create a wake loop, and routing history is read outside
+  the memory operation lock.
+  The state database moves to schema 18 (#140).
+
+- A worker reports a held item's result with a summary and evidence (`work_report`,
+  `koinon work report`); the claim is released and the item stays `reported` until another
+  worker accepts or rejects it (`work_accept`, `work_reject`). The reporting consumer and
+  native session cannot record the verdict. Reject returns the item open with a corrected
+  scope. Each report reserves its verdict's storage first, or refuses and keeps the claim;
+  at most 16 verdicts are pending per store and 32 per daemon. The state database moves to
+  schema 17 (#140).
+
+- Route work proposals to a repository's family/role, bind new role claims to the accepting
+  native session, and page current assignment queries completely. Existing/default participant
+  claims retain their generation and cursor continuation (#140).
+
+- Add the portable `refusal-review` skill: a different agent family checks a frozen commit for
+  added or changed refusals, gates, caps and exclusions, in text, tests and code, that have no
+  source covering their case, and records a commit-bound verdict. The `develop` ruleset
+  requires its `refusal-review` status beside `peer-review` (WDR 001, Decision 6).
+
+- Agents can query the installed skill/setup catalog through `library_list`, `library_read`
+  and `koinon library list/read` (#145). Connection instructions and each family
+  guide explain the catalog, its native destination support and the reviewed-diff adoption
+  procedure. Queries return embedded reference content without inspecting or changing
+  project/native files or recording adoption decisions.
+
+- Grok Build is a supported agent family (#254). `koinon setup grok` adds the
+  user-scope `koinon` MCP server and reports the Grok Build version; `koinon grok` starts Grok
+  with a launcher-chosen first session ID (`--session-id`) unless its arguments select a
+  session. Koinon identifies each call by the `GROK_SESSION_ID` of a server whose parent is a
+  Grok terminal process; a direct start registers as a plain peer, a sub-agent's calls act as
+  its parent, and a session served by Grok's leader process is refused with
+  `grok_leader_mode`. The dashboard can start Grok sessions.
+
+- Repository registration distinguishes an unavailable Git executable or Git discovery
+  timeout from invalid input, with fixed diagnostic error codes (#319).
+
+- Embed the portable shared skills and setup references in the binary; report their
+  fingerprint as `catalog_digest` in `koinon version`. Add team launch/stop/recovery and
+  runtime-guide skills, project fact schemas and derived OpenCode commands. Skill adoption
+  remains explicit.
+  Repository facts accept CRLF, blank source-list lines and literal shell syntax as inert
+  text; their required Go checks are verified against project instructions.
+
+- `koinon claude|codex|agy|opencode` without `--cli` and without a recorded CLI now finds the
+  family's CLI on `PATH`, records its absolute path in `launchers.json`, prints
+  `koinon: recorded the FAMILY CLI PATH in launchers.json` and starts it. Later launches use the
+  recorded path. A path recorded meanwhile by another launch is kept; when the CLI is not on
+  `PATH`, the launch still names `koinon setup FAMILY` or `--cli` (PDR 003, Decision 5; #306).
+
+- Direct Claude, Codex, Antigravity and OpenCode starts register as plain peers through their
+  native MCP identity. They can send/read/ack their own inbox and use repository memory/work;
+  participant addresses, roles, succession and terminal naming remain launcher features.
+  Plain peers renew and recover after a daemon outage, and retained unlaunched registrations
+  renew without losing their own inbox, cursors or work claims (#306).
+
+- `koinon guide` and the MCP server instructions now say that a message with `sender_family`
+  `maintainer`, sent by the maintainer from the dashboard, is the maintainer's instruction and
+  approval (PDR 005). Messages from other sessions stay data and grant no permission. The
+  guide and the installation and permission documents cite the decision records that state
+  each behavior, and no longer say that agents never run `--system` or `sudo` (#306).
+
+- Claude model, context and activity observations survive `/clear` while keeping the existing
+  Koinon session and participant. Changed transcript IDs require the same pinned native host;
+  status-line reports use verified hook ancestry, and foreign, reused or ambiguous hosts are
+  refused (#303).
+
+- When no daemon answers, `koinon status` and `koinon recover` name the service mode and the
+  exact command that restarts the daemon (`sudo launchctl kickstart -k system/...` in macOS
+  system mode); Koinon never runs it. An idle agent session whose registration expired during an
+  outage registers again at its next renewal and takes back its address when it is unheld; a
+  session that another session's holder change fenced meanwhile stays dropped (#283).
+
+- On macOS, `koinon install --system` runs the daemon as a LaunchDaemon under your user, so it
+  keeps running after a desktop logout, starts at boot and can be managed over SSH. It asks
+  `sudo` for each step, stops and disables the user agent, verifies the new daemon and restores
+  the agent when a step fails. Later installs keep system mode, and `koinon uninstall` removes
+  it. A plain install now enables the user agent again after system mode was removed (#283).
+
+- The daemon logs each start, each stop with its reason, and lock contention. On macOS the
+  launchd agent writes the log to `~/Library/Logs/koinon/daemon.log`; on Linux it is in the user
+  journal. A second daemon started by the service waits up to 60 seconds for the daemon lock
+  and then exits cleanly, instead of being restarted every 10 seconds. `koinon status` reports
+  the daemon's PID. Run `koinon install` again to update the service file (#283).
+
+- Document scoped native permissions for every supported agent family in the installed guide
+  and a shared reference, with named syntax checks, trust boundaries and verification limits.
+
+- Generate OpenCode skill commands from the shared skills and check for stale wrappers in CI.
+
+- Koinon now sees when a woken agent does not handle a message. Reading the inbox stops the
+  notices for the messages read. A message that is neither read nor acknowledged gets a new
+  notice after 2, 4, 8 and 16 minutes; after four notices it becomes `failed` and the
+  maintainer gets a notice in the dashboard inbox. A failed Codex turn (for example a model at
+  capacity) is recorded at once as `turn_failed:CODE`. `delivery` and the dashboard show the
+  reason and the notice count, and each acknowledgement records the session and the operation
+  that made it. Schema 15 stores these (#250).
+
+- After a Codex `/clear`, the participant address moves to the new thread at its first turn
+  instead of at its first Koinon tool call. `koinon setup codex` adds a SessionStart hook to
+  `~/.codex/hooks.json` (or `$CODEX_HOME/hooks.json`); trust it when Codex asks to review it.
+  The succession result is `host_cleared`. Until that turn the cleared thread stays the holder;
+  the pane wake and the `codex_thread_unproven` wait keep a notice from running in it (#275).
+
+- The dashboard has a **Settings** page for the session timing: the registration lifetime
+  (default 900 seconds), the renewal interval of `koinon mcp` (default 300 seconds) and the
+  succession guard (default 30 seconds). The values are checked together, audited, and applied
+  without a restart; `koinon mcp` takes the interval from the daemon's replies. Schema 14
+  stores them (#249).
+
+- A running agent no longer loses its registration while it is idle. Every 30 seconds the
+  daemon extends each launched session whose host process still runs, also when its
+  `koinon mcp` was replaced and nothing renews it. `koinon mcp` tries a renewal that fails
+  because the daemon is unreachable or its storage is blocked again at the next interval,
+  instead of dropping the session until its next tool call. `peers` and the dashboard show the
+  liveness evidence and when the host was last seen running, and `recipient_inactive` names
+  its reason: `retired`, `ended`, `no_liveness_evidence` or `lapsed` (#249).
+
+- docs/INSTALL.md gives the procedure to upgrade the Go runtime while agents run. From v0.1.0,
+  a retained native session without a launch association renews as a plain peer, keeps its own
+  inbox, claims and cursors, and releases any former participant address. DeepSeek keeps its
+  command registration. The installed guide, the pickup skill and
+  docs/USAGE.md say that `no_host` against a predecessor without a host record resolves when
+  that predecessor expires, and that **Make holder** only makes it immediate (#274).
+
+- `koinon upgrade --from-python` continues when a Python session that crashed or was killed
+  left its control sockets. Under the sessions' writer locks it removes each such socket that
+  refuses a connection and that the kernel's socket table shows without an owner, before the
+  Python `uninstall.py` runs, and it lists them in `cleared_endpoints`. Before, `uninstall.py` stopped with `session stop is unconfirmed` (#278).
+
+- MCP tool and command refusals now carry the rule that refused the call, such as
+  `renew_for is 60 to 3600 seconds` or `missing argument work_id`, instead of a bare
+  `invalid_request` or `invalid_arguments`. The work tool schemas state the lease bounds and
+  the list limit (#264).
+
+- An install or upgrade records the launcher CLI of each family that an earlier setup
+  configured for the installed binary, though `--agent` did not name it, so `koinon agy` and
+  `koinon opencode` still start. It only reads the agent's configuration (#273).
+
+- A launcher for a family without a `launchers.json` entry reports that no CLI is configured
+  for the family, and an empty entry reports that it is empty, instead of `configured CLI path
+  must be absolute`. Both name `koinon setup FAMILY` and `--cli ABS_PATH` (#272).
+
+- When no daemon has started with the state directory, launchers and command clients report
+  that and name how to start one with that state directory and address (`koinon install` from
+  a login session, or `koinon serve`), instead of `cannot read private daemon secret`. A
+  launcher whose daemon has stopped reports `no daemon answers at ADDRESS` with the same
+  remedy (#279).
+
+- A write request that is canceled or times out while the daemon proves its write-ahead log
+  empty no longer blocks every later write until `koinon recover`; only that request is
+  refused, and the next write proves the log again. A failed proof still blocks (#276).
+
+- Outside tmux, a launcher names its new tmux session after the participant address,
+  `FAMILY-LABEL` with `-ROLE` for a role, instead of the directory name, and takes the first
+  free `NAME-2` to `NAME-99` when that name is taken. A second agent in the same directory no
+  longer fails with a taken name; when no name is free, the refusal names `--tmux-session`
+  (#277).
+
+- Launched agents retry a taken tmux name at later renewals. Claude background jobs name the
+  single tmux pane with a matching `claude attach` client in the user's socket directory;
+  missing clients retry and ambiguous clients rename nothing. `peers` and the dashboard
+  report naming results with fixed reasons, also outside tmux, and suppress results for old
+  published names or stale observations. The dashboard shows the last succession result.
+  A Codex sub-agent, and the former thread after a Codex `/clear`, no longer rename the
+  holder's tmux session after their own peer names.
+
+- A holder change returns the participant's unacknowledged messages that were notified to
+  the former holder to waiting, so the new holder gets a wake. After a Codex `/clear`, a
+  notice accepted by the cleared thread left the successor without one.
+
+- A Claude session gets wake notices again after `/clear`. The wake check accepted only the
+  registry entry of the first transcript, so every later wake failed with
+  `claude_identity_mismatch`; it now also accepts the session's recorded host process with
+  its registration start time (#269).
+
+- Launched successors continue their participant automatically on a native tool call when
+  host evidence matches: the same process after the 30-second tool-call guard, or the same
+  tmux server and pane after the former host ends. Missing or unreadable evidence refuses
+  succession; fenced sessions still require the maintainer's dashboard choice. MCP retries
+  `holder_active` at the next tool call after the daemon's wait, preserving that wait across
+  renewals. Observation and renewal timers never count as activity or trigger succession.
+  `peers` reports the last result and participant events retain the evidence. Schema 13 adds
+  host records without changing existing owners. Pickup, handoff and peer-tmux guidance now
+  follows the runtime's succession result and records participant address and role.
+
+- Participant addresses now own their inboxes and a holder's default memory cursor and work
+  claims. A new holder continues acknowledgement points, cursors and live claim generations
+  without restarting leases. Holder changes retire and persistently fence the former holder;
+  only the maintainer's dashboard choice lifts a fence. Former-holder participant calls,
+  explicit consumer keys and keyed retries return `stale_holder`. Cursor and work-event
+  provenance records the acting native session. Checkout status and role requests resolve
+  participant writers to their current holder; handback still needs explicit acceptance.
+  Inbox messages identify their independent session/participant sequences. Schema 12 keeps
+  all pre-upgrade inbox messages, acknowledgements, memory cursors and claims with their
+  existing owners; participant ownership applies to new address messages and default calls.
+
+- Participants have one reserved address per family, repository and optional role. Launchers
+  accept `--role`; linked worktrees share participants. An active holder keeps its address;
+  without one, only a sole active qualifier takes it. Multiple qualifiers leave a conflict
+  for the maintainer to resolve with **Make holder** in the dashboard. `peers` and the dashboard
+  report role, address and holder state; the dashboard also shows conflicts and the last event.
+  Schema 11 preserves existing aliases/holders and retained inbox, memory and work state.
+  Launched Claude sessions now show their nested repository list in the dashboard too.
+
+- Claude Code, Codex, Antigravity and OpenCode sessions started through their Koinon launchers
+  register with a matching launch family, directory and host process or recorded background
+  job; a launch ID that does not match returns `not_launched`. Codex launches with
+  `--no-daemon` and forwards the launch environment to its MCP server. Codex sub-agent
+  threads get peer names and `subagent: true`, and never hold the repository alias.
+- `koinon claude --bg [args]` starts a background job with a private settings file and
+  records its job ID. Registration before that ID is recorded returns `launch_pending`
+  and retries at the next tool call. A failed start retires the pending launch and removes
+  its settings file. The state schema is now 10, adding `sessions.subagent`.
+  After upgrade, retained native sessions without a launch association renew as plain peers
+  and keep their inboxes, acknowledgements, memory cursors and work claims. DeepSeek keeps
+  command registration and renewal without a launch record.
+
+- `koinon claude`, `koinon codex`, `koinon agy` and `koinon opencode` start in a directory
+  that holds other repositories, such as a checkout with submodules, worktrees of other
+  repositories or separate clones, and list them instead of refusing the start. The list
+  (path and kind, at most 64 entries, marked incomplete after 3 seconds, at an unreadable
+  directory or at a path with a control character, which is left out) is printed before the agent starts and kept with the launch. The dashboard shows
+  it with each session that registers with its launch record (Codex, Antigravity and
+  OpenCode). The session's repository is still the start directory's.
+- Agents sharing a checkout can derive one advisory checkout resource, inspect its writer,
+  generation token, expiry and checkpoint through `work_checkout` or `koinon work checkout
+  status`, and request the role with an inbox notification. Release with `handoff_to` and
+  `checkout_resource` saves a checkpoint and notifies an exact peer atomically; the requester
+  explicitly picks up with a new claim generation. Different worktrees have separate roles.
+
+- The dashboard's work view can show finished items and filter by lifecycle, and opens one
+  item with its scope, progress, references and history. The maintainer can create an item,
+  propose or clear an assignee, edit the scope of an item without a live claim and finish an
+  item as completed or withdrawn. Each change is audited and recorded as `maintainer`, with the
+  same revision checks and refusals as an agent's request.
+- The dashboard's memory view lists the entries of a store: newest first, with paging, a text
+  search, a type filter and, on request, replaced, revoked and expired entries with their
+  links. The maintainer can record an entry of any type and scope, edit an entry (recorded as a
+  new entry that replaces it) and revoke one with a reason. Each change is audited, is written
+  as `maintainer` and has the same limits as an agent's write. An edit of an entry that someone
+  else replaced meanwhile is kept and reported as a conflict.
+- The dashboard's 5-second refresh now waits while a disclosure in the list is open or a form
+  field in it has focus, so a purge confirmation or an edit form no longer closes by itself.
+- `koinon claude` starts Claude Code like the other launchers: with the absolute CLI path
+  from `--cli` or `launchers.json`, in the current terminal or a new tmux session, with a
+  private launch record. The dashboard's start action offers Claude Code too.
+  `koinon setup claude` now records the Claude CLI path. A started Claude keeps
+  `CLAUDE_CONFIG_DIR` but not the `CLAUDE_` variables or `CLAUDECODE` of the session that
+  started it.
+- The daemon deletes old records in its maintenance sweep. Acknowledged messages go 30 to 60
+  days after their acknowledgement, and expired or retired sessions, with their peer names,
+  30 days after their activity ended, unless they still hold unacknowledged messages or a
+  live claim. The dashboard can mark a session for purge, after a confirmation: the next sweep
+  releases its claims and deletes it with its whole inbox, and the mark can be removed until
+  then. `koinon status` and dashboard health report what each sweep deleted and kept, and
+  `delivery` reports a deleted message as `deleted`. The state schema is now 9.
+- The dashboard's sessions view has a search box. It searches every session on the server
+  by peer name, alias, family, repository, directory or state, and the search stays in the
+  URL, across pages and refreshes.
+- The dashboard's send form suggests the names and aliases of active sessions, with their
+  family and state, and of every session on request. The messages recipient filter also
+  accepts a held alias, and it no longer resets while you type, because the 5-second refresh
+  now leaves the filter forms alone.
+- Every dashboard table sorts by its column headers. A click sorts the whole list on the
+  server, a second click reverses it, and the order stays in the URL, so a sorted view can be
+  reloaded, linked and refreshed. Paging keeps the order and the messages recipient filter.
+- The dashboard's sessions view lists active sessions first by default and shows how many
+  sessions are active, expired and retired. Before, it listed sessions by family and ID, so
+  active sessions could be pages behind the expired ones.
+- Setup for Codex, Antigravity and OpenCode records the resolved absolute CLI path in
+  private `launchers.json`, preserving other families' entries. Launchers work without
+  `--cli` after setup and keep explicit overrides; without a recorded CLI they find it on
+  `PATH` (#306).
+
+- A Claude session that has a background shell task running now receives Koinon wake
+  notices. Claude Code reports such a session as `shell` while it waits at the prompt, and
+  the wake treated that like a turn in progress, so no notice arrived until every background
+  task ended. The dashboard also shows such a session as idle, not busy.
+- Agents can read a peer's observed model, context and activity through `peer_status` and
+  `koinon peer-status`, by name or held alias, with source and confirmation timestamps,
+  freshness windows and explicit unknown reasons. Registration and acknowledgement remain
+  separate signals, and private runtime/terminal targets are excluded.
+
+- `koinon install` links `~/.local/bin/koinon` to the installed binary, so the documented
+  `koinon ...` commands run it. The report names the `koinon` that `PATH` runs and, when that is
+  not the installed copy, the step that makes it so; it never edits shell startup files.
+  `koinon uninstall` removes the link only when the install created it and it still points at
+  the installed binary. A symlink or an unrelated file at the link's marker is refused and
+  never overwritten.
+- Dashboard actions work from a browser again. Every page sent `Referrer-Policy: no-referrer`,
+  which makes a browser send `Origin: null` with a form `POST`, so retire, release, acknowledge,
+  clear, send, launch and logout were refused with "foreign origin". The pages now send
+  `Referrer-Policy: same-origin`; the origin check is unchanged.
+
 ## 2026-10-08 — Go runtime: one daemon, MCP access, install and upgrade from Python
 
 This release replaces the Python runtime with one Go binary, `koinon`, and one daemon for each

@@ -1,5 +1,7 @@
 # Sprint 2026-09-23 — peer status — Chunks
 
+> Historical sprint plan. Its non-goals and constraints limited this sprint only. Current decisions are in the [decision records](../../engineering/wdr/README.md); see WDR 001.
+
 Realizes [decision.md](decision.md) (gate A approved at ba2816e) and is measured by
 [definition-of-done.md](definition-of-done.md). Milestone `2026-09-23-peer-status`.
 

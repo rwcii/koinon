@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"net"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -44,7 +45,7 @@ func TestPlainDirectorySession(t *testing.T) {
 		t.Fatal(err)
 	}
 	for _, family := range []string{"claude", "codex", "deepseek", "agy", "opencode"} {
-		body, err := json.Marshal(Registration{Family: family, ID: "plain-synthetic", Directory: directory})
+		body, err := json.Marshal(withLaunch(t, d.store, Registration{Family: family, ID: "plain-synthetic", Directory: directory}))
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -73,12 +74,55 @@ func TestPlainDirectorySession(t *testing.T) {
 	}
 }
 
+// templateState is a state database migrated once per test binary. Under the race detector
+// a migration from schema 0 takes seconds, and nearly every test opens a new store; a copy of
+// the template still passes every check that openStore runs on an existing database.
+var templateState struct {
+	once sync.Once
+	data []byte
+	err  error
+}
+
+// seedState writes a copy of the migrated template database into root, which it creates.
+func seedState(t *testing.T, root string) {
+	t.Helper()
+	templateState.once.Do(func() {
+		dir, err := os.MkdirTemp("", "koinon-template-state-")
+		if err != nil {
+			templateState.err = err
+			return
+		}
+		defer os.RemoveAll(dir)
+		state, err := platform.PrivateDir(filepath.Join(dir, "state"))
+		if err == nil {
+			var s *Store
+			if s, err = openStore(state); err == nil {
+				err = s.db.Close()
+			}
+		}
+		if err == nil {
+			templateState.data, err = os.ReadFile(filepath.Join(state, "state.sqlite3"))
+		}
+		templateState.err = err
+	})
+	if templateState.err != nil {
+		t.Fatal(templateState.err)
+	}
+	if _, err := platform.PrivateDir(root); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(root, "state.sqlite3"), templateState.data, 0o600); err != nil {
+		t.Fatal(err)
+	}
+}
+
 func testStore(t *testing.T) (*Store, string) {
 	t.Helper()
 	root, err := platform.PrivateDir(filepath.Join(t.TempDir(), "state"))
 	if err != nil {
 		t.Fatal(err)
 	}
+	seedState(t, root)
 	s, err := openStore(root)
 	if err != nil {
 		t.Fatal(err)
@@ -87,8 +131,61 @@ func testStore(t *testing.T) (*Store, string) {
 	return s, root
 }
 
-func registration(repo, family string) Registration {
-	return Registration{Family: family, ID: "synthetic-session", Repository: repo, Directory: repo, WakeTarget: json.RawMessage(`{"endpoint":"synthetic"}`), TTLSeconds: 60}
+func registration(t *testing.T, s *Store, repo, family string) Registration {
+	t.Helper()
+	return withLaunch(t, s, Registration{Family: family, ID: "synthetic-session", Repository: repo, Directory: repo, TTLSeconds: 60})
+}
+
+// syntheticHost is the host process of every synthetic launch.
+const syntheticHost = 4242
+
+// withLaunch gives a launcher-family registration its own launch, as koinon <family>
+// does: the launch record, the caller's ancestry with the host, and Claude's claude_pid.
+// DeepSeek registers without a launch.
+func withLaunch(t *testing.T, s *Store, r Registration) Registration {
+	t.Helper()
+	if r.Family == "deepseek" {
+		return r
+	}
+	target := LaunchTarget{Family: r.Family, Directory: r.Directory, CLI: "/synthetic/cli", HostPID: syntheticHost}
+	if r.Family == "opencode" {
+		target.Address, target.Password = closedAddress(t), strings.Repeat("ab", 32)
+	}
+	id, err := s.CreateLaunch(context.Background(), target)
+	if err != nil {
+		t.Fatalf("launch %s: %v", r.Family, err)
+	}
+	r.LaunchID, r.Ancestors, r.WakeTarget = id, []int{syntheticHost}, nil
+	if r.Family == "claude" {
+		r.WakeTarget = json.RawMessage(fmt.Sprintf(`{"claude_pid":%d}`, syntheticHost))
+	}
+	return r
+}
+
+// httpLaunch is withLaunch for a daemon reached only through its API.
+func httpLaunch(t *testing.T, address, secret string, r Registration) Registration {
+	t.Helper()
+	id, err := CreateLaunch(context.Background(), address, secret, LaunchTarget{Family: r.Family, Directory: r.Directory, CLI: "/synthetic/cli", HostPID: syntheticHost})
+	if err != nil {
+		t.Fatalf("launch %s: %v", r.Family, err)
+	}
+	r.LaunchID, r.Ancestors, r.WakeTarget = id, []int{syntheticHost}, nil
+	if r.Family == "claude" {
+		r.WakeTarget = json.RawMessage(fmt.Sprintf(`{"claude_pid":%d}`, syntheticHost))
+	}
+	return r
+}
+
+// closedAddress is a loopback address where nothing listens.
+func closedAddress(t *testing.T) string {
+	t.Helper()
+	listener, err := net.Listen("tcp4", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	address := listener.Addr().String()
+	listener.Close()
+	return address
 }
 
 func TestLifecycleForEveryFamily(t *testing.T) {
@@ -98,7 +195,7 @@ func TestLifecycleForEveryFamily(t *testing.T) {
 			s, _ := testStore(t)
 			clock := time.Unix(1000, 0)
 			s.now = func() time.Time { return clock }
-			r, err := s.Register(context.Background(), registration(repo, family))
+			r, err := s.Register(context.Background(), registration(t, s, repo, family))
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -123,7 +220,7 @@ func TestLifecycleForEveryFamily(t *testing.T) {
 			if !errors.Is(err, ErrConflict) {
 				t.Fatalf("retired renew: %v", err)
 			}
-			r, err = s.Register(context.Background(), registration(repo, family))
+			r, err = s.Register(context.Background(), registration(t, s, repo, family))
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -157,7 +254,7 @@ func TestConcurrentRegistrationAndRestart(t *testing.T) {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			if _, err := s.Register(context.Background(), registration(repo, "codex")); err != nil {
+			if _, err := s.Register(context.Background(), registration(t, s, repo, "codex")); err != nil {
 				t.Error(err)
 			}
 		}()
@@ -189,7 +286,7 @@ func TestRegistrationValidationAndRepositoryIdentity(t *testing.T) {
 		func(r *Registration) { r.Directory = other }, func(r *Registration) { r.Repository = "relative" },
 		func(r *Registration) { r.WakeTarget = bytes.Repeat([]byte("a"), 8193) },
 	} {
-		r := registration(repo, "codex")
+		r := registration(t, s, repo, "codex")
 		change(&r)
 		if _, err := s.Register(context.Background(), r); !errors.Is(err, ErrInvalid) {
 			t.Fatalf("invalid accepted: %v", err)
@@ -204,8 +301,7 @@ func TestRegistrationValidationAndRepositoryIdentity(t *testing.T) {
 			t.Fatalf("fixture: %v %s", err, out)
 		}
 	}
-	r := registration(repo, "codex")
-	r.Directory = repo + "-worktree"
+	r := withLaunch(t, s, Registration{Family: "codex", ID: "synthetic-session", Repository: repo, Directory: repo + "-worktree", TTLSeconds: 60})
 	got, err := s.Register(context.Background(), r)
 	if err != nil || got.Repository != filepath.Join(repo, ".git") {
 		t.Fatalf("worktree identity: %+v %v", got, err)
@@ -215,6 +311,7 @@ func TestRegistrationValidationAndRepositoryIdentity(t *testing.T) {
 func startTestDaemon(t *testing.T) (*Daemon, string) {
 	t.Helper()
 	root := filepath.Join(t.TempDir(), "state")
+	seedState(t, root)
 	d, err := Start(Config{StateDir: root, Listen: []string{"127.0.0.1:0", "[::1]:0"}})
 	if err != nil {
 		t.Fatal(err)
@@ -270,7 +367,7 @@ func TestAuthenticatedLoopbackAPI(t *testing.T) {
 		}
 	}
 	repo := testRepo(t)
-	body, _ := json.Marshal(registration(repo, "opencode"))
+	body, _ := json.Marshal(registration(t, d.store, repo, "opencode"))
 	response := request(t, d, "/v1/sessions/register", string(body), secret)
 	if response.StatusCode != 200 {
 		data, _ := io.ReadAll(response.Body)
@@ -390,7 +487,7 @@ func TestStorageRefusalHasNoPartialRecord(t *testing.T) {
 			s, _ := testStore(t)
 			repo := testRepo(t)
 			if fault == "read-only" {
-				if _, err := s.db.Exec("PRAGMA query_only=ON"); err != nil {
+				if _, err := fixtureExec(s, "PRAGMA query_only=ON"); err != nil {
 					t.Fatal(err)
 				}
 			} else {
@@ -398,11 +495,12 @@ func TestStorageRefusalHasNoPartialRecord(t *testing.T) {
 				if err := s.db.QueryRow("PRAGMA page_count").Scan(&pages); err != nil {
 					t.Fatal(err)
 				}
-				if _, err := s.db.Exec("PRAGMA max_page_count=" + fmt.Sprint(pages)); err != nil {
+				if _, err := fixtureExec(s, "PRAGMA max_page_count="+fmt.Sprint(pages)); err != nil {
 					t.Fatal(err)
 				}
 			}
-			r := registration(repo, "codex")
+			// DeepSeek registers without a launch, so its wake target can make a large write.
+			r := registration(t, s, repo, "deepseek")
 			r.WakeTarget = json.RawMessage(`{"synthetic":"` + strings.Repeat("x", 7900) + `"}`)
 			if _, err := s.Register(context.Background(), r); err == nil {
 				t.Fatal("storage fault accepted mutation")

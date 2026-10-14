@@ -14,18 +14,24 @@ import (
 	"strings"
 	"sync"
 	"time"
+	"unicode/utf8"
 
+	"github.com/rwcii/koinon/internal/library"
 	"github.com/rwcii/koinon/internal/platform"
 )
 
 type Config struct {
 	StateDir string
 	Listen   []string
+	Release  string
+	// LogEvent receives fixed, content-free daemon diagnostics.
+	LogEvent func(string, map[string]any)
 }
 
 type Daemon struct {
 	store     *Store
 	secret    string
+	catalog   library.Catalog
 	auth      *dashboardAuth
 	dashboard http.Handler
 	started   time.Time
@@ -43,8 +49,11 @@ type Daemon struct {
 	launch func(ctx context.Context, args []string) ([]byte, error)
 	// unfinished holds launch results whose audit update failed, by record ID; the
 	// maintenance loop writes them when storage allows. A launch never runs again.
-	launchMu   sync.Mutex
-	unfinished map[int64][2]string
+	launchMu         sync.Mutex
+	unfinished       map[int64][2]string
+	workNoticeSignal chan struct{}
+	logEvent         func(string, map[string]any)
+	wakePass         func(context.Context) error // the real pass, injectable in loop tests
 }
 
 func validAddress(address string) bool {
@@ -59,6 +68,10 @@ func validAddress(address string) bool {
 }
 
 func Start(c Config) (*Daemon, error) {
+	catalog, err := library.Embedded(c.Release)
+	if err != nil {
+		return nil, err
+	}
 	if len(c.Listen) == 0 {
 		c.Listen = []string{"127.0.0.1:47671", "[::1]:47671"}
 	}
@@ -78,7 +91,8 @@ func Start(c Config) (*Daemon, error) {
 	if err != nil {
 		return nil, err
 	}
-	d := &Daemon{lock: lock, errors: make(chan error, 2), stop: make(chan struct{}), root: root, launch: runLauncher}
+	d := &Daemon{lock: lock, errors: make(chan error, 2), stop: make(chan struct{}), root: root, launch: runLauncher, catalog: catalog, workNoticeSignal: make(chan struct{}, 1)}
+	d.logEvent = c.LogEvent
 	defer func() {
 		if err != nil {
 			d.Close()
@@ -93,11 +107,16 @@ func Start(c Config) (*Daemon, error) {
 		return nil, err
 	}
 	d.started = d.store.now()
+	d.store.library.catalog = catalog
+	// No tool call before this start is known, so the succession guard counts the start as one.
+	d.store.calls.since = d.started.UnixMilli()
 	d.store.observed.extras = d.store.openCodeActivity
 	d.unfinished = map[int64][2]string{}
 	// A launch whose result a previous daemon never recorded stays visibly open no longer.
 	d.store.closeStartedLaunches(context.Background())
 	d.store.wake.send = d.store.providerWake
+	d.wakePass = d.store.wakeStep
+	d.store.OnMemoryChange(func(string) { d.signalWorkNotices() })
 	if d.auth, err = newDashboardAuth(func() time.Time { return d.store.now() }); err != nil {
 		return nil, err
 	}
@@ -121,6 +140,10 @@ func Start(c Config) (*Daemon, error) {
 	go d.maintainWork()
 	d.wg.Add(1)
 	go d.maintainWake()
+	d.wg.Add(1)
+	go d.maintainCycles()
+	d.wg.Add(1)
+	go d.maintainWorkNotices()
 	for _, listener := range d.listeners {
 		server := &http.Server{Handler: d.handler(), ReadHeaderTimeout: 5 * time.Second, ReadTimeout: 10 * time.Second, WriteTimeout: 10 * time.Second, IdleTimeout: 30 * time.Second, MaxHeaderBytes: 8192}
 		d.servers = append(d.servers, server)
@@ -192,6 +215,17 @@ func failure(w http.ResponseWriter, err error) {
 		respond(w, status, body)
 		return
 	}
+	var conflict SessionConflict
+	if errors.As(err, &conflict) {
+		respond(w, http.StatusConflict, map[string]any{"ok": false, "code": "session_conflict", "details": map[string]any{"state": conflict.State, "fenced": conflict.Fenced}})
+		return
+	}
+	var inactive InactiveRecipient
+	if errors.As(err, &inactive) {
+		respond(w, http.StatusConflict, map[string]any{"ok": false, "code": "recipient_inactive",
+			"error": "the recipient session is expired or retired", "details": map[string]string{"reason": inactive.Reason}})
+		return
+	}
 	var refusal Refusal
 	if errors.As(err, &refusal) {
 		status := http.StatusConflict
@@ -223,8 +257,14 @@ func errorCode(err error) string {
 func plainError(err error) (int, string) {
 	status, code := http.StatusInternalServerError, "storage_error"
 	switch {
-	case errors.Is(err, ErrInvalid):
+	case errors.Is(err, ErrInvalid), errors.Is(err, library.ErrInvalidQuery):
 		status, code = http.StatusBadRequest, "invalid_request"
+	case errors.Is(err, library.ErrItemNotFound):
+		status, code = http.StatusNotFound, "library_item_not_found"
+	case errors.Is(err, ErrRepositoryGitUnavailable):
+		status, code = http.StatusServiceUnavailable, "repository_git_unavailable"
+	case errors.Is(err, ErrRepositoryGitTimeout):
+		status, code = http.StatusServiceUnavailable, "repository_git_timeout"
 	case errors.Is(err, ErrMissing):
 		status, code = http.StatusNotFound, "session_not_found"
 	case errors.Is(err, ErrConflict):
@@ -284,8 +324,13 @@ func (d *Daemon) handler() http.Handler {
 			failure(w, err)
 			return
 		}
-		respond(w, 200, map[string]any{"ok": true, "daemon": "running", "listeners": d.Addresses(), "sessions": counts,
-			"schema": schemaVersion, "storage": storage, "wake": wake})
+		retention, err := d.store.RetentionStatus(r.Context())
+		if err != nil {
+			failure(w, err)
+			return
+		}
+		respond(w, 200, map[string]any{"ok": true, "daemon": "running", "pid": os.Getpid(), "listeners": d.Addresses(), "sessions": counts,
+			"schema": schemaVersion, "storage": storage, "wake": wake, "retention": retention})
 	})
 	mux.HandleFunc("GET /v1/sessions", func(w http.ResponseWriter, r *http.Request) {
 		items, truncated, err := d.store.List(r.Context())
@@ -297,7 +342,9 @@ func (d *Daemon) handler() http.Handler {
 	})
 	mux.HandleFunc("POST /v1/launches", func(w http.ResponseWriter, r *http.Request) {
 		var target LaunchTarget
-		if err := decode(w, r, &target); err != nil {
+		// The nested list (MaxNested paths, each at most six times longer when escaped) may
+		// exceed the ordinary limit.
+		if err := decodeLimit(w, r, &target, 131072); err != nil {
 			failure(w, err)
 			return
 		}
@@ -307,6 +354,35 @@ func (d *Daemon) handler() http.Handler {
 			return
 		}
 		respond(w, 200, map[string]any{"ok": true, "launch_id": id})
+	})
+	mux.HandleFunc("POST /v1/launches/job", func(w http.ResponseWriter, r *http.Request) {
+		var request struct {
+			LaunchID string `json:"launch_id"`
+			JobID    string `json:"job_id"`
+		}
+		if err := decode(w, r, &request); err != nil {
+			failure(w, err)
+			return
+		}
+		if err := d.store.SetLaunchJob(r.Context(), request.LaunchID, request.JobID); err != nil {
+			failure(w, err)
+			return
+		}
+		respond(w, 200, map[string]any{"ok": true})
+	})
+	mux.HandleFunc("POST /v1/launches/retire", func(w http.ResponseWriter, r *http.Request) {
+		var request struct {
+			LaunchID string `json:"launch_id"`
+		}
+		if err := decode(w, r, &request); err != nil {
+			failure(w, err)
+			return
+		}
+		if err := d.store.RetireLaunch(r.Context(), request.LaunchID); err != nil {
+			failure(w, err)
+			return
+		}
+		respond(w, 200, map[string]any{"ok": true})
 	})
 	mux.HandleFunc("POST /v1/sessions/register", func(w http.ResponseWriter, r *http.Request) {
 		var request Registration
@@ -319,7 +395,8 @@ func (d *Daemon) handler() http.Handler {
 			failure(w, err)
 			return
 		}
-		respond(w, 200, map[string]any{"ok": true, "session": result})
+		d.signalWorkNotices()
+		respond(w, 200, map[string]any{"ok": true, "session": result, "renewal_seconds": d.store.Settings().RenewalSeconds})
 	})
 	for _, action := range []string{"renew", "retire"} {
 		mux.HandleFunc("POST /v1/sessions/"+action, func(w http.ResponseWriter, r *http.Request) {
@@ -333,13 +410,18 @@ func (d *Daemon) handler() http.Handler {
 				failure(w, err)
 				return
 			}
-			respond(w, 200, map[string]any{"ok": true, "session": result})
+			d.signalWorkNotices()
+			respond(w, 200, map[string]any{"ok": true, "session": result, "renewal_seconds": d.store.Settings().RenewalSeconds})
 		})
 	}
 	d.messageRoutes(mux)
 	d.memoryRoutes(mux)
 	d.workRoutes(mux)
 	d.observationRoutes(mux)
+	d.cycleRoutes(mux)
+	d.libraryRoutes(mux)
+	d.roomRoutes(mux)
+	d.decisionRoutes(mux)
 	mux.HandleFunc("POST /v1/dashboard/links", func(w http.ResponseWriter, r *http.Request) {
 		if err := decode(w, r, &struct{}{}); err != nil {
 			failure(w, err)
@@ -385,9 +467,20 @@ var ErrUnavailable = errors.New("daemon unavailable")
 type RefusedError struct {
 	Code    string
 	Details json.RawMessage
+	// Message is the daemon's own text for the refusal, such as the field and rule that
+	// an invalid request broke; empty when the daemon sent none.
+	Message string
 }
 
-func (e RefusedError) Error() string { return "daemon refused request: " + e.Code }
+func (e RefusedError) Error() string {
+	if e.Code == "repository_git_unavailable" || e.Code == "repository_git_timeout" {
+		return "daemon could not complete repository discovery: " + e.Code
+	}
+	if e.Message != "" {
+		return "daemon refused request: " + e.Code + ": " + e.Message
+	}
+	return "daemon refused request: " + e.Code
+}
 
 // Call sends one authenticated request: GET without a body, POST with one. It never uses
 // environment proxies or follows a redirect with the secret.
@@ -431,13 +524,20 @@ func Call(ctx context.Context, address, secret, path string, body any) (json.Raw
 		var refusal struct {
 			Code    string          `json:"code"`
 			Details json.RawMessage `json:"details"`
+			Message string          `json:"error"`
 		}
 		if json.Unmarshal(data, &refusal) != nil || refusal.Code == "" || len(refusal.Code) > 64 {
 			return nil, errors.New("daemon refused request")
 		}
-		return nil, RefusedError{Code: refusal.Code, Details: refusal.Details}
+		if len(refusal.Message) > MaxRefusalMessage || !utf8.ValidString(refusal.Message) {
+			refusal.Message = ""
+		}
+		return nil, RefusedError{Code: refusal.Code, Details: refusal.Details, Message: refusal.Message}
 	}
 	return data, nil
 }
 
 const maxResponse = 8 << 20
+
+// MaxRefusalMessage bounds the refusal text that a client passes on.
+const MaxRefusalMessage = 1024

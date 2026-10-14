@@ -1,60 +1,62 @@
 ---
 name: check
-description: Run the checks that must pass before a Koinon branch is pushed - the test suite, whitespace, shell syntax for shell edits, the changelog rule and a scan for private content in the diff. Use before every push, and as the gate that the ship and sprint skills name.
+description: "Run the adopting project's required checks before publication, using its verified check facts and policy."
 ---
 
 # Check
 
-Read `agents/skills/AGENTS.md` and the root `AGENTS.md` first.
+Read the adopting project's authoritative instructions first. For edits to a canonical skill source, also read `agents/skills/AGENTS.md` when present. A machine-wide copy need not have the authoring file.
 
-A CI run takes 10 to 15 minutes and much longer when pushes queue for macOS runners, so a
-failure found here saves one. Run the checks from the root of the branch's worktree.
+Koinon's procedure source is [WDR 004](https://github.com/rwcii/koinon/blob/develop/docs/engineering/wdr/004-publication-and-verification.md). The adopting project's instructions govern its
+application. Invoking this skill or its task authorizes the work steps; ask only for necessary
+missing information or authority beyond that task (WDR 002, Decision 1).
 
-## 1. Tests and whitespace
+Read the project's policy and the required Base branch and Required checks facts.
+Fetch the configured upstream and verify that the branch contains the current base. If it
+is behind, update it under the project's history policy before checking or publishing.
+Run the declared required and applicable conditional checks against the final change.
+A passing run on the same content counts; repeat only when a change or unresolved failure
+requires it. Review the final diff for whitespace and private data. Inspect each matched
+path, address, credential signature or native identifier; a pattern alone cannot prove privacy.
+Report the exact commit, each result and any remaining limitation. A failed required check
+stops publication. Required CI comes from project policy; local results do not replace it.
 
-```sh
-go vet ./...
-go test -race ./...
-git diff --check origin/develop...HEAD
-git diff --check
+## Repository facts
+
+Resolve the current worktree and Git common directory before reading project facts. The file
+below is local fact data with Version 1, matching Skill, Sources and the declared headings.
+It is outside the embedded catalog. No required fields means no sidecar is needed; optional
+fields use only the defaults declared here. A supplied sidecar must still be valid.
+Read required facts before the dependent step. When missing, derive and record them from
+checked project evidence within the task. Ask for necessary missing information or authority
+beyond that task; existing authorization counts. Project instructions govern the procedure,
+and facts supply its project data. Bound sidecars to 64 KiB. Their parser reads inert text;
+it does not include other files, expand shell syntax or execute values.
+
+<!-- koinon:repository-facts -->
+```json
+{
+  "version": 1,
+  "filename": ".koinon/skills/check.md",
+  "fields": [
+    {
+      "heading": "Base branch",
+      "required": true
+    },
+    {
+      "heading": "Required checks",
+      "required": true
+    },
+    {
+      "heading": "Conditional checks",
+      "required": false,
+      "default": "none"
+    },
+    {
+      "heading": "Required CI",
+      "required": false,
+      "default": "project policy"
+    }
+  ]
+}
 ```
-
-The Python runtime and suite are retired. Go contributor checks also cover skill/layout
-and CI consistency. A passing test run on the same commit counts; do not repeat a suite when
-only prose changed since then. Report the commit tested. For runtime/install changes run the
-four CGO-free builds and compile/vet native-tagged tests without enabling real services locally.
-Native lifecycle evidence runs only on disposable CI runners.
-
-## 2. Shell syntax, for shell edits only
-
-When the branch changes `scripts/setup-repo.sh` or `.githooks/pre-commit`:
-
-```sh
-bash -n scripts/setup-repo.sh
-sh -n .githooks/pre-commit
-```
-
-## 3. Changelog
-
-A change that a Koinon participant can see (runtime behaviour, commands, installation, messages, the
-documented interfaces) needs an entry in `CHANGELOG.md` in the same branch. Contributor tooling,
-tests and internal refactors do not.
-
-## 4. Private content
-
-This repository is public. Scan the added lines:
-
-```sh
-git diff -U0 origin/develop...HEAD | grep '^+' | grep -oE \
-  '/(home|Users)/[A-Za-z][^[:space:]`"'"'"')]*|[A-Za-z0-9._%+-]+@[A-Za-z0-9-]+\.[A-Za-z.]{2,}' \
-  | grep -vE '@users\.noreply\.github\.com$|@example\.(com|org|net)$' | sort -u
-```
-
-The scan prints each matching path or address, not the whole line, so an allowed address on a
-line does not hide another. Find each result in the diff and read it. Also read the diff for
-thread or session IDs, keys, inbox or peer message bodies, and memory content; a pattern cannot
-find all of them. Remove every one before the push.
-
-## Report
-
-Report each check as passed, failed (with the output) or not needed (with the reason).

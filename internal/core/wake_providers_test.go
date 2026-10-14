@@ -8,6 +8,7 @@ import (
 	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"io"
 	"net"
 	"net/http"
@@ -18,6 +19,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/rwcii/koinon/internal/platform"
 )
 
 func TestWakeCodexExactCLIAndArguments(t *testing.T) {
@@ -99,16 +102,65 @@ func TestWakeClaudeProtocolAndIdentity(t *testing.T) {
 	if got := s.providerWake(context.Background(), session, "notice"); got.Reason != "claude_identity_mismatch" {
 		t.Fatal(got)
 	}
-	writeRecord(session.ID, "busy", os.Getpid())
-	if got := s.providerWake(context.Background(), session, "notice"); got.Reason != "receiver_busy" {
-		t.Fatal(got)
+	// After /clear the registry names a new transcript of the same process (#269): the
+	// session's host record with the process's start time identifies it; a reused process
+	// ID or another host does not.
+	start, err := platform.ProcessStart(os.Getpid())
+	if err != nil {
+		t.Fatal(err)
 	}
-	writeRecord(session.ID, "idle", os.Getpid())
+	for _, c := range []struct {
+		pid, start int64
+		want       string
+	}{
+		{int64(os.Getpid()), start, "receiver_busy"},
+		{int64(os.Getpid()), start + 1, "claude_identity_mismatch"},
+		{int64(os.Getpid()) + 1, start, "claude_identity_mismatch"},
+		{0, 0, "claude_identity_mismatch"},
+	} {
+		if _, err := s.db.Exec(`UPDATE sessions SET host_pid=?,host_start=? WHERE family=? AND id=?`, c.pid, c.start, session.Family, session.ID); err != nil {
+			t.Fatal(err)
+		}
+		writeRecord("cleared-native-session", "busy", os.Getpid())
+		if got := s.providerWake(context.Background(), session, "notice"); got.Reason != c.want {
+			t.Fatalf("host %d start %d: %+v, want %s", c.pid, c.start, got, c.want)
+		}
+	}
+	// A host process that cannot be read proves nothing.
+	if _, err := s.db.Exec(`UPDATE sessions SET host_pid=?,host_start=? WHERE family=? AND id=?`, os.Getpid(), start, session.Family, session.ID); err != nil {
+		t.Fatal(err)
+	}
+	s.processStart = func(int) (int64, error) { return 0, errors.New("synthetic inspection error") }
+	if got := s.providerWake(context.Background(), session, "notice"); got.Reason != "claude_identity_mismatch" {
+		t.Fatalf("unreadable host: %+v", got)
+	}
+	s.processStart = platform.ProcessStart
+	if _, err := s.db.Exec(`UPDATE sessions SET host_pid=0,host_start=0 WHERE family=? AND id=?`, session.Family, session.ID); err != nil {
+		t.Fatal(err)
+	}
+	// A turn in progress or an approval or question prompt defers the wake.
+	for _, status := range []string{"busy", "waiting"} {
+		writeRecord(session.ID, status, os.Getpid())
+		if got := s.providerWake(context.Background(), session, "notice"); got.Reason != "receiver_busy" {
+			t.Fatal(status, got)
+		}
+	}
 	digest := sha256.Sum256([]byte(socket))
 	token := strings.Repeat("ab", 16)
 	if err := os.WriteFile(filepath.Join(s.wake.registry, strconv.Itoa(os.Getpid())+"."+hex.EncodeToString(digest[:])+".key"), []byte(`{"peerToken":"`+token+`"}`), 0600); err != nil {
 		t.Fatal(err)
 	}
+	// At the prompt, also with a background shell task running (shell), the notice goes.
+	for _, status := range []string{"idle", "shell"} {
+		writeRecord(session.ID, status, os.Getpid())
+		checkClaudeNotice(t, s, session, listener, token)
+	}
+}
+
+// checkClaudeNotice wakes session and checks the auth and notice frames that the
+// synthetic receiver reads.
+func checkClaudeNotice(t *testing.T, s *Store, session Session, listener *net.UnixListener, token string) {
+	t.Helper()
 	frames := make(chan []map[string]any, 1)
 	go func() {
 		conn, e := listener.AcceptUnix()

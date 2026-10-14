@@ -16,6 +16,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/rwcii/koinon/internal/launcher"
 	"github.com/rwcii/koinon/internal/platform"
 )
 
@@ -27,6 +28,8 @@ type Options struct {
 	Binary   string // absolute koinon binary; default: this executable
 	AgyRoot  string // agy global customization root; default ~/.gemini/config
 	Opencode string // OpenCode global configuration directory; default $XDG_CONFIG_HOME/opencode
+	// CodexHome holds the Codex hooks.json; default $CODEX_HOME, else ~/.codex.
+	CodexHome string
 	// Claude status line: the Go state directory that keeps the saved entry, the Claude
 	// configuration directory (default $CLAUDE_CONFIG_DIR, else ~/.claude), and a removal.
 	StateDir         string
@@ -58,7 +61,7 @@ func Run(ctx context.Context, o Options) (Report, error) {
 		report.Note = "DeepSeek uses the documented command path: koinon send --as deepseek:$DSH_SESSION_ID NAME BODY, koinon inbox and koinon ack with the same --as. Nothing was changed."
 		return report, nil
 	}
-	if o.Family != "claude" && o.Family != "codex" && o.Family != "agy" && o.Family != "opencode" {
+	if o.Family != "claude" && o.Family != "codex" && o.Family != "agy" && o.Family != "opencode" && o.Family != "grok" {
 		return report, errors.New("unknown agent family")
 	}
 	var err error
@@ -70,14 +73,14 @@ func Run(ctx context.Context, o Options) (Report, error) {
 	if !filepath.IsAbs(o.Binary) {
 		return report, errors.New("the koinon binary path must be absolute")
 	}
+	if o.StateDir == "" {
+		if o.StateDir, err = platform.DefaultStateDir(); err != nil {
+			return report, err
+		}
+	}
 	if o.Family == "claude" {
 		if o.ClaudeConfig == "" {
 			o.ClaudeConfig = claudeConfigDir(os.Getenv)
-		}
-		if o.StateDir == "" {
-			if o.StateDir, err = platform.DefaultStateDir(); err != nil {
-				return report, err
-			}
 		}
 	}
 	if o.RemoveStatusLine {
@@ -98,39 +101,33 @@ func Run(ctx context.Context, o Options) (Report, error) {
 		return report, errors.New("the agent CLI path must be absolute")
 	}
 	report.CLI = cli
-	run := func(args ...string) (string, error) {
-		ctx, cancel := context.WithTimeout(ctx, 60*time.Second)
-		defer cancel()
-		var out bytes.Buffer
-		cmd := exec.CommandContext(ctx, cli, args...)
-		cmd.Stdout, cmd.Stderr = &out, &out
-		cmd.Stdin = nil
-		err := cmd.Run()
-		return out.String(), err
-	}
+	run := func(args ...string) (string, error) { return runCLI(ctx, cli, args...) }
 	// Each family's command to read the entry, and to add it. A present entry that
 	// already runs this binary's `mcp` command is left alone.
-	var get, add, remove []string
+	get := getCommand(o.Family)
+	var add, remove []string
 	switch o.Family {
 	case "claude":
-		get = []string{"mcp", "get", serverName}
 		remove = []string{"mcp", "remove", serverName}
 		add = []string{"mcp", "add", "--scope", "user", serverName, "--", o.Binary, "mcp"}
 	case "codex":
-		get = []string{"mcp", "get", serverName, "--json"}
 		remove = []string{"mcp", "remove", serverName}
 		add = []string{"mcp", "add", serverName, "--", o.Binary, "mcp"}
-	case "agy":
-		get = []string{"mcp", "list"}
+	case "agy", "opencode":
 		add = []string{"mcp", "add", serverName, "--", o.Binary, "mcp"}
-	case "opencode":
-		get = []string{"mcp", "list"}
-		add = []string{"mcp", "add", serverName, "--", o.Binary, "mcp"}
+	case "grok":
+		remove = []string{"mcp", "remove", "--scope", "user", serverName}
+		add = []string{"mcp", "add", "--scope", "user", serverName, "--", o.Binary, "mcp"}
 	}
 	current, getErr := run(get...)
 	if getErr == nil && configured(o.Family, current, o.Binary) {
 		report.Unchanged = append(report.Unchanged, "mcp server "+serverName)
 	} else {
+		// grok mcp list succeeds without the entry, and grok mcp remove fails on a
+		// missing name, so Grok removes only a listed user-scope koinon entry.
+		if o.Family == "grok" && !grokEntry(current) {
+			remove = nil
+		}
 		if remove != nil && getErr == nil {
 			// Replace an entry that names another command; nothing else is touched.
 			if out, err := run(remove...); err != nil {
@@ -150,12 +147,121 @@ func Run(ctx context.Context, o Options) (Report, error) {
 		if err == nil && result.Outcome == "changed" {
 			report.Note = "The Claude statusLine entry runs an edited Koinon hook; it was left unchanged."
 		}
+	case "codex":
+		err = codexHook(o, &report)
 	case "agy":
 		err = agyHook(o, &report)
 	case "opencode":
 		err = openCodePlugin(o, &report)
+	case "grok":
+		report.Note = grokNote(ctx, cli)
+	}
+	if err == nil {
+		var changed bool
+		changed, err = launcher.RecordCLI(ctx, o.StateDir, o.Family, cli)
+		if err != nil {
+			return report, fmt.Errorf("record launcher CLI: %w", err)
+		}
+		entry := o.Family + " CLI in launchers.json"
+		if changed {
+			report.Changed = append(report.Changed, entry)
+		} else {
+			report.Unchanged = append(report.Unchanged, entry)
+		}
 	}
 	return report, err
+}
+
+// getCommand is each family's command that prints its koinon MCP entry.
+func getCommand(family string) []string {
+	switch family {
+	case "claude":
+		return []string{"mcp", "get", serverName}
+	case "codex":
+		return []string{"mcp", "get", serverName, "--json"}
+	case "grok":
+		return []string{"mcp", "list", "--json"}
+	}
+	return []string{"mcp", "list"}
+}
+
+// grokEntry reports whether `grok mcp list --json` lists a user-scope koinon server.
+func grokEntry(output string) bool {
+	var entries []struct{ Name, Scope string }
+	if json.Unmarshal([]byte(output), &entries) != nil {
+		return false
+	}
+	for _, entry := range entries {
+		if entry.Name == serverName && entry.Scope == "user" {
+			return true
+		}
+	}
+	return false
+}
+
+// grokVersion is the Grok Build release that the #254 evidence covers.
+const grokVersion = "1.0.50"
+
+// grokNote reports the Grok Build version that setup saw and the permission rule that
+// setup recommends but does not write (#254 chunk 02, items 9 and 10).
+func grokNote(ctx context.Context, cli string) string {
+	note := "Koinon supports Grok's default mode; keep [cli] use_leader off for Koinon sessions. To allow only the Koinon tools, start with koinon grok --allow 'MCPTool(koinon__*)'; setup wrote no permission rule."
+	out, err := runCLI(ctx, cli, "--version")
+	fields := strings.Fields(out)
+	switch {
+	case err != nil || len(fields) < 2 || fields[0] != "grok":
+		return note + " The Grok Build version could not be read."
+	case fields[1] != grokVersion:
+		return note + " Grok Build " + fields[1] + " is installed; the Koinon evidence covers " + grokVersion + "."
+	}
+	return note + " Grok Build " + grokVersion + " is installed."
+}
+
+// runCLI runs the agent CLI without input and returns its combined output.
+func runCLI(ctx context.Context, cli string, args ...string) (string, error) {
+	ctx, cancel := context.WithTimeout(ctx, 60*time.Second)
+	defer cancel()
+	var out bytes.Buffer
+	cmd := exec.CommandContext(ctx, cli, args...)
+	cmd.Stdout, cmd.Stderr = &out, &out
+	cmd.Stdin = nil
+	err := cmd.Run()
+	return out.String(), err
+}
+
+// Adopt records the launcher CLI of a family that an earlier setup configured, when
+// launchers.json holds no usable entry for it: the CLI on PATH (or o.CLI) must show the
+// enabled koinon server running exactly this binary. It only reads the agent's
+// configuration and changes nothing there. It reports false and changes nothing when the
+// family has a usable entry, has no such CLI or has no such server.
+func Adopt(ctx context.Context, o Options) (Report, bool, error) {
+	report := Report{OK: true, Family: o.Family, Changed: []string{}, Unchanged: []string{}}
+	if !launcher.Families[o.Family] || !filepath.IsAbs(o.Binary) {
+		return report, false, errors.New("adopt needs a launcher family and an absolute koinon binary")
+	}
+	if _, err := launcher.ConfiguredCLI(o.StateDir, o.Family, ""); err == nil {
+		return report, false, nil
+	}
+	cli := o.CLI
+	if cli == "" {
+		var err error
+		if cli, err = exec.LookPath(o.Family); err != nil {
+			return report, false, nil
+		}
+	}
+	if !filepath.IsAbs(cli) {
+		return report, false, nil
+	}
+	if current, err := runCLI(ctx, cli, getCommand(o.Family)...); err != nil || !configured(o.Family, current, o.Binary) {
+		return report, false, nil
+	}
+	if _, err := launcher.RecordCLI(ctx, o.StateDir, o.Family, cli); err != nil {
+		return report, false, fmt.Errorf("record launcher CLI: %w", err)
+	}
+	report.CLI = cli
+	report.Changed = append(report.Changed, o.Family+" CLI in launchers.json")
+	report.Note = "An earlier setup configured this family; its CLI was recorded for the launcher, and its configuration was not changed."
+	return report, true, nil
 }
 
 var (
@@ -189,6 +295,25 @@ func matches(family, output, binary string, enabled bool) bool {
 		return json.Unmarshal([]byte(output), &entry) == nil && entry.Name == serverName && (entry.Enabled || !enabled) &&
 			entry.Transport.Type == "stdio" && entry.Transport.Command == binary &&
 			len(entry.Transport.Args) == 1 && entry.Transport.Args[0] == "mcp"
+	case "grok":
+		// `grok mcp list --json` prints every configured server with its scope.
+		var entries []struct {
+			Name    string
+			Command string
+			Args    []string
+			Enabled bool
+			Scope   string
+		}
+		if json.Unmarshal([]byte(output), &entries) != nil {
+			return false
+		}
+		for _, entry := range entries {
+			if entry.Name == serverName && entry.Scope == "user" && (entry.Enabled || !enabled) &&
+				entry.Command == binary && len(entry.Args) == 1 && entry.Args[0] == "mcp" {
+				return true
+			}
+		}
+		return false
 	case "claude":
 		// `claude mcp get koinon` prints the entry's fields under its name.
 		if len(lines) == 0 || strings.TrimSpace(lines[0]) != serverName+":" {

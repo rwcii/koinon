@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"os/user"
 	"path/filepath"
 	"runtime"
 	"strconv"
@@ -49,6 +50,10 @@ type Services struct {
 	Run func(ctx context.Context, argv ...string) ([]byte, error)
 	// StopWait bounds the wait for a stopped unit; zero is 30 seconds.
 	StopWait time.Duration
+	// User and Group name the installing user, whom a system-mode LaunchDaemon runs as.
+	User, Group string
+	// SystemDir replaces /Library/LaunchDaemons in tests.
+	SystemDir string
 }
 
 // NewServices returns the manager of this host and user.
@@ -57,7 +62,14 @@ func NewServices() (Services, error) {
 	if err != nil {
 		return Services{}, err
 	}
-	return Services{Backend: ServiceBackend(), Home: home, UID: os.Geteuid(), Run: RunCommand}, nil
+	s := Services{Backend: ServiceBackend(), Home: home, UID: os.Geteuid(), Run: RunCommand}
+	if u, err := user.Current(); err == nil {
+		s.User = u.Username
+		if g, err := user.LookupGroupId(u.Gid); err == nil {
+			s.Group = g.Name
+		}
+	}
+	return s, nil
 }
 
 // RunCommand runs argv and returns its combined output.
@@ -75,11 +87,34 @@ func (s Services) DaemonArtifact() string {
 	return filepath.Join(s.Home, ".config", "systemd", "user", DaemonUnit)
 }
 
+// LockWait is how long a service-started daemon waits for daemon.lock before it exits with
+// status 0. The user agent and systemd do not restart a clean exit, so a second daemon stays
+// stopped instead of restarting every few seconds (#283).
+const LockWait = "60s"
+
+// DaemonLog is the launchd agent's log file; systemd keeps the output in the user journal.
+func (s Services) DaemonLog() string {
+	return filepath.Join(s.Home, "Library", "Logs", "koinon", "daemon.log")
+}
+
 // RenderDaemon is the daemon's unit or agent: binary serves the state directory state.
 func (s Services) RenderDaemon(binary, state string) []byte {
 	if s.Backend == "launchd" {
-		var b bytes.Buffer
-		b.WriteString(`<?xml version="1.0" encoding="UTF-8"?>
+		return s.renderPlist(binary, state, "", `	<dict>
+		<key>SuccessfulExit</key>
+		<false/>
+	</dict>
+`)
+	}
+	return []byte("# " + ServiceMarker + "\n[Unit]\nDescription=Koinon daemon\n\n[Service]\nExecStart=" +
+		systemdQuote(binary) + " serve --state-dir " + systemdQuote(state) + " --lock-wait " + LockWait + "\nRestart=on-failure\nRestartSec=5\nUMask=0077\n\n[Install]\nWantedBy=default.target\n")
+}
+
+// renderPlist is the agent or daemon plist; extra adds keys and keepAlive is the value of
+// KeepAlive.
+func (s Services) renderPlist(binary, state, extra, keepAlive string) []byte {
+	var b bytes.Buffer
+	b.WriteString(`<?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 <dict>
@@ -93,25 +128,24 @@ func (s Services) RenderDaemon(binary, state string) []byte {
 		<string>serve</string>
 		<string>--state-dir</string>
 		<string>` + xmlEscape(state) + `</string>
+		<string>--lock-wait</string>
+		<string>` + LockWait + `</string>
 	</array>
-	<key>RunAtLoad</key>
+	<key>StandardOutPath</key>
+	<string>` + xmlEscape(s.DaemonLog()) + `</string>
+	<key>StandardErrorPath</key>
+	<string>` + xmlEscape(s.DaemonLog()) + `</string>
+` + extra + `	<key>RunAtLoad</key>
 	<true/>
 	<key>KeepAlive</key>
-	<dict>
-		<key>SuccessfulExit</key>
-		<false/>
-	</dict>
-	<key>ThrottleInterval</key>
+` + keepAlive + `	<key>ThrottleInterval</key>
 	<integer>10</integer>
 	<key>Umask</key>
 	<integer>63</integer>
 </dict>
 </plist>
 `)
-		return b.Bytes()
-	}
-	return []byte("# " + ServiceMarker + "\n[Unit]\nDescription=Koinon daemon\n\n[Service]\nExecStart=" +
-		systemdQuote(binary) + " serve --state-dir " + systemdQuote(state) + "\nRestart=on-failure\nRestartSec=5\nUMask=0077\n\n[Install]\nWantedBy=default.target\n")
+	return b.Bytes()
 }
 
 func xmlEscape(s string) string {
@@ -174,6 +208,11 @@ func (s Services) WriteDaemon(binary, state string) (bool, error) {
 	if present && !marked {
 		return false, fmt.Errorf("service_artifact_unowned: %s exists without the Koinon marker", path)
 	}
+	if s.Backend == "launchd" {
+		if err := s.logDir(); err != nil {
+			return false, err
+		}
+	}
 	want := s.RenderDaemon(binary, state)
 	current, _ := os.ReadFile(path)
 	if bytes.Equal(current, want) {
@@ -185,6 +224,33 @@ func (s Services) WriteDaemon(binary, state string) (bool, error) {
 	return true, WriteAtomic(path, want, 0644)
 }
 
+// CheckLogDir checks an existing log directory without creating or changing it. A missing
+// directory is permitted; the service installation creates it and checks it again.
+func (s Services) CheckLogDir() error { return s.checkLogDir(true) }
+
+func (s Services) checkLogDir(allowMissing bool) error {
+	dir := filepath.Dir(s.DaemonLog())
+	info, err := os.Lstat(dir)
+	if allowMissing && errors.Is(err, os.ErrNotExist) {
+		return nil
+	}
+	if err != nil || owned(info, true) != nil {
+		return fmt.Errorf("service_log_unsafe: %s must be a directory owned by this user with mode 0700", dir)
+	}
+	return nil
+}
+
+// logDir creates the private log directory: launchd opens the log as the user and does not
+// create its directory. An existing directory must already be private; it is refused, never
+// changed.
+func (s Services) logDir() error {
+	dir := filepath.Dir(s.DaemonLog())
+	if err := os.MkdirAll(dir, 0700); err != nil {
+		return err
+	}
+	return s.checkLogDir(false)
+}
+
 // StartDaemon enables and (re)starts the daemon from its written artifact, so a replaced
 // binary or artifact takes effect. Without a reachable manager it is ErrManualRequired.
 func (s Services) StartDaemon(ctx context.Context) error {
@@ -193,8 +259,12 @@ func (s Services) StartDaemon(ctx context.Context) error {
 	}
 	if s.Backend == "launchd" {
 		// The agent is loaded again, so a changed file takes effect; an absent one makes
-		// bootout fail harmlessly.
+		// bootout fail harmlessly. A system-mode install disabled it; a plain install after
+		// its uninstall enables it again.
 		s.Run(ctx, "launchctl", "bootout", s.domain()+"/"+DaemonLabel)
+		if out, err := s.Run(ctx, "launchctl", "enable", s.domain()+"/"+DaemonLabel); err != nil {
+			return fmt.Errorf("launchctl enable failed: %s", strings.TrimSpace(string(out)))
+		}
 		if out, err := s.Run(ctx, "launchctl", "bootstrap", s.domain(), s.DaemonArtifact()); err != nil {
 			return fmt.Errorf("launchctl bootstrap failed: %s", strings.TrimSpace(string(out)))
 		}

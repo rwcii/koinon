@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 # Print the Homebrew formula for one release: homebrew-formula.sh TAG SHA256SUMS.
 # The release workflow writes the output to Formula/koinon.rb in rwcii/homebrew-koinon.
+# Homebrew reads the version from the release URL; an explicit version fails brew audit --strict.
 set -euo pipefail
 if [[ $# -ne 2 ]]; then
   echo "usage: $0 TAG SHA256SUMS" >&2
@@ -31,7 +32,6 @@ cat <<RUBY
 class Koinon < Formula
   desc "Shared coordination and memory for local agent sessions"
   homepage "https://github.com/rwcii/koinon"
-  version "${tag#v}"
   license "MIT"
 
   on_macos do

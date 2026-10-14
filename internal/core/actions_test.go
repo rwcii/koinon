@@ -20,6 +20,104 @@ import (
 // Dashboard action tests (sprint chunk 09): a real daemon on ephemeral loopback ports,
 // temporary state, synthetic sessions and a patched launcher.
 
+// undoSchemaTwentySix removes the decision verdicts, deliveries, deep-archive locator and the
+// close and mark fields.
+const undoSchemaTwentySix = `DROP TABLE decision_deep_archive; DROP TABLE decision_deliveries; DROP TABLE decision_verdicts;
+	ALTER TABLE messages DROP COLUMN decision_verdict; ALTER TABLE decision_items DROP COLUMN closed_by;
+	ALTER TABLE decision_items DROP COLUMN closed_at; ALTER TABLE decision_items DROP COLUMN outcome_note;
+	ALTER TABLE decision_items DROP COLUMN mark_revision; ALTER TABLE decision_items DROP COLUMN mark_file;
+	ALTER TABLE decision_items DROP COLUMN mark_offset; `
+
+// undoSchemaTwentyFive removes the decision items, recipients and create replays.
+const undoSchemaTwentyFive = `DROP TABLE decision_replays; DROP TABLE decision_recipients; DROP TABLE decision_items; `
+
+// undoSchemaTwentyFour rebuilds the cycle table without the bootstrap states.
+const undoSchemaTwentyFour = `ALTER TABLE context_cycles RENAME TO context_cycles_v24; ` + contextCyclesTableV23 + `
+	INSERT INTO context_cycles(` + cycleColumns + `) SELECT ` + cycleColumns + ` FROM context_cycles_v24; DROP TABLE context_cycles_v24; `
+
+// undoSchemaTwentyThree removes the managed context cycles and the typed request metadata.
+const undoSchemaTwentyThree = `DROP TABLE context_cycles; DROP TABLE context_cycle_events; ALTER TABLE messages DROP COLUMN system_kind;
+	ALTER TABLE messages DROP COLUMN cycle_id; ALTER TABLE messages DROP COLUMN cycle_enable_revision; `
+
+// undoSchemaTwentyTwo removes the context-cycle Enable records.
+const undoSchemaTwentyTwo = `DROP TABLE context_enables; `
+
+const undoSchemaTwentyOne = `DROP TABLE library_decisions; ALTER TABLE memory_stores DROP COLUMN library_floor; `
+
+// undoSchemaTwenty removes room posts and the post metadata of messages.
+const undoSchemaTwenty = `DROP TABLE room_replays; DROP TABLE room_deliveries; DROP TABLE room_posts;
+	ALTER TABLE messages DROP COLUMN room_seq; ALTER TABLE messages DROP COLUMN room_origin; `
+
+// undoSchemaNineteen removes rooms and the room metadata of messages.
+const undoSchemaNineteen = `DROP INDEX room_members_member; DROP TABLE room_members; DROP TABLE rooms;
+	ALTER TABLE messages DROP COLUMN room_id; ALTER TABLE messages DROP COLUMN room_revision;
+	ALTER TABLE messages DROP COLUMN room_event; `
+
+const undoSchemaEighteen = `DROP TABLE work_audiences; `
+
+// undoSchemaSeventeen rebuilds the schema 16 work tables, without reports and verdicts.
+const undoSchemaSeventeen = `ALTER TABLE work_items RENAME TO work_items_v17;
+	CREATE TABLE work_items (store TEXT NOT NULL, work_id TEXT NOT NULL CHECK (length(work_id)=32),
+		revision INTEGER NOT NULL CHECK (revision>0),
+		lifecycle TEXT NOT NULL CHECK (lifecycle IN ('open','active','blocked','finished')),
+		title TEXT NOT NULL, criteria TEXT NOT NULL, non_goals TEXT NOT NULL, proposed_assignee TEXT,
+		created_at REAL NOT NULL, created_consumer TEXT NOT NULL, first_start_revision INTEGER,
+		scope_revision INTEGER NOT NULL CHECK (scope_revision>0),
+		progress_epoch INTEGER NOT NULL DEFAULT 0 CHECK (progress_epoch>=0), last_progress_at REAL,
+		progress_deadline REAL, progress TEXT NOT NULL DEFAULT '', checkpoint TEXT NOT NULL DEFAULT '',
+		next_artifact TEXT NOT NULL DEFAULT '', blocker TEXT NOT NULL DEFAULT '', last_writer TEXT,
+		last_generation INTEGER, last_lease_expires REAL,
+		lease_expired INTEGER NOT NULL DEFAULT 0 CHECK (lease_expired IN (0,1)),
+		outcome TEXT CHECK (outcome IN ('completed','withdrawn')), reason TEXT NOT NULL DEFAULT '',
+		references_json TEXT NOT NULL DEFAULT '[]', finished_at REAL, expires_at REAL,
+		latest_seq INTEGER NOT NULL CHECK (latest_seq>0), proposed_role TEXT NOT NULL DEFAULT '',
+		CHECK ((lifecycle='finished' AND outcome IS NOT NULL AND finished_at IS NOT NULL AND expires_at IS NOT NULL)
+			OR (lifecycle<>'finished' AND outcome IS NULL AND finished_at IS NULL AND expires_at IS NULL)),
+		PRIMARY KEY (store, work_id));
+	INSERT INTO work_items(` + workItemsV16Columns + `) SELECT ` + workItemsV16Columns + ` FROM work_items_v17;
+	DROP TABLE work_items_v17;
+	ALTER TABLE work_events RENAME TO work_events_v17; DROP INDEX work_events_item;
+	CREATE TABLE work_events (store TEXT NOT NULL, seq INTEGER NOT NULL CHECK (seq>0), work_id TEXT NOT NULL,
+		revision INTEGER NOT NULL CHECK (revision>0),
+		kind TEXT NOT NULL CHECK (kind IN ('created','proposed','edited','started','updated','released',
+			'finished','progress-overdue','lease-expired')),
+		payload TEXT NOT NULL, actor TEXT NOT NULL DEFAULT '', PRIMARY KEY (store, seq));
+	INSERT INTO work_events SELECT store,seq,work_id,revision,kind,payload,actor FROM work_events_v17;
+	DROP TABLE work_events_v17; CREATE INDEX work_events_item ON work_events(store, work_id, seq); `
+
+// undoSchemaSixteen removes role routing and native-bound work ownership.
+const undoSchemaSixteen = `ALTER TABLE work_items DROP COLUMN proposed_role;
+	ALTER TABLE claim_bundles DROP COLUMN native_actor; ALTER TABLE work_replays DROP COLUMN native_actor; `
+
+// undoSchemaFifteen turns a schema 15 database back into schema 14 for migration tests.
+const undoSchemaFifteen = `ALTER TABLE sessions DROP COLUMN read_through; ALTER TABLE messages DROP COLUMN wake_notices;
+	ALTER TABLE messages DROP COLUMN ack_session; ALTER TABLE messages DROP COLUMN ack_via; `
+
+// undoSchemaFourteen turns a schema 14 database back into schema 13 for migration tests.
+const undoSchemaFourteen = `DROP TABLE settings; `
+
+// undoSchemaThirteen turns a schema 13 database back into schema 12 for migration tests.
+const undoSchemaThirteen = `ALTER TABLE sessions DROP COLUMN host_pid; ALTER TABLE sessions DROP COLUMN host_start;
+	ALTER TABLE sessions DROP COLUMN tmux_socket; ALTER TABLE sessions DROP COLUMN tmux_pane;
+	ALTER TABLE sessions DROP COLUMN succession; `
+
+// undoSchemaTwelve turns a schema 12 database without participant inboxes back into
+// schema 11 for migration tests.
+const undoSchemaTwelve = `DROP TABLE participant_fences; ALTER TABLE sessions DROP COLUMN acked_by; ALTER TABLE memory_cursors DROP COLUMN actor; ALTER TABLE work_events DROP COLUMN actor; `
+
+// undoSchemaEleven turns a schema 11 database with roleless participants back into
+// schema 10 for migration tests.
+const undoSchemaEleven = `DROP TABLE participant_events; DROP INDEX names_participant;
+	ALTER TABLE names DROP COLUMN conflict; ALTER TABLE names DROP COLUMN role; ALTER TABLE sessions DROP COLUMN role;
+	CREATE UNIQUE INDEX names_alias ON names(family, repository) WHERE kind='alias'; `
+
+// undoSchemaTen turns a schema 10 database back into schema 9 for migration tests.
+const undoSchemaTen = `ALTER TABLE sessions DROP COLUMN subagent; `
+
+// undoSchemaNine turns a schema 9 database back into schema 8 for migration tests.
+const undoSchemaNine = `ALTER TABLE sessions DROP COLUMN ack_mark; ALTER TABLE sessions DROP COLUMN ack_mark_at;
+	ALTER TABLE sessions DROP COLUMN purge_at; `
+
 // undoSchemaEight turns a schema 8 database back into schema 7 for migration tests.
 const undoSchemaEight = `DROP TABLE imports; `
 
@@ -67,7 +165,7 @@ func (c *actionClient) do(action string, form url.Values) string {
 
 func auditAll(t *testing.T, s *Store) []AuditRecord {
 	t.Helper()
-	records, _, err := s.AuditPage(context.Background(), 0)
+	records, _, err := s.dashboardAudit(context.Background(), sortOrder(t, &auditSort, "", "", ""))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -256,6 +354,15 @@ func TestDashboardActionsChangeStateAndAudit(t *testing.T) {
 	if !strings.Contains(launched.Target, odd) {
 		t.Fatalf("launch target: %q", launched.Target)
 	}
+	// Claude Code starts the same way (#219).
+	if got := client.do("launch", url.Values{"family": {"claude"}, "directory": {odd}, "name": {"claude_1"}}); got != "launched" {
+		t.Fatalf("claude launch: %s", got)
+	}
+	expectAudit(t, s, n, "launch", "accepted", "tmux $7 %9")
+	n++
+	if want := []string{"claude", "--state-dir", d.root, "--address", d.launchAddress(), "--directory", odd, "--tmux-session", "claude_1"}; !reflect.DeepEqual(gotArgs, want) {
+		t.Fatalf("claude launcher arguments: %q", gotArgs)
+	}
 	d.launch = func(context.Context, []string) ([]byte, error) { return nil, errors.New("synthetic refusal") }
 	if got := client.do("launch", url.Values{"family": {"opencode"}, "directory": {odd}, "name": {"named_1"}}); got != "launch_refused" {
 		t.Fatalf("refused launch: %s", got)
@@ -263,7 +370,7 @@ func TestDashboardActionsChangeStateAndAudit(t *testing.T) {
 	expectAudit(t, s, n, "launch", "refused", "launch_refused")
 	n++
 	for _, form := range []url.Values{
-		{"family": {"claude"}, "directory": {odd}},
+		{"family": {"deepseek"}, "directory": {odd}},
 		// A relative directory that exists where the daemon runs, the package directory.
 		{"family": {"codex"}, "directory": {"web"}},
 		{"family": {"codex"}, "directory": {filepath.Join(odd, "missing")}},
@@ -365,8 +472,14 @@ func TestDashboardActionsAtTheStorageCeiling(t *testing.T) {
 	}
 	client := newActionClient(t, d, root)
 	pages, _ := s.pages(ctx, s.db)
-	s.storage.maxPages = pages + reservePages + commitSlack + appendAllowance - 1
-	defer func() { s.storage.maxPages = defaultMaxPages }()
+	// The daemon's maintenance writes too, so the limit changes under the storage lock.
+	setMaxPages := func(n int64) {
+		s.storage.mu.Lock()
+		s.storage.maxPages = n
+		s.storage.mu.Unlock()
+	}
+	setMaxPages(pages + reservePages + commitSlack + appendAllowance - 1)
+	defer setMaxPages(defaultMaxPages)
 	// An ordinary action that cannot write is refused, changes nothing and has no record.
 	if got := client.do("send", url.Values{"to": {b.Name}, "body": {"no room"}}); got != "capacity" {
 		t.Fatalf("send at the ceiling: %s", got)
@@ -390,7 +503,7 @@ func TestAuditRetentionAndCap(t *testing.T) {
 	clock := time.Now()
 	s.now = func() time.Time { return clock }
 	old := clock.UnixMilli() - auditRetention - 1
-	if _, err := s.db.Exec(`INSERT INTO audit(at,action,target,result) VALUES (?,'retire','old','accepted')`, old); err != nil {
+	if _, err := fixtureExec(s, `INSERT INTO audit(at,action,target,result) VALUES (?,'retire','old','accepted')`, old); err != nil {
 		t.Fatal(err)
 	}
 	stmt, err := s.db.Prepare(`INSERT INTO audit(at,action,target,result) VALUES (?,'retire',?,'accepted')`)
@@ -414,9 +527,9 @@ func TestAuditRetentionAndCap(t *testing.T) {
 		t.Fatalf("after trim: %d records, oldest %q", count, oldest)
 	}
 	// Pages of 100, newest first, with no omission or duplicate.
-	seen, before := map[int64]bool{}, int64(0)
+	seen, after := map[int64]bool{}, ""
 	for {
-		page, next, err := s.AuditPage(ctx, before)
+		page, next, err := s.dashboardAudit(ctx, sortOrder(t, &auditSort, "", "", after))
 		if err != nil || len(page) > auditPage {
 			t.Fatal(err)
 		}
@@ -426,10 +539,10 @@ func TestAuditRetentionAndCap(t *testing.T) {
 			}
 			seen[r.ID] = true
 		}
-		if next == 0 {
+		if next == "" {
 			break
 		}
-		before = next
+		after = next
 	}
 	if len(seen) != auditMax {
 		t.Fatalf("paged %d", len(seen))
@@ -446,7 +559,7 @@ func TestSchemaSixMigrationAndRollback(t *testing.T) {
 	}
 	// A schema 6 database that already holds the name maintainer cannot migrate: the
 	// whole step rolls back and the database stays at 6.
-	if _, err := s.db.Exec(undoSchemaEight + undoSchemaSeven + `INSERT INTO names(name,kind,family,session_id) VALUES ('maintainer','peer','codex','x'); PRAGMA user_version=6`); err != nil {
+	if _, err := fixtureExec(s, undoSchemaTwentySix+undoSchemaTwentyFive+undoSchemaTwentyFour+undoSchemaTwentyThree+undoSchemaTwentyTwo+undoSchemaTwentyOne+undoSchemaTwenty+undoSchemaNineteen+undoSchemaEighteen+undoSchemaSeventeen+undoSchemaSixteen+undoSchemaFifteen+undoSchemaFourteen+undoSchemaThirteen+undoSchemaTwelve+undoSchemaEleven+undoSchemaTen+undoSchemaNine+undoSchemaEight+undoSchemaSeven+`INSERT INTO names(name,kind,family,session_id) VALUES ('maintainer','peer','codex','x'); PRAGMA user_version=6`); err != nil {
 		t.Fatal(err)
 	}
 	s.db.Close()
@@ -559,7 +672,8 @@ func TestDashboardAckSharesTheWakeBoundary(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	inbox, err := s.ReadInbox(ctx, key, 0, 50)
+	// A read after the later message leaves it unread, so it still gets a notice.
+	inbox, err := s.ReadInbox(ctx, key, later.Seq, 50)
 	if err != nil || inbox.AckedThrough != message.Seq || later.Seq != message.Seq+1 {
 		t.Fatalf("after clear: %+v %v", inbox, err)
 	}
@@ -660,8 +774,12 @@ func TestLaunchResultWrittenAfterRecovery(t *testing.T) {
 	if records := auditAll(t, d.store); len(records) != 1 || records[0].Result != "accepted" || records[0].Reason != "tmux $7 %9" {
 		t.Fatalf("after recovery: %+v", records)
 	}
-	if len(d.unfinished) != 0 || runs != 1 {
-		t.Fatalf("unfinished %d, launches %d", len(d.unfinished), runs)
+	// The daemon's maintenance goroutine also calls finishLaunches, so read under its lock (#309).
+	d.launchMu.Lock()
+	unfinished := len(d.unfinished)
+	d.launchMu.Unlock()
+	if unfinished != 0 || runs != 1 {
+		t.Fatalf("unfinished %d, launches %d", unfinished, runs)
 	}
 	// A record a previous daemon left started is closed at the next start.
 	id, err := d.store.auditLaunch(context.Background(), "codex /synthetic tmux left-open")
@@ -691,7 +809,8 @@ func TestAliasSendAuditNamesTheRecipient(t *testing.T) {
 	}
 	var id int64
 	d.store.db.QueryRow(`SELECT id FROM messages WHERE sender_family='maintainer'`).Scan(&id)
-	want := "to " + b.Name + " bytes 9 message " + strconv.FormatInt(id, 10) + " via " + b.Alias
+	// A send to an address reaches the participant, which the record names (chunk 03).
+	want := "to " + b.Alias + " bytes 9 message " + strconv.FormatInt(id, 10)
 	if record := auditAll(t, d.store)[0]; record.Target != want {
 		t.Fatalf("target %q, want %q", record.Target, want)
 	}

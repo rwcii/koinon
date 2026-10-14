@@ -5,12 +5,14 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
 	"time"
+	"unicode/utf8"
 
 	"github.com/rwcii/koinon/internal/core"
 )
@@ -45,6 +47,26 @@ func newHarness(t *testing.T, client string) *harness {
 		h.request("initialize", map[string]any{"protocolVersion": "2025-06-18", "clientInfo": map[string]any{"name": client, "version": "1"}, "capabilities": map[string]any{}})
 	}
 	return h
+}
+
+// launch records a launch of family for this server, as koinon <family> does: its host
+// is the server's parent, and the server reads the launch ID from its environment.
+func (h *harness) launch(family string) string {
+	h.t.Helper()
+	secret, err := core.ReadSecret(h.root)
+	if err != nil {
+		h.t.Fatal(err)
+	}
+	target := core.LaunchTarget{Family: family, Directory: h.s.c.Directory, CLI: "/synthetic/cli", HostPID: h.s.c.ParentPID}
+	if family == "opencode" {
+		target.Address, target.Password = "127.0.0.1:9", strings.Repeat("ab", 32)
+	}
+	id, err := core.CreateLaunch(context.Background(), h.d.Addresses()[0], secret, target)
+	if err != nil {
+		h.t.Fatal(err)
+	}
+	h.env["KOINON_LAUNCH_ID"] = id
+	return id
 }
 
 func (h *harness) request(method string, params any) map[string]any {
@@ -100,6 +122,14 @@ func TestProtocol(t *testing.T) {
 	if r := reply["result"].(map[string]any); r["protocolVersion"] != "2024-11-05" || r["serverInfo"].(map[string]any)["name"] != "koinon" {
 		t.Fatalf("initialize: %v", reply)
 	}
+	// A dashboard post from the maintainer session is the maintainer's instruction (PDR 005);
+	// other messages stay data.
+	instructions, _ := reply["result"].(map[string]any)["instructions"].(string)
+	for _, want := range []string{`sender_family "maintainer"`, "instruction and approval (PDR 005)", "grant no permission"} {
+		if !strings.Contains(instructions, want) {
+			t.Fatalf("instructions lack %q: %s", want, instructions)
+		}
+	}
 	reply = h.request("initialize", map[string]any{"protocolVersion": "1999-01-01", "clientInfo": map[string]any{"name": "synthetic"}})
 	if reply["result"].(map[string]any)["protocolVersion"] != protocolVersions[0] {
 		t.Fatalf("version fallback: %v", reply)
@@ -109,6 +139,9 @@ func TestProtocol(t *testing.T) {
 	for _, tool := range tools {
 		tool := tool.(map[string]any)
 		names = append(names, tool["name"].(string))
+		if tool["name"] == "inbox" && !strings.Contains(tool["description"].(string), `sender_family "maintainer"`) {
+			t.Fatalf("inbox description lacks the maintainer origin: %v", tool["description"])
+		}
 		for field := range tool["inputSchema"].(map[string]any)["properties"].(map[string]any) {
 			for _, forbidden := range callerFields {
 				if field == forbidden {
@@ -117,7 +150,7 @@ func TestProtocol(t *testing.T) {
 			}
 		}
 	}
-	if strings.Join(names, ",") != "peers,send,inbox,ack,delivery,memory_status,memory_sync,memory_ack,memory_record,memory_recall,work_create,work_get,work_list,work_propose,work_edit,work_start,work_update,work_release,work_finish,claim_renew" {
+	if strings.Join(names, ",") != "peers,peer_status,send,inbox,ack,delivery,context_cycle_status,context_cycle_ready,context_cycle_pickup,library_list,library_read,library_state,library_decision,room_list,room_members,room_post,room_read,memory_status,memory_sync,memory_ack,memory_record,memory_recall,work_checkout,work_checkout_request,decision_create,decision_edit,decision_list,decision_get,decision_history,decision_pending,decision_ack,decision_close,decision_restore,work_create,work_get,work_list,work_propose,work_edit,work_start,work_update,work_release,work_finish,claim_renew,work_report,work_accept,work_reject" {
 		t.Fatalf("tools: %v", names)
 	}
 	if reply := h.request("ping", nil); reply["result"] == nil {
@@ -134,6 +167,60 @@ func TestProtocol(t *testing.T) {
 	}
 }
 
+func TestPeerStatusTool(t *testing.T) {
+	h := newHarness(t, "codex")
+	h.launch("codex")
+	reader := map[string]any{"threadId": "synthetic-reader"}
+	targetMeta := map[string]any{"threadId": "synthetic-status-target"}
+	h.tool("peers", map[string]any{}, reader)
+	h.tool("peers", map[string]any{}, targetMeta)
+	var target core.Session
+	for _, session := range h.sessions() {
+		if session.ID == "synthetic-status-target" {
+			target = session
+		}
+	}
+	secret, _ := core.ReadSecret(h.root)
+	_, err := core.Call(context.Background(), h.d.Addresses()[0], secret, "/v1/sessions/observe", core.Observation{
+		Caller:   core.Key{Family: target.Family, ID: target.ID},
+		Activity: &core.ObservedValue{Source: "codex_rollout", At: time.Now().UnixMilli(), State: "busy"},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	got, isError := h.tool("peer_status", map[string]any{"peer": target.Name}, reader)
+	if isError || got["peer"].(map[string]any)["activity"].(map[string]any)["state"] != "busy" {
+		t.Fatalf("peer status: %v", got)
+	}
+	data, err := core.Call(context.Background(), h.d.Addresses()[0], secret, "/v1/peers/status",
+		map[string]any{"caller": core.Key{Family: "codex", ID: "synthetic-reader"}, "peer": target.Name})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var api map[string]any
+	if err := json.Unmarshal(data, &api); err != nil {
+		t.Fatal(err)
+	}
+	delete(api["peer"].(map[string]any), "observed_at")
+	delete(got["peer"].(map[string]any), "observed_at")
+	wantJSON, _ := json.Marshal(api)
+	gotJSON, _ := json.Marshal(got)
+	if !bytes.Equal(wantJSON, gotJSON) {
+		t.Fatalf("API/MCP differ: %s %s", wantJSON, gotJSON)
+	}
+	for _, args := range []map[string]any{{}, {"peer": ""}, {"peer": target.Name, "extra": true}} {
+		if result, isError := h.tool("peer_status", args, reader); !isError || result["code"] != "invalid_arguments" {
+			t.Fatalf("invalid status args: %v %v", args, result)
+		}
+	}
+	if result, isError := h.tool("peer_status", map[string]any{"peer": "codex-unknown-aa"}, reader); !isError || result["code"] != "peer_not_found" {
+		t.Fatalf("unknown peer: %v", result)
+	}
+	if result, isError := h.tool("peer_status", map[string]any{"peer": target.Name, "caller": core.Key{Family: "codex", ID: target.ID}}, reader); !isError || result["code"] != "identity_unavailable" {
+		t.Fatalf("model-supplied caller: %v", result)
+	}
+}
+
 func TestServeReadsLinesAndBoundsThem(t *testing.T) {
 	root := t.TempDir()
 	input := `{"jsonrpc":"2.0","id":1,"method":"ping"}` + "\n" + `{"jsonrpc":"2.0","id":2,"method":"x","params":"` + strings.Repeat("a", maxLine) + `"}` + "\n" + `{"jsonrpc":"2.0","id":3,"method":"ping"}`
@@ -147,6 +234,7 @@ func TestServeReadsLinesAndBoundsThem(t *testing.T) {
 
 func TestCodexThreadsAreSeparateSessions(t *testing.T) {
 	h := newHarness(t, "codex-mcp-client")
+	launch := h.launch("codex")
 	a, b := map[string]any{"threadId": "synthetic-thread-a"}, map[string]any{"threadId": "synthetic-thread-b"}
 	listing, isError := h.tool("peers", map[string]any{}, a)
 	if isError {
@@ -158,7 +246,7 @@ func TestCodexThreadsAreSeparateSessions(t *testing.T) {
 		names[s.ID] = s.Name
 		var target map[string]any
 		json.Unmarshal(s.WakeTarget, &target)
-		if s.Family != "codex" || target["cli"] != "/opt/agent/bin/codex" {
+		if s.Family != "codex" || target["launch_id"] != launch {
 			t.Fatalf("codex session: %+v", s)
 		}
 	}
@@ -211,15 +299,32 @@ func TestIdentitySources(t *testing.T) {
 		{"plugin field from codex", "codex-mcp-client", "/opt/agent/bin/codex", nil, codexMeta, map[string]any{"koinon_session": "ses_synthetic"}, "", ""},
 		{"caller in arguments", "codex-mcp-client", "/opt/agent/bin/codex", nil, codexMeta, map[string]any{"caller": map[string]any{"family": "codex", "id": "other"}}, "", ""},
 		{"id in arguments", "opencode", "/opt/agent/bin/opencode", nil, nil, map[string]any{"koinon_session": "ses_synthetic", "id": "other"}, "", ""},
+		{"grok", "grok-shell-koinon", "/opt/xai/grok/bin/grok-native", map[string]string{"GROK_SESSION_ID": "synthetic-grok"}, nil, nil, "grok", "synthetic-grok"},
+		{"grok wrong parent", "grok-shell-koinon", "/usr/bin/bash", map[string]string{"GROK_SESSION_ID": "synthetic-grok"}, nil, nil, "", ""},
+		{"grok name only in argv[0]", "grok-shell-koinon", "/usr/bin/bash", map[string]string{"GROK_SESSION_ID": "synthetic-grok"}, nil, nil, "", ""},
+		{"grok link on macOS", "grok-shell-koinon", "/usr/local/bin/grok", map[string]string{"GROK_SESSION_ID": "synthetic-grok"}, nil, nil, "grok", "synthetic-grok"},
+		{"grok env under another client", "synthetic-client", "/opt/xai/grok/bin/grok-native", map[string]string{"GROK_SESSION_ID": "synthetic-grok"}, nil, nil, "", ""},
+		{"grok no id", "grok-shell-koinon", "/opt/xai/grok/bin/grok-native", nil, nil, nil, "", ""},
+		{"plugin field from grok", "grok-shell-koinon", "/opt/xai/grok/bin/grok-native", map[string]string{"GROK_SESSION_ID": "synthetic-grok"}, nil, map[string]any{"koinon_session": "ses_synthetic"}, "", ""},
+		{"caller in grok arguments", "grok-shell-koinon", "/opt/xai/grok/bin/grok-native", map[string]string{"GROK_SESSION_ID": "synthetic-grok"}, nil, map[string]any{"session_id": "other"}, "", ""},
 	} {
 		t.Run(c.name, func(t *testing.T) {
 			h := newHarness(t, "")
-			h.parent, h.env = c.parent, c.env
+			h.parent = c.parent
+			for k, v := range c.env {
+				h.env[k] = v
+			}
+			if c.name == "grok name only in argv[0]" {
+				h.s.c.Command = func(int) (string, []string, error) { return "/usr/bin/bash", []string{"grok-native"}, nil }
+			}
 			if c.name == "claude npm" {
 				h.s.c.Command = func(int) (string, []string, error) {
 					return "/usr/bin/node", []string{"node", "/usr/lib/node_modules/@anthropic-ai/claude-code/cli.js"}, nil
 				}
 				c.family, c.id = "claude", "synthetic-claude"
+			}
+			if c.family != "" {
+				h.launch(c.family)
 			}
 			h.request("initialize", map[string]any{"protocolVersion": "2025-06-18", "clientInfo": map[string]any{"name": c.client}})
 			args := map[string]any{}
@@ -237,7 +342,7 @@ func TestIdentitySources(t *testing.T) {
 			if isError || len(sessions) != 1 || sessions[0].Family != c.family || sessions[0].ID != c.id {
 				t.Fatalf("identity: %v %+v", reply, sessions)
 			}
-			if c.family == "claude" && string(sessions[0].WakeTarget) != `{"claude_pid":4242}` {
+			if c.family == "claude" && !strings.Contains(string(sessions[0].WakeTarget), `"claude_pid":4242`) {
 				t.Fatalf("claude wake target: %s", sessions[0].WakeTarget)
 			}
 		})
@@ -246,6 +351,7 @@ func TestIdentitySources(t *testing.T) {
 
 func TestOpenCodeSessionsOnOneServer(t *testing.T) {
 	h := newHarness(t, "opencode")
+	h.launch("opencode")
 	for _, id := range []string{"ses_a", "ses_b"} {
 		if reply, isError := h.tool("peers", map[string]any{"koinon_session": id}, nil); isError {
 			t.Fatal(reply)
@@ -266,6 +372,7 @@ func TestOpenCodeSessionsOnOneServer(t *testing.T) {
 
 func TestArgumentsAndLaunchBinding(t *testing.T) {
 	h := newHarness(t, "codex-mcp-client")
+	own := h.launch("codex")
 	meta := map[string]any{"threadId": "synthetic-thread"}
 	for _, args := range []map[string]any{{"to": "x"}, {"to": "x", "body": "y", "extra": 1}, {"through": "one"}} {
 		name := "send"
@@ -285,17 +392,26 @@ func TestArgumentsAndLaunchBinding(t *testing.T) {
 	if reply, isError := h.tool("send", map[string]any{"to": "codex-none-00", "body": "x"}, meta); !isError || reply["code"] != "peer_not_found" {
 		t.Fatalf("daemon code: %v", reply)
 	}
-	// A launched agent's server binds the session to the launcher's private target.
+	// A launch of another host process or an unknown launch registers nothing.
 	secret, _ := core.ReadSecret(h.root)
 	cli := filepath.Join(t.TempDir(), "codex")
-	id, err := core.CreateLaunch(context.Background(), h.d.Addresses()[0], secret, core.LaunchTarget{Family: "codex", Directory: h.s.c.Directory, CLI: cli, HostPID: 77})
+	other, err := core.CreateLaunch(context.Background(), h.d.Addresses()[0], secret, core.LaunchTarget{Family: "codex", Directory: h.s.c.Directory, CLI: cli, HostPID: 77})
 	if err != nil {
 		t.Fatal(err)
 	}
-	h.env["KOINON_LAUNCH_ID"] = id
+	before := len(h.sessions())
+	for _, launch := range []string{other, strings.Repeat("b", 64)} {
+		h.env["KOINON_LAUNCH_ID"] = launch
+		reply, isError := h.tool("peers", map[string]any{}, map[string]any{"threadId": "synthetic-islanded"})
+		if !isError || reply["code"] != "not_launched" || reply["launcher"] != "koinon codex" || len(h.sessions()) != before {
+			t.Fatalf("islanded %q: %v %d", launch, reply, len(h.sessions()))
+		}
+	}
+	// The server's own launch binds the session to the launcher's private target.
+	h.env["KOINON_LAUNCH_ID"] = own
 	h.tool("peers", map[string]any{}, map[string]any{"threadId": "synthetic-launched"})
 	for _, s := range h.sessions() {
-		if s.ID == "synthetic-launched" && !strings.Contains(string(s.WakeTarget), id) {
+		if s.ID == "synthetic-launched" && !strings.Contains(string(s.WakeTarget), own) {
 			t.Fatalf("launch not bound: %s", s.WakeTarget)
 		}
 	}
@@ -303,6 +419,7 @@ func TestArgumentsAndLaunchBinding(t *testing.T) {
 
 func TestDaemonRestartAndRenewal(t *testing.T) {
 	h := newHarness(t, "codex-mcp-client")
+	h.launch("codex")
 	a, b := map[string]any{"threadId": "synthetic-a"}, map[string]any{"threadId": "synthetic-b"}
 	h.tool("peers", map[string]any{}, b)
 	recipient := h.sessions()[0].Name
@@ -348,6 +465,104 @@ func TestDaemonRestartAndRenewal(t *testing.T) {
 	}
 }
 
+// TestRenewalSurvivesTransientFailure: a renewal that fails because the daemon is down
+// keeps the session in the renewal set, and the next interval renews it; a renewal refused
+// because the session retired drops it (#249).
+func TestRenewalSurvivesTransientFailure(t *testing.T) {
+	h := newHarness(t, "codex-mcp-client")
+	h.launch("codex")
+	b := map[string]any{"threadId": "synthetic-b"}
+	if _, isError := h.tool("peers", map[string]any{}, b); isError {
+		t.Fatal("peers")
+	}
+	key := core.Key{Family: "codex", ID: "synthetic-b"}
+	address := h.d.Addresses()[0]
+	if err := h.d.Close(); err != nil {
+		t.Fatal(err)
+	}
+	h.s.renew(context.Background())
+	before, kept := h.s.sessions[key]
+	if !kept {
+		t.Fatal("a failed renewal dropped the session")
+	}
+	restarted, err := core.Start(core.Config{StateDir: h.root, Listen: []string{address}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	h.d = restarted
+	t.Cleanup(func() { restarted.Close() })
+	h.s.renew(context.Background())
+	if after := h.s.sessions[key].revision; after != before.revision+1 {
+		t.Fatalf("renewal after the restart: %d -> %d", before.revision, after)
+	}
+	secret, _ := core.ReadSecret(h.root)
+	if _, err := core.Call(context.Background(), address, secret, "/v1/sessions/retire", core.Mutation{Family: "codex", ID: "synthetic-b", IfRevision: before.revision + 1}); err != nil {
+		t.Fatal(err)
+	}
+	h.s.renew(context.Background())
+	if _, kept := h.s.sessions[key]; kept {
+		t.Fatal("a retired session stayed in the renewal set")
+	}
+}
+
+// TestRenewalIntervalFromDaemon: the server takes the renewal interval from the daemon's
+// register reply, and ignores a value outside 30 to 1800 seconds (#249).
+func TestRenewalIntervalFromDaemon(t *testing.T) {
+	h := newHarness(t, "codex-mcp-client")
+	h.launch("codex")
+	h.s.mu.Lock()
+	h.s.renewal = time.Minute
+	h.s.mu.Unlock()
+	if _, isError := h.tool("peers", map[string]any{}, map[string]any{"threadId": "synthetic-b"}); isError {
+		t.Fatal("peers")
+	}
+	if got := h.s.interval(); got != 300*time.Second {
+		t.Fatalf("interval from the register reply: %v", got)
+	}
+	h.s.mu.Lock()
+	h.s.setInterval(10)
+	h.s.setInterval(0)
+	h.s.mu.Unlock()
+	if got := h.s.interval(); got != 300*time.Second {
+		t.Fatalf("an invalid value applied: %v", got)
+	}
+}
+
+// TestNewIntervalReschedulesRenewal: a changed interval replaces the pending wait at once,
+// so a first reply of 30 seconds does not leave the default 300-second wait running.
+func TestNewIntervalReschedulesRenewal(t *testing.T) {
+	h := newHarness(t, "codex-mcp-client")
+	waits := make(chan time.Duration, 8)
+	h.s.retune = make(chan struct{}, 1)
+	h.s.c.After = func(d time.Duration) <-chan time.Time { waits <- d; return make(chan time.Time) }
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	go h.s.renewLoop(ctx)
+	if got := <-waits; got != 300*time.Second {
+		t.Fatalf("first wait %v", got)
+	}
+	h.s.mu.Lock()
+	h.s.setInterval(30)
+	h.s.mu.Unlock()
+	select {
+	case got := <-waits:
+		if got != 30*time.Second {
+			t.Fatalf("wait after the new interval %v", got)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("the pending wait was not replaced")
+	}
+	// The same interval again changes nothing.
+	h.s.mu.Lock()
+	h.s.setInterval(30)
+	h.s.mu.Unlock()
+	select {
+	case got := <-waits:
+		t.Fatalf("an unchanged interval rescheduled: %v", got)
+	case <-time.After(200 * time.Millisecond):
+	}
+}
+
 func TestCommandBinary(t *testing.T) {
 	if testing.Short() {
 		t.Skip()
@@ -363,6 +578,8 @@ func TestCommandBinary(t *testing.T) {
 	cmd.Stdin = strings.NewReader(`{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-06-18","clientInfo":{"name":"codex-mcp-client"}}}
 {"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"peers","arguments":{},"_meta":{"threadId":"synthetic"}}}
 `)
+	// A launched server reaches for the daemon; an unreachable one is reported as such.
+	cmd.Env = append(os.Environ(), "KOINON_LAUNCH_ID="+strings.Repeat("b", 64))
 	var stdout, stderr bytes.Buffer
 	cmd.Stdout, cmd.Stderr = &stdout, &stderr
 	if err := cmd.Run(); err != nil {
@@ -380,6 +597,7 @@ func TestCommandBinary(t *testing.T) {
 
 func TestMemoryTools(t *testing.T) {
 	h := newHarness(t, "codex-mcp-client")
+	h.launch("codex")
 	meta := map[string]any{"threadId": "synthetic-thread"}
 	if reply, isError := h.tool("memory_status", map[string]any{}, meta); !isError || reply["code"] != "repo_unresolved" {
 		t.Fatalf("no repository: %v", reply)
@@ -398,7 +616,7 @@ func TestMemoryTools(t *testing.T) {
 		t.Fatalf("sync: %v", page)
 	}
 	entry := result["entries"].([]any)[0].(map[string]any)
-	if entry["writer_family"] != "codex" || entry["consumer"] != entry["writer_name"] {
+	if entry["writer_family"] != "codex" || entry["writer_name"] != h.sessions()[0].Name || entry["consumer"] != "participant:"+h.sessions()[0].Address {
 		t.Fatalf("provenance: %v", entry)
 	}
 	if acked, isError := h.tool("memory_ack", map[string]any{"consumer": "stable-cursor", "snapshot_id": result["snapshot_id"]}, meta); isError {
@@ -425,6 +643,7 @@ func TestMemoryTools(t *testing.T) {
 
 func TestWorkTools(t *testing.T) {
 	h := newHarness(t, "codex-mcp-client")
+	h.launch("codex")
 	meta := map[string]any{"threadId": "synthetic-thread"}
 	if out, err := exec.Command("git", "init", "-q", h.s.c.Directory).CombinedOutput(); err != nil {
 		t.Fatalf("git init: %v %s", err, out)
@@ -442,8 +661,9 @@ func TestWorkTools(t *testing.T) {
 		t.Fatalf("start: %v", started)
 	}
 	item, _ := h.tool("work_get", map[string]any{"work_id": id}, meta)
-	// The default consumer is the session key, not the peer name.
-	if claim := item["result"].(map[string]any)["current_claim"].(map[string]any); claim["consumer"] != "codex:synthetic-thread" {
+	// The holder defaults to its participant; the second session keeps its native key.
+	consumer := "participant:" + h.sessions()[0].Address
+	if claim := item["result"].(map[string]any)["current_claim"].(map[string]any); claim["consumer"] != consumer {
 		t.Fatalf("claim: %v", claim)
 	}
 	other := map[string]any{"threadId": "synthetic-other"}
@@ -451,7 +671,7 @@ func TestWorkTools(t *testing.T) {
 	conflict, isError := h.tool("work_start", map[string]any{"work_id": second["result"].(map[string]any)["work_id"], "if_revision": 1,
 		"checkpoint": "c", "next_artifact": "a", "progress_deadline": deadline, "key": "s2", "deadline": deadline,
 		"resources": [][]string{{"path", "docs/x"}}}, other)
-	if !isError || conflict["code"] != "claim_conflict" || conflict["details"].(map[string]any)["consumer"] != "codex:synthetic-thread" {
+	if !isError || conflict["code"] != "claim_conflict" || conflict["details"].(map[string]any)["consumer"] != consumer {
 		t.Fatalf("conflict: %v", conflict)
 	}
 	for name, args := range map[string]map[string]any{
@@ -461,5 +681,68 @@ func TestWorkTools(t *testing.T) {
 		if reply, isError := h.tool(name, args, meta); !isError || reply["code"] != "invalid_arguments" && reply["code"] != "unknown_tool" {
 			t.Fatalf("%s %v: %v", name, args, reply)
 		}
+	}
+	// A refusal names the argument and the rule that refused it (#264).
+	generation := started["result"].(map[string]any)["claim"].(map[string]any)["generation"]
+	for _, c := range []struct {
+		name, code, text string
+		args             map[string]any
+	}{
+		{"work_update", "invalid_request", "renew_for is 60 to 3600 seconds", map[string]any{"work_id": id, "if_revision": 2,
+			"claim_generation": generation, "progress": "p", "checkpoint": "c", "next_artifact": "a", "progress_deadline": deadline, "renew_for": 7200}},
+		{"work_get", "invalid_arguments", "missing argument work_id", map[string]any{}},
+		{"work_get", "invalid_arguments", "unknown argument bogus", map[string]any{"work_id": id, "bogus": 1}},
+		{"memory_recall", "invalid_arguments", "unknown argument consumer", map[string]any{"consumer": "x", "query": "q"}},
+		{"ack", "invalid_arguments", "missing through", map[string]any{}},
+	} {
+		if reply, isError := h.tool(c.name, c.args, meta); !isError || reply["code"] != c.code || reply["error"] != c.text {
+			t.Errorf("%s %v: %v", c.name, c.args, reply)
+		}
+	}
+	// A long argument name keeps the text within 1 KiB of valid UTF-8, cut between characters.
+	for _, name := range []string{strings.Repeat("x", 2048), strings.Repeat("é", 1500)} {
+		for _, tool := range []string{"work_get", "memory_recall", "peers"} {
+			args := map[string]any{name: 1}
+			if tool == "memory_recall" {
+				args["query"] = "q"
+			}
+			reply, isError := h.tool(tool, args, meta)
+			text, _ := reply["error"].(string)
+			if !isError || reply["code"] != "invalid_arguments" || len(text) > 1024 || len(text) < 1000 || !utf8.ValidString(text) {
+				t.Errorf("%s with a %d-byte name: %d bytes, %v", tool, len(name), len(text), reply["code"])
+			}
+		}
+	}
+}
+
+// A Grok session served through Grok's leader process is refused with grok_leader_mode,
+// launched or not: its server's directory and pane are the first terminal's (#254). The
+// leader runs the same grok-native executable as a terminal session.
+func TestGrokLeaderModeRefused(t *testing.T) {
+	for _, launched := range []bool{false, true} {
+		t.Run(fmt.Sprintf("launched-%v", launched), func(t *testing.T) {
+			h := newHarness(t, "")
+			h.env["GROK_SESSION_ID"] = "synthetic-grok-leader"
+			h.s.c.Command = func(int) (string, []string, error) {
+				return "/opt/xai/grok/bin/grok-native", []string{"grok-native", "agent", "leader", "--no-exit-on-disconnect"}, nil
+			}
+			if launched {
+				h.launch("grok")
+			}
+			h.request("initialize", map[string]any{"protocolVersion": "2025-06-18", "clientInfo": map[string]any{"name": "grok-shell-koinon"}})
+			if reply, isError := h.tool("peers", map[string]any{}, nil); !isError || reply["code"] != "grok_leader_mode" || len(h.sessions()) != 0 {
+				t.Fatalf("leader session: %v %v", reply, h.sessions())
+			}
+		})
+	}
+	// A terminal session started as `grok` (argv[0]) runs grok-native and is admitted.
+	h := newHarness(t, "")
+	h.env["GROK_SESSION_ID"] = "synthetic-grok-tui"
+	h.s.c.Command = func(int) (string, []string, error) {
+		return "/opt/xai/grok/bin/grok-native", []string{"grok", "--session-id", "synthetic-grok-tui"}, nil
+	}
+	h.request("initialize", map[string]any{"protocolVersion": "2025-06-18", "clientInfo": map[string]any{"name": "grok-shell-koinon"}})
+	if reply, isError := h.tool("peers", map[string]any{}, nil); isError || len(h.sessions()) != 1 || h.sessions()[0].Family != "grok" {
+		t.Fatalf("terminal session: %v %v", reply, h.sessions())
 	}
 }

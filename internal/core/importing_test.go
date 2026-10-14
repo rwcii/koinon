@@ -160,13 +160,14 @@ func TestImportedSessionRegistersAndWakes(t *testing.T) {
 	if err := s.wakeStep(ctx); err != nil || len(notices) != 0 {
 		t.Fatalf("expired session woken: %v %v", notices, err)
 	}
-	r := registration(repo, "codex")
+	r := registration(t, s, repo, "codex")
 	r.ID = "thread-1"
 	session, err := s.Register(ctx, r)
 	if err != nil || session.Name != "codex-python-thread-1" {
 		t.Fatalf("register: %+v %v", session, err)
 	}
-	if err := s.wakeStep(ctx); err != nil || len(notices) != 1 || !strings.Contains(notices[0], "4-5") {
+	// The imported notified message 3 was never read, so the notice covers it too (#250).
+	if err := s.wakeStep(ctx); err != nil || len(notices) != 1 || !strings.Contains(notices[0], "3-5") {
 		t.Fatalf("wake after registration: %q %v", notices, err)
 	}
 	inbox, err := s.ReadInbox(ctx, Key{"codex", "thread-1"}, 0, 10)

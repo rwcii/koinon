@@ -1,10 +1,15 @@
 package platform
 
 import (
+	"bytes"
+	"encoding/binary"
 	"errors"
 	"os/exec"
 	"strconv"
 	"strings"
+	"time"
+
+	"golang.org/x/sys/unix"
 )
 
 // ProcessCommand reports a process's executable path and arguments. macOS has no /proc;
@@ -44,4 +49,115 @@ func ProcessParents() (map[int]int, error) {
 		return nil, errors.New("process table unreadable")
 	}
 	return parents, nil
+}
+
+// ProcessStart reports a process's start time as an opaque value that identifies the process
+// together with its ID: kern.proc.pid's p_starttime in microseconds since the epoch, read
+// through sysctl without cgo. Values are comparable only with other values of this host;
+// ErrProcessGone means no such process.
+func ProcessStart(pid int) (int64, error) {
+	if pid <= 0 {
+		return 0, ErrProcessGone
+	}
+	info, err := unix.SysctlKinfoProc("kern.proc.pid", pid)
+	// A process that does not exist returns no record, which the wrapper reports as EIO.
+	if errors.Is(err, unix.EIO) || errors.Is(err, unix.ESRCH) || err == nil && int(info.Proc.P_pid) != pid {
+		return 0, ErrProcessGone
+	}
+	if err != nil {
+		return 0, err
+	}
+	start := info.Proc.P_starttime
+	return int64(start.Sec)*1_000_000 + int64(start.Usec), nil
+}
+
+// ProcessEnvironment reports one variable of a process this user owns, from its initial
+// environment: the kern.procargs2 sysctl, read without cgo, holds the argument count, the
+// executable path and its padding, the arguments and then the environment, each ended by a
+// NUL; an empty string ends the environment. A missing variable is "" with no error.
+func ProcessEnvironment(pid int, name string) (string, error) {
+	if pid <= 0 {
+		return "", ErrProcessGone
+	}
+	data, err := unix.SysctlRaw("kern.procargs2", pid)
+	if err != nil {
+		return "", err
+	}
+	return procargsEnvironment(data, name)
+}
+
+// procargsEnvironment reads one variable from a kern.procargs2 buffer.
+func procargsEnvironment(data []byte, name string) (string, error) {
+	unreadable := errors.New("process arguments unreadable")
+	if len(data) < 4 {
+		return "", unreadable
+	}
+	argc := int(binary.NativeEndian.Uint32(data))
+	rest := data[4:]
+	end := bytes.IndexByte(rest, 0)
+	if end < 0 {
+		return "", unreadable
+	}
+	rest = rest[end:]
+	for len(rest) > 0 && rest[0] == 0 {
+		rest = rest[1:]
+	}
+	for ; argc > 0; argc-- {
+		if end = bytes.IndexByte(rest, 0); end < 0 {
+			return "", unreadable
+		}
+		rest = rest[end+1:]
+	}
+	for len(rest) > 0 {
+		entry := rest
+		if end = bytes.IndexByte(rest, 0); end >= 0 {
+			entry, rest = rest[:end], rest[end+1:]
+		} else {
+			rest = nil
+		}
+		if len(entry) == 0 {
+			break
+		}
+		if value, ok := strings.CutPrefix(string(entry), name+"="); ok {
+			return value, nil
+		}
+	}
+	return "", nil
+}
+
+// ProcessGroups reports the process group, controlling terminal and that terminal's
+// foreground process group of every process, from one kern.proc.all sysctl read without cgo:
+// e_pgid, e_tdev and e_tpgid of each kinfo_proc. A process without a terminal (NODEV) has
+// Terminal 0.
+func ProcessGroups() (map[int]ProcessGroup, error) {
+	procs, err := unix.SysctlKinfoProcSlice("kern.proc.all")
+	if err != nil {
+		return nil, err
+	}
+	groups := make(map[int]ProcessGroup, len(procs))
+	for _, p := range procs {
+		pid := int(p.Proc.P_pid)
+		if pid <= 0 {
+			continue
+		}
+		terminal := int(p.Eproc.Tdev)
+		if terminal == -1 {
+			terminal = 0
+		}
+		groups[pid] = ProcessGroup{Group: int(p.Eproc.Pgid), Terminal: terminal, Foreground: int(p.Eproc.Tpgid)}
+	}
+	if len(groups) == 0 {
+		return nil, errors.New("process table unreadable")
+	}
+	return groups, nil
+}
+
+// ProcessStartTime reports when a process started, on the wall clock: ProcessStart is
+// p_starttime in microseconds since the epoch.
+func ProcessStartTime(pid int) (time.Time, error) {
+	start, err := ProcessStart(pid)
+	if err != nil {
+		return time.Time{}, err
+	}
+	return time.UnixMicro(start), nil
 }

@@ -3,6 +3,7 @@ package core
 import (
 	"context"
 	"database/sql"
+	"database/sql/driver"
 	"encoding/binary"
 	"encoding/json"
 	"errors"
@@ -13,16 +14,32 @@ import (
 	"os/exec"
 	"path/filepath"
 	"regexp"
+	"runtime"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/rwcii/koinon/internal/platform"
-	_ "modernc.org/sqlite"
+	"modernc.org/sqlite"
 )
 
 var ErrInvalid = errors.New("invalid request")
 var ErrMissing = errors.New("session not found")
 var ErrConflict = errors.New("session revision or lifecycle conflict")
+var ErrRepositoryGitUnavailable = errors.New("repository discovery cannot execute Git")
+var ErrRepositoryGitTimeout = errors.New("repository discovery Git command timed out")
+
+// SessionConflict is ErrConflict for a renewal of a session that is no longer active, with
+// its state (expired or retired) and whether a holder change fenced it, so that a client can
+// tell an expiry during an outage from a retirement or a fence (#283), whatever revision the
+// renewal named.
+type SessionConflict struct {
+	State  string
+	Fenced bool
+}
+
+func (e SessionConflict) Error() string        { return ErrConflict.Error() + ": the session is " + e.State }
+func (e SessionConflict) Is(target error) bool { return target == ErrConflict }
 
 type Session struct {
 	Family       string          `json:"family"`
@@ -34,10 +51,38 @@ type Session struct {
 	RenewedAt    int64           `json:"renewed_at"`
 	ExpiresAt    int64           `json:"expires_at"`
 	RetiredAt    int64           `json:"retired_at"`
-	Revision     int64           `json:"revision"`
-	State        string          `json:"state"`
-	Name         string          `json:"name"`
-	Alias        string          `json:"alias,omitempty"`
+	// PurgeAt is the time of the maintainer's purge mark (#216), or 0.
+	PurgeAt  int64  `json:"purge_at,omitempty"`
+	Revision int64  `json:"revision"`
+	State    string `json:"state"`
+	Name     string `json:"name"`
+	// Alias is the participant address that the session holds while it is active.
+	Alias string `json:"alias,omitempty"`
+	// Subagent marks a Codex sub-agent thread, which never holds an alias.
+	Subagent bool `json:"subagent,omitempty"`
+	// Role, from the session's launch, selects its participant: its family, repository
+	// and role. Address is that participant's address, held or not; HoldsAddress says
+	// whether this session holds it. Conflict lists the qualifying sessions' peer names
+	// while the participant has no holder because more than one qualifies.
+	Role         string   `json:"role,omitempty"`
+	Address      string   `json:"address,omitempty"`
+	HoldsAddress bool     `json:"holds_address,omitempty"`
+	Conflict     []string `json:"conflict,omitempty"`
+	// Fenced says that the session was replaced as its participant's holder: it registers
+	// with its peer name only and never takes the participant again unless the maintainer
+	// chooses it (chunk 03).
+	Fenced bool `json:"fenced,omitempty"`
+	// Succession is the session's last succession result (chunk 04).
+	Succession *Succession `json:"succession,omitempty"`
+	// HostHolder says that another active session of this session's host process holds a
+	// participant address, such as the current thread of a Codex host after /clear. That
+	// session names the host's terminal. Only registration and renewal replies set it.
+	HostHolder bool `json:"host_holder,omitempty"`
+	// Liveness is the evidence that keeps the session while its agent runs: "host" for a
+	// launched session with a host record, or "none". HostVerifiedAt is when the daemon
+	// last read that host as running, in daemon Unix milliseconds (#249).
+	Liveness       string `json:"liveness,omitempty"`
+	HostVerifiedAt int64  `json:"host_verified_at,omitempty"`
 }
 
 type Registration struct {
@@ -48,6 +93,18 @@ type Registration struct {
 	WakeTarget json.RawMessage `json:"wake_target,omitempty"`
 	TTLSeconds int64           `json:"ttl_seconds"`
 	LaunchID   string          `json:"launch_id,omitempty"`
+	// Ancestors are the caller's process and its ancestors, nearest first; a foreground
+	// launch admits the caller only when its host process is among them.
+	Ancestors []int `json:"ancestors,omitempty"`
+	Subagent  bool  `json:"subagent,omitempty"`
+	// Tmux is the tmux socket and pane that hold the session's host process, when koinon
+	// mcp found them. ToolCall says that the session's own tool call caused this
+	// registration; only such a registration can take the participant from its holder.
+	Tmux     *TmuxPane `json:"tmux,omitempty"`
+	ToolCall bool      `json:"tool_call,omitempty"`
+	// Clear says that the Codex host's SessionStart hook reported this thread as the one it
+	// shows after /clear, at the thread's first turn (#275). It needs ToolCall.
+	Clear bool `json:"clear,omitempty"`
 }
 
 type Mutation struct {
@@ -58,18 +115,72 @@ type Mutation struct {
 }
 
 type Store struct {
-	db      *sql.DB
-	now     func() time.Time
-	storage storage
-	memory  memoryState
-	work    workState
+	db *sql.DB
+	// root is the state directory; the decision deep archive writes its log files there.
+	root      string
+	decisions decisionState
+	now       func() time.Time
+	storage   storage
+	memory    memoryState
+	work      workState
 	// observed and openCode hold session observations, memory-only (sprint chunk 08).
 	observed observations
 	openCode openCodeCache
 	wake     wakeState
+	// retention holds the last retention sweep's results (#216).
+	retention retentionState
+	// calls holds each session's last tool call; processStart reads a host process's start
+	// time (chunk 04).
+	calls          toolCalls
+	processStart   func(int) (int64, error)
+	processParents func() (map[int]int, error)
+	processCommand func(int) (string, []string, error)
+	// processEnvironment reads one variable of a host process (a Claude host's config root).
+	processEnvironment func(pid int, name string) (string, error)
+	// tmux runs one command on the tmux server at a socket (the Grok wake, #254).
+	tmux func(ctx context.Context, socket string, args ...string) (string, error)
+	// processGroups reads each process's group and terminal; codexPane enables the Codex
+	// pane wake, on Linux and macOS (#275).
+	processGroups func() (map[int]platform.ProcessGroup, error)
+	codexPane     bool
+	// processStartTime reads when a process started on the wall clock: a Codex host's MCP
+	// servers (#275).
+	processStartTime func(int) (time.Time, error)
+	// alive holds when the liveness sweep last read each session's host as running (#249).
+	alive liveness
+	// settings holds the session timing values in force (#249).
+	settings settingsState
+	library  libraryState
+	// contextPolicy holds the family context policy in force (#196); latches remembers
+	// selected crossings per native epoch.
+	contextPolicy contextPolicyState
+	latches       contextLatches
 }
 
 func openStore(root string) (*Store, error) { return openStoreFile(root, "state.sqlite3") }
+
+// orderedConnector runs its pragmas in their listed order on each new connection of the
+// registered driver. The driver's _pragma parameter sorts its values, which runs
+// journal_mode and auto_vacuum before locking_mode: an existing database then gets a
+// shared-memory file (#355).
+type orderedConnector struct {
+	driver.Connector
+	pragmas []string
+}
+
+func (c orderedConnector) Connect(ctx context.Context) (driver.Conn, error) {
+	conn, err := c.Connector.Connect(ctx)
+	if err != nil {
+		return nil, err
+	}
+	for _, pragma := range c.pragmas {
+		if _, err := conn.(driver.ExecerContext).ExecContext(ctx, "PRAGMA "+pragma, nil); err != nil {
+			conn.Close()
+			return nil, err
+		}
+	}
+	return conn, nil
+}
 
 // openStoreFile opens the state database file name in root; an import stages its
 // database under another name and renames it into place (sprint chunk 11).
@@ -94,20 +205,17 @@ func openStoreFile(root, name string) (*Store, error) {
 			return nil, err
 		}
 	}
-	u := url.URL{Scheme: "file", Path: path}
-	q := url.Values{}
 	// Exclusive locking keeps the log index in process memory, so no shared-memory file
-	// exists; page size and incremental auto-vacuum must precede the first table.
-	for _, pragma := range []string{"locking_mode(EXCLUSIVE)", "page_size(4096)", "auto_vacuum(INCREMENTAL)",
-		"busy_timeout(5000)", "journal_mode(WAL)", "synchronous(FULL)", "cache_spill(0)", "temp_store(MEMORY)",
-		fmt.Sprintf("max_page_count(%d)", defaultMaxPages)} {
-		q.Add("_pragma", pragma)
-	}
-	u.RawQuery = q.Encode()
-	db, err := sql.Open("sqlite", u.String())
+	// exists, also when an existing database opens again; page size and incremental
+	// auto-vacuum must precede the first table.
+	connector, err := sqlite.NewConnector((&url.URL{Scheme: "file", Path: path}).String())
 	if err != nil {
 		return nil, err
 	}
+	db := sql.OpenDB(orderedConnector{Connector: connector, pragmas: []string{
+		"locking_mode(EXCLUSIVE)", "page_size(4096)", "auto_vacuum(INCREMENTAL)", "busy_timeout(5000)",
+		"journal_mode(WAL)", "synchronous(FULL)", "cache_spill(0)", "temp_store(MEMORY)",
+		fmt.Sprintf("max_page_count(%d)", defaultMaxPages)}})
 	db.SetMaxOpenConns(1)
 	var version int
 	if err := db.QueryRow("PRAGMA user_version").Scan(&version); err != nil {
@@ -127,6 +235,14 @@ func openStoreFile(root, name string) (*Store, error) {
 		db.Close()
 		return nil, err
 	}
+	if version < schemaVersion {
+		// A table rebuild frees the old table's pages; return them before the first
+		// write, so the page count that every ceiling reads holds only live pages.
+		if _, err := db.Exec("PRAGMA incremental_vacuum"); err != nil {
+			db.Close()
+			return nil, err
+		}
+	}
 	if err := checkCatalog(db, schemaVersion); err != nil {
 		db.Close()
 		return nil, err
@@ -143,7 +259,23 @@ func openStoreFile(root, name string) (*Store, error) {
 		db.Close()
 		return nil, err
 	}
-	return &Store{db: db, now: time.Now, storage: storage{path: path, maxPages: defaultMaxPages}}, nil
+	s := &Store{db: db, root: root, now: time.Now, storage: storage{path: path, maxPages: defaultMaxPages}, processStart: platform.ProcessStart,
+		processParents: platform.ProcessParents, processCommand: platform.ProcessCommand,
+		processEnvironment: platform.ProcessEnvironment, tmux: runTmux,
+		processGroups: platform.ProcessGroups,
+		codexPane:     runtime.GOOS == "linux" || runtime.GOOS == "darwin", processStartTime: platform.ProcessStartTime}
+	// The Claude pickup loader that a running session can add before its clear (#196, chunk 03).
+	// A failure is not fatal: the adapter's Probe then reports the loader as unreadable.
+	EnsureCycleLoader(root)
+	if err := s.loadContextPolicy(context.Background()); err != nil {
+		db.Close()
+		return nil, err
+	}
+	if err := s.loadSettings(context.Background()); err != nil {
+		db.Close()
+		return nil, err
+	}
+	return s, nil
 }
 
 // configure reads back every setting the storage bound depends on. A database created
@@ -199,7 +331,45 @@ func checkFormat(db *sql.DB, path string) error {
 	return nil
 }
 
-const schemaVersion = 8
+const schemaVersion = 26
+
+// workItemsV16Columns are the work item columns before schema 17, which its rebuild copies.
+const workItemsV16Columns = `store,work_id,revision,lifecycle,title,criteria,non_goals,proposed_assignee,created_at,created_consumer,
+	first_start_revision,scope_revision,progress_epoch,last_progress_at,progress_deadline,progress,checkpoint,next_artifact,blocker,
+	last_writer,last_generation,last_lease_expires,lease_expired,outcome,reason,references_json,finished_at,expires_at,latest_seq,proposed_role`
+
+// workItemsTable is the schema 17 work item table. A reported item holds the 0/1 credit
+// that funds its verdict (docs/WORK-ITEMS-GO-STORAGE.md); report_actor is the reporting
+// native session's digest.
+const workItemsTable = `CREATE TABLE work_items (store TEXT NOT NULL, work_id TEXT NOT NULL CHECK (length(work_id)=32),
+	revision INTEGER NOT NULL CHECK (revision>0),
+	lifecycle TEXT NOT NULL CHECK (lifecycle IN ('open','active','blocked','reported','finished')),
+	verdict_credit INTEGER NOT NULL DEFAULT 0 CHECK (verdict_credit IN (0,1)),
+	report_seq INTEGER, verdict_seq INTEGER, verdict TEXT CHECK (verdict IN ('accepted','rejected')),
+	report_consumer TEXT NOT NULL DEFAULT '', report_actor TEXT NOT NULL DEFAULT '',
+	title TEXT NOT NULL, criteria TEXT NOT NULL, non_goals TEXT NOT NULL, proposed_assignee TEXT,
+	created_at REAL NOT NULL, created_consumer TEXT NOT NULL, first_start_revision INTEGER,
+	scope_revision INTEGER NOT NULL CHECK (scope_revision>0),
+	progress_epoch INTEGER NOT NULL DEFAULT 0 CHECK (progress_epoch>=0), last_progress_at REAL,
+	progress_deadline REAL, progress TEXT NOT NULL DEFAULT '', checkpoint TEXT NOT NULL DEFAULT '',
+	next_artifact TEXT NOT NULL DEFAULT '', blocker TEXT NOT NULL DEFAULT '', last_writer TEXT,
+	last_generation INTEGER, last_lease_expires REAL,
+	lease_expired INTEGER NOT NULL DEFAULT 0 CHECK (lease_expired IN (0,1)),
+	outcome TEXT CHECK (outcome IN ('completed','withdrawn')), reason TEXT NOT NULL DEFAULT '',
+	references_json TEXT NOT NULL DEFAULT '[]', finished_at REAL, expires_at REAL,
+	latest_seq INTEGER NOT NULL CHECK (latest_seq>0), proposed_role TEXT NOT NULL DEFAULT '',
+	CHECK ((lifecycle='finished' AND outcome IS NOT NULL AND finished_at IS NOT NULL AND expires_at IS NOT NULL)
+		OR (lifecycle<>'finished' AND outcome IS NULL AND finished_at IS NULL AND expires_at IS NULL)),
+	CHECK ((lifecycle='reported') = (verdict_credit=1)),
+	CHECK (lifecycle<>'reported' OR report_seq IS NOT NULL),
+	PRIMARY KEY (store, work_id))`
+
+// workEventsTable is the schema 17 work event table, with the report and verdict kinds.
+const workEventsTable = `CREATE TABLE work_events (store TEXT NOT NULL, seq INTEGER NOT NULL CHECK (seq>0), work_id TEXT NOT NULL,
+	revision INTEGER NOT NULL CHECK (revision>0),
+	kind TEXT NOT NULL CHECK (kind IN ('created','proposed','edited','started','updated','released',
+		'finished','progress-overdue','lease-expired','reported','accepted','rejected')),
+	payload TEXT NOT NULL, actor TEXT NOT NULL DEFAULT '', PRIMARY KEY (store, seq))`
 
 // migrate brings the state schema from version to target in one transaction, so a crash
 // leaves either the old or the new schema. Each step starts from the version before it.
@@ -268,7 +438,7 @@ func migrate(db *sql.DB, version, target int) error {
 		}
 		now := time.Now().UnixMilli()
 		for _, k := range existing {
-			if err := assignNames(context.Background(), tx, now, k.family, k.id, k.repository, k.directory); err != nil {
+			if err := assignNamesSchema2(context.Background(), tx, now, k.family, k.id, k.repository, k.directory); err != nil {
 				return err
 			}
 		}
@@ -402,6 +572,248 @@ func migrate(db *sql.DB, version, target int) error {
 			return err
 		}
 	}
+	if version < 9 && target >= 9 {
+		// Version 9: retention (#216). The sweep's acknowledgement mark: every message of a
+		// session with a sequence at or below ack_mark was acknowledged by ack_mark_at, which
+		// is 0 while no mark waits. purge_at is the time of the maintainer's purge mark, or 0.
+		if _, err := tx.Exec(`ALTER TABLE sessions ADD COLUMN ack_mark INTEGER NOT NULL DEFAULT 0;
+			ALTER TABLE sessions ADD COLUMN ack_mark_at INTEGER NOT NULL DEFAULT 0;
+			ALTER TABLE sessions ADD COLUMN purge_at INTEGER NOT NULL DEFAULT 0;`); err != nil {
+			return err
+		}
+	}
+	if version < 10 && target >= 10 {
+		// Version 10: a Codex sub-agent thread registers as its own session but never
+		// holds an alias (participants sprint, chunk 01).
+		if _, err := tx.Exec(`ALTER TABLE sessions ADD COLUMN subagent INTEGER NOT NULL DEFAULT 0;`); err != nil {
+			return err
+		}
+	}
+	if version < 11 && target >= 11 {
+		// Version 11: participants (participants sprint, chunk 02). A participant is a family,
+		// repository and role; its address is an alias row with that role. The alias rows of
+		// version 10 become participants without a role, with their names and holders. A
+		// participant without an active holder and with more than one qualifier records the
+		// qualifiers' peer names as its conflict. participant_events records each change.
+		if _, err := tx.Exec(`ALTER TABLE sessions ADD COLUMN role TEXT NOT NULL DEFAULT '';
+			ALTER TABLE names ADD COLUMN role TEXT NOT NULL DEFAULT '';
+			ALTER TABLE names ADD COLUMN conflict TEXT NOT NULL DEFAULT '';
+			DROP INDEX names_alias;
+			CREATE UNIQUE INDEX names_participant ON names(family, repository, role) WHERE kind='alias';
+			CREATE TABLE participant_events (
+				id INTEGER PRIMARY KEY AUTOINCREMENT, at INTEGER NOT NULL, address TEXT NOT NULL,
+				former TEXT NOT NULL, holder TEXT NOT NULL, reason TEXT NOT NULL,
+				actor TEXT NOT NULL CHECK (actor IN ('session','maintainer','daemon')),
+				details TEXT NOT NULL DEFAULT ''
+			);
+			CREATE INDEX participant_events_at ON participant_events(at);
+			CREATE INDEX participant_events_address ON participant_events(address, id);`); err != nil {
+			return err
+		}
+	}
+	if version < 12 && target >= 12 {
+		// Version 12: participant state and fencing (participants sprint, chunk 03). A
+		// participant's inbox is an internal session row participant:<address> that never
+		// expires; acked_by names the native session (FAMILY:ID) that acknowledged it last.
+		// A fence keeps a former holder from acting for, or taking, the participant again
+		// until the maintainer chooses it.
+		if _, err := tx.Exec(`ALTER TABLE sessions ADD COLUMN acked_by TEXT NOT NULL DEFAULT '';
+			ALTER TABLE memory_cursors ADD COLUMN actor TEXT NOT NULL DEFAULT '';
+			ALTER TABLE work_events ADD COLUMN actor TEXT NOT NULL DEFAULT '';
+			CREATE TABLE participant_fences (
+				address TEXT NOT NULL, family TEXT NOT NULL, session_id TEXT NOT NULL,
+				at INTEGER NOT NULL, reason TEXT NOT NULL, PRIMARY KEY (address, family, session_id)
+			);`); err != nil {
+			return err
+		}
+	}
+	if version < 13 && target >= 13 {
+		// Version 13: succession (participants sprint, chunk 04). The host record of each
+		// session: its host process ID and start time, and the tmux socket and pane when the
+		// pane holds the host. succession is the session's last succession result (JSON).
+		if _, err := tx.Exec(`ALTER TABLE sessions ADD COLUMN host_pid INTEGER NOT NULL DEFAULT 0;
+			ALTER TABLE sessions ADD COLUMN host_start INTEGER NOT NULL DEFAULT 0;
+			ALTER TABLE sessions ADD COLUMN tmux_socket TEXT NOT NULL DEFAULT '';
+			ALTER TABLE sessions ADD COLUMN tmux_pane TEXT NOT NULL DEFAULT '';
+			ALTER TABLE sessions ADD COLUMN succession TEXT NOT NULL DEFAULT '';`); err != nil {
+			return err
+		}
+	}
+	if version < 14 && target >= 14 {
+		// Version 14: the session timing settings that the maintainer sets in the dashboard
+		// (#249). A setting without a row has its default.
+		if _, err := tx.Exec(`CREATE TABLE settings (
+			name TEXT PRIMARY KEY, value INTEGER NOT NULL, updated_at INTEGER NOT NULL
+		);`); err != nil {
+			return err
+		}
+	}
+	if version < 15 && target >= 15 {
+		// Version 15: handled wakes (#250). read_through is the highest sequence that an
+		// inbox call returned; wake_notices counts the notices that may have reached the
+		// agent; ack_session and ack_via name the session and the operation that
+		// acknowledged a message.
+		if _, err := tx.Exec(`ALTER TABLE sessions ADD COLUMN read_through INTEGER NOT NULL DEFAULT 0;
+			ALTER TABLE messages ADD COLUMN wake_notices INTEGER NOT NULL DEFAULT 0;
+			ALTER TABLE messages ADD COLUMN ack_session TEXT NOT NULL DEFAULT '';
+			ALTER TABLE messages ADD COLUMN ack_via TEXT NOT NULL DEFAULT '';`); err != nil {
+			return err
+		}
+	}
+	if version < 16 && target >= 16 {
+		// Role proposals route through participants; new role claims and their replay
+		// records bind the native actor. Existing claims keep their empty legacy binding.
+		if _, err := tx.Exec(`ALTER TABLE work_items ADD COLUMN proposed_role TEXT NOT NULL DEFAULT '';
+			ALTER TABLE claim_bundles ADD COLUMN native_actor TEXT NOT NULL DEFAULT '';
+			ALTER TABLE work_replays ADD COLUMN native_actor TEXT NOT NULL DEFAULT '';
+			UPDATE claim_bundles SET native_actor='';`); err != nil {
+			return err
+		}
+		// Materialize the added column on retained bundles now. A later funded
+		// flag-only update must not grow an old row's record header on first use.
+	}
+	if version < 17 && target >= 17 {
+		// Version 17: reported results and funded verdicts (#140 chunk 02). SQLite cannot
+		// widen a CHECK in place, so the two work tables are rebuilt under their own names
+		// with the same index; every row is copied unchanged. The verdict credit and the
+		// report pointers come first in the row, so the debt scan reads no overflow page.
+		if _, err := tx.Exec(`ALTER TABLE work_items RENAME TO work_items_v16;
+			` + workItemsTable + `;
+			INSERT INTO work_items(` + workItemsV16Columns + `) SELECT ` + workItemsV16Columns + ` FROM work_items_v16;
+			DROP TABLE work_items_v16;
+			ALTER TABLE work_events RENAME TO work_events_v16;
+			DROP INDEX work_events_item;
+			` + workEventsTable + `;
+			INSERT INTO work_events(store,seq,work_id,revision,kind,payload,actor)
+				SELECT store,seq,work_id,revision,kind,payload,actor FROM work_events_v16;
+			DROP TABLE work_events_v16;
+			CREATE INDEX work_events_item ON work_events(store, work_id, seq);`); err != nil {
+			return err
+		}
+	}
+	if version < 18 && target >= 18 {
+		if _, err := tx.Exec(`CREATE TABLE work_audiences (
+			store TEXT NOT NULL, audience TEXT NOT NULL CHECK(length(audience)=64),
+			data TEXT NOT NULL, head INTEGER NOT NULL CHECK(head>0),
+			notice_head INTEGER NOT NULL DEFAULT 0, message_id INTEGER,
+			reason TEXT NOT NULL DEFAULT '', PRIMARY KEY(store,audience))`); err != nil {
+			return err
+		}
+	}
+	if version < 19 && target >= 19 {
+		// Version 19: dashboard rooms and membership (#217, chunk 01). A member is a
+		// participant inbox key or an exact native session; removed rows stay for awareness.
+		// refill, allowance, post_head and start_seq are kept for room posts (chunk 02).
+		// create_key and create_refill are the create form's request, which a later refill
+		// change does not alter, so a repeated create compares with what it first sent.
+		// Membership notices carry typed room metadata on their message.
+		if _, err := tx.Exec(`CREATE TABLE rooms (
+			room_id TEXT PRIMARY KEY CHECK (length(room_id)=32),
+			name TEXT NOT NULL CHECK (length(CAST(name AS BLOB)) BETWEEN 1 AND 128),
+			revision INTEGER NOT NULL CHECK (revision>0),
+			refill INTEGER NOT NULL CHECK (refill>=0),
+			allowance INTEGER NOT NULL DEFAULT 0 CHECK (allowance>=0),
+			post_head INTEGER NOT NULL DEFAULT 0 CHECK (post_head>=0),
+			created_at INTEGER NOT NULL,
+			create_key TEXT NOT NULL UNIQUE CHECK (length(create_key) BETWEEN 1 AND 64),
+			create_refill INTEGER NOT NULL CHECK (create_refill>=0));
+		CREATE TABLE room_members (
+			room_id TEXT NOT NULL, ordinal INTEGER NOT NULL CHECK (ordinal>0),
+			family TEXT NOT NULL, member_id TEXT NOT NULL, label TEXT NOT NULL,
+			active INTEGER NOT NULL CHECK (active IN (0,1)),
+			revision INTEGER NOT NULL CHECK (revision>0),
+			start_seq INTEGER NOT NULL DEFAULT 0 CHECK (start_seq>=0),
+			changed_at INTEGER NOT NULL,
+			PRIMARY KEY (room_id, ordinal), UNIQUE (room_id, family, member_id));
+		CREATE INDEX room_members_member ON room_members(family, member_id);
+		ALTER TABLE messages ADD COLUMN room_id TEXT NOT NULL DEFAULT '';
+		ALTER TABLE messages ADD COLUMN room_revision INTEGER NOT NULL DEFAULT 0;
+		ALTER TABLE messages ADD COLUMN room_event TEXT NOT NULL DEFAULT '';`); err != nil {
+			return err
+		}
+	}
+	if version < 20 && target >= 20 {
+		// Version 20: room posts (#217, chunk 02). One canonical post per room sequence, one
+		// delivery row per member in the post's roster snapshot (queued with its inbox copy,
+		// or skipped with a reason), and the posters' retry records. A post's inbox copies
+		// carry its room sequence and typed origin.
+		if _, err := tx.Exec(`CREATE TABLE room_posts (
+			post_id INTEGER PRIMARY KEY AUTOINCREMENT,
+			room_id TEXT NOT NULL, seq INTEGER NOT NULL CHECK (seq>0),
+			sender_family TEXT NOT NULL, sender_id TEXT NOT NULL, sender_name TEXT NOT NULL,
+			origin TEXT NOT NULL CHECK (origin IN ('maintainer','member')),
+			body TEXT NOT NULL, created_at INTEGER NOT NULL,
+			UNIQUE (room_id, seq));
+		CREATE TABLE room_deliveries (
+			post_id INTEGER NOT NULL, ordinal INTEGER NOT NULL, family TEXT NOT NULL,
+			member_id TEXT NOT NULL, label TEXT NOT NULL,
+			outcome TEXT NOT NULL CHECK (outcome IN ('queued','skipped')),
+			reason TEXT NOT NULL DEFAULT '', message_id INTEGER,
+			PRIMARY KEY (post_id, ordinal));
+		CREATE TABLE room_replays (
+			family TEXT NOT NULL, caller_id TEXT NOT NULL, key TEXT NOT NULL,
+			fingerprint TEXT NOT NULL, deadline REAL NOT NULL, result TEXT NOT NULL,
+			PRIMARY KEY (family, caller_id, key));
+		ALTER TABLE messages ADD COLUMN room_seq INTEGER NOT NULL DEFAULT 0;
+		ALTER TABLE messages ADD COLUMN room_origin TEXT NOT NULL DEFAULT '';`); err != nil {
+			return err
+		}
+	}
+	if version < 21 && target >= 21 {
+		if _, err := tx.Exec(`ALTER TABLE memory_stores ADD COLUMN library_floor INTEGER NOT NULL DEFAULT 0 CHECK(library_floor>=0)`); err != nil {
+			return err
+		}
+		if _, err := tx.Exec(machineDecisionsTable); err != nil {
+			return err
+		}
+	}
+	if version < 22 && target >= 22 {
+		// Version 22: each session's context-cycle Enable switch (#196, chunk 01), with the
+		// session revision, participant address, host and tmux pane it was set for.
+		if _, err := tx.Exec(`CREATE TABLE context_enables (
+			family TEXT NOT NULL, session_id TEXT NOT NULL, enabled INTEGER NOT NULL CHECK (enabled IN (0,1)),
+			revision INTEGER NOT NULL CHECK (revision>0), session_revision INTEGER NOT NULL,
+			address TEXT NOT NULL, host_pid INTEGER NOT NULL, host_start INTEGER NOT NULL,
+			tmux_socket TEXT NOT NULL, tmux_pane TEXT NOT NULL, updated_at INTEGER NOT NULL,
+			PRIMARY KEY (family, session_id));`); err != nil {
+			return err
+		}
+	}
+	if version < 23 && target >= 23 {
+		// Version 23: managed context cycles (#196, chunk 02), their bounded event history,
+		// and the typed overwatch request metadata of a message. A cycle's credit is the page
+		// count that funds its remaining stages and terminal outcome
+		// (docs/CONTEXT-CYCLE-STORAGE.md).
+		if _, err := tx.Exec(contextCyclesTableV23 + contextCycleEventsTable + `
+			ALTER TABLE messages ADD COLUMN system_kind TEXT NOT NULL DEFAULT '';
+			ALTER TABLE messages ADD COLUMN cycle_id TEXT NOT NULL DEFAULT '';
+			ALTER TABLE messages ADD COLUMN cycle_enable_revision INTEGER NOT NULL DEFAULT 0;`); err != nil {
+			return err
+		}
+	}
+	if version < 24 && target >= 24 {
+		// Version 24: the interactive pickup bootstrap states (#196, chunk 03). SQLite cannot
+		// widen a CHECK in place, so the cycle table is rebuilt under its own name; every row
+		// is copied unchanged.
+		if _, err := tx.Exec(`ALTER TABLE context_cycles RENAME TO context_cycles_v23;
+			` + contextCyclesTable + `
+			INSERT INTO context_cycles(` + cycleColumns + `) SELECT ` + cycleColumns + ` FROM context_cycles_v23;
+			DROP TABLE context_cycles_v23;`); err != nil {
+			return err
+		}
+	}
+	if version < 25 && target >= 25 {
+		// Version 25: decision items, their recipients and create replays (#206, chunk 01).
+		if _, err := tx.Exec(decisionTables); err != nil {
+			return err
+		}
+	}
+	if version < 26 && target >= 26 {
+		// Version 26: decision verdicts, deliveries, close and deep archive (#206, chunk 02).
+		if _, err := tx.Exec(decisionVerdictTables); err != nil {
+			return err
+		}
+	}
 	if _, err := tx.Exec(fmt.Sprintf("PRAGMA user_version=%d", target)); err != nil {
 		return err
 	}
@@ -435,16 +847,7 @@ func catalog(db *sql.DB) ([]string, error) {
 // creates for version: an extra index or trigger would break the storage proof, whose
 // claim controls assume the published tables and indexes and nothing else.
 func checkCatalog(db *sql.DB, version int) error {
-	reference, err := sql.Open("sqlite", "file::memory:")
-	if err != nil {
-		return err
-	}
-	defer reference.Close()
-	reference.SetMaxOpenConns(1)
-	if err := migrate(reference, 0, version); err != nil {
-		return err
-	}
-	want, err := catalog(reference)
+	want, err := referenceCatalog(version)
 	if err != nil {
 		return err
 	}
@@ -458,22 +861,56 @@ func checkCatalog(db *sql.DB, version int) error {
 	return nil
 }
 
+// referenceCatalogs holds the schema objects of each version, migrated once from nothing in
+// memory. The migrations are fixed in the binary, so a version's catalog never changes.
+var referenceCatalogs sync.Map
+
+func referenceCatalog(version int) ([]string, error) {
+	if want, ok := referenceCatalogs.Load(version); ok {
+		return want.([]string), nil
+	}
+	reference, err := sql.Open("sqlite", "file::memory:")
+	if err != nil {
+		return nil, err
+	}
+	defer reference.Close()
+	reference.SetMaxOpenConns(1)
+	if err := migrate(reference, 0, version); err != nil {
+		return nil, err
+	}
+	want, err := catalog(reference)
+	if err != nil {
+		return nil, err
+	}
+	referenceCatalogs.Store(version, want)
+	return want, nil
+}
+
 // maintainerKey is the built-in session of the maintainer (sprint chunk 09). Only the
 // dashboard acts as it; validKey refuses it, so no /v1/ caller can.
 var maintainerKey = Key{Family: "maintainer", ID: "maintainer"}
 
 func validKey(family, id string) bool {
-	switch family {
-	case "claude", "codex", "deepseek", "agy", "opencode":
-	default:
+	supported := false
+	for _, candidate := range SupportedFamilies() {
+		if family == candidate {
+			supported = true
+			break
+		}
+	}
+	if !supported {
 		return false
 	}
-	return id != "" && len(id) <= 256 && !strings.ContainsAny(id, "\x00\r\n")
+	// A participant's internal inbox row has the ID participant:<address>; no native
+	// session can take that form.
+	return id != "" && len(id) <= 256 && !strings.ContainsAny(id, "\x00\r\n") && !strings.HasPrefix(id, participantPrefix)
 }
 
-func ttl(seconds int64) (int64, error) {
+// ttl is a registration's lifetime in milliseconds: the requested seconds, or the
+// lifetime setting when it names none.
+func (s *Store) ttl(seconds int64) (int64, error) {
 	if seconds == 0 {
-		seconds = 900
+		seconds = s.Settings().LifetimeSeconds
 	}
 	if seconds < 60 || seconds > 3600 {
 		return 0, ErrInvalid
@@ -491,6 +928,14 @@ func repository(ctx context.Context, path string) (string, error) {
 	cmd.Env = CleanGitEnvironment()
 	data, err := cmd.Output()
 	if err != nil {
+		if errors.Is(ctx.Err(), context.DeadlineExceeded) {
+			return "", ErrRepositoryGitTimeout
+		}
+		var lookup *exec.Error
+		var execution *os.PathError
+		if errors.As(err, &lookup) || errors.As(err, &execution) {
+			return "", ErrRepositoryGitUnavailable
+		}
 		return "", ErrInvalid
 	}
 	common, err := filepath.EvalSymlinks(strings.TrimSpace(string(data)))
@@ -515,10 +960,10 @@ func CleanGitEnvironment() []string {
 func (s *Store) Register(ctx context.Context, r Registration) (Session, error) {
 	s.wake.mu.Lock()
 	defer s.wake.mu.Unlock()
-	if !validKey(r.Family, r.ID) || len(r.WakeTarget) > 8192 {
+	if !validKey(r.Family, r.ID) || len(r.WakeTarget) > 8192 || !r.Tmux.valid() || r.Clear && (!r.ToolCall || r.Family != "codex") {
 		return Session{}, ErrInvalid
 	}
-	duration, err := ttl(r.TTLSeconds)
+	duration, err := s.ttl(r.TTLSeconds)
 	if err != nil {
 		return Session{}, err
 	}
@@ -539,7 +984,10 @@ func (s *Store) Register(ctx context.Context, r Registration) (Session, error) {
 			return Session{}, err
 		}
 		dirCommon, err := repository(ctx, directory)
-		if err != nil || common != dirCommon {
+		if err != nil {
+			return Session{}, err
+		}
+		if common != dirCommon {
 			return Session{}, ErrInvalid
 		}
 	}
@@ -555,49 +1003,102 @@ func (s *Store) Register(ctx context.Context, r Registration) (Session, error) {
 		return Session{}, err
 	}
 	defer tx.Rollback()
-	if r.LaunchID != "" {
-		if len(r.WakeTarget) != 0 && string(r.WakeTarget) != "{}" {
+	// A native family without a launch registers as a plain peer. A matching launch also
+	// gives the session its role and participant; DeepSeek keeps command registration (#199).
+	role := ""
+	if r.Family == "deepseek" {
+		if r.LaunchID != "" || r.Subagent {
 			return Session{}, ErrInvalid
 		}
-		r.WakeTarget, err = launchTarget(ctx, tx.Tx, r.LaunchID, r.Family, directory)
-		if err != nil {
-			return Session{}, err
-		}
+	} else if r.WakeTarget, role, err = admitLaunch(ctx, tx.Tx, r, directory); err != nil {
+		return Session{}, err
 	}
-	_, err = tx.ExecContext(ctx, `INSERT INTO sessions(`+sessionColumns+`) VALUES (?,?,?,?,?,?,?,?,0,1)
+	// Whether the session was active before this registration decides whether a holding
+	// recorded for it still stands.
+	var wasActive bool
+	err = tx.QueryRowContext(ctx, `SELECT retired_at=0 AND expires_at>? FROM sessions WHERE family=? AND id=?`, now, r.Family, r.ID).Scan(&wasActive)
+	if err != nil && !errors.Is(err, sql.ErrNoRows) {
+		return Session{}, err
+	}
+	if r.ToolCall {
+		s.ToolCall(Key{r.Family, r.ID})
+	}
+	// Plain peers and DeepSeek have no launch host record.
+	h := host{}
+	if r.LaunchID != "" {
+		h = s.recordHost(hostPID(r.WakeTarget), r.Tmux)
+	}
+	_, err = tx.ExecContext(ctx, `INSERT INTO sessions(`+sessionColumns+`) VALUES (?,?,?,?,?,?,?,?,0,1,?,?,?,?,?,?)
 		ON CONFLICT(family,id) DO UPDATE SET repository=excluded.repository,
 		directory=excluded.directory,wake_target=excluded.wake_target,renewed_at=excluded.renewed_at,
-		expires_at=excluded.expires_at,retired_at=0,revision=sessions.revision+1`,
-		r.Family, r.ID, common, directory, string(r.WakeTarget), now, now, now+duration)
+		expires_at=excluded.expires_at,retired_at=0,revision=sessions.revision+1,subagent=MAX(sessions.subagent,excluded.subagent),
+		role=excluded.role,host_pid=excluded.host_pid,host_start=excluded.host_start,tmux_socket=excluded.tmux_socket,
+		tmux_pane=excluded.tmux_pane`,
+		r.Family, r.ID, common, directory, string(r.WakeTarget), now, now, now+duration, r.Subagent, role, h.pid, h.start, h.socket, h.pane)
 	if err != nil {
 		return Session{}, tx.fail(err)
 	}
-	if err := assignNames(ctx, tx.Tx, now, r.Family, r.ID, common, directory); err != nil {
+	// A thread stays a sub-agent once it is known to be one.
+	var subagent bool
+	if err := tx.QueryRowContext(ctx, `SELECT subagent FROM sessions WHERE family=? AND id=?`, r.Family, r.ID).Scan(&subagent); err != nil {
 		return Session{}, tx.fail(err)
+	}
+	if err := assignNames(ctx, tx.Tx, now, participant{r.Family, r.ID, common, directory, role, subagent, wasActive}); err != nil {
+		return Session{}, tx.fail(err)
+	}
+	// Only the session's own tool call can take the participant from an active holder; the
+	// renewal timer never registers.
+	if r.ToolCall && (r.Family == "deepseek" || r.LaunchID != "") {
+		succession, err := s.succeed(ctx, tx.Tx, now, Key{r.Family, r.ID}, common, role, subagent, r.Clear)
+		if err != nil {
+			return Session{}, tx.fail(err)
+		}
+		if succession != nil {
+			data, err := json.Marshal(succession)
+			if err != nil {
+				return Session{}, err
+			}
+			if _, err := tx.ExecContext(ctx, `UPDATE sessions SET succession=? WHERE family=? AND id=?`, string(data), r.Family, r.ID); err != nil {
+				return Session{}, tx.fail(err)
+			}
+		}
+	} else if r.LaunchID == "" && r.Family != "deepseek" {
+		if _, err := tx.ExecContext(ctx, `UPDATE sessions SET succession='' WHERE family=? AND id=?`, r.Family, r.ID); err != nil {
+			return Session{}, tx.fail(err)
+		}
 	}
 	result, err := scanSession(tx.QueryRowContext(ctx, sessionQuery+` WHERE s.family=? AND s.id=?`, r.Family, r.ID), now)
 	if err != nil {
 		return Session{}, err
 	}
+	if result.HostHolder, err = hostHolder(ctx, tx.Tx, now, Key{r.Family, r.ID}); err != nil {
+		return Session{}, err
+	}
 	return result, tx.Commit()
 }
 
-const sessionColumns = `family,id,repository,directory,wake_target,registered_at,renewed_at,expires_at,retired_at,revision`
+const sessionColumns = `family,id,repository,directory,wake_target,registered_at,renewed_at,expires_at,retired_at,revision,subagent,role,
+	host_pid,host_start,tmux_socket,tmux_pane`
 
-// sessionQuery reads a session with its peer name and the alias it is recorded to hold;
-// scanSession shows the alias only while the session is active.
+// sessionQuery reads a session with its peer name and its participant: the address, its
+// recorded holder and conflict. scanSession shows the address as held only while the
+// session is active. A sub-agent or a session without a repository has no participant.
 const sessionQuery = `SELECT s.family,s.id,s.repository,s.directory,s.wake_target,s.registered_at,s.renewed_at,
-	s.expires_at,s.retired_at,s.revision,
+	s.expires_at,s.retired_at,s.purge_at,s.revision,s.subagent,s.role,
 	COALESCE((SELECT name FROM names WHERE kind='peer' AND family=s.family AND session_id=s.id),''),
-	COALESCE((SELECT name FROM names WHERE kind='alias' AND family=s.family AND repository=s.repository
-		AND s.repository!='' AND holder_id=s.id),'') FROM sessions s`
+	COALESCE(p.name,''),COALESCE(p.holder_id,''),COALESCE(p.conflict,''),
+	EXISTS (SELECT 1 FROM participant_fences f WHERE f.address=p.name AND f.family=s.family AND f.session_id=s.id),s.succession,
+	s.host_pid>0 AND s.host_start>0 AND s.subagent=0 FROM sessions s
+	LEFT JOIN names p ON p.kind='alias' AND p.family=s.family AND p.repository=s.repository AND p.role=s.role
+		AND s.repository!='' AND s.subagent=0 AND ` + participantQualifier
 
 type scanner interface{ Scan(...any) error }
 
 func scanSession(row scanner, now int64) (Session, error) {
 	var result Session
-	var target string
-	err := row.Scan(&result.Family, &result.ID, &result.Repository, &result.Directory, &target, &result.RegisteredAt, &result.RenewedAt, &result.ExpiresAt, &result.RetiredAt, &result.Revision, &result.Name, &result.Alias)
+	var target, holder, conflict, succession string
+	var evidence bool
+	err := row.Scan(&result.Family, &result.ID, &result.Repository, &result.Directory, &target, &result.RegisteredAt, &result.RenewedAt, &result.ExpiresAt, &result.RetiredAt, &result.PurgeAt, &result.Revision, &result.Subagent, &result.Role, &result.Name, &result.Address, &holder, &conflict, &result.Fenced, &succession, &evidence)
 	if errors.Is(err, sql.ErrNoRows) {
 		return result, ErrMissing
 	}
@@ -605,6 +1106,10 @@ func scanSession(row scanner, now int64) (Session, error) {
 		return result, err
 	}
 	result.WakeTarget = json.RawMessage(target)
+	result.Liveness = "none"
+	if evidence && launched(result) {
+		result.Liveness = "host"
+	}
 	result.State = "active"
 	if result.ExpiresAt <= now {
 		result.State = "expired"
@@ -612,8 +1117,19 @@ func scanSession(row scanner, now int64) (Session, error) {
 	if result.RetiredAt != 0 {
 		result.State = "retired"
 	}
-	if result.State != "active" {
-		result.Alias = ""
+	if result.State == "active" && result.Address != "" && holder == result.ID {
+		result.Alias, result.HoldsAddress = result.Address, true
+	}
+	if conflict != "" {
+		if err := json.Unmarshal([]byte(conflict), &result.Conflict); err != nil {
+			return result, err
+		}
+	}
+	if succession != "" {
+		result.Succession = &Succession{}
+		if err := json.Unmarshal([]byte(succession), result.Succession); err != nil {
+			return result, err
+		}
 	}
 	return result, nil
 }
@@ -624,7 +1140,7 @@ func (s *Store) Mutate(ctx context.Context, r Mutation, retire bool) (Session, e
 	if !validKey(r.Family, r.ID) || r.IfRevision < 1 {
 		return Session{}, ErrInvalid
 	}
-	duration, err := ttl(r.TTLSeconds)
+	duration, err := s.ttl(r.TTLSeconds)
 	if err != nil {
 		return Session{}, err
 	}
@@ -640,16 +1156,35 @@ func (s *Store) Mutate(ctx context.Context, r Mutation, retire bool) (Session, e
 	if err != nil {
 		return Session{}, err
 	}
+	if current.State != "active" && !retire {
+		// Also with a stale revision: a renewal whose reply was lost leaves the client one
+		// revision behind, and the session must still be recognized as expired.
+		return Session{}, SessionConflict{State: current.State, Fenced: current.Fenced}
+	}
 	if current.Revision != r.IfRevision || current.State != "active" {
 		return Session{}, ErrConflict
 	}
 	if retire {
 		_, err = tx.ExecContext(ctx, `UPDATE sessions SET retired_at=?,revision=revision+1 WHERE family=? AND id=?`, now, r.Family, r.ID)
+		if err == nil {
+			// A retired requester or successor ends its managed cycle (#196).
+			err = s.fenceCyclesTx(ctx, tx, "retired", `family=? AND (session_id=? OR successor_id=?)`, r.Family, r.ID, r.ID)
+		}
 	} else {
+		if current.Family != "deepseek" && !launched(current) {
+			// Retained pre-launch records become plain peers without losing their inbox,
+			// cursors, claims or any persistent participant fence.
+			_, err = tx.ExecContext(ctx, `UPDATE sessions SET role='',host_pid=0,host_start=0,tmux_socket='',tmux_pane='',succession=''
+				WHERE family=? AND id=?`, r.Family, r.ID)
+			if err != nil {
+				return Session{}, tx.fail(err)
+			}
+			current.Role = ""
+		}
 		_, err = tx.ExecContext(ctx, `UPDATE sessions SET renewed_at=?,expires_at=?,revision=revision+1 WHERE family=? AND id=?`, now, now+duration, r.Family, r.ID)
 		if err == nil {
 			// A renewal takes the repository's alias when its holder expired or retired.
-			err = assignNames(ctx, tx.Tx, now, r.Family, r.ID, current.Repository, current.Directory)
+			err = assignNames(ctx, tx.Tx, now, participant{r.Family, r.ID, current.Repository, current.Directory, current.Role, current.Subagent, true})
 		}
 	}
 	if err != nil {
@@ -659,12 +1194,17 @@ func (s *Store) Mutate(ctx context.Context, r Mutation, retire bool) (Session, e
 	if err != nil {
 		return Session{}, err
 	}
+	if !retire {
+		if result.HostHolder, err = hostHolder(ctx, tx.Tx, now, Key{r.Family, r.ID}); err != nil {
+			return Session{}, err
+		}
+	}
 	return result, tx.Commit()
 }
 
 func (s *Store) List(ctx context.Context) ([]Session, bool, error) {
 	// The built-in maintainer session is not an agent session; Peers adds it.
-	rows, err := s.db.QueryContext(ctx, sessionQuery+` WHERE s.family!='maintainer' ORDER BY s.family,s.id LIMIT 1001`)
+	rows, err := s.db.QueryContext(ctx, sessionQuery+` WHERE s.family!='maintainer' AND `+notParticipantRow+` ORDER BY s.family,s.id LIMIT 1001`)
 	if err != nil {
 		return nil, false, err
 	}
@@ -676,6 +1216,7 @@ func (s *Store) List(ctx context.Context) ([]Session, bool, error) {
 		if err != nil {
 			return nil, false, err
 		}
+		s.annotate(&r)
 		result = append(result, r)
 	}
 	if err := rows.Err(); err != nil {
@@ -691,7 +1232,7 @@ func (s *Store) List(ctx context.Context) ([]Session, bool, error) {
 func (s *Store) Counts(ctx context.Context) (map[string]int64, error) {
 	counts := map[string]int64{"total": 0, "active": 0, "expired": 0, "retired": 0}
 	rows, err := s.db.QueryContext(ctx, `SELECT CASE WHEN retired_at!=0 THEN 'retired'
-		WHEN expires_at<=? THEN 'expired' ELSE 'active' END,COUNT(*) FROM sessions WHERE family!='maintainer' GROUP BY 1`, s.now().UnixMilli())
+		WHEN expires_at<=? THEN 'expired' ELSE 'active' END,COUNT(*) FROM sessions s WHERE family!='maintainer' AND `+notParticipantRow+` GROUP BY 1`, s.now().UnixMilli())
 	if err != nil {
 		return nil, err
 	}

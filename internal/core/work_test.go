@@ -817,7 +817,7 @@ func mustDebt(t *testing.T, s *Store) int64 {
 func TestWorkDebtPreservedByEveryWriter(t *testing.T) {
 	s, _, m := workStore(t)
 	repo := testRepo(t)
-	r := registration(repo, "codex")
+	r := registration(t, s, repo, "codex")
 	if _, err := s.Register(context.Background(), r); err != nil {
 		t.Fatal(err)
 	}
@@ -826,10 +826,11 @@ func TestWorkDebtPreservedByEveryWriter(t *testing.T) {
 	if debt := mustDebt(t, s); debt != overdueCreditPages+endCreditPages {
 		t.Fatalf("debt: %d", debt)
 	}
+	claude := registration(t, s, repo, "claude")
 	pages := count(t, s, `PRAGMA page_count`)
 	// Leave exactly no ordinary room once the debt is kept free.
 	s.storage.maxPages = pages + reservePages + commitSlack + appendAllowance + mustDebt(t, s) - 1
-	if _, err := s.Register(context.Background(), registration(repo, "claude")); code(err) != "capacity" {
+	if _, err := s.Register(context.Background(), claude); code(err) != "capacity" {
 		t.Fatalf("session write took the debt: %v", err)
 	}
 	if _, err := s.MemoryRecord(context.Background(), m, MemoryRecordRequest{Type: "finding", Body: "x"}); code(err) != "capacity" {
@@ -842,7 +843,7 @@ func TestWorkDebtPreservedByEveryWriter(t *testing.T) {
 	if debt := mustDebt(t, s); debt != 0 {
 		t.Fatalf("release did not spend its credit: %d", debt)
 	}
-	if _, err := s.Register(context.Background(), registration(repo, "claude")); err != nil {
+	if _, err := s.Register(context.Background(), claude); err != nil {
 		t.Fatalf("freed debt not available: %v", err)
 	}
 }
@@ -969,7 +970,7 @@ func TestWorkSchemaFormatHeaderAndMigration(t *testing.T) {
 	m := MemoryCaller{Repository: "/synthetic/repo/.git", Family: "codex", Name: "codex-repo-01", Consumer: "c"}
 	seq := note(t, s, m, MemoryRecordRequest{Type: "decision", Body: "kept across migration"})
 	// Schema 4: the memory runtime without work tables or counters.
-	if _, err := s.db.Exec(undoSchemaEight + undoSchemaSeven + `DROP INDEX messages_wake; ALTER TABLE messages DROP COLUMN wake_attempts; ALTER TABLE messages DROP COLUMN wake_next_at; ALTER TABLE messages DROP COLUMN wake_reason; DROP TABLE work_items; DROP TABLE work_scope_revisions; DROP TABLE claim_bundles; DROP TABLE claim_resources;
+	if _, err := fixtureExec(s, undoSchemaTwentySix+undoSchemaTwentyFive+undoSchemaTwentyFour+undoSchemaTwentyThree+undoSchemaTwentyTwo+undoSchemaTwentyOne+undoSchemaTwenty+undoSchemaNineteen+undoSchemaEighteen+undoSchemaSeventeen+undoSchemaSixteen+undoSchemaFifteen+undoSchemaFourteen+undoSchemaThirteen+undoSchemaTwelve+undoSchemaEleven+undoSchemaTen+undoSchemaNine+undoSchemaEight+undoSchemaSeven+`DROP INDEX messages_wake; ALTER TABLE messages DROP COLUMN wake_attempts; ALTER TABLE messages DROP COLUMN wake_next_at; ALTER TABLE messages DROP COLUMN wake_reason; DROP TABLE work_items; DROP TABLE work_scope_revisions; DROP TABLE claim_bundles; DROP TABLE claim_resources;
 		DROP TABLE work_events; DROP TABLE work_replays; ALTER TABLE memory_stores DROP COLUMN work_counter;
 		ALTER TABLE memory_stores DROP COLUMN claim_counter; PRAGMA user_version=4`); err != nil {
 		t.Fatal(err)
@@ -1022,7 +1023,7 @@ func TestWorkEpochMismatchIsCorruption(t *testing.T) {
 	s, _, m := workStore(t)
 	id := create(t, s, m, "epoch")
 	generation := mustStart(t, s, m, id, nil)
-	s.db.Exec(`UPDATE claim_bundles SET progress_epoch=progress_epoch+5`)
+	fixtureExec(s, `UPDATE claim_bundles SET progress_epoch=progress_epoch+5`)
 	if _, err := update(s, m, id, revision(t, s, m, id), generation, nil); wcode(err) != "incompatible_store" {
 		t.Fatalf("epoch mismatch: %v", err)
 	}
@@ -1090,13 +1091,14 @@ func TestWorkAPIConsumerAndRefusalDetails(t *testing.T) {
 	}
 	address := d.Addresses()[0]
 	repo := testRepo(t)
-	a, b := registration(repo, "codex"), registration(repo, "claude")
+	a, b := registration(t, d.store, repo, "codex"), registration(t, d.store, repo, "claude")
 	for _, r := range []Registration{a, b} {
 		if _, err := d.store.Register(context.Background(), r); err != nil {
 			t.Fatal(err)
 		}
 	}
 	callerA, callerB := Key{a.Family, a.ID}, Key{b.Family, b.ID}
+	consumerA := participantKey(sessionState(t, d.store, callerA).Address)
 	deadline := float64(time.Now().Unix() + 600)
 	status, created := post(t, address, secret, "/v1/work/work-create", map[string]any{"caller": callerA, "title": "api", "criteria": "c",
 		"non_goals": "n", "key": "k", "deadline": deadline})
@@ -1113,11 +1115,11 @@ func TestWorkAPIConsumerAndRefusalDetails(t *testing.T) {
 	}
 	status, refused := post(t, address, secret, "/v1/work/work-start", startBody(callerB, 2))
 	details, _ := refused["details"].(map[string]any)
-	if status != 409 || refused["code"] != "claim_conflict" || details["consumer"] != a.Family+":"+a.ID {
+	if status != 409 || refused["code"] != "claim_conflict" || details["consumer"] != consumerA {
 		t.Fatalf("conflict: %d %v", status, refused)
 	}
 	if status, result := post(t, address, secret, "/v1/work/work-get", map[string]any{"caller": callerB, "work_id": id, "consumer": "stable"}); status != 200 ||
-		result["result"].(map[string]any)["current_claim"].(map[string]any)["consumer"] != a.Family+":"+a.ID {
+		result["result"].(map[string]any)["current_claim"].(map[string]any)["consumer"] != consumerA {
 		t.Fatalf("get: %d %v", status, result)
 	}
 	if status, _ := post(t, address, secret, "/v1/work/work-get", map[string]any{"caller": callerB, "work_id": id, "consumer": nil}); status != 400 {
@@ -1215,12 +1217,13 @@ func TestWorkQueuedRenewalCannotReviveExpiredLease(t *testing.T) {
 func TestWorkCatalogRefusesExtraObjects(t *testing.T) {
 	for name, statement := range map[string]string{
 		"index":   `CREATE INDEX unexpected_credit_index ON claim_bundles(active,overdue_credit,end_credit)`,
+		"verdict": `CREATE INDEX unexpected_verdict_index ON work_items(verdict_credit)`,
 		"trigger": `CREATE TRIGGER unexpected_claim_trigger AFTER UPDATE OF active ON claim_bundles BEGIN SELECT RAISE(ABORT,'x'); END`,
 		"view":    `CREATE VIEW unexpected_view AS SELECT 1`,
 	} {
 		t.Run(name, func(t *testing.T) {
 			s, root := testStore(t)
-			if _, err := s.db.Exec(statement); err != nil {
+			if _, err := fixtureExec(s, statement); err != nil {
 				t.Fatal(err)
 			}
 			s.db.Close()
@@ -1234,7 +1237,7 @@ func TestWorkCatalogRefusesExtraObjects(t *testing.T) {
 	}
 	// An extra object in an older schema is refused before its migration.
 	s, root := testStore(t)
-	if _, err := s.db.Exec(undoSchemaEight + undoSchemaSeven + `DROP INDEX messages_wake; ALTER TABLE messages DROP COLUMN wake_attempts; ALTER TABLE messages DROP COLUMN wake_next_at; ALTER TABLE messages DROP COLUMN wake_reason; DROP TABLE work_items; DROP TABLE work_scope_revisions; DROP TABLE claim_bundles; DROP TABLE claim_resources;
+	if _, err := fixtureExec(s, undoSchemaTwentySix+undoSchemaTwentyFive+undoSchemaTwentyFour+undoSchemaTwentyThree+undoSchemaTwentyTwo+undoSchemaTwentyOne+undoSchemaTwenty+undoSchemaNineteen+undoSchemaEighteen+undoSchemaSeventeen+undoSchemaSixteen+undoSchemaFifteen+undoSchemaFourteen+undoSchemaThirteen+undoSchemaTwelve+undoSchemaEleven+undoSchemaTen+undoSchemaNine+undoSchemaEight+undoSchemaSeven+`DROP INDEX messages_wake; ALTER TABLE messages DROP COLUMN wake_attempts; ALTER TABLE messages DROP COLUMN wake_next_at; ALTER TABLE messages DROP COLUMN wake_reason; DROP TABLE work_items; DROP TABLE work_scope_revisions; DROP TABLE claim_bundles; DROP TABLE claim_resources;
 		DROP TABLE work_events; DROP TABLE work_replays; ALTER TABLE memory_stores DROP COLUMN work_counter;
 		ALTER TABLE memory_stores DROP COLUMN claim_counter; CREATE INDEX unexpected ON memory_stores(head); PRAGMA user_version=4`); err != nil {
 		t.Fatal(err)

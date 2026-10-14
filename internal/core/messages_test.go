@@ -46,7 +46,7 @@ func join(t *testing.T, s *Store, family, id, repo string) Session {
 	if repo == "" {
 		r.Directory = t.TempDir()
 	}
-	got, err := s.Register(context.Background(), r)
+	got, err := s.Register(context.Background(), withLaunch(t, s, r))
 	if err != nil {
 		t.Fatalf("register %s:%s: %v", family, id, err)
 	}
@@ -116,7 +116,7 @@ func TestLabelsAndPeerNames(t *testing.T) {
 	// All 256 two-hex names taken: the next name uses four hex digits.
 	other := namedRepo(t, "busy")
 	for i := range 256 {
-		if _, err := s.db.Exec(`INSERT INTO names(name,kind,family,session_id) VALUES (?,'peer','codex',?)`, fmt.Sprintf("codex-busy-%02x", i), fmt.Sprint("filler-", i)); err != nil {
+		if _, err := fixtureExec(s, `INSERT INTO names(name,kind,family,session_id) VALUES (?,'peer','codex',?)`, fmt.Sprintf("codex-busy-%02x", i), fmt.Sprint("filler-", i)); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -150,7 +150,7 @@ func TestAliasUniquenessAcrossRepositories(t *testing.T) {
 		t.Fatal(err)
 	}
 	digest := fmt.Sprintf("%x", sha256Sum(common))
-	if _, err := s.db.Exec(`INSERT INTO names(name,kind,family,session_id) VALUES (?,'peer','codex','filler')`, "codex-koinon-"+digest[:4]); err != nil {
+	if _, err := fixtureExec(s, `INSERT INTO names(name,kind,family,session_id) VALUES (?,'peer','codex','filler')`, "codex-koinon-"+digest[:4]); err != nil {
 		t.Fatal(err)
 	}
 	if got := join(t, s, "codex", "synthetic-six", c); got.Alias != "codex-koinon-"+digest[:6] {
@@ -168,7 +168,9 @@ func TestAliasUniquenessAcrossRepositories(t *testing.T) {
 	}
 }
 
-func TestAliasHolderMoves(t *testing.T) {
+// A participant's address resolves to its holder; a retired, expired or moved holder
+// frees it, and the one remaining qualifier takes it (participants chunk 02 rules).
+func TestAddressFollowsTheOneQualifier(t *testing.T) {
 	s, _ := testStore(t)
 	repo := namedRepo(t, "koinon")
 	clock := time.Unix(1000, 0)
@@ -180,7 +182,8 @@ func TestAliasHolderMoves(t *testing.T) {
 		t.Fatalf("one holder: %+v %+v", a, b)
 	}
 	me := Key{"claude", "synthetic-sender"}
-	if out, err := s.Send(context.Background(), me, "codex-koinon", "to holder"); err != nil || out.Recipient != a.Name {
+	// A send to an address reaches the participant's inbox (chunk 03).
+	if out, err := s.Send(context.Background(), me, "codex-koinon", "to holder"); err != nil || out.Recipient != "codex-koinon" {
 		t.Fatalf("alias send: %+v %v", out, err)
 	}
 	if _, err := s.Mutate(context.Background(), Mutation{Family: "codex", ID: "synthetic-a", IfRevision: a.Revision}, true); err != nil {
@@ -189,27 +192,27 @@ func TestAliasHolderMoves(t *testing.T) {
 	if _, err := s.Send(context.Background(), me, "codex-koinon", "unheld"); !errors.Is(err, ErrAliasUnheld) {
 		t.Fatalf("retired holder: %v", err)
 	}
-	// The next renewal of the same family and repository takes the free alias.
+	// B is the one active qualifier, so its next renewal takes the free address.
 	b, err := s.Mutate(context.Background(), Mutation{Family: "codex", ID: "synthetic-b", IfRevision: b.Revision}, false)
 	if err != nil || b.Alias != "codex-koinon" {
 		t.Fatalf("renewal takes alias: %+v %v", b, err)
 	}
-	if out, err := s.Send(context.Background(), me, "codex-koinon", "to new holder"); err != nil || out.Recipient != b.Name {
+	if out, err := s.Send(context.Background(), me, "codex-koinon", "to new holder"); err != nil || out.Recipient != "codex-koinon" {
 		t.Fatalf("moved alias: %+v %v", out, err)
 	}
-	// An expired holder frees the alias for the next registration. The renewal above
-	// took the default lease of 900 seconds.
+	// B's lease of 900 seconds ends. A was replaced as holder, so it is fenced: it registers
+	// again with its peer name only (chunk 03).
 	clock = clock.Add(901 * time.Second)
 	if _, err := s.Mutate(context.Background(), Mutation{Family: "claude", ID: "synthetic-sender", IfRevision: sender.Revision}, false); !errors.Is(err, ErrConflict) {
 		t.Fatalf("expired sender renewed: %v", err)
 	}
-	if again := join(t, s, "codex", "synthetic-a", repo); again.Alias != "codex-koinon" {
-		t.Fatalf("expired holder: %+v", again)
+	if again := join(t, s, "codex", "synthetic-a", repo); again.Alias != "" || !again.Fenced {
+		t.Fatalf("fenced former holder: %+v", again)
 	}
-	// A holder that moves to another repository no longer holds the old alias.
+	// A holder that moves to another repository no longer holds the old address.
 	moved := Registration{Family: "codex", ID: "synthetic-a", Repository: namedRepo(t, "other"), TTLSeconds: 60}
 	moved.Directory = moved.Repository
-	if _, err := s.Register(context.Background(), moved); err != nil {
+	if _, err := s.Register(context.Background(), withLaunch(t, s, moved)); err != nil {
 		t.Fatal(err)
 	}
 	if b := join(t, s, "codex", "synthetic-b", repo); b.Alias != "codex-koinon" {
@@ -223,9 +226,9 @@ func TestConcurrentRegistrationLeavesOneAliasHolder(t *testing.T) {
 	var wg sync.WaitGroup
 	for i := range 20 {
 		wg.Add(1)
+		r := withLaunch(t, s, Registration{Family: "codex", ID: fmt.Sprint("synthetic-", i), Repository: repo, Directory: repo, TTLSeconds: 60})
 		go func() {
 			defer wg.Done()
-			r := Registration{Family: "codex", ID: fmt.Sprint("synthetic-", i), Repository: repo, Directory: repo, TTLSeconds: 60}
 			if _, err := s.Register(context.Background(), r); err != nil {
 				t.Error(err)
 			}
@@ -259,9 +262,10 @@ func TestMessagesBetweenEveryFamilyPair(t *testing.T) {
 	}
 	address := d.Addresses()[0]
 	repo := namedRepo(t, "koinon")
-	names := map[string]string{}
+	names, addresses := map[string]string{}, map[string]string{}
 	for _, family := range families {
-		names[family] = join(t, d.store, family, "synthetic-"+family, repo).Name
+		session := join(t, d.store, family, "synthetic-"+family, repo)
+		names[family], addresses[family] = session.Name, session.Alias
 	}
 	for _, from := range families {
 		for _, to := range families {
@@ -284,7 +288,9 @@ func TestMessagesBetweenEveryFamilyPair(t *testing.T) {
 					t.Fatalf("read: %d %v", status, read)
 				}
 				m := got[0].(map[string]any)
-				if m["body"] != body || m["sender_name"] != names[from] || m["sender_family"] != from || m["seq"] != seq || m["acknowledged"] != false || m["delivery_state"] != "waiting" {
+				// Each sender holds its family's address, so it sends as that participant.
+				if m["body"] != body || m["sender_name"] != addresses[from] || m["sender_family"] != from || m["seq"] != seq || m["acknowledged"] != false ||
+					m["delivery_state"] != "waiting" || m["inbox"] != "session" {
 					t.Fatalf("stored: %v", m)
 				}
 				if status, acked := post(t, address, secret, "/v1/inbox/ack", map[string]any{"caller": recipient, "through": seq}); status != 200 || acked["acked_through"] != seq {
@@ -302,12 +308,13 @@ func TestMessagesBetweenEveryFamilyPair(t *testing.T) {
 	if status != 200 || len(listing["peers"].([]any)) != len(families)+1 {
 		t.Fatalf("peers: %d %v", status, listing)
 	}
-	// Peers see names, aliases, families, states and repositories, never another
-	// session's wake target, directory or key.
+	// Peers see names, aliases, families, states, repositories, participants, liveness
+	// evidence and the true-only mark of their own row, never another session's wake target,
+	// directory, host process or key.
 	for _, p := range listing["peers"].([]any) {
 		for field := range p.(map[string]any) {
 			switch field {
-			case "name", "alias", "family", "state", "repository":
+			case "name", "alias", "family", "state", "repository", "subagent", "role", "address", "holds_address", "liveness", "host_verified_at", "self":
 			default:
 				t.Fatalf("peer field %q: %v", field, p)
 			}
@@ -367,6 +374,9 @@ func TestMessageErrorsAndIsolation(t *testing.T) {
 		t.Fatal(err)
 	}
 	expect("/v1/messages/send", map[string]any{"caller": ka, "to": c.Name, "body": "x"}, 409, "recipient_inactive")
+	if _, refused := post(t, address, secret, "/v1/messages/send", map[string]any{"caller": ka, "to": c.Name, "body": "x"}); refused["details"].(map[string]any)["reason"] != "retired" {
+		t.Fatalf("recipient_inactive reason: %v", refused)
+	}
 	expect("/v1/messages/send", map[string]any{"caller": ka, "to": "deepseek-koinon", "body": "x"}, 409, "alias_unheld")
 	expect("/v1/inbox/read", map[string]any{"caller": kc}, 403, "caller_inactive")
 	if _, err := d.store.Mutate(context.Background(), Mutation{Family: "codex", ID: "synthetic-a", IfRevision: a.Revision}, true); err != nil {
@@ -466,8 +476,14 @@ func TestSchemaOneMigration(t *testing.T) {
 		t.Fatalf("migrated: %+v %v", items, err)
 	}
 	byID := map[string]Session{items[0].ID: items[0], items[1].ID: items[1]}
-	if old, now := byID["synthetic-old"], byID["synthetic-new"]; old.Name == "" || old.Alias != "" || old.Revision != 3 || now.Alias != "codex-koinon" {
+	if old, now := byID["synthetic-old"], byID["synthetic-new"]; old.Name == "" || old.Alias != "" || old.Revision != 3 || now.Name == "" || now.Address != "" || now.Alias != "" || now.State != "active" || now.Revision != 1 {
 		t.Fatalf("names after migration: %+v %+v", old, now)
+	}
+	// Migration keeps the historical name reservation; an unlaunched native row does not
+	// expose it as an active participant and will release it on renewal.
+	var holder string
+	if err := s.db.QueryRow(`SELECT holder_id FROM names WHERE name='codex-koinon' AND kind='alias'`).Scan(&holder); err != nil || holder != "synthetic-new" {
+		t.Fatalf("stored name reservation: %q %v", holder, err)
 	}
 	var version int
 	if err := s.db.QueryRow("PRAGMA user_version").Scan(&version); err != nil || version != schemaVersion {
@@ -518,7 +534,7 @@ func TestMessagesSurviveCrash(t *testing.T) {
 	}
 	var recipient string
 	for _, id := range []string{"synthetic-a", "synthetic-b"} {
-		status, result := post(t, address, secret, "/v1/sessions/register", Registration{Family: "codex", ID: id, Directory: t.TempDir(), TTLSeconds: 600})
+		status, result := post(t, address, secret, "/v1/sessions/register", httpLaunch(t, address, secret, Registration{Family: "codex", ID: id, Directory: t.TempDir(), TTLSeconds: 600}))
 		if status != 200 {
 			t.Fatal(result)
 		}

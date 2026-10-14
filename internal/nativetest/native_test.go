@@ -4,8 +4,9 @@
 // host's real user service manager: systemd on Ubuntu, launchd on macOS (sprint chunk
 // 11, workflow native-go-lifecycle.yml). It changes the account's services, so it runs
 // only on a disposable CI runner, with KOINON_NATIVE_JOB=1 and `go test -tags native`.
-// The upgrade starts from the pinned main release, taken by `git archive` from history
-// (never from this checkout's Python code), and from the committed fixture trees.
+// The upgrades start from the pinned Python main release and the current Go main release
+// (v0.1.0), taken by `git archive` from history (never from this checkout's Python code),
+// and from the committed fixture trees.
 package nativetest
 
 import (
@@ -17,6 +18,7 @@ import (
 	"fmt"
 	"io"
 	"io/fs"
+	"net"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -29,11 +31,15 @@ import (
 
 	"github.com/rwcii/koinon/internal/core"
 	"github.com/rwcii/koinon/internal/legacy"
+	"github.com/rwcii/koinon/internal/library"
 	"github.com/rwcii/koinon/internal/platform"
 )
 
-// baseline is the main release that the upgrade starts from.
+// baseline is the Python main release that the upgrade from Python starts from.
 const baseline = "3d60c73c88f3110ca4bc91a9a0cc7e16f7daf827"
+
+// goRelease is the current main release, v0.1.0, that a Go upgrade starts from.
+const goRelease = "d146fbe4aad822d799de7bf18f6df43e007494a3"
 
 var binary string
 
@@ -59,7 +65,13 @@ func TestMain(m *testing.M) {
 
 func koinon(t *testing.T, args ...string) (map[string]any, error) {
 	t.Helper()
-	cmd := exec.Command(binary, args...)
+	return koinonAt(t, binary, args...)
+}
+
+// koinonAt runs one command of the koinon executable at path.
+func koinonAt(t *testing.T, path string, args ...string) (map[string]any, error) {
+	t.Helper()
+	cmd := exec.Command(path, args...)
 	var stdout, stderr bytes.Buffer
 	cmd.Stdout, cmd.Stderr = &stdout, &stderr
 	err := cmd.Run()
@@ -204,20 +216,60 @@ func installWithoutPython(t *testing.T, prefix, state string) map[string]any {
 	return report
 }
 
+// installedCatalog verifies that install/upgrade ships the complete embedded catalog in
+// one executable and applies no recommendation beside it. Runs only in guarded CI.
+func installedCatalog(t *testing.T, prefix string) {
+	t.Helper()
+	expected, err := library.Embedded("dev")
+	if err != nil {
+		t.Fatal(err)
+	}
+	cmd := exec.Command(filepath.Join(prefix, "bin", "koinon"), "version")
+	cmd.Dir = t.TempDir()
+	out, err := cmd.Output()
+	if err != nil {
+		t.Fatal(err)
+	}
+	var version map[string]string
+	if err := json.Unmarshal(out, &version); err != nil || version["catalog_digest"] != expected.Digest {
+		t.Fatalf("installed catalog without checkout: %v %s", err, out)
+	}
+	for _, relative := range []string{"agents/skills", ".koinon/skills", ".claude/skills", ".codex/skills", ".agents/skills", ".opencode/commands"} {
+		if _, err := os.Lstat(filepath.Join(prefix, relative)); !os.IsNotExist(err) {
+			t.Fatalf("install/upgrade applied catalog item %s: %v", relative, err)
+		}
+	}
+}
+
 // TestGoLifecycle installs, starts, kills, uninstalls and reinstalls the daemon; the
 // state survives the uninstall.
 func TestGoLifecycle(t *testing.T) {
 	dir := tempDir(t)
 	prefix, state := filepath.Join(dir, "prefix space"), filepath.Join(dir, "state")
 	report := installWithoutPython(t, prefix, state)
+	installedCatalog(t, prefix)
 	if report["service"] != "running" {
 		t.Fatalf("install %v", report)
 	}
 	defer koinon(t, "uninstall", "--prefix", prefix, "--state-dir", state)
 	repo := filepath.Join(dir, "repo")
 	gitRepo(t, repo)
-	must(t, "register", "--as", "deepseek:native-lifecycle", "--repository", repo, "--directory", repo, "--dsh-url", "http://127.0.0.1:9",
-		"--dsh-credentials", filepath.Join(dir, "none"), "--state-dir", state)
+	if _, err := koinon(t, "register", "--as", "deepseek:native-lifecycle", "--repository", repo, "--directory", repo, "--dsh-url", "http://127.0.0.1:9",
+		"--dsh-credentials", filepath.Join(dir, "none"), "--state-dir", state); err != nil {
+		// Runner evidence is distinct from the daemon's own PATH and timeout category.
+		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		started := time.Now()
+		cmd := exec.CommandContext(ctx, "git", "-C", repo, "rev-parse", "--git-common-dir")
+		cmd.Env = core.CleanGitEnvironment()
+		_, gitErr := cmd.Output()
+		elapsed := time.Since(started)
+		cancel()
+		_, lookupErr := exec.LookPath("git")
+		_, statusErr := koinon(t, "status", "--state-dir", state)
+		t.Logf("runner Git available=%t discovery_success=%t elapsed=%s daemon_status_success=%t",
+			lookupErr == nil, gitErr == nil, elapsed, statusErr == nil)
+		t.Fatal(err)
+	}
 	before := daemonPID(t)
 	if before == 0 {
 		t.Fatal("no daemon process under the manager")
@@ -229,6 +281,7 @@ func TestGoLifecycle(t *testing.T) {
 		pid := daemonPID(t)
 		return pid != 0 && pid != before && status(state)
 	})
+	lifecycleLogAndLockWait(t, state)
 	must(t, "uninstall", "--prefix", prefix, "--state-dir", state)
 	if _, err := os.Stat(services(t).DaemonArtifact()); !os.IsNotExist(err) {
 		t.Fatalf("artifact left after uninstall: %v", err)
@@ -253,12 +306,45 @@ func TestGoLifecycle(t *testing.T) {
 	}
 }
 
-// extract writes the pinned main release from Git history into dir.
+// lifecycleLogAndLockWait checks the service arguments of #283 on the real manager: the
+// artifact passes --lock-wait, a second daemon waits and then exits with status 0, and the
+// launchd agent's log file holds a start line.
+func lifecycleLogAndLockWait(t *testing.T, state string) {
+	t.Helper()
+	s := services(t)
+	artifact, err := os.ReadFile(s.DaemonArtifact())
+	if err != nil || !bytes.Contains(artifact, []byte("--lock-wait")) {
+		t.Fatalf("service artifact without --lock-wait: %v\n%s", err, artifact)
+	}
+	cmd := exec.Command(binary, "serve", "--state-dir", state, "--lock-wait", "3s")
+	var stderr bytes.Buffer
+	cmd.Stderr = &stderr
+	if err := cmd.Run(); err != nil || !strings.Contains(stderr.String(), `"reason":"lock_held"`) {
+		t.Fatalf("second daemon: %v\n%s", err, stderr.String())
+	}
+	if !status(state) {
+		t.Fatal("the running daemon stopped answering")
+	}
+	if s.Backend == "launchd" {
+		waitFor(t, "the daemon log's start line", func() bool {
+			data, err := os.ReadFile(s.DaemonLog())
+			return err == nil && bytes.Contains(data, []byte(`"event":"start"`))
+		})
+	}
+}
+
+// extract writes the pinned Python main release from Git history into dir.
 func extract(t *testing.T, dir string) {
 	t.Helper()
-	out, err := exec.Command("git", "-C", "../..", "archive", baseline).Output()
+	extractCommit(t, baseline, dir)
+}
+
+// extractCommit writes commit from Git history into dir.
+func extractCommit(t *testing.T, commit, dir string) {
+	t.Helper()
+	out, err := exec.Command("git", "-C", "../..", "archive", commit).Output()
 	if err != nil {
-		t.Fatalf("git archive %s (the workflow needs fetch-depth 0): %v", baseline, err)
+		t.Fatalf("git archive %s (the workflow needs fetch-depth 0): %v", commit, err)
 	}
 	r := tar.NewReader(bytes.NewReader(out))
 	for {
@@ -441,17 +527,54 @@ func TestUpgradeFromMain(t *testing.T) {
 	if _, err := koinon(t, append(append([]string{}, good...), "--python", "/usr/bin/false")...); err == nil || !strings.Contains(err.Error(), "resume") {
 		t.Fatalf("interrupted upgrade: %v", err)
 	}
+	// Crashed sessions left their control sockets, where the main release's own path
+	// rule puts them; nothing listens on them, and uninstall.py takes each one for a
+	// running session.
+	var roots []string
+	entries, _ := os.ReadDir(filepath.Join(fixture, "state", "sessions"))
+	for _, e := range entries {
+		home := filepath.Join(p.state, "sessions", e.Name())
+		roots = append(roots, home, filepath.Join(home, "notifier"))
+	}
+	paths := p.must(append([]string{"-c", "import sys\nsys.path.insert(0, sys.argv[1])\nfrom koinon import platform_support\n" +
+		"for root in sys.argv[2:]: print(platform_support.control_socket_path(root))", p.prefix}, roots...)...)
+	sockets := strings.Split(strings.TrimSpace(paths), "\n")
+	if len(sockets) != 4 {
+		t.Fatalf("control socket paths %q", paths)
+	}
+	for _, path := range sockets {
+		os.MkdirAll(filepath.Dir(path), 0700)
+		l, err := net.ListenUnix("unix", &net.UnixAddr{Name: path, Net: "unix"})
+		if err != nil {
+			t.Fatal(err)
+		}
+		l.SetUnlinkOnClose(false)
+		l.Close()
+	}
 	result := must(t, good...)
 	if result["phase"] != "complete" {
 		t.Fatalf("resumed upgrade %v", result)
+	}
+	if cleared, _ := result["cleared_endpoints"].([]any); len(cleared) != len(sockets) {
+		t.Fatalf("cleared %v, planted %v", cleared, sockets)
+	}
+	for _, path := range sockets {
+		if _, err := os.Lstat(path); !errors.Is(err, fs.ErrNotExist) {
+			t.Fatalf("dead socket %s remains: %v", path, err)
+		}
 	}
 	if _, err := os.Stat(filepath.Join(p.prefix, "install.json")); !os.IsNotExist(err) {
 		t.Fatalf("the Python installation remains: %v", err)
 	}
 	waitFor(t, "the Go daemon", func() bool { return status(goState) })
+	installedCatalog(t, goPrefix)
 
 	// The imported state reads back through the daemon.
-	reg := call(t, goState, "/v1/sessions/register", core.Registration{Family: "codex", ID: m.Threads["codex"], Repository: second, Directory: filepath.Dir(second)})
+	// The session registers with its own launch, as koinon codex starts it.
+	launch := call(t, goState, "/v1/launches", core.LaunchTarget{Family: "codex", Directory: filepath.Dir(second), CLI: "/synthetic/cli", HostPID: 4242})
+	launchID, _ := launch["launch_id"].(string)
+	reg := call(t, goState, "/v1/sessions/register", core.Registration{Family: "codex", ID: m.Threads["codex"], Repository: second, Directory: filepath.Dir(second),
+		LaunchID: launchID, Ancestors: []int{4242}})
 	if reg["ok"] != true {
 		t.Fatalf("register %v", reg)
 	}

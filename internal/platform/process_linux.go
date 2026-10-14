@@ -5,6 +5,7 @@ import (
 	"os"
 	"strconv"
 	"strings"
+	"time"
 )
 
 // ProcessCommand reports a process's executable path and arguments.
@@ -56,4 +57,115 @@ func ProcessParents() (map[int]int, error) {
 		return nil, errors.New("process table unreadable")
 	}
 	return parents, nil
+}
+
+// ProcessStart reports a process's start time as an opaque value that identifies the process
+// together with its ID: field 22 of /proc/<pid>/stat, in clock ticks since boot. Values are
+// comparable only with other values of this host; ErrProcessGone means no such process.
+func ProcessStart(pid int) (int64, error) {
+	if pid <= 0 {
+		return 0, ErrProcessGone
+	}
+	data, err := os.ReadFile("/proc/" + strconv.Itoa(pid) + "/stat")
+	if errors.Is(err, os.ErrNotExist) {
+		return 0, ErrProcessGone
+	}
+	if err != nil {
+		return 0, err
+	}
+	// Fields after the command name's closing parenthesis start with field 3 (the state).
+	end := strings.LastIndexByte(string(data), ')')
+	if end < 0 {
+		return 0, errors.New("process stat unreadable")
+	}
+	fields := strings.Fields(string(data[end+1:]))
+	if len(fields) < 20 {
+		return 0, errors.New("process stat unreadable")
+	}
+	return strconv.ParseInt(fields[19], 10, 64)
+}
+
+// ProcessEnvironment reports one variable of a process this user owns, from its initial
+// environment. A missing variable is "" with no error.
+func ProcessEnvironment(pid int, name string) (string, error) {
+	data, err := os.ReadFile("/proc/" + strconv.Itoa(pid) + "/environ")
+	if err != nil {
+		return "", err
+	}
+	for _, entry := range strings.Split(string(data), "\x00") {
+		if value, ok := strings.CutPrefix(entry, name+"="); ok {
+			return value, nil
+		}
+	}
+	return "", nil
+}
+
+// ProcessGroups reports the process group, controlling terminal and that terminal's
+// foreground process group of every process this user can see: fields 5, 7 and 8 of
+// /proc/<pid>/stat. A process without a terminal has Terminal 0. A process that exits during
+// the scan is left out.
+func ProcessGroups() (map[int]ProcessGroup, error) {
+	entries, err := os.ReadDir("/proc")
+	if err != nil {
+		return nil, err
+	}
+	groups := map[int]ProcessGroup{}
+	for _, entry := range entries {
+		pid, err := strconv.Atoi(entry.Name())
+		if err != nil || pid <= 0 {
+			continue
+		}
+		data, err := os.ReadFile("/proc/" + entry.Name() + "/stat")
+		if err != nil {
+			continue
+		}
+		end := strings.LastIndexByte(string(data), ')')
+		if end < 0 {
+			continue
+		}
+		// Fields after the command name start with field 3 (the state).
+		fields := strings.Fields(string(data[end+1:]))
+		if len(fields) < 6 {
+			continue
+		}
+		group, groupErr := strconv.Atoi(fields[2])
+		terminal, terminalErr := strconv.Atoi(fields[4])
+		foreground, foregroundErr := strconv.Atoi(fields[5])
+		if groupErr == nil && terminalErr == nil && foregroundErr == nil {
+			groups[pid] = ProcessGroup{Group: group, Terminal: terminal, Foreground: foreground}
+		}
+	}
+	if len(groups) == 0 {
+		return nil, errors.New("process table unreadable")
+	}
+	return groups, nil
+}
+
+// userHZ is the clock tick of /proc/<pid>/stat start times: USER_HZ, 100 on every Linux
+// architecture that Koinon builds for.
+const userHZ = 100
+
+// ProcessStartTime reports when a process started, on the wall clock: its start in clock
+// ticks since boot (/proc/<pid>/stat) against the time since boot (/proc/uptime), which both
+// count suspended time. The precision is one tick.
+func ProcessStartTime(pid int) (time.Time, error) {
+	ticks, err := ProcessStart(pid)
+	if err != nil {
+		return time.Time{}, err
+	}
+	now := time.Now()
+	data, err := os.ReadFile("/proc/uptime")
+	if err != nil {
+		return time.Time{}, err
+	}
+	fields := strings.Fields(string(data))
+	if len(fields) == 0 {
+		return time.Time{}, errors.New("uptime unreadable")
+	}
+	uptime, err := strconv.ParseFloat(fields[0], 64)
+	if err != nil {
+		return time.Time{}, errors.New("uptime unreadable")
+	}
+	since := time.Duration(uptime*float64(time.Second)) - time.Duration(ticks)*time.Second/userHZ
+	return now.Add(-since), nil
 }
