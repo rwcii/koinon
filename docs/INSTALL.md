@@ -157,7 +157,9 @@ the binary in place and restarts the daemon, and the state stays. A launched ses
 `koinon mcp` tries a renewal that fails during the restart again at the next interval, and
 the daemon keeps a session whose host process runs (liveness, see PROTOCOL.md). A session
 without a host record, such as a DeepSeek session or one registered before host records, is
-kept only by its renewals and tool calls.
+kept only by its renewals and tool calls. A running session keeps the `koinon mcp` server that
+it started with, from the old binary: the install replaces the file, not the running program.
+Tools that the new version adds appear when the session, or its MCP server, starts again.
 
 #### Upgrade from a build without launch admission
 
