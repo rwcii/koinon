@@ -16,15 +16,18 @@ On macOS or Linux, the tap `rwcii/koinon` installs the release binary for your p
 
 ```sh
 brew install rwcii/koinon/koinon
-koinon install --agent claude --agent codex
+$(brew --prefix)/bin/koinon install --agent claude --agent codex
 ```
 
 Homebrew checks the binary against the release's `SHA256SUMS` entry. The formula does not use
 `brew services`: `koinon install` copies the binary into its own prefix and manages the
 service, as the next sections describe. A `brew upgrade koinon` therefore changes only the
-Homebrew copy. Run `koinon install` again after each upgrade to replace the installed binary and
-restart the daemon. A Python-era installation upgrades with `koinon upgrade --from-python`, as
-below, with the Homebrew binary.
+Homebrew copy. Run `$(brew --prefix)/bin/koinon install` again after each upgrade to replace the
+installed binary and restart the daemon. Name the Homebrew binary: the install copies the binary
+that runs it, and once `~/.local/bin` comes first on `PATH`, a bare `koinon install` runs the
+installed copy and copies it onto itself (`"binary_result": "unchanged"`, with `other_binary`
+naming the Homebrew copy). A Python-era installation upgrades with
+`$(brew --prefix)/bin/koinon upgrade --from-python`, as below.
 
 ### Download and check
 
@@ -58,7 +61,10 @@ this:
    current directory, as a shell does. When that is not the installed copy, `path_step` names
    the one step that makes it so, for example adding `~/.local/bin` to `PATH` in the shell's
    startup file; on macOS that directory is not on `PATH` by default. When another `koinon`,
-   such as the Homebrew copy, comes first on `PATH`, the report names it. The install never
+   such as the Homebrew copy, comes first on `PATH`, the report names it. When the installed
+   binary itself ran the install, it copies nothing; if another `koinon` on `PATH` has other
+   content, such as the Homebrew copy after `brew upgrade`, the report names it in
+   `other_binary` and `source_step` gives the command that installs it. The install never
    edits shell startup files.
 3. It writes one service that runs
    `<prefix>/bin/koinon serve --state-dir <state> --lock-wait 60s`, then enables and
@@ -152,8 +158,9 @@ enables and starts it again.
 
 ### Upgrade the Go runtime
 
-Run `koinon install` with the new binary, with the same `--prefix` and `--state-dir`. It replaces
-the binary in place and restarts the daemon, and the state stays. A launched session continues:
+Run `koinon install` with the new binary, with the same `--prefix` and `--state-dir`: name the new
+binary by its path, such as `$(brew --prefix)/bin/koinon` or the downloaded file, because the
+install copies the binary that runs it. It replaces the binary in place and restarts the daemon, and the state stays. A launched session continues:
 `koinon mcp` tries a renewal that fails during the restart again at the next interval, and
 the daemon keeps a session whose host process runs (liveness, see PROTOCOL.md). A session
 without a host record, such as a DeepSeek session or one registered before host records, is

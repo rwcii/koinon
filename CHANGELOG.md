@@ -5,6 +5,12 @@ into a dated release section when promoted to `main`.
 
 ## Unreleased
 
+- Homebrew upgrades name the Homebrew binary (#380): the formula's caveat, README and
+  docs/INSTALL.md say `$(brew --prefix)/bin/koinon install` (`#{opt_bin}/koinon install` in the
+  caveat). Once `~/.local/bin` came first on `PATH`, the documented bare `koinon install` ran the
+  copy already installed and copied it onto itself, so a `brew upgrade` changed nothing. When
+  the installed binary runs the install and another `koinon` on `PATH` has other content, the
+  report now names it in `other_binary`, with the command in `source_step`.
 - Dashboard actions keep the view (#373): an action on Sessions, Messages, Memory or Work
   returns to the same sort order, search and filters, on the first page. Before, Enable
   handoff, Retire and the other actions reloaded the view with the default order and no search.
