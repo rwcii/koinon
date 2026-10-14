@@ -4,8 +4,9 @@
 // host's real user service manager: systemd on Ubuntu, launchd on macOS (sprint chunk
 // 11, workflow native-go-lifecycle.yml). It changes the account's services, so it runs
 // only on a disposable CI runner, with KOINON_NATIVE_JOB=1 and `go test -tags native`.
-// The upgrade starts from the pinned main release, taken by `git archive` from history
-// (never from this checkout's Python code), and from the committed fixture trees.
+// The upgrades start from the pinned Python main release and the current Go main release
+// (v0.1.0), taken by `git archive` from history (never from this checkout's Python code),
+// and from the committed fixture trees.
 package nativetest
 
 import (
@@ -34,8 +35,11 @@ import (
 	"github.com/rwcii/koinon/internal/platform"
 )
 
-// baseline is the main release that the upgrade starts from.
+// baseline is the Python main release that the upgrade from Python starts from.
 const baseline = "3d60c73c88f3110ca4bc91a9a0cc7e16f7daf827"
+
+// goRelease is the current main release, v0.1.0, that a Go upgrade starts from.
+const goRelease = "d146fbe4aad822d799de7bf18f6df43e007494a3"
 
 var binary string
 
@@ -61,7 +65,13 @@ func TestMain(m *testing.M) {
 
 func koinon(t *testing.T, args ...string) (map[string]any, error) {
 	t.Helper()
-	cmd := exec.Command(binary, args...)
+	return koinonAt(t, binary, args...)
+}
+
+// koinonAt runs one command of the koinon executable at path.
+func koinonAt(t *testing.T, path string, args ...string) (map[string]any, error) {
+	t.Helper()
+	cmd := exec.Command(path, args...)
 	var stdout, stderr bytes.Buffer
 	cmd.Stdout, cmd.Stderr = &stdout, &stderr
 	err := cmd.Run()
@@ -323,12 +333,18 @@ func lifecycleLogAndLockWait(t *testing.T, state string) {
 	}
 }
 
-// extract writes the pinned main release from Git history into dir.
+// extract writes the pinned Python main release from Git history into dir.
 func extract(t *testing.T, dir string) {
 	t.Helper()
-	out, err := exec.Command("git", "-C", "../..", "archive", baseline).Output()
+	extractCommit(t, baseline, dir)
+}
+
+// extractCommit writes commit from Git history into dir.
+func extractCommit(t *testing.T, commit, dir string) {
+	t.Helper()
+	out, err := exec.Command("git", "-C", "../..", "archive", commit).Output()
 	if err != nil {
-		t.Fatalf("git archive %s (the workflow needs fetch-depth 0): %v", baseline, err)
+		t.Fatalf("git archive %s (the workflow needs fetch-depth 0): %v", commit, err)
 	}
 	r := tar.NewReader(bytes.NewReader(out))
 	for {
