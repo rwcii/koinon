@@ -8,6 +8,21 @@ into a dated release section when promoted to `main`.
 - Store reopen (#355): a restarted daemon no longer creates the state database's
   shared-memory file. The driver sorted its connection settings, so exclusive locking came
   after the log mode; the store now applies them in its own order on each connection.
+- Managed context cycle for Claude Code (#196, #356): a session that needed the interactive bootstrap
+  ran only its first cycle; the next one ended `uncertain` (`dialog_not_shown`), because the
+  session keeps the added loader directory across `/clear` and Claude Code then shows no
+  dialog. The adapter now accepts that reply and still checks the `/pickup` menu. On macOS the
+  adapter reads the host's configuration directory and process start (the platform stays
+  unverified until its live check, `docs/sprints/2026-10-12-context-handoff/macos-live-check.md`).
+  Linux live evidence for a native dialog inside a cycle and for daemon crashes around the
+  clear and pickup inputs is in `native-evidence.md` of that sprint.
+- Decision board (#206, chunk 03): the dashboard's Decisions page is the designed board. It
+  shows counts, a table of the active agents (name, activity, claimed work, a context meter or
+  "not reported", and the waiting items that name the agent), and cards with `ACTION FOR YOU`
+  fyi items first. Context, recommendation, agent text and notes render from a fixed Markdown
+  subset with HTML, links and images as literal text. Each command has its own box with a
+  Copy button; verdict buttons are disabled while a request runs, and the answer shows on the
+  card. The archive and a read-only lookup show each verdict with its text.
 - Decision verdicts (#206, chunk 02): the dashboard's Decisions page gives Approve and Decline
   on decision items and Dismiss on fyi items, on the revision shown, with a snapshot of that
   text. Each named agent gets a typed inbox message and a wake that names the verdict ID, and

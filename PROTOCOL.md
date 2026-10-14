@@ -339,7 +339,9 @@ the cycle's reason (`typed_not_read_back`, `escape_changed_input`, `submit_not_r
 Probe decides whether a session's cycle can run, for Enable, at admission and before each
 input. It needs Linux (`platform_unverified` elsewhere until the macOS evidence run); the host's
 own Claude Code registry record (`sessions/<pid>.json` under the host's `CLAUDE_CONFIG_DIR`, else
-`~/.claude`) for the same process start (`native_registry_unavailable`); a host version in the
+`~/.claude`, read from the host's initial environment) for the same process start
+(`native_registry_unavailable`; on macOS the record's start is `ps -o lstart` text in UTC, compared
+to the whole second); a host version in the
 evidenced set, now 2.1.296 (`native_version_unverified`); the pane (`pane_unproven`); and the
 pickup entry that a bare `/pickup` runs. A personal skill (`skills/pickup` under the config root)
 ranks over a project skill (`.claude/skills/pickup` in the session directory or a parent up to
@@ -359,7 +361,10 @@ Claude launch, after the launch's own options and before a `--`. Its body only r
 before the clear: `bootstrap_intent` is recorded, `/add-dir <loader>` is entered, the
 add-directory dialog is answered with option 1 ("Yes, for this session"; the persistent option
 is never chosen), and `/pickup` is typed to read that the menu lists the loader first, then
-erased unsubmitted; `bootstrap_verified` records the proof. An unproven bootstrap is uncertain.
+erased unsubmitted; `bootstrap_verified` records the proof. The session keeps an added directory
+across `/clear`, so a later cycle's `/add-dir` gets Claude Code's reply that the directory is
+already added instead of the dialog; then no option is entered, and the `/pickup` menu check
+still applies. An unproven bootstrap is uncertain.
 
 The adapter is ready for input when the registry `status` is `idle` and the input line (`❯`
 followed by a no-break space) is empty; text drawn dim there is a placeholder or a suggestion,

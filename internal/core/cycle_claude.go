@@ -15,6 +15,7 @@ import (
 	"strconv"
 	"strings"
 	"time"
+	"unicode"
 )
 
 // The Claude Code cycle adapter (#196, chunk 03). It acts only through the session's own tmux
@@ -29,8 +30,11 @@ const claudeCycleVersion = "claude-tmux-1"
 // proves; another version is unavailable until its own evidence run.
 var claudeEvidencedVersions = map[string]bool{"2.1.296": true}
 
+// claudeAnyVersion admits every Claude Code version; only a livecheck build sets it.
+var claudeAnyVersion bool
+
 // claudeEvidencedPlatforms are the operating systems with native evidence; macOS follows its
-// own evidence run.
+// own evidence run (docs/sprints/2026-10-12-context-handoff/macos-live-check.md).
 var claudeEvidencedPlatforms = map[string]bool{"linux": true}
 
 // claudeRegistryMax bounds a registry record read.
@@ -103,10 +107,22 @@ func readClaudeRecord(t CycleTarget) (claudeRecord, error) {
 	if err := json.Unmarshal(data, &r); err != nil {
 		return claudeRecord{}, err
 	}
-	if int64(r.PID) != t.HostPID || r.Entrypoint != "cli" || r.ProcStart != "" && r.ProcStart != strconv.FormatInt(t.HostStart, 10) {
+	if int64(r.PID) != t.HostPID || r.Entrypoint != "cli" || r.ProcStart != "" && !claudeSameStart(runtime.GOOS, r.ProcStart, t.HostStart) {
 		return claudeRecord{}, errors.New("registry record of another process")
 	}
 	return r, nil
+}
+
+// claudeSameStart reports whether a registry record's procStart names the process start
+// that Koinon read. On Linux both are field 22 of /proc/<pid>/stat. On macOS Claude Code
+// writes `LC_ALL=C TZ=UTC ps -o lstart=` (the C locale's %c, whole seconds) and Koinon reads
+// p_starttime in microseconds.
+func claudeSameStart(goos, recorded string, start int64) bool {
+	if goos != "darwin" {
+		return recorded == strconv.FormatInt(start, 10)
+	}
+	at, err := time.Parse("Mon Jan 2 15:04:05 2006", strings.Join(strings.Fields(recorded), " "))
+	return err == nil && start >= 0 && at.Unix() == start/1_000_000
 }
 
 // readBounded reads a regular file of at most limit bytes.
@@ -135,7 +151,7 @@ func (claudeCycle) Probe(ctx context.Context, t CycleTarget) CycleProbe {
 	if err != nil {
 		return CycleProbe{Reason: "native_registry_unavailable"}
 	}
-	if !claudeEvidencedVersions[record.Version] {
+	if !claudeEvidencedVersions[record.Version] && !claudeAnyVersion {
 		return CycleProbe{Reason: "native_version_unverified"}
 	}
 	if !provePane(ctx, t.tools, t.HostPID, t.HostStart, t.Socket, t.Pane) {
@@ -494,11 +510,19 @@ func (a claudeCycle) Bootstrap(ctx context.Context, t CycleTarget, fence CycleFe
 		a.erase(ctx, t, fence, text)
 		return false, err
 	}
-	if !await(ctx, t, func(s claudeScreen) bool { return s.dialog == "add_dir_scope" }) {
+	// A directory that this session already added (an earlier bootstrap; /clear keeps it) gets
+	// Claude Code's reply instead of the dialog (native evidence, #196).
+	added := false
+	if !await(ctx, t, func(s claudeScreen) bool {
+		added = claudeAlreadyAdded(s, t.LoaderDir)
+		return added || s.dialog == "add_dir_scope"
+	}) {
 		return false, errClaudeDialog
 	}
-	if ok, err := a.Answer(ctx, t, "add_dir_scope", fence); err != nil || !ok {
-		return false, err
+	if !added {
+		if ok, err := a.Answer(ctx, t, "add_dir_scope", fence); err != nil || !ok {
+			return false, err
+		}
 	}
 	if err := a.key(ctx, t, fence, "-l", "/pickup"); err != nil {
 		return false, err
@@ -511,6 +535,28 @@ func (a claudeCycle) Bootstrap(ctx context.Context, t CycleTarget, fence CycleFe
 		return false, errClaudeMenuEntry
 	}
 	return true, nil
+}
+
+// claudeAlreadyAdded reports Claude Code's reply to /add-dir for a directory that the session
+// already has: the input line is empty again, and the last /add-dir in the transcript is of dir
+// and is followed at once by that reply. Claude Code wraps a long echo or reply onto more lines,
+// so the lines from that /add-dir on are compared without their whitespace.
+func claudeAlreadyAdded(s claudeScreen, dir string) bool {
+	if !s.found || s.input != "" || s.dialog != "" {
+		return false
+	}
+	for i := len(s.lines) - 1; i >= 0; i-- {
+		if strings.HasPrefix(strings.TrimSpace(s.lines[i]), "❯ /add-dir ") {
+			want := withoutSpace("❯ /add-dir " + dir + " ⎿ " + dir + " is already added as a working directory.")
+			return strings.HasPrefix(withoutSpace(strings.Join(s.lines[i:], "\n")), want)
+		}
+	}
+	return false
+}
+
+// withoutSpace removes every whitespace character, the no-break space included.
+func withoutSpace(text string) string {
+	return strings.Join(strings.FieldsFunc(text, unicode.IsSpace), "")
 }
 
 func (claudeCycle) Answerable(prompt string) bool { return prompt == "add_dir_scope" }

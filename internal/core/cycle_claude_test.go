@@ -61,8 +61,9 @@ type claudeTerminal struct {
 	epoch   string
 	cleared int
 	added   []string
-	menu    string // the description that /pickup lists first
-	closed  bool   // Escape closed the menu since the last typed text
+	said    []string // transcript lines after the synthetic transcript's first line
+	menu    string   // the description that /pickup lists first
+	closed  bool     // Escape closed the menu since the last typed text
 	keys    []string
 	at      []time.Time // when each key arrived
 	fences  int
@@ -83,11 +84,42 @@ func newClaudeTerminal(t *testing.T) *claudeTerminal {
 	return term
 }
 
+// claudeStartText is the procStart that Claude Code writes for a process start: the stat
+// field on Linux, `ps -o lstart=` in UTC on macOS.
+func claudeStartText(goos string, start int64) string {
+	if goos == "darwin" {
+		return time.UnixMicro(start).UTC().Format("Mon Jan _2 15:04:05 2006")
+	}
+	return strconv.FormatInt(start, 10)
+}
+
+// claudeSameStart compares each platform's own form; macOS has whole seconds.
+func TestClaudeSameStart(t *testing.T) {
+	for _, c := range []struct {
+		goos, recorded string
+		start          int64
+		want           bool
+	}{
+		{"linux", "43460610", 43460610, true},
+		{"linux", "43460611", 43460610, false},
+		{"linux", "Sat Oct  3 22:13:05 2026", 43460610, false},
+		{"darwin", "Sat Oct  3 22:13:05 2026", 1791065585_999999, true},
+		{"darwin", "Sat Oct 3 22:13:05 2026", 1791065585_000000, true},
+		{"darwin", "Sat Oct  3 22:13:05 2026", 1791065586_000000, false},
+		{"darwin", "1791065585", 1791065585_000000, false},
+		{"darwin", claudeStartText("darwin", 1791929754_123456), 1791929754_123456, true},
+	} {
+		if got := claudeSameStart(c.goos, c.recorded, c.start); got != c.want {
+			t.Errorf("%s %q %d: %v", c.goos, c.recorded, c.start, got)
+		}
+	}
+}
+
 // write stores the registry record of the synthetic host.
 func (c *claudeTerminal) write() {
 	dir := filepath.Join(c.home, ".claude", "sessions")
 	os.MkdirAll(dir, 0o700)
-	data, _ := json.Marshal(map[string]any{"pid": c.pid, "sessionId": c.epoch, "procStart": strconv.FormatInt(c.start, 10),
+	data, _ := json.Marshal(map[string]any{"pid": c.pid, "sessionId": c.epoch, "procStart": claudeStartText(runtime.GOOS, c.start),
 		"version": "2.1.296", "status": c.status, "entrypoint": "cli"})
 	if err := os.WriteFile(filepath.Join(dir, strconv.FormatInt(c.pid, 10)+".json"), data, 0o600); err != nil {
 		c.t.Fatal(err)
@@ -103,6 +135,9 @@ func (c *claudeTerminal) screen() string {
 	}
 	var b strings.Builder
 	b.WriteString("● synthetic transcript\n")
+	for _, line := range c.said {
+		b.WriteString(line + "\n")
+	}
 	if strings.HasPrefix(c.input, "/pickup") && c.menu != "" && !c.closed {
 		b.WriteString("  ❯ /pickup                     " + c.menu + "\n")
 	}
@@ -162,6 +197,10 @@ func (c *claudeTerminal) tmux(_ context.Context, socket string, args ...string) 
 				c.cleared++
 				c.epoch = "synthetic-epoch-" + strconv.Itoa(c.cleared+1)
 				c.write()
+				c.input = ""
+			case strings.HasPrefix(c.input, "/add-dir ") && slices.Contains(c.added, strings.TrimPrefix(c.input, "/add-dir ")):
+				dir := strings.TrimPrefix(c.input, "/add-dir ")
+				c.said = append(c.said, "❯ "+c.input, "  ⎿  "+dir+" is already added as a working directory.")
 				c.input = ""
 			case strings.HasPrefix(c.input, "/add-dir "):
 				c.dialog = true
@@ -286,7 +325,7 @@ func TestClaudeProbe(t *testing.T) {
 			data, _ := os.ReadFile(filepath.Join(term.home, ".claude", "sessions", "4242.json"))
 			os.WriteFile(filepath.Join(term.home, ".claude", "sessions", "4242.json"), []byte(strings.Replace(string(data), "2.1.296", "2.1.295", 1)), 0o600)
 		}, "native_version_unverified"},
-		{"reused PID", func() { term.write(); term.start = 78 }, "native_registry_unavailable"},
+		{"reused PID", func() { term.write(); term.start = 77 + 1_000_000 }, "native_registry_unavailable"},
 		{"unevidenced platform", func() { term.start = 77; term.write(); claudeEvidencedPlatforms = map[string]bool{} }, "platform_unverified"},
 	} {
 		c.change()
@@ -388,6 +427,59 @@ func TestClaudeBootstrap(t *testing.T) {
 	// Every key, the erase included, passes the fence.
 	if !slices.Equal(term.keys, want) || term.fences != len(want) || !slices.Equal(term.added, []string{tg.LoaderDir}) || term.input != "" {
 		t.Fatalf("keys %q fences %d added %q input %q", term.keys, term.fences, term.added, term.input)
+	}
+}
+
+// A second bootstrap in the same session (an earlier cycle added the loader, and /clear keeps
+// it) gets Claude Code's "already added" reply instead of the dialog: no option is entered, and
+// /pickup must still list the loader.
+func TestClaudeBootstrapAlreadyAdded(t *testing.T) {
+	ctx := context.Background()
+	term := newClaudeTerminal(t)
+	tg := term.target(t)
+	term.menu = tg.Loader.Description
+	term.added = []string{tg.LoaderDir}
+	if ok, err := (claudeCycle{}).Bootstrap(ctx, tg, term.fence); !ok || err != nil {
+		t.Fatalf("bootstrap: %v %v keys %q", ok, err, term.keys)
+	}
+	erase := strings.TrimSpace(strings.Repeat("BSpace ", len("/pickup")+2))
+	want := []string{"-l /add-dir " + tg.LoaderDir, "Escape", "Enter", "-l /pickup", erase}
+	if !slices.Equal(term.keys, want) || term.input != "" {
+		t.Fatalf("keys %q input %q", term.keys, term.input)
+	}
+	// Claude Code wraps a long echo or reply onto more lines (an 80-column pane).
+	dir := "/home/synthetic/.local/state/koinon/cycle/claude-loader"
+	for _, lines := range [][]string{
+		{"❯ /add-dir " + dir, "  ⎿  " + dir + " is already added as", " a working directory.", "", "────", "❯\u00a0"},
+		{"❯ /add-dir /home/synthetic/.local/state/koinon/cy", "cle/claude-loader", "  ⎿  " + dir, " is already added as a working directory."},
+	} {
+		if !claudeAlreadyAdded(claudeScreen{lines: lines, found: true}, dir) {
+			t.Fatalf("wrapped reply refused: %q", lines)
+		}
+	}
+	// The reply must answer this /add-dir of this directory: an older reply above a later
+	// /add-dir, a reply for another directory, another command's echo, a line between the echo
+	// and the reply, or a reply with text still in the input line is not one.
+	for _, c := range []struct {
+		lines []string
+		input string
+	}{
+		{[]string{"❯ /add-dir " + dir, "  ⎿  " + dir + " is already added as a working directory.", "❯ /add-dir " + dir}, ""},
+		{[]string{"❯ /add-dir " + dir, "  ⎿  /tmp/other is already added as a working directory."}, ""},
+		{[]string{"❯ /add-dir " + dir + "-other", "  ⎿  " + dir + "-other is already added as a working directory."}, ""},
+		{[]string{"❯ /add-dir " + dir, "● other output", "  ⎿  " + dir + " is already added as a working directory."}, ""},
+		{[]string{"❯ /add-dir " + dir, "  ⎿  " + dir + " is already added as a working directory."}, "draft"},
+	} {
+		if claudeAlreadyAdded(claudeScreen{lines: c.lines, found: true, input: c.input}, dir) {
+			t.Fatalf("reply accepted: %q input %q", c.lines, c.input)
+		}
+	}
+	// Without the loader in the menu the bootstrap still fails.
+	term = newClaudeTerminal(t)
+	tg = term.target(t)
+	term.added = []string{tg.LoaderDir}
+	if ok, err := (claudeCycle{}).Bootstrap(ctx, tg, term.fence); ok || !errors.Is(err, errClaudeMenuEntry) {
+		t.Fatalf("bootstrap without the menu entry: %v %v", ok, err)
 	}
 }
 
