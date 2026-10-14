@@ -141,7 +141,7 @@ func newCycleFixture(t *testing.T) *cycleFixture {
 	}
 	f.session = join(t, s, "claude", "synthetic-a", f.repo)
 	f.k = Key{"claude", "synthetic-a"}
-	if _, err := s.db.Exec(`UPDATE sessions SET host_pid=4242,host_start=77,tmux_socket='/tmp/synthetic-socket',tmux_pane='%3' WHERE family='claude' AND id=?`, f.k.ID); err != nil {
+	if _, err := fixtureExec(s, `UPDATE sessions SET host_pid=4242,host_start=77,tmux_socket='/tmp/synthetic-socket',tmux_pane='%3' WHERE family='claude' AND id=?`, f.k.ID); err != nil {
 		t.Fatal(err)
 	}
 	f.session = f.reload(t, f.k)
@@ -186,7 +186,7 @@ func (f *cycleFixture) handoff(t *testing.T, agent, name, body string) string {
 func (f *cycleFixture) status(t *testing.T, k Key) *CycleView {
 	t.Helper()
 	// Keep the session registered while the clock moves past its lifetime.
-	if _, err := f.s.db.Exec(`UPDATE sessions SET expires_at=? WHERE family=? AND id=? AND retired_at=0`, f.clock.Add(time.Hour).UnixMilli(), k.Family, k.ID); err != nil {
+	if _, err := fixtureExec(f.s, `UPDATE sessions SET expires_at=? WHERE family=? AND id=? AND retired_at=0`, f.clock.Add(time.Hour).UnixMilli(), k.Family, k.ID); err != nil {
 		t.Fatal(err)
 	}
 	v, err := f.s.ContextCycleStatus(context.Background(), k)
@@ -550,9 +550,9 @@ func TestContextCycleSuccessorFlow(t *testing.T) {
 	join(t, f.s, "claude", successor.ID, f.repo)
 	other := Key{"claude", "synthetic-other-pane"}
 	join(t, f.s, "claude", other.ID, f.repo)
-	f.s.db.Exec(`UPDATE sessions SET host_pid=4242,host_start=77,tmux_socket='/tmp/synthetic-socket',tmux_pane='%3' WHERE family='claude' AND id=?`, successor.ID)
-	f.s.db.Exec(`UPDATE sessions SET host_pid=4242,host_start=77,tmux_socket='/tmp/synthetic-socket',tmux_pane='%9' WHERE family='claude' AND id=?`, other.ID)
-	f.s.db.Exec(`UPDATE names SET holder_id=? WHERE name=?`, successor.ID, f.session.Address)
+	fixtureExec(f.s, `UPDATE sessions SET host_pid=4242,host_start=77,tmux_socket='/tmp/synthetic-socket',tmux_pane='%3' WHERE family='claude' AND id=?`, successor.ID)
+	fixtureExec(f.s, `UPDATE sessions SET host_pid=4242,host_start=77,tmux_socket='/tmp/synthetic-socket',tmux_pane='%9' WHERE family='claude' AND id=?`, other.ID)
+	fixtureExec(f.s, `UPDATE names SET holder_id=? WHERE name=?`, successor.ID, f.session.Address)
 	if got := f.status(t, other); got != nil {
 		t.Fatalf("another pane found the cycle: %+v", got)
 	}
@@ -593,7 +593,7 @@ func TestContextCycleControlsAtSaturation(t *testing.T) {
 	for i := range maxActiveCycles {
 		k := Key{"claude", "synthetic-saturation-" + strings.Repeat("i", 180) + string(rune('a'+i))}
 		join(t, f.s, "claude", k.ID, f.repo)
-		if _, err := f.s.db.Exec(`UPDATE sessions SET host_pid=?,host_start=77,tmux_socket=?,tmux_pane='%3',expires_at=? WHERE family='claude' AND id=?`,
+		if _, err := fixtureExec(f.s, `UPDATE sessions SET host_pid=?,host_start=77,tmux_socket=?,tmux_pane='%3',expires_at=? WHERE family='claude' AND id=?`,
 			5000+i, socket, f.clock.Add(24*time.Hour).UnixMilli(), k.ID); err != nil {
 			t.Fatal(err)
 		}
@@ -619,7 +619,7 @@ func TestContextCycleControlsAtSaturation(t *testing.T) {
 	for _, i := range []int{14, 15} {
 		k := Key{"claude", "synthetic-successor-" + strings.Repeat("u", 180) + string(rune('a'+i))}
 		join(t, f.s, "claude", k.ID, f.repo)
-		if _, err := f.s.db.Exec(`UPDATE sessions SET host_pid=?,host_start=77,tmux_socket=?,tmux_pane='%3',expires_at=? WHERE family='claude' AND id=?`,
+		if _, err := fixtureExec(f.s, `UPDATE sessions SET host_pid=?,host_start=77,tmux_socket=?,tmux_pane='%3',expires_at=? WHERE family='claude' AND id=?`,
 			cycles[i].HostPID, socket, f.clock.Add(24*time.Hour).UnixMilli(), k.ID); err != nil {
 			t.Fatal(err)
 		}
@@ -642,7 +642,7 @@ func TestContextCycleControlsAtSaturation(t *testing.T) {
 	// Fragment the trees a transition writes: rows in random key order, then every other
 	// one deleted, so their pages are partly used and free pages are scattered.
 	for i := range 3000 {
-		if _, err := f.s.db.Exec(`INSERT INTO audit(at,action,target,result,reason) VALUES (?,'synthetic',?,'synthetic','')`,
+		if _, err := fixtureExec(f.s, `INSERT INTO audit(at,action,target,result,reason) VALUES (?,'synthetic',?,'synthetic','')`,
 			rand.Int64N(1<<40), big[:200+i%100]); err != nil {
 			t.Fatal(err)
 		}
@@ -670,7 +670,7 @@ func TestContextCycleControlsAtSaturation(t *testing.T) {
 	for _, query := range []string{`DELETE FROM audit WHERE action='synthetic' AND id%2=0`,
 		`DELETE FROM context_cycle_events WHERE stage='synthetic' AND ordinal%2=0`,
 		`DELETE FROM context_cycles WHERE state='failed' AND rowid%2=0`} {
-		if _, err := f.s.db.Exec(query); err != nil {
+		if _, err := fixtureExec(f.s, query); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -760,7 +760,7 @@ func TestContextCycleControlsAtSaturation(t *testing.T) {
 		return err
 	})
 	for _, i := range []int{14, 15} {
-		if _, err := f.s.db.Exec(`UPDATE names SET holder_id=? WHERE name=?`, successors[i].ID, cycles[i].Address); err != nil || cycles[i].Address == "" {
+		if _, err := fixtureExec(f.s, `UPDATE names SET holder_id=? WHERE name=?`, successors[i].ID, cycles[i].Address); err != nil || cycles[i].Address == "" {
 			t.Fatalf("successor %d address %q: %v", i, cycles[i].Address, err)
 		}
 		pickup(i, successors[i])
@@ -817,7 +817,7 @@ func TestContextCycleDashboardAndRoutes(t *testing.T) {
 	t.Cleanup(func() { cycleAdapters = previous })
 	repo := namedRepo(t, "cycle-dashboard")
 	a := join(t, s, "claude", "synthetic-dashboard-a", repo)
-	s.db.Exec(`UPDATE sessions SET host_pid=4242,host_start=77,tmux_socket='/tmp/synthetic-private-socket',tmux_pane='%3' WHERE family='claude' AND id=?`, a.ID)
+	fixtureExec(s, `UPDATE sessions SET host_pid=4242,host_start=77,tmux_socket='/tmp/synthetic-private-socket',tmux_pane='%3' WHERE family='claude' AND id=?`, a.ID)
 	a, _ = scanSession(s.db.QueryRow(sessionQuery+` WHERE s.family=? AND s.id=?`, "claude", a.ID), s.now().UnixMilli())
 	if _, err := s.SetContextEnable(roomCtx("context-enable"), a.Name, a.Revision, 0, true); err != nil {
 		t.Fatal(err)
@@ -874,7 +874,7 @@ func TestContextCycleSchemaTwentyThreeKeepsExistingState(t *testing.T) {
 	room := mustRoom(t, s, "synthetic kept room", 7)
 	mustHumanPost(t, s, room, "synthetic kept post")
 	before := rowsOf(t, s.db)
-	if _, err := s.db.Exec(undoSchemaTwentySix + undoSchemaTwentyFive + undoSchemaTwentyFour + undoSchemaTwentyThree + `PRAGMA user_version=22`); err != nil {
+	if _, err := fixtureExec(s, undoSchemaTwentySix+undoSchemaTwentyFive+undoSchemaTwentyFour+undoSchemaTwentyThree+`PRAGMA user_version=22`); err != nil {
 		t.Fatal(err)
 	}
 	if err := checkCatalog(s.db, 22); err != nil {
@@ -910,13 +910,13 @@ func TestContextCycleSchemaTwentyFourKeepsCycles(t *testing.T) {
 		return text
 	}
 	before, rows := rowText(f.s.db), rowsOf(t, f.s.db)
-	if _, err := f.s.db.Exec(undoSchemaTwentySix + undoSchemaTwentyFive + undoSchemaTwentyFour + `PRAGMA user_version=23`); err != nil {
+	if _, err := fixtureExec(f.s, undoSchemaTwentySix+undoSchemaTwentyFive+undoSchemaTwentyFour+`PRAGMA user_version=23`); err != nil {
 		t.Fatal(err)
 	}
 	if err := checkCatalog(f.s.db, 23); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := f.s.db.Exec(`UPDATE context_cycles SET state='bootstrap_intent'`); err == nil {
+	if _, err := fixtureExec(f.s, `UPDATE context_cycles SET state='bootstrap_intent'`); err == nil {
 		t.Fatal("a schema 23 table accepted a bootstrap state")
 	}
 	f.s.db.Close()
@@ -931,7 +931,7 @@ func TestContextCycleSchemaTwentyFourKeepsCycles(t *testing.T) {
 	if err := checkCatalog(upgraded.db, 23); err == nil {
 		t.Fatal("a schema 23 writer would accept the schema 24 store")
 	}
-	if _, err := upgraded.db.Exec(`UPDATE context_cycles SET state='bootstrap_verified'`); err != nil {
+	if _, err := fixtureExec(upgraded, `UPDATE context_cycles SET state='bootstrap_verified'`); err != nil {
 		t.Fatalf("schema 24 refused a bootstrap state: %v", err)
 	}
 }

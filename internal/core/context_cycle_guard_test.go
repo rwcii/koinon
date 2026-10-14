@@ -38,7 +38,7 @@ func TestContextCycleReportsRecheckPins(t *testing.T) {
 		f.observe(t, f.k, 900, "synthetic-epoch-1")
 		v := f.status(t, f.k)
 		name := f.handoff(t, "claude", "2026-10-13-120000.md", "synthetic")
-		if _, err := f.s.db.Exec(change, f.k.ID); err != nil {
+		if _, err := fixtureExec(f.s, change, f.k.ID); err != nil {
 			t.Fatal(err)
 		}
 		if _, err := f.s.ContextCycleReady(context.Background(), f.k, "synthetic-epoch-1", v.ID, v.Revision, name); !errors.Is(err, ErrCycleChanged) {
@@ -55,11 +55,11 @@ func TestContextCycleReportsRecheckPins(t *testing.T) {
 	f.step(t)
 	f.step(t)
 	v := f.status(t, f.k)
-	f.s.db.Exec(`UPDATE sessions SET tmux_pane='%9' WHERE family='claude' AND id=?`, f.k.ID)
+	fixtureExec(f.s, `UPDATE sessions SET tmux_pane='%9' WHERE family='claude' AND id=?`, f.k.ID)
 	if _, err := f.s.ContextCyclePickup(context.Background(), f.k, "synthetic-epoch-2", v.ID, v.Revision, name, "resumed", "synthetic"); !errors.Is(err, ErrCycleChanged) {
 		t.Fatalf("other pane: %v", err)
 	}
-	f.s.db.Exec(`UPDATE sessions SET tmux_pane='%3' WHERE family='claude' AND id=?`, f.k.ID)
+	fixtureExec(f.s, `UPDATE sessions SET tmux_pane='%3' WHERE family='claude' AND id=?`, f.k.ID)
 	if done, err := f.s.ContextCyclePickup(context.Background(), f.k, "synthetic-epoch-2", v.ID, v.Revision, name, "resumed", "synthetic"); err != nil || done.State != cycleComplete {
 		t.Fatalf("pinned pane: %v %+v", err, done)
 	}
@@ -99,7 +99,7 @@ func TestContextCycleDeadlinesHold(t *testing.T) {
 	// A prompt late in the cycle (after earlier prompt rounds) waits only until its end.
 	h := newCycleFixture(t)
 	ready, _ = h.readyCycle(t)
-	h.s.db.Exec(`UPDATE context_cycles SET stage_deadline=cycle_deadline WHERE cycle_id=?`, ready.ID)
+	fixtureExec(h.s, `UPDATE context_cycles SET stage_deadline=cycle_deadline WHERE cycle_id=?`, ready.ID)
 	h.clock = time.UnixMilli(ready.CycleDeadline - 1000)
 	h.adapter.pane = PaneState{Prompt: "synthetic_prompt"}
 	h.step(t)
@@ -252,7 +252,7 @@ func TestContextCyclePickupRetryMustMatch(t *testing.T) {
 func TestContextCycleOverwatchNameConflict(t *testing.T) {
 	f := newCycleFixture(t)
 	other := join(t, f.s, "claude", "synthetic-legacy-overwatch", f.repo)
-	if _, err := f.s.db.Exec(`UPDATE names SET name='overwatch' WHERE kind='peer' AND family='claude' AND session_id=?`, other.ID); err != nil {
+	if _, err := fixtureExec(f.s, `UPDATE names SET name='overwatch' WHERE kind='peer' AND family='claude' AND session_id=?`, other.ID); err != nil {
 		t.Fatal(err)
 	}
 	f.observe(t, f.k, 900, "synthetic-epoch-1")
@@ -391,7 +391,7 @@ func TestContextCycleMaintainerAnswersDialog(t *testing.T) {
 	repo := namedRepo(t, "cycle-dialog")
 	os.WriteFile(filepath.Join(repo, ".gitignore"), []byte("_handoff/\n"), 0o644)
 	a := join(t, s, "claude", "synthetic-dialog-a", repo)
-	s.db.Exec(`UPDATE sessions SET host_pid=4242,host_start=77,tmux_socket='/tmp/synthetic-socket',tmux_pane='%3' WHERE family='claude' AND id=?`, a.ID)
+	fixtureExec(s, `UPDATE sessions SET host_pid=4242,host_start=77,tmux_socket='/tmp/synthetic-socket',tmux_pane='%3' WHERE family='claude' AND id=?`, a.ID)
 	a, _ = scanSession(s.db.QueryRow(sessionQuery+` WHERE s.family=? AND s.id=?`, "claude", a.ID), s.now().UnixMilli())
 	if _, err := s.SetContextEnable(roomCtx("context-enable"), a.Name, a.Revision, 0, true); err != nil {
 		t.Fatal(err)

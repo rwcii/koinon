@@ -133,7 +133,7 @@ func TestDecisionVerdictRefusals(t *testing.T) {
 	if _, err := s.DecisionVerdict(verdictCtx(), "R-1", 1, "approved", "key "+"ghp_"+strings.Repeat("A1", 18)); refusalCode(err) != "credential_refused" {
 		t.Fatalf("credential note: %v", err)
 	}
-	if _, err := s.db.Exec(`UPDATE decision_items SET commands=? WHERE reference='R-1'`, `["rm​ -rf"]`); err != nil {
+	if _, err := fixtureExec(s, `UPDATE decision_items SET commands=? WHERE reference='R-1'`, `["rm​ -rf"]`); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := s.DecisionVerdict(verdictCtx(), "R-1", 1, "approved", ""); refusalCode(err) != "hidden_command" {
@@ -160,13 +160,13 @@ func TestDecisionVerdictIsAtomic(t *testing.T) {
 			s := f.s
 			mustCreate(t, s, f.peerKey, "A-1", DecisionFields{Title: ptr("t"), Kind: ptr("decision"), Recipients: &[]string{f.peer.Name}})
 			before := rowsOf(t, s.db)
-			if _, err := s.db.Exec(`CREATE TRIGGER fail_insert BEFORE INSERT ON ` + table + ` BEGIN SELECT RAISE(ABORT,'injected'); END`); err != nil {
+			if _, err := fixtureExec(s, `CREATE TRIGGER fail_insert BEFORE INSERT ON `+table+` BEGIN SELECT RAISE(ABORT,'injected'); END`); err != nil {
 				t.Fatal(err)
 			}
 			if _, err := s.DecisionVerdict(verdictCtx(), "A-1", 1, "approved", ""); err == nil {
 				t.Fatal("verdict committed with a failing insert")
 			}
-			if _, err := s.db.Exec(`DROP TRIGGER fail_insert`); err != nil {
+			if _, err := fixtureExec(s, `DROP TRIGGER fail_insert`); err != nil {
 				t.Fatal(err)
 			}
 			got, _ := s.DecisionGet(context.Background(), f.peerKey, "A-1")
@@ -402,7 +402,7 @@ func deepArchiveFixture(t *testing.T) (*verdictFixture, DecisionVerdict) {
 		Recipients: &[]string{f.peer.Name, "synthetic-nobody"}})
 	v := mustVerdict(t, f.s, "D-1", 1, "declined")
 	// The synthetic sessions outlive the 31 days without renewals.
-	if _, err := f.s.db.Exec(`UPDATE sessions SET expires_at=9007199254740991`); err != nil {
+	if _, err := fixtureExec(f.s, `UPDATE sessions SET expires_at=9007199254740991`); err != nil {
 		t.Fatal(err)
 	}
 	*f.clock = f.clock.Add(31 * 24 * time.Hour)
@@ -537,7 +537,7 @@ func TestDecisionDeepArchiveCrashAndEdit(t *testing.T) {
 		}
 		file.Write([]byte(`{"record":"koinon.decision.v1","id":`))
 		file.Close()
-		if _, err := f.s.db.Exec(`UPDATE decision_items SET mark_revision=revision,mark_file=?,mark_offset=0`, name); err != nil {
+		if _, err := fixtureExec(f.s, `UPDATE decision_items SET mark_revision=revision,mark_file=?,mark_offset=0`, name); err != nil {
 			t.Fatal(err)
 		}
 		if err := f.s.archiveDecisions(context.Background()); err != nil {

@@ -174,7 +174,7 @@ func TestDashboardAuditSortEveryColumn(t *testing.T) {
 	ctx := context.Background()
 	want := 2*auditPage + 11
 	for i := range want {
-		if _, err := s.db.Exec(`INSERT INTO audit(at,action,target,result) VALUES (?,?,?,?)`, 1_800_000_000_000+int64(i/4),
+		if _, err := fixtureExec(s, `INSERT INTO audit(at,action,target,result) VALUES (?,?,?,?)`, 1_800_000_000_000+int64(i/4),
 			[]string{"retire", "send", "launch"}[i%3], fmt.Sprintf("synthetic-%d", i%7), []string{"accepted", "refused"}[i%2]); err != nil {
 			t.Fatal(err)
 		}

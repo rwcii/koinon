@@ -62,7 +62,7 @@ func TestNamingObservation(t *testing.T) {
 	}
 
 	// The holder loses the address: its result for the address is outdated.
-	if _, err := s.db.Exec(`UPDATE names SET holder_id='' WHERE name=?`, holder.Alias); err != nil {
+	if _, err := fixtureExec(s, `UPDATE names SET holder_id='' WHERE name=?`, holder.Alias); err != nil {
 		t.Fatal(err)
 	}
 	if got := naming(); got != nil {
@@ -102,7 +102,7 @@ func TestDashboardNamingProjection(t *testing.T) {
 		Naming: &ObservedValue{Source: "koinon_mcp", At: at, Naming: "attach_pane_not_found", Target: holder.Alias}}); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := s.db.Exec(`UPDATE sessions SET succession=? WHERE family=? AND id=?`,
+	if _, err := fixtureExec(s, `UPDATE sessions SET succession=? WHERE family=? AND id=?`,
 		`{"result":"refused","reason":"holder_active","address":"codex-namingrepo","at":1800000000000}`,
 		holder.Family, holder.ID); err != nil {
 		t.Fatal(err)
@@ -130,7 +130,7 @@ func TestDashboardNamingProjection(t *testing.T) {
 		}
 	}
 	pages("unknown: not_observed", true)
-	if _, err := s.db.Exec(`UPDATE names SET holder_id='' WHERE name=?`, holder.Alias); err != nil {
+	if _, err := fixtureExec(s, `UPDATE names SET holder_id='' WHERE name=?`, holder.Alias); err != nil {
 		t.Fatal(err)
 	}
 	pages("naming unknown: naming_outdated", false)
