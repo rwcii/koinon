@@ -12,6 +12,7 @@ edits. Terminal interaction is part of the requested product function.
 | 01 | [Context policy and observations](chunks/01-monitor.md): family settings, session Enable records, capability/freshness display and epoch-aware trigger selection | Published develop; no native command execution |
 | 02 | [Correlated handoff contract](chunks/02-handoff.md): bounded durable cycles, typed request, own-session readiness, artifact checks, audit and capacity proof | 01 merged; #145 catalog/read interfaces |
 | 03 | [Verified native cycle](chunks/03-native-cycle.md): evidence-first family adapter, clear/pickup and prompt handling, crash reconciliation, successor Enable and complete dashboard | 02 merged; family/platform proof and #275 where applicable |
+| 04 | [Codex cycle adapter](chunks/04-codex-cycle.md): Codex clear, `/status` reset proof, bound `$pickup`, dialogs in the pickup wait and the cycle reset link in succession | 03 merged; #275 code (PR #359) |
 
 Each chunk is independently testable and mergeable. Until 03 admits a native adapter,
 Enable shows the missing capability and the daemon executes no cycle. This is an explicit

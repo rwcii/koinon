@@ -205,7 +205,7 @@ revision and the session revision, participant address, host and tmux pane it wa
 none of these leave the store. The action `context-enable` (`peer`, `revision` of the session
 as shown, `if_revision` of the Enable, `enabled` `on` or `off`) changes one session with its
 audit record. Enabling needs an active session whose family adapter's Probe passes for its
-pinned host and pane (Claude Code cycle adapter, below); otherwise it refuses with
+pinned host and pane (the cycle adapters below); otherwise it refuses with
 `context_cycle_unavailable` and writes nothing. Disabling is always
 accepted. A changed session refuses `revision_changed`, a changed Enable
 `context_enable_changed`. Deleting a session deletes its Enable.
@@ -229,8 +229,8 @@ are unknown, so no session is eligible until fresh native reports arrive.
 Chunk 02 adds the durable cycle. A context observation that makes an enabled session
 eligible admits a cycle when the family has a registered cycle adapter, the session still has
 the host and tmux pane that its Enable pinned, it has no unfinished cycle (nor has its host),
-and fewer than 16 cycles are unfinished. Chunk 03 registers the Claude Code adapter; the other
-families have none, so their Enable is refused. Admission is one ordinary transaction:
+and fewer than 16 cycles are unfinished. Chunk 03 registers the Claude Code adapter and chunk
+04 the Codex adapter; the other families have none, so their Enable is refused. Admission is one ordinary transaction:
 the cycle row, its first event `requested admitted`, an audit record and the typed request in
 the session's own inbox. The request's sender is the reserved system identity `overwatch`
 (`sender_family` and `sender_id` `overwatch`, `sender_name` `overwatch`), with `system_kind`
@@ -275,7 +275,12 @@ caller, epoch, host, pane, socket or another session.
   name, `outcome` `resumed` or `paused` and a `report` of 1 to 1,024 UTF-8 bytes. A
   `waiting_pickup` cycle completes when the caller runs under a new epoch (the epoch that the
   adapter proved) and is the requester itself or a managed successor: an active session of the
-  same family in the same host and pane that holds the cycle's participant address. A
+  same family in the same host and pane that holds the cycle's participant address. The
+  `revision` is that of one of the cycle's `waiting_pickup` stages. The report is also accepted
+  in a prompt wait that began in `waiting_pickup` (`waiting_prompt` or `prompt_intent` with
+  `prompt_from` `waiting_pickup`), because the call that the prompt approves can be the report
+  itself; the wait and its return change the revision, and the approved call can arrive after
+  either, so the report keeps the `waiting_pickup` revision that it read. A
   successor's completion moves the Enable to it. The report is private runtime data; status,
   audit and the dashboard show its size only.
 
@@ -295,9 +300,12 @@ The controller runs once a second. Each external input holds the wake lock and i
 by its recorded intent: on a fresh idle inspection a `ready` cycle records `clear_intent`,
 clears and records `clear_received`; a proven new epoch in the same host and pane gives
 `reset_verified`; an idle inspection then records `pickup_intent`, enters pickup and records
-`waiting_pickup`. A recognized prompt records `waiting_prompt` and its preceding stage; the
-response is entered after its recorded `prompt_intent`, and one that is read back returns to
-that stage. Just before the clear or the pickup input, the daemon checks the reported file
+`waiting_pickup`. Right before the pickup input the adapter must read the proven new epoch
+again; another one, or none, fails the cycle with `epoch_changed`, so a second clear never gets
+the pending pickup. A recognized prompt records `waiting_prompt` and its preceding stage, in
+`waiting_pickup` too (a native approval of the successor's first calls); the response is
+entered after its recorded `prompt_intent`, and one that is read back returns to that stage. A
+dashboard answer whose approved call completed the cycle first counts as received. Just before the clear or the pickup input, the daemon checks the reported file
 again: a changed or missing file returns a `ready` cycle to `waiting_ready`
 (`artifact_changed`) under the request's readiness deadline, and fails a `reset_verified`
 one. An input that fails or is not received is `uncertain`. An intent found without its
@@ -387,6 +395,56 @@ changed dialog before any key returns the cycle to `waiting_prompt` (`cycle_dial
 unproven answer is uncertain. Enable authorizes the managed cycle; native permission choices
 follow the existing task authorization and the native permission interface.
 
+### Codex cycle adapter
+
+Chunk 04 adds the adapter for Codex (version `codex-tmux-1`), on the facts of Codex CLI 0.162.0
+([chunk 04](docs/sprints/2026-10-12-context-handoff/chunks/04-codex-cycle.md)). It acts only in
+the session's own tmux pane. Before every key it proves the pane and that the pane's terminal
+gives input to the host (as the Codex pane wake below), and passes the cycle's fence. Typed
+text that is not submitted is erased with Backspace while the composer still holds exactly it.
+
+Probe needs Linux (`platform_unverified` elsewhere until the macOS evidence run); the session
+thread's own rollout under the host's `CODEX_HOME` (else `~/.codex`), whose first record is the
+thread's `session_meta` from the interactive CLI (`native_registry_unavailable`), with an
+evidenced `cli_version`, now 0.162.0 (`native_version_unverified`); the pane
+(`pane_unproven`); the session's participant address held (`participant_unheld`: the thread
+after `/clear` is a new session that reports only as the address holder); and the pickup
+entry. Codex runs a `$pickup` mention of every skill named `pickup` in `.agents/skills` and
+`.codex/skills` of each directory from the session directory up to its worktree root, in
+`$CODEX_HOME/skills` and in `~/.agents/skills`. Each must be byte-equal to the catalog item
+`skill.pickup` (`pickup_entry_differs`, `pickup_entry_unreadable`), and one must exist
+(`pickup_entry_unverified`); there is no loader. Codex turns a skill off only through
+`skills.config` entries, so Probe reads the effective entries of the host's configuration as
+TOML, from the lowest layer to the highest: `/etc/codex/config.toml`, `$CODEX_HOME/config.toml`,
+the profile that the host's `-p`/`--profile` selects (`$CODEX_HOME/<name>.config.toml`, on top
+of the user file; a selected profile without its file is `pickup_entry_unverified`), the
+host's own `-c`/`--config` arguments and `/etc/codex/managed_config.toml`. Tables merge, and any
+other value of a higher layer replaces the lower one. A project's `.codex/config.toml` loads, but
+its `skills.config` does not change the skills that the launched Codex lists, so it takes no
+part. An effective entry, or an entry
+in `/etc/codex/requirements.toml`, whose
+`enabled` is not `true` and that names `pickup`, a checked file or its directory, or a path
+that does not resolve, gives `pickup_entry_unverified`, as does another value on that path; a
+layer that does not parse gives `pickup_entry_unreadable`. The Sessions page shows `project`
+or `personal`.
+
+The adapter is ready for input when the composer (`›`) holds no text, no running turn shows,
+and the current thread is proven idle from its own rollout, read at that moment; each input
+step reads this again right before its first key, and a draft that someone started is left as
+it is: before the
+clear the requester's last turn ended; after it the pane's `/status` card names the cycle's
+successor, which has no rollout and no prompt after the card, or whose last turn ended. The
+clear types `/clear`, reads it back and submits it with one Enter; the cleared screen is the
+receipt. In the same step it enters `/status` the same way: Codex writes nothing for a new
+thread before its first turn, and the card names it. The reset is proven by that card's
+`Session:` thread, read from the pane and its history without input, below the latest
+banner with nothing of a turn before it. The pickup types the bare `$pickup` and submits it
+only when the open skill menu is complete and lists one `pickup` row for each checked file,
+so no other entry of that name can run; then Escape, a 400 ms wait, the read-back and one
+Enter. A dialog (an MCP tool approval or a command approval) is never answered by the
+adapter: the cycle shows it in `waiting_prompt`, and a dashboard option is one digit, entered
+only while the same dialog shows.
+
 ### Verified succession
 
 Schema 13 adds a private host record to each session: host PID, process start value,
@@ -420,7 +478,16 @@ hook as a child of its host process at the first turn of the thread that `/clear
 with `source: "clear"`; the hook registers that thread through its own launch and ancestors,
 writes nothing and always exits 0. A `clear` registration with the holder's host PID and
 start value succeeds at once with `host_cleared`, also within the guard: the host itself no
-longer shows the holder. The hook has no terminal, so a cleared thread that registers without
+longer shows the holder.
+
+A managed cycle's reset links the holder to one successor (#196, chunk 04). After the fenced,
+sub-agent, host and other-participant checks and before the guard, a candidate succeeds with
+`cycle_reset` only when, in the same transaction, an unfinished cycle of this address has the
+holder as its requester, is pinned to the candidate's host PID, start value, tmux socket and
+pane, has proven the candidate's ID as its new native epoch (a Codex thread's ID is its epoch),
+is in `reset_verified`, `pickup_intent` or `waiting_pickup` (or a prompt wait that began in
+one of them), still has the Enable that admitted it and is before its stage and cycle
+deadlines. This is not a general address move: every other candidate keeps the rules above. The hook has no terminal, so a cleared thread that registers without
 a pane keeps the holder's recorded tmux socket and pane (each wake proves it again). Every
 other rule applies unchanged. Codex runs no hook at `/clear` itself, so until the new thread's
 first turn the cleared thread stays the holder (#275). On Linux and macOS a participant notice
@@ -430,7 +497,7 @@ below), so it runs as the new thread's first turn.
 The session and `peers` expose `succession: {result, reason, address, holder, at,
 retry_after_ms}` when present; `at` is daemon Unix milliseconds and `holder` is the former or
 retained holder's peer name. Success reports `result: succeeded` with `same_host`,
-`host_cleared` or `same_pane`. Refusal reports `result: refused` with `no_host`, `host_running`, `other_pane`,
+`host_cleared`, `cycle_reset` or `same_pane`. Refusal reports `result: refused` with `no_host`, `host_running`, `other_pane`,
 `subagent`, `holder_active`, `fenced` or `other_participant`. `no_host` covers missing host
 records; `host_running` includes a former host that cannot be proven ended; `other_pane`
 includes missing pane evidence. A refused succession still registers the native peer.

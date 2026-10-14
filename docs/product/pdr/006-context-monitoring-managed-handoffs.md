@@ -3,7 +3,7 @@ pdr: "006"
 title: "Context Monitoring and Managed Handoffs"
 status: draft
 created: "2026-10-12"
-updated: "2026-10-13"
+updated: "2026-10-14"
 authors:
   - "Robert Capps"
 reviewers: []
@@ -159,7 +159,9 @@ finishes or pauses its step, writes its handoff and replies that it is ready; a 
 reply ready for another session. After the reply, Koinon enters the family's commands in the
 agent's own pane, proven as in the #156 rename (the pane process is an ancestor of the
 agent's host with no other agent between them): `/clear` then `/pickup`, or `/clear` then
-`$pickup` for Codex, with no appended task text (PDR 002, Decision 4). It reads the pane
+`$pickup` for Codex, with no appended task text (PDR 002, Decision 4); for Codex the clear step
+also enters the local `/status`, whose card names the new thread for the reset proof (#196
+chunk 04). It reads the pane
 after each step and handles prompts or alerts shown during the cycle under the maintainer's
 existing authorization and native permissions (PDR 002, Decision 2). It reports an outcome
 it cannot reconcile rather than counting it as a completed step. Peer text is not entered.
@@ -258,3 +260,4 @@ and terminal commands have the maintainer's words; the rest is requested or prop
 | 2026-10-12 | Initial creation |
 | 2026-10-13 | Recorded Gate B and the maintainer's reserved overwatch system sender |
 | 2026-10-12 | Reconciled the framing and active issue body with intended terminal commands and prompt handling; retained bare native commands without appended task text |
+| 2026-10-14 | Recorded the Codex `/status` read in the clear step (#196 chunk 04) |
