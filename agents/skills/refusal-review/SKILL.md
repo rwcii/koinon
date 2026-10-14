@@ -1,6 +1,6 @@
 ---
 name: refusal-review
-description: "Review another agent family's frozen commit for new refusals, gates and restrictions that have no source, and record a commit-bound verdict."
+description: "Review another agent family's frozen commit for new refusals, gates and restrictions that have no source, and for maintainer decisions recorded without their context, and record a commit-bound verdict."
 ---
 
 # Refusal review
@@ -25,7 +25,8 @@ Read the whole diff against its base. List every added or changed constraint, in
   requirements that leave something out;
 - approval, stop, wait and permission steps, and new reasons to ask the maintainer;
 - caps, limits, scope boundaries and conditions in code that refuse or skip work;
-- tests that assert a refusal or a limit.
+- tests that assert a refusal or a limit;
+- maintainer decisions the change records, restates or cites as a source, in any file.
 
 Judge what the text, test or condition actually does, not its wording. A keyword search can help
 find candidates; it is not the review. Unchanged text is out of scope.
@@ -40,6 +41,11 @@ Each listed constraint needs a source that covers its case:
 - a verified native, platform, API or storage contract, or a reproduced correctness or
   security boundary.
 
+A recorded maintainer decision states four things: the question it answered, the options that
+were on the table, the answer quoted with its date, and the reason with its scope (what it
+covers and what it does not). A bare quote, or one without its question or reason, cannot show
+its scope, so a later agent may read it as a wider rule.
+
 A routine argument check or a demonstrated capability limit needs no further source; it never
 becomes an approval step. A plan proposal is not a decided rule: text that presents a proposal
 as decided, or a decision wider than its quoted case, is a finding. A hypothetical concern is not
@@ -47,7 +53,8 @@ evidence.
 
 ## 3. Record the verdict
 
-Report a finding only for a constraint with no source, or one wider than its source. Name the
+Report a finding only for a constraint with no source, one wider than its source, or a
+maintainer decision recorded without its question, options, quoted answer or reason. Name the
 file and the text, test or condition, its effect, the missing or narrower source, and the fix.
 Send findings in one batch. A follow-up review covers the accepted fixes and constraints they
 add or change; a hash change alone does not reopen the whole diff.
