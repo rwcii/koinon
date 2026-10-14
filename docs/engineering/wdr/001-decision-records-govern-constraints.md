@@ -3,7 +3,7 @@ wdr: "001"
 title: "Decision Records Govern Constraints"
 status: modified
 created: "2026-10-12"
-updated: "2026-10-12"
+updated: "2026-10-14"
 authors:
   - "Robert Capps"
 reviewers: []
@@ -250,6 +250,12 @@ approval or stop steps, in text, tests and code conditions, and finds a source t
 case (Decision 5). It records its own verdict comment and `refusal-review` commit status on the
 full hash. The `refusal-review` skill describes the steps.
 
+The same review checks each maintainer decision that the change records or cites as a source.
+The record states the question the decision answered, the options that were on the table, the
+maintainer's answer quoted with its date, and the reason with its scope: what the decision
+covers and what it does not. A bare quote, or one without its question or reason, is a finding,
+as is a decision applied beyond its stated scope.
+
 **Provenance:** Maintainer, 2026-10-12, approving Gate B for #140: "make sure you and your
 peer didnt slip more refusal langauge in these two projects.  if you have spare time, build a
 gate for identifying this same refusal language in future PRs to run alongside our code
@@ -257,6 +263,16 @@ review, security review, and standrds review gates." Intent: an audit of the #14
 plans had to find unsourced refusals after they were written; the gate finds them in each
 pull request. This replaces Decision 1's earlier "not a separate review command" for this
 check.
+
+**Provenance (decision context):** Maintainer, 2026-10-14, in the stratovera.io repository. An
+agent recorded "don't log the privacy setting, leave it off" as a bare quote, then read it as a
+ban on all consent logging and rejected a plugin for it; the maintainer had answered a question
+about one plugin's log, which stored very little and capped its entries. The maintainer: "this
+is the problem with you storing limited snipets and no contect for capturing decisions", then
+"go ahead and fix the other records too - this will require some modifications to the prompt
+used for doing refusal reviews", and "refusal checks can be completed by any agnet, not just
+codex". Intent: a recorded decision carries its question, options and reason, so a later agent
+of any family can tell its scope.
 
 ### Alternatives Considered
 
@@ -287,3 +303,4 @@ code-enforced behavior changes only after its PDR is decided; routine fixes do n
 | ---------- | ---------------- |
 | 2026-10-12 | Initial creation |
 | 2026-10-12 | Decision 6: separate refusal review gate |
+| 2026-10-14 | Decision 6: the refusal review also checks that each recorded maintainer decision states its question, options, quoted answer and reason with scope |

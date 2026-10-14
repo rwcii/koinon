@@ -5,6 +5,9 @@ into a dated release section when promoted to `main`.
 
 ## Unreleased
 
+- `refusal-review` skill: the review also checks each maintainer decision a change records or
+  cites. The record states the question it answered, the options, the answer quoted with its
+  date, and the reason with its scope; a bare quote is a finding (WDR 001, Decision 6).
 - Store reopen (#355): a restarted daemon no longer creates the state database's
   shared-memory file. The driver sorted its connection settings, so exclusive locking came
   after the log mode; the store now applies them in its own order on each connection.
