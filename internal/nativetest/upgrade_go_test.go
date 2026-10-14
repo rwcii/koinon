@@ -126,11 +126,12 @@ func TestUpgradeFromGoRelease(t *testing.T) {
 }
 
 type daemonHealth struct {
-	PID    int `json:"pid"`
+	PID    int
 	Schema int `json:"schema"`
 }
 
-// health reads the running daemon's status, or a zero value when it does not answer.
+// health reads the running daemon's schema from its status and its process ID from the
+// manager (v0.1.0's status has no pid), or a zero value when the daemon does not answer.
 func health(t *testing.T, state string) daemonHealth {
 	t.Helper()
 	var h daemonHealth
@@ -139,6 +140,7 @@ func health(t *testing.T, state string) daemonHealth {
 	}
 	data, _ := json.Marshal(call(t, state, "/v1/status", nil))
 	json.Unmarshal(data, &h)
+	h.PID = daemonPID(t)
 	return h
 }
 
