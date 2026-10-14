@@ -44,6 +44,8 @@ wake accounting can still update internal metadata while these tools read that d
 | `work_checkout` | Read the checkout's advisory writer role. |
 | `decision_list` | Page decision-board item summaries; it moves no cursor. |
 | `decision_get` | Read one decision-board item and its recipients; it moves no cursor. |
+| `decision_history` | Page a decision-board item's verdicts and snapshots; it moves no cursor. |
+| `decision_pending` | List this session's unacknowledged verdict deliveries; it moves no cursor. |
 
 State-changing tools send messages, advance acknowledgements or write shared work/memory.
 Allow them when the maintainer has authorized the corresponding coordination workflow.
@@ -58,7 +60,10 @@ Allow them when the maintainer has authorized the corresponding coordination wor
 | `memory_ack` | Advance the memory cursor after processing all pages/deltas. |
 | `memory_record` | Write a memory entry; its content grants no permission. |
 | `decision_create` | Create a decision-board item for the maintainer; only the maintainer gives a verdict, in the dashboard. |
-| `decision_edit` | Change a decision-board item at the revision that was read. |
+| `decision_edit` | Change a decision-board item at the revision that was read; an edit of a decided item reopens it. |
+| `decision_ack` | Acknowledge handled verdict deliveries; not proof of action. |
+| `decision_close` | Close an approved item in progress when its work is done. |
+| `decision_restore` | Bring a deep-archived decision item back into the archive. |
 | `work_create` | Record a proposed work item's scope. |
 | `work_propose` | Record an assignee proposal without transferring a claim. |
 | `work_edit` | Revise recorded work scope within the maintainer's authorization. |

@@ -1,16 +1,23 @@
 {{define "list"}}<form method="get" action="/dashboard/decisions" class="inline"><label>Reference <input name="ref" maxlength="32" value="{{.Data.Lookup}}"></label> <button type="submit">Find</button></form>
 {{with .Data.LookupErr}}<p class="empty">{{.}}</p>{{end}}{{with .Data.Item}}<h2>{{.Reference}}: {{.Title}}</h2>
-<p><small>{{.Kind}}, {{.State}}, revision {{.Revision}}, order {{.Order}}, by {{.AuthorName}} ({{.AuthorFamily}}), updated {{ms .UpdatedAt}}</small></p>
+<p><small>{{.Kind}}, {{.State}}, revision {{.Revision}}, order {{.Order}}, by {{.AuthorName}} ({{.AuthorFamily}}), updated {{ms .UpdatedAt}}, {{.Verdicts}} verdict(s) in history</small></p>
+{{with .Verdict}}<p>Current verdict: <strong>{{.Verdict}}</strong> on revision {{.Revision}}, {{ms .At}}{{with .Note}}: {{.}}{{end}}</p>
+{{if .Deliveries}}<ul>{{range .Deliveries}}<li>{{.Name}} <small>{{.Outcome}}{{with .Reason}} ({{.}}){{end}}</small></li>{{end}}</ul>{{end}}{{end}}
+{{with .ClosedBy}}<p><small>Closed by {{.}}</small></p>{{end}}{{with .OutcomeNote}}<pre class="body">{{.}}</pre>{{end}}
 {{with .Where}}<p><small>Where: {{.}}</small></p>{{end}}
 {{with .Context}}<h3>Context</h3><pre class="body">{{.}}</pre>{{end}}
 {{with .Recommendation}}<h3>Recommendation</h3><pre class="body">{{.}}</pre>{{end}}
 {{with .AgentText}}<h3>Agent text</h3><pre class="body">{{.}}</pre>{{end}}
 {{if .Commands}}<h3>Commands</h3>{{range .Commands}}<pre class="body">{{.}}</pre>{{end}}{{end}}
 {{with .HiddenCommands}}<p><small>{{.}} stored command(s) fail the printable-ASCII rule and are hidden.</small></p>{{end}}
-<h3>Recipients</h3>{{if .Recipients}}<ul>{{range .Recipients}}<li>{{.Name}} <small>{{if .Resolved}}{{.Kind}}{{else}}not resolved: {{.Reason}}{{end}}</small></li>{{end}}</ul>{{else}}<p class="empty">No recipients named.</p>{{end}}{{end}}
+<h3>Recipients</h3>{{if .Recipients}}<ul>{{range .Recipients}}<li>{{.Name}} <small>{{if .Resolved}}{{.Kind}}{{else}}not resolved: {{.Reason}}{{end}}</small></li>{{end}}</ul>{{else}}<p class="empty">No recipients named.</p>{{end}}
+{{if eq .State "active"}}<form method="post" class="verdict"><input type="hidden" name="csrf" value="{{$.CSRF}}"><input type="hidden" name="reference" value="{{.Reference}}"><input type="hidden" name="revision" value="{{.Revision}}">
+<label class="wide">Note (optional) <textarea name="note" rows="2" maxlength="4096"></textarea></label>
+{{if eq .Kind "fyi"}}<button type="submit" formaction="/dashboard/actions/decision-dismiss">Dismiss</button>{{else}}<button type="submit" formaction="/dashboard/actions/decision-approve"{{if .HiddenCommands}} disabled{{end}}>Approve</button> <button type="submit" formaction="/dashboard/actions/decision-decline">Decline</button>{{end}}</form>
+<p><small>Your verdict applies to revision {{.Revision}} as shown here. It is your instruction and approval to the named agents (PDR 005, Decision 3).</small></p>{{end}}{{end}}
 <h2>Active items</h2>
 {{if not .Data.Page.Items}}<p class="empty">No active decision items.</p>{{else}}<table>
 <thead><tr><th>Reference</th><th>Title</th><th>Kind</th><th>Order</th><th>Revision</th></tr></thead>
 <tbody>{{range .Data.Page.Items}}<tr><td><a href="/dashboard/decisions?ref={{.Reference}}">{{.Reference}}</a></td><td>{{.Title}}</td><td>{{.Kind}}</td><td>{{.Order}}</td><td>{{.Revision}}</td></tr>{{end}}</tbody></table>{{end}}
 {{with .Data.Page.NextAfter}}<p><a href="/dashboard/decisions?after={{.}}">Next page</a></p>{{end}}
-<p><small>Read-only. Agents write these items; the maintainer's verdicts arrive in a later change.</small></p>{{end}}
+<p><small>Agents write these items. Find an item by reference to give a verdict.</small></p>{{end}}
