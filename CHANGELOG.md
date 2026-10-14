@@ -5,6 +5,27 @@ into a dated release section when promoted to `main`.
 
 ## Unreleased
 
+## 2026-10-14 — Participants, rooms, the decision board and managed context cycles
+
+This release adds participant addresses with roles and verified succession, rooms and the
+decision board on the dashboard, and managed context cycles for Claude Code (Linux and macOS)
+and Codex (Linux). It adds a macOS system service that survives logout, the Codex pane wake
+after `/clear`, the Grok family, and portable skills embedded in the binary. The state schema
+is 26; `koinon install` upgrades a v0.1.0 installation in place.
+
+Known limits:
+
+- The cycle adapters run only with the CLI versions that their evidence covers: Claude Code
+  2.1.296 and Codex CLI 0.162.0. Another version reports `native_version_unverified`.
+- The Codex cycle stays unverified on macOS until its approval case passes (#196).
+- On macOS, the system service's start at boot with nobody logged in and a reinstall while
+  logged out are not yet checked live (#283).
+- The DeepSeek harness's permission grammar remains unverified (#199).
+- A running agent session keeps the `koinon mcp` server it started with; tools that this
+  release adds appear when the session, or its MCP server, starts again (docs/INSTALL.md).
+
+Changes:
+
 - Managed context cycle for Claude Code on macOS (#196): the macOS live check passed with
   Claude Code 2.1.296, so the adapter is available on macOS. The Codex adapter passed the same
   run except its approval case, which the sheet now runs with user approvals; Codex stays
@@ -24,8 +45,7 @@ into a dated release section when promoted to `main`.
   only as the reset's proven successor. A session that holds no participant address reports
   `participant_unheld`. For every family, the epoch is proven again right before the pickup
   (`epoch_changed`), a dialog during the pickup wait is shown on the Sessions page, and the
-  report is accepted during it with the revision of the pickup wait. macOS stays unverified
-  until its live check.
+  report is accepted during it with the revision of the pickup wait.
 - `refusal-review` skill: the review also checks each maintainer decision a change records or
   cites. The record states the question it answered, the options, the answer quoted with its
   date, and the reason with its scope; a bare quote is a finding (WDR 001, Decision 6).
@@ -36,8 +56,7 @@ into a dated release section when promoted to `main`.
   ran only its first cycle; the next one ended `uncertain` (`dialog_not_shown`), because the
   session keeps the added loader directory across `/clear` and Claude Code then shows no
   dialog. The adapter now accepts that reply and still checks the `/pickup` menu. On macOS the
-  adapter reads the host's configuration directory and process start (the platform stays
-  unverified until its live check, `docs/sprints/2026-10-12-context-handoff/macos-live-check.md`).
+  adapter reads the host's configuration directory and process start.
   Linux live evidence for a native dialog inside a cycle and for daemon crashes around the
   clear and pickup inputs is in `native-evidence.md` of that sprint.
 - Decision board (#206): the dashboard's Decisions page is the designed board. It
