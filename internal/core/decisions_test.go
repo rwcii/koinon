@@ -171,8 +171,9 @@ func TestDecisionCallerAndFieldRefusals(t *testing.T) {
 	if _, err := s.db.Exec(`UPDATE decision_items SET state='in_progress' WHERE reference='R-2'`); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := s.DecisionEdit(ctx, caller, "R-2", 1, DecisionFields{Title: ptr("x")}); refusalCode(err) != "decided" {
-		t.Fatalf("decided edit: %v", err)
+	// An edit of a decided item reopens it (chunk 02).
+	if reopened, err := s.DecisionEdit(ctx, caller, "R-2", 1, DecisionFields{Title: ptr("x")}); err != nil || reopened.State != "active" {
+		t.Fatalf("reopen edit: %+v %v", reopened, err)
 	}
 	if _, err := s.DecisionList(ctx, caller, "everything", 0, 0); refusalCode(err) != "invalid_request" {
 		t.Fatalf("filter: %v", err)
@@ -516,7 +517,7 @@ func TestDecisionSchemaUpgradeKeepsRetainedState(t *testing.T) {
 	m := MemoryCaller{Family: "codex", Repository: "/synthetic/schema25/.git", Consumer: "synthetic-schema25", Name: "synthetic-schema25"}
 	note(t, s, m, MemoryRecordRequest{Type: "finding", Body: "synthetic retained schema24 note"})
 	before := rowsOf(t, s.db)
-	if _, err := s.db.Exec(undoSchemaTwentyFive + `PRAGMA user_version=24`); err != nil {
+	if _, err := s.db.Exec(undoSchemaTwentySix + undoSchemaTwentyFive + `PRAGMA user_version=24`); err != nil {
 		t.Fatal(err)
 	}
 	if err := checkCatalog(s.db, 24); err != nil {
@@ -530,7 +531,7 @@ func TestDecisionSchemaUpgradeKeepsRetainedState(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer upgraded.db.Close()
-	if count(t, upgraded, `PRAGMA user_version`) != schemaVersion || schemaVersion != 25 || rowsOf(t, upgraded.db) != before {
+	if count(t, upgraded, `PRAGMA user_version`) != schemaVersion || rowsOf(t, upgraded.db) != before {
 		t.Fatal("schema25 changed retained state")
 	}
 	for _, table := range []string{"decision_items", "decision_recipients", "decision_replays"} {

@@ -211,8 +211,24 @@ paged with `--after`) and `decision_get` (`--reference REF`), never from the das
 Write card prose in ASD-STE100; context, recommendation and agent text are Markdown, and
 terminal-copy commands are printable ASCII. Known key formats are refused, but leave out all
 credentials, personal data, private session IDs and peer message bodies. The dashboard
-**Decisions** page lists the active items and finds an item by reference. It is read-only for
-now; the maintainer's verdicts come with a later change.
+**Decisions** page lists the active items and finds an item by reference.
+
+Find an item on the Decisions page to give a verdict: **Approve** or **Decline** a decision
+item, or **Dismiss** an fyi item, with an optional note. The verdict applies to the revision
+the page showed, keeps a snapshot of that text, and is your instruction and approval to the
+named agents. Approve moves the item to in progress; Decline and Dismiss archive it. Each
+named agent gets an inbox message and a wake that name the verdict ID. An agent reads it with
+`decision_get` (`koinon decision get`), handles it and acknowledges it with `decision_ack`
+(`koinon decision ack --verdict ID`); `decision_pending` (`koinon decision pending`) lists
+the verdicts it has not acknowledged. When the approved work is done, the agent closes the
+item with `decision_close` (`koinon decision close --reference REF --if-revision N --key KEY
+--deadline UNIX_SECONDS`), which archives it. An agent edit of a decided item reopens it for a
+new verdict; `decision_history` pages every verdict with its snapshot.
+
+Nothing is deleted. 30 days after an item is archived, and once every delivery is
+acknowledged, Koinon moves the whole record to `decisions/YYYY-MM.jsonl` in its state
+directory. `decision_get` then answers `deep_archived`, and `decision_restore` (`koinon
+decision restore --reference REF`) brings the item back into the archive.
 
 ## Peer status
 

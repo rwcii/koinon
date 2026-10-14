@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"path/filepath"
 	"strconv"
 	"strings"
@@ -50,13 +51,25 @@ func TestDecisionCommandsOfTheDeepSeekGuide(t *testing.T) {
 			lines[strings.Fields(line)[2]] = line
 		}
 	}
-	if len(lines) != 4 {
+	if len(lines) != 9 {
 		t.Fatalf("guide decision commands: %v", lines)
 	}
-	for _, op := range []string{"create", "edit", "get", "list"} {
+	// The item is active, so close and restore reach the daemon and are refused there.
+	refused := map[string]string{"close": "not_in_progress", "restore": "not_found"}
+	for _, op := range []string{"create", "edit", "get", "list", "history", "pending", "ack", "close", "restore"} {
 		line := strings.NewReplacer("$DSH_SESSION_ID", "synthetic-guide", "REF", "G-1", "KEY", "synthetic-key",
-			"UNIX_SECONDS", deadline, "REVISION", "1", "'title'", "Synthetic").Replace(lines[op])
+			"UNIX_SECONDS", deadline, "REVISION", "2", "'title'", "Synthetic", "VERDICT_ID", "1").Replace(lines[op])
+		if op == "edit" {
+			line = strings.Replace(line, "--if-revision 2", "--if-revision 1", 1)
+		}
 		reply, err := run(strings.Fields(line)[2:])
+		var refusal core.RefusedError
+		if want := refused[op]; want != "" {
+			if !errors.As(err, &refusal) || refusal.Code != want {
+				t.Fatalf("%s: %v %v", line, reply, err)
+			}
+			continue
+		}
 		if err != nil || reply["ok"] != true {
 			t.Fatalf("%s: %v %v", line, reply, err)
 		}
