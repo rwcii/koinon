@@ -1,6 +1,8 @@
 package platform
 
 import (
+	"bytes"
+	"encoding/binary"
 	"errors"
 	"os/exec"
 	"strconv"
@@ -69,10 +71,58 @@ func ProcessStart(pid int) (int64, error) {
 	return int64(start.Sec)*1_000_000 + int64(start.Usec), nil
 }
 
-// ProcessEnvironment is not available on macOS: no supported interface reads another
-// process's environment.
+// ProcessEnvironment reports one variable of a process this user owns, from its initial
+// environment: the kern.procargs2 sysctl, read without cgo, holds the argument count, the
+// executable path and its padding, the arguments and then the environment, each ended by a
+// NUL; an empty string ends the environment. A missing variable is "" with no error.
 func ProcessEnvironment(pid int, name string) (string, error) {
-	return "", errors.New("process environment is not available on macOS")
+	if pid <= 0 {
+		return "", ErrProcessGone
+	}
+	data, err := unix.SysctlRaw("kern.procargs2", pid)
+	if err != nil {
+		return "", err
+	}
+	return procargsEnvironment(data, name)
+}
+
+// procargsEnvironment reads one variable from a kern.procargs2 buffer.
+func procargsEnvironment(data []byte, name string) (string, error) {
+	unreadable := errors.New("process arguments unreadable")
+	if len(data) < 4 {
+		return "", unreadable
+	}
+	argc := int(binary.NativeEndian.Uint32(data))
+	rest := data[4:]
+	end := bytes.IndexByte(rest, 0)
+	if end < 0 {
+		return "", unreadable
+	}
+	rest = rest[end:]
+	for len(rest) > 0 && rest[0] == 0 {
+		rest = rest[1:]
+	}
+	for ; argc > 0; argc-- {
+		if end = bytes.IndexByte(rest, 0); end < 0 {
+			return "", unreadable
+		}
+		rest = rest[end+1:]
+	}
+	for len(rest) > 0 {
+		entry := rest
+		if end = bytes.IndexByte(rest, 0); end >= 0 {
+			entry, rest = rest[:end], rest[end+1:]
+		} else {
+			rest = nil
+		}
+		if len(entry) == 0 {
+			break
+		}
+		if value, ok := strings.CutPrefix(string(entry), name+"="); ok {
+			return value, nil
+		}
+	}
+	return "", nil
 }
 
 // ProcessGroups reports the process group, controlling terminal and that terminal's
