@@ -435,6 +435,12 @@ func TestHomebrewFormula(t *testing.T) {
 		}
 	}
 	workflow := read(t, ".github/workflows/release.yml")
+	publish, _, _ := strings.Cut(workflow[strings.Index(workflow, "\n  publish:"):], "\n  homebrew:")
+	for _, want := range []string{"uses: actions/checkout@v4", `--force origin "+refs/tags/$GITHUB_REF_NAME:refs/tags/$GITHUB_REF_NAME"`, "--notes-from-tag"} {
+		if !strings.Contains(publish, want) {
+			t.Errorf("release publish job lacks %s", want)
+		}
+	}
 	for _, want := range []string{"homebrew:", "needs: publish", "scripts/homebrew-formula.sh \"$GITHUB_REF_NAME\" dist/SHA256SUMS", "secrets.HOMEBREW_TAP_DEPLOY_KEY", "rwcii/homebrew-koinon"} {
 		if !strings.Contains(workflow, want) {
 			t.Errorf("release workflow lacks %s", want)
