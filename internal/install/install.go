@@ -68,6 +68,8 @@ type Report struct {
 	LinkResult   string         `json:"link_result"`
 	OnPath       string         `json:"on_path,omitempty"`
 	PathStep     string         `json:"path_step,omitempty"`
+	OtherBinary  string         `json:"other_binary,omitempty"`
+	SourceStep   string         `json:"source_step,omitempty"`
 	Agents       []setup.Report `json:"agents"`
 }
 
@@ -244,9 +246,44 @@ func searchDirs(path string) []string {
 
 // lookPath returns the koinon that the search path runs, or "".
 func lookPath(path string) string {
+	if all := lookPathAll(path); len(all) > 0 {
+		return all[0]
+	}
+	return ""
+}
+
+// lookPathAll returns every koinon executable on the search path, in its order.
+func lookPathAll(path string) []string {
+	var found []string
 	for _, dir := range searchDirs(path) {
 		candidate := filepath.Join(dir, "koinon")
 		if info, err := os.Stat(candidate); err == nil && info.Mode().IsRegular() && info.Mode().Perm()&0111 != 0 {
+			found = append(found, candidate)
+		}
+	}
+	return found
+}
+
+// shellQuote quotes a word for a POSIX shell: in single quotes, where each embedded single
+// quote closes the quoting, is escaped with a backslash and reopens it.
+func shellQuote(s string) string {
+	return "'" + strings.ReplaceAll(s, "'", `'\''`) + "'"
+}
+
+// otherBinary returns the first koinon on the search path with other content than the
+// installed binary, when the install ran the installed binary itself; otherwise "".
+// That install copied nothing, and the other one, such as a Homebrew copy, may be the
+// binary that was meant.
+func otherBinary(source, binary, path string) string {
+	if !sameFile(source, binary) {
+		return ""
+	}
+	installed, err := digest(binary)
+	if err != nil {
+		return ""
+	}
+	for _, candidate := range lookPathAll(path) {
+		if have, err := digest(candidate); err == nil && !bytes.Equal(have, installed) {
 			return candidate
 		}
 	}
@@ -371,6 +408,9 @@ func Install(ctx context.Context, o Options) (Report, error) {
 	}
 	r.OnPath = lookPath(o.Path)
 	r.PathStep = pathStep(r, o.LinkDir, o.Path)
+	if r.OtherBinary = otherBinary(o.Source, r.Binary, o.Path); r.OtherBinary != "" {
+		r.SourceStep = fmt.Sprintf("this ran the installed binary, so nothing was copied; to install %s, run %s install", r.OtherBinary, shellQuote(r.OtherBinary))
+	}
 	if system != nil {
 		r.Artifact = o.Services.SystemArtifact()
 		if err := o.Services.InstallSystem(ctx, platform.SystemInstall{Binary: r.Binary, State: o.StateDir, Plist: *system,

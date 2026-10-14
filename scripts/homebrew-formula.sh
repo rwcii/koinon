@@ -62,10 +62,11 @@ class Koinon < Formula
 
   def caveats
     <<~EOS
-      Install the daemon and set up your agents:
-        koinon install --agent claude --agent codex
-      After each brew upgrade, run koinon install again. It copies the new binary
-      into its own prefix and restarts the daemon.
+      Install the daemon and set up your agents with this formula's binary:
+        #{opt_bin}/koinon install --agent claude --agent codex
+      After each brew upgrade, run #{opt_bin}/koinon install again. It copies the
+      new binary into its own prefix and restarts the daemon. A bare koinon install
+      can run the copy already installed in ~/.local/bin, which changes nothing.
     EOS
   end
 
