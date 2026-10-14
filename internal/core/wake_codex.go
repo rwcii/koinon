@@ -378,14 +378,7 @@ func sgrText(line string) (text string, undimmed bool) {
 				end++
 			}
 			if end < len(line) && line[end] == 'm' {
-				for _, param := range strings.Split(line[i+2:end], ";") {
-					switch param {
-					case "", "0", "22":
-						dim = false
-					case "2":
-						dim = true
-					}
-				}
+				dim = sgrDim(line[i+2:end], dim)
 			}
 			i = end + 1
 			continue
