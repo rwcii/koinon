@@ -33,9 +33,9 @@ var claudeEvidencedVersions = map[string]bool{"2.1.296": true}
 // claudeAnyVersion admits every Claude Code version; only a livecheck build sets it.
 var claudeAnyVersion bool
 
-// claudeEvidencedPlatforms are the operating systems with native evidence; macOS follows its
-// own evidence run (docs/sprints/2026-10-12-context-handoff/macos-live-check.md).
-var claudeEvidencedPlatforms = map[string]bool{"linux": true}
+// claudeEvidencedPlatforms are the operating systems with native evidence
+// (docs/sprints/2026-10-12-context-handoff/native-evidence.md).
+var claudeEvidencedPlatforms = map[string]bool{"linux": true, "darwin": true}
 
 // claudeRegistryMax bounds a registry record read.
 const claudeRegistryMax = 64 << 10
