@@ -416,10 +416,12 @@ entry. Codex runs a `$pickup` mention of every skill named `pickup` in `.agents/
 (`pickup_entry_unverified`); there is no loader. Codex turns a skill off only through
 `skills.config` entries, so Probe reads the effective entries of the host's configuration as
 TOML, from the lowest layer to the highest: `/etc/codex/config.toml`, `$CODEX_HOME/config.toml`,
-the `.codex/config.toml` of each directory from the worktree root down to the session
-directory, the host's own `-c`/`--config` arguments and `/etc/codex/managed_config.toml`.
-Tables merge, and any other value of a higher layer replaces the lower one. An effective entry,
-at the top level or in the active profile, or an entry in `/etc/codex/requirements.toml`, whose
+the profile that the host's `-p`/`--profile` selects (`$CODEX_HOME/<name>.config.toml`, on top
+of the user file; a selected profile without its file is `pickup_entry_unverified`), the
+`.codex/config.toml` of each directory from the worktree root down to the session directory,
+the host's own `-c`/`--config` arguments and `/etc/codex/managed_config.toml`. Tables merge,
+and any other value of a higher layer replaces the lower one. An effective entry, or an entry
+in `/etc/codex/requirements.toml`, whose
 `enabled` is not `true` and that names `pickup`, a checked file or its directory, or a path
 that does not resolve, gives `pickup_entry_unverified`, as does another value on that path; a
 layer that does not parse gives `pickup_entry_unreadable`. The Sessions page shows `project`

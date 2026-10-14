@@ -27,9 +27,10 @@ type codexLayer struct {
 
 // codexActivation checks the effective skills.config of the host's configuration, layer by
 // layer in Codex's order from lowest to highest: /etc/codex/config.toml, $CODEX_HOME/config.toml,
-// the .codex/config.toml of each directory from the checkout root down to the session's
-// directory (dirs lists them upward), the host's own -c/--config arguments, and
-// /etc/codex/managed_config.toml. Tables merge and any other value of a higher layer replaces
+// the profile that the host's -p/--profile names ($CODEX_HOME/<name>.config.toml, which
+// Codex 0.162.0 layers on top of the base user configuration), the .codex/config.toml of each
+// directory from the checkout root down to the session's directory (dirs lists them upward),
+// the host's own -c/--config arguments, and /etc/codex/managed_config.toml. Tables merge and any other value of a higher layer replaces
 // the lower one, so the effective entries are those of the highest layer that sets them.
 // /etc/codex/requirements.toml constrains rather than sets values: a disabling entry there
 // refuses as well.
@@ -48,7 +49,23 @@ func codexActivation(t CycleTarget, codex string, dirs []string, files []string)
 		}
 		return &codexLayer{doc, filepath.Dir(path)}, nil
 	}
+	_, args, err := t.tools.processCommand(int(t.HostPID))
+	if err != nil {
+		return errors.New("pickup_entry_unverified")
+	}
+	values, profile := codexArguments(args)
 	paths := []string{"/etc/codex/config.toml", filepath.Join(codex, "config.toml")}
+	if profile != "" {
+		// A profile that is not a plain file name, or whose file is missing, is not proven.
+		if profile != filepath.Base(profile) || strings.HasPrefix(profile, ".") {
+			return errors.New("pickup_entry_unverified")
+		}
+		path := filepath.Join(codex, profile+".config.toml")
+		if !exists(path) {
+			return errors.New("pickup_entry_unverified")
+		}
+		paths = append(paths, path)
+	}
 	for i := len(dirs) - 1; i >= 0; i-- {
 		paths = append(paths, filepath.Join(dirs[i], ".codex", "config.toml"))
 	}
@@ -62,11 +79,6 @@ func codexActivation(t CycleTarget, codex string, dirs []string, files []string)
 			layers = append(layers, *layer)
 		}
 	}
-	_, args, err := t.tools.processCommand(int(t.HostPID))
-	if err != nil {
-		return errors.New("pickup_entry_unverified")
-	}
-	values, profile := codexArguments(args)
 	for _, value := range values {
 		doc, err := codexOverride(value)
 		if err != nil {
@@ -79,40 +91,9 @@ func codexActivation(t CycleTarget, codex string, dirs []string, files []string)
 	} else if layer != nil {
 		layers = append(layers, *layer)
 	}
-	// The active profile: the -p argument, else the effective profile key. A key that is not a
-	// name leaves it unknown ("*"): then every profile counts.
-	if profile == "" {
-		if value, _ := codexEffective(layers, "profile"); value != nil {
-			if name, ok := value.(string); ok {
-				profile = name
-			} else {
-				profile = "*"
-			}
-		}
-	}
-	check := func(keys ...string) error {
-		value, base := codexEffective(layers, keys...)
-		return codexEntries(value, base, files)
-	}
-	if err := check("skills", "config"); err != nil {
+	value, base := codexEffective(layers, "skills", "config")
+	if err := codexEntries(value, base, files); err != nil {
 		return err
-	}
-	if profile != "" {
-		names := []string{profile}
-		if profile == "*" {
-			names = nil
-			for _, layer := range layers {
-				profiles, _ := layer.doc["profiles"].(map[string]any)
-				for name := range profiles {
-					names = append(names, name)
-				}
-			}
-		}
-		for _, name := range names {
-			if err := check("profiles", name, "skills", "config"); err != nil {
-				return err
-			}
-		}
 	}
 	requirements, err := read("/etc/codex/requirements.toml")
 	if err != nil {
@@ -177,6 +158,8 @@ func codexArguments(args []string) (values []string, profile string) {
 			profile = next()
 		case strings.HasPrefix(arg, "--profile="):
 			profile = strings.TrimPrefix(arg, "--profile=")
+		case strings.HasPrefix(arg, "-p") && len(arg) > 2:
+			profile = strings.TrimPrefix(strings.TrimPrefix(arg, "-p"), "=")
 		}
 	}
 	return values, profile

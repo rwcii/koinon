@@ -365,9 +365,9 @@ func TestCodexActivation(t *testing.T) {
 	project := filepath.Join(target.Directory, ".codex", "config.toml")
 	quote := strconv.Quote
 	for _, c := range []struct {
-		name, user, project string
-		args                []string
-		refused             string
+		name, user, project, profile string
+		args                         []string
+		refused                      string
 	}{
 		{name: "none"},
 		{name: "unrelated skills setting", user: "[skills]\ninclude_instructions = true\n"},
@@ -390,10 +390,17 @@ func TestCodexActivation(t *testing.T) {
 		{name: "inline argument relative path", args: []string{"--config", `skills.config=[{path="SKILL.md",enabled=false}]`}, refused: "pickup_entry_unverified"},
 		{name: "plain string argument", args: []string{"-c", "skills.config=pickup"}, refused: "pickup_entry_unverified"},
 		{name: "unrelated argument", args: []string{"-c", `shell_environment_policy.set.KOINON_CODEX_HOST="4343"`}},
-		{name: "active profile", user: "profile = \"p\"\n[profiles.p.skills]\nconfig = [{name = \"pickup\", enabled = false}]\n", refused: "pickup_entry_unverified"},
-		{name: "profile argument", user: "[profiles.p.skills]\nconfig = [{name = \"pickup\", enabled = false}]\n", args: []string{"-p", "p"}, refused: "pickup_entry_unverified"},
-		{name: "inactive profile", user: "profile = \"q\"\n[profiles.p.skills]\nconfig = [{name = \"pickup\", enabled = false}]\n"},
-		{name: "no active profile", user: "[profiles.p.skills]\nconfig = [{name = \"pickup\", enabled = false}]\n"},
+		{name: "a profile disables the base's enabled entry", user: "[[skills.config]]\nname = \"pickup\"\nenabled = true\n",
+			profile: "[[skills.config]]\npath = " + quote(file) + "\nenabled = false\n", args: []string{"-p", "p"}, refused: "pickup_entry_unverified"},
+		{name: "a profile enables the base's disabled entry", user: "[[skills.config]]\npath = " + quote(file) + "\nenabled = false\n",
+			profile: "[[skills.config]]\npath = " + quote(file) + "\nenabled = true\n", args: []string{"--profile", "p"}},
+		{name: "the short profile spelling", profile: "[[skills.config]]\nname = \"pickup\"\nenabled = false\n", args: []string{"-pp"},
+			refused: "pickup_entry_unverified"},
+		{name: "the profile file is not selected", profile: "[[skills.config]]\nname = \"pickup\"\nenabled = false\n"},
+		{name: "a selected profile without its file", args: []string{"--profile=q"}, refused: "pickup_entry_unverified"},
+		{name: "a -c array over a disabling profile", profile: "[[skills.config]]\nname = \"pickup\"\nenabled = false\n",
+			args: []string{"-p", "p", "-c", `skills.config=[{name="other",enabled=false}]`}},
+		{name: "a legacy profile table has no effect", user: "[profiles.p.skills]\nconfig = [{name = \"pickup\", enabled = false}]\n"},
 		{name: "a higher -c array replaces a disabling user entry", user: "[[skills.config]]\npath = " + quote(file) + "\nenabled = false\n",
 			args: []string{"-c", `skills.config=[{path=` + quote(file) + `,enabled=true}]`}},
 		{name: "a project entry over an enabling user entry", user: "[[skills.config]]\nname = \"pickup\"\nenabled = true\n",
@@ -402,10 +409,13 @@ func TestCodexActivation(t *testing.T) {
 			args: []string{"-c", `skills.config=[{name="other",enabled=false}]`}},
 		{name: "a project value in place of the skills table", user: "[[skills.config]]\nname = \"pickup\"\nenabled = false\n",
 			project: "skills = \"off\"\n", refused: "pickup_entry_unverified"},
-		{name: "unknown profile", user: "profile = \"q\"\n[profiles.p.skills]\nconfig = [{name = \"pickup\", enabled = false}]\n", project: "profile = \"p\"\n", refused: "pickup_entry_unverified"},
 	} {
 		os.Remove(config)
 		os.Remove(project)
+		os.Remove(filepath.Join(term.codex, "p.config.toml"))
+		if c.profile != "" {
+			writeEntry(t, filepath.Join(term.codex, "p.config.toml"), []byte(c.profile))
+		}
 		if c.user != "" {
 			writeEntry(t, config, []byte(c.user))
 		}
