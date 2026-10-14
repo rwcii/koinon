@@ -68,11 +68,30 @@ dialog, and the cycle ended `uncertain` (`dialog_not_shown`) with Enable off. Wi
 same session's next cycle ran requested, ready, bootstrap_intent, bootstrap_verified,
 clear_intent, clear_received, reset_verified, pickup_intent, waiting_pickup, complete (resumed).
 
-## macOS
+## macOS, Claude Code 2.1.296, 2026-10-14
 
-Not run yet. The adapter reports `platform_unverified` on macOS. The steps are in
-[macos-live-check.md](macos-live-check.md); its results go here, and the evidenced platform and
-version are added in the same change.
+macOS 26.6.2 (arm64), tmux 3.7c, Go 1.27.2, a livecheck build of develop `6a57b20`, the steps
+of [macos-live-check.md](macos-live-check.md) through a wrapper around its functions, and the
+Claude family threshold at 2%.
+
+| Check | Result |
+| --- | --- |
+| M0 Probe | The process start equals `ps -o lstart`; the Sessions row showed `pickup through loader`. |
+| M1 Loader | Seven cycles in sequence, each requested, ready, clear_intent, clear_received, reset_verified, pickup_intent, waiting_pickup, complete (resumed). |
+| M2 Project skill | `pickup through project`; complete (resumed). |
+| M3 Interactive bootstrap | Two cycles complete (resumed), each with bootstrap_intent and bootstrap_verified. |
+| M4 Native dialog | requested, ready, waiting_prompt (`native_dialog`), prompt_intent (`maintainer_option`), ready (`prompt_answered`), clear_intent … complete (resumed). The dialog was Claude Code's `touch` approval (1 Yes, 2 No), shown on the Sessions page and answered with option 1. |
+
+Daemon crashes (M5):
+
+| Case | Result after the restart |
+| --- | --- |
+| E1 at clear_intent | At delay 0 the adapter had already typed `/clear`, so the run gave the E4 result. The restart treats a cycle at clear_intent the same with or without typed text; E4 proves the case with text. |
+| E2 1.5 s after clear_intent | reset_verified was recorded before the kill; after the restart the cycle completed (resumed). |
+| E3 at pickup_intent | uncertain (`pickup_unreceipted`); no `/pickup` typed after the restart; the input line empty; Enable ended. |
+| E4 (the E1 run) | uncertain (`reset_unproven`); `/clear` stayed in the input line, not submitted; Enable ended. |
+
+The adapter is available on macOS for Claude Code 2.1.296.
 
 ## Codex CLI 0.162.0, Linux, 2026-10-14
 
@@ -117,10 +136,21 @@ authorizes a context reset; it read the overwatch request as one. The same revie
 report in the other runs. The cycle waited in waiting_ready and entered nothing; Koinon does
 not work around a native denial.
 
-## macOS, Codex
+## macOS, Codex CLI 0.162.1, 2026-10-14
 
-Not run yet. The adapter reports `platform_unverified` on macOS; the steps are in
-[macos-live-check.md](macos-live-check.md).
+The run of the Claude Code section above, with the Codex family threshold at 1%.
+
+| Check | Result |
+| --- | --- |
+| X0 Probe | `pickup through project`. |
+| X1 Cycles | Three cycles completed and Enable carried over each time. Each new thread reported outcome `paused`, its own choice (the guide allows `resumed` or `paused`). The participant events were `host_cleared`, not `cycle_reset`: the Mac has the SessionStart hook of `koinon setup codex`, which registers the new thread at its first turn without a pane, so the cycle link (same pane) does not apply and the host rule moves the address first. |
+| X2 Approval | Not exercised. The session ran with the automatic approval review ("Approve for me"), which approved `context_cycle_pickup` itself; the cycle completed (resumed) without a dialog. The sheet's `approve` case now asks the user (`-a on-request`, `approvals_reviewer="user"`), as the Linux dialog cases did. |
+| X3 E1 at clear_intent | uncertain (`reset_unproven`); `/clear` unsent in the composer; nothing typed after the restart. |
+| X3 E3 at pickup_intent | uncertain (`pickup_unreceipted`). |
+
+Once, a thread read the cycle request but did not call `context_cycle_ready`; the cycle failed
+`waiting_ready_timeout` and entered nothing. The adapter stays `platform_unverified` on macOS
+until X2 passes; that run also admits 0.162.1.
 
 ## Other families
 

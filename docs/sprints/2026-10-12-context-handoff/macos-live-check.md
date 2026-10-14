@@ -184,7 +184,8 @@ case.
 
 A Codex test session runs the private build as its MCP server and trusts its temporary
 repository in memory only, so Codex's own configuration does not change. The `approve` case
-asks for `context_cycle_pickup` only.
+asks for `context_cycle_pickup` only, and asks you, not the automatic approval review: its
+`/status` card must not show "Approve for me".
 
 ```bash
 newcodex() { # newcodex NAME [approve]
@@ -192,7 +193,7 @@ newcodex() { # newcodex NAME [approve]
   printf '_handoff/\n' > .gitignore && cp "$K/src/agents/skills/pickup/SKILL.md" .agents/skills/pickup/ && git add -A
   git -c user.name=Synthetic -c user.email=s@example.invalid -c commit.gpgsign=false commit -qm init
   extra=""
-  [ "${2:-}" = approve ] && extra="-c mcp_servers.koinon.default_tools_approval_mode=\"approve\" -c mcp_servers.koinon.tools.context_cycle_pickup.approval_mode=\"prompt\""
+  [ "${2:-}" = approve ] && extra="-a on-request -c approvals_reviewer=\"user\" -c mcp_servers.koinon.default_tools_approval_mode=\"approve\" -c mcp_servers.koinon.tools.context_cycle_pickup.approval_mode=\"prompt\""
   p="$K:$(dirname "$(command -v codex)"):$(dirname "$(command -v tmux)"):/usr/bin:/bin"
   cat > "$K/launch-$1.sh" <<EOF
 #!/bin/sh

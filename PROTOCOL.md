@@ -345,7 +345,7 @@ the cycle's reason (`typed_not_read_back`, `escape_changed_input`, `submit_not_r
 `pickup_entry_not_listed`, `dialog_not_shown`, `erase_not_read_back`, `pane_unproven`).
 
 Probe decides whether a session's cycle can run, for Enable, at admission and before each
-input. It needs Linux (`platform_unverified` elsewhere until the macOS evidence run); the host's
+input. It needs Linux or macOS (`platform_unverified` elsewhere); the host's
 own Claude Code registry record (`sessions/<pid>.json` under the host's `CLAUDE_CONFIG_DIR`, else
 `~/.claude`, read from the host's initial environment) for the same process start
 (`native_registry_unavailable`; on macOS the record's start is `ps -o lstart` text in UTC, compared

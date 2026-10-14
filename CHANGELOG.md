@@ -5,6 +5,10 @@ into a dated release section when promoted to `main`.
 
 ## Unreleased
 
+- Managed context cycle for Claude Code on macOS (#196): the macOS live check passed with
+  Claude Code 2.1.296, so the adapter is available on macOS. The Codex adapter passed the same
+  run except its approval case, which the sheet now runs with user approvals; Codex stays
+  unverified on macOS until that case passes.
 - Screen reads in a truecolor terminal (#371): the Codex pane wake and the Codex and Claude Code
   cycle adapters read a 24-bit color (`48;2;R;G;B`) or a 256-color index of 0, 2 or 22 as color
   data, not as the dim or reset attribute. Before, a notice typed on a truecolor Codex composer
