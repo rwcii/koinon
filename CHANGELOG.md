@@ -5,6 +5,11 @@ into a dated release section when promoted to `main`.
 
 ## Unreleased
 
+- Release notes from the tag (#377): the release workflow fetches the annotated tag before it
+  creates the GitHub release, so `--notes-from-tag` reads the tag message. Before, the publish
+  job had no local tag and failed, as it did for v0.2.0, whose release was then created by hand
+  from the tag message.
+
 ## 2026-10-14 — Participants, rooms, the decision board and managed context cycles
 
 This release adds participant addresses with roles and verified succession, rooms and the
