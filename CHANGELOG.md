@@ -12,6 +12,10 @@ into a dated release section when promoted to `main`.
   `decision_ack`. Approved work is closed with `decision_close`. Editing a decided item
   reopens it. 30 days after archiving, records move to a monthly log file in the state
   directory, and `decision_restore` brings one back; nothing is deleted. Schema 26.
+- Faster store open: the expected schema catalog of each version is built once per process
+  instead of by migrating an in-memory database twice at each open. The tests copy a
+  migrated template store, so the race suite of `internal/core` fits its 30-minute limit
+  again (about 13 minutes on the maintainer's Linux host, from about 29).
 - DeepSeek live wake (#199): the wake of an idle DeepSeek Harness 0.2.0-rc.2 session
   (`dsh web`) through the Go daemon is proven in a development container. The guide,
   PERMISSIONS and INSTALL no longer call the live proof deferred; the harness's permission
