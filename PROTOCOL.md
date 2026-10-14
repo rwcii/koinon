@@ -1224,13 +1224,15 @@ Schema 26 adds verdicts, deliveries and the deep archive (#206, chunk 02): the t
 `decision_verdicts` (index `(item_id, id)`), `decision_deliveries` (index
 `(name, outcome, verdict_id)`) and `decision_deep_archive` (keyed by reference), the column
 `messages.decision_verdict`, and the item columns `closed_by`, `closed_at`, `outcome_note`,
-`mark_revision`, `mark_file` and `mark_offset`.
+`mark_revision`, `mark_file`, `mark_offset` and `verdict_count`. `verdict_count` holds the
+number of verdicts in the item's history, so `decision_get` reads it and the current verdict
+(the latest verdict, unless it is superseded) without a scan of the history.
 
 **Verdicts.** Only the dashboard gives a verdict (see Dashboard actions); no `/v1` route,
 MCP tool or command does. Approve and Decline apply to a `decision` item, Dismiss to an
 `fyi` item; another combination is `invalid_verdict`, a revision other than the one the page
 showed is `stale_revision`, an item that is not `active` is `decided`, and an item with a
-hidden command cannot be approved (`hidden_command`). An optional note is Markdown of at
+hidden command cannot be approved (`hidden_command`); Decline and Dismiss still apply. An optional note is Markdown of at
 most 4 KiB with the credential check. One ordinary write stores the verdict, a snapshot of
 the item's title, context, recommendation and commands at that revision, the item's new
 state (`in_progress` after Approve; `archived` after Decline or Dismiss), and for Approve and
@@ -1266,7 +1268,9 @@ acknowledgements do not change.
 - `POST /v1/decisions/close` takes `caller`, `reference`, `if_revision`, optional `note`
   (Markdown, 4 KiB), `key` and `deadline`, and moves an `in_progress` item to `archived` with
   the caller's peer name, the time and the note; another state is `not_in_progress`. A retry
-  with the same key returns the item. Create and close keep separate key spaces.
+  with the same key returns the item as this close returned it, also after a later edit or
+  verdict. Create and close keep separate key spaces; create keys are unchanged from schema
+  25, so a create receipt from before the upgrade still answers its retry.
 
 **Deep archive.** Nothing deletes a decision record. 30 days after an item was archived,
 once every delivery is `acknowledged` or `skipped`, the maintenance sweep moves its whole
