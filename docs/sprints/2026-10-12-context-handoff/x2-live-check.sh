@@ -178,13 +178,13 @@ while [ "$(date +%s)" -lt "$end" ]; do
 	waiting_prompt*)
 		if [ -z "$asked" ]; then
 			asked=1
-			link="http://[::1]:$PORT/dashboard/login?$(token)"
+			link="$BASE/dashboard/login?$(token)"
 			say "ACTION FOR YOU: the approval waits on the Sessions page."
-			say "  Open this link within 60 seconds (it logs in to the test dashboard only):"
+			say "  Open this link within 60 seconds (it replaces the work dashboard login in this browser; both use 127.0.0.1):"
 			say "  $link"
 			say "  On the row $PEER, read the native dialog, then click \"Choose 1\"."
 			command -v open >/dev/null && open "$link"
-			say "  An expired link? A new one: \"$K/koinon\" dashboard --state-dir \"$K/state\" --address '[::1]:$PORT' --no-open"
+			say "  An expired link? A new one: \"$K/koinon\" dashboard --state-dir \"$K/state\" --address 127.0.0.1:$PORT --no-open"
 			page sessions | grep -oE 'native dialog:.*' | sed -E 's/<form.*//; s/<br>/ | /g; s/<[^>]+>//g; s/&#34;/"/g; s/&#39;/'"'"'/g; s/&lt;/</g; s/&gt;/>/g; s/&amp;/\&/g' | sed 's/^/    /'
 		fi
 		;;
