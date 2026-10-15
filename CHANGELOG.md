@@ -5,6 +5,12 @@ into a dated release section when promoted to `main`.
 
 ## Unreleased
 
+## 2026-10-15 — Homebrew bottles
+
+This release publishes Homebrew bottles, so that `brew install` and `brew upgrade` need no
+developer tools on Apple Silicon and Linux, and adds `brew update` to the upgrade steps. The
+state schema stays 26; `koinon install` upgrades a v0.2.1 or v0.2.0 installation in place.
+
 - Homebrew bottles (#384): each release publishes a Homebrew bottle for macOS (arm64 and Intel,
   macOS 12 and later) and Linux (arm64 and x86_64), and the formula pours it. On Apple Silicon
   and Linux, Homebrew then needs no developer tools (Homebrew still requires them on Intel

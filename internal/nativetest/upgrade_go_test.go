@@ -17,7 +17,7 @@ import (
 	"time"
 )
 
-// TestUpgradeFromGoRelease installs the current main release (v0.2.0), seeds state through
+// TestUpgradeFromGoRelease installs the current main release (v0.2.1), seeds state through
 // its own commands, and upgrades it as INSTALL.md describes: the candidate's install with
 // the same prefix and state directory. The daemon restarts on the candidate and every
 // seeded item reads back.
@@ -81,8 +81,8 @@ func TestUpgradeFromGoRelease(t *testing.T) {
 		"--checkpoint", "claimed before the upgrade", "--next-artifact", "the upgrade", "--progress-deadline", deadline,
 		"--key", "upgrade-start", "--deadline", deadline)
 
-	// The claim's consumer as the release recorded it: v0.2.0 records the claim of a
-	// participant's session under the participant.
+	// The claim's consumer as the release recorded it: since v0.2.0, a release records the
+	// claim of a participant's session under the participant.
 	claimed, _ := json.Marshal(release("work", "get", work, "--state-dir", state, "--as", "deepseek:upgrade-a"))
 	consumer := regexp.MustCompile(`"consumer":"[^"]+"`).Find(claimed)
 	if consumer == nil {
