@@ -1,10 +1,12 @@
 #!/usr/bin/env bash
-# Print the Homebrew formula for one release: homebrew-formula.sh TAG SHA256SUMS.
+# Print the Homebrew formula for one release: homebrew-formula.sh TAG SHA256SUMS [ROOT_URL].
 # The release workflow writes the output to Formula/koinon.rb in rwcii/homebrew-koinon.
 # Homebrew reads the version from the release URL; an explicit version fails brew audit --strict.
+# When SHA256SUMS lists the bottles of homebrew-bottles.sh, the formula pours them from ROOT_URL,
+# by default the release's download URL.
 set -euo pipefail
-if [[ $# -ne 2 ]]; then
-  echo "usage: $0 TAG SHA256SUMS" >&2
+if [[ $# -ne 2 && $# -ne 3 ]]; then
+  echo "usage: $0 TAG SHA256SUMS [ROOT_URL]" >&2
   exit 2
 fi
 tag=$1
@@ -28,13 +30,38 @@ darwin_intel=$(sum koinon-darwin-amd64)
 linux_arm=$(sum koinon-linux-arm64)
 linux_intel=$(sum koinon-linux-amd64)
 base="https://github.com/rwcii/koinon/releases/download/$tag"
+# The bottle block: all four bottles, or none.
+bottles=(arm64_monterey monterey arm64_linux x86_64_linux)
+listed=0
+for b in "${bottles[@]}"; do
+  if awk -v f="koinon-${tag#v}.$b.bottle.tar.gz" '$2 == f || $2 == "*" f { found = 1 } END { exit !found }' "$sums"; then
+    listed=$((listed + 1))
+  fi
+done
+bottle=""
+if [[ $listed -eq ${#bottles[@]} ]]; then
+  bottle="  bottle do
+    root_url \"${3:-$base}\""
+  for b in "${bottles[@]}"; do
+    hash=$(sum "koinon-${tag#v}.$b.bottle.tar.gz")
+    bottle+="
+    sha256 cellar: :any_skip_relocation, $b: \"$hash\""
+  done
+  bottle+="
+  end
+
+"
+elif [[ $listed -ne 0 ]]; then
+  echo "$sums lists $listed of the ${#bottles[@]} bottles" >&2
+  exit 1
+fi
 cat <<RUBY
 class Koinon < Formula
   desc "Shared coordination and memory for local agent sessions"
   homepage "https://github.com/rwcii/koinon"
   license "MIT"
 
-  on_macos do
+${bottle}  on_macos do
     on_arm do
       url "$base/koinon-darwin-arm64"
       sha256 "$darwin_arm"
@@ -64,9 +91,10 @@ class Koinon < Formula
     <<~EOS
       Install the daemon and set up your agents with this formula's binary:
         #{opt_bin}/koinon install --agent claude --agent codex
-      After each brew upgrade, run #{opt_bin}/koinon install again. It copies the
-      new binary into its own prefix and restarts the daemon. A bare koinon install
-      can run the copy already installed in ~/.local/bin, which changes nothing.
+      To upgrade, run brew update before brew upgrade koinon, then run
+      #{opt_bin}/koinon install again and check koinon version. The install copies
+      the new binary into its own prefix and restarts the daemon. A bare koinon
+      install can run the copy already installed in ~/.local/bin, which changes nothing.
     EOS
   end
 
