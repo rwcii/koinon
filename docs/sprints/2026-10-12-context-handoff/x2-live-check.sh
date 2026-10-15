@@ -43,6 +43,11 @@ for c in git go tmux sqlite3 curl codex; do
 	command -v "$c" >/dev/null || die "$c is not on PATH"
 done
 curl -s -o /dev/null "$BASE/" && die "port $PORT is in use; run again with PORT=<free port>"
+# The browser step needs the desktop login: over SSH, or in a tmux server started over SSH,
+# macOS refuses open with launchd error 125.
+if [ "$(uname -s)" = Darwin ] && [ "$(launchctl managername 2>/dev/null)" != Aqua ]; then
+	die "run this script in Terminal on the Mac's desktop, not over SSH or in a tmux started over SSH"
+fi
 
 mkdir -p "$K" && chmod 700 "$K"
 say "Facts of the run:"
@@ -179,6 +184,7 @@ while [ "$(date +%s)" -lt "$end" ]; do
 			say "  $link"
 			say "  On the row $PEER, read the native dialog, then click \"Choose 1\"."
 			command -v open >/dev/null && open "$link"
+			say "  An expired link? A new one: \"$K/koinon\" dashboard --state-dir \"$K/state\" --address '[::1]:$PORT' --no-open"
 			page sessions | grep -oE 'native dialog:.*' | sed -E 's/<form.*//; s/<br>/ | /g; s/<[^>]+>//g; s/&#34;/"/g; s/&#39;/'"'"'/g; s/&lt;/</g; s/&gt;/>/g; s/&amp;/\&/g' | sed 's/^/    /'
 		fi
 		;;
