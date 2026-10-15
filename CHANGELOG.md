@@ -5,6 +5,12 @@ into a dated release section when promoted to `main`.
 
 ## Unreleased
 
+- Managed cycle approvals (#389): when the maintainer approves a successor's
+  `context_cycle_pickup` call on the Sessions page, the report completes the cycle also when
+  the return to `waiting_pickup` is recorded before the report. Before, the report could be
+  refused with `cycle_changed`, Codex asked for a second approval, and the cycle failed at
+  `waiting_prompt_timeout`.
+
 ## 2026-10-15 — Homebrew bottles
 
 This release publishes Homebrew bottles, so that `brew install` and `brew upgrade` need no

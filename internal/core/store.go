@@ -146,6 +146,9 @@ type Store struct {
 	// processStartTime reads when a process started on the wall clock: a Codex host's MCP
 	// servers (#275).
 	processStartTime func(int) (time.Time, error)
+	// pickupWrite runs between a pickup report's read and its write: a test records a
+	// concurrent stage change there (#389).
+	pickupWrite func()
 	// alive holds when the liveness sweep last read each session's host as running (#249).
 	alive liveness
 	// settings holds the session timing values in force (#249).

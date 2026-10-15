@@ -978,6 +978,9 @@ func (s *Store) ContextCyclePickup(ctx context.Context, caller Key, epoch, id st
 	if _, err := s.verifyArtifact(ctx, c, artifact); err != nil {
 		return CycleView{}, err
 	}
+	if s.pickupWrite != nil {
+		s.pickupWrite()
+	}
 	tx, err := s.begin(noAudit(ctx), control)
 	if err != nil {
 		return CycleView{}, err
@@ -987,7 +990,11 @@ func (s *Store) ContextCyclePickup(ctx context.Context, caller Key, epoch, id st
 	if err != nil {
 		return CycleView{}, err
 	}
-	if current.Revision != c.Revision || !awaitingPickup(current) || now >= current.StageDeadline || now >= current.CycleDeadline {
+	// The answer to a dialog that approved this report can record the return to
+	// waiting_pickup after the read above (#389): the report applies while the cycle still
+	// awaits it with the same artifact and epochs, at any revision.
+	if !awaitingPickup(current) || current.Artifact != artifact || current.Epoch != c.Epoch || current.SuccessorEpoch != c.SuccessorEpoch ||
+		now >= current.StageDeadline || now >= current.CycleDeadline {
 		return CycleView{}, ErrCycleChanged
 	}
 	// The caller must still be the managed successor in the pinned pane, or the requester
