@@ -19,11 +19,27 @@ brew install rwcii/koinon/koinon
 $(brew --prefix)/bin/koinon install --agent claude --agent codex
 ```
 
-Homebrew checks the binary against the release's `SHA256SUMS` entry. The formula does not use
-`brew services`: `koinon install` copies the binary into its own prefix and manages the
-service, as the next sections describe. A `brew upgrade koinon` therefore changes only the
-Homebrew copy. Run `$(brew --prefix)/bin/koinon install` again after each upgrade to replace the
-installed binary and restart the daemon. Name the Homebrew binary: the install copies the binary
+Homebrew pours the release's bottle for your platform (`koinon-VERSION.TAG.bottle.tar.gz`, which
+holds the same binary) and checks it against the release's `SHA256SUMS` entry. A bottle needs no
+build, so Homebrew needs no developer tools. The release workflow installs each release's bottles
+through Homebrew on macOS and Linux before it publishes them. Releases up to v0.2.1 have no
+bottles: Homebrew treats their install as a build from source, which on macOS needs the Command
+Line Tools (`xcode-select --install`); without them, use the download below.
+
+The formula does not use `brew services`: `koinon install` copies the binary into its own prefix
+and manages the service, as the next sections describe. A `brew upgrade koinon` therefore changes
+only the Homebrew copy. To upgrade:
+
+```sh
+brew update
+brew upgrade koinon
+$(brew --prefix)/bin/koinon install
+koinon version
+```
+
+`brew update` first: `brew upgrade` refreshes a third-party tap only when its auto-update interval
+has passed, and otherwise keeps the formula of the previous release. `koinon version` then reports
+the new version. Name the Homebrew binary: the install copies the binary
 that runs it, and once `~/.local/bin` comes first on `PATH`, a bare `koinon install` runs the
 installed copy and copies it onto itself (`"binary_result": "unchanged"`, with `other_binary`
 naming the Homebrew copy). A Python-era installation upgrades with
@@ -160,7 +176,8 @@ enables and starts it again.
 
 Run `koinon install` with the new binary, with the same `--prefix` and `--state-dir`: name the new
 binary by its path, such as `$(brew --prefix)/bin/koinon` or the downloaded file, because the
-install copies the binary that runs it. It replaces the binary in place and restarts the daemon, and the state stays. A launched session continues:
+install copies the binary that runs it. With Homebrew, run `brew update` before `brew upgrade
+koinon` (see Homebrew above), and check `koinon version` after the install. It replaces the binary in place and restarts the daemon, and the state stays. A launched session continues:
 `koinon mcp` tries a renewal that fails during the restart again at the next interval, and
 the daemon keeps a session whose host process runs (liveness, see PROTOCOL.md). A session
 without a host record, such as a DeepSeek session or one registered before host records, is
