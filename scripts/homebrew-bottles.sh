@@ -1,9 +1,10 @@
 #!/usr/bin/env bash
 # Write the Homebrew bottles of one release: homebrew-bottles.sh TAG DIR.
 # DIR holds the four release binaries. Each bottle, DIR/koinon-VERSION.BOTTLE_TAG.bottle.tar.gz,
-# holds koinon/VERSION/bin/koinon. Homebrew pours a bottle without building, so a Mac needs no
-# developer tools (#384). A macOS bottle carries the oldest supported macOS (12, Go's minimum),
-# which Homebrew also uses on later versions; a Linux bottle tag must match exactly.
+# holds koinon/VERSION/bin/koinon. Homebrew pours a bottle without building, so on Apple Silicon
+# and Linux it needs no developer tools (#384); Homebrew requires them on Intel Macs regardless.
+# A macOS bottle carries the oldest supported macOS (12, Go's minimum), which Homebrew also uses
+# on later versions; a Linux bottle tag must match exactly.
 set -euo pipefail
 if [[ $# -ne 2 ]]; then
   echo "usage: $0 TAG DIR" >&2

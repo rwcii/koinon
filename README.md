@@ -62,8 +62,9 @@ koinon version
 
 `koinon install` copies the new binary into its own prefix and restarts the daemon. A bare
 `koinon install` can run the copy already installed in `~/.local/bin`, which changes nothing.
-Releases after v0.2.1 install from a Homebrew bottle, which needs no developer tools; with
-v0.2.1 and earlier, Homebrew on macOS needs `xcode-select --install` first, or use the download.
+Releases after v0.2.1 install from a Homebrew bottle, which on Apple Silicon and Linux needs no
+developer tools. Homebrew on an Intel Mac, and any Mac with v0.2.1 and earlier, needs
+`xcode-select --install` first; or use the download.
 
 Or download the binary for your operating system and CPU with `SHA256SUMS`, verify its
 checksum, and follow [docs/INSTALL.md](docs/INSTALL.md). Build from source with:

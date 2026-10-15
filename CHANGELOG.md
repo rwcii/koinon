@@ -6,9 +6,10 @@ into a dated release section when promoted to `main`.
 ## Unreleased
 
 - Homebrew bottles (#384): each release publishes a Homebrew bottle for macOS (arm64 and Intel,
-  macOS 12 and later) and Linux (arm64 and x86_64), and the formula pours it. Homebrew then
-  needs no developer tools: before, the formula installed the bare binary as a build from
-  source, which on macOS 26 failed without the Command Line Tools. The release workflow
+  macOS 12 and later) and Linux (arm64 and x86_64), and the formula pours it. On Apple Silicon
+  and Linux, Homebrew then needs no developer tools (Homebrew still requires them on Intel
+  Macs): before, the formula installed the bare binary as a build from source, which on
+  macOS 26 failed without the Command Line Tools. The release workflow
   installs the bottles through Homebrew on macOS and Linux before it publishes a release.
 - Homebrew upgrade steps (#383): README, docs/INSTALL.md and the formula's caveat run
   `brew update` before `brew upgrade koinon`, and check `koinon version` after the install.

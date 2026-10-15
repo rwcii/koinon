@@ -457,7 +457,7 @@ func TestHomebrewFormula(t *testing.T) {
 }
 
 // The release's Homebrew bottles hold the binary where Homebrew pours it, and the formula
-// pours them, so a Mac installs without developer tools (#384).
+// pours them, so Apple Silicon and Linux install without developer tools (#384).
 func TestHomebrewBottles(t *testing.T) {
 	bash, err := exec.LookPath("bash")
 	if err != nil {

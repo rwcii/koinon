@@ -21,10 +21,12 @@ $(brew --prefix)/bin/koinon install --agent claude --agent codex
 
 Homebrew pours the release's bottle for your platform (`koinon-VERSION.TAG.bottle.tar.gz`, which
 holds the same binary) and checks it against the release's `SHA256SUMS` entry. A bottle needs no
-build, so Homebrew needs no developer tools. The release workflow installs each release's bottles
-through Homebrew on macOS and Linux before it publishes them. Releases up to v0.2.1 have no
-bottles: Homebrew treats their install as a build from source, which on macOS needs the Command
-Line Tools (`xcode-select --install`); without them, use the download below.
+build, so on Apple Silicon and Linux Homebrew needs no developer tools; Homebrew still requires
+them for any install on an Intel Mac (its Installation page, footnote 3). The release workflow
+installs each release's bottles through Homebrew on macOS and Linux before it publishes them.
+Releases up to v0.2.1 have no bottles: Homebrew treats their install as a build from source,
+which on macOS needs the Command Line Tools (`xcode-select --install`); without them, use the
+download below.
 
 The formula does not use `brew services`: `koinon install` copies the binary into its own prefix
 and manages the service, as the next sections describe. A `brew upgrade koinon` therefore changes
