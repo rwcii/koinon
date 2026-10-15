@@ -3,7 +3,7 @@ on:
   push:
     tags: ['v*']
   pull_request:
-    paths: ['.github/workflows/release.yml', 'cmd/koinon/lifecycle.go']
+    paths: ['.github/workflows/release.yml', 'cmd/koinon/lifecycle.go', 'scripts/homebrew-*.sh']
   workflow_dispatch:
 permissions:
   contents: read
@@ -16,7 +16,7 @@ jobs:
       - uses: actions/setup-go@v5
         with:
           go-version-file: go.mod
-      - name: Build the four CGO-free binaries and their checksums
+      - name: Build the four CGO-free binaries, their Homebrew bottles and the checksums
         shell: bash
         run: |
           version="$GITHUB_REF_NAME"
@@ -27,6 +27,10 @@ jobs:
               -ldflags "-s -w -X main.version=$version -X main.commit=$GITHUB_SHA" \
               -o "dist/koinon-${target//\//-}" ./cmd/koinon
           done
+          # Off a tag, the bottles carry v0.0.0 for the homebrew-check job.
+          bottles="$GITHUB_REF_NAME"
+          [ "$GITHUB_REF_TYPE" = tag ] || bottles=v0.0.0
+          scripts/homebrew-bottles.sh "$bottles" dist
           (cd dist && sha256sum koinon-* > SHA256SUMS)
           cat dist/SHA256SUMS
       - name: Check the build's own version
@@ -36,8 +40,42 @@ jobs:
           name: koinon-binaries
           path: dist/
           if-no-files-found: error
-  publish:
+  # Homebrew pours the bottle from a local tap, so the release's bottles are proven before they
+  # are published: a bottle that does not pour would make Homebrew build, which needs the
+  # developer tools on macOS (#384).
+  homebrew-check:
     needs: build
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [macos-latest, ubuntu-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          name: koinon-binaries
+          path: dist
+      - name: Install the formula from its bottle and check the version
+        shell: bash
+        env:
+          HOMEBREW_NO_AUTO_UPDATE: '1'
+          HOMEBREW_NO_ANALYTICS: '1'
+        run: |
+          set -euo pipefail
+          if [ -x /home/linuxbrew/.linuxbrew/bin/brew ]; then
+            eval "$(/home/linuxbrew/.linuxbrew/bin/brew shellenv)"
+          fi
+          tag="$GITHUB_REF_NAME"
+          [ "$GITHUB_REF_TYPE" = tag ] || tag=v0.0.0
+          brew tap-new --no-git koinon/check
+          scripts/homebrew-formula.sh "$tag" dist/SHA256SUMS "file://$PWD/dist" > "$(brew --repository koinon/check)/Formula/koinon.rb"
+          brew install koinon/check/koinon
+          brew info --json=v2 koinon/check/koinon | jq -e '.formulae[0].installed[0].poured_from_bottle == true'
+          "$(brew --prefix)/bin/koinon" version | grep -F "\"commit\": \"$GITHUB_SHA\""
+  publish:
+    needs: [build, homebrew-check]
     if: github.ref_type == 'tag'
     runs-on: ubuntu-latest
     permissions:

@@ -2,7 +2,12 @@
 package contributor
 
 import (
+	"archive/tar"
+	"compress/gzip"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
+	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -419,10 +424,13 @@ func TestHomebrewFormula(t *testing.T) {
 	if strings.Contains(formula, "\n  version ") {
 		t.Error("an explicit version is redundant with the URL and fails brew audit --strict")
 	}
-	for _, want := range []string{`license "MIT"`, `=> "koinon"`, "#{opt_bin}/koinon install --agent", "run #{opt_bin}/koinon install again", `#{bin}/koinon version`} {
+	for _, want := range []string{`license "MIT"`, `=> "koinon"`, "#{opt_bin}/koinon install --agent", "#{opt_bin}/koinon install again", "brew update before brew upgrade koinon", `#{bin}/koinon version`} {
 		if !strings.Contains(formula, want) {
 			t.Errorf("formula lacks %s", want)
 		}
+	}
+	if strings.Contains(formula, "bottle do") {
+		t.Error("a list without bottles gave a bottle block")
 	}
 	if strings.Contains(formula, "service do") {
 		t.Error("the formula must not define a brew service; koinon install manages the service")
@@ -442,6 +450,100 @@ func TestHomebrewFormula(t *testing.T) {
 		}
 	}
 	for _, want := range []string{"homebrew:", "needs: publish", "scripts/homebrew-formula.sh \"$GITHUB_REF_NAME\" dist/SHA256SUMS", "secrets.HOMEBREW_TAP_DEPLOY_KEY", "rwcii/homebrew-koinon"} {
+		if !strings.Contains(workflow, want) {
+			t.Errorf("release workflow lacks %s", want)
+		}
+	}
+}
+
+// The release's Homebrew bottles hold the binary where Homebrew pours it, and the formula
+// pours them, so Apple Silicon and Linux install without developer tools (#384).
+func TestHomebrewBottles(t *testing.T) {
+	bash, err := exec.LookPath("bash")
+	if err != nil {
+		t.Fatal(err)
+	}
+	dir := t.TempDir()
+	tags := map[string]string{"darwin-arm64": "arm64_monterey", "darwin-amd64": "monterey", "linux-arm64": "arm64_linux", "linux-amd64": "x86_64_linux"}
+	for platform := range tags {
+		os.WriteFile(filepath.Join(dir, "koinon-"+platform), []byte("binary "+platform), 0600)
+	}
+	if out, err := exec.Command(bash, filepath.Join(root(t), "scripts/homebrew-bottles.sh"), "v1.2.3", dir).CombinedOutput(); err != nil {
+		t.Fatalf("bottles: %v %s", err, out)
+	}
+	var sums strings.Builder
+	digests := map[string]string{}
+	for platform, tag := range tags {
+		name := "koinon-1.2.3." + tag + ".bottle.tar.gz"
+		data, err := os.ReadFile(filepath.Join(dir, name))
+		if err != nil {
+			t.Fatal(err)
+		}
+		zr, err := gzip.NewReader(strings.NewReader(string(data)))
+		if err != nil {
+			t.Fatalf("%s: %v", name, err)
+		}
+		files := map[string]string{}
+		tr := tar.NewReader(zr)
+		for {
+			h, err := tr.Next()
+			if err == io.EOF {
+				break
+			}
+			if err != nil {
+				t.Fatalf("%s: %v", name, err)
+			}
+			if h.Typeflag == tar.TypeReg {
+				body, _ := io.ReadAll(tr)
+				files[h.Name] = string(body)
+				if h.Mode&0777 != 0755 {
+					t.Errorf("%s: %s mode %o", name, h.Name, h.Mode)
+				}
+			}
+		}
+		if len(files) != 1 || files["koinon/1.2.3/bin/koinon"] != "binary "+platform {
+			t.Errorf("%s holds %v", name, files)
+		}
+		sum := sha256.Sum256(data)
+		digests[tag] = hex.EncodeToString(sum[:])
+		sums.WriteString(digests[tag] + "  " + name + "\n")
+		bsum := sha256.Sum256([]byte("binary " + platform))
+		sums.WriteString(hex.EncodeToString(bsum[:]) + "  koinon-" + platform + "\n")
+	}
+	list := filepath.Join(dir, "SHA256SUMS")
+	os.WriteFile(list, []byte(sums.String()), 0600)
+	script := filepath.Join(root(t), "scripts/homebrew-formula.sh")
+	for _, c := range []struct{ root, want string }{
+		{"", "https://github.com/rwcii/koinon/releases/download/v1.2.3"},
+		{"file:///tmp/dist", "file:///tmp/dist"},
+	} {
+		args := []string{script, "v1.2.3", list}
+		if c.root != "" {
+			args = append(args, c.root)
+		}
+		out, err := exec.Command(bash, args...).CombinedOutput()
+		if err != nil {
+			t.Fatalf("formula: %v %s", err, out)
+		}
+		formula := string(out)
+		if !strings.Contains(formula, "  bottle do\n    root_url \""+c.want+"\"\n") {
+			t.Errorf("formula lacks the bottle root %s:\n%s", c.want, formula)
+		}
+		for tag, digest := range digests {
+			if want := "sha256 cellar: :any_skip_relocation, " + tag + ": \"" + digest + "\""; !strings.Contains(formula, want) {
+				t.Errorf("formula lacks %s", want)
+			}
+		}
+	}
+	// A list with only some of the bottles is refused.
+	partial := filepath.Join(dir, "partial")
+	os.WriteFile(partial, []byte(strings.Replace(sums.String(), "koinon-1.2.3.x86_64_linux", "other", 1)), 0600)
+	if out, err := exec.Command(bash, script, "v1.2.3", partial).CombinedOutput(); err == nil {
+		t.Errorf("partial bottles accepted: %s", out)
+	}
+	workflow := read(t, ".github/workflows/release.yml")
+	for _, want := range []string{"scripts/homebrew-bottles.sh \"$bottles\" dist\n          (cd dist && sha256sum koinon-* > SHA256SUMS)",
+		"homebrew-check:", "needs: [build, homebrew-check]", `"file://$PWD/dist"`, "poured_from_bottle == true"} {
 		if !strings.Contains(workflow, want) {
 			t.Errorf("release workflow lacks %s", want)
 		}
