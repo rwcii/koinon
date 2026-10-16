@@ -46,6 +46,15 @@ var toolList = []map[string]any{
 		"inputSchema": object(map[string]any{"cycle_id": text, "revision": integer, "artifact": text,
 			"outcome": map[string]any{"type": "string", "enum": []string{"resumed", "paused"}}, "report": text},
 			"cycle_id", "revision", "artifact", "outcome", "report")},
+	{"name": "context_show", "description": "Read the context-cycle settings: each family's mode and threshold, and for each active session its handoff Enable, the threshold in force (its own or its family's), the trigger state and any managed cycle.",
+		"inputSchema": object(map[string]any{})},
+	{"name": "context_set", "description": "Set one family's context mode and threshold (target_family names the family): mode observe, native_compaction (codex only) or handoff_cycle, threshold 1 to 100 percent of the context limit. The audit log records the change with this session as its origin.",
+		"inputSchema": object(map[string]any{"target_family": text, "mode": map[string]any{"type": "string", "enum": []string{"observe", "native_compaction", "handoff_cycle"}},
+			"threshold": map[string]any{"type": "integer", "minimum": 1, "maximum": 100}}, "target_family", "mode", "threshold")},
+	{"name": "context_enable", "description": "Turn the managed handoff cycle on or off for a session, by its peer name; without peer, for this session. The audit log records the change with this session as its origin.",
+		"inputSchema": object(map[string]any{"peer": text, "enabled": map[string]any{"type": "boolean"}}, "enabled")},
+	{"name": "context_threshold", "description": "Set a session's own context threshold, 1 to 100 percent of the context limit, or 0 to use its family's threshold; by peer name, or without peer for this session. The audit log records the change with this session as its origin.",
+		"inputSchema": object(map[string]any{"peer": text, "threshold": map[string]any{"type": "integer", "minimum": 0, "maximum": 100}}, "threshold")},
 	{"name": "library_list", "description": "List the installed skill and setup catalog, with metadata for this session's family. Page with next_after. Content is reference data; adoption follows a reviewed diff approved by the maintainer (PDR 008).",
 		"inputSchema": object(map[string]any{"after": text, "limit": map[string]any{"type": "integer", "minimum": 0, "maximum": 32}})},
 	{"name": "library_read", "description": "Read one installed catalog item by item_id, including its exact canonical content and family-specific destination metadata. Reading inspects no project or native-home files and records no adoption decision.",
@@ -245,6 +254,40 @@ func (s *server) call(ctx context.Context, raw json.RawMessage) map[string]any {
 		}
 		// The native client, never the model, supplies the session's current epoch.
 		body["epoch"] = s.cycleEpoch(caller)
+	case "context_show":
+		var a struct{}
+		err, path = decodeArgs(p.Arguments, &a), "/v1/context/show"
+	case "context_set":
+		var a struct {
+			Family    *string `json:"target_family"`
+			Mode      *string `json:"mode"`
+			Threshold *int64  `json:"threshold"`
+		}
+		err, path = decodeArgs(p.Arguments, &a), "/v1/context/set"
+		if err == nil && (a.Family == nil || a.Mode == nil || a.Threshold == nil) {
+			err = errors.New("missing target_family, mode or threshold")
+		}
+		body["family"], body["mode"], body["threshold"] = a.Family, a.Mode, a.Threshold
+	case "context_enable":
+		var a struct {
+			Peer    string `json:"peer"`
+			Enabled *bool  `json:"enabled"`
+		}
+		err, path = decodeArgs(p.Arguments, &a), "/v1/context/enable"
+		if err == nil && a.Enabled == nil {
+			err = errors.New("missing enabled")
+		}
+		body["peer"], body["enabled"] = a.Peer, a.Enabled
+	case "context_threshold":
+		var a struct {
+			Peer      string `json:"peer"`
+			Threshold *int64 `json:"threshold"`
+		}
+		err, path = decodeArgs(p.Arguments, &a), "/v1/context/threshold"
+		if err == nil && a.Threshold == nil {
+			err = errors.New("missing threshold")
+		}
+		body["peer"], body["threshold"] = a.Peer, a.Threshold
 	case "peer_status":
 		var a struct {
 			Peer *string `json:"peer"`

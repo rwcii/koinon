@@ -269,7 +269,7 @@ type contextRow struct {
 // writes nothing and marks no latch.
 func (s *Store) contextRowOf(session Session, enable ContextEnable, now int64) contextRow {
 	k := Key{session.Family, session.ID}
-	policy := s.familyContextPolicy(session.Family)
+	policy := s.sessionContextPolicy(session.Family, enable)
 	evidence := s.contextEvidence(k)
 	s.observed.mu.Lock()
 	latched := s.latches.latched(k, evidence, policy.Threshold)

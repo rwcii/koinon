@@ -1,17 +1,19 @@
 #!/bin/bash
 # X2 of macos-live-check.md in one run: a Codex context_cycle_pickup approval in
-# waiting_pickup shows on the Sessions page, and "Choose 1" completes the cycle.
+# waiting_pickup is answered with option 1, and the cycle completes.
 #
-# Usage: bash x2-live-check.sh [COMMIT]   (default: d491390, release v0.2.2)
+# Usage: bash x2-live-check.sh [COMMIT]   (default: develop)
 #
 # The script builds the private livecheck binary, starts a test daemon on its own port, state
 # directory and tmux socket, sets the codex family to handoff_cycle at 1%, starts the approve
-# case, enters its turns and clicks Enable. You click "Choose 1" in the browser when it asks.
+# case, enters its turns and clicks Enable. At each approval it shows the dialog in this window
+# and asks you to type y (koinon context answer, #391); a build without that command prints a
+# dashboard link instead, where you click "Choose 1".
 # On exit it stops the test server and removes its files. The installed Koinon service, its
 # state and the Codex configuration do not change.
 set -u
 
-PR=${1:-d491390}
+PR=${1:-develop}
 PORT=${PORT:-47699}
 K=$HOME/.cache/koinon-x2-$(date +%s)
 S=$K/tmux.sock
@@ -54,6 +56,8 @@ say "Facts of the run:"
 say "Building the livecheck binary at $PR"
 git clone -q https://github.com/rwcii/koinon "$K/src" && git -C "$K/src" checkout -q "$PR" || die "clone or checkout failed"
 (cd "$K/src" && CGO_ENABLED=0 go build -tags livecheck -o "$K/koinon" ./cmd/koinon) || die "build failed"
+PR=$(git -C "$K/src" rev-parse --short HEAD)
+say "Built $PR"
 
 say "Starting the test daemon on port $PORT"
 mkdir -m 700 "$K/state"
@@ -160,21 +164,29 @@ done
 say "Enable handoff: on for $PEER"
 send 'Reply with the single word ok.'
 
-latest() { sqlite3 -readonly "$DB" "SELECT state || CASE WHEN reason <> '' THEN ' (' || reason || ')' ELSE '' END FROM context_cycles ORDER BY created_at DESC LIMIT 1" 2>/dev/null; }
+# The first cycle decides the run: at 1% the next cycle starts as soon as it ends.
+latest() { sqlite3 -readonly "$DB" "SELECT state || CASE WHEN reason <> '' THEN ' (' || reason || ')' ELSE '' END FROM context_cycles ORDER BY created_at LIMIT 1" 2>/dev/null; }
+answerable() { "$K/koinon" context show --state-dir "$K/state" --address 127.0.0.1:$PORT >/dev/null 2>&1; }
 stages() { sqlite3 -readonly "$DB" "SELECT c.state, c.reason, (SELECT group_concat(x, ' ') FROM (SELECT stage || ':' || reason AS x FROM context_cycle_events e WHERE e.cycle_id = c.cycle_id ORDER BY ordinal)) FROM context_cycles c ORDER BY c.created_at" 2>/dev/null; }
 
 say "Watching the cycle (up to 20 minutes; Ctrl-C stops and cleans up)"
 last='' since=$(date +%s) shown='' asked='' end=$(($(date +%s) + 1200))
+answer=dashboard
+answerable && answer=cli
 while [ "$(date +%s)" -lt "$end" ]; do
 	s=$(latest)
 	if [ -n "$s" ] && [ "$s" != "$last" ]; then
 		say "cycle: $s"
-		last=$s since=$(date +%s) shown=
+		last=$s since=$(date +%s) shown= asked=
 	fi
 	case $s in
 	complete* | cancelled* | failed* | uncertain*) break ;;
 	waiting_prompt*)
-		if [ -z "$asked" ]; then
+		if [ -z "$asked" ] && [ $answer = cli ]; then
+			asked=1
+			say "ACTION FOR YOU: Codex asks for approval. Read the dialog below, then type y and press Enter."
+			"$K/koinon" context answer "$PEER" 1 --state-dir "$K/state" --address 127.0.0.1:$PORT
+		elif [ -z "$asked" ]; then
 			asked=1
 			link="$BASE/dashboard/login?$(token)"
 			say "ACTION FOR YOU: the approval waits on the Sessions page."
