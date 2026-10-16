@@ -5,6 +5,10 @@ into a dated release section when promoted to `main`.
 
 ## Unreleased
 
+- Cycle adapters and native versions (#196): the Claude Code and Codex cycle adapters run with
+  any CLI version; a run's native checks certify the version current then. The Codex cycle is
+  available on macOS: its checks passed there (X0, X1 and X3 with Codex CLI 0.162.1; X0 and the
+  approval case X2 with 0.163.0). `native_version_unverified` is no longer reported.
 - Managed cycle approvals (#389): when the maintainer approves a successor's
   `context_cycle_pickup` call on the Sessions page, the report completes the cycle also when
   the return to `waiting_pickup` is recorded before the report. Before, the report could be

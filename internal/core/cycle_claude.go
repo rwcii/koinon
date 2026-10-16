@@ -26,13 +26,6 @@ import (
 // claudeCycleVersion is the adapter's version, stored with each cycle.
 const claudeCycleVersion = "claude-tmux-1"
 
-// claudeEvidencedVersions are the Claude Code versions whose native behavior the evidence
-// proves; another version is unavailable until its own evidence run.
-var claudeEvidencedVersions = map[string]bool{"2.1.296": true}
-
-// claudeAnyVersion admits every Claude Code version; only a livecheck build sets it.
-var claudeAnyVersion bool
-
 // claudeEvidencedPlatforms are the operating systems with native evidence
 // (docs/sprints/2026-10-12-context-handoff/native-evidence.md).
 var claudeEvidencedPlatforms = map[string]bool{"linux": true, "darwin": true}
@@ -147,12 +140,9 @@ func (claudeCycle) Probe(ctx context.Context, t CycleTarget) CycleProbe {
 	if !claudeEvidencedPlatforms[runtime.GOOS] {
 		return CycleProbe{Reason: "platform_unverified"}
 	}
-	record, err := readClaudeRecord(t)
-	if err != nil {
+	// The host must have its own registry record; its version is not checked (#196).
+	if _, err := readClaudeRecord(t); err != nil {
 		return CycleProbe{Reason: "native_registry_unavailable"}
-	}
-	if !claudeEvidencedVersions[record.Version] && !claudeAnyVersion {
-		return CycleProbe{Reason: "native_version_unverified"}
 	}
 	if !provePane(ctx, t.tools, t.HostPID, t.HostStart, t.Socket, t.Pane) {
 		return CycleProbe{Reason: "pane_unproven"}

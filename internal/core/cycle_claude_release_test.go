@@ -1,5 +1,3 @@
-//go:build !livecheck
-
 package core
 
 import (
@@ -7,13 +5,12 @@ import (
 	"testing"
 )
 
-// An ordinary build admits only the evidenced platforms and versions; a livecheck build is the
-// only one that admits more.
-func TestClaudeEvidenceOfOrdinaryBuild(t *testing.T) {
-	if !maps.Equal(claudeEvidencedPlatforms, map[string]bool{"linux": true, "darwin": true}) || claudeAnyVersion {
-		t.Fatalf("platforms %v, any version %v", claudeEvidencedPlatforms, claudeAnyVersion)
-	}
-	if !maps.Equal(codexEvidencedPlatforms, map[string]bool{"linux": true}) || codexAnyVersion {
-		t.Fatalf("Codex platforms %v, any version %v", codexEvidencedPlatforms, codexAnyVersion)
+// Both cycle adapters run on Linux and macOS, with any native CLI version (#196: "we certify
+// then the current version, if it moves, it moves").
+func TestCycleAdapterPlatforms(t *testing.T) {
+	for name, platforms := range map[string]map[string]bool{"claude": claudeEvidencedPlatforms, "codex": codexEvidencedPlatforms} {
+		if !maps.Equal(platforms, map[string]bool{"linux": true, "darwin": true}) {
+			t.Fatalf("%s platforms %v", name, platforms)
+		}
 	}
 }
