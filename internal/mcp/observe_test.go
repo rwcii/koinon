@@ -56,7 +56,9 @@ func newObserveHarness(t *testing.T, client, parent string) *observeHarness {
 		Getenv:      func(k string) string { return h.env[k] },
 		Command:     func(int) (string, []string, error) { return h.parent, []string{h.parent}, nil },
 		Now:         time.Now,
-		TmuxSession: func(context.Context, string, string) (string, error) { return "synthetic-work", nil }}, sessions: map[core.Key]registered{}}
+		TmuxSession: func(context.Context, string, string) (string, error) { return "synthetic-work", nil },
+		// PID 4242 can be a real process on the test host: never read its start time.
+		ProcessStart: func(int) (int64, error) { return 0, fmt.Errorf("synthetic parent has no process") }}, sessions: map[core.Key]registered{}}
 	h.s.out = json.NewEncoder(h.out)
 	h.request("initialize", map[string]any{"protocolVersion": "2025-06-18", "clientInfo": map[string]any{"name": client, "version": "1"}, "capabilities": map[string]any{}})
 	o.harness = h

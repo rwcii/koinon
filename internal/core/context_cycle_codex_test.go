@@ -112,6 +112,44 @@ func TestContextCyclePromptInPickupWait(t *testing.T) {
 	if got := f.status(t, f.k); got.State != cycleComplete {
 		t.Fatalf("after the approved report: %+v", got)
 	}
+	// #389: the approved report read the cycle at prompt_intent, and the answer recorded the
+	// return to waiting_pickup before the report's write. The report completes the cycle, and
+	// the dashboard answer still succeeds.
+	f, v, name = waiting(t)
+	f.adapter.afterChoose = func() {
+		f.s.pickupWrite = func() {
+			f.s.pickupWrite = nil
+			now := f.status(t, f.k)
+			if now.State != cyclePromptIntent {
+				t.Fatalf("report read: %+v", now)
+			}
+			if _, err := f.s.advanceCycle(ctx, now.ID, now.Revision, cyclePromptIntent, cycleWaitingPickup, "prompt_answered", nil,
+				func(n *cycleRow) { n.PromptFrom = "" }); err != nil {
+				t.Fatal(err)
+			}
+		}
+		_, report = f.s.ContextCyclePickup(ctx, f.k, "synthetic-epoch-2", v.ID, v.Revision-1, name, "resumed", "synthetic")
+	}
+	if err := f.s.AnswerCycleDialog(ctx, v.ID, v.Revision, "synthetic-digest", "1"); err != nil || report != nil {
+		t.Fatalf("answer recorded before the approved report's write: %v, report %v", err, report)
+	}
+	if got := f.status(t, f.k); got.State != cycleComplete || got.Reason != "resumed" {
+		t.Fatalf("after the late write: %+v", got)
+	}
+	// A cycle that ended between the report's read and its write refuses the report.
+	f, v, name = waiting(t)
+	f.s.pickupWrite = func() {
+		f.s.pickupWrite = nil
+		if _, err := f.s.endCycle(ctx, v.ID, v.Revision, cycleCancelled, "disabled"); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if _, err := f.s.ContextCyclePickup(ctx, f.k, "synthetic-epoch-2", v.ID, v.Revision-1, name, "resumed", "synthetic"); !errors.Is(err, ErrCycleChanged) {
+		t.Fatalf("report after the cycle ended: %v", err)
+	}
+	if got := f.status(t, f.k); got.State != cycleCancelled {
+		t.Fatalf("ended cycle: %+v", got)
+	}
 	// The approved report can also arrive after the cycle returned to waiting_pickup, after a
 	// dashboard answer or the native session's own: the revision it read still names it. A
 	// revision of another stage does not.
