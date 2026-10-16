@@ -41,7 +41,9 @@ func newHarness(t *testing.T, client string) *harness {
 	h.s = &server{c: Config{StateDir: root, Address: d.Addresses()[0], Directory: directory, ParentPID: 4242,
 		Getenv:  func(k string) string { return h.env[k] },
 		Command: func(int) (string, []string, error) { return h.parent, []string{h.parent}, nil },
-		Now:     time.Now}, sessions: map[core.Key]registered{}}
+		Now:     time.Now,
+		// PID 4242 can be a real process on the test host: never read its start time.
+		ProcessStart: func(int) (int64, error) { return 0, errors.New("synthetic parent has no process") }}, sessions: map[core.Key]registered{}}
 	h.s.out = json.NewEncoder(h.out)
 	if client != "" {
 		h.request("initialize", map[string]any{"protocolVersion": "2025-06-18", "clientInfo": map[string]any{"name": client, "version": "1"}, "capabilities": map[string]any{}})
