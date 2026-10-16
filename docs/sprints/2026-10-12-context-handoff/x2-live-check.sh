@@ -4,7 +4,8 @@
 #
 # Usage: bash x2-live-check.sh [COMMIT]   (default: develop)
 #
-# The script builds the private livecheck binary, starts a test daemon on its own port, state
+# The script builds a private test binary (with the livecheck tag, which a commit before
+# #196's version change needs), starts a test daemon on its own port, state
 # directory and tmux socket, sets the codex family to handoff_cycle at 1%, starts the approve
 # case, enters its turns and clicks Enable. At each approval it shows the Codex pane in this
 # window and asks you to type y; then it presses 1 in the pane, as you would in the session.
@@ -49,7 +50,7 @@ mkdir -p "$K" && chmod 700 "$K"
 say "Facts of the run:"
 { sw_vers 2>/dev/null || uname -sr; uname -m; codex --version; tmux -V; go version; } | sed 's/^/    /'
 
-say "Building the livecheck binary at $PR"
+say "Building the test binary at $PR"
 git clone -q https://github.com/rwcii/koinon "$K/src" && git -C "$K/src" checkout -q "$PR" || die "clone or checkout failed"
 (cd "$K/src" && CGO_ENABLED=0 go build -tags livecheck -o "$K/koinon" ./cmd/koinon) || die "build failed"
 PR=$(git -C "$K/src" rev-parse --short HEAD)

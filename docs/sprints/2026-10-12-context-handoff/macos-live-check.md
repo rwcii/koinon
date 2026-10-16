@@ -45,8 +45,8 @@ S="$K/tmux.sock"; DB="$K/state/state.sqlite3"
 
 ## 2. Build
 
-The `livecheck` tag admits macOS and the installed Claude Code version in this private build
-only. The second build is the launcher from before the loader, for M3.
+Since #196's version change, every build admits macOS and any Claude Code and Codex version;
+the `livecheck` tag does that only for a commit before it, and has no effect after it. The second build is the launcher from before the loader, for M3.
 
 ```bash
 git clone -q https://github.com/rwcii/koinon "$K/src" && cd "$K/src" && git checkout -q "$PR"

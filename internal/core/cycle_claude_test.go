@@ -320,11 +320,6 @@ func TestClaudeProbe(t *testing.T) {
 		change func()
 		want   string
 	}{
-		{"unevidenced version", func() {
-			term.write()
-			data, _ := os.ReadFile(filepath.Join(term.home, ".claude", "sessions", "4242.json"))
-			os.WriteFile(filepath.Join(term.home, ".claude", "sessions", "4242.json"), []byte(strings.Replace(string(data), "2.1.296", "2.1.295", 1)), 0o600)
-		}, "native_version_unverified"},
 		{"reused PID", func() { term.write(); term.start = 77 + 1_000_000 }, "native_registry_unavailable"},
 		{"unevidenced platform", func() { term.start = 77; term.write(); claudeEvidencedPlatforms = map[string]bool{} }, "platform_unverified"},
 	} {

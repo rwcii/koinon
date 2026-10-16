@@ -165,10 +165,9 @@ Codex family threshold 1%.
 
 The run also completed two cycles in sequence with the carried-over Enable, both `paused` (the
 thread's own choice, as in the 0.162.1 X1 run). It did not capture the participant event of
-the first cycle, so X1 is not recorded for 0.163.0. No single Codex CLI version has every macOS row: 0.162.1 has X0, X1 and
-X3; 0.163.0 has X0 and X2. The adapter stays `platform_unverified` on macOS until one exact
-version passes X0 to X3 there (the definition of done's per family, version and platform rows);
-the admission then names that platform and version pair.
+the first cycle, so X1 is not recorded for 0.163.0. On macOS, 0.162.1 has X0, X1 and X3, and 0.163.0 has X0 and X2. A run
+certifies the version current then, and a later version is not refused (PDR 006, Decision 5),
+so the adapter admits macOS for any Codex CLI version.
 
 ## Other families
 

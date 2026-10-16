@@ -378,8 +378,8 @@ input. It needs Linux or macOS (`platform_unverified` elsewhere); the host's
 own Claude Code registry record (`sessions/<pid>.json` under the host's `CLAUDE_CONFIG_DIR`, else
 `~/.claude`, read from the host's initial environment) for the same process start
 (`native_registry_unavailable`; on macOS the record's start is `ps -o lstart` text in UTC, compared
-to the whole second); a host version in the
-evidenced set, now 2.1.296 (`native_version_unverified`); the pane (`pane_unproven`); and the
+to the whole second), with any Claude Code version (PDR 006, Decision 5; the native checks ran with 2.1.296);
+the pane (`pane_unproven`); and the
 pickup entry that a bare `/pickup` runs. A personal skill (`skills/pickup` under the config root)
 ranks over a project skill (`.claude/skills/pickup` in the session directory or a parent up to
 its worktree root), which ranks over Koinon's loader. Only that effective entry is checked: it
@@ -432,10 +432,10 @@ the session's own tmux pane. Before every key it proves the pane and that the pa
 gives input to the host (as the Codex pane wake below), and passes the cycle's fence. Typed
 text that is not submitted is erased with Backspace while the composer still holds exactly it.
 
-Probe needs Linux (`platform_unverified` elsewhere until the macOS evidence run); the session
+Probe needs Linux or macOS (`platform_unverified` elsewhere); the session
 thread's own rollout under the host's `CODEX_HOME` (else `~/.codex`), whose first record is the
-thread's `session_meta` from the interactive CLI (`native_registry_unavailable`), with an
-evidenced `cli_version`, now 0.162.0 (`native_version_unverified`); the pane
+thread's `session_meta` from the interactive CLI (`native_registry_unavailable`), with any
+`cli_version` (PDR 006, Decision 5; the native checks ran with 0.162.0, 0.162.1 and 0.163.0); the pane
 (`pane_unproven`); the session's participant address held (`participant_unheld`: the thread
 after `/clear` is a new session that reports only as the address holder); and the pickup
 entry. Codex runs a `$pickup` mention of every skill named `pickup` in `.agents/skills` and
