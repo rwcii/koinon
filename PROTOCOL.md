@@ -378,7 +378,7 @@ input. It needs Linux or macOS (`platform_unverified` elsewhere); the host's
 own Claude Code registry record (`sessions/<pid>.json` under the host's `CLAUDE_CONFIG_DIR`, else
 `~/.claude`, read from the host's initial environment) for the same process start
 (`native_registry_unavailable`; on macOS the record's start is `ps -o lstart` text in UTC, compared
-to the whole second), with any Claude Code version (#196; the native checks ran with 2.1.296);
+to the whole second), with any Claude Code version (PDR 006, Decision 5; the native checks ran with 2.1.296);
 the pane (`pane_unproven`); and the
 pickup entry that a bare `/pickup` runs. A personal skill (`skills/pickup` under the config root)
 ranks over a project skill (`.claude/skills/pickup` in the session directory or a parent up to
@@ -435,7 +435,7 @@ text that is not submitted is erased with Backspace while the composer still hol
 Probe needs Linux or macOS (`platform_unverified` elsewhere); the session
 thread's own rollout under the host's `CODEX_HOME` (else `~/.codex`), whose first record is the
 thread's `session_meta` from the interactive CLI (`native_registry_unavailable`), with any
-`cli_version` (#196; the native checks ran with 0.162.0, 0.162.1 and 0.163.0); the pane
+`cli_version` (PDR 006, Decision 5; the native checks ran with 0.162.0, 0.162.1 and 0.163.0); the pane
 (`pane_unproven`); the session's participant address held (`participant_unheld`: the thread
 after `/clear` is a new session that reports only as the address holder); and the pickup
 entry. Codex runs a `$pickup` mention of every skill named `pickup` in `.agents/skills` and

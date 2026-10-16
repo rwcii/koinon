@@ -6,9 +6,10 @@ into a dated release section when promoted to `main`.
 ## Unreleased
 
 - Cycle adapters and native versions (#196): the Claude Code and Codex cycle adapters run with
-  any CLI version; a run's native checks certify the version current then. The Codex cycle is
-  available on macOS: its checks passed there (X0, X1 and X3 with Codex CLI 0.162.1; X0 and the
-  approval case X2 with 0.163.0). `native_version_unverified` is no longer reported.
+  any CLI version; a run's native checks certify the version current then (PDR 006, Decision
+  5). The Codex cycle is available on macOS: its checks passed there (X0, X1 and X3 with Codex
+  CLI 0.162.1; X0 and the approval case X2 with 0.163.0). `native_version_unverified` is no
+  longer reported.
 - Context settings without the dashboard (#391): `koinon context show|set|enable|disable|threshold`
   and the MCP tools `context_show`, `context_set`, `context_enable` and `context_threshold`
   change the family mode and threshold and a session's Enable, as the dashboard does, and

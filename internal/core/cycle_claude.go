@@ -140,7 +140,7 @@ func (claudeCycle) Probe(ctx context.Context, t CycleTarget) CycleProbe {
 	if !claudeEvidencedPlatforms[runtime.GOOS] {
 		return CycleProbe{Reason: "platform_unverified"}
 	}
-	// The host must have its own registry record; its version is not checked (#196).
+	// The host must have its own registry record; its version is not checked (PDR 006, Decision 5).
 	if _, err := readClaudeRecord(t); err != nil {
 		return CycleProbe{Reason: "native_registry_unavailable"}
 	}

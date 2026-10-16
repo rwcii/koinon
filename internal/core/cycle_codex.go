@@ -182,7 +182,7 @@ func (codexCycle) Probe(ctx context.Context, t CycleTarget) CycleProbe {
 	if err != nil || path == "" {
 		return CycleProbe{Reason: "native_registry_unavailable"}
 	}
-	// The thread must have its own rollout record; its CLI version is not checked (#196).
+	// The thread must have its own rollout record; its CLI version is not checked (PDR 006, Decision 5).
 	if _, err := readCodexMeta(path, t.SessionID); err != nil {
 		return CycleProbe{Reason: "native_registry_unavailable"}
 	}
