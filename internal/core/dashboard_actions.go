@@ -42,6 +42,7 @@ var noticeText = map[string]string{
 	"settings_saved":            "The session timing was saved and applies now.",
 	"context_policy_saved":      "The family's context mode and threshold were saved; no session was enabled.",
 	"context_enable_saved":      "The session's context-cycle Enable was saved.",
+	"context_threshold_saved":   "The session's own threshold was saved; 0 uses the family threshold.",
 	"context_cycle_unavailable": "Refused: no verified handoff cycle is available for this session yet.",
 	"context_enable_changed":    "Refused: the session's Enable changed since the page was loaded. Reload and try again.",
 	"not_participant":           "Refused: the session does not belong to that participant.",
@@ -201,7 +202,7 @@ func (d *Daemon) dashboardActions(mux *http.ServeMux, authed func(int64, func(ht
 		peer, state := r.PostForm.Get("peer"), r.PostForm.Get("enabled")
 		revision, ok1 := formInt(r, "revision")
 		ifRevision, ok2 := formInt(r, "if_revision")
-		valid := ok1 && ok2 && revision > 0 && len(peer) > 0 && len(peer) <= 256 && !strings.ContainsAny(peer, "\x00\r\n") && (state == "on" || state == "off")
+		valid := ok1 && ok2 && revision > 0 && validContextPeer(peer) && (state == "on" || state == "off")
 		target := "context enable invalid"
 		if valid {
 			target = "context enable " + peer + " " + state
@@ -211,6 +212,20 @@ func (d *Daemon) dashboardActions(mux *http.ServeMux, authed func(int64, func(ht
 				_, err := d.store.SetContextEnable(ctx, peer, revision, ifRevision, state == "on")
 				return err
 			}, "context_enable_saved", nil)
+	}))
+	mux.HandleFunc("POST /dashboard/actions/context-threshold", authed(actionFormLimit, func(w http.ResponseWriter, r *http.Request, _ string) {
+		peer := r.PostForm.Get("peer")
+		threshold, ok := formInt(r, "threshold")
+		valid := ok && threshold >= 0 && threshold <= 100 && validContextPeer(peer)
+		target := "context threshold invalid"
+		if valid {
+			target = "context threshold " + peer + " " + strconv.FormatInt(threshold, 10)
+		}
+		run(w, r, "context-threshold", target, "sessions", nil, valid,
+			func(ctx context.Context) error {
+				_, err := d.store.SetContextThreshold(ctx, peer, threshold)
+				return err
+			}, "context_threshold_saved", nil)
 	}))
 	mux.HandleFunc("POST /dashboard/actions/context-cycle-answer", authed(actionFormLimit, func(w http.ResponseWriter, r *http.Request, _ string) {
 		id, digest, option := r.PostForm.Get("cycle_id"), r.PostForm.Get("digest"), r.PostForm.Get("option")

@@ -429,6 +429,23 @@ choice for its address ends the cycle; a cycle that fails or cannot be proven en
 session's Enable. A session must report its pickup within two minutes of the pickup input. When
 the session shows a dialog that the cycle does not answer itself, the Sessions page shows it
 with one button per option; your choice applies only to that dialog.
+
+Without the dashboard, a shell on the same computer (for example over SSH) or an agent session
+changes the same settings (#391). Each change is in the audit log with its origin:
+
+```sh
+koinon context show                                   # families, sessions, waiting dialogs
+koinon context set codex --mode handoff_cycle --threshold 80
+koinon context enable NAME                            # or: koinon context disable NAME
+koinon context threshold NAME 60                      # NAME's own threshold
+koinon context threshold NAME family                  # back to the family threshold
+```
+
+Agents use the MCP tools `context_show`, `context_set`, `context_enable` and
+`context_threshold`; without `peer`, `context_enable` and `context_threshold` change the
+calling session. `koinon context show` also shows a waiting dialog. Without the dashboard, answer
+it with its option key in the session's own tmux pane, as the maintainer or an agent that
+manages the session.
 While a retained name record is called `overwatch`, no cycle starts and the Sessions page
 names the conflict. See PROTOCOL.md, Managed context cycles.
 

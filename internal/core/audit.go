@@ -31,7 +31,17 @@ type auditContextKey struct{}
 // under its context writes it; written then stays true.
 type pendingAudit struct {
 	action, target string
-	written        bool
+	// origin names who made a change outside the dashboard (#391): "cli" or "agent PEER".
+	origin  string
+	written bool
+}
+
+// recordTarget is the target as the record stores it, with the change's origin.
+func (p *pendingAudit) recordTarget() string {
+	if p.origin == "" {
+		return p.target
+	}
+	return p.target + " by " + p.origin
 }
 
 // setAuditTarget names what an accepted change did, once the store knows it.
@@ -61,7 +71,7 @@ func (t *writeTx) writeAudit() (*pendingAudit, error) {
 		return nil, nil
 	}
 	_, err := t.Tx.ExecContext(t.ctx, `INSERT INTO audit(at,action,target,result) VALUES (?,?,?,'accepted')`,
-		t.s.now().UnixMilli(), p.action, p.target)
+		t.s.now().UnixMilli(), p.action, p.recordTarget())
 	return p, err
 }
 
@@ -78,7 +88,7 @@ func (s *Store) auditRefusal(ctx context.Context, p *pendingAudit, reason string
 	}
 	defer tx.Rollback()
 	if _, err := tx.ExecContext(ctx, `INSERT INTO audit(at,action,target,result,reason) VALUES (?,?,?,'refused',?)`,
-		s.now().UnixMilli(), p.action, p.target, reason); err != nil {
+		s.now().UnixMilli(), p.action, p.recordTarget(), reason); err != nil {
 		tx.fail(err)
 		return
 	}

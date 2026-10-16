@@ -152,7 +152,7 @@ func TestProtocol(t *testing.T) {
 			}
 		}
 	}
-	if strings.Join(names, ",") != "peers,peer_status,send,inbox,ack,delivery,context_cycle_status,context_cycle_ready,context_cycle_pickup,library_list,library_read,library_state,library_decision,room_list,room_members,room_post,room_read,memory_status,memory_sync,memory_ack,memory_record,memory_recall,work_checkout,work_checkout_request,decision_create,decision_edit,decision_list,decision_get,decision_history,decision_pending,decision_ack,decision_close,decision_restore,work_create,work_get,work_list,work_propose,work_edit,work_start,work_update,work_release,work_finish,claim_renew,work_report,work_accept,work_reject" {
+	if strings.Join(names, ",") != "peers,peer_status,send,inbox,ack,delivery,context_cycle_status,context_cycle_ready,context_cycle_pickup,context_show,context_set,context_enable,context_threshold,library_list,library_read,library_state,library_decision,room_list,room_members,room_post,room_read,memory_status,memory_sync,memory_ack,memory_record,memory_recall,work_checkout,work_checkout_request,decision_create,decision_edit,decision_list,decision_get,decision_history,decision_pending,decision_ack,decision_close,decision_restore,work_create,work_get,work_list,work_propose,work_edit,work_start,work_update,work_release,work_finish,claim_renew,work_report,work_accept,work_reject" {
 		t.Fatalf("tools: %v", names)
 	}
 	if reply := h.request("ping", nil); reply["result"] == nil {
@@ -746,5 +746,35 @@ func TestGrokLeaderModeRefused(t *testing.T) {
 	h.request("initialize", map[string]any{"protocolVersion": "2025-06-18", "clientInfo": map[string]any{"name": "grok-shell-koinon"}})
 	if reply, isError := h.tool("peers", map[string]any{}, nil); isError || len(h.sessions()) != 1 || h.sessions()[0].Family != "grok" {
 		t.Fatalf("terminal session: %v %v", reply, h.sessions())
+	}
+}
+
+// The context tools change the settings as the calling session, which the audit names (#391).
+func TestContextTools(t *testing.T) {
+	h := newHarness(t, "codex")
+	h.launch("codex")
+	me := map[string]any{"threadId": "synthetic-context"}
+	h.tool("peers", map[string]any{}, me)
+	got, isError := h.tool("context_set", map[string]any{"target_family": "codex", "mode": "handoff_cycle", "threshold": 65}, me)
+	if isError || got["result"].(map[string]any)["threshold"] != float64(65) {
+		t.Fatalf("set: %v", got)
+	}
+	if got, isError = h.tool("context_threshold", map[string]any{"threshold": 45}, me); isError || got["result"].(map[string]any)["threshold"] != float64(45) {
+		t.Fatalf("own threshold: %v", got)
+	}
+	if got, isError = h.tool("context_threshold", map[string]any{}, me); !isError || got["code"] != "invalid_arguments" {
+		t.Fatalf("missing threshold: %v", got)
+	}
+	if got, isError = h.tool("context_set", map[string]any{"family": "codex", "mode": "observe", "threshold": 65}, me); !isError || got["code"] != "identity_unavailable" {
+		t.Fatalf("a family argument: %v", got)
+	}
+	got, isError = h.tool("context_show", map[string]any{}, me)
+	sessions, _ := got["sessions"].([]any)
+	if isError || len(sessions) != 1 || sessions[0].(map[string]any)["threshold"] != float64(45) || sessions[0].(map[string]any)["threshold_source"] != "session" {
+		t.Fatalf("show: %v", got)
+	}
+	// The Codex cycle cannot run for this synthetic session, so its Enable is refused.
+	if got, isError = h.tool("context_enable", map[string]any{"enabled": true}, me); !isError || got["code"] != "context_cycle_unavailable" {
+		t.Fatalf("enable: %v", got)
 	}
 }

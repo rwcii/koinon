@@ -327,6 +327,23 @@ func TestDashboardContextPolicy(t *testing.T) {
 		!strings.Contains(page.body, `<button type="submit" disabled title="The handoff cycle is unavailable for this session: host_unpinned.">Enable handoff</button>`) || strings.Contains(page.body, "synthetic-private-epoch") {
 		t.Fatalf("sessions page: %d %s", page.status, page.body)
 	}
+	// A session's own threshold (#391) shows on its row; 0 returns it to the family's.
+	if got := client.do("context-threshold", url.Values{"peer": {a.Name}, "threshold": {"101"}}); got != "invalid_request" {
+		t.Fatalf("threshold 101: %s", got)
+	}
+	if got := client.do("context-threshold", url.Values{"peer": {a.Name}, "threshold": {"60"}}); got != "context_threshold_saved" {
+		t.Fatalf("threshold: %s", got)
+	}
+	page = dashboardDo(t, d, "GET", "/dashboard/sessions", client.cookie, nil, nil)
+	if !strings.Contains(page.body, "handoff handoff_cycle at 60% (session), not enabled") || !strings.Contains(page.body, `name="threshold" type="number" min="0" max="100" required value="60"`) {
+		t.Fatalf("sessions page with a session threshold: %s", page.body)
+	}
+	if got := client.do("context-threshold", url.Values{"peer": {a.Name}, "threshold": {"0"}}); got != "context_threshold_saved" {
+		t.Fatalf("threshold 0: %s", got)
+	}
+	if records := auditAll(t, s); records[0].Target != "context threshold "+a.Name+" family" {
+		t.Fatalf("audit: %+v", records[0])
+	}
 	settings := dashboardDo(t, d, "GET", "/dashboard/settings", client.cookie, nil, nil)
 	if settings.status != 200 || !strings.Contains(settings.body, "native_compaction") || !strings.Contains(settings.body, "<td>claude</td><td>handoff_cycle</td><td>80%</td>") {
 		t.Fatalf("settings page: %d %s", settings.status, settings.body)
@@ -340,7 +357,7 @@ func TestContextSchemaTwentyTwoKeepsExistingState(t *testing.T) {
 	room := mustRoom(t, s, "synthetic kept room", 7)
 	mustHumanPost(t, s, room, "synthetic kept post")
 	before := rowsOf(t, s.db)
-	if _, err := fixtureExec(s, undoSchemaTwentySix+undoSchemaTwentyFive+undoSchemaTwentyFour+undoSchemaTwentyThree+undoSchemaTwentyTwo+`PRAGMA user_version=21`); err != nil {
+	if _, err := fixtureExec(s, undoSchemaTwentySeven+undoSchemaTwentySix+undoSchemaTwentyFive+undoSchemaTwentyFour+undoSchemaTwentyThree+undoSchemaTwentyTwo+`PRAGMA user_version=21`); err != nil {
 		t.Fatal(err)
 	}
 	if err := checkCatalog(s.db, 21); err != nil {

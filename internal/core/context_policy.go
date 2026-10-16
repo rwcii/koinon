@@ -195,11 +195,23 @@ func (s *Store) SetContextPolicy(ctx context.Context, family, mode string, thres
 
 // ContextEnable is one session's Enable switch. The record pins the session's revision,
 // participant address, host and tmux pane when it was set; those private fields never
-// leave the store.
+// leave the store. Threshold is the session's own threshold (#391), or 0 when the family
+// threshold applies; changing it leaves the Enable and its revision unchanged.
 type ContextEnable struct {
 	Enabled   bool  `json:"enabled"`
 	Revision  int64 `json:"revision"`
 	UpdatedAt int64 `json:"updated_at"`
+	Threshold int64 `json:"threshold"`
+}
+
+// sessionContextPolicy is the policy in force for one session: its family's mode, and its
+// own threshold when it has one.
+func (s *Store) sessionContextPolicy(family string, enable ContextEnable) ContextFamilyPolicy {
+	p := s.familyContextPolicy(family)
+	if enable.Threshold > 0 {
+		p.Threshold = enable.Threshold
+	}
+	return p
 }
 
 // ErrContextCycleUnavailable refuses an Enable while no verified cycle adapter exists for
@@ -286,7 +298,7 @@ func (s *Store) SetContextEnable(ctx context.Context, peer string, sessionRevisi
 		setAuditTarget(ctx, "context enable "+peer+" off unchanged")
 		return current, tx.Commit()
 	}
-	next := ContextEnable{Enabled: enabled, Revision: current.Revision + 1, UpdatedAt: now}
+	next := ContextEnable{Enabled: enabled, Revision: current.Revision + 1, UpdatedAt: now, Threshold: current.Threshold}
 	if !enabled {
 		// Disable fences the session's cycle at once, also one that is already waiting.
 		if err := s.fenceCyclesTx(ctx, tx, "disabled", `family=? AND session_id=?`, k.Family, k.ID); err != nil {
@@ -310,17 +322,103 @@ func (s *Store) SetContextEnable(ctx context.Context, peer string, sessionRevisi
 
 func contextEnableOf(ctx context.Context, tx *sql.Tx, k Key) (ContextEnable, error) {
 	var e ContextEnable
-	err := tx.QueryRowContext(ctx, `SELECT enabled,revision,updated_at FROM context_enables WHERE family=? AND session_id=?`, k.Family, k.ID).
-		Scan(&e.Enabled, &e.Revision, &e.UpdatedAt)
+	err := tx.QueryRowContext(ctx, `SELECT enabled,revision,updated_at,threshold FROM context_enables WHERE family=? AND session_id=?`, k.Family, k.ID).
+		Scan(&e.Enabled, &e.Revision, &e.UpdatedAt, &e.Threshold)
 	if errors.Is(err, sql.ErrNoRows) {
 		return ContextEnable{}, nil
 	}
 	return e, err
 }
 
+// SetContextEnableNow turns a session's Enable on or off at the session's and the Enable's
+// current revisions, for the command line and MCP (#391), which show no page to compare.
+func (s *Store) SetContextEnableNow(ctx context.Context, peer string, enabled bool) (ContextEnable, error) {
+	k, err := s.contextPeer(ctx, peer)
+	if err != nil {
+		return ContextEnable{}, err
+	}
+	session, err := scanSession(s.db.QueryRowContext(ctx, sessionQuery+` WHERE s.family=? AND s.id=?`, k.Family, k.ID), s.now().UnixMilli())
+	if err != nil {
+		return ContextEnable{}, err
+	}
+	var current ContextEnable
+	err = s.db.QueryRowContext(ctx, `SELECT revision FROM context_enables WHERE family=? AND session_id=?`, k.Family, k.ID).Scan(&current.Revision)
+	if err != nil && !errors.Is(err, sql.ErrNoRows) {
+		return ContextEnable{}, err
+	}
+	return s.SetContextEnable(ctx, peer, session.Revision, current.Revision, enabled)
+}
+
+// contextPeer finds the session that a context change names by its peer name.
+func (s *Store) contextPeer(ctx context.Context, peer string) (Key, error) {
+	var k Key
+	if peer == "" {
+		return k, ErrInvalid
+	}
+	err := s.db.QueryRowContext(ctx, `SELECT family,session_id FROM names WHERE kind='peer' AND name=? AND family!='maintainer'`, peer).Scan(&k.Family, &k.ID)
+	if errors.Is(err, sql.ErrNoRows) {
+		return k, ErrPeerNotFound
+	}
+	return k, err
+}
+
+// SetContextThreshold sets a session's own threshold (1 to 100), or with 0 returns it to
+// its family threshold (#391). It leaves the Enable and its revision unchanged, so a cycle
+// that its Enable admitted continues; the threshold applies to the next selection. A
+// session without an Enable record gets one that is off, pinned as an Enable would be.
+func (s *Store) SetContextThreshold(ctx context.Context, peer string, threshold int64) (ContextEnable, error) {
+	if peer == "" || threshold < 0 || threshold > 100 {
+		return ContextEnable{}, ErrInvalid
+	}
+	tx, err := s.begin(ctx, ordinary)
+	if err != nil {
+		return ContextEnable{}, err
+	}
+	defer tx.Rollback()
+	tx.audited = true
+	now := s.now().UnixMilli()
+	var k Key
+	err = tx.QueryRowContext(ctx, `SELECT family,session_id FROM names WHERE kind='peer' AND name=? AND family!='maintainer'`, peer).Scan(&k.Family, &k.ID)
+	if errors.Is(err, sql.ErrNoRows) {
+		return ContextEnable{}, ErrPeerNotFound
+	}
+	if err != nil {
+		return ContextEnable{}, err
+	}
+	current, err := contextEnableOf(ctx, tx.Tx, k)
+	if err != nil {
+		return ContextEnable{}, err
+	}
+	target := "family"
+	if threshold > 0 {
+		target = strconv.FormatInt(threshold, 10)
+	}
+	if current.Threshold == threshold {
+		setAuditTarget(ctx, "context threshold "+peer+" "+target+" unchanged")
+		return current, tx.Commit()
+	}
+	if current.Revision == 0 {
+		session, err := scanSession(tx.QueryRowContext(ctx, sessionQuery+` WHERE s.family=? AND s.id=?`, k.Family, k.ID), now)
+		if err != nil {
+			return ContextEnable{}, err
+		}
+		if _, err := tx.ExecContext(ctx, `INSERT INTO context_enables(family,session_id,enabled,revision,session_revision,address,host_pid,host_start,tmux_socket,tmux_pane,updated_at,threshold)
+			SELECT family,id,0,1,?,?,host_pid,host_start,tmux_socket,tmux_pane,?,? FROM sessions WHERE family=? AND id=?`,
+			session.Revision, session.Address, now, threshold, k.Family, k.ID); err != nil {
+			return ContextEnable{}, tx.fail(err)
+		}
+		current = ContextEnable{Revision: 1, UpdatedAt: now}
+	} else if _, err := tx.ExecContext(ctx, `UPDATE context_enables SET threshold=? WHERE family=? AND session_id=?`, threshold, k.Family, k.ID); err != nil {
+		return ContextEnable{}, tx.fail(err)
+	}
+	current.Threshold = threshold
+	setAuditTarget(ctx, "context threshold "+peer+" "+target)
+	return current, tx.Commit()
+}
+
 // contextEnables reads the Enable records of the given sessions.
 func (s *Store) contextEnables(ctx context.Context) (map[Key]ContextEnable, error) {
-	rows, err := s.db.QueryContext(ctx, `SELECT family,session_id,enabled,revision,updated_at FROM context_enables`)
+	rows, err := s.db.QueryContext(ctx, `SELECT family,session_id,enabled,revision,updated_at,threshold FROM context_enables`)
 	if err != nil {
 		return nil, err
 	}
@@ -329,7 +427,7 @@ func (s *Store) contextEnables(ctx context.Context) (map[Key]ContextEnable, erro
 	for rows.Next() {
 		var k Key
 		var e ContextEnable
-		if err := rows.Scan(&k.Family, &k.ID, &e.Enabled, &e.Revision, &e.UpdatedAt); err != nil {
+		if err := rows.Scan(&k.Family, &k.ID, &e.Enabled, &e.Revision, &e.UpdatedAt, &e.Threshold); err != nil {
 			return nil, err
 		}
 		result[k] = e
