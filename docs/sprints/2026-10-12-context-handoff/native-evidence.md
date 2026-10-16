@@ -163,8 +163,9 @@ Codex family threshold 1%.
 | X0 Probe | `pickup through project`. |
 | X2 Approval | Pass. Each `context_cycle_pickup` approval was answered with option 1 through the Sessions action; both cycles completed (`paused`) after `waiting_pickup:prompt_answered`. The first cycle showed the approval dialog twice; the cause of the second was not captured. The `cycle_changed` refusal of #389 did not occur. |
 
-The run also completed a second cycle with the carried-over Enable, but it is not the
-three-cycle X1 check. No single Codex CLI version has every macOS row: 0.162.1 has X0, X1 and
+The run also completed two cycles in sequence with the carried-over Enable, both `paused`, as
+X1 asks, but it did not capture the participant event of the first cycle, so X1 is not
+recorded for 0.163.0. No single Codex CLI version has every macOS row: 0.162.1 has X0, X1 and
 X3; 0.163.0 has X0 and X2. The adapter stays `platform_unverified` on macOS until one exact
 version passes X0 to X3 there (the definition of done's per family, version and platform rows);
 the admission then names that platform and version pair.
