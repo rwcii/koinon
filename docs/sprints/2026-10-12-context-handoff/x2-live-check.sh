@@ -43,11 +43,9 @@ for c in git go tmux sqlite3 curl codex; do
 	command -v "$c" >/dev/null || die "$c is not on PATH"
 done
 curl -s -o /dev/null "$BASE/" && die "port $PORT is in use; run again with PORT=<free port>"
-# The browser step needs the desktop login: over SSH, or in a tmux server started over SSH,
-# macOS refuses open with launchd error 125.
-if [ "$(uname -s)" = Darwin ] && [ "$(launchctl managername 2>/dev/null)" != Aqua ]; then
-	die "run this script in Terminal on the Mac's desktop, not over SSH or in a tmux started over SSH"
-fi
+# open reaches the browser only from the Mac's desktop login: over SSH, or in a tmux server
+# started over SSH, macOS refuses it with launchd error 125. Elsewhere the link is printed only.
+desktop() { [ "$(uname -s)" = Darwin ] && [ "$(launchctl managername 2>/dev/null)" = Aqua ]; }
 
 mkdir -p "$K" && chmod 700 "$K"
 say "Facts of the run:"
@@ -166,7 +164,7 @@ latest() { sqlite3 -readonly "$DB" "SELECT state || CASE WHEN reason <> '' THEN 
 stages() { sqlite3 -readonly "$DB" "SELECT c.state, c.reason, (SELECT group_concat(x, ' ') FROM (SELECT stage || ':' || reason AS x FROM context_cycle_events e WHERE e.cycle_id = c.cycle_id ORDER BY ordinal)) FROM context_cycles c ORDER BY c.created_at" 2>/dev/null; }
 
 say "Watching the cycle (up to 20 minutes; Ctrl-C stops and cleans up)"
-last= since=$(date +%s) shown= asked= end=$(($(date +%s) + 1200))
+last='' since=$(date +%s) shown='' asked='' end=$(($(date +%s) + 1200))
 while [ "$(date +%s)" -lt "$end" ]; do
 	s=$(latest)
 	if [ -n "$s" ] && [ "$s" != "$last" ]; then
@@ -183,7 +181,11 @@ while [ "$(date +%s)" -lt "$end" ]; do
 			say "  Open this link within 60 seconds (it replaces the work dashboard login in this browser; both use 127.0.0.1):"
 			say "  $link"
 			say "  On the row $PEER, read the native dialog, then click \"Choose 1\"."
-			command -v open >/dev/null && open "$link"
+			if desktop; then
+				open "$link"
+			else
+				say "  Open it in a browser on this machine's desktop; the test dashboard listens on loopback only."
+			fi
 			say "  An expired link? A new one: \"$K/koinon\" dashboard --state-dir \"$K/state\" --address 127.0.0.1:$PORT --no-open"
 			page sessions | grep -oE 'native dialog:.*' | sed -E 's/<form.*//; s/<br>/ | /g; s/<[^>]+>//g; s/&#34;/"/g; s/&#39;/'"'"'/g; s/&lt;/</g; s/&gt;/>/g; s/&amp;/\&/g' | sed 's/^/    /'
 		fi
