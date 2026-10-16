@@ -28,14 +28,8 @@ import (
 // codexCycleVersion is the adapter's version, stored with each cycle.
 const codexCycleVersion = "codex-tmux-1"
 
-// codexEvidencedVersions are the Codex CLI versions whose native behavior the evidence proves.
-var codexEvidencedVersions = map[string]bool{"0.162.0": true}
-
-// codexAnyVersion admits every Codex CLI version; only a livecheck build sets it.
-var codexAnyVersion bool
-
 // codexEvidencedPlatforms are the operating systems with native evidence for this adapter.
-var codexEvidencedPlatforms = map[string]bool{"linux": true}
+var codexEvidencedPlatforms = map[string]bool{"linux": true, "darwin": true}
 
 // codexKeyWait bounds the read-back after each key.
 var codexKeyWait = 3 * time.Second
@@ -188,12 +182,9 @@ func (codexCycle) Probe(ctx context.Context, t CycleTarget) CycleProbe {
 	if err != nil || path == "" {
 		return CycleProbe{Reason: "native_registry_unavailable"}
 	}
-	meta, err := readCodexMeta(path, t.SessionID)
-	if err != nil {
+	// The thread must have its own rollout record; its CLI version is not checked (PDR 006, Decision 5).
+	if _, err := readCodexMeta(path, t.SessionID); err != nil {
 		return CycleProbe{Reason: "native_registry_unavailable"}
-	}
-	if !codexEvidencedVersions[meta.CLIVersion] && !codexAnyVersion {
-		return CycleProbe{Reason: "native_version_unverified"}
 	}
 	if !codexForeground(ctx, t.tools, t.HostPID, t.HostStart, t.Socket, t.Pane) {
 		return CycleProbe{Reason: "pane_unproven"}

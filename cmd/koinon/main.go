@@ -53,6 +53,8 @@ func run(ctx context.Context, args []string, in io.Reader, out io.Writer) error 
 		return roomCommand(ctx, args[1:], out)
 	case "decision":
 		return decisionCommand(ctx, args[1:], out)
+	case "context":
+		return contextCommand(ctx, args[1:], out)
 	case "dashboard":
 		return dashboardCommand(ctx, args[1:], out)
 	case "version":
@@ -248,6 +250,10 @@ const usage = `Usage: koinon install [--prefix DIR] [--state-dir DIR] [--agent F
        koinon decision ack --as FAMILY:ID --verdict VERDICT_ID...
        koinon decision close --as FAMILY:ID --reference REF --if-revision N [--note TEXT] --key KEY --deadline UNIX_SECONDS
        koinon decision restore --as FAMILY:ID --reference REF
+       koinon context show [--json] [--state-dir DIR] [--address 127.0.0.1:PORT]
+       koinon context set FAMILY --mode observe|native_compaction|handoff_cycle --threshold PERCENT
+       koinon context enable|disable NAME
+       koinon context threshold NAME PERCENT|family
        koinon work <create|list> --as FAMILY:ID [--consumer KEY] [options]
        koinon work checkout [--directory DIR]
        koinon work checkout <status|request> --as FAMILY:ID [--directory DIR] [options]

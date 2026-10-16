@@ -45,8 +45,8 @@ S="$K/tmux.sock"; DB="$K/state/state.sqlite3"
 
 ## 2. Build
 
-The `livecheck` tag admits macOS and the installed Claude Code version in this private build
-only. The second build is the launcher from before the loader, for M3.
+Since #196's version change, every build admits macOS and any Claude Code and Codex version;
+the `livecheck` tag does that only for a commit before it, and has no effect after it. The second build is the launcher from before the loader, for M3.
 
 ```bash
 git clone -q https://github.com/rwcii/koinon "$K/src" && cd "$K/src" && git checkout -q "$PR"
@@ -216,6 +216,10 @@ On the Settings page, set the codex family to mode `handoff_cycle` and threshold
 - X2: `newcodex x2 approve`, the first turn as in X0, Enable, and `Reply with the single word
   ok.` When `cycles` shows `waiting_prompt` after `waiting_pickup`, open the Sessions page,
   record the dialog and click "Choose 1". Record the stage list, then click Disable.
+  [x2-live-check.sh](x2-live-check.sh) runs X2 alone, with steps 1 to 3 and the clean-up of
+  step 11: `bash x2-live-check.sh`. It does every step except the answer: at each approval it
+  shows the Codex pane in its own window, you type `y`, and it presses 1 in the pane. It prints
+  the result to send.
 - X3: on the X1 session, as in step 9. Before each case, the session that holds the address
   must have had a turn after its last clear (enter `Call the koinon peers tool once.`), and
   you click Enable on its row. Run `crash clear_intent 0` (E1) and `crash pickup_intent 0`

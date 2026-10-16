@@ -409,14 +409,14 @@ enabled on the Sessions page, and changing a family enables nothing. The Session
 each session's mode, threshold, Enable, whether its family has a verified cycle, and why it is
 or is not at its threshold, with the age of its context reading. Enabling is refused
 (`context_cycle_unavailable`) and its button is inactive while the cycle cannot run for that
-session; the page names the reason (for example a Claude Code version without native evidence,
+session; the page names the reason (for example a session that is not in its launched tmux pane,
 or a pickup skill that differs from the catalog). Disabling always works. A stored mode or threshold that is not valid
 keeps the family default, and the Settings page names the error.
 
-Claude Code sessions launched with `koinon claude` on Linux and macOS can run the cycle (Claude Code
-2.1.296); `koinon claude` adds Koinon's pickup loader so that `/pickup` works after the clear even
+Claude Code sessions launched with `koinon claude` on Linux and macOS can run the cycle;
+`koinon claude` adds Koinon's pickup loader so that `/pickup` works after the clear even
 without an installed pickup skill. Codex sessions launched with `koinon codex` in tmux on Linux
-can run it too (Codex CLI 0.162.0, family mode `handoff_cycle`): they need an installed `pickup`
+and macOS can run it too (family mode `handoff_cycle`): they need an installed `pickup`
 skill that is the catalog's, and their participant address; Codex has no loader. The new thread
 after the clear takes the address and reports the pickup. An enabled session
 whose context reaches its threshold gets a request from `overwatch`, Koinon's reserved system
@@ -429,6 +429,23 @@ choice for its address ends the cycle; a cycle that fails or cannot be proven en
 session's Enable. A session must report its pickup within two minutes of the pickup input. When
 the session shows a dialog that the cycle does not answer itself, the Sessions page shows it
 with one button per option; your choice applies only to that dialog.
+
+Without the dashboard, a shell on the same computer (for example over SSH) or an agent session
+changes the same settings (#391). Each change is in the audit log with its origin:
+
+```sh
+koinon context show                                   # families, sessions, waiting dialogs
+koinon context set codex --mode handoff_cycle --threshold 80
+koinon context enable NAME                            # or: koinon context disable NAME
+koinon context threshold NAME 60                      # NAME's own threshold
+koinon context threshold NAME family                  # back to the family threshold
+```
+
+Agents use the MCP tools `context_show`, `context_set`, `context_enable` and
+`context_threshold`; without `peer`, `context_enable` and `context_threshold` change the
+calling session. `koinon context show` also shows a waiting dialog. Without the dashboard, answer
+it with its option key in the session's own tmux pane, as the maintainer or an agent that
+manages the session.
 While a retained name record is called `overwatch`, no cycle starts and the Sessions page
 names the conflict. See PROTOCOL.md, Managed context cycles.
 

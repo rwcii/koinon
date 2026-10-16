@@ -263,7 +263,7 @@ func (c *codexTerminal) sent() []string {
 	return slices.Clone(c.keys)
 }
 
-// Probe needs the platform, the requester's own rollout of an evidenced version, the pane, and
+// Probe needs the platform, the requester's own rollout (any CLI version), the pane, and
 // pickup skills that are all the catalog item; their scope is shown.
 func TestCodexProbe(t *testing.T) {
 	ctx := context.Background()
@@ -300,8 +300,9 @@ func TestCodexProbe(t *testing.T) {
 	if got := (codexCycle{}).Probe(ctx, target); got != (CycleProbe{Bootstrap: "project"}) {
 		t.Fatalf("other skill: %+v", got)
 	}
+	// Another Codex CLI version runs the cycle too (#196).
 	term.rollout("thread-a", "0.163.0", "task_started", "task_complete")
-	if got := (codexCycle{}).Probe(ctx, target); got.Reason != "native_version_unverified" {
+	if got := (codexCycle{}).Probe(ctx, target); got != (CycleProbe{Bootstrap: "project"}) {
 		t.Fatalf("version: %+v", got)
 	}
 	term.rollout("thread-a", "0.162.0")

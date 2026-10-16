@@ -370,9 +370,9 @@ type CycleAdapter interface {
 
 // CycleDialog is a native dialog as the pane shows it.
 type CycleDialog struct {
-	Lines   []string
-	Options []string // the option numbers
-	Digest  string
+	Lines   []string `json:"lines"`
+	Options []string `json:"options"` // the option numbers
+	Digest  string   `json:"digest"`
 }
 
 // cycleAdapters holds the registered adapters by family. Tests register synthetic ones.
@@ -432,16 +432,17 @@ func (s *Store) admitContextCycle(ctx context.Context, k Key) (bool, error) {
 	if adapter == nil || !cycleCode.MatchString(adapter.Version()) || !contextCycleEnabledFor(s, ctx, k) {
 		return false, nil
 	}
-	policy := s.familyContextPolicy(k.Family)
+	// Most observations select nothing: check with reads before entering a write.
+	enables, err := s.contextEnables(ctx)
+	if err != nil || !enables[k].Enabled {
+		return false, err
+	}
+	policy := s.sessionContextPolicy(k.Family, enables[k])
 	evidence := s.contextEvidence(k)
 	s.observed.mu.Lock()
 	latched := s.latches.latched(k, evidence, policy.Threshold)
 	s.observed.mu.Unlock()
 	now := s.now().UnixMilli()
-	// Most observations select nothing: check with reads before entering a write.
-	if enables, err := s.contextEnables(ctx); err != nil || !enables[k].Enabled {
-		return false, err
-	}
 	conflict, err := overwatchNameHeld(ctx, s.db)
 	if err != nil {
 		return false, err
@@ -470,6 +471,9 @@ func (s *Store) admitContextCycle(ctx context.Context, k Key) (bool, error) {
 	if conflict, err = overwatchNameHeld(ctx, tx); err != nil {
 		return false, err
 	}
+	// The policy may have changed since the read above (the session's own threshold, #391):
+	// the selection and the cycle's recorded snapshot both use the policy in force now.
+	policy = s.sessionContextPolicy(k.Family, enable)
 	eligible, _ := SelectContextTrigger(ContextTriggerInput{Active: session.State == "active", Enabled: enable.Enabled, Policy: policy,
 		CycleAvailable: true, OverwatchConflict: conflict, Evidence: evidence, Now: now, LatchedEpoch: latched})
 	if !eligible {
@@ -978,6 +982,9 @@ func (s *Store) ContextCyclePickup(ctx context.Context, caller Key, epoch, id st
 	if _, err := s.verifyArtifact(ctx, c, artifact); err != nil {
 		return CycleView{}, err
 	}
+	if s.pickupWrite != nil {
+		s.pickupWrite()
+	}
 	tx, err := s.begin(noAudit(ctx), control)
 	if err != nil {
 		return CycleView{}, err
@@ -987,7 +994,11 @@ func (s *Store) ContextCyclePickup(ctx context.Context, caller Key, epoch, id st
 	if err != nil {
 		return CycleView{}, err
 	}
-	if current.Revision != c.Revision || !awaitingPickup(current) || now >= current.StageDeadline || now >= current.CycleDeadline {
+	// The answer to a dialog that approved this report can record the return to
+	// waiting_pickup after the read above (#389): the report applies while the cycle still
+	// awaits it with the same artifact and epochs, at any revision.
+	if !awaitingPickup(current) || current.Artifact != artifact || current.Epoch != c.Epoch || current.SuccessorEpoch != c.SuccessorEpoch ||
+		now >= current.StageDeadline || now >= current.CycleDeadline {
 		return CycleView{}, ErrCycleChanged
 	}
 	// The caller must still be the managed successor in the pinned pane, or the requester
@@ -1012,11 +1023,14 @@ func (s *Store) ContextCyclePickup(ctx context.Context, caller Key, epoch, id st
 			return nil // the retained caller keeps its own Enable
 		}
 		// The Enable moves to the proven successor, pinned to the same host and pane.
-		_, err := tx.ExecContext(ctx, `INSERT INTO context_enables(family,session_id,enabled,revision,session_revision,address,host_pid,host_start,tmux_socket,tmux_pane,updated_at)
-			SELECT s.family,s.id,1,1,s.revision,?,s.host_pid,s.host_start,s.tmux_socket,s.tmux_pane,? FROM sessions s WHERE s.family=? AND s.id=?
+		// The requester's own threshold (#391) moves with it.
+		_, err := tx.ExecContext(ctx, `INSERT INTO context_enables(family,session_id,enabled,revision,session_revision,address,host_pid,host_start,tmux_socket,tmux_pane,updated_at,threshold)
+			SELECT s.family,s.id,1,1,s.revision,?,s.host_pid,s.host_start,s.tmux_socket,s.tmux_pane,?,
+			COALESCE((SELECT threshold FROM context_enables WHERE family=? AND session_id=?),0) FROM sessions s WHERE s.family=? AND s.id=?
 			ON CONFLICT(family,session_id) DO UPDATE SET enabled=1,revision=context_enables.revision+1,session_revision=excluded.session_revision,
 			address=excluded.address,host_pid=excluded.host_pid,host_start=excluded.host_start,tmux_socket=excluded.tmux_socket,
-			tmux_pane=excluded.tmux_pane,updated_at=excluded.updated_at`, current.Address, now, caller.Family, caller.ID)
+			tmux_pane=excluded.tmux_pane,updated_at=excluded.updated_at,threshold=excluded.threshold`, current.Address, now,
+			current.Family, current.SessionID, caller.Family, caller.ID)
 		if err != nil {
 			return err
 		}

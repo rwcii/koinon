@@ -3,7 +3,7 @@ pdr: "006"
 title: "Context Monitoring and Managed Handoffs"
 status: draft
 created: "2026-10-12"
-updated: "2026-10-14"
+updated: "2026-10-16"
 authors:
   - "Robert Capps"
 reviewers: []
@@ -51,9 +51,10 @@ cycle. The rest is requested in #196 or proposed in its plan.
 3. Decision 2: Enable carries over a verified managed reset
 4. Decision 3: Ask, wait for ready, then enter commands in the agent's pane
 5. Decision 4: Verify the reset, report every step, and fall back to embedded skills
-6. Statements this record does not adopt
-7. Conclusion
-8. Document History
+6. Decision 5: A native check certifies the CLI version current then
+7. Statements this record does not adopt
+8. Conclusion
+9. Document History
 
 ---
 
@@ -84,8 +85,11 @@ interaction are PDR 002. Handoff and pickup skills and the embedded catalog are 
 ### Decision
 
 The dashboard holds family defaults for context mode and threshold. Each session is off
-until the maintainer enables it in the dashboard; family defaults enable no session by
-themselves. Configuration changes use the dashboard login and CSRF token and are audited.
+until it is enabled; family defaults enable no session by themselves. A session can have its
+own threshold, which replaces its family's threshold while it is set. The family settings, a
+session's Enable and its own threshold change in the dashboard (login and CSRF token), with
+`koinon context` on the command line, or by an agent session through MCP. Every change is
+audited with its origin: the dashboard, `cli`, or `agent` and the calling session's peer name.
 The plan proposes that Codex default to its native compaction, and that only fresh,
 verified observations from the session start a cycle; unknown or stale context shows a reason.
 
@@ -94,6 +98,13 @@ body, "The cycle the user decided" and "Bounds"); a request record, no maintaine
 it. Family defaults with per-session enabling: Maintainer, 2026-10-12, session transcript:
 "Family defaults; enable each session (recommended)", the answer to the plan's choice of how
 the cycle is enabled (relayed in #196 comment 6115978138). It decides that choice only. The
+CLI and agent changes with audit, and the per-session threshold: Maintainer, 2026-10-16,
+#391, the request: "I'd like to be able to modify settings like enabling handoff and modifying
+handoff type and thresholds from CLI and MCP. Sometimes I am not able to access the
+console/dashboard, but I can SSH or ask an agent to enable its session (or one it's managing)
+for handoff, and to change the threshold." Then "approved, allow CLI and agents with audit"
+(#391 Decision 1), and "ok" to keep the family threshold with an optional per-session
+threshold (#391 Decision 2). The
 Codex default and freshness rule:
 Proposed in the unpublished #196 plan draft (9206a1d); not decided. Current observations: Shipped in PR
 #193 (merge commit a19bc2b); no maintainer decision found.
@@ -103,7 +114,8 @@ Proposed in the unpublished #196 plan draft (9206a1d); not decided. Current obse
 | Alternative | Description | Why Rejected |
 | ----------- | ----------- | ------------ |
 | Family-wide enable | Turning on a family enables all its sessions | Replaced by the per-session choice recorded on #196 |
-| Per-session settings only | Each session sets its own mode and threshold | More dashboard work for the same values |
+| Per-session settings only | Each session sets its own mode and threshold | More dashboard work for the same values; a per-session threshold that replaces the family's is adopted (#391) |
+| Dashboard-only changes | Only the dashboard changes the settings and the Enable | The maintainer cannot always reach the dashboard (#391) |
 
 ### Rationale
 
@@ -112,7 +124,8 @@ Proposed in the unpublished #196 plan draft (9206a1d); not decided. Current obse
 
 ### User Impact
 
-The maintainer sets mode and threshold once per family and turns the cycle on per session.
+The maintainer sets mode and threshold once per family and turns the cycle on per session,
+from the dashboard, a shell or an agent; a session can keep its own threshold.
 
 ---
 
@@ -236,7 +249,47 @@ Every cycle has a visible result. A family that cannot be proven shows why it is
 
 ---
 
-## 6. Statements this record does not adopt
+## 6. Decision 5: A native check certifies the CLI version current then
+
+### Decision
+
+A family's cycle adapter is available on a platform once its native checks pass there. The
+checks record the CLI version they ran with; the adapter runs with any version of that CLI,
+and a newer version is not refused. This holds for the Claude Code and the Codex adapters.
+Koinon shows no certified or not-certified status for a session's version; the release notes
+and the native evidence record name the versions that the checks ran with. The adapter's
+per-step proofs (pane, fence, read-back) still stop a cycle whose screen does not match.
+
+**Provenance:** Maintainer, 2026-10-16, #196. The question: the macOS checks of the Codex
+adapter passed across two Codex CLI versions (0.162.1: X0, X1, X3; 0.163.0: X0, X2), so no
+single version had every row, and the adapter refused every version outside an exact list.
+The answer: "codex is a moving target.  we will never be able to clear all versions, nor do
+we want to be in that business." (comment 6225646772). Asked whether the Claude Code adapter's
+version check goes too: "we certify then the current version, if it moves, it moves."
+(comment 6225649452). Then: "the cycle can check version, but what version passed is but a
+point in time." (comment 6225660579), and, replacing a proposal to show a not-certified
+status: "we dont even need to show certification status." (comment 6225667112).
+
+### Alternatives Considered
+
+| Alternative | Description | Why Rejected |
+| ----------- | ----------- | ------------ |
+| Exact version list | Refuse every CLI version without its own full check run | The CLIs move faster than the checks can follow (the maintainer's reason above) |
+| Show certification status | Run any version, but mark versions outside the checked list | Replaced by the maintainer's last answer above |
+
+### Rationale
+
+1. A check run is evidence for the version of its day; the per-step proofs, not a version list,
+   stop a cycle on a screen that changed.
+
+### User Impact
+
+A CLI upgrade does not turn the managed cycle off. A changed native screen still stops a
+cycle at the step that no longer matches.
+
+---
+
+## 7. Statements this record does not adopt
 
 | Inventory row | Statement (short) | Where it appears | Why not adopted |
 | ------------- | ----------------- | ---------------- | --------------- |
@@ -261,3 +314,5 @@ and terminal commands have the maintainer's words; the rest is requested or prop
 | 2026-10-13 | Recorded Gate B and the maintainer's reserved overwatch system sender |
 | 2026-10-12 | Reconciled the framing and active issue body with intended terminal commands and prompt handling; retained bare native commands without appended task text |
 | 2026-10-14 | Recorded the Codex `/status` read in the clear step (#196 chunk 04) |
+| 2026-10-16 | Decision 1: settings and Enable change also from the command line and by agents through MCP, audited with their origin; a per-session threshold (#391) |
+| 2026-10-16 | Decision 5: a native check certifies the CLI version current then; no version gate and no certification status (#196) |

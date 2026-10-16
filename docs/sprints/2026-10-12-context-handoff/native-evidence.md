@@ -150,7 +150,24 @@ The run of the Claude Code section above, with the Codex family threshold at 1%.
 
 Once, a thread read the cycle request but did not call `context_cycle_ready`; the cycle failed
 `waiting_ready_timeout` and entered nothing. The adapter stays `platform_unverified` on macOS
-until X2 passes; that run also admits 0.162.1.
+(see the 0.163.0 run below).
+
+## macOS, Codex CLI 0.163.0, 2026-10-16
+
+macOS 26.6.2 (25G83) arm64, tmux 3.7c, a livecheck build of develop `4d422e4` (the #389 fix),
+`x2-live-check.sh`, `approve` case (`/status`: `Permissions: Workspace (Ask for approval)`),
+Codex family threshold 1%.
+
+| Check | Result |
+| --- | --- |
+| X0 Probe | `pickup through project`. |
+| X2 Approval | Pass. Each `context_cycle_pickup` approval was answered with option 1 through the Sessions action; both cycles completed (`paused`) after `waiting_pickup:prompt_answered`. The first cycle showed the approval dialog twice; the cause of the second was not captured. The `cycle_changed` refusal of #389 did not occur. |
+
+The run also completed two cycles in sequence with the carried-over Enable, both `paused` (the
+thread's own choice, as in the 0.162.1 X1 run). It did not capture the participant event of
+the first cycle, so X1 is not recorded for 0.163.0. On macOS, 0.162.1 has X0, X1 and X3, and 0.163.0 has X0 and X2. A run
+certifies the version current then, and a later version is not refused (PDR 006, Decision 5),
+so the adapter admits macOS for any Codex CLI version.
 
 ## Other families
 

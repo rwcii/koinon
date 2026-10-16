@@ -527,11 +527,14 @@ func TestOverwatchNameReserved(t *testing.T) {
 
 // A new native session in the same host and pane that holds the requester's participant is
 // the managed successor: it finds the cycle by status, reports pickup, and the Enable moves
-// to it. A session in another pane is not a successor.
+// to it with the requester's own threshold (#391). A session in another pane is not a successor.
 func TestContextCycleSuccessorFlow(t *testing.T) {
 	f := newCycleFixture(t)
 	if f.session.Address == "" {
 		t.Fatalf("no participant address: %+v", f.session)
+	}
+	if _, err := f.s.SetContextThreshold(roomCtx("context-threshold"), f.session.Name, 85); err != nil {
+		t.Fatal(err)
 	}
 	f.observe(t, f.k, 900, "synthetic-epoch-1")
 	v := f.status(t, f.k)
@@ -572,7 +575,7 @@ func TestContextCycleSuccessorFlow(t *testing.T) {
 		t.Fatalf("retry: %v %+v", err, again)
 	}
 	enables, _ := f.s.contextEnables(context.Background())
-	if !enables[successor].Enabled || enables[f.k].Enabled || enables[other].Enabled {
+	if !enables[successor].Enabled || enables[f.k].Enabled || enables[other].Enabled || enables[successor].Threshold != 85 {
 		t.Fatalf("Enable carry: %+v", enables)
 	}
 	if got := f.status(t, successor); got == nil || got.ID != v.ID || got.State != cycleComplete {
@@ -874,7 +877,7 @@ func TestContextCycleSchemaTwentyThreeKeepsExistingState(t *testing.T) {
 	room := mustRoom(t, s, "synthetic kept room", 7)
 	mustHumanPost(t, s, room, "synthetic kept post")
 	before := rowsOf(t, s.db)
-	if _, err := fixtureExec(s, undoSchemaTwentySix+undoSchemaTwentyFive+undoSchemaTwentyFour+undoSchemaTwentyThree+`PRAGMA user_version=22`); err != nil {
+	if _, err := fixtureExec(s, undoSchemaTwentySeven+undoSchemaTwentySix+undoSchemaTwentyFive+undoSchemaTwentyFour+undoSchemaTwentyThree+`PRAGMA user_version=22`); err != nil {
 		t.Fatal(err)
 	}
 	if err := checkCatalog(s.db, 22); err != nil {
@@ -910,7 +913,7 @@ func TestContextCycleSchemaTwentyFourKeepsCycles(t *testing.T) {
 		return text
 	}
 	before, rows := rowText(f.s.db), rowsOf(t, f.s.db)
-	if _, err := fixtureExec(f.s, undoSchemaTwentySix+undoSchemaTwentyFive+undoSchemaTwentyFour+`PRAGMA user_version=23`); err != nil {
+	if _, err := fixtureExec(f.s, undoSchemaTwentySeven+undoSchemaTwentySix+undoSchemaTwentyFive+undoSchemaTwentyFour+`PRAGMA user_version=23`); err != nil {
 		t.Fatal(err)
 	}
 	if err := checkCatalog(f.s.db, 23); err != nil {

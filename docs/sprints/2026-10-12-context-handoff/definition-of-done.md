@@ -10,8 +10,9 @@ plan proposals, as recorded in PDR 006; they are not a new maintainer quotation.
 ## Completion evidence
 
 The issue is complete when the three implementation chunks are merged and the following
-matrix has evidence. A family/version/platform is called available only after its native
-rows pass. An unavailable family keeps monitoring and ordinary Koinon tools; it shows the
+matrix has evidence. A family/platform is called available only after its native rows pass;
+the CLI version of the run is recorded, and a later version is not refused (PDR 006,
+Decision 5). An unavailable family keeps monitoring and ordinary Koinon tools; it shows the
 specific missing interface or proof. An unsupported source never reports zero context.
 
 | Check | Observable result | Required evidence |

@@ -5,6 +5,39 @@ into a dated release section when promoted to `main`.
 
 ## Unreleased
 
+## 2026-10-16 — Context settings without the dashboard
+
+This release changes the context-cycle settings from the command line and from agent sessions
+through MCP, each change audited with its origin, and adds a per-session context threshold.
+The cycle adapters run with any Claude Code and Codex version, and the Codex cycle is
+available on macOS. The state schema is 27; `koinon install` upgrades a v0.2.x installation in
+place, and a v0.2.x binary does not open the upgraded state.
+
+Known limits:
+
+- The DeepSeek harness's permission grammar remains unverified (docs/PERMISSIONS.md).
+- A running agent session keeps the `koinon mcp` server it started with; the new MCP tools
+  appear when the session, or its MCP server, starts again (docs/INSTALL.md).
+
+Changes:
+
+- Cycle adapters and native versions (#196): the Claude Code and Codex cycle adapters run with
+  any CLI version; a run's native checks certify the version current then (PDR 006, Decision
+  5). The Codex cycle is available on macOS: its checks passed there (X0, X1 and X3 with Codex
+  CLI 0.162.1; X0 and the approval case X2 with 0.163.0). `native_version_unverified` is no
+  longer reported.
+- Context settings without the dashboard (#391): `koinon context show|set|enable|disable|threshold`
+  and the MCP tools `context_show`, `context_set`, `context_enable` and `context_threshold`
+  change the family mode and threshold and a session's Enable, as the dashboard does, and
+  `koinon context show` lists a waiting native dialog. Each change is audited with
+  its origin (`cli`, or `agent` and the calling session). A session can have its own threshold,
+  which replaces its family's while it is set (dashboard, command line and MCP); state schema 27.
+- Managed cycle approvals (#389): when the maintainer approves a successor's
+  `context_cycle_pickup` call on the Sessions page, the report completes the cycle also when
+  the return to `waiting_pickup` is recorded before the report. Before, the report could be
+  refused with `cycle_changed`, Codex asked for a second approval, and the cycle failed at
+  `waiting_prompt_timeout`.
+
 ## 2026-10-15 — Homebrew bottles
 
 This release publishes Homebrew bottles, so that `brew install` and `brew upgrade` need no

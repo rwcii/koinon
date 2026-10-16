@@ -146,6 +146,9 @@ type Store struct {
 	// processStartTime reads when a process started on the wall clock: a Codex host's MCP
 	// servers (#275).
 	processStartTime func(int) (time.Time, error)
+	// pickupWrite runs between a pickup report's read and its write: a test records a
+	// concurrent stage change there (#389).
+	pickupWrite func()
 	// alive holds when the liveness sweep last read each session's host as running (#249).
 	alive liveness
 	// settings holds the session timing values in force (#249).
@@ -331,7 +334,7 @@ func checkFormat(db *sql.DB, path string) error {
 	return nil
 }
 
-const schemaVersion = 26
+const schemaVersion = 27
 
 // workItemsV16Columns are the work item columns before schema 17, which its rebuild copies.
 const workItemsV16Columns = `store,work_id,revision,lifecycle,title,criteria,non_goals,proposed_assignee,created_at,created_consumer,
@@ -811,6 +814,12 @@ func migrate(db *sql.DB, version, target int) error {
 	if version < 26 && target >= 26 {
 		// Version 26: decision verdicts, deliveries, close and deep archive (#206, chunk 02).
 		if _, err := tx.Exec(decisionVerdictTables); err != nil {
+			return err
+		}
+	}
+	if version < 27 && target >= 27 {
+		// Version 27: a session's own context threshold (#391); 0 uses the family threshold.
+		if _, err := tx.Exec(`ALTER TABLE context_enables ADD COLUMN threshold INTEGER NOT NULL DEFAULT 0 CHECK (threshold BETWEEN 0 AND 100)`); err != nil {
 			return err
 		}
 	}
