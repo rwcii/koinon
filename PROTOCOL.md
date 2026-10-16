@@ -403,10 +403,10 @@ the session's own tmux pane. Before every key it proves the pane and that the pa
 gives input to the host (as the Codex pane wake below), and passes the cycle's fence. Typed
 text that is not submitted is erased with Backspace while the composer still holds exactly it.
 
-Probe needs Linux or macOS (`platform_unverified` elsewhere); the session
+Probe needs Linux (`platform_unverified` elsewhere until the macOS evidence run); the session
 thread's own rollout under the host's `CODEX_HOME` (else `~/.codex`), whose first record is the
 thread's `session_meta` from the interactive CLI (`native_registry_unavailable`), with an
-evidenced `cli_version`, now 0.162.0 or 0.162.1 (`native_version_unverified`); the pane
+evidenced `cli_version`, now 0.162.0 (`native_version_unverified`); the pane
 (`pane_unproven`); the session's participant address held (`participant_unheld`: the thread
 after `/clear` is a new session that reports only as the address holder); and the pickup
 entry. Codex runs a `$pickup` mention of every skill named `pickup` in `.agents/skills` and

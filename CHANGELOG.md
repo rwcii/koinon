@@ -5,9 +5,6 @@ into a dated release section when promoted to `main`.
 
 ## Unreleased
 
-- Managed context cycle for Codex on macOS (#196): the macOS approval case (X2) passed, so the
-  Codex adapter is available on macOS, with Codex CLI 0.162.0 or 0.162.1. Codex CLI 0.163.0
-  reports `native_version_unverified` until its checks pass.
 - Managed cycle approvals (#389): when the maintainer approves a successor's
   `context_cycle_pickup` call on the Sessions page, the report completes the cycle also when
   the return to `waiting_pickup` is recorded before the report. Before, the report could be

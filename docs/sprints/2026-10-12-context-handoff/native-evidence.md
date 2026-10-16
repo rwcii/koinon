@@ -149,8 +149,8 @@ The run of the Claude Code section above, with the Codex family threshold at 1%.
 | X3 E3 at pickup_intent | uncertain (`pickup_unreceipted`). |
 
 Once, a thread read the cycle request but did not call `context_cycle_ready`; the cycle failed
-`waiting_ready_timeout` and entered nothing. The adapter stayed `platform_unverified` on macOS
-until X2 passed (below); that run also admits 0.162.1.
+`waiting_ready_timeout` and entered nothing. The adapter stays `platform_unverified` on macOS
+(see the 0.163.0 run below).
 
 ## macOS, Codex CLI 0.163.0, 2026-10-16
 
@@ -163,8 +163,11 @@ Codex family threshold 1%.
 | X0 Probe | `pickup through project`. |
 | X2 Approval | Pass. Each `context_cycle_pickup` approval was answered with option 1 through the Sessions action; both cycles completed (`paused`) after `waiting_pickup:prompt_answered`. The first cycle showed the approval dialog twice; the cause of the second was not captured. The `cycle_changed` refusal of #389 did not occur. |
 
-With X2, the macOS checks X0 to X3 pass: X0, X1 and X3 with 0.162.1, X2 with 0.163.0. The
-adapter admits macOS and Codex CLI 0.162.1. 0.163.0 stays unadmitted until X1 and X3 pass with it.
+The run also completed a second cycle with the carried-over Enable, but it is not the
+three-cycle X1 check. No single Codex CLI version has every macOS row: 0.162.1 has X0, X1 and
+X3; 0.163.0 has X0 and X2. The adapter stays `platform_unverified` on macOS until one exact
+version passes X0 to X3 there (the definition of done's per family, version and platform rows);
+the admission then names that platform and version pair.
 
 ## Other families
 
