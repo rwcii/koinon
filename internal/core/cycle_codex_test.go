@@ -263,7 +263,7 @@ func (c *codexTerminal) sent() []string {
 	return slices.Clone(c.keys)
 }
 
-// Probe needs the platform, the requester's own rollout of an evidenced version, the pane, and
+// Probe needs the platform, the requester's own rollout (any CLI version), the pane, and
 // pickup skills that are all the catalog item; their scope is shown.
 func TestCodexProbe(t *testing.T) {
 	ctx := context.Background()

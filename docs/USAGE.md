@@ -409,7 +409,7 @@ enabled on the Sessions page, and changing a family enables nothing. The Session
 each session's mode, threshold, Enable, whether its family has a verified cycle, and why it is
 or is not at its threshold, with the age of its context reading. Enabling is refused
 (`context_cycle_unavailable`) and its button is inactive while the cycle cannot run for that
-session; the page names the reason (for example a Claude Code version without native evidence,
+session; the page names the reason (for example a session that is not in its launched tmux pane,
 or a pickup skill that differs from the catalog). Disabling always works. A stored mode or threshold that is not valid
 keeps the family default, and the Settings page names the error.
 
