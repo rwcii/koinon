@@ -54,7 +54,7 @@ func run(ctx context.Context, args []string, in io.Reader, out io.Writer) error 
 	case "decision":
 		return decisionCommand(ctx, args[1:], out)
 	case "context":
-		return contextCommand(ctx, args[1:], in, out)
+		return contextCommand(ctx, args[1:], out)
 	case "dashboard":
 		return dashboardCommand(ctx, args[1:], out)
 	case "version":
@@ -254,7 +254,6 @@ const usage = `Usage: koinon install [--prefix DIR] [--state-dir DIR] [--agent F
        koinon context set FAMILY --mode observe|native_compaction|handoff_cycle --threshold PERCENT
        koinon context enable|disable NAME
        koinon context threshold NAME PERCENT|family
-       koinon context answer NAME OPTION [--yes]
        koinon work <create|list> --as FAMILY:ID [--consumer KEY] [options]
        koinon work checkout [--directory DIR]
        koinon work checkout <status|request> --as FAMILY:ID [--directory DIR] [options]

@@ -33,7 +33,7 @@ type ContextSessionView struct {
 	CycleRevision   int64  `json:"cycle_revision,omitempty"`
 	CycleState      string `json:"cycle_state,omitempty"`
 	// Dialog is the native dialog that the session's managed cycle waits on, as the Sessions
-	// page shows it; koinon context answer chooses one of its options.
+	// page shows it. The Sessions page or keys in the session's pane answer it.
 	Dialog *CycleDialog `json:"dialog,omitempty"`
 }
 
@@ -186,28 +186,6 @@ func (d *Daemon) contextRoutes(mux *http.ServeMux) {
 		}
 		change(w, r, "context-enable", "context enable "+peer+" "+state, from, func(ctx context.Context) (any, error) {
 			return d.store.SetContextEnableNow(ctx, peer, *request.Enabled)
-		})
-	})
-	// A dialog answer has no caller: only the command line chooses a native dialog's option,
-	// with the cycle, revision and dialog digest that it read, as the Sessions page does.
-	mux.HandleFunc("POST /v1/context/answer", func(w http.ResponseWriter, r *http.Request) {
-		var request struct {
-			CycleID  string `json:"cycle_id"`
-			Revision int64  `json:"revision"`
-			Digest   string `json:"digest"`
-			Option   string `json:"option"`
-		}
-		if err := decode(w, r, &request); err != nil {
-			failure(w, err)
-			return
-		}
-		id, digest, option := request.CycleID, request.Digest, request.Option
-		if request.Revision < 1 || len(id) != 32 || len(digest) != 64 || len(option) != 1 || option < "1" || option > "9" {
-			failure(w, ErrInvalid)
-			return
-		}
-		change(w, r, "context-cycle-answer", "context cycle "+id+" option "+option, "cli", func(ctx context.Context) (any, error) {
-			return nil, d.store.AnswerCycleDialog(ctx, id, request.Revision, digest, option)
 		})
 	})
 	mux.HandleFunc("POST /v1/context/threshold", func(w http.ResponseWriter, r *http.Request) {

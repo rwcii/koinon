@@ -8,7 +8,7 @@ into a dated release section when promoted to `main`.
 - Context settings without the dashboard (#391): `koinon context show|set|enable|disable|threshold`
   and the MCP tools `context_show`, `context_set`, `context_enable` and `context_threshold`
   change the family mode and threshold and a session's Enable, as the dashboard does, and
-  `koinon context answer` answers a managed cycle's native dialog. Each change is audited with
+  `koinon context show` lists a waiting native dialog. Each change is audited with
   its origin (`cli`, or `agent` and the calling session). A session can have its own threshold,
   which replaces its family's while it is set (dashboard, command line and MCP); state schema 27.
 - Managed cycle approvals (#389): when the maintainer approves a successor's

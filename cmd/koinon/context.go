@@ -1,27 +1,23 @@
 package main
 
 import (
-	"bufio"
 	"context"
 	"encoding/json"
 	"flag"
 	"fmt"
 	"io"
-	"slices"
 	"strconv"
-	"strings"
 
 	"github.com/rwcii/koinon/internal/core"
 	"github.com/rwcii/koinon/internal/platform"
 )
 
 // contextCommand reads and changes the context-cycle settings from the command line (#391):
-// the family mode and threshold, a session's Enable and a session's own threshold, and it
-// answers the native dialog that a session's managed cycle waits on. The daemon records each
-// change in the audit log with the origin "cli".
-func contextCommand(ctx context.Context, args []string, in io.Reader, out io.Writer) error {
-	operands := map[string]int{"show": 0, "set": 1, "enable": 1, "disable": 1, "threshold": 2, "answer": 2}
-	const ops = "use koinon context show, set, enable, disable, threshold or answer"
+// the family mode and threshold, a session's Enable and a session's own threshold. The
+// daemon records each change in the audit log with the origin "cli".
+func contextCommand(ctx context.Context, args []string, out io.Writer) error {
+	operands := map[string]int{"show": 0, "set": 1, "enable": 1, "disable": 1, "threshold": 2}
+	const ops = "use koinon context show, set, enable, disable or threshold"
 	if len(args) == 0 {
 		return usageError{"invalid_request", ops}
 	}
@@ -40,10 +36,8 @@ func contextCommand(ctx context.Context, args []string, in io.Reader, out io.Wri
 	address := flags.String("address", "127.0.0.1:47671", "daemon loopback address")
 	var mode *string
 	var threshold *int64
-	var asJSON, yes *bool
+	var asJSON *bool
 	switch op {
-	case "answer":
-		yes = flags.Bool("yes", false, "answer without asking for confirmation")
 	case "show":
 		asJSON = flags.Bool("json", false, "print the daemon's JSON reply")
 	case "set":
@@ -67,9 +61,6 @@ func contextCommand(ctx context.Context, args []string, in io.Reader, out io.Wri
 	secret, err := core.ClientSecret(*state, *address)
 	if err != nil {
 		return err
-	}
-	if op == "answer" {
-		return answerDialog(ctx, *address, secret, operandList[0], operandList[1], *yes, in, out)
 	}
 	var path string
 	body := map[string]any{}
@@ -107,57 +98,6 @@ func contextCommand(ctx context.Context, args []string, in io.Reader, out io.Wri
 	return printContext(out, data)
 }
 
-// answerDialog shows the native dialog that a session's managed cycle waits on and chooses
-// one option, as "Choose N" on the Sessions page does. The answer carries the cycle, its
-// revision and the digest of the dialog that was shown, so a dialog that changed meanwhile
-// is refused.
-func answerDialog(ctx context.Context, address, secret, peer, option string, yes bool, in io.Reader, out io.Writer) error {
-	data, err := core.Call(ctx, address, secret, "/v1/context/show", map[string]any{})
-	if err != nil {
-		return err
-	}
-	var reply struct {
-		Sessions []core.ContextSessionView `json:"sessions"`
-	}
-	if err := json.Unmarshal(data, &reply); err != nil {
-		return err
-	}
-	var found *core.ContextSessionView
-	for i := range reply.Sessions {
-		if reply.Sessions[i].Peer == peer {
-			found = &reply.Sessions[i]
-		}
-	}
-	if found == nil {
-		return usageError{"peer_not_found", "no active session is named " + peer}
-	}
-	if found.Dialog == nil {
-		return usageError{"no_dialog", peer + " has no managed cycle that waits on a native dialog"}
-	}
-	fmt.Fprintln(out, "Native dialog of "+peer+", cycle "+found.CycleID+":")
-	for _, line := range found.Dialog.Lines {
-		fmt.Fprintln(out, "  "+line)
-	}
-	if !slices.Contains(found.Dialog.Options, option) {
-		return usageError{"invalid_request", "the dialog's options are " + strings.Join(found.Dialog.Options, ", ")}
-	}
-	if !yes {
-		fmt.Fprintf(out, "Choose %s? Type y and press Enter: ", option)
-		answer, _ := bufio.NewReader(in).ReadString('\n')
-		if strings.TrimSpace(answer) != "y" {
-			_, err := fmt.Fprintln(out, "Nothing was chosen.")
-			return err
-		}
-	}
-	data, err = core.Call(ctx, address, secret, "/v1/context/answer", map[string]any{"cycle_id": found.CycleID,
-		"revision": found.CycleRevision, "digest": found.Dialog.Digest, "option": option})
-	if err != nil {
-		return err
-	}
-	_, err = fmt.Fprintln(out, string(data))
-	return err
-}
-
 // printContext prints the show reply as two short tables.
 func printContext(out io.Writer, data []byte) error {
 	var reply struct {
@@ -185,7 +125,7 @@ func printContext(out io.Writer, data []byte) error {
 		state := s.Reason
 		switch {
 		case s.Dialog != nil:
-			state = "cycle " + s.CycleState + ": a native dialog waits; see koinon context answer " + s.Peer + " OPTION"
+			state = "cycle " + s.CycleState + ": a native dialog waits (Sessions page or the session's pane)"
 		case s.CycleState != "":
 			state = "cycle " + s.CycleState
 		case !s.Available:

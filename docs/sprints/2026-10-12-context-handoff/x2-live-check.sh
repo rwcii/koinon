@@ -6,9 +6,8 @@
 #
 # The script builds the private livecheck binary, starts a test daemon on its own port, state
 # directory and tmux socket, sets the codex family to handoff_cycle at 1%, starts the approve
-# case, enters its turns and clicks Enable. At each approval it shows the dialog in this window
-# and asks you to type y (koinon context answer, #391); a build without that command prints a
-# dashboard link instead, where you click "Choose 1".
+# case, enters its turns and clicks Enable. At each approval it shows the Codex pane in this
+# window and asks you to type y; then it presses 1 in the pane, as you would in the session.
 # On exit it stops the test server and removes its files. The installed Koinon service, its
 # state and the Codex configuration do not change.
 set -u
@@ -45,9 +44,6 @@ for c in git go tmux sqlite3 curl codex; do
 	command -v "$c" >/dev/null || die "$c is not on PATH"
 done
 curl -s -o /dev/null "$BASE/" && die "port $PORT is in use; run again with PORT=<free port>"
-# open reaches the browser only from the Mac's desktop login: over SSH, or in a tmux server
-# started over SSH, macOS refuses it with launchd error 125. Elsewhere the link is printed only.
-desktop() { [ "$(uname -s)" = Darwin ] && [ "$(launchctl managername 2>/dev/null)" = Aqua ]; }
 
 mkdir -p "$K" && chmod 700 "$K"
 say "Facts of the run:"
@@ -166,13 +162,10 @@ send 'Reply with the single word ok.'
 
 # The first cycle decides the run: at 1% the next cycle starts as soon as it ends.
 latest() { sqlite3 -readonly "$DB" "SELECT state || CASE WHEN reason <> '' THEN ' (' || reason || ')' ELSE '' END FROM context_cycles ORDER BY created_at LIMIT 1" 2>/dev/null; }
-answerable() { "$K/koinon" context show --state-dir "$K/state" --address 127.0.0.1:$PORT >/dev/null 2>&1; }
 stages() { sqlite3 -readonly "$DB" "SELECT c.state, c.reason, (SELECT group_concat(x, ' ') FROM (SELECT stage || ':' || reason AS x FROM context_cycle_events e WHERE e.cycle_id = c.cycle_id ORDER BY ordinal)) FROM context_cycles c ORDER BY c.created_at" 2>/dev/null; }
 
 say "Watching the cycle (up to 20 minutes; Ctrl-C stops and cleans up)"
 last='' since=$(date +%s) shown='' asked='' end=$(($(date +%s) + 1200))
-answer=dashboard
-answerable && answer=cli
 while [ "$(date +%s)" -lt "$end" ]; do
 	s=$(latest)
 	if [ -n "$s" ] && [ "$s" != "$last" ]; then
@@ -182,24 +175,17 @@ while [ "$(date +%s)" -lt "$end" ]; do
 	case $s in
 	complete* | cancelled* | failed* | uncertain*) break ;;
 	waiting_prompt*)
-		if [ -z "$asked" ] && [ $answer = cli ]; then
+		if [ -z "$asked" ]; then
 			asked=1
-			say "ACTION FOR YOU: Codex asks for approval. Read the dialog below, then type y and press Enter."
-			"$K/koinon" context answer "$PEER" 1 --state-dir "$K/state" --address 127.0.0.1:$PORT
-		elif [ -z "$asked" ]; then
-			asked=1
-			link="$BASE/dashboard/login?$(token)"
-			say "ACTION FOR YOU: the approval waits on the Sessions page."
-			say "  Open this link within 60 seconds (it replaces the work dashboard login in this browser; both use 127.0.0.1):"
-			say "  $link"
-			say "  On the row $PEER, read the native dialog, then click \"Choose 1\"."
-			if desktop; then
-				open "$link"
+			say "ACTION FOR YOU: Codex asks for approval. The last lines of its pane (do not publish them):"
+			pane 15 | sed 's/^/    /'
+			read -r -p "Type y and press Enter to choose 1 (Allow) in the Codex pane: " reply
+			if [ "$reply" = y ]; then
+				tmux -S "$S" send-keys -t "$P" -l 1
+				say "Pressed 1 in the Codex pane."
 			else
-				say "  Open it in a browser on this machine's desktop; the test dashboard listens on loopback only."
+				say "Nothing pressed; the approval waits up to 10 minutes from its start."
 			fi
-			say "  An expired link? A new one: \"$K/koinon\" dashboard --state-dir \"$K/state\" --address 127.0.0.1:$PORT --no-open"
-			page sessions | grep -oE 'native dialog:.*' | sed -E 's/<form.*//; s/<br>/ | /g; s/<[^>]+>//g; s/&#34;/"/g; s/&#39;/'"'"'/g; s/&lt;/</g; s/&gt;/>/g; s/&amp;/\&/g' | sed 's/^/    /'
 		fi
 		;;
 	*)

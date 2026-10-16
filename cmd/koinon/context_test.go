@@ -29,7 +29,7 @@ func TestContextCommand(t *testing.T) {
 	run := func(args ...string) (string, error) {
 		var out bytes.Buffer
 		args = append([]string{args[0], "--state-dir", root, "--address", d.Addresses()[0]}, args[1:]...)
-		err := contextCommand(context.Background(), args, strings.NewReader("n\n"), &out)
+		err := contextCommand(context.Background(), args, &out)
 		return out.String(), err
 	}
 	show := func() core.ContextSessionView {
@@ -72,10 +72,7 @@ func TestContextCommand(t *testing.T) {
 	if _, err := run("disable", peer); err != nil {
 		t.Fatalf("disable: %v", err)
 	}
-	if _, err := run("answer", peer, "1"); err == nil || !strings.Contains(err.Error(), "no managed cycle") {
-		t.Fatalf("answer without a dialog: %v", err)
-	}
-	for _, args := range [][]string{{"threshold", peer, "0"}, {"threshold", peer}, {"set", "deepseek", "--mode", "observe"}, {"nope"}} {
+	for _, args := range [][]string{{"threshold", peer, "0"}, {"threshold", peer}, {"set", "deepseek", "--mode", "observe"}, {"answer", peer, "1"}, {"nope"}} {
 		if _, err := run(args...); err == nil {
 			t.Fatalf("%v accepted", args)
 		}

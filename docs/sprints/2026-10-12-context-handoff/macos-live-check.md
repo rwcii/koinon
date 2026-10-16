@@ -218,8 +218,8 @@ On the Settings page, set the codex family to mode `handoff_cycle` and threshold
   record the dialog and click "Choose 1". Record the stage list, then click Disable.
   [x2-live-check.sh](x2-live-check.sh) runs X2 alone, with steps 1 to 3 and the clean-up of
   step 11: `bash x2-live-check.sh`. It does every step except the answer: at each approval it
-  shows the dialog in its own window and you type `y` (`koinon context answer`, #391; a build
-  without that command prints a dashboard link for "Choose 1"). It prints the result to send.
+  shows the Codex pane in its own window, you type `y`, and it presses 1 in the pane. It prints
+  the result to send.
 - X3: on the X1 session, as in step 9. Before each case, the session that holds the address
   must have had a turn after its last clear (enter `Call the koinon peers tool once.`), and
   you click Enable on its row. Run `crash clear_intent 0` (E1) and `crash pickup_intent 0`

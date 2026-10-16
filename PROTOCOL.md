@@ -233,8 +233,9 @@ calling session). Without `peer`, a request with a caller names the caller's own
   and `enabled` (boolean) and applies them at the session's and the Enable's current revisions.
 - `POST /v1/context/threshold` (`context_threshold`, `koinon context threshold`) takes `peer`
   and `threshold` 0 to 100, as `context-threshold`.
-- `POST /v1/context/answer` (`koinon context answer`; no MCP tool, no caller) takes
-  `cycle_id`, `revision`, `digest` and `option`, as `context-cycle-answer`.
+
+No route, command or MCP tool answers a native dialog: the Sessions page does, or keys in the
+session's own pane (#391).
 
 The trigger selection reads the session's state, Enable, family policy, cycle availability
 and its stored context observation. It is eligible when used tokens reach the threshold

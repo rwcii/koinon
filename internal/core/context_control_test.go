@@ -3,7 +3,6 @@ package core
 import (
 	"context"
 	"errors"
-	"strings"
 	"testing"
 )
 
@@ -147,15 +146,5 @@ func TestContextRoutes(t *testing.T) {
 	if status, _ := call("/v1/context/enable", map[string]any{"peer": a.Name, "enabled": false}); status != 200 ||
 		lastAudit().Target != "context enable "+a.Name+" off revision 2 by cli" {
 		t.Fatalf("cli disable: %d %+v", status, lastAudit())
-	}
-	// A dialog answer takes no caller; a well-formed answer for no waiting dialog is refused.
-	answer := map[string]any{"cycle_id": strings.Repeat("a", 32), "revision": 1, "digest": strings.Repeat("b", 64), "option": "1"}
-	if status, _ := call("/v1/context/answer", map[string]any{"caller": caller, "cycle_id": answer["cycle_id"], "revision": 1,
-		"digest": answer["digest"], "option": "1"}); status != 400 {
-		t.Fatalf("answer with a caller: %d", status)
-	}
-	if status, _ := call("/v1/context/answer", answer); status == 200 || lastAudit().Result != "refused" ||
-		lastAudit().Target != "context cycle "+strings.Repeat("a", 32)+" option 1 by cli" {
-		t.Fatalf("answer without a dialog: %d %+v", status, lastAudit())
 	}
 }

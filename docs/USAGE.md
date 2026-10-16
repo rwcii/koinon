@@ -439,13 +439,13 @@ koinon context set codex --mode handoff_cycle --threshold 80
 koinon context enable NAME                            # or: koinon context disable NAME
 koinon context threshold NAME 60                      # NAME's own threshold
 koinon context threshold NAME family                  # back to the family threshold
-koinon context answer NAME 1                          # show NAME's waiting dialog, choose 1
 ```
 
-`koinon context answer` prints the dialog and asks for `y` before it chooses; `--yes` skips
-the question. Agents use the MCP tools `context_show`, `context_set`, `context_enable` and
+Agents use the MCP tools `context_show`, `context_set`, `context_enable` and
 `context_threshold`; without `peer`, `context_enable` and `context_threshold` change the
-calling session. Only the dashboard and `koinon context answer` answer a dialog.
+calling session. `koinon context show` also shows a waiting dialog. Without the dashboard, answer
+it with its option key in the session's own tmux pane, as the maintainer or an agent that
+manages the session.
 While a retained name record is called `overwatch`, no cycle starts and the Sessions page
 names the conflict. See PROTOCOL.md, Managed context cycles.
 
