@@ -5,6 +5,22 @@ into a dated release section when promoted to `main`.
 
 ## Unreleased
 
+## 2026-10-16 — Context settings without the dashboard
+
+This release changes the context-cycle settings from the command line and from agent sessions
+through MCP, each change audited with its origin, and adds a per-session context threshold.
+The cycle adapters run with any Claude Code and Codex version, and the Codex cycle is
+available on macOS. The state schema is 27; `koinon install` upgrades a v0.2.x installation in
+place, and a v0.2.x binary does not open the upgraded state.
+
+Known limits:
+
+- The DeepSeek harness's permission grammar remains unverified (docs/PERMISSIONS.md).
+- A running agent session keeps the `koinon mcp` server it started with; the new MCP tools
+  appear when the session, or its MCP server, starts again (docs/INSTALL.md).
+
+Changes:
+
 - Cycle adapters and native versions (#196): the Claude Code and Codex cycle adapters run with
   any CLI version; a run's native checks certify the version current then (PDR 006, Decision
   5). The Codex cycle is available on macOS: its checks passed there (X0, X1 and X3 with Codex
