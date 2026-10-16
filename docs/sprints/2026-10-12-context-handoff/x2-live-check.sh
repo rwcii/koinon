@@ -1,17 +1,19 @@
 #!/bin/bash
 # X2 of macos-live-check.md in one run: a Codex context_cycle_pickup approval in
-# waiting_pickup shows on the Sessions page, and "Choose 1" completes the cycle.
+# waiting_pickup is answered with option 1, and the cycle completes.
 #
-# Usage: bash x2-live-check.sh [COMMIT]   (default: d491390, release v0.2.2)
+# Usage: bash x2-live-check.sh [COMMIT]   (default: develop)
 #
-# The script builds the private livecheck binary, starts a test daemon on its own port, state
+# The script builds a private test binary (with the livecheck tag, which a commit before
+# #196's version change needs), starts a test daemon on its own port, state
 # directory and tmux socket, sets the codex family to handoff_cycle at 1%, starts the approve
-# case, enters its turns and clicks Enable. You click "Choose 1" in the browser when it asks.
+# case, enters its turns and clicks Enable. At each approval it shows the Codex pane in this
+# window and asks you to type y; then it presses 1 in the pane, as you would in the session.
 # On exit it stops the test server and removes its files. The installed Koinon service, its
 # state and the Codex configuration do not change.
 set -u
 
-PR=${1:-d491390}
+PR=${1:-develop}
 PORT=${PORT:-47699}
 K=$HOME/.cache/koinon-x2-$(date +%s)
 S=$K/tmux.sock
@@ -43,17 +45,16 @@ for c in git go tmux sqlite3 curl codex; do
 	command -v "$c" >/dev/null || die "$c is not on PATH"
 done
 curl -s -o /dev/null "$BASE/" && die "port $PORT is in use; run again with PORT=<free port>"
-# open reaches the browser only from the Mac's desktop login: over SSH, or in a tmux server
-# started over SSH, macOS refuses it with launchd error 125. Elsewhere the link is printed only.
-desktop() { [ "$(uname -s)" = Darwin ] && [ "$(launchctl managername 2>/dev/null)" = Aqua ]; }
 
 mkdir -p "$K" && chmod 700 "$K"
 say "Facts of the run:"
 { sw_vers 2>/dev/null || uname -sr; uname -m; codex --version; tmux -V; go version; } | sed 's/^/    /'
 
-say "Building the livecheck binary at $PR"
+say "Building the test binary at $PR"
 git clone -q https://github.com/rwcii/koinon "$K/src" && git -C "$K/src" checkout -q "$PR" || die "clone or checkout failed"
 (cd "$K/src" && CGO_ENABLED=0 go build -tags livecheck -o "$K/koinon" ./cmd/koinon) || die "build failed"
+PR=$(git -C "$K/src" rev-parse --short HEAD)
+say "Built $PR"
 
 say "Starting the test daemon on port $PORT"
 mkdir -m 700 "$K/state"
@@ -160,11 +161,15 @@ done
 say "Enable handoff: on for $PEER"
 send 'Reply with the single word ok.'
 
-latest() { sqlite3 -readonly "$DB" "SELECT state || CASE WHEN reason <> '' THEN ' (' || reason || ')' ELSE '' END FROM context_cycles ORDER BY created_at DESC LIMIT 1" 2>/dev/null; }
+# The first cycle decides the run: at 1% the next cycle starts as soon as it ends.
+latest() { sqlite3 -readonly "$DB" "SELECT state || CASE WHEN reason <> '' THEN ' (' || reason || ')' ELSE '' END FROM context_cycles ORDER BY created_at LIMIT 1" 2>/dev/null; }
+# Each dialog the first cycle waits on records its own waiting_prompt event, also when the
+# previous one was answered between two polls.
+prompts() { sqlite3 -readonly "$DB" "SELECT COUNT(*) FROM context_cycle_events WHERE stage='waiting_prompt' AND cycle_id=(SELECT cycle_id FROM context_cycles ORDER BY created_at LIMIT 1)" 2>/dev/null; }
 stages() { sqlite3 -readonly "$DB" "SELECT c.state, c.reason, (SELECT group_concat(x, ' ') FROM (SELECT stage || ':' || reason AS x FROM context_cycle_events e WHERE e.cycle_id = c.cycle_id ORDER BY ordinal)) FROM context_cycles c ORDER BY c.created_at" 2>/dev/null; }
 
 say "Watching the cycle (up to 20 minutes; Ctrl-C stops and cleans up)"
-last='' since=$(date +%s) shown='' asked='' end=$(($(date +%s) + 1200))
+last='' since=$(date +%s) shown='' asked=0 end=$(($(date +%s) + 1200))
 while [ "$(date +%s)" -lt "$end" ]; do
 	s=$(latest)
 	if [ -n "$s" ] && [ "$s" != "$last" ]; then
@@ -174,20 +179,18 @@ while [ "$(date +%s)" -lt "$end" ]; do
 	case $s in
 	complete* | cancelled* | failed* | uncertain*) break ;;
 	waiting_prompt*)
-		if [ -z "$asked" ]; then
-			asked=1
-			link="$BASE/dashboard/login?$(token)"
-			say "ACTION FOR YOU: the approval waits on the Sessions page."
-			say "  Open this link within 60 seconds (it replaces the work dashboard login in this browser; both use 127.0.0.1):"
-			say "  $link"
-			say "  On the row $PEER, read the native dialog, then click \"Choose 1\"."
-			if desktop; then
-				open "$link"
+		n=$(prompts)
+		if [ "${n:-0}" -gt "$asked" ]; then
+			asked=$n
+			say "ACTION FOR YOU: Codex asks for approval. The last lines of its pane (do not publish them):"
+			pane 15 | sed 's/^/    /'
+			read -r -p "Type y and press Enter to choose 1 (Allow) in the Codex pane: " reply
+			if [ "$reply" = y ]; then
+				tmux -S "$S" send-keys -t "$P" -l 1
+				say "Pressed 1 in the Codex pane."
 			else
-				say "  Open it in a browser on this machine's desktop; the test dashboard listens on loopback only."
+				say "Nothing pressed; the approval waits up to 10 minutes from its start."
 			fi
-			say "  An expired link? A new one: \"$K/koinon\" dashboard --state-dir \"$K/state\" --address 127.0.0.1:$PORT --no-open"
-			page sessions | grep -oE 'native dialog:.*' | sed -E 's/<form.*//; s/<br>/ | /g; s/<[^>]+>//g; s/&#34;/"/g; s/&#39;/'"'"'/g; s/&lt;/</g; s/&gt;/>/g; s/&amp;/\&/g' | sed 's/^/    /'
 		fi
 		;;
 	*)

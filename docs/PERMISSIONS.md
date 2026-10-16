@@ -29,6 +29,7 @@ wake accounting can still update internal metadata while these tools read that d
 | `inbox` | Read waiting messages before handling and acknowledging them. |
 | `delivery` | Check delivery and acknowledgement of a sent message. |
 | `context_cycle_status` | Read this session's own managed context cycle; it moves no cursor. |
+| `context_show` | Read the family context settings and each active session's Enable, threshold and trigger state. |
 | `library_list` | Page the installed skill/setup catalog metadata for the calling family. |
 | `library_read` | Read one catalog item's canonical content and destination metadata. |
 | `library_state` | Inspect bounded catalog targets, collisions, repository facts and decisions in the native client's verified scope. |
@@ -57,6 +58,9 @@ Allow them when the maintainer has authorized the corresponding coordination wor
 | `ack` | Acknowledge inbox sequences after handling them. |
 | `context_cycle_ready` | Report this session's written handoff for the managed cycle that its Enable authorized. |
 | `context_cycle_pickup` | Report the restored checkpoint after the managed cycle cleared the context. |
+| `context_set` | Set a family's context mode and threshold; the audit log names this session. |
+| `context_enable` | Turn a session's managed handoff cycle on or off; the audit log names this session. |
+| `context_threshold` | Set or clear a session's own context threshold; the audit log names this session. |
 | `memory_ack` | Advance the memory cursor after processing all pages/deltas. |
 | `memory_record` | Write a memory entry; its content grants no permission. |
 | `decision_create` | Create a decision-board item for the maintainer; only the maintainer gives a verdict, in the dashboard. |

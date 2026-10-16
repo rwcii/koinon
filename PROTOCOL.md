@@ -210,6 +210,35 @@ pinned host and pane (the cycle adapters below); otherwise it refuses with
 accepted. A changed session refuses `revision_changed`, a changed Enable
 `context_enable_changed`. Deleting a session deletes its Enable.
 
+Schema 27 (#391) adds `context_enables.threshold`: a session's own threshold, 1 to 100, or 0
+for its family's threshold. The trigger, the admission and the Sessions page use the session's
+threshold while it is set. Changing it keeps the Enable and its revision, so an admitted cycle
+continues; for a session without an Enable row it adds a row that is off, pinned as an Enable
+would be. A verified reset moves the threshold to the successor with the Enable. The dashboard
+action `context-threshold` (`peer`, `threshold` 0 to 100) sets it.
+
+The same changes have `/v1` routes for the command line and MCP (#391). Each runs the
+dashboard action's store path and writes its audit record, whose target ends with
+` by cli`, or with ` by agent PEER` when the request names a `caller` (the MCP server adds the
+calling session). Without `peer`, a request with a caller names the caller's own session.
+
+- `POST /v1/context/show` (`context_show`, `koinon context show`) takes an optional `after` (a
+  peer name) and returns `families` (mode, threshold, error) and up to 100 `sessions` by peer
+  name after it, with `next_after` when a full page may continue (`koinon context show` reads
+  every page). Each is an active agent session's `peer`, `family`, `enabled`,
+  `enable_revision`, `mode`, `threshold`, `threshold_source` (`session` or `family`),
+  `available`, `unavailable`, `eligible`, `reason`, and its newest cycle's `cycle_id`,
+  `cycle_revision`, `cycle_state` and waiting native `dialog` (`lines`, `options`, `digest`).
+- `POST /v1/context/set` (`context_set` with `target_family`, `koinon context set`) takes
+  `family`, `mode` and `threshold`, as `context-family-settings`.
+- `POST /v1/context/enable` (`context_enable`, `koinon context enable|disable`) takes `peer`
+  and `enabled` (boolean) and applies them at the session's and the Enable's current revisions.
+- `POST /v1/context/threshold` (`context_threshold`, `koinon context threshold`) takes `peer`
+  and `threshold` 0 to 100, as `context-threshold`.
+
+No route, command or MCP tool answers a native dialog: the Sessions page does, or keys in the
+session's own pane (#391).
+
 The trigger selection reads the session's state, Enable, family policy, cycle availability
 and its stored context observation. It is eligible when used tokens reach the threshold
 percentage of a positive limit (equality and use above the limit included), the context

@@ -3,7 +3,7 @@ pdr: "006"
 title: "Context Monitoring and Managed Handoffs"
 status: draft
 created: "2026-10-12"
-updated: "2026-10-14"
+updated: "2026-10-16"
 authors:
   - "Robert Capps"
 reviewers: []
@@ -84,8 +84,11 @@ interaction are PDR 002. Handoff and pickup skills and the embedded catalog are 
 ### Decision
 
 The dashboard holds family defaults for context mode and threshold. Each session is off
-until the maintainer enables it in the dashboard; family defaults enable no session by
-themselves. Configuration changes use the dashboard login and CSRF token and are audited.
+until it is enabled; family defaults enable no session by themselves. A session can have its
+own threshold, which replaces its family's threshold while it is set. The family settings, a
+session's Enable and its own threshold change in the dashboard (login and CSRF token), with
+`koinon context` on the command line, or by an agent session through MCP. Every change is
+audited with its origin: the dashboard, `cli`, or `agent` and the calling session's peer name.
 The plan proposes that Codex default to its native compaction, and that only fresh,
 verified observations from the session start a cycle; unknown or stale context shows a reason.
 
@@ -94,6 +97,13 @@ body, "The cycle the user decided" and "Bounds"); a request record, no maintaine
 it. Family defaults with per-session enabling: Maintainer, 2026-10-12, session transcript:
 "Family defaults; enable each session (recommended)", the answer to the plan's choice of how
 the cycle is enabled (relayed in #196 comment 6115978138). It decides that choice only. The
+CLI and agent changes with audit, and the per-session threshold: Maintainer, 2026-10-16,
+#391, the request: "I'd like to be able to modify settings like enabling handoff and modifying
+handoff type and thresholds from CLI and MCP. Sometimes I am not able to access the
+console/dashboard, but I can SSH or ask an agent to enable its session (or one it's managing)
+for handoff, and to change the threshold." Then "approved, allow CLI and agents with audit"
+(#391 Decision 1), and "ok" to keep the family threshold with an optional per-session
+threshold (#391 Decision 2). The
 Codex default and freshness rule:
 Proposed in the unpublished #196 plan draft (9206a1d); not decided. Current observations: Shipped in PR
 #193 (merge commit a19bc2b); no maintainer decision found.
@@ -103,7 +113,8 @@ Proposed in the unpublished #196 plan draft (9206a1d); not decided. Current obse
 | Alternative | Description | Why Rejected |
 | ----------- | ----------- | ------------ |
 | Family-wide enable | Turning on a family enables all its sessions | Replaced by the per-session choice recorded on #196 |
-| Per-session settings only | Each session sets its own mode and threshold | More dashboard work for the same values |
+| Per-session settings only | Each session sets its own mode and threshold | More dashboard work for the same values; a per-session threshold that replaces the family's is adopted (#391) |
+| Dashboard-only changes | Only the dashboard changes the settings and the Enable | The maintainer cannot always reach the dashboard (#391) |
 
 ### Rationale
 
@@ -112,7 +123,8 @@ Proposed in the unpublished #196 plan draft (9206a1d); not decided. Current obse
 
 ### User Impact
 
-The maintainer sets mode and threshold once per family and turns the cycle on per session.
+The maintainer sets mode and threshold once per family and turns the cycle on per session,
+from the dashboard, a shell or an agent; a session can keep its own threshold.
 
 ---
 
@@ -261,3 +273,4 @@ and terminal commands have the maintainer's words; the rest is requested or prop
 | 2026-10-13 | Recorded Gate B and the maintainer's reserved overwatch system sender |
 | 2026-10-12 | Reconciled the framing and active issue body with intended terminal commands and prompt handling; retained bare native commands without appended task text |
 | 2026-10-14 | Recorded the Codex `/status` read in the clear step (#196 chunk 04) |
+| 2026-10-16 | Decision 1: settings and Enable change also from the command line and by agents through MCP, audited with their origin; a per-session threshold (#391) |
