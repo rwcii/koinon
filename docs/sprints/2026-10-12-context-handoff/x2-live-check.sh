@@ -162,21 +162,25 @@ send 'Reply with the single word ok.'
 
 # The first cycle decides the run: at 1% the next cycle starts as soon as it ends.
 latest() { sqlite3 -readonly "$DB" "SELECT state || CASE WHEN reason <> '' THEN ' (' || reason || ')' ELSE '' END FROM context_cycles ORDER BY created_at LIMIT 1" 2>/dev/null; }
+# Each dialog the first cycle waits on records its own waiting_prompt event, also when the
+# previous one was answered between two polls.
+prompts() { sqlite3 -readonly "$DB" "SELECT COUNT(*) FROM context_cycle_events WHERE stage='waiting_prompt' AND cycle_id=(SELECT cycle_id FROM context_cycles ORDER BY created_at LIMIT 1)" 2>/dev/null; }
 stages() { sqlite3 -readonly "$DB" "SELECT c.state, c.reason, (SELECT group_concat(x, ' ') FROM (SELECT stage || ':' || reason AS x FROM context_cycle_events e WHERE e.cycle_id = c.cycle_id ORDER BY ordinal)) FROM context_cycles c ORDER BY c.created_at" 2>/dev/null; }
 
 say "Watching the cycle (up to 20 minutes; Ctrl-C stops and cleans up)"
-last='' since=$(date +%s) shown='' asked='' end=$(($(date +%s) + 1200))
+last='' since=$(date +%s) shown='' asked=0 end=$(($(date +%s) + 1200))
 while [ "$(date +%s)" -lt "$end" ]; do
 	s=$(latest)
 	if [ -n "$s" ] && [ "$s" != "$last" ]; then
 		say "cycle: $s"
-		last=$s since=$(date +%s) shown= asked=
+		last=$s since=$(date +%s) shown=
 	fi
 	case $s in
 	complete* | cancelled* | failed* | uncertain*) break ;;
 	waiting_prompt*)
-		if [ -z "$asked" ]; then
-			asked=1
+		n=$(prompts)
+		if [ "${n:-0}" -gt "$asked" ]; then
+			asked=$n
 			say "ACTION FOR YOU: Codex asks for approval. The last lines of its pane (do not publish them):"
 			pane 15 | sed 's/^/    /'
 			read -r -p "Type y and press Enter to choose 1 (Allow) in the Codex pane: " reply

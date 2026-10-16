@@ -222,8 +222,10 @@ dashboard action's store path and writes its audit record, whose target ends wit
 ` by cli`, or with ` by agent PEER` when the request names a `caller` (the MCP server adds the
 calling session). Without `peer`, a request with a caller names the caller's own session.
 
-- `POST /v1/context/show` (`context_show`, `koinon context show`) returns `families` (mode,
-  threshold, error) and `sessions`: each active agent session's `peer`, `family`, `enabled`,
+- `POST /v1/context/show` (`context_show`, `koinon context show`) takes an optional `after` (a
+  peer name) and returns `families` (mode, threshold, error) and up to 100 `sessions` by peer
+  name after it, with `next_after` when a full page may continue (`koinon context show` reads
+  every page). Each is an active agent session's `peer`, `family`, `enabled`,
   `enable_revision`, `mode`, `threshold`, `threshold_source` (`session` or `family`),
   `available`, `unavailable`, `eligible`, `reason`, and its newest cycle's `cycle_id`,
   `cycle_revision`, `cycle_state` and waiting native `dialog` (`lines`, `options`, `digest`).

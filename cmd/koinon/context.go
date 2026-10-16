@@ -66,7 +66,6 @@ func contextCommand(ctx context.Context, args []string, out io.Writer) error {
 	body := map[string]any{}
 	switch op {
 	case "show":
-		path = "/v1/context/show"
 	case "set":
 		set := map[string]bool{}
 		flags.Visit(func(f *flag.Flag) { set[f.Name] = true })
@@ -87,26 +86,57 @@ func contextCommand(ctx context.Context, args []string, out io.Writer) error {
 		}
 		path, body["peer"], body["threshold"] = "/v1/context/threshold", operandList[0], value
 	}
+	if op == "show" {
+		return showContext(ctx, *address, secret, *asJSON, out)
+	}
 	data, err := core.Call(ctx, *address, secret, path, body)
 	if err != nil {
 		return err
 	}
-	if op != "show" || *asJSON {
+	_, err = fmt.Fprintln(out, string(data))
+	return err
+}
+
+// contextShow is the reply of /v1/context/show.
+type contextShow struct {
+	Families  []core.ContextFamilyPolicy `json:"families"`
+	Sessions  []core.ContextSessionView  `json:"sessions"`
+	NextAfter string                     `json:"next_after,omitempty"`
+}
+
+// showContext reads every page of the active sessions and prints them together.
+func showContext(ctx context.Context, address, secret string, asJSON bool, out io.Writer) error {
+	var all contextShow
+	after := ""
+	for {
+		data, err := core.Call(ctx, address, secret, "/v1/context/show", map[string]any{"after": after})
+		if err != nil {
+			return err
+		}
+		var page contextShow
+		if err := json.Unmarshal(data, &page); err != nil {
+			return err
+		}
+		all.Families = page.Families
+		all.Sessions = append(all.Sessions, page.Sessions...)
+		if page.NextAfter == "" {
+			break
+		}
+		after = page.NextAfter
+	}
+	if asJSON {
+		data, err := json.Marshal(all)
+		if err != nil {
+			return err
+		}
 		_, err = fmt.Fprintln(out, string(data))
 		return err
 	}
-	return printContext(out, data)
+	return printContext(out, all)
 }
 
 // printContext prints the show reply as two short tables.
-func printContext(out io.Writer, data []byte) error {
-	var reply struct {
-		Families []core.ContextFamilyPolicy `json:"families"`
-		Sessions []core.ContextSessionView  `json:"sessions"`
-	}
-	if err := json.Unmarshal(data, &reply); err != nil {
-		return err
-	}
+func printContext(out io.Writer, reply contextShow) error {
 	fmt.Fprintln(out, "FAMILY      MODE               THRESHOLD")
 	for _, f := range reply.Families {
 		line := fmt.Sprintf("%-11s %-18s %d%%", f.Family, f.Mode, f.Threshold)

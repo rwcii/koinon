@@ -37,23 +37,52 @@ type ContextSessionView struct {
 	Dialog *CycleDialog `json:"dialog,omitempty"`
 }
 
-// ContextShow returns the family policies and each active agent session's context state.
-func (s *Store) ContextShow(ctx context.Context) ([]ContextFamilyPolicy, []ContextSessionView, error) {
-	sessions, _, err := s.List(ctx)
+// contextShowPage bounds one page of koinon context show: each row runs its adapter's Probe.
+const contextShowPage = 100
+
+// ContextShow returns the family policies and one page of the active agent sessions' context
+// state, by peer name after after. next is the last peer name of a full page whose
+// continuation may hold more sessions, or "".
+func (s *Store) ContextShow(ctx context.Context, after string) ([]ContextFamilyPolicy, []ContextSessionView, string, error) {
+	now := s.now().UnixMilli()
+	// Active sessions are selected before the page bound, so retained ended sessions never
+	// take their place.
+	rows, err := s.db.QueryContext(ctx, `SELECT n.family,n.session_id FROM names n JOIN sessions s ON s.family=n.family AND s.id=n.session_id
+		WHERE n.kind='peer' AND n.family!='maintainer' AND `+notParticipantRow+` AND s.retired_at=0 AND s.expires_at>? AND n.name>?
+		ORDER BY n.name LIMIT ?`, now, after, contextShowPage)
 	if err != nil {
-		return nil, nil, err
+		return nil, nil, "", err
+	}
+	var keys []Key
+	for rows.Next() {
+		var k Key
+		if err := rows.Scan(&k.Family, &k.ID); err != nil {
+			rows.Close()
+			return nil, nil, "", err
+		}
+		keys = append(keys, k)
+	}
+	rows.Close()
+	if err := rows.Err(); err != nil {
+		return nil, nil, "", err
 	}
 	enables, err := s.contextEnables(ctx)
 	if err != nil {
-		return nil, nil, err
+		return nil, nil, "", err
 	}
-	now := s.now().UnixMilli()
-	views := []ContextSessionView{}
-	for _, session := range sessions {
-		if session.State != "active" || session.Name == "" {
+	views, next := []ContextSessionView{}, ""
+	for _, k := range keys {
+		session, err := scanSession(s.db.QueryRowContext(ctx, sessionQuery+` WHERE s.family=? AND s.id=?`, k.Family, k.ID), now)
+		if err != nil {
+			return nil, nil, "", err
+		}
+		if len(keys) == contextShowPage {
+			next = session.Name
+		}
+		if session.State != "active" {
 			continue
 		}
-		row := s.contextRowOf(session, enables[Key{session.Family, session.ID}], now)
+		row := s.contextRowOf(session, enables[k], now)
 		v := ContextSessionView{Peer: session.Name, Family: session.Family, Enabled: row.Enable.Enabled, EnableRevision: row.Enable.Revision,
 			Mode: row.Mode, Threshold: row.Threshold, ThresholdSource: "family", Available: row.Available, Unavailable: row.Unavailable,
 			Eligible: row.Eligible, Reason: row.Reason}
@@ -65,7 +94,7 @@ func (s *Store) ContextShow(ctx context.Context) ([]ContextFamilyPolicy, []Conte
 		}
 		views = append(views, v)
 	}
-	return s.ContextPolicy(), views, nil
+	return s.ContextPolicy(), views, next, nil
 }
 
 // validContextPeer bounds a peer name that a context change names, before it reaches the
@@ -118,7 +147,8 @@ func (d *Daemon) contextRoutes(mux *http.ServeMux) {
 	}
 	mux.HandleFunc("POST /v1/context/show", func(w http.ResponseWriter, r *http.Request) {
 		var request struct {
-			Caller *Key `json:"caller"`
+			Caller *Key   `json:"caller"`
+			After  string `json:"after"`
 		}
 		if err := decode(w, r, &request); err != nil {
 			failure(w, err)
@@ -128,12 +158,16 @@ func (d *Daemon) contextRoutes(mux *http.ServeMux) {
 			failure(w, err)
 			return
 		}
-		families, sessions, err := d.store.ContextShow(r.Context())
+		families, sessions, next, err := d.store.ContextShow(r.Context(), request.After)
 		if err != nil {
 			failure(w, err)
 			return
 		}
-		respond(w, 200, map[string]any{"ok": true, "families": families, "sessions": sessions})
+		reply := map[string]any{"ok": true, "families": families, "sessions": sessions}
+		if next != "" {
+			reply["next_after"] = next
+		}
+		respond(w, 200, reply)
 	})
 	mux.HandleFunc("POST /v1/context/set", func(w http.ResponseWriter, r *http.Request) {
 		var request struct {

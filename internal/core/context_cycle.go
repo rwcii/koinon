@@ -471,10 +471,11 @@ func (s *Store) admitContextCycle(ctx context.Context, k Key) (bool, error) {
 	if conflict, err = overwatchNameHeld(ctx, tx); err != nil {
 		return false, err
 	}
-	// The session's own threshold may have changed since the read above.
-	eligible, _ := SelectContextTrigger(ContextTriggerInput{Active: session.State == "active", Enabled: enable.Enabled,
-		Policy: s.sessionContextPolicy(k.Family, enable), CycleAvailable: true, OverwatchConflict: conflict, Evidence: evidence, Now: now,
-		LatchedEpoch: latched})
+	// The policy may have changed since the read above (the session's own threshold, #391):
+	// the selection and the cycle's recorded snapshot both use the policy in force now.
+	policy = s.sessionContextPolicy(k.Family, enable)
+	eligible, _ := SelectContextTrigger(ContextTriggerInput{Active: session.State == "active", Enabled: enable.Enabled, Policy: policy,
+		CycleAvailable: true, OverwatchConflict: conflict, Evidence: evidence, Now: now, LatchedEpoch: latched})
 	if !eligible {
 		return false, nil
 	}

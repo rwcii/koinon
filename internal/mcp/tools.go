@@ -46,8 +46,8 @@ var toolList = []map[string]any{
 		"inputSchema": object(map[string]any{"cycle_id": text, "revision": integer, "artifact": text,
 			"outcome": map[string]any{"type": "string", "enum": []string{"resumed", "paused"}}, "report": text},
 			"cycle_id", "revision", "artifact", "outcome", "report")},
-	{"name": "context_show", "description": "Read the context-cycle settings: each family's mode and threshold, and for each active session its handoff Enable, the threshold in force (its own or its family's), the trigger state and any managed cycle.",
-		"inputSchema": object(map[string]any{})},
+	{"name": "context_show", "description": "Read the context-cycle settings: each family's mode and threshold, and for each active session, by peer name, its handoff Enable, the threshold in force (its own or its family's), the trigger state and any managed cycle. Page with next_after.",
+		"inputSchema": object(map[string]any{"after": text})},
 	{"name": "context_set", "description": "Set one family's context mode and threshold (target_family names the family): mode observe, native_compaction (codex only) or handoff_cycle, threshold 1 to 100 percent of the context limit. The audit log records the change with this session as its origin.",
 		"inputSchema": object(map[string]any{"target_family": text, "mode": map[string]any{"type": "string", "enum": []string{"observe", "native_compaction", "handoff_cycle"}},
 			"threshold": map[string]any{"type": "integer", "minimum": 1, "maximum": 100}}, "target_family", "mode", "threshold")},
@@ -255,8 +255,11 @@ func (s *server) call(ctx context.Context, raw json.RawMessage) map[string]any {
 		// The native client, never the model, supplies the session's current epoch.
 		body["epoch"] = s.cycleEpoch(caller)
 	case "context_show":
-		var a struct{}
+		var a struct {
+			After string `json:"after"`
+		}
 		err, path = decodeArgs(p.Arguments, &a), "/v1/context/show"
+		body["after"] = a.After
 	case "context_set":
 		var a struct {
 			Family    *string `json:"target_family"`
