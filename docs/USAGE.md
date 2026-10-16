@@ -415,8 +415,8 @@ keeps the family default, and the Settings page names the error.
 
 Claude Code sessions launched with `koinon claude` on Linux and macOS can run the cycle (Claude Code
 2.1.296); `koinon claude` adds Koinon's pickup loader so that `/pickup` works after the clear even
-without an installed pickup skill. Codex sessions launched with `koinon codex` in tmux on Linux
-can run it too (Codex CLI 0.162.0, family mode `handoff_cycle`): they need an installed `pickup`
+without an installed pickup skill. Codex sessions launched with `koinon codex` in tmux on Linux and macOS
+can run it too (Codex CLI 0.162.0 or 0.162.1, family mode `handoff_cycle`): they need an installed `pickup`
 skill that is the catalog's, and their participant address; Codex has no loader. The new thread
 after the clear takes the address and reports the pickup. An enabled session
 whose context reaches its threshold gets a request from `overwatch`, Koinon's reserved system

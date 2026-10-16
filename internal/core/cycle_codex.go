@@ -23,19 +23,19 @@ import (
 // the threads' own rollouts for their version and activity. Codex writes no file for a new
 // thread before its first turn, so the clear step also enters /status and the new thread ID is
 // read from the pane. The facts it relies on are recorded in the sprint's native evidence
-// (Codex CLI 0.162.0 on Linux) and in chunks/04-codex-cycle.md.
+// (Codex CLI 0.162.0 on Linux; 0.162.1 and 0.163.0 on macOS) and in chunks/04-codex-cycle.md.
 
 // codexCycleVersion is the adapter's version, stored with each cycle.
 const codexCycleVersion = "codex-tmux-1"
 
 // codexEvidencedVersions are the Codex CLI versions whose native behavior the evidence proves.
-var codexEvidencedVersions = map[string]bool{"0.162.0": true}
+var codexEvidencedVersions = map[string]bool{"0.162.0": true, "0.162.1": true}
 
 // codexAnyVersion admits every Codex CLI version; only a livecheck build sets it.
 var codexAnyVersion bool
 
 // codexEvidencedPlatforms are the operating systems with native evidence for this adapter.
-var codexEvidencedPlatforms = map[string]bool{"linux": true}
+var codexEvidencedPlatforms = map[string]bool{"linux": true, "darwin": true}
 
 // codexKeyWait bounds the read-back after each key.
 var codexKeyWait = 3 * time.Second
