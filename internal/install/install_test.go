@@ -446,7 +446,13 @@ func TestInstallLinksAHomebrewKeg(t *testing.T) {
 			ctx := context.Background()
 			e := newEnv(t, backend)
 			e.o.Agents = []string{"claude"}
-			brew := filepath.Join(t.TempDir(), "brew")
+			// The installer resolves the keg's path; on macOS the temporary directory is under a
+			// link (/var to /private/var).
+			tmp, err := filepath.EvalSymlinks(t.TempDir())
+			if err != nil {
+				t.Fatal(err)
+			}
+			brew := filepath.Join(tmp, "brew")
 			opt := filepath.Join(brew, "opt", "koinon", "bin", "koinon")
 			e.o.Source = homebrewKeg(t, brew, "0.3.1", "release 0.3.1")
 			r, err := Install(ctx, e.o)
