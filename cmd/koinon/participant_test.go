@@ -73,7 +73,7 @@ func TestParticipantCommands(t *testing.T) {
 		t.Helper()
 		var out bytes.Buffer
 		offset := 1
-		if args[0] == "work" || args[0] == "claim" || args[0] == "memory" {
+		if args[0] == "work" || args[0] == "claim" || args[0] == "memory" || args[0] == "participant" {
 			offset = 2
 		}
 		args = append(args[:offset], append([]string{"--state-dir", root, "--address", address}, args[offset:]...)...)
@@ -159,5 +159,57 @@ func TestParticipantCommands(t *testing.T) {
 	acked, err := command("ack", "--as", "codex:synthetic-b", "--participant", "1", "0")
 	if p, _ := acked["participant"].(map[string]any); err != nil || p == nil || p["acked_through"] != float64(1) {
 		t.Fatalf("holder ack: %v %v", acked, err)
+	}
+
+	// The holder choice from the command line (#398): A, fenced, takes the address back, and B
+	// is retired. Each refusal has the dashboard's code.
+	listed, err := command("participant", "list")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var holder any
+	for _, p := range listed["participants"].([]any) {
+		if row := p.(map[string]any); row["address"] == a.Alias {
+			holder = row["holder"]
+		}
+	}
+	if holder != b.Name {
+		t.Fatalf("participant list: %v", listed)
+	}
+	again, err := command("peers", "--as", "codex:synthetic-a")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var aName string
+	for _, p := range again["peers"].([]any) {
+		if row := p.(map[string]any); row["self"] == true {
+			aName, _ = row["name"].(string)
+		}
+	}
+	for _, c := range []struct {
+		args []string
+		code string
+	}{
+		{[]string{"participant", "holder", a.Alias, "synthetic-nobody"}, "peer_not_found"},
+		{[]string{"participant", "holder", "agy-elsewhere", aName}, "not_participant"},
+		{[]string{"participant", "holder", a.Alias, aName, "--if-revision", "999"}, "revision_changed"},
+		{[]string{"participant", "holder", a.Alias, "maintainer"}, "peer_not_found"},
+	} {
+		if _, err := command(c.args...); !errors.As(err, &refused) || refused.Code != c.code {
+			t.Fatalf("%v: %v", c.args, err)
+		}
+	}
+	chosen, err := command("participant", "holder", a.Alias, aName)
+	if err != nil || chosen["holder"] != aName || chosen["former"] != b.Name || chosen["address"] != a.Alias {
+		t.Fatalf("holder choice: %v %v", chosen, err)
+	}
+	if _, err := command("participant", "holder", a.Alias, b.Name); !errors.As(err, &refused) || refused.Code != "session_not_active" {
+		t.Fatalf("former holder: %v", err)
+	}
+	if inbox, err := command("inbox", "--as", "codex:synthetic-a", "--participant-after", "0"); err != nil || inbox["inbox"].(map[string]any)["participant"] == nil {
+		t.Fatalf("new holder's participant inbox: %v %v", inbox, err)
+	}
+	if _, err := command("participant", "holder", a.Alias); err == nil {
+		t.Fatal("one operand accepted")
 	}
 }

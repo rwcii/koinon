@@ -3,7 +3,7 @@ pdr: "001"
 title: "Session Registration and Participant Continuity"
 status: draft
 created: "2026-10-12"
-updated: "2026-10-14"
+updated: "2026-10-17"
 authors:
   - "Robert Capps"
 reviewers: []
@@ -34,8 +34,8 @@ tags:
 Koinon registers a native Claude, Codex, OpenCode or Antigravity session as a plain peer;
 `koinon <family>` adds participant features. DeepSeek registers by command. It gives a Codex sub-agent a peer name
 but no participant, takes roles from the launch record, moves a participant's address only on
-host or pane evidence, and lets only the dashboard's **Make holder** choice lift a former
-holder's fence.
+host or pane evidence, and lets only the maintainer's holder choice (the dashboard's **Make
+holder** or `koinon participant holder`) lift a former holder's fence.
 
 This behavior shipped with the participants sprint (PRs #263 to #268) and later fixes. On
 2026-10-12 the maintainer decided four of these choices (#306): a direct start becomes a plain
@@ -52,7 +52,7 @@ participant owns its address state across a reset. Roles and succession evidence
 3. Decision 2: Sub-agents get a peer name, not a participant
 4. Decision 3: Roles come from the launch record
 5. Decision 4: Succession needs host or pane evidence
-6. Decision 5: Only the dashboard lifts a fence
+6. Decision 5: Only the maintainer's holder choice lifts a fence
 7. Decision 6: The participant owns its address state across a reset
 8. Statements this record does not adopt
 9. Conclusion
@@ -279,14 +279,16 @@ or after the guard. `peers` and the dashboard show each result and refusal.
 
 ---
 
-## 6. Decision 5: Only the dashboard lifts a fence
+## 6. Decision 5: Only the maintainer's holder choice lifts a fence
 
 ### Decision
 
 Koinon currently retires and fences a former holder in the same transaction as each holder
 change. A fenced session can register again with its peer name, but it does not qualify for
 that participant, and its succession is refused with `fenced`, also after a `/resume`. Only
-**Make holder** in the dashboard (`ChooseHolder`) deletes the fence.
+the maintainer's holder choice deletes the fence: **Make holder** in the dashboard or
+`koinon participant holder ADDRESS PEER` on the command line (`ChooseHolder`). The command
+uses the daemon secret, and its audit record names the origin `cli`.
 
 **Provenance:** Shipped in PR #267 (merge commit 850cbdd) and PR #268 (merge commit 9aef846);
 no maintainer decision found. The plan records it as a gate B decision in agent-written text:
@@ -294,6 +296,12 @@ no resume evidence is verified, and a retained old thread that calls after a qui
 looks the same as an intentional `/resume`. Maintainer, 2026-10-12: "a, next item", keeping
 the fence with the dashboard as the way back over letting a resume take the address back
 ([#306 comment 6118891323](https://github.com/rwcii/koinon/issues/306#issuecomment-6118891323)).
+The command-line choice: Maintainer, 2026-10-17, after the dashboard was the only way to move
+an address: "if there is no path other than the dashboard, this is another missing cli
+method", then "yes, take on all 3 open issues" (#398). Intent: the maintainer can make the
+holder choice without the dashboard. It is still an explicit choice, so a `/resume` cannot
+take an address back by itself. The daemon-secret basis is the one of #391: "approved, allow
+CLI and agents with audit" (PDR 006, Decision 1).
 
 ### Alternatives Considered
 
@@ -310,7 +318,7 @@ the fence with the dashboard as the way back over letting a resume take the addr
 ### User Impact
 
 A `/resume` to a fenced thread gives it only its peer name. Once it has registered again,
-the maintainer can restore it with **Make holder**; otherwise a new `koinon <family>` session
+the maintainer can restore it with **Make holder** or `koinon participant holder`; otherwise a new `koinon <family>` session
 takes the address under Decision 4.
 
 ---
@@ -357,7 +365,7 @@ item without waiting for a lease to expire.
 ## Conclusion
 
 Launched sessions get the participant address, role, succession and naming; a direct start is
-a plain peer. An address moves only on host or pane evidence or the maintainer's dashboard
+a plain peer. An address moves only on host or pane evidence or the maintainer's holder
 choice, and the participant keeps its messages, cursor and claims across a reset. The
 maintainer decided the direct-start, sub-agent, fence and ownership choices on 2026-10-12;
 roles and succession evidence remain shipped behavior without a maintainer decision.
@@ -372,3 +380,4 @@ roles and succession evidence remain shipped behavior without a maintainer decis
 | 2026-10-12 | Recorded the maintainer's decisions on direct start, sub-agents, the fence and participant ownership (#306) |
 | 2026-10-12 | Applied Decisions 1 and 2 to Grok Build: direct start, default-mode scope and parent-scoped sub-agents (#254 chunk 02) |
 | 2026-10-14 | Recorded the managed cycle's reset link `cycle_reset` in Decision 4 (#196 chunk 04) |
+| 2026-10-17 | Decision 5: the command-line holder choice also lifts a fence (#398) |

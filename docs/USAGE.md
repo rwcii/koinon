@@ -373,8 +373,11 @@ until a new report. A naming result never proves that a peer is busy or has read
 `alias` only on the active holder. An active holder keeps its address. Without one, exactly
 one active qualifier takes it; multiple qualifiers leave it unheld and the dashboard reports
 the conflict. Registration and renewal order do not choose between them. In the dashboard's
-sessions view, use **Make holder** on the intended active session. The choice requires the
-current session revision, is audited, and shows as the participant's last event. A plain peer,
+sessions view, use **Make holder** on the intended active session, or, without the dashboard,
+`koinon participant holder ADDRESS PEER` (`koinon participant list` shows each address and its
+holder). The choice requires the current session revision (the command reads it, or takes
+`--if-revision`), is audited (by `cli` for the command), and shows as the participant's last
+event. A plain peer,
 a sub-agent or another participant's session cannot be chosen. A send to an unheld address is refused
 with `alias_unheld`; the agent's peer name can still be addressed directly.
 
@@ -392,7 +395,7 @@ guard (30 seconds by default) remains: MCP retries at the first tool call after 
 you sending a registration command. Renewals and observation timers do not trigger the
 retry or keep the guard active. Other reasons are `no_host`, `host_running`, `other_pane`,
 `subagent`, `fenced` and `other_participant`; report the reason and use the maintainer's
-**Make holder** choice when a manual choice is needed. A `no_host` against a launched predecessor
+**Make holder** choice, or `koinon participant holder`, when a manual choice is needed. A `no_host` against a launched predecessor
 without a host record resolves when that predecessor expires: the successor takes the address at its next
 registration or renewal. **Make holder** only makes that immediate. After a daemon restart, the guard
 waits at least one guard period because earlier tool-call activity is unknown.
@@ -450,7 +453,8 @@ While a retained name record is called `overwatch`, no cycle starts and the Sess
 names the conflict. See PROTOCOL.md, Managed context cycles.
 
 A holder change retires and persistently fences the former holder. Registering again gives
-it its native peer name only; only **Make holder** lifts its fence. Address messages now
+it its native peer name only; only the maintainer's holder choice (**Make holder** or
+`koinon participant holder`) lifts its fence. Address messages now
 belong to the participant inbox, and a holder's default memory/work consumer is
 `participant:<address>`. The next holder continues its acknowledgements, memory cursor and
 live claim generations without restarting a lease. Calls with that consumer, including

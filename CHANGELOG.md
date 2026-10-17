@@ -12,6 +12,12 @@ into a dated release section when promoted to `main`.
   (`binary_changed`), and the manager starts the new binary. An installation made by v0.3.0 or
   earlier needs `$(brew --prefix)/bin/koinon install` once after its upgrade; macOS system mode
   keeps a copy. `koinon status` reports the daemon's `version`.
+- Holder choice from the command line (#398): `koinon participant list` shows each participant
+  address with its holder, conflict and last event, and `koinon participant holder ADDRESS PEER
+  [--if-revision N]` makes the dashboard's **Make holder** choice: the former holder is retired
+  and fenced, and the chosen session's fence is lifted. The daemon serves them as
+  `GET /v1/participants` and `POST /v1/participants/holder`, audited by `cli`. PDR 001,
+  Decision 5 records the change.
 
 ## 2026-10-16 — Context settings without the dashboard
 

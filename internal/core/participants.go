@@ -39,50 +39,104 @@ type ParticipantEvent struct {
 	Details string `json:"details,omitempty"`
 }
 
+// Refusals of the command line's holder choice (#398), which the dashboard reports by the
+// same codes.
+var (
+	ErrHolderNotActive       = Refusal{"session_not_active", "the session is not active"}
+	ErrHolderRevisionChanged = Refusal{"revision_changed", "the session changed since its revision was read"}
+)
+
 // ChooseHolder is the maintainer's choice of a participant's holder: the session k, at
 // revision, active, of that participant and not a sub-agent. It is a control write, so it
-// commits at the ordinary storage ceiling, and it records a participant event.
+// commits at the ordinary storage ceiling, and it records a participant event whose actor is
+// "maintainer"; the command line's choice, ChooseHolderByPeer, adds {"origin":"cli"} to its
+// details.
 func (s *Store) ChooseHolder(ctx context.Context, address string, k Key, revision int64) error {
+	_, err := s.chooseHolder(ctx, address, k, revision, "")
+	return err
+}
+
+// ChooseHolderByPeer is the command line's holder choice (#398): the session with the peer
+// name peer, at revision or, when revision is 0, at its current revision. It returns the
+// former holder's peer name, or "" when the address had none.
+func (s *Store) ChooseHolderByPeer(ctx context.Context, address, peer string, revision int64) (string, error) {
+	if address == "" || len(address) > 256 || peer == "" || len(peer) > 256 || revision < 0 {
+		return "", ErrInvalid
+	}
+	var k Key
+	err := s.db.QueryRowContext(ctx, `SELECT family,session_id FROM names WHERE kind='peer' AND name=? AND family!='maintainer'`, peer).Scan(&k.Family, &k.ID)
+	if errors.Is(err, sql.ErrNoRows) {
+		return "", ErrPeerNotFound
+	}
+	if err != nil {
+		return "", err
+	}
+	session, err := scanSession(s.db.QueryRowContext(ctx, sessionQuery+` WHERE s.family=? AND s.id=?`, k.Family, k.ID), s.now().UnixMilli())
+	if err != nil {
+		return "", err
+	}
+	if revision == 0 {
+		revision = session.Revision
+	}
+	former, err := s.chooseHolder(ctx, address, k, revision, `{"origin":"cli"}`)
+	if errors.Is(err, ErrConflict) {
+		session, readErr := scanSession(s.db.QueryRowContext(ctx, sessionQuery+` WHERE s.family=? AND s.id=?`, k.Family, k.ID), s.now().UnixMilli())
+		if readErr == nil && session.State != "active" {
+			return "", ErrHolderNotActive
+		}
+		return "", ErrHolderRevisionChanged
+	}
+	return former, err
+}
+
+// chooseHolder makes k the holder and returns the former holder's peer name, or "".
+func (s *Store) chooseHolder(ctx context.Context, address string, k Key, revision int64, details string) (string, error) {
 	s.wake.mu.Lock()
 	defer s.wake.mu.Unlock()
 	if address == "" || len(address) > 256 || !validKey(k.Family, k.ID) || revision <= 0 {
-		return ErrInvalid
+		return "", ErrInvalid
 	}
 	tx, err := s.begin(ctx, control)
 	if err != nil {
-		return err
+		return "", err
 	}
 	defer tx.Rollback()
 	tx.audited = true
 	now := s.now().UnixMilli()
 	session, err := scanSession(tx.QueryRowContext(ctx, sessionQuery+` WHERE s.family=? AND s.id=?`, k.Family, k.ID), now)
 	if err != nil {
-		return err
+		return "", err
 	}
 	if session.Revision != revision || session.State != "active" {
-		return ErrConflict
+		return "", ErrConflict
 	}
 	if session.Address != address {
-		return ErrNotParticipant
+		return "", ErrNotParticipant
 	}
 	var holder string
 	if err := tx.QueryRowContext(ctx, `SELECT holder_id FROM names WHERE name=? AND kind='alias'`, address).Scan(&holder); err != nil {
-		return err
+		return "", err
 	}
 	// Only the maintainer's choice lifts a fence.
 	if _, err := tx.ExecContext(ctx, `DELETE FROM participant_fences WHERE address=? AND family=? AND session_id=?`, address, k.Family, k.ID); err != nil {
-		return tx.fail(err)
+		return "", tx.fail(err)
+	}
+	former := ""
+	if holder != "" && holder != k.ID {
+		if former, err = peerOf(ctx, tx, k.Family, holder); err != nil {
+			return "", err
+		}
 	}
 	if holder != k.ID {
 		// The maintainer's holder choice ends the address's managed cycle (#196).
 		if err := s.fenceCyclesTx(ctx, tx, "holder_changed", `address=?`, address); err != nil {
-			return tx.fail(err)
+			return "", tx.fail(err)
 		}
-		if err := setHolder(ctx, tx.Tx, now, address, holder, k.ID, "maintainer_choice", "maintainer", ""); err != nil {
-			return tx.fail(err)
+		if err := setHolder(ctx, tx.Tx, now, address, holder, k.ID, "maintainer_choice", "maintainer", details); err != nil {
+			return "", tx.fail(err)
 		}
 	}
-	return tx.Commit()
+	return former, tx.Commit()
 }
 
 // Participants lists the participants with their active holder, conflict and last event,
