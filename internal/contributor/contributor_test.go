@@ -424,7 +424,7 @@ func TestHomebrewFormula(t *testing.T) {
 	if strings.Contains(formula, "\n  version ") {
 		t.Error("an explicit version is redundant with the URL and fails brew audit --strict")
 	}
-	for _, want := range []string{`license "MIT"`, `=> "koinon"`, "#{opt_bin}/koinon install --agent", "#{opt_bin}/koinon install again", "brew update before brew upgrade koinon", `#{bin}/koinon version`} {
+	for _, want := range []string{`license "MIT"`, `=> "koinon"`, "#{opt_bin}/koinon install --agent", "links its binary to #{opt_bin}/koinon", "then brew upgrade koinon: the daemon restarts", "#{opt_bin}/koinon install once", `#{bin}/koinon version`} {
 		if !strings.Contains(formula, want) {
 			t.Errorf("formula lacks %s", want)
 		}

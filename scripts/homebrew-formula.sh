@@ -91,10 +91,11 @@ ${bottle}  on_macos do
     <<~EOS
       Install the daemon and set up your agents with this formula's binary:
         #{opt_bin}/koinon install --agent claude --agent codex
-      To upgrade, run brew update before brew upgrade koinon, then run
-      #{opt_bin}/koinon install again and check koinon version. The install copies
-      the new binary into its own prefix and restarts the daemon. A bare koinon
-      install can run the copy already installed in ~/.local/bin, which changes nothing.
+      The install links its binary to #{opt_bin}/koinon. To upgrade, run brew update,
+      then brew upgrade koinon: the daemon restarts on the new version. An installation
+      made by v0.3.0 or earlier has a copy instead; after this upgrade, run
+      #{opt_bin}/koinon install once. A macOS --system install keeps a copy; upgrade
+      it with #{opt_bin}/koinon install --system.
     EOS
   end
 

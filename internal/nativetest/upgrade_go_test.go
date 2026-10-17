@@ -135,8 +135,9 @@ func TestUpgradeFromGoRelease(t *testing.T) {
 }
 
 type daemonHealth struct {
-	PID    int
-	Schema int `json:"schema"`
+	PID     int
+	Schema  int    `json:"schema"`
+	Version string `json:"version"`
 }
 
 // health reads the running daemon's schema from its status and its process ID from the
