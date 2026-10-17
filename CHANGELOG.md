@@ -18,6 +18,15 @@ into a dated release section when promoted to `main`.
   and fenced, and the chosen session's fence is lifted. The daemon serves them as
   `GET /v1/participants` and `POST /v1/participants/holder`, audited by `cli`. PDR 001,
   Decision 5 records the change.
+- Cleanup from the command line (#388): `koinon sessions list|purge|unpurge|retire` and
+  `koinon inbox clear` select sessions by peer name, `--state`, `--family` and
+  `--inactive-for`, and show the selection without `--yes`. Each change runs the dashboard
+  action's store path and audit record, by `cli`. `koinon maintenance sweep` runs the retention
+  sweep now. Routes `POST /v1/cleanup/sessions` and `POST /v1/maintenance/sweep`.
+  `koinon claims release` releases the claims of expired or retired sessions, `koinon rooms
+  prune` removes their room memberships, and `koinon rooms delete` (and the rooms view's new
+  delete action) deletes a room. The sessions view selects several sessions for retire,
+  purge, keep or clear.
 
 ## 2026-10-16 — Context settings without the dashboard
 

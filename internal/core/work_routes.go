@@ -57,11 +57,7 @@ func (d *Daemon) maintainWork() {
 	defer d.wg.Done()
 	for {
 		ctx, cancel := contextUntil(d.stop, time.Minute)
-		d.store.MaintainWork(ctx)
-		// A running agent keeps its session without a renewal (#249).
-		d.store.MaintainLiveness(ctx)
-		// Retention runs after the work sweep, which has reconciled expired claims (#216).
-		d.store.Cull(ctx)
+		d.sweep(ctx)
 		// The audit log keeps 90 days and at most auditMax records (sprint chunk 09), and
 		// launch results that could not be recorded at once are recorded now.
 		d.store.trimAudit(ctx)
@@ -73,6 +69,18 @@ func (d *Daemon) maintainWork() {
 		case <-time.After(workSweepInterval):
 		}
 	}
+}
+
+// sweep runs the work, liveness and retention sweeps once, never alongside another sweep,
+// and returns the retention error.
+func (d *Daemon) sweep(ctx context.Context) error {
+	d.sweepMu.Lock()
+	defer d.sweepMu.Unlock()
+	d.store.MaintainWork(ctx)
+	// A running agent keeps its session without a renewal (#249).
+	d.store.MaintainLiveness(ctx)
+	// Retention runs after the work sweep, which has reconciled expired claims (#216).
+	return d.store.Cull(ctx)
 }
 
 // contextUntil is a context that ends when stop closes or after limit.

@@ -572,3 +572,37 @@ func TestParticipantHolderCommandDocumented(t *testing.T) {
 		t.Errorf("usage lacks koinon participant list: %v", err)
 	}
 }
+
+// The cleanup commands (#388) are in the usage text, USAGE.md and PROTOCOL.md, and none of
+// them says that only the dashboard purges.
+func TestCleanupCommandsDocumented(t *testing.T) {
+	read := func(name string) string {
+		t.Helper()
+		data, err := os.ReadFile(filepath.Join(root(t), name))
+		if err != nil {
+			t.Fatal(err)
+		}
+		return strings.Join(strings.Fields(string(data)), " ")
+	}
+	commands := []string{"koinon sessions list", "koinon sessions purge", "koinon sessions unpurge", "koinon inbox clear",
+		"koinon maintenance sweep", "koinon claims release", "koinon rooms prune", "koinon rooms delete"}
+	for _, name := range []string{"cmd/koinon/main.go", "docs/USAGE.md"} {
+		text := read(name)
+		for _, command := range commands {
+			if !strings.Contains(text, command) {
+				t.Errorf("%s does not name %s", name, command)
+			}
+		}
+	}
+	protocol := read("PROTOCOL.md")
+	for _, route := range []string{"/v1/cleanup/sessions", "/v1/cleanup/claims", "/v1/cleanup/rooms", "/v1/rooms/delete", "/v1/maintenance/sweep", "`bulk`", "`room-delete`"} {
+		if !strings.Contains(protocol, route) {
+			t.Errorf("PROTOCOL.md does not describe %s", route)
+		}
+	}
+	for _, name := range []string{"docs/INSTALL.md", "docs/product/pdr/003-runtime-installation-and-recovery.md"} {
+		if strings.Contains(read(name), "purge mark in the dashboard.") || strings.Contains(read(name), "the dashboard's purge deletes one marked session") {
+			t.Errorf("%s still says that only the dashboard purges", name)
+		}
+	}
+}

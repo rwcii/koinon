@@ -536,6 +536,21 @@ func (s *Store) AckParticipant(ctx context.Context, caller Key, through int64) (
 // inbox as the maintainer, also of an expired or retired session, and marks the newly
 // acknowledged messages; a negative through means the newest sequence at this moment.
 func (s *Store) ack(ctx context.Context, caller Key, through int64, dashboard bool) (int64, error) {
+	return s.ackIf(ctx, caller, through, dashboard, 0)
+}
+
+// ackAt is the maintainer's clear of a session's whole inbox at the session's revision, as a
+// bulk clear selected it (#388): a session that changed since is refused with ErrConflict.
+func (s *Store) ackAt(ctx context.Context, k Key, revision int64) (int64, error) {
+	if revision < 1 {
+		return 0, ErrInvalid
+	}
+	return s.ackIf(ctx, k, -1, true, revision)
+}
+
+// ackIf is ack, refused with ErrConflict when revision is positive and the session's revision
+// differs, checked in the acknowledging transaction.
+func (s *Store) ackIf(ctx context.Context, caller Key, through int64, dashboard bool, revision int64) (int64, error) {
 	s.wake.mu.Lock()
 	defer s.wake.mu.Unlock()
 	if through < 0 && !dashboard {
@@ -553,14 +568,17 @@ func (s *Store) ack(ctx context.Context, caller Key, through int64, dashboard bo
 			return 0, err
 		}
 	}
-	var last, acked int64
-	err = tx.QueryRowContext(ctx, `SELECT last_seq,acked_through FROM sessions WHERE family=? AND id=?`,
-		caller.Family, caller.ID).Scan(&last, &acked)
+	var last, acked, current int64
+	err = tx.QueryRowContext(ctx, `SELECT last_seq,acked_through,revision FROM sessions WHERE family=? AND id=?`,
+		caller.Family, caller.ID).Scan(&last, &acked, &current)
 	if dashboard && errors.Is(err, sql.ErrNoRows) {
 		return 0, ErrMissing
 	}
 	if err != nil {
 		return 0, err
+	}
+	if revision > 0 && current != revision {
+		return 0, ErrConflict
 	}
 	if through < 0 {
 		through = last
