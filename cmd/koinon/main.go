@@ -13,6 +13,7 @@ import (
 	"os"
 	"os/signal"
 	"path/filepath"
+	"slices"
 	"strconv"
 	"strings"
 	"sync"
@@ -55,6 +56,22 @@ func run(ctx context.Context, args []string, in io.Reader, out io.Writer) error 
 		return decisionCommand(ctx, args[1:], out)
 	case "context":
 		return contextCommand(ctx, args[1:], out)
+	case "participant":
+		return participantCommand(ctx, args[1:], out)
+	case "sessions", "maintenance", "claims", "rooms":
+		ops := map[string][]string{"sessions": {"list", "purge", "unpurge", "retire"}, "maintenance": {"sweep"},
+			"claims": {"release"}, "rooms": {"prune", "delete"}}[args[0]]
+		if len(args) < 2 || !slices.Contains(ops, args[1]) {
+			return usageError{"invalid_request", "use koinon " + args[0] + " " + strings.Join(ops, ", ")}
+		}
+		if args[0] == "claims" || args[0] == "rooms" {
+			return claimsRoomsCommand(ctx, args[0], args[1], args[2:], out)
+		}
+		return cleanupCommand(ctx, args[0], args[1], args[2:], out)
+	case "inbox":
+		if len(args) > 1 && args[1] == "clear" {
+			return cleanupCommand(ctx, "inbox", "clear", args[2:], out)
+		}
 	case "dashboard":
 		return dashboardCommand(ctx, args[1:], out)
 	case "version":
@@ -155,6 +172,10 @@ func lifecycleLog() func(event string, fields map[string]any) {
 // it in a loop while another daemon runs.
 func serve(ctx context.Context, state string, listen []string, lockWait time.Duration, out io.Writer) error {
 	logEvent := lifecycleLog()
+	// The executable is recorded first, so an upgrade during the start is still seen.
+	watchCtx, stopWatch := context.WithCancel(ctx)
+	defer stopWatch()
+	changed := watchExecutable(watchCtx, launchPath(), executableCheck)
 	signals := make(chan os.Signal, 1)
 	signal.Notify(signals, os.Interrupt, syscall.SIGTERM)
 	defer signal.Stop(signals)
@@ -211,7 +232,53 @@ func serve(ctx context.Context, state string, listen []string, lockWait time.Dur
 	case err := <-d.Errors():
 		logEvent("stop", map[string]any{"reason": "error", "code": "listener_error"})
 		return err
+	case <-changed:
+		logEvent("stop", map[string]any{"reason": "binary_changed"})
+		if err := d.Close(); err != nil {
+			return err
+		}
+		// A non-zero exit: the service manager starts the new binary.
+		return errors.New("binary_changed: the daemon's executable was replaced; the service manager starts the new one")
 	}
+}
+
+// launchPath is the path that started this process; a variable only so that tests can set it.
+var launchPath = func() string { return os.Args[0] }
+
+// executableCheck is how often the daemon checks its executable.
+var executableCheck = 5 * time.Second
+
+// watchExecutable closes the returned channel when path resolves to another regular
+// executable file than at the start: brew upgrade moves the opt link to a new keg, and a
+// copy install renames a new file over the old one (#397). A relative path, or one that does
+// not resolve at the start, turns the check off; a missing or unreadable file later is not a
+// change.
+func watchExecutable(ctx context.Context, path string, every time.Duration) <-chan struct{} {
+	changed := make(chan struct{})
+	if !filepath.IsAbs(path) {
+		return changed
+	}
+	start, err := os.Stat(path)
+	if err != nil || !start.Mode().IsRegular() {
+		return changed
+	}
+	go func() {
+		ticker := time.NewTicker(every)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case <-ticker.C:
+			}
+			now, err := os.Stat(path)
+			if err == nil && now.Mode().IsRegular() && now.Mode().Perm()&0111 != 0 && !os.SameFile(start, now) {
+				close(changed)
+				return
+			}
+		}
+	}()
+	return changed
 }
 
 const usage = `Usage: koinon install [--prefix DIR] [--state-dir DIR] [--agent FAMILY]... [--no-start] [--system]
@@ -254,6 +321,16 @@ const usage = `Usage: koinon install [--prefix DIR] [--state-dir DIR] [--agent F
        koinon context set FAMILY --mode observe|native_compaction|handoff_cycle --threshold PERCENT
        koinon context enable|disable NAME
        koinon context threshold NAME PERCENT|family
+       koinon participant list [--state-dir DIR] [--address 127.0.0.1:PORT]
+       koinon participant holder ADDRESS PEER [--if-revision N] [--state-dir DIR] [--address 127.0.0.1:PORT]
+       koinon sessions list [NAME ...] [--state active|expired|retired|purge-marked] [--family FAMILY] [--inactive-for DURATION] [--json]
+       koinon sessions purge|retire [NAME ...] [--state STATE] [--family FAMILY] [--inactive-for DURATION] [--yes]
+       koinon sessions unpurge [NAME ...] [--state STATE] [--family FAMILY] [--inactive-for DURATION]
+       koinon inbox clear [NAME ...] [--state STATE] [--family FAMILY] [--inactive-for DURATION] [--yes]
+       koinon maintenance sweep [--state-dir DIR] [--address 127.0.0.1:PORT]
+       koinon claims release [--held-by NAME]... [--yes]
+       koinon rooms prune [ROOM_ID ...] [--yes]
+       koinon rooms delete ROOM_ID [--yes]
        koinon work <create|list> --as FAMILY:ID [--consumer KEY] [options]
        koinon work checkout [--directory DIR]
        koinon work checkout <status|request> --as FAMILY:ID [--directory DIR] [options]

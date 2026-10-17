@@ -373,8 +373,11 @@ until a new report. A naming result never proves that a peer is busy or has read
 `alias` only on the active holder. An active holder keeps its address. Without one, exactly
 one active qualifier takes it; multiple qualifiers leave it unheld and the dashboard reports
 the conflict. Registration and renewal order do not choose between them. In the dashboard's
-sessions view, use **Make holder** on the intended active session. The choice requires the
-current session revision, is audited, and shows as the participant's last event. A plain peer,
+sessions view, use **Make holder** on the intended active session, or, without the dashboard,
+`koinon participant holder ADDRESS PEER` (`koinon participant list` shows each address and its
+holder). The choice requires the current session revision (the command reads it, or takes
+`--if-revision`), is audited (by `cli` for the command), and shows as the participant's last
+event. A plain peer,
 a sub-agent or another participant's session cannot be chosen. A send to an unheld address is refused
 with `alias_unheld`; the agent's peer name can still be addressed directly.
 
@@ -392,7 +395,7 @@ guard (30 seconds by default) remains: MCP retries at the first tool call after 
 you sending a registration command. Renewals and observation timers do not trigger the
 retry or keep the guard active. Other reasons are `no_host`, `host_running`, `other_pane`,
 `subagent`, `fenced` and `other_participant`; report the reason and use the maintainer's
-**Make holder** choice when a manual choice is needed. A `no_host` against a launched predecessor
+**Make holder** choice, or `koinon participant holder`, when a manual choice is needed. A `no_host` against a launched predecessor
 without a host record resolves when that predecessor expires: the successor takes the address at its next
 registration or renewal. **Make holder** only makes that immediate. After a daemon restart, the guard
 waits at least one guard period because earlier tool-call activity is unknown.
@@ -450,7 +453,8 @@ While a retained name record is called `overwatch`, no cycle starts and the Sess
 names the conflict. See PROTOCOL.md, Managed context cycles.
 
 A holder change retires and persistently fences the former holder. Registering again gives
-it its native peer name only; only **Make holder** lifts its fence. Address messages now
+it its native peer name only; only the maintainer's holder choice (**Make holder** or
+`koinon participant holder`) lifts its fence. Address messages now
 belong to the participant inbox, and a holder's default memory/work consumer is
 `participant:<address>`. The next holder continues its acknowledgements, memory cursor and
 live claim generations without restarting a lease. Calls with that consumer, including
@@ -520,6 +524,38 @@ The dashboard link is single-use and expires; keep it out of logs, Git and messa
 Administrative actions require CSRF protection and are
 audited. Health reports unknown observations explicitly; a failure is not permission to
 replace state, kill an unrelated process, or change agent settings.
+
+### Clean up sessions without the dashboard
+
+A shell on the same computer cleans up sessions and inboxes in bulk (#388). Select sessions by
+peer name, `--state active|expired|retired|purge-marked`, `--family FAMILY` and
+`--inactive-for DURATION` (such as `72h` or `30d`; since the retirement, otherwise the
+expiry). A change needs a selection; the maintainer session is never selected. Without
+`--yes`, a change prints the sessions it would change, with their unacknowledged counts and
+claims, and changes nothing:
+
+```sh
+koinon sessions list --state expired                  # add --json for the daemon's reply
+koinon sessions purge --inactive-for 7d --yes         # mark for purge; retires an active one
+koinon sessions unpurge NAME                          # remove a mark before the sweep
+koinon sessions retire --family codex --yes           # retire active sessions
+koinon inbox clear --state retired --yes              # acknowledge every message
+koinon maintenance sweep                              # run the retention sweep now
+koinon claims release --held-by NAME --yes            # release an inactive session's claims
+koinon rooms prune --yes                              # remove inactive members from every room
+koinon rooms delete ROOM_ID --yes                     # delete a room with its posts
+```
+
+`koinon claims release` lists, and with `--yes` releases, the claims held by expired or
+retired sessions; a participant's claims stay with the participant. `koinon rooms prune`
+removes members whose session is expired or retired; a participant member stays. In the
+dashboard, the sessions view selects sessions with the box before each name and applies
+retire, purge, keep or clear to each, and the rooms view deletes a room.
+
+Each changed session gets the dashboard action's audit record (`purge`, `unpurge`, `retire`,
+`clear`) with the origin `by cli`; a session that changed since the selection is refused with
+`revision_changed`, and the others continue. The sweep deletes purge-marked sessions with
+their whole inbox, under the same claim rule as the scheduled sweep, and prints its counts.
 
 ## Launcher paths in launchers.json
 

@@ -29,6 +29,7 @@ type Config struct {
 }
 
 type Daemon struct {
+	release   string
 	store     *Store
 	secret    string
 	catalog   library.Catalog
@@ -54,6 +55,8 @@ type Daemon struct {
 	workNoticeSignal chan struct{}
 	logEvent         func(string, map[string]any)
 	wakePass         func(context.Context) error // the real pass, injectable in loop tests
+	// sweepMu keeps the maintenance sweep and koinon maintenance sweep from overlapping.
+	sweepMu sync.Mutex
 }
 
 func validAddress(address string) bool {
@@ -91,7 +94,7 @@ func Start(c Config) (*Daemon, error) {
 	if err != nil {
 		return nil, err
 	}
-	d := &Daemon{lock: lock, errors: make(chan error, 2), stop: make(chan struct{}), root: root, launch: runLauncher, catalog: catalog, workNoticeSignal: make(chan struct{}, 1)}
+	d := &Daemon{release: c.Release, lock: lock, errors: make(chan error, 2), stop: make(chan struct{}), root: root, launch: runLauncher, catalog: catalog, workNoticeSignal: make(chan struct{}, 1)}
 	d.logEvent = c.LogEvent
 	defer func() {
 		if err != nil {
@@ -329,7 +332,7 @@ func (d *Daemon) handler() http.Handler {
 			failure(w, err)
 			return
 		}
-		respond(w, 200, map[string]any{"ok": true, "daemon": "running", "pid": os.Getpid(), "listeners": d.Addresses(), "sessions": counts,
+		respond(w, 200, map[string]any{"ok": true, "daemon": "running", "version": d.release, "pid": os.Getpid(), "listeners": d.Addresses(), "sessions": counts,
 			"schema": schemaVersion, "storage": storage, "wake": wake, "retention": retention})
 	})
 	mux.HandleFunc("GET /v1/sessions", func(w http.ResponseWriter, r *http.Request) {
@@ -420,6 +423,8 @@ func (d *Daemon) handler() http.Handler {
 	d.observationRoutes(mux)
 	d.cycleRoutes(mux)
 	d.contextRoutes(mux)
+	d.participantRoutes(mux)
+	d.cleanupRoutes(mux)
 	d.libraryRoutes(mux)
 	d.roomRoutes(mux)
 	d.decisionRoutes(mux)

@@ -333,14 +333,73 @@ func digest(path string) ([]byte, error) {
 	return h.Sum(nil), nil
 }
 
-// place copies source to target atomically with mode 0755 and checks the copy's digest.
+// homebrewOpt returns the formula's stable opt path when source is a koinon binary in a
+// Homebrew keg, <P>/Cellar/koinon/<version>/bin/koinon with the keg's INSTALL_RECEIPT.json,
+// and <P>/opt/koinon resolves into <P>/Cellar/koinon; otherwise "". Each brew upgrade moves
+// the opt link to the new keg (#397).
+func homebrewOpt(source string) string {
+	file, err := filepath.EvalSymlinks(source)
+	if err != nil {
+		return ""
+	}
+	bin := filepath.Dir(file)
+	keg := filepath.Dir(bin)
+	kegs := filepath.Dir(keg)
+	cellar := filepath.Dir(kegs)
+	if filepath.Base(file) != "koinon" || filepath.Base(bin) != "bin" || filepath.Base(kegs) != "koinon" || filepath.Base(cellar) != "Cellar" {
+		return ""
+	}
+	if info, err := os.Stat(filepath.Join(keg, "INSTALL_RECEIPT.json")); err != nil || !info.Mode().IsRegular() {
+		return ""
+	}
+	opt := filepath.Join(filepath.Dir(cellar), "opt", "koinon", "bin", "koinon")
+	resolved, err := filepath.EvalSymlinks(opt)
+	if err != nil || !strings.HasPrefix(resolved, kegs+string(filepath.Separator)) {
+		return ""
+	}
+	if info, err := os.Stat(resolved); err != nil || !info.Mode().IsRegular() {
+		return ""
+	}
+	return opt
+}
+
+// placeLink makes target a symbolic link to opt, atomically: a new link is renamed over
+// whatever is there.
+func placeLink(opt, target string) (string, error) {
+	if info, err := os.Lstat(target); err == nil && info.Mode()&fs.ModeSymlink != 0 {
+		if have, err := os.Readlink(target); err == nil && have == opt {
+			return "unchanged", nil
+		}
+	}
+	if err := os.MkdirAll(filepath.Dir(target), 0755); err != nil {
+		return "", err
+	}
+	tmp, err := os.MkdirTemp(filepath.Dir(target), ".koinon-link-*")
+	if err != nil {
+		return "", err
+	}
+	defer os.RemoveAll(tmp)
+	link := filepath.Join(tmp, "koinon")
+	if err := os.Symlink(opt, link); err != nil {
+		return "", err
+	}
+	if err := os.Rename(link, target); err != nil {
+		return "", err
+	}
+	return "linked", platform.SyncDir(filepath.Dir(target))
+}
+
+// place copies source to target atomically with mode 0755 and checks the copy's digest. A
+// link at target, such as a Homebrew link, is replaced by the copy.
 func place(source, target string) (string, error) {
 	want, err := digest(source)
 	if err != nil {
 		return "", err
 	}
-	if have, err := digest(target); err == nil && bytes.Equal(have, want) {
-		return "unchanged", nil
+	if info, err := os.Lstat(target); err == nil && info.Mode().IsRegular() {
+		if have, err := digest(target); err == nil && bytes.Equal(have, want) {
+			return "unchanged", nil
+		}
 	}
 	if err := os.MkdirAll(filepath.Dir(target), 0755); err != nil {
 		return "", err
@@ -400,7 +459,14 @@ func Install(ctx context.Context, o Options) (Report, error) {
 	if err != nil {
 		return r, err
 	}
-	if r.BinaryResult, err = place(o.Source, r.Binary); err != nil {
+	// In user mode, a Homebrew binary is linked, so that brew upgrade alone upgrades the
+	// daemon (#397). A system-mode daemon keeps a copy that brew cannot replace.
+	if opt := homebrewOpt(o.Source); opt != "" && system == nil {
+		r.BinaryResult, err = placeLink(opt, r.Binary)
+	} else {
+		r.BinaryResult, err = place(o.Source, r.Binary)
+	}
+	if err != nil {
 		return r, err
 	}
 	if r.Link, r.LinkResult, err = link(r.Binary, o.LinkDir, linkMarker(o.Prefix)); err != nil {
@@ -584,8 +650,9 @@ func Uninstall(ctx context.Context, o Options) (Report, error) {
 	r.Service = map[bool]string{true: "removed", false: "absent"}[removed]
 	r.BinaryResult = "absent"
 	if info, err := os.Lstat(r.Binary); err == nil {
-		if !info.Mode().IsRegular() {
-			return r, fmt.Errorf("refusing to remove %s: not a regular file", r.Binary)
+		// A Homebrew link goes; the keg it points at stays.
+		if !info.Mode().IsRegular() && info.Mode()&fs.ModeSymlink == 0 {
+			return r, fmt.Errorf("refusing to remove %s: not a regular file or link", r.Binary)
 		}
 		if err := os.Remove(r.Binary); err != nil {
 			return r, err

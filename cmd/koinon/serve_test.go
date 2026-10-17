@@ -181,3 +181,133 @@ func TestServeReportFailureLogsStop(t *testing.T) {
 		t.Fatalf("events %v", events)
 	}
 }
+
+// The daemon stops with an error, so that the service manager starts the new binary, when
+// its launch path resolves to a new file: a brew upgrade's new keg or a renamed copy (#397).
+// A missing file is not a change, and a relative launch path turns the check off.
+func TestServeStopsWhenItsExecutableChanges(t *testing.T) {
+	log := &lockedBuffer{}
+	daemonLog = log
+	defer func() { daemonLog = os.Stderr }()
+	dir := t.TempDir()
+	keg := func(name string) string {
+		path := filepath.Join(dir, name, "koinon")
+		if err := os.MkdirAll(filepath.Dir(path), 0755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(path, []byte(name), 0755); err != nil {
+			t.Fatal(err)
+		}
+		return path
+	}
+	a, b := keg("a"), keg("b")
+	opt := filepath.Join(dir, "opt")
+	if err := os.Symlink(filepath.Dir(a), opt); err != nil {
+		t.Fatal(err)
+	}
+	launch := filepath.Join(opt, "koinon")
+	previousPath, previousEvery := launchPath, executableCheck
+	launchPath, executableCheck = func() string { return launch }, 20*time.Millisecond
+	defer func() { launchPath, executableCheck = previousPath, previousEvery }()
+
+	root := filepath.Join(dir, "state")
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	ready := make(chan []byte, 1)
+	done := make(chan error, 1)
+	go func() { done <- run(ctx, serveArgs(root), nil, output{ready}) }()
+	select {
+	case <-ready:
+	case err := <-done:
+		t.Fatalf("startup: %v", err)
+	case <-time.After(15 * time.Second):
+		t.Fatal("startup deadline")
+	}
+	// The opt link briefly missing, as during an upgrade, and a rewrite in place change nothing.
+	if err := os.Remove(opt); err != nil {
+		t.Fatal(err)
+	}
+	time.Sleep(200 * time.Millisecond)
+	if err := os.Symlink(filepath.Dir(a), opt); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(a, []byte("a, rewritten"), 0755); err != nil {
+		t.Fatal(err)
+	}
+	time.Sleep(200 * time.Millisecond)
+	select {
+	case err := <-done:
+		t.Fatalf("stopped without a change: %v", err)
+	default:
+	}
+	// The opt link moves to the new keg, as brew upgrade does.
+	tmp := filepath.Join(dir, "opt.new")
+	if err := os.Symlink(filepath.Dir(b), tmp); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Rename(tmp, opt); err != nil {
+		t.Fatal(err)
+	}
+	select {
+	case err := <-done:
+		if err == nil || !strings.HasPrefix(err.Error(), "binary_changed: ") {
+			t.Fatalf("stop: %v", err)
+		}
+	case <-time.After(10 * time.Second):
+		t.Fatal("the daemon did not stop after its executable changed")
+	}
+	events := log.events()
+	if last := events[len(events)-1]; last["event"] != "stop" || last["reason"] != "binary_changed" {
+		t.Fatalf("last event %v", last)
+	}
+	// The store was closed: a new daemon starts on the same state at once.
+	again, stop := context.WithCancel(context.Background())
+	againReady := make(chan []byte, 1)
+	againDone := make(chan error, 1)
+	go func() { againDone <- run(again, serveArgs(root), nil, output{againReady}) }()
+	var body []byte
+	select {
+	case body = <-againReady:
+	case err := <-againDone:
+		t.Fatalf("restart: %v", err)
+	case <-time.After(15 * time.Second):
+		t.Fatal("restart deadline")
+	}
+	// Its status names the release it runs.
+	var started struct {
+		Listeners []string `json:"listeners"`
+	}
+	json.Unmarshal(body, &started)
+	var out bytes.Buffer
+	if err := run(context.Background(), []string{"status", "--state-dir", root, "--address", started.Listeners[0]}, nil, &out); err != nil ||
+		!strings.Contains(out.String(), `"version":"`+version+`"`) {
+		t.Fatalf("status version: %s %v", out.String(), err)
+	}
+	stop()
+	if err := <-againDone; err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestWatchExecutableNeedsAnAbsoluteResolvingPath(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	for _, path := range []string{"koinon", filepath.Join(t.TempDir(), "missing")} {
+		select {
+		case <-watchExecutable(ctx, path, time.Millisecond):
+			t.Fatalf("%s: changed", path)
+		case <-time.After(50 * time.Millisecond):
+		}
+	}
+	// A renamed copy is a change, as after a copy install.
+	path := filepath.Join(t.TempDir(), "koinon")
+	os.WriteFile(path, []byte("old"), 0755)
+	changed := watchExecutable(ctx, path, time.Millisecond)
+	os.WriteFile(path+".new", []byte("new"), 0755)
+	os.Rename(path+".new", path)
+	select {
+	case <-changed:
+	case <-time.After(5 * time.Second):
+		t.Fatal("no change after the rename")
+	}
+}

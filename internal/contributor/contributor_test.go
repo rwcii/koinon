@@ -424,7 +424,7 @@ func TestHomebrewFormula(t *testing.T) {
 	if strings.Contains(formula, "\n  version ") {
 		t.Error("an explicit version is redundant with the URL and fails brew audit --strict")
 	}
-	for _, want := range []string{`license "MIT"`, `=> "koinon"`, "#{opt_bin}/koinon install --agent", "#{opt_bin}/koinon install again", "brew update before brew upgrade koinon", `#{bin}/koinon version`} {
+	for _, want := range []string{`license "MIT"`, `=> "koinon"`, "#{opt_bin}/koinon install --agent", "links its binary to #{opt_bin}/koinon", "then brew upgrade koinon: the daemon restarts", "#{opt_bin}/koinon install once", `#{bin}/koinon version`} {
 		if !strings.Contains(formula, want) {
 			t.Errorf("formula lacks %s", want)
 		}
@@ -546,6 +546,63 @@ func TestHomebrewBottles(t *testing.T) {
 		"homebrew-check:", "needs: [build, homebrew-check]", `"file://$PWD/dist"`, "poured_from_bottle == true"} {
 		if !strings.Contains(workflow, want) {
 			t.Errorf("release workflow lacks %s", want)
+		}
+	}
+}
+
+// The holder choice has a command-line path (#398): the usage text and the documents name
+// koinon participant holder, and none says that only the dashboard lifts a fence.
+func TestParticipantHolderCommandDocumented(t *testing.T) {
+	for _, name := range []string{"cmd/koinon/main.go", "docs/USAGE.md", "docs/INSTALL.md", "PROTOCOL.md", "internal/setup/guide.go"} {
+		data, err := os.ReadFile(filepath.Join(root(t), name))
+		if err != nil {
+			t.Fatal(err)
+		}
+		text := strings.Join(strings.Fields(string(data)), " ")
+		if !strings.Contains(text, "koinon participant holder") {
+			t.Errorf("%s does not name koinon participant holder", name)
+		}
+		for _, stale := range []string{"only **Make holder** lifts", "only the maintainer's Make holder choice", "Only the dashboard lifts a fence"} {
+			if strings.Contains(text, stale) {
+				t.Errorf("%s still says %q", name, stale)
+			}
+		}
+	}
+	if data, err := os.ReadFile(filepath.Join(root(t), "cmd/koinon/main.go")); err != nil || !strings.Contains(string(data), "koinon participant list") {
+		t.Errorf("usage lacks koinon participant list: %v", err)
+	}
+}
+
+// The cleanup commands (#388) are in the usage text, USAGE.md and PROTOCOL.md, and none of
+// them says that only the dashboard purges.
+func TestCleanupCommandsDocumented(t *testing.T) {
+	read := func(name string) string {
+		t.Helper()
+		data, err := os.ReadFile(filepath.Join(root(t), name))
+		if err != nil {
+			t.Fatal(err)
+		}
+		return strings.Join(strings.Fields(string(data)), " ")
+	}
+	commands := []string{"koinon sessions list", "koinon sessions purge", "koinon sessions unpurge", "koinon inbox clear",
+		"koinon maintenance sweep", "koinon claims release", "koinon rooms prune", "koinon rooms delete"}
+	for _, name := range []string{"cmd/koinon/main.go", "docs/USAGE.md"} {
+		text := read(name)
+		for _, command := range commands {
+			if !strings.Contains(text, command) {
+				t.Errorf("%s does not name %s", name, command)
+			}
+		}
+	}
+	protocol := read("PROTOCOL.md")
+	for _, route := range []string{"/v1/cleanup/sessions", "/v1/cleanup/claims", "/v1/cleanup/rooms", "/v1/rooms/delete", "/v1/maintenance/sweep", "`bulk`", "`room-delete`"} {
+		if !strings.Contains(protocol, route) {
+			t.Errorf("PROTOCOL.md does not describe %s", route)
+		}
+	}
+	for _, name := range []string{"docs/INSTALL.md", "docs/product/pdr/003-runtime-installation-and-recovery.md"} {
+		if strings.Contains(read(name), "purge mark in the dashboard.") || strings.Contains(read(name), "the dashboard's purge deletes one marked session") {
+			t.Errorf("%s still says that only the dashboard purges", name)
 		}
 	}
 }

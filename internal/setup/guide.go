@@ -105,10 +105,10 @@ An active holder keeps the address except on verified succession. Without one, e
 multiple qualifiers leave it unheld (alias_unheld on send) until the maintainer chooses in
 the dashboard or only one qualifier remains. Registration/renewal order never chooses between them. A sub-agent has no
 participant. Address identifies a participant even when this session does not hold it.
-The dashboard shows role, address, conflict and last event; Make holder chooses an active
-session of that participant. A peer message never changes a holder. A holder change retires
+The dashboard shows role, address, conflict and last event; Make holder, or the maintainer's
+koinon participant holder ADDRESS PEER, chooses an active session of that participant. A peer message never changes a holder. A holder change retires
 and persistently fences the former holder. Re-registration revives only its native peer;
-only the maintainer's Make holder choice lifts the fence.
+only the maintainer's holder choice lifts the fence.
 A launched successor can take the participant on its own native tool call: the same host
 PID and start value after the guard (default 30 seconds) without a holder tool call, or the same tmux socket/pane
 once the former host is proven ended. Unknown evidence refuses succession. Read this session's
@@ -122,7 +122,7 @@ launched predecessor without a host record resolves
 when it expires: this session takes the address at its next registration or renewal. Make
 holder only makes that immediate. A fenced old thread
 cannot succeed automatically, even after the guard. Only verified succession or the
-maintainer's Make holder choice moves an address (PDR 001); after a pickup, reconcile the
+maintainer's holder choice moves an address (PDR 001); after a pickup, reconcile the
 runtime's result with the saved checkpoint.
 Address messages, the default memory cursor and default work claims belong to
 participant:<address>. A successor holder continues those inbox acknowledgements, cursors
@@ -143,8 +143,8 @@ whole generation, even after the proposal changes. Another native session waits 
 or expiry and starts a fresh generation. An active original native owner can release its own
 claim after a holder change. Explicit consumers must match the derived key. Existing default
 participant claims, inboxes and cursors retain their continuation above (PDR 004, Decision 1).
-The maintainer's authenticated dashboard release/finish and explicit purge retain their
-existing administrative controls.
+The maintainer's authenticated dashboard release/finish and explicit purge (dashboard or
+koinon sessions purge) retain their existing administrative controls.
 
 ## Terminal naming
 Launched sessions name their own tmux session after the held participant address, else the

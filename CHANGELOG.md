@@ -5,6 +5,50 @@ into a dated release section when promoted to `main`.
 
 ## Unreleased
 
+## 2026-10-17 — Homebrew upgrades and maintenance from the command line
+
+This release makes `brew upgrade koinon` the complete upgrade of a Homebrew installation, and
+lets the maintainer choose a participant's holder and clean up sessions, inboxes, claims and
+rooms from the command line, each change audited with the origin `cli`. The state schema stays
+27; a v0.3.0 installation upgrades in place.
+
+Upgrade from v0.3.0 with Homebrew: run `brew update`, `brew upgrade koinon`, then once
+`$(brew --prefix)/bin/koinon install`, because a v0.3.0 installation has a copy of the binary.
+After that, `brew upgrade koinon` alone upgrades the running daemon (docs/INSTALL.md).
+
+Known limits:
+
+- The DeepSeek harness's permission grammar remains unverified (docs/PERMISSIONS.md).
+- A macOS system-mode daemon (`--system`) keeps a copy; upgrade it with
+  `$(brew --prefix)/bin/koinon install --system`.
+- A running agent session keeps the `koinon mcp` server it started with; the new behavior
+  appears when the session, or its MCP server, starts again (docs/INSTALL.md).
+
+Changes:
+
+- Homebrew upgrade (#397): `brew upgrade koinon` alone upgrades the running daemon. In user
+  mode, `koinon install` from the Homebrew binary links `<prefix>/bin/koinon` to
+  `$(brew --prefix)/opt/koinon/bin/koinon` (`"binary_result": "linked"`) instead of copying it.
+  A daemon that a service manager runs exits when its executable is replaced
+  (`binary_changed`), and the manager starts the new binary. An installation made by v0.3.0 or
+  earlier needs `$(brew --prefix)/bin/koinon install` once after its upgrade; macOS system mode
+  keeps a copy. `koinon status` reports the daemon's `version`.
+- Holder choice from the command line (#398): `koinon participant list` shows each participant
+  address with its holder, conflict and last event, and `koinon participant holder ADDRESS PEER
+  [--if-revision N]` makes the dashboard's **Make holder** choice: the former holder is retired
+  and fenced, and the chosen session's fence is lifted. The daemon serves them as
+  `GET /v1/participants` and `POST /v1/participants/holder`, audited by `cli`. PDR 001,
+  Decision 5 records the change.
+- Cleanup from the command line (#388): `koinon sessions list|purge|unpurge|retire` and
+  `koinon inbox clear` select sessions by peer name, `--state`, `--family` and
+  `--inactive-for`, and show the selection without `--yes`. Each change runs the dashboard
+  action's store path and audit record, by `cli`. `koinon maintenance sweep` runs the retention
+  sweep now. Routes `POST /v1/cleanup/sessions` and `POST /v1/maintenance/sweep`.
+  `koinon claims release` releases the claims of expired or retired sessions, `koinon rooms
+  prune` removes their room memberships, and `koinon rooms delete` (and the rooms view's new
+  delete action) deletes a room. The sessions view selects several sessions for retire,
+  purge, keep or clear.
+
 ## 2026-10-16 — Context settings without the dashboard
 
 This release changes the context-cycle settings from the command line and from agent sessions
