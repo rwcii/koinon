@@ -157,6 +157,10 @@ func lifecycleLog() func(event string, fields map[string]any) {
 // it in a loop while another daemon runs.
 func serve(ctx context.Context, state string, listen []string, lockWait time.Duration, out io.Writer) error {
 	logEvent := lifecycleLog()
+	// The executable is recorded first, so an upgrade during the start is still seen.
+	watchCtx, stopWatch := context.WithCancel(ctx)
+	defer stopWatch()
+	changed := watchExecutable(watchCtx, launchPath(), executableCheck)
 	signals := make(chan os.Signal, 1)
 	signal.Notify(signals, os.Interrupt, syscall.SIGTERM)
 	defer signal.Stop(signals)
@@ -213,7 +217,53 @@ func serve(ctx context.Context, state string, listen []string, lockWait time.Dur
 	case err := <-d.Errors():
 		logEvent("stop", map[string]any{"reason": "error", "code": "listener_error"})
 		return err
+	case <-changed:
+		logEvent("stop", map[string]any{"reason": "binary_changed"})
+		if err := d.Close(); err != nil {
+			return err
+		}
+		// A non-zero exit: the service manager starts the new binary.
+		return errors.New("binary_changed: the daemon's executable was replaced; the service manager starts the new one")
 	}
+}
+
+// launchPath is the path that started this process; a variable only so that tests can set it.
+var launchPath = func() string { return os.Args[0] }
+
+// executableCheck is how often the daemon checks its executable.
+var executableCheck = 5 * time.Second
+
+// watchExecutable closes the returned channel when path resolves to another regular
+// executable file than at the start: brew upgrade moves the opt link to a new keg, and a
+// copy install renames a new file over the old one (#397). A relative path, or one that does
+// not resolve at the start, turns the check off; a missing or unreadable file later is not a
+// change.
+func watchExecutable(ctx context.Context, path string, every time.Duration) <-chan struct{} {
+	changed := make(chan struct{})
+	if !filepath.IsAbs(path) {
+		return changed
+	}
+	start, err := os.Stat(path)
+	if err != nil || !start.Mode().IsRegular() {
+		return changed
+	}
+	go func() {
+		ticker := time.NewTicker(every)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case <-ticker.C:
+			}
+			now, err := os.Stat(path)
+			if err == nil && now.Mode().IsRegular() && now.Mode().Perm()&0111 != 0 && !os.SameFile(start, now) {
+				close(changed)
+				return
+			}
+		}
+	}()
+	return changed
 }
 
 const usage = `Usage: koinon install [--prefix DIR] [--state-dir DIR] [--agent FAMILY]... [--no-start] [--system]
