@@ -3,6 +3,9 @@ package core
 import (
 	"context"
 	"errors"
+	"net/url"
+	"strconv"
+	"strings"
 	"testing"
 	"time"
 )
@@ -175,5 +178,150 @@ func TestCleanupRoutes(t *testing.T) {
 	status, reply = post(t, address, secret, "/v1/cleanup/sessions", map[string]any{"action": "list"})
 	if listed, _ := reply["sessions"].([]any); status != 200 || len(listed) != 1 || listed[0].(map[string]any)["name"] != b.Name {
 		t.Fatalf("after the sweep: %d %v", status, reply)
+	}
+}
+
+// koinon claims release lists and releases only the claims of expired or retired sessions;
+// koinon rooms prune removes only inactive session members; a room delete removes the room
+// (#388).
+func TestCleanupClaimsAndRooms(t *testing.T) {
+	s, _ := retentionStore(t)
+	ctx := context.Background()
+	repo := namedRepo(t, "claims")
+	held := join(t, s, "codex", "synthetic-held", repo)
+	live := join(t, s, "claude", "synthetic-live", repo)
+	m := MemoryCaller{Repository: "/synthetic/claims/.git", Family: "codex", Name: held.Name, Consumer: "codex:synthetic-held"}
+	id := create(t, s, m, "synthetic held item")
+	mustStart(t, s, m, id, nil)
+	ml := MemoryCaller{Repository: "/synthetic/claims/.git", Family: "claude", Name: live.Name, Consumer: "claude:synthetic-live"}
+	mustStart(t, s, ml, create(t, s, ml, "synthetic live item"), nil)
+	if claims, _, err := s.InactiveClaims(ctx, nil); err != nil || len(claims) != 0 {
+		t.Fatalf("active holders: %+v %v", claims, err)
+	}
+	if _, err := s.Mutate(ctx, Mutation{Family: held.Family, ID: held.ID, IfRevision: held.Revision}, true); err != nil {
+		t.Fatal(err)
+	}
+	claims, _, err := s.InactiveClaims(ctx, nil)
+	if err != nil || len(claims) != 1 || claims[0].Holder != held.Name || claims[0].WorkID != id || claims[0].Consumer != "codex:synthetic-held" {
+		t.Fatalf("inactive claims: %+v %v", claims, err)
+	}
+	if only, _, err := s.InactiveClaims(ctx, []string{live.Name}); err != nil || len(only) != 0 {
+		t.Fatalf("held by the live session: %+v %v", only, err)
+	}
+	if _, _, err := s.InactiveClaims(ctx, []string{"synthetic-nobody"}); code(err) != "peer_not_found" {
+		t.Fatalf("unknown holder: %v", err)
+	}
+	if r := s.releaseClaim(ctx, claims[0]); r.Result != "accepted" {
+		t.Fatalf("release: %+v", r)
+	}
+	if item := get(t, s, m, id); item["lifecycle"] != "open" {
+		t.Fatalf("released item: %+v", item)
+	}
+	if r := auditAll(t, s)[0]; r.Action != "release" || r.Result != "accepted" || r.Target != "/synthetic/claims/.git "+id+" owner codex:synthetic-held by cli" {
+		t.Fatalf("release audit: %+v", r)
+	}
+	if again, _, _ := s.InactiveClaims(ctx, nil); len(again) != 0 {
+		t.Fatalf("after the release: %+v", again)
+	}
+
+	x := join(t, s, "agy", "synthetic-x", "")
+	y := join(t, s, "opencode", "synthetic-y", "")
+	room, err := s.CreateRoom(roomCtx("room-create"), "synthetic-room", "synthetic room", 4)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, name := range []string{x.Name, y.Name} {
+		if _, err := s.AddRoomMember(roomCtx("room-add"), room, name); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if _, err := s.Mutate(ctx, Mutation{Family: x.Family, ID: x.ID, IfRevision: x.Revision}, true); err != nil {
+		t.Fatal(err)
+	}
+	members, err := s.InactiveRoomMembers(ctx, nil)
+	if err != nil || len(members) != 1 || members[0].RoomID != room || members[0].State != "retired" {
+		t.Fatalf("inactive members: %+v %v", members, err)
+	}
+	if r := s.pruneRoomMember(ctx, members[0]); r.Result != "accepted" {
+		t.Fatalf("prune: %+v", r)
+	}
+	if r := auditAll(t, s)[0]; r.Action != "room-remove" || r.Result != "accepted" || !strings.HasSuffix(r.Target, " by cli") {
+		t.Fatalf("prune audit: %+v", r)
+	}
+	if left, _ := s.InactiveRoomMembers(ctx, []string{room}); len(left) != 0 {
+		t.Fatalf("after the prune: %+v", left)
+	}
+	if err := s.DeleteRoom(roomCtx("room-delete"), room); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.InactiveRoomMembers(ctx, []string{room}); code(err) != "room_not_found" {
+		t.Fatalf("deleted room: %v", err)
+	}
+	var rows int
+	s.db.QueryRow(`SELECT (SELECT COUNT(*) FROM rooms)+(SELECT COUNT(*) FROM room_members)`).Scan(&rows)
+	if rows != 0 {
+		t.Fatalf("rows left: %d", rows)
+	}
+	if err := s.DeleteRoom(roomCtx("room-delete"), room); code(err) != "room_not_found" {
+		t.Fatalf("second delete: %v", err)
+	}
+}
+
+// The dashboard's bulk action applies the single action to each selected session under its
+// own audit record; a purge needs its confirmation, and a stale or built-in selection is
+// refused while the others apply. The room delete needs its confirmation too (#388).
+func TestDashboardBulkAndRoomDelete(t *testing.T) {
+	d, root := startTestDaemon(t)
+	s := d.store
+	a := join(t, s, "codex", "synthetic-a", "")
+	b := join(t, s, "claude", "synthetic-b", "")
+	client := newActionClient(t, d, root)
+	pick := func(sessions ...Session) []string {
+		var values []string
+		for _, x := range sessions {
+			x = sessionState(t, s, Key{x.Family, x.ID})
+			values = append(values, x.Family+":"+x.ID+":"+strconv.FormatInt(x.Revision, 10))
+		}
+		return values
+	}
+	if got := client.do("bulk", url.Values{"action": {"purge"}, "s": pick(a, b)}); got != "confirmation_required" {
+		t.Fatalf("unconfirmed purge: %s", got)
+	}
+	if got := sessionState(t, s, Key{a.Family, a.ID}); got.PurgeAt != 0 {
+		t.Fatalf("purged without confirmation: %+v", got)
+	}
+	if got := client.do("bulk", url.Values{"action": {"wipe"}, "s": pick(a)}); got != "invalid_request" {
+		t.Fatalf("unknown action: %s", got)
+	}
+	before := len(auditAll(t, s))
+	if got := client.do("bulk", url.Values{"action": {"retire"}, "s": pick(a, b)}); got != "bulk_applied" {
+		t.Fatalf("retire: %s", got)
+	}
+	records := auditAll(t, s)
+	if len(records) != before+2 || records[0].Action != "retire" || records[1].Action != "retire" || records[0].Result != "accepted" {
+		t.Fatalf("retire audit: %+v", records[:2])
+	}
+	stale := pick(a)[0] + "0"
+	if got := client.do("bulk", url.Values{"action": {"purge"}, "confirm": {"purge"}, "s": {stale, pick(b)[0], "maintainer:maintainer:1"}}); got != "bulk_partial" {
+		t.Fatalf("partial purge: %s", got)
+	}
+	if got := sessionState(t, s, Key{b.Family, b.ID}); got.PurgeAt == 0 {
+		t.Fatalf("b not purged: %+v", got)
+	}
+	if got := sessionState(t, s, Key{a.Family, a.ID}); got.PurgeAt != 0 {
+		t.Fatalf("stale a purged: %+v", got)
+	}
+	room, err := s.CreateRoom(roomCtx("room-create"), "synthetic-room", "synthetic room", 4)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := client.do("room-delete", url.Values{"room_id": {room}}); got != "invalid_request" {
+		t.Fatalf("unconfirmed delete: %s", got)
+	}
+	if got := client.do("room-delete", url.Values{"room_id": {room}, "confirm": {"delete"}}); got != "room_deleted" {
+		t.Fatalf("delete: %s", got)
+	}
+	if r := auditAll(t, s)[0]; r.Action != "room-delete" || r.Result != "accepted" {
+		t.Fatalf("delete audit: %+v", r)
 	}
 }

@@ -42,4 +42,9 @@
 <label>Room <select name="room_id">{{range .Data.Rooms}}<option value="{{.ID}}">{{.Name}} ({{slice .ID 0 8}}), now {{.Refill}}</option>{{end}}</select></label>
 <label>Agent posts per maintainer post <input name="refill" type="number" min="0" required></label>
 <button type="submit">Save</button></form>
-<p><small>The new value applies at the next maintainer post. The current allowance is unchanged.</small></p></details>{{end}}{{end}}
+<p><small>The new value applies at the next maintainer post. The current allowance is unchanged.</small></p></details>
+<details class="action"><summary>Delete a room</summary>
+<form method="post" action="/dashboard/actions/room-delete"><input type="hidden" name="csrf" value="{{.CSRF}}"><input type="hidden" name="confirm" value="delete">
+<label>Room <select name="room_id">{{range .Data.Rooms}}<option value="{{.ID}}">{{.Name}} ({{slice .ID 0 8}})</option>{{end}}</select></label>
+<button type="submit">Confirm delete</button></form>
+<p><small>Deletes the room with its members, posts and delivery records. Copies of its posts already in inboxes stay until their retention.</small></p></details>{{end}}{{end}}

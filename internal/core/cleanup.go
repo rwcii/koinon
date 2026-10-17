@@ -3,9 +3,11 @@ package core
 import (
 	"context"
 	"database/sql"
+	"encoding/json"
 	"errors"
 	"net/http"
 	"slices"
+	"strconv"
 	"strings"
 )
 
@@ -234,6 +236,72 @@ func (d *Daemon) cleanupRoutes(mux *http.ServeMux) {
 		}
 		respond(w, 200, reply)
 	})
+	mux.HandleFunc("POST /v1/cleanup/claims", func(w http.ResponseWriter, r *http.Request) {
+		var request struct {
+			HeldBy []string `json:"held_by"`
+			Apply  bool     `json:"apply"`
+		}
+		if err := decode(w, r, &request); err != nil {
+			failure(w, err)
+			return
+		}
+		claims, more, err := d.store.InactiveClaims(r.Context(), request.HeldBy)
+		if err != nil {
+			failure(w, err)
+			return
+		}
+		reply := map[string]any{"ok": true, "claims": claims, "truncated": more, "applied": request.Apply}
+		if request.Apply {
+			results := []CleanupResult{}
+			for _, c := range claims {
+				results = append(results, d.store.releaseClaim(r.Context(), c))
+			}
+			reply["results"] = results
+			d.signalWorkNotices()
+		}
+		respond(w, 200, reply)
+	})
+	mux.HandleFunc("POST /v1/cleanup/rooms", func(w http.ResponseWriter, r *http.Request) {
+		var request struct {
+			RoomIDs []string `json:"room_ids"`
+			Apply   bool     `json:"apply"`
+		}
+		if err := decode(w, r, &request); err != nil {
+			failure(w, err)
+			return
+		}
+		members, err := d.store.InactiveRoomMembers(r.Context(), request.RoomIDs)
+		if err != nil {
+			failure(w, err)
+			return
+		}
+		reply := map[string]any{"ok": true, "members": members, "applied": request.Apply}
+		if request.Apply {
+			results := []CleanupResult{}
+			for _, m := range members {
+				results = append(results, d.store.pruneRoomMember(r.Context(), m))
+			}
+			reply["results"] = results
+		}
+		respond(w, 200, reply)
+	})
+	mux.HandleFunc("POST /v1/rooms/delete", func(w http.ResponseWriter, r *http.Request) {
+		var request struct {
+			RoomID string `json:"room_id"`
+		}
+		if err := decode(w, r, &request); err != nil {
+			failure(w, err)
+			return
+		}
+		ctx, pending := withAudit(r.Context(), "room-delete", "room "+roomTarget(request.RoomID))
+		pending.origin = "cli"
+		if err := d.store.DeleteRoom(ctx, request.RoomID); err != nil {
+			d.store.auditRefusal(ctx, pending, errorCode(err))
+			failure(w, err)
+			return
+		}
+		respond(w, 200, map[string]any{"ok": true, "room_id": request.RoomID, "deleted": true})
+	})
 	mux.HandleFunc("POST /v1/maintenance/sweep", func(w http.ResponseWriter, r *http.Request) {
 		if err := d.sweep(r.Context()); err != nil {
 			failure(w, err)
@@ -246,4 +314,188 @@ func (d *Daemon) cleanupRoutes(mux *http.ServeMux) {
 		}
 		respond(w, 200, map[string]any{"ok": true, "counts": status.Last, "marked_for_purge": status.MarkedForPurge})
 	})
+}
+
+// InactiveClaim is a live claim whose holder session is expired or retired, as koinon claims
+// release shows it.
+type InactiveClaim struct {
+	Holder     string `json:"holder"`
+	Repository string `json:"repository"`
+	WorkID     string `json:"work_id"`
+	Title      string `json:"title"`
+	Revision   int64  `json:"revision"`
+	Generation int64  `json:"generation"`
+	Consumer   string `json:"consumer"`
+}
+
+// InactiveClaims lists, at most cleanupLimit, the live claims held by expired or retired
+// sessions, by the retention sweep's live-claim rule, optionally only those of the sessions
+// with the peer names heldBy. A participant's claims belong to the participant and are not
+// listed: the next holder continues them.
+func (s *Store) InactiveClaims(ctx context.Context, heldBy []string) ([]InactiveClaim, bool, error) {
+	if len(heldBy) > cleanupLimit {
+		return nil, false, ErrInvalid
+	}
+	for _, name := range heldBy {
+		var exists int
+		err := s.db.QueryRowContext(ctx, `SELECT 1 FROM names WHERE kind='peer' AND name=? AND family!='maintainer'`, name).Scan(&exists)
+		if errors.Is(err, sql.ErrNoRows) {
+			return nil, false, Refusal{"peer_not_found", "no session has the peer name " + name}
+		}
+		if err != nil {
+			return nil, false, err
+		}
+	}
+	query := `SELECT n.name,m.repository,w.work_id,w.title,w.revision,b.generation,b.consumer
+		FROM claim_bundles b JOIN work_items w ON w.store=b.store AND w.work_id=b.work_id
+		JOIN memory_stores m ON m.store_id=b.store
+		JOIN sessions s ON b.consumer=s.family||':'||s.id OR (b.native_actor!='' AND b.native_actor=koinon_native_work_actor(s.family,s.id))
+		JOIN names n ON n.kind='peer' AND n.family=s.family AND n.session_id=s.id
+		WHERE b.active=1 AND s.family!='maintainer' AND (s.retired_at!=0 OR s.expires_at<=?)`
+	args := []any{s.now().UnixMilli()}
+	if len(heldBy) > 0 {
+		query += ` AND n.name IN (?` + strings.Repeat(",?", len(heldBy)-1) + `)`
+		for _, name := range heldBy {
+			args = append(args, name)
+		}
+	}
+	query += ` ORDER BY n.name,m.repository,w.work_id LIMIT ?`
+	args = append(args, cleanupLimit+1)
+	rows, err := s.db.QueryContext(ctx, query, args...)
+	if err != nil {
+		return nil, false, err
+	}
+	defer rows.Close()
+	claims := []InactiveClaim{}
+	for rows.Next() {
+		var c InactiveClaim
+		if err := rows.Scan(&c.Holder, &c.Repository, &c.WorkID, &c.Title, &c.Revision, &c.Generation, &c.Consumer); err != nil {
+			return nil, false, err
+		}
+		claims = append(claims, c)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, false, err
+	}
+	more := len(claims) > cleanupLimit
+	if more {
+		claims = claims[:cleanupLimit]
+	}
+	return claims, more, nil
+}
+
+// releaseClaim releases one claim as the dashboard's release does, on behalf of its owner,
+// under its own audit record by cli.
+func (s *Store) releaseClaim(ctx context.Context, c InactiveClaim) CleanupResult {
+	name := c.Repository + " " + c.WorkID
+	ctx, pending := withAudit(ctx, "release", c.Repository+" "+c.WorkID+" owner "+c.Consumer)
+	pending.origin = "cli"
+	fields := map[string]json.RawMessage{}
+	for field, value := range map[string]any{"work_id": c.WorkID, "if_revision": c.Revision, "claim_generation": c.Generation,
+		"checkpoint": "Released by the maintainer from the command line"} {
+		fields[field], _ = json.Marshal(value)
+	}
+	_, err := s.Work(ctx, MemoryCaller{Repository: c.Repository, Family: maintainerKey.Family, Name: "maintainer", Consumer: c.Consumer}, "work-release", fields)
+	if err == nil {
+		return CleanupResult{Name: name, Result: "accepted"}
+	}
+	code := errorCode(err)
+	s.auditRefusal(ctx, pending, code)
+	return CleanupResult{Name: name, Result: "refused", Code: code}
+}
+
+// InactiveRoomMember is a room's current member whose session is expired or retired, as
+// koinon rooms prune shows it. A participant member is never listed: the participant stays.
+type InactiveRoomMember struct {
+	RoomID  string `json:"room_id"`
+	Room    string `json:"room"`
+	Ordinal int64  `json:"ordinal"`
+	Label   string `json:"label"`
+	State   string `json:"state"`
+}
+
+// InactiveRoomMembers lists the inactive members of the rooms roomIDs, or of every room.
+func (s *Store) InactiveRoomMembers(ctx context.Context, roomIDs []string) ([]InactiveRoomMember, error) {
+	if len(roomIDs) > 64 {
+		return nil, ErrInvalid
+	}
+	query := `SELECT m.room_id,r.name,m.ordinal,m.label,CASE WHEN s.retired_at!=0 THEN 'retired' ELSE 'expired' END
+		FROM room_members m JOIN rooms r ON r.room_id=m.room_id JOIN sessions s ON s.family=m.family AND s.id=m.member_id
+		WHERE m.active=1 AND (s.retired_at!=0 OR s.expires_at<=?)`
+	args := []any{s.now().UnixMilli()}
+	if len(roomIDs) > 0 {
+		for _, id := range roomIDs {
+			var exists int
+			err := s.db.QueryRowContext(ctx, `SELECT 1 FROM rooms WHERE room_id=?`, id).Scan(&exists)
+			if errors.Is(err, sql.ErrNoRows) || !validRoomID(id) {
+				return nil, ErrRoomNotFound
+			}
+			if err != nil {
+				return nil, err
+			}
+		}
+		query += ` AND m.room_id IN (?` + strings.Repeat(",?", len(roomIDs)-1) + `)`
+		for _, id := range roomIDs {
+			args = append(args, id)
+		}
+	}
+	rows, err := s.db.QueryContext(ctx, query+` ORDER BY r.created_at,m.room_id,m.ordinal`, args...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	members := []InactiveRoomMember{}
+	for rows.Next() {
+		var m InactiveRoomMember
+		if err := rows.Scan(&m.RoomID, &m.Room, &m.Ordinal, &m.Label, &m.State); err != nil {
+			return nil, err
+		}
+		members = append(members, m)
+	}
+	return members, rows.Err()
+}
+
+// pruneRoomMember removes one member as the dashboard's room-remove does, under its own
+// audit record by cli.
+func (s *Store) pruneRoomMember(ctx context.Context, m InactiveRoomMember) CleanupResult {
+	name := m.RoomID + " " + m.Label
+	ctx, pending := withAudit(ctx, "room-remove", "room "+m.RoomID+" member "+strconv.FormatInt(m.Ordinal, 10))
+	pending.origin = "cli"
+	if err := s.RemoveRoomMember(ctx, m.RoomID, m.Ordinal); err != nil {
+		code := errorCode(err)
+		s.auditRefusal(ctx, pending, code)
+		return CleanupResult{Name: name, Result: "refused", Code: code}
+	}
+	return CleanupResult{Name: name, Result: "accepted"}
+}
+
+// DeleteRoom deletes a room with its memberships, posts and delivery records (#388). The
+// copies of its posts already in members' inboxes stay until their own retention; a deleted
+// room's ID is never reused, because room IDs are random.
+func (s *Store) DeleteRoom(ctx context.Context, roomID string) error {
+	if !validRoomID(roomID) {
+		return ErrInvalid
+	}
+	tx, err := s.begin(ctx, control)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+	tx.audited = true
+	room, err := roomRow(ctx, tx.Tx, roomID)
+	if err != nil {
+		return err
+	}
+	for _, statement := range []string{
+		`DELETE FROM room_deliveries WHERE post_id IN (SELECT post_id FROM room_posts WHERE room_id=?)`,
+		`DELETE FROM room_posts WHERE room_id=?`,
+		`DELETE FROM room_members WHERE room_id=?`,
+		`DELETE FROM rooms WHERE room_id=?`,
+	} {
+		if _, err := tx.ExecContext(ctx, statement, roomID); err != nil {
+			return tx.fail(err)
+		}
+	}
+	setAuditTarget(ctx, "room "+roomID+" delete name bytes "+strconv.Itoa(len(room.Name)))
+	return tx.Commit()
 }

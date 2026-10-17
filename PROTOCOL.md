@@ -837,7 +837,17 @@ selected. It returns at most 1,000 `sessions` (`name`, `family`, `id`, `state`,
 `truncated`, narrowed to those the action applies to (retire: active; purge: unmarked;
 unpurge: marked). With `apply`, each runs the dashboard action's store path at its revision
 and writes its audit record by `cli`; `results` lists each `name`, `result` and refusal
-`code`. `POST /v1/maintenance/sweep` runs the work, liveness and retention sweeps once, never
+`code`. `POST /v1/cleanup/claims` (`held_by` peer names, `apply`) lists at most 1,000 live claims
+held by expired or retired sessions, by the sweep's live-claim rule (`holder`, `repository`,
+`work_id`, `title`, `revision`, `generation`, `consumer`); a participant's claims are not
+listed. With `apply`, each runs the dashboard's `release` as the owner, with the checkpoint
+`Released by the maintainer from the command line`, audited by `cli`.
+`POST /v1/cleanup/rooms` (`room_ids`, `apply`) lists the current members whose session is
+expired or retired (`room_id`, `room`, `ordinal`, `label`, `state`); a participant member is
+not listed. With `apply`, each is removed as the dashboard's `room-remove`, audited by `cli`.
+`POST /v1/rooms/delete` (`room_id`) deletes a room as the dashboard's `room-delete`, audited
+by `cli`; an unknown room is `room_not_found`.
+`POST /v1/maintenance/sweep` runs the work, liveness and retention sweeps once, never
 alongside the scheduled one, and returns the retention `counts` and `marked_for_purge`.
 
 A send to a deleted peer name is `peer_not_found`. Each deletion is a control write (it may use
@@ -1628,6 +1638,13 @@ from elsewhere. Peer message bodies appear here, escaped, and nowhere else outsi
   - `unpurge` (`family`, `id`, `revision`): removes the mark before the sweep; the session stays
     as it is (a session that the mark retired stays retired). A changed revision or a session
     without a mark is `revision_changed`.
+  - `bulk` (`action` of `retire`, `purge`, `unpurge` or `clear`, up to 100 `s` values
+    `family:id:revision`, and `confirm=purge` for a purge): applies the single action to each
+    selected session through its store path, with its own audit record and refusal code
+    (`revision_changed`, `maintainer_session`). The notice is `bulk_applied`, or `bulk_partial`
+    when any session was refused; an unknown action or an empty selection is
+    `invalid_request`, and a purge without the confirmation is `confirmation_required` and
+    changes nothing (#388). The sessions view has a box before each agent session's name.
   - `release` (`repository`, `work_id`, `revision`, `generation`, `consumer`): the work release
     of the claim's owner, with the checkpoint `Released by the maintainer from the dashboard`;
     the work event names family and name `maintainer`. Stale values get the work refusal codes.
@@ -1666,8 +1683,10 @@ from elsewhere. Peer message bodies appear here, escaped, and nowhere else outsi
     most 250 bytes. A store that does not exist is
     `store_not_found`. Each form of a rendered page carries its own idempotency key.
   - `room-create` (`name`, `refill`, `key`), `room-refill` (`room_id`, `refill`), `room-add`
-    (`room_id`, `peer`) and `room-remove` (`room_id`, `ordinal`): the room operations (see
-    Rooms). `refill` is a non-negative integer; other input is `invalid_request` and changes
+    (`room_id`, `peer`), `room-remove` (`room_id`, `ordinal`) and `room-delete` (`room_id`,
+    `confirm=delete`): the room operations (see Rooms). `room-delete` deletes the room with its
+    members, posts and delivery records; copies of its posts already in inboxes stay until
+    their retention (#388). `refill` is a non-negative integer; other input is `invalid_request` and changes
     nothing. The create form carries its own key: the same key with the name and refill that it
     first sent returns the room it created, also after a refill change, and with other input
     is `idempotency_conflict`. `room-add` resolves the

@@ -537,7 +537,16 @@ koinon sessions unpurge NAME                          # remove a mark before the
 koinon sessions retire --family codex --yes           # retire active sessions
 koinon inbox clear --state retired --yes              # acknowledge every message
 koinon maintenance sweep                              # run the retention sweep now
+koinon claims release --held-by NAME --yes            # release an inactive session's claims
+koinon rooms prune --yes                              # remove inactive members from every room
+koinon rooms delete ROOM_ID --yes                     # delete a room with its posts
 ```
+
+`koinon claims release` lists, and with `--yes` releases, the claims held by expired or
+retired sessions; a participant's claims stay with the participant. `koinon rooms prune`
+removes members whose session is expired or retired; a participant member stays. In the
+dashboard, the sessions view selects sessions with the box before each name and applies
+retire, purge, keep or clear to each, and the rooms view deletes a room.
 
 Each changed session gets the dashboard action's audit record (`purge`, `unpurge`, `retire`,
 `clear`) with the origin `by cli`; a session that changed since the selection is refused with

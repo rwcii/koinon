@@ -75,8 +75,17 @@ func TestCleanupCommands(t *testing.T) {
 	if out, err := command("maintenance", "sweep"); err != nil || !strings.Contains(out, `"sessions_by_purge":1`) || len(list()) != 1 {
 		t.Fatalf("sweep: %v %s", err, out)
 	}
+	// Claims and rooms: nothing is held or inactive here, so each lists nothing.
+	if out, err := command("claims", "release", "--yes"); err != nil || !strings.Contains(out, `"claims":[]`) {
+		t.Fatalf("claims release: %v %s", err, out)
+	}
+	if out, err := command("rooms", "prune"); err != nil || !strings.Contains(out, `"members":[]`) || !strings.Contains(out, `"applied":false`) {
+		t.Fatalf("rooms prune: %v %s", err, out)
+	}
 	for _, args := range [][]string{{"sessions", "purge", "--yes"}, {"sessions", "remove"}, {"sessions", "list", "--inactive-for", "soon"},
-		{"sessions", "list", "synthetic-nobody"}, {"maintenance", "sweep", "extra"}} {
+		{"sessions", "list", "synthetic-nobody"}, {"maintenance", "sweep", "extra"}, {"claims", "release", "extra"},
+		{"claims", "release", "--held-by", "synthetic-nobody"}, {"rooms", "delete"}, {"rooms", "delete", "0123456789abcdef0123456789abcdef", "--yes"},
+		{"rooms", "prune", "0123456789abcdef0123456789abcdef"}, {"rooms", "list"}} {
 		if _, err := command(args...); err == nil {
 			t.Fatalf("%v accepted", args)
 		}

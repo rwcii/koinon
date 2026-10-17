@@ -148,6 +148,11 @@ func (d *Daemon) roomActions(mux *http.ServeMux, authed func(int64, func(http.Re
 				return err
 			}, "room_posted", nil)
 	}))
+	mux.HandleFunc("POST /dashboard/actions/room-delete", authed(actionFormLimit, func(w http.ResponseWriter, r *http.Request, _ string) {
+		room := r.PostForm.Get("room_id")
+		run(w, r, "room-delete", "room "+roomTarget(room), "rooms", nil, validRoomID(room) && r.PostForm.Get("confirm") == "delete",
+			func(ctx context.Context) error { return d.store.DeleteRoom(ctx, room) }, "room_deleted", nil)
+	}))
 	mux.HandleFunc("POST /dashboard/actions/room-remove", authed(actionFormLimit, func(w http.ResponseWriter, r *http.Request, _ string) {
 		room := r.PostForm.Get("room_id")
 		ordinal, ok := formInt(r, "ordinal")

@@ -10,6 +10,10 @@ into a dated release section when promoted to `main`.
   `--inactive-for`, and show the selection without `--yes`. Each change runs the dashboard
   action's store path and audit record, by `cli`. `koinon maintenance sweep` runs the retention
   sweep now. Routes `POST /v1/cleanup/sessions` and `POST /v1/maintenance/sweep`.
+  `koinon claims release` releases the claims of expired or retired sessions, `koinon rooms
+  prune` removes their room memberships, and `koinon rooms delete` (and the rooms view's new
+  delete action) deletes a room. The sessions view selects several sessions for retire,
+  purge, keep or clear.
 
 ## 2026-10-16 — Context settings without the dashboard
 

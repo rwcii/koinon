@@ -127,3 +127,76 @@ func printCleanup(out io.Writer, data []byte) error {
 	}
 	return nil
 }
+
+// claimsRoomsCommand runs koinon claims release, koinon rooms prune and koinon rooms delete
+// (#388). Each needs --yes to change anything; without it, it prints what it would change.
+func claimsRoomsCommand(ctx context.Context, command, op string, args []string, out io.Writer) error {
+	root, err := platform.DefaultStateDir()
+	if err != nil {
+		return err
+	}
+	flags := flag.NewFlagSet(command+" "+op, flag.ContinueOnError)
+	flags.SetOutput(io.Discard)
+	state := flags.String("state-dir", root, "private Go state directory")
+	address := flags.String("address", "127.0.0.1:47671", "daemon loopback address")
+	yes := flags.Bool("yes", false, "make the change; without it, only show what would change")
+	var heldBy repeated
+	if command == "claims" {
+		flags.Var(&heldBy, "held-by", "peer name of an expired or retired session (repeat for each)")
+	}
+	var operands []string
+	for {
+		if err := flags.Parse(args); err != nil {
+			return usageError{"invalid_request", err.Error()}
+		}
+		if flags.NArg() == 0 {
+			break
+		}
+		operands, args = append(operands, flags.Arg(0)), flags.Args()[1:]
+	}
+	switch {
+	case command == "claims" && len(operands) > 0:
+		return usageError{"invalid_request", "koinon claims release takes no operands; name holders with --held-by"}
+	case op == "delete" && len(operands) != 1:
+		return usageError{"invalid_request", "koinon rooms delete takes one ROOM_ID"}
+	}
+	secret, err := core.ClientSecret(*state, *address)
+	if err != nil {
+		return err
+	}
+	var path string
+	var body map[string]any
+	switch {
+	case command == "claims":
+		path, body = "/v1/cleanup/claims", map[string]any{"held_by": []string(heldBy), "apply": *yes}
+	case op == "prune":
+		path, body = "/v1/cleanup/rooms", map[string]any{"room_ids": operands, "apply": *yes}
+	case !*yes:
+		data, err := core.Call(ctx, *address, secret, "/v1/cleanup/rooms", map[string]any{"room_ids": operands})
+		if err != nil {
+			return err
+		}
+		_, err = fmt.Fprintf(out, "{\"ok\":true,\"applied\":false,\"room_id\":%q,\"note\":\"add --yes to delete the room with its members and posts\",\"inactive_members\":%s}\n",
+			operands[0], inactiveMembers(data))
+		return err
+	default:
+		path, body = "/v1/rooms/delete", map[string]any{"room_id": operands[0]}
+	}
+	data, err := core.Call(ctx, *address, secret, path, body)
+	if err != nil {
+		return err
+	}
+	_, err = fmt.Fprintln(out, string(data))
+	return err
+}
+
+// inactiveMembers is the members list of a /v1/cleanup/rooms reply, or [].
+func inactiveMembers(data []byte) string {
+	var reply struct {
+		Members json.RawMessage `json:"members"`
+	}
+	if json.Unmarshal(data, &reply) != nil || len(reply.Members) == 0 {
+		return "[]"
+	}
+	return string(reply.Members)
+}

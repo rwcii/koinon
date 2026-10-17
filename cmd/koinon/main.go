@@ -56,10 +56,14 @@ func run(ctx context.Context, args []string, in io.Reader, out io.Writer) error 
 		return decisionCommand(ctx, args[1:], out)
 	case "context":
 		return contextCommand(ctx, args[1:], out)
-	case "sessions", "maintenance":
-		ops := map[string][]string{"sessions": {"list", "purge", "unpurge", "retire"}, "maintenance": {"sweep"}}[args[0]]
+	case "sessions", "maintenance", "claims", "rooms":
+		ops := map[string][]string{"sessions": {"list", "purge", "unpurge", "retire"}, "maintenance": {"sweep"},
+			"claims": {"release"}, "rooms": {"prune", "delete"}}[args[0]]
 		if len(args) < 2 || !slices.Contains(ops, args[1]) {
 			return usageError{"invalid_request", "use koinon " + args[0] + " " + strings.Join(ops, ", ")}
+		}
+		if args[0] == "claims" || args[0] == "rooms" {
+			return claimsRoomsCommand(ctx, args[0], args[1], args[2:], out)
 		}
 		return cleanupCommand(ctx, args[0], args[1], args[2:], out)
 	case "inbox":
@@ -270,6 +274,9 @@ const usage = `Usage: koinon install [--prefix DIR] [--state-dir DIR] [--agent F
        koinon sessions unpurge [NAME ...] [--state STATE] [--family FAMILY] [--inactive-for DURATION]
        koinon inbox clear [NAME ...] [--state STATE] [--family FAMILY] [--inactive-for DURATION] [--yes]
        koinon maintenance sweep [--state-dir DIR] [--address 127.0.0.1:PORT]
+       koinon claims release [--held-by NAME]... [--yes]
+       koinon rooms prune [ROOM_ID ...] [--yes]
+       koinon rooms delete ROOM_ID [--yes]
        koinon work <create|list> --as FAMILY:ID [--consumer KEY] [options]
        koinon work checkout [--directory DIR]
        koinon work checkout <status|request> --as FAMILY:ID [--directory DIR] [options]

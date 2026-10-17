@@ -12,6 +12,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"regexp"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
@@ -29,6 +30,10 @@ const (
 	// Every byte of a 64 KiB body can be percent-encoded.
 	sendFormLimit = 3*maxBody + 4096
 	launchTimeout = 15 * time.Second
+	// bulkLimit bounds the sessions of one bulk action; each selection is at most 512 bytes,
+	// and form encoding can triple it.
+	bulkLimit     = 100
+	bulkFormLimit = bulkLimit*3*(512+3) + 4096
 )
 
 var (
@@ -67,6 +72,9 @@ var noticeText = map[string]string{
 	"room_refill_saved":         "The refill value was saved. It applies at the next maintainer post; the current allowance is unchanged.",
 	"room_member_added":         "The session is a member of the room.",
 	"room_member_removed":       "The member was removed from the room.",
+	"room_deleted":              "The room was deleted with its members and posts.",
+	"bulk_applied":              "The action was applied to each selected session.",
+	"bulk_partial":              "Some selected sessions were refused, for example because they changed since the page was loaded; the audit log names each result.",
 	"room_posted":               "The post was sent to the room's active members. The agents' allowance is set to the refill value.",
 	"exchange_limit":            "Refused: the room's agent-post allowance is used up.",
 	"room_post_limit":           "Refused: the daemon already retains 10,000 room posts.",
@@ -321,6 +329,65 @@ func (d *Daemon) dashboardActions(mux *http.ServeMux, authed func(int64, func(ht
 			})
 		}
 	}
+	// bulk applies retire, purge, unpurge or clear to the sessions selected in the list (#388),
+	// each through the single action's store path under its own audit record. A purge needs
+	// the same confirmation as the single purge.
+	mux.HandleFunc("POST /dashboard/actions/bulk", authed(bulkFormLimit, func(w http.ResponseWriter, r *http.Request, _ string) {
+		action, selected := r.PostForm.Get("action"), r.PostForm["s"]
+		if !slices.Contains([]string{"retire", "purge", "unpurge", "clear"}, action) || len(selected) == 0 || len(selected) > bulkLimit {
+			ctx, pending := withAudit(r.Context(), "bulk", "invalid")
+			d.store.auditRefusal(ctx, pending, "invalid_request")
+			done(w, r, "sessions", nil, "invalid_request")
+			return
+		}
+		if action == "purge" && r.PostForm.Get("confirm") != "purge" {
+			ctx, pending := withAudit(r.Context(), "purge", "bulk of "+strconv.Itoa(len(selected)))
+			d.store.auditRefusal(ctx, pending, "confirmation_required")
+			done(w, r, "sessions", nil, "confirmation_required")
+			return
+		}
+		refused := 0
+		for _, value := range selected {
+			family, rest, _ := strings.Cut(value, ":")
+			i := strings.LastIndex(rest, ":")
+			id, revision := rest, int64(-1)
+			if i >= 0 {
+				id = rest[:i]
+				if n, err := strconv.ParseInt(rest[i+1:], 10, 64); err == nil {
+					revision = n
+				}
+			}
+			k := Key{family, id}
+			ctx, pending := withAudit(r.Context(), action, family+":"+id)
+			var err error
+			switch {
+			case !validKey(family, id) || revision < 1 || len(value) > 512:
+				err = ErrInvalid
+			case k == maintainerKey:
+				err = Refusal{"maintainer_session", "the maintainer session is built in"}
+			case action == "retire":
+				_, err = d.store.Mutate(ctx, Mutation{Family: family, ID: id, IfRevision: revision}, true)
+			case action == "purge" || action == "unpurge":
+				err = d.store.markPurge(ctx, k, revision, action == "purge")
+			default:
+				_, err = d.store.ack(ctx, k, -1, true)
+			}
+			if err != nil {
+				code := errorCode(err)
+				if errors.Is(err, ErrConflict) {
+					code = "revision_changed"
+				}
+				d.store.auditRefusal(ctx, pending, code)
+				refused++
+			}
+		}
+		d.signalWorkNotices()
+		notice := "bulk_applied"
+		if refused > 0 {
+			notice = "bulk_partial"
+		}
+		done(w, r, "sessions", nil, notice)
+	}))
 	mux.HandleFunc("POST /dashboard/actions/purge", authed(actionFormLimit, purge(true)))
 	mux.HandleFunc("POST /dashboard/actions/unpurge", authed(actionFormLimit, purge(false)))
 
