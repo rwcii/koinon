@@ -51,17 +51,17 @@ brew install rwcii/koinon/koinon
 $(brew --prefix)/bin/koinon install --agent claude --agent codex
 ```
 
-To upgrade, refresh the tap first, then install the new Homebrew binary and check its version:
+To upgrade, refresh the tap first, then upgrade and check the version:
 
 ```sh
 brew update
 brew upgrade koinon
-$(brew --prefix)/bin/koinon install
 koinon version
 ```
 
-`koinon install` copies the new binary into its own prefix and restarts the daemon. A bare
-`koinon install` can run the copy already installed in `~/.local/bin`, which changes nothing.
+`koinon install` links its binary to the formula's `opt` path, so the daemon restarts on each
+upgraded version without another command. An installation made by v0.3.0 or earlier has a copy:
+after its first `brew upgrade`, run `$(brew --prefix)/bin/koinon install` once (docs/INSTALL.md).
 Releases after v0.2.1 install from a Homebrew bottle, which on Apple Silicon and Linux needs no
 developer tools. Homebrew on an Intel Mac, and any Mac with v0.2.1 and earlier, needs
 `xcode-select --install` first; or use the download.
