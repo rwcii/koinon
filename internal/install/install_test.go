@@ -409,3 +409,122 @@ func TestInstallAdoptsEarlierSetup(t *testing.T) {
 		t.Fatalf("adopt failure: %v", err)
 	}
 }
+
+// homebrewKeg writes a koinon keg as Homebrew pours it under brew: the binary, its receipt,
+// the opt link to the keg and the bin link to the binary. It returns the bin link.
+func homebrewKeg(t *testing.T, brew, version, content string) string {
+	t.Helper()
+	keg := filepath.Join(brew, "Cellar", "koinon", version)
+	if err := os.MkdirAll(filepath.Join(keg, "bin"), 0755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(keg, "bin", "koinon"), []byte(content), 0755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(keg, "INSTALL_RECEIPT.json"), []byte("{}"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	for link, target := range map[string]string{
+		filepath.Join(brew, "opt", "koinon"): filepath.Join("..", "Cellar", "koinon", version),
+		filepath.Join(brew, "bin", "koinon"): filepath.Join("..", "Cellar", "koinon", version, "bin", "koinon"),
+	} {
+		os.MkdirAll(filepath.Dir(link), 0755)
+		os.Remove(link)
+		if err := os.Symlink(target, link); err != nil {
+			t.Fatal(err)
+		}
+	}
+	return filepath.Join(brew, "bin", "koinon")
+}
+
+// A user-mode install from a Homebrew keg links the installed binary to the formula's opt
+// path, so brew upgrade alone replaces what the service runs (#397). Any other source is
+// copied over the link, and the uninstall removes the link and keeps the keg.
+func TestInstallLinksAHomebrewKeg(t *testing.T) {
+	for _, backend := range []string{"systemd", "launchd"} {
+		t.Run(backend, func(t *testing.T) {
+			ctx := context.Background()
+			e := newEnv(t, backend)
+			e.o.Agents = []string{"claude"}
+			// The installer resolves the keg's path; on macOS the temporary directory is under a
+			// link (/var to /private/var).
+			tmp, err := filepath.EvalSymlinks(t.TempDir())
+			if err != nil {
+				t.Fatal(err)
+			}
+			brew := filepath.Join(tmp, "brew")
+			opt := filepath.Join(brew, "opt", "koinon", "bin", "koinon")
+			e.o.Source = homebrewKeg(t, brew, "0.3.1", "release 0.3.1")
+			r, err := Install(ctx, e.o)
+			if err != nil || !r.OK || r.BinaryResult != "linked" {
+				t.Fatalf("install %+v %v", r, err)
+			}
+			if target, err := os.Readlink(r.Binary); err != nil || target != opt {
+				t.Fatalf("installed binary links to %q: %v", target, err)
+			}
+			artifact, _ := os.ReadFile(r.Artifact)
+			if !strings.Contains(string(artifact), r.Binary) || len(e.setups) != 1 || e.setups[0] != "claude "+r.Binary {
+				t.Fatalf("artifact %s, setup %v", artifact, e.setups)
+			}
+			if again, err := Install(ctx, e.o); err != nil || again.BinaryResult != "unchanged" {
+				t.Fatalf("repeat %+v %v", again, err)
+			}
+			// brew upgrade: a new keg and the opt link moved to it. The installed path runs it.
+			e.o.Source = homebrewKeg(t, brew, "0.3.2", "release 0.3.2")
+			if data, err := os.ReadFile(r.Binary); err != nil || string(data) != "release 0.3.2" {
+				t.Fatalf("after the upgrade %q %v", data, err)
+			}
+			if again, err := Install(ctx, e.o); err != nil || again.BinaryResult != "unchanged" {
+				t.Fatalf("install from the new keg %+v %v", again, err)
+			}
+
+			// Not a keg: no receipt, an opt link elsewhere, or a plain download. Each is copied.
+			receipt := filepath.Join(brew, "Cellar", "koinon", "0.3.2", "INSTALL_RECEIPT.json")
+			os.Rename(receipt, receipt+".moved")
+			if got, err := Install(ctx, e.o); err != nil || got.BinaryResult != "replaced" {
+				t.Fatalf("without receipt %+v %v", got, err)
+			}
+			if info, err := os.Lstat(r.Binary); err != nil || !info.Mode().IsRegular() {
+				t.Fatalf("copy %v %v", info, err)
+			}
+			os.Rename(receipt+".moved", receipt)
+			if got, err := Install(ctx, e.o); err != nil || got.BinaryResult != "linked" {
+				t.Fatalf("relink %+v %v", got, err)
+			}
+			os.Remove(filepath.Join(brew, "opt", "koinon"))
+			os.Symlink(t.TempDir(), filepath.Join(brew, "opt", "koinon"))
+			if got, err := Install(ctx, e.o); err != nil || got.BinaryResult != "replaced" {
+				t.Fatalf("foreign opt %+v %v", got, err)
+			}
+			homebrewKeg(t, brew, "0.3.2", "release 0.3.2")
+			if got, err := Install(ctx, e.o); err != nil || got.BinaryResult != "linked" {
+				t.Fatalf("relink %+v %v", got, err)
+			}
+			// The same content as the keg, but from a download: a copy, not "unchanged".
+			download := filepath.Join(t.TempDir(), "koinon")
+			os.WriteFile(download, []byte("release 0.3.2"), 0755)
+			e.o.Source = download
+			if got, err := Install(ctx, e.o); err != nil || got.BinaryResult != "replaced" {
+				t.Fatalf("download over the link %+v %v", got, err)
+			}
+			if info, err := os.Lstat(r.Binary); err != nil || !info.Mode().IsRegular() {
+				t.Fatalf("copy %v %v", info, err)
+			}
+
+			e.o.Source = filepath.Join(brew, "bin", "koinon")
+			if got, err := Install(ctx, e.o); err != nil || got.BinaryResult != "linked" {
+				t.Fatalf("relink %+v %v", got, err)
+			}
+			u, err := Uninstall(ctx, e.o)
+			if err != nil || !u.OK || u.BinaryResult != "removed" {
+				t.Fatalf("uninstall %+v %v", u, err)
+			}
+			if _, err := os.Lstat(r.Binary); !os.IsNotExist(err) {
+				t.Fatalf("link left: %v", err)
+			}
+			if data, err := os.ReadFile(opt); err != nil || string(data) != "release 0.3.2" {
+				t.Fatalf("keg after uninstall %q %v", data, err)
+			}
+		})
+	}
+}

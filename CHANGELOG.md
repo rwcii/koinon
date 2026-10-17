@@ -5,6 +5,14 @@ into a dated release section when promoted to `main`.
 
 ## Unreleased
 
+- Homebrew upgrade (#397): `brew upgrade koinon` alone upgrades the running daemon. In user
+  mode, `koinon install` from the Homebrew binary links `<prefix>/bin/koinon` to
+  `$(brew --prefix)/opt/koinon/bin/koinon` (`"binary_result": "linked"`) instead of copying it.
+  A daemon that a service manager runs exits when its executable is replaced
+  (`binary_changed`), and the manager starts the new binary. An installation made by v0.3.0 or
+  earlier needs `$(brew --prefix)/bin/koinon install` once after its upgrade; macOS system mode
+  keeps a copy. `koinon status` reports the daemon's `version`.
+
 ## 2026-10-16 — Context settings without the dashboard
 
 This release changes the context-cycle settings from the command line and from agent sessions

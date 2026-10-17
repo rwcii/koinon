@@ -28,23 +28,28 @@ Releases up to v0.2.1 have no bottles: Homebrew treats their install as a build 
 which on macOS needs the Command Line Tools (`xcode-select --install`); without them, use the
 download below.
 
-The formula does not use `brew services`: `koinon install` copies the binary into its own prefix
-and manages the service, as the next sections describe. A `brew upgrade koinon` therefore changes
-only the Homebrew copy. To upgrade:
+The formula does not use `brew services`: `koinon install` manages the service, as the next
+sections describe. Run from the Homebrew binary in user mode, the install links
+`<prefix>/bin/koinon` to the formula's stable path, `$(brew --prefix)/opt/koinon/bin/koinon`,
+instead of copying it. Each `brew upgrade` moves that path to the new version, the daemon finds
+that its executable changed and exits, and the service manager starts the new binary, which
+migrates the state. To upgrade:
 
 ```sh
 brew update
 brew upgrade koinon
-$(brew --prefix)/bin/koinon install
 koinon version
 ```
 
 `brew update` first: `brew upgrade` refreshes a third-party tap only when its auto-update interval
-has passed, and otherwise keeps the formula of the previous release. `koinon version` then reports
-the new version. Name the Homebrew binary: the install copies the binary
-that runs it, and once `~/.local/bin` comes first on `PATH`, a bare `koinon install` runs the
-installed copy and copies it onto itself (`"binary_result": "unchanged"`, with `other_binary`
-naming the Homebrew copy). A Python-era installation upgrades with
+has passed, and otherwise keeps the formula of the previous release. Within about 15 seconds,
+`koinon status` reports the new `version` and its `schema`.
+
+An installation made by v0.3.0 or earlier has a copy, and its daemon does not check its
+executable. Upgrade it once with `$(brew --prefix)/bin/koinon install` after `brew upgrade`.
+Each later `brew upgrade` is complete. A macOS system-mode daemon (`--system`) keeps a copy,
+because brew can replace the linked file; upgrade it with
+`$(brew --prefix)/bin/koinon install --system`. A Python-era installation upgrades with
 `$(brew --prefix)/bin/koinon upgrade --from-python`, as below.
 
 ### Download and check
@@ -70,7 +75,11 @@ this:
 
 1. It copies the running binary to `<prefix>/bin/koinon`. The default prefix is
    `$XDG_DATA_HOME/koinon/go`, which is `~/.local/share/koinon/go`. The copy is atomic, and it is
-   checked against the source's SHA-256.
+   checked against the source's SHA-256. A Homebrew binary in user mode is linked instead
+   (`"binary_result": "linked"`): the binary is in a keg,
+   `<brew>/Cellar/koinon/<version>/bin/koinon` with the keg's `INSTALL_RECEIPT.json`, and
+   `<prefix>/bin/koinon` becomes a link to `<brew>/opt/koinon/bin/koinon`. An install from any
+   other binary, and every system-mode install, replaces that link with a copy.
 2. It links `~/.local/bin/koinon` to that copy, on Linux and macOS, and records the link in
    `<prefix>/link`. An existing link to the copy is kept; any other file or link at that path
    is never replaced (`"link_result": "occupied"`). A symlink or an unrelated file at
@@ -79,9 +88,9 @@ this:
    current directory, as a shell does. When that is not the installed copy, `path_step` names
    the one step that makes it so, for example adding `~/.local/bin` to `PATH` in the shell's
    startup file; on macOS that directory is not on `PATH` by default. When another `koinon`,
-   such as the Homebrew copy, comes first on `PATH`, the report names it. When the installed
+   such as the Homebrew binary, comes first on `PATH`, the report names it. When the installed
    binary itself ran the install, it copies nothing; if another `koinon` on `PATH` has other
-   content, such as the Homebrew copy after `brew upgrade`, the report names it in
+   content, such as a newer download or Homebrew binary, the report names it in
    `other_binary` and `source_step` gives the command that installs it. The install never
    edits shell startup files.
 3. It writes one service that runs
@@ -176,10 +185,13 @@ enables and starts it again.
 
 ### Upgrade the Go runtime
 
-Run `koinon install` with the new binary, with the same `--prefix` and `--state-dir`: name the new
-binary by its path, such as `$(brew --prefix)/bin/koinon` or the downloaded file, because the
-install copies the binary that runs it. With Homebrew, run `brew update` before `brew upgrade
-koinon` (see Homebrew above), and check `koinon version` after the install. It replaces the binary in place and restarts the daemon, and the state stays. A launched session continues:
+With Homebrew, `brew update` and `brew upgrade koinon` are the upgrade (see Homebrew above).
+Otherwise, run `koinon install` with the new binary, with the same `--prefix` and `--state-dir`:
+name the new binary by its path, such as the downloaded file, because the install copies the
+binary that runs it. Check `koinon version` after the install. It replaces the binary in place
+and restarts the daemon, and the state stays. A daemon that a service manager runs also exits
+when its executable is replaced, and the manager starts the new binary (`binary_changed` in
+the daemon log). A launched session continues:
 `koinon mcp` tries a renewal that fails during the restart again at the next interval, and
 the daemon keeps a session whose host process runs (liveness, see PROTOCOL.md). A session
 without a host record, such as a DeepSeek session or one registered before host records, is

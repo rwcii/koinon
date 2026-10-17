@@ -11,7 +11,7 @@ Never put a secret, runtime session identifier or response body in a repository.
 
 | Route | Operation |
 | --- | --- |
-| `GET /v1/status` | Daemon readiness, `pid`, listeners, schema, session counts, storage and content-free wake health. |
+| `GET /v1/status` | Daemon readiness, the release `version`, `pid`, listeners, schema, session counts, storage and content-free wake health. |
 | `GET /v1/sessions` | Up to 1,000 records ordered by family and ID; `truncated` reports more records. |
 | `POST /v1/sessions/register` | Register or reactivate one session identified by `(family, id)`. |
 | `POST /v1/sessions/renew` | Renew an active session's expiry. |

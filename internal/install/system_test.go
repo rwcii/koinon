@@ -127,3 +127,29 @@ func TestInstallSystemRefusals(t *testing.T) {
 		t.Fatal("the hand-written plist was rewritten")
 	}
 }
+
+// A system-mode daemon keeps a copy that brew cannot replace, also over an earlier
+// user-mode link to a Homebrew keg (#397).
+func TestInstallSystemModeCopiesAHomebrewKeg(t *testing.T) {
+	e, _ := systemEnv(t)
+	e.o.Source = homebrewKeg(t, filepath.Join(t.TempDir(), "brew"), "0.3.1", "release 0.3.1")
+	r, err := Install(context.Background(), e.o)
+	if err != nil || r.BinaryResult != "linked" {
+		t.Fatalf("user-mode install %+v %v", r, err)
+	}
+	e.o.System = true
+	r, err = Install(context.Background(), e.o)
+	if err != nil || r.Service != "system" || r.BinaryResult != "replaced" {
+		t.Fatalf("system install %+v %v", r, err)
+	}
+	if info, err := os.Lstat(r.Binary); err != nil || !info.Mode().IsRegular() {
+		t.Fatalf("system binary %v %v", info, err)
+	}
+	if data, _ := os.ReadFile(r.Binary); string(data) != "release 0.3.1" {
+		t.Fatalf("system binary %q", data)
+	}
+	e.o.System = false
+	if r, err = Install(context.Background(), e.o); err != nil || r.Service != "system" || r.BinaryResult != "unchanged" {
+		t.Fatalf("plain install in system mode %+v %v", r, err)
+	}
+}
