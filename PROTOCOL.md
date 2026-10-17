@@ -35,6 +35,8 @@ Never put a secret, runtime session identifier or response body in a repository.
 | `POST /v1/library/read` | Read one catalog item's canonical content and family-specific metadata. |
 | `POST /v1/sessions/observe` | Record allowlisted observations (model, context, activity, terminal) for an active session; see "Dashboard and session observations". |
 | `POST /v1/dashboard/links` | Issue a one-time dashboard login link (`path`, `expires_in`). |
+| `GET /v1/participants` | Each participant's `address`, `family`, `repository`, optional `role`, active `holder` peer name, `conflict` and `last_event`, at most 1,000 with `truncated` (`koinon participant list`, #398). |
+| `POST /v1/participants/holder` | The maintainer's holder choice from the command line (`koinon participant holder`, #398): `address`, `peer` and an optional `if_revision`, the session's current revision when absent. It makes what the dashboard's **Make holder** makes and is audited as `participant-holder` by `cli`. It returns `holder` and `former`; refusals are `invalid_request`, `peer_not_found`, `not_participant`, `session_not_active` and `revision_changed`. |
 | `POST /v1/storage/recover` | Prove the write-ahead log empty again, return free pages and clear a blocked state. |
 
 Wake health keeps `fault` as the current wake-pass error class, empty after a successful

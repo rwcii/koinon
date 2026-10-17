@@ -549,3 +549,26 @@ func TestHomebrewBottles(t *testing.T) {
 		}
 	}
 }
+
+// The holder choice has a command-line path (#398): the usage text and the documents name
+// koinon participant holder, and none says that only the dashboard lifts a fence.
+func TestParticipantHolderCommandDocumented(t *testing.T) {
+	for _, name := range []string{"cmd/koinon/main.go", "docs/USAGE.md", "docs/INSTALL.md", "PROTOCOL.md", "internal/setup/guide.go"} {
+		data, err := os.ReadFile(filepath.Join(root(t), name))
+		if err != nil {
+			t.Fatal(err)
+		}
+		text := strings.Join(strings.Fields(string(data)), " ")
+		if !strings.Contains(text, "koinon participant holder") {
+			t.Errorf("%s does not name koinon participant holder", name)
+		}
+		for _, stale := range []string{"only **Make holder** lifts", "only the maintainer's Make holder choice", "Only the dashboard lifts a fence"} {
+			if strings.Contains(text, stale) {
+				t.Errorf("%s still says %q", name, stale)
+			}
+		}
+	}
+	if data, err := os.ReadFile(filepath.Join(root(t), "cmd/koinon/main.go")); err != nil || !strings.Contains(string(data), "koinon participant list") {
+		t.Errorf("usage lacks koinon participant list: %v", err)
+	}
+}

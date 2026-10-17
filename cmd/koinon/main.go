@@ -56,6 +56,8 @@ func run(ctx context.Context, args []string, in io.Reader, out io.Writer) error 
 		return decisionCommand(ctx, args[1:], out)
 	case "context":
 		return contextCommand(ctx, args[1:], out)
+	case "participant":
+		return participantCommand(ctx, args[1:], out)
 	case "sessions", "maintenance", "claims", "rooms":
 		ops := map[string][]string{"sessions": {"list", "purge", "unpurge", "retire"}, "maintenance": {"sweep"},
 			"claims": {"release"}, "rooms": {"prune", "delete"}}[args[0]]
@@ -319,6 +321,8 @@ const usage = `Usage: koinon install [--prefix DIR] [--state-dir DIR] [--agent F
        koinon context set FAMILY --mode observe|native_compaction|handoff_cycle --threshold PERCENT
        koinon context enable|disable NAME
        koinon context threshold NAME PERCENT|family
+       koinon participant list [--state-dir DIR] [--address 127.0.0.1:PORT]
+       koinon participant holder ADDRESS PEER [--if-revision N] [--state-dir DIR] [--address 127.0.0.1:PORT]
        koinon sessions list [NAME ...] [--state active|expired|retired|purge-marked] [--family FAMILY] [--inactive-for DURATION] [--json]
        koinon sessions purge|retire [NAME ...] [--state STATE] [--family FAMILY] [--inactive-for DURATION] [--yes]
        koinon sessions unpurge [NAME ...] [--state STATE] [--family FAMILY] [--inactive-for DURATION]
