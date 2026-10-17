@@ -32,7 +32,7 @@ func TestCleanupSelectionAndChanges(t *testing.T) {
 	d := join(t, s, "codex", "synthetic-d", "")
 	names := func(f CleanupFilter) []string {
 		t.Helper()
-		list, more, err := s.SelectCleanup(ctx, f)
+		list, more, err := s.SelectCleanup(ctx, f, "list")
 		if err != nil || more {
 			t.Fatalf("%+v: %v %v", f, err, more)
 		}
@@ -75,16 +75,16 @@ func TestCleanupSelectionAndChanges(t *testing.T) {
 		}
 	}
 	for _, f := range []CleanupFilter{{Names: []string{"synthetic-nobody"}}, {Names: []string{"maintainer"}}} {
-		if _, _, err := s.SelectCleanup(ctx, f); code(err) != "peer_not_found" {
+		if _, _, err := s.SelectCleanup(ctx, f, "list"); code(err) != "peer_not_found" {
 			t.Fatalf("%+v: %v", f, err)
 		}
 	}
-	if _, _, err := s.SelectCleanup(ctx, CleanupFilter{State: "gone"}); !errors.Is(err, ErrInvalid) {
+	if _, _, err := s.SelectCleanup(ctx, CleanupFilter{State: "gone"}, "list"); !errors.Is(err, ErrInvalid) {
 		t.Fatalf("unknown state: %v", err)
 	}
 	selected := func(name string) CleanupSession {
 		t.Helper()
-		list, _, err := s.SelectCleanup(ctx, CleanupFilter{Names: []string{name}})
+		list, _, err := s.SelectCleanup(ctx, CleanupFilter{Names: []string{name}}, "list")
 		if err != nil || len(list) != 1 {
 			t.Fatalf("%s: %v %v", name, list, err)
 		}
@@ -96,6 +96,12 @@ func TestCleanupSelectionAndChanges(t *testing.T) {
 	lastAudit := func() AuditRecord {
 		t.Helper()
 		return auditAll(t, s)[0]
+	}
+	// A clear at a revision that changed since the selection acknowledges nothing (Codex F2).
+	staleClear := selected(b.Name)
+	staleClear.Revision++
+	if r := s.applyCleanup(ctx, "clear", staleClear); r.Result != "refused" || r.Code != "revision_changed" || selected(b.Name).Unacknowledged != 1 {
+		t.Fatalf("stale clear: %+v %+v", r, selected(b.Name))
 	}
 	for _, step := range []struct {
 		action, name, target string
@@ -130,10 +136,38 @@ func TestCleanupSelectionAndChanges(t *testing.T) {
 	if r := lastAudit(); r.Result != "refused" || r.Reason != "revision_changed" || r.Target != "codex:synthetic-a by cli" {
 		t.Fatalf("stale audit: %+v", r)
 	}
-	// Retire applies to active sessions only, unpurge to marked ones only.
-	if cleanupApplies("retire", selected(d.Name)) || cleanupApplies("unpurge", selected(a.Name)) || !cleanupApplies("purge", selected(a.Name)) {
-		t.Fatal("applies")
+	// Retire selects active sessions only, unpurge marked ones only, purge unmarked ones only.
+	for _, tc := range []struct {
+		action string
+		want   []string
+	}{
+		{"retire", nil},
+		{"unpurge", nil},
+		{"purge", []string{a.Name, b.Name, c.Name, d.Name}},
+		{"clear", []string{a.Name, b.Name, c.Name, d.Name}},
+	} {
+		list, _, err := s.SelectCleanup(ctx, CleanupFilter{}, tc.action)
+		var got []string
+		for _, x := range list {
+			got = append(got, x.Name)
+		}
+		if err != nil || !same(got, tc.want...) {
+			t.Fatalf("%s selects %v %v", tc.action, got, err)
+		}
 	}
+	// Every filter applies before the limit: with a limit of one, the one expired session
+	// after an active one is still found (Codex F1).
+	previous := cleanupLimit
+	cleanupLimit = 1
+	defer func() { cleanupLimit = previous }()
+	if got := names(CleanupFilter{State: "retired", Family: "codex"}); !same(got, d.Name) {
+		t.Fatalf("limited retired: %v", got)
+	}
+	if list, more, err := s.SelectCleanup(ctx, CleanupFilter{}, "list"); err != nil || len(list) != 1 || !more {
+		t.Fatalf("limited list: %v %v %v", list, more, err)
+	}
+	cleanupLimit = previous
+
 }
 
 // The routes refuse a change without a selection, show the selection without apply, apply
@@ -292,6 +326,16 @@ func TestDashboardBulkAndRoomDelete(t *testing.T) {
 	}
 	if got := client.do("bulk", url.Values{"action": {"wipe"}, "s": pick(a)}); got != "invalid_request" {
 		t.Fatalf("unknown action: %s", got)
+	}
+	// A bulk clear at a stale revision acknowledges nothing (Codex F2).
+	if _, err := s.Send(context.Background(), Key{b.Family, b.ID}, a.Name, "unread"); err != nil {
+		t.Fatal(err)
+	}
+	if got := client.do("bulk", url.Values{"action": {"clear"}, "s": {pick(a)[0] + "0"}}); got != "bulk_partial" {
+		t.Fatalf("stale clear: %s", got)
+	}
+	if list, _, _ := s.SelectCleanup(context.Background(), CleanupFilter{Names: []string{a.Name}}, "list"); len(list) != 1 || list[0].Unacknowledged != 1 {
+		t.Fatalf("after the stale clear: %+v", list)
 	}
 	before := len(auditAll(t, s))
 	if got := client.do("bulk", url.Values{"action": {"retire"}, "s": pick(a, b)}); got != "bulk_applied" {

@@ -370,7 +370,7 @@ func (d *Daemon) dashboardActions(mux *http.ServeMux, authed func(int64, func(ht
 			case action == "purge" || action == "unpurge":
 				err = d.store.markPurge(ctx, k, revision, action == "purge")
 			default:
-				_, err = d.store.ack(ctx, k, -1, true)
+				_, err = d.store.ackAt(ctx, k, revision)
 			}
 			if err != nil {
 				code := errorCode(err)

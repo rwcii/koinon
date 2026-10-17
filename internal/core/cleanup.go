@@ -16,8 +16,9 @@ import (
 // store path for one session at its current revision and writes that action's audit record,
 // which also names its origin "cli". No agent tool calls these routes.
 
-// cleanupLimit bounds the sessions that one selection reads.
-const cleanupLimit = 1000
+// cleanupLimit bounds the sessions that one selection reads; a variable only so that tests
+// can lower it.
+var cleanupLimit = 1000
 
 // CleanupFilter selects sessions by peer name and by state, family and inactivity. Names
 // and the filters combine: a session must match every given one.
@@ -64,17 +65,34 @@ var ErrCleanupSelection = Refusal{"invalid_request", "name sessions or give a fi
 // cleanupStates are the states a filter may name.
 var cleanupStates = []string{"active", "expired", "retired", "purge-marked"}
 
-// SelectCleanup returns the sessions that f selects, by peer name, at most cleanupLimit, and
-// whether more matched. The maintainer session is never selected. Each name must be a
-// session's peer name.
-func (s *Store) SelectCleanup(ctx context.Context, f CleanupFilter) ([]CleanupSession, bool, error) {
+// SelectCleanup returns the sessions that f selects and action applies to (list: all), by
+// peer name, at most cleanupLimit, and whether more matched. Every filter is applied before
+// the limit. The maintainer session is never selected. Each name must be a session's peer
+// name.
+func (s *Store) SelectCleanup(ctx context.Context, f CleanupFilter, action string) ([]CleanupSession, bool, error) {
 	if (f.State != "" && !slices.Contains(cleanupStates, f.State)) || len(f.Family) > 64 || f.InactiveForSeconds < 0 || len(f.Names) > cleanupLimit {
 		return nil, false, ErrInvalid
 	}
 	now := s.now().UnixMilli()
+	// The state as scanSession computes it, at now.
+	state := `CASE WHEN s.retired_at!=0 THEN 'retired' WHEN s.expires_at<=? THEN 'expired' ELSE 'active' END`
 	query := `SELECT s.family,s.id,s.last_seq-s.acked_through,` + liveClaim + ` FROM sessions s
 		JOIN names n ON n.kind='peer' AND n.family=s.family AND n.session_id=s.id WHERE s.family!='maintainer'`
 	var args []any
+	switch {
+	case f.State == "purge-marked" || action == "unpurge":
+		query += ` AND s.purge_at!=0`
+	case action == "purge":
+		query += ` AND s.purge_at=0`
+	}
+	if f.State != "" && f.State != "purge-marked" {
+		query += ` AND ` + state + `=?`
+		args = append(args, now, f.State)
+	}
+	if action == "retire" {
+		query += ` AND ` + state + `='active'`
+		args = append(args, now)
+	}
 	if f.Family != "" {
 		query += ` AND s.family=?`
 		args = append(args, f.Family)
@@ -142,26 +160,9 @@ func (s *Store) SelectCleanup(ctx context.Context, f CleanupFilter) ([]CleanupSe
 		case session.State != "active":
 			c.InactiveSince = session.ExpiresAt
 		}
-		if f.State == "purge-marked" && !c.PurgeMarked || f.State != "" && f.State != "purge-marked" && f.State != c.State {
-			continue
-		}
 		list = append(list, c)
 	}
 	return list, more, nil
-}
-
-// cleanupApplies says whether action applies to a selected session: retire to an active
-// one, purge to an unmarked one, unpurge to a marked one, clear to any.
-func cleanupApplies(action string, c CleanupSession) bool {
-	switch action {
-	case "retire":
-		return c.State == "active"
-	case "purge":
-		return !c.PurgeMarked
-	case "unpurge":
-		return c.PurgeMarked
-	}
-	return true
 }
 
 // applyCleanup runs action for one session at its revision under its own audit record.
@@ -176,7 +177,7 @@ func (s *Store) applyCleanup(ctx context.Context, action string, c CleanupSessio
 	case "retire":
 		_, err = s.Mutate(ctx, Mutation{Family: k.Family, ID: k.ID, IfRevision: c.Revision}, true)
 	case "clear":
-		_, err = s.ack(ctx, k, -1, true)
+		_, err = s.ackAt(ctx, k, c.Revision)
 	}
 	if err == nil {
 		return CleanupResult{Name: c.Name, Result: "accepted"}
@@ -211,16 +212,10 @@ func (d *Daemon) cleanupRoutes(mux *http.ServeMux) {
 			failure(w, ErrCleanupSelection)
 			return
 		}
-		selected, more, err := d.store.SelectCleanup(r.Context(), request.CleanupFilter)
+		sessions, more, err := d.store.SelectCleanup(r.Context(), request.CleanupFilter, request.Action)
 		if err != nil {
 			failure(w, err)
 			return
-		}
-		sessions := []CleanupSession{}
-		for _, c := range selected {
-			if request.Action == "list" || cleanupApplies(request.Action, c) {
-				sessions = append(sessions, c)
-			}
 		}
 		reply := map[string]any{"ok": true, "action": request.Action, "sessions": sessions, "truncated": more}
 		if request.Action != "list" {
