@@ -54,6 +54,8 @@ type Daemon struct {
 	workNoticeSignal chan struct{}
 	logEvent         func(string, map[string]any)
 	wakePass         func(context.Context) error // the real pass, injectable in loop tests
+	// sweepMu keeps the maintenance sweep and koinon maintenance sweep from overlapping.
+	sweepMu sync.Mutex
 }
 
 func validAddress(address string) bool {
@@ -420,6 +422,7 @@ func (d *Daemon) handler() http.Handler {
 	d.observationRoutes(mux)
 	d.cycleRoutes(mux)
 	d.contextRoutes(mux)
+	d.cleanupRoutes(mux)
 	d.libraryRoutes(mux)
 	d.roomRoutes(mux)
 	d.decisionRoutes(mux)

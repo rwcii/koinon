@@ -827,6 +827,19 @@ session columns for it: `ack_mark` and `ack_mark_at`, the sweep's acknowledgemen
   removing a mark also takes, and in each transaction that deletes messages or the session.
   Claims released and messages deleted before the removal stay so.
 
+The command line marks and changes sessions in bulk (#388). `POST /v1/cleanup/sessions` takes
+`action` (`list`, `purge`, `unpurge`, `retire` or `clear`), a selection (`names` as peer
+names, `state` of `active`, `expired`, `retired` or `purge-marked`, `family`,
+`inactive_for_seconds` by the retention rule) and `apply`. A change without a selection is
+`invalid_request`; an unknown name is `peer_not_found`; the maintainer session is never
+selected. It returns at most 1,000 `sessions` (`name`, `family`, `id`, `state`,
+`inactive_since`, `unacknowledged`, `live_claim`, `purge_marked`, `revision`) with
+`truncated`, narrowed to those the action applies to (retire: active; purge: unmarked;
+unpurge: marked). With `apply`, each runs the dashboard action's store path at its revision
+and writes its audit record by `cli`; `results` lists each `name`, `result` and refusal
+`code`. `POST /v1/maintenance/sweep` runs the work, liveness and retention sweeps once, never
+alongside the scheduled one, and returns the retention `counts` and `marked_for_purge`.
+
 A send to a deleted peer name is `peer_not_found`. Each deletion is a control write (it may use
 the storage reserve) in its own transaction: at most 500 messages per transaction, 10,000
 messages per sweep for both rules together and 100 sessions per rule and sweep, so a sweep holds the storage boundary no longer

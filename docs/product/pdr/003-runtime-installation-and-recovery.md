@@ -184,7 +184,8 @@ Koinon currently keeps the state directory through every install, upgrade and un
 ownership, and reports the kept state path. The Python-era upgrade verifies the import before it
 removes the previous services, and a failure before that point restores the previous runtime.
 The daemon deletes messages and sessions by its fixed retention rules and by the maintainer's
-purge mark in the dashboard. `koinon recover` ends a storage block after the person corrected
+purge mark, set in the dashboard or with `koinon sessions purge` (#388); `koinon maintenance
+sweep` runs the deletion at once. `koinon recover` ends a storage block after the person corrected
 its cause; an unreachable daemon is answered with the restart command, not with new state or a
 new secret.
 
@@ -197,7 +198,11 @@ dashboard purge, is judged on its own scope.
 
 **Provenance:** Shipped in PR #205 (merge commit f65ad6e), PR #240 (merge commit b7beffc) and PR
 #302 (merge commit 7780c8c); no maintainer decision found. The AGENTS.md sentence comes from PR
-#207 (10ea1e4); no maintainer source found for it.
+#207 (10ea1e4); no maintainer source found for it. The command-line purge and sweep:
+Maintainer, 2026-10-17, "yes, take on all 3 open issues" (#388 among them). Intent: the
+cleanup that the dashboard does one session at a time can be done in bulk from a shell. The
+daemon-secret basis is the one of #391: "approved, allow CLI and agents with audit" (PDR 006,
+Decision 1).
 
 ### Alternatives Considered
 

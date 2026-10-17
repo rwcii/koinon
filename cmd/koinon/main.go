@@ -13,6 +13,7 @@ import (
 	"os"
 	"os/signal"
 	"path/filepath"
+	"slices"
 	"strconv"
 	"strings"
 	"sync"
@@ -55,6 +56,16 @@ func run(ctx context.Context, args []string, in io.Reader, out io.Writer) error 
 		return decisionCommand(ctx, args[1:], out)
 	case "context":
 		return contextCommand(ctx, args[1:], out)
+	case "sessions", "maintenance":
+		ops := map[string][]string{"sessions": {"list", "purge", "unpurge", "retire"}, "maintenance": {"sweep"}}[args[0]]
+		if len(args) < 2 || !slices.Contains(ops, args[1]) {
+			return usageError{"invalid_request", "use koinon " + args[0] + " " + strings.Join(ops, ", ")}
+		}
+		return cleanupCommand(ctx, args[0], args[1], args[2:], out)
+	case "inbox":
+		if len(args) > 1 && args[1] == "clear" {
+			return cleanupCommand(ctx, "inbox", "clear", args[2:], out)
+		}
 	case "dashboard":
 		return dashboardCommand(ctx, args[1:], out)
 	case "version":
@@ -254,6 +265,11 @@ const usage = `Usage: koinon install [--prefix DIR] [--state-dir DIR] [--agent F
        koinon context set FAMILY --mode observe|native_compaction|handoff_cycle --threshold PERCENT
        koinon context enable|disable NAME
        koinon context threshold NAME PERCENT|family
+       koinon sessions list [NAME ...] [--state active|expired|retired|purge-marked] [--family FAMILY] [--inactive-for DURATION] [--json]
+       koinon sessions purge|retire [NAME ...] [--state STATE] [--family FAMILY] [--inactive-for DURATION] [--yes]
+       koinon sessions unpurge [NAME ...] [--state STATE] [--family FAMILY] [--inactive-for DURATION]
+       koinon inbox clear [NAME ...] [--state STATE] [--family FAMILY] [--inactive-for DURATION] [--yes]
+       koinon maintenance sweep [--state-dir DIR] [--address 127.0.0.1:PORT]
        koinon work <create|list> --as FAMILY:ID [--consumer KEY] [options]
        koinon work checkout [--directory DIR]
        koinon work checkout <status|request> --as FAMILY:ID [--directory DIR] [options]

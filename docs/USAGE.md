@@ -521,6 +521,29 @@ Administrative actions require CSRF protection and are
 audited. Health reports unknown observations explicitly; a failure is not permission to
 replace state, kill an unrelated process, or change agent settings.
 
+### Clean up sessions without the dashboard
+
+A shell on the same computer cleans up sessions and inboxes in bulk (#388). Select sessions by
+peer name, `--state active|expired|retired|purge-marked`, `--family FAMILY` and
+`--inactive-for DURATION` (such as `72h` or `30d`; since the retirement, otherwise the
+expiry). A change needs a selection; the maintainer session is never selected. Without
+`--yes`, a change prints the sessions it would change, with their unacknowledged counts and
+claims, and changes nothing:
+
+```sh
+koinon sessions list --state expired                  # add --json for the daemon's reply
+koinon sessions purge --inactive-for 7d --yes         # mark for purge; retires an active one
+koinon sessions unpurge NAME                          # remove a mark before the sweep
+koinon sessions retire --family codex --yes           # retire active sessions
+koinon inbox clear --state retired --yes              # acknowledge every message
+koinon maintenance sweep                              # run the retention sweep now
+```
+
+Each changed session gets the dashboard action's audit record (`purge`, `unpurge`, `retire`,
+`clear`) with the origin `by cli`; a session that changed since the selection is refused with
+`revision_changed`, and the others continue. The sweep deletes purge-marked sessions with
+their whole inbox, under the same claim rule as the scheduled sweep, and prints its counts.
+
 ## Launcher paths in launchers.json
 
 Authorized `koinon setup claude|codex|agy|opencode|grok` records its resolved absolute CLI path in

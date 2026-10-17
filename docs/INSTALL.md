@@ -526,7 +526,8 @@ future schema. `koinon status` reports health, storage, delivery and retention c
 daemon deletes acknowledged messages 30 to 60 days after their acknowledgement, and expired or
 retired sessions 30 days after their activity ended, when they hold no unacknowledged message
 and no live claim. Unacknowledged messages, memory entries and work items are kept by these
-rules; the dashboard's purge deletes one marked session with its whole inbox. Correct the
+rules; a purge mark, from the dashboard or `koinon sessions purge`, deletes a session with its
+whole inbox at the next sweep, which `koinon maintenance sweep` runs at once (docs/USAGE.md). Correct the
 reported condition before using `koinon recover` for blocked storage. Capacity refusals
 preserve existing records; a failed or timed-out request alone does not prove a write failed.
 Use the same idempotency key and deadline to resolve uncertain writes within their horizon.

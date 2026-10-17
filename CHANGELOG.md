@@ -5,6 +5,12 @@ into a dated release section when promoted to `main`.
 
 ## Unreleased
 
+- Cleanup from the command line (#388): `koinon sessions list|purge|unpurge|retire` and
+  `koinon inbox clear` select sessions by peer name, `--state`, `--family` and
+  `--inactive-for`, and show the selection without `--yes`. Each change runs the dashboard
+  action's store path and audit record, by `cli`. `koinon maintenance sweep` runs the retention
+  sweep now. Routes `POST /v1/cleanup/sessions` and `POST /v1/maintenance/sweep`.
+
 ## 2026-10-16 — Context settings without the dashboard
 
 This release changes the context-cycle settings from the command line and from agent sessions
