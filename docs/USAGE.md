@@ -453,7 +453,8 @@ While a retained name record is called `overwatch`, no cycle starts and the Sess
 names the conflict. See PROTOCOL.md, Managed context cycles.
 
 A holder change retires and persistently fences the former holder. Registering again gives
-it its native peer name only; only **Make holder** lifts its fence. Address messages now
+it its native peer name only; only the maintainer's holder choice (**Make holder** or
+`koinon participant holder`) lifts its fence. Address messages now
 belong to the participant inbox, and a holder's default memory/work consumer is
 `participant:<address>`. The next holder continues its acknowledgements, memory cursor and
 live claim generations without restarting a lease. Calls with that consumer, including
