@@ -202,8 +202,8 @@ session that has work, handle its inbox, finish or release its native claims and
 handoff for the next session. A successor does not inherit those native claims or cursors.
 
 A launched session retained without host evidence can still report `succession: refused`
-with `no_host` when its successor calls. The maintainer's **Make holder** choice selects the
-successor immediately; otherwise the ordinary expiry and qualifier rules apply.
+with `no_host` when its successor calls. The maintainer's **Make holder** choice, or
+`koinon participant holder ADDRESS PEER`, selects the successor immediately; otherwise the ordinary expiry and qualifier rules apply.
 `koinon codex` uses `--no-daemon`; a directly started Codex session can still use the shared
 app-server, and its registration remains active while its MCP server renews it.
 
