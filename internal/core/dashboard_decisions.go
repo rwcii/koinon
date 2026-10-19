@@ -83,6 +83,10 @@ type decisionsData struct {
 	History   *DecisionHistoryPage
 	MovedAt   int64
 	LookupErr string
+	// LookupCard is set when the looked-up item is waiting, in progress or an open fyi: it
+	// shows as its card, and the grid skips it, so it appears once with one form (#414).
+	// GridSkipped is set when the grid page had that card.
+	LookupCard, GridSkipped bool
 	// Card is the reference of the card that the last action changed; its notice shows on
 	// that card when the page shows it.
 	Card        string
@@ -104,18 +108,14 @@ func (d decisionsData) cardShown() bool {
 	return false
 }
 
-// NoticeOn reports whether the notice of the last action shows on the card of reference: on
-// the looked-up item when the lookup shows it (#414), otherwise on its card in the grid, so
-// the notice shows once.
-func (d decisionsData) NoticeOn(reference string, lookup bool) bool {
-	if d.CardNotice == "" || d.Card != reference {
-		return false
-	}
-	return lookup || d.Item == nil || d.Item.Reference != reference
+// NoticeOn reports whether the notice of the last action shows on the card of reference.
+// The grid skips a looked-up card (#414), so the notice shows once.
+func (d decisionsData) NoticeOn(reference string) bool {
+	return d.CardNotice != "" && d.Card == reference
 }
 
 // decisionCard is one card of the board: the page that shows it, its item, and whether it is
-// the looked-up item (#414), which shows at full width above the grid.
+// the looked-up item (#414), which shows at full width above the grid and not in it.
 type decisionCard struct {
 	Page   dashboardPage
 	Item   DecisionItem
@@ -204,6 +204,15 @@ func (s *Store) dashboardDecisions(ctx context.Context, q url.Values) (decisions
 			return data, err
 		}
 		data.Item = &item
+		if data.LookupCard = item.State == "active" || item.State == "in_progress"; data.LookupCard {
+			cards := data.Cards[:0]
+			for _, card := range data.Cards {
+				if card.Reference != reference {
+					cards = append(cards, card)
+				}
+			}
+			data.GridSkipped, data.Cards = len(cards) < len(data.Cards), cards
+		}
 		after, err := strconv.ParseInt(q.Get("history"), 10, 64)
 		if err != nil || after < 0 {
 			after = 0

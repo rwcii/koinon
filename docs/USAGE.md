@@ -224,8 +224,8 @@ or "not reported", and the waiting items that name the agent. The cards follow:
 its own box with a **Copy** button. The archive lists closed items, and **Find** opens any item
 by reference, as do the references in the agent table, with its verdict history and the text
 of each verdict. A waiting, in-progress or open fyi item opens as its card, at full width, with
-the same buttons as on the board, and a verdict there returns to it with the answer on the
-card; an archived item opens read only. Choose a count
+the same buttons as on the board, and the cards below leave it out while it is open. A verdict
+there returns to it with the answer on the card; an archived item opens read only. Choose a count
 to show only the items of that status (`status=waiting`, `in_progress`, `fyi` or `archived` in
 the address); **all** shows every item again. The chosen count is marked, the counts stay
 totals, and the filter stays after a reload, a **Find** and a verdict. An unknown status in

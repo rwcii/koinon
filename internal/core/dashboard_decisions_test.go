@@ -342,7 +342,7 @@ func TestDecisionBoardStatusFilter(t *testing.T) {
 			t.Errorf("lookup under a filter: no %q", want)
 		}
 	}
-	if got := strings.Join(boardCards(page), " "); got != "D-1 D-2" {
+	if got := strings.Join(boardCards(page), " "); got != "D-1" {
 		t.Errorf("lookup under a filter: cards %q", got)
 	}
 	for i := 0; i < decisionBoardArchive; i++ {
@@ -476,14 +476,23 @@ func TestDecisionLookupCard(t *testing.T) {
 					}
 				}
 			}
-			// The grid keeps its own card of the item, with its own identifier.
-			if got := strings.Join(boardCards(body), " "); !strings.Contains(" "+got+" ", " "+c.reference+" ") {
-				t.Errorf("%s: grid %q", path, got)
+			// The grid skips the looked-up card, so the item shows once with one form, and
+			// shows it again without the lookup.
+			if strings.Contains(body, `id="card-`+c.reference+`"`) || strings.Count(body, `name="reference" value="`+c.reference+`"`) > 1 {
+				t.Errorf("%s: the grid shows the looked-up card", path)
+			}
+			without := get(strings.Replace(path, "ref="+c.reference+"&", "", 1))
+			if !strings.Contains(without, `id="card-`+c.reference+`"`) || strings.Contains(without, `<section class="lookup-result">`) {
+				t.Errorf("%s: the grid without the lookup has no card %s", path, c.reference)
 			}
 			if strings.Contains(path, "fragment=1") && strings.Contains(body, "<html") {
 				t.Errorf("%s: the fragment is a whole page", path)
 			}
 		}
+	}
+	// A grid page whose only card is looked up names no empty filter.
+	if body := get("/dashboard/decisions?ref=P-1&status=in_progress"); len(boardCards(body)) != 0 || strings.Contains(body, `<p class="empty">No in progress items.</p>`) {
+		t.Errorf("only card looked up: %s", body)
 	}
 	// The approved item shows its verdict in the history.
 	if section := lookupSection(t, get("/dashboard/decisions?ref=P-1")); !strings.Contains(section, "<strong>approved</strong> on revision 1") {
@@ -502,7 +511,7 @@ func TestDecisionLookupCard(t *testing.T) {
 		}
 		return location
 	}
-	// A stale revision on D-2, looked up with every item shown: the grid also shows D-2.
+	// A stale revision on D-2, looked up with every item shown: the grid skips D-2.
 	location := post("decision-approve", url.Values{"reference": {"D-2"}, "revision": {"9"}, "back": {"ref=D-2"}})
 	if q := location.Query(); q.Get("ref") != "D-2" || q.Get("card") != "D-2" || q.Get("notice") != "stale_revision" || q.Get("status") != "" {
 		t.Fatalf("refused redirect: %s", location)
@@ -510,8 +519,11 @@ func TestDecisionLookupCard(t *testing.T) {
 	body := get(location.String())
 	section := lookupSection(t, body)
 	if !strings.Contains(section, `<p class="card-notice refused" role="status">The item changed after the page showed it.`) || strings.Count(body, `class="card-notice`) != 1 ||
-		strings.Contains(body, `<p class="notice"`) || !strings.Contains(section, "decision-approve") {
+		strings.Contains(body, `<p class="notice"`) || !strings.Contains(section, "decision-approve") || strings.Contains(body, `id="card-D-2"`) {
 		t.Errorf("refused notice: %s", body)
+	}
+	if got := strings.Join(boardCards(body), " "); got != "D-1 F-1 P-1" {
+		t.Errorf("grid during the D-2 lookup: %q", got)
 	}
 	// Approve D-1 from its lookup under the waiting filter: the item is in progress, the
 	// lookup shows its card with the notice, and the grid keeps the filter.

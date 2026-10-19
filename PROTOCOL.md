@@ -1590,8 +1590,9 @@ from elsewhere. Peer message bodies appear here, escaped, and nowhere else outsi
   item order and reference, with `cards=CURSOR` links; 20 archived items per page with
   `archived=ID` links; `ref=REFERENCE` shows one item at full width above the agent table,
   with its verdict history 16 verdicts at a time through `history=ID`: a waiting, in-progress
-  or open fyi item as its card with the card's verdict form, and an archived item read only.
-  A verdict's redirect keeps `ref`, so it returns to the lookup with the notice on that item.
+  or open fyi item as its card with the card's verdict form, which the cards below then skip,
+  and an archived item read only. A verdict's redirect keeps `ref`, so it returns to the
+  lookup with the notice on that item.
   Each count links to `status=waiting`,
   `in_progress`, `fyi` or `archived`, which lists only the cards of that status, or only the
   archive for `archived`; an `all` link removes it. The counts stay totals under a filter, the

@@ -5,9 +5,9 @@
 </ul>{{end}}
 {{if .Data.Lookup}}<section class="lookup-result">{{with .Data.LookupErr}}<p class="empty">{{.}}</p>{{end}}
 {{with .Data.MovedAt}}<p>{{$.Data.Lookup}} moved to the deep archive at {{ms .}}. An agent restores it with <code>decision_restore</code> or <code>koinon decision restore</code>.</p>{{end}}
-{{with .Data.Item}}{{if or (eq .State "active") (eq .State "in_progress")}}{{template "card" (decisionCard $ . true)}}
+{{with .Data.Item}}{{if $.Data.LookupCard}}{{template "card" (decisionCard $ . true)}}
 {{else}}<h2>{{.Reference}}: {{.Title}}</h2>
-{{if $.Data.NoticeOn .Reference true}}{{template "card-notice" $.Data}}{{end}}
+{{if $.Data.NoticeOn .Reference}}{{template "card-notice" $.Data}}{{end}}
 <p><small>{{.Kind}}, {{.State}}, revision {{.Revision}}, order {{.Order}}, by {{.AuthorName}} ({{.AuthorFamily}}), updated {{ms .UpdatedAt}}{{with .ArchivedAt}}, archived {{ms .}}{{end}}, {{.Verdicts}} verdict(s) in history. Read only.</small></p>
 {{template "body" .}}
 {{with .ClosedBy}}<p><small>Closed by {{.}}{{with $.Data.Item.ClosedAt}} at {{ms .}}{{end}}</small></p>{{end}}{{with .OutcomeNote}}<h4>Outcome</h4><div class="md">{{markdown .}}</div>{{end}}{{end}}
@@ -29,7 +29,7 @@
 <td>{{range .Waiting}}<a href="/dashboard/decisions?ref={{.}}{{with $.Data.Status}}&amp;status={{.}}{{end}}">{{.}}</a> {{else}}<small>none</small>{{end}}{{with .More}}<small>+{{.}} more</small>{{end}}</td></tr>{{end}}</tbody></table></div>
 {{if .Data.MoreAgents}}<p><small>More agents are active than this table shows; the Sessions view lists them all.</small></p>{{end}}{{end}}
 {{if .Data.ShowCards}}<h2>Items{{with .Data.Status}}: {{$.Data.StatusLabel}}{{end}}</h2>
-{{if not .Data.Cards}}<p class="empty">No {{.Data.StatusLabel}} items.</p>{{end}}
+{{if not (or .Data.Cards .Data.GridSkipped)}}<p class="empty">No {{.Data.StatusLabel}} items.</p>{{end}}
 <div class="cards">{{range .Data.Cards}}{{template "card" (decisionCard $ . false)}}{{end}}</div>
 {{with .Data.NextCards}}<p><a href="/dashboard/decisions?cards={{.}}{{with $.Data.Status}}&amp;status={{.}}{{end}}">Next items</a></p>{{end}}{{end}}
 {{if .Data.ShowArchive}}<h2>Archive</h2>
@@ -42,7 +42,7 @@
 {{define "card"}}{{$p := .Page}}{{with .Item}}<article class="card kind-{{.Kind}}{{if $.Lookup}} lookup-card{{end}}" id="{{if $.Lookup}}lookup{{else}}card{{end}}-{{.Reference}}">
 <p class="card-head"><span class="tag">{{.Kind}}</span> <span class="tag state-{{.State}}">{{if eq .State "in_progress"}}in progress{{else if eq .Kind "fyi"}}open{{else}}waiting{{end}}</span> <a href="/dashboard/decisions?ref={{.Reference}}{{with $p.Data.Status}}&amp;status={{.}}{{end}}">{{.Reference}}</a></p>
 <h3>{{.Title}}</h3>
-{{if $p.Data.NoticeOn .Reference $.Lookup}}{{template "card-notice" $p.Data}}{{end}}
+{{if $p.Data.NoticeOn .Reference}}{{template "card-notice" $p.Data}}{{end}}
 {{template "body" .}}
 {{if eq .State "in_progress"}}{{with .Verdict}}<p><small>Approved on revision {{.Revision}}, {{ms .At}}.</small></p>{{with .Note}}<h4>Your note</h4><div class="md">{{markdown .}}</div>{{end}}
 {{if .Deliveries}}<ul class="deliveries">{{range .Deliveries}}<li>{{.Name}} <small>{{.Outcome}}{{with .Reason}} ({{.}}){{end}}</small></li>{{end}}</ul>{{end}}{{end}}<p><small>An agent closes the item when the work is done.</small></p>{{end}}
