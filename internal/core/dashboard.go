@@ -70,6 +70,9 @@ func dashboardTemplates() (map[string]*template.Template, error) {
 			return time.Unix(0, int64(f*1e9)).UTC().Format("2006-01-02 15:04:05Z")
 		},
 		"list": func(values ...string) []string { return values },
+		"decisionCard": func(page dashboardPage, item DecisionItem, lookup bool) decisionCard {
+			return decisionCard{page, item, lookup}
+		},
 		// anyWork reports whether a page of stores lists at least one work item.
 		"anyWork": func(stores []StoreSummary) bool {
 			for _, s := range stores {

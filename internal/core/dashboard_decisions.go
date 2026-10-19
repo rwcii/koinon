@@ -90,14 +90,36 @@ type decisionsData struct {
 	CardRefused bool
 }
 
-// cardShown reports whether the board shows the card of the last action.
+// cardShown reports whether the board shows the card of the last action: in the grid or as
+// the looked-up item.
 func (d decisionsData) cardShown() bool {
+	if d.Item != nil && d.Item.Reference == d.Card {
+		return true
+	}
 	for _, item := range d.Cards {
 		if item.Reference == d.Card {
 			return true
 		}
 	}
 	return false
+}
+
+// NoticeOn reports whether the notice of the last action shows on the card of reference: on
+// the looked-up item when the lookup shows it (#414), otherwise on its card in the grid, so
+// the notice shows once.
+func (d decisionsData) NoticeOn(reference string, lookup bool) bool {
+	if d.CardNotice == "" || d.Card != reference {
+		return false
+	}
+	return lookup || d.Item == nil || d.Item.Reference != reference
+}
+
+// decisionCard is one card of the board: the page that shows it, its item, and whether it is
+// the looked-up item (#414), which shows at full width above the grid.
+type decisionCard struct {
+	Page   dashboardPage
+	Item   DecisionItem
+	Lookup bool
 }
 
 // cardCursor is the keyset position of a card: its priority, item order and reference.
@@ -323,8 +345,8 @@ const decisionFormLimit = 3*decisionNoteLimit + 4096
 // decisionActions adds the maintainer's verdicts (#206, chunk 02): Approve and Decline on a
 // decision item and Dismiss on an fyi item, on the revision the page showed. They are
 // dashboard actions only, behind the login, Host, Origin and CSRF checks. The answer returns
-// to the board page that showed the card, with its status filter from the back field, and
-// with the notice on that card.
+// to the board page that showed the card, with its status filter and lookup from the back
+// field, and with the notice on that card.
 func (d *Daemon) decisionActions(mux *http.ServeMux, authed func(int64, func(http.ResponseWriter, *http.Request, string)) http.HandlerFunc,
 	run func(w http.ResponseWriter, r *http.Request, action, target, view string, query url.Values, valid bool,
 		apply func(ctx context.Context) error, accepted string, refusal func(error) string)) {

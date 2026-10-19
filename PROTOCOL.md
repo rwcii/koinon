@@ -1588,8 +1588,11 @@ from elsewhere. Peer message bodies appear here, escaped, and nowhere else outsi
   nothing), `decisions` (the counts of waiting, in-progress, open fyi and archived items; the
   agent table; 25 active and in-progress cards per page, `ACTION FOR YOU` items first, then
   item order and reference, with `cards=CURSOR` links; 20 archived items per page with
-  `archived=ID` links; `ref=REFERENCE` shows one item read only, with its verdict history 16
-  verdicts at a time through `history=ID`. Each count links to `status=waiting`,
+  `archived=ID` links; `ref=REFERENCE` shows one item at full width above the agent table,
+  with its verdict history 16 verdicts at a time through `history=ID`: a waiting, in-progress
+  or open fyi item as its card with the card's verdict form, and an archived item read only.
+  A verdict's redirect keeps `ref`, so it returns to the lookup with the notice on that item.
+  Each count links to `status=waiting`,
   `in_progress`, `fyi` or `archived`, which lists only the cards of that status, or only the
   archive for `archived`; an `all` link removes it. The counts stay totals under a filter, the
   current filter's link carries `aria-current="true"`, and the lookup form, reference and page
