@@ -8,6 +8,7 @@ import (
 	"encoding/hex"
 	"net"
 	"net/http"
+	"strconv"
 	"sync"
 	"time"
 )
@@ -181,11 +182,17 @@ func (a *dashboardAuth) validCSRF(id, token string) bool {
 	return subtle.ConstantTimeCompare([]byte(a.csrf(id)), []byte(token)) == 1
 }
 
-// dashboardHost reports whether the request names the literal address of the listener
-// that accepted it. A name such as localhost is refused, which defeats DNS rebinding.
+// dashboardHost reports whether the request names a literal loopback IP with a port, such as
+// 127.0.0.1:47671 or [::1]:47671. A name such as localhost is refused, which defeats DNS
+// rebinding (ADR 001, Decision 4). The port need not be the listener's, so an SSH tunnel on
+// another local port works (#407); a rebinding page arrives under a name, never a literal IP.
 func dashboardHost(r *http.Request) bool {
-	local, ok := r.Context().Value(http.LocalAddrContextKey).(net.Addr)
-	return ok && local != nil && r.Host == local.String() && validAddress(r.Host)
+	_, port, err := net.SplitHostPort(r.Host)
+	if err != nil {
+		return false
+	}
+	n, err := strconv.ParseUint(port, 10, 16)
+	return err == nil && n > 0 && validAddress(r.Host)
 }
 
 // dashboardHeaders apply to every dashboard response, refusals included.

@@ -524,6 +524,11 @@ or lease expiry before another session can acquire it. Use the launcher for part
 features in a new session.
 
 The dashboard link is single-use and expires; keep it out of logs, Git and messages.
+To reach another computer's dashboard, forward a local port to its daemon, for example
+`ssh -L 47670:127.0.0.1:47671 HOST`, run `koinon dashboard --no-open` there and open the printed
+link with your local port, `http://127.0.0.1:47670/...`. Use `127.0.0.1` or `[::1]`, not
+`localhost`. Browsers share the login cookie across ports of one address, so when a local daemon
+is open under `127.0.0.1`, open the tunnel under `[::1]`.
 Administrative actions require CSRF protection and are
 audited. Health reports unknown observations explicitly; a failure is not permission to
 replace state, kill an unrelated process, or change agent settings.

@@ -14,6 +14,13 @@ Changes:
   `KOINON_DAEMON_ADDRESS` uses it, and `koinon dashboard` prints its link there. A later
   install, an upgrade and `brew upgrade` keep it; `--port 47671` returns to the default.
   Without a recorded port, everything stays at 47671 (docs/INSTALL.md).
+- Dashboard through an SSH tunnel (#407): the dashboard accepts a `Host` of `127.0.0.1` or
+  `[::1]` with any port, so a tunnel from another local port, such as
+  `ssh -L 47670:127.0.0.1:47671 HOST`, works. Host names such as `localhost` are still refused,
+  and `Origin`, CSRF and login checks are unchanged. ADR 001, Decision 4.
+- Native upgrade evidence (#404): the native lifecycle job installs v0.3.1 from its Homebrew
+  keg in user mode and checks that `brew upgrade` alone moves `koinon version` on the PATH and
+  the daemon to the new build; the Go upgrade test starts from v0.3.1.
 - Koinon's own pickup skill for the handoff cycle (#406): after the clear, the managed cycle
   enters `/koinon-pickup` (Claude Code) or `$koinon-pickup` (Codex), not the bare `/pickup` or
   `$pickup`. The daemon writes that one skill for you at each start, and `koinon install` and

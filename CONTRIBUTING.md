@@ -91,8 +91,10 @@ private tmux servers, so they do not reach the person's services, terminals or a
 configuration. The guarded native Go job runs real systemd/launchd lifecycle tests on
 disposable CI runners; do not set `KOINON_NATIVE_JOB=1` on a development workstation
 ([WDR 006](docs/engineering/wdr/006-native-integration-evidence.md)).
-The native upgrade test obtains the pinned previous main release through `git archive`
-and reads committed fixtures, independently of this checkout's retired Python runtime.
+The native upgrade tests obtain the pinned previous main release through `git archive`
+and read committed fixtures, independently of this checkout's retired Python runtime. One
+installs that release from a Homebrew keg and upgrades it with only the links that
+`brew upgrade` moves.
 Fresh installation requires no interpreter; a legacy upgrade needs the installed baseline's
 interpreter for its own uninstaller.
 
