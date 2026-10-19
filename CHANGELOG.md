@@ -18,6 +18,9 @@ Changes:
   `[::1]` with any port, so a tunnel from another local port, such as
   `ssh -L 47670:127.0.0.1:47671 HOST`, works. Host names such as `localhost` are still refused,
   and `Origin`, CSRF and login checks are unchanged. ADR 001, Decision 4.
+- Repository discovery (#410): a registration's Git calls share one six-second limit instead
+  of three seconds each, so a slow first Git call no longer fails with
+  `repository_git_timeout`; a hung Git still does.
 
 ## 2026-10-17 — Homebrew upgrades and maintenance from the command line
 

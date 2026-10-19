@@ -927,11 +927,19 @@ func (s *Store) ttl(seconds int64) (int64, error) {
 	return seconds * 1000, nil
 }
 
+// repositoryGitTimeout bounds repository discovery for one request: both Git calls of a
+// registration together, or a checkout lookup. The first Git call of a freshly started
+// daemon can be slow on a loaded machine while the next is fast (#410), so the calls share
+// one deadline instead of 3 seconds each. Six seconds keeps a hung Git's worst case at the
+// earlier two times 3 seconds, inside the 10-second limits of the HTTP server and of Call.
+// Tests scale it down.
+var repositoryGitTimeout = 6 * time.Second
+
 func repository(ctx context.Context, path string) (string, error) {
 	if !filepath.IsAbs(path) || len(path) > 4096 || strings.ContainsAny(path, "\x00\r\n") {
 		return "", ErrInvalid
 	}
-	ctx, cancel := context.WithTimeout(ctx, 3*time.Second)
+	ctx, cancel := context.WithTimeout(ctx, repositoryGitTimeout)
 	defer cancel()
 	cmd := exec.CommandContext(ctx, "git", "-C", path, "rev-parse", "--path-format=absolute", "--git-common-dir")
 	cmd.Env = CleanGitEnvironment()
@@ -988,11 +996,13 @@ func (s *Store) Register(ctx context.Context, r Registration) (Session, error) {
 	// without Git; repository-dependent operations are added in later chunks.
 	common := ""
 	if r.Repository != "" {
-		common, err = repository(ctx, r.Repository)
+		discovery, cancel := context.WithTimeout(ctx, repositoryGitTimeout)
+		defer cancel()
+		common, err = repository(discovery, r.Repository)
 		if err != nil {
 			return Session{}, err
 		}
-		dirCommon, err := repository(ctx, directory)
+		dirCommon, err := repository(discovery, directory)
 		if err != nil {
 			return Session{}, err
 		}

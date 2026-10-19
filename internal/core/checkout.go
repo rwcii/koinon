@@ -9,7 +9,6 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
-	"time"
 	"unicode/utf8"
 )
 
@@ -36,7 +35,7 @@ func CheckoutResource(ctx context.Context, directory string) (Checkout, error) {
 	if err != nil {
 		return Checkout{}, ErrInvalid
 	}
-	ctx, cancel := context.WithTimeout(ctx, 3*time.Second)
+	ctx, cancel := context.WithTimeout(ctx, repositoryGitTimeout)
 	defer cancel()
 	common, err := repository(ctx, path)
 	if err != nil {

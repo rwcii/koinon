@@ -7,12 +7,84 @@ import (
 	"fmt"
 	"net/http"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 )
 
+// scaleRepositoryGitTimeout sets the discovery bound for one test, so that a hung fake Git
+// ends quickly. Set it before the test starts a daemon: cleanups run in reverse order, so
+// the daemon stops before the bound is restored.
+func scaleRepositoryGitTimeout(t *testing.T, bound time.Duration) {
+	t.Helper()
+	previous := repositoryGitTimeout
+	repositoryGitTimeout = bound
+	t.Cleanup(func() { repositoryGitTimeout = previous })
+}
+
+func shellQuote(value string) string { return "'" + strings.ReplaceAll(value, "'", "'\"'\"'") + "'" }
+
+// A registration's first Git call that is slower than half the bound, as on a freshly
+// started daemon on a loaded machine (#410), still registers: both calls share the bound.
+// At the real scale, the bound is 6 seconds and the first call took more than the earlier
+// 3 seconds per call.
+func TestRegistrationToleratesSlowFirstGitCall(t *testing.T) {
+	git, err := exec.LookPath("git")
+	if err != nil {
+		t.Fatal(err)
+	}
+	scaleRepositoryGitTimeout(t, 2*time.Second)
+	repo := testRepo(t)
+	d, root := startTestDaemon(t)
+	secret, err := ReadSecret(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	bin := t.TempDir()
+	cold := filepath.Join(bin, "cold")
+	script := fmt.Sprintf("#!/bin/sh\nif [ ! -e %s ]; then\n : > %s\n /bin/sleep 1.2\nfi\nexec %s \"$@\"\n",
+		shellQuote(cold), shellQuote(cold), shellQuote(git))
+	if err := os.WriteFile(filepath.Join(bin, "git"), []byte(script), 0700); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("PATH", bin+string(os.PathListSeparator)+os.Getenv("PATH"))
+	started := time.Now()
+	status, reply := post(t, d.Addresses()[0], secret, "/v1/sessions/register",
+		Registration{Family: "deepseek", ID: "synthetic-slow-discovery", Directory: repo, Repository: repo})
+	if status != http.StatusOK || reply["ok"] != true {
+		t.Fatalf("slow first Git call refused: status=%d reply=%v", status, reply)
+	}
+	if _, err := os.Stat(cold); err != nil {
+		t.Fatalf("fake Git did not run: %v", err)
+	}
+	if elapsed := time.Since(started); elapsed < repositoryGitTimeout/2 {
+		t.Fatalf("first Git call was not slower than half the bound: %s", elapsed)
+	}
+}
+
+// A hung Git still ends with ErrRepositoryGitTimeout once the bound passes.
+func TestRepositoryDiscoveryTimesOutHungGit(t *testing.T) {
+	scaleRepositoryGitTimeout(t, 300*time.Millisecond)
+	repo := testRepo(t)
+	bin := t.TempDir()
+	if err := os.WriteFile(filepath.Join(bin, "git"), []byte("#!/bin/sh\nexec /bin/sleep 30\n"), 0700); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("PATH", bin)
+	started := time.Now()
+	_, err := repository(context.Background(), repo)
+	if !errors.Is(err, ErrRepositoryGitTimeout) {
+		t.Fatalf("hung Git: %v", err)
+	}
+	if elapsed := time.Since(started); elapsed >= 3*time.Second {
+		t.Fatalf("discovery ignored its bound: %s", elapsed)
+	}
+}
+
 func TestRegistrationReportsGitExecutionFailures(t *testing.T) {
+	scaleRepositoryGitTimeout(t, 500*time.Millisecond)
 	for _, test := range []struct {
 		name, script, want string
 	}{
@@ -82,6 +154,7 @@ func TestNonRepositoryRemainsInvalidInput(t *testing.T) {
 }
 
 func TestRegistrationReportsSecondGitDiscoveryTimeout(t *testing.T) {
+	scaleRepositoryGitTimeout(t, 500*time.Millisecond)
 	repo := testRepo(t)
 	directory := filepath.Join(repo, "child")
 	if err := os.Mkdir(directory, 0700); err != nil {
@@ -92,9 +165,8 @@ func TestRegistrationReportsSecondGitDiscoveryTimeout(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	quote := func(value string) string { return "'" + strings.ReplaceAll(value, "'", "'\"'\"'") + "'" }
 	script := fmt.Sprintf("#!/bin/sh\nif [ \"$2\" = %s ]; then\n printf '%%s\\n' %s\n exit 0\nfi\nexec /bin/sleep 30\n",
-		quote(repo), quote(filepath.Join(repo, ".git")))
+		shellQuote(repo), shellQuote(filepath.Join(repo, ".git")))
 	bin := t.TempDir()
 	if err := os.WriteFile(filepath.Join(bin, "git"), []byte(script), 0700); err != nil {
 		t.Fatal(err)
