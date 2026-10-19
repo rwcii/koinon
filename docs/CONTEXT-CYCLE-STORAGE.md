@@ -72,7 +72,8 @@ Schema 24 (#196, chunk 03) adds the interactive bootstrap stages `bootstrap_inte
 `bootstrap_verified`. They are non-terminal stages like the others: each debits 280 pages, and a
 cycle with a bootstrap still has at most 14 stages under the 16-event bound, so the credit is
 unchanged. The migration rebuilds `context_cycles` and returns the old table's pages before the
-first write.
+first write. Since #406 no cycle enters these stages; the schema keeps them for cycles that an
+earlier binary stored in them.
 
 ## Retention
 

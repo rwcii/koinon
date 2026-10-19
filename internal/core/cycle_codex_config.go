@@ -12,7 +12,7 @@ import (
 // Codex turns a skill on or off only through skills.config entries, selected by name or by
 // path (P9 in chunks/04-codex-cycle.md). codexActivation reads every configuration layer of
 // the host as TOML, so quoted and escaped keys keep their meaning, and refuses an entry that
-// can turn off one of the verified pickup files. Other entries, and entries that turn a skill
+// can turn off the verified koinon-pickup file. Other entries, and entries that turn a skill
 // on, are harmless.
 
 // codexConfigMax bounds one configuration layer.
@@ -207,8 +207,9 @@ func codexPath(doc map[string]any, keys ...string) any {
 }
 
 // codexEntries checks one skills.config value: an array of tables, each selecting a skill by
-// name or by path. An entry whose enabled is not true and whose selector can name a verified
-// file refuses; Codex ignores an entry with both or neither selector.
+// name or by path. An entry whose enabled is not true and whose selector can name the verified
+// file (by the name koinon-pickup or its path) refuses; Codex ignores an entry with both or
+// neither selector.
 func codexEntries(value any, base string, files []string) error {
 	if value == nil {
 		return nil
@@ -241,7 +242,7 @@ func codexEntries(value any, base string, files []string) error {
 			if !ok {
 				return errors.New("pickup_entry_unverified")
 			}
-			if parts := strings.Split(text, ":"); parts[len(parts)-1] == "pickup" {
+			if parts := strings.Split(text, ":"); parts[len(parts)-1] == PickupSkillName {
 				return errors.New("pickup_entry_unverified")
 			}
 			continue

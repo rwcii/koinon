@@ -27,6 +27,9 @@ type ContextSessionView struct {
 	ThresholdSource string `json:"threshold_source"`
 	Available       bool   `json:"available"`
 	Unavailable     string `json:"unavailable,omitempty"`
+	// UnavailableStep names the action that removes Unavailable, such as the command that
+	// installs the pickup skill.
+	UnavailableStep string `json:"unavailable_step,omitempty"`
 	Eligible        bool   `json:"eligible"`
 	Reason          string `json:"reason,omitempty"`
 	CycleID         string `json:"cycle_id,omitempty"`
@@ -85,7 +88,7 @@ func (s *Store) ContextShow(ctx context.Context, after string) ([]ContextFamilyP
 		row := s.contextRowOf(session, enables[k], now)
 		v := ContextSessionView{Peer: session.Name, Family: session.Family, Enabled: row.Enable.Enabled, EnableRevision: row.Enable.Revision,
 			Mode: row.Mode, Threshold: row.Threshold, ThresholdSource: "family", Available: row.Available, Unavailable: row.Unavailable,
-			Eligible: row.Eligible, Reason: row.Reason}
+			UnavailableStep: row.UnavailableStep, Eligible: row.Eligible, Reason: row.Reason}
 		if row.Enable.Threshold > 0 {
 			v.ThresholdSource = "session"
 		}
