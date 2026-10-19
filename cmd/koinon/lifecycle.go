@@ -95,8 +95,10 @@ func lifecycleCommand(ctx context.Context, args []string, out io.Writer) error {
 	}
 	var noStart, system, fromPython, verify, status *bool
 	var from, pythonPrefix, python *string
+	var port *int
 	switch args[0] {
 	case "install":
+		port = flags.Int("port", 0, "loopback port of the daemon and dashboard; kept by later installs")
 		noStart = flags.Bool("no-start", false, "write the service without starting it")
 		system = flags.Bool("system", false, "macOS: run the daemon as a LaunchDaemon that survives logout; asks sudo")
 	case "import":
@@ -116,8 +118,13 @@ func lifecycleCommand(ctx context.Context, args []string, out io.Writer) error {
 	}
 	switch args[0] {
 	case "install":
+		given := false
+		flags.Visit(func(f *flag.Flag) { given = given || f.Name == "port" })
+		if given && !core.ValidPort(*port) {
+			return usageError{"invalid_request", "--port takes a port from 1 to 65535"}
+		}
 		// The report shows what was done also when a later step failed.
-		r, err := install.Install(ctx, install.Options{Prefix: *prefix, StateDir: *state, Agents: agents, NoStart: *noStart, System: *system})
+		r, err := install.Install(ctx, install.Options{Prefix: *prefix, StateDir: *state, Port: *port, Agents: agents, NoStart: *noStart, System: *system})
 		printJSON(out, r)
 		return coded(err)
 	case "uninstall":

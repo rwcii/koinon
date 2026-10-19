@@ -32,7 +32,7 @@ func participantCommand(ctx context.Context, args []string, out io.Writer) error
 	flags := flag.NewFlagSet("participant "+op, flag.ContinueOnError)
 	flags.SetOutput(io.Discard)
 	state := flags.String("state-dir", root, "private Go state directory")
-	address := flags.String("address", "127.0.0.1:47671", "daemon loopback address")
+	address := addressFlag(flags)
 	var ifRevision *int64
 	if op == "holder" {
 		ifRevision = flags.Int64("if-revision", 0, "the chosen session's revision; default its current one")
@@ -53,6 +53,9 @@ func participantCommand(ctx context.Context, args []string, out io.Writer) error
 	}
 	if ifRevision != nil && *ifRevision < 0 {
 		return usageError{"invalid_request", "--if-revision is a session revision"}
+	}
+	if err := resolveAddress(flags); err != nil {
+		return err
 	}
 	secret, err := core.ClientSecret(*state, *address)
 	if err != nil {

@@ -26,7 +26,7 @@ func libraryCommand(ctx context.Context, args []string, out io.Writer) error {
 	flags := flag.NewFlagSet("library "+op, flag.ContinueOnError)
 	flags.SetOutput(io.Discard)
 	state := flags.String("state-dir", root, "private Go state directory")
-	address := flags.String("address", "127.0.0.1:47671", "daemon loopback address")
+	address := addressFlag(flags)
 	as := flags.String("as", "", "calling session as FAMILY:ID")
 	var after *string
 	var limit *int
@@ -58,6 +58,9 @@ func libraryCommand(ctx context.Context, args []string, out io.Writer) error {
 		body["after"], body["limit"] = *after, *limit
 	} else {
 		body["item_id"] = itemID
+	}
+	if err := resolveAddress(flags); err != nil {
+		return err
 	}
 	secret, err := core.ClientSecret(*state, *address)
 	if err != nil {

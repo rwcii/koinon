@@ -6,6 +6,13 @@ The Go daemon is the Koinon runtime. Its HTTP API uses a
 private user secret from the selected Go state root, passed in `Authorization: Bearer SECRET`.
 No API endpoint is anonymous. Each listener must be a literal loopback address; foreign
 browser origins and non-loopback Host headers are refused. The API accepts no browser cookies.
+The daemon listens on `127.0.0.1` and `[::1]` at the port that the state root's `port` file
+records, 47671 when there is none; `koinon install --port N` writes that file, one decimal
+port and a newline, and `koinon serve --listen` or `--listen-v6` replaces one listener. A
+client takes the daemon address from `--address`, else from `KOINON_DAEMON_ADDRESS` when
+`KOINON_STATE_DIR` (or, unset, the default) names the same state directory, else
+from `127.0.0.1` and the recorded port; a `port` file that holds no valid port is refused
+with `port_invalid` (docs/INSTALL.md).
 The secret and state files are user-owned regular files, mode 0600; the state root is private.
 Never put a secret, runtime session identifier or response body in a repository.
 
@@ -1547,10 +1554,12 @@ from elsewhere. Peer message bodies appear here, escaped, and nowhere else outsi
   is `HttpOnly`, `SameSite=Strict`, `Path=/dashboard/` and has no `Domain`. A session ends after 30
   idle minutes, after 12 hours, at logout, when 16 newer sessions exist, or when the daemon
   restarts. The daemon keeps only SHA-256 hashes of tokens and session IDs, in memory.
-- **Request protection.** Every dashboard request must name the literal address of the listener
-  that accepted it in `Host` (`127.0.0.1:PORT` or `[::1]:PORT`; `localhost` is refused); an
-  `Origin`, when present, must be `http://` plus that host. A request other than `GET` or `HEAD`
-  needs that `Origin` and the session's CSRF token in `X-Koinon-CSRF` or the form field `csrf`.
+- **Request protection.** Every dashboard request must name a literal loopback IP with a port in
+  `Host` (`127.0.0.1:PORT` or `[::1]:PORT`; `localhost` and other names are refused). PORT may
+  differ from the listener's, as through an SSH tunnel from another local port (ADR 001,
+  Decision 4). An `Origin`, when present, must be `http://` plus that host. A request other
+  than `GET` or `HEAD` needs that `Origin` and the session's CSRF token in `X-Koinon-CSRF` or the
+  form field `csrf`.
   The token is HMAC-SHA256 of the session ID under a key made at each daemon start; pages carry it
   in a hidden field, so the cookie stays unreadable to scripts. A wrong host, origin or token is
   403; no session is 401. Every response carries a `default-src 'none'` content security policy

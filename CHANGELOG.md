@@ -5,6 +5,19 @@ into a dated release section when promoted to `main`.
 
 ## Unreleased
 
+Changes:
+
+- Daemon and dashboard port (#405): `koinon install --port N` records the port of both loopback
+  listeners in the state directory (`<state>/port`), on Linux, for the macOS agent and in macOS
+  system mode; the service file is unchanged, and `koinon serve --state-dir` reads the port.
+  Every command, hook, launched agent and `koinon mcp` without `--address` or
+  `KOINON_DAEMON_ADDRESS` uses it, and `koinon dashboard` prints its link there. A later
+  install, an upgrade and `brew upgrade` keep it; `--port 47671` returns to the default.
+  Without a recorded port, everything stays at 47671 (docs/INSTALL.md).
+- Dashboard through an SSH tunnel (#407): the dashboard accepts a `Host` of `127.0.0.1` or
+  `[::1]` with any port, so a tunnel from another local port, such as
+  `ssh -L 47670:127.0.0.1:47671 HOST`, works. Host names such as `localhost` are still refused,
+  and `Origin`, CSRF and login checks are unchanged. ADR 001, Decision 4.
 - Native upgrade evidence (#404): the native lifecycle job installs v0.3.1 from its Homebrew
   keg in user mode and checks that `brew upgrade` alone moves `koinon version` on the PATH and
   the daemon to the new build; the Go upgrade test starts from v0.3.1.
