@@ -18,6 +18,9 @@ Changes:
   `[::1]` with any port, so a tunnel from another local port, such as
   `ssh -L 47670:127.0.0.1:47671 HOST`, works. Host names such as `localhost` are still refused,
   and `Origin`, CSRF and login checks are unchanged. ADR 001, Decision 4.
+- Native upgrade evidence (#404): the native lifecycle job installs v0.3.1 from its Homebrew
+  keg in user mode and checks that `brew upgrade` alone moves `koinon version` on the PATH and
+  the daemon to the new build; the Go upgrade test starts from v0.3.1.
 
 ## 2026-10-17 — Homebrew upgrades and maintenance from the command line
 
