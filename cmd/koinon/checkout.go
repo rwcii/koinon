@@ -29,7 +29,7 @@ func checkoutCommand(ctx context.Context, args []string, out io.Writer) error {
 			return err
 		}
 		state = flags.String("state-dir", root, "private Go state directory")
-		address = flags.String("address", "127.0.0.1:47671", "daemon loopback address")
+		address = addressFlag(flags)
 		as = flags.String("as", "", "calling session as FAMILY:ID")
 		if operation == "request" {
 			note = flags.String("note", "", "reason for requesting the writer role")
@@ -53,6 +53,9 @@ func checkoutCommand(ctx context.Context, args []string, out io.Writer) error {
 		body := map[string]any{"caller": core.Key{Family: family, ID: id}, "directory": checkout.Directory}
 		if note != nil {
 			body["note"] = *note
+		}
+		if err := resolveAddress(flags); err != nil {
+			return err
 		}
 		secret, err := core.ClientSecret(*state, *address)
 		if err != nil {

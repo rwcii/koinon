@@ -76,7 +76,7 @@ func Start(c Config) (*Daemon, error) {
 		return nil, err
 	}
 	if len(c.Listen) == 0 {
-		c.Listen = []string{"127.0.0.1:47671", "[::1]:47671"}
+		c.Listen = Listeners(DefaultPort)
 	}
 	if len(c.Listen) > 2 {
 		return nil, errors.New("at most two loopback listeners")

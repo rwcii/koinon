@@ -56,9 +56,9 @@ func (e HookEnv) callWithin(limit time.Duration, path string, body any) (json.Ra
 			return nil, err
 		}
 	}
-	address := e.Getenv("KOINON_DAEMON_ADDRESS")
-	if address == "" {
-		address = "127.0.0.1:47671"
+	address, err := core.DaemonAddress(state, e.Getenv)
+	if err != nil {
+		return nil, err
 	}
 	secret, err := core.ReadSecret(state)
 	if err != nil {
