@@ -1,0 +1,144 @@
+package core
+
+import (
+	"bytes"
+	"errors"
+	"os"
+	"path/filepath"
+)
+
+// The managed cycle's pickup entry (#406): a Koinon-owned skill named koinon-pickup, which no
+// project uses. koinon install writes it for the person who runs the daemon, never into a
+// repository: skills/koinon-pickup/SKILL.md under the Claude Code configuration root, and
+// ~/.agents/skills/koinon-pickup/SKILL.md for Codex. After the clear the cycle enters
+// /koinon-pickup (Claude Code) or $koinon-pickup (Codex). A project's own pickup skill takes
+// no part in the cycle.
+
+// PickupSkillName is the name of the cycle's pickup skill and of its directory.
+const PickupSkillName = "koinon-pickup"
+
+// pickupSkillDescription is the skill's description, which Claude Code's command menu lists.
+const pickupSkillDescription = "Koinon's managed-cycle entry for the canonical pickup procedure. Resume work from this agent's newest handoff."
+
+// pickupSkillContent is the skill's bytes. Its body only reads the canonical catalog item and
+// checks it against the cycle's pinned catalog digest; it holds no procedure of its own, so it
+// changes only when this entry changes.
+const pickupSkillContent = `---
+name: ` + PickupSkillName + `
+description: ` + pickupSkillDescription + `
+---
+
+Call the koinon library_read tool for item skill.pickup. When context_cycle_status shows a cycle,
+the catalog_digest that library_read returns must equal the cycle's catalog_digest; if it differs,
+or the tool is unavailable, stop and report that. Otherwise follow the returned procedure.
+`
+
+// PickupSkill returns the skill's bytes.
+func PickupSkill() []byte { return []byte(pickupSkillContent) }
+
+// pickupSkillEntry is the skill's bytes and its menu description.
+func pickupSkillEntry() PickupEntry {
+	return PickupEntry{Content: PickupSkill(), Description: pickupSkillDescription}
+}
+
+// ClaudeConfigRoot is a person's Claude Code configuration root: configDir (their
+// CLAUDE_CONFIG_DIR) when it is set, else ~/.claude in home.
+func ClaudeConfigRoot(configDir, home string) string {
+	if configDir != "" {
+		return configDir
+	}
+	return filepath.Join(home, ".claude")
+}
+
+// ClaudePickupSkillPath is the skill's file under a Claude Code configuration root
+// ($CLAUDE_CONFIG_DIR, else ~/.claude).
+func ClaudePickupSkillPath(configRoot string) string {
+	return filepath.Join(configRoot, "skills", PickupSkillName, "SKILL.md")
+}
+
+// CodexPickupSkillPath is the skill's file in a home directory's user skills, which Codex lists
+// for every session.
+func CodexPickupSkillPath(home string) string {
+	return filepath.Join(home, ".agents", "skills", PickupSkillName, "SKILL.md")
+}
+
+// pickupSkillReason checks the installed skill file against want: "" when it is byte-equal,
+// else pickup_entry_missing, pickup_entry_unreadable or pickup_entry_differs.
+func pickupSkillReason(path string, want []byte) string {
+	if _, err := os.Lstat(path); errors.Is(err, os.ErrNotExist) {
+		return "pickup_entry_missing"
+	}
+	data, err := readBounded(path, 1<<20)
+	if err != nil {
+		return "pickup_entry_unreadable"
+	}
+	if len(want) == 0 || !bytes.Equal(data, want) {
+		return "pickup_entry_differs"
+	}
+	return ""
+}
+
+// pickupSkillStep names the command that installs the skill at path, for a reason of
+// pickupSkillReason.
+func pickupSkillStep(path string) string {
+	return "run koinon install to install the " + PickupSkillName + " skill at " + path
+}
+
+// InstallPickupSkill writes the skill to path, replacing a different file, and reports
+// "created", "replaced" or "unchanged". Missing directories are created private to this account.
+func InstallPickupSkill(path string) (string, error) {
+	data, err := os.ReadFile(path)
+	switch {
+	case err == nil && bytes.Equal(data, PickupSkill()):
+		return "unchanged", nil
+	case err != nil && !errors.Is(err, os.ErrNotExist):
+		return "", err
+	}
+	result := "replaced"
+	if err != nil {
+		result = "created"
+	}
+	dir := filepath.Dir(path)
+	if err := os.MkdirAll(dir, 0o700); err != nil {
+		return "", err
+	}
+	tmp, err := os.CreateTemp(dir, ".SKILL-*")
+	if err != nil {
+		return "", err
+	}
+	defer os.Remove(tmp.Name())
+	if _, err := tmp.Write(PickupSkill()); err != nil {
+		tmp.Close()
+		return "", err
+	}
+	if err := tmp.Chmod(0o644); err != nil {
+		tmp.Close()
+		return "", err
+	}
+	if err := tmp.Close(); err != nil {
+		return "", err
+	}
+	if err := os.Rename(tmp.Name(), path); err != nil {
+		return "", err
+	}
+	return result, nil
+}
+
+// RemovePickupSkill removes the skill at path while it is this binary's skill, then its
+// directory when that is empty, and reports "removed", "kept" (another content) or "absent".
+func RemovePickupSkill(path string) (string, error) {
+	data, err := os.ReadFile(path)
+	switch {
+	case errors.Is(err, os.ErrNotExist):
+		return "absent", nil
+	case err != nil:
+		return "", err
+	case !bytes.Equal(data, PickupSkill()):
+		return "kept", nil
+	}
+	if err := os.Remove(path); err != nil {
+		return "", err
+	}
+	os.Remove(filepath.Dir(path))
+	return "removed", nil
+}

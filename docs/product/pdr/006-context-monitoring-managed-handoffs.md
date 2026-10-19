@@ -3,7 +3,7 @@ pdr: "006"
 title: "Context Monitoring and Managed Handoffs"
 status: draft
 created: "2026-10-12"
-updated: "2026-10-16"
+updated: "2026-10-19"
 authors:
   - "Robert Capps"
 reviewers: []
@@ -50,7 +50,7 @@ cycle. The rest is requested in #196 or proposed in its plan.
 2. Decision 1: Family defaults with a per-session Enable
 3. Decision 2: Enable carries over a verified managed reset
 4. Decision 3: Ask, wait for ready, then enter commands in the agent's pane
-5. Decision 4: Verify the reset, report every step, and fall back to embedded skills
+5. Decision 4: Verify the reset, report every step, and pick up through Koinon's own skill
 6. Decision 5: A native check certifies the CLI version current then
 7. Statements this record does not adopt
 8. Conclusion
@@ -171,8 +171,9 @@ The agent
 finishes or pauses its step, writes its handoff and replies that it is ready; a peer cannot
 reply ready for another session. After the reply, Koinon enters the family's commands in the
 agent's own pane, proven as in the #156 rename (the pane process is an ancestor of the
-agent's host with no other agent between them): `/clear` then `/pickup`, or `/clear` then
-`$pickup` for Codex, with no appended task text (PDR 002, Decision 4); for Codex the clear step
+agent's host with no other agent between them): `/clear` then `/koinon-pickup`, or `/clear`
+then `$koinon-pickup` for Codex (Decision 4), with no appended task text (PDR 002, Decision 4);
+for Codex the clear step
 also enters the local `/status`, whose card names the new thread for the reset proof (#196
 chunk 04). It reads the pane
 after each step and handles prompts or alerts shown during the cycle under the maintainer's
@@ -214,38 +215,76 @@ The maintainer sees a session hand off, reset and pick up without typing in its 
 
 ---
 
-## 5. Decision 4: Verify the reset, report every step, and fall back to embedded skills
+## 5. Decision 4: Verify the reset, report every step, and pick up through Koinon's own skill
 
 ### Decision
 
 Each step, wait, failure and outcome appears in the dashboard and the audit log. The plan
 proposes that native reset, the session's registration and the receiving model's pickup be
 verified separately; transport acceptance or a low context value is not enough. A restart
-does not repeat terminal commands or count an uncertain reset as done. A session without
-installed handoff or pickup skills can use the embedded catalog's skills for this cycle,
-shown in the dashboard; if that bootstrap cannot be proven, the cycle stops before reset.
-Families without the native proofs tracked in #275 and #199 stay shown as unavailable.
+does not repeat terminal commands or count an uncertain reset as done. A session without an
+installed handoff skill can use the embedded catalog's skill for this cycle. Families without
+the native proofs tracked in #275 and #199 stay shown as unavailable.
+
+The cycle picks up through its own Koinon-named skill, installed in the home of the person who
+runs the daemon (Claude Code's personal skills, `~/.agents/skills` for Codex), never in a
+project repository. A project's own `pickup` skill stays unchanged and no longer affects the
+cycle. One user-level copy per agent family replaces per-project copies and the per-session
+loader directory that Claude Code launches added (`--add-dir`).
+
+As proposed in #406: the skill is named `koinon-pickup`, and its body only reads the catalog
+item `skill.pickup` through Koinon and requires its catalog digest to equal the cycle's, so
+the procedure itself has one copy, in the binary's catalog. `koinon install`, and the install
+that an upgrade runs, writes it as `skills/koinon-pickup/SKILL.md` under the Claude Code
+configuration root and `~/.agents/skills/koinon-pickup/SKILL.md` for Codex. After the clear the
+cycle enters `/koinon-pickup` or `$koinon-pickup`. Before each input the cycle checks only that
+file, byte for byte; a missing or different file makes the cycle unavailable with a reason that
+names the install command, and an entry that cannot be proven stops the cycle before reset.
+Personal and project `pickup` skills are not read. The per-session `--add-dir` loader and the
+`/add-dir` step before the clear are removed. Claude Code's discovery of the personal skill has
+no separate native record (PDR 008, Decision 3); the pickup step's menu check, which submits
+only when the command menu lists the skill's description first, proves it in each cycle.
 
 **Provenance:** Reporting: Requested in #196 (issue body, step 4); a request record. Reset
-verification is open in #196 ("To decide in the plan"). Separate verification, restart
-handling and the embedded fallback: Proposed in the unpublished #196 plan draft (9206a1d); not decided.
-The fallback is also named in the planning scope comment (#196 comment 6115978138), which is
-not a maintainer quote.
+verification is open in #196 ("To decide in the plan"). Separate verification and restart
+handling: Proposed in the unpublished #196 plan draft (9206a1d); not decided. The embedded
+handoff fallback: Proposed in the same draft, and named in the planning scope comment (#196
+comment 6115978138), which is not a maintainer quote.
+
+The Koinon-named pickup skill: Maintainer, 2026-10-19, answering #406's proposed fix (give the
+cycle's pickup entry a name that no project uses, and type that name instead of the bare
+`pickup`): "your recommendation seems fair. that koinon specific skill should be installed for
+the user, instead of in the repo."
+([record](https://github.com/rwcii/koinon/issues/406#issuecomment-6276165765)). Intent: the
+cycle uses its own Koinon-named pickup skill, installed in the home of the person who runs the
+daemon, never in a project repository, and a project's own `pickup` skill no longer affects the
+cycle. The reason: "that way only a single copy needs to be managed"
+([record](https://github.com/rwcii/koinon/issues/406#issuecomment-6276169525)). Intent: one
+user-level copy per agent family replaces per-project copies and the per-session loader. The
+name `koinon-pickup`, the paths, the install step, the typed commands, the byte check and its
+reasons, and the loader's removal: Proposed in the #406 design comment
+([record](https://github.com/rwcii/koinon/issues/406#issuecomment-6276914180)), for review in
+the pull request; not a maintainer decision.
 
 ### Alternatives Considered
 
 | Alternative | Description | Why Rejected |
 | ----------- | ----------- | ------------ |
 | Trust the command send | Count the cycle done once commands are entered | Cannot tell a failed clear from a good one |
-| Install missing skills first | Adopt skills before the first cycle | Adoption is a separate, approved step (PDR 008) |
+| Install missing skills first | Adopt the catalog's skills before the first cycle | Adoption is a separate, approved step (PDR 008); `koinon-pickup` is Koinon's own entry, not a catalog item |
+| The bare `pickup` entry | Enter `/pickup` or `$pickup`, which a personal or project skill, or Koinon's loader, answers | A project's own skill blocked the cycle, and a personal copy shadows every project's own (#406) |
+| A per-session loader | Add a loader directory to each Claude Code session (`--add-dir`, or `/add-dir` before the clear) | Replaced by one user-level copy per family, "only a single copy" to manage (#406) |
 
 ### Rationale
 
 1. A visible, audited outcome lets the maintainer see where a cycle stopped and why.
+2. A name that no project uses keeps the cycle's entry and a project's own `pickup` apart.
 
 ### User Impact
 
 Every cycle has a visible result. A family that cannot be proven shows why it is unavailable.
+A session in a project with its own `pickup` skill gets the cycle, and that skill is left as
+it is; `koinon install` keeps the one Koinon skill per family that the cycle needs.
 
 ---
 
@@ -316,3 +355,4 @@ and terminal commands have the maintainer's words; the rest is requested or prop
 | 2026-10-14 | Recorded the Codex `/status` read in the clear step (#196 chunk 04) |
 | 2026-10-16 | Decision 1: settings and Enable change also from the command line and by agents through MCP, audited with their origin; a per-session threshold (#391) |
 | 2026-10-16 | Decision 5: a native check certifies the CLI version current then; no version gate and no certification status (#196) |
+| 2026-10-19 | Decisions 3 and 4: the cycle picks up through Koinon's own `koinon-pickup` skill, installed for the person, never in a repository; the loader and its bootstrap are removed (#406) |

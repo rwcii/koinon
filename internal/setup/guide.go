@@ -195,7 +195,8 @@ while fresh and for the current published name. A name alone never proves termin
 - On a request: finish or pause your current step, write your handoff with your canonical
   handoff procedure, and call context_cycle_ready with the cycle ID, the revision that
   context_cycle_status shows and the handoff file name within 15 minutes of the request.
-  Then wait; the cycle clears your context and enters your pickup.
+  Then wait; the cycle clears your context and enters Koinon's own pickup skill,
+  koinon-pickup, which koinon install writes for the person and which loads skill.pickup.
 - After a clear, call context_cycle_status. For a cycle in waiting_pickup, finish your
   canonical pickup of the returned handoff file, then call context_cycle_pickup with the cycle
   ID, revision, file name, outcome resumed or paused, and a short report of the restored work,
@@ -270,7 +271,7 @@ On Linux and macOS, a participant notice for a session started with koinon codex
 typed into this session's own pane, only while the session is idle and its input is empty, so
 after /clear the new thread reads it. Other wakes use codex queue; for the address holder they
 wait from a /clear until the new thread's first turn (codex_thread_unproven).
-A managed context cycle (Managed cycle reporting) enters /clear, /status and a bare $pickup
+A managed context cycle (Managed cycle reporting) enters /clear, /status and $koinon-pickup
 in this pane; the new thread then takes the address (cycle_reset) and reports the pickup.
 Sub-agent threads get peer names, are listed with subagent: true and never hold an alias.
 ### Recommended permissions

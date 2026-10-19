@@ -245,6 +245,27 @@ func installedCatalog(t *testing.T, prefix string) {
 	}
 }
 
+// installedPickupSkills checks the managed cycle's koinon-pickup skill that install writes for
+// the person who runs it (#406), under the Claude Code configuration root and in
+// ~/.agents/skills for Codex, or that uninstall removed. Runs only in guarded CI.
+func installedPickupSkills(t *testing.T, present bool) {
+	t.Helper()
+	home, err := os.UserHomeDir()
+	if err != nil {
+		t.Fatal(err)
+	}
+	claude := os.Getenv("CLAUDE_CONFIG_DIR")
+	if claude == "" {
+		claude = filepath.Join(home, ".claude")
+	}
+	for _, path := range []string{core.ClaudePickupSkillPath(claude), core.CodexPickupSkillPath(home)} {
+		data, err := os.ReadFile(path)
+		if present && (err != nil || !bytes.Equal(data, core.PickupSkill())) || !present && !os.IsNotExist(err) {
+			t.Fatalf("pickup skill %s (want present %v): %v %q", path, present, err, data)
+		}
+	}
+}
+
 // TestGoLifecycle installs, starts, kills, uninstalls and reinstalls the daemon; the
 // state survives the uninstall.
 func TestGoLifecycle(t *testing.T) {
@@ -252,6 +273,7 @@ func TestGoLifecycle(t *testing.T) {
 	prefix, state := filepath.Join(dir, "prefix space"), filepath.Join(dir, "state")
 	report := installWithoutPython(t, prefix, state)
 	installedCatalog(t, prefix)
+	installedPickupSkills(t, true)
 	if report["service"] != "running" {
 		t.Fatalf("install %v", report)
 	}
@@ -296,7 +318,9 @@ func TestGoLifecycle(t *testing.T) {
 	if _, err := os.Stat(filepath.Join(state, "state.sqlite3")); err != nil {
 		t.Fatalf("uninstall removed the state: %v", err)
 	}
+	installedPickupSkills(t, false)
 	must(t, "install", "--prefix", prefix, "--state-dir", state)
+	installedPickupSkills(t, true)
 	secret, err := core.ReadSecret(state)
 	if err != nil {
 		t.Fatal(err)

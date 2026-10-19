@@ -296,38 +296,39 @@ func TestContextCycleListedCheckoutOnly(t *testing.T) {
 	}
 }
 
-// Without a loader at launch, the cycle adds it before the clear behind its own intent; an
-// unproven bootstrap is uncertain and never repeated, and the pickup expects the loader.
-func TestContextCycleInteractiveBootstrap(t *testing.T) {
+// No cycle enters a bootstrap stage since #406: a ready cycle goes straight to its clear, and
+// one that an earlier binary left in bootstrap_verified goes on to its clear, while one left in
+// bootstrap_intent ends uncertain without any input.
+func TestContextCycleStoredBootstrapStages(t *testing.T) {
 	f := newCycleFixture(t)
-	f.adapter.probe, f.adapter.boot = CycleProbe{Bootstrap: "interactive"}, true
 	f.readyCycle(t)
 	f.step(t)
-	if v := f.status(t, f.k); v.State != cycleBootstrapVerified || f.adapter.count("bootstrap") != 1 || f.adapter.count("clear") != 0 {
-		t.Fatalf("bootstrap: %+v %v", v, f.adapter.calls)
-	}
-	f.step(t)
-	f.step(t)
-	f.step(t)
-	if v := f.status(t, f.k); v.State != cycleWaitingPickup || f.adapter.count("pickup interactive") != 1 || f.adapter.count("bootstrap") != 1 {
-		t.Fatalf("after bootstrap: %+v %v", v, f.adapter.calls)
+	if v := f.status(t, f.k); v.State != cycleClearReceived || f.adapter.count("clear") != 1 {
+		t.Fatalf("ready: %+v %v", v, f.adapter.calls)
 	}
 	g := newCycleFixture(t)
-	g.adapter.probe = CycleProbe{Bootstrap: "interactive"}
-	g.readyCycle(t)
+	ready, _ := g.readyCycle(t)
+	intent, err := g.s.advanceCycle(context.Background(), ready.ID, ready.Revision, cycleReady, cycleBootstrapIntent, "", nil, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := g.s.advanceCycle(context.Background(), intent.ID, intent.Revision, cycleBootstrapIntent, cycleBootstrapVerified, "", nil, nil); err != nil {
+		t.Fatal(err)
+	}
 	g.step(t)
-	if v := g.status(t, g.k); v.State != cycleUncertain || v.Reason != "bootstrap_intent_unreceived" || g.adapter.count("clear") != 0 {
-		t.Fatalf("unproven bootstrap: %+v", v)
+	g.step(t)
+	g.step(t)
+	if v := g.status(t, g.k); v.State != cycleWaitingPickup || g.adapter.count("clear") != 1 || g.adapter.count("pickup") != 1 {
+		t.Fatalf("stored bootstrap_verified: %+v %v", v, g.adapter.calls)
 	}
 	h := newCycleFixture(t)
-	h.adapter.probe = CycleProbe{Bootstrap: "interactive"}
-	ready, _ := h.readyCycle(t)
+	ready, _ = h.readyCycle(t)
 	if _, err := h.s.advanceCycle(context.Background(), ready.ID, ready.Revision, cycleReady, cycleBootstrapIntent, "", nil, nil); err != nil {
 		t.Fatal(err)
 	}
 	h.step(t)
-	if v := h.status(t, h.k); v.State != cycleUncertain || v.Reason != "bootstrap_unreceipted" || h.adapter.count("bootstrap") != 0 {
-		t.Fatalf("bootstrap intent after a crash: %+v %v", v, h.adapter.calls)
+	if v := h.status(t, h.k); v.State != cycleUncertain || v.Reason != "bootstrap_unreceipted" || h.adapter.count("clear") != 0 || h.adapter.count("pickup") != 0 {
+		t.Fatalf("stored bootstrap_intent: %+v %v", v, h.adapter.calls)
 	}
 }
 
@@ -335,7 +336,7 @@ func TestContextCycleInteractiveBootstrap(t *testing.T) {
 func TestContextCycleProbeBeforeClear(t *testing.T) {
 	f := newCycleFixture(t)
 	f.readyCycle(t)
-	f.adapter.probe = CycleProbe{Reason: "pickup_entry_differs", Bootstrap: "project"}
+	f.adapter.probe = CycleProbe{Reason: "pickup_entry_differs", Step: "run koinon install"}
 	f.step(t)
 	if v := f.status(t, f.k); v.State != cycleFailed || v.Reason != "pickup_entry_differs" || f.adapter.count("clear") != 0 {
 		t.Fatalf("probe before the clear: %+v %v", v, f.adapter.calls)
@@ -383,7 +384,7 @@ func TestContextCycleFenceStopsInput(t *testing.T) {
 func TestContextCycleMaintainerAnswersDialog(t *testing.T) {
 	d, root := startTestDaemon(t)
 	s := d.store
-	adapter := &fakeAdapter{pane: PaneState{Prompt: "native_dialog"}, probe: CycleProbe{Bootstrap: "project"},
+	adapter := &fakeAdapter{pane: PaneState{Prompt: "native_dialog"}, probe: CycleProbe{Entry: "koinon-pickup"},
 		dialog: CycleDialog{Lines: []string{"Do you want to proceed?", "❯ 1. Yes", "2. No"}, Options: []string{"1", "2"}, Digest: strings.Repeat("d", 64)}}
 	previous := cycleAdapters
 	cycleAdapters = map[string]CycleAdapter{"claude": adapter}
@@ -463,13 +464,18 @@ func TestContextCycleClearIntentReconciledByEpoch(t *testing.T) {
 }
 
 // A new native epoch before the managed clear is an unrelated clear in the bootstrap stages
-// too: after a proven bootstrap it cancels the cycle and ends the Enable; with the bootstrap
-// input unproven it is uncertain. No managed clear follows.
+// that an earlier binary stored too: after a proven bootstrap it cancels the cycle and ends the
+// Enable; with the bootstrap input unproven it is uncertain. No managed clear follows.
 func TestContextCycleUnrelatedClearDuringBootstrap(t *testing.T) {
 	f := newCycleFixture(t)
-	f.adapter.probe, f.adapter.boot = CycleProbe{Bootstrap: "interactive"}, true
-	f.readyCycle(t)
-	f.step(t)
+	ready, _ := f.readyCycle(t)
+	intent, err := f.s.advanceCycle(context.Background(), ready.ID, ready.Revision, cycleReady, cycleBootstrapIntent, "", nil, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := f.s.advanceCycle(context.Background(), intent.ID, intent.Revision, cycleBootstrapIntent, cycleBootstrapVerified, "", nil, nil); err != nil {
+		t.Fatal(err)
+	}
 	if v := f.status(t, f.k); v.State != cycleBootstrapVerified {
 		t.Fatalf("setup: %+v", v)
 	}
@@ -480,8 +486,7 @@ func TestContextCycleUnrelatedClearDuringBootstrap(t *testing.T) {
 		t.Fatalf("after bootstrap: %+v Enable %v clears %d", v, enables[f.k].Enabled, f.adapter.count("clear"))
 	}
 	g := newCycleFixture(t)
-	g.adapter.probe = CycleProbe{Bootstrap: "interactive"}
-	ready, _ := g.readyCycle(t)
+	ready, _ = g.readyCycle(t)
 	if _, err := g.s.advanceCycle(context.Background(), ready.ID, ready.Revision, cycleReady, cycleBootstrapIntent, "", nil, nil); err != nil {
 		t.Fatal(err)
 	}

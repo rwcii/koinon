@@ -4,7 +4,6 @@ import (
 	"context"
 	"database/sql"
 	"errors"
-	"path/filepath"
 	"time"
 )
 
@@ -102,16 +101,13 @@ func (s *Store) stepCycle(ctx context.Context, c cycleRow) error {
 			}
 			return err
 		}
-		// The pickup entry that a bare pickup runs is checked before each input.
+		// The installed pickup skill is checked before each input.
 		probe := adapter.Probe(ctx, t)
 		if probe.Reason != "" {
 			_, err := s.endCycle(ctx, c.ID, c.Revision, cycleFailed, probe.Reason)
 			return err
 		}
 		switch {
-		case c.State == cycleReady && probe.Bootstrap == "interactive":
-			return s.enterInput(ctx, c, cycleBootstrapIntent, cycleBootstrapVerified, pinnedRequester(ctx),
-				func(fence CycleFence) (bool, error) { return adapter.Bootstrap(ctx, t, fence) })
 		case c.State == cycleReady || c.State == cycleBootstrapVerified:
 			return s.enterInput(ctx, c, cycleClearIntent, cycleClearReceived, pinnedRequester(ctx),
 				func(fence CycleFence) (bool, error) { return adapter.Clear(ctx, t, fence) })
@@ -125,7 +121,7 @@ func (s *Store) stepCycle(ctx context.Context, c cycleRow) error {
 			return err
 		}
 		return s.enterInput(ctx, c, cyclePickupIntent, cycleWaitingPickup, nil,
-			func(fence CycleFence) (bool, error) { return adapter.Pickup(ctx, t, probe.Bootstrap, fence) })
+			func(fence CycleFence) (bool, error) { return adapter.Pickup(ctx, t, fence) })
 	case cycleWaitingPickup:
 		// A dialog that the successor's first calls raise, such as a tool approval, waits for
 		// the native session or the maintainer like any other; the report may come during it.
@@ -229,23 +225,13 @@ func (s *Store) cycleFence(c cycleRow) CycleFence {
 	}
 }
 
-// cycleTarget is c's target with the session's checkout, the loader and the catalog pickup
-// item, and the store's host tools.
+// cycleTarget is c's target with the koinon-pickup skill and the store's host tools.
 func (s *Store) cycleTarget(ctx context.Context, c cycleRow) CycleTarget {
 	t := c.target()
 	t.tools = s.hostTools()
-	t.LoaderDir = CycleLoaderDir(filepath.Dir(s.storage.path))
-	t.Loader = claudeLoaderEntry()
-	if read, err := s.library.catalog.Read(c.Family, "skill.pickup"); err == nil {
-		t.Pickup = PickupEntry{Content: []byte(read.Item.Content), Description: read.Item.Description}
-	}
+	t.Pickup = pickupSkillEntry()
 	var held int
 	t.Holds = s.db.QueryRowContext(ctx, `SELECT 1 FROM names WHERE kind='alias' AND family=? AND holder_id=? LIMIT 1`, c.Family, c.SessionID).Scan(&held) == nil
-	if s.db.QueryRowContext(ctx, `SELECT directory FROM sessions WHERE family=? AND id=?`, c.Family, c.SessionID).Scan(&t.Directory) == nil {
-		if checkout, err := CheckoutResource(ctx, t.Directory); err == nil {
-			t.Checkout = checkout.Directory
-		}
-	}
 	return t
 }
 

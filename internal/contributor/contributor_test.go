@@ -550,6 +550,27 @@ func TestHomebrewBottles(t *testing.T) {
 	}
 }
 
+// The managed cycle picks up through Koinon's own koinon-pickup skill (#406): the documents
+// and the installed guide name it, and none describes the retired per-session loader.
+func TestPickupSkillDocumented(t *testing.T) {
+	for _, name := range []string{"docs/USAGE.md", "docs/INSTALL.md", "PROTOCOL.md", "internal/setup/guide.go",
+		"docs/product/pdr/006-context-monitoring-managed-handoffs.md", "docs/product/pdr/008-portable-skills-explicit-adoption.md"} {
+		data, err := os.ReadFile(filepath.Join(root(t), name))
+		if err != nil {
+			t.Fatal(err)
+		}
+		text := strings.Join(strings.Fields(string(data)), " ")
+		if !strings.Contains(text, "koinon-pickup") {
+			t.Errorf("%s does not name koinon-pickup", name)
+		}
+		for _, stale := range []string{"pickup loader", "adds `--add-dir`", "a bare `/pickup`", "a bare $pickup", "cycle/claude-loader/"} {
+			if strings.Contains(text, stale) {
+				t.Errorf("%s still says %q", name, stale)
+			}
+		}
+	}
+}
+
 // The holder choice has a command-line path (#398): the usage text and the documents name
 // koinon participant holder, and none says that only the dashboard lifts a fence.
 func TestParticipantHolderCommandDocumented(t *testing.T) {
