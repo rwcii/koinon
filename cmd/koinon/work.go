@@ -51,7 +51,7 @@ func workCommand(ctx context.Context, args []string, out io.Writer) error {
 	flags := flag.NewFlagSet(op, flag.ContinueOnError)
 	flags.SetOutput(io.Discard)
 	state := flags.String("state-dir", root, "private Go state directory")
-	address := flags.String("address", "127.0.0.1:47671", "daemon loopback address")
+	address := addressFlag(flags)
 	as := flags.String("as", "", "calling session as FAMILY:ID")
 	consumer := flags.String("consumer", "", "stable consumer key")
 	fields := core.WorkFields(op)
@@ -170,6 +170,9 @@ func workCommand(ctx context.Context, args []string, out io.Writer) error {
 	body["caller"] = core.Key{Family: family, ID: id}
 	if *consumer != "" {
 		body["consumer"] = *consumer
+	}
+	if err := resolveAddress(flags); err != nil {
+		return err
 	}
 	secret, err := core.ClientSecret(*state, *address)
 	if err != nil {

@@ -26,7 +26,7 @@ func cleanupCommand(ctx context.Context, command, op string, args []string, out 
 	flags := flag.NewFlagSet(command+" "+op, flag.ContinueOnError)
 	flags.SetOutput(io.Discard)
 	state := flags.String("state-dir", root, "private Go state directory")
-	address := flags.String("address", "127.0.0.1:47671", "daemon loopback address")
+	address := addressFlag(flags)
 	var filter core.CleanupFilter
 	var inactive string
 	var yes, asJSON bool
@@ -59,6 +59,9 @@ func cleanupCommand(ctx context.Context, command, op string, args []string, out 
 			return usageError{"invalid_request", "--inactive-for is a duration such as 72h or 30d"}
 		}
 		filter.InactiveForSeconds = seconds
+	}
+	if err := resolveAddress(flags); err != nil {
+		return err
 	}
 	secret, err := core.ClientSecret(*state, *address)
 	if err != nil {
@@ -138,7 +141,7 @@ func claimsRoomsCommand(ctx context.Context, command, op string, args []string, 
 	flags := flag.NewFlagSet(command+" "+op, flag.ContinueOnError)
 	flags.SetOutput(io.Discard)
 	state := flags.String("state-dir", root, "private Go state directory")
-	address := flags.String("address", "127.0.0.1:47671", "daemon loopback address")
+	address := addressFlag(flags)
 	yes := flags.Bool("yes", false, "make the change; without it, only show what would change")
 	var heldBy repeated
 	if command == "claims" {
@@ -159,6 +162,9 @@ func claimsRoomsCommand(ctx context.Context, command, op string, args []string, 
 		return usageError{"invalid_request", "koinon claims release takes no operands; name holders with --held-by"}
 	case op == "delete" && len(operands) != 1:
 		return usageError{"invalid_request", "koinon rooms delete takes one ROOM_ID"}
+	}
+	if err := resolveAddress(flags); err != nil {
+		return err
 	}
 	secret, err := core.ClientSecret(*state, *address)
 	if err != nil {
