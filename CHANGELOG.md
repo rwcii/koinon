@@ -18,6 +18,11 @@ Changes:
   `[::1]` with any port, so a tunnel from another local port, such as
   `ssh -L 47670:127.0.0.1:47671 HOST`, works. Host names such as `localhost` are still refused,
   and `Origin`, CSRF and login checks are unchanged. ADR 001, Decision 4.
+- Decision board filter (#411): each count on the dashboard's Decisions page (waiting, in
+  progress, open fyi, archived) is a link that shows only the items of that status, and
+  **all** shows every item again. The filter is the `status` query parameter, so it stays
+  after a reload, a lookup, paging and a verdict; the counts stay totals, and an unknown value
+  is refused. The page uses plain links, with no new script (PROTOCOL.md, Dashboard).
 
 ## 2026-10-17 — Homebrew upgrades and maintenance from the command line
 

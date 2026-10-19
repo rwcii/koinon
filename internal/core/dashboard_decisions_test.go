@@ -250,3 +250,144 @@ func TestDecisionBoardPages(t *testing.T) {
 		t.Errorf("an invalid cursor: %d", bad.status)
 	}
 }
+
+// TestDecisionBoardStatusFilter filters the cards by the status count that the maintainer
+// chooses (#411). The counts stay totals, "all" removes the filter, an unknown filter is
+// refused, and the filter stays through the lookup, the page links and a verdict's redirect.
+func TestDecisionBoardStatusFilter(t *testing.T) {
+	d, root := startTestDaemon(t)
+	client := newActionClient(t, d, root)
+	peer := join(t, d.store, "claude", "synthetic-board-filter", "")
+	key := Key{"claude", peer.ID}
+	create := func(reference string, order int64, kind string) {
+		f := decisionFields("Item "+reference, kind)
+		f.Order = &order
+		mustCreate(t, d.store, key, reference, f)
+	}
+	create("D-1", 1, "decision")
+	create("D-2", 2, "decision")
+	create("F-1", 3, "fyi")
+	create("P-1", 4, "decision")
+	create("A-1", 5, "decision")
+	if got := client.do("decision-approve", url.Values{"reference": {"P-1"}, "revision": {"1"}}); got != "decision_approved" {
+		t.Fatalf("approve: %s", got)
+	}
+	if got := client.do("decision-decline", url.Values{"reference": {"A-1"}, "revision": {"1"}}); got != "decision_declined" {
+		t.Fatalf("decline: %s", got)
+	}
+	counts := func(t *testing.T, body string, waiting, progress, fyi, archived int) {
+		t.Helper()
+		for _, want := range []string{fmt.Sprintf("<b>%d</b> waiting", waiting), fmt.Sprintf("<b>%d</b> in progress", progress),
+			fmt.Sprintf("<b>%d</b> open fyi", fyi), fmt.Sprintf("<b>%d</b> archived", archived)} {
+			if !strings.Contains(body, want) {
+				t.Errorf("counts: no %q", want)
+			}
+		}
+	}
+	current := regexp.MustCompile(`<a href="(/dashboard/decisions[^"]*)" aria-current="true">`)
+	archiveRow := `<td><a href="/dashboard/decisions?ref=A-1`
+	for _, c := range []struct {
+		query, cards, link string
+		archive            bool
+	}{
+		{"", "D-1 D-2 F-1 P-1", "/dashboard/decisions", true},
+		{"status=waiting", "D-1 D-2", "/dashboard/decisions?status=waiting", false},
+		{"status=in_progress", "P-1", "/dashboard/decisions?status=in_progress", false},
+		{"status=fyi", "F-1", "/dashboard/decisions?status=fyi", false},
+		{"status=archived", "", "/dashboard/decisions?status=archived", true},
+		// An empty status is all.
+		{"status=", "D-1 D-2 F-1 P-1", "/dashboard/decisions", true},
+	} {
+		for _, path := range []string{"/dashboard/decisions?" + c.query, "/dashboard/decisions?fragment=1&" + c.query} {
+			page := dashboardDo(t, d, "GET", path, client.cookie, nil, nil)
+			if page.status != 200 {
+				t.Fatalf("%s: %d %s", path, page.status, page.body)
+			}
+			// Every filter shows the same totals.
+			counts(t, page.body, 2, 1, 1, 1)
+			if got := strings.Join(boardCards(page.body), " "); got != c.cards {
+				t.Errorf("%s: cards %q, want %q", path, got, c.cards)
+			}
+			if m := current.FindAllStringSubmatch(page.body, -1); len(m) != 1 || m[0][1] != c.link {
+				t.Errorf("%s: current filter %v, want %s", path, m, c.link)
+			}
+			if got := strings.Contains(page.body, "<h2>Archive</h2>") && strings.Contains(page.body, archiveRow); got != c.archive {
+				t.Errorf("%s: archive shown %v", path, got)
+			}
+			if got := strings.Contains(page.body, "<h2>Items"); got == (c.query == "status=archived") {
+				t.Errorf("%s: items heading shown %v", path, got)
+			}
+		}
+	}
+	if body := dashboardDo(t, d, "GET", "/dashboard/decisions?status=waiting", client.cookie, nil, nil).body; !strings.Contains(body, "<h2>Items: waiting</h2>") {
+		t.Errorf("the filter is not named: %s", body)
+	}
+	if body := dashboardDo(t, d, "GET", "/dashboard/decisions", client.cookie, nil, nil).body; !strings.Contains(body, "<h2>Items</h2>") {
+		t.Errorf("all items heading: %s", body)
+	}
+
+	// An unknown filter is refused with the dashboard's request refusal.
+	for _, bad := range []string{"bogus", "Waiting", "active", "in%20progress", "waiting%00"} {
+		if r := dashboardDo(t, d, "GET", "/dashboard/decisions?status="+bad, client.cookie, nil, nil); r.status != 400 || len(boardCards(r.body)) != 0 {
+			t.Errorf("status=%s: %d", bad, r.status)
+		}
+	}
+
+	// The lookup form, the reference links and the archive page links keep the filter.
+	page := dashboardDo(t, d, "GET", "/dashboard/decisions?status=waiting&ref=D-2", client.cookie, nil, nil).body
+	for _, want := range []string{`<input type="hidden" name="status" value="waiting">`, `<a href="/dashboard/decisions?ref=D-1&amp;status=waiting">D-1</a>`,
+		`<section class="lookup-result">`, "<h2>D-2: Item D-2</h2>"} {
+		if !strings.Contains(page, want) {
+			t.Errorf("lookup under a filter: no %q", want)
+		}
+	}
+	if got := strings.Join(boardCards(page), " "); got != "D-1 D-2" {
+		t.Errorf("lookup under a filter: cards %q", got)
+	}
+	for i := 0; i < decisionBoardArchive; i++ {
+		ref := fmt.Sprintf("Z-%02d", i)
+		mustCreate(t, d.store, key, ref, decisionFields("Dismissed "+ref, "fyi"))
+		if got := client.do("decision-dismiss", url.Values{"reference": {ref}, "revision": {"1"}}); got != "decision_dismissed" {
+			t.Fatalf("dismiss %s: %s", ref, got)
+		}
+	}
+	archived := dashboardDo(t, d, "GET", "/dashboard/decisions?status=archived", client.cookie, nil, nil).body
+	more := regexp.MustCompile(`<a href="(/dashboard/decisions\?archived=[0-9]+&amp;status=archived)">More archived items</a>`).FindStringSubmatch(archived)
+	if more == nil {
+		t.Fatalf("no archive page link with the filter: %s", archived)
+	}
+	next := dashboardDo(t, d, "GET", strings.ReplaceAll(more[1], "&amp;", "&"), client.cookie, nil, nil)
+	if next.status != 200 || !strings.Contains(next.body, `&amp;status=archived">`) || len(boardCards(next.body)) != 0 {
+		t.Errorf("next archive page: %d %s", next.status, next.body)
+	}
+
+	// A verdict returns to the filter its form was on: the back field carries it.
+	page = dashboardDo(t, d, "GET", "/dashboard/decisions?status=waiting", client.cookie, nil, nil).body
+	if card := cardOf(t, page, "D-1"); !strings.Contains(card, `<input type="hidden" name="back" value="status=waiting">`) {
+		t.Fatalf("no back field on the card: %s", card)
+	}
+	form := url.Values{"reference": {"D-1"}, "revision": {"1"}, "back": {"status=waiting"}, "csrf": {client.csrf}}
+	r := dashboardDo(t, d, "POST", "/dashboard/actions/decision-approve", client.cookie, client.sameOrigin, form)
+	location, err := url.Parse(r.header.Get("Location"))
+	if r.status != 303 || err != nil {
+		t.Fatalf("approve: %d %q", r.status, r.header.Get("Location"))
+	}
+	if q := location.Query(); q.Get("status") != "waiting" || q.Get("card") != "D-1" || q.Get("notice") != "decision_approved" {
+		t.Fatalf("redirect: %s", location)
+	}
+	// The approved card leaves the waiting filter, so its notice shows at the top.
+	after := dashboardDo(t, d, "GET", location.String(), client.cookie, nil, nil)
+	if after.status != 200 || strings.Join(boardCards(after.body), " ") != "D-2" || !strings.Contains(after.body, `<p class="notice" role="status">`) {
+		t.Errorf("after the verdict: %d %s", after.status, after.body)
+	}
+	counts(t, after.body, 1, 2, 1, 1+decisionBoardArchive)
+	// A back field with a filter that the board does not know returns to all items.
+	form = url.Values{"reference": {"D-2"}, "revision": {"1"}, "back": {"status=bogus"}, "csrf": {client.csrf}}
+	r = dashboardDo(t, d, "POST", "/dashboard/actions/decision-decline", client.cookie, client.sameOrigin, form)
+	if location, err = url.Parse(r.header.Get("Location")); err != nil || location.Query().Get("status") != "" || location.Query().Get("notice") != "decision_declined" {
+		t.Fatalf("redirect with an unknown filter: %q", r.header.Get("Location"))
+	}
+	if after := dashboardDo(t, d, "GET", location.String(), client.cookie, nil, nil); after.status != 200 {
+		t.Errorf("after an unknown filter: %d", after.status)
+	}
+}

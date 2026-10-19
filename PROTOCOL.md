@@ -1585,10 +1585,15 @@ from elsewhere. Peer message bodies appear here, escaped, and nowhere else outsi
   were at the post, by address or peer name and family: queued with the inbox copy's delivery
   state and acknowledgement, skipped with the reason, or `not retained` with unknown
   acknowledgement once the copy is deleted; the view reads one snapshot and acknowledges
-  nothing), `decisions` (100 active decision items per page in item ID order with
-  `after=ID` links, and `ref=REFERENCE` shows one item's fields, commands, recipients, current
-  verdict with its deliveries and last close as escaped plain text, with the verdict form of
-  an active item), `memory` (per store:
+  nothing), `decisions` (the counts of waiting, in-progress, open fyi and archived items; the
+  agent table; 25 active and in-progress cards per page, `ACTION FOR YOU` items first, then
+  item order and reference, with `cards=CURSOR` links; 20 archived items per page with
+  `archived=ID` links; `ref=REFERENCE` shows one item read only, with its verdict history 16
+  verdicts at a time through `history=ID`. Each count links to `status=waiting`,
+  `in_progress`, `fyi` or `archived`, which lists only the cards of that status, or only the
+  archive for `archived`; an `all` link removes it. The counts stay totals under a filter, the
+  current filter's link carries `aria-current="true"`, and the lookup form, reference and page
+  links and a verdict's redirect keep it. An unknown `status` is 400), `memory` (per store:
   head, floor, entries and logical bytes against their ceilings, consumers, work debt and
   maintenance, 50 stores per page; with `store=REPOSITORY`, that store's entries, newest first,
   50 per page with `before=SEQ`: sequence, time, type, scope, path, writer, author, body, state
