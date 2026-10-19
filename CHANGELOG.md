@@ -5,6 +5,15 @@ into a dated release section when promoted to `main`.
 
 ## Unreleased
 
+Changes:
+
+- Daemon and dashboard port (#405): `koinon install --port N` records the port of both loopback
+  listeners in the state directory (`<state>/port`), on Linux, for the macOS agent and in macOS
+  system mode; the service file is unchanged, and `koinon serve --state-dir` reads the port.
+  Every command, hook, launched agent and `koinon mcp` without `--address` or
+  `KOINON_DAEMON_ADDRESS` uses it, and `koinon dashboard` prints its link there. A later
+  install, an upgrade and `brew upgrade` keep it; `--port 47671` returns to the default.
+  Without a recorded port, everything stays at 47671 (docs/INSTALL.md).
 - Koinon's own pickup skill for the handoff cycle (#406): after the clear, the managed cycle
   enters `/koinon-pickup` (Claude Code) or `$koinon-pickup` (Codex), not the bare `/pickup` or
   `$pickup`. `koinon install` and the upgrade's install write that one skill for you, never

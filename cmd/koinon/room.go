@@ -26,7 +26,7 @@ func roomCommand(ctx context.Context, args []string, out io.Writer) error {
 	flags := flag.NewFlagSet("room "+op, flag.ContinueOnError)
 	flags.SetOutput(io.Discard)
 	state := flags.String("state-dir", root, "private Go state directory")
-	address := flags.String("address", "127.0.0.1:47671", "daemon loopback address")
+	address := addressFlag(flags)
 	as := flags.String("as", "", "calling session as FAMILY:ID")
 	var limit *int
 	var afterRoom, key *string
@@ -82,6 +82,9 @@ func roomCommand(ctx context.Context, args []string, out io.Writer) error {
 			return usageError{"invalid_request", "koinon room post needs --key and --deadline"}
 		}
 		body["room_id"], body["body"], body["key"], body["deadline"] = positional[0], positional[1], *key, *deadline
+	}
+	if err := resolveAddress(flags); err != nil {
+		return err
 	}
 	secret, err := core.ClientSecret(*state, *address)
 	if err != nil {

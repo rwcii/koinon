@@ -31,6 +31,7 @@ var Families = []string{"claude", "codex", "agy", "opencode", "grok", "deepseek"
 type Options struct {
 	Prefix       string   // default $XDG_DATA_HOME/koinon/go
 	StateDir     string   // the Go state root; default platform.DefaultStateDir
+	Port         int      // the daemon's loopback port to record (#405); zero keeps the recorded one
 	PythonPrefix string   // the Python-era prefix that refuses a plain install
 	Agents       []string // families to set up, or to remove (default: all for removal)
 	NoStart      bool
@@ -45,7 +46,7 @@ type Options struct {
 	// skill; default $CLAUDE_CONFIG_DIR, else ~/.claude.
 	ClaudeConfig string
 	Path         string // the search path that the report resolves koinon on; default $PATH
-	Address      string // the daemon address to wait for
+	Address      string // the daemon address to wait for; default 127.0.0.1 at the port
 	Services     platform.Services
 	Setup        func(context.Context, setup.Options) (setup.Report, error)
 	// Adopt records the launcher CLI of a family that an earlier setup configured.
@@ -67,6 +68,7 @@ type Report struct {
 	Service      string         `json:"service"`
 	StartCommand string         `json:"start_command,omitempty"`
 	StateDir     string         `json:"state_dir"`
+	Port         int            `json:"port,omitempty"`
 	Link         string         `json:"link"`
 	LinkResult   string         `json:"link_result"`
 	OnPath       string         `json:"on_path,omitempty"`
@@ -117,8 +119,8 @@ func (o *Options) defaults() error {
 			return err
 		}
 	}
-	if o.Address == "" {
-		o.Address = "127.0.0.1:47671"
+	if o.Port != 0 && !core.ValidPort(o.Port) {
+		return errors.New("invalid_request: the port must be from 1 to 65535")
 	}
 	if o.Services.Run == nil {
 		if o.Services, err = platform.NewServices(); err != nil {
@@ -496,6 +498,19 @@ func Install(ctx context.Context, o Options) (Report, error) {
 	system, err := systemMode(ctx, o)
 	if err != nil {
 		return r, err
+	}
+	// The service runs serve --state-dir alone, so the daemon reads its port from the state
+	// directory, as every client of that directory does; the service file stays the same.
+	if o.Port != 0 {
+		if err := core.RecordPort(o.StateDir, o.Port); err != nil {
+			return r, err
+		}
+	}
+	if r.Port, err = core.RecordedPort(o.StateDir); err != nil {
+		return r, err
+	}
+	if o.Address == "" {
+		o.Address = core.Listeners(r.Port)[0]
 	}
 	// In user mode, a Homebrew binary is linked, so that brew upgrade alone upgrades the
 	// daemon (#397). A system-mode daemon keeps a copy that brew cannot replace.

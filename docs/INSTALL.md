@@ -73,8 +73,8 @@ chmod +x koinon-linux-amd64 && ./koinon-linux-amd64 version
 ./koinon-linux-amd64 install --agent claude --agent codex
 ```
 
-`koinon install [--prefix DIR] [--state-dir DIR] [--agent FAMILY]... [--no-start] [--system]` does
-this:
+`koinon install [--prefix DIR] [--state-dir DIR] [--port N] [--agent FAMILY]... [--no-start] [--system]`
+does this:
 
 1. It copies the running binary to `<prefix>/bin/koinon`. The default prefix is
    `$XDG_DATA_HOME/koinon/go`, which is `~/.local/share/koinon/go`. The copy is atomic, and it is
@@ -133,6 +133,31 @@ defaults to `$XDG_STATE_HOME/koinon/go`, which is `~/.local/state/koinon/go`.
 
 When a Python-era installation is present (`~/.local/share/koinon/install.json`), the install is
 refused with `python_install_present`. Use the upgrade instead.
+
+### Port
+
+The daemon and its dashboard listen on `127.0.0.1` and `[::1]` at one port, 47671 by default.
+`koinon install --port N` (1 to 65535) records another port in the state directory, in the file
+`<state>/port` (mode 0600), before it writes and restarts the service, and waits for the daemon at
+`127.0.0.1:N`; the report's `port` names it. The dashboard accepts only its listener's own
+address as `Host`, so an SSH tunnel to a remote host's dashboard needs the same port on both
+ends: with `koinon install --port 47670` on the remote host, `ssh -L 47670:127.0.0.1:47670 HOST`
+reaches it while the local daemon keeps 47671. The service file stays the same
+on Linux, for the macOS agent and in macOS system mode: `koinon serve --state-dir <state>` without
+`--listen` or `--listen-v6` reads the recorded port, and each of those options, when given,
+replaces only its own family's listener. A later `koinon install` without `--port`, an upgrade
+and `brew upgrade` keep the recorded port, because they keep the state directory. To return to
+the default, run `koinon install --port 47671`. A port file that is not a private file of this
+user holding one port is refused with `port_invalid`, by the daemon and by every command, and
+never read as the default.
+
+Each command, hook, launched agent and `koinon mcp` finds the daemon at its `--address`, else at
+`KOINON_DAEMON_ADDRESS`, which a launcher passes to its agent with `KOINON_STATE_DIR` and which
+applies only to that state directory, else at `127.0.0.1` and the port
+that its state directory records, else at `127.0.0.1:47671`. `koinon dashboard` prints its
+login link at that address. Without a recorded port, everything stays at 47671. A session that
+a launcher started before a port change keeps the former address in its environment and in its
+`koinon mcp` server; start it again after the change.
 
 ### System mode on macOS
 
@@ -202,7 +227,7 @@ With Homebrew, `brew update` and `brew upgrade koinon` are the upgrade (see Home
 Otherwise, run `koinon install` with the new binary, with the same `--prefix` and `--state-dir`:
 name the new binary by its path, such as the downloaded file, because the install copies the
 binary that runs it. Check `koinon version` after the install. It replaces the binary in place
-and restarts the daemon, and the state stays. A daemon that a service manager runs also exits
+and restarts the daemon, and the state stays, with the recorded port (see Port above). A daemon that a service manager runs also exits
 when its executable is replaced, and the manager starts the new binary (`binary_changed` in
 the daemon log). A launched session continues:
 `koinon mcp` tries a renewal that fails during the restart again at the next interval, and
@@ -391,10 +416,11 @@ Until a daemon has started with the state directory, launchers and command clien
 with `no daemon has started with state directory STATE`. When the daemon has stopped, a
 launcher refuses with `no daemon answers at ADDRESS`. The launcher does not start the agent.
 Both refusals name how to start the daemon with that state directory, shell-quoted: at the
-default address, `koinon install --state-dir STATE` from a login session or `koinon serve
---state-dir STATE` in a persistent managed session. The installed service listens only on the
-default address, so at another address the refusal names only `koinon serve --state-dir STATE
---listen IPV4 --listen-v6 IPV6`, with the address and the other loopback family on its port.
+installed service's address, `koinon install --state-dir STATE` from a login session or `koinon serve
+--state-dir STATE` in a persistent managed session. The installed service listens only at the
+state directory's port (47671 unless `koinon install --port` recorded another), so at another
+address the refusal names only `koinon serve --state-dir STATE --listen IPV4 --listen-v6 IPV6`,
+with the address and the other loopback family on its port.
 The default install uses no sudo, system service, lingering or permission change; with no user
 service manager it reports the manual start command above. The system service that Koinon
 supports is the explicit `--system` mode on macOS (PDR 003, Decisions 1 and 2). A host change
@@ -545,9 +571,11 @@ preserves this state-root configuration along with other retained state.
 ## State, recovery and compatibility
 
 The Go default state root is `~/.local/state/koinon/go` (or `$XDG_STATE_HOME/koinon/go`). It
-holds `state.sqlite3`, the private secret and daemon lock. Directories are owned by the
-current UID and private; credentials never belong in Git or logs. The daemon binds loopback
-only. Custom state and address must match between the daemon, command clients and MCP server.
+holds `state.sqlite3`, the private secret and daemon lock, and the `port` file that `koinon
+install --port` writes. Directories are owned by the current UID and private; credentials never
+belong in Git or logs. The daemon binds loopback only. Custom state and address must match
+between the daemon, command clients and MCP server; a recorded port matches by itself for every
+client of that state directory.
 The dashboard uses one-time login links, a login cookie and CSRF-protected actions.
 
 The daemon applies supported Go schema migrations transactionally and refuses an unknown
