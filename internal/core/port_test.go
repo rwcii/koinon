@@ -48,12 +48,18 @@ func TestRecordedPort(t *testing.T) {
 	if !InstalledAddress(root, "127.0.0.1:47670") || !InstalledAddress(root, "[::1]:47670") || InstalledAddress(root, "127.0.0.1:47671") {
 		t.Fatal("installed address with a record")
 	}
-	// KOINON_DAEMON_ADDRESS, which a launcher passes to its agent, comes first.
-	env := func(name string) string {
-		return map[string]string{"KOINON_DAEMON_ADDRESS": "127.0.0.1:5000"}[name]
+	// KOINON_DAEMON_ADDRESS, which a launcher passes to its agent with KOINON_STATE_DIR,
+	// comes first, but only for that state directory.
+	env := func(state string) func(string) string {
+		return func(name string) string {
+			return map[string]string{"KOINON_DAEMON_ADDRESS": "127.0.0.1:5000", "KOINON_STATE_DIR": state}[name]
+		}
 	}
-	if address, err := DaemonAddress(root, env); err != nil || address != "127.0.0.1:5000" {
+	if address, err := DaemonAddress(root, env(root)); err != nil || address != "127.0.0.1:5000" {
 		t.Fatalf("environment address %q %v", address, err)
+	}
+	if address, err := DaemonAddress(root, env(filepath.Join(t.TempDir(), "other"))); err != nil || address != "127.0.0.1:47670" {
+		t.Fatalf("another state directory's address %q %v", address, err)
 	}
 	// The default port is recorded like any other.
 	if err := RecordPort(root, 47671); err != nil {

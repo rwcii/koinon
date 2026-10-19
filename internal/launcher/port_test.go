@@ -33,6 +33,7 @@ func TestParseUsesRecordedPort(t *testing.T) {
 		t.Fatalf("flag: %s", o.Address)
 	}
 	t.Setenv("KOINON_DAEMON_ADDRESS", "127.0.0.1:5000")
+	t.Setenv("KOINON_STATE_DIR", root)
 	if o := parse(); o.Address != "127.0.0.1:5000" {
 		t.Fatalf("environment: %s", o.Address)
 	}

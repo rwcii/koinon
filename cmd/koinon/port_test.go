@@ -70,6 +70,11 @@ func TestResolveAddress(t *testing.T) {
 		t.Fatalf("another state directory: %q %v", got, err)
 	}
 	t.Setenv("KOINON_DAEMON_ADDRESS", "127.0.0.1:5000")
+	t.Setenv("KOINON_STATE_DIR", other)
+	if got, err := resolve(); err != nil || got != "127.0.0.1:47670" {
+		t.Fatalf("another state directory's environment: %q %v", got, err)
+	}
+	t.Setenv("KOINON_STATE_DIR", root)
 	if got, err := resolve(); err != nil || got != "127.0.0.1:5000" {
 		t.Fatalf("environment: %q %v", got, err)
 	}
@@ -149,6 +154,7 @@ func TestServeAndClientsUseRecordedPort(t *testing.T) {
 	// KOINON_DAEMON_ADDRESS comes before the record, and --address before both.
 	elsewhere := net.JoinHostPort("127.0.0.1", strconv.Itoa(freePort(t)))
 	t.Setenv("KOINON_DAEMON_ADDRESS", elsewhere)
+	t.Setenv("KOINON_STATE_DIR", root)
 	var down unavailable
 	if err := run(ctx, []string{"status", "--state-dir", root}, nil, &out); !errors.As(err, &down) || down.address != elsewhere {
 		t.Fatalf("environment address: %v", err)

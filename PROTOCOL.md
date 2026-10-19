@@ -9,7 +9,8 @@ browser origins and non-loopback Host headers are refused. The API accepts no br
 The daemon listens on `127.0.0.1` and `[::1]` at the port that the state root's `port` file
 records, 47671 when there is none; `koinon install --port N` writes that file, one decimal
 port and a newline, and `koinon serve --listen` or `--listen-v6` replaces one listener. A
-client takes the daemon address from `--address`, else from `KOINON_DAEMON_ADDRESS`, else
+client takes the daemon address from `--address`, else from `KOINON_DAEMON_ADDRESS` when
+`KOINON_STATE_DIR` (or, unset, the default) names the same state directory, else
 from `127.0.0.1` and the recorded port; a `port` file that holds no valid port is refused
 with `port_invalid` (docs/INSTALL.md).
 The secret and state files are user-owned regular files, mode 0600; the state root is private.

@@ -68,11 +68,19 @@ func Listeners(port int) []string {
 }
 
 // DaemonAddress is a client's daemon address when its command line names none:
-// KOINON_DAEMON_ADDRESS, which a launcher passes to its agent, or else 127.0.0.1 at the
-// state directory's recorded port.
+// KOINON_DAEMON_ADDRESS, which a launcher passes to its agent with KOINON_STATE_DIR, or else
+// 127.0.0.1 at the state directory's recorded port. The variable applies only to the state
+// directory it came with (the default one when KOINON_STATE_DIR is unset), so a command for
+// another state directory does not pair that daemon's address with this directory's secret.
 func DaemonAddress(root string, getenv func(string) string) (string, error) {
 	if address := getenv("KOINON_DAEMON_ADDRESS"); address != "" {
-		return address, nil
+		state := getenv("KOINON_STATE_DIR")
+		if state == "" {
+			state, _ = platform.DefaultStateDir()
+		}
+		if state != "" && filepath.Clean(state) == filepath.Clean(root) {
+			return address, nil
+		}
 	}
 	port, err := RecordedPort(root)
 	if err != nil {

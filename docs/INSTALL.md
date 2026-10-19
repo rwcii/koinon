@@ -139,7 +139,8 @@ user holding one port is refused with `port_invalid`, by the daemon and by every
 never read as the default.
 
 Each command, hook, launched agent and `koinon mcp` finds the daemon at its `--address`, else at
-`KOINON_DAEMON_ADDRESS`, which a launcher passes to its agent, else at `127.0.0.1` and the port
+`KOINON_DAEMON_ADDRESS`, which a launcher passes to its agent with `KOINON_STATE_DIR` and which
+applies only to that state directory, else at `127.0.0.1` and the port
 that its state directory records, else at `127.0.0.1:47671`. `koinon dashboard` prints its
 login link at that address. Without a recorded port, everything stays at 47671. A session that
 a launcher started before a port change keeps the former address in its environment and in its
