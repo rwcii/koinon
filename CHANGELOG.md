@@ -5,6 +5,10 @@ into a dated release section when promoted to `main`.
 
 ## Unreleased
 
+- Native upgrade evidence (#404): the native lifecycle job installs v0.3.1 from its Homebrew
+  keg in user mode and checks that `brew upgrade` alone moves `koinon version` on the PATH and
+  the daemon to the new build; the Go upgrade test starts from v0.3.1.
+
 ## 2026-10-17 — Homebrew upgrades and maintenance from the command line
 
 This release makes `brew upgrade koinon` the complete upgrade of a Homebrew installation, and
