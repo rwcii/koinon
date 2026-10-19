@@ -236,7 +236,10 @@ As proposed in #406: the skill is named `koinon-pickup`, and its body only reads
 item `skill.pickup` through Koinon and requires its catalog digest to equal the cycle's, so
 the procedure itself has one copy, in the binary's catalog. `koinon install`, and the install
 that an upgrade runs, writes it as `skills/koinon-pickup/SKILL.md` under the Claude Code
-configuration root and `~/.agents/skills/koinon-pickup/SKILL.md` for Codex. After the clear the
+configuration root and `~/.agents/skills/koinon-pickup/SKILL.md` for Codex. The daemon also
+writes both files at each start when one is missing or differs, so `brew upgrade`, which
+restarts the daemon, installs it without another command; a failed write is logged and leaves
+the install step shown. After the clear the
 cycle enters `/koinon-pickup` or `$koinon-pickup`. Before each input the cycle checks only that
 file, byte for byte; a missing or different file makes the cycle unavailable with a reason that
 names the install command, and an entry that cannot be proven stops the cycle before reset.
@@ -264,7 +267,12 @@ user-level copy per agent family replaces per-project copies and the per-session
 name `koinon-pickup`, the paths, the install step, the typed commands, the byte check and its
 reasons, and the loader's removal: Proposed in the #406 design comment
 ([record](https://github.com/rwcii/koinon/issues/406#issuecomment-6276914180)), for review in
-the pull request; not a maintainer decision.
+the pull request; not a maintainer decision. The daemon's write at each start follows the
+maintainer's words on #397 (2026-10-17), recorded in that issue's body: "'brew upgrade koinon'
+is a full command. running '$(brew --prefix)/bin/koinon install' after is an undocumented
+requirement". Intent recorded there: `brew upgrade koinon` alone is the complete upgrade, and a
+second step is a defect. Writing at the daemon's start is how this change meets it; the
+mechanism is proposed, not a maintainer decision.
 
 ### Alternatives Considered
 

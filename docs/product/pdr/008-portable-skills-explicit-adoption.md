@@ -101,8 +101,8 @@ drafts the file from repository evidence and writes it after approval. Fact file
 embedded and grant no permission.
 
 One Koinon-owned skill is not a catalog item: `koinon-pickup`, the managed context cycle's
-pickup entry (PDR 006, Decision 4). `koinon install` installs it for the person who runs the
-daemon, one user-level copy per agent family (Claude Code's personal skills, `~/.agents/skills`
+pickup entry (PDR 006, Decision 4). `koinon install` and the daemon at each start install it
+for the person who runs the daemon, one user-level copy per agent family (Claude Code's personal skills, `~/.agents/skills`
 for Codex), and never in a project repository. It only reads the catalog item `skill.pickup`,
 so the procedure keeps its one copy in the catalog. A project's own `pickup` skill, and the
 catalog's `pickup` wherever it was adopted, are unchanged by it.

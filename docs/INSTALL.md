@@ -47,10 +47,8 @@ has passed, and otherwise keeps the formula of the previous release. Within abou
 
 An installation made by v0.3.0 or earlier has a copy, and its daemon does not check its
 executable. Upgrade it once with `$(brew --prefix)/bin/koinon install` after `brew upgrade`.
-Each later `brew upgrade` is complete, except that `brew upgrade` does not write the managed
-cycle's `koinon-pickup` skill (Install, step 7): run `$(brew --prefix)/bin/koinon install`
-once after the upgrade that first ships it, and again when a session's handoff cycle is
-unavailable with `pickup_entry_missing` or `pickup_entry_differs`, whose step names it. A macOS system-mode daemon (`--system`) keeps a copy,
+Each later `brew upgrade` is complete: the restarted daemon also writes the managed cycle's
+`koinon-pickup` skill (Install, step 7). A macOS system-mode daemon (`--system`) keeps a copy,
 because brew can replace the linked file; upgrade it with
 `$(brew --prefix)/bin/koinon install --system`. A Python-era installation upgrades with
 `$(brew --prefix)/bin/koinon upgrade --from-python`, as below.
@@ -121,6 +119,12 @@ does this:
    content is replaced. `pickup_skills` in the report gives each path and its result
    (`created`, `replaced` or `unchanged`); a file that cannot be written fails the install with
    `pickup_skill_failed` after the service and setup steps, and a repeated install completes it.
+   The daemon also writes both files at each start, from its own environment, when one is
+   missing or holds other content, so an upgrade that only restarts it, such as
+   `brew upgrade`, installs the skill too; a file it cannot write is logged as a
+   `pickup_skill` event with `write_failed`, and the daemon keeps running. A session whose
+   Claude Code runs with another configuration root than the daemon shows the step that
+   installs the skill there (`koinon install` with that `CLAUDE_CONFIG_DIR`).
    The skill only reads the catalog's `skill.pickup` through Koinon, so it changes only when
    this entry changes. A personal or project `pickup` skill is left as it is.
 

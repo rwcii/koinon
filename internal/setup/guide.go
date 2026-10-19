@@ -196,7 +196,7 @@ while fresh and for the current published name. A name alone never proves termin
   handoff procedure, and call context_cycle_ready with the cycle ID, the revision that
   context_cycle_status shows and the handoff file name within 15 minutes of the request.
   Then wait; the cycle clears your context and enters Koinon's own pickup skill,
-  koinon-pickup, which koinon install writes for the person and which loads skill.pickup.
+  koinon-pickup, which the daemon writes for the person and which loads skill.pickup.
 - After a clear, call context_cycle_status. For a cycle in waiting_pickup, finish your
   canonical pickup of the returned handoff file, then call context_cycle_pickup with the cycle
   ID, revision, file name, outcome resumed or paused, and a short report of the restored work,

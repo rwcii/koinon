@@ -420,8 +420,8 @@ Claude Code sessions launched with `koinon claude` on Linux and macOS can run th
 Codex sessions launched with `koinon codex` in tmux on Linux and macOS can run it too (family
 mode `handoff_cycle`) while they hold their participant address. After the clear the cycle
 enters `/koinon-pickup` (Claude Code) or `$koinon-pickup` (Codex): Koinon's own pickup skill,
-which `koinon install` writes for you under `~/.claude/skills` (or `$CLAUDE_CONFIG_DIR/skills`)
-and `~/.agents/skills`, never into a repository. It loads the catalog's canonical pickup
+which the daemon at each start and `koinon install` write for you under `~/.claude/skills`
+(or `$CLAUDE_CONFIG_DIR/skills`) and `~/.agents/skills`, never into a repository. It loads the catalog's canonical pickup
 procedure, so a project's own `pickup` skill neither blocks the cycle nor is changed by it
 ([INSTALL.md](INSTALL.md#install), step 7). For Codex, the new thread after the clear takes the
 address and reports the pickup. An enabled session

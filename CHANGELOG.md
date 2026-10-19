@@ -16,23 +16,24 @@ Changes:
   Without a recorded port, everything stays at 47671 (docs/INSTALL.md).
 - Koinon's own pickup skill for the handoff cycle (#406): after the clear, the managed cycle
   enters `/koinon-pickup` (Claude Code) or `$koinon-pickup` (Codex), not the bare `/pickup` or
-  `$pickup`. `koinon install` and the upgrade's install write that one skill for you, never
-  into a repository: `skills/koinon-pickup/SKILL.md` under the Claude Code configuration root
-  (`$CLAUDE_CONFIG_DIR`, else `~/.claude`) and `~/.agents/skills/koinon-pickup/SKILL.md` for
-  Codex; the report lists them under `pickup_skills`, and `koinon uninstall` removes them. The
-  skill only loads the catalog's `skill.pickup` and checks the cycle's `catalog_digest`. Probe
-  checks only that file, byte for byte: a missing or different file is `pickup_entry_missing`
-  or `pickup_entry_differs`, and the Sessions page and `koinon context show`
-  (`unavailable_step`) name the `koinon install` step. Personal and project `pickup` skills are
-  no longer read, so sessions in projects with their own pickup skill now get the cycle, and
-  that skill stays as it is. `koinon claude` no longer adds the `--add-dir` loader, and the
-  cycle no longer enters `/add-dir` before the clear or answers the add-directory dialog;
-  `<state>/cycle/claude-loader` is no longer written or read and can be removed.
-- Upgrade: a Homebrew upgrade does not run the install, so run
-  `$(brew --prefix)/bin/koinon install` once after `brew upgrade koinon` to write the
-  `koinon-pickup` skill. If you copied the catalog's pickup skill into `~/.claude/skills/pickup`
-  or `~/.agents/skills/pickup` only to enable the cycle, you can remove that copy; it now
-  shadows your projects' own `pickup` skills and the cycle does not use it.
+  `$pickup`. The daemon writes that one skill for you at each start, and `koinon install` and
+  the upgrade's install write it too, never into a repository: `skills/koinon-pickup/SKILL.md`
+  under the Claude Code configuration root (`$CLAUDE_CONFIG_DIR`, else `~/.claude`) and
+  `~/.agents/skills/koinon-pickup/SKILL.md` for Codex. A `brew upgrade` restarts the daemon,
+  which writes it, so the upgrade needs no further command. The install report lists the files
+  under `pickup_skills`, and `koinon uninstall` removes them. The skill only loads the
+  catalog's `skill.pickup` and checks the cycle's `catalog_digest`. Probe checks only that
+  file, byte for byte: a missing or different file is `pickup_entry_missing` or
+  `pickup_entry_differs`, and the Sessions page and `koinon context show` (`unavailable_step`)
+  name the `koinon install` step, for example for a session whose Claude Code runs with another
+  configuration root than the daemon. Personal and project `pickup` skills are no longer read,
+  so sessions in projects with their own pickup skill now get the cycle, and that skill stays
+  as it is. If you copied the catalog's pickup skill into `~/.claude/skills/pickup` or
+  `~/.agents/skills/pickup` only to enable the cycle, you can remove that copy; it shadows your
+  projects' own `pickup` skills and the cycle does not use it. `koinon claude` no longer adds
+  the `--add-dir` loader, and the cycle no longer enters `/add-dir` before the clear or
+  answers the add-directory dialog; `<state>/cycle/claude-loader` is no longer written or read
+  and can be removed.
 
 ## 2026-10-17 — Homebrew upgrades and maintenance from the command line
 
