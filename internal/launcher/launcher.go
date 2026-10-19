@@ -49,13 +49,25 @@ type Options struct {
 	Args []string
 }
 
-// Parse consumes only leading launcher options; everything after -- is literal.
+// Parse consumes only leading launcher options; everything after -- is literal. Without
+// --address, the address is KOINON_DAEMON_ADDRESS or the state directory's recorded port.
 func Parse(family string, args []string) (Options, error) {
+	o, err := parseOptions(family, args)
+	if err == nil && o.Address == "" {
+		o.Address, err = core.DaemonAddress(o.StateDir, os.Getenv)
+	}
+	if err != nil {
+		return Options{}, err
+	}
+	return o, nil
+}
+
+func parseOptions(family string, args []string) (Options, error) {
 	root, err := platform.DefaultStateDir()
 	if err != nil {
 		return Options{}, err
 	}
-	o := Options{Family: family, StateDir: root, Address: "127.0.0.1:47671"}
+	o := Options{Family: family, StateDir: root}
 	for len(args) > 0 {
 		key := args[0]
 		if key == "--" {

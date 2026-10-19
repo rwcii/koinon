@@ -80,12 +80,13 @@ func ClientSecret(root, address string) (string, error) {
 }
 
 // StartDaemon names how docs/INSTALL.md starts a daemon with this state directory at this
-// loopback address. The installed service listens only on the default port, so another
-// address has only the serve command, with a listener for each loopback family.
+// loopback address. The installed service listens only on the state directory's recorded
+// port, so another address has only the serve command, with a listener for each loopback
+// family.
 func StartDaemon(root, address string) string {
 	serve := "koinon serve --state-dir " + ShellWord(root)
 	host, port, _ := net.SplitHostPort(address)
-	if port == "47671" && (host == "127.0.0.1" || host == "::1") {
+	if InstalledAddress(root, address) {
 		return "start it with koinon install --state-dir " + ShellWord(root) + " from a login session, or run " + serve + " in a persistent managed session"
 	}
 	listen, listen6 := net.JoinHostPort("127.0.0.1", port), net.JoinHostPort("::1", port)

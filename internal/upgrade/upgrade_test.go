@@ -550,3 +550,19 @@ func TestUninstallWaitsForAPythonWriter(t *testing.T) {
 		t.Fatalf("rerun %+v %v uninstalls %d", result, err, f.uninstalls)
 	}
 }
+
+// The upgrade keeps the state directory's recorded port: the import does not touch it, and
+// its install names no port, so the install keeps it (#405).
+func TestUpgradeKeepsRecordedPort(t *testing.T) {
+	f := newFixture(t)
+	if err := core.RecordPort(f.goState, 47670); err != nil {
+		t.Fatal(err)
+	}
+	result, err := Run(context.Background(), f.options(f.good()))
+	if err != nil || result.Phase != phaseComplete || len(f.installs) != 1 || f.installs[0].Port != 0 {
+		t.Fatalf("upgrade %+v %v %+v", result, err, f.installs)
+	}
+	if port, err := core.RecordedPort(f.goState); err != nil || port != 47670 {
+		t.Fatalf("recorded port after the upgrade: %d %v", port, err)
+	}
+}

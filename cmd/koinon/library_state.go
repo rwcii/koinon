@@ -25,7 +25,7 @@ func libraryStateCommand(ctx context.Context, args []string, out io.Writer) erro
 	flags := flag.NewFlagSet("library "+op, flag.ContinueOnError)
 	flags.SetOutput(io.Discard)
 	state := flags.String("state-dir", root, "private Go state directory")
-	address := flags.String("address", "127.0.0.1:47671", "daemon loopback address")
+	address := addressFlag(flags)
 	as := flags.String("as", "", "calling native session as FAMILY:ID")
 	scope := flags.String("scope", "machine", "machine or project inspection scope")
 	directory := flags.String("directory", "", "listed worktree of the registered repository")
@@ -48,6 +48,9 @@ func libraryStateCommand(ctx context.Context, args []string, out io.Writer) erro
 	family, id, ok := strings.Cut(*as, ":")
 	if !ok || family == "" || id == "" {
 		return usageError{"invalid_request", "--as must name the calling native session as FAMILY:ID"}
+	}
+	if err := resolveAddress(flags); err != nil {
+		return err
 	}
 	secret, err := core.ClientSecret(*state, *address)
 	if err != nil {
