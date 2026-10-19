@@ -126,10 +126,9 @@ refused with `python_install_present`. Use the upgrade instead.
 The daemon and its dashboard listen on `127.0.0.1` and `[::1]` at one port, 47671 by default.
 `koinon install --port N` (1 to 65535) records another port in the state directory, in the file
 `<state>/port` (mode 0600), before it writes and restarts the service, and waits for the daemon at
-`127.0.0.1:N`; the report's `port` names it. The dashboard accepts only its listener's own
-address as `Host`, so an SSH tunnel to a remote host's dashboard needs the same port on both
-ends: with `koinon install --port 47670` on the remote host, `ssh -L 47670:127.0.0.1:47670 HOST`
-reaches it while the local daemon keeps 47671. The service file stays the same
+`127.0.0.1:N`; the report's `port` names it. An SSH tunnel to a remote host's dashboard can use
+any local port (docs/USAGE.md), so a remote port only needs to change when it conflicts on that
+host. The service file stays the same
 on Linux, for the macOS agent and in macOS system mode: `koinon serve --state-dir <state>` without
 `--listen` or `--listen-v6` reads the recorded port, and each of those options, when given,
 replaces only its own family's listener. A later `koinon install` without `--port`, an upgrade
