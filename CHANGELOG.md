@@ -5,6 +5,11 @@ into a dated release section when promoted to `main`.
 
 ## Unreleased
 
+- Dashboard through an SSH tunnel (#407): the dashboard accepts a `Host` of `127.0.0.1` or
+  `[::1]` with any port, so a tunnel from another local port, such as
+  `ssh -L 47670:127.0.0.1:47671 HOST`, works. Host names such as `localhost` are still refused,
+  and `Origin`, CSRF and login checks are unchanged. ADR 001, Decision 4.
+
 ## 2026-10-17 — Homebrew upgrades and maintenance from the command line
 
 This release makes `brew upgrade koinon` the complete upgrade of a Homebrew installation, and
