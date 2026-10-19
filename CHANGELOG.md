@@ -18,6 +18,29 @@ Changes:
   `[::1]` with any port, so a tunnel from another local port, such as
   `ssh -L 47670:127.0.0.1:47671 HOST`, works. Host names such as `localhost` are still refused,
   and `Origin`, CSRF and login checks are unchanged. ADR 001, Decision 4.
+- Native upgrade evidence (#404): the native lifecycle job installs v0.3.1 from its Homebrew
+  keg in user mode and checks that `brew upgrade` alone moves `koinon version` on the PATH and
+  the daemon to the new build; the Go upgrade test starts from v0.3.1.
+- Koinon's own pickup skill for the handoff cycle (#406): after the clear, the managed cycle
+  enters `/koinon-pickup` (Claude Code) or `$koinon-pickup` (Codex), not the bare `/pickup` or
+  `$pickup`. The daemon writes that one skill for you at each start, and `koinon install` and
+  the upgrade's install write it too, never into a repository: `skills/koinon-pickup/SKILL.md`
+  under the Claude Code configuration root (`$CLAUDE_CONFIG_DIR`, else `~/.claude`) and
+  `~/.agents/skills/koinon-pickup/SKILL.md` for Codex. A `brew upgrade` restarts the daemon,
+  which writes it, so the upgrade needs no further command. The install report lists the files
+  under `pickup_skills`, and `koinon uninstall` removes them. The skill only loads the
+  catalog's `skill.pickup` and checks the cycle's `catalog_digest`. Probe checks only that
+  file, byte for byte: a missing or different file is `pickup_entry_missing` or
+  `pickup_entry_differs`, and the Sessions page and `koinon context show` (`unavailable_step`)
+  name the `koinon install` step, for example for a session whose Claude Code runs with another
+  configuration root than the daemon. Personal and project `pickup` skills are no longer read,
+  so sessions in projects with their own pickup skill now get the cycle, and that skill stays
+  as it is. If you copied the catalog's pickup skill into `~/.claude/skills/pickup` or
+  `~/.agents/skills/pickup` only to enable the cycle, you can remove that copy; it shadows your
+  projects' own `pickup` skills and the cycle does not use it. `koinon claude` no longer adds
+  the `--add-dir` loader, and the cycle no longer enters `/add-dir` before the clear or
+  answers the add-directory dialog; `<state>/cycle/claude-loader` is no longer written or read
+  and can be removed.
 - Repository discovery (#410): a registration's Git calls share one six-second limit instead
   of three seconds each, so a slow first Git call no longer fails with
   `repository_git_timeout`; a hung Git still does.

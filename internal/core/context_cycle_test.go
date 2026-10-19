@@ -24,7 +24,6 @@ type fakeAdapter struct {
 	pickup   bool
 	answered bool
 	probe    CycleProbe
-	boot     bool
 	calls    []string
 	// beforeClear runs as the clear starts, before its fence: a race with a dashboard action.
 	beforeClear func()
@@ -49,13 +48,6 @@ func (f *fakeAdapter) Inspect(_ context.Context, t CycleTarget, _ CycleFence) (P
 }
 
 // Every input passes the fence first, as the real adapter does before each key.
-func (f *fakeAdapter) Bootstrap(ctx context.Context, _ CycleTarget, fence CycleFence) (bool, error) {
-	if err := fence(ctx); err != nil {
-		return false, err
-	}
-	f.record("bootstrap")
-	return f.boot, nil
-}
 func (f *fakeAdapter) Clear(ctx context.Context, _ CycleTarget, fence CycleFence) (bool, error) {
 	if f.beforeClear != nil {
 		f.beforeClear()
@@ -70,11 +62,11 @@ func (f *fakeAdapter) NewEpoch(context.Context, CycleTarget) (string, error) {
 	f.record("epoch")
 	return f.epoch, nil
 }
-func (f *fakeAdapter) Pickup(ctx context.Context, _ CycleTarget, bootstrap string, fence CycleFence) (bool, error) {
+func (f *fakeAdapter) Pickup(ctx context.Context, _ CycleTarget, fence CycleFence) (bool, error) {
 	if err := fence(ctx); err != nil {
 		return false, err
 	}
-	f.record("pickup " + bootstrap)
+	f.record("pickup")
 	return f.pickup, nil
 }
 func (f *fakeAdapter) Answerable(prompt string) bool { return prompt != "native_dialog" }
@@ -129,7 +121,7 @@ type cycleFixture struct {
 func newCycleFixture(t *testing.T) *cycleFixture {
 	t.Helper()
 	s, root := testStore(t)
-	f := &cycleFixture{s: s, root: root, adapter: &fakeAdapter{pane: PaneState{Idle: true}, clear: true, epoch: "synthetic-epoch-2", pickup: true, answered: true, probe: CycleProbe{Bootstrap: "project"}}}
+	f := &cycleFixture{s: s, root: root, adapter: &fakeAdapter{pane: PaneState{Idle: true}, clear: true, epoch: "synthetic-epoch-2", pickup: true, answered: true, probe: CycleProbe{Entry: "koinon-pickup"}}}
 	f.clock = time.Now().Truncate(time.Millisecond)
 	s.now = func() time.Time { return f.clock }
 	previous := cycleAdapters
@@ -814,7 +806,7 @@ func TestContextCycleControlsAtSaturation(t *testing.T) {
 func TestContextCycleDashboardAndRoutes(t *testing.T) {
 	d, root := startTestDaemon(t)
 	s := d.store
-	adapter := &fakeAdapter{pane: PaneState{Idle: true}, probe: CycleProbe{Bootstrap: "project"}}
+	adapter := &fakeAdapter{pane: PaneState{Idle: true}, probe: CycleProbe{Entry: "koinon-pickup"}}
 	previous := cycleAdapters
 	cycleAdapters = map[string]CycleAdapter{"claude": adapter}
 	t.Cleanup(func() { cycleAdapters = previous })

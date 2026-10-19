@@ -267,9 +267,6 @@ func openStoreFile(root, name string) (*Store, error) {
 		processEnvironment: platform.ProcessEnvironment, tmux: runTmux,
 		processGroups: platform.ProcessGroups,
 		codexPane:     runtime.GOOS == "linux" || runtime.GOOS == "darwin", processStartTime: platform.ProcessStartTime}
-	// The Claude pickup loader that a running session can add before its clear (#196, chunk 03).
-	// A failure is not fatal: the adapter's Probe then reports the loader as unreadable.
-	EnsureCycleLoader(root)
 	if err := s.loadContextPolicy(context.Background()); err != nil {
 		db.Close()
 		return nil, err

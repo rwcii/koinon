@@ -5,7 +5,7 @@
 // 11, workflow native-go-lifecycle.yml). It changes the account's services, so it runs
 // only on a disposable CI runner, with KOINON_NATIVE_JOB=1 and `go test -tags native`.
 // The upgrades start from the pinned Python main release and the current Go main release
-// (v0.3.0), taken by `git archive` from history (never from this checkout's Python code),
+// (v0.3.1), taken by `git archive` from history (never from this checkout's Python code),
 // and from the committed fixture trees.
 package nativetest
 
@@ -38,11 +38,12 @@ import (
 // baseline is the Python main release that the upgrade from Python starts from.
 const baseline = "3d60c73c88f3110ca4bc91a9a0cc7e16f7daf827"
 
-// goRelease is the current main release, v0.3.0, that a Go upgrade starts from, and
-// goReleaseSchema its state schema.
+// goRelease is the commit of the current main release, goReleaseVersion, that a Go upgrade
+// starts from, and goReleaseSchema its state schema.
 const (
-	goRelease       = "5d3c3c3c440a22f7264ace1e4986b0a496440a7d"
-	goReleaseSchema = 27
+	goRelease        = "526dc8667ab1a70d18b2321c091ac2f430d39fb6"
+	goReleaseVersion = "v0.3.1"
+	goReleaseSchema  = 27
 )
 
 var binary string
@@ -245,6 +246,27 @@ func installedCatalog(t *testing.T, prefix string) {
 	}
 }
 
+// installedPickupSkills checks the managed cycle's koinon-pickup skill that install writes for
+// the person who runs it (#406), under the Claude Code configuration root and in
+// ~/.agents/skills for Codex, or that uninstall removed. Runs only in guarded CI.
+func installedPickupSkills(t *testing.T, present bool) {
+	t.Helper()
+	home, err := os.UserHomeDir()
+	if err != nil {
+		t.Fatal(err)
+	}
+	claude := os.Getenv("CLAUDE_CONFIG_DIR")
+	if claude == "" {
+		claude = filepath.Join(home, ".claude")
+	}
+	for _, path := range []string{core.ClaudePickupSkillPath(claude), core.CodexPickupSkillPath(home)} {
+		data, err := os.ReadFile(path)
+		if present && (err != nil || !bytes.Equal(data, core.PickupSkill())) || !present && !os.IsNotExist(err) {
+			t.Fatalf("pickup skill %s (want present %v): %v %q", path, present, err, data)
+		}
+	}
+}
+
 // TestGoLifecycle installs, starts, kills, uninstalls and reinstalls the daemon; the
 // state survives the uninstall.
 func TestGoLifecycle(t *testing.T) {
@@ -252,6 +274,7 @@ func TestGoLifecycle(t *testing.T) {
 	prefix, state := filepath.Join(dir, "prefix space"), filepath.Join(dir, "state")
 	report := installWithoutPython(t, prefix, state)
 	installedCatalog(t, prefix)
+	installedPickupSkills(t, true)
 	if report["service"] != "running" {
 		t.Fatalf("install %v", report)
 	}
@@ -296,7 +319,9 @@ func TestGoLifecycle(t *testing.T) {
 	if _, err := os.Stat(filepath.Join(state, "state.sqlite3")); err != nil {
 		t.Fatalf("uninstall removed the state: %v", err)
 	}
+	installedPickupSkills(t, false)
 	must(t, "install", "--prefix", prefix, "--state-dir", state)
+	installedPickupSkills(t, true)
 	secret, err := core.ReadSecret(state)
 	if err != nil {
 		t.Fatal(err)

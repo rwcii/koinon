@@ -17,7 +17,7 @@ import (
 	"time"
 )
 
-// TestUpgradeFromGoRelease installs the current main release (v0.3.0), seeds state through
+// TestUpgradeFromGoRelease installs the current main release (v0.3.1), seeds state through
 // its own commands, and upgrades it as INSTALL.md describes: the candidate's install with
 // the same prefix and state directory. The daemon restarts on the candidate and every
 // seeded item reads back.

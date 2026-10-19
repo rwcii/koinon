@@ -12,6 +12,8 @@ import (
 	"sync"
 	"testing"
 	"time"
+
+	"github.com/rwcii/koinon/internal/core"
 )
 
 // lockedBuffer collects lifecycle lines written from several daemons.
@@ -179,6 +181,97 @@ func TestServeReportFailureLogsStop(t *testing.T) {
 	if len(events) != 2 || events[0]["event"] != "start" || events[1]["event"] != "stop" ||
 		events[1]["reason"] != "error" || events[1]["code"] != "report_failed" {
 		t.Fatalf("events %v", events)
+	}
+}
+
+// The daemon writes the managed cycle's koinon-pickup skill at its start, from its own
+// environment: a missing file is created and a different one replaced, so that a brew upgrade,
+// which restarts the daemon, installs it (#406). The home and configuration roots are
+// temporary.
+func TestServeWritesPickupSkills(t *testing.T) {
+	log := &lockedBuffer{}
+	daemonLog = log
+	defer func() { daemonLog = os.Stderr }()
+	dir := t.TempDir()
+	home, config := filepath.Join(dir, "home"), filepath.Join(dir, "claude-config")
+	t.Setenv("HOME", home)
+	t.Setenv("CLAUDE_CONFIG_DIR", config)
+	claude := core.ClaudePickupSkillPath(config)
+	codex := core.CodexPickupSkillPath(home)
+	if err := os.MkdirAll(filepath.Dir(codex), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(codex, []byte("an older entry\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	// The report failure returns right after the start.
+	if err := run(context.Background(), serveArgs(filepath.Join(dir, "state")), nil, failingWriter{}); err == nil {
+		t.Fatal("the report failure was not returned")
+	}
+	for _, path := range []string{claude, codex} {
+		if data, err := os.ReadFile(path); err != nil || !bytes.Equal(data, core.PickupSkill()) {
+			t.Fatalf("%s: %q %v", path, data, err)
+		}
+	}
+	if _, err := os.Lstat(filepath.Join(home, ".claude")); !os.IsNotExist(err) {
+		t.Fatalf("wrote ~/.claude although CLAUDE_CONFIG_DIR is set: %v", err)
+	}
+	for _, event := range log.events() {
+		if event["event"] == "pickup_skill" {
+			t.Fatalf("a successful write was logged as %v", event)
+		}
+	}
+	// Without CLAUDE_CONFIG_DIR the Claude Code root is ~/.claude.
+	t.Setenv("CLAUDE_CONFIG_DIR", "")
+	if err := run(context.Background(), serveArgs(filepath.Join(dir, "state")), nil, failingWriter{}); err == nil {
+		t.Fatal("the report failure was not returned")
+	}
+	if data, err := os.ReadFile(core.ClaudePickupSkillPath(filepath.Join(home, ".claude"))); err != nil || !bytes.Equal(data, core.PickupSkill()) {
+		t.Fatalf("~/.claude skill: %q %v", data, err)
+	}
+}
+
+// A koinon-pickup skill that cannot be written is logged with a fixed code and does not stop
+// the daemon; the other family's skill is still written (#406).
+func TestServePickupSkillFailureKeepsServing(t *testing.T) {
+	log := &lockedBuffer{}
+	daemonLog = log
+	defer func() { daemonLog = os.Stderr }()
+	dir := t.TempDir()
+	home, blocked := filepath.Join(dir, "home"), filepath.Join(dir, "not-a-directory")
+	if err := os.WriteFile(blocked, []byte("a file"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("HOME", home)
+	t.Setenv("CLAUDE_CONFIG_DIR", blocked)
+	ctx, stop := context.WithCancel(context.Background())
+	defer stop()
+	ready := make(chan []byte, 1)
+	done := make(chan error, 1)
+	go func() { done <- run(ctx, serveArgs(filepath.Join(dir, "state")), nil, output{ready}) }()
+	select {
+	case <-ready:
+	case err := <-done:
+		t.Fatalf("startup: %v", err)
+	case <-time.After(15 * time.Second):
+		t.Fatal("startup deadline")
+	}
+	if data, err := os.ReadFile(core.CodexPickupSkillPath(home)); err != nil || !bytes.Equal(data, core.PickupSkill()) {
+		t.Fatalf("codex skill: %q %v", data, err)
+	}
+	stop()
+	if err := <-done; err != nil {
+		t.Fatalf("serve: %v", err)
+	}
+	var failed []map[string]any
+	for _, event := range log.events() {
+		if event["event"] == "pickup_skill" {
+			failed = append(failed, event)
+		}
+	}
+	if len(failed) != 1 || failed[0]["family"] != "claude" || failed[0]["result"] != "failed" || failed[0]["code"] != "write_failed" ||
+		failed[0]["path"] != core.ClaudePickupSkillPath(blocked) {
+		t.Fatalf("logged %v", failed)
 	}
 }
 
