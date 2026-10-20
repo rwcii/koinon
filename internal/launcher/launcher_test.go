@@ -320,8 +320,9 @@ func TestPrivateTmuxDetachedAndOutside(t *testing.T) {
 		for _, detached := range []bool{true, false} {
 			t.Run(fmt.Sprintf("%s-detached-%v", family, detached), func(t *testing.T) {
 				root, address, cli, directory := fixture(t)
-				// Short unresolved socket path also fits macOS's AF_UNIX bound.
-				socketDir, err := os.MkdirTemp("", "kl-tmux-")
+				// The socket directory is under /tmp, not TMPDIR: a long TMPDIR would exceed the
+				// AF_UNIX path bound (104 bytes on macOS) (#426).
+				socketDir, err := os.MkdirTemp("/tmp", "kl-tmux-")
 				if err != nil {
 					t.Fatal(err)
 				}
@@ -518,7 +519,7 @@ func TestTmuxCarriesClaudeConfiguration(t *testing.T) {
 	for _, caller := range []*string{ptr("/synthetic/caller config $(touch x) 'q'"), nil} {
 		t.Run(fmt.Sprintf("caller-set-%v", caller != nil), func(t *testing.T) {
 			root, address, cli, directory := fixture(t)
-			socketDir, err := os.MkdirTemp("", "kl-tmux-")
+			socketDir, err := os.MkdirTemp("/tmp", "kl-tmux-")
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -629,7 +630,7 @@ func TestPrivateTmuxTakenDefaultName(t *testing.T) {
 		t.Fatal(err)
 	}
 	root, address, cli, directory := fixture(t)
-	socketDir, err := os.MkdirTemp("", "kl-tmux-")
+	socketDir, err := os.MkdirTemp("/tmp", "kl-tmux-")
 	if err != nil {
 		t.Fatal(err)
 	}
