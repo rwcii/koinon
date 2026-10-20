@@ -83,7 +83,7 @@ func TestDashboardSessionSortEveryColumn(t *testing.T) {
 	states := map[string]bool{}
 	for _, c := range sessionSort.columns {
 		for _, dir := range []string{"asc", "desc"} {
-			rows := pageAll(t, &sessionSort, c.key, dir, func(o dashboardSort) ([]Session, string, error) { return s.dashboardSessions(ctx, o, "") })
+			rows := pageAll(t, &sessionSort, c.key, dir, func(o dashboardSort) ([]Session, string, error) { return s.dashboardSessions(ctx, o, "", "") })
 			checkOrder(t, "sessions "+c.key, dir, rows, want, func(r Session) []any {
 				states[r.State] = true
 				switch c.key {
@@ -352,7 +352,7 @@ func TestDashboardSortLinks(t *testing.T) {
 	sessions := page("/dashboard/sessions")
 	for _, want := range []string{`<th aria-sort="ascending"><a href="/dashboard/sessions?dir=desc&amp;sort=state">State</a> ▲</th>`,
 		`<th><a href="/dashboard/sessions?dir=asc&amp;sort=family">Family</a></th>`,
-		`<th><a href="/dashboard/sessions?dir=asc&amp;sort=name">Name</a></th>`, `<p class="counts">2 active, 0 expired, 0 retired</p>`,
+		`<th><a href="/dashboard/sessions?dir=asc&amp;sort=name">Name</a></th>`, `<a href="/dashboard/sessions?dir=asc&amp;sort=state&amp;status=active"><b>2</b> active</a>`,
 		`<th><a href="/dashboard/sessions?dir=desc&amp;sort=registered">Registered</a></th>`, `<th>Model</th>`} {
 		if !strings.Contains(sessions, want) {
 			t.Fatalf("missing %s", want)
@@ -410,7 +410,7 @@ func TestDashboardActiveSessionsFirst(t *testing.T) {
 	join(t, s, "codex", "synthetic-older", "")
 	clock = clock.Add(time.Second)
 	join(t, s, "codex", "synthetic-newer", "")
-	page, next, err := s.dashboardSessions(ctx, sortOrder(t, &sessionSort, "", "", ""), "")
+	page, next, err := s.dashboardSessions(ctx, sortOrder(t, &sessionSort, "", "", ""), "", "")
 	if err != nil || len(page) != dashboardSessionPage || next == "" {
 		t.Fatalf("page of %d, next %q: %v", len(page), next, err)
 	}

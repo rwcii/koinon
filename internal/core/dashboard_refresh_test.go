@@ -21,7 +21,7 @@ function run(name, script) {
   const fresh = () => [{ form: true, open: false }, { key: 'k', open: false }, { open: false }];
   let html = 'unsaved edit form';
   const list = {
-    dataset: { refresh: '5000' }, details: fresh(),
+    dataset: { refresh: '5000' }, details: fresh(), checked: false,
     get innerHTML() { return html; },
     set innerHTML(v) { html = v; this.details = fresh(); },
     querySelector(selector) {
@@ -31,6 +31,7 @@ function run(name, script) {
         'form[data-busy]': () => false
       };
       return selector.split(', ').some(part => {
+        if (part === 'input[form=bulk]:checked') { return this.checked; }
         if (!match[part]) { throw new Error('unmodelled selector ' + part); }
         return this.details.some(match[part]);
       }) ? {} : null;
@@ -65,12 +66,15 @@ const settle = () => new Promise(resolve => setImmediate(resolve));
   await run('focus-in-flight', async (state, tick, list) => { tick(); state.focused = true; answer(state); await settle(); return list.innerHTML; });
   await run('keyed-open', async (state, tick, list) => { list.details[1].open = true; tick(); answer(state); await settle(); return list.innerHTML + ' reopened ' + list.details[1].open; });
   await run('unkeyed-open', async (state, tick, list) => { list.details[2].open = true; tick(); return state.requests + ' ' + list.innerHTML; });
+  await run('checked-before', async (state, tick, list) => { list.checked = true; tick(); return state.requests + ' ' + list.innerHTML; });
+  await run('checked-in-flight', async (state, tick, list) => { tick(); list.checked = true; answer(state); await settle(); return list.innerHTML; });
 })();
 `
 
 // The 5-second refresh never replaces a list whose disclosure is open or whose form field
 // has focus, also when the person opens it while a refresh is in flight (#243 review). An
 // open read-only disclosure with a data-key does not hold it and is open again after (#373).
+// A session selected for a bulk action holds it, so the selection stays (#429).
 func TestRefreshKeepsFormsInUse(t *testing.T) {
 	node, err := exec.LookPath("node")
 	if err != nil {
@@ -95,8 +99,77 @@ func TestRefreshKeepsFormsInUse(t *testing.T) {
 		t.Fatalf("node: %v %s", err, out)
 	}
 	want := "idle replacement fragment\nopen-before 0 unsaved edit form\nopen-in-flight unsaved edit form\nfocus-in-flight unsaved edit form\n" +
-		"keyed-open replacement fragment reopened true\nunkeyed-open 0 unsaved edit form\n"
+		"keyed-open replacement fragment reopened true\nunkeyed-open 0 unsaved edit form\n" +
+		"checked-before 0 unsaved edit form\nchecked-in-flight unsaved edit form\n"
 	if string(out) != want {
 		t.Fatalf("refresh:\n%s\nwant:\n%s", out, strings.TrimSpace(want))
+	}
+}
+
+// selectAllScript runs app.js in a Node VM with a synthetic sessions list of three session
+// boxes and the select-all box, sends change events and prints the boxes after each.
+const selectAllScript = `
+const fs = require('fs');
+const vm = require('vm');
+let change;
+const box = (row) => ({ checked: false, indeterminate: false,
+  matches(selector) { return row && selector === 'input[form=bulk][name=s]'; } });
+const rows = [box(true), box(true), box(true)];
+const all = box(false);
+const outside = box(true);
+const list = {
+  dataset: {},
+  contains(node) { return node !== outside; },
+  querySelector(selector) {
+    if (selector === 'input[data-select-all]') { return all; }
+    throw new Error('unmodelled selector ' + selector);
+  },
+  querySelectorAll(selector) {
+    if (selector === 'input[form=bulk][name=s]') { return rows; }
+    throw new Error('unmodelled selector ' + selector);
+  }
+};
+const document = { getElementById() { return list; }, visibilityState: 'visible',
+  addEventListener(type, f) { if (type === 'change') { change = f; } } };
+vm.runInNewContext(fs.readFileSync(process.argv[2], 'utf8'), { document, URL, window: { location: { href: 'http://localhost/dashboard/sessions' }, setInterval() {} } });
+const show = (name) => console.log(name + ' ' + rows.map(r => r.checked ? 'x' : '-').join('') + ' all=' + all.checked + ' some=' + all.indeterminate);
+const send = (target) => change({ target });
+all.checked = true; send(all); show('select-all');
+rows[1].checked = false; send(rows[1]); show('clear-one');
+rows[1].checked = true; send(rows[1]); show('check-last');
+all.checked = false; send(all); show('clear-all');
+rows[0].checked = true; send(rows[0]); show('check-one');
+outside.checked = true; send(outside); show('outside');
+`
+
+// "Select all sessions on this page" checks and clears every session box of the bulk form,
+// and a session box shows whether all, some or none are checked (#429).
+func TestSelectAllSessions(t *testing.T) {
+	node, err := exec.LookPath("node")
+	if err != nil {
+		if os.Getenv("CI") != "" {
+			t.Fatal("node required in CI")
+		}
+		t.Skip("node not installed")
+	}
+	dir := t.TempDir()
+	script := filepath.Join(dir, "select.js")
+	if err := os.WriteFile(script, []byte(selectAllScript), 0600); err != nil {
+		t.Fatal(err)
+	}
+	app, err := filepath.Abs(filepath.Join("web", "static", "app.js"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	cmd := exec.Command(node, script, app)
+	cmd.Dir = dir
+	out, err := cmd.CombinedOutput()
+	if err != nil {
+		t.Fatalf("node: %v %s", err, out)
+	}
+	want := "select-all xxx all=true some=false\nclear-one x-x all=false some=true\ncheck-last xxx all=true some=false\n" +
+		"clear-all --- all=false some=false\ncheck-one x-- all=false some=true\noutside x-- all=false some=true\n"
+	if string(out) != want {
+		t.Fatalf("select all:\n%s\nwant:\n%s", out, strings.TrimSpace(want))
 	}
 }

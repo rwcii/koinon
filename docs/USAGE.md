@@ -568,8 +568,13 @@ koinon rooms delete ROOM_ID --yes                     # delete a room with its p
 `koinon claims release` lists, and with `--yes` releases, the claims held by expired or
 retired sessions; a participant's claims stay with the participant. `koinon rooms prune`
 removes members whose session is expired or retired; a participant member stays. In the
-dashboard, the sessions view selects sessions with the box before each name and applies
-retire, purge, keep or clear to each, and the rooms view deletes a room.
+dashboard, the sessions view selects sessions with the box before each name, or every session
+on the page with **Select all sessions on this page**, and applies retire, purge, keep or clear
+to each; the rooms view deletes a room. While a session is selected, the list does not refresh,
+so the selection stays. The counts above the list (all, active, expired, retired) show only the
+sessions of one status when chosen (`status=active`, `expired` or `retired` in the address);
+**all** shows every session again. The chosen count is marked, the counts stay totals, and the
+search, the sort and the next pages keep the status.
 
 Each changed session gets the dashboard action's audit record (`purge`, `unpurge`, `retire`,
 `clear`) with the origin `by cli`; a session that changed since the selection is refused with

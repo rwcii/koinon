@@ -309,6 +309,8 @@ func (s *Store) contextRowOf(session Session, enable ContextEnable, now int64) c
 type sessionsData struct {
 	Rows   []sessionRow
 	Search string
+	// Status is the status filter shown ("" is all); the counts stay totals under it.
+	Status string
 	Counts map[string]int64
 	Sort   dashboardSort
 	Next   string
@@ -357,7 +359,7 @@ func (d *Daemon) dashboardData(r *http.Request, view string) (any, error) {
 		if err != nil {
 			return nil, err
 		}
-		sessions, next, err := d.store.dashboardSessions(ctx, order, q.Get("q"))
+		sessions, next, err := d.store.dashboardSessions(ctx, order, q.Get("q"), q.Get("status"))
 		if err != nil {
 			return nil, err
 		}
@@ -391,7 +393,7 @@ func (d *Daemon) dashboardData(r *http.Request, view string) (any, error) {
 			return nil, err
 		}
 		now := d.store.now().UnixMilli()
-		result := sessionsData{Rows: make([]sessionRow, 0, len(sessions)), Search: q.Get("q"), Counts: counts, Sort: order, Next: next}
+		result := sessionsData{Rows: make([]sessionRow, 0, len(sessions)), Search: q.Get("q"), Status: q.Get("status"), Counts: counts, Sort: order, Next: next}
 		for _, s := range sessions {
 			result.Rows = append(result.Rows, sessionRow{Session: s, Work: claims[s.Family+":"+s.ID], Observed: d.store.sessionObservations(pull, s), Participant: byAddress[s.Address],
 				Cycle: d.store.contextRowOf(s, enables[Key{s.Family, s.ID}], now)})

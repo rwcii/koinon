@@ -5,6 +5,10 @@ into a dated release section when promoted to `main`.
 
 ## Unreleased
 
+- The dashboard Sessions page has a status filter: a count for each status (all, active,
+  expired, retired) that shows only the sessions of that status, with the search, sort and
+  paging. **Select all sessions on this page** selects every session in the list for a bulk
+  action, and the list no longer refreshes over a selection (#429).
 - The managed handoff cycle asks the session to pause at a safe stopping point, write its
   handoff, report ready and then end its turn; the ready answer says to start no other work.
   When the session does not become idle after its ready report, `overwatch` sends the request
