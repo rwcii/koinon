@@ -29,6 +29,22 @@ var ErrConflict = errors.New("session revision or lifecycle conflict")
 var ErrRepositoryGitUnavailable = errors.New("repository discovery cannot execute Git")
 var ErrRepositoryGitTimeout = errors.New("repository discovery Git command timed out")
 
+// RepositoryGitTimeout is ErrRepositoryGitTimeout with the time that each Git call of the
+// request took, in order, so that a refusal shows which call was slow (#410).
+type RepositoryGitTimeout struct{ Calls []time.Duration }
+
+func (e RepositoryGitTimeout) Error() string { return ErrRepositoryGitTimeout.Error() }
+func (e RepositoryGitTimeout) Unwrap() error { return ErrRepositoryGitTimeout }
+
+// repositoryTimeoutAfter puts the times of the earlier successful calls before those of a timeout.
+func repositoryTimeoutAfter(err error, earlier ...time.Duration) error {
+	var timeout RepositoryGitTimeout
+	if !errors.As(err, &timeout) {
+		return err
+	}
+	return RepositoryGitTimeout{append(earlier, timeout.Calls...)}
+}
+
 // SessionConflict is ErrConflict for a renewal of a session that is no longer active, with
 // its state (expired or retired) and whether a holder change fenced it, so that a client can
 // tell an expiry during an outage from a retirement or a fence (#283), whatever revision the
@@ -924,18 +940,27 @@ func (s *Store) ttl(seconds int64) (int64, error) {
 	return seconds * 1000, nil
 }
 
+// repositoryGitTimeout bounds repository discovery for one request: both Git calls of a
+// registration together, or a checkout lookup. The first Git call of a freshly started
+// daemon can be slow on a loaded machine while the next is fast (#410), so the calls share
+// one deadline instead of 3 seconds each. Six seconds keeps a hung Git's worst case at the
+// earlier two times 3 seconds, inside the 10-second limits of the HTTP server and of Call.
+// Tests scale it down.
+var repositoryGitTimeout = 6 * time.Second
+
 func repository(ctx context.Context, path string) (string, error) {
 	if !filepath.IsAbs(path) || len(path) > 4096 || strings.ContainsAny(path, "\x00\r\n") {
 		return "", ErrInvalid
 	}
-	ctx, cancel := context.WithTimeout(ctx, 3*time.Second)
+	ctx, cancel := context.WithTimeout(ctx, repositoryGitTimeout)
 	defer cancel()
 	cmd := exec.CommandContext(ctx, "git", "-C", path, "rev-parse", "--path-format=absolute", "--git-common-dir")
 	cmd.Env = CleanGitEnvironment()
+	started := time.Now()
 	data, err := cmd.Output()
 	if err != nil {
 		if errors.Is(ctx.Err(), context.DeadlineExceeded) {
-			return "", ErrRepositoryGitTimeout
+			return "", RepositoryGitTimeout{[]time.Duration{time.Since(started)}}
 		}
 		var lookup *exec.Error
 		var execution *os.PathError
@@ -985,13 +1010,17 @@ func (s *Store) Register(ctx context.Context, r Registration) (Session, error) {
 	// without Git; repository-dependent operations are added in later chunks.
 	common := ""
 	if r.Repository != "" {
-		common, err = repository(ctx, r.Repository)
+		discovery, cancel := context.WithTimeout(ctx, repositoryGitTimeout)
+		defer cancel()
+		started := time.Now()
+		common, err = repository(discovery, r.Repository)
 		if err != nil {
 			return Session{}, err
 		}
-		dirCommon, err := repository(ctx, directory)
+		first := time.Since(started)
+		dirCommon, err := repository(discovery, directory)
 		if err != nil {
-			return Session{}, err
+			return Session{}, repositoryTimeoutAfter(err, first)
 		}
 		if common != dirCommon {
 			return Session{}, ErrInvalid
