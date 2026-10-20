@@ -236,8 +236,9 @@ func stripSGR(line string) string {
 	return out.String()
 }
 
-// Inspect reports whether the pane is ready for input: the host is idle in its registry
-// record and the input line is empty. A pane in copy mode is returned to its prompt first.
+// Inspect reports whether the pane is ready for input: the host is at its prompt in its
+// registry record and the input line is empty. A pane in copy mode is returned to its prompt
+// first.
 func (claudeCycle) Inspect(ctx context.Context, t CycleTarget, fence CycleFence) (PaneState, error) {
 	if !provePane(ctx, t.tools, t.HostPID, t.HostStart, t.Socket, t.Pane) {
 		return PaneState{}, errClaudeUnproven
@@ -263,7 +264,26 @@ func (claudeCycle) Inspect(ctx context.Context, t CycleTarget, fence CycleFence)
 	if err != nil {
 		return PaneState{}, err
 	}
-	return PaneState{Idle: record.Status == "idle" && screen.found && screen.input == ""}, nil
+	return claudePaneState(record.Status, screen), nil
+}
+
+// claudePaneState reads the host's registry status with its screen. The host is at its prompt
+// when the status is idle, or shell: the prompt with a background shell task running, such
+// as a monitor of the session's inbox. Claude Code 2.1.303 takes /clear there without a dialog,
+// and the task, with its status, stays through the clear (#417). A turn in progress (busy) or
+// a native wait (waiting) is not at the prompt.
+func claudePaneState(status string, screen claudeScreen) PaneState {
+	switch {
+	case status == "busy" || status == "waiting":
+		return PaneState{Seen: "status_" + status}
+	case status != "idle" && status != "shell":
+		return PaneState{Seen: "status_unknown"}
+	case !screen.found:
+		return PaneState{Seen: "input_line_not_found"}
+	case screen.input != "":
+		return PaneState{Seen: "input_not_empty"}
+	}
+	return PaneState{Idle: true}
 }
 
 // key proves the pane, calls the fence and sends one key or literal text.

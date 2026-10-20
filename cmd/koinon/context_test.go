@@ -78,3 +78,16 @@ func TestContextCommand(t *testing.T) {
 		}
 	}
 }
+
+// The table shows a cycle's reason after its state (#417 review).
+func TestPrintContextShowsTheCycleReason(t *testing.T) {
+	var out bytes.Buffer
+	reply := contextShow{Sessions: []core.ContextSessionView{{Peer: "synthetic-peer", Family: "claude", Threshold: 55,
+		ThresholdSource: "family", Available: true, CycleState: "failed", CycleReason: "ready_timeout.status_busy"}}}
+	if err := printContext(&out, reply); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(out.String(), "cycle failed (ready_timeout.status_busy)") {
+		t.Fatalf("table: %s", out.String())
+	}
+}

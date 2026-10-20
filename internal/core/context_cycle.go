@@ -324,6 +324,9 @@ func (c cycleRow) target() CycleTarget {
 type PaneState struct {
 	Idle   bool   // an idle, empty input line, with no intervening agent
 	Prompt string // a native dialog's fixed code, or ""
+	// Seen is a fixed code of what kept the pane from input when it is not Idle, such as
+	// status_busy or input_not_empty (#417).
+	Seen string
 }
 
 // CycleProbe is an adapter's verdict on whether a session's cycle can run. Entry names the
@@ -876,6 +879,10 @@ func (s *Store) ContextCycleReady(ctx context.Context, caller Key, epoch, id str
 	if epoch == "" || !nativeEpoch.MatchString(epoch) {
 		return CycleView{}, ErrCycleEpoch
 	}
+	// The ready report holds wake.mu, as each wake submission does: a wake that passed the
+	// pane hold before the report ends before ready commits, and none starts after it (#417).
+	s.wake.mu.Lock()
+	defer s.wake.mu.Unlock()
 	now := s.now().UnixMilli()
 	if err := s.activeCaller(ctx, caller, now); err != nil {
 		return CycleView{}, err

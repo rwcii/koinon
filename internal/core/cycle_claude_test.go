@@ -506,3 +506,26 @@ func TestClaudeChoiceRecheckedAfterFence(t *testing.T) {
 		t.Fatalf("changed dialog: %v %v keys %q dialog %v", ok, err, term.keys, term.dialog)
 	}
 }
+
+// The host is at its prompt when its registry says idle, or shell (a background shell task
+// running), with an empty input line; each other case names what was seen (#417).
+func TestClaudePaneStateAcceptsBackgroundShell(t *testing.T) {
+	empty := claudeScreen{found: true}
+	for _, test := range []struct {
+		status string
+		screen claudeScreen
+		want   PaneState
+	}{
+		{"idle", empty, PaneState{Idle: true}},
+		{"shell", empty, PaneState{Idle: true}},
+		{"busy", empty, PaneState{Seen: "status_busy"}},
+		{"waiting", empty, PaneState{Seen: "status_waiting"}},
+		{"synthetic", empty, PaneState{Seen: "status_unknown"}},
+		{"shell", claudeScreen{}, PaneState{Seen: "input_line_not_found"}},
+		{"shell", claudeScreen{found: true, input: "draft"}, PaneState{Seen: "input_not_empty"}},
+	} {
+		if got := claudePaneState(test.status, test.screen); got != test.want {
+			t.Errorf("%s %+v: %+v", test.status, test.screen, got)
+		}
+	}
+}

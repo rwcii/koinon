@@ -161,6 +161,9 @@ func printContext(out io.Writer, reply contextShow) error {
 			state = "cycle " + s.CycleState + ": a native dialog waits (Sessions page or the session's pane)"
 		case s.CycleState != "":
 			state = "cycle " + s.CycleState
+			if s.CycleReason != "" {
+				state += " (" + s.CycleReason + ")"
+			}
 		case !s.Available:
 			state = "unavailable: " + s.Unavailable
 		case s.Eligible:

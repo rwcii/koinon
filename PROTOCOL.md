@@ -237,7 +237,8 @@ calling session). Without `peer`, a request with a caller names the caller's own
   every page). Each is an active agent session's `peer`, `family`, `enabled`,
   `enable_revision`, `mode`, `threshold`, `threshold_source` (`session` or `family`),
   `available`, `unavailable`, `eligible`, `reason`, and its newest cycle's `cycle_id`,
-  `cycle_revision`, `cycle_state` and waiting native `dialog` (`lines`, `options`, `digest`).
+  `cycle_revision`, `cycle_state`, `cycle_reason` and waiting native `dialog` (`lines`,
+  `options`, `digest`). The table shows the cycle's reason after its state.
 - `POST /v1/context/set` (`context_set` with `target_family`, `koinon context set`) takes
   `family`, `mode` and `threshold`, as `context-family-settings`.
 - `POST /v1/context/enable` (`context_enable`, `koinon context enable|disable`) takes `peer`
@@ -355,7 +356,18 @@ epoch, otherwise it is `uncertain`. Deadlines: 15 minutes from the request for
 `waiting_ready`, two minutes for each other stage (`waiting_pickup` included, for the report),
 ten for a prompt, and 30 minutes for the whole cycle; no stage deadline passes the cycle's. A
 report at or after a deadline is `cycle_changed`. While a cycle is in `ready` through
-`waiting_pickup`, ordinary wakes to its pane wait, still due and not delivered.
+`waiting_pickup`, ordinary wakes to its pane wait, still due and not delivered, so peer
+messages after the ready report start no turn (#417). A `ready`, `bootstrap_verified` or
+`reset_verified` stage that times out names what the pane last showed after a dot:
+`ready_timeout.status_busy` (a turn in progress), `.status_waiting` (a native wait),
+`.status_unknown`, `.input_not_empty` (a draft), `.input_line_not_found`, `.turn_running` and
+`.turn_not_ended` (Codex), `.native_dialog`, `.home_unknown`, `.rollout_unreadable`,
+`.status_thread_differs`, `.pane_unproven` or `.pane_unreadable`. After a daemon restart no
+inspection has run, so the timeout reads the pane once without sending a key; a pane in copy
+mode then gives `.pane_in_mode`. The ready report holds the wake lock, so a wake already being
+submitted ends before `ready` commits. The reason is shown on the
+Sessions page, in `koinon context show` and in the audit record. A timeout of another stage
+keeps its plain `<stage>_timeout`.
 
 A new native epoch of the requester before the managed clear (`waiting_ready`, `ready`, or a
 stored `bootstrap_intent` or `bootstrap_verified`) cancels the cycle (`epoch_changed`; uncertain
@@ -411,8 +423,11 @@ repository (see [INSTALL.md](docs/INSTALL.md)). A write the daemon cannot make i
 (`pickup_skill`, `write_failed`) and does not stop it. `koinon claude` adds no directory to a launch,
 and the cycle adds none to a running session.
 
-The adapter is ready for input when the registry `status` is `idle` and the input line (`❯`
-followed by a no-break space) is empty; text drawn dim there is a placeholder or a suggestion,
+The adapter is ready for input when the registry `status` is `idle` or `shell` and the input
+line (`❯` followed by a no-break space) is empty. `shell` is the prompt with a background shell
+task running, such as a monitor of the session's inbox; Claude Code 2.1.303 takes `/clear`
+there without a dialog, and the task, with its `shell` status, stays through the clear (#417).
+`busy` (a turn in progress) and `waiting` (a native wait) are not ready; text drawn dim there is a placeholder or a suggestion,
 any other text a draft, and the cycle waits. A pane in copy mode is returned to its prompt
 first. The clear and the pickup type the command, read it back (for `/koinon-pickup`, the
 menu's first entry must have the skill's description, with or without a scope such as

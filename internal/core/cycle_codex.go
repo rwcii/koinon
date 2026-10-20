@@ -451,7 +451,10 @@ func (codexCycle) Inspect(ctx context.Context, t CycleTarget, fence CycleFence) 
 	if codexDialog(screen).Digest != "" {
 		return PaneState{Prompt: "native_dialog"}, nil
 	}
-	return PaneState{Idle: codexReady(t, screen)}, nil
+	if seen := codexNotReady(t, screen); seen != "" {
+		return PaneState{Seen: seen}, nil
+	}
+	return PaneState{Idle: true}, nil
 }
 
 // codexReady reports whether a screen is ready for the cycle's next input in t's phase: no
@@ -459,27 +462,46 @@ func (codexCycle) Inspect(ctx context.Context, t CycleTarget, fence CycleFence) 
 // Before the clear the requester's rollout, read now, shows its last turn ended. After it the
 // /status card names the cycle's successor, which has no rollout and nothing of a turn after
 // the card, or whose own last turn ended; the old thread's idle never admits input then.
-func codexReady(t CycleTarget, screen codexScreen) bool {
-	if codexDialog(screen).Digest != "" || screen.composer() < 0 || !codexIdle(strings.Join(screen.raw, "\n")) {
-		return false
+func codexReady(t CycleTarget, screen codexScreen) bool { return codexNotReady(t, screen) == "" }
+
+// codexNotReady is the fixed code of what keeps a screen from codexReady, or "" (#417).
+func codexNotReady(t CycleTarget, screen codexScreen) string {
+	switch {
+	case codexDialog(screen).Digest != "":
+		return "native_dialog"
+	case screen.composer() < 0:
+		return "input_line_not_found"
+	case !screen.empty(screen.composer()):
+		return "input_not_empty"
+	case !codexIdle(strings.Join(screen.raw, "\n")):
+		return "turn_running"
 	}
 	codex, _, err := codexHome(t)
 	if err != nil {
-		return false
+		return "home_unknown"
 	}
 	if t.SuccessorEpoch == "" {
 		path, err := codexRolloutPath(codex, t.SessionID)
-		return err == nil && path != "" && codexTurnEnded(path)
+		if err != nil || path == "" {
+			return "rollout_unreadable"
+		}
+		if !codexTurnEnded(path) {
+			return "turn_not_ended"
+		}
+		return ""
 	}
 	thread, untouched := codexStatusThread(screen)
 	if thread != t.SuccessorEpoch {
-		return false
+		return "status_thread_differs"
 	}
 	path, err := codexRolloutPath(codex, t.SuccessorEpoch)
 	if err != nil {
-		return false
+		return "rollout_unreadable"
 	}
-	return path == "" && untouched || path != "" && codexTurnEnded(path)
+	if path == "" && untouched || path != "" && codexTurnEnded(path) {
+		return ""
+	}
+	return "turn_not_ended"
 }
 
 // codexClearedReady reports a cleared screen that is ready for /status: no dialog, and the
