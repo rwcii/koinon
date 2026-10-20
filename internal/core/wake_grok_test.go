@@ -62,8 +62,9 @@ func newGrokFixture(t *testing.T) *grokFixture {
 		}
 		t.Skip("tmux not installed")
 	}
-	// A short unresolved socket path also fits macOS's AF_UNIX bound.
-	dir, err := os.MkdirTemp("", "kg-tmux-")
+	// The socket directory is under /tmp, not TMPDIR: a long TMPDIR would exceed the
+	// AF_UNIX path bound (104 bytes on macOS) (#426).
+	dir, err := os.MkdirTemp("/tmp", "kg-tmux-")
 	if err != nil {
 		t.Fatal(err)
 	}
