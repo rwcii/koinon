@@ -26,7 +26,9 @@ func TestUpgradeFromGoRelease(t *testing.T) {
 	source := filepath.Join(dir, "release")
 	extractCommit(t, goRelease, source)
 	old := filepath.Join(dir, "release-bin", "koinon")
-	build := exec.Command("go", "build", "-o", old, "./cmd/koinon")
+	// The extracted source has no VCS data; a .git above the temporary directory must not
+	// reach the build (#412).
+	build := exec.Command("go", "build", "-buildvcs=false", "-o", old, "./cmd/koinon")
 	build.Dir, build.Env = source, append(os.Environ(), "CGO_ENABLED=0")
 	if out, err := build.CombinedOutput(); err != nil {
 		t.Fatalf("build %s: %v\n%s", goRelease, err, out)
