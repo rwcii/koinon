@@ -534,6 +534,8 @@ func TestContextCycleReadyHoldsWakesAndNamesWhatItSaw(t *testing.T) {
 		{PaneState{Seen: "input_not_empty"}, nil, "ready_timeout.input_not_empty"},
 		{PaneState{}, nil, "ready_timeout.pane_not_ready"},
 		{PaneState{}, errClaudeUnproven, "ready_timeout.pane_unproven"},
+		// A tmux that cannot run is named apart from an unproven pane (#418).
+		{PaneState{}, tmuxUnavailableError{exec.ErrNotFound}, "ready_timeout.tmux_unavailable"},
 		{PaneState{}, errors.New("synthetic tmux failure"), "ready_timeout.pane_unreadable"},
 	} {
 		g := newCycleFixture(t)

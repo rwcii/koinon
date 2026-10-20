@@ -323,6 +323,17 @@ func TestCodexProbe(t *testing.T) {
 	if got := (codexCycle{}).Probe(ctx, unproven); got.Reason != "pane_unproven" {
 		t.Fatalf("pane: %+v", got)
 	}
+	// A tmux that cannot run is not an unproven pane (#418), for the probe and the inspection.
+	noTmux := target
+	noTmux.tools.tmux = func(context.Context, string, ...string) (string, error) {
+		return "", tmuxUnavailableError{errors.New("synthetic start failure")}
+	}
+	if got := (codexCycle{}).Probe(ctx, noTmux); got.Reason != "tmux_unavailable" {
+		t.Fatalf("tmux unavailable: %+v", got)
+	}
+	if _, err := (codexCycle{}).Inspect(ctx, noTmux, func(context.Context) error { return nil }); inspectSeen(err) != "tmux_unavailable" {
+		t.Fatalf("inspection without tmux: %v", err)
+	}
 	codexEvidencedPlatforms = map[string]bool{}
 	if got := (codexCycle{}).Probe(ctx, target); got.Reason != "platform_unverified" {
 		t.Fatalf("platform: %+v", got)

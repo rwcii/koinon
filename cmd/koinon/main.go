@@ -152,7 +152,7 @@ func run(ctx context.Context, args []string, in io.Reader, out io.Writer) error 
 		return mcp.Serve(ctx, mcp.Config{StateDir: *state, Address: *address, Getenv: os.Getenv,
 			ParentPID: os.Getppid(), Command: platform.ProcessCommand, Directory: directory, Now: time.Now,
 			TmuxSession: mcp.TmuxSessionName,
-			Tmux:        mcp.RunTmux, Parents: platform.ProcessParents}, in, out)
+			Tmux:        mcp.RunTmux, Parents: platform.ProcessParents, TmuxExecutable: mcp.LookTmux}, in, out)
 	}
 	return call(ctx, args[0], *state, *address, as, after, limit, participant, flags.Args(), in, out)
 }

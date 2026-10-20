@@ -131,3 +131,61 @@ func TestProcessCommand(t *testing.T) {
 		t.Fatal("missing process reported")
 	}
 }
+
+// TrustedExecutable resolves links to a regular executable owned by root or this user that
+// its group and others cannot write (#418); every other path is refused.
+func TestTrustedExecutable(t *testing.T) {
+	dir := t.TempDir()
+	write := func(name string, mode os.FileMode) string {
+		t.Helper()
+		path := filepath.Join(dir, name)
+		if err := os.WriteFile(path, []byte("#!/bin/sh\n"), 0o700); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.Chmod(path, mode); err != nil {
+			t.Fatal(err)
+		}
+		return path
+	}
+	program := write("tmux", 0o755)
+	link := filepath.Join(dir, "bin", "tmux")
+	if err := os.MkdirAll(filepath.Dir(link), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink("../tmux", link); err != nil {
+		t.Fatal(err)
+	}
+	want, err := filepath.EvalSymlinks(program)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, path := range []string{program, link} {
+		if got, err := TrustedExecutable(path); err != nil || got != want {
+			t.Fatalf("%s: %q %v, want %q", path, got, err, want)
+		}
+	}
+	directory := filepath.Join(dir, "directory")
+	if err := os.Mkdir(directory, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	for name, path := range map[string]string{
+		"relative":           "bin/tmux",
+		"unclean":            filepath.Join(dir, "bin") + "/../tmux",
+		"control character":  program + "\n",
+		"missing":            filepath.Join(dir, "missing"),
+		"not a regular file": directory,
+		"group writable":     write("group", 0o775),
+		"world writable":     write("world", 0o757),
+		"not executable":     write("plain", 0o644),
+	} {
+		if got, err := TrustedExecutable(path); err == nil {
+			t.Errorf("%s: accepted as %q", name, got)
+		}
+	}
+	// A file of another user is refused; root's would be accepted.
+	if os.Geteuid() != 0 {
+		if got, err := trustedExecutable(program, os.Geteuid()+1); err == nil {
+			t.Fatalf("another user's executable accepted as %q", got)
+		}
+	}
+}

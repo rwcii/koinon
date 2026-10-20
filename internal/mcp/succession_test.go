@@ -31,6 +31,7 @@ func TestSuccessionRetriesOnToolCall(t *testing.T) {
 				}
 				return "%3\t100\t$1\n", nil
 			}
+			h.s.c.TmuxExecutable = func() (string, error) { return "/synthetic/homebrew/bin/tmux", nil }
 			now := time.Unix(1000, 0)
 			h.s.c.Now = func() time.Time { return now }
 			var mu sync.Mutex
@@ -98,8 +99,8 @@ func TestSuccessionRetriesOnToolCall(t *testing.T) {
 			mu.Lock()
 			defer mu.Unlock()
 			for _, r := range arrivals {
-				if r.Tmux == nil || r.Tmux.Socket != "/synthetic/tmux/default" || r.Tmux.Pane != "%3" {
-					t.Fatalf("registration lacks proven own pane: %+v", r)
+				if r.Tmux == nil || r.Tmux.Socket != "/synthetic/tmux/default" || r.Tmux.Pane != "%3" || r.Tmux.Executable != "/synthetic/homebrew/bin/tmux" {
+					t.Fatalf("registration lacks proven own pane and its tmux: %+v", r.Tmux)
 				}
 				if !r.ToolCall || r.Family != "codex" || r.ID != "synthetic-successor" {
 					t.Fatalf("registration lacks native tool provenance: %+v", r)

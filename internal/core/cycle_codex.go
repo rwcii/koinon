@@ -187,8 +187,8 @@ func (codexCycle) Probe(ctx context.Context, t CycleTarget) CycleProbe {
 	if _, err := readCodexMeta(path, t.SessionID); err != nil {
 		return CycleProbe{Reason: "native_registry_unavailable"}
 	}
-	if !codexForeground(ctx, t.tools, t.HostPID, t.HostStart, t.Socket, t.Pane) {
-		return CycleProbe{Reason: "pane_unproven"}
+	if err := codexForeground(ctx, t.tools, t.HostPID, t.HostStart, t.Socket, t.Pane); err != nil {
+		return CycleProbe{Reason: tmuxReason(err, "pane_unproven")}
 	}
 	// The thread after /clear is a new session, which reports the pickup only as the holder
 	// of this session's participant address (successorOf): without it, the clear would leave
@@ -431,8 +431,8 @@ func codexText(c codexScreen) string {
 // the one that the pane shows, with no turn yet or its last turn ended. The screen must show an
 // empty composer and no running turn in both cases.
 func (codexCycle) Inspect(ctx context.Context, t CycleTarget, fence CycleFence) (PaneState, error) {
-	if !codexForeground(ctx, t.tools, t.HostPID, t.HostStart, t.Socket, t.Pane) {
-		return PaneState{}, errCodexUnproven
+	if err := codexForeground(ctx, t.tools, t.HostPID, t.HostStart, t.Socket, t.Pane); err != nil {
+		return PaneState{}, proofError(err, errCodexUnproven)
 	}
 	if mode, err := t.tools.tmux(ctx, t.Socket, "display-message", "-p", "-t", t.Pane, "#{pane_in_mode}"); err != nil {
 		return PaneState{}, err
@@ -512,8 +512,8 @@ func codexClearedReady(screen codexScreen) bool {
 
 // key proves the pane, calls the fence and sends one key or literal text.
 func (codexCycle) key(ctx context.Context, t CycleTarget, fence CycleFence, args ...string) error {
-	if !codexForeground(ctx, t.tools, t.HostPID, t.HostStart, t.Socket, t.Pane) {
-		return errCodexUnproven
+	if err := codexForeground(ctx, t.tools, t.HostPID, t.HostStart, t.Socket, t.Pane); err != nil {
+		return proofError(err, errCodexUnproven)
 	}
 	if err := fence(ctx); err != nil {
 		return err
@@ -525,8 +525,8 @@ func (codexCycle) key(ctx context.Context, t CycleTarget, fence CycleFence, args
 // keyIf proves the pane, calls the fence, reads the pane again and sends the keys only when
 // check holds on that read.
 func (codexCycle) keyIf(ctx context.Context, t CycleTarget, fence CycleFence, check func(codexScreen) bool, refused error, args ...string) error {
-	if !codexForeground(ctx, t.tools, t.HostPID, t.HostStart, t.Socket, t.Pane) {
-		return errCodexUnproven
+	if err := codexForeground(ctx, t.tools, t.HostPID, t.HostStart, t.Socket, t.Pane); err != nil {
+		return proofError(err, errCodexUnproven)
 	}
 	if err := fence(ctx); err != nil {
 		return err
@@ -678,8 +678,8 @@ func (codexCycle) Answer(context.Context, CycleTarget, string, CycleFence) (bool
 
 // Dialog reads the dialog the pane shows. It sends nothing.
 func (codexCycle) Dialog(ctx context.Context, t CycleTarget) (CycleDialog, error) {
-	if !codexForeground(ctx, t.tools, t.HostPID, t.HostStart, t.Socket, t.Pane) {
-		return CycleDialog{}, errCodexUnproven
+	if err := codexForeground(ctx, t.tools, t.HostPID, t.HostStart, t.Socket, t.Pane); err != nil {
+		return CycleDialog{}, proofError(err, errCodexUnproven)
 	}
 	screen, err := readCodex(ctx, t)
 	if err != nil {
