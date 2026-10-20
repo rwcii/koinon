@@ -237,7 +237,8 @@ calling session). Without `peer`, a request with a caller names the caller's own
   every page). Each is an active agent session's `peer`, `family`, `enabled`,
   `enable_revision`, `mode`, `threshold`, `threshold_source` (`session` or `family`),
   `available`, `unavailable`, `eligible`, `reason`, and its newest cycle's `cycle_id`,
-  `cycle_revision`, `cycle_state` and waiting native `dialog` (`lines`, `options`, `digest`).
+  `cycle_revision`, `cycle_state`, `cycle_reason` and waiting native `dialog` (`lines`,
+  `options`, `digest`). The table shows the cycle's reason after its state.
 - `POST /v1/context/set` (`context_set` with `target_family`, `koinon context set`) takes
   `family`, `mode` and `threshold`, as `context-family-settings`.
 - `POST /v1/context/enable` (`context_enable`, `koinon context enable|disable`) takes `peer`
@@ -361,7 +362,10 @@ messages after the ready report start no turn (#417). A `ready`, `bootstrap_veri
 `ready_timeout.status_busy` (a turn in progress), `.status_waiting` (a native wait),
 `.status_unknown`, `.input_not_empty` (a draft), `.input_line_not_found`, `.turn_running` and
 `.turn_not_ended` (Codex), `.native_dialog`, `.home_unknown`, `.rollout_unreadable`,
-`.status_thread_differs`, `.pane_unproven` or `.pane_unreadable`. The reason is shown on the
+`.status_thread_differs`, `.pane_unproven` or `.pane_unreadable`. After a daemon restart no
+inspection has run, so the timeout reads the pane once without sending a key; a pane in copy
+mode then gives `.pane_in_mode`. The ready report holds the wake lock, so a wake already being
+submitted ends before `ready` commits. The reason is shown on the
 Sessions page, in `koinon context show` and in the audit record. A timeout of another stage
 keeps its plain `<stage>_timeout`.
 
