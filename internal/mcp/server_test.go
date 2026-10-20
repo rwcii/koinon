@@ -28,6 +28,23 @@ type harness struct {
 	nextID int
 }
 
+// nonRepositoryDir is a new directory outside every Git repository, even when TMPDIR is
+// inside a checkout (#421): its parent holds a .git file that names a missing directory, so
+// Git's search stops there with "not a git repository".
+func nonRepositoryDir(t *testing.T) string {
+	t.Helper()
+	parent := t.TempDir()
+	boundary := "gitdir: " + filepath.Join(parent, "no-repository") + "\n"
+	if err := os.WriteFile(filepath.Join(parent, ".git"), []byte(boundary), 0600); err != nil {
+		t.Fatal(err)
+	}
+	dir := filepath.Join(parent, "dir")
+	if err := os.Mkdir(dir, 0700); err != nil {
+		t.Fatal(err)
+	}
+	return dir
+}
+
 func newHarness(t *testing.T, client string) *harness {
 	t.Helper()
 	root := filepath.Join(t.TempDir(), "state")
@@ -37,7 +54,7 @@ func newHarness(t *testing.T, client string) *harness {
 	}
 	t.Cleanup(func() { d.Close() })
 	h := &harness{t: t, root: root, d: d, out: &bytes.Buffer{}, env: map[string]string{}, parent: "/opt/agent/bin/codex"}
-	directory := t.TempDir()
+	directory := nonRepositoryDir(t)
 	h.s = &server{c: Config{StateDir: root, Address: d.Addresses()[0], Directory: directory, ParentPID: 4242,
 		Getenv:  func(k string) string { return h.env[k] },
 		Command: func(int) (string, []string, error) { return h.parent, []string{h.parent}, nil },

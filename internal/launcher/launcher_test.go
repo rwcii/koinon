@@ -571,8 +571,25 @@ func ptr(value string) *string { return &value }
 
 // The default tmux session name is the participant address base, so that agents of other
 // families or roles in one directory never collide; a repository gives its label.
+// nonRepositoryDir is a new directory outside every Git repository, even when TMPDIR is
+// inside a checkout (#421): its parent holds a .git file that names a missing directory, so
+// Git's search stops there with "not a git repository".
+func nonRepositoryDir(t *testing.T) string {
+	t.Helper()
+	parent := t.TempDir()
+	boundary := "gitdir: " + filepath.Join(parent, "no-repository") + "\n"
+	if err := os.WriteFile(filepath.Join(parent, ".git"), []byte(boundary), 0600); err != nil {
+		t.Fatal(err)
+	}
+	dir := filepath.Join(parent, "dir")
+	if err := os.Mkdir(dir, 0700); err != nil {
+		t.Fatal(err)
+	}
+	return dir
+}
+
 func TestDefaultSessionNames(t *testing.T) {
-	root := t.TempDir()
+	root := nonRepositoryDir(t)
 	plain := filepath.Join(root, "My Project.v2")
 	repository := filepath.Join(root, "Repo")
 	inner := filepath.Join(repository, "sub")

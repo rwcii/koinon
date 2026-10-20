@@ -208,7 +208,7 @@ func TestNonRepositoryRemainsInvalidInput(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	directory := t.TempDir()
+	directory := nonRepositoryDir(t)
 	status, reply := post(t, d.Addresses()[0], secret, "/v1/sessions/register",
 		Registration{Family: "deepseek", ID: "synthetic-not-repo", Directory: directory, Repository: directory})
 	if status != http.StatusBadRequest || reply["code"] != "invalid_request" {
