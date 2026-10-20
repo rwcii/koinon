@@ -225,7 +225,8 @@ state. The user agent stays disabled; a later plain install, with no system plis
 enables and starts it again.
 
 The LaunchDaemon's `PATH` is launchd's default, `/usr/bin:/bin:/usr/sbin:/sbin`, which holds no
-Homebrew directory, so the daemon does not find a Homebrew `tmux` there (#418). The daemon
+Homebrew directory, so the daemon does not find a Homebrew `tmux` there (#418). The user
+LaunchAgent sets no `PATH` either and gets the same default. The daemon
 runs the `tmux` of the session's own terminal instead: `koinon mcp`, which runs under the
 agent's `PATH`, reports the absolute `tmux` path when it registers the session, at the session's
 first Koinon tool call and again when its record had expired or was retired. The daemon runs
