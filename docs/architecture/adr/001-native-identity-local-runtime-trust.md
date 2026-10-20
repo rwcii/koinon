@@ -3,7 +3,7 @@ adr: "001"
 title: "Native Identity and Local Runtime Trust"
 status: draft
 created: "2026-10-12"
-updated: "2026-10-12"
+updated: "2026-10-19"
 parent_adr: ""
 authors:
   - "Robert Capps"
@@ -219,13 +219,20 @@ maintainer decision found.
 Koinon currently serves the dashboard on the same listener with its own login. `koinon
 dashboard` gets a one-time 256-bit link token that works once within 60 seconds. Its use sets an
 `HttpOnly`, `SameSite=Strict` cookie scoped to `/dashboard/`; the daemon keeps only hashes in
-memory, so a restart ends every login. A request is refused unless `Host` is the literal
-listener address (not `localhost`) and any `Origin` matches it. A request other
-than `GET` or `HEAD` also needs a CSRF token derived from the session. Responses carry a strict
-content security policy and deny framing. Each administrative action writes an audit record.
+memory, so a restart ends every login. A request is refused unless `Host` is a literal
+loopback IP with a port (`127.0.0.1:PORT` or `[::1]:PORT`, not `localhost`) and any `Origin` is
+`http://` plus that `Host`. The port need not be the listener's, so an SSH tunnel from another
+local port reaches the dashboard. A request other than `GET` or `HEAD` also needs a CSRF token
+derived from the session. Responses carry a strict content security policy and deny framing.
+Each administrative action writes an audit record.
 
 **Provenance:** Shipped in PR #193 (a19bc2b); actions and audit log in PR #202 (ed07677). No
-maintainer decision found.
+maintainer decision found. Until #407, `Host` had to be the address of the listener that
+accepted the request, port included. #407 records the maintainer's report on v0.3.1: "on the
+dashboard host, I can't even remap the port in the ssh forwarding level.
+http://127.0.0.1:47670/dashboard/login?token=... results in a "foreign host" error". The tunnel
+forwarded local port 47670 to the remote daemon's 47671. Accepting any port is the fix that #407
+proposes; no maintainer decision on it found.
 
 ### Alternatives Considered
 
@@ -234,12 +241,23 @@ maintainer decision found.
 | API secret in the browser | Reuse the bearer secret | Page scripts could read and replay it |
 | No login on loopback | Trust every local browser request | Any web page can send requests to a loopback port |
 | Accept `localhost` | Match a host name | Allows DNS rebinding |
+| Match the listener's port | `Host` must be the accepting listener's address, port included | Refuses an SSH tunnel from another local port (#407), and adds nothing against DNS rebinding |
 
 ### Rationale
 
 1. Other sites' pages can reach loopback ports, so the dashboard checks host, origin and token,
    while the API refuses browsers outright.
 2. Message bodies are shown there, so a login gates the view.
+3. A DNS-rebinding page reaches the daemon under its own host name, never under a literal IP, so
+   a literal loopback IP with any port keeps that protection. A browser takes `Host` and
+   `Origin` from the URL it opens, so through a tunnel both name the tunnel's port.
+
+### Trade-offs Accepted
+
+Browsers do not separate cookies by port. Two daemons opened under the same IP, such as a local
+daemon and a tunnel to another host's daemon, share the `koinon_dashboard` cookie, so a login to
+one replaces the browser's login to the other. Opening one under `127.0.0.1` and the other under
+`[::1]` keeps both.
 
 ---
 
@@ -294,3 +312,4 @@ agent.
 | ---------- | ---------------- |
 | 2026-10-12 | Initial creation |
 | 2026-10-12 | Added Grok Build's identity source (#254 chunk 02) |
+| 2026-10-19 | Decision 4: dashboard `Host` is a literal loopback IP with any port (#407) |

@@ -5,6 +5,101 @@ into a dated release section when promoted to `main`.
 
 ## Unreleased
 
+## 2026-10-20 — Handoff cycles on active machines, a chosen port and Homebrew tmux on macOS
+
+This release lets the managed handoff cycle clear a Claude Code session that has a background
+task running, and enters Koinon's own pickup skill after the clear, so projects with their own
+`pickup` skill get the cycle. The daemon and dashboard can use another port, and the dashboard
+works through an SSH tunnel. The macOS daemon runs the agent's own Homebrew `tmux`, so pane
+wakes of Codex and Grok arrive. The Decisions page gets a status filter and a full-width card
+for an item opened by reference. The state schema is 28; a v0.3.1 installation upgrades in
+place, and a v0.3.1 binary does not open the upgraded state.
+
+Upgrade from v0.3.1 with Homebrew: run `brew update` and `brew upgrade koinon`; the daemon
+restarts on the new binary and writes the `koinon-pickup` skill. On macOS, then restart each
+agent session that runs in tmux, so its new `koinon mcp` reports its `tmux` path
+(docs/INSTALL.md). A failed cycle ends the session's Enable: run `koinon context enable NAME`
+again for each session whose cycle failed before the upgrade (docs/USAGE.md).
+
+Known limits:
+
+- The DeepSeek harness's permission grammar remains unverified (docs/PERMISSIONS.md).
+- A macOS system-mode daemon (`--system`) keeps a copy; upgrade it with
+  `$(brew --prefix)/bin/koinon install --system`.
+- A running agent session keeps the `koinon mcp` server it started with; the new behavior
+  appears when the session, or its MCP server, starts again (docs/INSTALL.md).
+
+Changes:
+
+- Daemon and dashboard port (#405): `koinon install --port N` records the port of both loopback
+  listeners in the state directory (`<state>/port`), on Linux, for the macOS agent and in macOS
+  system mode; the service file is unchanged, and `koinon serve --state-dir` reads the port.
+  Every command, hook, launched agent and `koinon mcp` without `--address` or
+  `KOINON_DAEMON_ADDRESS` uses it, and `koinon dashboard` prints its link there. A later
+  install, an upgrade and `brew upgrade` keep it; `--port 47671` returns to the default.
+  Without a recorded port, everything stays at 47671 (docs/INSTALL.md).
+- Dashboard through an SSH tunnel (#407): the dashboard accepts a `Host` of `127.0.0.1` or
+  `[::1]` with any port, so a tunnel from another local port, such as
+  `ssh -L 47670:127.0.0.1:47671 HOST`, works. Host names such as `localhost` are still refused,
+  and `Origin`, CSRF and login checks are unchanged. ADR 001, Decision 4.
+- Native upgrade evidence (#404): the native lifecycle job installs v0.3.1 from its Homebrew
+  keg in user mode and checks that `brew upgrade` alone moves `koinon version` on the PATH and
+  the daemon to the new build; the Go upgrade test starts from v0.3.1.
+- Koinon's own pickup skill for the handoff cycle (#406): after the clear, the managed cycle
+  enters `/koinon-pickup` (Claude Code) or `$koinon-pickup` (Codex), not the bare `/pickup` or
+  `$pickup`. The daemon writes that one skill for you at each start, and `koinon install` and
+  the upgrade's install write it too, never into a repository: `skills/koinon-pickup/SKILL.md`
+  under the Claude Code configuration root (`$CLAUDE_CONFIG_DIR`, else `~/.claude`) and
+  `~/.agents/skills/koinon-pickup/SKILL.md` for Codex. A `brew upgrade` restarts the daemon,
+  which writes it, so the upgrade needs no further command. The install report lists the files
+  under `pickup_skills`, and `koinon uninstall` removes them. The skill only loads the
+  catalog's `skill.pickup` and checks the cycle's `catalog_digest`. Probe checks only that
+  file, byte for byte: a missing or different file is `pickup_entry_missing` or
+  `pickup_entry_differs`, and the Sessions page and `koinon context show` (`unavailable_step`)
+  name the `koinon install` step, for example for a session whose Claude Code runs with another
+  configuration root than the daemon. Personal and project `pickup` skills are no longer read,
+  so sessions in projects with their own pickup skill now get the cycle, and that skill stays
+  as it is. If you copied the catalog's pickup skill into `~/.claude/skills/pickup` or
+  `~/.agents/skills/pickup` only to enable the cycle, you can remove that copy; it shadows your
+  projects' own `pickup` skills and the cycle does not use it. `koinon claude` no longer adds
+  the `--add-dir` loader, and the cycle no longer enters `/add-dir` before the clear or
+  answers the add-directory dialog; `<state>/cycle/claude-loader` is no longer written or read
+  and can be removed.
+- Repository discovery (#410): a registration's Git calls share one six-second limit instead
+  of three seconds each, so a slow first Git call no longer fails with
+  `repository_git_timeout`; a hung Git still does. The refusal now gives the time of each
+  Git call in `details.calls_ms` and the limit in `details.limit_ms`, and the command line
+  prints them, so a later timeout shows which call was slow.
+- Decision board filter (#411): each count on the dashboard's Decisions page (waiting, in
+  progress, open fyi, archived) is a link that shows only the items of that status, and
+  **all** shows every item again. The filter is the `status` query parameter, so it stays
+  after a reload, a lookup, paging and a verdict; the counts stay totals, and an unknown value
+  is refused. The page uses plain links, with no new script (PROTOCOL.md, Dashboard).
+- Decision lookup card (#414): an item opened by reference on the Decisions page, from
+  **Find** or the agent table's "Waiting for a verdict" links, shows its card at full width
+  when it is waiting, in progress or an open fyi, with the same **Approve**, **Decline**,
+  **Dismiss** and note as on the board; the cards below leave it out, so it shows once. A
+  verdict there returns to the same lookup and status filter, with the answer on that card.
+  Archived items stay read only, and the verdict history stays below the item (PROTOCOL.md,
+  Dashboard).
+- Handoff on an active machine (#417): after the ready report, the cycle clears a Claude Code
+  session that is at its prompt with a background task running (registry status `shell`, such
+  as a monitor of its inbox); before, it waited for `idle`, which such a session never shows,
+  and the cycle failed with `ready_timeout` and ended the Enable. Peer messages after the
+  ready report still wait until the cycle ends. A stage that times out while waiting for the
+  pane now names what it saw, such as `ready_timeout.status_busy` or
+  `ready_timeout.input_not_empty`.
+- Homebrew tmux for the macOS daemon (#418): launchd's default `PATH`, which the LaunchAgent and
+  the LaunchDaemon both get, has no Homebrew directory, so the daemon could not run tmux, and
+  pane wakes of Codex and Grok waited as `codex_target_unavailable` or `grok_target_unavailable`
+  with no notice. `koinon mcp` now reports the absolute `tmux` of the agent's own terminal when
+  it registers, and the daemon runs that path after checking that it resolves to a regular
+  executable owned by root or the daemon's user and not writable by its group or others; state
+  schema 28 stores it. A tmux that cannot run now waits as `tmux_unavailable`, apart from an
+  unproven pane, also in the handoff cycle's probe and inspection; the messages stay queued.
+  Every pane, idle and submission check is unchanged. After the upgrade, restart each agent
+  session that runs in tmux, so its new `koinon mcp` reports the path (docs/INSTALL.md).
+
 ## 2026-10-17 — Homebrew upgrades and maintenance from the command line
 
 This release makes `brew upgrade koinon` the complete upgrade of a Homebrew installation, and

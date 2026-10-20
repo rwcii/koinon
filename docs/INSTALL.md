@@ -47,7 +47,8 @@ has passed, and otherwise keeps the formula of the previous release. Within abou
 
 An installation made by v0.3.0 or earlier has a copy, and its daemon does not check its
 executable. Upgrade it once with `$(brew --prefix)/bin/koinon install` after `brew upgrade`.
-Each later `brew upgrade` is complete. A macOS system-mode daemon (`--system`) keeps a copy,
+Each later `brew upgrade` is complete: the restarted daemon also writes the managed cycle's
+`koinon-pickup` skill (Install, step 7). A macOS system-mode daemon (`--system`) keeps a copy,
 because brew can replace the linked file; upgrade it with
 `$(brew --prefix)/bin/koinon install --system`. A Python-era installation upgrades with
 `$(brew --prefix)/bin/koinon upgrade --from-python`, as below.
@@ -70,8 +71,8 @@ chmod +x koinon-linux-amd64 && ./koinon-linux-amd64 version
 ./koinon-linux-amd64 install --agent claude --agent codex
 ```
 
-`koinon install [--prefix DIR] [--state-dir DIR] [--agent FAMILY]... [--no-start] [--system]` does
-this:
+`koinon install [--prefix DIR] [--state-dir DIR] [--port N] [--agent FAMILY]... [--no-start] [--system]`
+does this:
 
 1. It copies the running binary to `<prefix>/bin/koinon`. The default prefix is
    `$XDG_DATA_HOME/koinon/go`, which is `~/.local/share/koinon/go`. The copy is atomic, and it is
@@ -110,6 +111,22 @@ this:
    it, the install records that CLI in `launchers.json` and lists the family under `agents`.
    It changes nothing in the agent's configuration. A family without such an entry or CLI is
    left out; set it up with `koinon setup FAMILY`.
+7. It writes the managed context cycle's pickup skill, `koinon-pickup` (PDR 006, Decision 4),
+   for you, whichever agents it names: `skills/koinon-pickup/SKILL.md` under the Claude Code
+   configuration root (`$CLAUDE_CONFIG_DIR`, else `~/.claude`) and
+   `~/.agents/skills/koinon-pickup/SKILL.md`, which Codex lists for every session. It never
+   writes into a repository. A missing directory is created private to you; a file with other
+   content is replaced. `pickup_skills` in the report gives each path and its result
+   (`created`, `replaced` or `unchanged`); a file that cannot be written fails the install with
+   `pickup_skill_failed` after the service and setup steps, and a repeated install completes it.
+   The daemon also writes both files at each start, from its own environment, when one is
+   missing or holds other content, so an upgrade that only restarts it, such as
+   `brew upgrade`, installs the skill too; a file it cannot write is logged as a
+   `pickup_skill` event with `write_failed`, and the daemon keeps running. A session whose
+   Claude Code runs with another configuration root than the daemon shows the step that
+   installs the skill there (`koinon install` with that `CLAUDE_CONFIG_DIR`).
+   The skill only reads the catalog's `skill.pickup` through Koinon, so it changes only when
+   this entry changes. A personal or project `pickup` skill is left as it is.
 
 When no user service manager answers, the report says `"service": "manual_required"` and gives
 the `start_command` to run in a managed session. The default install never uses sudo, system
@@ -120,6 +137,30 @@ defaults to `$XDG_STATE_HOME/koinon/go`, which is `~/.local/state/koinon/go`.
 
 When a Python-era installation is present (`~/.local/share/koinon/install.json`), the install is
 refused with `python_install_present`. Use the upgrade instead.
+
+### Port
+
+The daemon and its dashboard listen on `127.0.0.1` and `[::1]` at one port, 47671 by default.
+`koinon install --port N` (1 to 65535) records another port in the state directory, in the file
+`<state>/port` (mode 0600), before it writes and restarts the service, and waits for the daemon at
+`127.0.0.1:N`; the report's `port` names it. An SSH tunnel to a remote host's dashboard can use
+any local port (docs/USAGE.md), so a remote port only needs to change when it conflicts on that
+host. The service file stays the same
+on Linux, for the macOS agent and in macOS system mode: `koinon serve --state-dir <state>` without
+`--listen` or `--listen-v6` reads the recorded port, and each of those options, when given,
+replaces only its own family's listener. A later `koinon install` without `--port`, an upgrade
+and `brew upgrade` keep the recorded port, because they keep the state directory. To return to
+the default, run `koinon install --port 47671`. A port file that is not a private file of this
+user holding one port is refused with `port_invalid`, by the daemon and by every command, and
+never read as the default.
+
+Each command, hook, launched agent and `koinon mcp` finds the daemon at its `--address`, else at
+`KOINON_DAEMON_ADDRESS`, which a launcher passes to its agent with `KOINON_STATE_DIR` and which
+applies only to that state directory, else at `127.0.0.1` and the port
+that its state directory records, else at `127.0.0.1:47671`. `koinon dashboard` prints its
+login link at that address. Without a recorded port, everything stays at 47671. A session that
+a launcher started before a port change keeps the former address in its environment and in its
+`koinon mcp` server; start it again after the change.
 
 ### System mode on macOS
 
@@ -183,13 +224,26 @@ restarts the service. Any other plist at that path is refused before anything ch
 state. The user agent stays disabled; a later plain install, with no system plist present,
 enables and starts it again.
 
+The LaunchDaemon's `PATH` is launchd's default, `/usr/bin:/bin:/usr/sbin:/sbin`, which holds no
+Homebrew directory, so the daemon does not find a Homebrew `tmux` there (#418). The user
+LaunchAgent sets no `PATH` either and gets the same default. The daemon
+runs the `tmux` of the session's own terminal instead: `koinon mcp`, which runs under the
+agent's `PATH`, reports the absolute `tmux` path when it registers the session, at the session's
+first Koinon tool call and again when its record had expired or was retired. The daemon runs
+that path only after it resolves every link to a regular executable owned by root or you and not
+writable by its group or others. Nothing is reinstalled and no `PATH` is changed. After the
+upgrade that brings this, restart each agent session that runs in tmux, for example with
+`koinon codex`: a `koinon mcp` server that started before the upgrade reports no path. Until
+a new one registers, a pane wake that finds no `tmux` on the daemon's `PATH` leaves its messages
+queued with the reason `tmux_unavailable`.
+
 ### Upgrade the Go runtime
 
 With Homebrew, `brew update` and `brew upgrade koinon` are the upgrade (see Homebrew above).
 Otherwise, run `koinon install` with the new binary, with the same `--prefix` and `--state-dir`:
 name the new binary by its path, such as the downloaded file, because the install copies the
 binary that runs it. Check `koinon version` after the install. It replaces the binary in place
-and restarts the daemon, and the state stays. A daemon that a service manager runs also exits
+and restarts the daemon, and the state stays, with the recorded port (see Port above). A daemon that a service manager runs also exits
 when its executable is replaced, and the manager starts the new binary (`binary_changed` in
 the daemon log). A launched session continues:
 `koinon mcp` tries a renewal that fails during the restart again at the next interval, and
@@ -347,6 +401,8 @@ staging files.
 - The binary.
 - The `~/.local/bin/koinon` link, only when the install created it (`<prefix>/link`) and it still
   points at the installed binary. Any other link or file there is kept (`"link_result": "kept"`).
+- Each `koinon-pickup` skill file (Install, step 7) that still holds this binary's skill, and its
+  then empty directory; another content is kept (`pickup_skills`, `"result": "kept"`).
 
 It keeps the state directory and reports its path. A repeated uninstall changes nothing.
 
@@ -376,10 +432,11 @@ Until a daemon has started with the state directory, launchers and command clien
 with `no daemon has started with state directory STATE`. When the daemon has stopped, a
 launcher refuses with `no daemon answers at ADDRESS`. The launcher does not start the agent.
 Both refusals name how to start the daemon with that state directory, shell-quoted: at the
-default address, `koinon install --state-dir STATE` from a login session or `koinon serve
---state-dir STATE` in a persistent managed session. The installed service listens only on the
-default address, so at another address the refusal names only `koinon serve --state-dir STATE
---listen IPV4 --listen-v6 IPV6`, with the address and the other loopback family on its port.
+installed service's address, `koinon install --state-dir STATE` from a login session or `koinon serve
+--state-dir STATE` in a persistent managed session. The installed service listens only at the
+state directory's port (47671 unless `koinon install --port` recorded another), so at another
+address the refusal names only `koinon serve --state-dir STATE --listen IPV4 --listen-v6 IPV6`,
+with the address and the other loopback family on its port.
 The default install uses no sudo, system service, lingering or permission change; with no user
 service manager it reports the manual start command above. The system service that Koinon
 supports is the explicit `--system` mode on macOS (PDR 003, Decisions 1 and 2). A host change
@@ -451,7 +508,9 @@ Schema 11 preserves existing aliases and holders as participants without a role;
 acknowledgements, memory cursors and work claims keep their existing owners.
 
 Launched sessions record their host PID and process start value; MCP reports a tmux socket
-and pane only after verifying that the pane holds the host. A new native session in the same
+and pane only after verifying that the pane holds the host, with the absolute `tmux` it runs.
+Schema 28 adds that path to the session record; existing sessions start without one and run
+`tmux` from the daemon's `PATH` until they register again (see System mode on macOS). A new native session in the same
 host can succeed after the tool-call guard (30 seconds by default), and a new host in the same pane can
 succeed once the former host is proven ended. `peers` reports `succession` with the evidence
 or refusal. A `holder_active` refusal retries at the next tool call after the daemon's wait;
@@ -484,7 +543,9 @@ Machine-wide skills are the recommended default; project-local adoption is an ex
 alternative. The metadata includes supported destinations and native discovery evidence.
 Unknown/unverified native roots support catalog reading; reading is not evidence of an
 installed skill. List/read inspect no project or native-home files and record no adoption
-decision. Installation and upgrade apply no catalog items. An adoption uses an exact
+decision. Installation and upgrade apply no catalog items; the one skill they write, the
+managed cycle's `koinon-pickup` (Install, step 7), is Koinon's own entry and not a catalog item
+(PDR 008, Decision 1). An adoption uses an exact
 reviewed diff approved by the maintainer (PDR 008); locally edited files remain as they are.
 `library_state` and `koinon library state` inspect declared targets in the calling native
 client's verified environment. Codex's effective `CODEX_HOME` selects its machine target;
@@ -528,9 +589,11 @@ preserves this state-root configuration along with other retained state.
 ## State, recovery and compatibility
 
 The Go default state root is `~/.local/state/koinon/go` (or `$XDG_STATE_HOME/koinon/go`). It
-holds `state.sqlite3`, the private secret and daemon lock. Directories are owned by the
-current UID and private; credentials never belong in Git or logs. The daemon binds loopback
-only. Custom state and address must match between the daemon, command clients and MCP server.
+holds `state.sqlite3`, the private secret and daemon lock, and the `port` file that `koinon
+install --port` writes. Directories are owned by the current UID and private; credentials never
+belong in Git or logs. The daemon binds loopback only. Custom state and address must match
+between the daemon, command clients and MCP server; a recorded port matches by itself for every
+client of that state directory.
 The dashboard uses one-time login links, a login cookie and CSRF-protected actions.
 
 The daemon applies supported Go schema migrations transactionally and refuses an unknown

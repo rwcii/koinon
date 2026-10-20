@@ -81,7 +81,7 @@ func TestCheckoutResourceIdentity(t *testing.T) {
 	}
 	bare := filepath.Join(t.TempDir(), "bare.git")
 	checkoutGit(t, t.TempDir(), "init", "--bare", bare)
-	for _, path := range []string{bare, filepath.Join(first.Directory, ".git"), t.TempDir(), filepath.Join(t.TempDir(), "missing")} {
+	for _, path := range []string{bare, filepath.Join(first.Directory, ".git"), nonRepositoryDir(t), filepath.Join(nonRepositoryDir(t), "missing")} {
 		if _, err := CheckoutResource(ctx, path); err == nil {
 			t.Fatalf("accepted %q", path)
 		}

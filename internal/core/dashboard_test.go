@@ -10,6 +10,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -151,7 +152,7 @@ func TestDashboardLoginAndRequestProtection(t *testing.T) {
 	}
 	// Host and Origin checks apply to every request, logged in or not.
 	_, port, _ := strings.Cut(d.Addresses()[0], ":")
-	for _, host := range []string{"localhost:" + port, "127.0.0.1:1", "attacker.example", "[::1]:" + port} {
+	for _, host := range []string{"localhost:" + port, "attacker.example", "attacker.example:" + port, "192.0.2.1:" + port} {
 		r := dashboardDo(t, d, "GET", "/dashboard/sessions", cookie, func(r *http.Request) { r.Host = host }, nil)
 		if r.status != 403 || r.header.Get("X-Frame-Options") != "DENY" {
 			t.Fatalf("host %s: %d", host, r.status)
@@ -229,6 +230,72 @@ func TestDashboardLoginAndRequestProtection(t *testing.T) {
 	defer restarted.Close()
 	if r := dashboardDo(t, restarted, "GET", "/dashboard/sessions", third, nil, nil); r.status != 401 {
 		t.Fatalf("cookie after restart: %d", r.status)
+	}
+}
+
+// An SSH tunnel on another local port reaches the daemon under a Host with that port (#407):
+// a literal loopback IP with any port is accepted, a name or another IP is not, and the
+// Origin, login and CSRF checks still apply.
+func TestDashboardHostThroughTunnel(t *testing.T) {
+	d, root := startTestDaemon(t)
+	secret, err := ReadSecret(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, port, _ := strings.Cut(d.Addresses()[0], ":")
+	listened, err := strconv.Atoi(port)
+	if err != nil {
+		t.Fatal(err)
+	}
+	tunnel := strconv.Itoa(listened%65535 + 1) // any port other than the listener's
+	via := func(host string) func(*http.Request) {
+		return func(r *http.Request) { r.Host = host; r.Header.Set("Origin", "http://"+host) }
+	}
+	// The printed link, opened through the tunnel, logs in.
+	login := dashboardDo(t, d, "GET", dashboardLink(t, d, secret), "", func(r *http.Request) { r.Host = "127.0.0.1:" + tunnel }, nil)
+	if login.status != http.StatusSeeOther || login.header.Get("Location") != "/dashboard/sessions" {
+		t.Fatalf("login through the tunnel: %d %s", login.status, login.body)
+	}
+	cookie := (&http.Response{Header: login.header}).Cookies()[0].Value
+	page := dashboardDo(t, d, "GET", "/dashboard/sessions", cookie, via("127.0.0.1:"+tunnel), nil)
+	if page.status != 200 {
+		t.Fatalf("127.0.0.1:%s: %d %s", tunnel, page.status, page.body)
+	}
+	token := csrfField.FindStringSubmatch(page.body)[1]
+	// [::1] with another port is accepted on the IPv4 listener too, as a tunnel may forward it.
+	if r := dashboardDo(t, d, "GET", "/dashboard/sessions", cookie, via("[::1]:"+tunnel), nil); r.status != 200 {
+		t.Fatalf("[::1]:%s: %d %s", tunnel, r.status, r.body)
+	}
+	for _, host := range []string{
+		"localhost:" + tunnel, "localhost:" + port, "localhost", "attacker.example:" + tunnel, "attacker.example",
+		"192.0.2.1:" + tunnel, "[2001:db8::1]:" + tunnel, "127.1:" + tunnel, "0x7f000001:" + tunnel,
+		"127.0.0.1", "127.0.0.1:", "127.0.0.1:0", "127.0.0.1:x", "127.0.0.1:65536",
+	} {
+		if r := dashboardDo(t, d, "GET", "/dashboard/sessions", cookie, func(r *http.Request) { r.Host = host }, nil); r.status != 403 || !strings.Contains(r.body, "foreign host") {
+			t.Fatalf("host %q: %d %s", host, r.status, r.body)
+		}
+	}
+	// Origin must be http:// plus the Host the browser used, not the listener's address.
+	for _, origin := range []string{"http://" + d.Addresses()[0], "http://localhost:" + tunnel, "http://[::1]:" + tunnel, "https://127.0.0.1:" + tunnel, "null"} {
+		if r := dashboardDo(t, d, "GET", "/dashboard/sessions", cookie, func(r *http.Request) {
+			r.Host = "127.0.0.1:" + tunnel
+			r.Header.Set("Origin", origin)
+		}, nil); r.status != 403 || !strings.Contains(r.body, "foreign origin") {
+			t.Fatalf("origin %s: %d %s", origin, r.status, r.body)
+		}
+	}
+	// A state-changing request through the tunnel still needs the Origin and the CSRF token.
+	if r := dashboardDo(t, d, "POST", "/dashboard/logout", cookie, func(r *http.Request) { r.Host = "127.0.0.1:" + tunnel }, url.Values{"csrf": {token}}); r.status != 403 {
+		t.Fatalf("logout without origin: %d", r.status)
+	}
+	if r := dashboardDo(t, d, "POST", "/dashboard/logout", cookie, via("127.0.0.1:"+tunnel), url.Values{"csrf": {strings.Repeat("a", 64)}}); r.status != 403 {
+		t.Fatalf("logout with a wrong token: %d", r.status)
+	}
+	if r := dashboardDo(t, d, "GET", "/dashboard/sessions", "", via("127.0.0.1:"+tunnel), nil); r.status != 401 {
+		t.Fatalf("no session through the tunnel: %d", r.status)
+	}
+	if r := dashboardDo(t, d, "POST", "/dashboard/logout", cookie, via("127.0.0.1:"+tunnel), url.Values{"csrf": {token}}); r.status != 200 {
+		t.Fatalf("logout through the tunnel: %d %s", r.status, r.body)
 	}
 }
 

@@ -27,11 +27,16 @@ type ContextSessionView struct {
 	ThresholdSource string `json:"threshold_source"`
 	Available       bool   `json:"available"`
 	Unavailable     string `json:"unavailable,omitempty"`
+	// UnavailableStep names the action that removes Unavailable, such as the command that
+	// installs the pickup skill.
+	UnavailableStep string `json:"unavailable_step,omitempty"`
 	Eligible        bool   `json:"eligible"`
 	Reason          string `json:"reason,omitempty"`
 	CycleID         string `json:"cycle_id,omitempty"`
 	CycleRevision   int64  `json:"cycle_revision,omitempty"`
 	CycleState      string `json:"cycle_state,omitempty"`
+	// CycleReason is the newest cycle's reason, such as ready_timeout.status_busy (#417).
+	CycleReason string `json:"cycle_reason,omitempty"`
 	// Dialog is the native dialog that the session's managed cycle waits on, as the Sessions
 	// page shows it. The Sessions page or keys in the session's pane answer it.
 	Dialog *CycleDialog `json:"dialog,omitempty"`
@@ -85,12 +90,13 @@ func (s *Store) ContextShow(ctx context.Context, after string) ([]ContextFamilyP
 		row := s.contextRowOf(session, enables[k], now)
 		v := ContextSessionView{Peer: session.Name, Family: session.Family, Enabled: row.Enable.Enabled, EnableRevision: row.Enable.Revision,
 			Mode: row.Mode, Threshold: row.Threshold, ThresholdSource: "family", Available: row.Available, Unavailable: row.Unavailable,
-			Eligible: row.Eligible, Reason: row.Reason}
+			UnavailableStep: row.UnavailableStep, Eligible: row.Eligible, Reason: row.Reason}
 		if row.Enable.Threshold > 0 {
 			v.ThresholdSource = "session"
 		}
 		if row.Managed != nil {
 			v.CycleID, v.CycleRevision, v.CycleState, v.Dialog = row.Managed.ID, row.Managed.Revision, row.Managed.State, row.Dialog
+			v.CycleReason = row.Managed.Reason
 		}
 		views = append(views, v)
 	}

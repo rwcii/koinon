@@ -29,6 +29,22 @@ var ErrConflict = errors.New("session revision or lifecycle conflict")
 var ErrRepositoryGitUnavailable = errors.New("repository discovery cannot execute Git")
 var ErrRepositoryGitTimeout = errors.New("repository discovery Git command timed out")
 
+// RepositoryGitTimeout is ErrRepositoryGitTimeout with the time that each Git call of the
+// request took, in order, so that a refusal shows which call was slow (#410).
+type RepositoryGitTimeout struct{ Calls []time.Duration }
+
+func (e RepositoryGitTimeout) Error() string { return ErrRepositoryGitTimeout.Error() }
+func (e RepositoryGitTimeout) Unwrap() error { return ErrRepositoryGitTimeout }
+
+// repositoryTimeoutAfter puts the times of the earlier successful calls before those of a timeout.
+func repositoryTimeoutAfter(err error, earlier ...time.Duration) error {
+	var timeout RepositoryGitTimeout
+	if !errors.As(err, &timeout) {
+		return err
+	}
+	return RepositoryGitTimeout{append(earlier, timeout.Calls...)}
+}
+
 // SessionConflict is ErrConflict for a renewal of a session that is no longer active, with
 // its state (expired or retired) and whether a holder change fenced it, so that a client can
 // tell an expiry during an outage from a retirement or a fence (#283), whatever revision the
@@ -137,8 +153,9 @@ type Store struct {
 	processCommand func(int) (string, []string, error)
 	// processEnvironment reads one variable of a host process (a Claude host's config root).
 	processEnvironment func(pid int, name string) (string, error)
-	// tmux runs one command on the tmux server at a socket (the Grok wake, #254).
-	tmux func(ctx context.Context, socket string, args ...string) (string, error)
+	// tmux runs one command on the tmux server at a socket (the Grok wake, #254) with the
+	// session's recorded tmux executable, or tmux on PATH when it has none (#418).
+	tmux func(ctx context.Context, executable, socket string, args ...string) (string, error)
 	// processGroups reads each process's group and terminal; codexPane enables the Codex
 	// pane wake, on Linux and macOS (#275).
 	processGroups func() (map[int]platform.ProcessGroup, error)
@@ -158,6 +175,9 @@ type Store struct {
 	// selected crossings per native epoch.
 	contextPolicy contextPolicyState
 	latches       contextLatches
+	// paneSeen holds what each unfinished cycle's last pane inspection saw, for the reason of
+	// a stage timeout (#417).
+	paneSeen paneSeen
 }
 
 func openStore(root string) (*Store, error) { return openStoreFile(root, "state.sqlite3") }
@@ -267,9 +287,6 @@ func openStoreFile(root, name string) (*Store, error) {
 		processEnvironment: platform.ProcessEnvironment, tmux: runTmux,
 		processGroups: platform.ProcessGroups,
 		codexPane:     runtime.GOOS == "linux" || runtime.GOOS == "darwin", processStartTime: platform.ProcessStartTime}
-	// The Claude pickup loader that a running session can add before its clear (#196, chunk 03).
-	// A failure is not fatal: the adapter's Probe then reports the loader as unreadable.
-	EnsureCycleLoader(root)
 	if err := s.loadContextPolicy(context.Background()); err != nil {
 		db.Close()
 		return nil, err
@@ -334,7 +351,7 @@ func checkFormat(db *sql.DB, path string) error {
 	return nil
 }
 
-const schemaVersion = 27
+const schemaVersion = 28
 
 // workItemsV16Columns are the work item columns before schema 17, which its rebuild copies.
 const workItemsV16Columns = `store,work_id,revision,lifecycle,title,criteria,non_goals,proposed_assignee,created_at,created_consumer,
@@ -823,6 +840,13 @@ func migrate(db *sql.DB, version, target int) error {
 			return err
 		}
 	}
+	if version < 28 && target >= 28 {
+		// Version 28: the absolute tmux that a session's own terminal runs, which koinon mcp
+		// reports with its pane (#418); '' runs tmux from the daemon's PATH.
+		if _, err := tx.Exec(`ALTER TABLE sessions ADD COLUMN tmux_path TEXT NOT NULL DEFAULT ''`); err != nil {
+			return err
+		}
+	}
 	if _, err := tx.Exec(fmt.Sprintf("PRAGMA user_version=%d", target)); err != nil {
 		return err
 	}
@@ -927,18 +951,27 @@ func (s *Store) ttl(seconds int64) (int64, error) {
 	return seconds * 1000, nil
 }
 
+// repositoryGitTimeout bounds repository discovery for one request: both Git calls of a
+// registration together, or a checkout lookup. The first Git call of a freshly started
+// daemon can be slow on a loaded machine while the next is fast (#410), so the calls share
+// one deadline instead of 3 seconds each. Six seconds keeps a hung Git's worst case at the
+// earlier two times 3 seconds, inside the 10-second limits of the HTTP server and of Call.
+// Tests scale it down.
+var repositoryGitTimeout = 6 * time.Second
+
 func repository(ctx context.Context, path string) (string, error) {
 	if !filepath.IsAbs(path) || len(path) > 4096 || strings.ContainsAny(path, "\x00\r\n") {
 		return "", ErrInvalid
 	}
-	ctx, cancel := context.WithTimeout(ctx, 3*time.Second)
+	ctx, cancel := context.WithTimeout(ctx, repositoryGitTimeout)
 	defer cancel()
 	cmd := exec.CommandContext(ctx, "git", "-C", path, "rev-parse", "--path-format=absolute", "--git-common-dir")
 	cmd.Env = CleanGitEnvironment()
+	started := time.Now()
 	data, err := cmd.Output()
 	if err != nil {
 		if errors.Is(ctx.Err(), context.DeadlineExceeded) {
-			return "", ErrRepositoryGitTimeout
+			return "", RepositoryGitTimeout{[]time.Duration{time.Since(started)}}
 		}
 		var lookup *exec.Error
 		var execution *os.PathError
@@ -988,13 +1021,17 @@ func (s *Store) Register(ctx context.Context, r Registration) (Session, error) {
 	// without Git; repository-dependent operations are added in later chunks.
 	common := ""
 	if r.Repository != "" {
-		common, err = repository(ctx, r.Repository)
+		discovery, cancel := context.WithTimeout(ctx, repositoryGitTimeout)
+		defer cancel()
+		started := time.Now()
+		common, err = repository(discovery, r.Repository)
 		if err != nil {
 			return Session{}, err
 		}
-		dirCommon, err := repository(ctx, directory)
+		first := time.Since(started)
+		dirCommon, err := repository(discovery, directory)
 		if err != nil {
-			return Session{}, err
+			return Session{}, repositoryTimeoutAfter(err, first)
 		}
 		if common != dirCommon {
 			return Session{}, ErrInvalid
@@ -1037,13 +1074,14 @@ func (s *Store) Register(ctx context.Context, r Registration) (Session, error) {
 	if r.LaunchID != "" {
 		h = s.recordHost(hostPID(r.WakeTarget), r.Tmux)
 	}
-	_, err = tx.ExecContext(ctx, `INSERT INTO sessions(`+sessionColumns+`) VALUES (?,?,?,?,?,?,?,?,0,1,?,?,?,?,?,?)
+	_, err = tx.ExecContext(ctx, `INSERT INTO sessions(`+sessionColumns+`) VALUES (?,?,?,?,?,?,?,?,0,1,?,?,?,?,?,?,?)
 		ON CONFLICT(family,id) DO UPDATE SET repository=excluded.repository,
 		directory=excluded.directory,wake_target=excluded.wake_target,renewed_at=excluded.renewed_at,
 		expires_at=excluded.expires_at,retired_at=0,revision=sessions.revision+1,subagent=MAX(sessions.subagent,excluded.subagent),
 		role=excluded.role,host_pid=excluded.host_pid,host_start=excluded.host_start,tmux_socket=excluded.tmux_socket,
-		tmux_pane=excluded.tmux_pane`,
-		r.Family, r.ID, common, directory, string(r.WakeTarget), now, now, now+duration, r.Subagent, role, h.pid, h.start, h.socket, h.pane)
+		tmux_pane=excluded.tmux_pane,tmux_path=excluded.tmux_path`,
+		r.Family, r.ID, common, directory, string(r.WakeTarget), now, now, now+duration, r.Subagent, role, h.pid, h.start, h.socket, h.pane,
+		h.executable)
 	if err != nil {
 		return Session{}, tx.fail(err)
 	}
@@ -1087,7 +1125,7 @@ func (s *Store) Register(ctx context.Context, r Registration) (Session, error) {
 }
 
 const sessionColumns = `family,id,repository,directory,wake_target,registered_at,renewed_at,expires_at,retired_at,revision,subagent,role,
-	host_pid,host_start,tmux_socket,tmux_pane`
+	host_pid,host_start,tmux_socket,tmux_pane,tmux_path`
 
 // sessionQuery reads a session with its peer name and its participant: the address, its
 // recorded holder and conflict. scanSession shows the address as held only while the
@@ -1183,7 +1221,7 @@ func (s *Store) Mutate(ctx context.Context, r Mutation, retire bool) (Session, e
 		if current.Family != "deepseek" && !launched(current) {
 			// Retained pre-launch records become plain peers without losing their inbox,
 			// cursors, claims or any persistent participant fence.
-			_, err = tx.ExecContext(ctx, `UPDATE sessions SET role='',host_pid=0,host_start=0,tmux_socket='',tmux_pane='',succession=''
+			_, err = tx.ExecContext(ctx, `UPDATE sessions SET role='',host_pid=0,host_start=0,tmux_socket='',tmux_pane='',tmux_path='',succession=''
 				WHERE family=? AND id=?`, r.Family, r.ID)
 			if err != nil {
 				return Session{}, tx.fail(err)

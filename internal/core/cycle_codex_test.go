@@ -39,7 +39,8 @@ func TestCodexCycleScreenFixtures(t *testing.T) {
 			t.Fatalf("%s: composer %d text %q", name, s.composer(), codexText(s))
 		}
 	}
-	if rows, open, complete := codexMenu(cycleScreen(t, "pickup-menu")); !open || !complete || pickupRows(rows) != 1 {
+	// The captured menu of a typed skill mention (a skill named pickup) has one row for it.
+	if rows, open, complete := codexMenu(cycleScreen(t, "pickup-menu")); !open || !complete || skillRows(rows, "pickup") != 1 || skillRows(rows, "koinon-pickup") != 0 {
 		t.Fatalf("pickup menu: %q %v %v", rows, open, complete)
 	}
 	if _, open, _ := codexMenu(cycleScreen(t, "pickup-closed")); open {
@@ -228,10 +229,8 @@ func (c *codexTerminal) tmux(_ context.Context, socket string, args ...string) (
 }
 
 func (c *codexTerminal) target(t *testing.T) CycleTarget {
-	checkout := t.TempDir()
 	return CycleTarget{CycleID: "synthetic", Family: "codex", SessionID: "thread-a", HostPID: c.pid, HostStart: c.start,
-		Socket: "/tmp/synthetic-socket", Pane: "%4", Epoch: "thread-a", Directory: checkout, Checkout: checkout, Holds: true,
-		Pickup: PickupEntry{Content: []byte("---\nname: pickup\ndescription: synthetic\n---\n\nsynthetic canonical pickup\n"), Description: "synthetic"},
+		Socket: "/tmp/synthetic-socket", Pane: "%4", Epoch: "thread-a", Holds: true, Pickup: pickupSkillEntry(),
 		tools: hostTools{tmux: c.tmux,
 			processStart:   func(pid int) (int64, error) { return c.start, nil },
 			processParents: func() (map[int]int, error) { return map[int]int{}, nil },
@@ -263,53 +262,50 @@ func (c *codexTerminal) sent() []string {
 	return slices.Clone(c.keys)
 }
 
-// Probe needs the platform, the requester's own rollout (any CLI version), the pane, and
-// pickup skills that are all the catalog item; their scope is shown.
+// Probe needs the platform, the requester's own rollout (any CLI version), the pane, the
+// participant address and the koinon-pickup skill in the host's ~/.agents/skills, byte for
+// byte; a missing or different file names the install command. Other skills, a project's own
+// pickup included, are not read (#406).
 func TestCodexProbe(t *testing.T) {
 	ctx := context.Background()
 	term := newCodexTerminal(t)
 	target := term.target(t)
-	skill := func(root, dir string, content []byte) string {
-		path := filepath.Join(root, dir, "SKILL.md")
-		writeEntry(t, path, content)
-		return path
-	}
-	if got := (codexCycle{}).Probe(ctx, target); got.Reason != "pickup_entry_unverified" {
+	skill := CodexPickupSkillPath(term.home)
+	step := "run koinon install to install the koinon-pickup skill at " + skill
+	if got := (codexCycle{}).Probe(ctx, target); got != (CycleProbe{Reason: "pickup_entry_missing", Step: step}) {
 		t.Fatalf("no entry: %+v", got)
 	}
-	project := skill(filepath.Join(target.Directory, ".agents", "skills"), "pickup", target.Pickup.Content)
-	if got := (codexCycle{}).Probe(ctx, target); got != (CycleProbe{Bootstrap: "project"}) {
-		t.Fatalf("project entry: %+v", got)
+	// A project's own pickup and a personal pickup skill are no entry, whatever they hold.
+	writeEntry(t, filepath.Join(t.TempDir(), ".agents", "skills", "pickup", "SKILL.md"), []byte("---\nname: pickup\n---\na project pickup\n"))
+	writeEntry(t, filepath.Join(term.home, ".agents", "skills", "pickup", "SKILL.md"), []byte("---\nname: pickup\n---\na personal pickup\n"))
+	if got := (codexCycle{}).Probe(ctx, target); got.Reason != "pickup_entry_missing" {
+		t.Fatalf("other pickup skills: %+v", got)
 	}
-	// A byte-equal duplicate under the other root, and another directory name, still pass.
-	skill(filepath.Join(target.Directory, ".codex", "skills"), "renamed", target.Pickup.Content)
-	if got := (codexCycle{}).Probe(ctx, target); got != (CycleProbe{Bootstrap: "project"}) {
-		t.Fatalf("byte-equal duplicate: %+v", got)
+	writeEntry(t, skill, PickupSkill())
+	if got := (codexCycle{}).Probe(ctx, target); got != (CycleProbe{Entry: "koinon-pickup"}) {
+		t.Fatalf("installed entry: %+v", got)
 	}
-	personal := skill(filepath.Join(term.codex, "skills"), "pickup", target.Pickup.Content)
-	if got := (codexCycle{}).Probe(ctx, target); got != (CycleProbe{Bootstrap: "personal"}) {
-		t.Fatalf("personal entry: %+v", got)
-	}
-	writeEntry(t, personal, []byte("---\nname: pickup\n---\nanother procedure\n"))
-	if got := (codexCycle{}).Probe(ctx, target); got.Reason != "pickup_entry_differs" {
+	writeEntry(t, skill, []byte("---\nname: koinon-pickup\n---\nan older entry\n"))
+	if got := (codexCycle{}).Probe(ctx, target); got != (CycleProbe{Reason: "pickup_entry_differs", Step: step}) {
 		t.Fatalf("differing entry: %+v", got)
 	}
-	os.Remove(personal)
-	// Another skill's file with other bytes is not a pickup entry.
-	skill(filepath.Join(term.home, ".agents", "skills"), "other", []byte("---\nname: other\n---\nother\n"))
-	if got := (codexCycle{}).Probe(ctx, target); got != (CycleProbe{Bootstrap: "project"}) {
-		t.Fatalf("other skill: %+v", got)
+	writeEntry(t, skill, PickupSkill())
+	// A configuration entry that turns the skill off refuses it.
+	writeEntry(t, filepath.Join(term.codex, "config.toml"), []byte("[[skills.config]]\nname = \"koinon-pickup\"\nenabled = false\n"))
+	if got := (codexCycle{}).Probe(ctx, target); got.Reason != "pickup_entry_unverified" {
+		t.Fatalf("disabled entry: %+v", got)
 	}
+	os.Remove(filepath.Join(term.codex, "config.toml"))
 	// Another Codex CLI version runs the cycle too (#196).
 	term.rollout("thread-a", "0.163.0", "task_started", "task_complete")
-	if got := (codexCycle{}).Probe(ctx, target); got != (CycleProbe{Bootstrap: "project"}) {
+	if got := (codexCycle{}).Probe(ctx, target); got != (CycleProbe{Entry: "koinon-pickup"}) {
 		t.Fatalf("version: %+v", got)
 	}
 	term.rollout("thread-a", "0.162.0")
 	// sessionProbe gives no epoch: the session's own thread is read.
 	noEpoch := target
 	noEpoch.Epoch = ""
-	if got := (codexCycle{}).Probe(ctx, noEpoch); got != (CycleProbe{Bootstrap: "project"}) {
+	if got := (codexCycle{}).Probe(ctx, noEpoch); got != (CycleProbe{Entry: "koinon-pickup"}) {
 		t.Fatalf("without an epoch: %+v", got)
 	}
 	other := target
@@ -327,47 +323,59 @@ func TestCodexProbe(t *testing.T) {
 	if got := (codexCycle{}).Probe(ctx, unproven); got.Reason != "pane_unproven" {
 		t.Fatalf("pane: %+v", got)
 	}
+	// A tmux that cannot run is not an unproven pane (#418), for the probe and the inspection.
+	noTmux := target
+	noTmux.tools.tmux = func(context.Context, string, ...string) (string, error) {
+		return "", tmuxUnavailableError{errors.New("synthetic start failure")}
+	}
+	if got := (codexCycle{}).Probe(ctx, noTmux); got.Reason != "tmux_unavailable" {
+		t.Fatalf("tmux unavailable: %+v", got)
+	}
+	if _, err := (codexCycle{}).Inspect(ctx, noTmux, func(context.Context) error { return nil }); inspectSeen(err) != "tmux_unavailable" {
+		t.Fatalf("inspection without tmux: %v", err)
+	}
 	codexEvidencedPlatforms = map[string]bool{}
 	if got := (codexCycle{}).Probe(ctx, target); got.Reason != "platform_unverified" {
 		t.Fatalf("platform: %+v", got)
 	}
-	_ = project
 }
 
-// A one-file entry reached through two symlinked roots is one file, as Codex lists it (P8).
-func TestCodexPickupEntrySymlinkedRoots(t *testing.T) {
+// A user skills root that is a symlink is read through it, and a path selector of the link's
+// target names the same file.
+func TestCodexPickupEntrySymlinkedRoot(t *testing.T) {
 	term := newCodexTerminal(t)
 	target := term.target(t)
-	shared := filepath.Join(target.Directory, "agents", "skills")
-	writeEntry(t, filepath.Join(shared, "pickup", "SKILL.md"), target.Pickup.Content)
-	for _, root := range []string{".agents", ".codex"} {
-		os.MkdirAll(filepath.Join(target.Directory, root), 0o700)
-		if err := os.Symlink(shared, filepath.Join(target.Directory, root, "skills")); err != nil {
-			t.Fatal(err)
-		}
+	shared := filepath.Join(term.home, "dotfiles", "skills")
+	writeEntry(t, filepath.Join(shared, "koinon-pickup", "SKILL.md"), PickupSkill())
+	os.MkdirAll(filepath.Join(term.home, ".agents"), 0o700)
+	if err := os.Symlink(shared, filepath.Join(term.home, ".agents", "skills")); err != nil {
+		t.Fatal(err)
 	}
-	entry, err := codexPickupEntry(target)
-	if err != nil || len(entry.files) != 1 {
-		t.Fatalf("%+v %v", entry, err)
+	if got := codexPickupEntry(target); got.Reason != "" {
+		t.Fatalf("%+v", got)
+	}
+	writeEntry(t, filepath.Join(term.codex, "config.toml"), []byte("[[skills.config]]\npath = "+strconv.Quote(filepath.Join(shared, "koinon-pickup"))+"\nenabled = false\n"))
+	if got := codexPickupEntry(target); got.Reason != "pickup_entry_unverified" {
+		t.Fatalf("disabled through the link's target: %+v", got)
 	}
 }
 
-// codexActivation refuses only a skills.config entry that can turn off a verified pickup file,
+// codexActivation refuses only a skills.config entry that can turn off the koinon-pickup file,
 // in every layer and -c argument, with TOML's meaning of quoted and escaped keys.
 func TestCodexActivation(t *testing.T) {
 	term := newCodexTerminal(t)
 	target := term.target(t)
-	file := filepath.Join(target.Directory, ".agents", "skills", "pickup", "SKILL.md")
+	file := CodexPickupSkillPath(term.home)
 	writeEntry(t, file, target.Pickup.Content)
 	real, _ := filepath.EvalSymlinks(file)
-	elsewhere := filepath.Join(target.Directory, ".agents", "skills", "other", "SKILL.md")
+	elsewhere := filepath.Join(term.home, ".agents", "skills", "other", "SKILL.md")
 	writeEntry(t, elsewhere, []byte("---\nname: other\n---\n"))
 	config := filepath.Join(term.codex, "config.toml")
 	relative, err := filepath.Rel(term.codex, file)
 	if err != nil {
 		t.Fatal(err)
 	}
-	project := filepath.Join(target.Directory, ".codex", "config.toml")
+	project := filepath.Join(t.TempDir(), ".codex", "config.toml")
 	quote := strconv.Quote
 	for _, c := range []struct {
 		name, user, project, profile string
@@ -378,42 +386,43 @@ func TestCodexActivation(t *testing.T) {
 		{name: "unrelated skills setting", user: "[skills]\ninclude_instructions = true\n"},
 		{name: "enabled canonical", user: "[[skills.config]]\npath = " + quote(file) + "\nenabled = true\n"},
 		{name: "disable another name", user: "[[skills.config]]\nname = \"other\"\nenabled = false\n"},
+		{name: "disable a skill named pickup", user: "[[skills.config]]\nname = \"pickup\"\nenabled = false\n"},
 		{name: "disable another path", user: "[[skills.config]]\npath = " + quote(elsewhere) + "\nenabled = false\n"},
-		{name: "disable by name", user: "[[skills.config]]\nname = \"pickup\"\nenabled = false\n", refused: "pickup_entry_unverified"},
-		{name: "disable by qualified name", user: "[[skills.config]]\nname = \"plugin:pickup\"\nenabled = false\n", refused: "pickup_entry_unverified"},
+		{name: "disable by name", user: "[[skills.config]]\nname = \"koinon-pickup\"\nenabled = false\n", refused: "pickup_entry_unverified"},
+		{name: "disable by qualified name", user: "[[skills.config]]\nname = \"plugin:koinon-pickup\"\nenabled = false\n", refused: "pickup_entry_unverified"},
 		{name: "disable by path", user: "[[skills.config]]\npath = " + quote(file) + "\nenabled = false\n", refused: "pickup_entry_unverified"},
 		{name: "disable by directory", user: "[[skills.config]]\npath = " + quote(filepath.Dir(file)) + "\nenabled = false\n", refused: "pickup_entry_unverified"},
 		{name: "disable by a path relative to the user file", user: "[[skills.config]]\npath = " + quote(relative) + "\nenabled = false\n", refused: "pickup_entry_unverified"},
-		{name: "a project disable has no effect (P10)", project: "[[skills.config]]\nname = \"pickup\"\nenabled = false\n"},
+		{name: "a project disable has no effect (P10)", project: "[[skills.config]]\nname = \"koinon-pickup\"\nenabled = false\n"},
 		{name: "disable an unresolvable path", user: "[[skills.config]]\npath = \"/nonexistent/SKILL.md\"\nenabled = false\n", refused: "pickup_entry_unverified"},
-		{name: "escaped key", user: "[[\"\\u0073kills\".\"config\"]]\nname = \"pickup\"\nenabled = false\n", refused: "pickup_entry_unverified"},
-		{name: "missing enabled", user: "[[skills.config]]\nname = \"pickup\"\n", refused: "pickup_entry_unverified"},
-		{name: "both selectors are ignored", user: "[[skills.config]]\nname = \"pickup\"\npath = " + quote(file) + "\nenabled = false\n"},
+		{name: "escaped key", user: "[[\"\\u0073kills\".\"config\"]]\nname = \"koinon-pickup\"\nenabled = false\n", refused: "pickup_entry_unverified"},
+		{name: "missing enabled", user: "[[skills.config]]\nname = \"koinon-pickup\"\n", refused: "pickup_entry_unverified"},
+		{name: "both selectors are ignored", user: "[[skills.config]]\nname = \"koinon-pickup\"\npath = " + quote(file) + "\nenabled = false\n"},
 		{name: "not an array of tables", user: "[skills]\nconfig = \"pickup\"\n", refused: "pickup_entry_unverified"},
 		{name: "does not parse", user: "[[skills.config]\n", refused: "pickup_entry_unreadable"},
-		{name: "inline argument", args: []string{"-c", `skills.config=[{name="pickup",enabled=false}]`}, refused: "pickup_entry_unverified"},
+		{name: "inline argument", args: []string{"-c", `skills.config=[{name="koinon-pickup",enabled=false}]`}, refused: "pickup_entry_unverified"},
 		{name: "inline argument enabled", args: []string{"-c", `skills.config=[{path=` + quote(file) + `,enabled=true}]`}},
 		{name: "inline argument relative path", args: []string{"--config", `skills.config=[{path="SKILL.md",enabled=false}]`}, refused: "pickup_entry_unverified"},
 		{name: "plain string argument", args: []string{"-c", "skills.config=pickup"}, refused: "pickup_entry_unverified"},
 		{name: "unrelated argument", args: []string{"-c", `shell_environment_policy.set.KOINON_CODEX_HOST="4343"`}},
-		{name: "a profile disables the base's enabled entry", user: "[[skills.config]]\nname = \"pickup\"\nenabled = true\n",
+		{name: "a profile disables the base's enabled entry", user: "[[skills.config]]\nname = \"koinon-pickup\"\nenabled = true\n",
 			profile: "[[skills.config]]\npath = " + quote(file) + "\nenabled = false\n", args: []string{"-p", "p"}, refused: "pickup_entry_unverified"},
 		{name: "a profile enables the base's disabled entry", user: "[[skills.config]]\npath = " + quote(file) + "\nenabled = false\n",
 			profile: "[[skills.config]]\npath = " + quote(file) + "\nenabled = true\n", args: []string{"--profile", "p"}},
-		{name: "the short profile spelling", profile: "[[skills.config]]\nname = \"pickup\"\nenabled = false\n", args: []string{"-pp"},
+		{name: "the short profile spelling", profile: "[[skills.config]]\nname = \"koinon-pickup\"\nenabled = false\n", args: []string{"-pp"},
 			refused: "pickup_entry_unverified"},
-		{name: "the profile file is not selected", profile: "[[skills.config]]\nname = \"pickup\"\nenabled = false\n"},
+		{name: "the profile file is not selected", profile: "[[skills.config]]\nname = \"koinon-pickup\"\nenabled = false\n"},
 		{name: "a selected profile without its file", args: []string{"--profile=q"}, refused: "pickup_entry_unverified"},
-		{name: "a -c array over a disabling profile", profile: "[[skills.config]]\nname = \"pickup\"\nenabled = false\n",
+		{name: "a -c array over a disabling profile", profile: "[[skills.config]]\nname = \"koinon-pickup\"\nenabled = false\n",
 			args: []string{"-p", "p", "-c", `skills.config=[{name="other",enabled=false}]`}},
-		{name: "a legacy profile table has no effect", user: "[profiles.p.skills]\nconfig = [{name = \"pickup\", enabled = false}]\n"},
+		{name: "a legacy profile table has no effect", user: "[profiles.p.skills]\nconfig = [{name = \"koinon-pickup\", enabled = false}]\n"},
 		{name: "a higher -c array replaces a disabling user entry", user: "[[skills.config]]\npath = " + quote(file) + "\nenabled = false\n",
 			args: []string{"-c", `skills.config=[{path=` + quote(file) + `,enabled=true}]`}},
-		{name: "a project entry does not replace an enabling user entry", user: "[[skills.config]]\nname = \"pickup\"\nenabled = true\n",
-			project: "[[skills.config]]\nname = \"pickup\"\nenabled = false\n"},
-		{name: "a -c array over a disabling project entry", project: "[[skills.config]]\nname = \"pickup\"\nenabled = false\n",
+		{name: "a project entry does not replace an enabling user entry", user: "[[skills.config]]\nname = \"koinon-pickup\"\nenabled = true\n",
+			project: "[[skills.config]]\nname = \"koinon-pickup\"\nenabled = false\n"},
+		{name: "a -c array over a disabling project entry", project: "[[skills.config]]\nname = \"koinon-pickup\"\nenabled = false\n",
 			args: []string{"-c", `skills.config=[{name="other",enabled=false}]`}},
-		{name: "a project value does not replace a user disable", user: "[[skills.config]]\nname = \"pickup\"\nenabled = false\n",
+		{name: "a project value does not replace a user disable", user: "[[skills.config]]\nname = \"koinon-pickup\"\nenabled = false\n",
 			project: "skills = \"off\"\n", refused: "pickup_entry_unverified"},
 		{name: "a -c value in place of the skills table", args: []string{"-c", `skills="off"`}, refused: "pickup_entry_unverified"},
 	} {
@@ -563,43 +572,47 @@ func TestCodexInspect(t *testing.T) {
 	}
 }
 
-// Pickup submits $pickup only when the menu lists one row for each verified file, so no other
-// entry can run; any other count, or a scroll marker, erases it before Enter.
+// Pickup submits $koinon-pickup only when the installed skill is verified and the menu lists
+// exactly one koinon-pickup row, so no other entry can run; any other count, or a scroll
+// marker, erases it before Enter.
 func TestCodexPickupRows(t *testing.T) {
 	ctx := context.Background()
 	for _, c := range []struct {
-		name   string
-		files  int
-		rows   int
-		scroll bool
-		ok     bool
+		name      string
+		installed bool
+		rows      int
+		scroll    bool
+		ok        bool
+		reason    string
 	}{
-		{"one file, one row", 1, 1, false, true},
-		{"two byte-equal files, two rows", 2, 2, false, true},
-		{"one file, a second entry outside the roots", 1, 2, false, false},
-		{"no row", 1, 0, false, false},
-		{"a scroll marker", 1, 1, true, false},
+		{"one row", true, 1, false, true, ""},
+		{"a second entry of that name", true, 2, false, false, "pickup_entry_unverified"},
+		{"no row", true, 0, false, false, "pickup_entry_unverified"},
+		{"a scroll marker", true, 1, true, false, "pickup_entry_unverified"},
+		{"the skill was removed", false, 1, false, false, "pickup_entry_missing"},
 	} {
 		term := newCodexTerminal(t)
 		target := term.target(t)
-		writeEntry(t, filepath.Join(target.Directory, ".agents", "skills", "pickup", "SKILL.md"), target.Pickup.Content)
-		if c.files == 2 {
-			writeEntry(t, filepath.Join(target.Directory, ".codex", "skills", "pickup", "SKILL.md"), target.Pickup.Content)
+		if c.installed {
+			writeEntry(t, CodexPickupSkillPath(term.home), PickupSkill())
 		}
 		for range c.rows {
-			term.menu = append(term.menu, "pickup  [Skill] synthetic")
+			term.menu = append(term.menu, "koinon-pickup  [Skill] Koinon's managed-cycle entry")
 		}
-		term.menu = append(term.menu, "picker  [Skill] another skill")
+		term.menu = append(term.menu, "pickup  [Skill] a project's own pickup")
 		term.scroll = c.scroll
-		ok, err := (codexCycle{}).Pickup(ctx, target, "project", term.fence)
+		ok, err := (codexCycle{}).Pickup(ctx, target, term.fence)
 		entered := slices.Contains(term.sent(), "Enter")
-		if ok != c.ok || entered != c.ok || !c.ok && (err == nil || err.Error() != "pickup_entry_unverified") {
+		if ok != c.ok || entered != c.ok || !c.ok && (err == nil || err.Error() != c.reason) {
 			t.Fatalf("%s: %v %v keys %q", c.name, ok, err, term.sent())
 		}
 		if !c.ok && term.input != "" {
 			t.Fatalf("%s: left %q", c.name, term.input)
 		}
-		if c.ok && !slices.Equal(term.sent(), []string{"-l $pickup", "Escape", "Enter"}) {
+		if c.ok && !slices.Equal(term.sent(), []string{"-l $koinon-pickup", "Escape", "Enter"}) {
+			t.Fatalf("%s: keys %q", c.name, term.sent())
+		}
+		if !c.installed && len(term.sent()) != 0 {
 			t.Fatalf("%s: keys %q", c.name, term.sent())
 		}
 	}
@@ -646,17 +659,17 @@ func TestCodexInputRechecksReadiness(t *testing.T) {
 	if ok, _ := (codexCycle{}).Clear(ctx, target, term.fence); !ok {
 		t.Fatal("clear")
 	}
-	writeEntry(t, filepath.Join(target.Directory, ".agents", "skills", "pickup", "SKILL.md"), target.Pickup.Content)
-	term.menu = []string{"pickup  [Skill] synthetic"}
+	writeEntry(t, CodexPickupSkillPath(term.home), PickupSkill())
+	term.menu = []string{"koinon-pickup  [Skill] synthetic"}
 	after := target
 	after.SuccessorEpoch = "thread-b"
 	sent := len(term.sent())
 	term.input = "maintainer draft"
-	if ok, err := (codexCycle{}).Pickup(ctx, after, "project", term.fence); ok || err == nil || err.Error() != "pane_not_ready" || len(term.sent()) != sent || term.input != "maintainer draft" {
+	if ok, err := (codexCycle{}).Pickup(ctx, after, term.fence); ok || err == nil || err.Error() != "pane_not_ready" || len(term.sent()) != sent || term.input != "maintainer draft" {
 		t.Fatalf("pickup over a draft: %v %v %q %q", ok, err, term.sent()[sent:], term.input)
 	}
 	term.input = ""
-	if ok, err := (codexCycle{}).Pickup(ctx, after, "project", term.fence); !ok || err != nil {
+	if ok, err := (codexCycle{}).Pickup(ctx, after, term.fence); !ok || err != nil {
 		t.Fatalf("pickup: %v %v", ok, err)
 	}
 }

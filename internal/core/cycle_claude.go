@@ -15,7 +15,6 @@ import (
 	"strconv"
 	"strings"
 	"time"
-	"unicode"
 )
 
 // The Claude Code cycle adapter (#196, chunk 03). It acts only through the session's own tmux
@@ -51,7 +50,6 @@ var (
 	errClaudeEscape    = errors.New("escape_changed_input")
 	errClaudeSubmit    = errors.New("submit_not_read_back")
 	errClaudeErase     = errors.New("erase_not_read_back")
-	errClaudeDialog    = errors.New("dialog_not_shown")
 	errClaudeUnproven  = errors.New("pane_unproven")
 	errClaudeMenuEntry = errors.New("pickup_entry_not_listed")
 )
@@ -82,7 +80,7 @@ func claudeConfigRoot(t CycleTarget) (string, error) {
 	if err != nil || home == "" {
 		return "", errors.New("host home unknown")
 	}
-	return filepath.Join(home, ".claude"), nil
+	return ClaudeConfigRoot("", home), nil
 }
 
 // readClaudeRecord reads the registry record of the pinned host. It must name the host's
@@ -132,10 +130,9 @@ func readBounded(path string, limit int64) ([]byte, error) {
 	return io.ReadAll(io.LimitReader(f, limit+1))
 }
 
-// Probe decides whether the session's cycle can run and which pickup entry a bare /pickup
-// runs. Personal skills rank over project skills (documented); a project skill ranks over an
-// added directory (evidenced). Only the effective entry is checked: it must be the catalog
-// item or the loader, byte for byte.
+// Probe decides whether the session's cycle can run. Its pickup entry is the koinon-pickup
+// skill under the host's configuration root, which must be the binary's skill byte for byte
+// (#406); project skills and other personal skills are not read.
 func (claudeCycle) Probe(ctx context.Context, t CycleTarget) CycleProbe {
 	if !claudeEvidencedPlatforms[runtime.GOOS] {
 		return CycleProbe{Reason: "platform_unverified"}
@@ -144,90 +141,23 @@ func (claudeCycle) Probe(ctx context.Context, t CycleTarget) CycleProbe {
 	if _, err := readClaudeRecord(t); err != nil {
 		return CycleProbe{Reason: "native_registry_unavailable"}
 	}
-	if !provePane(ctx, t.tools, t.HostPID, t.HostStart, t.Socket, t.Pane) {
-		return CycleProbe{Reason: "pane_unproven"}
+	if err := provePane(ctx, t.tools, t.HostPID, t.HostStart, t.Socket, t.Pane); err != nil {
+		return CycleProbe{Reason: tmuxReason(err, "pane_unproven")}
 	}
 	root, err := claudeConfigRoot(t)
-	if err != nil || t.Directory == "" || t.Checkout == "" {
+	if err != nil {
 		return CycleProbe{Reason: "pickup_entry_unverified"}
 	}
-	// The directories whose .claude Claude Code reads for this session: the session's
-	// directory and each parent up to its worktree root.
-	var dirs []string
-	for dir := filepath.Clean(t.Directory); ; dir = filepath.Dir(dir) {
-		dirs = append(dirs, dir)
-		if dir == filepath.Clean(t.Checkout) || dir == filepath.Dir(dir) {
-			break
-		}
+	path := ClaudePickupSkillPath(root)
+	if reason := pickupSkillReason(path, t.Pickup.Content); reason != "" {
+		return CycleProbe{Reason: reason, Step: pickupSkillStep(path)}
 	}
-	// Personal entries rank first; a personal legacy command beside a personal skill leaves
-	// their order unknown. Project entries matter only without a personal skill: there a
-	// legacy command, or two project skills, leaves the effective entry unknown.
-	personal := filepath.Join(root, "skills", "pickup", "SKILL.md")
-	hasPersonal := exists(personal)
-	if exists(filepath.Join(root, "commands", "pickup.md")) {
-		return CycleProbe{Reason: "pickup_entry_unverified"}
-	}
-	var project []string
-	for _, dir := range dirs {
-		if hasPersonal {
-			break
-		}
-		if exists(filepath.Join(dir, ".claude", "commands", "pickup.md")) {
-			return CycleProbe{Reason: "pickup_entry_unverified"}
-		}
-		if path := filepath.Join(dir, ".claude", "skills", "pickup", "SKILL.md"); exists(path) {
-			project = append(project, path)
-		}
-	}
-	if len(project) > 1 {
-		return CycleProbe{Reason: "pickup_entry_unverified"}
-	}
-	matches := func(path string, want []byte) string {
-		data, err := readBounded(path, 1<<20)
-		if err != nil {
-			return "pickup_entry_unreadable"
-		}
-		if string(data) != string(want) {
-			return "pickup_entry_differs"
-		}
-		return ""
-	}
-	loader := filepath.Join(t.LoaderDir, ".claude", "skills", "pickup", "SKILL.md")
-	switch {
-	case hasPersonal:
-		return CycleProbe{Reason: matches(personal, t.Pickup.Content), Bootstrap: "personal"}
-	case len(project) == 1:
-		return CycleProbe{Reason: matches(project[0], t.Pickup.Content), Bootstrap: "project"}
-	}
-	reason := matches(loader, t.Loader.Content)
-	if reason != "" {
-		return CycleProbe{Reason: reason}
-	}
-	if launchedWithLoader(t) {
-		return CycleProbe{Bootstrap: "loader"}
-	}
-	return CycleProbe{Bootstrap: "interactive"}
+	return CycleProbe{Entry: PickupSkillName}
 }
 
 func exists(path string) bool {
 	_, err := os.Lstat(path)
 	return err == nil
-}
-
-// launchedWithLoader reports whether the host was started with --add-dir naming the loader.
-func launchedWithLoader(t CycleTarget) bool {
-	_, args, err := t.tools.processCommand(int(t.HostPID))
-	if err != nil {
-		return false
-	}
-	for i, arg := range args {
-		if arg == "--add-dir" && i+1 < len(args) && filepath.Clean(args[i+1]) == filepath.Clean(t.LoaderDir) ||
-			arg == "--add-dir="+t.LoaderDir {
-			return true
-		}
-	}
-	return false
 }
 
 // claudeScreen is one read of the pane: its plain lines and the input line's state.
@@ -263,10 +193,7 @@ func parseClaudeScreen(out string) claudeScreen {
 		}
 	}
 	plain := strings.Join(screen.lines, "\n")
-	switch {
-	case strings.Contains(plain, "Add directory to workspace") && strings.Contains(plain, "1. Yes, for this session"):
-		screen.dialog = "add_dir_scope"
-	case !screen.found && (strings.Contains(plain, "Enter to confirm") || dialogOf(screen).Digest != ""):
+	if !screen.found && (strings.Contains(plain, "Enter to confirm") || dialogOf(screen).Digest != "") {
 		screen.dialog = "native_dialog"
 	}
 	return screen
@@ -309,11 +236,12 @@ func stripSGR(line string) string {
 	return out.String()
 }
 
-// Inspect reports whether the pane is ready for input: the host is idle in its registry
-// record and the input line is empty. A pane in copy mode is returned to its prompt first.
+// Inspect reports whether the pane is ready for input: the host is at its prompt in its
+// registry record and the input line is empty. A pane in copy mode is returned to its prompt
+// first.
 func (claudeCycle) Inspect(ctx context.Context, t CycleTarget, fence CycleFence) (PaneState, error) {
-	if !provePane(ctx, t.tools, t.HostPID, t.HostStart, t.Socket, t.Pane) {
-		return PaneState{}, errClaudeUnproven
+	if err := provePane(ctx, t.tools, t.HostPID, t.HostStart, t.Socket, t.Pane); err != nil {
+		return PaneState{}, proofError(err, errClaudeUnproven)
 	}
 	if mode, err := t.tools.tmux(ctx, t.Socket, "display-message", "-p", "-t", t.Pane, "#{pane_in_mode}"); err != nil {
 		return PaneState{}, err
@@ -336,13 +264,32 @@ func (claudeCycle) Inspect(ctx context.Context, t CycleTarget, fence CycleFence)
 	if err != nil {
 		return PaneState{}, err
 	}
-	return PaneState{Idle: record.Status == "idle" && screen.found && screen.input == ""}, nil
+	return claudePaneState(record.Status, screen), nil
+}
+
+// claudePaneState reads the host's registry status with its screen. The host is at its prompt
+// when the status is idle, or shell: the prompt with a background shell task running, such
+// as a monitor of the session's inbox. Claude Code 2.1.303 takes /clear there without a dialog,
+// and the task, with its status, stays through the clear (#417). A turn in progress (busy) or
+// a native wait (waiting) is not at the prompt.
+func claudePaneState(status string, screen claudeScreen) PaneState {
+	switch {
+	case status == "busy" || status == "waiting":
+		return PaneState{Seen: "status_" + status}
+	case status != "idle" && status != "shell":
+		return PaneState{Seen: "status_unknown"}
+	case !screen.found:
+		return PaneState{Seen: "input_line_not_found"}
+	case screen.input != "":
+		return PaneState{Seen: "input_not_empty"}
+	}
+	return PaneState{Idle: true}
 }
 
 // key proves the pane, calls the fence and sends one key or literal text.
 func (claudeCycle) key(ctx context.Context, t CycleTarget, fence CycleFence, args ...string) error {
-	if !provePane(ctx, t.tools, t.HostPID, t.HostStart, t.Socket, t.Pane) {
-		return errClaudeUnproven
+	if err := provePane(ctx, t.tools, t.HostPID, t.HostStart, t.Socket, t.Pane); err != nil {
+		return proofError(err, errClaudeUnproven)
 	}
 	if err := fence(ctx); err != nil {
 		return err
@@ -354,8 +301,8 @@ func (claudeCycle) key(ctx context.Context, t CycleTarget, fence CycleFence, arg
 // keyIf proves the pane, calls the fence, reads the pane again and sends the keys only when
 // check holds on that read, so the keys reach the screen that the check saw.
 func (claudeCycle) keyIf(ctx context.Context, t CycleTarget, fence CycleFence, check func(claudeScreen) bool, refused error, args ...string) error {
-	if !provePane(ctx, t.tools, t.HostPID, t.HostStart, t.Socket, t.Pane) {
-		return errClaudeUnproven
+	if err := provePane(ctx, t.tools, t.HostPID, t.HostStart, t.Socket, t.Pane); err != nil {
+		return proofError(err, errClaudeUnproven)
 	}
 	if err := fence(ctx); err != nil {
 		return err
@@ -432,7 +379,7 @@ func (a claudeCycle) command(ctx context.Context, t CycleTarget, fence CycleFenc
 	if err := a.escape(ctx, t, fence); err != nil {
 		return abandon(err)
 	}
-	if !await(ctx, t, func(s claudeScreen) bool { return s.input == text && menuFirst(s) == "" }) {
+	if !await(ctx, t, func(s claudeScreen) bool { return s.input == text && menuFirst(s, text) == "" }) {
 		return abandon(errClaudeEscape)
 	}
 	if err := a.key(ctx, t, fence, "Enter"); err != nil {
@@ -448,112 +395,47 @@ func (a claudeCycle) Clear(ctx context.Context, t CycleTarget, fence CycleFence)
 	return a.command(ctx, t, fence, "/clear", nil, nil)
 }
 
-// menuFirst is the description of the first pickup entry that the open command menu lists.
-func menuFirst(s claudeScreen) string {
+// claudePickupCommand is the command that runs the koinon-pickup skill.
+const claudePickupCommand = "/" + PickupSkillName
+
+// menuFirst is the description of the first entry for command that the open command menu
+// lists, the selected row.
+func menuFirst(s claudeScreen, command string) string {
 	for _, line := range s.lines {
 		trimmed := strings.TrimSpace(line)
-		if rest, ok := strings.CutPrefix(trimmed, "❯ /pickup"); ok && !strings.HasPrefix(line, claudeInputMark) {
+		if rest, ok := strings.CutPrefix(trimmed, "❯ "+command); ok && !strings.HasPrefix(line, claudeInputMark) &&
+			(rest == "" || rest[0] == ' ') {
 			return strings.TrimSpace(rest)
 		}
 	}
 	return ""
 }
 
-// describes reports whether a menu description is the start of want's description.
+// claudeMenuScope is the scope that the menu may add after a description, such as (project).
+var claudeMenuScope = regexp.MustCompile(`\s*\([a-z]+\)$`)
+
+// describes reports whether a menu description is the start of want's description. The menu
+// may add the skill's scope and shortens a long description with an ellipsis.
 func describes(menu string, want PickupEntry) bool {
-	menu = strings.TrimSuffix(strings.TrimSuffix(menu, "(project)"), "…")
-	menu = strings.TrimSpace(menu)
+	menu = strings.TrimSpace(claudeMenuScope.ReplaceAllString(menu, ""))
+	menu = strings.TrimSpace(strings.TrimSuffix(menu, "…"))
 	return menu != "" && want.Description != "" && strings.HasPrefix(want.Description, menu)
 }
 
-func (a claudeCycle) Pickup(ctx context.Context, t CycleTarget, bootstrap string, fence CycleFence) (bool, error) {
-	want := t.Pickup
-	if bootstrap == "loader" || bootstrap == "interactive" {
-		want = t.Loader
-	}
-	return a.command(ctx, t, fence, "/pickup", func(s claudeScreen) bool { return describes(menuFirst(s), want) }, errClaudeMenuEntry)
+// Pickup enters /koinon-pickup, only while the menu lists the installed skill's description
+// first.
+func (a claudeCycle) Pickup(ctx context.Context, t CycleTarget, fence CycleFence) (bool, error) {
+	return a.command(ctx, t, fence, claudePickupCommand, func(s claudeScreen) bool {
+		return describes(menuFirst(s, claudePickupCommand), t.Pickup)
+	}, errClaudeMenuEntry)
 }
 
-// Bootstrap adds the loader for this session only, then proves that /pickup lists the
-// loader first and erases that text without submitting it.
-func (a claudeCycle) Bootstrap(ctx context.Context, t CycleTarget, fence CycleFence) (bool, error) {
-	text := "/add-dir " + t.LoaderDir
-	if err := a.key(ctx, t, fence, "-l", text); err != nil {
-		return false, err
-	}
-	if !await(ctx, t, func(s claudeScreen) bool { return s.input == text }) {
-		a.erase(ctx, t, fence, text)
-		return false, errClaudeTyped
-	}
-	if err := a.escape(ctx, t, fence); err != nil {
-		a.erase(ctx, t, fence, text)
-		return false, err
-	}
-	if err := a.key(ctx, t, fence, "Enter"); err != nil {
-		a.erase(ctx, t, fence, text)
-		return false, err
-	}
-	// A directory that this session already added (an earlier bootstrap; /clear keeps it) gets
-	// Claude Code's reply instead of the dialog (native evidence, #196).
-	added := false
-	if !await(ctx, t, func(s claudeScreen) bool {
-		added = claudeAlreadyAdded(s, t.LoaderDir)
-		return added || s.dialog == "add_dir_scope"
-	}) {
-		return false, errClaudeDialog
-	}
-	if !added {
-		if ok, err := a.Answer(ctx, t, "add_dir_scope", fence); err != nil || !ok {
-			return false, err
-		}
-	}
-	if err := a.key(ctx, t, fence, "-l", "/pickup"); err != nil {
-		return false, err
-	}
-	listed := await(ctx, t, func(s claudeScreen) bool { return s.input == "/pickup" && describes(menuFirst(s), t.Loader) })
-	if err := a.erase(ctx, t, fence, "/pickup"); err != nil {
-		return false, err
-	}
-	if !listed {
-		return false, errClaudeMenuEntry
-	}
-	return true, nil
-}
+// Answerable is false: every Claude Code dialog during the cycle waits for the native session
+// or the maintainer.
+func (claudeCycle) Answerable(string) bool { return false }
 
-// claudeAlreadyAdded reports Claude Code's reply to /add-dir for a directory that the session
-// already has: the input line is empty again, and the last /add-dir in the transcript is of dir
-// and is followed at once by that reply. Claude Code wraps a long echo or reply onto more lines,
-// so the lines from that /add-dir on are compared without their whitespace.
-func claudeAlreadyAdded(s claudeScreen, dir string) bool {
-	if !s.found || s.input != "" || s.dialog != "" {
-		return false
-	}
-	for i := len(s.lines) - 1; i >= 0; i-- {
-		if strings.HasPrefix(strings.TrimSpace(s.lines[i]), "❯ /add-dir ") {
-			want := withoutSpace("❯ /add-dir " + dir + " ⎿ " + dir + " is already added as a working directory.")
-			return strings.HasPrefix(withoutSpace(strings.Join(s.lines[i:], "\n")), want)
-		}
-	}
-	return false
-}
-
-// withoutSpace removes every whitespace character, the no-break space included.
-func withoutSpace(text string) string {
-	return strings.Join(strings.FieldsFunc(text, unicode.IsSpace), "")
-}
-
-func (claudeCycle) Answerable(prompt string) bool { return prompt == "add_dir_scope" }
-
-// Answer chooses option 1, "Yes, for this session", in the add-directory dialog; option 2
-// would change the persistent setup and is never chosen.
-func (a claudeCycle) Answer(ctx context.Context, t CycleTarget, prompt string, fence CycleFence) (bool, error) {
-	if prompt != "add_dir_scope" {
-		return false, nil
-	}
-	if err := a.key(ctx, t, fence, "-l", "1"); err != nil {
-		return false, err
-	}
-	return await(ctx, t, func(s claudeScreen) bool { return s.dialog == "" && s.found }), nil
+func (claudeCycle) Answer(context.Context, CycleTarget, string, CycleFence) (bool, error) {
+	return false, nil
 }
 
 // NewEpoch reads the host's registry session ID, which /clear replaces in the same process.
@@ -566,55 +448,6 @@ func (claudeCycle) NewEpoch(ctx context.Context, t CycleTarget) (string, error) 
 		return "", nil
 	}
 	return record.SessionID, nil
-}
-
-// claudeLoaderContent is the loader's pickup entry: it reads the canonical catalog item and
-// checks it against the cycle's pinned catalog digest. It holds no procedure of its own.
-const claudeLoaderContent = `---
-name: pickup
-description: Koinon session loader for the canonical pickup procedure. Resume work from this agent's newest handoff.
----
-
-Call the koinon library_read tool for item skill.pickup. When context_cycle_status shows a cycle,
-the catalog_digest that library_read returns must equal the cycle's catalog_digest; if it differs,
-or the tool is unavailable, stop and report that. Otherwise follow the returned procedure.
-`
-
-// claudeLoaderEntry is the loader's bytes and its menu description.
-func claudeLoaderEntry() PickupEntry {
-	return PickupEntry{Content: []byte(claudeLoaderContent),
-		Description: "Koinon session loader for the canonical pickup procedure. Resume work from this agent's newest handoff."}
-}
-
-// CycleLoaderDir is the directory that a Claude launch adds with --add-dir, under the state root.
-func CycleLoaderDir(stateRoot string) string {
-	return filepath.Join(stateRoot, "cycle", "claude-loader")
-}
-
-// EnsureCycleLoader writes the loader's pickup entry under the state root when it is missing
-// or different. The directories are private to this account.
-func EnsureCycleLoader(stateRoot string) error {
-	dir := filepath.Join(CycleLoaderDir(stateRoot), ".claude", "skills", "pickup")
-	if err := os.MkdirAll(dir, 0o700); err != nil {
-		return err
-	}
-	path := filepath.Join(dir, "SKILL.md")
-	if data, err := os.ReadFile(path); err == nil && string(data) == claudeLoaderContent {
-		return nil
-	}
-	tmp, err := os.CreateTemp(dir, ".SKILL-*")
-	if err != nil {
-		return err
-	}
-	defer os.Remove(tmp.Name())
-	if _, err := tmp.WriteString(claudeLoaderContent); err != nil {
-		tmp.Close()
-		return err
-	}
-	if err := tmp.Close(); err != nil {
-		return err
-	}
-	return os.Rename(tmp.Name(), path)
 }
 
 // claudeOption is a numbered dialog option, the selected one marked with the prompt mark.
@@ -651,8 +484,8 @@ func dialogOf(s claudeScreen) CycleDialog {
 
 // Dialog reads the dialog the pane shows. It sends nothing.
 func (claudeCycle) Dialog(ctx context.Context, t CycleTarget) (CycleDialog, error) {
-	if !provePane(ctx, t.tools, t.HostPID, t.HostStart, t.Socket, t.Pane) {
-		return CycleDialog{}, errClaudeUnproven
+	if err := provePane(ctx, t.tools, t.HostPID, t.HostStart, t.Socket, t.Pane); err != nil {
+		return CycleDialog{}, proofError(err, errClaudeUnproven)
 	}
 	screen, err := readClaude(ctx, t)
 	if err != nil {

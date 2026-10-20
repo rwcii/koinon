@@ -33,7 +33,7 @@ func contextCommand(ctx context.Context, args []string, out io.Writer) error {
 	flags := flag.NewFlagSet("context "+op, flag.ContinueOnError)
 	flags.SetOutput(io.Discard)
 	state := flags.String("state-dir", root, "private Go state directory")
-	address := flags.String("address", "127.0.0.1:47671", "daemon loopback address")
+	address := addressFlag(flags)
 	var mode *string
 	var threshold *int64
 	var asJSON *bool
@@ -57,6 +57,9 @@ func contextCommand(ctx context.Context, args []string, out io.Writer) error {
 	}
 	if len(operandList) != want {
 		return usageError{"invalid_request", "koinon context " + op + " takes " + strconv.Itoa(want) + " operand(s); see koinon --help"}
+	}
+	if err := resolveAddress(flags); err != nil {
+		return err
 	}
 	secret, err := core.ClientSecret(*state, *address)
 	if err != nil {
@@ -158,6 +161,9 @@ func printContext(out io.Writer, reply contextShow) error {
 			state = "cycle " + s.CycleState + ": a native dialog waits (Sessions page or the session's pane)"
 		case s.CycleState != "":
 			state = "cycle " + s.CycleState
+			if s.CycleReason != "" {
+				state += " (" + s.CycleReason + ")"
+			}
 		case !s.Available:
 			state = "unavailable: " + s.Unavailable
 		case s.Eligible:

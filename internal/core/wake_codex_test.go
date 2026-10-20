@@ -211,6 +211,13 @@ func TestCodexWakeSendsNothingWithoutProofOrIdle(t *testing.T) {
 			f.s.db.Exec(`UPDATE sessions SET host_start=host_start+1 WHERE family='codex' AND id=?`, session.ID)
 			return session, p, waiting("codex_target_unavailable")
 		},
+		// A recorded tmux that cannot run is not an unproven pane (#418).
+		"recorded tmux missing": func() (Session, grokPaneUnderTest, wakeResult) {
+			p := f.pane("idle", "")
+			session := f.session(p.host, p.id, "idle")
+			f.s.db.Exec(`UPDATE sessions SET tmux_path=? WHERE family='codex' AND id=?`, filepath.Join(f.dir, "missing", "tmux"), session.ID)
+			return session, p, waiting("tmux_unavailable")
+		},
 		// The 7638dc8 case: the recorded host is proven in the pane, but its child has its
 		// own process group and holds the terminal's foreground, so it would read the keys.
 		"child of the host in the foreground": func() (Session, grokPaneUnderTest, wakeResult) {
@@ -290,7 +297,7 @@ func TestCodexWakeAttemptsThroughTheScheduler(t *testing.T) {
 	}
 	real := f.s.tmux
 	captures, typed, enters := 0, 0, 0
-	f.s.tmux = func(ctx context.Context, socket string, args ...string) (string, error) {
+	f.s.tmux = func(ctx context.Context, executable, socket string, args ...string) (string, error) {
 		switch {
 		case args[0] == "capture-pane":
 			captures++
@@ -303,7 +310,7 @@ func TestCodexWakeAttemptsThroughTheScheduler(t *testing.T) {
 		case args[0] == "send-keys" && args[len(args)-1] == "Enter":
 			enters++
 		}
-		return real(ctx, socket, args...)
+		return real(ctx, executable, socket, args...)
 	}
 	f.s.wake.send = f.s.providerWake
 	step(t, f.s)

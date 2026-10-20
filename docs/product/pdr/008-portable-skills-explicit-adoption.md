@@ -3,7 +3,7 @@ pdr: "008"
 title: "Portable Skills and Explicit Adoption"
 status: draft
 created: "2026-10-12"
-updated: "2026-10-12"
+updated: "2026-10-19"
 authors:
   - "Robert Capps"
 reviewers: []
@@ -80,7 +80,7 @@ From #145:
 
 Covers the catalog, its targets, adoption and the project fact files. Inventory rows: C071, C072,
 C082, C083, C084. Terminal interaction is PDR 002; the context cycle's use of embedded
-handoff and pickup skills is PDR 006.
+handoff and pickup skills, and its own `koinon-pickup` entry, are PDR 006.
 
 ---
 
@@ -100,6 +100,13 @@ have required facts. Missing required facts stop only the step that needs them; 
 drafts the file from repository evidence and writes it after approval. Fact files are not
 embedded and grant no permission.
 
+One Koinon-owned skill is not a catalog item: `koinon-pickup`, the managed context cycle's
+pickup entry (PDR 006, Decision 4). `koinon install` and the daemon at each start install it
+for the person who runs the daemon, one user-level copy per agent family (Claude Code's personal skills, `~/.agents/skills`
+for Codex), and never in a project repository. It only reads the catalog item `skill.pickup`,
+so the procedure keeps its one copy in the catalog. A project's own `pickup` skill, and the
+catalog's `pickup` wherever it was adopted, are unchanged by it.
+
 **Provenance:** The library: Requested in #145 (issue body, requirements 1–3); a request
 record. The three team skills: requested by an adopting project in #145 comment 6052782627;
 a request record. Handling startup prompts: Maintainer, 2026-10-12: "in fact, an agent will
@@ -110,6 +117,15 @@ approved" (#145 comment 6116403867), approving the plan document at 9055630 on
 feature/skills-library-catalog; delivered by PR #320.
 The plan's review.md says the maintainer asked for all 13 skills as machine candidates with
 sidecars at this path; that is agent-written and the original words were not located.
+The `koinon-pickup` skill: Maintainer, 2026-10-19: "your recommendation seems fair. that koinon
+specific skill should be installed for the user, instead of in the repo." and "that way only a
+single copy needs to be managed" (#406 comments
+[6276165765](https://github.com/rwcii/koinon/issues/406#issuecomment-6276165765) and
+[6276169525](https://github.com/rwcii/koinon/issues/406#issuecomment-6276169525)). Intent: the
+cycle's own Koinon-named skill lives in the person's home, one copy per family, not in a
+repository. Its install by `koinon install` and its name are proposed in the #406 design comment
+([6276914180](https://github.com/rwcii/koinon/issues/406#issuecomment-6276914180)); not a
+maintainer decision.
 
 ### Alternatives Considered
 
@@ -257,3 +273,4 @@ Required checks drift defect are ordinary corrections; they add no product decis
 | 2026-10-12 | Initial creation |
 | 2026-10-12 | Recorded the ordinary inert-fact parser and Required checks drift corrections separately from the remaining adoption proposals |
 | 2026-10-12 | Reconciled merged catalog/query chunks, native scope and collision evidence, scoped receipts and the approved adoption procedure |
+| 2026-10-19 | Decision 1: one Koinon-owned skill, the cycle's `koinon-pickup`, installed by `koinon install` for the person and not a catalog item (#406) |

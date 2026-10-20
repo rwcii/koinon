@@ -76,7 +76,7 @@ func Start(c Config) (*Daemon, error) {
 		return nil, err
 	}
 	if len(c.Listen) == 0 {
-		c.Listen = []string{"127.0.0.1:47671", "[::1]:47671"}
+		c.Listen = Listeners(DefaultPort)
 	}
 	if len(c.Listen) > 2 {
 		return nil, errors.New("at most two loopback listeners")
@@ -236,6 +236,16 @@ func failure(w http.ResponseWriter, err error) {
 			status = http.StatusBadRequest
 		}
 		respond(w, status, map[string]any{"ok": false, "code": refusal.Code, "error": refusal.Message})
+		return
+	}
+	var timeout RepositoryGitTimeout
+	if errors.As(err, &timeout) {
+		calls := []int64{}
+		for _, call := range timeout.Calls {
+			calls = append(calls, call.Milliseconds())
+		}
+		respond(w, http.StatusServiceUnavailable, map[string]any{"ok": false, "code": "repository_git_timeout",
+			"details": map[string]any{"calls_ms": calls, "limit_ms": repositoryGitTimeout.Milliseconds()}})
 		return
 	}
 	status, code := plainError(err)
@@ -479,6 +489,9 @@ type RefusedError struct {
 }
 
 func (e RefusedError) Error() string {
+	if e.Code == "repository_git_timeout" && len(e.Details) > 0 {
+		return "daemon could not complete repository discovery: " + e.Code + " " + string(e.Details)
+	}
 	if e.Code == "repository_git_unavailable" || e.Code == "repository_git_timeout" {
 		return "daemon could not complete repository discovery: " + e.Code
 	}

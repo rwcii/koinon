@@ -571,8 +571,25 @@ func ptr(value string) *string { return &value }
 
 // The default tmux session name is the participant address base, so that agents of other
 // families or roles in one directory never collide; a repository gives its label.
+// nonRepositoryDir is a new directory outside every Git repository, even when TMPDIR is
+// inside a checkout (#421): its parent holds a .git file that names a missing directory, so
+// Git's search stops there with "not a git repository".
+func nonRepositoryDir(t *testing.T) string {
+	t.Helper()
+	parent := t.TempDir()
+	boundary := "gitdir: " + filepath.Join(parent, "no-repository") + "\n"
+	if err := os.WriteFile(filepath.Join(parent, ".git"), []byte(boundary), 0600); err != nil {
+		t.Fatal(err)
+	}
+	dir := filepath.Join(parent, "dir")
+	if err := os.Mkdir(dir, 0700); err != nil {
+		t.Fatal(err)
+	}
+	return dir
+}
+
 func TestDefaultSessionNames(t *testing.T) {
-	root := t.TempDir()
+	root := nonRepositoryDir(t)
 	plain := filepath.Join(root, "My Project.v2")
 	repository := filepath.Join(root, "Repo")
 	inner := filepath.Join(repository, "sub")
@@ -721,27 +738,6 @@ func TestLaunchIDs(t *testing.T) {
 	for _, out := range []string{"$1_%1\n", "$1\t%1 extra\n", "", "%1 $1\n"} {
 		if _, _, err := launchIDs([]byte(out)); err == nil {
 			t.Errorf("accepted %q", out)
-		}
-	}
-}
-
-// A Claude launch adds the pickup loader after its own options and before a "--" that ends
-// them; other families are unchanged (#196, chunk 03).
-func TestCycleLoaderArgs(t *testing.T) {
-	state := t.TempDir()
-	loader := core.CycleLoaderDir(state)
-	for _, c := range []struct {
-		family string
-		args   []string
-		want   []string
-	}{
-		{"claude", nil, []string{"--add-dir", loader}},
-		{"claude", []string{"--model", "synthetic", "do the synthetic task"}, []string{"--model", "synthetic", "do the synthetic task", "--add-dir", loader}},
-		{"claude", []string{"--model", "synthetic", "--", "--literal prompt"}, []string{"--model", "synthetic", "--add-dir", loader, "--", "--literal prompt"}},
-		{"codex", []string{"--model", "synthetic"}, []string{"--model", "synthetic"}},
-	} {
-		if got := cycleLoaderArgs(Options{Family: c.family, StateDir: state}, c.args); !slices.Equal(got, c.want) {
-			t.Fatalf("%s %q: %q", c.family, c.args, got)
 		}
 	}
 }

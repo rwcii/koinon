@@ -48,6 +48,7 @@ type grokFixture struct {
 	s              *Store
 	dir, socket    string
 	program        string
+	tmuxPath       string // the absolute tmux of the test's own PATH
 	agents         map[int]bool
 	sessionCounter int
 }
@@ -66,7 +67,7 @@ func newGrokFixture(t *testing.T) *grokFixture {
 	if err != nil {
 		t.Fatal(err)
 	}
-	f := &grokFixture{t: t, dir: dir, socket: filepath.Join(dir, "s"), program: filepath.Join(dir, "grok-screen"), agents: map[int]bool{}}
+	f := &grokFixture{t: t, dir: dir, socket: filepath.Join(dir, "s"), program: filepath.Join(dir, "grok-screen"), tmuxPath: tmux, agents: map[int]bool{}}
 	t.Cleanup(func() { exec.Command(tmux, "-S", f.socket, "kill-server").Run(); os.RemoveAll(dir) })
 	if err := os.WriteFile(f.program, []byte(grokScreen), 0700); err != nil {
 		t.Fatal(err)
@@ -76,12 +77,12 @@ func newGrokFixture(t *testing.T) *grokFixture {
 	}
 	f.s, _ = testStore(t)
 	// Every tmux command must reach the private server.
-	f.s.tmux = func(ctx context.Context, socket string, args ...string) (string, error) {
+	f.s.tmux = func(ctx context.Context, executable, socket string, args ...string) (string, error) {
 		if socket != f.socket {
 			t.Errorf("a wake reached the tmux server at %s", socket)
 			return "", errors.New("not the private server")
 		}
-		return runTmux(ctx, socket, args...)
+		return runTmux(ctx, executable, socket, args...)
 	}
 	real := f.s.processCommand
 	f.s.processCommand = func(pid int) (string, []string, error) {
@@ -93,13 +94,16 @@ func newGrokFixture(t *testing.T) *grokFixture {
 	return f
 }
 
+// run runs the fixture's own tmux command by its absolute path, so a test may change PATH.
 func (f *grokFixture) run(args ...string) string {
 	f.t.Helper()
-	out, err := runTmux(context.Background(), f.socket, args...)
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	out, err := exec.CommandContext(ctx, f.tmuxPath, append([]string{"-S", f.socket}, args...)...).Output()
 	if err != nil {
 		f.t.Fatalf("tmux %v: %v", args, err)
 	}
-	return strings.TrimRight(out, "\n")
+	return strings.TrimRight(string(out), "\n")
 }
 
 // grokPaneUnderTest is a pane with the synthetic program: shell is the pane's process, host
@@ -238,6 +242,18 @@ func TestGrokWakeSendsNothingWithoutProofOrIdle(t *testing.T) {
 			f.agents[p.middle] = true
 			return f.session(p.host, p.id), p, "grok_target_unavailable"
 		},
+		"recorded tmux missing": func() (Session, grokPaneUnderTest, string) {
+			p := f.pane("idle", 0)
+			session := f.session(p.host, p.id)
+			f.s.db.Exec(`UPDATE sessions SET tmux_path=? WHERE family='grok' AND id=?`, filepath.Join(f.dir, "missing", "tmux"), session.ID)
+			return session, p, "tmux_unavailable"
+		},
+		"recorded tmux writable by others": func() (Session, grokPaneUnderTest, string) {
+			p := f.pane("idle", 0)
+			session := f.session(p.host, p.id)
+			f.s.db.Exec(`UPDATE sessions SET tmux_path=? WHERE family='grok' AND id=?`, unsafeTmux(t, f.dir, f.tmuxPath), session.ID)
+			return session, p, "tmux_unavailable"
+		},
 		"no host record": func() (Session, grokPaneUnderTest, string) {
 			p := f.pane("idle", 0)
 			session := f.session(p.host, p.id)
@@ -268,8 +284,8 @@ func TestGrokWakeSendsNothingWithoutProofOrIdle(t *testing.T) {
 	p = f.pane("idle", 0)
 	session := f.session(p.host, p.id)
 	real := f.s.tmux
-	f.s.tmux = func(ctx context.Context, socket string, args ...string) (string, error) {
-		out, err := real(ctx, socket, args...)
+	f.s.tmux = func(ctx context.Context, executable, socket string, args ...string) (string, error) {
+		out, err := real(ctx, executable, socket, args...)
 		if len(args) > 0 && args[0] == "display-message" {
 			out = strings.Replace(out, p.id, "%999", 1)
 		}
@@ -279,8 +295,8 @@ func TestGrokWakeSendsNothingWithoutProofOrIdle(t *testing.T) {
 		t.Fatalf("wake when tmux names another pane: %v", got)
 	}
 	// tmux before 3.4 prints a tab in a format as "_": an answer joined that way is refused.
-	f.s.tmux = func(ctx context.Context, socket string, args ...string) (string, error) {
-		out, err := real(ctx, socket, args...)
+	f.s.tmux = func(ctx context.Context, executable, socket string, args ...string) (string, error) {
+		out, err := real(ctx, executable, socket, args...)
 		if len(args) > 0 && args[0] == "display-message" {
 			out = strings.ReplaceAll(out, " ", "_")
 		}

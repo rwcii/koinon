@@ -31,7 +31,9 @@ const (
 	cycleWaitingPickup = "waiting_pickup"
 	cycleWaitingPrompt = "waiting_prompt"
 	cyclePromptIntent  = "prompt_intent"
-	// The interactive pickup bootstrap (#196 chunk 03): its input intent and its proof.
+	// The interactive pickup bootstrap of #196 chunk 03: its input intent and its proof. No
+	// cycle enters them since #406; a cycle stored in one by an earlier binary ends uncertain
+	// (bootstrap_intent) or goes on to its clear (bootstrap_verified).
 	cycleBootstrapIntent   = "bootstrap_intent"
 	cycleBootstrapVerified = "bootstrap_verified"
 	cycleComplete          = "complete"
@@ -286,8 +288,8 @@ var (
 	ErrCycleArtifact      = Refusal{"cycle_artifact_invalid", "the handoff artifact is not a new, bounded, ignored and untracked file in this session's own handoff directory"}
 )
 
-// CycleTarget is what a cycle adapter acts on: the pinned native host and pane, the session's
-// checkout, and the pickup entries the session may load.
+// CycleTarget is what a cycle adapter acts on: the pinned native host and pane, and the
+// pickup skill that the cycle enters after the reset.
 type CycleTarget struct {
 	CycleID   string
 	Family    string
@@ -301,13 +303,10 @@ type CycleTarget struct {
 	SuccessorEpoch string
 	// Holds reports that the session holds a participant address, which a new native session
 	// after the reset must take over to report the pickup (Codex).
-	Holds     bool
-	Directory string      // the session's registered directory
-	Checkout  string      // the worktree root that holds it
-	LoaderDir string      // the daemon's pickup loader directory for the family
-	Pickup    PickupEntry // the catalog item skill.pickup
-	Loader    PickupEntry // the loader's pickup entry
-	tools     hostTools
+	Holds bool
+	// Pickup is the koinon-pickup skill that the installed file must equal (#406).
+	Pickup PickupEntry
+	tools  hostTools
 }
 
 // PickupEntry is the bytes and the menu description of one pickup entry.
@@ -325,14 +324,19 @@ func (c cycleRow) target() CycleTarget {
 type PaneState struct {
 	Idle   bool   // an idle, empty input line, with no intervening agent
 	Prompt string // a native dialog's fixed code, or ""
+	// Seen is a fixed code of what kept the pane from input when it is not Idle, such as
+	// status_busy or input_not_empty (#417).
+	Seen string
 }
 
-// CycleProbe is an adapter's verdict on whether a session's cycle can run. Bootstrap names
-// the pickup entry that a bare pickup command runs: personal, project, loader, or interactive
-// (the loader, added before the clear).
+// CycleProbe is an adapter's verdict on whether a session's cycle can run. Entry names the
+// pickup skill that the cycle enters after the reset (koinon-pickup) when it can run.
 type CycleProbe struct {
-	Reason    string // "" when the cycle can run, else a fixed unavailable reason
-	Bootstrap string
+	Reason string // "" when the cycle can run, else a fixed unavailable reason
+	Entry  string
+	// Step names the action that removes Reason, such as the command that installs the pickup
+	// skill, or "".
+	Step string
 }
 
 // CycleFence rechecks, before each key an adapter sends, that the cycle is still at its
@@ -346,16 +350,12 @@ type CycleAdapter interface {
 	Version() string
 	Probe(ctx context.Context, t CycleTarget) CycleProbe
 	Inspect(ctx context.Context, t CycleTarget, fence CycleFence) (PaneState, error)
-	// Bootstrap adds the loader to a running session before the clear and proves that the
-	// pickup command lists it.
-	Bootstrap(ctx context.Context, t CycleTarget, fence CycleFence) (received bool, err error)
 	Clear(ctx context.Context, t CycleTarget, fence CycleFence) (received bool, err error)
 	// NewEpoch returns the native epoch that replaced t.Epoch in the same host and pane,
 	// or "" while none is proven.
 	NewEpoch(ctx context.Context, t CycleTarget) (string, error)
-	// Pickup enters the pickup command after checking that the entry named by bootstrap
-	// (CycleProbe.Bootstrap) is the one it runs.
-	Pickup(ctx context.Context, t CycleTarget, bootstrap string, fence CycleFence) (received bool, err error)
+	// Pickup enters the koinon-pickup command after checking that it runs the installed skill.
+	Pickup(ctx context.Context, t CycleTarget, fence CycleFence) (received bool, err error)
 	// Answerable reports whether the adapter answers a dialog itself; any other dialog waits
 	// for the native session or the maintainer.
 	Answerable(prompt string) bool
@@ -879,6 +879,10 @@ func (s *Store) ContextCycleReady(ctx context.Context, caller Key, epoch, id str
 	if epoch == "" || !nativeEpoch.MatchString(epoch) {
 		return CycleView{}, ErrCycleEpoch
 	}
+	// The ready report holds wake.mu, as each wake submission does: a wake that passed the
+	// pane hold before the report ends before ready commits, and none starts after it (#417).
+	s.wake.mu.Lock()
+	defer s.wake.mu.Unlock()
 	now := s.now().UnixMilli()
 	if err := s.activeCaller(ctx, caller, now); err != nil {
 		return CycleView{}, err

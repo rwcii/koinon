@@ -166,9 +166,10 @@ func codexTurnEnded(path string) bool {
 	return state == "ended"
 }
 
-// Probe decides whether the session's cycle can run. The pickup entry is the bare $pickup:
-// every pickup skill that Codex can list for this session must be the catalog item byte for
-// byte, and no configuration entry may turn one of them off (codexPickupEntry).
+// Probe decides whether the session's cycle can run. The pickup entry is $koinon-pickup: the
+// koinon-pickup skill in the host's ~/.agents/skills must be the binary's skill byte for byte,
+// and no configuration entry may turn it off (codexPickupEntry). Other skills, a project's own
+// pickup included, are not read (#406).
 func (codexCycle) Probe(ctx context.Context, t CycleTarget) CycleProbe {
 	if !codexEvidencedPlatforms[runtime.GOOS] {
 		return CycleProbe{Reason: "platform_unverified"}
@@ -186,8 +187,8 @@ func (codexCycle) Probe(ctx context.Context, t CycleTarget) CycleProbe {
 	if _, err := readCodexMeta(path, t.SessionID); err != nil {
 		return CycleProbe{Reason: "native_registry_unavailable"}
 	}
-	if !codexForeground(ctx, t.tools, t.HostPID, t.HostStart, t.Socket, t.Pane) {
-		return CycleProbe{Reason: "pane_unproven"}
+	if err := codexForeground(ctx, t.tools, t.HostPID, t.HostStart, t.Socket, t.Pane); err != nil {
+		return CycleProbe{Reason: tmuxReason(err, "pane_unproven")}
 	}
 	// The thread after /clear is a new session, which reports the pickup only as the holder
 	// of this session's participant address (successorOf): without it, the clear would leave
@@ -195,112 +196,37 @@ func (codexCycle) Probe(ctx context.Context, t CycleTarget) CycleProbe {
 	if !t.Holds {
 		return CycleProbe{Reason: "participant_unheld"}
 	}
-	entry, err := codexPickupEntry(t)
+	if probe := codexPickupEntry(t); probe.Reason != "" {
+		return probe
+	}
+	return CycleProbe{Entry: PickupSkillName}
+}
+
+// codexPickupCommand is the mention that runs the koinon-pickup skill.
+const codexPickupCommand = "$" + PickupSkillName
+
+// codexPickupEntry checks the koinon-pickup skill in the host's $HOME/.agents/skills, a root
+// that Codex 0.162.0 lists for every session (P7): it must be byte-equal to the binary's skill
+// (pickup_entry_missing, pickup_entry_unreadable, pickup_entry_differs, each with the install
+// step), and no configuration entry may turn it off (codexActivation). An unknown home is
+// pickup_entry_unverified.
+func codexPickupEntry(t CycleTarget) CycleProbe {
+	codex, home, err := codexHome(t)
 	if err != nil {
+		return CycleProbe{Reason: "pickup_entry_unverified"}
+	}
+	path := CodexPickupSkillPath(home)
+	if reason := pickupSkillReason(path, t.Pickup.Content); reason != "" {
+		return CycleProbe{Reason: reason, Step: pickupSkillStep(path)}
+	}
+	real, err := filepath.EvalSymlinks(path)
+	if err != nil {
+		return CycleProbe{Reason: "pickup_entry_unreadable", Step: pickupSkillStep(path)}
+	}
+	if err := codexActivation(t, codex, []string{real}); err != nil {
 		return CycleProbe{Reason: err.Error()}
 	}
-	return CycleProbe{Bootstrap: entry.scope}
-}
-
-// codexEntry is the verified set of pickup skill files: their realpaths and the scope that
-// the dashboard shows (personal when any is personal).
-type codexEntry struct {
-	files []string
-	scope string
-}
-
-// codexSkillName reads the name in a SKILL.md front matter, or "" when it has none.
-func codexSkillName(data []byte) string {
-	text := strings.ReplaceAll(string(data), "\r\n", "\n")
-	rest, ok := strings.CutPrefix(text, "---\n")
-	if !ok {
-		return ""
-	}
-	front, _, ok := strings.Cut(rest, "\n---")
-	if !ok {
-		return ""
-	}
-	for _, line := range strings.Split(front, "\n") {
-		if value, ok := strings.CutPrefix(line, "name:"); ok {
-			return strings.Trim(strings.TrimSpace(value), `"'`)
-		}
-	}
-	return ""
-}
-
-// codexMaxSkills bounds the skill directories that one root may hold for the scan.
-const codexMaxSkills = 512
-
-// codexPickupEntry finds the pickup skills under the roots that Codex 0.162.0 lists for the
-// session (P7): .agents/skills and .codex/skills of each directory from the session's directory
-// up to its checkout root, $CODEX_HOME/skills and $HOME/.agents/skills. A skill is pickup by its
-// front-matter name. Each one must be byte-equal to the catalog item, and no configuration
-// entry may turn one off; the reasons are pickup_entry_unverified (none, an unknown activation,
-// a scan beyond its bound), pickup_entry_unreadable and pickup_entry_differs.
-func codexPickupEntry(t CycleTarget) (codexEntry, error) {
-	codex, home, err := codexHome(t)
-	if err != nil || t.Directory == "" || t.Checkout == "" {
-		return codexEntry{}, errors.New("pickup_entry_unverified")
-	}
-	type root struct {
-		dir      string
-		personal bool
-	}
-	var roots []root
-	for dir := filepath.Clean(t.Directory); ; dir = filepath.Dir(dir) {
-		roots = append(roots, root{filepath.Join(dir, ".agents", "skills"), false}, root{filepath.Join(dir, ".codex", "skills"), false})
-		if dir == filepath.Clean(t.Checkout) || dir == filepath.Dir(dir) {
-			break
-		}
-	}
-	roots = append(roots, root{filepath.Join(codex, "skills"), true}, root{filepath.Join(home, ".agents", "skills"), true})
-	entry := codexEntry{scope: "project"}
-	for _, r := range roots {
-		names, err := os.ReadDir(r.dir)
-		if errors.Is(err, os.ErrNotExist) {
-			continue
-		}
-		if err != nil {
-			return codexEntry{}, errors.New("pickup_entry_unreadable")
-		}
-		if len(names) > codexMaxSkills {
-			return codexEntry{}, errors.New("pickup_entry_unverified")
-		}
-		for _, name := range names {
-			path := filepath.Join(r.dir, name.Name(), "SKILL.md")
-			if !exists(path) {
-				continue
-			}
-			data, err := readBounded(path, 1<<20)
-			if err != nil {
-				return codexEntry{}, errors.New("pickup_entry_unreadable")
-			}
-			if codexSkillName(data) != "pickup" {
-				continue
-			}
-			real, err := filepath.EvalSymlinks(path)
-			if err != nil {
-				return codexEntry{}, errors.New("pickup_entry_unreadable")
-			}
-			if slices.Contains(entry.files, real) {
-				continue
-			}
-			if string(data) != string(t.Pickup.Content) || len(t.Pickup.Content) == 0 {
-				return codexEntry{}, errors.New("pickup_entry_differs")
-			}
-			entry.files = append(entry.files, real)
-			if r.personal {
-				entry.scope = "personal"
-			}
-		}
-	}
-	if len(entry.files) == 0 {
-		return codexEntry{}, errors.New("pickup_entry_unverified")
-	}
-	if err := codexActivation(t, codex, entry.files); err != nil {
-		return codexEntry{}, err
-	}
-	return entry, nil
+	return CycleProbe{}
 }
 
 // codexOption is a numbered dialog option, the selected one marked with the prompt mark.
@@ -382,12 +308,12 @@ func codexMenu(c codexScreen) (rows []string, open, complete bool) {
 	return rows, true, complete
 }
 
-// pickupRows counts the menu rows of skills named exactly pickup.
-func pickupRows(rows []string) int {
+// skillRows counts the menu rows of skills named exactly name.
+func skillRows(rows []string, name string) int {
 	count := 0
 	for _, row := range rows {
 		fields := strings.Fields(strings.TrimPrefix(row, "›"))
-		if len(fields) >= 2 && fields[0] == "pickup" && fields[1] == "[Skill]" {
+		if len(fields) >= 2 && fields[0] == name && fields[1] == "[Skill]" {
 			count++
 		}
 	}
@@ -505,8 +431,8 @@ func codexText(c codexScreen) string {
 // the one that the pane shows, with no turn yet or its last turn ended. The screen must show an
 // empty composer and no running turn in both cases.
 func (codexCycle) Inspect(ctx context.Context, t CycleTarget, fence CycleFence) (PaneState, error) {
-	if !codexForeground(ctx, t.tools, t.HostPID, t.HostStart, t.Socket, t.Pane) {
-		return PaneState{}, errCodexUnproven
+	if err := codexForeground(ctx, t.tools, t.HostPID, t.HostStart, t.Socket, t.Pane); err != nil {
+		return PaneState{}, proofError(err, errCodexUnproven)
 	}
 	if mode, err := t.tools.tmux(ctx, t.Socket, "display-message", "-p", "-t", t.Pane, "#{pane_in_mode}"); err != nil {
 		return PaneState{}, err
@@ -525,7 +451,10 @@ func (codexCycle) Inspect(ctx context.Context, t CycleTarget, fence CycleFence) 
 	if codexDialog(screen).Digest != "" {
 		return PaneState{Prompt: "native_dialog"}, nil
 	}
-	return PaneState{Idle: codexReady(t, screen)}, nil
+	if seen := codexNotReady(t, screen); seen != "" {
+		return PaneState{Seen: seen}, nil
+	}
+	return PaneState{Idle: true}, nil
 }
 
 // codexReady reports whether a screen is ready for the cycle's next input in t's phase: no
@@ -533,27 +462,46 @@ func (codexCycle) Inspect(ctx context.Context, t CycleTarget, fence CycleFence) 
 // Before the clear the requester's rollout, read now, shows its last turn ended. After it the
 // /status card names the cycle's successor, which has no rollout and nothing of a turn after
 // the card, or whose own last turn ended; the old thread's idle never admits input then.
-func codexReady(t CycleTarget, screen codexScreen) bool {
-	if codexDialog(screen).Digest != "" || screen.composer() < 0 || !codexIdle(strings.Join(screen.raw, "\n")) {
-		return false
+func codexReady(t CycleTarget, screen codexScreen) bool { return codexNotReady(t, screen) == "" }
+
+// codexNotReady is the fixed code of what keeps a screen from codexReady, or "" (#417).
+func codexNotReady(t CycleTarget, screen codexScreen) string {
+	switch {
+	case codexDialog(screen).Digest != "":
+		return "native_dialog"
+	case screen.composer() < 0:
+		return "input_line_not_found"
+	case !screen.empty(screen.composer()):
+		return "input_not_empty"
+	case !codexIdle(strings.Join(screen.raw, "\n")):
+		return "turn_running"
 	}
 	codex, _, err := codexHome(t)
 	if err != nil {
-		return false
+		return "home_unknown"
 	}
 	if t.SuccessorEpoch == "" {
 		path, err := codexRolloutPath(codex, t.SessionID)
-		return err == nil && path != "" && codexTurnEnded(path)
+		if err != nil || path == "" {
+			return "rollout_unreadable"
+		}
+		if !codexTurnEnded(path) {
+			return "turn_not_ended"
+		}
+		return ""
 	}
 	thread, untouched := codexStatusThread(screen)
 	if thread != t.SuccessorEpoch {
-		return false
+		return "status_thread_differs"
 	}
 	path, err := codexRolloutPath(codex, t.SuccessorEpoch)
 	if err != nil {
-		return false
+		return "rollout_unreadable"
 	}
-	return path == "" && untouched || path != "" && codexTurnEnded(path)
+	if path == "" && untouched || path != "" && codexTurnEnded(path) {
+		return ""
+	}
+	return "turn_not_ended"
 }
 
 // codexClearedReady reports a cleared screen that is ready for /status: no dialog, and the
@@ -564,8 +512,8 @@ func codexClearedReady(screen codexScreen) bool {
 
 // key proves the pane, calls the fence and sends one key or literal text.
 func (codexCycle) key(ctx context.Context, t CycleTarget, fence CycleFence, args ...string) error {
-	if !codexForeground(ctx, t.tools, t.HostPID, t.HostStart, t.Socket, t.Pane) {
-		return errCodexUnproven
+	if err := codexForeground(ctx, t.tools, t.HostPID, t.HostStart, t.Socket, t.Pane); err != nil {
+		return proofError(err, errCodexUnproven)
 	}
 	if err := fence(ctx); err != nil {
 		return err
@@ -577,8 +525,8 @@ func (codexCycle) key(ctx context.Context, t CycleTarget, fence CycleFence, args
 // keyIf proves the pane, calls the fence, reads the pane again and sends the keys only when
 // check holds on that read.
 func (codexCycle) keyIf(ctx context.Context, t CycleTarget, fence CycleFence, check func(codexScreen) bool, refused error, args ...string) error {
-	if !codexForeground(ctx, t.tools, t.HostPID, t.HostStart, t.Socket, t.Pane) {
-		return errCodexUnproven
+	if err := codexForeground(ctx, t.tools, t.HostPID, t.HostStart, t.Socket, t.Pane); err != nil {
+		return proofError(err, errCodexUnproven)
 	}
 	if err := fence(ctx); err != nil {
 		return err
@@ -675,15 +623,14 @@ func (codexCycle) NewEpoch(ctx context.Context, t CycleTarget) (string, error) {
 	return thread, nil
 }
 
-// Pickup types the bare $pickup and submits it only when the open menu lists exactly one row
-// for each verified pickup file (codexPickupEntry), so every row that Codex may run is one of
-// them. Then Escape closes the menu and one Enter submits the mention.
-func (a codexCycle) Pickup(ctx context.Context, t CycleTarget, bootstrap string, fence CycleFence) (bool, error) {
-	entry, err := codexPickupEntry(t)
-	if err != nil {
-		return false, err
+// Pickup types $koinon-pickup and submits it only when the installed skill is still verified
+// (codexPickupEntry) and the open menu lists exactly one koinon-pickup row, so the row that
+// Codex runs is that skill. Then Escape closes the menu and one Enter submits the mention.
+func (a codexCycle) Pickup(ctx context.Context, t CycleTarget, fence CycleFence) (bool, error) {
+	if probe := codexPickupEntry(t); probe.Reason != "" {
+		return false, errors.New(probe.Reason)
 	}
-	const text = "$pickup"
+	const text = codexPickupCommand
 	before, err := readCodex(ctx, t)
 	if err != nil {
 		return false, err
@@ -700,7 +647,7 @@ func (a codexCycle) Pickup(ctx context.Context, t CycleTarget, bootstrap string,
 	}
 	if !awaitCodex(ctx, t, func(s codexScreen) bool {
 		rows, open, complete := codexMenu(s)
-		return open && complete && pickupRows(rows) == len(entry.files)
+		return open && complete && skillRows(rows, PickupSkillName) == 1
 	}) {
 		return abandon(errCodexMenuEntry)
 	}
@@ -722,11 +669,6 @@ func (a codexCycle) Pickup(ctx context.Context, t CycleTarget, bootstrap string,
 	return true, nil
 }
 
-// Bootstrap is never used: Codex has no loader, and Probe never names an interactive bootstrap.
-func (codexCycle) Bootstrap(context.Context, CycleTarget, CycleFence) (bool, error) {
-	return false, errors.New("bootstrap_unavailable")
-}
-
 // Answerable is false: every Codex dialog waits for the native session or the maintainer.
 func (codexCycle) Answerable(string) bool { return false }
 
@@ -736,8 +678,8 @@ func (codexCycle) Answer(context.Context, CycleTarget, string, CycleFence) (bool
 
 // Dialog reads the dialog the pane shows. It sends nothing.
 func (codexCycle) Dialog(ctx context.Context, t CycleTarget) (CycleDialog, error) {
-	if !codexForeground(ctx, t.tools, t.HostPID, t.HostStart, t.Socket, t.Pane) {
-		return CycleDialog{}, errCodexUnproven
+	if err := codexForeground(ctx, t.tools, t.HostPID, t.HostStart, t.Socket, t.Pane); err != nil {
+		return CycleDialog{}, proofError(err, errCodexUnproven)
 	}
 	screen, err := readCodex(ctx, t)
 	if err != nil {

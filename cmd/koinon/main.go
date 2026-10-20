@@ -9,7 +9,6 @@ import (
 	"flag"
 	"fmt"
 	"io"
-	"net"
 	"os"
 	"os/signal"
 	"path/filepath"
@@ -97,17 +96,14 @@ func run(ctx context.Context, args []string, in io.Reader, out io.Writer) error 
 		if v := os.Getenv("KOINON_STATE_DIR"); v != "" {
 			flags.Set("state-dir", v)
 		}
-		value := os.Getenv("KOINON_DAEMON_ADDRESS")
-		if value == "" {
-			value = "127.0.0.1:47671"
-		}
-		address = flags.String("address", value, "daemon loopback address")
+		address = addressFlag(flags)
 	case "serve":
-		listen = flags.String("listen", "127.0.0.1:47671", "IPv4 loopback listener")
-		listen6 = flags.String("listen-v6", "[::1]:47671", "IPv6 loopback listener")
+		// Without listen options, the daemon listens at the state directory's recorded port.
+		listen = flags.String("listen", "", "IPv4 loopback listener")
+		listen6 = flags.String("listen-v6", "", "IPv6 loopback listener")
 		lockWait = flags.Duration("lock-wait", 0, "wait this long for the daemon lock, then exit with status 0")
 	case "status", "peers", "peer-status", "send", "inbox", "ack", "cycle-status", "cycle-ready", "cycle-pickup":
-		address = flags.String("address", "127.0.0.1:47671", "daemon loopback address")
+		address = addressFlag(flags)
 		if args[0] != "status" {
 			as = flags.String("as", "", "calling session as FAMILY:ID")
 		}
@@ -129,6 +125,25 @@ func run(ctx context.Context, args []string, in io.Reader, out io.Writer) error 
 	if flags.NArg() != positional {
 		return errors.New("wrong number of command arguments; use koinon --help")
 	}
+	if args[0] == "serve" {
+		if *listen == "" || *listen6 == "" {
+			port, err := core.RecordedPort(*state)
+			if err != nil {
+				return err
+			}
+			defaults := core.Listeners(port)
+			if *listen == "" {
+				*listen = defaults[0]
+			}
+			if *listen6 == "" {
+				*listen6 = defaults[1]
+			}
+		}
+		return serve(ctx, *state, []string{*listen, *listen6}, *lockWait, out)
+	}
+	if err := resolveAddress(flags); err != nil {
+		return err
+	}
 	if args[0] == "mcp" {
 		directory, err := os.Getwd()
 		if err != nil {
@@ -137,12 +152,9 @@ func run(ctx context.Context, args []string, in io.Reader, out io.Writer) error 
 		return mcp.Serve(ctx, mcp.Config{StateDir: *state, Address: *address, Getenv: os.Getenv,
 			ParentPID: os.Getppid(), Command: platform.ProcessCommand, Directory: directory, Now: time.Now,
 			TmuxSession: mcp.TmuxSessionName,
-			Tmux:        mcp.RunTmux, Parents: platform.ProcessParents}, in, out)
+			Tmux:        mcp.RunTmux, Parents: platform.ProcessParents, TmuxExecutable: mcp.LookTmux}, in, out)
 	}
-	if args[0] != "serve" {
-		return call(ctx, args[0], *state, *address, as, after, limit, participant, flags.Args(), in, out)
-	}
-	return serve(ctx, *state, []string{*listen, *listen6}, *lockWait, out)
+	return call(ctx, args[0], *state, *address, as, after, limit, participant, flags.Args(), in, out)
 }
 
 // daemonLog receives the daemon's lifecycle lines; the service manager sends standard error
@@ -221,6 +233,7 @@ func serve(ctx context.Context, state string, listen []string, lockWait time.Dur
 		logEvent("lock_acquired", nil)
 	}
 	logEvent("start", map[string]any{"version": version, "commit": commit, "state_dir": state, "listeners": d.Addresses()})
+	ensurePickupSkills(logEvent)
 	if err := json.NewEncoder(out).Encode(map[string]any{"ok": true, "daemon": "running", "listeners": d.Addresses()}); err != nil {
 		logEvent("stop", map[string]any{"reason": "error", "code": "report_failed"})
 		return err
@@ -239,6 +252,28 @@ func serve(ctx context.Context, state string, listen []string, lockWait time.Dur
 		}
 		// A non-zero exit: the service manager starts the new binary.
 		return errors.New("binary_changed: the daemon's executable was replaced; the service manager starts the new one")
+	}
+}
+
+// ensurePickupSkills writes the managed cycle's koinon-pickup skill for the person the daemon
+// runs as, when a file is missing or holds other content (#406): under the Claude Code
+// configuration root of the daemon's environment ($CLAUDE_CONFIG_DIR, else ~/.claude) and in
+// ~/.agents/skills for Codex. It runs at each start, so a brew upgrade, which restarts the
+// daemon, writes it too. A failure is logged and never stops the daemon; the adapter's Probe
+// then names the install step for that session.
+func ensurePickupSkills(logEvent func(string, map[string]any)) {
+	home, err := os.UserHomeDir()
+	if err != nil {
+		logEvent("pickup_skill", map[string]any{"result": "failed", "code": "home_unknown"})
+		return
+	}
+	for _, skill := range []struct{ family, path string }{
+		{"claude", core.ClaudePickupSkillPath(core.ClaudeConfigRoot(os.Getenv("CLAUDE_CONFIG_DIR"), home))},
+		{"codex", core.CodexPickupSkillPath(home)},
+	} {
+		if _, err := core.InstallPickupSkill(skill.path); err != nil {
+			logEvent("pickup_skill", map[string]any{"family": skill.family, "path": skill.path, "result": "failed", "code": "write_failed"})
+		}
 	}
 }
 
@@ -281,7 +316,7 @@ func watchExecutable(ctx context.Context, path string, every time.Duration) <-ch
 	return changed
 }
 
-const usage = `Usage: koinon install [--prefix DIR] [--state-dir DIR] [--agent FAMILY]... [--no-start] [--system]
+const usage = `Usage: koinon install [--prefix DIR] [--state-dir DIR] [--port N] [--agent FAMILY]... [--no-start] [--system]
        koinon uninstall [--prefix DIR] [--state-dir DIR] [--agent FAMILY]...
        koinon upgrade --from-python [--python-prefix DIR] [--prefix DIR] [--state-dir DIR] [--agent FAMILY]... [--repository KEY=PATH]... [--python PATH]
        koinon upgrade --status [--state-dir DIR]
@@ -362,7 +397,7 @@ func registerDeepSeek(ctx context.Context, args []string, out io.Writer) error {
 	flags := flag.NewFlagSet("register", flag.ContinueOnError)
 	flags.SetOutput(io.Discard)
 	state := flags.String("state-dir", root, "private Go state directory")
-	address := flags.String("address", "127.0.0.1:47671", "daemon loopback address")
+	address := addressFlag(flags)
 	as := flags.String("as", "deepseek:"+os.Getenv("DSH_SESSION_ID"), "exact harness session")
 	dir := flags.String("directory", directory, "session directory")
 	repo := flags.String("repository", "", "selected repository")
@@ -378,6 +413,9 @@ func registerDeepSeek(ctx context.Context, args []string, out io.Writer) error {
 	family, id, ok := strings.Cut(*as, ":")
 	if !ok || family != "deepseek" || id == "" || *base == "" || !filepath.IsAbs(*credential) {
 		return errors.New("register requires an exact DeepSeek session, harness URL and absolute credential path")
+	}
+	if err := resolveAddress(flags); err != nil {
+		return err
 	}
 	wake, _ := json.Marshal(map[string]string{"dsh_url": *base, "dsh_credentials": *credential})
 	secret, err := core.ClientSecret(*state, *address)
@@ -497,7 +535,7 @@ func memoryCommand(ctx context.Context, args []string, in io.Reader, out io.Writ
 	flags := flag.NewFlagSet(args[0], flag.ContinueOnError)
 	flags.SetOutput(io.Discard)
 	state := flags.String("state-dir", root, "private Go state directory")
-	address := flags.String("address", "127.0.0.1:47671", "daemon loopback address")
+	address := addressFlag(flags)
 	as := flags.String("as", "", "calling session as FAMILY:ID")
 	consumer := flags.String("consumer", "", "stable consumer key")
 	body := map[string]any{}
@@ -568,6 +606,9 @@ func memoryCommand(ctx context.Context, args []string, in io.Reader, out io.Writ
 			body["query"] = flags.Arg(0)
 		}
 	}
+	if err := resolveAddress(flags); err != nil {
+		return err
+	}
 	secret, err := core.ClientSecret(*state, *address)
 	if err != nil {
 		return err
@@ -601,8 +642,8 @@ var newServices = platform.NewServices
 
 func daemonDown(ctx context.Context, state, address string) error {
 	u := unavailable{address: address, mode: "manual"}
-	// The installed service listens only on the default loopback address.
-	if host, port, _ := net.SplitHostPort(address); port == "47671" && (host == "127.0.0.1" || host == "::1") {
+	// The installed service listens only at the state directory's recorded port.
+	if core.InstalledAddress(state, address) {
 		if s, err := newServices(); err == nil {
 			u.mode, u.command, u.note = s.Restart(ctx)
 		}

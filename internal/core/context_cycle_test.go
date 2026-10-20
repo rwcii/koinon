@@ -16,15 +16,16 @@ import (
 
 // fakeAdapter is a synthetic cycle adapter: it enters no input and records each call.
 type fakeAdapter struct {
-	mu       sync.Mutex
-	pane     PaneState
-	inspect  error
+	mu      sync.Mutex
+	pane    PaneState
+	inspect error
+	// inMode puts the pane in copy mode: Inspect calls the fence before it would send a key.
+	inMode   bool
 	clear    bool
 	epoch    string
 	pickup   bool
 	answered bool
 	probe    CycleProbe
-	boot     bool
 	calls    []string
 	// beforeClear runs as the clear starts, before its fence: a race with a dashboard action.
 	beforeClear func()
@@ -43,19 +44,18 @@ func (f *fakeAdapter) Probe(context.Context, CycleTarget) CycleProbe {
 	f.record("probe")
 	return f.probe
 }
-func (f *fakeAdapter) Inspect(_ context.Context, t CycleTarget, _ CycleFence) (PaneState, error) {
+func (f *fakeAdapter) Inspect(ctx context.Context, t CycleTarget, fence CycleFence) (PaneState, error) {
 	f.record("inspect " + t.Pane)
+	if f.inMode {
+		if err := fence(ctx); err != nil {
+			return PaneState{}, err
+		}
+		f.record("cancel copy mode")
+	}
 	return f.pane, f.inspect
 }
 
 // Every input passes the fence first, as the real adapter does before each key.
-func (f *fakeAdapter) Bootstrap(ctx context.Context, _ CycleTarget, fence CycleFence) (bool, error) {
-	if err := fence(ctx); err != nil {
-		return false, err
-	}
-	f.record("bootstrap")
-	return f.boot, nil
-}
 func (f *fakeAdapter) Clear(ctx context.Context, _ CycleTarget, fence CycleFence) (bool, error) {
 	if f.beforeClear != nil {
 		f.beforeClear()
@@ -70,11 +70,11 @@ func (f *fakeAdapter) NewEpoch(context.Context, CycleTarget) (string, error) {
 	f.record("epoch")
 	return f.epoch, nil
 }
-func (f *fakeAdapter) Pickup(ctx context.Context, _ CycleTarget, bootstrap string, fence CycleFence) (bool, error) {
+func (f *fakeAdapter) Pickup(ctx context.Context, _ CycleTarget, fence CycleFence) (bool, error) {
 	if err := fence(ctx); err != nil {
 		return false, err
 	}
-	f.record("pickup " + bootstrap)
+	f.record("pickup")
 	return f.pickup, nil
 }
 func (f *fakeAdapter) Answerable(prompt string) bool { return prompt != "native_dialog" }
@@ -129,7 +129,7 @@ type cycleFixture struct {
 func newCycleFixture(t *testing.T) *cycleFixture {
 	t.Helper()
 	s, root := testStore(t)
-	f := &cycleFixture{s: s, root: root, adapter: &fakeAdapter{pane: PaneState{Idle: true}, clear: true, epoch: "synthetic-epoch-2", pickup: true, answered: true, probe: CycleProbe{Bootstrap: "project"}}}
+	f := &cycleFixture{s: s, root: root, adapter: &fakeAdapter{pane: PaneState{Idle: true}, clear: true, epoch: "synthetic-epoch-2", pickup: true, answered: true, probe: CycleProbe{Entry: "koinon-pickup"}}}
 	f.clock = time.Now().Truncate(time.Millisecond)
 	s.now = func() time.Time { return f.clock }
 	previous := cycleAdapters
@@ -814,7 +814,7 @@ func TestContextCycleControlsAtSaturation(t *testing.T) {
 func TestContextCycleDashboardAndRoutes(t *testing.T) {
 	d, root := startTestDaemon(t)
 	s := d.store
-	adapter := &fakeAdapter{pane: PaneState{Idle: true}, probe: CycleProbe{Bootstrap: "project"}}
+	adapter := &fakeAdapter{pane: PaneState{Idle: true}, probe: CycleProbe{Entry: "koinon-pickup"}}
 	previous := cycleAdapters
 	cycleAdapters = map[string]CycleAdapter{"claude": adapter}
 	t.Cleanup(func() { cycleAdapters = previous })
@@ -877,7 +877,7 @@ func TestContextCycleSchemaTwentyThreeKeepsExistingState(t *testing.T) {
 	room := mustRoom(t, s, "synthetic kept room", 7)
 	mustHumanPost(t, s, room, "synthetic kept post")
 	before := rowsOf(t, s.db)
-	if _, err := fixtureExec(s, undoSchemaTwentySeven+undoSchemaTwentySix+undoSchemaTwentyFive+undoSchemaTwentyFour+undoSchemaTwentyThree+`PRAGMA user_version=22`); err != nil {
+	if _, err := fixtureExec(s, undoSchemaTwentyEight+undoSchemaTwentySeven+undoSchemaTwentySix+undoSchemaTwentyFive+undoSchemaTwentyFour+undoSchemaTwentyThree+`PRAGMA user_version=22`); err != nil {
 		t.Fatal(err)
 	}
 	if err := checkCatalog(s.db, 22); err != nil {
@@ -913,7 +913,7 @@ func TestContextCycleSchemaTwentyFourKeepsCycles(t *testing.T) {
 		return text
 	}
 	before, rows := rowText(f.s.db), rowsOf(t, f.s.db)
-	if _, err := fixtureExec(f.s, undoSchemaTwentySeven+undoSchemaTwentySix+undoSchemaTwentyFive+undoSchemaTwentyFour+`PRAGMA user_version=23`); err != nil {
+	if _, err := fixtureExec(f.s, undoSchemaTwentyEight+undoSchemaTwentySeven+undoSchemaTwentySix+undoSchemaTwentyFive+undoSchemaTwentyFour+`PRAGMA user_version=23`); err != nil {
 		t.Fatal(err)
 	}
 	if err := checkCatalog(f.s.db, 23); err != nil {

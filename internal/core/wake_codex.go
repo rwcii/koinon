@@ -35,9 +35,9 @@ func codexParticipantNotice(notice string) bool {
 // has no recorded pane; the caller then uses the queue.
 func (s *Store) wakeCodexPane(ctx context.Context, session Session, activity SessionView, notice string) (result wakeResult, ok bool) {
 	var pid, start int64
-	var socket, pane string
-	if s.db.QueryRowContext(ctx, `SELECT host_pid,host_start,tmux_socket,tmux_pane FROM sessions WHERE family='codex' AND id=?`,
-		session.ID).Scan(&pid, &start, &socket, &pane) != nil || socket == "" || pane == "" {
+	var socket, pane, executable string
+	if s.db.QueryRowContext(ctx, `SELECT host_pid,host_start,tmux_socket,tmux_pane,tmux_path FROM sessions WHERE family='codex' AND id=?`,
+		session.ID).Scan(&pid, &start, &socket, &pane, &executable) != nil || socket == "" || pane == "" {
 		return wakeResult{}, false
 	}
 	// Codex shows no busy marker while a reply streams (T1), so only a host observed idle is
@@ -45,13 +45,14 @@ func (s *Store) wakeCodexPane(ctx context.Context, session Session, activity Ses
 	if activity.Value == nil || activity.Value.State != "idle" {
 		return waiting("receiver_busy"), true
 	}
-	h := s.hostTools()
-	if !codexForeground(ctx, h, pid, start, socket, pane) {
-		return waiting("codex_target_unavailable"), true
+	// A tmux that cannot run waits as tmux_unavailable, not as an unproven pane (#418).
+	h := s.hostTools(executable)
+	if err := codexForeground(ctx, h, pid, start, socket, pane); err != nil {
+		return waiting(tmuxReason(err, "codex_target_unavailable")), true
 	}
 	before, err := h.tmux(ctx, socket, "capture-pane", "-p", "-e", "-J", "-t", pane)
 	if err != nil {
-		return waiting("codex_target_unavailable"), true
+		return waiting(tmuxReason(err, "codex_target_unavailable")), true
 	}
 	if !codexIdle(before) {
 		return waiting("receiver_busy"), true
@@ -65,7 +66,7 @@ func (s *Store) wakeCodexPane(ctx context.Context, session Session, activity Ses
 	}
 	// Enter only when the composer holds exactly the notice and the pane is still proven.
 	typed, err := h.tmux(ctx, socket, "capture-pane", "-p", "-e", "-J", "-t", pane)
-	if err != nil || squeeze(codexDraft(typed)) != squeeze(notice) || !codexForeground(ctx, h, pid, start, socket, pane) {
+	if err != nil || squeeze(codexDraft(typed)) != squeeze(notice) || codexForeground(ctx, h, pid, start, socket, pane) != nil {
 		return uncertain("pane_submission_unconfirmed"), true
 	}
 	if _, err := h.tmux(ctx, socket, "send-keys", "-t", pane, "Enter"); err != nil {
@@ -174,19 +175,22 @@ func pause(ctx context.Context, d time.Duration) bool {
 // the host shares the pane process's terminal, it is in that terminal's foreground process
 // group, and every other process in that group is an ancestor of the host, such as the
 // pane's shell that waits for it (T1). A child of the host in the foreground, the 7638dc8
-// case, is refused.
-func codexForeground(ctx context.Context, h hostTools, pid, start int64, socket, pane string) bool {
-	panePID, parents, ok := provenPane(ctx, h, pid, start, socket, pane)
-	if !ok || h.processGroups == nil {
-		return false
+// case, is refused. It returns nil, provenPane's error, or errPaneUnproven.
+func codexForeground(ctx context.Context, h hostTools, pid, start int64, socket, pane string) error {
+	panePID, parents, err := provenPane(ctx, h, pid, start, socket, pane)
+	if err != nil {
+		return err
+	}
+	if h.processGroups == nil {
+		return errPaneUnproven
 	}
 	groups, err := h.processGroups()
 	if err != nil {
-		return false
+		return errPaneUnproven
 	}
 	host, shell := groups[int(pid)], groups[panePID]
 	if host.Terminal == 0 || host.Terminal != shell.Terminal || host.Foreground <= 0 || host.Group != host.Foreground {
-		return false
+		return errPaneUnproven
 	}
 	ancestors := map[int]bool{}
 	for current := parents[int(pid)]; current > 1 && len(ancestors) < maxGrokAncestors; current = parents[current] {
@@ -194,10 +198,10 @@ func codexForeground(ctx context.Context, h hostTools, pid, start int64, socket,
 	}
 	for member, g := range groups {
 		if g.Group == host.Foreground && member != int(pid) && !ancestors[member] {
-			return false
+			return errPaneUnproven
 		}
 	}
-	return true
+	return nil
 }
 
 // codexScreen is a pane capture with attributes (capture-pane -e): each line raw and without

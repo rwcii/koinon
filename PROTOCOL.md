@@ -6,6 +6,13 @@ The Go daemon is the Koinon runtime. Its HTTP API uses a
 private user secret from the selected Go state root, passed in `Authorization: Bearer SECRET`.
 No API endpoint is anonymous. Each listener must be a literal loopback address; foreign
 browser origins and non-loopback Host headers are refused. The API accepts no browser cookies.
+The daemon listens on `127.0.0.1` and `[::1]` at the port that the state root's `port` file
+records, 47671 when there is none; `koinon install --port N` writes that file, one decimal
+port and a newline, and `koinon serve --listen` or `--listen-v6` replaces one listener. A
+client takes the daemon address from `--address`, else from `KOINON_DAEMON_ADDRESS` when
+`KOINON_STATE_DIR` (or, unset, the default) names the same state directory, else
+from `127.0.0.1` and the recorded port; a `port` file that holds no valid port is refused
+with `port_invalid` (docs/INSTALL.md).
 The secret and state files are user-owned regular files, mode 0600; the state root is private.
 Never put a secret, runtime session identifier or response body in a repository.
 
@@ -230,7 +237,8 @@ calling session). Without `peer`, a request with a caller names the caller's own
   every page). Each is an active agent session's `peer`, `family`, `enabled`,
   `enable_revision`, `mode`, `threshold`, `threshold_source` (`session` or `family`),
   `available`, `unavailable`, `eligible`, `reason`, and its newest cycle's `cycle_id`,
-  `cycle_revision`, `cycle_state` and waiting native `dialog` (`lines`, `options`, `digest`).
+  `cycle_revision`, `cycle_state`, `cycle_reason` and waiting native `dialog` (`lines`,
+  `options`, `digest`). The table shows the cycle's reason after its state.
 - `POST /v1/context/set` (`context_set` with `target_family`, `koinon context set`) takes
   `family`, `mode` and `threshold`, as `context-family-settings`.
 - `POST /v1/context/enable` (`context_enable`, `koinon context enable|disable`) takes `peer`
@@ -283,7 +291,10 @@ The states are `requested`, `waiting_ready`, `ready`, `clear_intent`, `clear_rec
 terminal outcome; a stage that would take it fails the cycle with `event_limit`.
 
 Schema 24 rebuilds `context_cycles` with two more states, `bootstrap_intent` and
-`bootstrap_verified` (below), copying every row unchanged.
+`bootstrap_verified`, copying every row unchanged. They belonged to the Claude loader's
+interactive bootstrap, which #406 removed: no cycle enters them now, a cycle that an earlier
+binary left in `bootstrap_intent` ends `uncertain` (`bootstrap_unreceipted`), and one left in
+`bootstrap_verified` goes on to its clear.
 
 The session reports through three own-cycle calls. The native client names the caller and
 attaches its current native epoch: Claude's transcript session from the registry record of
@@ -345,11 +356,23 @@ epoch, otherwise it is `uncertain`. Deadlines: 15 minutes from the request for
 `waiting_ready`, two minutes for each other stage (`waiting_pickup` included, for the report),
 ten for a prompt, and 30 minutes for the whole cycle; no stage deadline passes the cycle's. A
 report at or after a deadline is `cycle_changed`. While a cycle is in `ready` through
-`waiting_pickup`, ordinary wakes to its pane wait, still due and not delivered.
+`waiting_pickup`, ordinary wakes to its pane wait, still due and not delivered, so peer
+messages after the ready report start no turn (#417). A `ready`, `bootstrap_verified` or
+`reset_verified` stage that times out names what the pane last showed after a dot:
+`ready_timeout.status_busy` (a turn in progress), `.status_waiting` (a native wait),
+`.status_unknown`, `.input_not_empty` (a draft), `.input_line_not_found`, `.turn_running` and
+`.turn_not_ended` (Codex), `.native_dialog`, `.home_unknown`, `.rollout_unreadable`,
+`.status_thread_differs`, `.tmux_unavailable` (tmux could not run, #418), `.pane_unproven` or
+`.pane_unreadable`. After a daemon restart no inspection has run, so the timeout reads the pane
+once without sending a key; a pane in copy mode then gives `.pane_in_mode`. The ready report
+holds the wake lock, so a wake already being submitted ends before `ready` commits. The reason
+is shown on the
+Sessions page, in `koinon context show` and in the audit record. A timeout of another stage
+keeps its plain `<stage>_timeout`.
 
-A new native epoch of the requester before the managed clear (`waiting_ready`, `ready`,
-`bootstrap_intent`, `bootstrap_verified`) cancels the cycle (`epoch_changed`; uncertain while the
-bootstrap input is unproven). Disable, a family mode without the cycle, retiring or purging the
+A new native epoch of the requester before the managed clear (`waiting_ready`, `ready`, or a
+stored `bootstrap_intent` or `bootstrap_verified`) cancels the cycle (`epoch_changed`; uncertain
+in `bootstrap_intent`, whose input is unproven). Disable, a family mode without the cycle, retiring or purging the
 requester or successor, deleting it and the maintainer's holder choice for its address end
 the cycle in their own transaction. A cycle that ends after an input whose effect is not
 proven (an intent, or `clear_received` without a proven reset) is `uncertain`, with the
@@ -373,7 +396,7 @@ input line was empty before). The erase passes the same proof and fence and runs
 input line still holds exactly that text: after a rejected fence, or over another draft, the
 input line stays as it is. A failed step is recorded as
 the cycle's reason (`typed_not_read_back`, `escape_changed_input`, `submit_not_read_back`,
-`pickup_entry_not_listed`, `dialog_not_shown`, `erase_not_read_back`, `pane_unproven`).
+`pickup_entry_not_listed`, `erase_not_read_back`, `pane_unproven`, `tmux_unavailable`).
 
 Probe decides whether a session's cycle can run, for Enable, at admission and before each
 input. It needs Linux or macOS (`platform_unverified` elsewhere); the host's
@@ -381,41 +404,41 @@ own Claude Code registry record (`sessions/<pid>.json` under the host's `CLAUDE_
 `~/.claude`, read from the host's initial environment) for the same process start
 (`native_registry_unavailable`; on macOS the record's start is `ps -o lstart` text in UTC, compared
 to the whole second), with any Claude Code version (PDR 006, Decision 5; the native checks ran with 2.1.296);
-the pane (`pane_unproven`); and the
-pickup entry that a bare `/pickup` runs. A personal skill (`skills/pickup` under the config root)
-ranks over a project skill (`.claude/skills/pickup` in the session directory or a parent up to
-its worktree root), which ranks over Koinon's loader. Only that effective entry is checked: it
-must be byte-equal to the catalog item `skill.pickup`, or for the loader to the loader
-(`pickup_entry_differs`, `pickup_entry_unreadable`); entries it shadows are not checked. A
-personal legacy `pickup` command, or, without a personal skill, a project legacy command or two
-project skills, leave the order unknown (`pickup_entry_unverified`). Nothing is adopted automatically.
-The Sessions page shows Probe's reason, or the entry the pickup runs (`personal`, `project`,
-`loader` or `interactive`).
+the pane (`pane_unproven`, or `tmux_unavailable` when tmux could not run); and the
+cycle's pickup entry, the Koinon-owned skill `koinon-pickup` (#406):
+`skills/koinon-pickup/SKILL.md` under the host's configuration root. It must be byte-equal to
+the binary's skill: a missing file is `pickup_entry_missing`, another content
+`pickup_entry_differs`, a file that cannot be read `pickup_entry_unreadable`, and an unknown
+host home `pickup_entry_unverified`. Each of the first three comes with the step "run koinon
+install to install the koinon-pickup skill at PATH", which the Sessions page and `context show`
+(`unavailable_step`) show beside the reason. Personal and project `pickup` skills, and legacy
+commands of that name, are not read and take no part in the cycle. The Sessions page shows
+Probe's reason, or `pickup through koinon-pickup`.
 
-The loader is `cycle/claude-loader/.claude/skills/pickup/SKILL.md` under the state directory,
-written by the daemon at start and by `koinon claude`, which adds `--add-dir` for it to every
-Claude launch, after the launch's own options and before a `--`. Its body only reads
-`skill.pickup` with `library_read` and requires its catalog digest to equal the cycle's
-`catalog_digest`, which `context_cycle_status` returns. A session launched without it gets it
-before the clear: `bootstrap_intent` is recorded, `/add-dir <loader>` is entered, the
-add-directory dialog is answered with option 1 ("Yes, for this session"; the persistent option
-is never chosen), and `/pickup` is typed to read that the menu lists the loader first, then
-erased unsubmitted; `bootstrap_verified` records the proof. The session keeps an added directory
-across `/clear`, so a later cycle's `/add-dir` gets Claude Code's reply that the directory is
-already added instead of the dialog; then no option is entered, and the `/pickup` menu check
-still applies. An unproven bootstrap is uncertain.
+The skill's body only reads `skill.pickup` with `library_read` and requires its catalog digest
+to equal the cycle's `catalog_digest`, which `context_cycle_status` returns; it holds no
+procedure of its own. The daemon writes it at each start, from its own environment
+(`$CLAUDE_CONFIG_DIR`, else `~/.claude`, and `~/.agents/skills`), when it is missing or holds
+other content, and `koinon install` writes it for the person who runs it; neither writes into a
+repository (see [INSTALL.md](docs/INSTALL.md)). A write the daemon cannot make is logged
+(`pickup_skill`, `write_failed`) and does not stop it. `koinon claude` adds no directory to a launch,
+and the cycle adds none to a running session.
 
-The adapter is ready for input when the registry `status` is `idle` and the input line (`❯`
-followed by a no-break space) is empty; text drawn dim there is a placeholder or a suggestion,
+The adapter is ready for input when the registry `status` is `idle` or `shell` and the input
+line (`❯` followed by a no-break space) is empty. `shell` is the prompt with a background shell
+task running, such as a monitor of the session's inbox; Claude Code 2.1.303 takes `/clear`
+there without a dialog, and the task, with its `shell` status, stays through the clear (#417).
+`busy` (a turn in progress) and `waiting` (a native wait) are not ready; text drawn dim there is a placeholder or a suggestion,
 any other text a draft, and the cycle waits. A pane in copy mode is returned to its prompt
-first. The clear and the pickup type the command, read it back (for `/pickup`, the menu's first
-entry must be the expected one), close the menu with Escape, wait 400 ms (an escape byte
+first. The clear and the pickup type the command, read it back (for `/koinon-pickup`, the
+menu's first entry must have the skill's description, with or without a scope such as
+`(user)` after it), close the menu with Escape, wait 400 ms (an escape byte
 followed at once by Enter reaches Claude Code as Alt+Enter, which does not submit), read back
 that the input line holds exactly the command with the menu closed, and submit with one Enter. The reset is proven by a new registry `sessionId` for the same host process; Koinon
 registration is unchanged, because the MCP process keeps its caller across `/clear`.
 
-The add-directory dialog is the only dialog the adapter answers. Another dialog
-(`native_dialog`) puts the cycle in `waiting_prompt`, and the Sessions page shows its text and
+The adapter answers no dialog itself. A dialog (`native_dialog`) puts the cycle in
+`waiting_prompt`, and the Sessions page shows its text and
 numbered options. Before entering a dashboard option the adapter proves the pane, passes the
 fence and reads the dialog again. The session's native permission settings, or the maintainer in the session,
 may answer it; the cycle returns to its stage once it is gone, or the prompt wait ends it. The
@@ -438,13 +461,12 @@ Probe needs Linux or macOS (`platform_unverified` elsewhere); the session
 thread's own rollout under the host's `CODEX_HOME` (else `~/.codex`), whose first record is the
 thread's `session_meta` from the interactive CLI (`native_registry_unavailable`), with any
 `cli_version` (PDR 006, Decision 5; the native checks ran with 0.162.0, 0.162.1 and 0.163.0); the pane
-(`pane_unproven`); the session's participant address held (`participant_unheld`: the thread
+(`pane_unproven`, or `tmux_unavailable`); the session's participant address held (`participant_unheld`: the thread
 after `/clear` is a new session that reports only as the address holder); and the pickup
-entry. Codex runs a `$pickup` mention of every skill named `pickup` in `.agents/skills` and
-`.codex/skills` of each directory from the session directory up to its worktree root, in
-`$CODEX_HOME/skills` and in `~/.agents/skills`. Each must be byte-equal to the catalog item
-`skill.pickup` (`pickup_entry_differs`, `pickup_entry_unreadable`), and one must exist
-(`pickup_entry_unverified`); there is no loader. Codex turns a skill off only through
+entry, the `koinon-pickup` skill in the host's `~/.agents/skills` (#406), a root that Codex
+lists for every session. It is checked as for Claude Code (`pickup_entry_missing`,
+`pickup_entry_differs`, `pickup_entry_unreadable`, each with the install step). Other skills,
+a project's own `pickup` included, are not read. Codex turns a skill off only through
 `skills.config` entries, so Probe reads the effective entries of the host's configuration as
 TOML, from the lowest layer to the highest: `/etc/codex/config.toml`, `$CODEX_HOME/config.toml`,
 the profile that the host's `-p`/`--profile` selects (`$CODEX_HOME/<name>.config.toml`, on top
@@ -454,10 +476,10 @@ other value of a higher layer replaces the lower one. A project's `.codex/config
 its `skills.config` does not change the skills that the launched Codex lists, so it takes no
 part. An effective entry, or an entry
 in `/etc/codex/requirements.toml`, whose
-`enabled` is not `true` and that names `pickup`, a checked file or its directory, or a path
-that does not resolve, gives `pickup_entry_unverified`, as does another value on that path; a
-layer that does not parse gives `pickup_entry_unreadable`. The Sessions page shows `project`
-or `personal`.
+`enabled` is not `true` and that names `koinon-pickup`, the checked file or its directory, or
+a path that does not resolve, gives `pickup_entry_unverified`, as does another value on that
+path; a layer that does not parse gives `pickup_entry_unreadable`. The Sessions page shows
+`pickup through koinon-pickup`.
 
 The adapter is ready for input when the composer (`›`) holds no text, no running turn shows,
 and the current thread is proven idle from its own rollout, read at that moment; each input
@@ -469,10 +491,10 @@ clear types `/clear`, reads it back and submits it with one Enter; the cleared s
 receipt. In the same step it enters `/status` the same way: Codex writes nothing for a new
 thread before its first turn, and the card names it. The reset is proven by that card's
 `Session:` thread, read from the pane and its history without input, below the latest
-banner with nothing of a turn before it. The pickup types the bare `$pickup` and submits it
-only when the open skill menu is complete and lists one `pickup` row for each checked file,
-so no other entry of that name can run; then Escape, a 400 ms wait, the read-back and one
-Enter. A dialog (an MCP tool approval or a command approval) is never answered by the
+banner with nothing of a turn before it. The pickup checks the skill file again, types
+`$koinon-pickup` and submits it only when the open skill menu is complete and lists exactly
+one `koinon-pickup` row, so no other entry of that name can run; then Escape, a 400 ms wait,
+the read-back and one Enter. A dialog (an MCP tool approval or a command approval) is never answered by the
 adapter: the cycle shows it in `waiting_prompt`, and a dashboard option is one digit, entered
 only while the same dialog shows.
 
@@ -487,9 +509,27 @@ process; an inspection error proves nothing. The host is the launch's process, o
 background job's process reported by its MCP server.
 
 Registration accepts `tool_call` (default false), `clear` (default false) and optional
-`tmux: {socket, pane}`.
+`tmux: {socket, pane, executable}`.
 The socket is an absolute clean path without control characters, at most 4,096 bytes; the
-pane matches `%` followed by 1–9 digits. Invalid values return `invalid_request`.
+pane matches `%` followed by 1–9 digits. The optional `executable` (#418) is the absolute tmux
+that the session's own terminal runs, with the same path rules as the socket. Invalid values
+return `invalid_request`.
+
+Schema 28 adds `sessions.tmux_path`, which stores `executable` with the socket and pane and is
+cleared with them; existing sessions start with `''`. It is a tool path, not identity: an Enable
+and a cycle pin the socket and pane, and read the session's `tmux_path` when they act. `koinon
+mcp` looks `tmux` up on its own `PATH`, which is the agent's, and reports the absolute path
+with the pane; a path that is not absolute and clean is left out. The daemon runs it for the
+session's pane proof, pane wake and cycle input only after it resolves every symbolic link to
+a regular file with an execute bit, owned by root or the daemon's user and not writable by its
+group or others. It reads no shell configuration and guesses no installation directory. Without
+a recorded path it runs `tmux` from its own `PATH`. A recorded path that fails the check, a tmux
+that is not found, and a tmux that cannot start give the fixed reason `tmux_unavailable`, apart
+from a pane that tmux answered for but that does not hold the host. `koinon mcp` sends the
+path at each registration: the session's first Koinon tool call, a tool call after its record
+expired or was retired, and the renewal of an expired record. An ordinary renewal carries no
+pane. A session whose `koinon mcp` started before the upgrade has no path until it is restarted
+(docs/INSTALL.md, System mode on macOS).
 `koinon mcp` sets `tool_call` for registrations triggered by native tool calls and reports a
 pane only after the terminal-naming ancestor check proves it holds the host, without a
 nested agent between them. Neither identity, host nor pane comes from tool arguments.
@@ -519,7 +559,7 @@ pane, has proven the candidate's ID as its new native epoch (a Codex thread's ID
 is in `reset_verified`, `pickup_intent` or `waiting_pickup` (or a prompt wait that began in
 one of them), still has the Enable that admitted it and is before its stage and cycle
 deadlines. This is not a general address move: every other candidate keeps the rules above. The hook has no terminal, so a cleared thread that registers without
-a pane keeps the holder's recorded tmux socket and pane (each wake proves it again). Every
+a pane keeps the holder's recorded tmux socket, pane and tmux path (each wake proves it again). Every
 other rule applies unchanged. Codex runs no hook at `/clear` itself, so until the new thread's
 first turn the cleared thread stays the holder (#275). On Linux and macOS a participant notice
 for a launched holder with a tmux pane is typed into that pane (see the Codex pane wake
@@ -630,10 +670,11 @@ Replies include `ok`. Success returns `session` or `sessions`; failures report a
 `unauthorized` (401), `foreign_origin` (403), `invalid_request` (400), `session_not_found` (404),
 `session_conflict` (409), `repository_git_unavailable` (503), `repository_git_timeout` (503),
 the message codes above, or `storage_error` (500). Repository discovery reports the Git
-execution or timeout category without returning command stderr or machine paths. Its
-three-second limit and invalid-input/repository validation remain unchanged. Mutations commit
-before replying. A lost reply does not prove rollback; read the retained record before
-retrying.
+execution or timeout category without returning command stderr or machine paths. Its Git
+calls for one request share a six-second limit. A `repository_git_timeout` refusal gives
+`details.calls_ms`, the time of each Git call of the request in order, and `details.limit_ms`.
+Invalid-input/repository validation remains unchanged. Mutations commit before replying. A lost reply does not prove rollback;
+read the retained record before retrying.
 
 Launch creation takes `family` (`claude`, `codex`, `agy`, `opencode`, `grok`), absolute `directory` and `cli`,
 and positive `host_pid`. Grok may add `session_id`, a canonical lower-case UUID that the
@@ -702,7 +743,8 @@ Grok (#254) types the notice into the session's own tmux pane: the socket and pa
 pane from model input. Before each wake the daemon proves the pane again: the host process
 still has its recorded start value, and the pane's process is the host or an ancestor of it
 with no other agent process between them. Otherwise the wake waits with
-`grok_target_unavailable` and sends nothing. It then reads the pane and types only when Grok
+`grok_target_unavailable` and sends nothing; when tmux could not run (see Verified succession),
+it waits with `tmux_unavailable`. It then reads the pane and types only when Grok
 is idle: every line of the last input box (`│ ❯` and its bordered continuation lines) is
 empty, no line is the running-turn status (a spinner glyph that ends with `[stop]`), and no
 line below the box shows a cancel shortcut (Grok Build 1.0.50 keeps the box empty during a
@@ -718,7 +760,8 @@ no longer shows. On Linux and macOS, a participant notice for a session started 
 key the daemon proves the pane as for Grok and proves that the pane's terminal gives input to
 the host: the host shares the pane process's terminal and is in its foreground process group,
 and every other member of that group is an ancestor of the host. A child of the host that holds
-the foreground is refused. Otherwise the wake waits with `codex_target_unavailable`. Codex CLI
+the foreground is refused. Otherwise the wake waits with `codex_target_unavailable`, or with
+`tmux_unavailable` when tmux could not run (#418); the message stays queued and is tried again. Codex CLI
 0.162.0 shows no busy marker while a reply streams, so the wake also requires the session's
 observed activity to be `idle`. An unknown or busy activity waits with `receiver_busy`, as does
 a screen that shows the running-turn status (`Working (… esc to interrupt)`) or whose input
@@ -1547,10 +1590,12 @@ from elsewhere. Peer message bodies appear here, escaped, and nowhere else outsi
   is `HttpOnly`, `SameSite=Strict`, `Path=/dashboard/` and has no `Domain`. A session ends after 30
   idle minutes, after 12 hours, at logout, when 16 newer sessions exist, or when the daemon
   restarts. The daemon keeps only SHA-256 hashes of tokens and session IDs, in memory.
-- **Request protection.** Every dashboard request must name the literal address of the listener
-  that accepted it in `Host` (`127.0.0.1:PORT` or `[::1]:PORT`; `localhost` is refused); an
-  `Origin`, when present, must be `http://` plus that host. A request other than `GET` or `HEAD`
-  needs that `Origin` and the session's CSRF token in `X-Koinon-CSRF` or the form field `csrf`.
+- **Request protection.** Every dashboard request must name a literal loopback IP with a port in
+  `Host` (`127.0.0.1:PORT` or `[::1]:PORT`; `localhost` and other names are refused). PORT may
+  differ from the listener's, as through an SSH tunnel from another local port (ADR 001,
+  Decision 4). An `Origin`, when present, must be `http://` plus that host. A request other
+  than `GET` or `HEAD` needs that `Origin` and the session's CSRF token in `X-Koinon-CSRF` or the
+  form field `csrf`.
   The token is HMAC-SHA256 of the session ID under a key made at each daemon start; pages carry it
   in a hidden field, so the cookie stays unreadable to scripts. A wrong host, origin or token is
   403; no session is 401. Every response carries a `default-src 'none'` content security policy
@@ -1576,10 +1621,19 @@ from elsewhere. Peer message bodies appear here, escaped, and nowhere else outsi
   were at the post, by address or peer name and family: queued with the inbox copy's delivery
   state and acknowledgement, skipped with the reason, or `not retained` with unknown
   acknowledgement once the copy is deleted; the view reads one snapshot and acknowledges
-  nothing), `decisions` (100 active decision items per page in item ID order with
-  `after=ID` links, and `ref=REFERENCE` shows one item's fields, commands, recipients, current
-  verdict with its deliveries and last close as escaped plain text, with the verdict form of
-  an active item), `memory` (per store:
+  nothing), `decisions` (the counts of waiting, in-progress, open fyi and archived items; the
+  agent table; 25 active and in-progress cards per page, `ACTION FOR YOU` items first, then
+  item order and reference, with `cards=CURSOR` links; 20 archived items per page with
+  `archived=ID` links; `ref=REFERENCE` shows one item at full width above the agent table,
+  with its verdict history 16 verdicts at a time through `history=ID`: a waiting, in-progress
+  or open fyi item as its card with the card's verdict form, which the cards below then skip,
+  and an archived item read only. A verdict's redirect keeps `ref`, so it returns to the
+  lookup with the notice on that item.
+  Each count links to `status=waiting`,
+  `in_progress`, `fyi` or `archived`, which lists only the cards of that status, or only the
+  archive for `archived`; an `all` link removes it. The counts stay totals under a filter, the
+  current filter's link carries `aria-current="true"`, and the lookup form, reference and page
+  links and a verdict's redirect keep it. An unknown `status` is 400), `memory` (per store:
   head, floor, entries and logical bytes against their ceilings, consumers, work debt and
   maintenance, 50 stores per page; with `store=REPOSITORY`, that store's entries, newest first,
   50 per page with `before=SEQ`: sequence, time, type, scope, path, writer, author, body, state
