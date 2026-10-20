@@ -75,12 +75,73 @@ func TestRepositoryDiscoveryTimesOutHungGit(t *testing.T) {
 	t.Setenv("PATH", bin)
 	started := time.Now()
 	_, err := repository(context.Background(), repo)
-	if !errors.Is(err, ErrRepositoryGitTimeout) {
-		t.Fatalf("hung Git: %v", err)
+	var timeout RepositoryGitTimeout
+	if !errors.Is(err, ErrRepositoryGitTimeout) || !errors.As(err, &timeout) || len(timeout.Calls) != 1 || timeout.Calls[0] < repositoryGitTimeout {
+		t.Fatalf("hung Git: %v %v", err, timeout.Calls)
 	}
 	if elapsed := time.Since(started); elapsed >= 3*time.Second {
 		t.Fatalf("discovery ignored its bound: %s", elapsed)
 	}
+}
+
+// A timeout reports the time of each Git call of the request, so that a refusal shows which
+// call was slow (#410). The first call answers at once and the second hangs.
+func TestRepositoryTimeoutReportsEachGitCall(t *testing.T) {
+	git, err := exec.LookPath("git")
+	if err != nil {
+		t.Fatal(err)
+	}
+	scaleRepositoryGitTimeout(t, time.Second)
+	repo := testRepo(t)
+	d, root := startTestDaemon(t)
+	secret, err := ReadSecret(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	bin := t.TempDir()
+	first := filepath.Join(bin, "first")
+	script := fmt.Sprintf("#!/bin/sh\nif [ -e %s ]; then\n exec /bin/sleep 30\nfi\n: > %s\nexec %s \"$@\"\n",
+		shellQuote(first), shellQuote(first), shellQuote(git))
+	if err := os.WriteFile(filepath.Join(bin, "git"), []byte(script), 0700); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("PATH", bin+string(os.PathListSeparator)+os.Getenv("PATH"))
+	check := func(name string, calls []time.Duration) {
+		t.Helper()
+		if len(calls) != 2 || calls[0] >= repositoryGitTimeout/2 || calls[0]+calls[1] < repositoryGitTimeout {
+			t.Fatalf("%s: call times %v", name, calls)
+		}
+	}
+
+	status, reply := post(t, d.Addresses()[0], secret, "/v1/sessions/register",
+		Registration{Family: "deepseek", ID: "synthetic-timed-discovery", Directory: repo, Repository: repo})
+	details, _ := reply["details"].(map[string]any)
+	ms, _ := details["calls_ms"].([]any)
+	if status != http.StatusServiceUnavailable || reply["code"] != "repository_git_timeout" || details["limit_ms"] != float64(1000) || len(ms) != 2 {
+		t.Fatalf("registration timeout: status=%d reply=%v", status, reply)
+	}
+	calls := []time.Duration{}
+	for _, value := range ms {
+		calls = append(calls, time.Duration(value.(float64))*time.Millisecond)
+	}
+	check("registration", calls)
+
+	os.Remove(first)
+	_, err = Call(context.Background(), d.Addresses()[0], secret, "/v1/sessions/register",
+		Registration{Family: "deepseek", ID: "synthetic-timed-discovery", Directory: repo, Repository: repo})
+	if err == nil || !strings.Contains(err.Error(), "repository_git_timeout") || !strings.Contains(err.Error(), `"calls_ms":[`) {
+		t.Fatalf("client error lost the call times: %v", err)
+	}
+
+	// The second call of a checkout lookup is Git too: its timeout is not a refusal of the
+	// directory.
+	os.Remove(first)
+	_, err = CheckoutResource(context.Background(), repo)
+	var timeout RepositoryGitTimeout
+	if !errors.As(err, &timeout) {
+		t.Fatalf("checkout timeout: %v", err)
+	}
+	check("checkout", timeout.Calls)
 }
 
 func TestRegistrationReportsGitExecutionFailures(t *testing.T) {

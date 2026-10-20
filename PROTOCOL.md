@@ -637,8 +637,9 @@ Replies include `ok`. Success returns `session` or `sessions`; failures report a
 `session_conflict` (409), `repository_git_unavailable` (503), `repository_git_timeout` (503),
 the message codes above, or `storage_error` (500). Repository discovery reports the Git
 execution or timeout category without returning command stderr or machine paths. Its Git
-calls for one request share a six-second limit, and invalid-input/repository validation
-remains unchanged. Mutations commit before replying. A lost reply does not prove rollback;
+calls for one request share a six-second limit. A `repository_git_timeout` refusal gives
+`details.calls_ms`, the time of each Git call of the request in order, and `details.limit_ms`.
+Invalid-input/repository validation remains unchanged. Mutations commit before replying. A lost reply does not prove rollback;
 read the retained record before retrying.
 
 Launch creation takes `family` (`claude`, `codex`, `agy`, `opencode`, `grok`), absolute `directory` and `cli`,

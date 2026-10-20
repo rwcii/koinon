@@ -43,7 +43,9 @@ Changes:
   and can be removed.
 - Repository discovery (#410): a registration's Git calls share one six-second limit instead
   of three seconds each, so a slow first Git call no longer fails with
-  `repository_git_timeout`; a hung Git still does.
+  `repository_git_timeout`; a hung Git still does. The refusal now gives the time of each
+  Git call in `details.calls_ms` and the limit in `details.limit_ms`, and the command line
+  prints them, so a later timeout shows which call was slow.
 
 ## 2026-10-17 — Homebrew upgrades and maintenance from the command line
 
