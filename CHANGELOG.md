@@ -41,6 +41,13 @@ Changes:
   the `--add-dir` loader, and the cycle no longer enters `/add-dir` before the clear or
   answers the add-directory dialog; `<state>/cycle/claude-loader` is no longer written or read
   and can be removed.
+- Handoff on an active machine (#417): after the ready report, the cycle clears a Claude Code
+  session that is at its prompt with a background task running (registry status `shell`, such
+  as a monitor of its inbox); before, it waited for `idle`, which such a session never shows,
+  and the cycle failed with `ready_timeout` and ended the Enable. Peer messages after the
+  ready report still wait until the cycle ends. A stage that times out while waiting for the
+  pane now names what it saw, such as `ready_timeout.status_busy` or
+  `ready_timeout.input_not_empty`.
 
 ## 2026-10-17 — Homebrew upgrades and maintenance from the command line
 

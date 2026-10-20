@@ -158,6 +158,9 @@ type Store struct {
 	// selected crossings per native epoch.
 	contextPolicy contextPolicyState
 	latches       contextLatches
+	// paneSeen holds what each unfinished cycle's last pane inspection saw, for the reason of
+	// a stage timeout (#417).
+	paneSeen paneSeen
 }
 
 func openStore(root string) (*Store, error) { return openStoreFile(root, "state.sqlite3") }

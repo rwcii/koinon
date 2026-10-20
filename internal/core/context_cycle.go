@@ -324,6 +324,9 @@ func (c cycleRow) target() CycleTarget {
 type PaneState struct {
 	Idle   bool   // an idle, empty input line, with no intervening agent
 	Prompt string // a native dialog's fixed code, or ""
+	// Seen is a fixed code of what kept the pane from input when it is not Idle, such as
+	// status_busy or input_not_empty (#417).
+	Seen string
 }
 
 // CycleProbe is an adapter's verdict on whether a session's cycle can run. Entry names the

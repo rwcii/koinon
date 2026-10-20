@@ -495,3 +495,64 @@ func TestContextCycleUnrelatedClearDuringBootstrap(t *testing.T) {
 		t.Fatalf("during the bootstrap intent: %+v", v)
 	}
 }
+
+// After the ready report, a peer's message does not reach the session: its wake waits while
+// the session finishes its turn, and the cycle clears once the pane is at its prompt (#417).
+// A stage that times out names what the pane last showed.
+func TestContextCycleReadyHoldsWakesAndNamesWhatItSaw(t *testing.T) {
+	f := newCycleFixture(t)
+	f.readyCycle(t)
+	sent := 0
+	f.s.wake.send = func(context.Context, Session, string) wakeResult { sent++; return accepted() }
+	peer := join(t, f.s, "codex", "synthetic-peer", f.repo)
+	if _, err := f.s.Send(context.Background(), Key{"codex", peer.ID}, f.session.Name, "synthetic peer notice"); err != nil {
+		t.Fatal(err)
+	}
+	f.adapter.pane = PaneState{Seen: "status_busy"}
+	f.step(t)
+	if err := f.s.wakeStep(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if v := f.status(t, f.k); v.State != cycleReady || sent != 0 || f.adapter.count("clear") != 0 {
+		t.Fatalf("turn after ready: %+v sent=%d %v", v, sent, f.adapter.calls)
+	}
+	f.adapter.pane = PaneState{Idle: true}
+	f.step(t)
+	if err := f.s.wakeStep(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if v := f.status(t, f.k); v.State != cycleClearReceived || sent != 0 || f.adapter.count("clear") != 1 {
+		t.Fatalf("at the prompt: %+v sent=%d %v", v, sent, f.adapter.calls)
+	}
+
+	for _, test := range []struct {
+		pane    PaneState
+		inspect error
+		want    string
+	}{
+		{PaneState{Seen: "status_busy"}, nil, "ready_timeout.status_busy"},
+		{PaneState{Seen: "input_not_empty"}, nil, "ready_timeout.input_not_empty"},
+		{PaneState{}, nil, "ready_timeout.pane_not_ready"},
+		{PaneState{}, errClaudeUnproven, "ready_timeout.pane_unproven"},
+		{PaneState{}, errors.New("synthetic tmux failure"), "ready_timeout.pane_unreadable"},
+	} {
+		g := newCycleFixture(t)
+		ready, _ := g.readyCycle(t)
+		g.adapter.pane, g.adapter.inspect = test.pane, test.inspect
+		g.step(t)
+		g.clock = time.UnixMilli(ready.StageDeadline)
+		g.step(t)
+		if v := g.status(t, g.k); v.State != cycleFailed || v.Reason != test.want || g.adapter.count("clear") != 0 {
+			t.Fatalf("%s: %+v", test.want, v)
+		}
+	}
+	// A stage that does not wait for the pane keeps its plain reason.
+	g := newCycleFixture(t)
+	g.observe(t, g.k, 900, "synthetic-epoch-1")
+	v := g.status(t, g.k)
+	g.clock = time.UnixMilli(v.StageDeadline)
+	g.step(t)
+	if v = g.status(t, g.k); v.Reason != "waiting_ready_timeout" {
+		t.Fatalf("waiting_ready: %+v", v)
+	}
+}
