@@ -129,7 +129,8 @@ func TestDecisionBoard(t *testing.T) {
 		t.Error("the board shows a native ID or wake target")
 	}
 
-	// Lookup is read-only and shows the history with its snapshots.
+	// The lookup of an item that is waiting again after an edit shows its card with the
+	// verdict form, and the history with its snapshots.
 	if r := client.do("decision-approve", url.Values{"reference": {"D-1"}, "revision": {"1"}}); r != "decision_approved" {
 		t.Fatalf("approve D-1: %s", r)
 	}
@@ -138,7 +139,7 @@ func TestDecisionBoard(t *testing.T) {
 	}
 	lookup := dashboardDo(t, d, "GET", "/dashboard/decisions?ref=D-1", client.cookie, nil, nil).body
 	section := lookup[strings.Index(lookup, `<section class="lookup-result">`):strings.Index(lookup, "</section>")]
-	if strings.Contains(section, "<form") || !strings.Contains(section, "Verdict history") || !strings.Contains(section, "<strong>approved</strong> on revision 1") ||
+	if !strings.Contains(section, `id="lookup-D-1"`) || !strings.Contains(section, `name="revision" value="2"`) || !strings.Contains(section, "Verdict history") || !strings.Contains(section, "<strong>approved</strong> on revision 1") ||
 		!strings.Contains(section, "superseded") || !strings.Contains(section, "Plain <strong>bold</strong> line") || !strings.Contains(section, "New facts") {
 		t.Errorf("lookup: %s", section)
 	}
@@ -336,12 +337,12 @@ func TestDecisionBoardStatusFilter(t *testing.T) {
 	// The lookup form, the reference links and the archive page links keep the filter.
 	page := dashboardDo(t, d, "GET", "/dashboard/decisions?status=waiting&ref=D-2", client.cookie, nil, nil).body
 	for _, want := range []string{`<input type="hidden" name="status" value="waiting">`, `<a href="/dashboard/decisions?ref=D-1&amp;status=waiting">D-1</a>`,
-		`<section class="lookup-result">`, "<h2>D-2: Item D-2</h2>"} {
+		`<section class="lookup-result">`, `<article class="card kind-decision lookup-card" id="lookup-D-2">`} {
 		if !strings.Contains(page, want) {
 			t.Errorf("lookup under a filter: no %q", want)
 		}
 	}
-	if got := strings.Join(boardCards(page), " "); got != "D-1 D-2" {
+	if got := strings.Join(boardCards(page), " "); got != "D-1" {
 		t.Errorf("lookup under a filter: cards %q", got)
 	}
 	for i := 0; i < decisionBoardArchive; i++ {
@@ -389,5 +390,186 @@ func TestDecisionBoardStatusFilter(t *testing.T) {
 	}
 	if after := dashboardDo(t, d, "GET", location.String(), client.cookie, nil, nil); after.status != 200 {
 		t.Errorf("after an unknown filter: %d", after.status)
+	}
+}
+
+// lookupSection returns the markup of the lookup result.
+func lookupSection(t *testing.T, body string) string {
+	t.Helper()
+	start := strings.Index(body, `<section class="lookup-result">`)
+	if start < 0 {
+		t.Fatalf("no lookup result in %s", body)
+	}
+	return body[start : start+strings.Index(body[start:], "</section>")]
+}
+
+// TestDecisionLookupCard opens an item by reference (#414). A waiting, in-progress or open fyi
+// item shows its board card with its actions, at full width above the grid, and an action
+// from it returns to the same lookup, with its status filter and the notice on that card. An
+// archived or deep-archived item stays read only, an unknown reference keeps its error, and
+// the verdict history stays below the item.
+func TestDecisionLookupCard(t *testing.T) {
+	d, root := startTestDaemon(t)
+	client := newActionClient(t, d, root)
+	peer := join(t, d.store, "claude", "synthetic-lookup-card", "")
+	key := Key{"claude", peer.ID}
+	create := func(reference string, order int64, kind string) {
+		f := decisionFields("Item "+reference, kind)
+		f.Order = &order
+		f.Recipients = &[]string{peer.Name}
+		mustCreate(t, d.store, key, reference, f)
+	}
+	create("D-1", 1, "decision")
+	create("D-2", 2, "decision")
+	create("F-1", 3, "fyi")
+	create("P-1", 4, "decision")
+	create("A-1", 5, "decision")
+	if got := client.do("decision-approve", url.Values{"reference": {"P-1"}, "revision": {"1"}, "note": {"Go **ahead**."}}); got != "decision_approved" {
+		t.Fatalf("approve: %s", got)
+	}
+	if got := client.do("decision-decline", url.Values{"reference": {"A-1"}, "revision": {"1"}}); got != "decision_declined" {
+		t.Fatalf("decline: %s", got)
+	}
+	if _, err := fixtureExec(d.store, `INSERT INTO decision_deep_archive(reference,file,offset,length,moved_at) VALUES ('Z-1','synthetic.jsonl',0,1,1700000000000)`); err != nil {
+		t.Fatal(err)
+	}
+	get := func(path string) string {
+		t.Helper()
+		page := dashboardDo(t, d, "GET", path, client.cookie, nil, nil)
+		if page.status != 200 {
+			t.Fatalf("%s: %d %s", path, page.status, page.body)
+		}
+		return page.body
+	}
+
+	// Each active state shows its card with the same actions as in the grid, from a link and
+	// from the Find form (the same query), and in the refresh fragment.
+	for _, c := range []struct {
+		reference, status, want string
+		absent                  []string
+	}{
+		{"D-1", "waiting", `<button type="submit" formaction="/dashboard/actions/decision-approve">Approve</button> <button type="submit" formaction="/dashboard/actions/decision-decline">Decline</button>`,
+			[]string{"decision-dismiss"}},
+		{"F-1", "fyi", `<button type="submit" formaction="/dashboard/actions/decision-dismiss">Dismiss</button>`,
+			[]string{"decision-approve", "decision-decline"}},
+		{"P-1", "in_progress", "Go <strong>ahead</strong>.", []string{"<form", "Read only."}},
+	} {
+		for _, path := range []string{"/dashboard/decisions?ref=" + c.reference + "&status=" + c.status,
+			"/dashboard/decisions?fragment=1&ref=" + c.reference + "&status=" + c.status} {
+			body := get(path)
+			section := lookupSection(t, body)
+			if !strings.Contains(section, `<article class="card kind-`) || !strings.Contains(section, `lookup-card" id="lookup-`+c.reference+`">`) ||
+				!strings.Contains(section, c.want) || !strings.Contains(section, "<h3>Item "+c.reference+"</h3>") ||
+				!strings.Contains(section, "<h3>Verdict history</h3>") || strings.Contains(section, "<h2>"+c.reference+":") {
+				t.Errorf("%s: lookup card: %s", path, section)
+			}
+			for _, absent := range c.absent {
+				if strings.Contains(section, absent) {
+					t.Errorf("%s: lookup shows %q", path, absent)
+				}
+			}
+			if c.status != "in_progress" {
+				for _, want := range []string{`<input type="hidden" name="csrf" value="` + client.csrf + `">`, `name="reference" value="` + c.reference + `"`,
+					`<input type="hidden" name="back" value="ref=` + c.reference + `&amp;status=` + c.status + `">`, `<textarea name="note"`} {
+					if !strings.Contains(section, want) {
+						t.Errorf("%s: lookup form: no %q", path, want)
+					}
+				}
+			}
+			// The grid skips the looked-up card, so the item shows once with one form, and
+			// shows it again without the lookup.
+			if strings.Contains(body, `id="card-`+c.reference+`"`) || strings.Count(body, `name="reference" value="`+c.reference+`"`) > 1 {
+				t.Errorf("%s: the grid shows the looked-up card", path)
+			}
+			without := get(strings.Replace(path, "ref="+c.reference+"&", "", 1))
+			if !strings.Contains(without, `id="card-`+c.reference+`"`) || strings.Contains(without, `<section class="lookup-result">`) {
+				t.Errorf("%s: the grid without the lookup has no card %s", path, c.reference)
+			}
+			if strings.Contains(path, "fragment=1") && strings.Contains(body, "<html") {
+				t.Errorf("%s: the fragment is a whole page", path)
+			}
+		}
+	}
+	// A grid page whose only card is looked up names no empty filter.
+	if body := get("/dashboard/decisions?ref=P-1&status=in_progress"); len(boardCards(body)) != 0 || strings.Contains(body, `<p class="empty">No in progress items.</p>`) {
+		t.Errorf("only card looked up: %s", body)
+	}
+	// The approved item shows its verdict in the history.
+	if section := lookupSection(t, get("/dashboard/decisions?ref=P-1")); !strings.Contains(section, "<strong>approved</strong> on revision 1") {
+		t.Errorf("in-progress history: %s", section)
+	}
+
+	// An action from the lookup card returns to the lookup with its filter, and the notice
+	// shows on the looked-up card only, once.
+	post := func(action string, form url.Values) *url.URL {
+		t.Helper()
+		form.Set("csrf", client.csrf)
+		r := dashboardDo(t, d, "POST", "/dashboard/actions/"+action, client.cookie, client.sameOrigin, form)
+		location, err := url.Parse(r.header.Get("Location"))
+		if r.status != 303 || err != nil {
+			t.Fatalf("%s: %d %q", action, r.status, r.header.Get("Location"))
+		}
+		return location
+	}
+	// A stale revision on D-2, looked up with every item shown: the grid skips D-2.
+	location := post("decision-approve", url.Values{"reference": {"D-2"}, "revision": {"9"}, "back": {"ref=D-2"}})
+	if q := location.Query(); q.Get("ref") != "D-2" || q.Get("card") != "D-2" || q.Get("notice") != "stale_revision" || q.Get("status") != "" {
+		t.Fatalf("refused redirect: %s", location)
+	}
+	body := get(location.String())
+	section := lookupSection(t, body)
+	if !strings.Contains(section, `<p class="card-notice refused" role="status">The item changed after the page showed it.`) || strings.Count(body, `class="card-notice`) != 1 ||
+		strings.Contains(body, `<p class="notice"`) || !strings.Contains(section, "decision-approve") || strings.Contains(body, `id="card-D-2"`) {
+		t.Errorf("refused notice: %s", body)
+	}
+	if got := strings.Join(boardCards(body), " "); got != "D-1 F-1 P-1" {
+		t.Errorf("grid during the D-2 lookup: %q", got)
+	}
+	// Approve D-1 from its lookup under the waiting filter: the item is in progress, the
+	// lookup shows its card with the notice, and the grid keeps the filter.
+	location = post("decision-approve", url.Values{"reference": {"D-1"}, "revision": {"1"}, "back": {"ref=D-1&status=waiting"}})
+	if q := location.Query(); q.Get("ref") != "D-1" || q.Get("status") != "waiting" || q.Get("card") != "D-1" || q.Get("notice") != "decision_approved" {
+		t.Fatalf("approve redirect: %s", location)
+	}
+	body = get(location.String())
+	section = lookupSection(t, body)
+	if !strings.Contains(section, `id="lookup-D-1"`) || !strings.Contains(section, `<p class="card-notice" role="status">`) ||
+		!strings.Contains(section, "in progress") || strings.Contains(section, "<form") || strings.Count(body, `class="card-notice`) != 1 ||
+		strings.Contains(body, `<p class="notice"`) || !strings.Contains(section, "<strong>approved</strong> on revision 1") {
+		t.Errorf("after approve: %s", body)
+	}
+	if got := strings.Join(boardCards(body), " "); got != "D-2" || !strings.Contains(body, `aria-current="true">`) || !strings.Contains(body, "<h2>Items: waiting</h2>") {
+		t.Errorf("after approve: grid %q", got)
+	}
+	// Dismiss F-1 from its lookup: the item is archived, so the lookup is read only and
+	// carries the notice.
+	location = post("decision-dismiss", url.Values{"reference": {"F-1"}, "revision": {"1"}, "back": {"ref=F-1&status=fyi"}})
+	if q := location.Query(); q.Get("ref") != "F-1" || q.Get("status") != "fyi" || q.Get("notice") != "decision_dismissed" {
+		t.Fatalf("dismiss redirect: %s", location)
+	}
+	body = get(location.String())
+	section = lookupSection(t, body)
+	if !strings.Contains(section, "<h2>F-1: Item F-1</h2>") || !strings.Contains(section, "Read only.") || strings.Contains(section, "<form") ||
+		strings.Contains(section, "lookup-card") || !strings.Contains(section, `<p class="card-notice" role="status">`) ||
+		strings.Count(body, `class="card-notice`) != 1 || strings.Contains(body, `<p class="notice"`) || !strings.Contains(section, "<strong>dismissed</strong> on revision 1") {
+		t.Errorf("after dismiss: %s", body)
+	}
+
+	// An archived item stays read only with its history; a deep-archived item names the
+	// restore; an unknown or malformed reference keeps its error.
+	section = lookupSection(t, get("/dashboard/decisions?ref=A-1"))
+	if !strings.Contains(section, "<h2>A-1: Item A-1</h2>") || !strings.Contains(section, "decision, archived, revision 1") || !strings.Contains(section, "Read only.") ||
+		strings.Contains(section, "<form") || strings.Contains(section, "lookup-card") || !strings.Contains(section, "<strong>declined</strong> on revision 1") {
+		t.Errorf("archived lookup: %s", section)
+	}
+	section = lookupSection(t, get("/dashboard/decisions?ref=Z-1"))
+	if !strings.Contains(section, "Z-1 moved to the deep archive at") || strings.Contains(section, "<form") || strings.Contains(section, "<article") {
+		t.Errorf("deep-archived lookup: %s", section)
+	}
+	for ref, want := range map[string]string{"X-404": "no decision item has this reference", "bad%20ref": "not a valid reference"} {
+		section = lookupSection(t, get("/dashboard/decisions?ref="+ref))
+		if !strings.Contains(section, `<p class="empty">`+want+`</p>`) || strings.Contains(section, "<form") || strings.Contains(section, "<article") {
+			t.Errorf("%s lookup: %s", ref, section)
+		}
 	}
 }

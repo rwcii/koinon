@@ -51,6 +51,13 @@ Changes:
   **all** shows every item again. The filter is the `status` query parameter, so it stays
   after a reload, a lookup, paging and a verdict; the counts stay totals, and an unknown value
   is refused. The page uses plain links, with no new script (PROTOCOL.md, Dashboard).
+- Decision lookup card (#414): an item opened by reference on the Decisions page, from
+  **Find** or the agent table's "Waiting for a verdict" links, shows its card at full width
+  when it is waiting, in progress or an open fyi, with the same **Approve**, **Decline**,
+  **Dismiss** and note as on the board; the cards below leave it out, so it shows once. A
+  verdict there returns to the same lookup and status filter, with the answer on that card.
+  Archived items stay read only, and the verdict history stays below the item (PROTOCOL.md,
+  Dashboard).
 
 ## 2026-10-17 — Homebrew upgrades and maintenance from the command line
 

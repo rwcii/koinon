@@ -83,6 +83,10 @@ type decisionsData struct {
 	History   *DecisionHistoryPage
 	MovedAt   int64
 	LookupErr string
+	// LookupCard is set when the looked-up item is waiting, in progress or an open fyi: it
+	// shows as its card, and the grid skips it, so it appears once with one form (#414).
+	// GridSkipped is set when the grid page had that card.
+	LookupCard, GridSkipped bool
 	// Card is the reference of the card that the last action changed; its notice shows on
 	// that card when the page shows it.
 	Card        string
@@ -90,14 +94,32 @@ type decisionsData struct {
 	CardRefused bool
 }
 
-// cardShown reports whether the board shows the card of the last action.
+// cardShown reports whether the board shows the card of the last action: in the grid or as
+// the looked-up item.
 func (d decisionsData) cardShown() bool {
+	if d.Item != nil && d.Item.Reference == d.Card {
+		return true
+	}
 	for _, item := range d.Cards {
 		if item.Reference == d.Card {
 			return true
 		}
 	}
 	return false
+}
+
+// NoticeOn reports whether the notice of the last action shows on the card of reference.
+// The grid skips a looked-up card (#414), so the notice shows once.
+func (d decisionsData) NoticeOn(reference string) bool {
+	return d.CardNotice != "" && d.Card == reference
+}
+
+// decisionCard is one card of the board: the page that shows it, its item, and whether it is
+// the looked-up item (#414), which shows at full width above the grid and not in it.
+type decisionCard struct {
+	Page   dashboardPage
+	Item   DecisionItem
+	Lookup bool
 }
 
 // cardCursor is the keyset position of a card: its priority, item order and reference.
@@ -182,6 +204,15 @@ func (s *Store) dashboardDecisions(ctx context.Context, q url.Values) (decisions
 			return data, err
 		}
 		data.Item = &item
+		if data.LookupCard = item.State == "active" || item.State == "in_progress"; data.LookupCard {
+			cards := data.Cards[:0]
+			for _, card := range data.Cards {
+				if card.Reference != reference {
+					cards = append(cards, card)
+				}
+			}
+			data.GridSkipped, data.Cards = len(cards) < len(data.Cards), cards
+		}
 		after, err := strconv.ParseInt(q.Get("history"), 10, 64)
 		if err != nil || after < 0 {
 			after = 0
@@ -323,8 +354,8 @@ const decisionFormLimit = 3*decisionNoteLimit + 4096
 // decisionActions adds the maintainer's verdicts (#206, chunk 02): Approve and Decline on a
 // decision item and Dismiss on an fyi item, on the revision the page showed. They are
 // dashboard actions only, behind the login, Host, Origin and CSRF checks. The answer returns
-// to the board page that showed the card, with its status filter from the back field, and
-// with the notice on that card.
+// to the board page that showed the card, with its status filter and lookup from the back
+// field, and with the notice on that card.
 func (d *Daemon) decisionActions(mux *http.ServeMux, authed func(int64, func(http.ResponseWriter, *http.Request, string)) http.HandlerFunc,
 	run func(w http.ResponseWriter, r *http.Request, action, target, view string, query url.Values, valid bool,
 		apply func(ctx context.Context) error, accepted string, refusal func(error) string)) {

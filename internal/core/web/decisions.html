@@ -5,10 +5,12 @@
 </ul>{{end}}
 {{if .Data.Lookup}}<section class="lookup-result">{{with .Data.LookupErr}}<p class="empty">{{.}}</p>{{end}}
 {{with .Data.MovedAt}}<p>{{$.Data.Lookup}} moved to the deep archive at {{ms .}}. An agent restores it with <code>decision_restore</code> or <code>koinon decision restore</code>.</p>{{end}}
-{{with .Data.Item}}<h2>{{.Reference}}: {{.Title}}</h2>
-<p><small>{{.Kind}}, {{if eq .State "in_progress"}}in progress{{else}}{{.State}}{{end}}, revision {{.Revision}}, order {{.Order}}, by {{.AuthorName}} ({{.AuthorFamily}}), updated {{ms .UpdatedAt}}{{with .ArchivedAt}}, archived {{ms .}}{{end}}, {{.Verdicts}} verdict(s) in history. Read only.</small></p>
+{{with .Data.Item}}{{if $.Data.LookupCard}}{{template "card" (decisionCard $ . true)}}
+{{else}}<h2>{{.Reference}}: {{.Title}}</h2>
+{{if $.Data.NoticeOn .Reference}}{{template "card-notice" $.Data}}{{end}}
+<p><small>{{.Kind}}, {{.State}}, revision {{.Revision}}, order {{.Order}}, by {{.AuthorName}} ({{.AuthorFamily}}), updated {{ms .UpdatedAt}}{{with .ArchivedAt}}, archived {{ms .}}{{end}}, {{.Verdicts}} verdict(s) in history. Read only.</small></p>
 {{template "body" .}}
-{{with .ClosedBy}}<p><small>Closed by {{.}}{{with $.Data.Item.ClosedAt}} at {{ms .}}{{end}}</small></p>{{end}}{{with .OutcomeNote}}<h4>Outcome</h4><div class="md">{{markdown .}}</div>{{end}}
+{{with .ClosedBy}}<p><small>Closed by {{.}}{{with $.Data.Item.ClosedAt}} at {{ms .}}{{end}}</small></p>{{end}}{{with .OutcomeNote}}<h4>Outcome</h4><div class="md">{{markdown .}}</div>{{end}}{{end}}
 {{with $.Data.History}}<h3>Verdict history</h3>{{if not .Verdicts}}<p class="empty">No verdicts.</p>{{end}}
 {{range .Verdicts}}<article class="verdict-record"><p><strong>{{.Verdict}}</strong> on revision {{.Revision}}, {{ms .At}}, verdict {{.ID}}{{with .SupersededAt}}; superseded {{ms .}}{{end}}</p>
 {{with .Note}}<h4>Note</h4><div class="md">{{markdown .}}</div>{{end}}
@@ -27,20 +29,8 @@
 <td>{{range .Waiting}}<a href="/dashboard/decisions?ref={{.}}{{with $.Data.Status}}&amp;status={{.}}{{end}}">{{.}}</a> {{else}}<small>none</small>{{end}}{{with .More}}<small>+{{.}} more</small>{{end}}</td></tr>{{end}}</tbody></table></div>
 {{if .Data.MoreAgents}}<p><small>More agents are active than this table shows; the Sessions view lists them all.</small></p>{{end}}{{end}}
 {{if .Data.ShowCards}}<h2>Items{{with .Data.Status}}: {{$.Data.StatusLabel}}{{end}}</h2>
-{{if not .Data.Cards}}<p class="empty">No {{.Data.StatusLabel}} items.</p>{{end}}
-<div class="cards">{{range .Data.Cards}}<article class="card kind-{{.Kind}}" id="card-{{.Reference}}">
-<p class="card-head"><span class="tag">{{.Kind}}</span> <span class="tag state-{{.State}}">{{if eq .State "in_progress"}}in progress{{else if eq .Kind "fyi"}}open{{else}}waiting{{end}}</span> <a href="/dashboard/decisions?ref={{.Reference}}{{with $.Data.Status}}&amp;status={{.}}{{end}}">{{.Reference}}</a></p>
-<h3>{{.Title}}</h3>
-{{if and (eq $.Data.Card .Reference) $.Data.CardNotice}}<p class="card-notice{{if $.Data.CardRefused}} refused{{end}}" role="status">{{$.Data.CardNotice}}</p>{{end}}
-{{template "body" .}}
-{{if eq .State "in_progress"}}{{with .Verdict}}<p><small>Approved on revision {{.Revision}}, {{ms .At}}.</small></p>{{with .Note}}<h4>Your note</h4><div class="md">{{markdown .}}</div>{{end}}
-{{if .Deliveries}}<ul class="deliveries">{{range .Deliveries}}<li>{{.Name}} <small>{{.Outcome}}{{with .Reason}} ({{.}}){{end}}</small></li>{{end}}</ul>{{end}}{{end}}<p><small>An agent closes the item when the work is done.</small></p>{{end}}
-{{if eq .State "active"}}<form method="post" class="verdict"><input type="hidden" name="csrf" value="{{$.CSRF}}"><input type="hidden" name="reference" value="{{.Reference}}"><input type="hidden" name="revision" value="{{.Revision}}"><input type="hidden" name="cards" value="{{$.Data.CardsAt}}">{{template "back" $}}
-<label>Note (optional) <textarea name="note" rows="2" maxlength="4096"></textarea></label>
-<p class="buttons">{{if eq .Kind "fyi"}}<button type="submit" formaction="/dashboard/actions/decision-dismiss">Dismiss</button>{{else}}<button type="submit" formaction="/dashboard/actions/decision-approve"{{if .HiddenCommands}} disabled{{end}}>Approve</button> <button type="submit" formaction="/dashboard/actions/decision-decline">Decline</button>{{end}}</p></form>
-<p><small>{{if eq .Kind "fyi"}}Dismiss archives this item. It is not an approval.{{else}}Your verdict applies to revision {{.Revision}} as shown here. It is your instruction and approval to the named agents (PDR 005, Decision 3).{{end}}</small></p>{{end}}
-<p class="card-foot"><small>Revision {{.Revision}}, order {{.Order}}, by {{.AuthorName}}, updated {{ms .UpdatedAt}}</small></p>
-</article>{{end}}</div>
+{{if not (or .Data.Cards .Data.GridSkipped)}}<p class="empty">No {{.Data.StatusLabel}} items.</p>{{end}}
+<div class="cards">{{range .Data.Cards}}{{template "card" (decisionCard $ . false)}}{{end}}</div>
 {{with .Data.NextCards}}<p><a href="/dashboard/decisions?cards={{.}}{{with $.Data.Status}}&amp;status={{.}}{{end}}">Next items</a></p>{{end}}{{end}}
 {{if .Data.ShowArchive}}<h2>Archive</h2>
 {{if not .Data.Archive.Items}}<p class="empty">No archived items.</p>{{else}}<div class="scroll"><table>
@@ -49,6 +39,20 @@
 {{with .Data.Archive.NextAfter}}<p><a href="/dashboard/decisions?archived={{.}}{{with $.Data.Status}}&amp;status={{.}}{{end}}">More archived items</a></p>{{end}}{{end}}
 <p><small>Agents write these items. Agents read verdicts through Koinon, not from this page.</small></p>
 </div>{{end}}
+{{define "card"}}{{$p := .Page}}{{with .Item}}<article class="card kind-{{.Kind}}{{if $.Lookup}} lookup-card{{end}}" id="{{if $.Lookup}}lookup{{else}}card{{end}}-{{.Reference}}">
+<p class="card-head"><span class="tag">{{.Kind}}</span> <span class="tag state-{{.State}}">{{if eq .State "in_progress"}}in progress{{else if eq .Kind "fyi"}}open{{else}}waiting{{end}}</span> <a href="/dashboard/decisions?ref={{.Reference}}{{with $p.Data.Status}}&amp;status={{.}}{{end}}">{{.Reference}}</a></p>
+<h3>{{.Title}}</h3>
+{{if $p.Data.NoticeOn .Reference}}{{template "card-notice" $p.Data}}{{end}}
+{{template "body" .}}
+{{if eq .State "in_progress"}}{{with .Verdict}}<p><small>Approved on revision {{.Revision}}, {{ms .At}}.</small></p>{{with .Note}}<h4>Your note</h4><div class="md">{{markdown .}}</div>{{end}}
+{{if .Deliveries}}<ul class="deliveries">{{range .Deliveries}}<li>{{.Name}} <small>{{.Outcome}}{{with .Reason}} ({{.}}){{end}}</small></li>{{end}}</ul>{{end}}{{end}}<p><small>An agent closes the item when the work is done.</small></p>{{end}}
+{{if eq .State "active"}}<form method="post" class="verdict"><input type="hidden" name="csrf" value="{{$p.CSRF}}"><input type="hidden" name="reference" value="{{.Reference}}"><input type="hidden" name="revision" value="{{.Revision}}"><input type="hidden" name="cards" value="{{$p.Data.CardsAt}}">{{template "back" $p}}
+<label>Note (optional) <textarea name="note" rows="2" maxlength="4096"></textarea></label>
+<p class="buttons">{{if eq .Kind "fyi"}}<button type="submit" formaction="/dashboard/actions/decision-dismiss">Dismiss</button>{{else}}<button type="submit" formaction="/dashboard/actions/decision-approve"{{if .HiddenCommands}} disabled{{end}}>Approve</button> <button type="submit" formaction="/dashboard/actions/decision-decline">Decline</button>{{end}}</p></form>
+<p><small>{{if eq .Kind "fyi"}}Dismiss archives this item. It is not an approval.{{else}}Your verdict applies to revision {{.Revision}} as shown here. It is your instruction and approval to the named agents (PDR 005, Decision 3).{{end}}</small></p>{{end}}
+<p class="card-foot"><small>Revision {{.Revision}}, order {{.Order}}, by {{.AuthorName}}, updated {{ms .UpdatedAt}}</small></p>
+</article>{{end}}{{end}}
+{{define "card-notice"}}<p class="card-notice{{if .CardRefused}} refused{{end}}" role="status">{{.CardNotice}}</p>{{end}}
 {{define "body"}}{{with .Where}}<p class="where"><small>Where: {{.}}</small></p>{{end}}
 {{with .Context}}<h4>Context</h4><div class="md">{{markdown .}}</div>{{end}}
 {{with .Recommendation}}<h4>Recommendation</h4><div class="md">{{markdown .}}</div>{{end}}
