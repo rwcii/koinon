@@ -179,14 +179,26 @@ chunk 04). It reads the pane
 after each step and handles prompts or alerts shown during the cycle under the maintainer's
 existing authorization and native permissions (PDR 002, Decision 2). It reports an outcome
 it cannot reconcile rather than counting it as a completed step. Peer text is not entered.
-The cycle stops with a shown reason when no ready reply
-arrives in time, the pane cannot be proven, or the session is busy. Entering commands in the
+The ready reply is the signal that the session is ready for its handoff (#417): from the
+reply until the cycle ends, Koinon's own wakes to the session wait, and the commands go in
+once the session is at its prompt with an empty input line. A background task that the
+session leaves running does not hold the cycle back; a turn in progress, a draft and a native
+dialog do. The cycle stops with a shown reason when no ready reply
+arrives in time, the pane cannot be proven, or the session stays busy; the reason names
+what Koinon last saw in the pane. Entering commands in the
 tmux session is a required part of the cycle, not an exception.
 
 **Provenance:** Maintainer, 2026-10-12: "it also needs to enter commands in the tmux session
 for context management handoffs." (#196 comment 6117338153). The steps, commands and stop
 conditions: Requested in #196 (issue body); a request record. The ready-reply form: open in
 #196 ("To decide in the plan").
+
+Ready reply as the signal: Maintainer, 2026-10-20, after two cycles on an active machine
+failed with `ready_timeout`: "sessions won't ever idle on an active machine due to peer
+notifications. the machine needs to be able to tell koinon it's ready for handoff. that was
+the original design." ([#417](https://github.com/rwcii/koinon/issues/417)). The intent: the
+session's ready report, not an idle state that an active machine never reaches, lets the
+cycle go ahead.
 
 Sender provenance: Maintainer, 2026-10-13, answering the recommendation for a distinct daemon
 sender: “I agree, let's call it "overwatch"”

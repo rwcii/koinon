@@ -315,6 +315,17 @@ func TestClaudeProbe(t *testing.T) {
 		}
 	}
 	writeEntry(t, skill(), PickupSkill())
+	// A tmux that cannot run is not an unproven pane (#418), for the probe and the inspection.
+	noTmux := term.target(t)
+	noTmux.tools.tmux = func(context.Context, string, ...string) (string, error) {
+		return "", tmuxUnavailableError{errors.New("synthetic start failure")}
+	}
+	if got := (claudeCycle{}).Probe(ctx, noTmux); got.Reason != "tmux_unavailable" {
+		t.Fatalf("tmux unavailable: %+v", got)
+	}
+	if _, err := (claudeCycle{}).Inspect(ctx, noTmux, term.fence); inspectSeen(err) != "tmux_unavailable" {
+		t.Fatalf("inspection without tmux: %v", err)
+	}
 	for _, c := range []struct {
 		name   string
 		change func()
@@ -504,5 +515,28 @@ func TestClaudeChoiceRecheckedAfterFence(t *testing.T) {
 	if ok, err := (claudeCycle{}).Choose(context.Background(), tg, dialog.Digest, "1", fence); ok || !errors.Is(err, ErrCycleDialogChanged) ||
 		len(term.keys) != 0 || !term.dialog {
 		t.Fatalf("changed dialog: %v %v keys %q dialog %v", ok, err, term.keys, term.dialog)
+	}
+}
+
+// The host is at its prompt when its registry says idle, or shell (a background shell task
+// running), with an empty input line; each other case names what was seen (#417).
+func TestClaudePaneStateAcceptsBackgroundShell(t *testing.T) {
+	empty := claudeScreen{found: true}
+	for _, test := range []struct {
+		status string
+		screen claudeScreen
+		want   PaneState
+	}{
+		{"idle", empty, PaneState{Idle: true}},
+		{"shell", empty, PaneState{Idle: true}},
+		{"busy", empty, PaneState{Seen: "status_busy"}},
+		{"waiting", empty, PaneState{Seen: "status_waiting"}},
+		{"synthetic", empty, PaneState{Seen: "status_unknown"}},
+		{"shell", claudeScreen{}, PaneState{Seen: "input_line_not_found"}},
+		{"shell", claudeScreen{found: true, input: "draft"}, PaneState{Seen: "input_not_empty"}},
+	} {
+		if got := claudePaneState(test.status, test.screen); got != test.want {
+			t.Errorf("%s %+v: %+v", test.status, test.screen, got)
+		}
 	}
 }

@@ -5,9 +5,7 @@ import (
 	"database/sql"
 	"encoding/json"
 	"errors"
-	"path/filepath"
 	"regexp"
-	"strings"
 	"sync"
 
 	"github.com/rwcii/koinon/internal/platform"
@@ -26,17 +24,19 @@ import (
 func (s *Store) guard() int64 { return s.Settings().GuardSeconds * 1000 }
 
 // TmuxPane is the tmux server socket and pane that hold a session's host process, as
-// koinon mcp reports them.
+// koinon mcp reports them. Executable is the absolute tmux that the session's own terminal
+// runs, which the daemon runs for this pane (#418); "" uses tmux on the daemon's PATH.
 type TmuxPane struct {
-	Socket string `json:"socket"`
-	Pane   string `json:"pane"`
+	Socket     string `json:"socket"`
+	Pane       string `json:"pane"`
+	Executable string `json:"executable,omitempty"`
 }
 
 var paneID = regexp.MustCompile(`^%[0-9]{1,9}$`)
 
 func (p *TmuxPane) valid() bool {
-	return p == nil || paneID.MatchString(p.Pane) && filepath.IsAbs(p.Socket) && len(p.Socket) <= 4096 &&
-		filepath.Clean(p.Socket) == p.Socket && !strings.ContainsFunc(p.Socket, func(r rune) bool { return r < 0x20 || r == 0x7f })
+	return p == nil || paneID.MatchString(p.Pane) && platform.CleanAbsolutePath(p.Socket) &&
+		(p.Executable == "" || platform.CleanAbsolutePath(p.Executable))
 }
 
 // Succession is a session's last succession result. Result is "succeeded" or "refused";
@@ -99,6 +99,8 @@ func (s *Store) guardLeft(k Key, now int64) int64 {
 type host struct {
 	pid, start   int64
 	socket, pane string
+	// executable is the pane's tmux (#418), a tool path and not part of the host's identity.
+	executable string
 }
 
 // hostPID is the host process of a launched session: the Claude process that its server
@@ -127,7 +129,7 @@ func (s *Store) recordHost(pid int64, pane *TmuxPane) host {
 		}
 	}
 	if pane != nil {
-		h.socket, h.pane = pane.Socket, pane.Pane
+		h.socket, h.pane, h.executable = pane.Socket, pane.Pane, pane.Executable
 	}
 	return h
 }
@@ -205,8 +207,8 @@ func (s *Store) succeed(ctx context.Context, tx *sql.Tx, now int64, k Key, repos
 		// holder's proven pane, so a wake before the new thread's own registration reaches
 		// it through the pane rather than the queue (#275). Each wake proves the pane again.
 		if sh.pane == "" && hh.pane != "" {
-			if _, err := tx.ExecContext(ctx, `UPDATE sessions SET tmux_socket=?,tmux_pane=? WHERE family=? AND id=?`,
-				hh.socket, hh.pane, k.Family, k.ID); err != nil {
+			if _, err := tx.ExecContext(ctx, `UPDATE sessions SET tmux_socket=?,tmux_pane=?,tmux_path=? WHERE family=? AND id=?`,
+				hh.socket, hh.pane, hh.executable, k.Family, k.ID); err != nil {
 				return nil, err
 			}
 		}
@@ -257,8 +259,8 @@ func (s *Store) succeed(ctx context.Context, tx *sql.Tx, now int64, k Key, repos
 // hostOf reads a session's host record.
 func hostOf(ctx context.Context, tx *sql.Tx, family, id string) (host, error) {
 	var h host
-	err := tx.QueryRowContext(ctx, `SELECT host_pid,host_start,tmux_socket,tmux_pane FROM sessions WHERE family=? AND id=?`,
-		family, id).Scan(&h.pid, &h.start, &h.socket, &h.pane)
+	err := tx.QueryRowContext(ctx, `SELECT host_pid,host_start,tmux_socket,tmux_pane,tmux_path FROM sessions WHERE family=? AND id=?`,
+		family, id).Scan(&h.pid, &h.start, &h.socket, &h.pane, &h.executable)
 	return h, err
 }
 

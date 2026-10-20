@@ -4,8 +4,104 @@ import (
 	"context"
 	"database/sql"
 	"errors"
+	"sync"
 	"time"
 )
+
+// paneSeen is what each unfinished cycle's last pane inspection saw, in memory. A stage
+// timeout names it, so ready_timeout says why the input never came (#417).
+type paneSeen struct {
+	mu sync.Mutex
+	m  map[string]string
+}
+
+func (p *paneSeen) set(id, seen string) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	if p.m == nil {
+		p.m = map[string]string{}
+	}
+	p.m[id] = seen
+}
+
+// get returns what the cycle's last inspection saw, and whether one ran since the daemon
+// started.
+func (p *paneSeen) get(id string) (string, bool) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	seen, ok := p.m[id]
+	return seen, ok
+}
+
+// keep forgets every cycle that is not in active.
+func (p *paneSeen) keep(active []cycleRow) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	ids := map[string]bool{}
+	for _, c := range active {
+		ids[c.ID] = true
+	}
+	for id := range p.m {
+		if !ids[id] {
+			delete(p.m, id)
+		}
+	}
+}
+
+// errPaneInMode refuses the key that returns a pane from copy mode, in an inspection that
+// only reads.
+var errPaneInMode = errors.New("pane_in_mode")
+
+// inspectSeen is the fixed code of an inspection that failed: a tmux that could not run
+// (#418), an unproven pane, a pane in copy mode during a read-only inspection, else a pane or
+// registry that could not be read.
+func inspectSeen(err error) string {
+	switch {
+	case errors.Is(err, errTmuxUnavailable):
+		return errTmuxUnavailable.Error()
+	case errors.Is(err, errClaudeUnproven) || errors.Is(err, errCodexUnproven):
+		return "pane_unproven"
+	case errors.Is(err, errPaneInMode):
+		return "pane_in_mode"
+	}
+	return "pane_unreadable"
+}
+
+// proofError is an adapter's error for a pane proof that failed with err: err itself when
+// tmux could not run, else the adapter's unproven error.
+func proofError(err, unproven error) error {
+	if errors.Is(err, errTmuxUnavailable) {
+		return err
+	}
+	return unproven
+}
+
+// timeoutSeen is what a stage that waited for the pane saw last. After a restart no
+// inspection has run, so it reads the pane once, sending no key.
+func (s *Store) timeoutSeen(ctx context.Context, c cycleRow) string {
+	if seen, ok := s.paneSeen.get(c.ID); ok {
+		return seen
+	}
+	adapter := cycleAdapterOf(c.Family)
+	if adapter == nil {
+		return ""
+	}
+	t := s.cycleTarget(ctx, c)
+	s.wake.mu.Lock()
+	defer s.wake.mu.Unlock()
+	pane, err := adapter.Inspect(ctx, t, func(context.Context) error { return errPaneInMode })
+	switch {
+	case err != nil:
+		return inspectSeen(err)
+	case pane.Prompt != "" && cycleCode.MatchString(pane.Prompt):
+		return pane.Prompt
+	case pane.Idle:
+		return ""
+	case pane.Seen != "" && cycleCode.MatchString(pane.Seen):
+		return pane.Seen
+	}
+	return "pane_not_ready"
+}
 
 // contextObserved runs after a context observation was stored, outside the observation
 // lock. A new native epoch of a requester whose cycle has not entered its managed clear yet is
@@ -36,6 +132,7 @@ func (s *Store) cycleStep(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
+	s.paneSeen.keep(cycles)
 	for _, c := range cycles {
 		if err := ctx.Err(); err != nil {
 			return err
@@ -55,7 +152,14 @@ func (s *Store) stepCycle(ctx context.Context, c cycleRow) error {
 		_, err := s.endCycle(ctx, c.ID, c.Revision, cycleFailed, "cycle_timeout")
 		return err
 	case now >= c.StageDeadline && !cycleInputUnproven(c.State):
-		_, err := s.endCycle(ctx, c.ID, c.Revision, cycleFailed, c.State+"_timeout")
+		// A stage that waited for the pane names what the pane last showed.
+		reason := c.State + "_timeout"
+		if cycleWaitsForPane(c.State) {
+			if seen := s.timeoutSeen(ctx, c); seen != "" {
+				reason += "." + seen
+			}
+		}
+		_, err := s.endCycle(ctx, c.ID, c.Revision, cycleFailed, reason)
 		return err
 	}
 	adapter := cycleAdapterOf(c.Family)
@@ -76,6 +180,7 @@ func (s *Store) stepCycle(ctx context.Context, c cycleRow) error {
 	case cycleReady, cycleBootstrapVerified, cycleResetVerified:
 		pane, err := adapter.Inspect(ctx, t, s.cycleFence(c))
 		if err != nil {
+			s.paneSeen.set(c.ID, inspectSeen(err))
 			return nil // no fresh proof yet; the stage deadline ends a pane that never proves
 		}
 		if pane.Prompt != "" && !cycleCode.MatchString(pane.Prompt) {
@@ -87,8 +192,13 @@ func (s *Store) stepCycle(ctx context.Context, c cycleRow) error {
 			return err
 		}
 		if !pane.Idle {
+			if pane.Seen == "" || !cycleCode.MatchString(pane.Seen) {
+				pane.Seen = "pane_not_ready"
+			}
+			s.paneSeen.set(c.ID, pane.Seen)
 			return nil
 		}
+		s.paneSeen.set(c.ID, "")
 		// The saved handoff must still be the reported file before any input. A changed
 		// file before the clear needs a new ready report; after it, the cycle fails.
 		if _, err := s.verifyArtifact(ctx, c, c.Artifact); err != nil {
@@ -179,6 +289,11 @@ func (s *Store) stepCycle(ctx context.Context, c cycleRow) error {
 	return nil
 }
 
+// cycleWaitsForPane reports a stage that waits for the pane to take input.
+func cycleWaitsForPane(state string) bool {
+	return state == cycleReady || state == cycleBootstrapVerified || state == cycleResetVerified
+}
+
 // enterInput records the intent, makes the input and records its receipt. guard adds the
 // caller's checks to the intent's transaction; the input's fence holds the cycle to that
 // intent. A failed or unreceived input is uncertain: its effect is unknown, and it is never
@@ -225,10 +340,15 @@ func (s *Store) cycleFence(c cycleRow) CycleFence {
 	}
 }
 
-// cycleTarget is c's target with the koinon-pickup skill and the store's host tools.
+// cycleTarget is c's target with the koinon-pickup skill and the store's host tools. The
+// tools run the session's recorded tmux, read now: it is a tool path, not part of the pinned
+// identity (#418).
 func (s *Store) cycleTarget(ctx context.Context, c cycleRow) CycleTarget {
 	t := c.target()
-	t.tools = s.hostTools()
+	var executable string
+	// A session row that cannot be read leaves "": tmux from PATH.
+	_ = s.db.QueryRowContext(ctx, `SELECT tmux_path FROM sessions WHERE family=? AND id=?`, c.Family, c.SessionID).Scan(&executable)
+	t.tools = s.hostTools(executable)
 	t.Pickup = pickupSkillEntry()
 	var held int
 	t.Holds = s.db.QueryRowContext(ctx, `SELECT 1 FROM names WHERE kind='alias' AND family=? AND holder_id=? LIMIT 1`, c.Family, c.SessionID).Scan(&held) == nil

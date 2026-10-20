@@ -46,8 +46,14 @@ type homebrew string
 func (b homebrew) pour(t *testing.T, source, version, commit string) {
 	t.Helper()
 	keg := filepath.Join(string(b), "Cellar", "koinon", strings.TrimPrefix(version, "v"))
-	build := exec.Command("go", "build", "-trimpath", "-ldflags", "-s -w -X main.version="+version+" -X main.commit="+commit,
-		"-o", filepath.Join(keg, "bin", "koinon"), "./cmd/koinon")
+	args := []string{"build", "-trimpath", "-ldflags", "-s -w -X main.version=" + version + " -X main.commit=" + commit,
+		"-o", filepath.Join(keg, "bin", "koinon"), "./cmd/koinon"}
+	if commit != "" {
+		// An extracted release has no VCS data, and a .git above its temporary directory
+		// must not reach the build (#412).
+		args = append([]string{"build", "-buildvcs=false"}, args[1:]...)
+	}
+	build := exec.Command("go", args...)
 	build.Dir, build.Env = source, append(os.Environ(), "CGO_ENABLED=0")
 	if out, err := build.CombinedOutput(); err != nil {
 		t.Fatalf("build %s: %v\n%s", version, err, out)

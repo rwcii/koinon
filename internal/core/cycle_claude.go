@@ -141,8 +141,8 @@ func (claudeCycle) Probe(ctx context.Context, t CycleTarget) CycleProbe {
 	if _, err := readClaudeRecord(t); err != nil {
 		return CycleProbe{Reason: "native_registry_unavailable"}
 	}
-	if !provePane(ctx, t.tools, t.HostPID, t.HostStart, t.Socket, t.Pane) {
-		return CycleProbe{Reason: "pane_unproven"}
+	if err := provePane(ctx, t.tools, t.HostPID, t.HostStart, t.Socket, t.Pane); err != nil {
+		return CycleProbe{Reason: tmuxReason(err, "pane_unproven")}
 	}
 	root, err := claudeConfigRoot(t)
 	if err != nil {
@@ -236,11 +236,12 @@ func stripSGR(line string) string {
 	return out.String()
 }
 
-// Inspect reports whether the pane is ready for input: the host is idle in its registry
-// record and the input line is empty. A pane in copy mode is returned to its prompt first.
+// Inspect reports whether the pane is ready for input: the host is at its prompt in its
+// registry record and the input line is empty. A pane in copy mode is returned to its prompt
+// first.
 func (claudeCycle) Inspect(ctx context.Context, t CycleTarget, fence CycleFence) (PaneState, error) {
-	if !provePane(ctx, t.tools, t.HostPID, t.HostStart, t.Socket, t.Pane) {
-		return PaneState{}, errClaudeUnproven
+	if err := provePane(ctx, t.tools, t.HostPID, t.HostStart, t.Socket, t.Pane); err != nil {
+		return PaneState{}, proofError(err, errClaudeUnproven)
 	}
 	if mode, err := t.tools.tmux(ctx, t.Socket, "display-message", "-p", "-t", t.Pane, "#{pane_in_mode}"); err != nil {
 		return PaneState{}, err
@@ -263,13 +264,32 @@ func (claudeCycle) Inspect(ctx context.Context, t CycleTarget, fence CycleFence)
 	if err != nil {
 		return PaneState{}, err
 	}
-	return PaneState{Idle: record.Status == "idle" && screen.found && screen.input == ""}, nil
+	return claudePaneState(record.Status, screen), nil
+}
+
+// claudePaneState reads the host's registry status with its screen. The host is at its prompt
+// when the status is idle, or shell: the prompt with a background shell task running, such
+// as a monitor of the session's inbox. Claude Code 2.1.303 takes /clear there without a dialog,
+// and the task, with its status, stays through the clear (#417). A turn in progress (busy) or
+// a native wait (waiting) is not at the prompt.
+func claudePaneState(status string, screen claudeScreen) PaneState {
+	switch {
+	case status == "busy" || status == "waiting":
+		return PaneState{Seen: "status_" + status}
+	case status != "idle" && status != "shell":
+		return PaneState{Seen: "status_unknown"}
+	case !screen.found:
+		return PaneState{Seen: "input_line_not_found"}
+	case screen.input != "":
+		return PaneState{Seen: "input_not_empty"}
+	}
+	return PaneState{Idle: true}
 }
 
 // key proves the pane, calls the fence and sends one key or literal text.
 func (claudeCycle) key(ctx context.Context, t CycleTarget, fence CycleFence, args ...string) error {
-	if !provePane(ctx, t.tools, t.HostPID, t.HostStart, t.Socket, t.Pane) {
-		return errClaudeUnproven
+	if err := provePane(ctx, t.tools, t.HostPID, t.HostStart, t.Socket, t.Pane); err != nil {
+		return proofError(err, errClaudeUnproven)
 	}
 	if err := fence(ctx); err != nil {
 		return err
@@ -281,8 +301,8 @@ func (claudeCycle) key(ctx context.Context, t CycleTarget, fence CycleFence, arg
 // keyIf proves the pane, calls the fence, reads the pane again and sends the keys only when
 // check holds on that read, so the keys reach the screen that the check saw.
 func (claudeCycle) keyIf(ctx context.Context, t CycleTarget, fence CycleFence, check func(claudeScreen) bool, refused error, args ...string) error {
-	if !provePane(ctx, t.tools, t.HostPID, t.HostStart, t.Socket, t.Pane) {
-		return errClaudeUnproven
+	if err := provePane(ctx, t.tools, t.HostPID, t.HostStart, t.Socket, t.Pane); err != nil {
+		return proofError(err, errClaudeUnproven)
 	}
 	if err := fence(ctx); err != nil {
 		return err
@@ -464,8 +484,8 @@ func dialogOf(s claudeScreen) CycleDialog {
 
 // Dialog reads the dialog the pane shows. It sends nothing.
 func (claudeCycle) Dialog(ctx context.Context, t CycleTarget) (CycleDialog, error) {
-	if !provePane(ctx, t.tools, t.HostPID, t.HostStart, t.Socket, t.Pane) {
-		return CycleDialog{}, errClaudeUnproven
+	if err := provePane(ctx, t.tools, t.HostPID, t.HostStart, t.Socket, t.Pane); err != nil {
+		return CycleDialog{}, proofError(err, errClaudeUnproven)
 	}
 	screen, err := readClaude(ctx, t)
 	if err != nil {

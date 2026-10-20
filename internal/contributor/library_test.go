@@ -120,7 +120,15 @@ func TestRequiredChecksDetectSourceValueDrift(t *testing.T) {
 // Compile the actual whitelist in a temporary source tree after adding a canonical skill.
 // This proves the embed pattern includes future skills and excludes adjacent private files.
 func TestEmbedRebuildAfterNewCanonicalSkill(t *testing.T) {
-	dir := t.TempDir()
+	// An empty .git above the fixture, as a sandbox's mount point in a shared /tmp leaves it,
+	// must not reach the build (#412).
+	parent := t.TempDir()
+	dir := filepath.Join(parent, "fixture")
+	for _, d := range []string{filepath.Join(parent, ".git"), dir} {
+		if err := os.Mkdir(d, 0700); err != nil {
+			t.Fatal(err)
+		}
+	}
 	assets := filepath.Join(dir, "assets")
 	os.MkdirAll(filepath.Join(assets, "example"), 0700)
 	for name, body := range map[string]string{"go.mod": "module fixture\n\ngo 1.26.6\n", "assets/embed.go": read(t, "agents/skills/embed.go"), "assets/AGENTS.md": "authoring\n", "assets/example/SKILL.md": "synthetic canonical bytes\n", "assets/example/private.md": "fixture-private-notes\n", "assets/root-policy.md": "fixture-private-policy\n", "main.go": `package main
@@ -131,7 +139,7 @@ func main(){paths:=[]string{};fs.WalkDir(skills.Source,".",func(p string,e fs.Di
 			t.Fatal(err)
 		}
 	}
-	build := exec.Command("go", "build", "-o", filepath.Join(dir, "fixture"), ".")
+	build := exec.Command("go", "build", "-buildvcs=false", "-o", filepath.Join(dir, "fixture"), ".")
 	build.Dir = dir
 	if out, err := build.CombinedOutput(); err != nil {
 		t.Fatalf("embed rebuild: %v %s", err, out)

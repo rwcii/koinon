@@ -237,7 +237,8 @@ calling session). Without `peer`, a request with a caller names the caller's own
   every page). Each is an active agent session's `peer`, `family`, `enabled`,
   `enable_revision`, `mode`, `threshold`, `threshold_source` (`session` or `family`),
   `available`, `unavailable`, `eligible`, `reason`, and its newest cycle's `cycle_id`,
-  `cycle_revision`, `cycle_state` and waiting native `dialog` (`lines`, `options`, `digest`).
+  `cycle_revision`, `cycle_state`, `cycle_reason` and waiting native `dialog` (`lines`,
+  `options`, `digest`). The table shows the cycle's reason after its state.
 - `POST /v1/context/set` (`context_set` with `target_family`, `koinon context set`) takes
   `family`, `mode` and `threshold`, as `context-family-settings`.
 - `POST /v1/context/enable` (`context_enable`, `koinon context enable|disable`) takes `peer`
@@ -355,7 +356,19 @@ epoch, otherwise it is `uncertain`. Deadlines: 15 minutes from the request for
 `waiting_ready`, two minutes for each other stage (`waiting_pickup` included, for the report),
 ten for a prompt, and 30 minutes for the whole cycle; no stage deadline passes the cycle's. A
 report at or after a deadline is `cycle_changed`. While a cycle is in `ready` through
-`waiting_pickup`, ordinary wakes to its pane wait, still due and not delivered.
+`waiting_pickup`, ordinary wakes to its pane wait, still due and not delivered, so peer
+messages after the ready report start no turn (#417). A `ready`, `bootstrap_verified` or
+`reset_verified` stage that times out names what the pane last showed after a dot:
+`ready_timeout.status_busy` (a turn in progress), `.status_waiting` (a native wait),
+`.status_unknown`, `.input_not_empty` (a draft), `.input_line_not_found`, `.turn_running` and
+`.turn_not_ended` (Codex), `.native_dialog`, `.home_unknown`, `.rollout_unreadable`,
+`.status_thread_differs`, `.tmux_unavailable` (tmux could not run, #418), `.pane_unproven` or
+`.pane_unreadable`. After a daemon restart no inspection has run, so the timeout reads the pane
+once without sending a key; a pane in copy mode then gives `.pane_in_mode`. The ready report
+holds the wake lock, so a wake already being submitted ends before `ready` commits. The reason
+is shown on the
+Sessions page, in `koinon context show` and in the audit record. A timeout of another stage
+keeps its plain `<stage>_timeout`.
 
 A new native epoch of the requester before the managed clear (`waiting_ready`, `ready`, or a
 stored `bootstrap_intent` or `bootstrap_verified`) cancels the cycle (`epoch_changed`; uncertain
@@ -383,7 +396,7 @@ input line was empty before). The erase passes the same proof and fence and runs
 input line still holds exactly that text: after a rejected fence, or over another draft, the
 input line stays as it is. A failed step is recorded as
 the cycle's reason (`typed_not_read_back`, `escape_changed_input`, `submit_not_read_back`,
-`pickup_entry_not_listed`, `erase_not_read_back`, `pane_unproven`).
+`pickup_entry_not_listed`, `erase_not_read_back`, `pane_unproven`, `tmux_unavailable`).
 
 Probe decides whether a session's cycle can run, for Enable, at admission and before each
 input. It needs Linux or macOS (`platform_unverified` elsewhere); the host's
@@ -391,7 +404,7 @@ own Claude Code registry record (`sessions/<pid>.json` under the host's `CLAUDE_
 `~/.claude`, read from the host's initial environment) for the same process start
 (`native_registry_unavailable`; on macOS the record's start is `ps -o lstart` text in UTC, compared
 to the whole second), with any Claude Code version (PDR 006, Decision 5; the native checks ran with 2.1.296);
-the pane (`pane_unproven`); and the
+the pane (`pane_unproven`, or `tmux_unavailable` when tmux could not run); and the
 cycle's pickup entry, the Koinon-owned skill `koinon-pickup` (#406):
 `skills/koinon-pickup/SKILL.md` under the host's configuration root. It must be byte-equal to
 the binary's skill: a missing file is `pickup_entry_missing`, another content
@@ -411,8 +424,11 @@ repository (see [INSTALL.md](docs/INSTALL.md)). A write the daemon cannot make i
 (`pickup_skill`, `write_failed`) and does not stop it. `koinon claude` adds no directory to a launch,
 and the cycle adds none to a running session.
 
-The adapter is ready for input when the registry `status` is `idle` and the input line (`❯`
-followed by a no-break space) is empty; text drawn dim there is a placeholder or a suggestion,
+The adapter is ready for input when the registry `status` is `idle` or `shell` and the input
+line (`❯` followed by a no-break space) is empty. `shell` is the prompt with a background shell
+task running, such as a monitor of the session's inbox; Claude Code 2.1.303 takes `/clear`
+there without a dialog, and the task, with its `shell` status, stays through the clear (#417).
+`busy` (a turn in progress) and `waiting` (a native wait) are not ready; text drawn dim there is a placeholder or a suggestion,
 any other text a draft, and the cycle waits. A pane in copy mode is returned to its prompt
 first. The clear and the pickup type the command, read it back (for `/koinon-pickup`, the
 menu's first entry must have the skill's description, with or without a scope such as
@@ -445,7 +461,7 @@ Probe needs Linux or macOS (`platform_unverified` elsewhere); the session
 thread's own rollout under the host's `CODEX_HOME` (else `~/.codex`), whose first record is the
 thread's `session_meta` from the interactive CLI (`native_registry_unavailable`), with any
 `cli_version` (PDR 006, Decision 5; the native checks ran with 0.162.0, 0.162.1 and 0.163.0); the pane
-(`pane_unproven`); the session's participant address held (`participant_unheld`: the thread
+(`pane_unproven`, or `tmux_unavailable`); the session's participant address held (`participant_unheld`: the thread
 after `/clear` is a new session that reports only as the address holder); and the pickup
 entry, the `koinon-pickup` skill in the host's `~/.agents/skills` (#406), a root that Codex
 lists for every session. It is checked as for Claude Code (`pickup_entry_missing`,
@@ -493,9 +509,27 @@ process; an inspection error proves nothing. The host is the launch's process, o
 background job's process reported by its MCP server.
 
 Registration accepts `tool_call` (default false), `clear` (default false) and optional
-`tmux: {socket, pane}`.
+`tmux: {socket, pane, executable}`.
 The socket is an absolute clean path without control characters, at most 4,096 bytes; the
-pane matches `%` followed by 1–9 digits. Invalid values return `invalid_request`.
+pane matches `%` followed by 1–9 digits. The optional `executable` (#418) is the absolute tmux
+that the session's own terminal runs, with the same path rules as the socket. Invalid values
+return `invalid_request`.
+
+Schema 28 adds `sessions.tmux_path`, which stores `executable` with the socket and pane and is
+cleared with them; existing sessions start with `''`. It is a tool path, not identity: an Enable
+and a cycle pin the socket and pane, and read the session's `tmux_path` when they act. `koinon
+mcp` looks `tmux` up on its own `PATH`, which is the agent's, and reports the absolute path
+with the pane; a path that is not absolute and clean is left out. The daemon runs it for the
+session's pane proof, pane wake and cycle input only after it resolves every symbolic link to
+a regular file with an execute bit, owned by root or the daemon's user and not writable by its
+group or others. It reads no shell configuration and guesses no installation directory. Without
+a recorded path it runs `tmux` from its own `PATH`. A recorded path that fails the check, a tmux
+that is not found, and a tmux that cannot start give the fixed reason `tmux_unavailable`, apart
+from a pane that tmux answered for but that does not hold the host. `koinon mcp` sends the
+path at each registration: the session's first Koinon tool call, a tool call after its record
+expired or was retired, and the renewal of an expired record. An ordinary renewal carries no
+pane. A session whose `koinon mcp` started before the upgrade has no path until it is restarted
+(docs/INSTALL.md, System mode on macOS).
 `koinon mcp` sets `tool_call` for registrations triggered by native tool calls and reports a
 pane only after the terminal-naming ancestor check proves it holds the host, without a
 nested agent between them. Neither identity, host nor pane comes from tool arguments.
@@ -525,7 +559,7 @@ pane, has proven the candidate's ID as its new native epoch (a Codex thread's ID
 is in `reset_verified`, `pickup_intent` or `waiting_pickup` (or a prompt wait that began in
 one of them), still has the Enable that admitted it and is before its stage and cycle
 deadlines. This is not a general address move: every other candidate keeps the rules above. The hook has no terminal, so a cleared thread that registers without
-a pane keeps the holder's recorded tmux socket and pane (each wake proves it again). Every
+a pane keeps the holder's recorded tmux socket, pane and tmux path (each wake proves it again). Every
 other rule applies unchanged. Codex runs no hook at `/clear` itself, so until the new thread's
 first turn the cleared thread stays the holder (#275). On Linux and macOS a participant notice
 for a launched holder with a tmux pane is typed into that pane (see the Codex pane wake
@@ -709,7 +743,8 @@ Grok (#254) types the notice into the session's own tmux pane: the socket and pa
 pane from model input. Before each wake the daemon proves the pane again: the host process
 still has its recorded start value, and the pane's process is the host or an ancestor of it
 with no other agent process between them. Otherwise the wake waits with
-`grok_target_unavailable` and sends nothing. It then reads the pane and types only when Grok
+`grok_target_unavailable` and sends nothing; when tmux could not run (see Verified succession),
+it waits with `tmux_unavailable`. It then reads the pane and types only when Grok
 is idle: every line of the last input box (`│ ❯` and its bordered continuation lines) is
 empty, no line is the running-turn status (a spinner glyph that ends with `[stop]`), and no
 line below the box shows a cancel shortcut (Grok Build 1.0.50 keeps the box empty during a
@@ -725,7 +760,8 @@ no longer shows. On Linux and macOS, a participant notice for a session started 
 key the daemon proves the pane as for Grok and proves that the pane's terminal gives input to
 the host: the host shares the pane process's terminal and is in its foreground process group,
 and every other member of that group is an ancestor of the host. A child of the host that holds
-the foreground is refused. Otherwise the wake waits with `codex_target_unavailable`. Codex CLI
+the foreground is refused. Otherwise the wake waits with `codex_target_unavailable`, or with
+`tmux_unavailable` when tmux could not run (#418); the message stays queued and is tried again. Codex CLI
 0.162.0 shows no busy marker while a reply streams, so the wake also requires the session's
 observed activity to be `idle`. An unknown or busy activity waits with `receiver_busy`, as does
 a screen that shows the running-turn status (`Working (… esc to interrupt)`) or whose input

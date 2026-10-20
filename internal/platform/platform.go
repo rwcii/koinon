@@ -171,3 +171,53 @@ func TmuxSocketDir(getenv func(string) string) string {
 	}
 	return filepath.Join(base, fmt.Sprintf("tmux-%d", os.Getuid()))
 }
+
+// TrustedExecutable resolves path, the absolute executable that an agent's own terminal runs,
+// such as its tmux (#418), for this process to run instead of a name looked up on its own
+// PATH. Every symbolic link is resolved, and the target must be a regular file with an
+// execute bit, owned by root or this process's user, and not writable by its group or by
+// others. It reads no shell configuration and guesses no installation directory.
+func TrustedExecutable(path string) (string, error) {
+	return trustedExecutable(path, os.Geteuid())
+}
+
+func trustedExecutable(path string, uid int) (string, error) {
+	if !CleanAbsolutePath(path) {
+		return "", errors.New("executable path is not absolute and clean")
+	}
+	resolved, err := filepath.EvalSymlinks(path)
+	if err != nil {
+		return "", err
+	}
+	// Lstat: a link put in place of the resolved file is refused, not followed.
+	info, err := os.Lstat(resolved)
+	if err != nil {
+		return "", err
+	}
+	stat, ok := info.Sys().(*syscall.Stat_t)
+	switch {
+	case !ok || !info.Mode().IsRegular():
+		return "", errors.New("executable is not a regular file")
+	case info.Mode().Perm()&0111 == 0:
+		return "", errors.New("executable has no execute bit")
+	case info.Mode().Perm()&0022 != 0:
+		return "", errors.New("executable is writable by its group or others")
+	case stat.Uid != 0 && stat.Uid != uint32(uid):
+		return "", errors.New("executable is not owned by root or this user")
+	}
+	return resolved, nil
+}
+
+// CleanAbsolutePath reports whether path is absolute, clean, at most 4096 bytes and free of
+// control characters.
+func CleanAbsolutePath(path string) bool {
+	if !filepath.IsAbs(path) || filepath.Clean(path) != path || len(path) > 4096 {
+		return false
+	}
+	for _, r := range path {
+		if r < 0x20 || r == 0x7f {
+			return false
+		}
+	}
+	return true
+}
