@@ -16,9 +16,11 @@ import (
 
 // fakeAdapter is a synthetic cycle adapter: it enters no input and records each call.
 type fakeAdapter struct {
-	mu       sync.Mutex
-	pane     PaneState
-	inspect  error
+	mu      sync.Mutex
+	pane    PaneState
+	inspect error
+	// inMode puts the pane in copy mode: Inspect calls the fence before it would send a key.
+	inMode   bool
 	clear    bool
 	epoch    string
 	pickup   bool
@@ -42,8 +44,14 @@ func (f *fakeAdapter) Probe(context.Context, CycleTarget) CycleProbe {
 	f.record("probe")
 	return f.probe
 }
-func (f *fakeAdapter) Inspect(_ context.Context, t CycleTarget, _ CycleFence) (PaneState, error) {
+func (f *fakeAdapter) Inspect(ctx context.Context, t CycleTarget, fence CycleFence) (PaneState, error) {
 	f.record("inspect " + t.Pane)
+	if f.inMode {
+		if err := fence(ctx); err != nil {
+			return PaneState{}, err
+		}
+		f.record("cancel copy mode")
+	}
 	return f.pane, f.inspect
 }
 

@@ -24,10 +24,13 @@ func (p *paneSeen) set(id, seen string) {
 	p.m[id] = seen
 }
 
-func (p *paneSeen) get(id string) string {
+// get returns what the cycle's last inspection saw, and whether one ran since the daemon
+// started.
+func (p *paneSeen) get(id string) (string, bool) {
 	p.mu.Lock()
 	defer p.mu.Unlock()
-	return p.m[id]
+	seen, ok := p.m[id]
+	return seen, ok
 }
 
 // keep forgets every cycle that is not in active.
@@ -45,14 +48,21 @@ func (p *paneSeen) keep(active []cycleRow) {
 	}
 }
 
+// errPaneInMode refuses the key that returns a pane from copy mode, in an inspection that
+// only reads.
+var errPaneInMode = errors.New("pane_in_mode")
+
 // inspectSeen is the fixed code of an inspection that failed: a tmux that could not run
-// (#418), an unproven pane, else a pane or registry that could not be read.
+// (#418), an unproven pane, a pane in copy mode during a read-only inspection, else a pane or
+// registry that could not be read.
 func inspectSeen(err error) string {
 	switch {
 	case errors.Is(err, errTmuxUnavailable):
 		return errTmuxUnavailable.Error()
 	case errors.Is(err, errClaudeUnproven) || errors.Is(err, errCodexUnproven):
 		return "pane_unproven"
+	case errors.Is(err, errPaneInMode):
+		return "pane_in_mode"
 	}
 	return "pane_unreadable"
 }
@@ -64,6 +74,33 @@ func proofError(err, unproven error) error {
 		return err
 	}
 	return unproven
+}
+
+// timeoutSeen is what a stage that waited for the pane saw last. After a restart no
+// inspection has run, so it reads the pane once, sending no key.
+func (s *Store) timeoutSeen(ctx context.Context, c cycleRow) string {
+	if seen, ok := s.paneSeen.get(c.ID); ok {
+		return seen
+	}
+	adapter := cycleAdapterOf(c.Family)
+	if adapter == nil {
+		return ""
+	}
+	t := s.cycleTarget(ctx, c)
+	s.wake.mu.Lock()
+	defer s.wake.mu.Unlock()
+	pane, err := adapter.Inspect(ctx, t, func(context.Context) error { return errPaneInMode })
+	switch {
+	case err != nil:
+		return inspectSeen(err)
+	case pane.Prompt != "" && cycleCode.MatchString(pane.Prompt):
+		return pane.Prompt
+	case pane.Idle:
+		return ""
+	case pane.Seen != "" && cycleCode.MatchString(pane.Seen):
+		return pane.Seen
+	}
+	return "pane_not_ready"
 }
 
 // contextObserved runs after a context observation was stored, outside the observation
@@ -117,8 +154,10 @@ func (s *Store) stepCycle(ctx context.Context, c cycleRow) error {
 	case now >= c.StageDeadline && !cycleInputUnproven(c.State):
 		// A stage that waited for the pane names what the pane last showed.
 		reason := c.State + "_timeout"
-		if seen := s.paneSeen.get(c.ID); seen != "" && cycleWaitsForPane(c.State) {
-			reason += "." + seen
+		if cycleWaitsForPane(c.State) {
+			if seen := s.timeoutSeen(ctx, c); seen != "" {
+				reason += "." + seen
+			}
 		}
 		_, err := s.endCycle(ctx, c.ID, c.Revision, cycleFailed, reason)
 		return err

@@ -879,6 +879,10 @@ func (s *Store) ContextCycleReady(ctx context.Context, caller Key, epoch, id str
 	if epoch == "" || !nativeEpoch.MatchString(epoch) {
 		return CycleView{}, ErrCycleEpoch
 	}
+	// The ready report holds wake.mu, as each wake submission does: a wake that passed the
+	// pane hold before the report ends before ready commits, and none starts after it (#417).
+	s.wake.mu.Lock()
+	defer s.wake.mu.Unlock()
 	now := s.now().UnixMilli()
 	if err := s.activeCaller(ctx, caller, now); err != nil {
 		return CycleView{}, err

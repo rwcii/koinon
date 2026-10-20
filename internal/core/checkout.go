@@ -5,6 +5,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -36,16 +37,21 @@ func CheckoutResource(ctx context.Context, directory string) (Checkout, error) {
 	if err != nil {
 		return Checkout{}, ErrInvalid
 	}
-	ctx, cancel := context.WithTimeout(ctx, 3*time.Second)
+	ctx, cancel := context.WithTimeout(ctx, repositoryGitTimeout)
 	defer cancel()
+	started := time.Now()
 	common, err := repository(ctx, path)
 	if err != nil {
 		return Checkout{}, err
 	}
+	first := time.Since(started)
 	cmd := exec.CommandContext(ctx, "git", "-C", path, "rev-parse", "--show-toplevel")
 	cmd.Env = CleanGitEnvironment()
 	data, err := cmd.Output()
 	if err != nil {
+		if errors.Is(ctx.Err(), context.DeadlineExceeded) {
+			return Checkout{}, RepositoryGitTimeout{[]time.Duration{first, time.Since(started) - first}}
+		}
 		return Checkout{}, ErrInvalid // includes bare repositories and Git metadata directories
 	}
 	root, err := filepath.EvalSymlinks(strings.TrimSuffix(string(data), "\n"))

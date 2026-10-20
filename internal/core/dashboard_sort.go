@@ -60,6 +60,9 @@ var viewFilters = map[string][]string{
 	"messages": {"to", "peers"},
 	"memory":   {"store", "q", "type", "all"},
 	"work":     {"lifecycle", "store", "item"},
+	// The decision board's status filter (#411) and looked-up item (#414); the board has no
+	// sorting.
+	"decisions": {"status", "ref"},
 }
 
 // backLimit bounds the encoded back field: a longest supported view query, a repository

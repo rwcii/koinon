@@ -41,6 +41,23 @@ Changes:
   the `--add-dir` loader, and the cycle no longer enters `/add-dir` before the clear or
   answers the add-directory dialog; `<state>/cycle/claude-loader` is no longer written or read
   and can be removed.
+- Repository discovery (#410): a registration's Git calls share one six-second limit instead
+  of three seconds each, so a slow first Git call no longer fails with
+  `repository_git_timeout`; a hung Git still does. The refusal now gives the time of each
+  Git call in `details.calls_ms` and the limit in `details.limit_ms`, and the command line
+  prints them, so a later timeout shows which call was slow.
+- Decision board filter (#411): each count on the dashboard's Decisions page (waiting, in
+  progress, open fyi, archived) is a link that shows only the items of that status, and
+  **all** shows every item again. The filter is the `status` query parameter, so it stays
+  after a reload, a lookup, paging and a verdict; the counts stay totals, and an unknown value
+  is refused. The page uses plain links, with no new script (PROTOCOL.md, Dashboard).
+- Decision lookup card (#414): an item opened by reference on the Decisions page, from
+  **Find** or the agent table's "Waiting for a verdict" links, shows its card at full width
+  when it is waiting, in progress or an open fyi, with the same **Approve**, **Decline**,
+  **Dismiss** and note as on the board; the cards below leave it out, so it shows once. A
+  verdict there returns to the same lookup and status filter, with the answer on that card.
+  Archived items stay read only, and the verdict history stays below the item (PROTOCOL.md,
+  Dashboard).
 - Handoff on an active machine (#417): after the ready report, the cycle clears a Claude Code
   session that is at its prompt with a background task running (registry status `shell`, such
   as a monitor of its inbox); before, it waited for `idle`, which such a session never shows,

@@ -558,3 +558,101 @@ func TestContextCycleReadyHoldsWakesAndNamesWhatItSaw(t *testing.T) {
 		t.Fatalf("waiting_ready: %+v", v)
 	}
 }
+
+// A wake that passed the pane hold before the ready report ends before ready commits: the
+// report waits for the wake lock, so no notice is accepted during ready (#417 review).
+func TestContextCycleReadyWaitsForAWakeInFlight(t *testing.T) {
+	f := newCycleFixture(t)
+	f.observe(t, f.k, 900, "synthetic-epoch-1")
+	requested := f.status(t, f.k)
+	artifact := f.handoff(t, "claude", "2026-10-20-010000.md", "synthetic handoff")
+	peer := join(t, f.s, "codex", "synthetic-peer", f.repo)
+	if _, err := f.s.Send(context.Background(), Key{"codex", peer.ID}, f.session.Name, "synthetic peer notice"); err != nil {
+		t.Fatal(err)
+	}
+	sending, release := make(chan struct{}), make(chan struct{})
+	wakeDone, readyDone := make(chan error, 1), make(chan error, 1)
+	f.s.wake.send = func(context.Context, Session, string) wakeResult {
+		close(sending)
+		<-release
+		return accepted()
+	}
+	go func() { wakeDone <- f.s.wakeStep(context.Background()) }()
+	<-sending
+	go func() {
+		_, err := f.s.ContextCycleReady(context.Background(), f.k, "synthetic-epoch-1", requested.ID, requested.Revision, artifact)
+		readyDone <- err
+	}()
+	select {
+	case err := <-readyDone:
+		close(release)
+		t.Fatalf("ready returned while a wake was being submitted: %v", err)
+	case <-time.After(300 * time.Millisecond):
+	}
+	close(release)
+	if err := <-wakeDone; err != nil {
+		t.Fatal(err)
+	}
+	if err := <-readyDone; err != nil {
+		t.Fatal(err)
+	}
+	if v := f.status(t, f.k); v.State != cycleReady {
+		t.Fatalf("after the wake: %+v", v)
+	}
+}
+
+// After a restart no inspection has run: the timeout reads the pane once, sending no key,
+// and names what it saw (#417 review).
+func TestContextCycleTimeoutAfterRestartNamesThePane(t *testing.T) {
+	for _, test := range []struct {
+		inMode bool
+		want   string
+	}{{false, "ready_timeout.status_busy"}, {true, "ready_timeout.pane_in_mode"}} {
+		f := newCycleFixture(t)
+		ready, _ := f.readyCycle(t)
+		f.adapter.pane = PaneState{Seen: "status_busy"}
+		f.step(t)
+		f.s.db.Close()
+		reopened, err := openStore(f.root)
+		if err != nil {
+			t.Fatal(err)
+		}
+		t.Cleanup(func() { reopened.Close() })
+		reopened.now = f.s.now
+		f.s = reopened
+		f.adapter.inMode = test.inMode
+		f.clock = time.UnixMilli(ready.StageDeadline)
+		f.step(t)
+		var audit string
+		if err := f.s.db.QueryRow(`SELECT reason FROM audit WHERE action='context-cycle' ORDER BY id DESC LIMIT 1`).Scan(&audit); err != nil {
+			t.Fatal(err)
+		}
+		if v := f.status(t, f.k); v.State != cycleFailed || v.Reason != test.want || audit != test.want || f.adapter.count("cancel") != 0 {
+			t.Fatalf("%s: %+v audit=%q %v", test.want, v, audit, f.adapter.calls)
+		}
+	}
+}
+
+// koinon context show gives the newest cycle's reason (#417 review).
+func TestContextShowGivesTheCycleReason(t *testing.T) {
+	f := newCycleFixture(t)
+	ready, _ := f.readyCycle(t)
+	f.adapter.pane = PaneState{Seen: "status_busy"}
+	f.step(t)
+	f.clock = time.UnixMilli(ready.StageDeadline)
+	f.step(t)
+	f.status(t, f.k)
+	_, sessions, _, err := f.s.ContextShow(context.Background(), "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, v := range sessions {
+		if v.Peer == f.session.Name {
+			if v.CycleState != cycleFailed || v.CycleReason != "ready_timeout.status_busy" {
+				t.Fatalf("context show: %+v", v)
+			}
+			return
+		}
+	}
+	t.Fatalf("session not shown: %+v", sessions)
+}

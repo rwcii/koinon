@@ -237,7 +237,8 @@ calling session). Without `peer`, a request with a caller names the caller's own
   every page). Each is an active agent session's `peer`, `family`, `enabled`,
   `enable_revision`, `mode`, `threshold`, `threshold_source` (`session` or `family`),
   `available`, `unavailable`, `eligible`, `reason`, and its newest cycle's `cycle_id`,
-  `cycle_revision`, `cycle_state` and waiting native `dialog` (`lines`, `options`, `digest`).
+  `cycle_revision`, `cycle_state`, `cycle_reason` and waiting native `dialog` (`lines`,
+  `options`, `digest`). The table shows the cycle's reason after its state.
 - `POST /v1/context/set` (`context_set` with `target_family`, `koinon context set`) takes
   `family`, `mode` and `threshold`, as `context-family-settings`.
 - `POST /v1/context/enable` (`context_enable`, `koinon context enable|disable`) takes `peer`
@@ -362,7 +363,10 @@ messages after the ready report start no turn (#417). A `ready`, `bootstrap_veri
 `.status_unknown`, `.input_not_empty` (a draft), `.input_line_not_found`, `.turn_running` and
 `.turn_not_ended` (Codex), `.native_dialog`, `.home_unknown`, `.rollout_unreadable`,
 `.status_thread_differs`, `.tmux_unavailable` (tmux could not run, #418), `.pane_unproven` or
-`.pane_unreadable`. The reason is shown on the
+`.pane_unreadable`. After a daemon restart no inspection has run, so the timeout reads the pane
+once without sending a key; a pane in copy mode then gives `.pane_in_mode`. The ready report
+holds the wake lock, so a wake already being submitted ends before `ready` commits. The reason
+is shown on the
 Sessions page, in `koinon context show` and in the audit record. A timeout of another stage
 keeps its plain `<stage>_timeout`.
 
@@ -666,10 +670,11 @@ Replies include `ok`. Success returns `session` or `sessions`; failures report a
 `unauthorized` (401), `foreign_origin` (403), `invalid_request` (400), `session_not_found` (404),
 `session_conflict` (409), `repository_git_unavailable` (503), `repository_git_timeout` (503),
 the message codes above, or `storage_error` (500). Repository discovery reports the Git
-execution or timeout category without returning command stderr or machine paths. Its
-three-second limit and invalid-input/repository validation remain unchanged. Mutations commit
-before replying. A lost reply does not prove rollback; read the retained record before
-retrying.
+execution or timeout category without returning command stderr or machine paths. Its Git
+calls for one request share a six-second limit. A `repository_git_timeout` refusal gives
+`details.calls_ms`, the time of each Git call of the request in order, and `details.limit_ms`.
+Invalid-input/repository validation remains unchanged. Mutations commit before replying. A lost reply does not prove rollback;
+read the retained record before retrying.
 
 Launch creation takes `family` (`claude`, `codex`, `agy`, `opencode`, `grok`), absolute `directory` and `cli`,
 and positive `host_pid`. Grok may add `session_id`, a canonical lower-case UUID that the
@@ -1616,10 +1621,19 @@ from elsewhere. Peer message bodies appear here, escaped, and nowhere else outsi
   were at the post, by address or peer name and family: queued with the inbox copy's delivery
   state and acknowledgement, skipped with the reason, or `not retained` with unknown
   acknowledgement once the copy is deleted; the view reads one snapshot and acknowledges
-  nothing), `decisions` (100 active decision items per page in item ID order with
-  `after=ID` links, and `ref=REFERENCE` shows one item's fields, commands, recipients, current
-  verdict with its deliveries and last close as escaped plain text, with the verdict form of
-  an active item), `memory` (per store:
+  nothing), `decisions` (the counts of waiting, in-progress, open fyi and archived items; the
+  agent table; 25 active and in-progress cards per page, `ACTION FOR YOU` items first, then
+  item order and reference, with `cards=CURSOR` links; 20 archived items per page with
+  `archived=ID` links; `ref=REFERENCE` shows one item at full width above the agent table,
+  with its verdict history 16 verdicts at a time through `history=ID`: a waiting, in-progress
+  or open fyi item as its card with the card's verdict form, which the cards below then skip,
+  and an archived item read only. A verdict's redirect keeps `ref`, so it returns to the
+  lookup with the notice on that item.
+  Each count links to `status=waiting`,
+  `in_progress`, `fyi` or `archived`, which lists only the cards of that status, or only the
+  archive for `archived`; an `all` link removes it. The counts stay totals under a filter, the
+  current filter's link carries `aria-current="true"`, and the lookup form, reference and page
+  links and a verdict's redirect keep it. An unknown `status` is 400), `memory` (per store:
   head, floor, entries and logical bytes against their ceilings, consumers, work debt and
   maintenance, 50 stores per page; with `store=REPOSITORY`, that store's entries, newest first,
   50 per page with `before=SEQ`: sequence, time, type, scope, path, writer, author, body, state
