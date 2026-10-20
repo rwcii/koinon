@@ -433,9 +433,13 @@ procedure, so a project's own `pickup` skill neither blocks the cycle nor is cha
 ([INSTALL.md](INSTALL.md#install), step 7). For Codex, the new thread after the clear takes the
 address and reports the pickup. An enabled session
 whose context reaches its threshold gets a request from `overwatch`, Koinon's reserved system
-requester, in its inbox. The session writes its handoff and reports it with
-`context_cycle_ready`; the daemon then clears the session's context in its tmux pane, enters
-its pickup, and the new context reports with `context_cycle_pickup`. The Sessions page shows
+requester, in its inbox. The request asks the session to pause at a safe stopping point, write
+its handoff and report it with `context_cycle_ready`, then end its turn and stay idle. The
+daemon clears the session's context in its tmux pane only at its idle prompt, enters its
+pickup, and the new context reports with `context_cycle_pickup`. When the session does not
+become idle within two minutes of its ready report, `overwatch` sends the request again under a
+new revision, and the session pauses, writes its handoff and reports ready again; the cycle's
+30-minute lifetime and its event limit bound the repeats. The Sessions page shows
 each session's current or newest cycle: its stage, the stage deadline and each recorded step.
 Disabling, retiring or purging the session, a family mode without the cycle, or a holder
 choice for its address ends the cycle; a cycle that fails or cannot be proven ends the

@@ -416,12 +416,96 @@ func (s *Store) sessionProbe(ctx context.Context, k Key) CycleProbe {
 }
 
 // cycleRequestBody is the fixed text of the typed request. It names the cycle and asks the
-// session to finish or pause its step and write its own handoff.
+// session to pause at a safe stopping point, write its own handoff, report ready and then
+// stay idle, because the clear waits for its idle prompt (#431).
 func cycleRequestBody(id string, revision int64) string {
 	return "overwatch: managed context cycle " + id + " revision " + strconv.FormatInt(revision, 10) +
-		" requests your handoff. Finish or pause your current step, write your handoff with your canonical handoff " +
-		"procedure, then call context_cycle_ready with this cycle ID, its revision and the handoff file name. " +
-		"See the Managed cycle reporting section of koinon guide."
+		" requests your handoff. Pause your work at the next safe stopping point and start no new work. Write your handoff " +
+		"with your canonical handoff procedure, then call context_cycle_ready with this cycle ID, its revision and the handoff " +
+		"file name. Then end your turn and stay idle: overwatch clears your context only at your idle prompt, and asks again " +
+		"if your pane does not become idle. See the Managed cycle reporting section of koinon guide."
+}
+
+// cycleReadyNext is the instruction of a successful ready report (#431).
+const cycleReadyNext = "Paused and ready: end your turn now and start no other work. Overwatch clears your context at " +
+	"your idle prompt and then enters koinon-pickup."
+
+// cycleRepeatable reports whether a ready cycle whose stage deadline passed asks its
+// requester again (#431): the pane was read and was not at its idle prompt, such as a turn in
+// progress, a draft, an unknown registry status or no input line found (pane_not_ready when
+// the adapter named nothing). A pane that could not be read or proven, and an idle pane,
+// keep the timeout.
+func cycleRepeatable(seen string) bool {
+	switch seen {
+	case "", errTmuxUnavailable.Error(), "pane_unproven", "pane_in_mode", "pane_unreadable":
+		return false
+	}
+	return true
+}
+
+// repeatCycleRequest asks a requester again whose pane did not become idle after its ready
+// report (#431). In one ordinary transaction the cycle returns to waiting_ready under a new
+// revision, drops the reported handoff, gets a new readiness deadline within its lifetime
+// and puts a new overwatch request in the requester's inbox. The cycle's event and credit
+// bounds stay: a repeat that would take the last event slot returns errCycleEventLimit.
+func (s *Store) repeatCycleRequest(ctx context.Context, id string, revision int64, seen string) error {
+	now := s.now().UnixMilli()
+	tx, err := s.begin(noAudit(ctx), ordinary)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+	c, err := scanCycle(tx.QueryRowContext(ctx, `SELECT `+cycleColumns+` FROM context_cycles WHERE cycle_id=?`, id))
+	if err != nil {
+		return err
+	}
+	if c.Revision != revision || c.State != cycleReady || now >= c.CycleDeadline {
+		return ErrCycleChanged
+	}
+	if ok, err := cycleEnabled(ctx, tx, c); err != nil || !ok {
+		if err == nil {
+			err = ErrCycleChanged
+		}
+		return err
+	}
+	if ok, err := requesterPinned(ctx, tx, c, now); err != nil || !ok {
+		if err == nil {
+			err = ErrCycleChanged
+		}
+		return err
+	}
+	if c.Credit < cycleStagePages+cycleTerminalPages {
+		return errCycleEventLimit
+	}
+	reason := "not_idle." + seen
+	if err := cycleEvent(ctx, tx, &c, now, cycleWaitingReady, "entered", reason); err != nil {
+		return err
+	}
+	c.Revision++
+	c.Credit -= cycleStagePages
+	c.State, c.Reason, c.UpdatedAt = cycleWaitingReady, reason, now
+	c.StageDeadline = min(now+cycleReadyWait.Milliseconds(), c.CycleDeadline)
+	c.Artifact, c.ArtifactDev, c.ArtifactIno, c.ArtifactSize, c.ArtifactMtime = "", 0, 0, 0, 0
+	var seq int64
+	if err := tx.QueryRowContext(ctx, `UPDATE sessions SET last_seq=last_seq+1 WHERE family=? AND id=? RETURNING last_seq`, c.Family, c.SessionID).Scan(&seq); err != nil {
+		return tx.fail(err)
+	}
+	if _, err := tx.ExecContext(ctx, `INSERT INTO messages(recipient_family,recipient_id,seq,sender_family,sender_id,sender_name,body,
+		created_at,delivery_updated_at,system_kind,cycle_id,cycle_enable_revision) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)`,
+		c.Family, c.SessionID, seq, overwatchKey.Family, overwatchKey.ID, overwatchName, cycleRequestBody(c.ID, c.Revision), now, now,
+		cycleRequestKind, c.ID, c.EnableRevision); err != nil {
+		return tx.fail(err)
+	}
+	if err := updateCycle(ctx, tx, c); err != nil {
+		return tx.fail(err)
+	}
+	if _, err := tx.ExecContext(ctx, `UPDATE context_cycles SET message_seq=? WHERE cycle_id=?`, seq, c.ID); err != nil {
+		return tx.fail(err)
+	}
+	if err := cycleAudit(ctx, tx, now, c, cycleWaitingReady, reason); err != nil {
+		return tx.fail(err)
+	}
+	return tx.Commit()
 }
 
 // admitContextCycle admits a cycle for one session when its context crossed its threshold.
@@ -919,6 +1003,8 @@ func (s *Store) ContextCycleReady(ctx context.Context, caller Key, epoch, id str
 		v, _ := next.view(ctx, s.db, role)
 		return v, err
 	}
+	// A new ready stage starts without an earlier stage's pane observation (#431).
+	s.paneSeen.forget(id)
 	return next.view(ctx, s.db, role)
 }
 

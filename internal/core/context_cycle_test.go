@@ -859,6 +859,20 @@ func TestContextCycleDashboardAndRoutes(t *testing.T) {
 		"cycle_id": id, "revision": 3, "artifact": "2026-10-13-120000.md"}); status != 409 || reply["code"] != "cycle_changed" {
 		t.Fatalf("stale ready: %d %v", status, reply)
 	}
+	// A successful ready report tells the requester to stay paused (#431).
+	if err := os.WriteFile(filepath.Join(repo, ".gitignore"), []byte("_handoff/\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(filepath.Join(repo, "_handoff", "claude"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(repo, "_handoff", "claude", "2026-10-13-120000.md"), []byte("synthetic handoff"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if status, reply := post(t, address, secret, "/v1/cycles/ready", map[string]any{"caller": caller, "epoch": "synthetic-private-epoch",
+		"cycle_id": id, "revision": 1, "artifact": "2026-10-13-120000.md"}); status != 200 || reply["next"] != cycleReadyNext {
+		t.Fatalf("ready: %d %v", status, reply)
+	}
 	// The native inbox read carries the typed request's metadata.
 	status, reply := post(t, address, secret, "/v1/inbox/read", map[string]any{"caller": caller, "after": 0, "limit": 10})
 	data, _ := json.Marshal(reply)

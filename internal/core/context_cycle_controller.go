@@ -33,6 +33,13 @@ func (p *paneSeen) get(id string) (string, bool) {
 	return seen, ok
 }
 
+// forget drops what the cycle's last inspection saw.
+func (p *paneSeen) forget(id string) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	delete(p.m, id)
+}
+
 // keep forgets every cycle that is not in active.
 func (p *paneSeen) keep(active []cycleRow) {
 	p.mu.Lock()
@@ -152,10 +159,26 @@ func (s *Store) stepCycle(ctx context.Context, c cycleRow) error {
 		_, err := s.endCycle(ctx, c.ID, c.Revision, cycleFailed, "cycle_timeout")
 		return err
 	case now >= c.StageDeadline && !cycleInputUnproven(c.State):
-		// A stage that waited for the pane names what the pane last showed.
+		// A stage that waited for the pane names what the pane last showed. A requester that
+		// reported ready but did not become idle is asked again (#431).
 		reason := c.State + "_timeout"
 		if cycleWaitsForPane(c.State) {
-			if seen := s.timeoutSeen(ctx, c); seen != "" {
+			seen := s.timeoutSeen(ctx, c)
+			if c.State == cycleReady && cycleRepeatable(seen) {
+				// A repeat refused because the cycle changed, its Enable or pin ended, or the
+				// store is full ends the cycle as the timeout did; a changed revision makes
+				// that end a no-op.
+				switch err := s.repeatCycleRequest(ctx, c.ID, c.Revision, seen); {
+				case err == nil:
+					return nil
+				case errors.Is(err, errCycleEventLimit):
+					_, err = s.endCycle(ctx, c.ID, c.Revision, cycleFailed, "event_limit")
+					return err
+				case !errors.Is(err, ErrCycleChanged) && !errors.Is(err, ErrCapacity):
+					return err
+				}
+			}
+			if seen != "" {
 				reason += "." + seen
 			}
 		}

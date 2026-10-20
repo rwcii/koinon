@@ -36,6 +36,11 @@ func (d *Daemon) cycleRoutes(mux *http.ServeMux) {
 		}
 		d.store.ToolCall(request.Caller)
 		cycle, err := d.store.ContextCycleReady(r.Context(), request.Caller, request.Epoch, request.CycleID, request.Revision, request.Artifact)
+		if err == nil {
+			// The requester stays paused: the clear waits for its idle prompt (#431).
+			respond(w, 200, map[string]any{"ok": true, "cycle": cycle, "next": cycleReadyNext})
+			return
+		}
 		cycleReply(w, cycle, err)
 	})
 	mux.HandleFunc("POST /v1/cycles/pickup", func(w http.ResponseWriter, r *http.Request) {
