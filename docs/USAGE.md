@@ -222,7 +222,11 @@ fyi, archived), then a table of the active agents: name, activity, claimed work,
 or "not reported", and the waiting items that name the agent. The cards follow:
 `ACTION FOR YOU` items first, then item order and reference. Each terminal-copy command is in
 its own box with a **Copy** button. The archive lists closed items, and **Find** opens any item
-by reference, read only, with its verdict history and the text of each verdict.
+by reference, read only, with its verdict history and the text of each verdict. Choose a count
+to show only the items of that status (`status=waiting`, `in_progress`, `fyi` or `archived` in
+the address); **all** shows every item again. The chosen count is marked, the counts stay
+totals, and the filter stays after a reload, a **Find** and a verdict. An unknown status in
+the address is refused.
 
 Give a verdict on the card: **Approve** or **Decline** a decision item, or **Dismiss** an fyi
 item, with an optional Markdown note. The buttons are disabled while the request runs, and

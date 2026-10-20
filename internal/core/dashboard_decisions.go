@@ -27,6 +27,24 @@ const (
 // decisionPriority sorts ACTION FOR YOU fyi items before the other cards.
 const decisionPriority = `CASE WHEN kind='fyi' AND substr(title,1,14)='` + actionForYou + `' THEN 0 ELSE 1 END`
 
+// decisionStatus is one status filter of the board (#411): the label of its empty card list,
+// the fixed SQL condition of its cards ("" when it lists no cards), and whether it lists the
+// archive.
+type decisionStatus struct {
+	label, cards string
+	archive      bool
+}
+
+// decisionStatuses are the board's status filters by their status parameter; "" is all. A
+// request names only a key; the SQL comes from this table.
+var decisionStatuses = map[string]decisionStatus{
+	"":            {"active or in-progress", `state IN ('active','in_progress')`, true},
+	"waiting":     {"waiting", `state='active' AND kind='decision'`, false},
+	"in_progress": {"in progress", `state='in_progress'`, false},
+	"fyi":         {"open fyi", `state='active' AND kind='fyi'`, false},
+	"archived":    {"archived", "", true},
+}
+
 type decisionCounts struct {
 	Waiting, InProgress, OpenFYI, Archived int64
 }
@@ -49,11 +67,14 @@ type decisionAgentWork struct {
 
 // decisionsData is the Decisions board (#206, chunk 03).
 type decisionsData struct {
-	Counts     decisionCounts
-	Agents     []decisionAgent
-	MoreAgents bool
-	Cards      []DecisionItem
-	NextCards  string
+	Counts decisionCounts
+	// Status is the status filter shown ("" is all); the counts stay totals under it.
+	Status, StatusLabel    string
+	ShowCards, ShowArchive bool
+	Agents                 []decisionAgent
+	MoreAgents             bool
+	Cards                  []DecisionItem
+	NextCards              string
 	// CardsAt is the cursor of the page shown, which a verdict form returns to.
 	CardsAt   string
 	Archive   DecisionPage
@@ -101,6 +122,13 @@ func (c cardCursor) String() string {
 
 func (s *Store) dashboardDecisions(ctx context.Context, q url.Values) (decisionsData, error) {
 	data := decisionsData{Card: q.Get("card")}
+	// An unknown status filter is refused like any other malformed view query.
+	status, ok := decisionStatuses[q.Get("status")]
+	if !ok {
+		return data, ErrInvalid
+	}
+	data.Status, data.StatusLabel = q.Get("status"), status.label
+	data.ShowCards, data.ShowArchive = status.cards != "", status.archive
 	if _, ok := parseCardCursor(q.Get("cards")); ok {
 		data.CardsAt = q.Get("cards")
 	}
@@ -120,15 +148,19 @@ func (s *Store) dashboardDecisions(ctx context.Context, q url.Values) (decisions
 		Scan(&data.Counts.Waiting, &data.Counts.InProgress, &data.Counts.OpenFYI, &data.Counts.Archived); err != nil {
 		return data, err
 	}
-	if err := s.decisionCards(ctx, tx, q.Get("cards"), &data); err != nil {
-		return data, err
+	if data.ShowCards {
+		if err := s.decisionCards(ctx, tx, status.cards, q.Get("cards"), &data); err != nil {
+			return data, err
+		}
 	}
-	from, err := strconv.ParseInt(q.Get("archived"), 10, 64)
-	if err != nil || from < 0 {
-		from = 0
-	}
-	if data.Archive, err = decisionPage(ctx, tx, "archived", nil, from, decisionBoardArchive); err != nil {
-		return data, err
+	if data.ShowArchive {
+		from, err := strconv.ParseInt(q.Get("archived"), 10, 64)
+		if err != nil || from < 0 {
+			from = 0
+		}
+		if data.Archive, err = decisionPage(ctx, tx, "archived", nil, from, decisionBoardArchive); err != nil {
+			return data, err
+		}
 	}
 	if reference := q.Get("ref"); reference != "" {
 		data.Lookup = reference
@@ -163,15 +195,16 @@ func (s *Store) dashboardDecisions(ctx context.Context, q url.Values) (decisions
 	return data, nil
 }
 
-// decisionCards reads one page of active and in-progress cards: ACTION FOR YOU fyi items
-// first, then item order and reference.
-func (s *Store) decisionCards(ctx context.Context, tx *sql.Tx, after string, data *decisionsData) error {
+// decisionCards reads one page of the cards that match a status filter's fixed condition
+// (by default the active and in-progress items): ACTION FOR YOU fyi items first, then item
+// order and reference.
+func (s *Store) decisionCards(ctx context.Context, tx *sql.Tx, match, after string, data *decisionsData) error {
 	where, args := "", []any{}
 	if c, ok := parseCardCursor(after); ok {
 		where, args = ` AND (`+decisionPriority+`,item_order,reference)>(?,?,?)`, []any{c.priority, c.order, c.reference}
 	}
 	rows, err := tx.QueryContext(ctx, `SELECT `+decisionPriority+`,item_order,reference FROM decision_items
-		WHERE state IN ('active','in_progress')`+where+` ORDER BY 1,2,3 LIMIT `+strconv.Itoa(decisionBoardCards+1), args...)
+		WHERE (`+match+`)`+where+` ORDER BY 1,2,3 LIMIT `+strconv.Itoa(decisionBoardCards+1), args...)
 	if err != nil {
 		return err
 	}
@@ -290,7 +323,8 @@ const decisionFormLimit = 3*decisionNoteLimit + 4096
 // decisionActions adds the maintainer's verdicts (#206, chunk 02): Approve and Decline on a
 // decision item and Dismiss on an fyi item, on the revision the page showed. They are
 // dashboard actions only, behind the login, Host, Origin and CSRF checks. The answer returns
-// to the board page that showed the card, with the notice on that card.
+// to the board page that showed the card, with its status filter from the back field, and
+// with the notice on that card.
 func (d *Daemon) decisionActions(mux *http.ServeMux, authed func(int64, func(http.ResponseWriter, *http.Request, string)) http.HandlerFunc,
 	run func(w http.ResponseWriter, r *http.Request, action, target, view string, query url.Values, valid bool,
 		apply func(ctx context.Context) error, accepted string, refusal func(error) string)) {
@@ -305,6 +339,13 @@ func (d *Daemon) decisionActions(mux *http.ServeMux, authed func(int64, func(htt
 				query.Set("card", reference)
 				if _, ok := parseCardCursor(r.PostForm.Get("cards")); ok {
 					query.Set("cards", r.PostForm.Get("cards"))
+				}
+			}
+			// A status filter that the board does not know returns to all items, not to a
+			// refused page.
+			if back, err := url.ParseQuery(r.PostForm.Get("back")); err == nil {
+				if _, ok := decisionStatuses[back.Get("status")]; !ok {
+					query.Set("status", "")
 				}
 			}
 			run(w, r, action, "decision "+reference, "decisions", query, valid, func(ctx context.Context) error {

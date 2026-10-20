@@ -46,6 +46,11 @@ Changes:
   `repository_git_timeout`; a hung Git still does. The refusal now gives the time of each
   Git call in `details.calls_ms` and the limit in `details.limit_ms`, and the command line
   prints them, so a later timeout shows which call was slow.
+- Decision board filter (#411): each count on the dashboard's Decisions page (waiting, in
+  progress, open fyi, archived) is a link that shows only the items of that status, and
+  **all** shows every item again. The filter is the `status` query parameter, so it stays
+  after a reload, a lookup, paging and a verdict; the counts stay totals, and an unknown value
+  is refused. The page uses plain links, with no new script (PROTOCOL.md, Dashboard).
 
 ## 2026-10-17 — Homebrew upgrades and maintenance from the command line
 
