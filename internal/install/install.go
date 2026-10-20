@@ -39,13 +39,16 @@ type Options struct {
 	// uninstall finds system mode from its plist.
 	System bool
 	// Upgrade is set by `koinon upgrade`, which removed the Python installation itself.
-	Upgrade  bool
-	Source   string // the binary to install; default this executable
-	LinkDir  string // the directory of the koinon link; default ~/.local/bin
-	Path     string // the search path that the report resolves koinon on; default $PATH
-	Address  string // the daemon address to wait for; default 127.0.0.1 at the port
-	Services platform.Services
-	Setup    func(context.Context, setup.Options) (setup.Report, error)
+	Upgrade bool
+	Source  string // the binary to install; default this executable
+	LinkDir string // the directory of the koinon link; default ~/.local/bin
+	// ClaudeConfig is the Claude Code configuration root that receives the koinon-pickup
+	// skill; default $CLAUDE_CONFIG_DIR, else ~/.claude.
+	ClaudeConfig string
+	Path         string // the search path that the report resolves koinon on; default $PATH
+	Address      string // the daemon address to wait for; default 127.0.0.1 at the port
+	Services     platform.Services
+	Setup        func(context.Context, setup.Options) (setup.Report, error)
 	// Adopt records the launcher CLI of a family that an earlier setup configured.
 	Adopt  func(context.Context, setup.Options) (setup.Report, bool, error)
 	Remove func(context.Context, setup.Options) (setup.Report, error)
@@ -73,6 +76,16 @@ type Report struct {
 	OtherBinary  string         `json:"other_binary,omitempty"`
 	SourceStep   string         `json:"source_step,omitempty"`
 	Agents       []setup.Report `json:"agents"`
+	// PickupSkills reports the managed cycle's koinon-pickup skill for each family (#406).
+	PickupSkills []PickupSkill `json:"pickup_skills"`
+}
+
+// PickupSkill is one family's koinon-pickup skill file and what the install or uninstall did
+// with it: created, replaced or unchanged; removed, kept (other content) or absent.
+type PickupSkill struct {
+	Family string `json:"family"`
+	Path   string `json:"path"`
+	Result string `json:"result"`
 }
 
 // DefaultPrefix is the Go installation prefix.
@@ -117,6 +130,9 @@ func (o *Options) defaults() error {
 	if o.LinkDir == "" {
 		o.LinkDir = filepath.Join(o.Services.Home, ".local", "bin")
 	}
+	if o.ClaudeConfig == "" {
+		o.ClaudeConfig = core.ClaudeConfigRoot(os.Getenv("CLAUDE_CONFIG_DIR"), o.Services.Home)
+	}
 	if o.Path == "" {
 		o.Path = os.Getenv("PATH")
 	}
@@ -135,7 +151,7 @@ func (o *Options) defaults() error {
 	if o.Wait == 0 {
 		o.Wait = 20 * time.Second
 	}
-	for _, path := range []string{o.Prefix, o.StateDir, o.PythonPrefix, o.Source, o.LinkDir} {
+	for _, path := range []string{o.Prefix, o.StateDir, o.PythonPrefix, o.Source, o.LinkDir, o.ClaudeConfig} {
 		if !filepath.IsAbs(path) {
 			return errors.New("installation paths must be absolute")
 		}
@@ -440,14 +456,36 @@ func place(source, target string) (string, error) {
 	return "replaced", platform.SyncDir(filepath.Dir(target))
 }
 
+// pickupSkillPaths are the koinon-pickup skill files by family: under the Claude Code
+// configuration root, and in the home's ~/.agents/skills, which Codex lists (#406).
+func pickupSkillPaths(o Options) []PickupSkill {
+	return []PickupSkill{{Family: "claude", Path: core.ClaudePickupSkillPath(o.ClaudeConfig)},
+		{Family: "codex", Path: core.CodexPickupSkillPath(o.Services.Home)}}
+}
+
+// installPickupSkills writes the managed cycle's koinon-pickup skill for each family, for the
+// person who runs the daemon and never into a repository (#406).
+func installPickupSkills(o Options, r *Report) error {
+	for _, skill := range pickupSkillPaths(o) {
+		result, err := core.InstallPickupSkill(skill.Path)
+		if err != nil {
+			return fmt.Errorf("pickup_skill_failed: %s: %v", skill.Path, err)
+		}
+		skill.Result = result
+		r.PickupSkills = append(r.PickupSkills, skill)
+	}
+	return nil
+}
+
 // Install places the binary, writes and starts the service, waits until the daemon
-// answers, and runs setup for each named agent. A Python-era installation refuses it.
+// answers, runs setup for each named agent and installs the koinon-pickup skill. A
+// Python-era installation refuses it.
 func Install(ctx context.Context, o Options) (Report, error) {
 	if err := o.defaults(); err != nil {
 		return Report{}, err
 	}
 	r := Report{Binary: Binary(o.Prefix), Backend: o.Services.Backend, Artifact: o.Services.DaemonArtifact(),
-		StateDir: o.StateDir, Agents: []setup.Report{}}
+		StateDir: o.StateDir, Agents: []setup.Report{}, PickupSkills: []PickupSkill{}}
 	if !o.Upgrade {
 		i, err := legacy.ReadInstall(o.PythonPrefix)
 		if err != nil {
@@ -522,6 +560,9 @@ func Install(ctx context.Context, o Options) (Report, error) {
 		if adopted {
 			r.Agents = append(r.Agents, report)
 		}
+	}
+	if err := installPickupSkills(o, &r); err != nil {
+		return r, err
 	}
 	r.OK = true
 	return r, nil
@@ -626,15 +667,16 @@ func waitForDaemon(ctx context.Context, o Options) error {
 }
 
 // Uninstall removes what setup added for each named agent (every family by default),
-// stops and removes the service artifact that carries the marker, and removes the
-// binary and the link that the install created while it still points at the binary. It
-// keeps the state directory. A repeated uninstall changes nothing.
+// stops and removes the service artifact that carries the marker, removes the koinon-pickup
+// skill files that still hold this binary's skill, and removes the binary and the link that
+// the install created while it still points at the binary. It keeps the state directory. A
+// repeated uninstall changes nothing.
 func Uninstall(ctx context.Context, o Options) (Report, error) {
 	if err := o.defaults(); err != nil {
 		return Report{}, err
 	}
 	r := Report{Binary: Binary(o.Prefix), Backend: o.Services.Backend, Artifact: o.Services.DaemonArtifact(),
-		StateDir: o.StateDir, Agents: []setup.Report{}}
+		StateDir: o.StateDir, Agents: []setup.Report{}, PickupSkills: []PickupSkill{}}
 	agents := o.Agents
 	if len(agents) == 0 {
 		agents = Families
@@ -663,6 +705,14 @@ func Uninstall(ctx context.Context, o Options) (Report, error) {
 		removed = removed || system
 	}
 	r.Service = map[bool]string{true: "removed", false: "absent"}[removed]
+	for _, skill := range pickupSkillPaths(o) {
+		result, err := core.RemovePickupSkill(skill.Path)
+		if err != nil {
+			return r, fmt.Errorf("pickup_skill_failed: %s: %v", skill.Path, err)
+		}
+		skill.Result = result
+		r.PickupSkills = append(r.PickupSkills, skill)
+	}
 	r.BinaryResult = "absent"
 	if info, err := os.Lstat(r.Binary); err == nil {
 		// A Homebrew link goes; the keg it points at stays.

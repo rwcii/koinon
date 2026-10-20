@@ -253,7 +253,8 @@ type contextRow struct {
 	Threshold             int64
 	Available             bool   // the family's adapter can run this session's cycle (its Probe)
 	Unavailable           string // Probe's fixed reason when it cannot
-	Pickup                string // the pickup entry a bare pickup runs: personal, project, loader or interactive
+	UnavailableStep       string // the action that removes that reason, such as the install command, or ""
+	Pickup                string // the pickup skill that the cycle enters (koinon-pickup)
 	Eligible              bool
 	Reason                string
 	SourceAge, ConfirmAge int64 // seconds; -1 when unknown
@@ -280,7 +281,7 @@ func (s *Store) contextRowOf(session Session, enable ContextEnable, now int64) c
 	eligible, reason := SelectContextTrigger(ContextTriggerInput{Active: session.State == "active", Enabled: enable.Enabled, Policy: policy,
 		CycleAvailable: available, OverwatchConflict: conflict, Evidence: evidence, Now: now, LatchedEpoch: latched})
 	row := contextRow{Enable: enable, Mode: policy.Mode, Threshold: policy.Threshold, Available: available, Unavailable: probe.Reason,
-		Pickup: probe.Bootstrap, Eligible: eligible, Reason: reason, SourceAge: -1, ConfirmAge: -1}
+		UnavailableStep: probe.Step, Pickup: probe.Entry, Eligible: eligible, Reason: reason, SourceAge: -1, ConfirmAge: -1}
 	if evidence.Found {
 		row.SourceAge, row.ConfirmAge = max(0, now-evidence.SourceAt)/1000, max(0, now-evidence.ConfirmedAt)/1000
 	}

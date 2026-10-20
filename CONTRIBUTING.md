@@ -91,8 +91,10 @@ private tmux servers, so they do not reach the person's services, terminals or a
 configuration. The guarded native Go job runs real systemd/launchd lifecycle tests on
 disposable CI runners; do not set `KOINON_NATIVE_JOB=1` on a development workstation
 ([WDR 006](docs/engineering/wdr/006-native-integration-evidence.md)).
-The native upgrade test obtains the pinned previous main release through `git archive`
-and reads committed fixtures, independently of this checkout's retired Python runtime.
+The native upgrade tests obtain the pinned previous main release through `git archive`
+and read committed fixtures, independently of this checkout's retired Python runtime. One
+installs that release from a Homebrew keg and upgrades it with only the links that
+`brew upgrade` moves.
 Fresh installation requires no interpreter; a legacy upgrade needs the installed baseline's
 interpreter for its own uninstaller.
 
@@ -122,7 +124,9 @@ Plans for deliverables of more than one pull request live under `docs/sprints/`;
 [sprint](agents/skills/sprint/SKILL.md) skill.
 
 Installation ships one binary with canonical skills embedded as inert catalog data; it does
-not write `agents/`, `docs/sprints/` or native agent skill paths.
+not write `agents/` or `docs/sprints/`, and the only native agent skill it writes is Koinon's
+own `koinon-pickup` entry for the managed context cycle, in the installing person's home and
+never in a repository (PDR 006, Decision 4).
 The full Go matrix runs on every change, including agent-only changes, so contributor
 checks always validate shared layout and guidance. Required native jobs always report; only service steps are skipped for PRs limited to those
 agent-process prefixes other than the embedded `agents/skills/` source. `internal/contributor` executes the classifier, including deletion/rename

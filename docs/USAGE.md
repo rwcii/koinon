@@ -417,15 +417,18 @@ each session's mode, threshold, Enable, whether its family has a verified cycle,
 or is not at its threshold, with the age of its context reading. Enabling is refused
 (`context_cycle_unavailable`) and its button is inactive while the cycle cannot run for that
 session; the page names the reason (for example a session that is not in its launched tmux pane,
-or a pickup skill that differs from the catalog). Disabling always works. A stored mode or threshold that is not valid
+or a missing `koinon-pickup` skill, with the `koinon install` step that installs it). Disabling always works. A stored mode or threshold that is not valid
 keeps the family default, and the Settings page names the error.
 
-Claude Code sessions launched with `koinon claude` on Linux and macOS can run the cycle;
-`koinon claude` adds Koinon's pickup loader so that `/pickup` works after the clear even
-without an installed pickup skill. Codex sessions launched with `koinon codex` in tmux on Linux
-and macOS can run it too (family mode `handoff_cycle`): they need an installed `pickup`
-skill that is the catalog's, and their participant address; Codex has no loader. The new thread
-after the clear takes the address and reports the pickup. An enabled session
+Claude Code sessions launched with `koinon claude` on Linux and macOS can run the cycle, and
+Codex sessions launched with `koinon codex` in tmux on Linux and macOS can run it too (family
+mode `handoff_cycle`) while they hold their participant address. After the clear the cycle
+enters `/koinon-pickup` (Claude Code) or `$koinon-pickup` (Codex): Koinon's own pickup skill,
+which the daemon at each start and `koinon install` write for you under `~/.claude/skills`
+(or `$CLAUDE_CONFIG_DIR/skills`) and `~/.agents/skills`, never into a repository. It loads the catalog's canonical pickup
+procedure, so a project's own `pickup` skill neither blocks the cycle nor is changed by it
+([INSTALL.md](INSTALL.md#install), step 7). For Codex, the new thread after the clear takes the
+address and reports the pickup. An enabled session
 whose context reaches its threshold gets a request from `overwatch`, Koinon's reserved system
 requester, in its inbox. The session writes its handoff and reports it with
 `context_cycle_ready`; the daemon then clears the session's context in its tmux pane, enters
