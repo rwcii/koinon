@@ -17,7 +17,7 @@ import (
 func withCycleAvailable(t *testing.T) {
 	t.Helper()
 	previous := contextCycleProbe
-	contextCycleProbe = func(*Store, context.Context, Key) CycleProbe { return CycleProbe{Bootstrap: "project"} }
+	contextCycleProbe = func(*Store, context.Context, Key) CycleProbe { return CycleProbe{Entry: "koinon-pickup"} }
 	t.Cleanup(func() { contextCycleProbe = previous })
 }
 
@@ -347,6 +347,30 @@ func TestDashboardContextPolicy(t *testing.T) {
 	settings := dashboardDo(t, d, "GET", "/dashboard/settings", client.cookie, nil, nil)
 	if settings.status != 200 || !strings.Contains(settings.body, "native_compaction") || !strings.Contains(settings.body, "<td>claude</td><td>handoff_cycle</td><td>80%</td>") {
 		t.Fatalf("settings page: %d %s", settings.status, settings.body)
+	}
+}
+
+// A missing pickup skill names the install command on the Sessions page and in context show
+// (#406).
+func TestContextUnavailableStep(t *testing.T) {
+	d, root := startTestDaemon(t)
+	s := d.store
+	a := join(t, s, "claude", "synthetic-a", "")
+	previous := contextCycleProbe
+	t.Cleanup(func() { contextCycleProbe = previous })
+	step := "run koinon install to install the koinon-pickup skill at /synthetic/home/.claude/skills/koinon-pickup/SKILL.md"
+	contextCycleProbe = func(*Store, context.Context, Key) CycleProbe {
+		return CycleProbe{Reason: "pickup_entry_missing", Step: step}
+	}
+	_, views, _, err := s.ContextShow(context.Background(), "")
+	if err != nil || len(views) != 1 || views[0].Peer != a.Name || views[0].Unavailable != "pickup_entry_missing" || views[0].UnavailableStep != step {
+		t.Fatalf("context show: %v %+v", err, views)
+	}
+	client := newActionClient(t, d, root)
+	page := dashboardDo(t, d, "GET", "/dashboard/sessions", client.cookie, nil, nil)
+	if page.status != 200 || !strings.Contains(page.body, "cycle unavailable: pickup_entry_missing ("+step+")") ||
+		!strings.Contains(page.body, "unavailable for this session: pickup_entry_missing; "+step+".") {
+		t.Fatalf("sessions page: %d %s", page.status, page.body)
 	}
 }
 

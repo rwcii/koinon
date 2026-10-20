@@ -233,6 +233,7 @@ func serve(ctx context.Context, state string, listen []string, lockWait time.Dur
 		logEvent("lock_acquired", nil)
 	}
 	logEvent("start", map[string]any{"version": version, "commit": commit, "state_dir": state, "listeners": d.Addresses()})
+	ensurePickupSkills(logEvent)
 	if err := json.NewEncoder(out).Encode(map[string]any{"ok": true, "daemon": "running", "listeners": d.Addresses()}); err != nil {
 		logEvent("stop", map[string]any{"reason": "error", "code": "report_failed"})
 		return err
@@ -251,6 +252,28 @@ func serve(ctx context.Context, state string, listen []string, lockWait time.Dur
 		}
 		// A non-zero exit: the service manager starts the new binary.
 		return errors.New("binary_changed: the daemon's executable was replaced; the service manager starts the new one")
+	}
+}
+
+// ensurePickupSkills writes the managed cycle's koinon-pickup skill for the person the daemon
+// runs as, when a file is missing or holds other content (#406): under the Claude Code
+// configuration root of the daemon's environment ($CLAUDE_CONFIG_DIR, else ~/.claude) and in
+// ~/.agents/skills for Codex. It runs at each start, so a brew upgrade, which restarts the
+// daemon, writes it too. A failure is logged and never stops the daemon; the adapter's Probe
+// then names the install step for that session.
+func ensurePickupSkills(logEvent func(string, map[string]any)) {
+	home, err := os.UserHomeDir()
+	if err != nil {
+		logEvent("pickup_skill", map[string]any{"result": "failed", "code": "home_unknown"})
+		return
+	}
+	for _, skill := range []struct{ family, path string }{
+		{"claude", core.ClaudePickupSkillPath(core.ClaudeConfigRoot(os.Getenv("CLAUDE_CONFIG_DIR"), home))},
+		{"codex", core.CodexPickupSkillPath(home)},
+	} {
+		if _, err := core.InstallPickupSkill(skill.path); err != nil {
+			logEvent("pickup_skill", map[string]any{"family": skill.family, "path": skill.path, "result": "failed", "code": "write_failed"})
+		}
 	}
 }
 

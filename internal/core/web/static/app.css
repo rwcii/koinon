@@ -63,7 +63,9 @@ form.inline { display: inline-flex; gap: 6px; margin: 4px 0 0; }
 tr.result-refused { color: var(--warn); }
 .board { max-width: 1180px; }
 .tally { display: flex; flex-wrap: wrap; gap: 8px; list-style: none; padding: 0; margin: 10px 0; }
-.tally li { padding: 4px 10px; border: 1px solid var(--line); border-radius: 6px; background: var(--row); color: var(--muted); }
+.tally a { display: inline-block; padding: 4px 10px; border: 1px solid var(--line); border-radius: 6px; background: var(--row); color: var(--muted); text-decoration: none; }
+.tally a:hover, .tally a:focus-visible { border-color: var(--accent); }
+.tally a[aria-current] { border-color: var(--accent); box-shadow: inset 0 0 0 1px var(--accent); color: var(--fg); font-weight: 600; }
 .tally b { font-size: 16px; color: var(--fg); }
 .scroll { overflow-x: auto; }
 .cards { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, 340px), 1fr)); gap: 12px; }

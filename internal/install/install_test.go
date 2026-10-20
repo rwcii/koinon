@@ -11,6 +11,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/rwcii/koinon/internal/core"
 	"github.com/rwcii/koinon/internal/platform"
 	"github.com/rwcii/koinon/internal/setup"
 )
@@ -72,7 +73,7 @@ func newEnv(t *testing.T, backend string) *env {
 	}
 	e := &env{r: &recorder{}}
 	e.o = Options{Prefix: filepath.Join(dir, "prefix"), StateDir: state, PythonPrefix: filepath.Join(dir, "python"), Source: source,
-		Path: filepath.Join(dir, "empty-path"),
+		Path: filepath.Join(dir, "empty-path"), ClaudeConfig: filepath.Join(dir, "claude-config"),
 		Services: platform.Services{Backend: backend, Home: filepath.Join(dir, "home"), UID: 501, Run: e.r.run,
 			User: "alice", Group: "staff", SystemDir: filepath.Join(dir, "LaunchDaemons")},
 		Setup: func(_ context.Context, o setup.Options) (setup.Report, error) {
@@ -90,6 +91,99 @@ func newEnv(t *testing.T, backend string) *env {
 		Status: func(context.Context, string, string) (json.RawMessage, error) { return json.RawMessage(`{}`), nil },
 	}
 	return e
+}
+
+// pickupResults is the result of each reported koinon-pickup skill, by family.
+func pickupResults(skills []PickupSkill) map[string]string {
+	results := map[string]string{}
+	for _, skill := range skills {
+		results[skill.Family] = skill.Result
+	}
+	return results
+}
+
+// The install writes the managed cycle's koinon-pickup skill for the person, under the Claude
+// Code configuration root and in ~/.agents/skills for Codex, whatever agents it names; a
+// different file is replaced. The uninstall removes only files that hold this skill (#406).
+func TestInstallPickupSkills(t *testing.T) {
+	e := newEnv(t, "systemd")
+	claude := filepath.Join(e.o.ClaudeConfig, "skills", "koinon-pickup", "SKILL.md")
+	codex := filepath.Join(e.o.Services.Home, ".agents", "skills", "koinon-pickup", "SKILL.md")
+	// A project's own pickup skill and a personal pickup skill are not touched.
+	personal := filepath.Join(e.o.ClaudeConfig, "skills", "pickup", "SKILL.md")
+	if err := os.MkdirAll(filepath.Dir(personal), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(personal, []byte("a personal pickup\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	r, err := Install(context.Background(), e.o)
+	if err != nil || !r.OK || !reflect.DeepEqual(pickupResults(r.PickupSkills), map[string]string{"claude": "created", "codex": "created"}) {
+		t.Fatalf("install %+v %v", r.PickupSkills, err)
+	}
+	for _, skill := range r.PickupSkills {
+		if want := map[string]string{"claude": claude, "codex": codex}[skill.Family]; skill.Path != want {
+			t.Fatalf("%s path %q, want %q", skill.Family, skill.Path, want)
+		}
+	}
+	for _, path := range []string{claude, codex} {
+		data, err := os.ReadFile(path)
+		if err != nil || string(data) != string(core.PickupSkill()) || !strings.Contains(string(data), "name: koinon-pickup\n") {
+			t.Fatalf("%s: %q %v", path, data, err)
+		}
+	}
+	if data, _ := os.ReadFile(personal); string(data) != "a personal pickup\n" {
+		t.Fatalf("personal pickup changed: %q", data)
+	}
+	if err := os.WriteFile(codex, []byte("an older entry\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	again, err := Install(context.Background(), e.o)
+	if err != nil || !reflect.DeepEqual(pickupResults(again.PickupSkills), map[string]string{"claude": "unchanged", "codex": "replaced"}) {
+		t.Fatalf("repeat %+v %v", again.PickupSkills, err)
+	}
+	if data, _ := os.ReadFile(codex); string(data) != string(core.PickupSkill()) {
+		t.Fatalf("codex skill not replaced: %q", data)
+	}
+	// An edited file is kept at the uninstall; the binary's skill is removed with its directory.
+	if err := os.WriteFile(claude, []byte("edited\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	u, err := Uninstall(context.Background(), e.o)
+	if err != nil || !u.OK || !reflect.DeepEqual(pickupResults(u.PickupSkills), map[string]string{"claude": "kept", "codex": "removed"}) {
+		t.Fatalf("uninstall %+v %v", u.PickupSkills, err)
+	}
+	if _, err := os.Lstat(filepath.Dir(codex)); !os.IsNotExist(err) {
+		t.Fatalf("codex skill directory left: %v", err)
+	}
+	if data, _ := os.ReadFile(claude); string(data) != "edited\n" {
+		t.Fatalf("edited claude skill: %q", data)
+	}
+	os.Remove(claude)
+	repeat, err := Uninstall(context.Background(), e.o)
+	if err != nil || !reflect.DeepEqual(pickupResults(repeat.PickupSkills), map[string]string{"claude": "absent", "codex": "absent"}) {
+		t.Fatalf("repeat uninstall %+v %v", repeat.PickupSkills, err)
+	}
+	if data, _ := os.ReadFile(personal); string(data) != "a personal pickup\n" {
+		t.Fatalf("personal pickup changed: %q", data)
+	}
+}
+
+// A koinon-pickup skill that cannot be written fails the install with the path, after the
+// service and setup steps, which a repeated install completes.
+func TestInstallPickupSkillFailure(t *testing.T) {
+	e := newEnv(t, "systemd")
+	// A file where the skills directory belongs.
+	if err := os.MkdirAll(e.o.ClaudeConfig, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(e.o.ClaudeConfig, "skills"), []byte("not a directory"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	r, err := Install(context.Background(), e.o)
+	if err == nil || r.OK || !strings.HasPrefix(err.Error(), "pickup_skill_failed: "+filepath.Join(e.o.ClaudeConfig, "skills")) || r.Service != "running" {
+		t.Fatalf("install %+v %v", r, err)
+	}
 }
 
 func TestInstallAndUninstall(t *testing.T) {

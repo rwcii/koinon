@@ -617,7 +617,7 @@ func Run(ctx context.Context, o Options, out io.Writer) error {
 	nested := ScanNested(directory)
 	target := core.LaunchTarget{Family: o.Family, Directory: directory, CLI: cli, HostPID: os.Getpid(), Role: o.Role,
 		Nested: nested.List, NestedIncomplete: nested.Incomplete}
-	args := append([]string{cli}, cycleLoaderArgs(o, o.Args)...)
+	args := append([]string{cli}, o.Args...)
 	env := cleanEnvironment(os.Environ(), o.Family)
 	if o.Family == "opencode" {
 		target.Address, target.Password, err = openCodeTarget(o.Args)
@@ -750,7 +750,7 @@ func runBackground(ctx context.Context, o Options, cli, directory, secret string
 	if err != nil {
 		return retire("cannot write the private settings file; the job was not started")
 	}
-	cmd := exec.CommandContext(ctx, cli, append(append([]string{"--bg"}, cycleLoaderArgs(o, o.Args)...), "--settings", settings)...)
+	cmd := exec.CommandContext(ctx, cli, append(append([]string{"--bg"}, o.Args...), "--settings", settings)...)
 	cmd.Dir = directory
 	cmd.Env = cleanEnvironment(os.Environ(), "claude")
 	cmd.Stderr = os.Stderr
@@ -794,21 +794,4 @@ func writeSettings(stateDir, id string, env map[string]string) (string, error) {
 		return "", err
 	}
 	return path, nil
-}
-
-// cycleLoaderArgs adds Koinon's pickup loader directory to a Claude launch (#196, chunk 03):
-// after a context clear, a bare /pickup then reaches the canonical catalog procedure even
-// where no pickup skill is installed. --add-dir takes several values, so it goes after the
-// launch's own options and before a "--" that ends them; a following prompt is never read
-// as a directory. Without the loader, the cycle adds it to the running session instead.
-func cycleLoaderArgs(o Options, args []string) []string {
-	if o.Family != "claude" || core.EnsureCycleLoader(o.StateDir) != nil {
-		return args
-	}
-	loader := []string{"--add-dir", core.CycleLoaderDir(o.StateDir)}
-	end := slices.Index(args, "--")
-	if end < 0 {
-		return slices.Concat(args, loader)
-	}
-	return slices.Concat(args[:end], loader, args[end:])
 }

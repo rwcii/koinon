@@ -19,7 +19,7 @@ import (
 // terminal. Nothing here starts Claude Code or reaches a real tmux server.
 
 // Captured Claude Code 2.1.296 screens (paths replaced): dim placeholder and suggestion text is
-// an empty input line; typed text, menus and the add-directory dialog are read as they show.
+// an empty input line; typed text, menus and a dialog are read as they show.
 func TestClaudeScreenFixtures(t *testing.T) {
 	read := func(name string) claudeScreen {
 		t.Helper()
@@ -35,21 +35,37 @@ func TestClaudeScreenFixtures(t *testing.T) {
 			t.Fatalf("%s: found %v input %q dialog %q", name, s.found, s.input, s.dialog)
 		}
 	}
-	if s := read("add-dir-dialog"); s.dialog != "add_dir_scope" {
+	// The add-directory dialog is a native dialog like any other: the adapter answers none.
+	if s := read("add-dir-dialog"); s.dialog != "native_dialog" {
 		t.Fatalf("add-dir dialog: %q", s.dialog)
 	}
-	// The captured loader entry (an earlier loader description) is listed first; the catalog
-	// item's description does not match it.
-	menu := menuFirst(read("pickup-menu-loader"))
+	// The menu row of a typed skill command: the captured entry (an earlier loader skill named
+	// pickup) is listed first, the selected row; another description does not match it, and
+	// neither does another command.
+	menu := menuFirst(read("pickup-menu-loader"), "/pickup")
 	captured := PickupEntry{Description: "Resume work from this agent's newest handoff. Session-local loader for a managed context cycle; the procedure is the canonical catalog skill."}
 	catalog := PickupEntry{Description: "Resume work from this agent's newest handoff in its own directory under the Git-ignored _handoff/."}
-	if !describes(menu, captured) || describes(menu, catalog) {
+	if !describes(menu, captured) || describes(menu, catalog) || menuFirst(read("pickup-menu-loader"), "/pick") != "" {
 		t.Fatalf("menu entry %q", menu)
+	}
+	// The clear menu closes with Escape: its row is gone from the typed screen.
+	if menuFirst(read("clear-menu"), "/clear") == "" || menuFirst(read("clear-typed"), "/clear") != "" {
+		t.Fatal("clear menu")
+	}
+	// A scope after the description, and the ellipsis of a long one, are not part of it.
+	for _, row := range []string{"Koinon's managed-cycle entry for the canonical pickup… (user)", "Koinon's managed-cycle entry (project)",
+		pickupSkillDescription} {
+		if !describes(row, pickupSkillEntry()) {
+			t.Fatalf("row %q", row)
+		}
+	}
+	if describes("Resume work (user)", pickupSkillEntry()) || describes("(user)", pickupSkillEntry()) {
+		t.Fatal("another description matched")
 	}
 }
 
-// claudeTerminal is a synthetic Claude Code pane: an input line, a /pickup menu, the
-// add-directory dialog, copy mode, and a registry record that /clear changes.
+// claudeTerminal is a synthetic Claude Code pane: an input line, a /koinon-pickup menu, a
+// dialog, copy mode, and a registry record that /clear changes.
 type claudeTerminal struct {
 	mu      sync.Mutex
 	t       *testing.T
@@ -60,15 +76,15 @@ type claudeTerminal struct {
 	status  string
 	epoch   string
 	cleared int
-	added   []string
 	said    []string // transcript lines after the synthetic transcript's first line
-	menu    string   // the description that /pickup lists first
+	menu    string   // the description that /koinon-pickup lists first
 	closed  bool     // Escape closed the menu since the last typed text
 	keys    []string
 	at      []time.Time // when each key arrived
 	fences  int
 	failAt  int // the fence call that fails, 0 for none
 	home    string
+	config  string // the host's CLAUDE_CONFIG_DIR, or ""
 	pid     int64
 	start   int64
 	args    []string
@@ -138,8 +154,8 @@ func (c *claudeTerminal) screen() string {
 	for _, line := range c.said {
 		b.WriteString(line + "\n")
 	}
-	if strings.HasPrefix(c.input, "/pickup") && c.menu != "" && !c.closed {
-		b.WriteString("  ❯ /pickup                     " + c.menu + "\n")
+	if strings.HasPrefix(c.input, "/koinon-pickup") && c.menu != "" && !c.closed {
+		b.WriteString("  ❯ /koinon-pickup              " + c.menu + "\n")
 	}
 	b.WriteString("────────\n\x1b[39m" + claudeInputMark)
 	if c.input == "" {
@@ -177,7 +193,6 @@ func (c *claudeTerminal) tmux(_ context.Context, socket string, args ...string) 
 				c.asks = false
 			} else if c.dialog && text == "1" {
 				c.dialog = false
-				c.added = append(c.added, strings.TrimPrefix(c.input, "/add-dir "))
 				c.input = ""
 			} else {
 				c.input += text
@@ -198,10 +213,6 @@ func (c *claudeTerminal) tmux(_ context.Context, socket string, args ...string) 
 				c.epoch = "synthetic-epoch-" + strconv.Itoa(c.cleared+1)
 				c.write()
 				c.input = ""
-			case strings.HasPrefix(c.input, "/add-dir ") && slices.Contains(c.added, strings.TrimPrefix(c.input, "/add-dir ")):
-				dir := strings.TrimPrefix(c.input, "/add-dir ")
-				c.said = append(c.said, "❯ "+c.input, "  ⎿  "+dir+" is already added as a working directory.")
-				c.input = ""
 			case strings.HasPrefix(c.input, "/add-dir "):
 				c.dialog = true
 			default:
@@ -214,19 +225,18 @@ func (c *claudeTerminal) tmux(_ context.Context, socket string, args ...string) 
 }
 
 func (c *claudeTerminal) target(t *testing.T) CycleTarget {
-	checkout := t.TempDir()
 	return CycleTarget{CycleID: "synthetic", Family: "claude", SessionID: "synthetic-a", HostPID: c.pid, HostStart: c.start,
-		Socket: "/tmp/synthetic-socket", Pane: "%3", Epoch: "synthetic-epoch-1", Directory: checkout, Checkout: checkout,
-		LoaderDir: filepath.Join(t.TempDir(), "loader"),
-		Pickup:    PickupEntry{Content: []byte("synthetic canonical pickup\n"), Description: "Resume work from this agent's newest handoff in its own directory."},
-		Loader:    claudeLoaderEntry(),
+		Socket: "/tmp/synthetic-socket", Pane: "%3", Epoch: "synthetic-epoch-1", Pickup: pickupSkillEntry(),
 		tools: hostTools{tmux: c.tmux,
 			processStart:   func(pid int) (int64, error) { return c.start, nil },
 			processParents: func() (map[int]int, error) { return map[int]int{}, nil },
 			processCommand: func(pid int) (string, []string, error) { return "/synthetic/claude", c.args, nil },
 			processEnvironment: func(pid int, name string) (string, error) {
-				if name == "HOME" {
+				switch name {
+				case "HOME":
 					return c.home, nil
+				case "CLAUDE_CONFIG_DIR":
+					return c.config, nil
 				}
 				return "", nil
 			}}}
@@ -253,68 +263,58 @@ func writeEntry(t *testing.T, path string, content []byte) {
 	}
 }
 
-// Probe checks only the entry that a bare /pickup runs: personal over project, project over
-// the loader. Shadowed entries are not checked; an unknown order is reported.
+// Probe checks only the koinon-pickup skill under the host's configuration root, byte for byte
+// against the binary's skill; a missing or different file names the install command. Project
+// and personal pickup skills are not read (#406).
 func TestClaudeProbe(t *testing.T) {
 	ctx := context.Background()
 	term := newClaudeTerminal(t)
-	personal := func(tg CycleTarget) string {
-		return filepath.Join(term.home, ".claude", "skills", "pickup", "SKILL.md")
-	}
-	project := func(tg CycleTarget) string {
-		return filepath.Join(tg.Checkout, ".claude", "skills", "pickup", "SKILL.md")
-	}
-	loader := func(tg CycleTarget) string {
-		return filepath.Join(tg.LoaderDir, ".claude", "skills", "pickup", "SKILL.md")
-	}
+	skill := func() string { return filepath.Join(term.home, ".claude", "skills", "koinon-pickup", "SKILL.md") }
+	step := func(path string) string { return "run koinon install to install the koinon-pickup skill at " + path }
 	for _, c := range []struct {
 		name  string
-		setup func(tg *CycleTarget)
-		want  CycleProbe
+		setup func()
+		want  func() CycleProbe
 	}{
-		{"interactive", func(tg *CycleTarget) { writeEntry(t, loader(*tg), tg.Loader.Content) }, CycleProbe{Bootstrap: "interactive"}},
-		{"launch loader", func(tg *CycleTarget) {
-			writeEntry(t, loader(*tg), tg.Loader.Content)
-			term.args = []string{"claude", "--model", "synthetic", "--add-dir", tg.LoaderDir}
-		}, CycleProbe{Bootstrap: "loader"}},
-		{"loader changed", func(tg *CycleTarget) { writeEntry(t, loader(*tg), []byte("other\n")) }, CycleProbe{Reason: "pickup_entry_differs"}},
-		{"loader missing", func(tg *CycleTarget) {}, CycleProbe{Reason: "pickup_entry_unreadable"}},
-		{"project", func(tg *CycleTarget) { writeEntry(t, project(*tg), tg.Pickup.Content) }, CycleProbe{Bootstrap: "project"}},
-		{"project differs", func(tg *CycleTarget) { writeEntry(t, project(*tg), []byte("older pickup\n")) }, CycleProbe{Reason: "pickup_entry_differs", Bootstrap: "project"}},
-		{"personal shadows a different project copy", func(tg *CycleTarget) {
-			writeEntry(t, personal(*tg), tg.Pickup.Content)
-			writeEntry(t, project(*tg), []byte("older pickup\n"))
-		}, CycleProbe{Bootstrap: "personal"}},
-		{"legacy command", func(tg *CycleTarget) {
-			writeEntry(t, filepath.Join(tg.Checkout, ".claude", "commands", "pickup.md"), []byte("legacy\n"))
-		}, CycleProbe{Reason: "pickup_entry_unverified"}},
-		{"personal shadows two project levels", func(tg *CycleTarget) {
-			tg.Directory = filepath.Join(tg.Checkout, "nested")
-			writeEntry(t, personal(*tg), tg.Pickup.Content)
-			writeEntry(t, filepath.Join(tg.Directory, ".claude", "skills", "pickup", "SKILL.md"), []byte("older pickup\n"))
-			writeEntry(t, project(*tg), []byte("older pickup\n"))
-		}, CycleProbe{Bootstrap: "personal"}},
-		{"personal command beside a personal skill", func(tg *CycleTarget) {
-			writeEntry(t, personal(*tg), tg.Pickup.Content)
-			writeEntry(t, filepath.Join(term.home, ".claude", "commands", "pickup.md"), []byte("legacy\n"))
-		}, CycleProbe{Reason: "pickup_entry_unverified"}},
-		{"two project levels", func(tg *CycleTarget) {
-			tg.Directory = filepath.Join(tg.Checkout, "nested")
-			writeEntry(t, filepath.Join(tg.Directory, ".claude", "skills", "pickup", "SKILL.md"), tg.Pickup.Content)
-			writeEntry(t, project(*tg), tg.Pickup.Content)
-		}, CycleProbe{Reason: "pickup_entry_unverified"}},
+		{"missing", func() {}, func() CycleProbe { return CycleProbe{Reason: "pickup_entry_missing", Step: step(skill())} }},
+		{"installed", func() { writeEntry(t, skill(), PickupSkill()) }, func() CycleProbe { return CycleProbe{Entry: "koinon-pickup"} }},
+		{"different", func() { writeEntry(t, skill(), []byte("an older entry\n")) },
+			func() CycleProbe { return CycleProbe{Reason: "pickup_entry_differs", Step: step(skill())} }},
+		{"not a file", func() { os.MkdirAll(skill(), 0o700) },
+			func() CycleProbe { return CycleProbe{Reason: "pickup_entry_unreadable", Step: step(skill())} }},
+		{"a project and a personal pickup skill do not matter", func() {
+			writeEntry(t, skill(), PickupSkill())
+			writeEntry(t, filepath.Join(term.home, ".claude", "skills", "pickup", "SKILL.md"), []byte("a personal pickup\n"))
+			writeEntry(t, filepath.Join(term.home, ".claude", "commands", "pickup.md"), []byte("a legacy command\n"))
+		}, func() CycleProbe { return CycleProbe{Entry: "koinon-pickup"} }},
+		{"the host's CLAUDE_CONFIG_DIR", func() {
+			writeEntry(t, skill(), PickupSkill())
+			term.config = filepath.Join(term.home, "other-config")
+		}, func() CycleProbe {
+			return CycleProbe{Reason: "pickup_entry_missing", Step: step(filepath.Join(term.home, "other-config", "skills", "koinon-pickup", "SKILL.md"))}
+		}},
 	} {
 		os.RemoveAll(filepath.Join(term.home, ".claude", "skills"))
 		os.RemoveAll(filepath.Join(term.home, ".claude", "commands"))
-		term.args = []string{"claude"}
-		tg := term.target(t)
-		c.setup(&tg)
-		if got := (claudeCycle{}).Probe(ctx, tg); got != c.want {
-			t.Fatalf("%s: %+v, want %+v", c.name, got, c.want)
+		term.config = ""
+		c.setup()
+		if term.config != "" {
+			// The registry record moves with the configuration root.
+			os.MkdirAll(filepath.Join(term.config, "sessions"), 0o700)
+			os.Rename(filepath.Join(term.home, ".claude", "sessions", strconv.FormatInt(term.pid, 10)+".json"),
+				filepath.Join(term.config, "sessions", strconv.FormatInt(term.pid, 10)+".json"))
+		}
+		got := (claudeCycle{}).Probe(ctx, term.target(t))
+		if term.config != "" {
+			os.Rename(filepath.Join(term.config, "sessions", strconv.FormatInt(term.pid, 10)+".json"),
+				filepath.Join(term.home, ".claude", "sessions", strconv.FormatInt(term.pid, 10)+".json"))
+			term.config = ""
+		}
+		if want := c.want(); got != want {
+			t.Fatalf("%s: %+v, want %+v", c.name, got, want)
 		}
 	}
-	tg := term.target(t)
-	writeEntry(t, filepath.Join(tg.LoaderDir, ".claude", "skills", "pickup", "SKILL.md"), tg.Loader.Content)
+	writeEntry(t, skill(), PickupSkill())
 	for _, c := range []struct {
 		name   string
 		change func()
@@ -350,11 +350,16 @@ func TestClaudeInspect(t *testing.T) {
 		t.Fatal("a busy host is ready")
 	}
 	term.dialog = true
-	if state, _ := (claudeCycle{}).Inspect(ctx, tg, term.fence); state.Prompt != "add_dir_scope" {
+	if state, _ := (claudeCycle{}).Inspect(ctx, tg, term.fence); state.Prompt != "native_dialog" {
 		t.Fatalf("dialog: %+v", state)
 	}
-	if (claudeCycle{}).Answerable("native_dialog") || !(claudeCycle{}).Answerable("add_dir_scope") {
+	// The adapter answers no dialog itself, the add-directory dialog included.
+	if (claudeCycle{}).Answerable("native_dialog") || (claudeCycle{}).Answerable("add_dir_scope") {
 		t.Fatal("answerable dialogs")
+	}
+	sent := len(term.keys)
+	if ok, err := (claudeCycle{}).Answer(ctx, tg, "add_dir_scope", term.fence); ok || err != nil || len(term.keys) != sent {
+		t.Fatalf("answer: %v %v keys %q", ok, err, term.keys)
 	}
 }
 
@@ -385,96 +390,27 @@ func TestClaudeClearAndEpoch(t *testing.T) {
 	}
 }
 
-// Pickup submits only when the menu lists the expected entry first; otherwise the typed text
-// is erased and nothing is submitted.
+// Pickup types /koinon-pickup and submits it only when the menu lists the installed skill's
+// description first; otherwise the typed text is erased and nothing is submitted.
 func TestClaudePickupEntry(t *testing.T) {
 	ctx := context.Background()
 	term := newClaudeTerminal(t)
 	tg := term.target(t)
-	term.menu = tg.Pickup.Description
-	if ok, err := (claudeCycle{}).Pickup(ctx, tg, "project", term.fence); !ok || err != nil {
-		t.Fatalf("project pickup: %v %v", ok, err)
+	term.menu = tg.Pickup.Description + " (user)"
+	if ok, err := (claudeCycle{}).Pickup(ctx, tg, term.fence); !ok || err != nil {
+		t.Fatalf("pickup: %v %v keys %q", ok, err, term.keys)
 	}
-	other := newClaudeTerminal(t)
-	tg = other.target(t)
-	other.menu = tg.Loader.Description
-	if ok, err := (claudeCycle{}).Pickup(ctx, tg, "project", other.fence); ok || err == nil || slices.Contains(other.keys, "Enter") ||
-		other.input != "" || !strings.HasPrefix(other.keys[len(other.keys)-1], "BSpace") || !errors.Is(err, errClaudeMenuEntry) {
-		t.Fatalf("wrong entry: %v %v keys %q input %q", ok, err, other.keys, other.input)
+	if !slices.Equal(term.keys, []string{"-l /koinon-pickup", "Escape", "Enter"}) || term.fences != 3 || term.input != "" {
+		t.Fatalf("keys %q fences %d input %q", term.keys, term.fences, term.input)
 	}
-	if ok, err := (claudeCycle{}).Pickup(ctx, tg, "interactive", other.fence); !ok || err != nil {
-		t.Fatalf("loader pickup: %v %v", ok, err)
-	}
-}
-
-// The interactive bootstrap adds the loader for this session only (option 1), proves that
-// /pickup lists it, and erases that text unsubmitted.
-func TestClaudeBootstrap(t *testing.T) {
-	ctx := context.Background()
-	term := newClaudeTerminal(t)
-	tg := term.target(t)
-	term.menu = tg.Loader.Description
-	if ok, err := (claudeCycle{}).Bootstrap(ctx, tg, term.fence); !ok || err != nil {
-		t.Fatalf("bootstrap: %v %v keys %q", ok, err, term.keys)
-	}
-	erase := strings.TrimSpace(strings.Repeat("BSpace ", len("/pickup")+2))
-	want := []string{"-l /add-dir " + tg.LoaderDir, "Escape", "Enter", "-l 1", "-l /pickup", erase}
-	// Every key, the erase included, passes the fence.
-	if !slices.Equal(term.keys, want) || term.fences != len(want) || !slices.Equal(term.added, []string{tg.LoaderDir}) || term.input != "" {
-		t.Fatalf("keys %q fences %d added %q input %q", term.keys, term.fences, term.added, term.input)
-	}
-}
-
-// A second bootstrap in the same session (an earlier cycle added the loader, and /clear keeps
-// it) gets Claude Code's "already added" reply instead of the dialog: no option is entered, and
-// /pickup must still list the loader.
-func TestClaudeBootstrapAlreadyAdded(t *testing.T) {
-	ctx := context.Background()
-	term := newClaudeTerminal(t)
-	tg := term.target(t)
-	term.menu = tg.Loader.Description
-	term.added = []string{tg.LoaderDir}
-	if ok, err := (claudeCycle{}).Bootstrap(ctx, tg, term.fence); !ok || err != nil {
-		t.Fatalf("bootstrap: %v %v keys %q", ok, err, term.keys)
-	}
-	erase := strings.TrimSpace(strings.Repeat("BSpace ", len("/pickup")+2))
-	want := []string{"-l /add-dir " + tg.LoaderDir, "Escape", "Enter", "-l /pickup", erase}
-	if !slices.Equal(term.keys, want) || term.input != "" {
-		t.Fatalf("keys %q input %q", term.keys, term.input)
-	}
-	// Claude Code wraps a long echo or reply onto more lines (an 80-column pane).
-	dir := "/home/synthetic/.local/state/koinon/cycle/claude-loader"
-	for _, lines := range [][]string{
-		{"❯ /add-dir " + dir, "  ⎿  " + dir + " is already added as", " a working directory.", "", "────", "❯\u00a0"},
-		{"❯ /add-dir /home/synthetic/.local/state/koinon/cy", "cle/claude-loader", "  ⎿  " + dir, " is already added as a working directory."},
-	} {
-		if !claudeAlreadyAdded(claudeScreen{lines: lines, found: true}, dir) {
-			t.Fatalf("wrapped reply refused: %q", lines)
+	for _, menu := range []string{"Resume work from this agent's newest handoff in its own directory.", ""} {
+		other := newClaudeTerminal(t)
+		tg = other.target(t)
+		other.menu = menu
+		if ok, err := (claudeCycle{}).Pickup(ctx, tg, other.fence); ok || slices.Contains(other.keys, "Enter") ||
+			other.input != "" || !strings.HasPrefix(other.keys[len(other.keys)-1], "BSpace") || !errors.Is(err, errClaudeMenuEntry) {
+			t.Fatalf("menu %q: %v %v keys %q input %q", menu, ok, err, other.keys, other.input)
 		}
-	}
-	// The reply must answer this /add-dir of this directory: an older reply above a later
-	// /add-dir, a reply for another directory, another command's echo, a line between the echo
-	// and the reply, or a reply with text still in the input line is not one.
-	for _, c := range []struct {
-		lines []string
-		input string
-	}{
-		{[]string{"❯ /add-dir " + dir, "  ⎿  " + dir + " is already added as a working directory.", "❯ /add-dir " + dir}, ""},
-		{[]string{"❯ /add-dir " + dir, "  ⎿  /tmp/other is already added as a working directory."}, ""},
-		{[]string{"❯ /add-dir " + dir + "-other", "  ⎿  " + dir + "-other is already added as a working directory."}, ""},
-		{[]string{"❯ /add-dir " + dir, "● other output", "  ⎿  " + dir + " is already added as a working directory."}, ""},
-		{[]string{"❯ /add-dir " + dir, "  ⎿  " + dir + " is already added as a working directory."}, "draft"},
-	} {
-		if claudeAlreadyAdded(claudeScreen{lines: c.lines, found: true, input: c.input}, dir) {
-			t.Fatalf("reply accepted: %q input %q", c.lines, c.input)
-		}
-	}
-	// Without the loader in the menu the bootstrap still fails.
-	term = newClaudeTerminal(t)
-	tg = term.target(t)
-	term.added = []string{tg.LoaderDir}
-	if ok, err := (claudeCycle{}).Bootstrap(ctx, tg, term.fence); ok || !errors.Is(err, errClaudeMenuEntry) {
-		t.Fatalf("bootstrap without the menu entry: %v %v", ok, err)
 	}
 }
 
@@ -566,7 +502,7 @@ func TestClaudeChoiceRecheckedAfterFence(t *testing.T) {
 		return nil
 	}
 	if ok, err := (claudeCycle{}).Choose(context.Background(), tg, dialog.Digest, "1", fence); ok || !errors.Is(err, ErrCycleDialogChanged) ||
-		len(term.keys) != 0 || len(term.added) != 0 {
-		t.Fatalf("changed dialog: %v %v keys %q added %q", ok, err, term.keys, term.added)
+		len(term.keys) != 0 || !term.dialog {
+		t.Fatalf("changed dialog: %v %v keys %q dialog %v", ok, err, term.keys, term.dialog)
 	}
 }

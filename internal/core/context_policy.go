@@ -290,7 +290,7 @@ func (s *Store) SetContextEnable(ctx context.Context, peer string, sessionRevisi
 		if err := active(ctx, tx.Tx, now, k); err != nil {
 			return current, err
 		}
-		if probe.Reason != "" || probe.Bootstrap == "" {
+		if probe.Reason != "" || probe.Entry == "" {
 			return current, ErrContextCycleUnavailable
 		}
 	}

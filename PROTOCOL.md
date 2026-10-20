@@ -290,7 +290,10 @@ The states are `requested`, `waiting_ready`, `ready`, `clear_intent`, `clear_rec
 terminal outcome; a stage that would take it fails the cycle with `event_limit`.
 
 Schema 24 rebuilds `context_cycles` with two more states, `bootstrap_intent` and
-`bootstrap_verified` (below), copying every row unchanged.
+`bootstrap_verified`, copying every row unchanged. They belonged to the Claude loader's
+interactive bootstrap, which #406 removed: no cycle enters them now, a cycle that an earlier
+binary left in `bootstrap_intent` ends `uncertain` (`bootstrap_unreceipted`), and one left in
+`bootstrap_verified` goes on to its clear.
 
 The session reports through three own-cycle calls. The native client names the caller and
 attaches its current native epoch: Claude's transcript session from the registry record of
@@ -354,9 +357,9 @@ ten for a prompt, and 30 minutes for the whole cycle; no stage deadline passes t
 report at or after a deadline is `cycle_changed`. While a cycle is in `ready` through
 `waiting_pickup`, ordinary wakes to its pane wait, still due and not delivered.
 
-A new native epoch of the requester before the managed clear (`waiting_ready`, `ready`,
-`bootstrap_intent`, `bootstrap_verified`) cancels the cycle (`epoch_changed`; uncertain while the
-bootstrap input is unproven). Disable, a family mode without the cycle, retiring or purging the
+A new native epoch of the requester before the managed clear (`waiting_ready`, `ready`, or a
+stored `bootstrap_intent` or `bootstrap_verified`) cancels the cycle (`epoch_changed`; uncertain
+in `bootstrap_intent`, whose input is unproven). Disable, a family mode without the cycle, retiring or purging the
 requester or successor, deleting it and the maintainer's holder choice for its address end
 the cycle in their own transaction. A cycle that ends after an input whose effect is not
 proven (an intent, or `clear_received` without a proven reset) is `uncertain`, with the
@@ -380,7 +383,7 @@ input line was empty before). The erase passes the same proof and fence and runs
 input line still holds exactly that text: after a rejected fence, or over another draft, the
 input line stays as it is. A failed step is recorded as
 the cycle's reason (`typed_not_read_back`, `escape_changed_input`, `submit_not_read_back`,
-`pickup_entry_not_listed`, `dialog_not_shown`, `erase_not_read_back`, `pane_unproven`).
+`pickup_entry_not_listed`, `erase_not_read_back`, `pane_unproven`).
 
 Probe decides whether a session's cycle can run, for Enable, at admission and before each
 input. It needs Linux or macOS (`platform_unverified` elsewhere); the host's
@@ -389,40 +392,37 @@ own Claude Code registry record (`sessions/<pid>.json` under the host's `CLAUDE_
 (`native_registry_unavailable`; on macOS the record's start is `ps -o lstart` text in UTC, compared
 to the whole second), with any Claude Code version (PDR 006, Decision 5; the native checks ran with 2.1.296);
 the pane (`pane_unproven`); and the
-pickup entry that a bare `/pickup` runs. A personal skill (`skills/pickup` under the config root)
-ranks over a project skill (`.claude/skills/pickup` in the session directory or a parent up to
-its worktree root), which ranks over Koinon's loader. Only that effective entry is checked: it
-must be byte-equal to the catalog item `skill.pickup`, or for the loader to the loader
-(`pickup_entry_differs`, `pickup_entry_unreadable`); entries it shadows are not checked. A
-personal legacy `pickup` command, or, without a personal skill, a project legacy command or two
-project skills, leave the order unknown (`pickup_entry_unverified`). Nothing is adopted automatically.
-The Sessions page shows Probe's reason, or the entry the pickup runs (`personal`, `project`,
-`loader` or `interactive`).
+cycle's pickup entry, the Koinon-owned skill `koinon-pickup` (#406):
+`skills/koinon-pickup/SKILL.md` under the host's configuration root. It must be byte-equal to
+the binary's skill: a missing file is `pickup_entry_missing`, another content
+`pickup_entry_differs`, a file that cannot be read `pickup_entry_unreadable`, and an unknown
+host home `pickup_entry_unverified`. Each of the first three comes with the step "run koinon
+install to install the koinon-pickup skill at PATH", which the Sessions page and `context show`
+(`unavailable_step`) show beside the reason. Personal and project `pickup` skills, and legacy
+commands of that name, are not read and take no part in the cycle. The Sessions page shows
+Probe's reason, or `pickup through koinon-pickup`.
 
-The loader is `cycle/claude-loader/.claude/skills/pickup/SKILL.md` under the state directory,
-written by the daemon at start and by `koinon claude`, which adds `--add-dir` for it to every
-Claude launch, after the launch's own options and before a `--`. Its body only reads
-`skill.pickup` with `library_read` and requires its catalog digest to equal the cycle's
-`catalog_digest`, which `context_cycle_status` returns. A session launched without it gets it
-before the clear: `bootstrap_intent` is recorded, `/add-dir <loader>` is entered, the
-add-directory dialog is answered with option 1 ("Yes, for this session"; the persistent option
-is never chosen), and `/pickup` is typed to read that the menu lists the loader first, then
-erased unsubmitted; `bootstrap_verified` records the proof. The session keeps an added directory
-across `/clear`, so a later cycle's `/add-dir` gets Claude Code's reply that the directory is
-already added instead of the dialog; then no option is entered, and the `/pickup` menu check
-still applies. An unproven bootstrap is uncertain.
+The skill's body only reads `skill.pickup` with `library_read` and requires its catalog digest
+to equal the cycle's `catalog_digest`, which `context_cycle_status` returns; it holds no
+procedure of its own. The daemon writes it at each start, from its own environment
+(`$CLAUDE_CONFIG_DIR`, else `~/.claude`, and `~/.agents/skills`), when it is missing or holds
+other content, and `koinon install` writes it for the person who runs it; neither writes into a
+repository (see [INSTALL.md](docs/INSTALL.md)). A write the daemon cannot make is logged
+(`pickup_skill`, `write_failed`) and does not stop it. `koinon claude` adds no directory to a launch,
+and the cycle adds none to a running session.
 
 The adapter is ready for input when the registry `status` is `idle` and the input line (`❯`
 followed by a no-break space) is empty; text drawn dim there is a placeholder or a suggestion,
 any other text a draft, and the cycle waits. A pane in copy mode is returned to its prompt
-first. The clear and the pickup type the command, read it back (for `/pickup`, the menu's first
-entry must be the expected one), close the menu with Escape, wait 400 ms (an escape byte
+first. The clear and the pickup type the command, read it back (for `/koinon-pickup`, the
+menu's first entry must have the skill's description, with or without a scope such as
+`(user)` after it), close the menu with Escape, wait 400 ms (an escape byte
 followed at once by Enter reaches Claude Code as Alt+Enter, which does not submit), read back
 that the input line holds exactly the command with the menu closed, and submit with one Enter. The reset is proven by a new registry `sessionId` for the same host process; Koinon
 registration is unchanged, because the MCP process keeps its caller across `/clear`.
 
-The add-directory dialog is the only dialog the adapter answers. Another dialog
-(`native_dialog`) puts the cycle in `waiting_prompt`, and the Sessions page shows its text and
+The adapter answers no dialog itself. A dialog (`native_dialog`) puts the cycle in
+`waiting_prompt`, and the Sessions page shows its text and
 numbered options. Before entering a dashboard option the adapter proves the pane, passes the
 fence and reads the dialog again. The session's native permission settings, or the maintainer in the session,
 may answer it; the cycle returns to its stage once it is gone, or the prompt wait ends it. The
@@ -447,11 +447,10 @@ thread's `session_meta` from the interactive CLI (`native_registry_unavailable`)
 `cli_version` (PDR 006, Decision 5; the native checks ran with 0.162.0, 0.162.1 and 0.163.0); the pane
 (`pane_unproven`); the session's participant address held (`participant_unheld`: the thread
 after `/clear` is a new session that reports only as the address holder); and the pickup
-entry. Codex runs a `$pickup` mention of every skill named `pickup` in `.agents/skills` and
-`.codex/skills` of each directory from the session directory up to its worktree root, in
-`$CODEX_HOME/skills` and in `~/.agents/skills`. Each must be byte-equal to the catalog item
-`skill.pickup` (`pickup_entry_differs`, `pickup_entry_unreadable`), and one must exist
-(`pickup_entry_unverified`); there is no loader. Codex turns a skill off only through
+entry, the `koinon-pickup` skill in the host's `~/.agents/skills` (#406), a root that Codex
+lists for every session. It is checked as for Claude Code (`pickup_entry_missing`,
+`pickup_entry_differs`, `pickup_entry_unreadable`, each with the install step). Other skills,
+a project's own `pickup` included, are not read. Codex turns a skill off only through
 `skills.config` entries, so Probe reads the effective entries of the host's configuration as
 TOML, from the lowest layer to the highest: `/etc/codex/config.toml`, `$CODEX_HOME/config.toml`,
 the profile that the host's `-p`/`--profile` selects (`$CODEX_HOME/<name>.config.toml`, on top
@@ -461,10 +460,10 @@ other value of a higher layer replaces the lower one. A project's `.codex/config
 its `skills.config` does not change the skills that the launched Codex lists, so it takes no
 part. An effective entry, or an entry
 in `/etc/codex/requirements.toml`, whose
-`enabled` is not `true` and that names `pickup`, a checked file or its directory, or a path
-that does not resolve, gives `pickup_entry_unverified`, as does another value on that path; a
-layer that does not parse gives `pickup_entry_unreadable`. The Sessions page shows `project`
-or `personal`.
+`enabled` is not `true` and that names `koinon-pickup`, the checked file or its directory, or
+a path that does not resolve, gives `pickup_entry_unverified`, as does another value on that
+path; a layer that does not parse gives `pickup_entry_unreadable`. The Sessions page shows
+`pickup through koinon-pickup`.
 
 The adapter is ready for input when the composer (`›`) holds no text, no running turn shows,
 and the current thread is proven idle from its own rollout, read at that moment; each input
@@ -476,10 +475,10 @@ clear types `/clear`, reads it back and submits it with one Enter; the cleared s
 receipt. In the same step it enters `/status` the same way: Codex writes nothing for a new
 thread before its first turn, and the card names it. The reset is proven by that card's
 `Session:` thread, read from the pane and its history without input, below the latest
-banner with nothing of a turn before it. The pickup types the bare `$pickup` and submits it
-only when the open skill menu is complete and lists one `pickup` row for each checked file,
-so no other entry of that name can run; then Escape, a 400 ms wait, the read-back and one
-Enter. A dialog (an MCP tool approval or a command approval) is never answered by the
+banner with nothing of a turn before it. The pickup checks the skill file again, types
+`$koinon-pickup` and submits it only when the open skill menu is complete and lists exactly
+one `koinon-pickup` row, so no other entry of that name can run; then Escape, a 400 ms wait,
+the read-back and one Enter. A dialog (an MCP tool approval or a command approval) is never answered by the
 adapter: the cycle shows it in `waiting_prompt`, and a dashboard option is one digit, entered
 only while the same dialog shows.
 
@@ -637,10 +636,11 @@ Replies include `ok`. Success returns `session` or `sessions`; failures report a
 `unauthorized` (401), `foreign_origin` (403), `invalid_request` (400), `session_not_found` (404),
 `session_conflict` (409), `repository_git_unavailable` (503), `repository_git_timeout` (503),
 the message codes above, or `storage_error` (500). Repository discovery reports the Git
-execution or timeout category without returning command stderr or machine paths. Its
-three-second limit and invalid-input/repository validation remain unchanged. Mutations commit
-before replying. A lost reply does not prove rollback; read the retained record before
-retrying.
+execution or timeout category without returning command stderr or machine paths. Its Git
+calls for one request share a six-second limit. A `repository_git_timeout` refusal gives
+`details.calls_ms`, the time of each Git call of the request in order, and `details.limit_ms`.
+Invalid-input/repository validation remains unchanged. Mutations commit before replying. A lost reply does not prove rollback;
+read the retained record before retrying.
 
 Launch creation takes `family` (`claude`, `codex`, `agy`, `opencode`, `grok`), absolute `directory` and `cli`,
 and positive `host_pid`. Grok may add `session_id`, a canonical lower-case UUID that the
@@ -1585,10 +1585,19 @@ from elsewhere. Peer message bodies appear here, escaped, and nowhere else outsi
   were at the post, by address or peer name and family: queued with the inbox copy's delivery
   state and acknowledgement, skipped with the reason, or `not retained` with unknown
   acknowledgement once the copy is deleted; the view reads one snapshot and acknowledges
-  nothing), `decisions` (100 active decision items per page in item ID order with
-  `after=ID` links, and `ref=REFERENCE` shows one item's fields, commands, recipients, current
-  verdict with its deliveries and last close as escaped plain text, with the verdict form of
-  an active item), `memory` (per store:
+  nothing), `decisions` (the counts of waiting, in-progress, open fyi and archived items; the
+  agent table; 25 active and in-progress cards per page, `ACTION FOR YOU` items first, then
+  item order and reference, with `cards=CURSOR` links; 20 archived items per page with
+  `archived=ID` links; `ref=REFERENCE` shows one item at full width above the agent table,
+  with its verdict history 16 verdicts at a time through `history=ID`: a waiting, in-progress
+  or open fyi item as its card with the card's verdict form, which the cards below then skip,
+  and an archived item read only. A verdict's redirect keeps `ref`, so it returns to the
+  lookup with the notice on that item.
+  Each count links to `status=waiting`,
+  `in_progress`, `fyi` or `archived`, which lists only the cards of that status, or only the
+  archive for `archived`; an `all` link removes it. The counts stay totals under a filter, the
+  current filter's link carries `aria-current="true"`, and the lookup form, reference and page
+  links and a verdict's redirect keep it. An unknown `status` is 400), `memory` (per store:
   head, floor, entries and logical bytes against their ceilings, consumers, work debt and
   maintenance, 50 stores per page; with `store=REPOSITORY`, that store's entries, newest first,
   50 per page with `before=SEQ`: sequence, time, type, scope, path, writer, author, body, state
