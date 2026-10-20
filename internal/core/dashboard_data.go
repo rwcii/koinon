@@ -90,16 +90,23 @@ func validRepository(repository string) bool {
 	return filepath.IsAbs(repository) && len(repository) <= repositoryMax && !strings.ContainsAny(repository, "\x00\r\n")
 }
 
+// sessionStates are the sessions view's status filters (#429); "" is all.
+var sessionStates = map[string]bool{"": true, "active": true, "expired": true, "retired": true}
+
 // dashboardSessions lists agent sessions in the sort's order after its cursor, those that
-// match search when it is set; next is the cursor for the following page, or "". The
-// maintainer's inbox is on the messages view.
-func (s *Store) dashboardSessions(ctx context.Context, order dashboardSort, search string) ([]Session, string, error) {
-	if len(search) > dashboardSearchMax {
+// match search when it is set and are in state when it is set; next is the cursor for the
+// following page, or "". The maintainer's inbox is on the messages view.
+func (s *Store) dashboardSessions(ctx context.Context, order dashboardSort, search, state string) ([]Session, string, error) {
+	if len(search) > dashboardSearchMax || !sessionStates[state] {
 		return nil, "", ErrInvalid
 	}
 	where, after, by := order.sql()
 	now := s.now().UnixMilli()
 	args := append([]any{now}, after...)
+	if state != "" {
+		where += ` AND state=?`
+		args = append(args, state)
+	}
 	if search != "" {
 		// LIKE ignores ASCII case. Each listed field is searched as a substring.
 		where += ` AND (name LIKE ? ESCAPE '\' OR alias LIKE ? ESCAPE '\' OR family LIKE ? ESCAPE '\'
