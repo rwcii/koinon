@@ -108,7 +108,9 @@ func TestRepositoryTimeoutReportsEachGitCall(t *testing.T) {
 	t.Setenv("PATH", bin+string(os.PathListSeparator)+os.Getenv("PATH"))
 	check := func(name string, calls []time.Duration) {
 		t.Helper()
-		if len(calls) != 2 || calls[0] >= repositoryGitTimeout/2 || calls[0]+calls[1] < repositoryGitTimeout {
+		// Each time is rounded down to the millisecond and leaves out the work between the
+		// calls, so together they come just under the shared bound.
+		if len(calls) != 2 || calls[0] >= repositoryGitTimeout/2 || calls[0]+calls[1] < repositoryGitTimeout*9/10 {
 			t.Fatalf("%s: call times %v", name, calls)
 		}
 	}
