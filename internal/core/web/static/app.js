@@ -11,10 +11,11 @@
   // confirmation) and drop what was typed in a form inside it, so it waits meanwhile. It
   // checks again when the answer arrives: a form opened while the request was in flight
   // keeps its content, and the answer is dropped. A read-only disclosure with a data-key
-  // does not hold the refresh; the refresh opens it again in the new list.
+  // does not hold the refresh; the refresh opens it again in the new list. Sessions
+  // selected for a bulk action hold it too, so the selection stays (#429).
   function busy() {
     var active = document.activeElement;
-    return list.querySelector("details[open]:not([data-key]), details[open] form, form[data-busy]") !== null ||
+    return list.querySelector("details[open]:not([data-key]), details[open] form, form[data-busy], input[form=bulk]:checked") !== null ||
       (active !== null && list.contains(active) && /^(INPUT|TEXTAREA|SELECT)$/.test(active.tagName));
   }
   function refresh() {
@@ -87,5 +88,28 @@
     window.setTimeout(function () {
       form.querySelectorAll("button").forEach(function (b) { b.disabled = true; });
     }, 0);
+  });
+})();
+// Sessions view: "Select all sessions on this page" checks or clears every session box of
+// the bulk form in the list, and shows whether all, some or none are checked (#429). It uses
+// delegation, so a refreshed list keeps it.
+(function () {
+  "use strict";
+  document.addEventListener("change", function (event) {
+    var box = event.target;
+    var list = document.getElementById("list");
+    if (!list || !list.contains(box)) {
+      return;
+    }
+    var rows = list.querySelectorAll("input[form=bulk][name=s]");
+    var all = list.querySelector("input[data-select-all]");
+    if (box === all) {
+      rows.forEach(function (r) { r.checked = all.checked; });
+      all.indeterminate = false;
+    } else if (all && box.matches("input[form=bulk][name=s]")) {
+      var checked = Array.prototype.filter.call(rows, function (r) { return r.checked; }).length;
+      all.checked = checked > 0 && checked === rows.length;
+      all.indeterminate = checked > 0 && checked < rows.length;
+    }
   });
 })();

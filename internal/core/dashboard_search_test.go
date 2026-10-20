@@ -3,6 +3,7 @@ package core
 import (
 	"context"
 	"fmt"
+	"html"
 	"regexp"
 	"strings"
 	"testing"
@@ -28,7 +29,7 @@ func TestDashboardSessionSearch(t *testing.T) {
 	}
 	search := func(q string) []string {
 		t.Helper()
-		page, next, err := s.dashboardSessions(ctx, sortOrder(t, &sessionSort, "name", "asc", ""), q)
+		page, next, err := s.dashboardSessions(ctx, sortOrder(t, &sessionSort, "name", "asc", ""), q, "")
 		if err != nil || next != "" {
 			t.Fatalf("search %q: %v %q", q, err, next)
 		}
@@ -55,7 +56,7 @@ func TestDashboardSessionSearch(t *testing.T) {
 	if got := search("no-such-session"); len(got) != 0 {
 		t.Fatalf("no match: %v", got)
 	}
-	if _, _, err := s.dashboardSessions(ctx, sortOrder(t, &sessionSort, "", "", ""), strings.Repeat("x", dashboardSearchMax+1)); err != ErrInvalid {
+	if _, _, err := s.dashboardSessions(ctx, sortOrder(t, &sessionSort, "", "", ""), strings.Repeat("x", dashboardSearchMax+1), ""); err != ErrInvalid {
 		t.Fatalf("long search: %v", err)
 	}
 }
@@ -74,7 +75,7 @@ func TestDashboardSessionSearchPaging(t *testing.T) {
 	}
 	for _, dir := range []string{"asc", "desc"} {
 		rows := pageAll(t, &sessionSort, "name", dir, func(o dashboardSort) ([]Session, string, error) {
-			return s.dashboardSessions(ctx, o, "search-match")
+			return s.dashboardSessions(ctx, o, "search-match", "")
 		})
 		checkOrder(t, "search by name", dir, rows, want, func(r Session) []any { return []any{r.Name, r.Family, r.ID} })
 		for _, r := range rows {
@@ -194,5 +195,129 @@ func TestDashboardPeerOptionsBound(t *testing.T) {
 	options, err = s.dashboardPeerOptions(ctx, true)
 	if err != nil || len(options) != dashboardPeerOptionMax || options[0].Name != active.Name || options[1].Label != "agy, expired" {
 		t.Fatalf("all options: %d %v %v", len(options), options[:2], err)
+	}
+}
+
+// The sessions view's status filter keeps only the sessions in one state, with the search
+// and across pages; an unknown status is invalid (#429).
+func TestDashboardSessionStatusFilter(t *testing.T) {
+	s, _ := testStore(t)
+	ctx := context.Background()
+	match := namedRepo(t, "status-match")
+	retired := 0
+	for i := range 2*dashboardSessionPage + 5 {
+		r := join(t, s, []string{"codex", "agy"}[i%2], fmt.Sprintf("synthetic-%04d", i), match)
+		if i%3 == 0 {
+			if _, err := s.Mutate(ctx, Mutation{Family: r.Family, ID: r.ID, IfRevision: r.Revision}, true); err != nil {
+				t.Fatal(err)
+			}
+			retired++
+		}
+	}
+	other := join(t, s, "opencode", "synthetic-other", namedRepo(t, "status-miss"))
+	for _, c := range []struct {
+		state, search string
+		want          int
+	}{
+		{"retired", "", retired},
+		{"active", "", 2*dashboardSessionPage + 5 - retired + 1},
+		{"active", "status-match", 2*dashboardSessionPage + 5 - retired},
+		{"expired", "", 0},
+		{"", "", 2*dashboardSessionPage + 5 + 1},
+	} {
+		for _, dir := range []string{"asc", "desc"} {
+			rows := pageAll(t, &sessionSort, "name", dir, func(o dashboardSort) ([]Session, string, error) {
+				return s.dashboardSessions(ctx, o, c.search, c.state)
+			})
+			checkOrder(t, "status "+c.state, dir, rows, c.want, func(r Session) []any { return []any{r.Name, r.Family, r.ID} })
+			for _, r := range rows {
+				if c.state != "" && r.State != c.state || c.search != "" && r.ID == other.ID {
+					t.Fatalf("status %q search %q: row %+v", c.state, c.search, r)
+				}
+			}
+		}
+	}
+	for _, state := range []string{"bogus", "Active", "purge-marked"} {
+		if _, _, err := s.dashboardSessions(ctx, sortOrder(t, &sessionSort, "", "", ""), "", state); err != ErrInvalid {
+			t.Fatalf("status %q: %v", state, err)
+		}
+	}
+}
+
+// The sessions page shows a button with the count for each status; the chosen one filters
+// the list and is kept by the sort links, the search form and the action forms' back field.
+// The list offers a box that selects all sessions on the page (#429).
+func TestDashboardSessionStatusPage(t *testing.T) {
+	d, root := startTestDaemon(t)
+	secret, err := ReadSecret(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	s, ctx := d.store, context.Background()
+	active := join(t, s, "codex", "synthetic-active", "")
+	expired := join(t, s, "agy", "synthetic-expired", "")
+	if _, err := fixtureExecContext(ctx, s, `UPDATE sessions SET expires_at=? WHERE family=? AND id=?`, s.now().UnixMilli()-1000, expired.Family, expired.ID); err != nil {
+		t.Fatal(err)
+	}
+	retired := join(t, s, "opencode", "synthetic-retired", "")
+	if _, err := s.Mutate(ctx, Mutation{Family: retired.Family, ID: retired.ID, IfRevision: retired.Revision}, true); err != nil {
+		t.Fatal(err)
+	}
+	cookie := dashboardLogin(t, d, secret)
+	page := func(path string) string {
+		t.Helper()
+		r := dashboardDo(t, d, "GET", path, cookie, nil, nil)
+		if r.status != 200 {
+			t.Fatalf("%s: %d", path, r.status)
+		}
+		return r.body
+	}
+	button := func(query, label string, current bool) string {
+		b := `<a href="/dashboard/sessions?` + query + `"`
+		if current {
+			b += ` aria-current="true"`
+		}
+		return b + `>` + label + `</a>`
+	}
+	all := page("/dashboard/sessions")
+	for _, want := range []string{button("dir=asc&amp;sort=state", "<b>3</b> all", true),
+		button("dir=asc&amp;sort=state&amp;status=active", "<b>1</b> active", false),
+		button("dir=asc&amp;sort=state&amp;status=expired", "<b>1</b> expired", false),
+		button("dir=asc&amp;sort=state&amp;status=retired", "<b>1</b> retired", false),
+		`<input type="checkbox" data-select-all aria-controls="sessions"> Select all sessions on this page`, `<table id="sessions">`} {
+		if !strings.Contains(all, want) {
+			t.Fatalf("missing %s in:\n%s", want, all)
+		}
+	}
+	for _, name := range []string{active.Name, expired.Name, retired.Name} {
+		if !strings.Contains(all, name) {
+			t.Fatalf("all: no %s", name)
+		}
+	}
+	// The counts stay totals under a filter; the sort and the search keep the filter.
+	filtered := page("/dashboard/sessions?status=expired&sort=name&dir=desc")
+	for _, want := range []string{button("dir=desc&amp;sort=name", "<b>3</b> all", false),
+		button("dir=desc&amp;sort=name&amp;status=expired", "<b>1</b> expired", true),
+		button("dir=desc&amp;sort=name&amp;status=active", "<b>1</b> active", false),
+		`<a href="/dashboard/sessions?dir=asc&amp;sort=family&amp;status=expired">Family</a>`,
+		`<input type="hidden" name="status" value="expired">`,
+		`name="back" value="` + html.EscapeString("dir=desc&sort=name&status=expired") + `"`} {
+		if !strings.Contains(filtered, want) {
+			t.Fatalf("missing %s in:\n%s", want, filtered)
+		}
+	}
+	if !strings.Contains(filtered, expired.Name) || strings.Contains(filtered, active.Name) || strings.Contains(filtered, retired.Name) {
+		t.Fatalf("expired filter:\n%s", filtered)
+	}
+	if none := page("/dashboard/sessions?status=retired&q=" + active.Name); !strings.Contains(none, "No session matches “"+active.Name+"” among the retired sessions.") ||
+		strings.Contains(none, "data-select-all") {
+		t.Fatalf("search under filter:\n%s", none)
+	}
+	if list := page("/dashboard/sessions?status=active&fragment=1"); !strings.Contains(list, button("dir=asc&amp;sort=state&amp;status=active", "<b>1</b> active", true)) ||
+		!strings.Contains(list, active.Name) || strings.Contains(list, expired.Name) {
+		t.Fatalf("fragment:\n%s", list)
+	}
+	if r := dashboardDo(t, d, "GET", "/dashboard/sessions?status=bogus", cookie, nil, nil); r.status != 400 {
+		t.Fatalf("unknown status: %d", r.status)
 	}
 }

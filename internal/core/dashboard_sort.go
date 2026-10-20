@@ -56,7 +56,8 @@ type dashboardSort struct {
 // viewFilters names the filter parameters of each view whose actions return to it: its
 // sort and page links keep them, and so does the redirect after an action (#373).
 var viewFilters = map[string][]string{
-	"sessions": {"q"},
+	// The sessions search and status filter (#429).
+	"sessions": {"q", "status"},
 	"messages": {"to", "peers"},
 	"memory":   {"store", "q", "type", "all"},
 	"work":     {"lifecycle", "store", "item"},

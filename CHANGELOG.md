@@ -5,6 +5,11 @@ into a dated release section when promoted to `main`.
 
 ## Unreleased
 
+- The dashboard Sessions page has a status filter: a count for each status (all, active,
+  expired, retired) that shows only the sessions of that status, with the search, sort and
+  paging. **Select all sessions on this page** selects every session in the list for a bulk
+  action, and the list no longer refreshes over a selection (#429).
+
 ## 2026-10-20 — Handoff cycles on active machines, a chosen port and Homebrew tmux on macOS
 
 This release lets the managed handoff cycle clear a Claude Code session that has a background
