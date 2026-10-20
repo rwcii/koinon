@@ -443,6 +443,18 @@ func cycleRepeatable(seen string) bool {
 	return true
 }
 
+// cycleRequestedAt is when the cycle's current request was made: the newest repeated
+// request (#431), recorded by its waiting_ready event, or the admission.
+func cycleRequestedAt(ctx context.Context, tx *writeTx, c cycleRow) (int64, error) {
+	var at sql.NullInt64
+	err := tx.QueryRowContext(ctx, `SELECT MAX(at) FROM context_cycle_events WHERE cycle_id=? AND stage=? AND reason LIKE 'not\_idle.%' ESCAPE '\'`,
+		c.ID, cycleWaitingReady).Scan(&at)
+	if err != nil || !at.Valid {
+		return c.CreatedAt, err
+	}
+	return at.Int64, nil
+}
+
 // repeatCycleRequest asks a requester again whose pane did not become idle after its ready
 // report (#431). In one ordinary transaction the cycle returns to waiting_ready under a new
 // revision, drops the reported handoff, gets a new readiness deadline within its lifetime
@@ -700,8 +712,13 @@ func (s *Store) advanceCycle(ctx context.Context, id string, revision int64, fro
 	c.State, c.Reason, c.UpdatedAt = to, reason, now
 	switch to {
 	case cycleWaitingReady:
-		// A return to readiness keeps the request's readiness deadline.
-		c.StageDeadline = c.CreatedAt + cycleReadyWait.Milliseconds()
+		// A return to readiness keeps the current request's readiness deadline: the first
+		// request's, or that of the newest repeated request (#431).
+		requested, err := cycleRequestedAt(ctx, tx, c)
+		if err != nil {
+			return c, tx.fail(err)
+		}
+		c.StageDeadline = requested + cycleReadyWait.Milliseconds()
 	case cycleWaitingPrompt:
 		c.StageDeadline = now + cyclePromptWait.Milliseconds()
 	default:

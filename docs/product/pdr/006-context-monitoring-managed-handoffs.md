@@ -203,7 +203,10 @@ session's ready report, not an idle state that an active machine never reaches, 
 cycle go ahead.
 
 Pause, then repeat: Maintainer, 2026-10-20, after watching a v0.3.2 cycle in which the agent
-wrote its handoff and went on to its next work item: "the process needs to be a koinon
+wrote its handoff and went on to its next work item. No question or options were put to the
+maintainer. The words followed Claude's report that the clear waits for an idle prompt that
+an active agent never reaches, with a proposed fix that changed only the request, guide and
+ready texts: "the process needs to be a koinon
 overwatch message to the agent that needs to cycle, asking it to pause at appropriate stopping
 point, write a handoff, and then respond to overwatch that the agent is paused and ready. then
 overwatch verifies the agent is idle, and runs the clear/koinon-pickup. if the agent does not

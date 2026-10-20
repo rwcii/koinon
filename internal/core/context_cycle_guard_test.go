@@ -883,3 +883,41 @@ func TestContextCycleSecondReadyStageStartsWithoutTheFirstObservation(t *testing
 		t.Fatalf("second stage: %+v", v)
 	}
 }
+
+// A handoff that changes after a late repeated request returns to readiness under that
+// request's deadline, not the first request's, which has passed (#431 review).
+func TestContextCycleArtifactChangeAfterARepeatKeepsTheNewDeadline(t *testing.T) {
+	f := newCycleFixture(t)
+	f.observe(t, f.k, 900, "synthetic-epoch-1")
+	first := f.status(t, f.k)
+	f.clock = f.clock.Add(14 * time.Minute)
+	name := f.handoff(t, "claude", "2026-10-13-160000.md", "synthetic handoff")
+	ready, err := f.s.ContextCycleReady(context.Background(), f.k, "synthetic-epoch-1", first.ID, first.Revision, name)
+	if err != nil {
+		t.Fatal(err)
+	}
+	f.adapter.pane = PaneState{Seen: "status_busy"}
+	f.step(t)
+	f.clock = time.UnixMilli(ready.StageDeadline)
+	f.step(t)
+	again := f.status(t, f.k)
+	repeatedAt := f.clock.UnixMilli()
+	if again.State != cycleWaitingReady || repeatedAt <= first.CreatedAt+cycleReadyWait.Milliseconds() {
+		t.Fatalf("late repeat: %+v", again)
+	}
+	f.clock = f.clock.Add(time.Minute)
+	second := f.handoff(t, "claude", "2026-10-13-161000.md", "synthetic second handoff")
+	if _, err := f.s.ContextCycleReady(context.Background(), f.k, "synthetic-epoch-1", again.ID, again.Revision, second); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(f.repo, "_handoff", "claude", second), []byte("synthetic changed handoff"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	f.adapter.pane = PaneState{Idle: true}
+	f.step(t)
+	v := f.status(t, f.k)
+	want := min(repeatedAt+cycleReadyWait.Milliseconds(), v.CycleDeadline)
+	if v.State != cycleWaitingReady || v.Reason != "artifact_changed" || v.StageDeadline != want || v.StageDeadline <= f.clock.UnixMilli() {
+		t.Fatalf("artifact change after the repeat: %+v, want deadline %d", v, want)
+	}
+}
