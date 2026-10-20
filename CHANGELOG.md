@@ -5,6 +5,30 @@ into a dated release section when promoted to `main`.
 
 ## Unreleased
 
+## 2026-10-20 — Handoff cycles on active machines, a chosen port and Homebrew tmux on macOS
+
+This release lets the managed handoff cycle clear a Claude Code session that has a background
+task running, and enters Koinon's own pickup skill after the clear, so projects with their own
+`pickup` skill get the cycle. The daemon and dashboard can use another port, and the dashboard
+works through an SSH tunnel. The macOS daemon runs the agent's own Homebrew `tmux`, so pane
+wakes of Codex and Grok arrive. The Decisions page gets a status filter and a full-width card
+for an item opened by reference. The state schema is 28; a v0.3.1 installation upgrades in
+place, and a v0.3.1 binary does not open the upgraded state.
+
+Upgrade from v0.3.1 with Homebrew: run `brew update` and `brew upgrade koinon`; the daemon
+restarts on the new binary and writes the `koinon-pickup` skill. On macOS, then restart each
+agent session that runs in tmux, so its new `koinon mcp` reports its `tmux` path
+(docs/INSTALL.md). A failed cycle ends the session's Enable: run `koinon context enable NAME`
+again for each session whose cycle failed before the upgrade (docs/USAGE.md).
+
+Known limits:
+
+- The DeepSeek harness's permission grammar remains unverified (docs/PERMISSIONS.md).
+- A macOS system-mode daemon (`--system`) keeps a copy; upgrade it with
+  `$(brew --prefix)/bin/koinon install --system`.
+- A running agent session keeps the `koinon mcp` server it started with; the new behavior
+  appears when the session, or its MCP server, starts again (docs/INSTALL.md).
+
 Changes:
 
 - Daemon and dashboard port (#405): `koinon install --port N` records the port of both loopback
@@ -66,15 +90,15 @@ Changes:
   pane now names what it saw, such as `ready_timeout.status_busy` or
   `ready_timeout.input_not_empty`.
 - Homebrew tmux for the macOS daemon (#418): launchd's default `PATH`, which the LaunchAgent and
-  the LaunchDaemon both get, has no Homebrew directory, so the daemon could not run tmux, and pane wakes of Codex and Grok waited as
-  `codex_target_unavailable` or `grok_target_unavailable` with no notice. `koinon mcp` now
-  reports the absolute `tmux` of the agent's own terminal when it registers, and the daemon
-  runs that path after checking that it resolves to a regular executable owned by root or the
-  daemon's user and not writable by its group or others; state schema 28 stores it. A tmux that
-  cannot run now waits as `tmux_unavailable`, apart from an unproven pane, also in the handoff
-  cycle's probe and inspection; the messages stay queued. Every pane, idle and submission check
-  is unchanged. After the upgrade, restart each agent session that runs in tmux, so its new
-  `koinon mcp` reports the path (docs/INSTALL.md).
+  the LaunchDaemon both get, has no Homebrew directory, so the daemon could not run tmux, and
+  pane wakes of Codex and Grok waited as `codex_target_unavailable` or `grok_target_unavailable`
+  with no notice. `koinon mcp` now reports the absolute `tmux` of the agent's own terminal when
+  it registers, and the daemon runs that path after checking that it resolves to a regular
+  executable owned by root or the daemon's user and not writable by its group or others; state
+  schema 28 stores it. A tmux that cannot run now waits as `tmux_unavailable`, apart from an
+  unproven pane, also in the handoff cycle's probe and inspection; the messages stay queued.
+  Every pane, idle and submission check is unchanged. After the upgrade, restart each agent
+  session that runs in tmux, so its new `koinon mcp` reports the path (docs/INSTALL.md).
 
 ## 2026-10-17 — Homebrew upgrades and maintenance from the command line
 
