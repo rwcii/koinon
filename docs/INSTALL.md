@@ -224,6 +224,18 @@ restarts the service. Any other plist at that path is refused before anything ch
 state. The user agent stays disabled; a later plain install, with no system plist present,
 enables and starts it again.
 
+The LaunchDaemon's `PATH` is launchd's default, `/usr/bin:/bin:/usr/sbin:/sbin`, which holds no
+Homebrew directory, so the daemon does not find a Homebrew `tmux` there (#418). The daemon
+runs the `tmux` of the session's own terminal instead: `koinon mcp`, which runs under the
+agent's `PATH`, reports the absolute `tmux` path when it registers the session, at the session's
+first Koinon tool call and again when its record had expired or was retired. The daemon runs
+that path only after it resolves every link to a regular executable owned by root or you and not
+writable by its group or others. Nothing is reinstalled and no `PATH` is changed. After the
+upgrade that brings this, restart each agent session that runs in tmux, for example with
+`koinon codex`: a `koinon mcp` server that started before the upgrade reports no path. Until
+a new one registers, a pane wake that finds no `tmux` on the daemon's `PATH` leaves its messages
+queued with the reason `tmux_unavailable`.
+
 ### Upgrade the Go runtime
 
 With Homebrew, `brew update` and `brew upgrade koinon` are the upgrade (see Homebrew above).
@@ -495,7 +507,9 @@ Schema 11 preserves existing aliases and holders as participants without a role;
 acknowledgements, memory cursors and work claims keep their existing owners.
 
 Launched sessions record their host PID and process start value; MCP reports a tmux socket
-and pane only after verifying that the pane holds the host. A new native session in the same
+and pane only after verifying that the pane holds the host, with the absolute `tmux` it runs.
+Schema 28 adds that path to the session record; existing sessions start without one and run
+`tmux` from the daemon's `PATH` until they register again (see System mode on macOS). A new native session in the same
 host can succeed after the tool-call guard (30 seconds by default), and a new host in the same pane can
 succeed once the former host is proven ended. `peers` reports `succession` with the evidence
 or refusal. A `holder_active` refusal retries at the next tool call after the daemon's wait;

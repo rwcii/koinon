@@ -48,6 +48,16 @@ Changes:
   ready report still wait until the cycle ends. A stage that times out while waiting for the
   pane now names what it saw, such as `ready_timeout.status_busy` or
   `ready_timeout.input_not_empty`.
+- Homebrew tmux for the macOS system daemon (#418): the LaunchDaemon's `PATH` has no Homebrew
+  directory, so it could not run tmux, and pane wakes of Codex and Grok waited as
+  `codex_target_unavailable` or `grok_target_unavailable` with no notice. `koinon mcp` now
+  reports the absolute `tmux` of the agent's own terminal when it registers, and the daemon
+  runs that path after checking that it resolves to a regular executable owned by root or the
+  daemon's user and not writable by its group or others; state schema 28 stores it. A tmux that
+  cannot run now waits as `tmux_unavailable`, apart from an unproven pane, also in the handoff
+  cycle's probe and inspection; the messages stay queued. Every pane, idle and submission check
+  is unchanged. After the upgrade, restart each agent session that runs in tmux, so its new
+  `koinon mcp` reports the path (docs/INSTALL.md).
 
 ## 2026-10-17 — Homebrew upgrades and maintenance from the command line
 

@@ -45,13 +45,25 @@ func (p *paneSeen) keep(active []cycleRow) {
 	}
 }
 
-// inspectSeen is the fixed code of an inspection that failed: an unproven pane, else a pane
-// or registry that could not be read.
+// inspectSeen is the fixed code of an inspection that failed: a tmux that could not run
+// (#418), an unproven pane, else a pane or registry that could not be read.
 func inspectSeen(err error) string {
-	if errors.Is(err, errClaudeUnproven) || errors.Is(err, errCodexUnproven) {
+	switch {
+	case errors.Is(err, errTmuxUnavailable):
+		return errTmuxUnavailable.Error()
+	case errors.Is(err, errClaudeUnproven) || errors.Is(err, errCodexUnproven):
 		return "pane_unproven"
 	}
 	return "pane_unreadable"
+}
+
+// proofError is an adapter's error for a pane proof that failed with err: err itself when
+// tmux could not run, else the adapter's unproven error.
+func proofError(err, unproven error) error {
+	if errors.Is(err, errTmuxUnavailable) {
+		return err
+	}
+	return unproven
 }
 
 // contextObserved runs after a context observation was stored, outside the observation
@@ -289,10 +301,15 @@ func (s *Store) cycleFence(c cycleRow) CycleFence {
 	}
 }
 
-// cycleTarget is c's target with the koinon-pickup skill and the store's host tools.
+// cycleTarget is c's target with the koinon-pickup skill and the store's host tools. The
+// tools run the session's recorded tmux, read now: it is a tool path, not part of the pinned
+// identity (#418).
 func (s *Store) cycleTarget(ctx context.Context, c cycleRow) CycleTarget {
 	t := c.target()
-	t.tools = s.hostTools()
+	var executable string
+	// A session row that cannot be read leaves "": tmux from PATH.
+	_ = s.db.QueryRowContext(ctx, `SELECT tmux_path FROM sessions WHERE family=? AND id=?`, c.Family, c.SessionID).Scan(&executable)
+	t.tools = s.hostTools(executable)
 	t.Pickup = pickupSkillEntry()
 	var held int
 	t.Holds = s.db.QueryRowContext(ctx, `SELECT 1 FROM names WHERE kind='alias' AND family=? AND holder_id=? LIMIT 1`, c.Family, c.SessionID).Scan(&held) == nil

@@ -362,3 +362,44 @@ func TestTerminalNamingLeavesHostHolderName(t *testing.T) {
 		t.Fatalf("fenced session without a holding host-mate: %q", f.sessionName(p))
 	}
 }
+
+// The registration's pane carries the absolute tmux on the agent's PATH (#418). A tmux that is
+// not found, or a path that is not absolute and clean, is left out, and the pane is still
+// reported.
+func TestRegistrationPaneReportsItsTmux(t *testing.T) {
+	dir := t.TempDir()
+	tmux := filepath.Join(dir, "tmux")
+	if err := os.WriteFile(tmux, []byte("#!/bin/sh\n"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("PATH", dir)
+	if got, err := LookTmux(); err != nil || got != tmux {
+		t.Fatalf("tmux on PATH: %q %v", got, err)
+	}
+	t.Setenv("PATH", t.TempDir())
+	if got, err := LookTmux(); err == nil {
+		t.Fatalf("tmux found on a PATH without one: %q", got)
+	}
+	for _, c := range []struct {
+		executable string
+		err        error
+		want       string
+	}{
+		{"/synthetic/homebrew/bin/tmux", nil, "/synthetic/homebrew/bin/tmux"},
+		{"synthetic/tmux", nil, ""},
+		{"/synthetic/homebrew/../bin/tmux", nil, ""},
+		{"/synthetic/homebrew/bin/tmux\n", nil, ""},
+		{"", exec.ErrNotFound, ""},
+	} {
+		s := &server{c: Config{ParentPID: 200, Getenv: func(k string) string {
+			return map[string]string{"TMUX": "/synthetic/tmux/default,1,2", "TMUX_PANE": "%3"}[k]
+		}, Parents: func() (map[int]int, error) { return map[int]int{200: 100}, nil },
+			Command:        func(int) (string, []string, error) { return "/synthetic/sh", nil, nil },
+			Tmux:           func(context.Context, string, ...string) (string, error) { return "%3\t100\t$1\n", nil },
+			TmuxExecutable: func() (string, error) { return c.executable, c.err }}}
+		got := s.registrationPane(context.Background())
+		if got == nil || got.Socket != "/synthetic/tmux/default" || got.Pane != "%3" || got.Executable != c.want {
+			t.Fatalf("%q: pane %+v", c.executable, got)
+		}
+	}
+}

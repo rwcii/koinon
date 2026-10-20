@@ -41,6 +41,9 @@ type Config struct {
 	// terminal is named only when both are set.
 	Tmux    func(ctx context.Context, socket string, args ...string) (string, error)
 	Parents func() (map[int]int, error)
+	// TmuxExecutable finds the absolute tmux that Tmux runs, which the registration reports
+	// with the pane so that the daemon runs the same tmux (#418); nil reports none.
+	TmuxExecutable func() (string, error)
 	// After waits for the renewal timer; nil is time.After.
 	After func(time.Duration) <-chan time.Time
 	// LibraryReadRoot injects bounded native-client filesystem observations.

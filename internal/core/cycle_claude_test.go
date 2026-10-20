@@ -315,6 +315,17 @@ func TestClaudeProbe(t *testing.T) {
 		}
 	}
 	writeEntry(t, skill(), PickupSkill())
+	// A tmux that cannot run is not an unproven pane (#418), for the probe and the inspection.
+	noTmux := term.target(t)
+	noTmux.tools.tmux = func(context.Context, string, ...string) (string, error) {
+		return "", tmuxUnavailableError{errors.New("synthetic start failure")}
+	}
+	if got := (claudeCycle{}).Probe(ctx, noTmux); got.Reason != "tmux_unavailable" {
+		t.Fatalf("tmux unavailable: %+v", got)
+	}
+	if _, err := (claudeCycle{}).Inspect(ctx, noTmux, term.fence); inspectSeen(err) != "tmux_unavailable" {
+		t.Fatalf("inspection without tmux: %v", err)
+	}
 	for _, c := range []struct {
 		name   string
 		change func()

@@ -68,6 +68,16 @@ func RunTmux(ctx context.Context, socket string, args ...string) (string, error)
 	return string(out), err
 }
 
+// LookTmux is the absolute path of the tmux that RunTmux runs: tmux on this server's PATH,
+// which is the agent's own. A tmux found through a relative PATH entry is not reported.
+func LookTmux() (string, error) {
+	path, err := exec.LookPath("tmux")
+	if err != nil {
+		return "", err
+	}
+	return filepath.Abs(path)
+}
+
 // published is the name the session's terminal takes.
 func published(session core.Session) string {
 	if session.Alias != "" {
@@ -245,7 +255,8 @@ func (s *server) hostPane(ctx context.Context, socket, pane string, host int) (s
 }
 
 // registrationPane offers only a proven pane of this MCP server's native parent.
-// The daemon binds that parent to the launch and reads the actual host's start time.
+// The daemon binds that parent to the launch and reads the actual host's start time. The
+// pane carries the absolute tmux that this server, under the agent's PATH, runs (#418).
 func (s *server) registrationPane(ctx context.Context) *core.TmuxPane {
 	if s.c.Tmux == nil || s.c.Parents == nil || s.c.Command == nil {
 		return nil
@@ -254,11 +265,16 @@ func (s *server) registrationPane(ctx context.Context) *core.TmuxPane {
 	defer cancel()
 	envSocket, _, _ := strings.Cut(s.c.Getenv("TMUX"), ",")
 	socket, pane, _, _, reason := s.hostPane(ctx, envSocket, s.c.Getenv("TMUX_PANE"), s.c.ParentPID)
-	if reason != "" || !filepath.IsAbs(socket) || filepath.Clean(socket) != socket || len(socket) > 4096 ||
-		strings.ContainsFunc(socket, func(r rune) bool { return r < 0x20 || r == 0x7f }) || !registrationPaneID.MatchString(pane) {
+	if reason != "" || !platform.CleanAbsolutePath(socket) || !registrationPaneID.MatchString(pane) {
 		return nil
 	}
-	return &core.TmuxPane{Socket: socket, Pane: pane}
+	p := &core.TmuxPane{Socket: socket, Pane: pane}
+	if s.c.TmuxExecutable != nil {
+		if executable, err := s.c.TmuxExecutable(); err == nil && platform.CleanAbsolutePath(executable) {
+			p.Executable = executable
+		}
+	}
+	return p
 }
 
 var registrationPaneID = regexp.MustCompile(`^%[0-9]{1,9}$`)
