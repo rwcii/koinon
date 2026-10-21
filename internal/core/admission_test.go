@@ -7,7 +7,6 @@ import (
 	"fmt"
 	"strings"
 	"testing"
-	"time"
 )
 
 // A supplied launch must match. Native direct starts register as plain peers; DeepSeek
@@ -251,16 +250,11 @@ func TestUnlaunchedSessionRenewsAfterUpgrade(t *testing.T) {
 	if _, err := s.Mutate(ctx, Mutation{Family: "codex", ID: "synthetic-sender", IfRevision: sender.Revision}, false); err != nil {
 		t.Fatalf("launched renewal: %v", err)
 	}
-	clock := time.UnixMilli(after + 1)
-	s.now = func() time.Time { return clock }
-	items, _, err := s.List(ctx)
-	if err != nil {
-		t.Fatal(err)
-	}
-	for _, item := range items {
-		if item.ID == "synthetic-old" && item.State != "expired" {
-			t.Fatalf("unlaunched session did not expire: %+v", item)
-		}
+	// The state is read at a later time without moving the store's clock, which the running
+	// daemon's loops read.
+	item, err := scanSession(s.db.QueryRow(sessionQuery+` WHERE s.family='claude' AND s.id='synthetic-old'`), after+1)
+	if err != nil || item.State != "expired" {
+		t.Fatalf("unlaunched session did not expire: %+v %v", item, err)
 	}
 }
 

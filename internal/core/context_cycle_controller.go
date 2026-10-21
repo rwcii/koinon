@@ -182,6 +182,18 @@ func (s *Store) stepCycle(ctx context.Context, c cycleRow) error {
 				reason += "." + seen
 			}
 		}
+		if c.State == cycleWaitingReady {
+			// The reason says whether the session read the request that went unanswered (#445).
+			read, err := s.cycleRequestRead(ctx, c)
+			if err != nil {
+				return err
+			}
+			if read {
+				reason += ".read"
+			} else {
+				reason += ".unread"
+			}
+		}
 		_, err := s.endCycle(ctx, c.ID, c.Revision, cycleFailed, reason)
 		return err
 	}
@@ -313,6 +325,18 @@ func (s *Store) stepCycle(ctx context.Context, c cycleRow) error {
 }
 
 // cycleWaitsForPane reports a stage that waits for the pane to take input.
+// cycleRequestRead reports whether the requester read or acknowledged its inbox through the
+// cycle's newest request.
+func (s *Store) cycleRequestRead(ctx context.Context, c cycleRow) (bool, error) {
+	var through int64
+	err := s.db.QueryRowContext(ctx, `SELECT max(acked_through,read_through) FROM sessions WHERE family=? AND id=?`,
+		c.Family, c.SessionID).Scan(&through)
+	if errors.Is(err, sql.ErrNoRows) {
+		return false, nil
+	}
+	return err == nil && through >= c.MessageSeq, err
+}
+
 func cycleWaitsForPane(state string) bool {
 	return state == cycleReady || state == cycleBootstrapVerified || state == cycleResetVerified
 }
