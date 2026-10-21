@@ -180,6 +180,10 @@ func (f *cycleFixture) handoff(t *testing.T, agent, name, body string) string {
 	if err := os.WriteFile(filepath.Join(dir, name), []byte(body), 0o600); err != nil {
 		t.Fatal(err)
 	}
+	// The file is written at the fixture's clock, which a test can move past real time.
+	if err := os.Chtimes(filepath.Join(dir, name), f.clock, f.clock); err != nil {
+		t.Fatal(err)
+	}
 	return name
 }
 

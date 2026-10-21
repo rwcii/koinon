@@ -787,7 +787,12 @@ func TestContextCycleAsksAgainWhenThePaneStaysBusy(t *testing.T) {
 	if v := f.status(t, f.k); v.State != cycleWaitingReady || v.Artifact != "" || f.adapter.count("clear") != 0 {
 		t.Fatalf("after the stale report: %+v", v)
 	}
+	// The handoff written before the repeat is not new for the repeated request (#431).
+	if _, err := f.s.ContextCycleReady(context.Background(), f.k, "synthetic-epoch-1", again.ID, again.Revision, ready.Artifact); !errors.Is(err, ErrCycleArtifact) {
+		t.Fatalf("old handoff for the repeated request: %v", err)
+	}
 	// The former revision is stale; a new handoff under the new revision is ready again.
+	f.clock = f.clock.Add(time.Second)
 	name := f.handoff(t, "claude", "2026-10-13-130000.md", "synthetic second handoff")
 	if _, err := f.s.ContextCycleReady(context.Background(), f.k, "synthetic-epoch-1", again.ID, ready.Revision, name); !errors.Is(err, ErrCycleChanged) {
 		t.Fatalf("stale ready: %v", err)
