@@ -22,7 +22,7 @@ func TestVersionCommand(t *testing.T) {
 		t.Fatal(err)
 	}
 	var v map[string]string
-	if err := json.Unmarshal(out.Bytes(), &v); err != nil || v["version"] != "dev" || v["os"] == "" {
+	if err := json.Unmarshal(out.Bytes(), &v); err != nil || v["version"] != "dev" || v["os"] == "" || v["mcp_resume"] != "1" {
 		t.Fatalf("version %s %v", out.String(), err)
 	}
 }

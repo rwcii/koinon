@@ -1530,6 +1530,27 @@ initialize response offers the catalog and its query paths; this informational o
 performs no query, inspection, registration or adoption. The server
 writes only protocol messages to stdout and never logs a secret, session ID or message body.
 
+The `initialize` response declares `capabilities.tools.listChanged` and gives the release as
+`serverInfo.version` (`dev` for a build without one); a successful `peers` result adds it as
+`server_version`. The server checks the path it was started by, made absolute (through `PATH`
+for a bare name), every 5 seconds once `initialize` has been answered, with the daemon's test:
+the path resolves to another regular executable file than at the start. It does nothing while
+a request is being answered, while its read buffer holds a byte or while standard input has one
+to read; a byte that arrives later stays in the pipe for the new program. It then waits for its
+renewal and observation loops to finish their current daemon call and runs `<path> version` for
+at most 10 seconds. Only when that prints `"mcp_resume": "1"` does it execute the file in its own
+process with the same arguments and environment and `KOINON_MCP_RESUME`, a JSON object with
+`v` 1, the agreed `protocol_version`, the `client` name and `capabilities`, the registered
+`sessions` (`family`, `id`, `revision`, `retry_after_ms` left of a `holder_active` wait),
+`latest`, `renewal_seconds`, `subagents` and the `claude_host_start` that `initialize` pinned. The new program removes the variable from its
+environment, restores that state, renews the latest session at once and sends
+`notifications/tools/list_changed` before it reads a request. State that it cannot read, or
+that has no protocol version, starts it as a new server with one line on standard error. A
+version command that fails or reports another `mcp_resume`, or an exec that fails, keeps the
+running program with one line on standard error and its loops running again; that file is not
+tried again, and the next change is. `koinon version` reports the state version that a program
+reads as `mcp_resume`.
+
 The calling session comes from the agent on every call, never from model-supplied arguments; a
 call whose arguments hold `caller`, `family`, `id`, `as`, `session` or `session_id` is refused:
 
