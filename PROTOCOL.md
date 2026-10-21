@@ -1599,9 +1599,10 @@ from elsewhere. Peer message bodies appear here, escaped, and nowhere else outsi
   opens it when a browser is available (macOS `open`, Linux `xdg-open` with `DISPLAY` or
   `WAYLAND_DISPLAY`; never in an SSH session). A token has 256 random bits, works once within 60
   seconds, and at most 8 are outstanding. Its use starts a session: the cookie `koinon_dashboard`
-  is `HttpOnly`, `SameSite=Strict`, `Path=/dashboard/` and has no `Domain`. A session ends after 30
-  idle minutes, after 12 hours, at logout, when 16 newer sessions exist, or when the daemon
-  restarts. The daemon keeps only SHA-256 hashes of tokens and session IDs, in memory.
+  is `HttpOnly`, `SameSite=Strict`, `Path=/dashboard/`, has no `Domain` and has `Max-Age=604800`
+  (7 days), so it survives a browser restart. A session ends after 24 hours without a request,
+  7 days after it started, at logout, when 16 newer sessions exist, or when the daemon restarts
+  (#435). The daemon keeps only SHA-256 hashes of tokens and session IDs, in memory.
 - **Request protection.** Every dashboard request must name a literal loopback IP with a port in
   `Host` (`127.0.0.1:PORT` or `[::1]:PORT`; `localhost` and other names are refused). PORT may
   differ from the listener's, as through an SSH tunnel from another local port (ADR 001,

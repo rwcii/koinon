@@ -5,6 +5,9 @@ into a dated release section when promoted to `main`.
 
 ## Unreleased
 
+- A dashboard login now lasts 24 hours without a request (was 30 minutes) and at most 7 days
+  (was 12 hours), and its cookie survives a browser restart within that time (#435).
+
 - The dashboard Sessions page has a status filter: a count for each status (all, active,
   expired, retired) that shows only the sessions of that status, with the search, sort and
   paging. **Select all sessions on this page** selects every session in the list for a bulk
