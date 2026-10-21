@@ -258,23 +258,24 @@ func TestReplaceAtIdlePoint(t *testing.T) {
 // again and one line on standard error; a later change is tried again.
 func TestReplacementFailureKeepsServing(t *testing.T) {
 	p := newPipeServer(t)
-	var attempts atomic.Int32
+	var attempts, stopped atomic.Int32
 	done := p.serve(p.config("v-old", func([]byte) error {
 		if attempts.Add(1) == 1 {
+			// The loops are stopped during Replace, so a later renewal wait is a restarted loop.
+			stopped.Store(p.waits.Load())
 			return errors.New("the new program's version command failed: exit status 1")
 		}
 		return nil
 	}))
 	p.send(request(1, "initialize", map[string]any{"protocolVersion": "2025-06-18", "clientInfo": map[string]any{"name": "codex-mcp-client"}}))
 	p.next()
-	waits := p.waits.Load()
 	p.changed.Store(true)
 	deadline := time.Now().Add(10 * time.Second)
-	for p.waits.Load() == waits && time.Now().Before(deadline) {
+	for (attempts.Load() != 1 || p.waits.Load() <= stopped.Load()) && time.Now().Before(deadline) {
 		time.Sleep(10 * time.Millisecond)
 	}
-	if attempts.Load() != 1 || p.waits.Load() == waits {
-		t.Fatalf("attempts %d, renewal waits %d then %d", attempts.Load(), waits, p.waits.Load())
+	if attempts.Load() != 1 || p.waits.Load() <= stopped.Load() {
+		t.Fatalf("attempts %d, renewal waits %d after the stop", attempts.Load(), p.waits.Load()-stopped.Load())
 	}
 	p.send(request(2, "tools/call", peersCall))
 	if reply := p.answer(2); reply["server_version"] != "v-old" {
