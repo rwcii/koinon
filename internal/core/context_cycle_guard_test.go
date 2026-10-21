@@ -77,7 +77,7 @@ func TestContextCycleDeadlinesHold(t *testing.T) {
 		t.Fatalf("ready at the deadline: %v", err)
 	}
 	f.step(t)
-	if got := f.status(t, f.k); got.State != cycleFailed || got.Reason != "waiting_ready_timeout" || f.adapter.count("clear") != 0 {
+	if got := f.status(t, f.k); got.State != cycleFailed || got.Reason != "waiting_ready_timeout.unread" || f.adapter.count("clear") != 0 {
 		t.Fatalf("after the deadline: %+v %v", got, f.adapter.calls)
 	}
 	// One millisecond before it, ready is accepted with the receipt wait.
@@ -561,14 +561,24 @@ func TestContextCycleReadyHoldsWakesAndNamesWhatItSaw(t *testing.T) {
 			t.Fatalf("%s: %+v", test.want, v)
 		}
 	}
-	// A stage that does not wait for the pane keeps its plain reason.
-	g := newCycleFixture(t)
-	g.observe(t, g.k, 900, "synthetic-epoch-1")
-	v := g.status(t, g.k)
-	g.clock = time.UnixMilli(v.StageDeadline)
-	g.step(t)
-	if v = g.status(t, g.k); v.Reason != "waiting_ready_timeout" {
-		t.Fatalf("waiting_ready: %+v", v)
+	// waiting_ready does not wait for the pane: its reason says whether the session read the
+	// request (#445).
+	for _, read := range []bool{false, true} {
+		g := newCycleFixture(t)
+		g.observe(t, g.k, 900, "synthetic-epoch-1")
+		v := g.status(t, g.k)
+		want := "waiting_ready_timeout.unread"
+		if read {
+			if _, err := g.s.ReadInbox(context.Background(), g.k, 0, 10); err != nil {
+				t.Fatal(err)
+			}
+			want = "waiting_ready_timeout.read"
+		}
+		g.clock = time.UnixMilli(v.StageDeadline)
+		g.step(t)
+		if v = g.status(t, g.k); v.Reason != want {
+			t.Fatalf("waiting_ready, read %v: %+v", read, v)
+		}
 	}
 }
 
@@ -929,5 +939,70 @@ func TestContextCycleArtifactChangeAfterARepeatKeepsTheNewDeadline(t *testing.T)
 	want := min(repeatedAt+cycleReadyWait.Milliseconds(), v.CycleDeadline)
 	if v.State != cycleWaitingReady || v.Reason != "artifact_changed" || v.StageDeadline != want || v.StageDeadline <= f.clock.UnixMilli() {
 		t.Fatalf("artifact change after the repeat: %+v, want deadline %d", v, want)
+	}
+}
+
+// A wake whose range holds an unfinished cycle's request names the cycle; after the cycle
+// ends, the notice for the same unread request names none (#445).
+func TestCycleRequestWakeNamesTheCycle(t *testing.T) {
+	f := newCycleFixture(t)
+	f.observe(t, f.k, 900, "synthetic-epoch-1")
+	v := f.status(t, f.k)
+	var sent []string
+	f.s.wake.send = func(_ context.Context, _ Session, notice string) wakeResult {
+		sent = append(sent, notice)
+		return wakeResult{"notified", "accepted"}
+	}
+	wake := func() {
+		t.Helper()
+		f.s.wake.mu.Lock()
+		defer f.s.wake.mu.Unlock()
+		if _, err := f.s.submitWake(context.Background(), f.k, false); err != nil {
+			t.Fatal(err)
+		}
+	}
+	wake()
+	if want := " Managed context-cycle request " + v.ID + ": answer it before other work."; len(sent) != 1 || !strings.HasSuffix(sent[0], want) {
+		t.Fatalf("notice during the cycle: %q", sent)
+	}
+	f.clock = time.UnixMilli(v.StageDeadline)
+	f.step(t)
+	if v = f.status(t, f.k); v.State != cycleFailed {
+		t.Fatalf("cycle: %+v", v)
+	}
+	wake()
+	if len(sent) != 2 || strings.Contains(sent[1], "Managed context-cycle") || !strings.HasSuffix(sent[1], "Read your Koinon inbox.") {
+		t.Fatalf("notice after the cycle: %q", sent)
+	}
+}
+
+// After a repeat, the timeout reason follows the repeated request: an acknowledged first
+// request does not make the cycle read (#445).
+func TestRepeatedRequestTimeoutFollowsTheNewRequest(t *testing.T) {
+	for _, readRepeat := range []bool{false, true} {
+		f := newCycleFixture(t)
+		ready, _ := f.readyCycle(t)
+		f.adapter.pane = PaneState{Seen: "status_busy"}
+		if _, err := f.s.Ack(context.Background(), f.k, 1); err != nil {
+			t.Fatal(err)
+		}
+		f.clock = time.UnixMilli(ready.StageDeadline)
+		f.step(t)
+		again := f.status(t, f.k)
+		if again.State != cycleWaitingReady || len(f.overwatchRequests(t)) != 2 {
+			t.Fatalf("asked again: %+v", again)
+		}
+		want := "waiting_ready_timeout.unread"
+		if readRepeat {
+			if _, err := f.s.ReadInbox(context.Background(), f.k, 1, 10); err != nil {
+				t.Fatal(err)
+			}
+			want = "waiting_ready_timeout.read"
+		}
+		f.clock = time.UnixMilli(again.StageDeadline)
+		f.step(t)
+		if v := f.status(t, f.k); v.State != cycleFailed || v.Reason != want {
+			t.Fatalf("read the repeat %v: %+v", readRepeat, v)
+		}
 	}
 }

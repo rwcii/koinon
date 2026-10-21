@@ -426,6 +426,23 @@ func cycleRequestBody(id string, revision int64) string {
 		"if your pane does not become idle. See the Managed cycle reporting section of koinon guide."
 }
 
+// cycleNoticeSuffix names the unfinished managed cycle whose request is in a wake's range, so
+// the notice does not read as one more routine inbox notice (#445). A range without one adds
+// nothing.
+func (s *Store) cycleNoticeSuffix(ctx context.Context, b wakeBatch) (string, error) {
+	var id string
+	err := s.db.QueryRowContext(ctx, `SELECT m.cycle_id FROM messages m JOIN context_cycles c ON c.cycle_id=m.cycle_id
+		WHERE m.recipient_family=? AND m.recipient_id=? AND m.seq BETWEEN ? AND ? AND m.system_kind=? AND c.`+activeCycle+`
+		ORDER BY m.seq DESC LIMIT 1`, b.Session.Family, b.Session.ID, b.First, b.Last, cycleRequestKind).Scan(&id)
+	if errors.Is(err, sql.ErrNoRows) {
+		return "", nil
+	}
+	if err != nil {
+		return "", err
+	}
+	return " Managed context-cycle request " + id + ": answer it before other work.", nil
+}
+
 // cycleReadyNext is the instruction of a successful ready report (#431).
 const cycleReadyNext = "Paused and ready: end your turn now and start no other work. Overwatch clears your context at " +
 	"your idle prompt and then enters koinon-pickup."

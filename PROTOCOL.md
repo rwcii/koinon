@@ -276,7 +276,9 @@ the session's own inbox. The request's sender is the reserved system identity `o
 `context_cycle_request`, `cycle_id` and `cycle_enable_revision`; its fixed body names the
 cycle and its revision and asks the session to pause at the next safe stopping point and start
 no new work, write its handoff, report it with `context_cycle_ready`, then end its turn and
-stay idle (#431). No session, alias or participant can take the name
+stay idle (#431). A wake whose range holds the request of an unfinished cycle ends its notice
+with ` Managed context-cycle request ID: answer it before other work.`, after any decision
+verdict suffix; a finished cycle's request adds nothing (#445). No session, alias or participant can take the name
 `overwatch`, it has no inbox, and no tool or command can send as it. It is not the maintainer.
 Inbox reads return `system_kind`, `cycle_id` and `cycle_enable_revision` with the message. A
 name record called `overwatch` retained from before schema 23 is kept unchanged; while one
@@ -379,8 +381,10 @@ and `.status_thread_differs`. After a daemon restart no inspection has run, so t
 once without sending a key; a pane in copy mode then gives `.pane_in_mode`. The ready report
 holds the wake lock, so a wake already being submitted ends before `ready` commits. The reason
 is shown on the
-Sessions page, in `koinon context show` and in the audit record. A timeout of another stage
-keeps its plain `<stage>_timeout`.
+Sessions page, in `koinon context show` and in the audit record. A `waiting_ready` timeout
+says whether the session read or acknowledged its inbox through the newest request:
+`waiting_ready_timeout.read` or `waiting_ready_timeout.unread` (#445). A timeout of another
+stage keeps its plain `<stage>_timeout`.
 
 A new native epoch of the requester before the managed clear (`waiting_ready`, `ready`, or a
 stored `bootstrap_intent` or `bootstrap_verified`) cancels the cycle (`epoch_changed`; uncertain

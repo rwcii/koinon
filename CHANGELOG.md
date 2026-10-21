@@ -15,6 +15,11 @@ into a dated release section when promoted to `main`.
 - The dashboard's bulk session action without a selected session now says "Refused: select one
   or more sessions first. Nothing was changed." (`no_selection`), instead of the general "the
   request was not valid" (#442).
+- A wake notice whose range holds a managed context-cycle request ends with "Managed
+  context-cycle request ID: answer it before other work.", so a session that also holds a
+  participant address does not take it for a routine notice. A cycle whose ready report did
+  not come in time fails with `waiting_ready_timeout.read` or `waiting_ready_timeout.unread`,
+  which says whether the session read the request (#445).
 
 ## 2026-10-21 — Pause before the handoff clear, a Sessions status filter and longer dashboard logins
 
