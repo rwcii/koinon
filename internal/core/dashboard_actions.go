@@ -75,6 +75,7 @@ var noticeText = map[string]string{
 	"room_deleted":              "The room was deleted with its members and posts.",
 	"bulk_applied":              "The action was applied to each selected session.",
 	"bulk_partial":              "Some selected sessions were refused, for example because they changed since the page was loaded; the audit log names each result.",
+	"no_selection":              "Refused: select one or more sessions first. Nothing was changed.",
 	"room_posted":               "The post was sent to the room's active members. The agents' allowance is set to the refill value.",
 	"exchange_limit":            "Refused: the room's agent-post allowance is used up.",
 	"room_post_limit":           "Refused: the daemon already retains 10,000 room posts.",
@@ -334,10 +335,16 @@ func (d *Daemon) dashboardActions(mux *http.ServeMux, authed func(int64, func(ht
 	// the same confirmation as the single purge.
 	mux.HandleFunc("POST /dashboard/actions/bulk", authed(bulkFormLimit, func(w http.ResponseWriter, r *http.Request, _ string) {
 		action, selected := r.PostForm.Get("action"), r.PostForm["s"]
-		if !slices.Contains([]string{"retire", "purge", "unpurge", "clear"}, action) || len(selected) == 0 || len(selected) > bulkLimit {
+		known := slices.Contains([]string{"retire", "purge", "unpurge", "clear"}, action)
+		if !known || len(selected) == 0 || len(selected) > bulkLimit {
+			// An empty selection has its own notice, so the person knows to select sessions (#442).
+			code := "invalid_request"
+			if known && len(selected) == 0 {
+				code = "no_selection"
+			}
 			ctx, pending := withAudit(r.Context(), "bulk", "invalid")
-			d.store.auditRefusal(ctx, pending, "invalid_request")
-			done(w, r, "sessions", nil, "invalid_request")
+			d.store.auditRefusal(ctx, pending, code)
+			done(w, r, "sessions", nil, code)
 			return
 		}
 		if action == "purge" && r.PostForm.Get("confirm") != "purge" {

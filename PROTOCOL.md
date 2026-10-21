@@ -1733,9 +1733,9 @@ from elsewhere. Peer message bodies appear here, escaped, and nowhere else outsi
     `family:id:revision`, and `confirm=purge` for a purge): applies the single action to each
     selected session through its store path, with its own audit record and refusal code
     (`revision_changed`, `maintainer_session`). The notice is `bulk_applied`, or `bulk_partial`
-    when any session was refused; an unknown action or an empty selection is
-    `invalid_request`, and a purge without the confirmation is `confirmation_required` and
-    changes nothing (#388). The sessions view has a box before each agent session's name.
+    when any session was refused; an unknown action or more than 100 selections is
+    `invalid_request`, a known action without a selection is `no_selection` (#442), and a
+    purge without the confirmation is `confirmation_required` and changes nothing (#388). The sessions view has a box before each agent session's name.
   - `release` (`repository`, `work_id`, `revision`, `generation`, `consumer`): the work release
     of the claim's owner, with the checkpoint `Released by the maintainer from the dashboard`;
     the work event names family and name `maintainer`. Stale values get the work refusal codes.
