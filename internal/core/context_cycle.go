@@ -433,11 +433,11 @@ const cycleReadyNext = "Paused and ready: end your turn now and start no other w
 // cycleRepeatable reports whether a ready cycle whose stage deadline passed asks its
 // requester again (#431): the pane was read and was not at its idle prompt, such as a turn in
 // progress, a draft, an unknown registry status or no input line found (pane_not_ready when
-// the adapter named nothing). A pane that could not be read or proven, and an idle pane,
-// keep the timeout.
+// the adapter named nothing). A pane that could not be read or proven, a Codex home or
+// rollout that could not be read, and an idle pane keep the timeout.
 func cycleRepeatable(seen string) bool {
 	switch seen {
-	case "", errTmuxUnavailable.Error(), "pane_unproven", "pane_in_mode", "pane_unreadable":
+	case "", errTmuxUnavailable.Error(), "pane_unproven", "pane_in_mode", "pane_unreadable", "home_unknown", "rollout_unreadable":
 		return false
 	}
 	return true

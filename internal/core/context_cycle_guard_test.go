@@ -537,6 +537,11 @@ func TestContextCycleReadyHoldsWakesAndNamesWhatItSaw(t *testing.T) {
 		{PaneState{Seen: "status_unknown"}, nil, "not_idle.status_unknown"},
 		{PaneState{Seen: "input_line_not_found"}, nil, "not_idle.input_line_not_found"},
 		{PaneState{}, nil, "not_idle.pane_not_ready"},
+		// The Codex adapter's running turn is asked again; its unreadable home or rollout is not.
+		{PaneState{Seen: "turn_running"}, nil, "not_idle.turn_running"},
+		{PaneState{Seen: "turn_not_ended"}, nil, "not_idle.turn_not_ended"},
+		{PaneState{Seen: "home_unknown"}, nil, "ready_timeout.home_unknown"},
+		{PaneState{Seen: "rollout_unreadable"}, nil, "ready_timeout.rollout_unreadable"},
 		{PaneState{}, errClaudeUnproven, "ready_timeout.pane_unproven"},
 		// A tmux that cannot run is named apart from an unproven pane (#418).
 		{PaneState{}, tmuxUnavailableError{exec.ErrNotFound}, "ready_timeout.tmux_unavailable"},
