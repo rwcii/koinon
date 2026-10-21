@@ -5,6 +5,39 @@ into a dated release section when promoted to `main`.
 
 ## Unreleased
 
+## 2026-10-21 — Pause before the handoff clear, a Sessions status filter and longer dashboard logins
+
+This release makes the managed handoff cycle ask the session to pause, report ready and stay
+idle, and ask again when it keeps working, so a cycle on an active agent reaches its clear.
+The dashboard Sessions page gets a status filter with counts and a select-all box for bulk
+actions, and a dashboard login lasts 24 hours without a request. The state schema stays 28; a
+v0.3.2 installation upgrades in place.
+
+- The managed handoff cycle asks the session to pause at a safe stopping point, write its
+  handoff, report ready and then end its turn; the ready answer says to start no other work.
+  When the session does not become idle after its ready report, `overwatch` sends the request
+  again under a new revision instead of failing the cycle with `ready_timeout`, and the session
+  writes a new handoff for it (#431).
+- The dashboard Sessions page has a status filter: a count for each status (all, active,
+  expired, retired) that shows only the sessions of that status, with the search, sort and
+  paging. **Select all sessions on this page** selects every session in the list for a bulk
+  action, and the list no longer refreshes over a selection (#429).
+- A dashboard login now lasts 24 hours without a request (was 30 minutes) and at most 7 days
+  (was 12 hours), and its cookie survives a browser restart within that time (#435).
+
+Upgrade from v0.3.2 with Homebrew: run `brew update` and `brew upgrade koinon`; the daemon
+restarts on the new binary, which ends current dashboard logins, so run `koinon dashboard` for a
+new link. Restart each agent session afterwards, so its `koinon mcp` gives the new
+`context_cycle_ready` description; the new request text and ready answer come from the daemon
+at once.
+
+Known limits:
+
+- The DeepSeek harness's permission grammar remains unverified (docs/PERMISSIONS.md).
+- A macOS system-mode daemon (`--system`) keeps a copy; upgrade it with
+  `$(brew --prefix)/bin/koinon install --system`.
+- A running agent session keeps the `koinon mcp` server it started with (docs/INSTALL.md).
+
 ## 2026-10-20 — Handoff cycles on active machines, a chosen port and Homebrew tmux on macOS
 
 This release lets the managed handoff cycle clear a Claude Code session that has a background

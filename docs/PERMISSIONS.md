@@ -56,7 +56,7 @@ Allow them when the maintainer has authorized the corresponding coordination wor
 | `send` | Send an authorized message to a verified peer. |
 | `room_post` | Post to a room in which the caller is a member; uses the room's agent-post allowance. |
 | `ack` | Acknowledge inbox sequences after handling them. |
-| `context_cycle_ready` | Report this session's written handoff for the managed cycle that its Enable authorized. |
+| `context_cycle_ready` | Report that this session paused and wrote its handoff for the managed cycle that its Enable authorized. |
 | `context_cycle_pickup` | Report the restored checkpoint after the managed cycle cleared the context. |
 | `context_set` | Set a family's context mode and threshold; the audit log names this session. |
 | `context_enable` | Turn a session's managed handoff cycle on or off; the audit log names this session. |

@@ -44,8 +44,9 @@ func newNamingFixtureAt(t *testing.T, socket string) *namingFixture {
 		}
 		t.Skip("tmux not installed")
 	}
-	// A short unresolved socket path also fits macOS's AF_UNIX bound.
-	dir, err := os.MkdirTemp("", "km-tmux-")
+	// The socket directory is under /tmp, not TMPDIR: a long TMPDIR would exceed the
+	// AF_UNIX path bound (104 bytes on macOS) (#426).
+	dir, err := os.MkdirTemp("/tmp", "km-tmux-")
 	if err != nil {
 		t.Fatal(err)
 	}

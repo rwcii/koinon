@@ -3,7 +3,7 @@ pdr: "006"
 title: "Context Monitoring and Managed Handoffs"
 status: draft
 created: "2026-10-12"
-updated: "2026-10-19"
+updated: "2026-10-20"
 authors:
   - "Robert Capps"
 reviewers: []
@@ -168,8 +168,8 @@ reserved system identity like `maintainer`, with its own sender and never mainta
 No native session registers, aliases or holds that name. The request identifies its cycle
 and the maintainer's Enable; a peer body claiming that identity carries no system origin.
 The agent
-finishes or pauses its step, writes its handoff and replies that it is ready; a peer cannot
-reply ready for another session. After the reply, Koinon enters the family's commands in the
+pauses its work at an appropriate stopping point, writes its handoff, replies that it is
+paused and ready, and stays idle; a peer cannot reply ready for another session. After the reply, Koinon enters the family's commands in the
 agent's own pane, proven as in the #156 rename (the pane process is an ancestor of the
 agent's host with no other agent between them): `/clear` then `/koinon-pickup`, or `/clear`
 then `$koinon-pickup` for Codex (Decision 4), with no appended task text (PDR 002, Decision 4);
@@ -183,9 +183,11 @@ The ready reply is the signal that the session is ready for its handoff (#417): 
 reply until the cycle ends, Koinon's own wakes to the session wait, and the commands go in
 once the session is at its prompt with an empty input line. A background task that the
 session leaves running does not hold the cycle back; a turn in progress, a draft and a native
-dialog do. The cycle stops with a shown reason when no ready reply
-arrives in time, the pane cannot be proven, or the session stays busy; the reason names
-what Koinon last saw in the pane. Entering commands in the
+dialog do. When the session does not become idle after its ready reply,
+`overwatch` asks it again to pause and hand off, under a new revision, within the cycle's
+lifetime and event bounds (#431). The cycle stops with a shown reason when no ready reply
+arrives in time, the pane cannot be proven, or the bounds end it while the session stays busy;
+the reason names what Koinon last saw in the pane. Entering commands in the
 tmux session is a required part of the cycle, not an exception.
 
 **Provenance:** Maintainer, 2026-10-12: "it also needs to enter commands in the tmux session
@@ -199,6 +201,18 @@ notifications. the machine needs to be able to tell koinon it's ready for handof
 the original design." ([#417](https://github.com/rwcii/koinon/issues/417)). The intent: the
 session's ready report, not an idle state that an active machine never reaches, lets the
 cycle go ahead.
+
+Pause, then repeat: Maintainer, 2026-10-20, after watching a v0.3.2 cycle in which the agent
+wrote its handoff and went on to its next work item. No question or options were put to the
+maintainer. The words followed Claude's report that the clear waits for an idle prompt that
+an active agent never reaches, with a proposed fix that changed only the request, guide and
+ready texts: "the process needs to be a koinon
+overwatch message to the agent that needs to cycle, asking it to pause at appropriate stopping
+point, write a handoff, and then respond to overwatch that the agent is paused and ready. then
+overwatch verifies the agent is idle, and runs the clear/koinon-pickup. if the agent does not
+idle it needs to repeat the pause/handoff request again."
+([#431](https://github.com/rwcii/koinon/issues/431)). The intent: an active agent is asked to
+pause, not left to reach idle by chance, and the cycle asks again when it keeps working.
 
 Sender provenance: Maintainer, 2026-10-13, answering the recommendation for a distinct daemon
 sender: “I agree, let's call it "overwatch"”

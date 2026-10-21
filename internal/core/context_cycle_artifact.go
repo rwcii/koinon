@@ -18,7 +18,8 @@ type artifactFile struct{ dev, ino, size, mtime int64 }
 
 // verifyArtifact checks a cycle's handoff artifact in the main checkout of the requester's
 // repository: <main>/_handoff/<family[-role]>/<name>, a regular file of 1 byte to 1 MiB,
-// modified after the request, ignored by Git, in a directory where Git tracks nothing.
+// modified after the current request (after a repeat, the repeated one, #431), ignored by
+// Git, in a directory where Git tracks nothing.
 // It reads metadata through a root opened at the main checkout, never the file's content,
 // so no symlink or `..` leaves the checkout.
 func (s *Store) verifyArtifact(ctx context.Context, c cycleRow, name string) (artifactFile, error) {
@@ -50,9 +51,13 @@ func (s *Store) verifyArtifact(ctx context.Context, c cycleRow, name string) (ar
 			return artifactFile{}, ErrCycleArtifact
 		}
 	}
+	requested, err := cycleRequestedAt(ctx, s.db, c)
+	if err != nil {
+		return artifactFile{}, ErrCycleArtifact
+	}
 	info, err := root.Lstat(relative)
 	if err != nil || !info.Mode().IsRegular() || info.Size() < 1 || info.Size() > maxArtifactBytes ||
-		info.ModTime().UnixMilli() < c.CreatedAt {
+		info.ModTime().UnixMilli() < requested {
 		return artifactFile{}, ErrCycleArtifact
 	}
 	file := artifactFile{size: info.Size(), mtime: info.ModTime().UnixMilli()}

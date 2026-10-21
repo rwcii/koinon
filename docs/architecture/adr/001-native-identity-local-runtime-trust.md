@@ -219,9 +219,10 @@ maintainer decision found.
 Koinon currently serves the dashboard on the same listener with its own login. `koinon
 dashboard` gets a one-time 256-bit link token that works once within 60 seconds. Its use sets an
 `HttpOnly`, `SameSite=Strict` cookie scoped to `/dashboard/`; the daemon keeps only hashes in
-memory, so a restart ends every login. A request is refused unless `Host` is a literal
-loopback IP with a port (`127.0.0.1:PORT` or `[::1]:PORT`, not `localhost`) and any `Origin` is
-`http://` plus that `Host`. The port need not be the listener's, so an SSH tunnel from another
+memory, so a restart ends every login. A login ends after 24 hours without a request or 7 days
+after it was made, and the cookie's `Max-Age` is those 7 days (#435). A request is refused
+unless `Host` is a literal loopback IP with a port (`127.0.0.1:PORT` or `[::1]:PORT`, not
+`localhost`) and any `Origin` is `http://` plus that `Host`. The port need not be the listener's, so an SSH tunnel from another
 local port reaches the dashboard. A request other than `GET` or `HEAD` also needs a CSRF token
 derived from the session. Responses carry a strict content security policy and deny framing.
 Each administrative action writes an audit record.
@@ -232,7 +233,13 @@ accepted the request, port included. #407 records the maintainer's report on v0.
 dashboard host, I can't even remap the port in the ssh forwarding level.
 http://127.0.0.1:47670/dashboard/login?token=... results in a "foreign host" error". The tunnel
 forwarded local port 47670 to the remote daemon's 47671. Accepting any port is the fix that #407
-proposes; no maintainer decision on it found.
+proposes; no maintainer decision on it found. Until #435 a login ended after 30 minutes without a
+request or 12 hours after it was made, with a browser-session cookie. #435 records the
+maintainer's report of 2026-10-21, made unprompted, not in answer to a question: "also
+address the dashboard timeout, you seem to have added a shorter timeout, as I frequently have
+to create a new link". The intent: a login lasts long enough that a new link is rarely needed.
+The limits had not changed since #193. The 24-hour and
+7-day limits are the fix that #435 proposes; no maintainer decision on the values found.
 
 ### Alternatives Considered
 
