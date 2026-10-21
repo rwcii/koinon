@@ -18,6 +18,7 @@ import (
 	"time"
 
 	"github.com/rwcii/koinon/internal/core"
+	"github.com/rwcii/koinon/internal/platform"
 )
 
 // pipeServer runs Serve on a real pipe, as an agent starts koinon mcp, and collects every
@@ -190,9 +191,24 @@ func TestReplaceAtIdlePoint(t *testing.T) {
 	key := core.Key{Family: "codex", ID: "thread-1"}
 	before := p.session(key).Revision
 
-	// A partial line holds the replacement back until the line ends.
+	// A partial line holds the replacement back until the line ends. The change comes after
+	// the server has read the partial line from the pipe: a byte still in the pipe is
+	// harmless, because the new program reads it.
 	third := request(3, "ping", nil)
 	p.send(third[:10])
+	for deadline := time.Now().Add(10 * time.Second); ; {
+		waiting, err := platform.Readable(int(p.in.Fd()), 0)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if !waiting {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatal("the partial line was not read from the pipe")
+		}
+		time.Sleep(time.Millisecond)
+	}
 	p.changed.Store(true)
 	time.Sleep(100 * time.Millisecond)
 	if len(states) != 0 {
