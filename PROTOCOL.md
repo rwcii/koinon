@@ -1537,8 +1537,9 @@ for a bare name), every 5 seconds once `initialize` has been answered, with the 
 the path resolves to another regular executable file than at the start. It does nothing while
 a request is being answered, while its read buffer holds a byte or while standard input has one
 to read; a byte that arrives later stays in the pipe for the new program. It then waits for its
-renewal and observation loops to finish their current daemon call and runs `<path> version` for
-at most 10 seconds. Only when that prints `"mcp_resume": "1"` does it execute the file in its own
+renewal and observation loops to finish their current daemon call, resolves the path's links to
+a file and runs `<file> version` for at most 10 seconds. Only when that prints
+`"mcp_resume": "1"` and the file is still the same file does it execute that file in its own
 process with the same arguments and environment and `KOINON_MCP_RESUME`, a JSON object with
 `v` 1, the agreed `protocol_version`, the `client` name and `capabilities`, the registered
 `sessions` (`family`, `id`, `revision`, `retry_after_ms` left of a `holder_active` wait),

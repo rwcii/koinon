@@ -20,7 +20,7 @@ const mcpResumeVariable = "KOINON_MCP_RESUME"
 
 // mcpReplacement returns how koinon mcp sees that its executable was replaced, as the
 // daemon sees it, and how it runs the new one in its own process, keeping its process ID,
-// standard input and output. Both are nil when the launch path does not resolve to a regular
+// standard input and output, and its arguments, so the new one watches the same path. Both are nil when the launch path does not resolve to a regular
 // file. A replacement that does not happen waits for the next change of the file.
 func mcpReplacement() (func() bool, func([]byte) error) {
 	path := launchPath()
@@ -43,15 +43,24 @@ func mcpReplacement() (func() bool, func([]byte) error) {
 		return replacedExecutable(start, now, err)
 	}
 	replace := func(state []byte) error {
-		now, err := os.Stat(path)
+		// The file that the path resolves to now is the one probed and run, never one that a
+		// later move of a link names (#441 review).
+		file, err := filepath.EvalSymlinks(path)
 		if err != nil {
 			return err
 		}
-		start = now
-		if err := resumes(path); err != nil {
+		probed, err := os.Stat(file)
+		if err != nil {
 			return err
 		}
-		return syscall.Exec(path, os.Args, append(os.Environ(), mcpResumeVariable+"="+string(state)))
+		start = probed
+		if err := resumes(file); err != nil {
+			return err
+		}
+		if now, err := os.Stat(file); err != nil || !os.SameFile(probed, now) {
+			return errors.New("the new program was replaced during its version command")
+		}
+		return syscall.Exec(file, os.Args, append(os.Environ(), mcpResumeVariable+"="+string(state)))
 	}
 	return changed, replace
 }

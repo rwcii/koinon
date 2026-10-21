@@ -68,9 +68,11 @@ func newPipeServer(t *testing.T) *pipeServer {
 // config is one program's configuration; replace stands for its exec.
 func (p *pipeServer) config(version string, replace func([]byte) error) Config {
 	return Config{StateDir: p.root, Address: p.d.Addresses()[0], Directory: nonRepositoryDir(p.t), ParentPID: 4242,
-		Getenv:  func(string) string { return "" },
-		Command: func(int) (string, []string, error) { return "/opt/agent/bin/codex", []string{"/opt/agent/bin/codex"}, nil },
-		Now:     time.Now, ProcessStart: func(int) (int64, error) { return 0, errors.New("synthetic") },
+		Getenv: func(string) string { return "" },
+		Command: func(int) (string, []string, error) {
+			return "/opt/agent/bin/codex", []string{"/opt/agent/bin/codex"}, nil
+		},
+		Now: time.Now, ProcessStart: func(int) (int64, error) { return 0, errors.New("synthetic") },
 		After: func(time.Duration) <-chan time.Time {
 			p.waits.Add(1)
 			return make(chan time.Time)
@@ -359,11 +361,7 @@ func TestReplacedBinary(t *testing.T) {
 	}
 	dir := t.TempDir()
 	for _, version := range []string{"v-test-1", "v-test-2"} {
-		build := exec.Command("go", "build", "-ldflags", "-X main.version="+version, "-o", filepath.Join(dir, version, "koinon"), "../../cmd/koinon")
-		build.Env = append(os.Environ(), "CGO_ENABLED=0")
-		if out, err := build.CombinedOutput(); err != nil {
-			t.Fatalf("build: %v %s", err, out)
-		}
+		buildKoinon(t, filepath.Join(dir, version, "koinon"), version)
 	}
 	link := filepath.Join(dir, "bin", "koinon")
 	os.Mkdir(filepath.Dir(link), 0700)
@@ -371,22 +369,7 @@ func TestReplacedBinary(t *testing.T) {
 		t.Fatal(err)
 	}
 	p := newPipeServer(t)
-	cmd := exec.Command(link, "mcp", "--state-dir", p.root, "--address", p.d.Addresses()[0])
-	// No terminal, agent or Koinon variable of the test host reaches the server.
-	cmd.Env = []string{"PATH=" + os.Getenv("PATH"), "HOME=" + t.TempDir()}
-	cmd.Dir = nonRepositoryDir(t)
-	stdin, err := cmd.StdinPipe()
-	if err != nil {
-		t.Fatal(err)
-	}
-	cmd.Stdout = p.out
-	var stderr bytes.Buffer
-	cmd.Stderr = &stderr
-	if err := cmd.Start(); err != nil {
-		t.Fatal(err)
-	}
-	exited := make(chan error, 1)
-	go func() { exited <- cmd.Wait() }()
+	stdin, stderr, exited := p.command(link)
 	send := func(text string) {
 		if _, err := io.WriteString(stdin, text); err != nil {
 			t.Fatal(err)
@@ -404,13 +387,7 @@ func TestReplacedBinary(t *testing.T) {
 	before := p.session(key).Revision
 
 	// brew upgrade moves the link to the new keg.
-	moved := link + ".new"
-	if err := os.Symlink(filepath.Join(dir, "v-test-2", "koinon"), moved); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.Rename(moved, link); err != nil {
-		t.Fatal(err)
-	}
+	moveLink(t, link, filepath.Join(dir, "v-test-2", "koinon"))
 	select {
 	case line := <-p.lines:
 		if line["method"] != "notifications/tools/list_changed" {
@@ -446,5 +423,106 @@ func TestReplacedBinary(t *testing.T) {
 	case line := <-p.lines:
 		t.Fatalf("extra line %v", line)
 	default:
+	}
+}
+
+func buildKoinon(t *testing.T, path, version string) {
+	t.Helper()
+	build := exec.Command("go", "build", "-ldflags", "-X main.version="+version, "-o", path, "../../cmd/koinon")
+	build.Env = append(os.Environ(), "CGO_ENABLED=0")
+	if out, err := build.CombinedOutput(); err != nil {
+		t.Fatalf("build: %v %s", err, out)
+	}
+}
+
+// command starts the real binary by path on this server's pipes.
+func (p *pipeServer) command(path string) (io.WriteCloser, *bytes.Buffer, <-chan error) {
+	p.t.Helper()
+	cmd := exec.Command(path, "mcp", "--state-dir", p.root, "--address", p.d.Addresses()[0])
+	// No terminal, agent or Koinon variable of the test host reaches the server.
+	cmd.Env = []string{"PATH=" + os.Getenv("PATH"), "HOME=" + p.t.TempDir()}
+	cmd.Dir = nonRepositoryDir(p.t)
+	stdin, err := cmd.StdinPipe()
+	if err != nil {
+		p.t.Fatal(err)
+	}
+	cmd.Stdout = p.out
+	stderr := &bytes.Buffer{}
+	cmd.Stderr = stderr
+	if err := cmd.Start(); err != nil {
+		p.t.Fatal(err)
+	}
+	p.t.Cleanup(func() { stdin.Close(); cmd.Process.Kill() })
+	exited := make(chan error, 1)
+	go func() { exited <- cmd.Wait() }()
+	return stdin, stderr, exited
+}
+
+// moveLink points link at target in one rename, as brew upgrade moves the opt link.
+func moveLink(t *testing.T, link, target string) {
+	t.Helper()
+	os.Remove(link + ".new")
+	if err := os.Symlink(target, link+".new"); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Rename(link+".new", link); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// The file that the version command checked is the one that runs, even when the link moves
+// to another file during the check (#441 review).
+func TestReplacementRunsTheProbedFile(t *testing.T) {
+	if testing.Short() {
+		t.Skip()
+	}
+	dir := t.TempDir()
+	real := filepath.Join(dir, "real", "koinon")
+	buildKoinon(t, real, "v-test-a")
+	started, gate, unprobed := filepath.Join(dir, "started"), filepath.Join(dir, "gate"), filepath.Join(dir, "unprobed")
+	// A's version command waits for the test to move the link; otherwise A is the real build.
+	a := filepath.Join(dir, "a", "koinon")
+	b := filepath.Join(dir, "b", "koinon")
+	for path, body := range map[string]string{
+		a: fmt.Sprintf("if [ \"$1\" = version ]; then : > %q; while [ ! -f %q ]; do sleep 0.01; done; printf '{\"version\":\"a\",\"mcp_resume\":\"1\"}\\n'; exit 0; fi\nexec %q \"$@\"", started, gate, real),
+		b: fmt.Sprintf("if [ \"$1\" = version ]; then printf '{\"version\":\"b\"}\\n'; exit 0; fi\n: > %q; exit 17", unprobed),
+	} {
+		os.MkdirAll(filepath.Dir(path), 0700)
+		if err := os.WriteFile(path, []byte("#!/bin/sh\n"+body+"\n"), 0755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	link := filepath.Join(dir, "bin", "koinon")
+	os.Mkdir(filepath.Dir(link), 0700)
+	moveLink(t, link, real)
+	p := newPipeServer(t)
+	stdin, stderr, exited := p.command(link)
+	io.WriteString(stdin, request(1, "initialize", map[string]any{"protocolVersion": "2025-06-18", "clientInfo": map[string]any{"name": "codex-mcp-client"}}))
+	p.answer(1)
+	moveLink(t, link, a)
+	deadline := time.Now().Add(30 * time.Second)
+	for _, err := os.Stat(started); err != nil; _, err = os.Stat(started) {
+		if time.Now().After(deadline) {
+			t.Fatalf("A's version command did not run; stderr %s", stderr.String())
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	moveLink(t, link, b)
+	os.WriteFile(gate, nil, 0600)
+	select {
+	case line := <-p.lines:
+		if line["method"] != "notifications/tools/list_changed" {
+			t.Fatalf("line %v", line)
+		}
+	case err := <-exited:
+		_, ran := os.Stat(unprobed)
+		t.Fatalf("exited %v, B ran %v, stderr %s", err, ran == nil, stderr.String())
+	case <-time.After(30 * time.Second):
+		t.Fatalf("A was not run; stderr %s", stderr.String())
+	}
+	io.WriteString(stdin, request(2, "ping", nil))
+	p.answer(2)
+	if _, err := os.Stat(unprobed); err == nil {
+		t.Fatal("B ran without its version command")
 	}
 }

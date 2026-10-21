@@ -1,6 +1,7 @@
 package main
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -122,5 +123,24 @@ func TestResumesNeedsTheSameStateVersion(t *testing.T) {
 		if time.Since(started) > 3*time.Second {
 			t.Fatalf("%s: the version command was not bounded", name)
 		}
+	}
+}
+
+// A file that is replaced while its version command runs is not run: the replacement here is
+// not executable, so a missing check fails with a different error and runs nothing.
+func TestMCPReplacementRefusesAFileReplacedDuringItsCheck(t *testing.T) {
+	dir := t.TempDir()
+	link := filepath.Join(dir, "bin", "koinon")
+	os.Mkdir(filepath.Dir(link), 0700)
+	moveLink(t, link, script(t, filepath.Join(dir, "old", "koinon"), "exit 0"))
+	previous := launchPath
+	defer func() { launchPath = previous }()
+	launchPath = func() string { return link }
+	_, replace := mcpReplacement()
+	candidate := filepath.Join(dir, "new", "koinon")
+	script(t, candidate, fmt.Sprintf(`printf x > %[1]q.tmp; mv %[1]q.tmp %[1]q; printf '{"version":"v9","mcp_resume":"1"}\n'`, candidate))
+	moveLink(t, link, candidate)
+	if err := replace([]byte(`{}`)); err == nil || err.Error() != "the new program was replaced during its version command" {
+		t.Fatalf("replace: %v", err)
 	}
 }
