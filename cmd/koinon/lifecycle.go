@@ -10,11 +10,13 @@ import (
 	"regexp"
 	"runtime"
 	"runtime/debug"
+	"strconv"
 	"strings"
 
 	"github.com/rwcii/koinon/internal/core"
 	"github.com/rwcii/koinon/internal/install"
 	"github.com/rwcii/koinon/internal/library"
+	"github.com/rwcii/koinon/internal/mcp"
 	"github.com/rwcii/koinon/internal/platform"
 	"github.com/rwcii/koinon/internal/upgrade"
 )
@@ -66,7 +68,7 @@ func versionCommand(out io.Writer) error {
 		return fmt.Errorf("catalog: %w", err)
 	}
 	return printJSON(out, map[string]string{"catalog_digest": catalog.Digest, "version": version, "commit": revision, "go": runtime.Version(),
-		"os": runtime.GOOS, "arch": runtime.GOARCH})
+		"os": runtime.GOOS, "arch": runtime.GOARCH, "mcp_resume": strconv.Itoa(mcp.ResumeVersion)})
 }
 
 // repositories parses --repository KEY=PATH values.

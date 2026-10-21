@@ -5,6 +5,14 @@ into a dated release section when promoted to `main`.
 
 ## Unreleased
 
+- A running agent session's `koinon mcp` server runs the new release after an upgrade, in its
+  own process and without a session restart, at a point where no request is in progress. It
+  keeps the agent's MCP session and registered sessions and asks the client to read the tool
+  list again: Claude Code and OpenCode then show the new tools and descriptions; Codex keeps
+  the ones it read at the start until the session starts again. A `peers` result reports the
+  server's release as `server_version`, and `koinon version` reports `mcp_resume`. A session
+  whose server started from an earlier release needs one restart after this upgrade (#440).
+
 ## 2026-10-21 — Pause before the handoff clear, a Sessions status filter and longer dashboard logins
 
 This release makes the managed handoff cycle ask the session to pause, report ready and stay

@@ -150,7 +150,7 @@ func (s *server) observeLoop(ctx context.Context) {
 		case <-ctx.Done():
 			return
 		case <-ticker.C:
-			s.observeOnce(ctx)
+			s.observeOnce(context.WithoutCancel(ctx))
 		}
 	}
 }

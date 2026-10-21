@@ -149,10 +149,15 @@ func run(ctx context.Context, args []string, in io.Reader, out io.Writer) error 
 		if err != nil {
 			return err
 		}
+		// The replaced program's state is for this program only, never for its children.
+		resume := os.Getenv(mcpResumeVariable)
+		os.Unsetenv(mcpResumeVariable)
+		changed, replace := mcpReplacement()
 		return mcp.Serve(ctx, mcp.Config{StateDir: *state, Address: *address, Getenv: os.Getenv,
 			ParentPID: os.Getppid(), Command: platform.ProcessCommand, Directory: directory, Now: time.Now,
 			TmuxSession: mcp.TmuxSessionName,
-			Tmux:        mcp.RunTmux, Parents: platform.ProcessParents, TmuxExecutable: mcp.LookTmux}, in, out)
+			Tmux:        mcp.RunTmux, Parents: platform.ProcessParents, TmuxExecutable: mcp.LookTmux,
+			Version: version, Changed: changed, Replace: replace, Resume: []byte(resume), Stderr: os.Stderr}, in, out)
 	}
 	return call(ctx, args[0], *state, *address, as, after, limit, participant, flags.Args(), in, out)
 }
@@ -306,14 +311,19 @@ func watchExecutable(ctx context.Context, path string, every time.Duration) <-ch
 				return
 			case <-ticker.C:
 			}
-			now, err := os.Stat(path)
-			if err == nil && now.Mode().IsRegular() && now.Mode().Perm()&0111 != 0 && !os.SameFile(start, now) {
+			if now, err := os.Stat(path); replacedExecutable(start, now, err) {
 				close(changed)
 				return
 			}
 		}
 	}()
 	return changed
+}
+
+// replacedExecutable reports whether the stat of an executable's path now shows another
+// regular executable file than start.
+func replacedExecutable(start, now os.FileInfo, err error) bool {
+	return err == nil && now.Mode().IsRegular() && now.Mode().Perm()&0111 != 0 && !os.SameFile(start, now)
 }
 
 const usage = `Usage: koinon install [--prefix DIR] [--state-dir DIR] [--port N] [--agent FAMILY]... [--no-start] [--system]
