@@ -12,6 +12,9 @@ into a dated release section when promoted to `main`.
   the ones it read at the start until the session starts again. A `peers` result reports the
   server's release as `server_version`, and `koinon version` reports `mcp_resume`. A session
   whose server started from an earlier release needs one restart after this upgrade (#440).
+- The dashboard's bulk session action without a selected session now says "Refused: select one
+  or more sessions first. Nothing was changed." (`no_selection`), instead of the general "the
+  request was not valid" (#442).
 
 ## 2026-10-21 — Pause before the handoff clear, a Sessions status filter and longer dashboard logins
 

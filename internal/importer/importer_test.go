@@ -281,6 +281,18 @@ func TestImportedStateServes(t *testing.T) {
 	a := f.m.Repositories["a"]
 	overrides := f.overrides()
 	overrides[a.Key] = common
+	// The fixture's pending snapshot was created at a fixed time and the daemon expires it
+	// after an hour; the copy gets the current time, so the import keeps it pending (#443).
+	copied, err := sql.Open("sqlite", "file:"+filepath.Join(f.state, "memory", a.Key, "memory.sqlite3"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if r, err := copied.Exec(`UPDATE snapshots SET created=? WHERE acked IS NULL`, float64(time.Now().Unix())); err != nil {
+		t.Fatal(err)
+	} else if n, _ := r.RowsAffected(); n != 1 {
+		t.Fatalf("pending snapshots in the copy: %d", n)
+	}
+	copied.Close()
 	p := Paths{Root: f.root, Attempt: "s"}
 	prepared, err := CaptureAll(context.Background(), f.state, f.install(t), overrides, p)
 	if err != nil {
