@@ -112,7 +112,7 @@ func TestDashboardLoginAndRequestProtection(t *testing.T) {
 		t.Fatalf("first use: %d", first.status)
 	}
 	setCookie := first.header.Get("Set-Cookie")
-	for _, attribute := range []string{"Path=/dashboard/", "HttpOnly", "SameSite=Strict"} {
+	for _, attribute := range []string{"Path=/dashboard/", "HttpOnly", "SameSite=Strict", "Max-Age=604800"} {
 		if !strings.Contains(setCookie, attribute) {
 			t.Fatalf("cookie lacks %s: %s", attribute, setCookie)
 		}
@@ -346,22 +346,41 @@ func TestDashboardLinkAndSessionLifetimes(t *testing.T) {
 	if _, ok, _ := a.login(links[1]); !ok {
 		t.Fatal("retained link refused")
 	}
-	// Idle expiry at 30 minutes; use keeps a session alive until 12 hours.
-	idle := login()
-	clock = clock.Add(sessionIdle)
-	if _, ok := a.session(withCookie(idle)); ok {
-		t.Fatal("idle session accepted")
+	// Idle expiry at 24 hours; use keeps a session alive until 7 days (#435).
+	if sessionIdle != 24*time.Hour || sessionAbsolute != 7*24*time.Hour {
+		t.Fatalf("limits %v %v", sessionIdle, sessionAbsolute)
 	}
-	busy := login()
-	for elapsed := time.Duration(0); elapsed < sessionAbsolute-sessionIdle; elapsed += 20 * time.Minute {
-		clock = clock.Add(20 * time.Minute)
-		if _, ok := a.session(withCookie(busy)); !ok {
-			t.Fatalf("active session refused after %v", elapsed)
+	// Idle: an untouched login is valid a millisecond before 24 hours and refused at 24 hours;
+	// each is a separate login, so the first read does not move the second's deadline.
+	early, late := login(), login()
+	start := clock
+	clock = start.Add(sessionIdle - time.Millisecond)
+	if _, ok := a.session(withCookie(early)); !ok {
+		t.Fatal("session refused before the idle limit")
+	}
+	clock = start.Add(sessionIdle)
+	if _, ok := a.session(withCookie(late)); ok {
+		t.Fatal("idle session accepted at the idle limit")
+	}
+	// Absolute: a login used every 20 hours is valid a millisecond before 7 days and refused at
+	// exactly 7 days, though it was used recently.
+	busy, used := login(), login()
+	start = clock
+	for clock.Add(20 * time.Hour).Before(start.Add(sessionAbsolute)) {
+		clock = clock.Add(20 * time.Hour)
+		for _, id := range []string{busy, used} {
+			if _, ok := a.session(withCookie(id)); !ok {
+				t.Fatalf("active session refused at %v", clock.Sub(start))
+			}
 		}
 	}
-	clock = clock.Add(sessionIdle - time.Minute)
-	if _, ok := a.session(withCookie(busy)); ok {
-		t.Fatal("session beyond 12 hours accepted")
+	clock = start.Add(sessionAbsolute - time.Millisecond)
+	if _, ok := a.session(withCookie(busy)); !ok {
+		t.Fatal("session refused before 7 days")
+	}
+	clock = start.Add(sessionAbsolute)
+	if _, ok := a.session(withCookie(used)); ok {
+		t.Fatal("session accepted at 7 days")
 	}
 	// At most sixteen sessions; a new login ends the oldest.
 	var ids []string

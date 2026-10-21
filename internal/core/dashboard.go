@@ -201,7 +201,9 @@ func (d *Daemon) dashboardHandler() (http.Handler, error) {
 			refuse(w, r, http.StatusUnauthorized, "link")
 			return
 		}
-		http.SetCookie(w, &http.Cookie{Name: dashboardCookie, Value: id, Path: "/dashboard/", HttpOnly: true, SameSite: http.SameSiteStrictMode})
+		// The cookie lasts as long as the login can, so a browser restart keeps it (#435).
+		http.SetCookie(w, &http.Cookie{Name: dashboardCookie, Value: id, Path: "/dashboard/", MaxAge: int(sessionAbsolute.Seconds()),
+			HttpOnly: true, SameSite: http.SameSiteStrictMode})
 		http.Redirect(w, r, "/dashboard/sessions", http.StatusSeeOther)
 	})
 	mux.HandleFunc("POST /dashboard/logout", authed(func(w http.ResponseWriter, r *http.Request, id string) {

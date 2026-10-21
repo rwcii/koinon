@@ -19,11 +19,13 @@ import (
 // so it needs no storage of its own.
 
 const (
-	dashboardCookie   = "koinon_dashboard"
-	dashboardCSRF     = "X-Koinon-CSRF"
-	linkLifetime      = 60 * time.Second
-	sessionIdle       = 30 * time.Minute
-	sessionAbsolute   = 12 * time.Hour
+	dashboardCookie = "koinon_dashboard"
+	dashboardCSRF   = "X-Koinon-CSRF"
+	linkLifetime    = 60 * time.Second
+	// A login lasts through a working day and the night after it without a request, and
+	// at most a week (#435).
+	sessionIdle       = 24 * time.Hour
+	sessionAbsolute   = 7 * 24 * time.Hour
 	maxLoginLinks     = 8
 	maxDashboardLogin = 16
 )
