@@ -3,6 +3,7 @@ package core
 import (
 	"context"
 	"errors"
+	"fmt"
 	"net/url"
 	"os"
 	"os/exec"
@@ -530,9 +531,12 @@ func TestContextCycleReadyHoldsWakesAndNamesWhatItSaw(t *testing.T) {
 		inspect error
 		want    string
 	}{
-		{PaneState{Seen: "status_busy"}, nil, "ready_timeout.status_busy"},
-		{PaneState{Seen: "input_not_empty"}, nil, "ready_timeout.input_not_empty"},
-		{PaneState{}, nil, "ready_timeout.pane_not_ready"},
+		// A pane that was read and is not idle gets the request again (#431).
+		{PaneState{Seen: "status_busy"}, nil, "not_idle.status_busy"},
+		{PaneState{Seen: "input_not_empty"}, nil, "not_idle.input_not_empty"},
+		{PaneState{Seen: "status_unknown"}, nil, "not_idle.status_unknown"},
+		{PaneState{Seen: "input_line_not_found"}, nil, "not_idle.input_line_not_found"},
+		{PaneState{}, nil, "not_idle.pane_not_ready"},
 		{PaneState{}, errClaudeUnproven, "ready_timeout.pane_unproven"},
 		// A tmux that cannot run is named apart from an unproven pane (#418).
 		{PaneState{}, tmuxUnavailableError{exec.ErrNotFound}, "ready_timeout.tmux_unavailable"},
@@ -544,7 +548,11 @@ func TestContextCycleReadyHoldsWakesAndNamesWhatItSaw(t *testing.T) {
 		g.step(t)
 		g.clock = time.UnixMilli(ready.StageDeadline)
 		g.step(t)
-		if v := g.status(t, g.k); v.State != cycleFailed || v.Reason != test.want || g.adapter.count("clear") != 0 {
+		state := cycleFailed
+		if strings.HasPrefix(test.want, "not_idle.") {
+			state = cycleWaitingReady
+		}
+		if v := g.status(t, g.k); v.State != state || v.Reason != test.want || g.adapter.count("clear") != 0 {
 			t.Fatalf("%s: %+v", test.want, v)
 		}
 	}
@@ -605,9 +613,14 @@ func TestContextCycleReadyWaitsForAWakeInFlight(t *testing.T) {
 // and names what it saw (#417 review).
 func TestContextCycleTimeoutAfterRestartNamesThePane(t *testing.T) {
 	for _, test := range []struct {
-		inMode bool
-		want   string
-	}{{false, "ready_timeout.status_busy"}, {true, "ready_timeout.pane_in_mode"}} {
+		inMode  bool
+		inspect error
+		want    string
+	}{{false, nil, "not_idle.status_busy"}, {true, nil, "ready_timeout.pane_in_mode"},
+		// An inspection that fails after the restart keeps the timeout (#431).
+		{false, errClaudeUnproven, "ready_timeout.pane_unproven"},
+		{false, tmuxUnavailableError{exec.ErrNotFound}, "ready_timeout.tmux_unavailable"},
+		{false, errors.New("synthetic tmux failure"), "ready_timeout.pane_unreadable"}} {
 		f := newCycleFixture(t)
 		ready, _ := f.readyCycle(t)
 		f.adapter.pane = PaneState{Seen: "status_busy"}
@@ -620,14 +633,18 @@ func TestContextCycleTimeoutAfterRestartNamesThePane(t *testing.T) {
 		t.Cleanup(func() { reopened.Close() })
 		reopened.now = f.s.now
 		f.s = reopened
-		f.adapter.inMode = test.inMode
+		f.adapter.inMode, f.adapter.inspect = test.inMode, test.inspect
 		f.clock = time.UnixMilli(ready.StageDeadline)
 		f.step(t)
 		var audit string
 		if err := f.s.db.QueryRow(`SELECT reason FROM audit WHERE action='context-cycle' ORDER BY id DESC LIMIT 1`).Scan(&audit); err != nil {
 			t.Fatal(err)
 		}
-		if v := f.status(t, f.k); v.State != cycleFailed || v.Reason != test.want || audit != test.want || f.adapter.count("cancel") != 0 {
+		state := cycleFailed
+		if strings.HasPrefix(test.want, "not_idle.") {
+			state = cycleWaitingReady
+		}
+		if v := f.status(t, f.k); v.State != state || v.Reason != test.want || audit != test.want || f.adapter.count("cancel") != 0 {
 			t.Fatalf("%s: %+v audit=%q %v", test.want, v, audit, f.adapter.calls)
 		}
 	}
@@ -637,7 +654,7 @@ func TestContextCycleTimeoutAfterRestartNamesThePane(t *testing.T) {
 func TestContextShowGivesTheCycleReason(t *testing.T) {
 	f := newCycleFixture(t)
 	ready, _ := f.readyCycle(t)
-	f.adapter.pane = PaneState{Seen: "status_busy"}
+	f.adapter.inspect = errClaudeUnproven
 	f.step(t)
 	f.clock = time.UnixMilli(ready.StageDeadline)
 	f.step(t)
@@ -648,11 +665,259 @@ func TestContextShowGivesTheCycleReason(t *testing.T) {
 	}
 	for _, v := range sessions {
 		if v.Peer == f.session.Name {
-			if v.CycleState != cycleFailed || v.CycleReason != "ready_timeout.status_busy" {
+			if v.CycleState != cycleFailed || v.CycleReason != "ready_timeout.pane_unproven" {
 				t.Fatalf("context show: %+v", v)
 			}
 			return
 		}
 	}
 	t.Fatalf("session not shown: %+v", sessions)
+}
+
+// overwatchRequests returns the bodies of the overwatch requests in the requester's inbox,
+// oldest first, with their cycle IDs.
+func (f *cycleFixture) overwatchRequests(t *testing.T) []string {
+	t.Helper()
+	rows, err := f.s.db.Query(`SELECT body FROM messages WHERE recipient_family=? AND recipient_id=? AND sender_family='overwatch'
+		AND system_kind=? ORDER BY seq`, f.k.Family, f.k.ID, cycleRequestKind)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer rows.Close()
+	var bodies []string
+	for rows.Next() {
+		var body string
+		if err := rows.Scan(&body); err != nil {
+			t.Fatal(err)
+		}
+		bodies = append(bodies, body)
+	}
+	return bodies
+}
+
+// The request asks the session to pause, report ready and stay idle, and a successful ready
+// report says to end the turn (#431).
+func TestContextCycleRequestAsksToPauseAndStayIdle(t *testing.T) {
+	f := newCycleFixture(t)
+	f.observe(t, f.k, 900, "synthetic-epoch-1")
+	v := f.status(t, f.k)
+	requests := f.overwatchRequests(t)
+	if len(requests) != 1 || requests[0] != cycleRequestBody(v.ID, v.Revision) {
+		t.Fatalf("requests: %q", requests)
+	}
+	for _, want := range []string{"managed context cycle " + v.ID + " revision 1 requests your handoff",
+		"Pause your work at the next safe stopping point and start no new work", "call context_cycle_ready",
+		"Then end your turn and stay idle", "overwatch clears your context only at your idle prompt", "asks again"} {
+		if !strings.Contains(requests[0], want) {
+			t.Fatalf("request lacks %q: %s", want, requests[0])
+		}
+	}
+	if strings.Contains(requests[0], "Finish") {
+		t.Fatalf("request still offers to finish the step: %s", requests[0])
+	}
+	if !strings.Contains(cycleReadyNext, "end your turn now and start no other work") {
+		t.Fatalf("ready next: %s", cycleReadyNext)
+	}
+}
+
+// A requester that reported ready but kept working is asked again under a new revision; its
+// second report, at an idle prompt, gets the clear (#431).
+func TestContextCycleAsksAgainWhenThePaneStaysBusy(t *testing.T) {
+	f := newCycleFixture(t)
+	ready, _ := f.readyCycle(t)
+	f.adapter.pane = PaneState{Seen: "status_busy"}
+	f.step(t)
+	if v := f.status(t, f.k); v.State != cycleReady || f.adapter.count("clear") != 0 {
+		t.Fatalf("before the deadline: %+v", v)
+	}
+	// The session acknowledged the first request.
+	if _, err := f.s.Ack(context.Background(), f.k, 1); err != nil {
+		t.Fatal(err)
+	}
+	f.clock = time.UnixMilli(ready.StageDeadline)
+	f.step(t)
+	again := f.status(t, f.k)
+	if again.State != cycleWaitingReady || again.Reason != "not_idle.status_busy" || again.Revision != ready.Revision+1 ||
+		again.Artifact != "" || again.StageDeadline != min(ready.StageDeadline+cycleReadyWait.Milliseconds(), again.CycleDeadline) {
+		t.Fatalf("asked again: %+v", again)
+	}
+	requests := f.overwatchRequests(t)
+	if len(requests) != 2 || requests[1] != cycleRequestBody(again.ID, again.Revision) {
+		t.Fatalf("requests: %q", requests)
+	}
+	// The cycle no longer owns the pane, so the new request's wake goes out.
+	if held, err := f.s.paneHeldByCycle(context.Background(), f.k); err != nil || held {
+		t.Fatalf("pane still held after the repeat: %v %v", held, err)
+	}
+	var seq int64
+	if err := f.s.db.QueryRow(`SELECT message_seq FROM context_cycles WHERE cycle_id=?`, again.ID).Scan(&seq); err != nil {
+		t.Fatal(err)
+	}
+	var last int64
+	if err := f.s.db.QueryRow(`SELECT MAX(seq) FROM messages WHERE recipient_family=? AND recipient_id=?`, f.k.Family, f.k.ID).Scan(&last); err != nil || seq != last {
+		t.Fatalf("message_seq %d, newest %d %v", seq, last, err)
+	}
+	var audit string
+	if err := f.s.db.QueryRow(`SELECT reason FROM audit WHERE action='context-cycle' ORDER BY id DESC LIMIT 1`).Scan(&audit); err != nil || audit != "not_idle.status_busy" {
+		t.Fatalf("audit %q %v", audit, err)
+	}
+	// The new request is unread and due for its wake although the first one was acknowledged.
+	var delivery string
+	var acked int64
+	if err := f.s.db.QueryRow(`SELECT m.delivery_state,s.acked_through FROM messages m JOIN sessions s ON s.family=m.recipient_family
+		AND s.id=m.recipient_id WHERE m.recipient_family=? AND m.recipient_id=? AND m.seq=?`, f.k.Family, f.k.ID, seq).Scan(&delivery, &acked); err != nil ||
+		delivery != "waiting" || acked >= seq || acked < seq-1 {
+		t.Fatalf("new request: %q acked %d seq %d %v", delivery, acked, seq, err)
+	}
+	// A second repeat of the former revision, as from a concurrent step, changes nothing.
+	if err := f.s.repeatCycleRequest(context.Background(), again.ID, ready.Revision, "status_busy"); !errors.Is(err, ErrCycleChanged) ||
+		len(f.overwatchRequests(t)) != 2 {
+		t.Fatalf("stale repeat: %v", err)
+	}
+	// The former report, with its discarded handoff, is stale and restores nothing.
+	if _, err := f.s.ContextCycleReady(context.Background(), f.k, "synthetic-epoch-1", again.ID, ready.Revision, ready.Artifact); !errors.Is(err, ErrCycleChanged) {
+		t.Fatalf("stale ready with the old handoff: %v", err)
+	}
+	f.step(t)
+	if v := f.status(t, f.k); v.State != cycleWaitingReady || v.Artifact != "" || f.adapter.count("clear") != 0 {
+		t.Fatalf("after the stale report: %+v", v)
+	}
+	// The former revision is stale; a new handoff under the new revision is ready again.
+	name := f.handoff(t, "claude", "2026-10-13-130000.md", "synthetic second handoff")
+	if _, err := f.s.ContextCycleReady(context.Background(), f.k, "synthetic-epoch-1", again.ID, ready.Revision, name); !errors.Is(err, ErrCycleChanged) {
+		t.Fatalf("stale ready: %v", err)
+	}
+	second, err := f.s.ContextCycleReady(context.Background(), f.k, "synthetic-epoch-1", again.ID, again.Revision, name)
+	if err != nil || second.State != cycleReady {
+		t.Fatalf("second ready: %+v %v", second, err)
+	}
+	f.adapter.pane = PaneState{Idle: true}
+	f.step(t)
+	if v := f.status(t, f.k); v.State != cycleClearReceived || f.adapter.count("clear") != 1 {
+		t.Fatalf("idle after the second report: %+v %v", v, f.adapter.calls)
+	}
+}
+
+// Repeats stay within the cycle's bounds: a requester that never becomes idle ends the cycle
+// at its lifetime or its event limit, and its Enable ends as for any failed cycle (#431).
+func TestContextCycleRepeatsEndAtTheCycleBounds(t *testing.T) {
+	f := newCycleFixture(t)
+	ready, _ := f.readyCycle(t)
+	f.adapter.pane = PaneState{Seen: "status_busy"}
+	v := &ready
+	for round := 0; round < maxCycleEvents && v.State != cycleFailed; round++ {
+		if v.State == cycleReady {
+			f.clock = time.UnixMilli(v.StageDeadline)
+			f.step(t)
+		} else {
+			name := f.handoff(t, "claude", fmt.Sprintf("2026-10-13-14%04d.md", round), "synthetic repeat")
+			if _, err := f.s.ContextCycleReady(context.Background(), f.k, "synthetic-epoch-1", v.ID, v.Revision, name); err != nil {
+				t.Fatalf("round %d ready: %v", round, err)
+			}
+		}
+		v = f.status(t, f.k)
+	}
+	if v.State != cycleFailed || v.Reason != "cycle_timeout" && v.Reason != "event_limit" || f.adapter.count("clear") != 0 {
+		t.Fatalf("bounded: %+v", v)
+	}
+	if len(f.overwatchRequests(t)) < 2 {
+		t.Fatal("no repeated request before the bound")
+	}
+	var enabled bool
+	if err := f.s.db.QueryRow(`SELECT enabled FROM context_enables WHERE family=? AND session_id=?`, f.k.Family, f.k.ID).Scan(&enabled); err != nil || enabled {
+		t.Fatalf("enable after the bound: %v %v", enabled, err)
+	}
+}
+
+// At the ready deadline a busy pane of a session whose Enable ended, or that left its pin, is
+// not asked again: the cycle ends as the timeout did (#431).
+func TestContextCycleDoesNotAskAgainWithoutItsEnable(t *testing.T) {
+	for name, change := range map[string]func(f *cycleFixture){
+		"disabled": func(f *cycleFixture) {
+			if _, err := f.s.SetContextEnableNow(roomCtx("context-enable"), f.session.Name, false); err != nil {
+				t.Fatal(err)
+			}
+		},
+		"moved": func(f *cycleFixture) {
+			if _, err := fixtureExec(f.s, `UPDATE sessions SET host_pid=5151,host_start=88 WHERE family='claude' AND id=?`, f.k.ID); err != nil {
+				t.Fatal(err)
+			}
+		},
+	} {
+		f := newCycleFixture(t)
+		ready, _ := f.readyCycle(t)
+		f.adapter.pane = PaneState{Seen: "status_busy"}
+		f.step(t)
+		change(f)
+		f.clock = time.UnixMilli(ready.StageDeadline)
+		f.step(t)
+		v := f.status(t, f.k)
+		if v.State != cycleFailed && v.State != cycleCancelled || len(f.overwatchRequests(t)) != 1 {
+			t.Fatalf("%s: %+v", name, v)
+		}
+	}
+}
+
+// What the first ready stage saw does not decide the second one's timeout: after a restart
+// with no inspection in the new stage, a pane that cannot be proven fails the cycle (#431).
+func TestContextCycleSecondReadyStageStartsWithoutTheFirstObservation(t *testing.T) {
+	f := newCycleFixture(t)
+	ready, _ := f.readyCycle(t)
+	f.adapter.pane = PaneState{Seen: "status_busy"}
+	f.step(t)
+	f.clock = time.UnixMilli(ready.StageDeadline)
+	f.step(t)
+	again := f.status(t, f.k)
+	name := f.handoff(t, "claude", "2026-10-13-150000.md", "synthetic second handoff")
+	second, err := f.s.ContextCycleReady(context.Background(), f.k, "synthetic-epoch-1", again.ID, again.Revision, name)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := f.s.paneSeen.get(again.ID); ok {
+		t.Fatal("the first stage's observation is kept")
+	}
+	f.adapter.inspect = errClaudeUnproven
+	f.clock = time.UnixMilli(second.StageDeadline)
+	f.step(t)
+	if v := f.status(t, f.k); v.State != cycleFailed || v.Reason != "ready_timeout.pane_unproven" || len(f.overwatchRequests(t)) != 2 {
+		t.Fatalf("second stage: %+v", v)
+	}
+}
+
+// A handoff that changes after a late repeated request returns to readiness under that
+// request's deadline, not the first request's, which has passed (#431 review).
+func TestContextCycleArtifactChangeAfterARepeatKeepsTheNewDeadline(t *testing.T) {
+	f := newCycleFixture(t)
+	f.observe(t, f.k, 900, "synthetic-epoch-1")
+	first := f.status(t, f.k)
+	f.clock = f.clock.Add(14 * time.Minute)
+	name := f.handoff(t, "claude", "2026-10-13-160000.md", "synthetic handoff")
+	ready, err := f.s.ContextCycleReady(context.Background(), f.k, "synthetic-epoch-1", first.ID, first.Revision, name)
+	if err != nil {
+		t.Fatal(err)
+	}
+	f.adapter.pane = PaneState{Seen: "status_busy"}
+	f.step(t)
+	f.clock = time.UnixMilli(ready.StageDeadline)
+	f.step(t)
+	again := f.status(t, f.k)
+	repeatedAt := f.clock.UnixMilli()
+	if again.State != cycleWaitingReady || repeatedAt <= first.CreatedAt+cycleReadyWait.Milliseconds() {
+		t.Fatalf("late repeat: %+v", again)
+	}
+	f.clock = f.clock.Add(time.Minute)
+	second := f.handoff(t, "claude", "2026-10-13-161000.md", "synthetic second handoff")
+	if _, err := f.s.ContextCycleReady(context.Background(), f.k, "synthetic-epoch-1", again.ID, again.Revision, second); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(f.repo, "_handoff", "claude", second), []byte("synthetic changed handoff"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	f.adapter.pane = PaneState{Idle: true}
+	f.step(t)
+	v := f.status(t, f.k)
+	want := min(repeatedAt+cycleReadyWait.Milliseconds(), v.CycleDeadline)
+	if v.State != cycleWaitingReady || v.Reason != "artifact_changed" || v.StageDeadline != want || v.StageDeadline <= f.clock.UnixMilli() {
+		t.Fatalf("artifact change after the repeat: %+v, want deadline %d", v, want)
+	}
 }

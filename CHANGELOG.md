@@ -9,6 +9,10 @@ into a dated release section when promoted to `main`.
   expired, retired) that shows only the sessions of that status, with the search, sort and
   paging. **Select all sessions on this page** selects every session in the list for a bulk
   action, and the list no longer refreshes over a selection (#429).
+- The managed handoff cycle asks the session to pause at a safe stopping point, write its
+  handoff, report ready and then end its turn; the ready answer says to start no other work.
+  When the session does not become idle after its ready report, `overwatch` sends the request
+  again under a new revision instead of failing the cycle with `ready_timeout` (#431).
 
 ## 2026-10-20 — Handoff cycles on active machines, a chosen port and Homebrew tmux on macOS
 
