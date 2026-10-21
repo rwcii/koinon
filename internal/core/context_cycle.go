@@ -445,9 +445,11 @@ func cycleRepeatable(seen string) bool {
 
 // cycleRequestedAt is when the cycle's current request was made: the newest repeated
 // request (#431), recorded by its waiting_ready event, or the admission.
-func cycleRequestedAt(ctx context.Context, tx *writeTx, c cycleRow) (int64, error) {
+func cycleRequestedAt(ctx context.Context, q interface {
+	QueryRowContext(context.Context, string, ...any) *sql.Row
+}, c cycleRow) (int64, error) {
 	var at sql.NullInt64
-	err := tx.QueryRowContext(ctx, `SELECT MAX(at) FROM context_cycle_events WHERE cycle_id=? AND stage=? AND reason LIKE 'not\_idle.%' ESCAPE '\'`,
+	err := q.QueryRowContext(ctx, `SELECT MAX(at) FROM context_cycle_events WHERE cycle_id=? AND stage=? AND reason LIKE 'not\_idle.%' ESCAPE '\'`,
 		c.ID, cycleWaitingReady).Scan(&at)
 	if err != nil || !at.Valid {
 		return c.CreatedAt, err

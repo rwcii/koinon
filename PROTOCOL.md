@@ -274,7 +274,9 @@ the cycle row, its first event `requested admitted`, an audit record and the typ
 the session's own inbox. The request's sender is the reserved system identity `overwatch`
 (`sender_family` and `sender_id` `overwatch`, `sender_name` `overwatch`), with `system_kind`
 `context_cycle_request`, `cycle_id` and `cycle_enable_revision`; its fixed body names the
-cycle and asks for the session's handoff. No session, alias or participant can take the name
+cycle and its revision and asks the session to pause at the next safe stopping point and start
+no new work, write its handoff, report it with `context_cycle_ready`, then end its turn and
+stay idle (#431). No session, alias or participant can take the name
 `overwatch`, it has no inbox, and no tool or command can send as it. It is not the maintainer.
 Inbox reads return `system_kind`, `cycle_id` and `cycle_enable_revision` with the message. A
 name record called `overwatch` retained from before schema 23 is kept unchanged; while one
@@ -308,11 +310,13 @@ caller, epoch, host, pane, socket or another session.
   handoff file name. The requester under its pre-reset epoch moves a `waiting_ready` cycle to
   `ready` when the file is `<main checkout>/_handoff/<family[-role]>/<name>`: a canonical
   timestamped name of at most 128 bytes, a regular file of 1 byte to 1 MiB modified after the
-  request, ignored by Git, in a directory where Git tracks nothing. The main checkout is the
+  current request (after a repeat, the repeated one), ignored by Git, in a directory where Git tracks nothing. The main checkout is the
   first worktree that Git lists for the registered common directory. The daemon reads only
   the file's metadata, through a root opened at the main checkout, and keeps its device, inode,
   size and modification time; a change to any of them is a changed file. The
-  registered directory must itself be a worktree that Git lists.
+  registered directory must itself be a worktree that Git lists. A successful report also
+  returns `next`, the instruction to end the turn and start no other work, because the clear
+  waits for the idle prompt.
 - `POST /v1/cycles/pickup` (`context_cycle_pickup`) takes `cycle_id`, `revision`, the same file
   name, `outcome` `resumed` or `paused` and a `report` of 1 to 1,024 UTF-8 bytes. A
   `waiting_pickup` cycle completes when the caller runs under a new epoch (the epoch that the
@@ -349,21 +353,29 @@ the pending pickup. A recognized prompt records `waiting_prompt` and its precedi
 entered after its recorded `prompt_intent`, and one that is read back returns to that stage. A
 dashboard answer whose approved call completed the cycle first counts as received. Just before the clear or the pickup input, the daemon checks the reported file
 again: a changed or missing file returns a `ready` cycle to `waiting_ready`
-(`artifact_changed`) under the request's readiness deadline, and fails a `reset_verified`
-one. An input that fails or is not received is `uncertain`. An intent found without its
+(`artifact_changed`) under the current request's readiness deadline (that of the newest
+repeat, #431), and fails a `reset_verified` one. An input that fails or is not received is `uncertain`. An intent found without its
 receipt, as after a restart, is never sent again: a clear is reconciled only by a proven new
 epoch, otherwise it is `uncertain`. Deadlines: 15 minutes from the request for
 `waiting_ready`, two minutes for each other stage (`waiting_pickup` included, for the report),
 ten for a prompt, and 30 minutes for the whole cycle; no stage deadline passes the cycle's. A
 report at or after a deadline is `cycle_changed`. While a cycle is in `ready` through
 `waiting_pickup`, ordinary wakes to its pane wait, still due and not delivered, so peer
-messages after the ready report start no turn (#417). A `ready`, `bootstrap_verified` or
-`reset_verified` stage that times out names what the pane last showed after a dot:
-`ready_timeout.status_busy` (a turn in progress), `.status_waiting` (a native wait),
-`.status_unknown`, `.input_not_empty` (a draft), `.input_line_not_found`, `.turn_running` and
-`.turn_not_ended` (Codex), `.native_dialog`, `.home_unknown`, `.rollout_unreadable`,
-`.status_thread_differs`, `.tmux_unavailable` (tmux could not run, #418), `.pane_unproven` or
-`.pane_unreadable`. After a daemon restart no inspection has run, so the timeout reads the pane
+messages after the ready report start no turn (#417). A `ready` stage whose deadline passes
+while the pane was read and was not idle asks again (#431): in one ordinary transaction the
+cycle returns to `waiting_ready` with reason `not_idle.<code>`, drops the reported file, gets a
+readiness deadline 15 minutes from the repeat (within the cycle's), and `overwatch` puts a new
+typed request with the new revision in the session's inbox; `waiting_ready` does not hold the
+pane, so its wake goes out. The codes are `status_busy` (a turn in progress), `status_waiting`
+(a native wait), `status_unknown`, `input_not_empty` (a draft), `input_line_not_found`,
+`turn_running` and `turn_not_ended` (Codex), or `pane_not_ready`. A repeat refused because the
+cycle changed, its Enable or pin ended, or the store is full ends the cycle as a timeout; the
+lifetime, the event limit (`event_limit`) and the page credit end repeated requests. A `ready`
+stage whose pane could not be read or proven, and a `bootstrap_verified` or `reset_verified`
+stage, that times out names what the pane last showed after a dot: `ready_timeout.home_unknown`,
+`.rollout_unreadable`, `.tmux_unavailable` (tmux could not run, #418), `.pane_unproven` or
+`.pane_unreadable`, and for the later stages also the not-idle codes above, `.native_dialog`
+and `.status_thread_differs`. After a daemon restart no inspection has run, so the timeout reads the pane
 once without sending a key; a pane in copy mode then gives `.pane_in_mode`. The ready report
 holds the wake lock, so a wake already being submitted ends before `ready` commits. The reason
 is shown on the

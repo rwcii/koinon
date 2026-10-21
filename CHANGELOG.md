@@ -15,7 +15,8 @@ into a dated release section when promoted to `main`.
 - The managed handoff cycle asks the session to pause at a safe stopping point, write its
   handoff, report ready and then end its turn; the ready answer says to start no other work.
   When the session does not become idle after its ready report, `overwatch` sends the request
-  again under a new revision instead of failing the cycle with `ready_timeout` (#431).
+  again under a new revision instead of failing the cycle with `ready_timeout`, and the session
+  writes a new handoff for it (#431).
 
 ## 2026-10-20 — Handoff cycles on active machines, a chosen port and Homebrew tmux on macOS
 
