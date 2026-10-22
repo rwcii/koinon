@@ -405,6 +405,14 @@ func (s *server) call(ctx context.Context, raw json.RawMessage) map[string]any {
 	if err != nil {
 		return refusal(caller, err)
 	}
+	if p.Name == "peers" {
+		// The release of this server's program, which changes when it is replaced (#440).
+		var reply map[string]json.RawMessage
+		if json.Unmarshal(data, &reply) == nil {
+			reply["server_version"], _ = json.Marshal(s.release())
+			data, _ = json.Marshal(reply)
+		}
+	}
 	return map[string]any{"content": []map[string]any{{"type": "text", "text": string(data)}}, "isError": false}
 }
 

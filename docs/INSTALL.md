@@ -249,9 +249,28 @@ the daemon log). A launched session continues:
 `koinon mcp` tries a renewal that fails during the restart again at the next interval, and
 the daemon keeps a session whose host process runs (liveness, see PROTOCOL.md). A session
 without a host record, such as a DeepSeek session or one registered before host records, is
-kept only by its renewals and tool calls. A running session keeps the `koinon mcp` server that
-it started with, from the old binary: the install replaces the file, not the running program.
-Tools that the new version adds appear when the session, or its MCP server, starts again.
+kept only by its renewals and tool calls.
+
+A running session's `koinon mcp` server checks the path it was started by every 5 seconds, as
+the daemon does (#440). When an upgrade replaces the file, the server runs the new program in
+its own process at a point where no request is in progress. It keeps its process ID, standard
+input and output, the agent's MCP session and the sessions it registered, which it renews at
+once, and it sends `notifications/tools/list_changed`. A `peers` result reports the server's
+release as `server_version`. What the agent sees then depends on its client:
+
+| Client | After the replacement |
+| --- | --- |
+| Claude Code (checked with 2.1.306) | Reads the new tools and descriptions. |
+| OpenCode (checked with 1.18.35) | Reads the new tools and descriptions. |
+| Codex (checked with 0.163.0) | Keeps the tools and descriptions it read at the start. The new program answers its calls; a tool that the new version adds appears when the session starts again. |
+| agy, Grok | Not checked: restart the session to be sure of the new tools and descriptions. |
+
+DeepSeek uses the `koinon` commands, not `koinon mcp`. Both programs must have the replacement:
+a server that started from an earlier release has no check and keeps its program until the
+session, or its MCP server, starts again, so restart each agent session once after the upgrade
+that brings this. The server also keeps its program, and writes one line to its standard
+error, when the new file's `koinon version` fails or does not report the same `mcp_resume`, for
+example after a downgrade: restart the session then.
 
 #### Upgrade from a build without launch admission
 
@@ -446,9 +465,11 @@ under their own instructions and host policy (WDR 002, Decision 1; PDR 003, Deci
 ## Configuration and agent access
 
 Review [recommended native permissions](PERMISSIONS.md) for each family, including scoped
-examples, configuration locations, verified syntax checks and their limits. Setup does not
-apply these permission rules; native hook trust and optional terminal operations remain
-separate. Read the installed family guide for the running version.
+examples, configuration locations, verified syntax checks and their limits. On a terminal,
+`koinon install` lists the agent families on the computer, asks to set up each installed family
+that is not set up, and offers to add each family's recommended permission rules after it shows
+them. Without a terminal it asks nothing, sets up the `--agent` families and adds no rule.
+Native hook trust and optional terminal operations remain separate. Read the installed family guide for the running version.
 
 `koinon setup FAMILY` installs the MCP entry through the selected agent's CLI. Families are
 `claude`, `codex`, `agy`, `opencode`, `grok` and `deepseek`; DeepSeek uses the explicit command path

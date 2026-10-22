@@ -453,7 +453,7 @@ func TestContextCycleDeadlinesAndIntentRecovery(t *testing.T) {
 	f.observe(t, f.k, 900, "synthetic-epoch-1")
 	f.clock = f.clock.Add(cycleReadyWait)
 	f.step(t)
-	if v := f.status(t, f.k); v.State != cycleFailed || v.Reason != "waiting_ready_timeout" {
+	if v := f.status(t, f.k); v.State != cycleFailed || v.Reason != "waiting_ready_timeout.unread" {
 		t.Fatalf("ready timeout: %+v", v)
 	}
 	if e, _ := f.s.contextEnables(context.Background()); e[f.k].Enabled {

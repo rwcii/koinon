@@ -247,6 +247,11 @@ func (s *Store) submitWake(ctx context.Context, key Key, offer bool) (string, er
 		return "", err
 	}
 	notice += suffix
+	// A range that holds an unfinished managed cycle's request names the cycle (#445).
+	if suffix, err = s.cycleNoticeSuffix(ctx, *b); err != nil {
+		return "", err
+	}
+	notice += suffix
 	if offer {
 		// The Stop hook returns the notice to the agent's turn: it counts as a notice (#250).
 		if err = s.recordWake(ctx, *b, uncertain("stop_offered"), attempts); err != nil {

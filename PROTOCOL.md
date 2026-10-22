@@ -276,7 +276,9 @@ the session's own inbox. The request's sender is the reserved system identity `o
 `context_cycle_request`, `cycle_id` and `cycle_enable_revision`; its fixed body names the
 cycle and its revision and asks the session to pause at the next safe stopping point and start
 no new work, write its handoff, report it with `context_cycle_ready`, then end its turn and
-stay idle (#431). No session, alias or participant can take the name
+stay idle (#431). A wake whose range holds the request of an unfinished cycle ends its notice
+with ` Managed context-cycle request ID: answer it before other work.`, after any decision
+verdict suffix; a finished cycle's request adds nothing (#445). No session, alias or participant can take the name
 `overwatch`, it has no inbox, and no tool or command can send as it. It is not the maintainer.
 Inbox reads return `system_kind`, `cycle_id` and `cycle_enable_revision` with the message. A
 name record called `overwatch` retained from before schema 23 is kept unchanged; while one
@@ -379,8 +381,10 @@ and `.status_thread_differs`. After a daemon restart no inspection has run, so t
 once without sending a key; a pane in copy mode then gives `.pane_in_mode`. The ready report
 holds the wake lock, so a wake already being submitted ends before `ready` commits. The reason
 is shown on the
-Sessions page, in `koinon context show` and in the audit record. A timeout of another stage
-keeps its plain `<stage>_timeout`.
+Sessions page, in `koinon context show` and in the audit record. A `waiting_ready` timeout
+says whether the session read or acknowledged its inbox through the newest request:
+`waiting_ready_timeout.read` or `waiting_ready_timeout.unread` (#445). A timeout of another
+stage keeps its plain `<stage>_timeout`.
 
 A new native epoch of the requester before the managed clear (`waiting_ready`, `ready`, or a
 stored `bootstrap_intent` or `bootstrap_verified`) cancels the cycle (`epoch_changed`; uncertain
@@ -1530,6 +1534,28 @@ initialize response offers the catalog and its query paths; this informational o
 performs no query, inspection, registration or adoption. The server
 writes only protocol messages to stdout and never logs a secret, session ID or message body.
 
+The `initialize` response declares `capabilities.tools.listChanged` and gives the release as
+`serverInfo.version` (`dev` for a build without one); a successful `peers` result adds it as
+`server_version`. The server checks the path it was started by, made absolute (through `PATH`
+for a bare name), every 5 seconds once `initialize` has been answered, with the daemon's test:
+the path resolves to another regular executable file than at the start. It does nothing while
+a request is being answered, while its read buffer holds a byte or while standard input has one
+to read; a byte that arrives later stays in the pipe for the new program. It then waits for its
+renewal and observation loops to finish their current daemon call, resolves the path's links to
+a file and runs `<file> version` for at most 10 seconds. Only when that prints
+`"mcp_resume": "1"` and the file is still the same file does it execute that file in its own
+process with the same arguments and environment and `KOINON_MCP_RESUME`, a JSON object with
+`v` 1, the agreed `protocol_version`, the `client` name and `capabilities`, the registered
+`sessions` (`family`, `id`, `revision`, `retry_after_ms` left of a `holder_active` wait),
+`latest`, `renewal_seconds`, `subagents` and the `claude_host_start` that `initialize` pinned. The new program removes the variable from its
+environment, restores that state, renews the latest session at once and sends
+`notifications/tools/list_changed` before it reads a request. State that it cannot read, or
+that has no protocol version, starts it as a new server with one line on standard error. A
+version command that fails or reports another `mcp_resume`, or an exec that fails, keeps the
+running program with one line on standard error and its loops running again; that file is not
+tried again, and the next change is. `koinon version` reports the state version that a program
+reads as `mcp_resume`.
+
 The calling session comes from the agent on every call, never from model-supplied arguments; a
 call whose arguments hold `caller`, `family`, `id`, `as`, `session` or `session_id` is refused:
 
@@ -1711,9 +1737,9 @@ from elsewhere. Peer message bodies appear here, escaped, and nowhere else outsi
     `family:id:revision`, and `confirm=purge` for a purge): applies the single action to each
     selected session through its store path, with its own audit record and refusal code
     (`revision_changed`, `maintainer_session`). The notice is `bulk_applied`, or `bulk_partial`
-    when any session was refused; an unknown action or an empty selection is
-    `invalid_request`, and a purge without the confirmation is `confirmation_required` and
-    changes nothing (#388). The sessions view has a box before each agent session's name.
+    when any session was refused; an unknown action or more than 100 selections is
+    `invalid_request`, a known action without a selection is `no_selection` (#442), and a
+    purge without the confirmation is `confirmation_required` and changes nothing (#388). The sessions view has a box before each agent session's name.
   - `release` (`repository`, `work_id`, `revision`, `generation`, `consumer`): the work release
     of the claim's owner, with the checkpoint `Released by the maintainer from the dashboard`;
     the work event names family and name `maintainer`. Stale values get the work refusal codes.
@@ -1898,6 +1924,15 @@ restores it while the entry is still Koinon's, and keeps an entry the user chang
 `statusLine` member changes; member order and the file mode are kept; a symbolic link, a file
 not owned by the user, a file over 1 MiB or invalid JSON is refused, and a file that changes
 while Koinon edits it is a `settings_conflict` that keeps the other change.
+
+`koinon setup FAMILY` also reports, in `permissions`, the family's recommended permission
+rules of docs/PERMISSIONS.md: `family`, `settings_file`, `outcome` and, by outcome, `missing`,
+`added`, `different`, `reason` or `note`. `outcome` is `present`, `missing`, `added`,
+`different` (the file sets a rule's key to another value; nothing is added), `unreadable` or
+`manual` (Grok, DeepSeek). Only a yes at a terminal adds rules, with the same refusals as the
+status line. `koinon install` at a terminal also reports `review`, one entry per family with
+`family`, `cli` and `configured` before its questions, and `permissions` for each family that
+is set up.
 
 ### Import of Python-era state
 

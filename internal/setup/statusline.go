@@ -53,6 +53,14 @@ type StatusLineResult struct {
 
 type statusLine struct {
 	binary, state, settings string
+	label                   string // the file's name in refusals; default "Claude settings"
+}
+
+func (l statusLine) name() string {
+	if l.label == "" {
+		return "Claude settings"
+	}
+	return l.label
 }
 
 func claudeConfigDir(getenv func(string) string) string {
@@ -260,29 +268,39 @@ func (l statusLine) unwrap(entry json.RawMessage) json.RawMessage {
 // read returns the raw settings (nil when absent) and their members; it refuses anything
 // that is unsafe to replace.
 func (l statusLine) read() ([]byte, []field, error) {
-	info, err := os.Lstat(l.settings)
-	if errors.Is(err, os.ErrNotExist) {
-		return nil, nil, nil
-	}
-	if err != nil {
-		return nil, nil, err
-	}
-	if info.Mode()&os.ModeSymlink != 0 {
-		return nil, nil, SettingsError{"settings_symlink", "Claude settings file is a symbolic link; not changed", l.settings}
-	}
-	stat, ok := info.Sys().(*syscall.Stat_t)
-	if !info.Mode().IsRegular() || !ok || stat.Uid != uint32(os.Geteuid()) || info.Size() > settingsMax {
-		return nil, nil, SettingsError{"settings_unsafe", "Claude settings file is not a regular file owned by this user", l.settings}
-	}
-	raw, err := os.ReadFile(l.settings)
-	if err != nil {
+	raw, err := l.readRaw()
+	if raw == nil || err != nil {
 		return nil, nil, err
 	}
 	fields, err := objectFields(raw)
 	if err != nil {
-		return nil, nil, SettingsError{"settings_invalid", "Claude settings file is not a valid JSON object; not changed", l.settings}
+		return nil, nil, SettingsError{"settings_invalid", l.name() + " file is not a valid JSON object; not changed", l.settings}
 	}
 	return raw, fields, nil
+}
+
+// readRaw returns the file's bytes, nil when it is absent, and refuses a file that is unsafe
+// to replace.
+func (l statusLine) readRaw() ([]byte, error) {
+	info, err := os.Lstat(l.settings)
+	if errors.Is(err, os.ErrNotExist) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	if info.Mode()&os.ModeSymlink != 0 {
+		return nil, SettingsError{"settings_symlink", l.name() + " file is a symbolic link; not changed", l.settings}
+	}
+	stat, ok := info.Sys().(*syscall.Stat_t)
+	if !info.Mode().IsRegular() || !ok || stat.Uid != uint32(os.Geteuid()) || info.Size() > settingsMax {
+		return nil, SettingsError{"settings_unsafe", l.name() + " file is not a regular file owned by this user", l.settings}
+	}
+	raw, err := os.ReadFile(l.settings)
+	if err == nil && raw == nil {
+		raw = []byte{}
+	}
+	return raw, err
 }
 
 func current(path string) []byte {
@@ -301,6 +319,11 @@ func (l statusLine) write(expected []byte, fields []field) error {
 		return err
 	}
 	data.WriteByte('\n')
+	return l.writeRaw(expected, data.Bytes())
+}
+
+// writeRaw replaces the file with data, as write does.
+func (l statusLine) writeRaw(expected, data []byte) error {
 	mode := os.FileMode(0600)
 	if expected != nil {
 		info, err := os.Stat(l.settings)
@@ -309,7 +332,7 @@ func (l statusLine) write(expected []byte, fields []field) error {
 		}
 		mode = info.Mode().Perm()
 	}
-	temp := filepath.Join(filepath.Dir(l.settings), ".settings.json.koinon")
+	temp := filepath.Join(filepath.Dir(l.settings), "."+filepath.Base(l.settings)+".koinon")
 	os.Remove(temp)
 	f, err := os.OpenFile(temp, os.O_WRONLY|os.O_CREATE|os.O_EXCL|syscall.O_NOFOLLOW, 0600)
 	if err != nil {
@@ -318,7 +341,7 @@ func (l statusLine) write(expected []byte, fields []field) error {
 	defer os.Remove(temp)
 	err = f.Chmod(mode)
 	if err == nil {
-		_, err = f.Write(data.Bytes())
+		_, err = f.Write(data)
 	}
 	if err == nil {
 		err = f.Sync()
@@ -326,7 +349,7 @@ func (l statusLine) write(expected []byte, fields []field) error {
 	if err = errors.Join(err, f.Close()); err != nil {
 		return err
 	}
-	conflict := SettingsError{"settings_conflict", "Claude settings changed while Koinon was editing them; the other change was kept", l.settings}
+	conflict := SettingsError{"settings_conflict", l.name() + " changed while Koinon was editing them; the other change was kept", l.settings}
 	if !bytes.Equal(current(l.settings), expected) {
 		return conflict
 	}
@@ -336,8 +359,8 @@ func (l statusLine) write(expected []byte, fields []field) error {
 	if err := platform.SyncDir(filepath.Dir(l.settings)); err != nil {
 		return err
 	}
-	if !bytes.Equal(current(l.settings), data.Bytes()) {
-		conflict.Message = "Claude settings changed right after Koinon wrote them; the other change was kept"
+	if !bytes.Equal(current(l.settings), data) {
+		conflict.Message = l.name() + " changed right after Koinon wrote them; the other change was kept"
 		return conflict
 	}
 	return nil

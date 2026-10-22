@@ -327,6 +327,24 @@ func TestDashboardBulkAndRoomDelete(t *testing.T) {
 	if got := client.do("bulk", url.Values{"action": {"wipe"}, "s": pick(a)}); got != "invalid_request" {
 		t.Fatalf("unknown action: %s", got)
 	}
+	if got := client.do("bulk", url.Values{"action": {"wipe"}}); got != "invalid_request" {
+		t.Fatalf("unknown action without a selection: %s", got)
+	}
+	// A known action without a selection names the missing selection and changes nothing (#442).
+	for _, form := range []url.Values{{"action": {"retire"}}, {"action": {"purge"}, "confirm": {"purge"}}} {
+		if got := client.do("bulk", form); got != "no_selection" {
+			t.Fatalf("%v without a selection: %s", form, got)
+		}
+		if r := auditAll(t, s)[0]; r.Action != "bulk" || r.Target != "invalid" || r.Result != "refused" || r.Reason != "no_selection" {
+			t.Fatalf("empty selection audit: %+v", r)
+		}
+	}
+	if got := sessionState(t, s, Key{a.Family, a.ID}); got.State != "active" || got.PurgeAt != 0 {
+		t.Fatalf("changed without a selection: %+v", got)
+	}
+	if text := notice("no_selection"); text != "Refused: select one or more sessions first. Nothing was changed." {
+		t.Fatalf("notice: %q", text)
+	}
 	// A bulk clear at a stale revision acknowledges nothing (Codex F2).
 	if _, err := s.Send(context.Background(), Key{b.Family, b.ID}, a.Name, "unread"); err != nil {
 		t.Fatal(err)

@@ -1,15 +1,33 @@
 # Agent permissions
 
-These are recommendations for the maintainer to review, not configuration that Koinon
-applies. `koinon setup` connects a native CLI and installs its owned hooks/plugin; it does
-not add these permission rules. Merge the examples into existing settings without replacing
-other entries. Existing deny rules, managed policy, sandbox restrictions and the session's
-approval requirements still apply. An allowed tool does not authorize a peer's request (WDR 002,
+These are recommendations for the maintainer to review. `koinon setup` connects a native
+CLI and installs its owned hooks/plugin. It adds these permission rules only when the person
+at the terminal accepts them (see "Adding the rules at install" below). To merge them by hand,
+add the examples to existing settings without replacing other entries. Existing deny rules,
+managed policy, sandbox restrictions and the session's approval requirements still apply. An allowed tool does not authorize a peer's request (WDR 002,
 Decision 2).
 
 Read the **installed** `koinon guide --agent FAMILY` at startup, after a reset and after an
 error. Changes in a checkout reach that guide only through an authorized upgrade, so an
 older installed guide can differ from this reference (WDR 002, Decision 4).
+
+## Adding the rules at install
+
+`koinon install` on a terminal (standard input and standard error are terminals) first lists
+each family: its CLI on `PATH`, whether the Koinon server is set up for this binary, and the
+state of its permission rules. It asks
+to set up each installed family that is not set up; `--agent FAMILY` sets one up without the
+question. For each family that is set up, it shows the missing rules of the sections below and
+the file, and asks to add them. An empty answer or `y` is yes. A yes appends the rules and keeps
+every other setting; `koinon setup FAMILY` on a terminal asks the same question.
+
+Without a terminal, as for scripts and agents, install and setup ask nothing and change no rule;
+their output reports each family's rules in `permissions`: `present`, `missing`, `different`
+(the file sets a rule's key to another value; the file is not changed), `unreadable` (with
+`reason`) or
+`manual` (Grok, DeepSeek). A symbolic link, a file not owned by the user, a file over 1 MiB or
+a file not in the expected form is refused without a change. `koinon uninstall` leaves the
+rules in place.
 
 ## What the Koinon tools enable
 
@@ -90,18 +108,33 @@ In `~/.claude/settings.json` (`$CLAUDE_CONFIG_DIR/settings.json` when overridden
   "permissions": {
     "allow": [
       "mcp__koinon__*",
-      "Bash(koinon guide --agent claude)"
+      "Bash(koinon guide --agent claude)",
+      "Bash(koinon context show)",
+      "Bash(koinon status)"
     ]
   }
 }
 ```
 
 The first rule covers only the configured `koinon` server; an individual rule is, for
-example, `mcp__koinon__inbox`. The Bash entry permits the exact startup guidance command.
+example, `mcp__koinon__inbox`. The Bash entries permit the exact startup guidance command and
+the two read-only commands that agents run: `koinon context show` and `koinon status`. They do
+not cover other Koinon commands, such as `install` or `upgrade`.
 Inspect effective rules in `/permissions`; explicit ask/deny and managed settings take
 precedence. Repository-local permissions can instead live in `.claude/settings.local.json`.
 
-Verified configuration syntax with Claude Code **2.1.296**, using isolated settings and
+Install and setup check the user settings file. A rule counts as present when
+`permissions.allow` holds it, `mcp__koinon` for the server rule, or `Bash(koinon *)` for a Bash
+rule; other rules that cover it, and rules in project settings files, are not read. A yes
+appends the missing rules to `permissions.allow`.
+
+Without these rules, each Koinon call in auto mode goes to Claude Code's auto-mode classifier,
+which judges it against the whole session. After an unrelated refusal in the same session,
+for example of a merge, the classifier also refused `ack`, `peer_status` and
+`koinon context show` with the reason of that refusal (#446). The session then cannot
+acknowledge its inbox, read peer and cycle state or renew a work-item lease.
+
+Verified configuration syntax with Claude Code **2.1.307**, using isolated settings and
 `claude doctor`: the example produced no invalid-settings finding; a deliberately invalid
 MCP rule with parentheses produced one. Doctor can exit zero with invalid settings, so read
 its findings. This checks parsing, not a model's actual tool call. See the
@@ -126,6 +159,13 @@ from that server only. A per-tool alternative is
 `[mcp_servers.koinon.tools.inbox]` with `approval_mode = "approve"`; when using individual
 entries, include the full intended workflow from the table above. Tool allow/deny lists and
 managed policy still apply.
+
+Install and setup add the key as one line at the end of the `[mcp_servers.koinon]` table that
+`codex mcp add` wrote, and keep every other line. Another value of the key is kept and reported
+as `different`. The file is parsed before and after the change: a file that is not valid TOML,
+has no `koinon` server or keeps it other than as a `[mcp_servers.koinon]` table is refused, and
+the result must differ only in that key. Codex **0.163.0** with isolated configuration: `codex app-server --strict-config`
+accepted a file that setup wrote, and rejected an unknown-field control.
 
 For the startup guidance command, an optional rule in `$CODEX_HOME/rules/koinon.rules`
 (default `~/.codex/rules/koinon.rules`) is:
@@ -169,6 +209,8 @@ An individual tool entry is `mcp(koinon/inbox)`. The command entry covers the gu
 subcommand, not other Koinon commands. Deny and ask rules take precedence over allow rules.
 The CLI settings location differs from Koinon's default Stop-hook customization root,
 `~/.gemini/config`; do not place this example in the hook configuration.
+Install and setup append the missing rules to `permissions.allow`; `command(koinon)` also
+covers the guide command.
 
 Antigravity **1.3.2** was inspected locally. The example passes JSON parsing and follows the
 [official CLI permission reference](https://www.antigravity.google/docs/permissions?tab=cli).
@@ -201,6 +243,12 @@ OpenCode names MCP tools `<server>_<tool>`, so an individual rule is
 wins, and agent-specific rules can override global entries; check the effective agent's
 settings. Project `opencode.json` can also supply scoped rules.
 
+Install and setup append the missing members to `permission` and to its `bash` object, so they
+come last. A `permission` or `bash` value that is one action is kept: `"allow"` covers the
+rules, another action is reported as `different` and nothing is added. A configuration in
+`opencode.jsonc` is reported for a manual merge. OpenCode **1.18.35**: `opencode debug config --pure` resolved a
+file that setup wrote with both rules.
+
 Verified configuration syntax with OpenCode **1.18.35**, using private configuration and
 `opencode debug config --pure`: the resolved config retained the scoped wildcard and guide
 command, and an invalid permission action was rejected. No provider call was made; this
@@ -220,7 +268,8 @@ and in headless mode. Allow only the Koinon tools for a launch:
 koinon grok --allow 'MCPTool(koinon__*)'
 ```
 
-Grok names MCP tools `<server>__<tool>`, so an individual rule is `MCPTool(koinon__inbox)`.
+Grok keeps no rule in a settings file, so install and setup show this command and change
+nothing. Grok names MCP tools `<server>__<tool>`, so an individual rule is `MCPTool(koinon__inbox)`.
 Deny rules take precedence over allow rules. The syntax comes from Grok Build **1.0.50**'s
 documentation; the #254 evidence did not run a model tool call under this rule, so native
 evaluation is unverified. `koinon setup grok` writes no rule.

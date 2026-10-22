@@ -5,6 +5,55 @@ into a dated release section when promoted to `main`.
 
 ## Unreleased
 
+## 2026-10-22 — Interactive install with permission rules, MCP servers that follow an upgrade and clearer handoff notices
+
+This release makes `koinon install` on a terminal list the agent families on the computer, ask
+which to set up and offer each family's recommended permission rules. A running `koinon mcp`
+server now runs the new release after an upgrade without a session restart. A handoff request
+is named in its wake notice, and a timeout says whether the session read it. The state schema
+stays 28; a v0.3.3 installation upgrades in place.
+
+- `koinon install` on a terminal lists the agent families on the computer, asks to set up
+  each installed family that is not set up, and offers to add each family's recommended
+  permission rules after it shows them: Claude Code and Antigravity allow rules, the Codex
+  server approval and the OpenCode permission rules. A yes keeps every other setting.
+  `koinon setup FAMILY` on a terminal asks the same question. Without a terminal, install and
+  setup ask nothing, add no rule and report each family's rules in `permissions` (#446, #449).
+- The recommended Claude rules now also allow `koinon context show` and `koinon status`.
+  docs/PERMISSIONS.md describes how Claude Code's auto mode can refuse Koinon calls without
+  these rules (#446).
+- A running agent session's `koinon mcp` server runs the new release after an upgrade, in its
+  own process and without a session restart, at a point where no request is in progress. It
+  keeps the agent's MCP session and registered sessions and asks the client to read the tool
+  list again: Claude Code and OpenCode then show the new tools and descriptions; Codex keeps
+  the ones it read at the start until the session starts again. A `peers` result reports the
+  server's release as `server_version`, and `koinon version` reports `mcp_resume`. A session
+  whose server started from an earlier release needs one restart after this upgrade (#440).
+- A wake notice whose range holds a managed context-cycle request ends with "Managed
+  context-cycle request ID: answer it before other work.", so a session that also holds a
+  participant address does not take it for a routine notice. A cycle whose ready report did
+  not come in time fails with `waiting_ready_timeout.read` or `waiting_ready_timeout.unread`,
+  which says whether the session read the request (#445).
+- The dashboard's bulk session action without a selected session now says "Refused: select one
+  or more sessions first. Nothing was changed." (`no_selection`), instead of the general "the
+  request was not valid" (#442).
+
+Upgrade from v0.3.3 with Homebrew: run `brew update` and `brew upgrade koinon`; the daemon
+restarts on the new binary, which ends current dashboard logins, so run `koinon dashboard` for a
+new link. Restart each agent session once afterwards: a `koinon mcp` server started from v0.3.3
+or earlier keeps its binary, and after this restart later upgrades reach it without one. To
+review the families and add the permission rules, run `$(brew --prefix)/bin/koinon install` in
+a terminal.
+
+Known limits:
+
+- The DeepSeek harness's permission grammar remains unverified (docs/PERMISSIONS.md), and
+  Antigravity's permission evaluation is unverified; Grok takes its rule at launch.
+- A macOS system-mode daemon (`--system`) keeps a copy; upgrade it with
+  `$(brew --prefix)/bin/koinon install --system`.
+- Codex keeps the tools and descriptions it read at the start until its session starts again
+  (docs/INSTALL.md).
+
 ## 2026-10-21 — Pause before the handoff clear, a Sessions status filter and longer dashboard logins
 
 This release makes the managed handoff cycle ask the session to pause, report ready and stay

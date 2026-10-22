@@ -11,7 +11,9 @@ The fixture generator was retired with chunk 12. Its source remains in Git at
 provenance requires an isolated historical checkout. No current test or native runner calls
 that generator or imports the deleted checkout package. `fixture.json` describes expected
 records, cursors and retained claims. Tests copy these trees to temporary directories and
-adapt synthetic repository paths there, leaving committed inputs unchanged.
+adapt synthetic repository paths there, leaving committed inputs unchanged. The pending
+memory snapshot was created at a fixed time and expires an hour later, so the test that
+continues it sets its creation time to the current time in the copy (#443).
 
 The native upgrade job obtains the previous release's installer/uninstaller separately with
 `git archive` and uses Python only for that baseline. It keeps full Git history and reads

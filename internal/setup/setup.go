@@ -35,6 +35,9 @@ type Options struct {
 	StateDir         string
 	ClaudeConfig     string
 	RemoveStatusLine bool
+	// AgySettings is the Antigravity CLI settings file that holds its permission rules;
+	// default ~/.gemini/antigravity-cli/settings.json.
+	AgySettings string
 }
 
 // Report lists what setup changed and what it found already in place.
@@ -47,6 +50,8 @@ type Report struct {
 	Note      string   `json:"note,omitempty"`
 	// StatusLine reports the Claude status-line set-up or removal.
 	StatusLine *StatusLineResult `json:"status_line,omitempty"`
+	// Permissions reports the family's recommended permission rules; setup changes none.
+	Permissions *PermissionsResult `json:"permissions,omitempty"`
 }
 
 const serverName = "koinon"
@@ -155,6 +160,11 @@ func Run(ctx context.Context, o Options) (Report, error) {
 		err = openCodePlugin(o, &report)
 	case "grok":
 		report.Note = grokNote(ctx, cli)
+	}
+	if err == nil {
+		// Reported only: the person adds the rules at install's or setup's question.
+		rules, _ := Permissions(o, false)
+		report.Permissions = &rules
 	}
 	if err == nil {
 		var changed bool
