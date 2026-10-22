@@ -11,7 +11,7 @@ missing information or authority beyond that task (WDR 002, Decision 1).
 
 Read the adopting project's authoritative instructions first. For edits to a canonical skill source, also read `agents/skills/AGENTS.md` when present. A machine-wide copy need not have the authoring file.
 
-Read the installed koinon guide for this family and follow its supported coordination path.
+Read the installed koinon guide for this family and follow its supported coordination path. Its Team operations section has the runnable steps.
 Inspect the selected checkout's branch, local changes and advisory work claims. Preserve
 uncommitted work and existing leases. Apply any declared project readiness checks.
 Prepare a concrete launch plan naming agent families/assigned roles, directories, current

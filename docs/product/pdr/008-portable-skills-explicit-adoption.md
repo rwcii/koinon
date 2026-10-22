@@ -100,8 +100,8 @@ have required facts. Missing required facts stop only the step that needs them; 
 drafts the file from repository evidence and writes it after approval. Fact files are not
 embedded and grant no permission.
 
-One Koinon-owned skill is not a catalog item: `koinon-pickup`, the managed context cycle's
-pickup entry (PDR 006, Decision 4). `koinon install` and the daemon at each start install it
+Koinon-owned entries are not catalog items: `koinon-pickup`, the managed context cycle's
+pickup entry (PDR 006, Decision 4), and the team skill entries (Decision 2). `koinon install` and the daemon at each start install it
 for the person who runs the daemon, one user-level copy per agent family (Claude Code's personal skills, `~/.agents/skills`
 for Codex), and never in a project repository. It only reads the catalog item `skill.pickup`,
 so the procedure keeps its one copy in the catalog. A project's own `pickup` skill, and the
@@ -158,6 +158,16 @@ machine-wide copies as the default recommendation and project-local installation
 explicitly selected alternative, each approved on its own. Machine decisions go in a bounded
 daemon table and project decisions in the repository's memory store.
 
+The team skills are Koinon's own entries, not adoptions: `koinon install` and the daemon at
+each start write `koinon-spin-up`, `koinon-spin-down`, `koinon-recover-team`,
+`koinon-peer-tmux` and `koinon-handoff` for the person who runs the daemon, at the places of
+`koinon-pickup` (Decision 1), and never into a repository. Each entry loads its catalog item
+through Koinon and holds no procedure, so the catalog keeps the one copy and the entry changes
+with the runtime; the item's procedure reads the repository's own facts from
+`.koinon/skills/NAME.md`. The runnable steps of these procedures are in the installed guide. A
+personal or project skill of the bare name is not touched, and adopting the catalog item
+itself still follows this decision.
+
 **Provenance:** Requested in #145 (issue body, requirements 5–7); a request record. Machine
 default plus approved project-local target: Maintainer, 2026-10-12, session transcript:
 "Machine-wide and approved project-local", the answer to the plan's choice of adoption target.
@@ -165,12 +175,26 @@ It decides that choice only. Covered by the Gate B
 approval of the #145 plan (9055630 on feature/skills-library-catalog) (#145 comment 6116403867).
 Chunk 03 implements its state/decision interfaces and agent procedure; it installs no host item.
 
+Team skill entries: Maintainer, 2026-10-22, decision board item `fleet-skills-koinon` revision
+2, verdict 10, approved in the dashboard; its step 2: "You amend PDR 008 Decision 2. `koinon
+install` places the six fleet skills at the user level for Claude and Codex, the same as
+`koinon-pickup`. The runnable steps (launch, first-run prompts, peer lookup, the handoff, clear
+and pickup cycle) go into the installed guide, because the guide ships with the binary and
+agrees with the runtime. The skills stay short and refer to the guide." The maintainer also
+wrote "agreed." after a summary of that item, and then: "these skills should also allow for the
+sidecar pre-repo knowledge framework we implemented on the other shared skills, using the
+.koinon directory in repo." ([#453](https://github.com/rwcii/koinon/issues/453)). The intent: an
+adopting project's copy of the team procedure drifted from the runtime, so Koinon owns the
+procedure and its commands, and each project supplies only its facts. The `koinon-NAME` names
+and the loading entries, with the pickup skill served by `koinon-pickup`, are the design that
+#453 proposes; no maintainer decision on them found.
+
 ### Alternatives Considered
 
 | Alternative | Description | Why Rejected |
 | ----------- | ----------- | ------------ |
 | A `koinon` adoption command | The binary writes the approved item | #145 left this open; the plan keeps the approval in the agent's conversation |
-| Install on connect or upgrade | Apply items automatically | #145: nothing is applied without approval |
+| Install on connect or upgrade | Apply items automatically | #145: nothing is applied without approval; the team skill entries load items and copy none (#453) |
 
 ### Rationale
 
@@ -274,3 +298,4 @@ Required checks drift defect are ordinary corrections; they add no product decis
 | 2026-10-12 | Recorded the ordinary inert-fact parser and Required checks drift corrections separately from the remaining adoption proposals |
 | 2026-10-12 | Reconciled merged catalog/query chunks, native scope and collision evidence, scoped receipts and the approved adoption procedure |
 | 2026-10-19 | Decision 1: one Koinon-owned skill, the cycle's `koinon-pickup`, installed by `koinon install` for the person and not a catalog item (#406) |
+| 2026-10-22 | Decision 2: `koinon install` and the daemon write the team skill entries, which load their catalog items (#453) |

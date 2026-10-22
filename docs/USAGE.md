@@ -36,6 +36,19 @@ decisions; MCP still registers and renews its calling session as usual. Read con
 reference data. Show an exact proposed diff and obtain the maintainer's adoption approval
 before applying it (PDR 008).
 
+### Team skills
+
+`koinon install`, and the daemon at each start, write the team skills for you, next to the
+managed cycle's `koinon-pickup`: `koinon-spin-up`, `koinon-spin-down`, `koinon-recover-team`,
+`koinon-peer-tmux` and `koinon-handoff` ([INSTALL.md](INSTALL.md#install), step 7). Run them as
+`/koinon-spin-up` in Claude Code or `$koinon-spin-up` in Codex. Each one loads its catalog
+item, so the procedure is the installed release's, and the procedure reads this repository's
+facts from `.koinon/skills/NAME.md`; give a project its own start checks, stop checks or
+manifest path there. The runnable steps, such as the launch command, first-run prompts and
+the stop and recovery steps, are in the Team operations section of
+`koinon guide --agent FAMILY`. A project's own skill of the bare name stays as it is
+(PDR 008, Decision 2).
+
 ### Inspect and adopt an item
 
 Call `library_state` with optional `item_ids`, `scope` (`machine`, the default, or `project`)

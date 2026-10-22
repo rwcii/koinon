@@ -58,9 +58,13 @@ syntax; a command from another family fails or does something else.
 
 | Family | Handoff | Reset | Pickup |
 | --- | --- | --- | --- |
-| Claude | `/handoff` | `/clear` | `/pickup` |
-| Codex | `$handoff` | `/clear` | `$pickup` |
+| Claude | `/koinon-handoff` | `/clear` | `/koinon-pickup` |
+| Codex | `$koinon-handoff` | `/clear` | `$koinon-pickup` |
 | DeepSeek | not verified | not verified | not verified |
+
+`koinon install` writes the `koinon-` entries for the person; a project that adopted its own
+`handoff` or `pickup` can use that name instead. The guide's Team operations section has the
+runnable steps.
 
 Send the bare command, with no added text: extra prose costs tokens and can make the agent
 refuse. After each Enter, capture the pane and validate that the agent received the command

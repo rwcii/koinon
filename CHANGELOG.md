@@ -5,6 +5,13 @@ into a dated release section when promoted to `main`.
 
 ## Unreleased
 
+- `koinon install`, and the daemon at each start, now write the team skills for Claude Code and
+  Codex: `koinon-spin-up`, `koinon-spin-down`, `koinon-recover-team`, `koinon-peer-tmux` and
+  `koinon-handoff`, next to `koinon-pickup`. Each one loads its catalog item from the installed
+  binary, so the procedure changes with the runtime, and the procedure reads the repository's
+  own facts from `.koinon/skills/NAME.md`. A project's own skill of the bare name is left as it
+  is. The install report lists them in `team_skills`; the uninstall removes them (#453).
+
 - A dashboard login no longer ends when another dashboard is opened under the same loopback
   address, such as a local daemon and a tunnel to another computer's daemon. The login cookie
   is now named after the port, `koinon_dashboard_PORT`, so each port keeps its own login. A
