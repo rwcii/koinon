@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"io"
+	"net"
 	"net/http"
 	"net/url"
 	"regexp"
@@ -64,7 +65,8 @@ func (d *roomDashboard) do(method, path string, form url.Values) (*http.Response
 		r.Header.Set("Origin", "http://"+d.address)
 	}
 	if d.cookie != "" {
-		r.AddCookie(&http.Cookie{Name: "koinon_dashboard", Value: d.cookie})
+		_, port, _ := net.SplitHostPort(d.address)
+		r.AddCookie(&http.Cookie{Name: "koinon_dashboard_" + port, Value: d.cookie})
 	}
 	response, err := d.client.Do(r)
 	if err != nil {

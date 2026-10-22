@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"io"
+	"net"
 	"net/http"
 	"net/url"
 	"path/filepath"
@@ -109,7 +110,8 @@ func TestRoomCommandsOfTheDeepSeekGuide(t *testing.T) {
 			r.Header.Set("Origin", "http://"+address)
 		}
 		if cookie != "" {
-			r.AddCookie(&http.Cookie{Name: "koinon_dashboard", Value: cookie})
+			_, port, _ := net.SplitHostPort(address)
+			r.AddCookie(&http.Cookie{Name: "koinon_dashboard_" + port, Value: cookie})
 		}
 		response, err := client.Do(r)
 		if err != nil {

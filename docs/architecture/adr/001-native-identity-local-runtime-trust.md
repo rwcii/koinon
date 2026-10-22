@@ -218,7 +218,8 @@ maintainer decision found.
 
 Koinon currently serves the dashboard on the same listener with its own login. `koinon
 dashboard` gets a one-time 256-bit link token that works once within 60 seconds. Its use sets an
-`HttpOnly`, `SameSite=Strict` cookie scoped to `/dashboard/`; the daemon keeps only hashes in
+`HttpOnly`, `SameSite=Strict` cookie scoped to `/dashboard/` and named after the port in
+`Host`, `koinon_dashboard_PORT` (#454); the daemon keeps only hashes in
 memory, so a restart ends every login. A login ends after 24 hours without a request or 7 days
 after it was made, and the cookie's `Max-Age` is those 7 days (#435). A request is refused
 unless `Host` is a literal loopback IP with a port (`127.0.0.1:PORT` or `[::1]:PORT`, not
@@ -240,6 +241,11 @@ address the dashboard timeout, you seem to have added a shorter timeout, as I fr
 to create a new link". The intent: a login lasts long enough that a new link is rarely needed.
 The limits had not changed since #193. The 24-hour and
 7-day limits are the fix that #435 proposes; no maintainer decision on the values found.
+Until #454 the cookie was named `koinon_dashboard` for every port. #454 records the
+maintainer's report of 2026-10-22: "I'm getting really tired of having to log in to the board
+every time I go back to access it.  the timeout is TOO SHORT". The intent: a login lasts until
+its limits also when the maintainer moves between boards. The cookie named after the port is
+the fix that #454 proposes; no maintainer decision on the name found.
 
 ### Alternatives Considered
 
@@ -261,10 +267,9 @@ The limits had not changed since #193. The 24-hour and
 
 ### Trade-offs Accepted
 
-Browsers do not separate cookies by port. Two daemons opened under the same IP, such as a local
-daemon and a tunnel to another host's daemon, share the `koinon_dashboard` cookie, so a login to
-one replaces the browser's login to the other. Opening one under `127.0.0.1` and the other under
-`[::1]` keeps both.
+Browsers do not separate cookies by port, so a browser sends the login cookie of every port of
+an IP to each of its ports. The daemon reads only the cookie named after the request's port; the
+others reach it unread, and every daemon on these loopback ports belongs to the same user.
 
 ---
 
@@ -320,3 +325,4 @@ agent.
 | 2026-10-12 | Initial creation |
 | 2026-10-12 | Added Grok Build's identity source (#254 chunk 02) |
 | 2026-10-19 | Decision 4: dashboard `Host` is a literal loopback IP with any port (#407) |
+| 2026-10-22 | Decision 4: the login cookie is named after the `Host` port (#454) |
