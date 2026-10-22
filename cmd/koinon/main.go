@@ -280,6 +280,22 @@ func ensurePickupSkills(logEvent func(string, map[string]any)) {
 			logEvent("pickup_skill", map[string]any{"family": skill.family, "path": skill.path, "result": "failed", "code": "write_failed"})
 		}
 	}
+	// The team skill entries go to the same places (#453).
+	skills, err := core.TeamSkills()
+	if err != nil {
+		logEvent("team_skill", map[string]any{"result": "failed", "code": "catalog_unavailable"})
+		return
+	}
+	for _, skill := range skills {
+		for _, target := range []struct{ family, path string }{
+			{"claude", core.ClaudeSkillPath(core.ClaudeConfigRoot(os.Getenv("CLAUDE_CONFIG_DIR"), home), skill.Name)},
+			{"codex", core.CodexSkillPath(home, skill.Name)},
+		} {
+			if _, err := core.InstallSkillFile(target.path, skill.Content); err != nil {
+				logEvent("team_skill", map[string]any{"family": target.family, "path": target.path, "result": "failed", "code": "write_failed"})
+			}
+		}
+	}
 }
 
 // launchPath is the path that started this process; a variable only so that tests can set it.

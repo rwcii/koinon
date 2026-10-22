@@ -4,6 +4,8 @@ import (
 	"bytes"
 	"encoding/json"
 	"io/fs"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"testing/fstest"
@@ -185,6 +187,68 @@ func TestSchemaAndFactValues(t *testing.T) {
 	for _, bad := range [][]byte{bytes.Replace(b, []byte("\"required\": true"), []byte("\"required\": true, \"default\": \"invented\""), 1), bytes.Replace(b, []byte("\"version\": 1"), []byte("\"version\": 2"), 1), append(b, []byte("extra")...)} {
 		if _, err := ParseFacts(bad, "check"); err == nil {
 			t.Fatal("invalid schema accepted")
+		}
+	}
+}
+
+// The guide's team steps take project data from declared fact fields (#453): the spin-up
+// facts give the start directory and roles, and the handoff facts give the handoff path. A
+// repository without a sidecar uses the defaults; one with a sidecar is present-valid and
+// gives its own values.
+func TestTeamSkillFactBindings(t *testing.T) {
+	c, err := Embedded("test")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, test := range []struct {
+		skill  string
+		fields map[string]string
+	}{
+		{"spin-up", map[string]string{"Start directory": "worktrees/team", "Roles": "review"}},
+		{"handoff", map[string]string{"Handoff path": ".snapshots/<agent>/ in main checkout"}},
+	} {
+		read, err := c.Read("codex", "skill."+test.skill)
+		if err != nil {
+			t.Fatal(err)
+		}
+		defaults := map[string]string{}
+		for _, field := range read.Item.Facts.Fields {
+			if field.Default != nil {
+				defaults[field.Heading] = *field.Default
+			}
+		}
+		for heading := range test.fields {
+			if defaults[heading] == "" {
+				t.Fatalf("%s declares no default for %q: %+v", test.skill, heading, read.Item.Facts.Fields)
+			}
+		}
+		root := t.TempDir()
+		ctx := InspectionContext{Family: "codex", Scope: "project", ProjectRoot: root, Repository: "/synthetic/common"}
+		if state := (Inspector{}).InspectItem(c, ctx, "skill."+test.skill, nil).Facts; state == nil || state.State != "no-sidecar-needed" {
+			t.Fatalf("%s without a sidecar: %+v", test.skill, state)
+		}
+		text := "# Synthetic facts\n\n## Version\n1\n## Skill\n" + test.skill + "\n## Sources\n- README.md\n"
+		for heading, value := range test.fields {
+			text += "## " + heading + "\n" + value + "\n"
+		}
+		values, err := ParseFactValues([]byte(text), test.skill, read.Item.Facts)
+		if err != nil {
+			t.Fatal(test.skill, err)
+		}
+		for heading, value := range test.fields {
+			if values.Fields[heading] != value {
+				t.Fatalf("%s %q: %q", test.skill, heading, values.Fields[heading])
+			}
+		}
+		file := filepath.Join(root, read.Item.Facts.Filename)
+		if err := os.MkdirAll(filepath.Dir(file), 0o700); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(file, []byte(text), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		if state := (Inspector{}).InspectItem(c, ctx, "skill."+test.skill, nil).Facts; state == nil || state.State != "present-valid" {
+			t.Fatalf("%s with a sidecar: %+v", test.skill, state)
 		}
 	}
 }

@@ -48,7 +48,7 @@ has passed, and otherwise keeps the formula of the previous release. Within abou
 An installation made by v0.3.0 or earlier has a copy, and its daemon does not check its
 executable. Upgrade it once with `$(brew --prefix)/bin/koinon install` after `brew upgrade`.
 Each later `brew upgrade` is complete: the restarted daemon also writes the managed cycle's
-`koinon-pickup` skill (Install, step 7). A macOS system-mode daemon (`--system`) keeps a copy,
+`koinon-pickup` skill and the team skill entries (Install, step 7). A macOS system-mode daemon (`--system`) keeps a copy,
 because brew can replace the linked file; upgrade it with
 `$(brew --prefix)/bin/koinon install --system`. A Python-era installation upgrades with
 `$(brew --prefix)/bin/koinon upgrade --from-python`, as below.
@@ -127,6 +127,14 @@ does this:
    installs the skill there (`koinon install` with that `CLAUDE_CONFIG_DIR`).
    The skill only reads the catalog's `skill.pickup` through Koinon, so it changes only when
    this entry changes. A personal or project `pickup` skill is left as it is.
+   At the same places it writes the team skill entries `koinon-spin-up`, `koinon-spin-down`,
+   `koinon-recover-team`, `koinon-peer-tmux` and `koinon-handoff` (PDR 008, Decision 2). Each
+   one loads its catalog item through Koinon, whose procedure reads the repository's own facts
+   from `.koinon/skills/NAME.md`; the entry holds no procedure of its own. `team_skills` in the
+   report gives each family, name, path and result, a file that cannot be written fails the
+   install with `team_skill_failed`, and the daemon writes them at each start too (a failure is
+   a logged `team_skill` event). A personal or project skill of the bare name, such as
+   `handoff`, is left as it is.
 
 When no user service manager answers, the report says `"service": "manual_required"` and gives
 the `start_command` to run in a managed session. The default install never uses sudo, system
@@ -421,7 +429,8 @@ staging files.
 - The `~/.local/bin/koinon` link, only when the install created it (`<prefix>/link`) and it still
   points at the installed binary. Any other link or file there is kept (`"link_result": "kept"`).
 - Each `koinon-pickup` skill file (Install, step 7) that still holds this binary's skill, and its
-  then empty directory; another content is kept (`pickup_skills`, `"result": "kept"`).
+  then empty directory; another content is kept (`pickup_skills`, `"result": "kept"`). The team
+  skill entries are removed the same way (`team_skills`).
 
 It keeps the state directory and reports its path. A repeated uninstall changes nothing.
 
@@ -564,9 +573,9 @@ Machine-wide skills are the recommended default; project-local adoption is an ex
 alternative. The metadata includes supported destinations and native discovery evidence.
 Unknown/unverified native roots support catalog reading; reading is not evidence of an
 installed skill. List/read inspect no project or native-home files and record no adoption
-decision. Installation and upgrade apply no catalog items; the one skill they write, the
-managed cycle's `koinon-pickup` (Install, step 7), is Koinon's own entry and not a catalog item
-(PDR 008, Decision 1). An adoption uses an exact
+decision. Installation and upgrade apply no catalog items; the skills they write, the managed
+cycle's `koinon-pickup` and the team skill entries (Install, step 7), are Koinon's own entries,
+which load catalog items and are not copies of them (PDR 008, Decisions 1 and 2). An adoption uses an exact
 reviewed diff approved by the maintainer (PDR 008); locally edited files remain as they are.
 `library_state` and `koinon library state` inspect declared targets in the calling native
 client's verified environment. Codex's effective `CODEX_HOME` selects its machine target;

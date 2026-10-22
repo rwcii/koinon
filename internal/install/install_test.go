@@ -1,6 +1,7 @@
 package install
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -166,6 +167,71 @@ func TestInstallPickupSkills(t *testing.T) {
 	}
 	if data, _ := os.ReadFile(personal); string(data) != "a personal pickup\n" {
 		t.Fatalf("personal pickup changed: %q", data)
+	}
+}
+
+// teamResults is the result of each reported team skill entry, by family and name.
+func teamResults(skills []PickupSkill) map[string]string {
+	results := map[string]string{}
+	for _, skill := range skills {
+		results[skill.Family+" "+skill.Name] = skill.Result
+	}
+	return results
+}
+
+// The install writes each team skill entry for Claude and Codex at the koinon-pickup places;
+// a project's or person's own skill of the bare name is not touched, and the uninstall
+// removes only files that hold the binary's entry (#453).
+func TestInstallTeamSkills(t *testing.T) {
+	e := newEnv(t, "systemd")
+	skills, err := core.TeamSkills()
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := func(result string) map[string]string {
+		m := map[string]string{}
+		for _, skill := range skills {
+			m["claude "+skill.Name], m["codex "+skill.Name] = result, result
+		}
+		return m
+	}
+	personal := filepath.Join(e.o.ClaudeConfig, "skills", "handoff", "SKILL.md")
+	if err := os.MkdirAll(filepath.Dir(personal), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(personal, []byte("a personal handoff\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	r, err := Install(context.Background(), e.o)
+	if err != nil || !r.OK || !reflect.DeepEqual(teamResults(r.TeamSkills), want("created")) {
+		t.Fatalf("install %+v %v", r.TeamSkills, err)
+	}
+	for _, skill := range skills {
+		for _, path := range []string{core.ClaudeSkillPath(e.o.ClaudeConfig, skill.Name), core.CodexSkillPath(e.o.Services.Home, skill.Name)} {
+			if data, err := os.ReadFile(path); err != nil || !bytes.Equal(data, skill.Content) {
+				t.Fatalf("%s: %q %v", path, data, err)
+			}
+		}
+	}
+	again, err := Install(context.Background(), e.o)
+	if err != nil || !reflect.DeepEqual(teamResults(again.TeamSkills), want("unchanged")) {
+		t.Fatalf("repeat %+v %v", again.TeamSkills, err)
+	}
+	edited := core.ClaudeSkillPath(e.o.ClaudeConfig, skills[0].Name)
+	if err := os.WriteFile(edited, []byte("edited\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	u, err := Uninstall(context.Background(), e.o)
+	removed := want("removed")
+	removed["claude "+skills[0].Name] = "kept"
+	if err != nil || !u.OK || !reflect.DeepEqual(teamResults(u.TeamSkills), removed) {
+		t.Fatalf("uninstall %+v %v", u.TeamSkills, err)
+	}
+	if _, err := os.Lstat(filepath.Dir(core.CodexSkillPath(e.o.Services.Home, skills[0].Name))); !os.IsNotExist(err) {
+		t.Fatalf("codex entry directory left: %v", err)
+	}
+	if data, _ := os.ReadFile(personal); string(data) != "a personal handoff\n" {
+		t.Fatalf("personal handoff changed: %q", data)
 	}
 }
 
