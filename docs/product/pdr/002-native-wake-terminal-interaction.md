@@ -102,7 +102,7 @@ inboxes once per second and uses one adapter per family:
 | Family | Channel | Busy handling |
 | --- | --- | --- |
 | Codex | The configured absolute CLI: `queue --thread ID --message NOTICE` | Deferred while Koinon's activity observation shows the thread busy |
-| Claude Code | A `next`-priority frame on the session's own peer socket, after registry, process and socket identity checks | Status `busy` or `waiting` (an approval or question prompt) defers; `idle` and `shell` are woken |
+| Claude Code | A `next`-priority frame on the session's own peer socket, after registry, process and socket identity checks | Status `waiting` (an approval or question prompt) defers; `idle`, `shell` and `busy` are woken. `busy` is a turn in progress or an idle prompt with background subagents running; Claude Code takes the frame at its next tool boundary or at once (#456) |
 | DeepSeek | `session/prompt` in `queue` mode on the harness's loopback origin, with a signed cookie | Harness 409 or 429 defers |
 | OpenCode | `GET /session/status`, then `POST /session/ID/prompt_async`, with the launcher's password | `busy`, `retry` or unknown defers; an absent status counts as idle only after `GET /session/ID` confirms the session |
 | Antigravity | The Stop hook asks the daemon at the turn boundary and returns the notice as its `reason` | No push wake; the offer happens when the agent stops |
@@ -129,7 +129,14 @@ would be a new design with its own record.
 #186 (merge commit e2bc2f3); the Claude wake after `/clear` in PR #270 (merge commit 5c2338f);
 handled wakes in PR #295 (merge commit 2041834). No maintainer decision found. The family
 channels and the hosting non-goal were proposed in the Go sprint plan (PR #178); a gate
-approval covers that plan document, not each sentence in it.
+approval covers that plan document, not each sentence in it. The Claude wake of a `busy`
+session: #456 records a session with background subagents that got no notice for a managed
+cycle request, and the maintainer's words of 2026-10-22: "it's idle, but it has running
+subagents.  this does not seem to allow it to handoff, it shows busy on the agent session
+status". The intent: a session gets its notices while it works. A disposable session on a
+scratch daemon took a frame sent while `busy` at once at its idle prompt with a subagent
+running, and at the next tool boundary during a turn. Waking `busy` is the fix that #456
+proposes; no maintainer decision on it found.
 
 ### Alternatives Considered
 
@@ -144,7 +151,9 @@ approval covers that plan document, not each sentence in it.
 ### Rationale
 
 1. Each channel is the family's own interface for adding input to a running session.
-2. Deferring on a busy or prompting session keeps the notice out of an approval dialog.
+2. Deferring on a prompting session keeps the notice out of an approval dialog. Claude Code
+   queues a `next` frame that arrives during a turn for its next boundary, so a `busy` Claude
+   session needs no deferral.
 3. Only the agent's own read shows that it saw the message; a bounded series of notices ends
    in a failure the maintainer can see.
 
@@ -296,3 +305,4 @@ or practice that the maintainer has not decided, so this record is a draft.
 | Date       | Change           |
 | ---------- | ---------------- |
 | 2026-10-12 | Initial creation |
+| 2026-10-22 | Decision 1: the Claude wake also goes to a `busy` session; only `waiting` defers (#456) |

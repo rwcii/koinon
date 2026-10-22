@@ -9,6 +9,15 @@ into a dated release section when promoted to `main`.
   address, such as a local daemon and a tunnel to another computer's daemon. The login cookie
   is now named after the port, `koinon_dashboard_PORT`, so each port keeps its own login. A
   login made before the upgrade ends at the upgrade's daemon restart, as before (#454).
+- A Claude session now gets its wake notices while it works: during a turn, Claude Code takes
+  the notice at its next tool boundary, and at a prompt with background subagents running, at
+  once. Before, Koinon held every notice while the session showed `busy`, so a managed context
+  cycle request could go unseen until its deadline. Only an approval or question prompt still
+  holds the notice (#456).
+- A managed context cycle no longer clears a Claude session whose background subagent worked
+  after the session reported ready: it asks again under a new revision, so the new handoff holds
+  the subagent's results. The request and the guide say to let background subagents finish, or
+  to stop them, before writing the handoff (#456).
 
 ## 2026-10-22 — Interactive install with permission rules, MCP servers that follow an upgrade and clearer handoff notices
 

@@ -185,7 +185,12 @@ once the session is at its prompt with an empty input line. A background task th
 session leaves running does not hold the cycle back; a turn in progress, a draft and a native
 dialog do. When the session does not become idle after its ready reply,
 `overwatch` asks it again to pause and hand off, under a new revision, within the cycle's
-lifetime and event bounds (#431). The cycle stops with a shown reason when no ready reply
+lifetime and event bounds (#431). A Claude session whose background subagent wrote its
+transcript after the ready reply is asked again at once, without a clear: that work is not in
+the handoff (#456). Koinon reads only the file times of the session's subagent transcripts,
+compared with the ready report itself; a dialog resolved after it does not move that time. A
+transcript directory that cannot be read in full keeps the session from the clear.
+The cycle stops with a shown reason when no ready reply
 arrives in time, the pane cannot be proven, or the bounds end it while the session stays busy;
 the reason names what Koinon last saw in the pane. Entering commands in the
 tmux session is a required part of the cycle, not an exception.
@@ -213,6 +218,13 @@ overwatch verifies the agent is idle, and runs the clear/koinon-pickup. if the a
 idle it needs to repeat the pause/handoff request again."
 ([#431](https://github.com/rwcii/koinon/issues/431)). The intent: an active agent is asked to
 pause, not left to reach idle by chance, and the cycle asks again when it keeps working.
+
+Subagent work after the ready reply: Maintainer, 2026-10-22, after a Claude session with
+running subagents reported ready: "but when the subagent finishes it will have an invalid
+handoff.", then "you can reproduce the conditions locally and figure out how to manage this"
+([#456](https://github.com/rwcii/koinon/issues/456)). The intent: a clear never restores a
+handoff that lacks work done after it. Asking again on a newer subagent transcript is the fix
+that #456 proposes; no maintainer decision on it found.
 
 Sender provenance: Maintainer, 2026-10-13, answering the recommendation for a distinct daemon
 sender: “I agree, let's call it "overwatch"”
@@ -390,3 +402,4 @@ and terminal commands have the maintainer's words; the rest is requested or prop
 | 2026-10-16 | Decision 1: settings and Enable change also from the command line and by agents through MCP, audited with their origin; a per-session threshold (#391) |
 | 2026-10-16 | Decision 5: a native check certifies the CLI version current then; no version gate and no certification status (#196) |
 | 2026-10-19 | Decisions 3 and 4: the cycle picks up through Koinon's own `koinon-pickup` skill, installed for the person, never in a repository; the loader and its bootstrap are removed (#406) |
+| 2026-10-22 | Decision 3: a Claude subagent that worked after the ready reply makes the cycle ask again (#456) |

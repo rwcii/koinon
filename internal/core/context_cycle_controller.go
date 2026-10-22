@@ -231,6 +231,16 @@ func (s *Store) stepCycle(ctx context.Context, c cycleRow) error {
 				pane.Seen = "pane_not_ready"
 			}
 			s.paneSeen.set(c.ID, pane.Seen)
+			// Work after the ready report is not in its handoff: ask for a new one now (#456).
+			if pane.Seen == subagentAfterReady && c.State == cycleReady {
+				switch err := s.repeatCycleRequest(ctx, c.ID, c.Revision, pane.Seen); {
+				case errors.Is(err, errCycleEventLimit):
+					_, err = s.endCycle(ctx, c.ID, c.Revision, cycleFailed, "event_limit")
+					return err
+				case err != nil && !errors.Is(err, ErrCycleChanged) && !errors.Is(err, ErrCapacity):
+					return err
+				}
+			}
 			return nil
 		}
 		s.paneSeen.set(c.ID, "")
@@ -399,6 +409,17 @@ func (s *Store) cycleTarget(ctx context.Context, c cycleRow) CycleTarget {
 	t.Pickup = pickupSkillEntry()
 	var held int
 	t.Holds = s.db.QueryRowContext(ctx, `SELECT 1 FROM names WHERE kind='alias' AND family=? AND holder_id=? LIMIT 1`, c.Family, c.SessionID).Scan(&held) == nil
+	if c.State == cycleReady {
+		// The ready report's own event has no reason; a resolved dialog's is prompt_resolved
+		// (#456). An unreadable event compares with the cycle's start, which never misses work.
+		var at sql.NullInt64
+		err := s.db.QueryRowContext(ctx, `SELECT MAX(at) FROM context_cycle_events WHERE cycle_id=? AND stage=? AND reason=''`,
+			c.ID, cycleReady).Scan(&at)
+		t.ReadyAt = c.CreatedAt
+		if err == nil && at.Valid {
+			t.ReadyAt = at.Int64
+		}
+	}
 	return t
 }
 
