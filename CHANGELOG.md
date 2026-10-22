@@ -20,12 +20,15 @@ into a dated release section when promoted to `main`.
   participant address does not take it for a routine notice. A cycle whose ready report did
   not come in time fails with `waiting_ready_timeout.read` or `waiting_ready_timeout.unread`,
   which says whether the session read the request (#445).
-- `koinon setup claude` and `koinon install --agent claude` report, in `permissions`, the
-  recommended Claude permission rules that `settings.json` lacks. `koinon setup claude
-  --check-permissions` only reports; `koinon setup claude --add-permissions` adds the missing
-  rules and keeps every other setting. The recommended rules now also allow `koinon context
-  show` and `koinon status`. docs/PERMISSIONS.md describes how Claude Code's auto mode can
-  refuse Koinon calls without these rules (#446).
+- `koinon install` on a terminal lists the agent families on the computer, asks to set up
+  each installed family that is not set up, and offers to add each family's recommended
+  permission rules after it shows them: Claude Code and Antigravity allow rules, the Codex
+  server approval and the OpenCode permission rules. A yes keeps every other setting.
+  `koinon setup FAMILY` on a terminal asks the same question. Without a terminal, install and
+  setup ask nothing, add no rule and report each family's rules in `permissions` (#446, #449).
+- The recommended Claude rules now also allow `koinon context show` and `koinon status`.
+  docs/PERMISSIONS.md describes how Claude Code's auto mode can refuse Koinon calls without
+  these rules (#446).
 
 ## 2026-10-21 — Pause before the handoff clear, a Sessions status filter and longer dashboard logins
 

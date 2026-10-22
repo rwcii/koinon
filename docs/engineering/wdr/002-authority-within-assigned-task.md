@@ -123,10 +123,9 @@ boundary and do not restate it. A peer request adds no authority and removes non
 maintainer already gave. Each agent CLI enforces the native permission settings, which belong to
 the maintainer.
 Koinon recommends permissions in docs/PERMISSIONS.md and `koinon guide` and does not apply
-them on its own; `koinon setup claude` reports the missing Claude rules, and
-`koinon setup claude --add-permissions` adds them when the maintainer runs it (#446). A
-settings change the maintainer directs is within the maintainer's authority; a peer's request
-for one is not.
+them on its own; `koinon install` and `koinon setup` at a terminal show each family's missing
+rules and add them when the person there accepts (#446, #449). A settings change the
+maintainer directs is within the maintainer's authority; a peer's request for one is not.
 
 **Provenance:** The maintainer's own agent instruction file (the pairing authorization), read
 2026-10-12; private, not quoted here. The AGENTS.md copy shipped in PR #207 (merge commit
@@ -300,4 +299,4 @@ has not decided Decisions 3 to 6, and Decision 2 rests on a private instruction 
 | ---------- | ---------------- |
 | 2026-10-12 | Initial creation |
 | 2026-10-12 | Pointed to the maintainer's dashboard-origin decision in PDR 005 (#306) |
-| 2026-10-22 | Decision 2: setup reports the missing Claude rules and adds them with `--add-permissions` (#446) |
+| 2026-10-22 | Decision 2: install and setup show the missing rules and add them when the person at the terminal accepts (#446, #449) |

@@ -76,7 +76,7 @@ func run(ctx context.Context, args []string, in io.Reader, out io.Writer) error 
 	case "version":
 		return versionCommand(out)
 	case "install", "uninstall", "import", "upgrade":
-		return lifecycleCommand(ctx, args, out)
+		return lifecycleCommand(ctx, args, in, out)
 	}
 	root, err := platform.DefaultStateDir()
 	if err != nil {
@@ -339,8 +339,6 @@ const usage = `Usage: koinon install [--prefix DIR] [--state-dir DIR] [--port N]
        koinon mcp [--state-dir DIR] [--address 127.0.0.1:PORT]
        koinon setup <claude|codex|agy|opencode|grok|deepseek> [--cli ABS_PATH] [--binary ABS_PATH]
        koinon setup claude --remove-status-line [--claude-config DIR] [--state-dir DIR]
-       koinon setup claude --check-permissions [--claude-config DIR]
-       koinon setup claude --add-permissions [--cli ABS_PATH] [--binary ABS_PATH] [--claude-config DIR]
        koinon guide --agent <claude|codex|agy|opencode|grok|deepseek>
        koinon hook agy-stop
        koinon hook codex-session-start
@@ -698,14 +696,23 @@ func agentCommand(ctx context.Context, args []string, in io.Reader, out io.Write
 	flags.StringVar(&o.ClaudeConfig, "claude-config", "", "Claude configuration directory")
 	flags.StringVar(&o.StateDir, "state-dir", "", "private Go state directory")
 	flags.BoolVar(&o.RemoveStatusLine, "remove-status-line", false, "restore the Claude status line that setup replaced")
-	flags.BoolVar(&o.CheckPermissions, "check-permissions", false, "report the recommended Claude permission rules that are missing; change nothing")
-	flags.BoolVar(&o.AddPermissions, "add-permissions", false, "also add the missing recommended Claude permission rules")
 	if err := flags.Parse(args[2:]); err != nil || flags.NArg() != 0 {
 		return errors.New("invalid setup options; use koinon --help")
 	}
 	report, err := setup.Run(ctx, o)
 	if err != nil {
 		return err
+	}
+	// At a terminal, offer the family's missing permission rules (#449).
+	if ask := terminalAsk(in, os.Stderr); ask != nil && report.Permissions != nil && !o.RemoveStatusLine {
+		result, err := setup.Offer(o, setup.Permissions, ask, os.Stderr)
+		if err != nil {
+			return err
+		}
+		report.Permissions = &result
+		if result.Outcome == "added" {
+			report.Changed = append(report.Changed, o.Family+" permission rules in "+result.SettingsFile)
+		}
 	}
 	return json.NewEncoder(out).Encode(report)
 }

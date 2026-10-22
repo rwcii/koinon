@@ -52,8 +52,14 @@ type Options struct {
 	// Adopt records the launcher CLI of a family that an earlier setup configured.
 	Adopt  func(context.Context, setup.Options) (setup.Report, bool, error)
 	Remove func(context.Context, setup.Options) (setup.Report, error)
-	Status func(ctx context.Context, address, secret string) (json.RawMessage, error)
-	Wait   time.Duration
+	// Ask puts a yes-or-no question to the person at the terminal; nil means no terminal,
+	// and install asks nothing (#449). Tell receives the review that the questions follow.
+	Ask         func(question string) (bool, error)
+	Tell        io.Writer
+	Inspect     func(context.Context, setup.Options) setup.Inspection
+	Permissions func(setup.Options, bool) (setup.PermissionsResult, error)
+	Status      func(ctx context.Context, address, secret string) (json.RawMessage, error)
+	Wait        time.Duration
 	// SystemWait bounds the wait for the system daemon; zero is 90 seconds.
 	SystemWait time.Duration
 }
@@ -76,6 +82,10 @@ type Report struct {
 	OtherBinary  string         `json:"other_binary,omitempty"`
 	SourceStep   string         `json:"source_step,omitempty"`
 	Agents       []setup.Report `json:"agents"`
+	// Review is each family's state before an install at a terminal; Permissions reports the
+	// permission rules of each set-up family after its question (#449).
+	Review      []setup.Inspection        `json:"review,omitempty"`
+	Permissions []setup.PermissionsResult `json:"permissions,omitempty"`
 	// PickupSkills reports the managed cycle's koinon-pickup skill for each family (#406).
 	PickupSkills []PickupSkill `json:"pickup_skills"`
 }
@@ -144,6 +154,15 @@ func (o *Options) defaults() error {
 	}
 	if o.Remove == nil {
 		o.Remove = setup.Remove
+	}
+	if o.Inspect == nil {
+		o.Inspect = setup.Inspect
+	}
+	if o.Permissions == nil {
+		o.Permissions = setup.Permissions
+	}
+	if o.Tell == nil {
+		o.Tell = io.Discard
 	}
 	if o.Status == nil {
 		o.Status = core.GetStatus
@@ -540,8 +559,12 @@ func Install(ctx context.Context, o Options) (Report, error) {
 	} else if err := startAgent(ctx, o, &r); err != nil {
 		return r, err
 	}
-	for _, agent := range o.Agents {
-		report, err := o.Setup(ctx, setup.Options{Family: agent, Binary: r.Binary, StateDir: o.StateDir})
+	agents, err := reviewFamilies(ctx, o, &r)
+	if err != nil {
+		return r, err
+	}
+	for _, agent := range agents {
+		report, err := o.Setup(ctx, setup.Options{Family: agent, Binary: r.Binary, StateDir: o.StateDir, ClaudeConfig: o.ClaudeConfig})
 		r.Agents = append(r.Agents, report)
 		if err != nil {
 			return r, fmt.Errorf("setup %s: %w", agent, err)
@@ -549,8 +572,8 @@ func Install(ctx context.Context, o Options) (Report, error) {
 	}
 	// A family that an earlier setup configured keeps starting through its launcher,
 	// though this install did not name it (#273). Its configuration is only read.
-	for _, family := range []string{"claude", "codex", "agy", "opencode", "grok"} {
-		if slices.Contains(o.Agents, family) {
+	for _, family := range setupFamilies {
+		if slices.Contains(agents, family) {
 			continue
 		}
 		report, adopted, err := o.Adopt(ctx, setup.Options{Family: family, Binary: r.Binary, StateDir: o.StateDir})
@@ -560,6 +583,9 @@ func Install(ctx context.Context, o Options) (Report, error) {
 		if adopted {
 			r.Agents = append(r.Agents, report)
 		}
+	}
+	if err := offerPermissions(o, agents, &r); err != nil {
+		return r, err
 	}
 	if err := installPickupSkills(o, &r); err != nil {
 		return r, err
@@ -762,4 +788,67 @@ func unlink(binary, dir, marker string) (string, string, error) {
 		return path, "kept", nil
 	}
 	return path, "absent", nil
+}
+
+// setupFamilies are the families that setup configures through a native CLI, in the order
+// of the review.
+var setupFamilies = []string{"claude", "codex", "agy", "opencode", "grok"}
+
+// reviewFamilies returns the families to set up: the --agent families and, at a terminal,
+// each installed family that is not configured and that the person accepts (#449).
+func reviewFamilies(ctx context.Context, o Options, r *Report) ([]string, error) {
+	agents := slices.Clone(o.Agents)
+	if o.Ask == nil {
+		return agents, nil
+	}
+	fmt.Fprintln(o.Tell, "Agent families on this computer:")
+	for _, family := range setupFamilies {
+		in := o.Inspect(ctx, setup.Options{Family: family, Binary: r.Binary, StateDir: o.StateDir, ClaudeConfig: o.ClaudeConfig})
+		r.Review = append(r.Review, in)
+		state := "not installed"
+		switch {
+		case in.CLI != "" && in.Configured:
+			state = "set up (" + in.CLI + ")"
+		case in.CLI != "":
+			state = "not set up (" + in.CLI + ")"
+		}
+		fmt.Fprintf(o.Tell, "  %-9s %s\n", family, state)
+	}
+	for _, in := range r.Review {
+		if in.CLI == "" || in.Configured || slices.Contains(agents, in.Family) {
+			continue
+		}
+		yes, err := o.Ask("Set up Koinon for " + in.Family + "?")
+		if err != nil {
+			return agents, err
+		}
+		if yes {
+			agents = append(agents, in.Family)
+		}
+	}
+	return agents, nil
+}
+
+// offerPermissions shows, at a terminal, the missing permission rules of each family that is
+// set up and adds them when the person accepts. Without a terminal it changes no rule.
+func offerPermissions(o Options, agents []string, r *Report) error {
+	if o.Ask == nil {
+		return nil
+	}
+	for _, family := range setupFamilies {
+		configured := slices.Contains(agents, family)
+		for _, in := range r.Review {
+			configured = configured || (in.Family == family && in.Configured)
+		}
+		if !configured {
+			continue
+		}
+		so := setup.Options{Family: family, Binary: r.Binary, StateDir: o.StateDir, ClaudeConfig: o.ClaudeConfig}
+		result, err := setup.Offer(so, o.Permissions, o.Ask, o.Tell)
+		if err != nil {
+			return err
+		}
+		r.Permissions = append(r.Permissions, result)
+	}
+	return nil
 }

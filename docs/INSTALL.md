@@ -465,11 +465,11 @@ under their own instructions and host policy (WDR 002, Decision 1; PDR 003, Deci
 ## Configuration and agent access
 
 Review [recommended native permissions](PERMISSIONS.md) for each family, including scoped
-examples, configuration locations, verified syntax checks and their limits. Setup does not
-apply these permission rules. For Claude, `koinon setup claude` and `koinon install --agent
-claude` report the missing rules in `permissions`, and `koinon setup claude --add-permissions`
-adds them when the maintainer runs it. Native hook trust and optional terminal operations remain
-separate. Read the installed family guide for the running version.
+examples, configuration locations, verified syntax checks and their limits. On a terminal,
+`koinon install` lists the agent families on the computer, asks to set up each installed family
+that is not set up, and offers to add each family's recommended permission rules after it shows
+them. Without a terminal it asks nothing, sets up the `--agent` families and adds no rule.
+Native hook trust and optional terminal operations remain separate. Read the installed family guide for the running version.
 
 `koinon setup FAMILY` installs the MCP entry through the selected agent's CLI. Families are
 `claude`, `codex`, `agy`, `opencode`, `grok` and `deepseek`; DeepSeek uses the explicit command path

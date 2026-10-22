@@ -35,10 +35,9 @@ type Options struct {
 	StateDir         string
 	ClaudeConfig     string
 	RemoveStatusLine bool
-	// Claude permission rules: CheckPermissions only reports the recommended rules that
-	// settings.json lacks; AddPermissions also merges them (docs/PERMISSIONS.md).
-	CheckPermissions bool
-	AddPermissions   bool
+	// AgySettings is the Antigravity CLI settings file that holds its permission rules;
+	// default ~/.gemini/antigravity-cli/settings.json.
+	AgySettings string
 }
 
 // Report lists what setup changed and what it found already in place.
@@ -51,7 +50,7 @@ type Report struct {
 	Note      string   `json:"note,omitempty"`
 	// StatusLine reports the Claude status-line set-up or removal.
 	StatusLine *StatusLineResult `json:"status_line,omitempty"`
-	// Permissions reports the recommended Claude permission rules.
+	// Permissions reports the family's recommended permission rules; setup changes none.
 	Permissions *PermissionsResult `json:"permissions,omitempty"`
 }
 
@@ -88,17 +87,6 @@ func Run(ctx context.Context, o Options) (Report, error) {
 		if o.ClaudeConfig == "" {
 			o.ClaudeConfig = claudeConfigDir(os.Getenv)
 		}
-	}
-	if (o.CheckPermissions || o.AddPermissions) && o.Family != "claude" {
-		return report, errors.New("--check-permissions and --add-permissions apply to claude only")
-	}
-	if o.CheckPermissions {
-		if o.AddPermissions || o.RemoveStatusLine {
-			return report, errors.New("--check-permissions changes nothing; use it alone")
-		}
-		result, err := ClaudePermissionRules(o.ClaudeConfig, false)
-		report.Permissions = &result
-		return report, err
 	}
 	if o.RemoveStatusLine {
 		if o.Family != "claude" {
@@ -164,18 +152,6 @@ func Run(ctx context.Context, o Options) (Report, error) {
 		if err == nil && result.Outcome == "changed" {
 			report.Note = "The Claude statusLine entry runs an edited Koinon hook; it was left unchanged."
 		}
-		if err == nil {
-			var rules PermissionsResult
-			rules, err = ClaudePermissionRules(o.ClaudeConfig, o.AddPermissions)
-			report.Permissions = &rules
-			entry := "Claude permission rules in " + rules.SettingsFile
-			switch rules.Outcome {
-			case "added":
-				report.Changed = append(report.Changed, entry)
-			case "present":
-				report.Unchanged = append(report.Unchanged, entry)
-			}
-		}
 	case "codex":
 		err = codexHook(o, &report)
 	case "agy":
@@ -184,6 +160,11 @@ func Run(ctx context.Context, o Options) (Report, error) {
 		err = openCodePlugin(o, &report)
 	case "grok":
 		report.Note = grokNote(ctx, cli)
+	}
+	if err == nil {
+		// Reported only: the person adds the rules at install's or setup's question.
+		rules, _ := Permissions(o, false)
+		report.Permissions = &rules
 	}
 	if err == nil {
 		var changed bool
