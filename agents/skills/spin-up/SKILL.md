@@ -55,6 +55,16 @@ it does not include other files, expand shell syntax or execute values.
       "heading": "Manifest",
       "required": false,
       "default": "_handoff/<agent>/team.json in main checkout, private and ignored"
+    },
+    {
+      "heading": "Start directory",
+      "required": false,
+      "default": "main checkout"
+    },
+    {
+      "heading": "Roles",
+      "required": false,
+      "default": "none: one member per family, address FAMILY-LABEL"
     }
   ]
 }
