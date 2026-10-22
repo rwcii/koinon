@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"net"
 	"net/http"
 	"net/url"
 	"os"
@@ -38,11 +39,12 @@ func dashboardDo(t *testing.T, d *Daemon, method, path, cookie string, change fu
 	if form != nil {
 		r.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 	}
-	if cookie != "" {
-		r.AddCookie(&http.Cookie{Name: dashboardCookie, Value: cookie})
-	}
 	if change != nil {
 		change(r)
+	}
+	// After change: the cookie is named after the port in the Host that change may set.
+	if cookie != "" {
+		r.AddCookie(&http.Cookie{Name: cookieName(r), Value: cookie})
 	}
 	client := http.Client{Transport: &http.Transport{Proxy: nil}, Timeout: 5 * time.Second,
 		CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}
@@ -81,7 +83,8 @@ func dashboardLogin(t *testing.T, d *Daemon, secret string) string {
 		t.Fatalf("login: %d %v", response.status, response.header)
 	}
 	cookies := (&http.Response{Header: response.header}).Cookies()
-	if len(cookies) != 1 || cookies[0].Name != dashboardCookie {
+	_, port, _ := net.SplitHostPort(d.Addresses()[0])
+	if len(cookies) != 1 || cookies[0].Name != dashboardCookie+"_"+port {
 		t.Fatalf("cookies: %v", cookies)
 	}
 	return cookies[0].Value
@@ -233,6 +236,57 @@ func TestDashboardLoginAndRequestProtection(t *testing.T) {
 	}
 }
 
+// Browsers send every cookie of an IP to each of its ports, so the login cookie is named after
+// the Host port: a board opened directly and one through a tunnel keep their own logins (#454).
+func TestDashboardLoginPerPort(t *testing.T) {
+	d, root := startTestDaemon(t)
+	secret, err := ReadSecret(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	direct := d.Addresses()[0]
+	_, port, _ := net.SplitHostPort(direct)
+	listened, err := strconv.Atoi(port)
+	if err != nil {
+		t.Fatal(err)
+	}
+	tunnel := "127.0.0.1:" + strconv.Itoa(listened%65535+1)
+	via := func(host string) func(*http.Request) {
+		return func(r *http.Request) { r.Host = host; r.Header.Set("Origin", "http://"+host) }
+	}
+	login := func(host string) *http.Cookie {
+		t.Helper()
+		r := dashboardDo(t, d, "GET", dashboardLink(t, d, secret), "", func(r *http.Request) { r.Host = host }, nil)
+		cookies := (&http.Response{Header: r.header}).Cookies()
+		_, hostPort, _ := net.SplitHostPort(host)
+		if r.status != http.StatusSeeOther || len(cookies) != 1 || cookies[0].Name != "koinon_dashboard_"+hostPort {
+			t.Fatalf("login at %s: %d %v", host, r.status, cookies)
+		}
+		return cookies[0]
+	}
+	first, second := login(direct), login(tunnel)
+	for host, cookie := range map[string]*http.Cookie{direct: first, tunnel: second} {
+		if r := dashboardDo(t, d, "GET", "/dashboard/sessions", cookie.Value, via(host), nil); r.status != 200 {
+			t.Fatalf("%s after both logins: %d", host, r.status)
+		}
+	}
+	// The other port's cookie, which the browser also sends, does not sign in.
+	if r := dashboardDo(t, d, "GET", "/dashboard/sessions", "", func(r *http.Request) { r.AddCookie(second) }, nil); r.status != 401 {
+		t.Fatalf("tunnel cookie at %s: %d", direct, r.status)
+	}
+	// Logout clears only its own port's cookie and login.
+	page := dashboardDo(t, d, "GET", "/dashboard/sessions", second.Value, via(tunnel), nil)
+	token := csrfField.FindStringSubmatch(page.body)[1]
+	out := dashboardDo(t, d, "POST", "/dashboard/logout", second.Value, via(tunnel), url.Values{"csrf": {token}})
+	cleared := (&http.Response{Header: out.header}).Cookies()
+	if out.status != 200 || len(cleared) != 1 || cleared[0].Name != second.Name || cleared[0].MaxAge != -1 {
+		t.Fatalf("logout: %d %v", out.status, cleared)
+	}
+	if r := dashboardDo(t, d, "GET", "/dashboard/sessions", first.Value, via(direct), nil); r.status != 200 {
+		t.Fatalf("%s after the tunnel logout: %d", direct, r.status)
+	}
+}
+
 // An SSH tunnel on another local port reaches the daemon under a Host with that port (#407):
 // a literal loopback IP with any port is accepted, a name or another IP is not, and the
 // Origin, login and CSRF checks still apply.
@@ -307,7 +361,7 @@ func TestDashboardLinkAndSessionLifetimes(t *testing.T) {
 	}
 	withCookie := func(id string) *http.Request {
 		r, _ := http.NewRequest("GET", "http://127.0.0.1:1/dashboard/sessions", nil)
-		r.AddCookie(&http.Cookie{Name: dashboardCookie, Value: id})
+		r.AddCookie(&http.Cookie{Name: cookieName(r), Value: id})
 		return r
 	}
 	login := func() string {

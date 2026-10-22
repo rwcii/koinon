@@ -202,13 +202,13 @@ func (d *Daemon) dashboardHandler() (http.Handler, error) {
 			return
 		}
 		// The cookie lasts as long as the login can, so a browser restart keeps it (#435).
-		http.SetCookie(w, &http.Cookie{Name: dashboardCookie, Value: id, Path: "/dashboard/", MaxAge: int(sessionAbsolute.Seconds()),
+		http.SetCookie(w, &http.Cookie{Name: cookieName(r), Value: id, Path: "/dashboard/", MaxAge: int(sessionAbsolute.Seconds()),
 			HttpOnly: true, SameSite: http.SameSiteStrictMode})
 		http.Redirect(w, r, "/dashboard/sessions", http.StatusSeeOther)
 	})
 	mux.HandleFunc("POST /dashboard/logout", authed(func(w http.ResponseWriter, r *http.Request, id string) {
 		d.auth.logout(id)
-		http.SetCookie(w, &http.Cookie{Name: dashboardCookie, Value: "", Path: "/dashboard/", MaxAge: -1, HttpOnly: true, SameSite: http.SameSiteStrictMode})
+		http.SetCookie(w, &http.Cookie{Name: cookieName(r), Value: "", Path: "/dashboard/", MaxAge: -1, HttpOnly: true, SameSite: http.SameSiteStrictMode})
 		refuse(w, r, http.StatusOK, "logout")
 	}))
 	d.dashboardActions(mux, authedLimit)
