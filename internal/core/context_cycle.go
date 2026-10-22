@@ -306,8 +306,9 @@ type CycleTarget struct {
 	Holds bool
 	// Pickup is the koinon-pickup skill that the installed file must equal (#406).
 	Pickup PickupEntry
-	// ReadyAt is when the session reported ready, in Unix milliseconds, while the cycle is
-	// ready, else 0. Work after it, such as a background subagent's, is not in the handoff.
+	// ReadyAt is when the session made its current ready report, in Unix milliseconds, while
+	// the cycle is ready, else 0. Work after it, such as a background subagent's, is not in
+	// the handoff. A resolved dialog returns the cycle to ready without changing it.
 	ReadyAt int64
 	tools   hostTools
 }
@@ -319,12 +320,8 @@ type PickupEntry struct {
 }
 
 func (c cycleRow) target() CycleTarget {
-	t := CycleTarget{CycleID: c.ID, Family: c.Family, SessionID: c.SessionID, HostPID: c.HostPID, HostStart: c.HostStart,
+	return CycleTarget{CycleID: c.ID, Family: c.Family, SessionID: c.SessionID, HostPID: c.HostPID, HostStart: c.HostStart,
 		Socket: c.Socket, Pane: c.Pane, Epoch: c.Epoch, SuccessorEpoch: c.SuccessorEpoch}
-	if c.State == cycleReady {
-		t.ReadyAt = c.UpdatedAt
-	}
-	return t
 }
 
 // PaneState is a cycle adapter's fresh inspection of the pinned pane.

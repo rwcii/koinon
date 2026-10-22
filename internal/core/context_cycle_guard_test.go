@@ -758,6 +758,49 @@ func TestContextCycleAsksAgainAfterSubagentWork(t *testing.T) {
 	}
 }
 
+// claudeInspectAdapter is the synthetic input adapter with the real Claude inspection.
+type claudeInspectAdapter struct {
+	*fakeAdapter
+	tools hostTools
+}
+
+func (a *claudeInspectAdapter) Inspect(ctx context.Context, target CycleTarget, fence CycleFence) (PaneState, error) {
+	target.tools = a.tools
+	return (claudeCycle{}).Inspect(ctx, target, fence)
+}
+
+// A native dialog after the ready report returns the cycle to ready without a new report:
+// subagent work during the dialog is still after the handoff (PR 457 review).
+func TestContextCycleReadyTimeSurvivesDialog(t *testing.T) {
+	f := newCycleFixture(t)
+	f.readyCycle(t)
+	reported := f.clock
+	term := newClaudeTerminal(t)
+	term.epoch = "316b9458-6b5a-47c3-b863-af1745fb54a4"
+	term.write()
+	previous := cycleAdapters["claude"]
+	cycleAdapters["claude"] = &claudeInspectAdapter{fakeAdapter: f.adapter, tools: term.target(t).tools}
+	t.Cleanup(func() { cycleAdapters["claude"] = previous })
+	term.asks = true
+	f.clock = reported.Add(time.Second)
+	f.step(t)
+	if v := f.status(t, f.k); v.State != cycleWaitingPrompt {
+		t.Fatalf("dialog: %+v", v)
+	}
+	subagentTranscript(t, filepath.Join(term.home, ".claude"), term.epoch, "agent-synthetic.jsonl", reported.Add(2*time.Second))
+	term.asks = false
+	f.clock = reported.Add(3 * time.Second)
+	f.step(t)
+	if v := f.status(t, f.k); v.State != cycleReady || v.Reason != "prompt_resolved" {
+		t.Fatalf("dialog resolved: %+v", v)
+	}
+	f.clock = reported.Add(4 * time.Second)
+	f.step(t)
+	if v := f.status(t, f.k); v.State != cycleWaitingReady || v.Reason != "not_idle."+subagentAfterReady || f.adapter.count("clear") != 0 {
+		t.Fatalf("after the dialog: %+v clears %d", v, f.adapter.count("clear"))
+	}
+}
+
 // A requester that reported ready but kept working is asked again under a new revision; its
 // second report, at an idle prompt, gets the clear (#431).
 func TestContextCycleAsksAgainWhenThePaneStaysBusy(t *testing.T) {

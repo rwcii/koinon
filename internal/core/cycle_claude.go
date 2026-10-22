@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"errors"
 	"io"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -266,7 +267,14 @@ func (claudeCycle) Inspect(ctx context.Context, t CycleTarget, fence CycleFence)
 	}
 	pane := claudePaneState(record.Status, screen)
 	if pane.Idle && t.ReadyAt > 0 {
-		if root, err := claudeConfigRoot(t); err == nil && claudeSubagentsSince(root, record.SessionID, t.ReadyAt) {
+		root, err := claudeConfigRoot(t)
+		if err != nil {
+			return PaneState{}, err
+		}
+		switch since, err := claudeSubagentsSince(root, record.SessionID, t.ReadyAt); {
+		case err != nil:
+			return PaneState{Seen: subagentsUnread}, nil
+		case since:
 			return PaneState{Seen: subagentAfterReady}, nil
 		}
 	}
@@ -277,43 +285,76 @@ func (claudeCycle) Inspect(ctx context.Context, t CycleTarget, fence CycleFence)
 // transcript after the ready report: its results came after the handoff (#456).
 const subagentAfterReady = "subagent_after_ready"
 
+// subagentsUnread is the Seen code of a session whose subagent transcripts could not all be
+// read: the handoff may lack their work, so the pane is not ready for the clear.
+const subagentsUnread = "subagents_unread"
+
 // claudeTranscriptID is the form of a Claude Code session ID, a UUID.
 var claudeTranscriptID = regexp.MustCompile(`^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$`)
 
-// maxSubagentFiles bounds the subagent transcripts that one inspection reads.
-const maxSubagentFiles = 1024
+// maxSubagentEntries bounds the entries that one inspection reads from one directory.
+var maxSubagentEntries = 16384
+
+var errSubagentScan = errors.New("subagent transcripts not fully read")
 
 // claudeSubagentsSince reports whether a subagent transcript of the session changed after
 // at (Unix milliseconds). Claude Code keeps them at projects/PROJECT/SESSION/subagents/ in
-// its configuration root. Only file times are read, never content; an unreadable or absent
-// directory proves no subagent work.
-func claudeSubagentsSince(root, session string, at int64) bool {
+// its configuration root, which is read as a literal path. Only file times are read, never
+// content. An absent directory proves no subagent work; an unreadable one, or one with more
+// than maxSubagentEntries entries, is an error, never a clean result.
+func claudeSubagentsSince(root, session string, at int64) (bool, error) {
 	if !claudeTranscriptID.MatchString(session) {
-		return false
+		return false, nil
 	}
-	dirs, err := filepath.Glob(filepath.Join(root, "projects", "*", session, "subagents"))
-	if err != nil {
-		return false
+	projects, err := boundedEntries(filepath.Join(root, "projects"))
+	if err != nil || projects == nil {
+		return false, err
 	}
-	seen := 0
-	for _, dir := range dirs {
-		entries, err := os.ReadDir(dir)
-		if err != nil {
+	for _, project := range projects {
+		if !project.IsDir() {
 			continue
 		}
+		dir := filepath.Join(root, "projects", project.Name(), session, "subagents")
+		entries, err := boundedEntries(dir)
+		if err != nil {
+			return false, err
+		}
 		for _, e := range entries {
-			if seen++; seen > maxSubagentFiles {
-				return false
-			}
 			if !e.Type().IsRegular() || !strings.HasSuffix(e.Name(), ".jsonl") {
 				continue
 			}
-			if info, err := e.Info(); err == nil && info.ModTime().UnixMilli() > at {
-				return true
+			info, err := e.Info()
+			if errors.Is(err, fs.ErrNotExist) {
+				continue
+			} else if err != nil {
+				return false, err
+			}
+			if info.ModTime().UnixMilli() > at {
+				return true, nil
 			}
 		}
 	}
-	return false
+	return false, nil
+}
+
+// boundedEntries reads at most maxSubagentEntries entries of dir: nil for an absent
+// directory, errSubagentScan for a longer one.
+func boundedEntries(dir string) ([]fs.DirEntry, error) {
+	f, err := os.Open(dir)
+	if errors.Is(err, fs.ErrNotExist) {
+		return nil, nil
+	} else if err != nil {
+		return nil, err
+	}
+	defer f.Close()
+	entries, err := f.ReadDir(maxSubagentEntries + 1)
+	if err != nil && !errors.Is(err, io.EOF) {
+		return nil, err
+	}
+	if len(entries) > maxSubagentEntries {
+		return nil, errSubagentScan
+	}
+	return entries, nil
 }
 
 // claudePaneState reads the host's registry status with its screen. The host is at its prompt

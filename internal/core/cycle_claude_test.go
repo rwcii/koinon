@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -597,7 +598,77 @@ func TestClaudeInspectSubagentAfterReady(t *testing.T) {
 	if state, _ := (claudeCycle{}).Inspect(ctx, tg, term.fence); state.Seen != "status_busy" {
 		t.Fatalf("busy: %+v", state)
 	}
-	if claudeSubagentsSince(filepath.Join(term.home, ".claude"), "*", ready.UnixMilli()) {
-		t.Fatal("a pattern session ID matched")
+	if since, err := claudeSubagentsSince(filepath.Join(term.home, ".claude"), "*", ready.UnixMilli()); since || err != nil {
+		t.Fatal("a pattern session ID matched", err)
+	}
+}
+
+// subagentTranscript writes a subagent transcript of session under root with time at.
+func subagentTranscript(t *testing.T, root, session, name string, at time.Time) {
+	t.Helper()
+	dir := filepath.Join(root, "projects", "-synthetic-repo", session, "subagents")
+	if err := os.MkdirAll(dir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	path := filepath.Join(dir, name)
+	if err := os.WriteFile(path, []byte("{}\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chtimes(path, at, at); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// A CLAUDE_CONFIG_DIR with glob characters is a literal path (PR 457 review).
+func TestClaudeSubagentsConfigRootIsLiteral(t *testing.T) {
+	term := newClaudeTerminal(t)
+	term.config = filepath.Join(term.home, "claude[profile]")
+	term.epoch = "316b9458-6b5a-47c3-b863-af1745fb54a4"
+	term.write()
+	if err := os.Rename(filepath.Join(term.home, ".claude"), term.config); err != nil {
+		t.Fatal(err)
+	}
+	tg := term.target(t)
+	ready := time.Now().Add(-time.Minute)
+	tg.ReadyAt = ready.UnixMilli()
+	subagentTranscript(t, term.config, term.epoch, "agent-synthetic.jsonl", ready.Add(time.Second))
+	if state, err := (claudeCycle{}).Inspect(context.Background(), tg, term.fence); err != nil || state.Seen != subagentAfterReady {
+		t.Fatalf("literal root: %+v %v", state, err)
+	}
+}
+
+// Old transcripts before a newer one are all read, and a directory past the bound is not a
+// clean result: the pane is not ready for the clear (PR 457 review).
+func TestClaudeSubagentsScanIsCompleteOrRefused(t *testing.T) {
+	previous := maxSubagentEntries
+	maxSubagentEntries = 8
+	t.Cleanup(func() { maxSubagentEntries = previous })
+	root := t.TempDir()
+	session := "316b9458-6b5a-47c3-b863-af1745fb54a4"
+	ready := time.Now().Add(-time.Minute)
+	for i := 0; i < maxSubagentEntries-1; i++ {
+		subagentTranscript(t, root, session, fmt.Sprintf("agent-a%04d.jsonl", i), ready.Add(-time.Second))
+	}
+	if since, err := claudeSubagentsSince(root, session, ready.UnixMilli()); since || err != nil {
+		t.Fatalf("old transcripts: %v %v", since, err)
+	}
+	subagentTranscript(t, root, session, "agent-znew.jsonl", ready.Add(time.Second))
+	if since, err := claudeSubagentsSince(root, session, ready.UnixMilli()); !since || err != nil {
+		t.Fatalf("newer transcript at the bound: %v %v", since, err)
+	}
+	subagentTranscript(t, root, session, "agent-zover.jsonl", ready.Add(-time.Second))
+	if since, err := claudeSubagentsSince(root, session, ready.UnixMilli()); since || !errors.Is(err, errSubagentScan) {
+		t.Fatalf("past the bound: %v %v", since, err)
+	}
+	term := newClaudeTerminal(t)
+	term.config, term.epoch = root, session
+	term.write()
+	if err := os.Rename(filepath.Join(term.home, ".claude", "sessions"), filepath.Join(root, "sessions")); err != nil {
+		t.Fatal(err)
+	}
+	tg := term.target(t)
+	tg.ReadyAt = ready.UnixMilli()
+	if state, err := (claudeCycle{}).Inspect(context.Background(), tg, term.fence); err != nil || state.Seen != subagentsUnread {
+		t.Fatalf("inspect past the bound: %+v %v", state, err)
 	}
 }

@@ -187,7 +187,9 @@ dialog do. When the session does not become idle after its ready reply,
 `overwatch` asks it again to pause and hand off, under a new revision, within the cycle's
 lifetime and event bounds (#431). A Claude session whose background subagent wrote its
 transcript after the ready reply is asked again at once, without a clear: that work is not in
-the handoff (#456). Koinon reads only the file times of the session's subagent transcripts.
+the handoff (#456). Koinon reads only the file times of the session's subagent transcripts,
+compared with the ready report itself; a dialog resolved after it does not move that time. A
+transcript directory that cannot be read in full keeps the session from the clear.
 The cycle stops with a shown reason when no ready reply
 arrives in time, the pane cannot be proven, or the bounds end it while the session stays busy;
 the reason names what Koinon last saw in the pane. Entering commands in the
