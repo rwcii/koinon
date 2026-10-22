@@ -109,7 +109,7 @@ func TestClaudePermissionRules(t *testing.T) {
 	t.Run("merge keeps other settings", func(t *testing.T) {
 		dir := t.TempDir()
 		path := filepath.Join(dir, "settings.json")
-		before := `{"theme":"dark","permissions":{"deny":["Bash(sudo *)"],"allow":["mcp__other__read","Bash(koinon guide --agent claude)"],"defaultMode":"auto"},"statusLine":{"type":"command","command":"x"}}`
+		before := `{"theme":"dark","permissions":{"deny":["Bash(sudo *)"],"allow":["mcp__other__read","Bash(koinon guide --agent claude)","Read(\u002ftmp)"],"defaultMode":"auto"},"statusLine":{"type":"command","command":"x"}}`
 		if err := os.WriteFile(path, []byte(before), 0640); err != nil {
 			t.Fatal(err)
 		}
@@ -129,9 +129,12 @@ func TestClaudePermissionRules(t *testing.T) {
 		}
 		want := map[string]any{"theme": "dark", "statusLine": map[string]any{"type": "command", "command": "x"},
 			"permissions": map[string]any{"deny": []any{"Bash(sudo *)"}, "defaultMode": "auto",
-				"allow": []any{"mcp__other__read", "Bash(koinon guide --agent claude)", "mcp__koinon__*", "Bash(koinon context show)", "Bash(koinon status)"}}}
+				"allow": []any{"mcp__other__read", "Bash(koinon guide --agent claude)", "Read(/tmp)", "mcp__koinon__*", "Bash(koinon context show)", "Bash(koinon status)"}}}
 		if !reflect.DeepEqual(got, want) {
 			t.Fatalf("settings: %v", got)
+		}
+		if !bytes.Contains(read(t, path), []byte(`"Read(\u002ftmp)"`)) {
+			t.Fatal("add rewrote an existing rule")
 		}
 		if info, err := os.Stat(path); err != nil || info.Mode().Perm() != 0640 {
 			t.Fatal("add changed the file mode")
@@ -155,6 +158,9 @@ func TestClaudePermissionRules(t *testing.T) {
 	t.Run("refusals", func(t *testing.T) {
 		for name, content := range map[string]string{
 			"settings_invalid": `{"permissions":{"allow":"mcp__koinon__*"}}`,
+			"null rule":        `{"permissions":{"allow":["mcp__other__read",null]}}`,
+			"number rule":      `{"permissions":{"allow":["mcp__other__read",7]}}`,
+			"object rule":      `{"permissions":{"allow":[{"rule":"x"}]}}`,
 			"not an object":    `{"permissions":["mcp__koinon__*"]}`,
 			"broken":           `{"permissions":`,
 		} {

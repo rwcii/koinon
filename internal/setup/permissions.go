@@ -1,6 +1,7 @@
 package setup
 
 import (
+	"bytes"
 	"encoding/json"
 	"errors"
 	"os"
@@ -45,12 +46,22 @@ func ClaudePermissionRules(configDir string, add bool) (PermissionsResult, error
 	result := PermissionsResult{SettingsFile: l.settings}
 	raw, fields, err := l.read()
 	var allow []string
+	var items []json.RawMessage // the existing rules, kept as written
 	var permissions []field
 	if err == nil {
 		if value := lookup(fields, "permissions"); value != nil {
 			if permissions, err = objectFields(value); err == nil {
 				if list := lookup(permissions, "allow"); list != nil {
-					err = json.Unmarshal(list, &allow)
+					err = json.Unmarshal(list, &items)
+				}
+				// Every rule must be a string; a null would decode as "" and be rewritten.
+				for _, item := range items {
+					var rule string
+					if err != nil || !bytes.HasPrefix(bytes.TrimSpace(item), []byte(`"`)) || json.Unmarshal(item, &rule) != nil {
+						err = errors.New("not a rule")
+						break
+					}
+					allow = append(allow, rule)
 				}
 			}
 			if err != nil {
@@ -82,7 +93,14 @@ func ClaudePermissionRules(configDir string, add bool) (PermissionsResult, error
 		result.Outcome, result.Next = "missing", addPermissions
 		return result, nil
 	}
-	list, err := json.Marshal(append(allow, result.Missing...))
+	for _, rule := range result.Missing {
+		item, err := json.Marshal(rule)
+		if err != nil {
+			return result, err
+		}
+		items = append(items, item)
+	}
+	list, err := json.Marshal(items)
 	if err != nil {
 		return result, err
 	}
