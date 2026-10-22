@@ -213,11 +213,23 @@ func TestServeWritesPickupSkills(t *testing.T) {
 			t.Fatalf("%s: %q %v", path, data, err)
 		}
 	}
+	// The team skill entries go to the same places (#453).
+	skills, err := core.TeamSkills()
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, skill := range skills {
+		for _, path := range []string{core.ClaudeSkillPath(config, skill.Name), core.CodexSkillPath(home, skill.Name)} {
+			if data, err := os.ReadFile(path); err != nil || !bytes.Equal(data, skill.Content) {
+				t.Fatalf("%s: %q %v", path, data, err)
+			}
+		}
+	}
 	if _, err := os.Lstat(filepath.Join(home, ".claude")); !os.IsNotExist(err) {
 		t.Fatalf("wrote ~/.claude although CLAUDE_CONFIG_DIR is set: %v", err)
 	}
 	for _, event := range log.events() {
-		if event["event"] == "pickup_skill" {
+		if event["event"] == "pickup_skill" || event["event"] == "team_skill" {
 			t.Fatalf("a successful write was logged as %v", event)
 		}
 	}
