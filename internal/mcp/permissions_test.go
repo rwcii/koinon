@@ -85,6 +85,12 @@ func TestPermissionRecommendationsCoverRegisteredTools(t *testing.T) {
 				if !ok {
 					t.Fatal("missing native allow list")
 				}
+				if family == "agy" {
+					want, _ := json.Marshal(setup.AgyPermissions)
+					if got, _ := json.Marshal(allow); !bytes.Equal(got, want) {
+						t.Fatalf("guide rules %s, setup rules %s", got, want)
+					}
+				}
 				if family == "claude" {
 					// The guide, docs/PERMISSIONS.md and the rules that setup reports agree.
 					want, _ := json.Marshal(setup.ClaudePermissions)

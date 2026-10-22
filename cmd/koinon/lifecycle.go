@@ -7,6 +7,7 @@ import (
 	"flag"
 	"fmt"
 	"io"
+	"os"
 	"regexp"
 	"runtime"
 	"runtime/debug"
@@ -85,7 +86,7 @@ func repositories(values []string) (map[string]string, error) {
 }
 
 // lifecycleCommand runs install, uninstall, import and upgrade (sprint chunk 11).
-func lifecycleCommand(ctx context.Context, args []string, out io.Writer) error {
+func lifecycleCommand(ctx context.Context, args []string, in io.Reader, out io.Writer) error {
 	flags := flag.NewFlagSet(args[0], flag.ContinueOnError)
 	flags.SetOutput(io.Discard)
 	prefix := flags.String("prefix", "", "Go installation prefix")
@@ -126,7 +127,12 @@ func lifecycleCommand(ctx context.Context, args []string, out io.Writer) error {
 			return usageError{"invalid_request", "--port takes a port from 1 to 65535"}
 		}
 		// The report shows what was done also when a later step failed.
-		r, err := install.Install(ctx, install.Options{Prefix: *prefix, StateDir: *state, Port: *port, Agents: agents, NoStart: *noStart, System: *system})
+		o := install.Options{Prefix: *prefix, StateDir: *state, Port: *port, Agents: agents, NoStart: *noStart, System: *system}
+		// At a terminal, install reviews the families and asks what to set up (#449).
+		if o.Ask = terminalAsk(in, os.Stderr); o.Ask != nil {
+			o.Tell = os.Stderr
+		}
+		r, err := install.Install(ctx, o)
 		printJSON(out, r)
 		return coded(err)
 	case "uninstall":
