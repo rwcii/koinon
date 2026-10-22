@@ -1,9 +1,9 @@
 # Agent permissions
 
-These are recommendations for the maintainer to review, not configuration that Koinon
-applies. `koinon setup` connects a native CLI and installs its owned hooks/plugin; it does
-not add these permission rules. Merge the examples into existing settings without replacing
-other entries. Existing deny rules, managed policy, sandbox restrictions and the session's
+These are recommendations for the maintainer to review. `koinon setup` connects a native
+CLI and installs its owned hooks/plugin; it does not add these permission rules, except
+`koinon setup claude --add-permissions` when the maintainer runs it (see Claude Code below).
+Merge the examples into existing settings without replacing other entries. Existing deny rules, managed policy, sandbox restrictions and the session's
 approval requirements still apply. An allowed tool does not authorize a peer's request (WDR 002,
 Decision 2).
 
@@ -90,18 +90,36 @@ In `~/.claude/settings.json` (`$CLAUDE_CONFIG_DIR/settings.json` when overridden
   "permissions": {
     "allow": [
       "mcp__koinon__*",
-      "Bash(koinon guide --agent claude)"
+      "Bash(koinon guide --agent claude)",
+      "Bash(koinon context show)",
+      "Bash(koinon status)"
     ]
   }
 }
 ```
 
 The first rule covers only the configured `koinon` server; an individual rule is, for
-example, `mcp__koinon__inbox`. The Bash entry permits the exact startup guidance command.
+example, `mcp__koinon__inbox`. The Bash entries permit the exact startup guidance command and
+the two read-only commands that agents run: `koinon context show` and `koinon status`. They do
+not cover other Koinon commands, such as `install` or `upgrade`.
 Inspect effective rules in `/permissions`; explicit ask/deny and managed settings take
 precedence. Repository-local permissions can instead live in `.claude/settings.local.json`.
 
-Verified configuration syntax with Claude Code **2.1.296**, using isolated settings and
+`koinon setup claude` and `koinon install --agent claude` report which of these rules the user
+settings file lacks, in `permissions` of their output, and change no rule. A rule counts as
+present when the file holds it, `mcp__koinon` for the server rule, or `Bash(koinon *)` for a
+Bash rule; other rules that cover it, and rules in project settings files, are not read.
+`koinon setup claude
+--check-permissions` only reports. `koinon setup claude --add-permissions` appends the missing
+rules to `permissions.allow` and keeps every other setting; run it after reviewing the list.
+
+Without these rules, each Koinon call in auto mode goes to Claude Code's auto-mode classifier,
+which judges it against the whole session. After an unrelated refusal in the same session,
+for example of a merge, the classifier also refused `ack`, `peer_status` and
+`koinon context show` with the reason of that refusal (#446). The session then cannot
+acknowledge its inbox, read peer and cycle state or renew a work-item lease.
+
+Verified configuration syntax with Claude Code **2.1.307**, using isolated settings and
 `claude doctor`: the example produced no invalid-settings finding; a deliberately invalid
 MCP rule with parentheses produced one. Doctor can exit zero with invalid settings, so read
 its findings. This checks parsing, not a model's actual tool call. See the

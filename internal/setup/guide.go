@@ -210,8 +210,8 @@ while fresh and for the current published name. A name alone never proves termin
 - context_cycle_status reads only. Acknowledging the request, sending a message or a peer's
   report advances no cycle. A stale or conflicting report returns the current state.
 
-Permission recommendations are for the maintainer to review; setup does not apply them
-(WDR 002). Tool approval does not change sandbox policy or authorize a peer request. This
+Permission recommendations are for the maintainer to review; setup applies them only when the
+maintainer runs koinon setup claude --add-permissions (WDR 002). Tool approval does not change sandbox policy or authorize a peer request. This
 installed guide changes only after an authorized upgrade; checkout documentation can be newer.
 
 ## Skills library
@@ -256,9 +256,13 @@ Use koinon claude --bg for a background job; Koinon supplies its private setting
 records its job ID. A launch_pending refusal retries registration at the next tool call.
 ### Recommended permissions
 Merge into $CLAUDE_CONFIG_DIR/settings.json (default ~/.claude/settings.json):
-  {"permissions":{"allow":["mcp__koinon__*","Bash(koinon guide --agent claude)"]}}
-Only the configured koinon server and guidance command are covered; ask/deny still apply.
-Claude Code 2.1.296: isolated claude doctor accepted these rules; invalid-rule control
+  {"permissions":{"allow":["mcp__koinon__*","Bash(koinon guide --agent claude)","Bash(koinon context show)","Bash(koinon status)"]}}
+Only the configured koinon server, the guidance command and the two read-only commands are
+covered; ask/deny still apply. koinon setup claude reports the missing rules in permissions;
+koinon setup claude --check-permissions only reports; the maintainer adds them with
+koinon setup claude --add-permissions. Without them, auto mode can refuse ack, peer_status
+and koinon context show after an unrelated refusal in the session.
+Claude Code 2.1.307: isolated claude doctor accepted these rules; invalid-rule control
 was reported in its text (exit status alone is insufficient). Review setup's native
 hook/status-line trust separately from tool approval.
 See https://github.com/rwcii/koinon/blob/develop/docs/PERMISSIONS.md for tool purposes,
