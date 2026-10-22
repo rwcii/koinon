@@ -195,7 +195,9 @@ while fresh and for the current published name. A name alone never proves termin
 - The request is in your session's own inbox, also when you hold a participant address. A
   wake notice whose range holds it ends with "Managed context-cycle request ID: answer it
   before other work." Read that inbox range first.
-- On a request: pause your work at the next safe stopping point and start no new work, write
+- On a request: pause your work at the next safe stopping point and start no new work. Let
+  your running background subagents finish, or stop them, so that the handoff holds their
+  results; a Claude subagent that works after your ready report makes overwatch ask again. Write
   your handoff with your canonical handoff procedure, and call context_cycle_ready with the
   cycle ID, the revision that context_cycle_status shows and the handoff file name within 15
   minutes of the request. Then end your turn and stay idle: the cycle clears your context

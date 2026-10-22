@@ -264,7 +264,56 @@ func (claudeCycle) Inspect(ctx context.Context, t CycleTarget, fence CycleFence)
 	if err != nil {
 		return PaneState{}, err
 	}
-	return claudePaneState(record.Status, screen), nil
+	pane := claudePaneState(record.Status, screen)
+	if pane.Idle && t.ReadyAt > 0 {
+		if root, err := claudeConfigRoot(t); err == nil && claudeSubagentsSince(root, record.SessionID, t.ReadyAt) {
+			return PaneState{Seen: subagentAfterReady}, nil
+		}
+	}
+	return pane, nil
+}
+
+// subagentAfterReady is the Seen code of a session whose background subagent wrote its
+// transcript after the ready report: its results came after the handoff (#456).
+const subagentAfterReady = "subagent_after_ready"
+
+// claudeTranscriptID is the form of a Claude Code session ID, a UUID.
+var claudeTranscriptID = regexp.MustCompile(`^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$`)
+
+// maxSubagentFiles bounds the subagent transcripts that one inspection reads.
+const maxSubagentFiles = 1024
+
+// claudeSubagentsSince reports whether a subagent transcript of the session changed after
+// at (Unix milliseconds). Claude Code keeps them at projects/PROJECT/SESSION/subagents/ in
+// its configuration root. Only file times are read, never content; an unreadable or absent
+// directory proves no subagent work.
+func claudeSubagentsSince(root, session string, at int64) bool {
+	if !claudeTranscriptID.MatchString(session) {
+		return false
+	}
+	dirs, err := filepath.Glob(filepath.Join(root, "projects", "*", session, "subagents"))
+	if err != nil {
+		return false
+	}
+	seen := 0
+	for _, dir := range dirs {
+		entries, err := os.ReadDir(dir)
+		if err != nil {
+			continue
+		}
+		for _, e := range entries {
+			if seen++; seen > maxSubagentFiles {
+				return false
+			}
+			if !e.Type().IsRegular() || !strings.HasSuffix(e.Name(), ".jsonl") {
+				continue
+			}
+			if info, err := e.Info(); err == nil && info.ModTime().UnixMilli() > at {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 // claudePaneState reads the host's registry status with its screen. The host is at its prompt

@@ -231,6 +231,16 @@ func (s *Store) stepCycle(ctx context.Context, c cycleRow) error {
 				pane.Seen = "pane_not_ready"
 			}
 			s.paneSeen.set(c.ID, pane.Seen)
+			// Work after the ready report is not in its handoff: ask for a new one now (#456).
+			if pane.Seen == subagentAfterReady && c.State == cycleReady {
+				switch err := s.repeatCycleRequest(ctx, c.ID, c.Revision, pane.Seen); {
+				case errors.Is(err, errCycleEventLimit):
+					_, err = s.endCycle(ctx, c.ID, c.Revision, cycleFailed, "event_limit")
+					return err
+				case err != nil && !errors.Is(err, ErrCycleChanged) && !errors.Is(err, ErrCapacity):
+					return err
+				}
+			}
 			return nil
 		}
 		s.paneSeen.set(c.ID, "")

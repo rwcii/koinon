@@ -540,3 +540,64 @@ func TestClaudePaneStateAcceptsBackgroundShell(t *testing.T) {
 		}
 	}
 }
+
+// A background subagent that wrote its transcript after the ready report keeps a ready cycle
+// from its clear: its results came after the handoff (#456). Only a ready cycle checks, and
+// only the session's own subagent transcripts count.
+func TestClaudeInspectSubagentAfterReady(t *testing.T) {
+	ctx := context.Background()
+	term := newClaudeTerminal(t)
+	term.epoch = "316b9458-6b5a-47c3-b863-af1745fb54a4"
+	term.write()
+	tg := term.target(t)
+	ready := time.Now().Add(-time.Minute)
+	tg.ReadyAt = ready.UnixMilli()
+	if state, err := (claudeCycle{}).Inspect(ctx, tg, term.fence); err != nil || !state.Idle {
+		t.Fatalf("no subagents: %+v %v", state, err)
+	}
+	dir := filepath.Join(term.home, ".claude", "projects", "-synthetic-repo", term.epoch, "subagents")
+	if err := os.MkdirAll(dir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	transcript := filepath.Join(dir, "agent-synthetic.jsonl")
+	if err := os.WriteFile(transcript, []byte("{}\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	other := filepath.Join(term.home, ".claude", "projects", "-synthetic-repo", "00000000-0000-4000-8000-000000000000", "subagents")
+	if err := os.MkdirAll(other, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(other, "agent-other.jsonl"), []byte("{}\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	// Written before the report: in the handoff. Another session's newer subagent does not count.
+	before := ready.Add(-time.Second)
+	if err := os.Chtimes(transcript, before, before); err != nil {
+		t.Fatal(err)
+	}
+	if state, err := (claudeCycle{}).Inspect(ctx, tg, term.fence); err != nil || !state.Idle {
+		t.Fatalf("subagent before the report: %+v %v", state, err)
+	}
+	after := ready.Add(time.Second)
+	if err := os.Chtimes(transcript, after, after); err != nil {
+		t.Fatal(err)
+	}
+	if state, err := (claudeCycle{}).Inspect(ctx, tg, term.fence); err != nil || state != (PaneState{Seen: subagentAfterReady}) {
+		t.Fatalf("subagent after the report: %+v %v", state, err)
+	}
+	// Another stage has no ready report to compare with.
+	tg.ReadyAt = 0
+	if state, err := (claudeCycle{}).Inspect(ctx, tg, term.fence); err != nil || !state.Idle {
+		t.Fatalf("not ready: %+v %v", state, err)
+	}
+	// A busy host stays busy; a session ID that is not a UUID selects no directory.
+	tg.ReadyAt = ready.UnixMilli()
+	term.status = "busy"
+	term.write()
+	if state, _ := (claudeCycle{}).Inspect(ctx, tg, term.fence); state.Seen != "status_busy" {
+		t.Fatalf("busy: %+v", state)
+	}
+	if claudeSubagentsSince(filepath.Join(term.home, ".claude"), "*", ready.UnixMilli()) {
+		t.Fatal("a pattern session ID matched")
+	}
+}

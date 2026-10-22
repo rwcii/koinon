@@ -121,7 +121,7 @@ func TestWakeClaudeProtocolAndIdentity(t *testing.T) {
 		if _, err := s.db.Exec(`UPDATE sessions SET host_pid=?,host_start=? WHERE family=? AND id=?`, c.pid, c.start, session.Family, session.ID); err != nil {
 			t.Fatal(err)
 		}
-		writeRecord("cleared-native-session", "busy", os.Getpid())
+		writeRecord("cleared-native-session", "waiting", os.Getpid())
 		if got := s.providerWake(context.Background(), session, "notice"); got.Reason != c.want {
 			t.Fatalf("host %d start %d: %+v, want %s", c.pid, c.start, got, c.want)
 		}
@@ -138,20 +138,20 @@ func TestWakeClaudeProtocolAndIdentity(t *testing.T) {
 	if _, err := s.db.Exec(`UPDATE sessions SET host_pid=0,host_start=0 WHERE family=? AND id=?`, session.Family, session.ID); err != nil {
 		t.Fatal(err)
 	}
-	// A turn in progress or an approval or question prompt defers the wake.
-	for _, status := range []string{"busy", "waiting"} {
-		writeRecord(session.ID, status, os.Getpid())
-		if got := s.providerWake(context.Background(), session, "notice"); got.Reason != "receiver_busy" {
-			t.Fatal(status, got)
-		}
+	// An approval or question prompt defers the wake, so the notice never lands in it.
+	writeRecord(session.ID, "waiting", os.Getpid())
+	if got := s.providerWake(context.Background(), session, "notice"); got.Reason != "receiver_busy" {
+		t.Fatal(got)
 	}
 	digest := sha256.Sum256([]byte(socket))
 	token := strings.Repeat("ab", 16)
 	if err := os.WriteFile(filepath.Join(s.wake.registry, strconv.Itoa(os.Getpid())+"."+hex.EncodeToString(digest[:])+".key"), []byte(`{"peerToken":"`+token+`"}`), 0600); err != nil {
 		t.Fatal(err)
 	}
-	// At the prompt, also with a background shell task running (shell), the notice goes.
-	for _, status := range []string{"idle", "shell"} {
+	// At the prompt, also with a background shell task running (shell), the notice goes. So
+	// it does during a turn or at the prompt with background subagents running (busy, #456):
+	// Claude Code takes the next-priority frame at its next boundary.
+	for _, status := range []string{"idle", "shell", "busy"} {
 		writeRecord(session.ID, status, os.Getpid())
 		checkClaudeNotice(t, s, session, listener, token)
 	}
