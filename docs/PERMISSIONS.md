@@ -14,7 +14,8 @@ older installed guide can differ from this reference (WDR 002, Decision 4).
 ## Adding the rules at install
 
 `koinon install` on a terminal (standard input and standard error are terminals) first lists
-each family: its CLI on `PATH`, and whether the Koinon server is set up for this binary. It asks
+each family: its CLI on `PATH`, whether the Koinon server is set up for this binary, and the
+state of its permission rules. It asks
 to set up each installed family that is not set up; `--agent FAMILY` sets one up without the
 question. For each family that is set up, it shows the missing rules of the sections below and
 the file, and asks to add them. An empty answer or `y` is yes. A yes appends the rules and keeps
@@ -22,7 +23,8 @@ every other setting; `koinon setup FAMILY` on a terminal asks the same question.
 
 Without a terminal, as for scripts and agents, install and setup ask nothing and change no rule;
 their output reports each family's rules in `permissions`: `present`, `missing`, `different`
-(the file sets the rule's key to another value, which is kept), `unreadable` (with `reason`) or
+(the file sets a rule's key to another value; the file is not changed), `unreadable` (with
+`reason`) or
 `manual` (Grok, DeepSeek). A symbolic link, a file not owned by the user, a file over 1 MiB or
 a file not in the expected form is refused without a change. `koinon uninstall` leaves the
 rules in place.
@@ -160,8 +162,9 @@ managed policy still apply.
 
 Install and setup add the key as one line at the end of the `[mcp_servers.koinon]` table that
 `codex mcp add` wrote, and keep every other line. Another value of the key is kept and reported
-as `different`. A file without that table, or with the key for this server outside it, is
-refused. Codex **0.163.0** with isolated configuration: `codex app-server --strict-config`
+as `different`. The file is parsed before and after the change: a file that is not valid TOML,
+has no `koinon` server or keeps it other than as a `[mcp_servers.koinon]` table is refused, and
+the result must differ only in that key. Codex **0.163.0** with isolated configuration: `codex app-server --strict-config`
 accepted a file that setup wrote, and rejected an unknown-field control.
 
 For the startup guidance command, an optional rule in `$CODEX_HOME/rules/koinon.rules`
@@ -242,8 +245,8 @@ settings. Project `opencode.json` can also supply scoped rules.
 
 Install and setup append the missing members to `permission` and to its `bash` object, so they
 come last. A `permission` or `bash` value that is one action is kept: `"allow"` covers the
-rules, another action is reported as `different`. A configuration in `opencode.jsonc` is
-reported for a manual merge. OpenCode **1.18.35**: `opencode debug config --pure` resolved a
+rules, another action is reported as `different` and nothing is added. A configuration in
+`opencode.jsonc` is reported for a manual merge. OpenCode **1.18.35**: `opencode debug config --pure` resolved a
 file that setup wrote with both rules.
 
 Verified configuration syntax with OpenCode **1.18.35**, using private configuration and

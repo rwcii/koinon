@@ -11,6 +11,8 @@ import (
 	"slices"
 	"strings"
 	"testing"
+
+	"github.com/BurntSushi/toml"
 )
 
 func TestSetupPreservesExistingPermissionSettings(t *testing.T) {
@@ -245,7 +247,14 @@ func TestCodexApproval(t *testing.T) {
 		{"no table", "[mcp_servers.other]\ncommand = \"x\"\n", "", "unreadable", "settings_no_server"},
 		{"absent file", "", "", "unreadable", "settings_no_server"},
 		{"two tables", "[mcp_servers.koinon]\n[mcp_servers.koinon]\n", "", "unreadable", "settings_invalid"},
-		{"dotted key elsewhere", "[mcp_servers]\nkoinon.default_tools_approval_mode = \"approve\"\n[mcp_servers.koinon]\ncommand = \"k\"\n", "", "unreadable", "settings_unusual"},
+		{"invalid TOML", "[mcp_servers.koinon\n", "", "unreadable", "settings_invalid"},
+		{"quoted key present", "[mcp_servers.koinon]\ncommand = \"k\"\n\"default_tools_approval_mode\" = \"approve\"\n", "", "present", ""},
+		{"quoted key different", "[mcp_servers.koinon]\n'default_tools_approval_mode' = \"prompt\"\n", "", "different", ""},
+		{"dotted key elsewhere", "[mcp_servers]\nkoinon.default_tools_approval_mode = \"approve\"\nkoinon.command = \"k\"\n", "", "present", ""},
+		{"no table header", "[mcp_servers]\nkoinon.command = \"k\"\n", "", "missing", "settings_unusual"},
+		// A header line inside a string is not the table: the line would land at the top level.
+		{"header in a string", "note = \"\"\"\n[mcp_servers.koinon]\nx\n\"\"\"\n[mcp_servers]\nkoinon.command = \"k\"\n", "", "missing", "settings_unusual"},
+		{"inline table", "mcp_servers.koinon = { command = \"k\" }\n", "", "missing", "settings_unusual"},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
@@ -258,11 +267,15 @@ func TestCodexApproval(t *testing.T) {
 			}
 			o := Options{Family: "codex", CodexHome: dir}
 			check, err := Permissions(o, false)
-			wantCheck := c.outcome
+			wantCheck, checkReason := c.outcome, c.reason
 			if wantCheck == "added" {
 				wantCheck = "missing"
 			}
-			if err != nil || check.Outcome != wantCheck || check.Reason != c.reason || check.SettingsFile != path {
+			if wantCheck == "missing" {
+				// Only the write finds an unusual layout.
+				checkReason = ""
+			}
+			if err != nil || check.Outcome != wantCheck || check.Reason != checkReason || check.SettingsFile != path {
 				t.Fatalf("check: %+v %v", check, err)
 			}
 			result, err := Permissions(o, true)
@@ -283,6 +296,10 @@ func TestCodexApproval(t *testing.T) {
 				t.Fatalf("file:\n%s\nwant:\n%s", data, want)
 			}
 			if c.outcome == "added" {
+				var config map[string]any
+				if _, err := toml.Decode(string(data), &config); err != nil {
+					t.Fatalf("written file is not TOML: %v", err)
+				}
 				if info, _ := os.Stat(path); info.Mode().Perm() != 0640 {
 					t.Fatal("add changed the file mode")
 				}
@@ -338,9 +355,10 @@ func TestOpenCodePermission(t *testing.T) {
 		{"present", `{"permission":{"koinon_*":"allow","bash":{` + guide + `}}}`, "present", nil},
 		{"allow everything", `{"permission":"allow"}`, "present", nil},
 		{"ask everything", `{"permission":"ask"}`, "different", nil},
-		{"bash action kept", `{"permission":{"bash":"ask"}}`, "added", map[string]any{"bash": "ask", "koinon_*": "allow"}},
-		{"different server rule", `{"permission":{"koinon_*":"deny"}}`, "added",
-			map[string]any{"koinon_*": "deny", "bash": map[string]any{"koinon guide --agent opencode": "allow"}}},
+		// A different rule leaves the whole file as it is (#449).
+		{"bash action", `{"permission":{"bash":"ask"}}`, "different", nil},
+		{"different server rule", `{"permission":{"koinon_*":"deny","bash":{}}}`, "different", nil},
+		{"different guide rule", `{"permission":{"bash":{` + strings.Replace(guide, "allow", "ask", 1) + `}}}`, "different", nil},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {

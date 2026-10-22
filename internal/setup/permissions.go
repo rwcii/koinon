@@ -10,8 +10,11 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"reflect"
 	"slices"
 	"strings"
+
+	"github.com/BurntSushi/toml"
 )
 
 // The recommended server-wide permission rules of docs/PERMISSIONS.md for each family: the
@@ -114,11 +117,12 @@ func Permissions(o Options, add bool) (PermissionsResult, error) {
 	return result, nil
 }
 
-// conclude sets the outcome after the missing rules are known, or, with add, writes them
-// through write and records them as added.
+// conclude sets the outcome after the missing and different rules are known, or, with add
+// and no different rule, writes the missing rules through write and records them as added.
 func conclude(result *PermissionsResult, add bool, write func() error) error {
 	switch {
-	case len(result.Missing) == 0 && len(result.Different) > 0:
+	case len(result.Different) > 0:
+		// A rule the person set otherwise: the file is left as it is (#449).
 		result.Outcome = "different"
 		return nil
 	case len(result.Missing) == 0:
@@ -190,7 +194,9 @@ func allowList(result *PermissionsResult, l statusLine, rules []string, covers f
 }
 
 // codexApproval sets default_tools_approval_mode in the [mcp_servers.koinon] table that
-// codex mcp add wrote, by inserting one line; every other line is kept as written.
+// codex mcp add wrote, by inserting one line at the end of that table; every other line is
+// kept as written. The file is parsed before and after: the result must parse and differ only
+// in that key.
 func codexApproval(result *PermissionsResult, path string, add bool) error {
 	l := statusLine{settings: path, label: "Codex configuration"}
 	result.SettingsFile = path
@@ -198,48 +204,40 @@ func codexApproval(result *PermissionsResult, path string, add bool) error {
 	if err != nil {
 		return err
 	}
-	lines := strings.SplitAfter(string(raw), "\n")
-	start, end, found := -1, len(lines), ""
-	for i, line := range lines {
-		trimmed := strings.TrimSpace(line)
-		if strings.HasPrefix(trimmed, "[") {
+	before, err := codexServer(raw)
+	if err != nil {
+		return SettingsError{"settings_invalid", "the Codex configuration is not valid TOML; not changed", path}
+	}
+	if before == nil {
+		return SettingsError{"settings_no_server", "the Codex configuration has no mcp_servers.koinon entry; run setup first", path}
+	}
+	switch value := before["default_tools_approval_mode"]; value {
+	case "approve":
+	case nil:
+		result.Missing = CodexPermissions
+	default:
+		result.Different = []string{fmt.Sprintf("default_tools_approval_mode = %q", fmt.Sprint(value))}
+	}
+	return conclude(result, add, func() error {
+		unusual := SettingsError{"settings_unusual", "the Codex configuration does not keep mcp_servers.koinon as a [mcp_servers.koinon] table; not changed", path}
+		lines := strings.SplitAfter(string(raw), "\n")
+		start, end := -1, len(lines)
+		for i, line := range lines {
+			trimmed := strings.TrimSpace(line)
+			if !strings.HasPrefix(trimmed, "[") {
+				continue
+			}
 			if start >= 0 && end == len(lines) {
 				end = i
 			}
-			header, _, _ := strings.Cut(trimmed, "]")
-			name := strings.NewReplacer(" ", "", "\t", "", `"`, "", "'", "").Replace(strings.TrimPrefix(header, "["))
-			if name == "mcp_servers.koinon" && !strings.HasPrefix(trimmed, "[[") {
-				if start >= 0 {
-					return SettingsError{"settings_invalid", "the Codex configuration has two [mcp_servers.koinon] tables; not changed", path}
-				}
+			header, _, _ := strings.Cut(strings.TrimPrefix(trimmed, "["), "]")
+			if !strings.HasPrefix(trimmed, "[[") && plainKey(header) == "mcp_servers.koinon" {
 				start = i
 			}
-			continue
 		}
-		key, value, isKey := strings.Cut(trimmed, "=")
-		key = strings.TrimSpace(key)
-		if !isKey || !strings.HasSuffix(key, "default_tools_approval_mode") {
-			continue
+		if start < 0 {
+			return unusual
 		}
-		if start >= 0 && end == len(lines) && key == "default_tools_approval_mode" {
-			value, _, _ = strings.Cut(value, "#")
-			found = strings.Trim(strings.TrimSpace(value), `"'`)
-		} else if strings.Contains(key, "koinon") {
-			// A dotted key for this server elsewhere: a second setting would break the file.
-			return SettingsError{"settings_unusual", "the Codex configuration sets the koinon approval mode outside the [mcp_servers.koinon] table; not changed", path}
-		}
-	}
-	if start < 0 {
-		return SettingsError{"settings_no_server", "the Codex configuration has no [mcp_servers.koinon] table; run setup first", path}
-	}
-	switch found {
-	case "approve":
-	case "":
-		result.Missing = CodexPermissions
-	default:
-		result.Different = []string{"default_tools_approval_mode = " + found}
-	}
-	return conclude(result, add, func() error {
 		at := start + 1
 		for i := start + 1; i < end; i++ {
 			if trimmed := strings.TrimSpace(lines[i]); trimmed != "" && !strings.HasPrefix(trimmed, "#") {
@@ -250,14 +248,39 @@ func codexApproval(result *PermissionsResult, path string, add bool) error {
 			lines[at-1] += "\n"
 		}
 		lines = slices.Insert(lines, at, CodexPermissions[0]+"\n")
-		return l.writeRaw(raw, []byte(strings.Join(lines, "")))
+		data := []byte(strings.Join(lines, ""))
+		after, err := codexServer(data)
+		if err != nil || after == nil || after["default_tools_approval_mode"] != "approve" {
+			return unusual
+		}
+		delete(after, "default_tools_approval_mode")
+		if !reflect.DeepEqual(after, before) {
+			return unusual
+		}
+		return l.writeRaw(raw, data)
 	})
+}
+
+// codexServer parses a Codex configuration and returns its mcp_servers.koinon table, or nil.
+func codexServer(raw []byte) (map[string]any, error) {
+	var config map[string]any
+	if _, err := toml.Decode(string(raw), &config); err != nil {
+		return nil, err
+	}
+	servers, _ := config["mcp_servers"].(map[string]any)
+	server, _ := servers["koinon"].(map[string]any)
+	return server, nil
+}
+
+// plainKey removes the quotes and spaces of a TOML key.
+func plainKey(key string) string {
+	return strings.NewReplacer(" ", "", "\t", "", `"`, "", "'", "").Replace(key)
 }
 
 // openCodePermission adds "koinon_*": "allow" and the guide command's bash rule to the
 // permission object of opencode.json. OpenCode applies the last matching rule, so the rules
 // are appended. A permission or bash value that is a single action is kept: "allow" covers
-// the rule, another action is reported as different.
+// the rule, another action is reported as different and nothing is added.
 func openCodePermission(result *PermissionsResult, root string, add bool) error {
 	l := statusLine{settings: filepath.Join(root, "opencode.json"), label: "OpenCode configuration"}
 	result.SettingsFile = l.settings

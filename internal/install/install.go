@@ -812,6 +812,12 @@ func reviewFamilies(ctx context.Context, o Options, r *Report) ([]string, error)
 		case in.CLI != "":
 			state = "not set up (" + in.CLI + ")"
 		}
+		if p := in.Permissions; p != nil {
+			state += "; permission rules " + p.Outcome
+			if p.Reason != "" {
+				state += " (" + p.Reason + ")"
+			}
+		}
 		fmt.Fprintf(o.Tell, "  %-9s %s\n", family, state)
 	}
 	for _, in := range r.Review {

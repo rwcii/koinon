@@ -21,6 +21,9 @@ func TestInstallAsksAtTerminal(t *testing.T) {
 		if installed[o.Family] {
 			in.CLI, in.Configured = "/bin/"+o.Family, o.Family == "claude"
 		}
+		if o.Family == "agy" {
+			in.Permissions = &setup.PermissionsResult{Family: "agy", Outcome: "unreadable", Reason: "settings_invalid"}
+		}
 		return in
 	}
 	var adds []string
@@ -36,13 +39,16 @@ func TestInstallAsksAtTerminal(t *testing.T) {
 		return result, nil
 	}
 	var questions []string
+	var told bytes.Buffer
 	answers := map[string]bool{"Set up Koinon for codex?": true, "Set up Koinon for agy?": false,
 		"Add them to /cfg/claude?": true, "Add them to /cfg/codex?": false}
 	e.o.Ask = func(q string) (bool, error) {
+		if !strings.Contains(told.String(), "permission rules unreadable") {
+			t.Fatal("asked before the review showed the permission state")
+		}
 		questions = append(questions, q)
 		return answers[q], nil
 	}
-	var told bytes.Buffer
 	e.o.Tell = &told
 	r, err := Install(context.Background(), e.o)
 	if err != nil {
@@ -70,7 +76,7 @@ func TestInstallAsksAtTerminal(t *testing.T) {
 	if len(r.Review) != 5 || len(outcomes) != 3 || outcomes["claude"] != "added" || outcomes["codex"] != "missing" || outcomes["opencode"] != "present" {
 		t.Fatalf("review %d, permissions %v", len(r.Review), outcomes)
 	}
-	for _, line := range []string{"claude    set up (/bin/claude)", "codex     not set up (/bin/codex)", "grok      not installed", "  claude-rule"} {
+	for _, line := range []string{"claude    set up (/bin/claude)", "agy       not set up (/bin/agy); permission rules unreadable (settings_invalid)", "codex     not set up (/bin/codex)", "grok      not installed", "  claude-rule"} {
 		if !strings.Contains(told.String(), line) {
 			t.Fatalf("review omits %q:\n%s", line, told.String())
 		}

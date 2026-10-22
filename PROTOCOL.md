@@ -1928,7 +1928,7 @@ while Koinon edits it is a `settings_conflict` that keeps the other change.
 `koinon setup FAMILY` also reports, in `permissions`, the family's recommended permission
 rules of docs/PERMISSIONS.md: `family`, `settings_file`, `outcome` and, by outcome, `missing`,
 `added`, `different`, `reason` or `note`. `outcome` is `present`, `missing`, `added`,
-`different` (the file sets a rule's key to another value, which is kept), `unreadable` or
+`different` (the file sets a rule's key to another value; nothing is added), `unreadable` or
 `manual` (Grok, DeepSeek). Only a yes at a terminal adds rules, with the same refusals as the
 status line. `koinon install` at a terminal also reports `review`, one entry per family with
 `family`, `cli` and `configured` before its questions, and `permissions` for each family that
