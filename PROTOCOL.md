@@ -1925,6 +1925,16 @@ restores it while the entry is still Koinon's, and keeps an entry the user chang
 not owned by the user, a file over 1 MiB or invalid JSON is refused, and a file that changes
 while Koinon edits it is a `settings_conflict` that keeps the other change.
 
+`koinon setup claude` (and `koinon install --agent claude`) also reports, in `permissions`, the
+recommended Claude permission rules of docs/PERMISSIONS.md that `permissions.allow` of the same
+settings file does not hold. `outcome` is `present`, `missing` (with `missing` and `next`),
+`added` (with `added`) or `unreadable` (with `reason`). A rule counts as present when the list
+holds it, or for the server rule `mcp__koinon`, or for a Bash rule `Bash(koinon *)` or
+`Bash(koinon:*)`. Setup changes no rule unless the maintainer runs `koinon setup claude
+--add-permissions`, which appends the missing rules to `permissions.allow` and keeps every
+other member, with the same refusals as the status line. `koinon setup claude
+--check-permissions` only reports, and runs no agent CLI.
+
 ### Import of Python-era state
 
 Schema 8 adds the `imports` table. Each Python-era source that a database imported has one row

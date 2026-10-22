@@ -466,7 +466,9 @@ under their own instructions and host policy (WDR 002, Decision 1; PDR 003, Deci
 
 Review [recommended native permissions](PERMISSIONS.md) for each family, including scoped
 examples, configuration locations, verified syntax checks and their limits. Setup does not
-apply these permission rules; native hook trust and optional terminal operations remain
+apply these permission rules. For Claude, `koinon setup claude` and `koinon install --agent
+claude` report the missing rules in `permissions`, and `koinon setup claude --add-permissions`
+adds them when the maintainer runs it. Native hook trust and optional terminal operations remain
 separate. Read the installed family guide for the running version.
 
 `koinon setup FAMILY` installs the MCP entry through the selected agent's CLI. Families are

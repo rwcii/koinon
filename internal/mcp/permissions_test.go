@@ -85,6 +85,21 @@ func TestPermissionRecommendationsCoverRegisteredTools(t *testing.T) {
 				if !ok {
 					t.Fatal("missing native allow list")
 				}
+				if family == "claude" {
+					// The guide, docs/PERMISSIONS.md and the rules that setup reports agree.
+					want, _ := json.Marshal(setup.ClaudePermissions)
+					if got, _ := json.Marshal(allow); !bytes.Equal(got, want) {
+						t.Fatalf("guide rules %s, setup rules %s", got, want)
+					}
+					block := regexp.MustCompile("(?s)## Claude Code\n.*?```json\n(.*?)```").FindSubmatch(data)
+					var doc struct{ Permissions struct{ Allow []string } }
+					if block == nil || json.Unmarshal(block[1], &doc) != nil {
+						t.Fatal("docs/PERMISSIONS.md has no Claude Code JSON example")
+					}
+					if got, _ := json.Marshal(doc.Permissions.Allow); !bytes.Equal(got, want) {
+						t.Fatalf("docs/PERMISSIONS.md rules %s, setup rules %s", got, want)
+					}
+				}
 				for _, entry := range allow {
 					rule, ok := entry.(string)
 					if !ok {
