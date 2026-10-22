@@ -144,9 +144,17 @@ func (a *dashboardAuth) prune(now time.Time) {
 	}
 }
 
+// cookieName is the login cookie of the port in the request's Host. Browsers do not separate
+// cookies by port, so each board opened under one loopback IP, such as a local daemon and a
+// tunnel to another computer's daemon, keeps its own login (#454).
+func cookieName(r *http.Request) string {
+	_, port, _ := net.SplitHostPort(r.Host)
+	return dashboardCookie + "_" + port
+}
+
 // session checks the request's cookie and records its use. It returns the session ID.
 func (a *dashboardAuth) session(r *http.Request) (string, bool) {
-	cookie, err := r.Cookie(dashboardCookie)
+	cookie, err := r.Cookie(cookieName(r))
 	if err != nil {
 		return "", false
 	}

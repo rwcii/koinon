@@ -5,6 +5,11 @@ into a dated release section when promoted to `main`.
 
 ## Unreleased
 
+- A dashboard login no longer ends when another dashboard is opened under the same loopback
+  address, such as a local daemon and a tunnel to another computer's daemon. The login cookie
+  is now named after the port, `koinon_dashboard_PORT`, so each port keeps its own login. A
+  login made before the upgrade ends at the upgrade's daemon restart, as before (#454).
+
 ## 2026-10-22 — Interactive install with permission rules, MCP servers that follow an upgrade and clearer handoff notices
 
 This release makes `koinon install` on a terminal list the agent families on the computer, ask
