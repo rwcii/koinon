@@ -121,7 +121,8 @@ state, pull request and issue states, CI state. Write:
 - <repository paths, issues and pull requests that hold the durable facts>
 ```
 
-Obtain current guidance with the installed `koinon guide --agent <family>`. Use MCP
+Obtain current guidance with the installed `koinon guide --agent <family>`; its Team operations
+section has the runnable steps. Use MCP
 discovery to observe this session's peer name and repository; guidance itself does not
 register a session or return live observations. Record only values actually observed, with
 unknown values stated as unknown. In a not-yet-upgraded installation, follow that installed

@@ -306,7 +306,11 @@ type CycleTarget struct {
 	Holds bool
 	// Pickup is the koinon-pickup skill that the installed file must equal (#406).
 	Pickup PickupEntry
-	tools  hostTools
+	// ReadyAt is when the session made its current ready report, in Unix milliseconds, while
+	// the cycle is ready, else 0. Work after it, such as a background subagent's, is not in
+	// the handoff. A resolved dialog returns the cycle to ready without changing it.
+	ReadyAt int64
+	tools   hostTools
 }
 
 // PickupEntry is the bytes and the menu description of one pickup entry.
@@ -420,7 +424,8 @@ func (s *Store) sessionProbe(ctx context.Context, k Key) CycleProbe {
 // stay idle, because the clear waits for its idle prompt (#431).
 func cycleRequestBody(id string, revision int64) string {
 	return "overwatch: managed context cycle " + id + " revision " + strconv.FormatInt(revision, 10) +
-		" requests your handoff. Pause your work at the next safe stopping point and start no new work. Write your handoff " +
+		" requests your handoff. Pause your work at the next safe stopping point and start no new work. Let running " +
+		"background subagents finish, or stop them, so that the handoff holds their results. Write your handoff " +
 		"with your canonical handoff procedure, then call context_cycle_ready with this cycle ID, its revision and the handoff " +
 		"file name. Then end your turn and stay idle: overwatch clears your context only at your idle prompt, and asks again " +
 		"if your pane does not become idle. See the Managed cycle reporting section of koinon guide."

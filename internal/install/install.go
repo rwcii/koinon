@@ -88,12 +88,15 @@ type Report struct {
 	Permissions []setup.PermissionsResult `json:"permissions,omitempty"`
 	// PickupSkills reports the managed cycle's koinon-pickup skill for each family (#406).
 	PickupSkills []PickupSkill `json:"pickup_skills"`
+	// TeamSkills reports the koinon-NAME team skill entries for each family (#453).
+	TeamSkills []PickupSkill `json:"team_skills"`
 }
 
 // PickupSkill is one family's koinon-pickup skill file and what the install or uninstall did
 // with it: created, replaced or unchanged; removed, kept (other content) or absent.
 type PickupSkill struct {
 	Family string `json:"family"`
+	Name   string `json:"name,omitempty"`
 	Path   string `json:"path"`
 	Result string `json:"result"`
 }
@@ -483,7 +486,8 @@ func pickupSkillPaths(o Options) []PickupSkill {
 }
 
 // installPickupSkills writes the managed cycle's koinon-pickup skill for each family, for the
-// person who runs the daemon and never into a repository (#406).
+// person who runs the daemon and never into a repository (#406), and the team skill entries
+// at the same places (#453).
 func installPickupSkills(o Options, r *Report) error {
 	for _, skill := range pickupSkillPaths(o) {
 		result, err := core.InstallPickupSkill(skill.Path)
@@ -492,6 +496,28 @@ func installPickupSkills(o Options, r *Report) error {
 		}
 		skill.Result = result
 		r.PickupSkills = append(r.PickupSkills, skill)
+	}
+	return eachTeamSkill(o, r, core.InstallSkillFile)
+}
+
+// eachTeamSkill applies change to each family's team skill entry files and reports them.
+func eachTeamSkill(o Options, r *Report, change func(path string, content []byte) (string, error)) error {
+	skills, err := core.TeamSkills()
+	if err != nil {
+		return fmt.Errorf("team_skill_failed: %v", err)
+	}
+	for _, skill := range skills {
+		for _, target := range []PickupSkill{
+			{Family: "claude", Name: skill.Name, Path: core.ClaudeSkillPath(o.ClaudeConfig, skill.Name)},
+			{Family: "codex", Name: skill.Name, Path: core.CodexSkillPath(o.Services.Home, skill.Name)},
+		} {
+			result, err := change(target.Path, skill.Content)
+			if err != nil {
+				return fmt.Errorf("team_skill_failed: %s: %v", target.Path, err)
+			}
+			target.Result = result
+			r.TeamSkills = append(r.TeamSkills, target)
+		}
 	}
 	return nil
 }
@@ -504,7 +530,7 @@ func Install(ctx context.Context, o Options) (Report, error) {
 		return Report{}, err
 	}
 	r := Report{Binary: Binary(o.Prefix), Backend: o.Services.Backend, Artifact: o.Services.DaemonArtifact(),
-		StateDir: o.StateDir, Agents: []setup.Report{}, PickupSkills: []PickupSkill{}}
+		StateDir: o.StateDir, Agents: []setup.Report{}, PickupSkills: []PickupSkill{}, TeamSkills: []PickupSkill{}}
 	if !o.Upgrade {
 		i, err := legacy.ReadInstall(o.PythonPrefix)
 		if err != nil {
@@ -702,7 +728,7 @@ func Uninstall(ctx context.Context, o Options) (Report, error) {
 		return Report{}, err
 	}
 	r := Report{Binary: Binary(o.Prefix), Backend: o.Services.Backend, Artifact: o.Services.DaemonArtifact(),
-		StateDir: o.StateDir, Agents: []setup.Report{}, PickupSkills: []PickupSkill{}}
+		StateDir: o.StateDir, Agents: []setup.Report{}, PickupSkills: []PickupSkill{}, TeamSkills: []PickupSkill{}}
 	agents := o.Agents
 	if len(agents) == 0 {
 		agents = Families
@@ -738,6 +764,9 @@ func Uninstall(ctx context.Context, o Options) (Report, error) {
 		}
 		skill.Result = result
 		r.PickupSkills = append(r.PickupSkills, skill)
+	}
+	if err := eachTeamSkill(o, &r, core.RemoveSkillFile); err != nil {
+		return r, err
 	}
 	r.BinaryResult = "absent"
 	if info, err := os.Lstat(r.Binary); err == nil {

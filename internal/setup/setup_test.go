@@ -457,3 +457,31 @@ func TestAdoptRecordsOnlyOwnConfiguredFamily(t *testing.T) {
 		t.Fatalf("no CLI adopted: %v %v", adopted, err)
 	}
 }
+
+// The guide's Team operations steps name the fact fields that give their project data, and
+// scope the idle-prompt condition to command and text input, so an authorized first-run or
+// permission answer stays available (#453, PDR 002 Decision 2).
+func TestGuideTeamOperations(t *testing.T) {
+	for family := range guideFamily {
+		var out strings.Builder
+		if err := Guide(family, &out); err != nil {
+			t.Fatal(err)
+		}
+		text := strings.Join(strings.Fields(out.String()), " ")
+		for _, want := range []string{
+			"## Team operations",
+			`DIR and ROLE come from the spin-up facts "Start directory" and "Roles"`,
+			`the "Handoff path" fact of .koinon/skills/handoff.md`,
+			"Send a command or a line of text at an empty, idle prompt",
+			"Answer a first-run or permission dialog as in First-run prompts (PDR 002, Decision 2)",
+			"/koinon-handoff", "$koinon-pickup",
+		} {
+			if !strings.Contains(text, want) {
+				t.Fatalf("%s guide lacks %q", family, want)
+			}
+		}
+		if strings.Contains(text, "Type into a pane only at an empty, idle prompt") || strings.Contains(text, "own _handoff directory") {
+			t.Fatalf("%s guide keeps the unscoped condition or the fixed handoff path", family)
+		}
+	}
+}

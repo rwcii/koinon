@@ -53,13 +53,21 @@ func ClaudeConfigRoot(configDir, home string) string {
 // ClaudePickupSkillPath is the skill's file under a Claude Code configuration root
 // ($CLAUDE_CONFIG_DIR, else ~/.claude).
 func ClaudePickupSkillPath(configRoot string) string {
-	return filepath.Join(configRoot, "skills", PickupSkillName, "SKILL.md")
+	return ClaudeSkillPath(configRoot, PickupSkillName)
 }
 
 // CodexPickupSkillPath is the skill's file in a home directory's user skills, which Codex lists
 // for every session.
-func CodexPickupSkillPath(home string) string {
-	return filepath.Join(home, ".agents", "skills", PickupSkillName, "SKILL.md")
+func CodexPickupSkillPath(home string) string { return CodexSkillPath(home, PickupSkillName) }
+
+// ClaudeSkillPath is a personal skill's file under a Claude Code configuration root.
+func ClaudeSkillPath(configRoot, name string) string {
+	return filepath.Join(configRoot, "skills", name, "SKILL.md")
+}
+
+// CodexSkillPath is a user skill's file in a home directory's ~/.agents/skills.
+func CodexSkillPath(home, name string) string {
+	return filepath.Join(home, ".agents", "skills", name, "SKILL.md")
 }
 
 // pickupSkillReason checks the installed skill file against want: "" when it is byte-equal,
@@ -86,10 +94,14 @@ func pickupSkillStep(path string) string {
 
 // InstallPickupSkill writes the skill to path, replacing a different file, and reports
 // "created", "replaced" or "unchanged". Missing directories are created private to this account.
-func InstallPickupSkill(path string) (string, error) {
+func InstallPickupSkill(path string) (string, error) { return InstallSkillFile(path, PickupSkill()) }
+
+// InstallSkillFile writes content to path, replacing a different file, and reports "created",
+// "replaced" or "unchanged". Missing directories are created private to this account.
+func InstallSkillFile(path string, content []byte) (string, error) {
 	data, err := os.ReadFile(path)
 	switch {
-	case err == nil && bytes.Equal(data, PickupSkill()):
+	case err == nil && bytes.Equal(data, content):
 		return "unchanged", nil
 	case err != nil && !errors.Is(err, os.ErrNotExist):
 		return "", err
@@ -107,7 +119,7 @@ func InstallPickupSkill(path string) (string, error) {
 		return "", err
 	}
 	defer os.Remove(tmp.Name())
-	if _, err := tmp.Write(PickupSkill()); err != nil {
+	if _, err := tmp.Write(content); err != nil {
 		tmp.Close()
 		return "", err
 	}
@@ -126,14 +138,18 @@ func InstallPickupSkill(path string) (string, error) {
 
 // RemovePickupSkill removes the skill at path while it is this binary's skill, then its
 // directory when that is empty, and reports "removed", "kept" (another content) or "absent".
-func RemovePickupSkill(path string) (string, error) {
+func RemovePickupSkill(path string) (string, error) { return RemoveSkillFile(path, PickupSkill()) }
+
+// RemoveSkillFile removes the file at path while it holds content, then its directory when
+// that is empty, and reports "removed", "kept" (another content) or "absent".
+func RemoveSkillFile(path string, content []byte) (string, error) {
 	data, err := os.ReadFile(path)
 	switch {
 	case errors.Is(err, os.ErrNotExist):
 		return "absent", nil
 	case err != nil:
 		return "", err
-	case !bytes.Equal(data, PickupSkill()):
+	case !bytes.Equal(data, content):
 		return "kept", nil
 	}
 	if err := os.Remove(path); err != nil {

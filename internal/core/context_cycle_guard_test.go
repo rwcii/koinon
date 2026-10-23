@@ -721,7 +721,8 @@ func TestContextCycleRequestAsksToPauseAndStayIdle(t *testing.T) {
 		t.Fatalf("requests: %q", requests)
 	}
 	for _, want := range []string{"managed context cycle " + v.ID + " revision 1 requests your handoff",
-		"Pause your work at the next safe stopping point and start no new work", "call context_cycle_ready",
+		"Pause your work at the next safe stopping point and start no new work",
+		"Let running background subagents finish, or stop them", "call context_cycle_ready",
 		"Then end your turn and stay idle", "overwatch clears your context only at your idle prompt", "asks again"} {
 		if !strings.Contains(requests[0], want) {
 			t.Fatalf("request lacks %q: %s", want, requests[0])
@@ -732,6 +733,71 @@ func TestContextCycleRequestAsksToPauseAndStayIdle(t *testing.T) {
 	}
 	if !strings.Contains(cycleReadyNext, "end your turn now and start no other work") {
 		t.Fatalf("ready next: %s", cycleReadyNext)
+	}
+}
+
+// A ready requester whose background subagent worked after the report is asked again at
+// once under a new revision, without a clear: its handoff lacks that work (#456).
+func TestContextCycleAsksAgainAfterSubagentWork(t *testing.T) {
+	f := newCycleFixture(t)
+	ready, _ := f.readyCycle(t)
+	f.adapter.pane = PaneState{Seen: subagentAfterReady}
+	f.step(t)
+	again := f.status(t, f.k)
+	if again.State != cycleWaitingReady || again.Reason != "not_idle."+subagentAfterReady || again.Revision != ready.Revision+1 ||
+		again.Artifact != "" || f.adapter.count("clear") != 0 {
+		t.Fatalf("asked again: %+v clears %d", again, f.adapter.count("clear"))
+	}
+	if requests := f.overwatchRequests(t); len(requests) != 2 || requests[1] != cycleRequestBody(again.ID, again.Revision) {
+		t.Fatalf("requests: %q", requests)
+	}
+	// A waiting_ready cycle reports no ready time, so the same observation repeats nothing.
+	f.step(t)
+	if v := f.status(t, f.k); v.Revision != again.Revision || len(f.overwatchRequests(t)) != 2 {
+		t.Fatalf("second step: %+v", v)
+	}
+}
+
+// claudeInspectAdapter is the synthetic input adapter with the real Claude inspection.
+type claudeInspectAdapter struct {
+	*fakeAdapter
+	tools hostTools
+}
+
+func (a *claudeInspectAdapter) Inspect(ctx context.Context, target CycleTarget, fence CycleFence) (PaneState, error) {
+	target.tools = a.tools
+	return (claudeCycle{}).Inspect(ctx, target, fence)
+}
+
+// A native dialog after the ready report returns the cycle to ready without a new report:
+// subagent work during the dialog is still after the handoff (PR 457 review).
+func TestContextCycleReadyTimeSurvivesDialog(t *testing.T) {
+	f := newCycleFixture(t)
+	f.readyCycle(t)
+	reported := f.clock
+	term := newClaudeTerminal(t)
+	term.epoch = "316b9458-6b5a-47c3-b863-af1745fb54a4"
+	term.write()
+	previous := cycleAdapters["claude"]
+	cycleAdapters["claude"] = &claudeInspectAdapter{fakeAdapter: f.adapter, tools: term.target(t).tools}
+	t.Cleanup(func() { cycleAdapters["claude"] = previous })
+	term.asks = true
+	f.clock = reported.Add(time.Second)
+	f.step(t)
+	if v := f.status(t, f.k); v.State != cycleWaitingPrompt {
+		t.Fatalf("dialog: %+v", v)
+	}
+	subagentTranscript(t, filepath.Join(term.home, ".claude"), term.epoch, "agent-synthetic.jsonl", reported.Add(2*time.Second))
+	term.asks = false
+	f.clock = reported.Add(3 * time.Second)
+	f.step(t)
+	if v := f.status(t, f.k); v.State != cycleReady || v.Reason != "prompt_resolved" {
+		t.Fatalf("dialog resolved: %+v", v)
+	}
+	f.clock = reported.Add(4 * time.Second)
+	f.step(t)
+	if v := f.status(t, f.k); v.State != cycleWaitingReady || v.Reason != "not_idle."+subagentAfterReady || f.adapter.count("clear") != 0 {
+		t.Fatalf("after the dialog: %+v clears %d", v, f.adapter.count("clear"))
 	}
 }
 

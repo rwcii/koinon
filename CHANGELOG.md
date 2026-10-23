@@ -5,6 +5,50 @@ into a dated release section when promoted to `main`.
 
 ## Unreleased
 
+## 2026-10-23 — Team skills, Claude wakes during work and one dashboard login per port
+
+This release makes `koinon install` and the daemon write the team skills next to
+`koinon-pickup`, so each agent family can run the shared team procedures with the repository's
+own facts. A Claude session now gets its wake notices while it works or while background
+subagents run, and a managed context cycle asks again when a subagent worked after the ready
+report. Each dashboard port keeps its own login. The state schema stays 28; a v0.4.0
+installation upgrades in place.
+
+- `koinon install`, and the daemon at each start, now write the team skills for Claude Code and
+  Codex: `koinon-spin-up`, `koinon-spin-down`, `koinon-recover-team`, `koinon-peer-tmux` and
+  `koinon-handoff`, next to `koinon-pickup`. Each one loads its catalog item from the installed
+  binary, so the procedure changes with the runtime, and the procedure reads the repository's
+  own facts from `.koinon/skills/NAME.md`. A project's own skill of the bare name is left as it
+  is. The install report lists them in `team_skills`; the uninstall removes them (#453).
+- A dashboard login no longer ends when another dashboard is opened under the same loopback
+  address, such as a local daemon and a tunnel to another computer's daemon. The login cookie
+  is now named after the port, `koinon_dashboard_PORT`, so each port keeps its own login. A
+  login made before the upgrade ends at the upgrade's daemon restart, as before (#454).
+- A Claude session now gets its wake notices while it works: during a turn, Claude Code takes
+  the notice at its next tool boundary, and at a prompt with background subagents running, at
+  once. Before, Koinon held every notice while the session showed `busy`, so a managed context
+  cycle request could go unseen until its deadline. Only an approval or question prompt still
+  holds the notice (#456).
+- A managed context cycle no longer clears a Claude session whose background subagent worked
+  after the session reported ready: it asks again under a new revision, so the new handoff holds
+  the subagent's results. The request and the guide say to let background subagents finish, or
+  to stop them, before writing the handoff (#456).
+
+Upgrade from v0.4.0 with Homebrew: run `brew update` and `brew upgrade koinon`; the daemon
+restarts on the new binary, which ends current dashboard logins, so run `koinon dashboard` for a
+new link. A `koinon mcp` server started from v0.4.0 runs the new release without a session
+restart (#440). The daemon writes the team skills when it starts; agent sessions started after
+the upgrade list them.
+
+Known limits:
+
+- The DeepSeek harness's permission grammar remains unverified (docs/PERMISSIONS.md), and
+  Antigravity's permission evaluation is unverified; Grok takes its rule at launch.
+- A macOS system-mode daemon (`--system`) keeps a copy; upgrade it with
+  `$(brew --prefix)/bin/koinon install --system`.
+- Codex keeps the tools and descriptions it read at the start until its session starts again
+  (docs/INSTALL.md).
+
 ## 2026-10-22 — Interactive install with permission rules, MCP servers that follow an upgrade and clearer handoff notices
 
 This release makes `koinon install` on a terminal list the agent families on the computer, ask

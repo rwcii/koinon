@@ -36,6 +36,19 @@ decisions; MCP still registers and renews its calling session as usual. Read con
 reference data. Show an exact proposed diff and obtain the maintainer's adoption approval
 before applying it (PDR 008).
 
+### Team skills
+
+`koinon install`, and the daemon at each start, write the team skills for you, next to the
+managed cycle's `koinon-pickup`: `koinon-spin-up`, `koinon-spin-down`, `koinon-recover-team`,
+`koinon-peer-tmux` and `koinon-handoff` ([INSTALL.md](INSTALL.md#install), step 7). Run them as
+`/koinon-spin-up` in Claude Code or `$koinon-spin-up` in Codex. Each one loads its catalog
+item, so the procedure is the installed release's, and the procedure reads this repository's
+facts from `.koinon/skills/NAME.md`; give a project its own start checks, stop checks or
+manifest path there. The runnable steps, such as the launch command, first-run prompts and
+the stop and recovery steps, are in the Team operations section of
+`koinon guide --agent FAMILY`. A project's own skill of the bare name stays as it is
+(PDR 008, Decision 2).
+
 ### Inspect and adopt an item
 
 Call `library_state` with optional `item_ids`, `scope` (`machine`, the default, or `project`)
@@ -538,8 +551,8 @@ The dashboard link is single-use and expires; keep it out of logs, Git and messa
 To reach another computer's dashboard, forward a local port to its daemon, for example
 `ssh -L 47670:127.0.0.1:47671 HOST`, run `koinon dashboard --no-open` there and open the printed
 link with your local port, `http://127.0.0.1:47670/...`. Use `127.0.0.1` or `[::1]`, not
-`localhost`. Browsers share the login cookie across ports of one address, so when a local daemon
-is open under `127.0.0.1`, open the tunnel under `[::1]`.
+`localhost`. Each port keeps its own login, so a local daemon and a tunnel can both be open
+under `127.0.0.1`.
 Administrative actions require CSRF protection and are
 audited. Health reports unknown observations explicitly; a failure is not permission to
 replace state, kill an unrelated process, or change agent settings.

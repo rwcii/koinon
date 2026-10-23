@@ -153,11 +153,13 @@ func (s *Store) wakeClaude(ctx context.Context, session Session, target wakeTarg
 		return waiting("claude_identity_mismatch")
 	}
 	// shell is the prompt with a background shell task running: the session takes the
-	// next-priority notice at its turn boundary, as it does when idle.
-	if peer.Status == "busy" || peer.Status == "waiting" {
+	// next-priority notice at its turn boundary, as it does when idle. busy is a running
+	// turn or an idle prompt with background subagents (#456); Claude Code queues the
+	// next-priority frame for its next boundary. waiting is an approval or question prompt.
+	if peer.Status == "waiting" {
 		return waiting("receiver_busy")
 	}
-	if peer.Status != "idle" && peer.Status != "shell" {
+	if peer.Status != "idle" && peer.Status != "shell" && peer.Status != "busy" {
 		return waiting("receiver_state_unknown")
 	}
 	allowed := s.wake.allowed
