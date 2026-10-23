@@ -198,9 +198,12 @@ while fresh and for the current published name. A name alone never proves termin
 - On a request: pause your work at the next safe stopping point and start no new work. Let
   your running background subagents finish, or stop them, so that the handoff holds their
   results; a Claude subagent that works after your ready report makes overwatch ask again. Write
-  your handoff with your canonical handoff procedure, and call context_cycle_ready with the
-  cycle ID, the revision that context_cycle_status shows and the handoff file name within 15
-  minutes of the request. Then end your turn and stay idle: the cycle clears your context
+  your handoff with your canonical handoff procedure into _handoff/AGENT/ of the main checkout,
+  where AGENT is your family, with -ROLE for a launch with a role, never your participant
+  address; the Handoff path fact of .koinon/skills/handoff.md can name another directory that
+  holds AGENT. A refused ready report names the check that failed and the directory overwatch
+  expects. Call context_cycle_ready with the cycle ID, the revision that context_cycle_status
+  shows and the handoff file name within 15 minutes of the request. Then end your turn and stay idle: the cycle clears your context
   only at your idle prompt, and enters Koinon's own pickup skill, koinon-pickup, which the
   daemon writes for the person and which loads skill.pickup. If your pane does not become
   idle, overwatch sends the request again under a new revision; pause and report again.

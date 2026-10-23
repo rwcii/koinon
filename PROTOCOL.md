@@ -310,11 +310,17 @@ caller, epoch, host, pane, socket or another session.
   history. It reads only and moves no inbox, memory or work cursor.
 - `POST /v1/cycles/ready` (`context_cycle_ready`) takes `cycle_id`, the `revision` shown and the
   handoff file name. The requester under its pre-reset epoch moves a `waiting_ready` cycle to
-  `ready` when the file is `<main checkout>/_handoff/<family[-role]>/<name>`: a canonical
+  `ready` when the file is `<main checkout>/<handoff directory>/<name>`. The handoff directory
+  is the first word of the Handoff path fact in the main checkout's `.koinon/skills/handoff.md`,
+  parsed with the catalog's facts schema for `skill.handoff`, else its default
+  `_handoff/<agent>/`; `<agent>` is the family, with `-ROLE` for a launch with a role. It must
+  be a clean relative path inside the checkout that names `<agent>`, and each of its directories
+  a real directory, not a link. The file is a canonical
   timestamped name of at most 128 bytes, a regular file of 1 byte to 1 MiB modified after the
   current request (after a repeat, the repeated one), ignored by Git, in a directory where Git tracks nothing. The main checkout is the
   first worktree that Git lists for the registered common directory. The daemon reads only
-  the file's metadata, through a root opened at the main checkout, and keeps its device, inode,
+  the file's metadata and, of the checkout's files, the handoff facts as one bounded read of an
+  opened regular file of at most 64 KiB, through a root opened at the main checkout, and keeps its device, inode,
   size and modification time; a change to any of them is a changed file. The
   registered directory must itself be a worktree that Git lists. A successful report also
   returns `next`, the instruction to end the turn and start no other work, because the clear
@@ -341,7 +347,10 @@ An identical retry of an accepted report returns the current cycle without a wri
 retry while the reported file is unchanged, a pickup retry with the same successor, epoch,
 file, outcome and report. A stale or conflicting one is refused with `cycle_changed` (HTTP 409) and the current cycle in
 `details`. Another session's call is `cycle_not_found`, an epoch that does not fit
-`cycle_epoch_unverified`, a file that fails a check `cycle_artifact_invalid`. A message, an
+`cycle_epoch_unverified`, a file that fails a check `cycle_artifact_invalid`, whose `error`
+names the check that failed and, for the directory, the directory it expects, with each path
+cut to 240 bytes so the text stays within the 1024 bytes a client passes on (#468). The
+request message names the session's directory. A message, an
 acknowledgement or a peer's report advances no cycle.
 
 The controller runs once a second. Each external input holds the wake lock and is preceded
