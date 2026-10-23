@@ -319,7 +319,8 @@ caller, epoch, host, pane, socket or another session.
   timestamped name of at most 128 bytes, a regular file of 1 byte to 1 MiB modified after the
   current request (after a repeat, the repeated one), ignored by Git, in a directory where Git tracks nothing. The main checkout is the
   first worktree that Git lists for the registered common directory. The daemon reads only
-  the file's metadata, through a root opened at the main checkout, and keeps its device, inode,
+  the file's metadata and, of the checkout's files, the handoff facts as one bounded read of an
+  opened regular file of at most 64 KiB, through a root opened at the main checkout, and keeps its device, inode,
   size and modification time; a change to any of them is a changed file. The
   registered directory must itself be a worktree that Git lists. A successful report also
   returns `next`, the instruction to end the turn and start no other work, because the clear
@@ -347,7 +348,8 @@ retry while the reported file is unchanged, a pickup retry with the same success
 file, outcome and report. A stale or conflicting one is refused with `cycle_changed` (HTTP 409) and the current cycle in
 `details`. Another session's call is `cycle_not_found`, an epoch that does not fit
 `cycle_epoch_unverified`, a file that fails a check `cycle_artifact_invalid`, whose `error`
-names the check that failed and, for the directory, the directory it expects (#468). The
+names the check that failed and, for the directory, the directory it expects, with each path
+cut to 240 bytes so the text stays within the 1024 bytes a client passes on (#468). The
 request message names the session's directory. A message, an
 acknowledgement or a peer's report advances no cycle.
 

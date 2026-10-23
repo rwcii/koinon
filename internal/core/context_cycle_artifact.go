@@ -13,6 +13,7 @@ import (
 	"strings"
 	"syscall"
 	"time"
+	"unicode/utf8"
 
 	"github.com/rwcii/koinon/internal/library"
 )
@@ -52,7 +53,12 @@ func (s *Store) verifyArtifact(ctx context.Context, c cycleRow, name string) (ar
 	if err != nil {
 		return artifactFile{}, artifactRefusal("cannot be checked: the catalog is unavailable")
 	}
-	dir, err := handoffDirectory(root, catalog, cycleAgent(c.Family, role))
+	facts, err := library.OpenReadRoot(main)
+	if err != nil {
+		return artifactFile{}, artifactRefusal("has no readable main checkout")
+	}
+	dir, err := handoffDirectory(facts, catalog, cycleAgent(c.Family, role))
+	facts.Close()
 	if err != nil {
 		return artifactFile{}, artifactRefusal("directory cannot be read from %s: %v", handoffFacts, err)
 	}
@@ -95,9 +101,30 @@ func (s *Store) verifyArtifact(ctx context.Context, c cycleRow, name string) (ar
 	return file, nil
 }
 
-// artifactRefusal is ErrCycleArtifact with the check that failed (#468).
+// artifactRefusal is ErrCycleArtifact with the check that failed (#468). Each argument is cut
+// to maxRefusalArgument bytes, so that the text, with the check first, stays within
+// MaxRefusalMessage, which a client passes on.
 func artifactRefusal(format string, args ...any) error {
+	for i, arg := range args {
+		args[i] = shortRefusalArgument(fmt.Sprint(arg))
+	}
 	return Refusal{ErrCycleArtifact.Code, "the handoff artifact " + fmt.Sprintf(format, args...)}
+}
+
+const maxRefusalArgument = 240
+
+// shortRefusalArgument cuts text at a character boundary to maxRefusalArgument bytes, marking a
+// cut with "...".
+func shortRefusalArgument(text string) string {
+	text = strings.ToValidUTF8(text, "\uFFFD")
+	if len(text) <= maxRefusalArgument {
+		return text
+	}
+	cut := maxRefusalArgument - 3
+	for cut > 0 && !utf8.RuneStart(text[cut]) {
+		cut--
+	}
+	return text[:cut] + "..."
 }
 
 // handoffFacts is the repository's facts file of the handoff skill.
@@ -117,7 +144,7 @@ func cycleAgent(family, role string) string {
 // skill.handoff, whose default _handoff/<agent>/ applies when the file or the fact is absent.
 // <agent> is replaced by agent. The path must be relative and clean, stay in the checkout and
 // name <agent>, so each session has its own directory.
-func handoffDirectory(root *os.Root, catalog library.Catalog, agent string) (string, error) {
+func handoffDirectory(root library.ReadRoot, catalog library.Catalog, agent string) (string, error) {
 	var schema *library.Facts
 	for _, item := range catalog.Items {
 		if item.Kind == "skill" && item.Name == "handoff" {
@@ -133,16 +160,14 @@ func handoffDirectory(root *os.Root, catalog library.Catalog, agent string) (str
 			template = *field.Default
 		}
 	}
-	info, err := root.Lstat(handoffFacts)
+	// A bounded read of the opened regular file: a link out of the checkout, a swapped FIFO
+	// or an oversized file is refused, and none blocks the ready reply.
+	data, err := root.ReadRegular(handoffFacts, library.MaxItemBytes)
 	switch {
 	case errors.Is(err, os.ErrNotExist):
-	case err != nil || !info.Mode().IsRegular() || info.Size() > library.MaxItemBytes:
-		return "", errors.New("not a regular file of at most 64 KiB")
+	case err != nil:
+		return "", errors.New("not a readable regular file of at most 64 KiB")
 	default:
-		data, err := root.ReadFile(handoffFacts)
-		if err != nil {
-			return "", errors.New("not readable")
-		}
 		values, err := library.ParseFactValues(data, "handoff", schema)
 		if err != nil {
 			return "", err
