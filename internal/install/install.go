@@ -884,6 +884,16 @@ func offerPermissions(o Options, agents []string, r *Report) error {
 			return err
 		}
 		r.Permissions = append(r.Permissions, result)
+		// The family's own entry shows the rules after the question, as koinon setup does (#462).
+		for i := range r.Agents {
+			if r.Agents[i].Family != family {
+				continue
+			}
+			r.Agents[i].Permissions = &result
+			if result.Outcome == "added" {
+				r.Agents[i].Changed = append(r.Agents[i].Changed, family+" permission rules in "+result.SettingsFile)
+			}
+		}
 	}
 	return nil
 }

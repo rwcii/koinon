@@ -1933,7 +1933,8 @@ rules of docs/PERMISSIONS.md: `family`, `settings_file`, `outcome` and, by outco
 `manual` (Grok, DeepSeek). Only a yes at a terminal adds rules, with the same refusals as the
 status line. `koinon install` at a terminal also reports `review`, one entry per family with
 `family`, `cli` and `configured` before its questions, and `permissions` for each family that
-is set up.
+is set up. The family's own `agents` entry reports its `permissions` after the question, as
+`koinon setup` does, and a yes also lists the rules in that entry's `changed`.
 
 ### Import of Python-era state
 
