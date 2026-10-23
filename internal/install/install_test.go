@@ -75,6 +75,7 @@ func newEnv(t *testing.T, backend string) *env {
 	e := &env{r: &recorder{}}
 	e.o = Options{Prefix: filepath.Join(dir, "prefix"), StateDir: state, PythonPrefix: filepath.Join(dir, "python"), Source: source,
 		Path: filepath.Join(dir, "empty-path"), ClaudeConfig: filepath.Join(dir, "claude-config"),
+		Opencode: filepath.Join(dir, "opencode-config"), AgyRoot: filepath.Join(dir, "agy-config"),
 		Services: platform.Services{Backend: backend, Home: filepath.Join(dir, "home"), UID: 501, Run: e.r.run,
 			User: "alice", Group: "staff", SystemDir: filepath.Join(dir, "LaunchDaemons")},
 		Setup: func(_ context.Context, o setup.Options) (setup.Report, error) {
@@ -232,6 +233,82 @@ func TestInstallTeamSkills(t *testing.T) {
 	}
 	if data, _ := os.ReadFile(personal); string(data) != "a personal handoff\n" {
 		t.Fatalf("personal handoff changed: %q", data)
+	}
+}
+
+// OpenCode and agy get koinon-pickup and every skill entry in their configuration directories,
+// whose discovery was verified, only when the directory exists: no directory is made for an
+// agent that is not on the computer, and the uninstall removes what the install wrote (#461).
+func TestInstallSkillEntriesOtherFamilies(t *testing.T) {
+	e := newEnv(t, "systemd")
+	if err := os.MkdirAll(e.o.AgyRoot, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	skills, err := core.TeamSkills()
+	if err != nil {
+		t.Fatal(err)
+	}
+	r, err := Install(context.Background(), e.o)
+	if err != nil || !r.OK {
+		t.Fatalf("install %+v %v", r, err)
+	}
+	if !reflect.DeepEqual(pickupResults(r.PickupSkills), map[string]string{"claude": "created", "codex": "created", "agy": "created"}) {
+		t.Fatalf("pickup %+v", r.PickupSkills)
+	}
+	agy := 0
+	for _, entry := range r.TeamSkills {
+		if entry.Family == "opencode" {
+			t.Fatalf("an entry for an absent OpenCode: %+v", entry)
+		}
+		if entry.Family == "agy" {
+			agy++
+			if entry.Path != filepath.Join(e.o.AgyRoot, "skills", entry.Name, "SKILL.md") || entry.Result != "created" {
+				t.Fatalf("agy entry %+v", entry)
+			}
+		}
+	}
+	if agy != len(skills) {
+		t.Fatalf("agy entries %d, want %d", agy, len(skills))
+	}
+	for _, skill := range skills {
+		if data, err := os.ReadFile(filepath.Join(e.o.AgyRoot, "skills", skill.Name, "SKILL.md")); err != nil || !bytes.Equal(data, skill.Content) {
+			t.Fatalf("agy %s: %q %v", skill.Name, data, err)
+		}
+	}
+	if data, err := os.ReadFile(filepath.Join(e.o.AgyRoot, "skills", core.PickupSkillName, "SKILL.md")); err != nil || !bytes.Equal(data, core.PickupSkill()) {
+		t.Fatalf("agy pickup: %q %v", data, err)
+	}
+	if _, err := os.Lstat(e.o.Opencode); !os.IsNotExist(err) {
+		t.Fatalf("made OpenCode's directory: %v", err)
+	}
+	// Once OpenCode's directory exists, the next install writes its entries too.
+	if err := os.MkdirAll(e.o.Opencode, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	again, err := Install(context.Background(), e.o)
+	if err != nil {
+		t.Fatal(err)
+	}
+	results := map[string]int{}
+	for _, entry := range again.TeamSkills {
+		results[entry.Family+" "+entry.Result]++
+		if entry.Family == "opencode" && entry.Path != filepath.Join(e.o.Opencode, "skills", entry.Name, "SKILL.md") {
+			t.Fatalf("opencode entry %+v", entry)
+		}
+	}
+	if results["opencode created"] != len(skills) || results["agy unchanged"] != len(skills) {
+		t.Fatalf("repeat %v", results)
+	}
+	u, err := Uninstall(context.Background(), e.o)
+	if err != nil || !u.OK {
+		t.Fatalf("uninstall %+v %v", u, err)
+	}
+	for _, root := range []string{e.o.AgyRoot, e.o.Opencode} {
+		for _, skill := range append(skills, core.TeamSkill{Name: core.PickupSkillName}) {
+			if _, err := os.Lstat(filepath.Join(root, "skills", skill.Name)); !os.IsNotExist(err) {
+				t.Fatalf("%s %s left: %v", root, skill.Name, err)
+			}
+		}
 	}
 }
 

@@ -262,8 +262,9 @@ func serve(ctx context.Context, state string, listen []string, lockWait time.Dur
 
 // ensurePickupSkills writes the managed cycle's koinon-pickup skill for the person the daemon
 // runs as, when a file is missing or holds other content (#406): under the Claude Code
-// configuration root of the daemon's environment ($CLAUDE_CONFIG_DIR, else ~/.claude) and in
-// ~/.agents/skills for Codex. It runs at each start, so a brew upgrade, which restarts the
+// configuration root of the daemon's environment ($CLAUDE_CONFIG_DIR, else ~/.claude), in
+// ~/.agents/skills for Codex, and in OpenCode's and agy's configuration directories when they
+// exist (#461). It runs at each start, so a brew upgrade, which restarts the
 // daemon, writes it too. A failure is logged and never stops the daemon; the adapter's Probe
 // then names the install step for that session.
 func ensurePickupSkills(logEvent func(string, map[string]any)) {
@@ -272,27 +273,26 @@ func ensurePickupSkills(logEvent func(string, map[string]any)) {
 		logEvent("pickup_skill", map[string]any{"result": "failed", "code": "home_unknown"})
 		return
 	}
-	for _, skill := range []struct{ family, path string }{
-		{"claude", core.ClaudePickupSkillPath(core.ClaudeConfigRoot(os.Getenv("CLAUDE_CONFIG_DIR"), home))},
-		{"codex", core.CodexPickupSkillPath(home)},
-	} {
-		if _, err := core.InstallPickupSkill(skill.path); err != nil {
-			logEvent("pickup_skill", map[string]any{"family": skill.family, "path": skill.path, "result": "failed", "code": "write_failed"})
+	roots := core.SkillRoots(core.ClaudeConfigRoot(os.Getenv("CLAUDE_CONFIG_DIR"), home), home,
+		core.OpenCodeConfigRoot(os.Getenv("XDG_CONFIG_HOME"), home), core.AgyConfigRoot(home))
+	roots = slices.DeleteFunc(roots, func(root core.SkillRoot) bool { return !root.Present() })
+	for _, root := range roots {
+		path := root.Path(core.PickupSkillName)
+		if _, err := core.InstallPickupSkill(path); err != nil {
+			logEvent("pickup_skill", map[string]any{"family": root.Family, "path": path, "result": "failed", "code": "write_failed"})
 		}
 	}
-	// The team skill entries go to the same places (#453).
+	// The other skill entries go to the same places (#453, #461).
 	skills, err := core.TeamSkills()
 	if err != nil {
 		logEvent("team_skill", map[string]any{"result": "failed", "code": "catalog_unavailable"})
 		return
 	}
 	for _, skill := range skills {
-		for _, target := range []struct{ family, path string }{
-			{"claude", core.ClaudeSkillPath(core.ClaudeConfigRoot(os.Getenv("CLAUDE_CONFIG_DIR"), home), skill.Name)},
-			{"codex", core.CodexSkillPath(home, skill.Name)},
-		} {
-			if _, err := core.InstallSkillFile(target.path, skill.Content); err != nil {
-				logEvent("team_skill", map[string]any{"family": target.family, "path": target.path, "result": "failed", "code": "write_failed"})
+		for _, root := range roots {
+			path := root.Path(skill.Name)
+			if _, err := core.InstallSkillFile(path, skill.Content); err != nil {
+				logEvent("team_skill", map[string]any{"family": root.Family, "path": path, "result": "failed", "code": "write_failed"})
 			}
 		}
 	}
