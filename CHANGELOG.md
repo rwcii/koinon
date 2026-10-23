@@ -5,6 +5,12 @@ into a dated release section when promoted to `main`.
 
 ## Unreleased
 
+- A managed context cycle's ready reply that is refused as `cycle_artifact_invalid` now says
+  which check failed, such as "must be in _handoff/claude/ of the main checkout", and the
+  request names the session's handoff directory. That directory follows the Handoff path fact
+  of the repository's `.koinon/skills/handoff.md`, else `_handoff/<agent>/`, where the agent is
+  the family with the launch's role, not the participant address. Before, a session that wrote
+  its handoff elsewhere got the same general refusal three times, and its cycle failed (#468).
 - `koinon install`, and the daemon at each start, now write a `koinon-NAME` skill entry for every
   catalog skill, not only the team skills: also `koinon-check`, `koinon-ship`, `koinon-release`,
   `koinon-pair`, `koinon-peer-review`, `koinon-refusal-review`, `koinon-sprint` and

@@ -3,7 +3,7 @@ pdr: "006"
 title: "Context Monitoring and Managed Handoffs"
 status: draft
 created: "2026-10-12"
-updated: "2026-10-20"
+updated: "2026-10-23"
 authors:
   - "Robert Capps"
 reviewers: []
@@ -190,6 +190,11 @@ transcript after the ready reply is asked again at once, without a clear: that w
 the handoff (#456). Koinon reads only the file times of the session's subagent transcripts,
 compared with the ready report itself; a dialog resolved after it does not move that time. A
 transcript directory that cannot be read in full keeps the session from the clear.
+The handoff that the ready reply names is in the session's own handoff directory of the main
+checkout: the directory that the Handoff path fact of the repository's
+`.koinon/skills/handoff.md` names, else `_handoff/<agent>/`, where the agent is the family with
+the launch's role, not the participant address. The request names that directory, and a ready
+reply that a check refuses says which check and which directory (#468).
 The cycle stops with a shown reason when no ready reply
 arrives in time, the pane cannot be proven, or the bounds end it while the session stays busy;
 the reason names what Koinon last saw in the pane. Entering commands in the
@@ -225,6 +230,14 @@ handoff.", then "you can reproduce the conditions locally and figure out how to 
 ([#456](https://github.com/rwcii/koinon/issues/456)). The intent: a clear never restores a
 handoff that lacks work done after it. Asking again on a newer subagent transcript is the fix
 that #456 proposes; no maintainer decision on it found.
+
+Handoff directory and refusal detail: found on 2026-10-23, when a session's three ready replies
+were refused while its handoff was in a directory named after its participant address; the
+maintainer: "diagnose, this may be another handoff failure scneario", then "let's work
+through all open items to prepare for the next release"
+([#468](https://github.com/rwcii/koinon/issues/468)). The intent: a session can see why its
+ready reply is refused and correct it. Reading the Handoff path fact, and naming the check
+and the directory, are the design of #468; no maintainer decision on them found.
 
 Sender provenance: Maintainer, 2026-10-13, answering the recommendation for a distinct daemon
 sender: “I agree, let's call it "overwatch"”
@@ -403,3 +416,4 @@ and terminal commands have the maintainer's words; the rest is requested or prop
 | 2026-10-16 | Decision 5: a native check certifies the CLI version current then; no version gate and no certification status (#196) |
 | 2026-10-19 | Decisions 3 and 4: the cycle picks up through Koinon's own `koinon-pickup` skill, installed for the person, never in a repository; the loader and its bootstrap are removed (#406) |
 | 2026-10-22 | Decision 3: a Claude subagent that worked after the ready reply makes the cycle ask again (#456) |
+| 2026-10-23 | Decision 3: the handoff directory follows the Handoff path fact; the request names it, and a refused ready reply names the check (#468) |

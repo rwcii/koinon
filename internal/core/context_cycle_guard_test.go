@@ -210,7 +210,7 @@ func TestContextCycleArtifactRecheckedBeforeInput(t *testing.T) {
 		g := newCycleFixture(t)
 		ready, name := g.readyCycle(t)
 		replace(t, filepath.Join(g.repo, "_handoff", "claude", name))
-		if _, err := g.s.ContextCycleReady(context.Background(), g.k, "synthetic-epoch-1", ready.ID, ready.Revision-1, name); !errors.Is(err, ErrCycleArtifact) {
+		if _, err := g.s.ContextCycleReady(context.Background(), g.k, "synthetic-epoch-1", ready.ID, ready.Revision-1, name); !artifactRefused(err, "") {
 			t.Fatalf("retry over a changed file: %v", err)
 		}
 	}
@@ -717,16 +717,20 @@ func TestContextCycleRequestAsksToPauseAndStayIdle(t *testing.T) {
 	f.observe(t, f.k, 900, "synthetic-epoch-1")
 	v := f.status(t, f.k)
 	requests := f.overwatchRequests(t)
-	if len(requests) != 1 || requests[0] != cycleRequestBody(v.ID, v.Revision) {
+	if len(requests) != 1 || requests[0] != cycleRequestBody(v.ID, v.Revision, f.k.Family) {
 		t.Fatalf("requests: %q", requests)
 	}
 	for _, want := range []string{"managed context cycle " + v.ID + " revision 1 requests your handoff",
 		"Pause your work at the next safe stopping point and start no new work",
 		"Let running background subagents finish, or stop them", "call context_cycle_ready",
+		"into _handoff/" + f.k.Family + "/ of the main checkout, or into the directory that the Handoff path fact of .koinon/skills/handoff.md names",
 		"Then end your turn and stay idle", "overwatch clears your context only at your idle prompt", "asks again"} {
 		if !strings.Contains(requests[0], want) {
 			t.Fatalf("request lacks %q: %s", want, requests[0])
 		}
+	}
+	if cycleAgent("codex", "review") != "codex-review" || cycleAgent("claude", "") != "claude" {
+		t.Fatal("agent ID is the family with -ROLE")
 	}
 	if strings.Contains(requests[0], "Finish") {
 		t.Fatalf("request still offers to finish the step: %s", requests[0])
@@ -748,7 +752,7 @@ func TestContextCycleAsksAgainAfterSubagentWork(t *testing.T) {
 		again.Artifact != "" || f.adapter.count("clear") != 0 {
 		t.Fatalf("asked again: %+v clears %d", again, f.adapter.count("clear"))
 	}
-	if requests := f.overwatchRequests(t); len(requests) != 2 || requests[1] != cycleRequestBody(again.ID, again.Revision) {
+	if requests := f.overwatchRequests(t); len(requests) != 2 || requests[1] != cycleRequestBody(again.ID, again.Revision, f.k.Family) {
 		t.Fatalf("requests: %q", requests)
 	}
 	// A waiting_ready cycle reports no ready time, so the same observation repeats nothing.
@@ -823,7 +827,7 @@ func TestContextCycleAsksAgainWhenThePaneStaysBusy(t *testing.T) {
 		t.Fatalf("asked again: %+v", again)
 	}
 	requests := f.overwatchRequests(t)
-	if len(requests) != 2 || requests[1] != cycleRequestBody(again.ID, again.Revision) {
+	if len(requests) != 2 || requests[1] != cycleRequestBody(again.ID, again.Revision, f.k.Family) {
 		t.Fatalf("requests: %q", requests)
 	}
 	// The cycle no longer owns the pane, so the new request's wake goes out.
@@ -864,7 +868,7 @@ func TestContextCycleAsksAgainWhenThePaneStaysBusy(t *testing.T) {
 		t.Fatalf("after the stale report: %+v", v)
 	}
 	// The handoff written before the repeat is not new for the repeated request (#431).
-	if _, err := f.s.ContextCycleReady(context.Background(), f.k, "synthetic-epoch-1", again.ID, again.Revision, ready.Artifact); !errors.Is(err, ErrCycleArtifact) {
+	if _, err := f.s.ContextCycleReady(context.Background(), f.k, "synthetic-epoch-1", again.ID, again.Revision, ready.Artifact); !artifactRefused(err, "") {
 		t.Fatalf("old handoff for the repeated request: %v", err)
 	}
 	// The former revision is stale; a new handoff under the new revision is ready again.
