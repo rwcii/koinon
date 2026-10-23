@@ -83,17 +83,22 @@ func TestInstallAsksAtTerminal(t *testing.T) {
 	}
 }
 
-// After the permission question, each family's own entry reports the rules as they are then,
-// not as setup read them before the question (#462).
+// After the permission question, each family's review and own entries report the rules as they
+// are then, not as review and setup read them before the question (#462).
 func TestInstallReportsRulesAfterQuestion(t *testing.T) {
 	e := newEnv(t, "systemd")
 	e.o.Agents = []string{"claude", "codex"}
-	e.o.Inspect = func(_ context.Context, o setup.Options) setup.Inspection {
-		return setup.Inspection{Family: o.Family}
-	}
 	missing := func(family string) setup.PermissionsResult {
 		return setup.PermissionsResult{Family: family, SettingsFile: "/cfg/" + family, Outcome: "missing", Missing: []string{family + "-rule"},
 			Note: "Run koinon install in a terminal to add them, or merge them by hand (docs/PERMISSIONS.md)."}
+	}
+	e.o.Inspect = func(_ context.Context, o setup.Options) setup.Inspection {
+		in := setup.Inspection{Family: o.Family}
+		if o.Family == "claude" || o.Family == "codex" {
+			rules := missing(o.Family)
+			in.CLI, in.Permissions = "/bin/"+o.Family, &rules
+		}
+		return in
 	}
 	e.o.Setup = func(_ context.Context, o setup.Options) (setup.Report, error) {
 		rules := missing(o.Family)
@@ -115,6 +120,11 @@ func TestInstallReportsRulesAfterQuestion(t *testing.T) {
 	agents := map[string]setup.Report{}
 	for _, a := range r.Agents {
 		agents[a.Family] = a
+	}
+	for _, in := range r.Review {
+		if in.Family == "claude" && (in.Permissions == nil || in.Permissions.Outcome != "added" || in.Permissions.Note != "") {
+			t.Fatalf("claude review after yes: %+v", in.Permissions)
+		}
 	}
 	claude, codex := agents["claude"], agents["codex"]
 	if claude.Permissions == nil || claude.Permissions.Outcome != "added" || claude.Permissions.Missing != nil || claude.Permissions.Note != "" {
