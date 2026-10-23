@@ -1,6 +1,7 @@
 package core
 
 import (
+	"bytes"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -15,17 +16,34 @@ import (
 // daemon and never into a repository, at the same places as koinon-pickup. An entry holds no
 // procedure: it loads its catalog item, whose procedure reads the repository's own facts from
 // .koinon/skills/NAME.md. The pickup skill's entry is koinon-pickup itself. A skill whose name
-// already starts with koinon-, such as koinon-guide, gets no entry: that name is the catalog
-// item's own, which a person's adopted copy or link may hold.
+// already starts with koinon-, such as koinon-guide, keeps its name; because that name is also
+// the catalog item's own, which an adopted copy may hold, its entry replaces only a Koinon entry.
 
 // TeamSkill is one skill entry: its name and its file's bytes.
 type TeamSkill struct {
 	Name    string
 	Content []byte
+	// Shared: the name is also the catalog item's own (#461).
+	Shared bool
 }
 
-// TeamSkills returns the skill entries other than koinon-pickup, one for each such skill of
-// the embedded catalog, in catalog order; each carries its item's description so that the command
+// teamSkillMark begins every entry's body; a file without it is not a Koinon entry.
+const teamSkillMark = "\n---\n\nCall the koinon library_read tool for item skill."
+
+// InstallTeamSkill writes the entry to path as InstallSkillFile does. A Shared entry keeps an
+// existing file that is not a Koinon entry, such as an adopted copy of its item ("kept").
+func InstallTeamSkill(path string, skill TeamSkill) (string, error) {
+	if skill.Shared && !linkedEntry(path) {
+		data, err := os.ReadFile(path)
+		if err == nil && !bytes.Equal(data, skill.Content) && !bytes.Contains(data, []byte(teamSkillMark)) {
+			return "kept", nil
+		}
+	}
+	return InstallSkillFile(path, skill.Content)
+}
+
+// TeamSkills returns the skill entries other than koinon-pickup, one for each skill of the
+// embedded catalog, in catalog order; each carries its item's description so that the command
 // menus list it.
 func TeamSkills() ([]TeamSkill, error) {
 	catalog, err := library.Embedded("")
@@ -34,14 +52,17 @@ func TeamSkills() ([]TeamSkill, error) {
 	}
 	var skills []TeamSkill
 	for _, item := range catalog.Items {
-		if item.Kind != "skill" || item.Name == "pickup" || strings.HasPrefix(item.Name, "koinon-") {
+		if item.Kind != "skill" || item.Name == "pickup" {
 			continue
 		}
 		if item.Facts == nil {
 			return nil, fmt.Errorf("catalog skill.%s declares no repository facts", item.Name)
 		}
-		name := "koinon-" + item.Name
-		skills = append(skills, TeamSkill{Name: name, Content: []byte(teamSkillContent(name, item.Name, item.Facts.Filename, item.Description))})
+		name, shared := "koinon-"+item.Name, strings.HasPrefix(item.Name, "koinon-")
+		if shared {
+			name = item.Name
+		}
+		skills = append(skills, TeamSkill{Name: name, Content: []byte(teamSkillContent(name, item.Name, item.Facts.Filename, item.Description)), Shared: shared})
 	}
 	if len(skills) == 0 {
 		return nil, fmt.Errorf("catalog has no skills")

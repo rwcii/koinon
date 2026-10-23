@@ -7,7 +7,8 @@ into a dated release section when promoted to `main`.
 
 - `koinon install`, and the daemon at each start, now write a `koinon-NAME` skill entry for every
   catalog skill, not only the team skills: also `koinon-check`, `koinon-ship`, `koinon-release`,
-  `koinon-pair`, `koinon-peer-review`, `koinon-refusal-review` and `koinon-sprint`. OpenCode and
+  `koinon-pair`, `koinon-peer-review`, `koinon-refusal-review`, `koinon-sprint` and
+  `koinon-guide`, which replaces only an earlier Koinon entry, never an adopted copy. OpenCode and
   agy get `koinon-pickup` and these entries in their configuration directories
   (`~/.config/opencode/skills`, `~/.gemini/config/skills`) when those directories exist. Grok
   and DeepSeek get none, because where they discover user skills is not verified. The uninstall

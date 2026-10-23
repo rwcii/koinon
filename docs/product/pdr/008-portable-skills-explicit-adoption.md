@@ -163,8 +163,9 @@ The skill entries are Koinon's own entries, not adoptions: `koinon install` and 
 each start write an entry named `koinon-NAME` for each catalog skill, such as
 `koinon-spin-up`, `koinon-handoff` and `koinon-check`, for the person who runs the daemon, at
 the places of `koinon-pickup` (Decision 1), and never into a repository. A skill already named
-`koinon-NAME`, such as `koinon-guide`, gets none, because its entry would take the catalog
-item's own name. Grok and DeepSeek get none until their user skill roots are verified. Each entry loads its catalog item
+`koinon-NAME`, such as `koinon-guide`, keeps its name; because that is also the catalog item's
+own name, its entry replaces only an earlier Koinon entry and leaves an adopted copy. Grok and
+DeepSeek get none until their user skill roots are verified. Each entry loads its catalog item
 through Koinon and holds no procedure, so the catalog keeps the one copy and the entry changes
 with the runtime; the item's procedure reads the repository's own facts from
 `.koinon/skills/NAME.md`. The runnable steps of these procedures are in the installed guide. A
@@ -198,9 +199,9 @@ answer that only the five team skills had user-level entries, and only for Claud
 Codex; then "start 461". The intent: every agent family on the computer runs the same Koinon
 procedures from the installed release. The roots (verified in #461 against Claude Code
 2.1.308, Codex 0.163.0, OpenCode 1.18.35 and agy 1.4.3), the rule that OpenCode and agy get
-entries only when their configuration directory exists, the omission of Grok and DeepSeek, and
-the protection of `koinon-`-named skills and linked entries (from the review of #461) are the
-criteria of #461; no maintainer decision on them found.
+entries only when their configuration directory exists, the omission of Grok and DeepSeek, are
+the criteria of #461, which codex-koinon agreed to; keeping linked entries and adopted copies
+came from its review of the change. No maintainer decision on them found.
 
 ### Alternatives Considered
 

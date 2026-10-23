@@ -291,7 +291,7 @@ func ensurePickupSkills(logEvent func(string, map[string]any)) {
 	for _, skill := range skills {
 		for _, root := range roots {
 			path := root.Path(skill.Name)
-			if _, err := core.InstallSkillFile(path, skill.Content); err != nil {
+			if _, err := core.InstallTeamSkill(path, skill); err != nil {
 				logEvent("team_skill", map[string]any{"family": root.Family, "path": path, "result": "failed", "code": "write_failed"})
 			}
 		}

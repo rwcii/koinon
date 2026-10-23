@@ -377,6 +377,72 @@ func TestInstallKeepsLinkedEntries(t *testing.T) {
 	unchanged("uninstall")
 }
 
+// koinon-guide's entry has the catalog item's own name: a fresh install writes it and an older
+// Koinon entry is replaced, but an adopted copy of the item stays, and the uninstall keeps it
+// (#461).
+func TestInstallSharedEntryKeepsAdoptedCopy(t *testing.T) {
+	e := newEnv(t, "systemd")
+	skills, err := core.TeamSkills()
+	if err != nil {
+		t.Fatal(err)
+	}
+	var guide core.TeamSkill
+	for _, skill := range skills {
+		if skill.Name == "koinon-guide" {
+			guide = skill
+		}
+	}
+	if !guide.Shared {
+		t.Fatalf("koinon-guide entry %+v", guide)
+	}
+	codex := core.CodexSkillPath(e.o.Services.Home, guide.Name)
+	claude := core.ClaudeSkillPath(e.o.ClaudeConfig, guide.Name)
+	older := strings.Replace(string(guide.Content), "If the\ntool is unavailable", "If the\nolder tool is unavailable", 1)
+	adopted := "---\nname: koinon-guide\ndescription: adopted\n---\n\n# Koinon guide\n\nThe adopted procedure.\n"
+	for path, content := range map[string]string{codex: older, claude: adopted} {
+		if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	results := func(r Report) map[string]string {
+		m := map[string]string{}
+		for _, s := range r.TeamSkills {
+			if s.Name == guide.Name {
+				m[s.Family] = s.Result
+			}
+		}
+		return m
+	}
+	r, err := Install(context.Background(), e.o)
+	if err != nil || !reflect.DeepEqual(results(r), map[string]string{"codex": "replaced", "claude": "kept"}) {
+		t.Fatalf("install %v %v", results(r), err)
+	}
+	if data, _ := os.ReadFile(codex); !bytes.Equal(data, guide.Content) {
+		t.Fatalf("older entry not replaced: %q", data)
+	}
+	if data, _ := os.ReadFile(claude); string(data) != adopted {
+		t.Fatalf("adopted copy changed: %q", data)
+	}
+	u, err := Uninstall(context.Background(), e.o)
+	if err != nil || !reflect.DeepEqual(results(u), map[string]string{"codex": "removed", "claude": "kept"}) {
+		t.Fatalf("uninstall %v %v", results(u), err)
+	}
+	if data, _ := os.ReadFile(claude); string(data) != adopted {
+		t.Fatalf("uninstall changed the adopted copy: %q", data)
+	}
+	// A fresh install writes it.
+	fresh := newEnv(t, "systemd")
+	if _, err := Install(context.Background(), fresh.o); err != nil {
+		t.Fatal(err)
+	}
+	if data, err := os.ReadFile(core.CodexSkillPath(fresh.o.Services.Home, guide.Name)); err != nil || !bytes.Equal(data, guide.Content) {
+		t.Fatalf("fresh install: %q %v", data, err)
+	}
+}
+
 // A koinon-pickup skill that cannot be written fails the install with the path, after the
 // service and setup steps, which a repeated install completes.
 func TestInstallPickupSkillFailure(t *testing.T) {

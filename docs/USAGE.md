@@ -39,10 +39,10 @@ before applying it (PDR 008).
 ### Koinon skills
 
 `koinon install`, and the daemon at each start, write a skill entry for each catalog skill for
-you (`koinon-guide` has its own name already and gets none), next to the managed cycle's `koinon-pickup`: `koinon-spin-up`, `koinon-spin-down`,
+you, next to the managed cycle's `koinon-pickup`: `koinon-spin-up`, `koinon-spin-down`,
 `koinon-recover-team`, `koinon-peer-tmux`, `koinon-handoff`, `koinon-check`, `koinon-ship`,
-`koinon-release`, `koinon-pair`, `koinon-peer-review`, `koinon-refusal-review` and
-`koinon-sprint` ([INSTALL.md](INSTALL.md#install), step 7). Claude Code, Codex, and OpenCode
+`koinon-release`, `koinon-pair`, `koinon-peer-review`, `koinon-refusal-review`, `koinon-sprint`
+and `koinon-guide` ([INSTALL.md](INSTALL.md#install), step 7). Claude Code, Codex, and OpenCode
 and agy when they are on the computer, get them; Grok and DeepSeek do not. Run them as
 `/koinon-spin-up` in Claude Code or `$koinon-spin-up` in Codex. Each one loads its catalog
 item, so the procedure is the installed release's, and the procedure reads this repository's

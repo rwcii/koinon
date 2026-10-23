@@ -132,8 +132,9 @@ does this:
    this entry changes. A personal or project `pickup` skill is left as it is.
    At the same places it writes a skill entry for each other catalog skill, named
    `koinon-NAME`, such as `koinon-spin-up`, `koinon-handoff`, `koinon-check` and `koinon-ship`;
-   a skill already named `koinon-NAME`, such as `koinon-guide`, gets none, because that name is
-   the catalog item's own (PDR 008, Decision 2). Each
+   `koinon-guide` keeps its name. Because that name is also the catalog item's own, its entry
+   replaces only an earlier Koinon entry: an adopted copy of the item stays (PDR 008,
+   Decision 2). Each
    one loads its catalog item through Koinon, whose procedure reads the repository's own facts
    from `.koinon/skills/NAME.md`; the entry holds no procedure of its own. `team_skills` in the
    report gives each family, name, path and result, a file that cannot be written fails the

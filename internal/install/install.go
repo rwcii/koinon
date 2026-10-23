@@ -524,11 +524,11 @@ func installPickupSkills(o Options, r *Report) error {
 		skill.Result = result
 		r.PickupSkills = append(r.PickupSkills, skill)
 	}
-	return eachTeamSkill(o, r, core.InstallSkillFile)
+	return eachTeamSkill(o, r, core.InstallTeamSkill)
 }
 
 // eachTeamSkill applies change to each family's skill entry files and reports them.
-func eachTeamSkill(o Options, r *Report, change func(path string, content []byte) (string, error)) error {
+func eachTeamSkill(o Options, r *Report, change func(path string, skill core.TeamSkill) (string, error)) error {
 	skills, err := core.TeamSkills()
 	if err != nil {
 		return fmt.Errorf("team_skill_failed: %v", err)
@@ -537,7 +537,7 @@ func eachTeamSkill(o Options, r *Report, change func(path string, content []byte
 	for _, skill := range skills {
 		for _, root := range roots {
 			target := PickupSkill{Family: root.Family, Name: skill.Name, Path: root.Path(skill.Name)}
-			result, err := change(target.Path, skill.Content)
+			result, err := change(target.Path, skill)
 			if err != nil {
 				return fmt.Errorf("team_skill_failed: %s: %v", target.Path, err)
 			}
@@ -791,7 +791,9 @@ func Uninstall(ctx context.Context, o Options) (Report, error) {
 		skill.Result = result
 		r.PickupSkills = append(r.PickupSkills, skill)
 	}
-	if err := eachTeamSkill(o, &r, core.RemoveSkillFile); err != nil {
+	if err := eachTeamSkill(o, &r, func(path string, skill core.TeamSkill) (string, error) {
+		return core.RemoveSkillFile(path, skill.Content)
+	}); err != nil {
 		return r, err
 	}
 	r.BinaryResult = "absent"
