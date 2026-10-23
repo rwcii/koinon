@@ -5,6 +5,11 @@ into a dated release section when promoted to `main`.
 
 ## Unreleased
 
+- After `koinon install` at a terminal adds a family's permission rules, the family's `review`
+  and `agents` entries no longer report them as `missing` with a note to run the install again:
+  they report them as `added`, and the `agents` entry lists them in `changed`, as `koinon setup`
+  does (#462).
+
 ## 2026-10-23 — Team skills, Claude wakes during work and one dashboard login per port
 
 This release makes `koinon install` and the daemon write the team skills next to

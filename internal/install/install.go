@@ -82,8 +82,9 @@ type Report struct {
 	OtherBinary  string         `json:"other_binary,omitempty"`
 	SourceStep   string         `json:"source_step,omitempty"`
 	Agents       []setup.Report `json:"agents"`
-	// Review is each family's state before an install at a terminal; Permissions reports the
-	// permission rules of each set-up family after its question (#449).
+	// Review is each family's state before an install at a terminal, with the permission rules
+	// after the question for a family that got it (#462); Permissions reports the permission
+	// rules of each set-up family after its question (#449).
 	Review      []setup.Inspection        `json:"review,omitempty"`
 	Permissions []setup.PermissionsResult `json:"permissions,omitempty"`
 	// PickupSkills reports the managed cycle's koinon-pickup skill for each family (#406).
@@ -884,6 +885,22 @@ func offerPermissions(o Options, agents []string, r *Report) error {
 			return err
 		}
 		r.Permissions = append(r.Permissions, result)
+		// The family's review and own entries show the rules after the question, as koinon setup
+		// does (#462).
+		for i := range r.Review {
+			if r.Review[i].Family == family {
+				r.Review[i].Permissions = &result
+			}
+		}
+		for i := range r.Agents {
+			if r.Agents[i].Family != family {
+				continue
+			}
+			r.Agents[i].Permissions = &result
+			if result.Outcome == "added" {
+				r.Agents[i].Changed = append(r.Agents[i].Changed, family+" permission rules in "+result.SettingsFile)
+			}
+		}
 	}
 	return nil
 }
