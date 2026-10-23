@@ -404,7 +404,8 @@ func claudeRunningSubagents(t CycleTarget, since int64) (int, error) {
 // boundedEntries reads at most maxSubagentEntries entries of dir: nil for an absent
 // directory, errSubagentScan for a longer one.
 func boundedEntries(dir string) ([]fs.DirEntry, error) {
-	f, err := os.Open(dir)
+	// A directory open does not block: a FIFO or another file in its place fails it (#467).
+	f, err := os.OpenFile(dir, os.O_RDONLY|syscall.O_NONBLOCK|syscall.O_DIRECTORY, 0)
 	if errors.Is(err, fs.ErrNotExist) {
 		return nil, nil
 	} else if err != nil {
