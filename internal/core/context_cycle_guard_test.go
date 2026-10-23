@@ -717,12 +717,14 @@ func TestContextCycleRequestAsksToPauseAndStayIdle(t *testing.T) {
 	f.observe(t, f.k, 900, "synthetic-epoch-1")
 	v := f.status(t, f.k)
 	requests := f.overwatchRequests(t)
-	if len(requests) != 1 || requests[0] != cycleRequestBody(v.ID, v.Revision, f.k.Family) {
+	if len(requests) != 1 || requests[0] != cycleRequestBody(v.ID, v.Revision, f.k.Family, v.StageDeadline) {
 		t.Fatalf("requests: %q", requests)
 	}
 	for _, want := range []string{"managed context cycle " + v.ID + " revision 1 requests your handoff",
 		"Pause your work at the next safe stopping point and start no new work",
 		"Let running background subagents finish, or stop them", "call context_cycle_ready",
+		"Report ready by " + time.UnixMilli(v.StageDeadline).UTC().Format("2006-01-02 15:04:05 UTC") + ".",
+		"stop any that will not finish with enough time left to update the handoff and report ready by",
 		"into _handoff/" + f.k.Family + "/ of the main checkout, or into the directory that the Handoff path fact of .koinon/skills/handoff.md names",
 		"Then end your turn and stay idle", "overwatch clears your context only at your idle prompt", "asks again"} {
 		if !strings.Contains(requests[0], want) {
@@ -740,6 +742,24 @@ func TestContextCycleRequestAsksToPauseAndStayIdle(t *testing.T) {
 	}
 }
 
+// A repeated request names its own ready deadline, which the cycle's lifetime caps (#467).
+func TestContextCycleRepeatNamesCappedDeadline(t *testing.T) {
+	f := newCycleFixture(t)
+	ready, _ := f.readyCycle(t)
+	// 20 minutes later, 15 more would pass the cycle's 30-minute lifetime.
+	f.clock = f.clock.Add(20 * time.Minute)
+	f.adapter.pane = PaneState{Seen: subagentAfterReady}
+	f.step(t)
+	again := f.status(t, f.k)
+	if again.State != cycleWaitingReady || again.Revision != ready.Revision+1 || again.StageDeadline != again.CycleDeadline {
+		t.Fatalf("repeat: %+v", again)
+	}
+	by := "Report ready by " + time.UnixMilli(again.CycleDeadline).UTC().Format("2006-01-02 15:04:05 UTC") + "."
+	if requests := f.overwatchRequests(t); len(requests) != 2 || !strings.Contains(requests[1], by) {
+		t.Fatalf("requests lack %q: %q", by, requests)
+	}
+}
+
 // A ready requester whose background subagent worked after the report is asked again at
 // once under a new revision, without a clear: its handoff lacks that work (#456).
 func TestContextCycleAsksAgainAfterSubagentWork(t *testing.T) {
@@ -752,7 +772,7 @@ func TestContextCycleAsksAgainAfterSubagentWork(t *testing.T) {
 		again.Artifact != "" || f.adapter.count("clear") != 0 {
 		t.Fatalf("asked again: %+v clears %d", again, f.adapter.count("clear"))
 	}
-	if requests := f.overwatchRequests(t); len(requests) != 2 || requests[1] != cycleRequestBody(again.ID, again.Revision, f.k.Family) {
+	if requests := f.overwatchRequests(t); len(requests) != 2 || requests[1] != cycleRequestBody(again.ID, again.Revision, f.k.Family, again.StageDeadline) {
 		t.Fatalf("requests: %q", requests)
 	}
 	// A waiting_ready cycle reports no ready time, so the same observation repeats nothing.
@@ -827,7 +847,7 @@ func TestContextCycleAsksAgainWhenThePaneStaysBusy(t *testing.T) {
 		t.Fatalf("asked again: %+v", again)
 	}
 	requests := f.overwatchRequests(t)
-	if len(requests) != 2 || requests[1] != cycleRequestBody(again.ID, again.Revision, f.k.Family) {
+	if len(requests) != 2 || requests[1] != cycleRequestBody(again.ID, again.Revision, f.k.Family, again.StageDeadline) {
 		t.Fatalf("requests: %q", requests)
 	}
 	// The cycle no longer owns the pane, so the new request's wake goes out.

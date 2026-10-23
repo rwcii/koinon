@@ -194,7 +194,11 @@ The handoff that the ready reply names is in the session's own handoff directory
 checkout: the directory that the Handoff path fact of the repository's
 `.koinon/skills/handoff.md` names, else `_handoff/<agent>/`, where the agent is the family with
 the launch's role, not the participant address. The request names that directory, and a ready
-reply that a check refuses says which check and which directory (#468).
+reply that a check refuses says which check and which directory (#468). The request also
+names its ready deadline as a UTC time and asks the session to stop background subagents that
+will not finish with enough time left to update the handoff and report ready by then; for a
+Claude session at that stage, the Sessions page shows how many of its background subagents
+are still running (#467).
 The cycle stops with a shown reason when no ready reply
 arrives in time, the pane cannot be proven, or the bounds end it while the session stays busy;
 the reason names what Koinon last saw in the pane. Entering commands in the
@@ -238,6 +242,14 @@ through all open items to prepare for the next release"
 ([#468](https://github.com/rwcii/koinon/issues/468)). The intent: a session can see why its
 ready reply is refused and correct it. Reading the Handoff path fact, and naming the check
 and the directory, are the design of #468; no maintainer decision on them found.
+
+Ready deadline in the request: the maintainer, 2026-10-23, after a session held its ready reply
+for its subagents and the Sessions page showed only `waiting_ready`: "claude-unify is mid
+handoff, and looks to be waiting for overwatch to take acton. nothign is happening.", then
+"yes, watch it and file the issue" ([#467](https://github.com/rwcii/koinon/issues/467)). The
+intent: a session can plan its stop against the real deadline, and the maintainer can see why
+a cycle waits. The deadline text, the stop rule and the subagent count are the design of #467;
+no maintainer decision on them found.
 
 Sender provenance: Maintainer, 2026-10-13, answering the recommendation for a distinct daemon
 sender: “I agree, let's call it "overwatch"”
@@ -417,3 +429,4 @@ and terminal commands have the maintainer's words; the rest is requested or prop
 | 2026-10-19 | Decisions 3 and 4: the cycle picks up through Koinon's own `koinon-pickup` skill, installed for the person, never in a repository; the loader and its bootstrap are removed (#406) |
 | 2026-10-22 | Decision 3: a Claude subagent that worked after the ready reply makes the cycle ask again (#456) |
 | 2026-10-23 | Decision 3: the handoff directory follows the Handoff path fact; the request names it, and a refused ready reply names the check (#468) |
+| 2026-10-23 | Decision 3: the request names its ready deadline; the Sessions page counts a Claude session's running subagents (#467) |
