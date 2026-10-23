@@ -75,6 +75,7 @@ func newEnv(t *testing.T, backend string) *env {
 	e := &env{r: &recorder{}}
 	e.o = Options{Prefix: filepath.Join(dir, "prefix"), StateDir: state, PythonPrefix: filepath.Join(dir, "python"), Source: source,
 		Path: filepath.Join(dir, "empty-path"), ClaudeConfig: filepath.Join(dir, "claude-config"),
+		Opencode: filepath.Join(dir, "opencode-config"), AgyRoot: filepath.Join(dir, "agy-config"),
 		Services: platform.Services{Backend: backend, Home: filepath.Join(dir, "home"), UID: 501, Run: e.r.run,
 			User: "alice", Group: "staff", SystemDir: filepath.Join(dir, "LaunchDaemons")},
 		Setup: func(_ context.Context, o setup.Options) (setup.Report, error) {
@@ -232,6 +233,213 @@ func TestInstallTeamSkills(t *testing.T) {
 	}
 	if data, _ := os.ReadFile(personal); string(data) != "a personal handoff\n" {
 		t.Fatalf("personal handoff changed: %q", data)
+	}
+}
+
+// OpenCode and agy get koinon-pickup and every skill entry in their configuration directories,
+// whose discovery was verified, only when the directory exists: no directory is made for an
+// agent that is not on the computer, and the uninstall removes what the install wrote (#461).
+func TestInstallSkillEntriesOtherFamilies(t *testing.T) {
+	e := newEnv(t, "systemd")
+	if err := os.MkdirAll(e.o.AgyRoot, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	skills, err := core.TeamSkills()
+	if err != nil {
+		t.Fatal(err)
+	}
+	r, err := Install(context.Background(), e.o)
+	if err != nil || !r.OK {
+		t.Fatalf("install %+v %v", r, err)
+	}
+	if !reflect.DeepEqual(pickupResults(r.PickupSkills), map[string]string{"claude": "created", "codex": "created", "agy": "created"}) {
+		t.Fatalf("pickup %+v", r.PickupSkills)
+	}
+	agy := 0
+	for _, entry := range r.TeamSkills {
+		if entry.Family == "opencode" {
+			t.Fatalf("an entry for an absent OpenCode: %+v", entry)
+		}
+		if entry.Family == "agy" {
+			agy++
+			if entry.Path != filepath.Join(e.o.AgyRoot, "skills", entry.Name, "SKILL.md") || entry.Result != "created" {
+				t.Fatalf("agy entry %+v", entry)
+			}
+		}
+	}
+	if agy != len(skills) {
+		t.Fatalf("agy entries %d, want %d", agy, len(skills))
+	}
+	for _, skill := range skills {
+		if data, err := os.ReadFile(filepath.Join(e.o.AgyRoot, "skills", skill.Name, "SKILL.md")); err != nil || !bytes.Equal(data, skill.Content) {
+			t.Fatalf("agy %s: %q %v", skill.Name, data, err)
+		}
+	}
+	if data, err := os.ReadFile(filepath.Join(e.o.AgyRoot, "skills", core.PickupSkillName, "SKILL.md")); err != nil || !bytes.Equal(data, core.PickupSkill()) {
+		t.Fatalf("agy pickup: %q %v", data, err)
+	}
+	if _, err := os.Lstat(e.o.Opencode); !os.IsNotExist(err) {
+		t.Fatalf("made OpenCode's directory: %v", err)
+	}
+	// Once OpenCode's directory exists, the next install writes its entries too.
+	if err := os.MkdirAll(e.o.Opencode, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	again, err := Install(context.Background(), e.o)
+	if err != nil {
+		t.Fatal(err)
+	}
+	results := map[string]int{}
+	for _, entry := range again.TeamSkills {
+		results[entry.Family+" "+entry.Result]++
+		if entry.Family == "opencode" && entry.Path != filepath.Join(e.o.Opencode, "skills", entry.Name, "SKILL.md") {
+			t.Fatalf("opencode entry %+v", entry)
+		}
+	}
+	if results["opencode created"] != len(skills) || results["agy unchanged"] != len(skills) {
+		t.Fatalf("repeat %v", results)
+	}
+	u, err := Uninstall(context.Background(), e.o)
+	if err != nil || !u.OK {
+		t.Fatalf("uninstall %+v %v", u, err)
+	}
+	for _, root := range []string{e.o.AgyRoot, e.o.Opencode} {
+		for _, skill := range append(skills, core.TeamSkill{Name: core.PickupSkillName}) {
+			if _, err := os.Lstat(filepath.Join(root, "skills", skill.Name)); !os.IsNotExist(err) {
+				t.Fatalf("%s %s left: %v", root, skill.Name, err)
+			}
+		}
+	}
+}
+
+// An entry directory or file that is a link, such as a link to a project's own skill, is the
+// person's: install, a repeat and uninstall keep it and the linked files unchanged (#461).
+func TestInstallKeepsLinkedEntries(t *testing.T) {
+	e := newEnv(t, "systemd")
+	project := filepath.Join(t.TempDir(), "project", "agents", "skills")
+	linked := map[string]string{} // entry path -> the project file it reaches
+	for _, link := range []struct{ entry, target string }{
+		// A directory link and a file link.
+		{filepath.Dir(core.CodexSkillPath(e.o.Services.Home, "koinon-check")), filepath.Join(project, "check")},
+		{core.ClaudeSkillPath(e.o.ClaudeConfig, core.PickupSkillName), filepath.Join(project, "pickup", "SKILL.md")},
+	} {
+		file := link.target
+		if filepath.Base(file) != "SKILL.md" {
+			file = filepath.Join(link.target, "SKILL.md")
+		}
+		if err := os.MkdirAll(filepath.Dir(file), 0o700); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(file, []byte("the project's skill\n"), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.MkdirAll(filepath.Dir(link.entry), 0o700); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.Symlink(link.target, link.entry); err != nil {
+			t.Fatal(err)
+		}
+		linked[link.entry] = file
+	}
+	check := core.CodexSkillPath(e.o.Services.Home, "koinon-check")
+	pickup := core.ClaudeSkillPath(e.o.ClaudeConfig, core.PickupSkillName)
+	unchanged := func(step string) {
+		t.Helper()
+		for entry, file := range linked {
+			if data, err := os.ReadFile(file); err != nil || string(data) != "the project's skill\n" {
+				t.Fatalf("%s changed %s through %s: %q %v", step, file, entry, data, err)
+			}
+			if info, err := os.Lstat(entry); err != nil || info.Mode()&os.ModeSymlink == 0 {
+				t.Fatalf("%s replaced the link %s: %v", step, entry, err)
+			}
+		}
+	}
+	results := func(r Report) map[string]string {
+		m := map[string]string{}
+		for _, s := range append(r.PickupSkills, r.TeamSkills...) {
+			if s.Path == check || s.Path == pickup {
+				m[s.Path] = s.Result
+			}
+		}
+		return m
+	}
+	for _, step := range []string{"install", "repeat"} {
+		r, err := Install(context.Background(), e.o)
+		if err != nil || !reflect.DeepEqual(results(r), map[string]string{check: "kept", pickup: "kept"}) {
+			t.Fatalf("%s %v %v", step, results(r), err)
+		}
+		unchanged(step)
+	}
+	u, err := Uninstall(context.Background(), e.o)
+	if err != nil || !reflect.DeepEqual(results(u), map[string]string{check: "kept", pickup: "kept"}) {
+		t.Fatalf("uninstall %v %v", results(u), err)
+	}
+	unchanged("uninstall")
+}
+
+// koinon-guide's entry has the catalog item's own name: a fresh install writes it and an older
+// Koinon entry is replaced, but an adopted copy of the item stays, and the uninstall keeps it
+// (#461).
+func TestInstallSharedEntryKeepsAdoptedCopy(t *testing.T) {
+	e := newEnv(t, "systemd")
+	skills, err := core.TeamSkills()
+	if err != nil {
+		t.Fatal(err)
+	}
+	var guide core.TeamSkill
+	for _, skill := range skills {
+		if skill.Name == "koinon-guide" {
+			guide = skill
+		}
+	}
+	if !guide.Shared {
+		t.Fatalf("koinon-guide entry %+v", guide)
+	}
+	codex := core.CodexSkillPath(e.o.Services.Home, guide.Name)
+	claude := core.ClaudeSkillPath(e.o.ClaudeConfig, guide.Name)
+	older := strings.Replace(string(guide.Content), "If the\ntool is unavailable", "If the\nolder tool is unavailable", 1)
+	adopted := "---\nname: koinon-guide\ndescription: adopted\n---\n\n# Koinon guide\n\nThe adopted procedure.\n"
+	for path, content := range map[string]string{codex: older, claude: adopted} {
+		if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	results := func(r Report) map[string]string {
+		m := map[string]string{}
+		for _, s := range r.TeamSkills {
+			if s.Name == guide.Name {
+				m[s.Family] = s.Result
+			}
+		}
+		return m
+	}
+	r, err := Install(context.Background(), e.o)
+	if err != nil || !reflect.DeepEqual(results(r), map[string]string{"codex": "replaced", "claude": "kept"}) {
+		t.Fatalf("install %v %v", results(r), err)
+	}
+	if data, _ := os.ReadFile(codex); !bytes.Equal(data, guide.Content) {
+		t.Fatalf("older entry not replaced: %q", data)
+	}
+	if data, _ := os.ReadFile(claude); string(data) != adopted {
+		t.Fatalf("adopted copy changed: %q", data)
+	}
+	u, err := Uninstall(context.Background(), e.o)
+	if err != nil || !reflect.DeepEqual(results(u), map[string]string{"codex": "removed", "claude": "kept"}) {
+		t.Fatalf("uninstall %v %v", results(u), err)
+	}
+	if data, _ := os.ReadFile(claude); string(data) != adopted {
+		t.Fatalf("uninstall changed the adopted copy: %q", data)
+	}
+	// A fresh install writes it.
+	fresh := newEnv(t, "systemd")
+	if _, err := Install(context.Background(), fresh.o); err != nil {
+		t.Fatal(err)
+	}
+	if data, err := os.ReadFile(core.CodexSkillPath(fresh.o.Services.Home, guide.Name)); err != nil || !bytes.Equal(data, guide.Content) {
+		t.Fatalf("fresh install: %q %v", data, err)
 	}
 }
 

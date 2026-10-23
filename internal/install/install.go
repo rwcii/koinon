@@ -45,10 +45,15 @@ type Options struct {
 	// ClaudeConfig is the Claude Code configuration root that receives the koinon-pickup
 	// skill; default $CLAUDE_CONFIG_DIR, else ~/.claude.
 	ClaudeConfig string
-	Path         string // the search path that the report resolves koinon on; default $PATH
-	Address      string // the daemon address to wait for; default 127.0.0.1 at the port
-	Services     platform.Services
-	Setup        func(context.Context, setup.Options) (setup.Report, error)
+	// Opencode and AgyRoot are OpenCode's and agy's configuration directories, which receive
+	// the skill entries when they exist (#461); default $XDG_CONFIG_HOME/opencode, else
+	// ~/.config/opencode, and ~/.gemini/config.
+	Opencode string
+	AgyRoot  string
+	Path     string // the search path that the report resolves koinon on; default $PATH
+	Address  string // the daemon address to wait for; default 127.0.0.1 at the port
+	Services platform.Services
+	Setup    func(context.Context, setup.Options) (setup.Report, error)
 	// Adopt records the launcher CLI of a family that an earlier setup configured.
 	Adopt  func(context.Context, setup.Options) (setup.Report, bool, error)
 	Remove func(context.Context, setup.Options) (setup.Report, error)
@@ -146,6 +151,12 @@ func (o *Options) defaults() error {
 	}
 	if o.ClaudeConfig == "" {
 		o.ClaudeConfig = core.ClaudeConfigRoot(os.Getenv("CLAUDE_CONFIG_DIR"), o.Services.Home)
+	}
+	if o.Opencode == "" {
+		o.Opencode = core.OpenCodeConfigRoot(os.Getenv("XDG_CONFIG_HOME"), o.Services.Home)
+	}
+	if o.AgyRoot == "" {
+		o.AgyRoot = core.AgyConfigRoot(o.Services.Home)
 	}
 	if o.Path == "" {
 		o.Path = os.Getenv("PATH")
@@ -479,16 +490,31 @@ func place(source, target string) (string, error) {
 	return "replaced", platform.SyncDir(filepath.Dir(target))
 }
 
-// pickupSkillPaths are the koinon-pickup skill files by family: under the Claude Code
-// configuration root, and in the home's ~/.agents/skills, which Codex lists (#406).
+// skillRoots are the families' user skill roots that get the entries: under the Claude Code
+// configuration root, in the home's ~/.agents/skills, which Codex lists (#406), and in
+// OpenCode's and agy's configuration directories when they exist (#461).
+func skillRoots(o Options) []core.SkillRoot {
+	var roots []core.SkillRoot
+	for _, root := range core.SkillRoots(o.ClaudeConfig, o.Services.Home, o.Opencode, o.AgyRoot) {
+		if root.Present() {
+			roots = append(roots, root)
+		}
+	}
+	return roots
+}
+
+// pickupSkillPaths are the koinon-pickup skill files by family.
 func pickupSkillPaths(o Options) []PickupSkill {
-	return []PickupSkill{{Family: "claude", Path: core.ClaudePickupSkillPath(o.ClaudeConfig)},
-		{Family: "codex", Path: core.CodexPickupSkillPath(o.Services.Home)}}
+	var skills []PickupSkill
+	for _, root := range skillRoots(o) {
+		skills = append(skills, PickupSkill{Family: root.Family, Path: root.Path(core.PickupSkillName)})
+	}
+	return skills
 }
 
 // installPickupSkills writes the managed cycle's koinon-pickup skill for each family, for the
-// person who runs the daemon and never into a repository (#406), and the team skill entries
-// at the same places (#453).
+// person who runs the daemon and never into a repository (#406), and the other skill entries
+// at the same places (#453, #461).
 func installPickupSkills(o Options, r *Report) error {
 	for _, skill := range pickupSkillPaths(o) {
 		result, err := core.InstallPickupSkill(skill.Path)
@@ -498,21 +524,20 @@ func installPickupSkills(o Options, r *Report) error {
 		skill.Result = result
 		r.PickupSkills = append(r.PickupSkills, skill)
 	}
-	return eachTeamSkill(o, r, core.InstallSkillFile)
+	return eachTeamSkill(o, r, core.InstallTeamSkill)
 }
 
-// eachTeamSkill applies change to each family's team skill entry files and reports them.
-func eachTeamSkill(o Options, r *Report, change func(path string, content []byte) (string, error)) error {
+// eachTeamSkill applies change to each family's skill entry files and reports them.
+func eachTeamSkill(o Options, r *Report, change func(path string, skill core.TeamSkill) (string, error)) error {
 	skills, err := core.TeamSkills()
 	if err != nil {
 		return fmt.Errorf("team_skill_failed: %v", err)
 	}
+	roots := skillRoots(o)
 	for _, skill := range skills {
-		for _, target := range []PickupSkill{
-			{Family: "claude", Name: skill.Name, Path: core.ClaudeSkillPath(o.ClaudeConfig, skill.Name)},
-			{Family: "codex", Name: skill.Name, Path: core.CodexSkillPath(o.Services.Home, skill.Name)},
-		} {
-			result, err := change(target.Path, skill.Content)
+		for _, root := range roots {
+			target := PickupSkill{Family: root.Family, Name: skill.Name, Path: root.Path(skill.Name)}
+			result, err := change(target.Path, skill)
 			if err != nil {
 				return fmt.Errorf("team_skill_failed: %s: %v", target.Path, err)
 			}
@@ -766,7 +791,9 @@ func Uninstall(ctx context.Context, o Options) (Report, error) {
 		skill.Result = result
 		r.PickupSkills = append(r.PickupSkills, skill)
 	}
-	if err := eachTeamSkill(o, &r, core.RemoveSkillFile); err != nil {
+	if err := eachTeamSkill(o, &r, func(path string, skill core.TeamSkill) (string, error) {
+		return core.RemoveSkillFile(path, skill.Content)
+	}); err != nil {
 		return r, err
 	}
 	r.BinaryResult = "absent"

@@ -196,6 +196,12 @@ func TestServeWritesPickupSkills(t *testing.T) {
 	home, config := filepath.Join(dir, "home"), filepath.Join(dir, "claude-config")
 	t.Setenv("HOME", home)
 	t.Setenv("CLAUDE_CONFIG_DIR", config)
+	// OpenCode's configuration directory exists and agy's does not (#461).
+	opencode := filepath.Join(dir, "xdg", "opencode")
+	t.Setenv("XDG_CONFIG_HOME", filepath.Join(dir, "xdg"))
+	if err := os.MkdirAll(opencode, 0o700); err != nil {
+		t.Fatal(err)
+	}
 	claude := core.ClaudePickupSkillPath(config)
 	codex := core.CodexPickupSkillPath(home)
 	if err := os.MkdirAll(filepath.Dir(codex), 0o700); err != nil {
@@ -219,11 +225,18 @@ func TestServeWritesPickupSkills(t *testing.T) {
 		t.Fatal(err)
 	}
 	for _, skill := range skills {
-		for _, path := range []string{core.ClaudeSkillPath(config, skill.Name), core.CodexSkillPath(home, skill.Name)} {
+		for _, path := range []string{core.ClaudeSkillPath(config, skill.Name), core.CodexSkillPath(home, skill.Name),
+			filepath.Join(opencode, "skills", skill.Name, "SKILL.md")} {
 			if data, err := os.ReadFile(path); err != nil || !bytes.Equal(data, skill.Content) {
 				t.Fatalf("%s: %q %v", path, data, err)
 			}
 		}
+	}
+	if data, err := os.ReadFile(filepath.Join(opencode, "skills", core.PickupSkillName, "SKILL.md")); err != nil || !bytes.Equal(data, core.PickupSkill()) {
+		t.Fatalf("opencode pickup: %q %v", data, err)
+	}
+	if _, err := os.Lstat(filepath.Join(home, ".gemini")); !os.IsNotExist(err) {
+		t.Fatalf("made agy's directory: %v", err)
 	}
 	if _, err := os.Lstat(filepath.Join(home, ".claude")); !os.IsNotExist(err) {
 		t.Fatalf("wrote ~/.claude although CLAUDE_CONFIG_DIR is set: %v", err)

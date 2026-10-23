@@ -3,7 +3,7 @@ pdr: "008"
 title: "Portable Skills and Explicit Adoption"
 status: draft
 created: "2026-10-12"
-updated: "2026-10-19"
+updated: "2026-10-23"
 authors:
   - "Robert Capps"
 reviewers: []
@@ -102,8 +102,9 @@ embedded and grant no permission.
 
 Koinon-owned entries are not catalog items: `koinon-pickup`, the managed context cycle's
 pickup entry (PDR 006, Decision 4), and the team skill entries (Decision 2). `koinon install` and the daemon at each start install it
-for the person who runs the daemon, one user-level copy per agent family (Claude Code's personal skills, `~/.agents/skills`
-for Codex), and never in a project repository. It only reads the catalog item `skill.pickup`,
+for the person who runs the daemon, one user-level copy per agent family whose user skill root
+was verified (Claude Code's personal skills, `~/.agents/skills` for Codex, and OpenCode's and
+agy's configuration directories when they exist), and never in a project repository. It only reads the catalog item `skill.pickup`,
 so the procedure keeps its one copy in the catalog. A project's own `pickup` skill, and the
 catalog's `pickup` wherever it was adopted, are unchanged by it.
 
@@ -158,15 +159,18 @@ machine-wide copies as the default recommendation and project-local installation
 explicitly selected alternative, each approved on its own. Machine decisions go in a bounded
 daemon table and project decisions in the repository's memory store.
 
-The team skills are Koinon's own entries, not adoptions: `koinon install` and the daemon at
-each start write `koinon-spin-up`, `koinon-spin-down`, `koinon-recover-team`,
-`koinon-peer-tmux` and `koinon-handoff` for the person who runs the daemon, at the places of
-`koinon-pickup` (Decision 1), and never into a repository. Each entry loads its catalog item
+The skill entries are Koinon's own entries, not adoptions: `koinon install` and the daemon at
+each start write an entry named `koinon-NAME` for each catalog skill, such as
+`koinon-spin-up`, `koinon-handoff` and `koinon-check`, for the person who runs the daemon, at
+the places of `koinon-pickup` (Decision 1), and never into a repository. A skill already named
+`koinon-NAME`, such as `koinon-guide`, keeps its name; because that is also the catalog item's
+own name, its entry replaces only an earlier Koinon entry and leaves an adopted copy. Grok and
+DeepSeek get none until their user skill roots are verified. Each entry loads its catalog item
 through Koinon and holds no procedure, so the catalog keeps the one copy and the entry changes
 with the runtime; the item's procedure reads the repository's own facts from
 `.koinon/skills/NAME.md`. The runnable steps of these procedures are in the installed guide. A
-personal or project skill of the bare name is not touched, and adopting the catalog item
-itself still follows this decision.
+personal or project skill of the bare name is not touched, nor is an entry that is a symbolic
+link, and adopting the catalog item itself still follows this decision.
 
 **Provenance:** Requested in #145 (issue body, requirements 5–7); a request record. Machine
 default plus approved project-local target: Maintainer, 2026-10-12, session transcript:
@@ -188,6 +192,16 @@ adopting project's copy of the team procedure drifted from the runtime, so Koino
 procedure and its commands, and each project supplies only its facts. The `koinon-NAME` names
 and the loading entries, with the pickup skill served by `koinon-pickup`, are the design that
 #453 proposes; no maintainer decision on them found.
+
+All skills, all installed agent families: Maintainer, 2026-10-23: "open an issue to deploy the
+skills to all installed agents." ([#461](https://github.com/rwcii/koinon/issues/461)), after the
+answer that only the five team skills had user-level entries, and only for Claude Code and
+Codex; then "start 461". The intent: every agent family on the computer runs the same Koinon
+procedures from the installed release. The roots (verified in #461 against Claude Code
+2.1.308, Codex 0.163.0, OpenCode 1.18.35 and agy 1.4.3), the rule that OpenCode and agy get
+entries only when their configuration directory exists, the omission of Grok and DeepSeek, are
+the criteria of #461, which codex-koinon agreed to; keeping linked entries and adopted copies
+came from its review of the change. No maintainer decision on them found.
 
 ### Alternatives Considered
 
@@ -299,3 +313,4 @@ Required checks drift defect are ordinary corrections; they add no product decis
 | 2026-10-12 | Reconciled merged catalog/query chunks, native scope and collision evidence, scoped receipts and the approved adoption procedure |
 | 2026-10-19 | Decision 1: one Koinon-owned skill, the cycle's `koinon-pickup`, installed by `koinon install` for the person and not a catalog item (#406) |
 | 2026-10-22 | Decision 2: `koinon install` and the daemon write the team skill entries, which load their catalog items (#453) |
+| 2026-10-23 | Decisions 1 and 2: an entry for every catalog skill, also for OpenCode and agy when their configuration directory exists (#461) |
