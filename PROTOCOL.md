@@ -434,9 +434,14 @@ Probe's reason, or `pickup through koinon-pickup`.
 The skill's body only reads `skill.pickup` with `library_read` and requires its catalog digest
 to equal the cycle's `catalog_digest`, which `context_cycle_status` returns; it holds no
 procedure of its own. The daemon writes it at each start, from its own environment
-(`$CLAUDE_CONFIG_DIR`, else `~/.claude`, and `~/.agents/skills`), when it is missing or holds
-other content, and `koinon install` writes it for the person who runs it; neither writes into a
-repository (see [INSTALL.md](docs/INSTALL.md)). A write the daemon cannot make is logged
+(`$CLAUDE_CONFIG_DIR`, else `~/.claude`, and `~/.agents/skills`, and OpenCode's and agy's
+configuration directories when they exist), when it is missing or holds other content, and
+`koinon install` writes it for the person who runs it; neither writes into a repository (see
+[INSTALL.md](docs/INSTALL.md)). The install report lists it in `pickup_skills` and the other
+skill entries in `team_skills`, one row per file with `family`, `name` (for an entry), `path`
+and `result`: `created`, `replaced` or `unchanged` for an install, `removed` or `absent` for an
+uninstall, and `kept` for a file with other content at uninstall or a symbolically linked entry
+directory or file, which neither writes through. A write the daemon cannot make is logged
 (`pickup_skill`, `write_failed`) and does not stop it. `koinon claude` adds no directory to a launch,
 and the cycle adds none to a running session.
 

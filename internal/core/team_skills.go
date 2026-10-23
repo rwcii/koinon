@@ -14,8 +14,9 @@ import (
 // Koinon-owned entry named koinon-NAME for each catalog skill, for the person who runs the
 // daemon and never into a repository, at the same places as koinon-pickup. An entry holds no
 // procedure: it loads its catalog item, whose procedure reads the repository's own facts from
-// .koinon/skills/NAME.md. The pickup skill's entry is koinon-pickup itself, and a skill whose
-// name already starts with koinon- keeps its name.
+// .koinon/skills/NAME.md. The pickup skill's entry is koinon-pickup itself. A skill whose name
+// already starts with koinon-, such as koinon-guide, gets no entry: that name is the catalog
+// item's own, which a person's adopted copy or link may hold.
 
 // TeamSkill is one skill entry: its name and its file's bytes.
 type TeamSkill struct {
@@ -23,8 +24,8 @@ type TeamSkill struct {
 	Content []byte
 }
 
-// TeamSkills returns the skill entries other than koinon-pickup, one for each skill of the
-// embedded catalog, in catalog order; each carries its item's description so that the command
+// TeamSkills returns the skill entries other than koinon-pickup, one for each such skill of
+// the embedded catalog, in catalog order; each carries its item's description so that the command
 // menus list it.
 func TeamSkills() ([]TeamSkill, error) {
 	catalog, err := library.Embedded("")
@@ -33,16 +34,13 @@ func TeamSkills() ([]TeamSkill, error) {
 	}
 	var skills []TeamSkill
 	for _, item := range catalog.Items {
-		if item.Kind != "skill" || item.Name == "pickup" {
+		if item.Kind != "skill" || item.Name == "pickup" || strings.HasPrefix(item.Name, "koinon-") {
 			continue
 		}
 		if item.Facts == nil {
 			return nil, fmt.Errorf("catalog skill.%s declares no repository facts", item.Name)
 		}
-		name := item.Name
-		if !strings.HasPrefix(name, "koinon-") {
-			name = "koinon-" + name
-		}
+		name := "koinon-" + item.Name
 		skills = append(skills, TeamSkill{Name: name, Content: []byte(teamSkillContent(name, item.Name, item.Facts.Filename, item.Description))})
 	}
 	if len(skills) == 0 {

@@ -132,13 +132,16 @@ does this:
    this entry changes. A personal or project `pickup` skill is left as it is.
    At the same places it writes a skill entry for each other catalog skill, named
    `koinon-NAME`, such as `koinon-spin-up`, `koinon-handoff`, `koinon-check` and `koinon-ship`;
-   `koinon-guide` keeps its name (PDR 008, Decision 2). Each
+   a skill already named `koinon-NAME`, such as `koinon-guide`, gets none, because that name is
+   the catalog item's own (PDR 008, Decision 2). Each
    one loads its catalog item through Koinon, whose procedure reads the repository's own facts
    from `.koinon/skills/NAME.md`; the entry holds no procedure of its own. `team_skills` in the
    report gives each family, name, path and result, a file that cannot be written fails the
    install with `team_skill_failed`, and the daemon writes them at each start too (a failure is
    a logged `team_skill` event). A personal or project skill of the bare name, such as
-   `handoff`, is left as it is.
+   `handoff`, is left as it is. An entry directory or file that is a symbolic link, such as a
+   link to a project's skill, is yours: the install, the daemon and the uninstall leave it and
+   what it points at unchanged and report it as `kept`.
 
 When no user service manager answers, the report says `"service": "manual_required"` and gives
 the `start_command` to run in a managed session. The default install never uses sudo, system

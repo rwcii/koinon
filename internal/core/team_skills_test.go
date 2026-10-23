@@ -11,8 +11,8 @@ import (
 
 // Each skill entry loads its catalog item and names the item's own repository facts file; it
 // holds no procedure and no project data, so one entry serves every repository, with or
-// without a sidecar (#453). Every catalog skill but pickup has one, and koinon-guide keeps its
-// name (#461).
+// without a sidecar (#453). Every catalog skill but pickup has one, except a skill already
+// named koinon-NAME, such as koinon-guide, whose name an adopted copy may hold (#461).
 func TestTeamSkills(t *testing.T) {
 	skills, err := TeamSkills()
 	if err != nil {
@@ -29,17 +29,14 @@ func TestTeamSkills(t *testing.T) {
 			continue
 		}
 		items[item.Name] = item
-		if item.Name != "pickup" {
-			want = append(want, "koinon-"+strings.TrimPrefix(item.Name, "koinon-"))
+		if item.Name != "pickup" && !strings.HasPrefix(item.Name, "koinon-") {
+			want = append(want, "koinon-"+item.Name)
 		}
 	}
 	var names []string
 	for _, skill := range skills {
 		names = append(names, skill.Name)
 		name := strings.TrimPrefix(skill.Name, "koinon-")
-		if _, ok := items[skill.Name]; ok {
-			name = skill.Name
-		}
 		item, ok := items[name]
 		if !ok || item.Facts == nil {
 			t.Fatalf("%s: no catalog item with facts", skill.Name)
@@ -58,15 +55,15 @@ func TestTeamSkills(t *testing.T) {
 			t.Fatalf("%s holds a procedure:\n%s", skill.Name, content)
 		}
 	}
-	if len(want) != 13 || strings.Join(names, " ") != strings.Join(want, " ") {
+	if len(want) != 12 || strings.Join(names, " ") != strings.Join(want, " ") {
 		t.Fatalf("entries %q, want %q", names, want)
 	}
-	for _, name := range []string{"koinon-guide", "koinon-check", "koinon-spin-up", "koinon-handoff"} {
+	for _, name := range []string{"koinon-check", "koinon-spin-up", "koinon-handoff", "koinon-sprint"} {
 		if !slices.Contains(names, name) {
 			t.Fatalf("no entry %s in %q", name, names)
 		}
 	}
-	if slices.Contains(names, "koinon-pickup") || slices.Contains(names, "koinon-koinon-guide") {
+	if slices.Contains(names, "koinon-pickup") || slices.Contains(names, "koinon-guide") || slices.Contains(names, "koinon-koinon-guide") {
 		t.Fatalf("entries %q", names)
 	}
 }

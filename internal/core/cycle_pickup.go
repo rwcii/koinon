@@ -97,8 +97,13 @@ func pickupSkillStep(path string) string {
 func InstallPickupSkill(path string) (string, error) { return InstallSkillFile(path, PickupSkill()) }
 
 // InstallSkillFile writes content to path, replacing a different file, and reports "created",
-// "replaced" or "unchanged". Missing directories are created private to this account.
+// "replaced" or "unchanged". Missing directories are created private to this account. An
+// entry directory or file that is a symbolic link is the person's own, such as a link to a
+// project's skill, and is "kept" without a write (#461).
 func InstallSkillFile(path string, content []byte) (string, error) {
+	if linkedEntry(path) {
+		return "kept", nil
+	}
 	data, err := os.ReadFile(path)
 	switch {
 	case err == nil && bytes.Equal(data, content):
@@ -141,8 +146,12 @@ func InstallSkillFile(path string, content []byte) (string, error) {
 func RemovePickupSkill(path string) (string, error) { return RemoveSkillFile(path, PickupSkill()) }
 
 // RemoveSkillFile removes the file at path while it holds content, then its directory when
-// that is empty, and reports "removed", "kept" (another content) or "absent".
+// that is empty, and reports "removed", "kept" (another content, or a linked entry directory or
+// file) or "absent".
 func RemoveSkillFile(path string, content []byte) (string, error) {
+	if linkedEntry(path) {
+		return "kept", nil
+	}
 	data, err := os.ReadFile(path)
 	switch {
 	case errors.Is(err, os.ErrNotExist):
@@ -157,4 +166,15 @@ func RemoveSkillFile(path string, content []byte) (string, error) {
 	}
 	os.Remove(filepath.Dir(path))
 	return "removed", nil
+}
+
+// linkedEntry reports whether the skill file at path, or its entry directory, is a symbolic
+// link, which Koinon neither writes through nor removes.
+func linkedEntry(path string) bool {
+	for _, p := range []string{filepath.Dir(path), path} {
+		if info, err := os.Lstat(p); err == nil && info.Mode()&os.ModeSymlink != 0 {
+			return true
+		}
+	}
+	return false
 }

@@ -312,6 +312,71 @@ func TestInstallSkillEntriesOtherFamilies(t *testing.T) {
 	}
 }
 
+// An entry directory or file that is a link, such as a link to a project's own skill, is the
+// person's: install, a repeat and uninstall keep it and the linked files unchanged (#461).
+func TestInstallKeepsLinkedEntries(t *testing.T) {
+	e := newEnv(t, "systemd")
+	project := filepath.Join(t.TempDir(), "project", "agents", "skills")
+	linked := map[string]string{} // entry path -> the project file it reaches
+	for _, link := range []struct{ entry, target string }{
+		// A directory link and a file link.
+		{filepath.Dir(core.CodexSkillPath(e.o.Services.Home, "koinon-check")), filepath.Join(project, "check")},
+		{core.ClaudeSkillPath(e.o.ClaudeConfig, core.PickupSkillName), filepath.Join(project, "pickup", "SKILL.md")},
+	} {
+		file := link.target
+		if filepath.Base(file) != "SKILL.md" {
+			file = filepath.Join(link.target, "SKILL.md")
+		}
+		if err := os.MkdirAll(filepath.Dir(file), 0o700); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(file, []byte("the project's skill\n"), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.MkdirAll(filepath.Dir(link.entry), 0o700); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.Symlink(link.target, link.entry); err != nil {
+			t.Fatal(err)
+		}
+		linked[link.entry] = file
+	}
+	check := core.CodexSkillPath(e.o.Services.Home, "koinon-check")
+	pickup := core.ClaudeSkillPath(e.o.ClaudeConfig, core.PickupSkillName)
+	unchanged := func(step string) {
+		t.Helper()
+		for entry, file := range linked {
+			if data, err := os.ReadFile(file); err != nil || string(data) != "the project's skill\n" {
+				t.Fatalf("%s changed %s through %s: %q %v", step, file, entry, data, err)
+			}
+			if info, err := os.Lstat(entry); err != nil || info.Mode()&os.ModeSymlink == 0 {
+				t.Fatalf("%s replaced the link %s: %v", step, entry, err)
+			}
+		}
+	}
+	results := func(r Report) map[string]string {
+		m := map[string]string{}
+		for _, s := range append(r.PickupSkills, r.TeamSkills...) {
+			if s.Path == check || s.Path == pickup {
+				m[s.Path] = s.Result
+			}
+		}
+		return m
+	}
+	for _, step := range []string{"install", "repeat"} {
+		r, err := Install(context.Background(), e.o)
+		if err != nil || !reflect.DeepEqual(results(r), map[string]string{check: "kept", pickup: "kept"}) {
+			t.Fatalf("%s %v %v", step, results(r), err)
+		}
+		unchanged(step)
+	}
+	u, err := Uninstall(context.Background(), e.o)
+	if err != nil || !reflect.DeepEqual(results(u), map[string]string{check: "kept", pickup: "kept"}) {
+		t.Fatalf("uninstall %v %v", results(u), err)
+	}
+	unchanged("uninstall")
+}
+
 // A koinon-pickup skill that cannot be written fails the install with the path, after the
 // service and setup steps, which a repeated install completes.
 func TestInstallPickupSkillFailure(t *testing.T) {

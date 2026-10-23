@@ -7,11 +7,12 @@ into a dated release section when promoted to `main`.
 
 - `koinon install`, and the daemon at each start, now write a `koinon-NAME` skill entry for every
   catalog skill, not only the team skills: also `koinon-check`, `koinon-ship`, `koinon-release`,
-  `koinon-pair`, `koinon-peer-review`, `koinon-refusal-review`, `koinon-sprint` and
-  `koinon-guide`. OpenCode and agy get `koinon-pickup` and these entries in their configuration
-  directories (`~/.config/opencode/skills`, `~/.gemini/config/skills`) when those directories
-  exist. Grok and DeepSeek get none, because where they discover user skills is not verified.
-  The uninstall removes them (#461).
+  `koinon-pair`, `koinon-peer-review`, `koinon-refusal-review` and `koinon-sprint`. OpenCode and
+  agy get `koinon-pickup` and these entries in their configuration directories
+  (`~/.config/opencode/skills`, `~/.gemini/config/skills`) when those directories exist. Grok
+  and DeepSeek get none, because where they discover user skills is not verified. The uninstall
+  removes them. An entry directory or file that is a symbolic link, such as a link to a
+  project's skill, is left as it is and reported as `kept` (#461).
 - After `koinon install` at a terminal adds a family's permission rules, the family's `review`
   and `agents` entries no longer report them as `missing` with a note to run the install again:
   they report them as `added`, and the `agents` entry lists them in `changed`, as `koinon setup`

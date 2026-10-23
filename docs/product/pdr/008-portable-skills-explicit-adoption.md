@@ -161,14 +161,15 @@ daemon table and project decisions in the repository's memory store.
 
 The skill entries are Koinon's own entries, not adoptions: `koinon install` and the daemon at
 each start write an entry named `koinon-NAME` for each catalog skill, such as
-`koinon-spin-up`, `koinon-handoff` and `koinon-check` (`koinon-guide` keeps its name), for the
-person who runs the daemon, at the places of `koinon-pickup` (Decision 1), and never into a
-repository. Grok and DeepSeek get none until their user skill roots are verified. Each entry loads its catalog item
+`koinon-spin-up`, `koinon-handoff` and `koinon-check`, for the person who runs the daemon, at
+the places of `koinon-pickup` (Decision 1), and never into a repository. A skill already named
+`koinon-NAME`, such as `koinon-guide`, gets none, because its entry would take the catalog
+item's own name. Grok and DeepSeek get none until their user skill roots are verified. Each entry loads its catalog item
 through Koinon and holds no procedure, so the catalog keeps the one copy and the entry changes
 with the runtime; the item's procedure reads the repository's own facts from
 `.koinon/skills/NAME.md`. The runnable steps of these procedures are in the installed guide. A
-personal or project skill of the bare name is not touched, and adopting the catalog item
-itself still follows this decision.
+personal or project skill of the bare name is not touched, nor is an entry that is a symbolic
+link, and adopting the catalog item itself still follows this decision.
 
 **Provenance:** Requested in #145 (issue body, requirements 5–7); a request record. Machine
 default plus approved project-local target: Maintainer, 2026-10-12, session transcript:
@@ -197,8 +198,9 @@ answer that only the five team skills had user-level entries, and only for Claud
 Codex; then "start 461". The intent: every agent family on the computer runs the same Koinon
 procedures from the installed release. The roots (verified in #461 against Claude Code
 2.1.308, Codex 0.163.0, OpenCode 1.18.35 and agy 1.4.3), the rule that OpenCode and agy get
-entries only when their configuration directory exists, and the omission of Grok and DeepSeek
-are the criteria of #461; no maintainer decision on them found.
+entries only when their configuration directory exists, the omission of Grok and DeepSeek, and
+the protection of `koinon-`-named skills and linked entries (from the review of #461) are the
+criteria of #461; no maintainer decision on them found.
 
 ### Alternatives Considered
 
