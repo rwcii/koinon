@@ -807,14 +807,17 @@ retries above apply unchanged: a message still unread after its read wait gets a
 session inbox notice, a session without a pane and a direct start keep the queue.
 
 The `codex queue` command has 3 seconds, or less when the session expires sooner. Exit 0 is
-`accepted`. A non-zero exit is `waiting` with `queue_failed`: the queue did not take the
+`accepted`. A normal non-zero exit is `waiting` with `queue_failed`: the queue did not take the
 notice, so it is not counted as a notice and is retried with backoff. The time bound is
 `uncertain` with `queue_timeout`, output still held 100 ms after the exit `queue_drain`, and any
-other wait error `queue_unconfirmed`; these may have queued the notice and count under the
-notice limit, and an exhausted message keeps that code in its wake reason. Each failure writes
-a `codex_queue` daemon log event with `reason`, `exit_status` (-1 when there is none) and
-`detail`: the first line of the command's stderr with the thread ID, the notice text, UUIDs and
-long token-like runs replaced, cut to 256 bytes. No provider text is stored (#466).
+other wait error, a signal among them, `queue_unconfirmed`; these may have queued the notice and
+count under the notice limit, and an exhausted message keeps that code in its wake reason. Each
+failure writes a `codex_queue` daemon log event with `reason`, `exit_status` (-1 when there is
+none) and `detail`: the first line of the command's stderr, cut to 256 bytes. The notice (also
+escaped) becomes `<notice>` and the thread ID `<thread>`. Of the other words, only a plain word
+of lower-case letters (one capital first, joined by `-`, `/` or `_`) and a number of up to six
+digits are kept; any other word, and the word after a credential name such as `password`,
+`token`, `key` or `Bearer`, becomes `<private>`. No provider text is stored (#466).
 
 Before a `codex queue` wake of a launched Codex session that holds its participant address, the
 daemon checks that the host still shows that thread (#275). Codex CLI 0.162.0 with

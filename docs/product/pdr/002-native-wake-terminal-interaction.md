@@ -116,13 +116,13 @@ deferred under #199.
 
 Acceptance by a channel counts as a notice that may have reached the agent, not as proof that
 the model read it; a Claude socket write stays `uncertain` because the protocol returns no
-receipt. A `codex queue` command that exits non-zero did not take the notice: it waits with
-`queue_failed` and retries, and it is not counted as a notice. A command that the time bound
-ended (`queue_timeout`), whose output stayed held after it exited (`queue_drain`), or that
-failed otherwise (`queue_unconfirmed`) may have queued the notice and counts. Each failed
-command is logged with its exit status and its first error line, cleaned of private values
-(#466). A message is handled when the recipient reads or acknowledges past it. An unhandled
-message gets a new notice after 2, 4, 8 and 16 minutes, then becomes `failed`, and the
+receipt. A `codex queue` command that exits with a non-zero code did not take the notice: it
+waits with `queue_failed` and retries, and it is not counted as a notice. A command that the
+time bound ended (`queue_timeout`), whose output stayed held after it exited (`queue_drain`), or
+that failed otherwise, a signal among them (`queue_unconfirmed`) may have queued the notice and
+counts. Each failed command is logged with its exit status and its first error line, cleaned of
+private values (#466). A message is handled when the recipient reads or acknowledges past it. An
+unhandled message gets a new notice after 2, 4, 8 and 16 minutes, then becomes `failed`, and the
 maintainer gets a notice from `koinon`. `delivery` shows the sender `not_read`,
 `turn_failed:CODE` (a Codex turn failure) or `failed`.
 

@@ -105,14 +105,15 @@ func (s *Store) providerWake(ctx context.Context, session Session, notice string
 		if err == nil {
 			return accepted()
 		}
-		// Each outcome has its own fixed code (#466). A non-zero exit did not take the notice,
-		// so it is no notice that may have reached the agent; the others may have queued it.
+		// Each outcome has its own fixed code (#466). A normal non-zero exit did not take the
+		// notice, so it is no notice that may have reached the agent; the others, a signal
+		// among them, may have queued it.
 		var exit *exec.ExitError
 		result := uncertain("queue_unconfirmed")
 		switch {
 		case ctx.Err() != nil:
 			result = uncertain("queue_timeout")
-		case errors.As(err, &exit) && !exit.Success():
+		case errors.As(err, &exit) && exit.Exited() && exit.ExitCode() > 0:
 			result = waiting("queue_failed")
 		case errors.Is(err, exec.ErrWaitDelay):
 			result = uncertain("queue_drain")
@@ -447,9 +448,19 @@ func (b *boundedOutput) Write(p []byte) (int, error) {
 // queueDetailMax bounds the stderr line that a codex_queue event carries.
 const queueDetailMax = 256
 
-// privateTokens are values that a provider line may hold and that the log must not: UUIDs
-// such as thread IDs, and long hexadecimal or base64 runs such as tokens and keys.
-var privateTokens = regexp.MustCompile(`[0-9A-Fa-f]{8}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{12}|[A-Za-z0-9+/_=-]{32,}`)
+// plainWord and plainNumber are the word shapes a codex_queue detail keeps: a word of
+// lower-case letters, with one capital first and joined by '-', '/' or '_', such as
+// "thread/queue/add", and a short number such as an error code. Every other word may be an
+// ID, a key, a URL or a credential.
+var (
+	plainWord   = regexp.MustCompile(`^[A-Za-z][a-z]*([-/_][a-z]+)*$`)
+	plainNumber = regexp.MustCompile(`^-?[0-9]{1,6}$`)
+)
+
+// credentialWords name a value: the word after one is replaced whatever its shape.
+var credentialWords = map[string]bool{"password": true, "passwd": true, "passphrase": true, "secret": true,
+	"token": true, "bearer": true, "basic": true, "authorization": true, "auth": true, "key": true,
+	"apikey": true, "api-key": true, "api_key": true, "cookie": true, "credential": true, "credentials": true}
 
 // logCodexQueue writes a failed queue command to the daemon log (#466): its fixed reason, its
 // exit status, and the first line of its stderr with the thread ID, the notice text and other
@@ -468,19 +479,39 @@ func (s *Store) logCodexQueue(reason string, state *os.ProcessState, stderr []by
 }
 
 func queueDetail(line, thread, notice string) string {
+	// The notice holds the thread ID, so it goes first, also in its escaped forms.
+	if notice != "" {
+		quoted := strconv.Quote(notice)
+		encoded, _ := json.Marshal(notice)
+		for _, form := range []string{notice, quoted[1 : len(quoted)-1], string(encoded[1 : len(encoded)-1])} {
+			line = strings.ReplaceAll(line, form, "<notice>")
+		}
+	}
 	if thread != "" {
 		line = strings.ReplaceAll(line, thread, "<thread>")
 	}
-	if notice != "" {
-		line = strings.ReplaceAll(line, notice, "<notice>")
-	}
-	line = privateTokens.ReplaceAllString(line, "<private>")
-	line = strings.TrimSpace(strings.Map(func(r rune) rune {
+	words := strings.Fields(strings.Map(func(r rune) rune {
 		if r < 0x20 || r == 0x7f {
 			return ' '
 		}
 		return r
 	}, strings.ToValidUTF8(line, "\uFFFD")))
+	named := false
+	for i, word := range words {
+		start := strings.IndexFunc(word, func(r rune) bool { return !strings.ContainsRune(`("'[{`, r) })
+		end := strings.LastIndexFunc(word, func(r rune) bool { return !strings.ContainsRune(`)"'],.;:}`, r) }) + 1
+		if start < 0 || end <= start {
+			continue
+		}
+		core := word[start:end]
+		plain := core == "<thread>" || core == "<notice>" || core == "<private>" ||
+			plainWord.MatchString(core) || plainNumber.MatchString(core)
+		if named || !plain {
+			words[i] = word[:start] + "<private>" + word[end:]
+		}
+		named = credentialWords[strings.ToLower(core)]
+	}
+	line = strings.Join(words, " ")
 	if len(line) <= queueDetailMax {
 		return line
 	}

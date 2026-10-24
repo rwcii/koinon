@@ -128,8 +128,38 @@ func TestWakeCodexQueueOutcomes(t *testing.T) {
 	if result := run("exec sleep 5\n"); result != uncertain("queue_timeout") {
 		t.Fatalf("timeout: %+v", result)
 	}
-	if len(events) != 3 || events[1]["reason"] != "queue_drain" || events[2]["reason"] != "queue_timeout" {
+	session.ExpiresAt = time.Now().Add(time.Minute).UnixMilli()
+	// A signal is no normal exit: the CLI may have queued the notice before it ended.
+	if result := run("kill -TERM $$\n"); result != uncertain("queue_unconfirmed") {
+		t.Fatalf("signal: %+v", result)
+	}
+	if len(events) != 4 || events[1]["reason"] != "queue_drain" || events[2]["reason"] != "queue_timeout" ||
+		events[3]["reason"] != "queue_unconfirmed" || events[3]["exit_status"] != -1 {
 		t.Fatalf("events: %+v", events)
+	}
+}
+
+func TestQueueDetailKeepsOnlyPlainWords(t *testing.T) {
+	thread := "019a0000-1111-7222-8333-444455556666"
+	notice := `Koinon inbox "codex":"` + thread + `" has waiting sequence range 1-1. Read your Koinon inbox.`
+	encoded, _ := json.Marshal(notice)
+	for _, test := range []struct{ line, want string }{
+		// Codex 0.163.0 for a thread without a rollout keeps every word.
+		{"Error: failed to queue session message: thread/queue/add failed: failed to read thread: invalid thread-store request: no rollout found for thread id " + thread + " (code -32603)",
+			"Error: failed to queue session message: thread/queue/add failed: failed to read thread: invalid thread-store request: no rollout found for thread id <thread> (code -32603)"},
+		{"Error: queue rejected " + notice, "Error: queue rejected <notice>"},
+		{"Error: queue rejected " + strconv.Quote(notice), `Error: queue rejected "<notice>"`},
+		{"Error: queue rejected " + string(encoded) + " for " + thread, `Error: queue rejected "<notice>" for <thread>`},
+		{"Error: connection failed password=review-secret", "Error: connection failed <private>"},
+		{"Error: Authorization: Bearer review-secret", "Error: Authorization: <private> <private>"},
+		{"Error: login failed, password: hunter", "Error: login failed, password: <private>"},
+		{"Error: failed request to https://review-user:review-secret@example.invalid/v1", "Error: failed request to <private>"},
+		{"Error: other 0b1c2d3e-0000-4000-8000-000000000000 (sk-Ab3Ab3), id 1-1 and 1234567", "Error: other <private> (<private>), id <private> and <private>"},
+		{"Error:\tbad\x00input )", "Error: bad input )"},
+	} {
+		if got := queueDetail(test.line, thread, notice); got != test.want {
+			t.Errorf("queueDetail(%q)\n got %q\nwant %q", test.line, got, test.want)
+		}
 	}
 }
 
