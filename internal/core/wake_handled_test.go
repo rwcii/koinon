@@ -500,3 +500,35 @@ func TestTurnFailureBeyondSixteenInboxes(t *testing.T) {
 		t.Fatalf("failure beyond 16 inboxes: %+v", row)
 	}
 }
+
+// A queue command that exited non-zero did not take the notice: it is never counted as a
+// notice that may have reached the agent, so retries never end the message as failed/not_read
+// (#466).
+func TestWakeQueueFailedNeverEndsNotRead(t *testing.T) {
+	s, _, sender, receiver, message, clock := wakeFixture(t, "codex")
+	calls := countingWake(s, waiting("queue_failed"))
+	for i := 0; i < wakeNoticeLimit+3; i++ {
+		step(t, s)
+		later(t, s, clock, wakeBackoffMax+time.Second, sender, receiver)
+	}
+	row := messageRow(t, s, message.ID)
+	if *calls < wakeNoticeLimit+3 || row.state != "waiting" || row.reason != "" || row.wake != "queue_failed" || row.notices != 0 {
+		t.Fatalf("after %d failed queue commands: %+v", *calls, row)
+	}
+}
+
+// Uncertain queue outcomes count under the notice limit, and the exhausted message keeps its
+// fixed queue reason, which tells it apart from an accepted notice that was not read (#466).
+func TestWakeQueueUncertainExhaustionKeepsReason(t *testing.T) {
+	s, _, sender, receiver, message, clock := wakeFixture(t, "codex")
+	calls := countingWake(s, uncertain("queue_timeout"))
+	step(t, s)
+	for n := int64(1); n <= wakeNoticeLimit; n++ {
+		later(t, s, clock, readWait(n), sender, receiver)
+		step(t, s)
+	}
+	row := messageRow(t, s, message.ID)
+	if *calls != wakeNoticeLimit || row.state != "failed" || row.reason != "not_read" || row.wake != "queue_timeout" {
+		t.Fatalf("after the limit: %d calls, %+v", *calls, row)
+	}
+}

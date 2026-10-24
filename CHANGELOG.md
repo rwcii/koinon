@@ -5,6 +5,11 @@ into a dated release section when promoted to `main`.
 
 ## Unreleased
 
+- A Codex wake whose `codex queue` command fails now says how: `queue_failed` (non-zero exit),
+  `queue_timeout`, `queue_drain` or `queue_unconfirmed`, and the daemon log gets a `codex_queue`
+  event with the exit status and the first error line, cleaned of the thread ID, the notice and
+  token-like values. A non-zero exit is no longer counted as a notice, so a message whose queue
+  command keeps failing is retried and never ends as `not_read` (#466).
 - A managed context cycle's ready reply that is refused as `cycle_artifact_invalid` now says
   which check failed, such as "must be in _handoff/claude/ of the main checkout", and the
   request names the session's handoff directory. That directory follows the Handoff path fact

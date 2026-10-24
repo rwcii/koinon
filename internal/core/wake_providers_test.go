@@ -47,7 +47,8 @@ func TestWakeCodexExactCLIAndArguments(t *testing.T) {
 	if err := os.WriteFile(cli, []byte("#!/bin/sh\nexit 1\n"), 0700); err != nil {
 		t.Fatal(err)
 	}
-	if result = s.providerWake(context.Background(), session, "notice"); result.State != "uncertain" {
+	// A non-zero exit did not take the notice (#466).
+	if result = s.providerWake(context.Background(), session, "notice"); result != waiting("queue_failed") {
 		t.Fatal(result)
 	}
 	// The configured CLI can exit while its child retains stdout/stderr. An
@@ -66,8 +67,69 @@ func TestWakeCodexExactCLIAndArguments(t *testing.T) {
 			}
 		}
 	}
-	if err != nil || result.State != "uncertain" || time.Since(started) > time.Second {
+	if err != nil || result != waiting("queue_failed") || time.Since(started) > time.Second {
 		t.Fatalf("unbounded CLI output drain: %+v %v", result, err)
+	}
+}
+
+// Each failed queue command has its own fixed reason, and the daemon log gets its exit status
+// and the first stderr line without the thread ID, the notice or other private values (#466).
+func TestWakeCodexQueueOutcomes(t *testing.T) {
+	s, _, _, session, _, _ := wakeFixture(t, "codex")
+	cli := filepath.Join(t.TempDir(), "codex")
+	session.WakeTarget, _ = json.Marshal(wakeTarget{CLI: cli})
+	session.ID = "019a0000-1111-7222-8333-444455556666"
+	var events []map[string]any
+	s.logEvent = func(event string, fields map[string]any) {
+		if event == "codex_queue" {
+			events = append(events, fields)
+		}
+	}
+	run := func(script string) wakeResult {
+		t.Helper()
+		if err := os.WriteFile(cli, []byte("#!/bin/sh\n"+script), 0700); err != nil {
+			t.Fatal(err)
+		}
+		return s.providerWake(context.Background(), session, "Koinon inbox synthetic range 1-1")
+	}
+	token := strings.Repeat("Ab3", 16)
+	stderr := `printf 'Error: thread/queue/add failed for thread %s (other 0b1c2d3e-0000-4000-8000-000000000000, key ` + token +
+		`): Koinon inbox synthetic range 1-1 %0300d\nsecond line\n' "$3" 0 >&2; exit 2`
+	if result := run(stderr + "\n"); result != waiting("queue_failed") {
+		t.Fatalf("exit 2: %+v", result)
+	}
+	if len(events) != 1 || events[0]["reason"] != "queue_failed" || events[0]["exit_status"] != 2 {
+		t.Fatalf("events: %+v", events)
+	}
+	detail, _ := events[0]["detail"].(string)
+	for _, private := range []string{session.ID, "0b1c2d3e-0000-4000-8000-000000000000", token, "Koinon inbox synthetic range", "second line"} {
+		if strings.Contains(detail, private) {
+			t.Fatalf("detail holds %q: %q", private, detail)
+		}
+	}
+	if !strings.HasPrefix(detail, "Error: thread/queue/add failed for thread <thread> (other <private>, key <private>): <notice>") || len(detail) > queueDetailMax {
+		t.Fatalf("detail: %d %q", len(detail), detail)
+	}
+	// Exit 0 with the output still held past the drain bound.
+	childFile := filepath.Join(t.TempDir(), "child-pid")
+	result := run("sleep 30 &\nprintf '%s' \"$!\" > '" + strings.ReplaceAll(childFile, "'", "'\\''") + "'\nexit 0\n")
+	if data, err := os.ReadFile(childFile); err == nil {
+		if pid, _ := strconv.Atoi(string(data)); pid > 1 {
+			if child, e := os.FindProcess(pid); e == nil {
+				child.Kill()
+			}
+		}
+	}
+	if result != uncertain("queue_drain") {
+		t.Fatalf("drain: %+v", result)
+	}
+	// The session's expiry bounds the command like the 3-second limit.
+	session.ExpiresAt = time.Now().Add(300 * time.Millisecond).UnixMilli()
+	if result := run("exec sleep 5\n"); result != uncertain("queue_timeout") {
+		t.Fatalf("timeout: %+v", result)
+	}
+	if len(events) != 3 || events[1]["reason"] != "queue_drain" || events[2]["reason"] != "queue_timeout" {
+		t.Fatalf("events: %+v", events)
 	}
 }
 
