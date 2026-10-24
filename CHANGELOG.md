@@ -5,6 +5,64 @@ into a dated release section when promoted to `main`.
 
 ## Unreleased
 
+## 2026-10-24 — Skills for every agent family, clearer cycle refusals and Codex queue diagnostics
+
+This release makes `koinon install` and the daemon write a skill entry for every catalog skill,
+also for OpenCode and agy. A managed context cycle now names the handoff directory and the
+ready deadline, and a refused ready reply says which check failed. A Codex wake whose
+`codex queue` command fails says how, and the daemon log keeps a cleaned error line. The state
+schema stays 28; a v0.4.1 installation upgrades in place.
+
+- A Codex wake whose `codex queue` command fails now says how: `queue_failed` (non-zero exit),
+  `queue_timeout`, `queue_drain` or `queue_unconfirmed` (also a signal), and the daemon log gets
+  a `codex_queue` event with the exit status and the first error line. That line keeps only plain
+  words and short numbers; the thread ID, the notice, IDs, keys and URLs are replaced, and so is
+  the rest of the line after a credential name such as `password` or `Bearer`. A non-zero exit is
+  no longer counted as a notice, so a message whose queue command keeps failing is retried and
+  never ends as `not_read` (#466).
+- A managed context cycle's request now names its ready deadline as a UTC time, such as "Report
+  ready by 2026-10-23 21:11:07 UTC", and asks the session to stop background subagents that
+  will not finish with enough time left to update the handoff and report ready. For a Claude
+  session waiting for its ready reply, the Sessions page shows how many of its background
+  subagents are still running, or `unknown` when they cannot all be read (#467).
+- A managed context cycle's ready reply that is refused as `cycle_artifact_invalid` now says
+  which check failed, such as "must be in _handoff/claude/ of the main checkout", and the
+  request names the session's handoff directory. That directory follows the Handoff path fact
+  of the repository's `.koinon/skills/handoff.md`, else `_handoff/<agent>/`, where the agent is
+  the family with the launch's role, not the participant address. Before, a session that wrote
+  its handoff elsewhere got the same general refusal three times, and its cycle failed (#468).
+- `koinon install`, and the daemon at each start, now write a `koinon-NAME` skill entry for every
+  catalog skill, not only the team skills: also `koinon-check`, `koinon-ship`, `koinon-release`,
+  `koinon-pair`, `koinon-peer-review`, `koinon-refusal-review`, `koinon-sprint` and
+  `koinon-guide`, which replaces only an earlier Koinon entry, never an adopted copy. OpenCode and
+  agy get `koinon-pickup` and these entries in their configuration directories
+  (`~/.config/opencode/skills`, `~/.gemini/config/skills`) when those directories exist. Grok
+  and DeepSeek get none, because where they discover user skills is not verified. The uninstall
+  removes them. An entry directory or file that is a symbolic link, such as a link to a
+  project's skill, is left as it is and reported as `kept` (#461).
+- After `koinon install` at a terminal adds a family's permission rules, the family's `review`
+  and `agents` entries no longer report them as `missing` with a note to run the install again:
+  they report them as `added`, and the `agents` entry lists them in `changed`, as `koinon setup`
+  does (#462).
+
+Upgrade from v0.4.1 with Homebrew: run `brew update` and `brew upgrade koinon`; the daemon
+restarts on the new binary, which ends current dashboard logins, so run `koinon dashboard` for a
+new link. A `koinon mcp` server started from v0.4.1 runs the new release without a session
+restart (#440). The daemon writes the new skill entries when it starts; agent sessions started
+after the upgrade list them.
+
+Known limits:
+
+- The DeepSeek harness's permission grammar remains unverified (docs/PERMISSIONS.md), and
+  Antigravity's permission evaluation is unverified; Grok takes its rule at launch. Grok and
+  DeepSeek get no skill entries.
+- A macOS system-mode daemon (`--system`) keeps a copy; upgrade it with
+  `$(brew --prefix)/bin/koinon install --system`.
+- Codex keeps the tools and descriptions it read at the start until its session starts again
+  (docs/INSTALL.md).
+- Why `codex queue` fails for a Codex session on macOS is not yet known (#466); the daemon log's
+  `codex_queue` event now records the failure line.
+
 ## 2026-10-23 — Team skills, Claude wakes during work and one dashboard login per port
 
 This release makes `koinon install` and the daemon write the team skills next to

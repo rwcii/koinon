@@ -36,11 +36,14 @@ decisions; MCP still registers and renews its calling session as usual. Read con
 reference data. Show an exact proposed diff and obtain the maintainer's adoption approval
 before applying it (PDR 008).
 
-### Team skills
+### Koinon skills
 
-`koinon install`, and the daemon at each start, write the team skills for you, next to the
-managed cycle's `koinon-pickup`: `koinon-spin-up`, `koinon-spin-down`, `koinon-recover-team`,
-`koinon-peer-tmux` and `koinon-handoff` ([INSTALL.md](INSTALL.md#install), step 7). Run them as
+`koinon install`, and the daemon at each start, write a skill entry for each catalog skill for
+you, next to the managed cycle's `koinon-pickup`: `koinon-spin-up`, `koinon-spin-down`,
+`koinon-recover-team`, `koinon-peer-tmux`, `koinon-handoff`, `koinon-check`, `koinon-ship`,
+`koinon-release`, `koinon-pair`, `koinon-peer-review`, `koinon-refusal-review`, `koinon-sprint`
+and `koinon-guide` ([INSTALL.md](INSTALL.md#install), step 7). Claude Code, Codex, and OpenCode
+and agy when they are on the computer, get them; Grok and DeepSeek do not. Run them as
 `/koinon-spin-up` in Claude Code or `$koinon-spin-up` in Codex. Each one loads its catalog
 item, so the procedure is the installed release's, and the procedure reads this repository's
 facts from `.koinon/skills/NAME.md`; give a project its own start checks, stop checks or
@@ -182,7 +185,10 @@ requires no repeated work. A send report proves storage/transport stages, not mo
 Reading the inbox from your handled sequence stops further notices for the messages it
 returned. A message that is neither read nor acknowledged gets a new notice after 2, 4, 8 and
 16 minutes; after four notices it becomes `failed` and the maintainer gets a notice from
-`koinon`. `delivery` shows the sender `delivery_reason` (`not_read`, or `turn_failed:CODE` when
+`koinon`. A Codex wake whose `codex queue` command exits with a non-zero code (`wake_reason`
+`queue_failed`) is not a notice: it is retried with backoff and never ends as `not_read`, and
+the daemon log's `codex_queue` event gives its exit status and cleaned first error line (#466).
+`delivery` shows the sender `delivery_reason` (`not_read`, or `turn_failed:CODE` when
 a Codex turn failed, for example `turn_failed:server_overloaded`), `wake_reason` and
 `notices`. An acknowledged message shows `acknowledged_session` and `acknowledged_via`.
 A message with `sender_family` `maintainer` was sent by the maintainer from the dashboard; no MCP

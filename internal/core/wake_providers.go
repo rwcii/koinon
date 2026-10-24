@@ -15,9 +15,11 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
 	"strconv"
 	"strings"
 	"time"
+	"unicode/utf8"
 
 	"github.com/rwcii/koinon/internal/platform"
 )
@@ -94,14 +96,30 @@ func (s *Store) providerWake(ctx context.Context, session Session, notice string
 		// Bound that drain as well as the process itself.
 		cmd.WaitDelay = 100 * time.Millisecond
 		cmd.Dir = session.Directory
-		cmd.Stdout, cmd.Stderr = io.Discard, io.Discard
+		stderr := &boundedOutput{limit: 4096}
+		cmd.Stdout, cmd.Stderr = io.Discard, stderr
 		if err := cmd.Start(); err != nil {
 			return waiting("cli_unavailable")
 		}
-		if err := cmd.Wait(); err != nil {
-			return uncertain("queue_unconfirmed")
+		err := cmd.Wait()
+		if err == nil {
+			return accepted()
 		}
-		return accepted()
+		// Each outcome has its own fixed code (#466). A normal non-zero exit did not take the
+		// notice, so it is no notice that may have reached the agent; the others, a signal
+		// among them, may have queued it.
+		var exit *exec.ExitError
+		result := uncertain("queue_unconfirmed")
+		switch {
+		case ctx.Err() != nil:
+			result = uncertain("queue_timeout")
+		case errors.As(err, &exit) && exit.Exited() && exit.ExitCode() > 0:
+			result = waiting("queue_failed")
+		case errors.Is(err, exec.ErrWaitDelay):
+			result = uncertain("queue_drain")
+		}
+		s.logCodexQueue(result.Reason, cmd.ProcessState, stderr.Bytes(), session.ID, notice)
+		return result
 	}
 	switch session.Family {
 	case "claude":
@@ -412,4 +430,95 @@ func (s *Store) sameHost(ctx context.Context, session Session, pid int) bool {
 	}
 	current, err := s.processStart(pid)
 	return err == nil && current == start
+}
+
+// boundedOutput keeps the first limit bytes written to it and discards the rest.
+type boundedOutput struct {
+	limit int
+	bytes.Buffer
+}
+
+func (b *boundedOutput) Write(p []byte) (int, error) {
+	if room := b.limit - b.Len(); room > 0 {
+		b.Buffer.Write(p[:min(len(p), room)])
+	}
+	return len(p), nil
+}
+
+// queueDetailMax bounds the stderr line that a codex_queue event carries.
+const queueDetailMax = 256
+
+// plainWord and plainNumber are the word shapes a codex_queue detail keeps: a word of
+// lower-case letters, with one capital first and joined by '-', '/' or '_', such as
+// "thread/queue/add", and a short number such as an error code. Every other word may be an
+// ID, a key, a URL or a credential.
+var (
+	plainWord   = regexp.MustCompile(`^[A-Za-z][a-z]*([-/_][a-z]+)*$`)
+	plainNumber = regexp.MustCompile(`^-?[0-9]{1,6}$`)
+)
+
+// credentialName matches a word that names a credential, such as "password", "client_secret"
+// or "Bearer". Its value may follow in any form, so such a word ends the kept text.
+var credentialName = regexp.MustCompile(`(?i)pass|secret|token|bearer|basic|auth|key|cookie|credential`)
+
+// logCodexQueue writes a failed queue command to the daemon log (#466): its fixed reason, its
+// exit status, and the first line of its stderr with the thread ID, the notice text and other
+// private values replaced, cut to queueDetailMax bytes at a character boundary. Nothing of
+// it is stored.
+func (s *Store) logCodexQueue(reason string, state *os.ProcessState, stderr []byte, thread, notice string) {
+	if s.logEvent == nil {
+		return
+	}
+	status := -1
+	if state != nil {
+		status = state.ExitCode()
+	}
+	line, _, _ := strings.Cut(string(stderr), "\n")
+	s.logEvent("codex_queue", map[string]any{"reason": reason, "exit_status": status, "detail": queueDetail(line, thread, notice)})
+}
+
+func queueDetail(line, thread, notice string) string {
+	// The notice holds the thread ID, so it goes first, also in its escaped forms.
+	if notice != "" {
+		quoted := strconv.Quote(notice)
+		encoded, _ := json.Marshal(notice)
+		for _, form := range []string{notice, quoted[1 : len(quoted)-1], string(encoded[1 : len(encoded)-1])} {
+			line = strings.ReplaceAll(line, form, "<notice>")
+		}
+	}
+	if thread != "" {
+		line = strings.ReplaceAll(line, thread, "<thread>")
+	}
+	words := strings.Fields(strings.Map(func(r rune) rune {
+		if r < 0x20 || r == 0x7f {
+			return ' '
+		}
+		return r
+	}, strings.ToValidUTF8(line, "\uFFFD")))
+	for i, word := range words {
+		start := strings.IndexFunc(word, func(r rune) bool { return !strings.ContainsRune(`("'[{`, r) })
+		end := strings.LastIndexFunc(word, func(r rune) bool { return !strings.ContainsRune(`)"'],.;:}`, r) }) + 1
+		if start < 0 || end <= start {
+			continue
+		}
+		core := word[start:end]
+		plain := core == "<thread>" || core == "<notice>" || core == "<private>" ||
+			plainWord.MatchString(core) || plainNumber.MatchString(core)
+		if !plain {
+			words[i] = word[:start] + "<private>" + word[end:]
+		}
+		if credentialName.MatchString(core) {
+			words = append(words[:i+1], "<private>")
+			break
+		}
+	}
+	line = strings.Join(words, " ")
+	if len(line) <= queueDetailMax {
+		return line
+	}
+	cut := queueDetailMax
+	for cut > 0 && !utf8.RuneStart(line[cut]) {
+		cut--
+	}
+	return line[:cut]
 }

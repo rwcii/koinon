@@ -47,7 +47,8 @@ func TestWakeCodexExactCLIAndArguments(t *testing.T) {
 	if err := os.WriteFile(cli, []byte("#!/bin/sh\nexit 1\n"), 0700); err != nil {
 		t.Fatal(err)
 	}
-	if result = s.providerWake(context.Background(), session, "notice"); result.State != "uncertain" {
+	// A non-zero exit did not take the notice (#466).
+	if result = s.providerWake(context.Background(), session, "notice"); result != waiting("queue_failed") {
 		t.Fatal(result)
 	}
 	// The configured CLI can exit while its child retains stdout/stderr. An
@@ -66,8 +67,106 @@ func TestWakeCodexExactCLIAndArguments(t *testing.T) {
 			}
 		}
 	}
-	if err != nil || result.State != "uncertain" || time.Since(started) > time.Second {
+	if err != nil || result != waiting("queue_failed") || time.Since(started) > time.Second {
 		t.Fatalf("unbounded CLI output drain: %+v %v", result, err)
+	}
+}
+
+// Each failed queue command has its own fixed reason, and the daemon log gets its exit status
+// and the first stderr line without the thread ID, the notice or other private values (#466).
+func TestWakeCodexQueueOutcomes(t *testing.T) {
+	s, _, _, session, _, _ := wakeFixture(t, "codex")
+	cli := filepath.Join(t.TempDir(), "codex")
+	session.WakeTarget, _ = json.Marshal(wakeTarget{CLI: cli})
+	session.ID = "019a0000-1111-7222-8333-444455556666"
+	var events []map[string]any
+	s.logEvent = func(event string, fields map[string]any) {
+		if event == "codex_queue" {
+			events = append(events, fields)
+		}
+	}
+	run := func(script string) wakeResult {
+		t.Helper()
+		if err := os.WriteFile(cli, []byte("#!/bin/sh\n"+script), 0700); err != nil {
+			t.Fatal(err)
+		}
+		return s.providerWake(context.Background(), session, "Koinon inbox synthetic range 1-1")
+	}
+	token := strings.Repeat("Ab3", 16)
+	stderr := `printf 'Error: thread/queue/add failed for thread %s (other 0b1c2d3e-0000-4000-8000-000000000000, key ` + token +
+		`): Koinon inbox synthetic range 1-1 %0300d\nsecond line\n' "$3" 0 >&2; exit 2`
+	if result := run(stderr + "\n"); result != waiting("queue_failed") {
+		t.Fatalf("exit 2: %+v", result)
+	}
+	if len(events) != 1 || events[0]["reason"] != "queue_failed" || events[0]["exit_status"] != 2 {
+		t.Fatalf("events: %+v", events)
+	}
+	detail, _ := events[0]["detail"].(string)
+	for _, private := range []string{session.ID, "0b1c2d3e-0000-4000-8000-000000000000", token, "Koinon inbox synthetic range", "second line"} {
+		if strings.Contains(detail, private) {
+			t.Fatalf("detail holds %q: %q", private, detail)
+		}
+	}
+	if detail != "Error: thread/queue/add failed for thread <thread> (other <private>, key <private>" {
+		t.Fatalf("detail: %d %q", len(detail), detail)
+	}
+	// Exit 0 with the output still held past the drain bound.
+	childFile := filepath.Join(t.TempDir(), "child-pid")
+	result := run("sleep 30 &\nprintf '%s' \"$!\" > '" + strings.ReplaceAll(childFile, "'", "'\\''") + "'\nexit 0\n")
+	if data, err := os.ReadFile(childFile); err == nil {
+		if pid, _ := strconv.Atoi(string(data)); pid > 1 {
+			if child, e := os.FindProcess(pid); e == nil {
+				child.Kill()
+			}
+		}
+	}
+	if result != uncertain("queue_drain") {
+		t.Fatalf("drain: %+v", result)
+	}
+	// The session's expiry bounds the command like the 3-second limit.
+	session.ExpiresAt = time.Now().Add(300 * time.Millisecond).UnixMilli()
+	if result := run("exec sleep 5\n"); result != uncertain("queue_timeout") {
+		t.Fatalf("timeout: %+v", result)
+	}
+	session.ExpiresAt = time.Now().Add(time.Minute).UnixMilli()
+	// A signal is no normal exit: the CLI may have queued the notice before it ended.
+	if result := run("kill -TERM $$\n"); result != uncertain("queue_unconfirmed") {
+		t.Fatalf("signal: %+v", result)
+	}
+	if len(events) != 4 || events[1]["reason"] != "queue_drain" || events[2]["reason"] != "queue_timeout" ||
+		events[3]["reason"] != "queue_unconfirmed" || events[3]["exit_status"] != -1 {
+		t.Fatalf("events: %+v", events)
+	}
+}
+
+func TestQueueDetailKeepsOnlyPlainWords(t *testing.T) {
+	thread := "019a0000-1111-7222-8333-444455556666"
+	notice := `Koinon inbox "codex":"` + thread + `" has waiting sequence range 1-1. Read your Koinon inbox.`
+	encoded, _ := json.Marshal(notice)
+	for _, test := range []struct{ line, want string }{
+		// Codex 0.163.0 for a thread without a rollout keeps every word.
+		{"Error: failed to queue session message: thread/queue/add failed: failed to read thread: invalid thread-store request: no rollout found for thread id " + thread + " (code -32603)",
+			"Error: failed to queue session message: thread/queue/add failed: failed to read thread: invalid thread-store request: no rollout found for thread id <thread> (code -32603)"},
+		{"Error: queue rejected " + notice, "Error: queue rejected <notice>"},
+		{"Error: queue rejected " + strconv.Quote(notice), `Error: queue rejected "<notice>"`},
+		{"Error: queue rejected " + string(encoded) + " for " + thread, `Error: queue rejected "<notice>" for <thread>`},
+		{"Error: connection failed password=review-secret", "Error: connection failed <private> <private>"},
+		{"Error: Authorization: Bearer review-secret", "Error: Authorization: <private>"},
+		{"Error: password = review-secret", "Error: password <private>"},
+		{"Error: password is review-secret", "Error: password <private>"},
+		{"Error: client_secret review-secret", "Error: client_secret <private>"},
+		{"Error: bad API-Key: x", "Error: bad <private>: <private>"},
+		{"Error: login failed, password: hunter", "Error: login failed, password: <private>"},
+		{"Error: failed request to https://review-user:review-secret@example.invalid/v1", "Error: failed request to <private> <private>"},
+		{"Error: other 0b1c2d3e-0000-4000-8000-000000000000 (sk-Ab3Ab3), id 1-1 and 1234567", "Error: other <private> (<private>), id <private> and <private>"},
+		{"Error:\tbad\x00input )", "Error: bad input )"},
+	} {
+		if got := queueDetail(test.line, thread, notice); got != test.want {
+			t.Errorf("queueDetail(%q)\n got %q\nwant %q", test.line, got, test.want)
+		}
+	}
+	if got := queueDetail(strings.Repeat("failed ", 100), thread, notice); len(got) != queueDetailMax || !strings.HasPrefix(got, "failed failed") {
+		t.Errorf("long line: %d %q", len(got), got)
 	}
 }
 

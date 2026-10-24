@@ -116,8 +116,13 @@ deferred under #199.
 
 Acceptance by a channel counts as a notice that may have reached the agent, not as proof that
 the model read it; a Claude socket write stays `uncertain` because the protocol returns no
-receipt. A message is handled when the recipient reads or acknowledges past it. An unhandled
-message gets a new notice after 2, 4, 8 and 16 minutes, then becomes `failed`, and the
+receipt. A `codex queue` command that exits with a non-zero code did not take the notice: it
+waits with `queue_failed` and retries, and it is not counted as a notice. A command that the
+time bound ended (`queue_timeout`), whose output stayed held after it exited (`queue_drain`), or
+that failed otherwise, a signal among them (`queue_unconfirmed`) may have queued the notice and
+counts. Each failed command is logged with its exit status and its first error line, cleaned of
+private values (#466). A message is handled when the recipient reads or acknowledges past it. An
+unhandled message gets a new notice after 2, 4, 8 and 16 minutes, then becomes `failed`, and the
 maintainer gets a notice from `koinon`. `delivery` shows the sender `not_read`,
 `turn_failed:CODE` (a Codex turn failure) or `failed`.
 
@@ -127,7 +132,9 @@ would be a new design with its own record.
 
 **Provenance:** Shipped in PR #198 (merge commit 15df5ea); the Antigravity Stop offer in PR
 #186 (merge commit e2bc2f3); the Claude wake after `/clear` in PR #270 (merge commit 5c2338f);
-handled wakes in PR #295 (merge commit 2041834). No maintainer decision found. The family
+handled wakes in PR #295 (merge commit 2041834); the queue outcome codes from #466, filed after a
+Codex session on macOS got no notice and four `queue_unconfirmed` attempts used up its notice
+limit. No maintainer decision found. The family
 channels and the hosting non-goal were proposed in the Go sprint plan (PR #178); a gate
 approval covers that plan document, not each sentence in it. The Claude wake of a `busy`
 session: #456 records a session with background subagents that got no notice for a managed
@@ -306,3 +313,4 @@ or practice that the maintainer has not decided, so this record is a draft.
 | ---------- | ---------------- |
 | 2026-10-12 | Initial creation |
 | 2026-10-22 | Decision 1: the Claude wake also goes to a `busy` session; only `waiting` defers (#456) |
+| 2026-10-23 | Decision 1: each `codex queue` failure has its own code, a non-zero exit is not counted as a notice, and failures are logged (#466) |

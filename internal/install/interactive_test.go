@@ -83,6 +83,61 @@ func TestInstallAsksAtTerminal(t *testing.T) {
 	}
 }
 
+// After the permission question, each family's review and own entries report the rules as they
+// are then, not as review and setup read them before the question (#462).
+func TestInstallReportsRulesAfterQuestion(t *testing.T) {
+	e := newEnv(t, "systemd")
+	e.o.Agents = []string{"claude", "codex"}
+	missing := func(family string) setup.PermissionsResult {
+		return setup.PermissionsResult{Family: family, SettingsFile: "/cfg/" + family, Outcome: "missing", Missing: []string{family + "-rule"},
+			Note: "Run koinon install in a terminal to add them, or merge them by hand (docs/PERMISSIONS.md)."}
+	}
+	e.o.Inspect = func(_ context.Context, o setup.Options) setup.Inspection {
+		in := setup.Inspection{Family: o.Family}
+		if o.Family == "claude" || o.Family == "codex" {
+			rules := missing(o.Family)
+			in.CLI, in.Permissions = "/bin/"+o.Family, &rules
+		}
+		return in
+	}
+	e.o.Setup = func(_ context.Context, o setup.Options) (setup.Report, error) {
+		rules := missing(o.Family)
+		return setup.Report{OK: true, Family: o.Family, Permissions: &rules}, nil
+	}
+	e.o.Permissions = func(o setup.Options, add bool) (setup.PermissionsResult, error) {
+		result := missing(o.Family)
+		if add {
+			result = setup.PermissionsResult{Family: o.Family, SettingsFile: "/cfg/" + o.Family, Outcome: "added", Added: []string{o.Family + "-rule"}}
+		}
+		return result, nil
+	}
+	e.o.Ask = func(q string) (bool, error) { return q == "Add them to /cfg/claude?", nil }
+	e.o.Tell = &bytes.Buffer{}
+	r, err := Install(context.Background(), e.o)
+	if err != nil {
+		t.Fatal(err)
+	}
+	agents := map[string]setup.Report{}
+	for _, a := range r.Agents {
+		agents[a.Family] = a
+	}
+	for _, in := range r.Review {
+		if in.Family == "claude" && (in.Permissions == nil || in.Permissions.Outcome != "added" || in.Permissions.Note != "") {
+			t.Fatalf("claude review after yes: %+v", in.Permissions)
+		}
+	}
+	claude, codex := agents["claude"], agents["codex"]
+	if claude.Permissions == nil || claude.Permissions.Outcome != "added" || claude.Permissions.Missing != nil || claude.Permissions.Note != "" {
+		t.Fatalf("claude permissions after yes: %+v", claude.Permissions)
+	}
+	if !slices.Contains(claude.Changed, "claude permission rules in /cfg/claude") {
+		t.Fatalf("claude changed %q", claude.Changed)
+	}
+	if codex.Permissions == nil || codex.Permissions.Outcome != "missing" || slices.ContainsFunc(codex.Changed, func(c string) bool { return strings.Contains(c, "permission") }) {
+		t.Fatalf("codex after no: %+v %q", codex.Permissions, codex.Changed)
+	}
+}
+
 // Without a terminal, install asks nothing, reviews nothing and changes no permission rule.
 func TestInstallWithoutTerminalAsksNothing(t *testing.T) {
 	e := newEnv(t, "systemd")

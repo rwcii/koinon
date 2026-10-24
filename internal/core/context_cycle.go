@@ -422,12 +422,15 @@ func (s *Store) sessionProbe(ctx context.Context, k Key) CycleProbe {
 // cycleRequestBody is the fixed text of the typed request. It names the cycle and asks the
 // session to pause at a safe stopping point, write its own handoff, report ready and then
 // stay idle, because the clear waits for its idle prompt (#431).
-func cycleRequestBody(id string, revision int64) string {
+func cycleRequestBody(id string, revision int64, agent string, deadline int64) string {
+	by := time.UnixMilli(deadline).UTC().Format("2006-01-02 15:04:05 UTC")
 	return "overwatch: managed context cycle " + id + " revision " + strconv.FormatInt(revision, 10) +
-		" requests your handoff. Pause your work at the next safe stopping point and start no new work. Let running " +
-		"background subagents finish, or stop them, so that the handoff holds their results. Write your handoff " +
-		"with your canonical handoff procedure, then call context_cycle_ready with this cycle ID, its revision and the handoff " +
-		"file name. Then end your turn and stay idle: overwatch clears your context only at your idle prompt, and asks again " +
+		" requests your handoff. Report ready by " + by + ". Pause your work at the next safe stopping point and start " +
+		"no new work. Let running background subagents finish, or stop them, so that the handoff holds their results; " +
+		"stop any that will not finish with enough time left to update the handoff and report ready by " + by + ". Write your handoff " +
+		"with your canonical handoff procedure into _handoff/" + agent + "/ of the main checkout, or into the directory " +
+		"that the Handoff path fact of " + handoffFacts + " names, then call context_cycle_ready with this cycle ID, " +
+		"its revision and the handoff file name. Then end your turn and stay idle: overwatch clears your context only at your idle prompt, and asks again " +
 		"if your pane does not become idle. See the Managed cycle reporting section of koinon guide."
 }
 
@@ -523,12 +526,13 @@ func (s *Store) repeatCycleRequest(ctx context.Context, id string, revision int6
 	c.StageDeadline = min(now+cycleReadyWait.Milliseconds(), c.CycleDeadline)
 	c.Artifact, c.ArtifactDev, c.ArtifactIno, c.ArtifactSize, c.ArtifactMtime = "", 0, 0, 0, 0
 	var seq int64
-	if err := tx.QueryRowContext(ctx, `UPDATE sessions SET last_seq=last_seq+1 WHERE family=? AND id=? RETURNING last_seq`, c.Family, c.SessionID).Scan(&seq); err != nil {
+	var role string
+	if err := tx.QueryRowContext(ctx, `UPDATE sessions SET last_seq=last_seq+1 WHERE family=? AND id=? RETURNING last_seq,role`, c.Family, c.SessionID).Scan(&seq, &role); err != nil {
 		return tx.fail(err)
 	}
 	if _, err := tx.ExecContext(ctx, `INSERT INTO messages(recipient_family,recipient_id,seq,sender_family,sender_id,sender_name,body,
 		created_at,delivery_updated_at,system_kind,cycle_id,cycle_enable_revision) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)`,
-		c.Family, c.SessionID, seq, overwatchKey.Family, overwatchKey.ID, overwatchName, cycleRequestBody(c.ID, c.Revision), now, now,
+		c.Family, c.SessionID, seq, overwatchKey.Family, overwatchKey.ID, overwatchName, cycleRequestBody(c.ID, c.Revision, cycleAgent(c.Family, role), c.StageDeadline), now, now,
 		cycleRequestKind, c.ID, c.EnableRevision); err != nil {
 		return tx.fail(err)
 	}
@@ -641,7 +645,7 @@ func (s *Store) admitContextCycle(ctx context.Context, k Key) (bool, error) {
 	c.MessageSeq = seq
 	if _, err := tx.ExecContext(ctx, `INSERT INTO messages(recipient_family,recipient_id,seq,sender_family,sender_id,sender_name,body,
 		created_at,delivery_updated_at,system_kind,cycle_id,cycle_enable_revision) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)`,
-		k.Family, k.ID, seq, overwatchKey.Family, overwatchKey.ID, overwatchName, cycleRequestBody(c.ID, c.Revision), now, now,
+		k.Family, k.ID, seq, overwatchKey.Family, overwatchKey.ID, overwatchName, cycleRequestBody(c.ID, c.Revision, cycleAgent(k.Family, session.Role), c.StageDeadline), now, now,
 		cycleRequestKind, c.ID, c.EnableRevision); err != nil {
 		return false, tx.fail(err)
 	}

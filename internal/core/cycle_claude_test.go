@@ -545,6 +545,57 @@ func TestClaudePaneStateAcceptsBackgroundShell(t *testing.T) {
 // A background subagent that wrote its transcript after the ready report keeps a ready cycle
 // from its clear: its results came after the handoff (#456). Only a ready cycle checks, and
 // only the session's own subagent transcripts count.
+// The count of running background subagents: a meta file without "finished": true whose
+// transcript changed after the request. A finished one, an older one and another session's do
+// not count, and an entry that cannot be read is an error, never a count (#467).
+func TestClaudeRunningSubagents(t *testing.T) {
+	term := newClaudeTerminal(t)
+	term.epoch = "316b9458-6b5a-47c3-b863-af1745fb54a4"
+	term.write()
+	tg := term.target(t)
+	requested := time.Now().Add(-time.Minute)
+	dir := filepath.Join(term.home, ".claude", "projects", "-synthetic-repo", term.epoch, "subagents")
+	other := filepath.Join(term.home, ".claude", "projects", "-synthetic-repo", "00000000-0000-4000-8000-000000000000", "subagents")
+	agent := func(dir, name, meta string, at time.Time) {
+		t.Helper()
+		if err := os.MkdirAll(dir, 0o700); err != nil {
+			t.Fatal(err)
+		}
+		transcript := filepath.Join(dir, name+".jsonl")
+		if err := os.WriteFile(transcript, []byte("{}\n"), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.Chtimes(transcript, at, at); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(dir, name+".meta.json"), []byte(meta), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if n, err := claudeRunningSubagents(tg, requested.UnixMilli()); err != nil || n != 0 {
+		t.Fatalf("none: %d %v", n, err)
+	}
+	after, before := requested.Add(time.Second), requested.Add(-time.Second)
+	agent(dir, "agent-running", `{"agentType":"general-purpose","requestShape":"background"}`, after)
+	agent(dir, "agent-finished", `{"agentType":"general-purpose","finished":true}`, after)
+	agent(dir, "agent-old", `{"agentType":"general-purpose"}`, before)
+	agent(other, "agent-other", `{"agentType":"general-purpose"}`, after)
+	if n, err := claudeRunningSubagents(tg, requested.UnixMilli()); err != nil || n != 1 {
+		t.Fatalf("one running: %d %v", n, err)
+	}
+	// An unreadable meta file and a directory past the bound are errors.
+	agent(dir, "agent-broken", `{"finished":`, after)
+	if _, err := claudeRunningSubagents(tg, requested.UnixMilli()); err == nil {
+		t.Fatal("an unreadable meta file was counted")
+	}
+	os.Remove(filepath.Join(dir, "agent-broken.meta.json"))
+	defer func(n int) { maxSubagentEntries = n }(maxSubagentEntries)
+	maxSubagentEntries = 2
+	if _, err := claudeRunningSubagents(tg, requested.UnixMilli()); err == nil {
+		t.Fatal("a directory past the bound was counted")
+	}
+}
+
 func TestClaudeInspectSubagentAfterReady(t *testing.T) {
 	ctx := context.Background()
 	term := newClaudeTerminal(t)

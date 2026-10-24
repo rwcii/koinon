@@ -269,6 +269,10 @@ type contextRow struct {
 	// Dialog is the native dialog that the managed cycle waits on and that the adapter does
 	// not answer itself: the maintainer's response applies only to this dialog.
 	Dialog *CycleDialog
+	// Subagents is, for a Claude requester at waiting_ready, the count of its background
+	// subagents running since the request, "unknown" when they cannot all be read, else ""
+	// (#467).
+	Subagents string
 }
 
 // contextRowOf selects a session's trigger state from the stored policy and evidence. It
@@ -298,6 +302,14 @@ func (s *Store) contextRowOf(session Session, enable ContextEnable, now int64) c
 		}
 		if v, err := cycles[0].view(context.Background(), s.db, role); err == nil {
 			row.Managed = &v
+			if v.State == cycleWaitingReady && role == "requester" && cycles[0].Family == "claude" {
+				row.Subagents = "unknown"
+				if requested, err := cycleRequestedAt(context.Background(), s.db, cycles[0]); err == nil {
+					if n, err := claudeRunningSubagents(s.cycleTarget(context.Background(), cycles[0]), requested); err == nil {
+						row.Subagents = strconv.Itoa(n)
+					}
+				}
+			}
 			if v.State == cycleWaitingPrompt {
 				if dialog, err := s.CycleDialogOf(context.Background(), v.ID); err == nil {
 					row.Dialog = &dialog

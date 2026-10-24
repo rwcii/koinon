@@ -310,11 +310,17 @@ caller, epoch, host, pane, socket or another session.
   history. It reads only and moves no inbox, memory or work cursor.
 - `POST /v1/cycles/ready` (`context_cycle_ready`) takes `cycle_id`, the `revision` shown and the
   handoff file name. The requester under its pre-reset epoch moves a `waiting_ready` cycle to
-  `ready` when the file is `<main checkout>/_handoff/<family[-role]>/<name>`: a canonical
+  `ready` when the file is `<main checkout>/<handoff directory>/<name>`. The handoff directory
+  is the first word of the Handoff path fact in the main checkout's `.koinon/skills/handoff.md`,
+  parsed with the catalog's facts schema for `skill.handoff`, else its default
+  `_handoff/<agent>/`; `<agent>` is the family, with `-ROLE` for a launch with a role. It must
+  be a clean relative path inside the checkout that names `<agent>`, and each of its directories
+  a real directory, not a link. The file is a canonical
   timestamped name of at most 128 bytes, a regular file of 1 byte to 1 MiB modified after the
   current request (after a repeat, the repeated one), ignored by Git, in a directory where Git tracks nothing. The main checkout is the
   first worktree that Git lists for the registered common directory. The daemon reads only
-  the file's metadata, through a root opened at the main checkout, and keeps its device, inode,
+  the file's metadata and, of the checkout's files, the handoff facts as one bounded read of an
+  opened regular file of at most 64 KiB, through a root opened at the main checkout, and keeps its device, inode,
   size and modification time; a change to any of them is a changed file. The
   registered directory must itself be a worktree that Git lists. A successful report also
   returns `next`, the instruction to end the turn and start no other work, because the clear
@@ -341,7 +347,12 @@ An identical retry of an accepted report returns the current cycle without a wri
 retry while the reported file is unchanged, a pickup retry with the same successor, epoch,
 file, outcome and report. A stale or conflicting one is refused with `cycle_changed` (HTTP 409) and the current cycle in
 `details`. Another session's call is `cycle_not_found`, an epoch that does not fit
-`cycle_epoch_unverified`, a file that fails a check `cycle_artifact_invalid`. A message, an
+`cycle_epoch_unverified`, a file that fails a check `cycle_artifact_invalid`, whose `error`
+names the check that failed and, for the directory, the directory it expects, with each path
+cut to 240 bytes so the text stays within the 1024 bytes a client passes on (#468). The
+request message names the session's directory and its ready deadline as a UTC time, the stage
+deadline: 15 minutes after the request, or the end of the cycle's lifetime when that comes first
+(#467). A message, an
 acknowledgement or a peer's report advances no cycle.
 
 The controller runs once a second. Each external input holds the wake lock and is preceded
@@ -434,9 +445,14 @@ Probe's reason, or `pickup through koinon-pickup`.
 The skill's body only reads `skill.pickup` with `library_read` and requires its catalog digest
 to equal the cycle's `catalog_digest`, which `context_cycle_status` returns; it holds no
 procedure of its own. The daemon writes it at each start, from its own environment
-(`$CLAUDE_CONFIG_DIR`, else `~/.claude`, and `~/.agents/skills`), when it is missing or holds
-other content, and `koinon install` writes it for the person who runs it; neither writes into a
-repository (see [INSTALL.md](docs/INSTALL.md)). A write the daemon cannot make is logged
+(`$CLAUDE_CONFIG_DIR`, else `~/.claude`, and `~/.agents/skills`, and OpenCode's and agy's
+configuration directories when they exist), when it is missing or holds other content, and
+`koinon install` writes it for the person who runs it; neither writes into a repository (see
+[INSTALL.md](docs/INSTALL.md)). The install report lists it in `pickup_skills` and the other
+skill entries in `team_skills`, one row per file with `family`, `name` (for an entry), `path`
+and `result`: `created`, `replaced` or `unchanged` for an install, `removed` or `absent` for an
+uninstall, and `kept` for a file with other content at uninstall or a symbolically linked entry
+directory or file, which neither writes through. A write the daemon cannot make is logged
 (`pickup_skill`, `write_failed`) and does not stop it. `koinon claude` adds no directory to a launch,
 and the cycle adds none to a running session.
 
@@ -789,6 +805,20 @@ records `notified` only when a later read shows the input empty and the notice a
 submitted prompt; otherwise `uncertain` with `pane_submission_unconfirmed`. The read wait and
 retries above apply unchanged: a message still unread after its read wait gets a new attempt. A
 session inbox notice, a session without a pane and a direct start keep the queue.
+
+The `codex queue` command has 3 seconds, or less when the session expires sooner. Exit 0 is
+`accepted`. A normal non-zero exit is `waiting` with `queue_failed`: the queue did not take the
+notice, so it is not counted as a notice and is retried with backoff. The time bound is
+`uncertain` with `queue_timeout`, output still held 100 ms after the exit `queue_drain`, and any
+other wait error, a signal among them, `queue_unconfirmed`; these may have queued the notice and
+count under the notice limit, and an exhausted message keeps that code in its wake reason. Each
+failure writes a `codex_queue` daemon log event with `reason`, `exit_status` (-1 when there is
+none) and `detail`: the first line of the command's stderr, cut to 256 bytes. The notice (also
+escaped) becomes `<notice>` and the thread ID `<thread>`. Of the other words, only a plain word
+of lower-case letters (one capital first, joined by `-`, `/` or `_`) and a number of up to six
+digits are kept; any other word becomes `<private>`. A word that names a credential, such as
+`password`, `client_secret`, `token`, `key` or `Bearer`, ends the kept text: the rest of the
+line becomes one `<private>`. No provider text is stored (#466).
 
 Before a `codex queue` wake of a launched Codex session that holds its participant address, the
 daemon checks that the host still shows that thread (#275). Codex CLI 0.162.0 with
@@ -1933,7 +1963,9 @@ rules of docs/PERMISSIONS.md: `family`, `settings_file`, `outcome` and, by outco
 `manual` (Grok, DeepSeek). Only a yes at a terminal adds rules, with the same refusals as the
 status line. `koinon install` at a terminal also reports `review`, one entry per family with
 `family`, `cli` and `configured` before its questions, and `permissions` for each family that
-is set up.
+is set up. For a family that got the permission question, its `review` and `agents` entries
+report `permissions` after the question, as `koinon setup` does, and a yes also lists the rules
+in its `agents` entry's `changed`.
 
 ### Import of Python-era state
 

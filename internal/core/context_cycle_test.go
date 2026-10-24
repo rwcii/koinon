@@ -251,7 +251,7 @@ func TestContextCycleRetainedCallerFlow(t *testing.T) {
 	if got, err := f.s.ContextCycleReady(context.Background(), f.k, "synthetic-epoch-1", v.ID, 2, name); !errors.Is(err, ErrCycleChanged) || got.State != cycleWaitingReady {
 		t.Fatalf("stale revision: %v %+v", err, got)
 	}
-	if _, err := f.s.ContextCycleReady(context.Background(), f.k, "synthetic-epoch-1", v.ID, 1, "2026-10-13-120001.md"); !errors.Is(err, ErrCycleArtifact) {
+	if _, err := f.s.ContextCycleReady(context.Background(), f.k, "synthetic-epoch-1", v.ID, 1, "2026-10-13-120001.md"); !artifactRefused(err, "") {
 		t.Fatalf("missing artifact: %v", err)
 	}
 	ready, err := f.s.ContextCycleReady(context.Background(), f.k, "synthetic-epoch-1", v.ID, 1, name)
@@ -362,7 +362,7 @@ func TestContextCycleArtifactChecks(t *testing.T) {
 	os.WriteFile(outside, []byte("synthetic"), 0o600)
 	os.Symlink(outside, filepath.Join(f.repo, "_handoff", "claude", "2026-10-13-120002.md"))
 	for _, name := range []string{"2026-10-13-120000.md", "2026-10-13-120001.md", "2026-10-13-120002.md", "2026-10-13-120003.md", "../x.md", "notes.md"} {
-		if err := ready(name); !errors.Is(err, ErrCycleArtifact) && !errors.Is(err, ErrInvalid) {
+		if err := ready(name); !artifactRefused(err, "") && !errors.Is(err, ErrInvalid) {
 			t.Fatalf("%s: %v", name, err)
 		}
 	}
@@ -370,7 +370,7 @@ func TestContextCycleArtifactChecks(t *testing.T) {
 	old := f.handoff(t, "claude", "2026-10-13-110000.md", "synthetic")
 	past := time.UnixMilli(v.CreatedAt).Add(-time.Minute)
 	os.Chtimes(filepath.Join(f.repo, "_handoff", "claude", old), past, past)
-	if err := ready(old); !errors.Is(err, ErrCycleArtifact) {
+	if err := ready(old); !artifactRefused(err, "") {
 		t.Fatalf("stale file: %v", err)
 	}
 	// A tracked file in the directory makes it unusable.
@@ -380,12 +380,146 @@ func TestContextCycleArtifactChecks(t *testing.T) {
 	if out, err := exec.Command("git", "-C", f.repo, "add", "-f", tracked).CombinedOutput(); err != nil {
 		t.Fatalf("git add: %v %s", err, out)
 	}
-	if err := ready(name); !errors.Is(err, ErrCycleArtifact) {
+	if err := ready(name); !artifactRefused(err, "") {
 		t.Fatalf("tracked directory: %v", err)
 	}
 	exec.Command("git", "-C", f.repo, "rm", "-q", "--cached", tracked).Run()
 	if err := ready(name); err != nil {
 		t.Fatalf("valid file: %v", err)
+	}
+}
+
+// cycle reads the cycle's row.
+func (f *cycleFixture) cycle(t *testing.T, id string) cycleRow {
+	t.Helper()
+	rows, err := cyclesWhere(context.Background(), f.s.db, "cycle_id=?", id)
+	if err != nil || len(rows) != 1 {
+		t.Fatalf("cycle %s: %v %d", id, err, len(rows))
+	}
+	return rows[0]
+}
+
+// artifactRefused reports a cycle_artifact_invalid refusal whose text holds want.
+func artifactRefused(err error, want string) bool {
+	var refusal Refusal
+	return errors.As(err, &refusal) && refusal.Code == ErrCycleArtifact.Code && strings.Contains(refusal.Message, want)
+}
+
+// Each artifact refusal names the check that failed, and the directory one names the
+// expected directory (#468).
+func TestContextCycleArtifactRefusalsNameTheCheck(t *testing.T) {
+	f := newCycleFixture(t)
+	f.observe(t, f.k, 900, "synthetic-epoch-1")
+	v := f.status(t, f.k)
+	ready := func(name string) error {
+		_, err := f.s.ContextCycleReady(context.Background(), f.k, "synthetic-epoch-1", v.ID, 1, name)
+		return err
+	}
+	// The participant-address directory is not the session's own.
+	wrong := filepath.Join(f.repo, "_handoff", "claude-synthetic")
+	os.MkdirAll(wrong, 0o700)
+	os.WriteFile(filepath.Join(wrong, "2026-10-13-120000.md"), []byte("synthetic"), 0o600)
+	if err := ready("2026-10-13-120000.md"); !artifactRefused(err, "must be in _handoff/claude/ of the main checkout, and _handoff/claude/ is not a directory there") {
+		t.Fatalf("other directory: %v", err)
+	}
+	os.MkdirAll(filepath.Join(f.repo, "_handoff", "claude"), 0o700)
+	if err := ready("2026-10-13-120000.md"); !artifactRefused(err, "_handoff/claude/2026-10-13-120000.md is not a regular file") {
+		t.Fatalf("missing file: %v", err)
+	}
+	// The ready call refuses a bad name as an invalid request first; the check itself names it.
+	if _, err := f.s.verifyArtifact(context.Background(), f.cycle(t, v.ID), "notes.md"); !artifactRefused(err, `name "notes.md" is not a handoff file name`) {
+		t.Fatalf("name: %v", err)
+	}
+	empty := f.handoff(t, "claude", "2026-10-13-120001.md", "")
+	if err := ready(empty); !artifactRefused(err, "must hold 1 byte to 1 MiB") {
+		t.Fatalf("size: %v", err)
+	}
+	old := f.handoff(t, "claude", "2026-10-13-110000.md", "synthetic")
+	past := time.UnixMilli(v.CreatedAt).Add(-time.Minute)
+	os.Chtimes(filepath.Join(f.repo, "_handoff", "claude", old), past, past)
+	if err := ready(old); !artifactRefused(err, "was last modified before this cycle's request") {
+		t.Fatalf("old: %v", err)
+	}
+	// A directory link inside the handoff path.
+	os.RemoveAll(filepath.Join(f.repo, "_handoff", "claude"))
+	os.Symlink(wrong, filepath.Join(f.repo, "_handoff", "claude"))
+	if err := ready("2026-10-13-120000.md"); !artifactRefused(err, "must be in _handoff/claude/ of the main checkout, and _handoff/claude/ is not a directory there") {
+		t.Fatalf("linked directory: %v", err)
+	}
+	os.Remove(filepath.Join(f.repo, "_handoff", "claude"))
+	name := f.handoff(t, "claude", "2026-10-13-120002.md", "synthetic")
+	tracked := filepath.Join(f.repo, "_handoff", "claude", "tracked.txt")
+	os.WriteFile(tracked, []byte("synthetic"), 0o600)
+	if out, err := exec.Command("git", "-C", f.repo, "add", "-f", tracked).CombinedOutput(); err != nil {
+		t.Fatalf("git add: %v %s", err, out)
+	}
+	if err := ready(name); !artifactRefused(err, "directory _handoff/claude/ holds files that Git tracks") {
+		t.Fatalf("tracked: %v", err)
+	}
+	exec.Command("git", "-C", f.repo, "rm", "-q", "--cached", tracked).Run()
+	os.Remove(tracked)
+	// A file Git does not ignore.
+	os.WriteFile(filepath.Join(f.repo, ".gitignore"), []byte("_handoff/claude/*.txt\n"), 0o644)
+	if err := ready(name); !artifactRefused(err, "_handoff/claude/2026-10-13-120002.md is not ignored by Git") {
+		t.Fatalf("not ignored: %v", err)
+	}
+	os.WriteFile(filepath.Join(f.repo, ".gitignore"), []byte("_handoff/\n"), 0o644)
+	if err := ready(name); err != nil {
+		t.Fatalf("valid file: %v", err)
+	}
+}
+
+// The Handoff path fact of .koinon/skills/handoff.md names the session's handoff directory;
+// a facts file without it, or no file, keeps the default _handoff/<agent>/, and an invalid
+// file or path is refused with the facts file named (#468).
+func TestContextCycleArtifactHandoffPathFact(t *testing.T) {
+	f := newCycleFixture(t)
+	f.observe(t, f.k, 900, "synthetic-epoch-1")
+	v := f.status(t, f.k)
+	ready := func(name string) error {
+		_, err := f.s.ContextCycleReady(context.Background(), f.k, "synthetic-epoch-1", v.ID, 1, name)
+		return err
+	}
+	facts := filepath.Join(f.repo, ".koinon", "skills", "handoff.md")
+	os.MkdirAll(filepath.Dir(facts), 0o700)
+	write := func(path string) {
+		t.Helper()
+		text := "# Repository facts — handoff\n\n## Version\n1\n## Skill\nhandoff\n## Sources\n- AGENTS.md\n"
+		if path != "" {
+			text += "## Handoff path\n" + path + "\n"
+		}
+		if err := os.WriteFile(facts, []byte(text), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	// A valid facts file without the fact uses the default.
+	write("")
+	name := f.handoff(t, "claude", "2026-10-13-120000.md", "synthetic")
+	if _, err := f.s.verifyArtifact(context.Background(), f.cycle(t, v.ID), name); err != nil {
+		t.Fatalf("default without the fact: %v", err)
+	}
+	// The fact moves the directory: the default one no longer counts.
+	write(".snapshots/<agent>/ in the main checkout")
+	if err := ready(name); !artifactRefused(err, ".snapshots/claude/ of the main checkout") {
+		t.Fatalf("fact directory not named: %v", err)
+	}
+	dir := filepath.Join(f.repo, ".snapshots", "claude")
+	os.MkdirAll(dir, 0o700)
+	os.WriteFile(filepath.Join(f.repo, ".gitignore"), []byte("_handoff/\n.snapshots/\n"), 0o644)
+	os.WriteFile(filepath.Join(dir, name), []byte("synthetic"), 0o600)
+	os.Chtimes(filepath.Join(dir, name), f.clock, f.clock)
+	if _, err := f.s.verifyArtifact(context.Background(), f.cycle(t, v.ID), name); err != nil {
+		t.Fatalf("fact directory: %v", err)
+	}
+	for _, bad := range []string{"../outside/<agent>/", "/tmp/<agent>/", "_handoff/shared/", "_handoff/./<agent>/"} {
+		write(bad)
+		if err := ready(name); !artifactRefused(err, "directory cannot be read from .koinon/skills/handoff.md") {
+			t.Fatalf("%s: %v", bad, err)
+		}
+	}
+	os.WriteFile(facts, []byte("## Version\n2\n"), 0o644)
+	if err := ready(name); !artifactRefused(err, "directory cannot be read from .koinon/skills/handoff.md") {
+		t.Fatalf("invalid facts: %v", err)
 	}
 }
 
@@ -841,6 +975,10 @@ func TestContextCycleDashboardAndRoutes(t *testing.T) {
 	page := dashboardDo(t, d, "GET", "/dashboard/sessions", client.cookie, nil, nil)
 	if page.status != 200 || !strings.Contains(page.body, "cycle "+id+" (requester): waiting_ready") || !strings.Contains(page.body, "requested admitted") {
 		t.Fatalf("sessions page: %d %s", page.status, page.body)
+	}
+	// The synthetic host has no Claude registry, so its subagents are unknown, never 0 (#467).
+	if !strings.Contains(page.body, "stage until") || !strings.Contains(page.body, "background subagents running since the request: unknown") {
+		t.Fatalf("sessions page lacks the deadline or the subagent count: %s", page.body)
 	}
 	for _, private := range []string{"synthetic-private-epoch", "synthetic-private-socket"} {
 		if strings.Contains(page.body, private) {

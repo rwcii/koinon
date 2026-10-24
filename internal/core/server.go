@@ -111,6 +111,7 @@ func Start(c Config) (*Daemon, error) {
 	}
 	d.started = d.store.now()
 	d.store.library.catalog = catalog
+	d.store.logEvent = c.LogEvent
 	// No tool call before this start is known, so the succession guard counts the start as one.
 	d.store.calls.since = d.started.UnixMilli()
 	d.store.observed.extras = d.store.openCodeActivity
