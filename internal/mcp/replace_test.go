@@ -420,6 +420,11 @@ func TestReplacedBinary(t *testing.T) {
 	if reply := p.answer(3); reply["server_version"] != "v-test-2" {
 		t.Fatalf("peers %v", reply)
 	}
+	// The new program renews the session in its renewal loop, which the answer does not wait for.
+	deadline := time.Now().Add(10 * time.Second)
+	for p.session(key).Revision <= before && time.Now().Before(deadline) {
+		time.Sleep(20 * time.Millisecond)
+	}
 	if after := p.session(key).Revision; after <= before {
 		t.Fatalf("revision %d after %d: the session was not renewed", after, before)
 	}
