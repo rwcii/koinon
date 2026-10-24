@@ -5,6 +5,13 @@ into a dated release section when promoted to `main`.
 
 ## Unreleased
 
+- A Codex wake whose `codex queue` command fails now says how: `queue_failed` (non-zero exit),
+  `queue_timeout`, `queue_drain` or `queue_unconfirmed` (also a signal), and the daemon log gets
+  a `codex_queue` event with the exit status and the first error line. That line keeps only plain
+  words and short numbers; the thread ID, the notice, IDs, keys and URLs are replaced, and so is
+  the rest of the line after a credential name such as `password` or `Bearer`. A non-zero exit is
+  no longer counted as a notice, so a message whose queue command keeps failing is retried and
+  never ends as `not_read` (#466).
 - A managed context cycle's request now names its ready deadline as a UTC time, such as "Report
   ready by 2026-10-23 21:11:07 UTC", and asks the session to stop background subagents that
   will not finish with enough time left to update the handoff and report ready. For a Claude

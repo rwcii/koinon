@@ -132,6 +132,8 @@ type Mutation struct {
 
 type Store struct {
 	db *sql.DB
+	// logEvent writes a daemon log event, or is nil outside a daemon.
+	logEvent func(string, map[string]any)
 	// root is the state directory; the decision deep archive writes its log files there.
 	root      string
 	decisions decisionState
