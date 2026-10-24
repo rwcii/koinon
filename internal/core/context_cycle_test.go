@@ -976,6 +976,10 @@ func TestContextCycleDashboardAndRoutes(t *testing.T) {
 	if page.status != 200 || !strings.Contains(page.body, "cycle "+id+" (requester): waiting_ready") || !strings.Contains(page.body, "requested admitted") {
 		t.Fatalf("sessions page: %d %s", page.status, page.body)
 	}
+	// The synthetic host has no Claude registry, so its subagents are unknown, never 0 (#467).
+	if !strings.Contains(page.body, "stage until") || !strings.Contains(page.body, "background subagents running since the request: unknown") {
+		t.Fatalf("sessions page lacks the deadline or the subagent count: %s", page.body)
+	}
 	for _, private := range []string{"synthetic-private-epoch", "synthetic-private-socket"} {
 		if strings.Contains(page.body, private) {
 			t.Fatalf("page shows %q", private)

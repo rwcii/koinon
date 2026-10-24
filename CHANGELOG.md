@@ -10,6 +10,11 @@ into a dated release section when promoted to `main`.
   event with the exit status and the first error line, cleaned of the thread ID, the notice and
   token-like values. A non-zero exit is no longer counted as a notice, so a message whose queue
   command keeps failing is retried and never ends as `not_read` (#466).
+- A managed context cycle's request now names its ready deadline as a UTC time, such as "Report
+  ready by 2026-10-23 21:11:07 UTC", and asks the session to stop background subagents that
+  will not finish with enough time left to update the handoff and report ready. For a Claude
+  session waiting for its ready reply, the Sessions page shows how many of its background
+  subagents are still running, or `unknown` when they cannot all be read (#467).
 - A managed context cycle's ready reply that is refused as `cycle_artifact_invalid` now says
   which check failed, such as "must be in _handoff/claude/ of the main checkout", and the
   request names the session's handoff directory. That directory follows the Handoff path fact

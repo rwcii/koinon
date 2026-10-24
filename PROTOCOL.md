@@ -350,7 +350,9 @@ file, outcome and report. A stale or conflicting one is refused with `cycle_chan
 `cycle_epoch_unverified`, a file that fails a check `cycle_artifact_invalid`, whose `error`
 names the check that failed and, for the directory, the directory it expects, with each path
 cut to 240 bytes so the text stays within the 1024 bytes a client passes on (#468). The
-request message names the session's directory. A message, an
+request message names the session's directory and its ready deadline as a UTC time, the stage
+deadline: 15 minutes after the request, or the end of the cycle's lifetime when that comes first
+(#467). A message, an
 acknowledgement or a peer's report advances no cycle.
 
 The controller runs once a second. Each external input holds the wake lock and is preceded

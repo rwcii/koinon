@@ -15,6 +15,7 @@ import (
 	"slices"
 	"strconv"
 	"strings"
+	"syscall"
 	"time"
 )
 
@@ -117,9 +118,10 @@ func claudeSameStart(goos, recorded string, start int64) bool {
 	return err == nil && start >= 0 && at.Unix() == start/1_000_000
 }
 
-// readBounded reads a regular file of at most limit bytes.
+// readBounded reads a regular file of at most limit bytes. The open does not block, so a
+// FIFO in its place is refused by the check that follows.
 func readBounded(path string, limit int64) ([]byte, error) {
-	f, err := os.Open(path)
+	f, err := os.OpenFile(path, os.O_RDONLY|syscall.O_NONBLOCK, 0)
 	if err != nil {
 		return nil, err
 	}
@@ -337,10 +339,73 @@ func claudeSubagentsSince(root, session string, at int64) (bool, error) {
 	return false, nil
 }
 
+// claudeRunningSubagents counts the session's background subagents that are still running and
+// whose transcript changed after since: Claude Code 2.1.308 writes "finished": true into a
+// subagent's meta file when it ends, and no finished key while it runs (#467). It reads as
+// claudeSubagentsSince does, bounded, and an entry it cannot read is an error, never a count.
+func claudeRunningSubagents(t CycleTarget, since int64) (int, error) {
+	root, err := claudeConfigRoot(t)
+	if err != nil {
+		return 0, err
+	}
+	record, err := readClaudeRecord(t)
+	if err != nil {
+		return 0, err
+	}
+	if !claudeTranscriptID.MatchString(record.SessionID) {
+		return 0, errors.New("session ID unknown")
+	}
+	projects, err := boundedEntries(filepath.Join(root, "projects"))
+	if err != nil {
+		return 0, err
+	}
+	running := 0
+	for _, project := range projects {
+		if !project.IsDir() {
+			continue
+		}
+		dir := filepath.Join(root, "projects", project.Name(), record.SessionID, "subagents")
+		entries, err := boundedEntries(dir)
+		if err != nil {
+			return 0, err
+		}
+		for _, e := range entries {
+			name, ok := strings.CutSuffix(e.Name(), ".meta.json")
+			if !ok || !e.Type().IsRegular() {
+				continue
+			}
+			info, err := os.Lstat(filepath.Join(dir, name+".jsonl"))
+			if errors.Is(err, fs.ErrNotExist) {
+				continue
+			} else if err != nil {
+				return 0, err
+			}
+			if info.ModTime().UnixMilli() <= since {
+				continue
+			}
+			data, err := readBounded(filepath.Join(dir, e.Name()), claudeRegistryMax)
+			if err != nil {
+				return 0, err
+			}
+			var meta struct {
+				Finished bool `json:"finished"`
+			}
+			if err := json.Unmarshal(data, &meta); err != nil {
+				return 0, err
+			}
+			if !meta.Finished {
+				running++
+			}
+		}
+	}
+	return running, nil
+}
+
 // boundedEntries reads at most maxSubagentEntries entries of dir: nil for an absent
 // directory, errSubagentScan for a longer one.
 func boundedEntries(dir string) ([]fs.DirEntry, error) {
-	f, err := os.Open(dir)
+	// A directory open does not block: a FIFO or another file in its place fails it (#467).
+	f, err := os.OpenFile(dir, os.O_RDONLY|syscall.O_NONBLOCK|syscall.O_DIRECTORY, 0)
 	if errors.Is(err, fs.ErrNotExist) {
 		return nil, nil
 	} else if err != nil {
