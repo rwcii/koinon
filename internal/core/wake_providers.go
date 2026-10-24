@@ -457,10 +457,9 @@ var (
 	plainNumber = regexp.MustCompile(`^-?[0-9]{1,6}$`)
 )
 
-// credentialWords name a value: the word after one is replaced whatever its shape.
-var credentialWords = map[string]bool{"password": true, "passwd": true, "passphrase": true, "secret": true,
-	"token": true, "bearer": true, "basic": true, "authorization": true, "auth": true, "key": true,
-	"apikey": true, "api-key": true, "api_key": true, "cookie": true, "credential": true, "credentials": true}
+// credentialName matches a word that names a credential, such as "password", "client_secret"
+// or "Bearer". Its value may follow in any form, so such a word ends the kept text.
+var credentialName = regexp.MustCompile(`(?i)pass|secret|token|bearer|basic|auth|key|cookie|credential`)
 
 // logCodexQueue writes a failed queue command to the daemon log (#466): its fixed reason, its
 // exit status, and the first line of its stderr with the thread ID, the notice text and other
@@ -496,7 +495,6 @@ func queueDetail(line, thread, notice string) string {
 		}
 		return r
 	}, strings.ToValidUTF8(line, "\uFFFD")))
-	named := false
 	for i, word := range words {
 		start := strings.IndexFunc(word, func(r rune) bool { return !strings.ContainsRune(`("'[{`, r) })
 		end := strings.LastIndexFunc(word, func(r rune) bool { return !strings.ContainsRune(`)"'],.;:}`, r) }) + 1
@@ -506,10 +504,13 @@ func queueDetail(line, thread, notice string) string {
 		core := word[start:end]
 		plain := core == "<thread>" || core == "<notice>" || core == "<private>" ||
 			plainWord.MatchString(core) || plainNumber.MatchString(core)
-		if named || !plain {
+		if !plain {
 			words[i] = word[:start] + "<private>" + word[end:]
 		}
-		named = credentialWords[strings.ToLower(core)]
+		if credentialName.MatchString(core) {
+			words = append(words[:i+1], "<private>")
+			break
+		}
 	}
 	line = strings.Join(words, " ")
 	if len(line) <= queueDetailMax {

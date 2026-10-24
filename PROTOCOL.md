@@ -816,8 +816,9 @@ failure writes a `codex_queue` daemon log event with `reason`, `exit_status` (-1
 none) and `detail`: the first line of the command's stderr, cut to 256 bytes. The notice (also
 escaped) becomes `<notice>` and the thread ID `<thread>`. Of the other words, only a plain word
 of lower-case letters (one capital first, joined by `-`, `/` or `_`) and a number of up to six
-digits are kept; any other word, and the word after a credential name such as `password`,
-`token`, `key` or `Bearer`, becomes `<private>`. No provider text is stored (#466).
+digits are kept; any other word becomes `<private>`. A word that names a credential, such as
+`password`, `client_secret`, `token`, `key` or `Bearer`, ends the kept text: the rest of the
+line becomes one `<private>`. No provider text is stored (#466).
 
 Before a `codex queue` wake of a launched Codex session that holds its participant address, the
 daemon checks that the host still shows that thread (#275). Codex CLI 0.162.0 with

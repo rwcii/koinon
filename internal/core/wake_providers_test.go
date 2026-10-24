@@ -107,7 +107,7 @@ func TestWakeCodexQueueOutcomes(t *testing.T) {
 			t.Fatalf("detail holds %q: %q", private, detail)
 		}
 	}
-	if !strings.HasPrefix(detail, "Error: thread/queue/add failed for thread <thread> (other <private>, key <private>): <notice>") || len(detail) > queueDetailMax {
+	if detail != "Error: thread/queue/add failed for thread <thread> (other <private>, key <private>" {
 		t.Fatalf("detail: %d %q", len(detail), detail)
 	}
 	// Exit 0 with the output still held past the drain bound.
@@ -150,16 +150,23 @@ func TestQueueDetailKeepsOnlyPlainWords(t *testing.T) {
 		{"Error: queue rejected " + notice, "Error: queue rejected <notice>"},
 		{"Error: queue rejected " + strconv.Quote(notice), `Error: queue rejected "<notice>"`},
 		{"Error: queue rejected " + string(encoded) + " for " + thread, `Error: queue rejected "<notice>" for <thread>`},
-		{"Error: connection failed password=review-secret", "Error: connection failed <private>"},
-		{"Error: Authorization: Bearer review-secret", "Error: Authorization: <private> <private>"},
+		{"Error: connection failed password=review-secret", "Error: connection failed <private> <private>"},
+		{"Error: Authorization: Bearer review-secret", "Error: Authorization: <private>"},
+		{"Error: password = review-secret", "Error: password <private>"},
+		{"Error: password is review-secret", "Error: password <private>"},
+		{"Error: client_secret review-secret", "Error: client_secret <private>"},
+		{"Error: bad API-Key: x", "Error: bad <private>: <private>"},
 		{"Error: login failed, password: hunter", "Error: login failed, password: <private>"},
-		{"Error: failed request to https://review-user:review-secret@example.invalid/v1", "Error: failed request to <private>"},
+		{"Error: failed request to https://review-user:review-secret@example.invalid/v1", "Error: failed request to <private> <private>"},
 		{"Error: other 0b1c2d3e-0000-4000-8000-000000000000 (sk-Ab3Ab3), id 1-1 and 1234567", "Error: other <private> (<private>), id <private> and <private>"},
 		{"Error:\tbad\x00input )", "Error: bad input )"},
 	} {
 		if got := queueDetail(test.line, thread, notice); got != test.want {
 			t.Errorf("queueDetail(%q)\n got %q\nwant %q", test.line, got, test.want)
 		}
+	}
+	if got := queueDetail(strings.Repeat("failed ", 100), thread, notice); len(got) != queueDetailMax || !strings.HasPrefix(got, "failed failed") {
+		t.Errorf("long line: %d %q", len(got), got)
 	}
 }
 
