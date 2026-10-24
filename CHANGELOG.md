@@ -5,6 +5,14 @@ into a dated release section when promoted to `main`.
 
 ## Unreleased
 
+## 2026-10-24 — Skills for every agent family, clearer cycle refusals and Codex queue diagnostics
+
+This release makes `koinon install` and the daemon write a skill entry for every catalog skill,
+also for OpenCode and agy. A managed context cycle now names the handoff directory and the
+ready deadline, and a refused ready reply says which check failed. A Codex wake whose
+`codex queue` command fails says how, and the daemon log keeps a cleaned error line. The state
+schema stays 28; a v0.4.1 installation upgrades in place.
+
 - A Codex wake whose `codex queue` command fails now says how: `queue_failed` (non-zero exit),
   `queue_timeout`, `queue_drain` or `queue_unconfirmed` (also a signal), and the daemon log gets
   a `codex_queue` event with the exit status and the first error line. That line keeps only plain
@@ -36,6 +44,24 @@ into a dated release section when promoted to `main`.
   and `agents` entries no longer report them as `missing` with a note to run the install again:
   they report them as `added`, and the `agents` entry lists them in `changed`, as `koinon setup`
   does (#462).
+
+Upgrade from v0.4.1 with Homebrew: run `brew update` and `brew upgrade koinon`; the daemon
+restarts on the new binary, which ends current dashboard logins, so run `koinon dashboard` for a
+new link. A `koinon mcp` server started from v0.4.1 runs the new release without a session
+restart (#440). The daemon writes the new skill entries when it starts; agent sessions started
+after the upgrade list them.
+
+Known limits:
+
+- The DeepSeek harness's permission grammar remains unverified (docs/PERMISSIONS.md), and
+  Antigravity's permission evaluation is unverified; Grok takes its rule at launch. Grok and
+  DeepSeek get no skill entries.
+- A macOS system-mode daemon (`--system`) keeps a copy; upgrade it with
+  `$(brew --prefix)/bin/koinon install --system`.
+- Codex keeps the tools and descriptions it read at the start until its session starts again
+  (docs/INSTALL.md).
+- Why `codex queue` fails for a Codex session on macOS is not yet known (#466); the daemon log's
+  `codex_queue` event now records the failure line.
 
 ## 2026-10-23 — Team skills, Claude wakes during work and one dashboard login per port
 
