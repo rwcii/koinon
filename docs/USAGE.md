@@ -572,7 +572,8 @@ koinon maintainer secret clear      # removes it
 ```
 
 The secret is never an argument. It is valid UTF-8 of at least 12 characters and at most 1024
-bytes; one LF or CRLF at the end of the line is removed, and nothing else is changed. The
+bytes; one LF or CRLF at the end of the line is removed, and nothing else is changed. A macOS
+terminal holds at most 1,024 bytes of a line, so give a longer secret through standard input. The
 daemon keeps only a salted PBKDF2 key of it. Setting, generating or clearing the secret ends
 every dashboard login. Open `http://127.0.0.1:PORT/dashboard/login`, also through a tunnel,
 and enter the secret. After five wrong secrets in a row the daemon waits before it checks the

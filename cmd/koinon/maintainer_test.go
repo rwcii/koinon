@@ -8,6 +8,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"regexp"
+	"runtime"
 	"strings"
 	"syscall"
 	"testing"
@@ -203,6 +204,11 @@ func TestReadNewSecretRefusedLineConsumed(t *testing.T) {
 }
 
 func refusedLineConsumed(t *testing.T, line string) {
+	if runtime.GOOS == "darwin" {
+		// A macOS terminal holds at most 1,024 bytes of a line and drops the rest, its line end
+		// included, so a longer entry never reaches the reader there.
+		t.Skip("macOS terminal lines hold at most 1,024 bytes")
+	}
 	master, slave := openPTY(t)
 	go func() {
 		buf := make([]byte, 256)
