@@ -17,6 +17,10 @@ next session of the same agent. Each agent writes only its own directory, so han
 different agents never compete. Handoffs are session state, not part of the product: they stay
 in the ignored `_handoff/` directory and never enter Git.
 
+Beside its snapshots, each agent keeps one short progress note, `progress.md`, in the same
+directory (step 6). The note is the only file there that is updated in place; a snapshot is
+never edited.
+
 ## 1. Name the agent
 
 The agent ID is the native agent family in lower case, such as `claude`, `codex`,
@@ -80,11 +84,13 @@ date -u +%Y-%m-%d-%H%M%S
 Use UTC so that every agent's files sort in one order. The file is
 `$dir/<timestamp>.md`, or `<timestamp>-<label>.md` when the maintainer gives a label.
 
-## 4. Seed from the last handoff of this agent
+## 4. Seed from the progress note and the last handoff of this agent
 
-Find it with the `pickup` skill's lookup (step 2 there). Carry forward only what is still true
-and still open. Drop work that is finished or abandoned. The new file is a complete snapshot,
-not a difference from the last one.
+Start from `$dir/progress.md` when it exists (step 6), then take what the note does not cover
+from the last snapshot. Find both with the `pickup` skill's lookup (step 2 there), which
+selects only timestamped files. Carry forward only what is still true and still open. Drop
+work that is finished or abandoned. The new file is a complete snapshot, not a difference from
+the last one.
 
 ## 5. Verify, then write
 
@@ -145,7 +151,27 @@ paths. Leave out a section that has no content. The file stays on this machine, 
 keys, credentials or peer message bodies into it, and never copy it into a commit, a pull
 request or documentation.
 
-Do not commit, stage or push anything for a handoff. Report the path of the new file.
+Then update the progress note in the same step (step 6), so that it agrees with the new
+snapshot. Do not commit, stage or push anything for a handoff. Report the path of the new file.
+
+## 6. Keep the progress note
+
+The note is `$dir/progress.md`, in the resolved Handoff path, at most 4 KiB, with these fields:
+
+```markdown
+# Progress — <agent-id>
+- Task: <the current task and its issue>
+- PR and head: <number and commit, or none>
+- Completed: <stages and checks that are done>
+- Decisions: <confirmed choices and their sources>
+- Open issues: <missing evidence or blockers>
+- Next action: <one concrete step>
+```
+
+Update this short note after a completed stage, recording the current result and next action.
+Write only verified values, with the same privacy rules as a snapshot, and replace the whole
+note each time. The note is not a handoff: a managed cycle reports a timestamped snapshot,
+never the note.
 
 ## Repository facts
 

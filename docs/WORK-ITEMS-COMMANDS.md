@@ -96,8 +96,8 @@ Responses carry `more`, nullable `next_after`, and the compatible `truncated` fl
 `more` is false; the limit remains 1–100 and each response remains bounded. These are current
 queries, not a frozen inventory: use a fresh query and retained memory deltas for assignment
 changes behind a page boundary. An already advanced participant cursor does not hide current
-assignments and needs no reset. Until the discovery chunk ships, poll work and memory; this
-increment does not emit work-change model notices.
+assignments and needs no reset. Work-change notices are coalesced (PROTOCOL.md, Work notices);
+after a notice, reconnect or missed wake, use current work queries and memory catch-up.
 
 The CLI checks unconditional required options before contacting the service. These
 missing-option refusals return JSON with `ok: false`, `code: invalid_request` and exit 1;

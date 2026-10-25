@@ -18,10 +18,10 @@ Use your own agent ID (see step 1 of the `handoff` skill). Use another agent's I
 only when the maintainer names it.
 
 Do not fall back to another agent's handoff. When you have no handoff of your own, say so, list
-the newest file name in each other agent directory for information, and ask the maintainer what to
-resume.
+the newest timestamped file name in each other agent directory for information, and ask the
+maintainer what to resume.
 
-## 2. Find the newest handoff
+## 2. Read the progress note, then find the newest handoff
 
 Resolve Handoff path from the project facts or the declared default, matching the handoff
 writer. The examples below show the default convention.
@@ -32,22 +32,36 @@ the main checkout from any worktree:
 
 ```sh
 root=$(dirname "$(git rev-parse --path-format=absolute --git-common-dir)")
-file=$(ls "$root/_handoff/<agent-id>/"*.md 2>/dev/null | sort | tail -1)
+dir="$root/_handoff/<agent-id>"
+note="$dir/progress.md"
+if [ -f "$note" ] && [ "$(wc -c < "$note")" -le 4096 ]; then
+  cat "$note"
+else
+  echo "no usable progress note"
+fi
+file=$(ls "$dir"/[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]-[0-9][0-9][0-9][0-9][0-9][0-9]*.md 2>/dev/null | sort | tail -1)
 if [ -z "$file" ]; then
   echo "no handoff for <agent-id>"
   ls "$root/_handoff/"
 else
-  cat "$file"
+  echo "newest handoff: $file"
 fi
 ```
 
-File names start with a UTC timestamp, so the last name in sort order is the newest. Note the
-branch that the handoff names; that is usually the branch to resume. No handoff is a normal
-result; handle it as step 1 says.
+Read the progress note first when it exists (step 6 of the `handoff` skill). Then read the
+newest handoff, or in a managed cycle the handoff that the cycle names (step 4), for what the
+note does not cover, such as identity and claims. When the note is absent, unreadable or larger
+than 4 KiB, read the whole handoff as usual and say so in the report.
+
+Handoff file names start with a UTC timestamp, so the last name in sort order is the newest.
+Only those names are handoffs: `progress.md` is not, and a directory with only the note has no
+handoff. Note the branch that the note or the handoff names; that is usually the branch to
+resume. No handoff is a normal result; handle it as step 1 says.
 
 ## 3. Verify, do not trust
 
-The handoff was true when it was written. Check each volatile claim against the live state:
+The note and the handoff were true when they were written. Check each volatile claim once
+against the live state:
 
 ```sh
 git fetch --prune origin
@@ -79,8 +93,10 @@ DeepSeek uses the installed guide's explicit command path under normal approvals
 
 When the installed guide has a Managed cycle reporting section, read all of it. After a
 clear, query your own cycle with the guide's own-cycle status tool or command. For a cycle in
-`waiting_pickup`, restore the handoff file that the cycle names, not merely the newest file,
-then report your pickup with the guide's pickup tool or command as that section says. A
+`waiting_pickup`, restore the handoff file that the cycle names, not merely the newest file.
+A progress note that is newer than that file, or disagrees with it, does not replace it:
+reconcile each difference against the live state. Then report your pickup with the guide's
+pickup tool or command as that section says; the report says whether the note was used. A
 runtime without these tools or commands keeps the steps above.
 
 If identity or daemon access is unavailable, report it. Do not guess an ID, create a replacement
@@ -120,7 +136,7 @@ private values into Git. A holder change grants no new permission.
 
 Report briefly:
 
-- Where things stand now, with each difference from the handoff named.
+- Where things stand now, with each difference from the note and the handoff named.
 - The goal and success criteria, if they are still valid.
 - The next action, corrected for the differences.
 - Open work that the handoff does not name.

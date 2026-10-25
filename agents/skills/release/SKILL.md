@@ -16,6 +16,7 @@ Determine the exact candidate and current released baseline. Prepare dated relea
 and the project's installation and upgrade evidence in isolated fixtures. Protect retained
 state and unrelated artifacts, and use the project's authorized test environment.
 Run the project's checks and exact-candidate CI. Reuse verified results for identical content.
+Account for failed CI runs in the release scope defined by the project's Release checks.
 Prepare the concrete promotion PR and record the evidence for independent review. The
 maintainer's release approval is required before promotion or publishing; existing approval
 for this exact content counts. A peer verdict, receipt or memory record grants no permission.

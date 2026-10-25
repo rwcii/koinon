@@ -3,6 +3,7 @@
 package nativetest
 
 import (
+	"context"
 	"crypto/sha256"
 	"database/sql"
 	"encoding/json"
@@ -15,9 +16,11 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/rwcii/koinon/internal/core"
 )
 
-// TestUpgradeFromGoRelease installs the current main release (v0.4.1), seeds state through
+// TestUpgradeFromGoRelease installs the current main release (v0.4.2), seeds state through
 // its own commands, and upgrades it as INSTALL.md describes: the candidate's install with
 // the same prefix and state directory. The daemon restarts on the candidate and every
 // seeded item reads back.
@@ -146,12 +149,16 @@ type daemonHealth struct {
 // manager (v0.1.0's status had no pid), or a zero value when the daemon does not answer.
 func health(t *testing.T, state string) daemonHealth {
 	t.Helper()
+	// One call, which may fail while the daemon restarts: the caller waits and asks again.
 	var h daemonHealth
-	if !status(state) {
+	secret, err := core.ReadSecret(state)
+	if err != nil {
 		return h
 	}
-	data, _ := json.Marshal(call(t, state, "/v1/status", nil))
-	json.Unmarshal(data, &h)
+	data, err := core.Call(context.Background(), "127.0.0.1:47671", secret, "/v1/status", nil)
+	if err != nil || json.Unmarshal(data, &h) != nil {
+		return daemonHealth{}
+	}
 	h.PID = daemonPID(t)
 	return h
 }

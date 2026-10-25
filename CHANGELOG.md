@@ -5,6 +5,42 @@ into a dated release section when promoted to `main`.
 
 ## Unreleased
 
+## 2026-10-25 — Progress notes for handoffs, wake guidance and failed-run accounting
+
+This release changes procedures and guidance only. The `handoff` and `pickup` skills keep a
+short progress note that a pickup reads first, the installed guide says how inbox notices reach
+a session, and the `release` skill accounts for failed CI runs. The state schema stays 28; a
+v0.4.2 installation upgrades in place.
+
+- The `handoff` and `pickup` skills use a short progress note, `progress.md`, in the agent's
+  handoff directory (#478, WDR 005 Decision 3). The agent updates it after each completed stage;
+  `handoff` starts from it and updates it; `pickup` reads it first and then the newest handoff,
+  or the one a managed cycle names. Pickup selects only timestamped files as handoffs.
+- The installed guide says that Koinon sends inbox notices through the session's supported wake
+  channel, so a session with a working automatic wake channel normally needs no timed inbox
+  check, and that work-change notices are coalesced. It no longer says that work-change
+  notices are not implemented.
+- The `release` skill accounts for failed CI runs in the release scope that the project's
+  Release checks define (WDR 004, Decision 6). Koinon's promotion pull request lists each
+  failed run and attempt since the previous release with its cause, fix or open issue.
+
+Upgrade from v0.4.2 with Homebrew: run `brew update` and `brew upgrade koinon`; the daemon
+restarts on the new binary, which ends current dashboard logins, so run `koinon dashboard` for a
+new link. A running `koinon mcp` server runs the new release without a session restart. The
+`koinon-` skill entries load the new procedures from the installed binary, and `koinon guide`
+prints the new guide text.
+
+Known limits:
+
+- The DeepSeek harness's permission grammar remains unverified (docs/PERMISSIONS.md), and
+  Antigravity's permission evaluation is unverified; Grok takes its rule at launch. Grok and
+  DeepSeek get no skill entries.
+- A macOS system-mode daemon (`--system`) keeps a copy; upgrade it with
+  `$(brew --prefix)/bin/koinon install --system`.
+- Codex keeps the tools and descriptions it read at the start until its session starts again
+  (docs/INSTALL.md).
+- Why `codex queue` fails for a Codex session on macOS is not yet known (#466).
+
 ## 2026-10-24 — Skills for every agent family, clearer cycle refusals and Codex queue diagnostics
 
 This release makes `koinon install` and the daemon write a skill entry for every catalog skill,
