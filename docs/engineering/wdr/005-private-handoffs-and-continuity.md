@@ -3,7 +3,7 @@ wdr: "005"
 title: "Private Handoffs and Continuity"
 status: draft
 created: "2026-10-12"
-updated: "2026-10-12"
+updated: "2026-10-25"
 authors:
   - "Robert Capps"
 reviewers: []
@@ -30,10 +30,12 @@ tags:
 
 Agents that develop Koinon end sessions, reset context and resume later. The `handoff` skill
 writes a snapshot of one agent's work, and the `pickup` skill resumes from it. This record
-describes where handoffs live, why they stay out of Git, and whose handoff a pickup reads.
+describes where handoffs live, why they stay out of Git, whose handoff a pickup reads, and the
+short progress note that each agent keeps beside its snapshots.
 
 The location decision quotes the maintainer. The rule that pickup reads only the caller's own
-handoff shipped without recorded maintainer words, so the record is a draft.
+handoff shipped without recorded maintainer words, so the record is a draft. The progress note
+was requested by the maintainer.
 
 ---
 
@@ -42,8 +44,9 @@ handoff shipped without recorded maintainer words, so the record is a draft.
 1. Problem Context
 2. Decision 1: Handoffs live in the main checkout's ignored `_handoff/`
 3. Decision 2: Pickup reads the caller's own handoff
-4. Conclusion
-5. Document History
+4. Decision 3: A progress note beside the snapshots
+5. Conclusion
+6. Document History
 
 ---
 
@@ -62,6 +65,7 @@ thread ID and the terminal's tmux variables, that do not belong in a public repo
 1. A handoff survives the removal of the worktree it was written from.
 2. Handoffs and the private values in them stay out of Git.
 3. A resumed session starts from its own last state.
+4. A resumed session reaches its next action without re-reading and re-checking a long snapshot.
 
 ### Scope
 
@@ -138,12 +142,55 @@ location changed in PR #130 (merge commit 2fe8c28) and the wording to "the maint
 
 ---
 
+## 4. Decision 3: A progress note beside the snapshots
+
+### Decision
+
+Each agent currently keeps one short progress note, `progress.md`, in its own handoff directory
+beside its timestamped snapshots, in the resolved Handoff path. The note has fixed fields
+(task, pull request and head, completed stages, decisions, open issues, next action), holds at
+most 4 KiB, and is the only file there that is updated in place: the agent updates it after a
+completed stage, and `handoff` starts a snapshot from it and updates it in the same step.
+`pickup` reads the note first, verifies its volatile claims once, and takes from the newest
+snapshot what the note does not cover, such as identity and claims. A note that is absent,
+unreadable or too large is not used, and pickup says so. The note is not a handoff: only
+timestamped files are snapshots, and a managed cycle restores the snapshot that it names
+and reconciles a newer or different note against the live state.
+
+**Provenance:** Requested in #478 (issue body), a request record with observations from about 12
+handoff cycles on 2026-10-24 and 2026-10-25: handoffs were written only when context filled,
+sessions reached 58–77% before they stopped, and one pickup of a 7–11 KB handoff cost 28% of
+context and 14 minutes. Maintainer, 2026-10-25, session transcript, after a review of an article
+on agent harness setup: "are you updating the koinon-pickup/handoff skills so a handoff starts
+from progress.md and a pickup reads it first, like discussed in the article?", then
+"[another project's agent] filed https://github.com/rwcii/koinon/issues/478 covering the
+requested change". A request; the design above is the one agreed with the reviewer on #478,
+not an approval of its details.
+
+### Alternatives Considered
+
+| Alternative | Description | Why Rejected |
+| ----------- | ----------- | ------------ |
+| No note | Resume from the newest snapshot only | The observations in #478: late handoffs and costly pickups |
+| The note replaces the snapshot | Keep only one file that is updated in place | Loses the history of snapshots and the exact file that a managed cycle names |
+| Note in Koinon memory | Store progress as a memory entry | Memory is shared by the repository's agents; the note is one session's state |
+
+### Rationale
+
+1. A short note updated after each stage is current when the context fills, and a pickup reads
+   it first.
+2. Snapshots stay complete and unchanged, so the cycle's file checks and the history do not
+   change.
+
+---
+
 ## Conclusion
 
 Koinon's development agents currently keep handoffs in the main checkout's Git-ignored
 `_handoff/<agent>/`, which survives worktree removal and keeps private values out of Git, as the
 maintainer asked on 2026-09-24. Pickup reads the caller's own handoff unless the maintainer names
 another; that scope shipped with the first shared skills and has no recorded maintainer decision.
+Each agent also keeps a short progress note beside its snapshots, which pickup reads first.
 
 ---
 
@@ -152,3 +199,4 @@ another; that scope shipped with the first shared skills and has no recorded mai
 | Date       | Change           |
 | ---------- | ---------------- |
 | 2026-10-12 | Initial creation |
+| 2026-10-25 | Decision 3: a progress note beside the snapshots (#478) |
