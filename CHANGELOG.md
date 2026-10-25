@@ -5,6 +5,10 @@ into a dated release section when promoted to `main`.
 
 ## Unreleased
 
+- The `release` skill accounts for failed CI runs in the release scope that the project's
+  Release checks define (WDR 004, Decision 6). Koinon's promotion pull request lists each
+  failed run and attempt since the previous release with its cause, fix or open issue.
+
 ## 2026-10-24 — Skills for every agent family, clearer cycle refusals and Codex queue diagnostics
 
 This release makes `koinon install` and the daemon write a skill entry for every catalog skill,

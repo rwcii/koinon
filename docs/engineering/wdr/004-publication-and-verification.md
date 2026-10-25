@@ -3,7 +3,7 @@ wdr: "004"
 title: "Publication and Verification"
 status: draft
 created: "2026-10-12"
-updated: "2026-10-12"
+updated: "2026-10-25"
 authors:
   - "Robert Capps"
 reviewers: []
@@ -32,9 +32,10 @@ tags:
 
 This record describes how a Koinon change currently reaches `develop` and `main`: the branch
 model, one open pull request per target branch on a head that contains the latest `develop`,
-the required checks on Linux and macOS, auto-merge, and the commit conventions, with what
-GitHub and the local hook enforce. One open pull request, auto-merge, the commit account and
-the "maintainer" naming come from the maintainer's words; the rest shipped without a recorded
+the required checks on Linux and macOS, auto-merge, the commit conventions and the account of
+failed CI runs before a release, with what GitHub and the local hook enforce. One open pull
+request, auto-merge, the commit account, the "maintainer" naming and the failed-run account
+come from the maintainer's words; the rest shipped without a recorded
 maintainer decision, so this record is a draft.
 
 ---
@@ -47,8 +48,9 @@ maintainer decision, so this record is a draft.
 4. Decision 3: Required checks on Linux and macOS, and the peer-review status
 5. Decision 4: Auto-merge
 6. Decision 5: Signed, human-authored commits
-7. Conclusion
-8. Document History
+7. Decision 6: Failed CI runs are accounted for before a release
+8. Conclusion
+9. Document History
 
 ---
 
@@ -68,10 +70,12 @@ peer review finished. Agent tools add attribution to commits by default.
 2. A merge into `develop` is tested on the exact head, on Linux and macOS.
 3. Pull requests do not invalidate each other while they wait.
 4. Public history carries the maintainer's identity and no tool attribution.
+5. A CI failure that recurs is seen, even when each run looks like a single event.
 
 ### Scope
 
-Covers branches, pull request order, checks, merging and commit conventions. Review roles and
+Covers branches, pull request order, checks, merging, commit conventions and the account of
+failed CI runs before a release. Review roles and
 the sign-off are in WDR 003; the release approval is in WDR 002. Inventory rows: C035, C036,
 C037, C038, C039, C061, C062, C085.
 
@@ -276,14 +280,61 @@ signed commits and no CI job checks the DCO line.
 
 ---
 
+## 7. Decision 6: Failed CI runs are accounted for before a release
+
+### Decision
+
+Before the maintainer's release approval, the promotion pull request lists every failed CI run
+since the released baseline, so that a failure that recurs is seen and given a cause. The
+scope is each failed run and each failed attempt of the repository's workflows from the
+baseline release tag's commit to the candidate's exact-head CI, on all branches: also deleted
+pull request branches, and a failure that a rerun later turned green. Each entry has the run
+and attempt, the commit, the job and platform, the cause with its evidence (else "unknown"),
+and the pull request that fixed it or the open issue. An open issue records a fault that is
+not fixed; it does not replace the exact-candidate checks (Decision 3). The `release` skill
+accounts for failed runs in the scope that the project's Release checks define; Koinon's
+release facts name the source.
+
+**Provenance:** Maintainer, 2026-10-24, session transcript, after the `main` pushes for the
+v0.4.1 preparation and for v0.4.2 each had a failed macOS run: "why do we have CI tests
+constantly failing on nearly every CI run?" (typos corrected), then "see main". Of the 120 runs
+since 2026-10-21, 6 had failed; the two that were not yet fixed were test timing faults (#475).
+Maintainer, 2026-10-25, session transcript, to the question "Should I add the step in gap 1 to
+the `release` skill? I recommend yes.", where gap 1 was that no step measures accepted work, from
+a review of an article on agent harness setup: "yes, also ask your claude peer to review the
+article and weigh in on any required changes, come to me with a mutually agreed upon proposal".
+The jointly reviewed proposal (scope, entries, location, the issue limit, the portable skill
+sentence and the facts), to the question "Do you approve this proposal?": "yes".
+
+### Alternatives Considered
+
+| Alternative | Description | Why Rejected |
+| ----------- | ----------- | ------------ |
+| Each failure on its own | Fix or rerun a failed run when it is seen | The macOS timing failures recurred for days; each run looked like one event |
+| Latest attempt only | List the runs whose final result is failure | A failure that a rerun turned green is not seen |
+| More measures | Also record usage with retries, review time and corrections per task | Not requested; an optional later test on comparable accepted tasks |
+
+### Rationale
+
+1. The release is where the maintainer reads the evidence for the whole period.
+2. A cause with evidence, a fix or an issue keeps a recurring failure from being read as noise.
+
+### Enforcement
+
+Practice only: the `release` skill and the promotion pull request evidence. No CI job checks the
+list.
+
+---
+
 ## Conclusion
 
 Koinon currently publishes through one squash pull request at a time into `develop`, on a head
 that contains the latest `develop`, gated by the Linux and macOS checks and a commit-bound
-`peer-review` status, with auto-merge set. GitHub rulesets enforce the branch, check and
+`peer-review` status, with auto-merge set; a release lists the failed CI runs since the last
+one. GitHub rulesets enforce the branch, check and
 up-to-date rules; one open pull request, no rewriting of pushed branches, signing and DCO are
-practice. The pull request order, auto-merge, commit identity and naming are the maintainer's
-choices; the rest waits for the maintainer's decision.
+practice. The pull request order, auto-merge, commit identity, naming and the failed-run account are
+the maintainer's choices; the rest waits for the maintainer's decision.
 
 ---
 
@@ -292,3 +343,4 @@ choices; the rest waits for the maintainer's decision.
 | Date       | Change           |
 | ---------- | ---------------- |
 | 2026-10-12 | Initial creation |
+| 2026-10-25 | Decision 6: failed CI runs are accounted for before a release |

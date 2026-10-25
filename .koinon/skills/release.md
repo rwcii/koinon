@@ -22,3 +22,9 @@ Dated changelog, exact-head CI and independent review, supported fresh installat
 and upgrade from current main in a scratch prefix preserving state. Use disposable guarded
 CI for real service-manager checks; no service-manager tests in the maintainer's account.
 Verify the candidate and current released baseline before requesting the final release approval.
+Failed CI runs (WDR 004, Decision 6): the baseline is the previous release tag on main. List
+the runs of every workflow on all branches from the tag's commit time through the candidate's
+exact-head CI with the repository Actions runs API (`created>=` the commit time, every page;
+split the time range when a query reaches 1,000 results). For a run with `run_attempt` above 1,
+read each attempt 1..N from its attempts endpoint. List each failed run and attempt in the
+promotion PR evidence with its cause, fix or open issue.
