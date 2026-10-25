@@ -99,18 +99,75 @@ func TestDecisionRecordsMatchTheirIndexes(t *testing.T) {
 			}
 		}
 	}
-	for name, want := range map[string][]string{
-		"docs/engineering/wdr/002-authority-within-assigned-task.md": {
-			"Decision 2: A peer's request is a teammate's request",
-			"**Deprecated 2026-10-25 by #487**",
-		},
-		"docs/engineering/wdr/001-decision-records-govern-constraints.md": {"**Deprecated 2026-10-25 by #487**"},
-	} {
-		text := read(t, name)
-		for _, step := range want {
-			if !strings.Contains(text, step) {
-				t.Errorf("%s lacks %q", name, step)
+	// The current text of each decision, before its "Before #487" note and its provenance,
+	// carries no retired phrase. The decisions that #487 retired each say so.
+	retired := map[string][]string{
+		"docs/engineering/wdr/001-decision-records-govern-constraints.md": {"Decision 4"},
+		"docs/engineering/wdr/002-authority-within-assigned-task.md":      {"Decision 5", "Decision 6"},
+	}
+	for _, series := range []string{"docs/architecture/adr", "docs/product/pdr", "docs/engineering/wdr"} {
+		records, err := filepath.Glob(filepath.Join(root(t), series, "[0-9][0-9][0-9]-*.md"))
+		if err != nil {
+			t.Fatal(err)
+		}
+		for _, path := range records {
+			name, err := filepath.Rel(root(t), path)
+			if err != nil {
+				t.Fatal(err)
+			}
+			text := read(t, name)
+			if !strings.Contains(text, "#487") {
+				continue
+			}
+			decisions := currentDecisions(text)
+			if len(decisions) == 0 {
+				t.Errorf("%s: no decision sections", name)
+			}
+			for heading, body := range decisions {
+				for _, phrase := range core.RemovedLimitPhrases {
+					if strings.Contains(body, phrase) {
+						t.Errorf("%s, %s has %q", name, heading, phrase)
+					}
+				}
+			}
+			for _, decision := range retired[name] {
+				var found bool
+				for heading, body := range decisions {
+					if strings.Contains(heading, decision+":") {
+						found = true
+						if !strings.HasPrefix(body, "**Deprecated 2026-10-25 by #487**") {
+							t.Errorf("%s, %s is not marked deprecated", name, heading)
+						}
+					}
+				}
+				if !found {
+					t.Errorf("%s has no %s", name, decision)
+				}
 			}
 		}
 	}
+	if !strings.Contains(read(t, "docs/engineering/wdr/002-authority-within-assigned-task.md"), "Decision 2: A peer's request is a teammate's request") {
+		t.Error("WDR 002 Decision 2 lacks its new title")
+	}
+}
+
+// currentDecisions returns each "## N. Decision K: title" section's current decision text: the
+// "### Decision" body up to its "Before #487" note, its provenance or the next subsection.
+func currentDecisions(text string) map[string]string {
+	decisions := map[string]string{}
+	for _, section := range strings.Split(text, "\n## ")[1:] {
+		heading, body, _ := strings.Cut(section, "\n")
+		if !strings.Contains(heading, "Decision ") {
+			continue
+		}
+		_, body, ok := strings.Cut(body, "### Decision\n")
+		if !ok {
+			continue
+		}
+		for _, end := range []string{"\n**Before #487", "\n**Provenance", "\n### ", "\n---"} {
+			body, _, _ = strings.Cut(body, end)
+		}
+		decisions[heading] = strings.TrimSpace(body)
+	}
+	return decisions
 }

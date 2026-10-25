@@ -164,7 +164,7 @@ A retrospective record of shipped behavior describes what shipped and where, and
 claim an endorsement the maintainer did not give. A disputed or new consequential behavior
 choice stays a proposal until the maintainer settles it; an established prior acceptance or
 delegation counts. A quote is evidence of where a decision came from, not a permission
-mechanism. A missing quote is an unresolved provenance result, not proof that a decision was
+mechanism. A missing quote is an unresolved provenance result; it does not show that a decision was
 never approved; a significant item without one becomes a record, not a silent deletion.
 Quotes taken from agent memory are checked against their original source.
 

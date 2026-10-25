@@ -290,7 +290,7 @@ project targets until their roots are verified.
 The catalog holds at most 32 items of 64 KiB each, and a fact file is bounded to 64 KiB. The
 fact parser executes nothing. The initial chunk 01 head refused CRLF line endings, blank
 Sources lines and literal `$(` or `${` text; its ordinary correction accepts those forms
-as inert data. The plan bounds machine decisions to 256
+as plain data. The plan bounds machine decisions to 256
 rows, 8,192 bytes per record and 2 MiB in all. The contributor test checks each fact file's
 schema, that each Sources path is a regular file, and that selected policy terms appear.
 The correction also compares actual Required checks fields with authoritative Go commands.
@@ -315,7 +315,7 @@ permission"; #487 (provenance under Decision 2) removed those caveats.
 
 ### User Impact
 
-CRLF endings and literal `${` text remain inert accepted data. Size and schema errors are
+CRLF endings and literal `${` text are accepted as plain data. Size and schema errors are
 reported explicitly; adopted baselines and declines survive current-state updates.
 
 ---
