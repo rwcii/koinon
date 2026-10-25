@@ -109,6 +109,11 @@ func pickupResults(skills []PickupSkill) map[string]string {
 // different file is replaced. The uninstall removes only files that hold this skill (#406).
 func TestInstallPickupSkills(t *testing.T) {
 	e := newEnv(t, "systemd")
+	// The retired Python block leaves the Codex AGENTS.md, and the person's text stays (#487).
+	t.Setenv("CODEX_HOME", "")
+	instructions := filepath.Join(e.o.Services.Home, ".codex", "AGENTS.md")
+	os.MkdirAll(filepath.Dir(instructions), 0o700)
+	os.WriteFile(instructions, []byte("# Mine\n\n<!-- BEGIN KOINON CODEX -->\nretired\n<!-- END KOINON CODEX -->\n"), 0o600)
 	claude := filepath.Join(e.o.ClaudeConfig, "skills", "koinon-pickup", "SKILL.md")
 	codex := filepath.Join(e.o.Services.Home, ".agents", "skills", "koinon-pickup", "SKILL.md")
 	// A project's own pickup skill and a personal pickup skill are not touched.
@@ -122,6 +127,12 @@ func TestInstallPickupSkills(t *testing.T) {
 	r, err := Install(context.Background(), e.o)
 	if err != nil || !r.OK || !reflect.DeepEqual(pickupResults(r.PickupSkills), map[string]string{"claude": "created", "codex": "created"}) {
 		t.Fatalf("install %+v %v", r.PickupSkills, err)
+	}
+	if r.RetiredInstructions == nil || *r.RetiredInstructions != (RetiredInstructions{Path: instructions, Result: "removed"}) {
+		t.Fatalf("retired instructions: %+v", r.RetiredInstructions)
+	}
+	if data, _ := os.ReadFile(instructions); string(data) != "# Mine\n" {
+		t.Fatalf("instructions after install: %q", data)
 	}
 	for _, skill := range r.PickupSkills {
 		if want := map[string]string{"claude": claude, "codex": codex}[skill.Family]; skill.Path != want {
@@ -397,7 +408,12 @@ func TestInstallSharedEntryKeepsAdoptedCopy(t *testing.T) {
 	}
 	codex := core.CodexSkillPath(e.o.Services.Home, guide.Name)
 	claude := core.ClaudeSkillPath(e.o.ClaudeConfig, guide.Name)
-	older := strings.Replace(string(guide.Content), "If the\ntool is unavailable", "If the\nolder tool is unavailable", 1)
+	// The entry as v0.4.3 wrote it, which #487 changed.
+	older := strings.Replace(string(guide.Content), "Repository facts section says.\n",
+		"Repository facts section says. If the\ntool is unavailable, stop and report that.\n", 1)
+	if older == string(guide.Content) {
+		t.Fatal("no older entry")
+	}
 	adopted := "---\nname: koinon-guide\ndescription: adopted\n---\n\n# Koinon guide\n\nThe adopted procedure.\n"
 	for path, content := range map[string]string{codex: older, claude: adopted} {
 		if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {

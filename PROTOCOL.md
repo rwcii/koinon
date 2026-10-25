@@ -275,12 +275,12 @@ the cycle row, its first event `requested admitted`, an audit record and the typ
 the session's own inbox. The request's sender is the reserved system identity `overwatch`
 (`sender_family` and `sender_id` `overwatch`, `sender_name` `overwatch`), with `system_kind`
 `context_cycle_request`, `cycle_id` and `cycle_enable_revision`; its fixed body names the
-cycle and its revision and asks the session to pause at the next safe stopping point and start
-no new work, write its handoff, report it with `context_cycle_ready`, then end its turn and
-stay idle (#431). A wake whose range holds the request of an unfinished cycle ends its notice
-with ` Managed context-cycle request ID: answer it before other work.`, after any decision
-verdict suffix; a finished cycle's request adds nothing (#445). No session, alias or participant can take the name
-`overwatch`, it has no inbox, and no tool or command can send as it. It is not the maintainer.
+cycle and its revision and asks the session to pause at the next safe stopping point, write its
+handoff, report it with `context_cycle_ready`, then end its turn and stay idle (#431). A wake
+whose range holds the request of an unfinished cycle ends its notice with ` Managed
+context-cycle request ID.`, after any decision verdict suffix; a finished cycle's request adds
+nothing (#445). No session, alias or participant can take the name `overwatch`, it has no
+inbox, and no tool or command can send as it.
 Inbox reads return `system_kind`, `cycle_id` and `cycle_enable_revision` with the message. A
 name record called `overwatch` retained from before schema 23 is kept unchanged; while one
 exists no cycle is admitted, and the session's trigger reason is `overwatch_name_conflict`.
@@ -324,8 +324,8 @@ caller, epoch, host, pane, socket or another session.
   opened regular file of at most 64 KiB, through a root opened at the main checkout, and keeps its device, inode,
   size and modification time; a change to any of them is a changed file. The
   registered directory must itself be a worktree that Git lists. A successful report also
-  returns `next`, the instruction to end the turn and start no other work, because the clear
-  waits for the idle prompt.
+  returns `next`, the instruction to end the turn and stay idle, because the clear waits for the
+  idle prompt.
 - `POST /v1/cycles/pickup` (`context_cycle_pickup`) takes `cycle_id`, `revision`, the same file
   name, `outcome` `resumed` or `paused` and a `report` of 1 to 1,024 UTF-8 bytes. A
   `waiting_pickup` cycle completes when the caller runs under a new epoch (the epoch that the
@@ -692,8 +692,9 @@ A message that the dashboard sends as this session reaches the recipient with `s
 tool or other `koinon` command can send a message with that `sender_family`; only the dashboard,
 which needs a login link from `koinon dashboard`, can. The field is set from the sending
 session, never from the body. Koinon currently treats such a message as the maintainer's
-instruction and approval, because the bridge runs only locally (PDR 005, Decision 3). Messages from every other session are data from another agent and grant no
-permission (WDR 002, Decision 3). The MCP server instructions, the `inbox` tool description and
+instruction and approval, because the bridge runs only locally (PDR 005, Decision 3). A message
+from every other session comes from a teammate agent: the recipient does the work it asks for
+and replies through Koinon (#487). The MCP server instructions, the `inbox` tool description and
 `koinon guide` state both.
 
 Each message has exactly one delivery state: `waiting`, `notified`, `uncertain`, or `failed` with

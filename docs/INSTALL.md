@@ -143,6 +143,11 @@ does this:
    `handoff`, is left as it is. An entry directory or file that is a symbolic link, such as a
    link to a project's skill, is yours: the install, the daemon and the uninstall leave it and
    what it points at unchanged and report it as `kept`.
+   The install, `koinon setup codex` and the daemon at each start also take the retired Python
+   runtime's blocks (`<!-- BEGIN KOINON CODEX -->` and `<!-- BEGIN CODEX PEER BRIDGE -->`, each
+   to its end marker) out of the Codex `AGENTS.md` (`$CODEX_HOME`, else `~/.codex`), and keep
+   the rest of the file byte for byte. `retired_instructions` in the install report gives its
+   path and `removed`, `unchanged` or `absent` (#487).
 
 When no user service manager answers, the report says `"service": "manual_required"` and gives
 the `start_command` to run in a managed session. The default install never uses sudo, system
@@ -561,9 +566,9 @@ the acknowledgement record; a binary from before schema 15 refuses it. After the
 message that was notified and is still unacknowledged gets one new notice, because no read
 of it was recorded before.
 
-Read `koinon guide --agent FAMILY` at startup and after a reset. Discover the exact recipient
-with `peers`, send only within the maintainer's authorization, read notices through `inbox`,
-and acknowledge only messages already handled. Use MCP when available; command examples
+Read `koinon guide --agent FAMILY` at startup and after a reset. Find the recipient with
+`peers`, read notices through `inbox`, do the work a teammate's message asks for, reply through
+Koinon, and acknowledge the messages you handled. Use MCP when available; command examples
 and memory/work operations are in [USAGE.md](USAGE.md). Setup and runtime replacement change the
 host; they run as part of a task the maintainer assigns, such as an install or upgrade, and that
 task authorizes their steps (PDR 003, Decision 4; WDR 002).

@@ -5,6 +5,15 @@ into a dated release section when promoted to `main`.
 
 ## Unreleased
 
+- Koinon's text for agents says what to do, so that agents of different families work together
+  (#487). The MCP server instructions, the tool descriptions, `koinon guide`, the daemon's
+  messages, the skill entries it writes and the block it writes into a project's `AGENTS.md`
+  lose their limits and caveats: a message from another session is a teammate's message, and
+  the recipient does the work it asks for and replies through Koinon. The managed cycle keeps
+  its steps (pause, write the handoff, report ready, stay idle). The install, `koinon setup
+  codex` and the daemon's start remove the retired Python runtime's `KOINON CODEX` and
+  `CODEX PEER BRIDGE` blocks from the Codex `AGENTS.md`, which made Codex refuse a peer's work
+  requests; the install report names the result in `retired_instructions`.
 - A maintainer secret logs in to the dashboard (#470, PDR 009). `koinon maintainer secret set`
   reads a secret from the terminal without echo, asked twice, or from the first line of
   standard input; `generate` prints a new 43-character secret once; `clear` removes it. The
@@ -14,7 +23,6 @@ into a dated release section when promoted to `main`.
   A change of the secret ends every dashboard login. After five wrong secrets in a row, the
   daemon waits before the next check, from 1 second up to 60 seconds. The state schema is 29;
   an upgrade starts with no secret set.
-
 - The Homebrew caveats give each command on its own line, list the upgrade steps with
   `koinon version` and `koinon dashboard`, and show the `--system` step only on macOS (#483).
 

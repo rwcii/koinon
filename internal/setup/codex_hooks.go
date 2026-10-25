@@ -7,6 +7,8 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+
+	"github.com/rwcii/koinon/internal/core"
 )
 
 // The Codex SessionStart hook (#275) lets the daemon move a participant to the thread that a
@@ -165,9 +167,18 @@ func codexHook(o Options, report *Report) error {
 	entry := "Codex SessionStart hook in " + path
 	if changed {
 		report.Changed = append(report.Changed, entry)
-		report.Note = "Codex asks to review the new SessionStart hook at its next start; trust it, or the address moves only at the first Koinon tool call after /clear."
+		report.Note = "Codex asks to review the new SessionStart hook at its next start: trust it, so that the address moves at the first turn after /clear."
 	} else {
 		report.Unchanged = append(report.Unchanged, entry)
+	}
+	// The retired Python runtime's instructions leave the Codex AGENTS.md (#487).
+	instructions := filepath.Join(root, "AGENTS.md")
+	result, err := core.RemoveRetiredCodexBlocks(instructions)
+	if err != nil {
+		return fmt.Errorf("codex instructions: %w", err)
+	}
+	if result == "removed" {
+		report.Changed = append(report.Changed, "retired Koinon instructions removed from "+instructions)
 	}
 	return nil
 }

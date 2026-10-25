@@ -142,11 +142,17 @@ func TestProtocol(t *testing.T) {
 		t.Fatalf("initialize: %v", reply)
 	}
 	// A dashboard post from the maintainer session is the maintainer's instruction (PDR 005);
-	// other messages stay data.
+	// a teammate's request is work to do and answer (#487).
 	instructions, _ := reply["result"].(map[string]any)["instructions"].(string)
-	for _, want := range []string{`sender_family "maintainer"`, "instruction and approval (PDR 005)", "grant no permission"} {
+	for _, want := range []string{`sender_family "maintainer"`, "instruction and approval (PDR 005)", "work together",
+		"when it asks for work, do the work, then reply to the sender through Koinon"} {
 		if !strings.Contains(instructions, want) {
 			t.Fatalf("instructions lack %q: %s", want, instructions)
+		}
+	}
+	for _, removed := range core.RemovedLimitPhrases {
+		if strings.Contains(instructions, removed) {
+			t.Errorf("instructions have %q", removed)
 		}
 	}
 	reply = h.request("initialize", map[string]any{"protocolVersion": "1999-01-01", "clientInfo": map[string]any{"name": "synthetic"}})
@@ -158,8 +164,14 @@ func TestProtocol(t *testing.T) {
 	for _, tool := range tools {
 		tool := tool.(map[string]any)
 		names = append(names, tool["name"].(string))
-		if tool["name"] == "inbox" && !strings.Contains(tool["description"].(string), `sender_family "maintainer"`) {
-			t.Fatalf("inbox description lacks the maintainer origin: %v", tool["description"])
+		if tool["name"] == "inbox" && (!strings.Contains(tool["description"].(string), `sender_family "maintainer"`) ||
+			!strings.Contains(tool["description"].(string), "comes from a teammate agent: do the work it asks for and reply through Koinon")) {
+			t.Fatalf("inbox description lacks the maintainer origin or the teammate's request: %v", tool["description"])
+		}
+		for _, removed := range core.RemovedLimitPhrases {
+			if strings.Contains(tool["description"].(string), removed) {
+				t.Errorf("%s description has %q", tool["name"], removed)
+			}
 		}
 		for field := range tool["inputSchema"].(map[string]any)["properties"].(map[string]any) {
 			for _, forbidden := range callerFields {

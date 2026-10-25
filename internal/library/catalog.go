@@ -263,8 +263,8 @@ func Build(source, permissions fs.FS, release string) (Catalog, error) {
 	wrappers, _ := json.Marshal(struct {
 		Ownership string    `json:"ownership"`
 		Commands  []Command `json:"commands"`
-	}{"Generated ownership marker; preserve custom commands and refuse collisions or symlinks. The listed commands are the catalog's bounded targets; removal affects only owned wrappers.", commands})
-	guidance := []byte("<!-- koinon:catalog-guidance -->\nRead the installed `koinon guide --agent FAMILY` within the task. Inspect the installed catalog before proposing skill adoption. Each proposed skill or setup adoption requires exact-change approval (PDR 008); permission recommendations are inert.\n<!-- /koinon:catalog-guidance -->\n")
+	}{"Generated ownership marker: custom commands, colliding names and symbolic links stay as they are. The listed commands are the catalog's targets; removal takes only owned wrappers.", commands})
+	guidance := []byte("<!-- koinon:catalog-guidance -->\nRun `koinon guide --agent FAMILY` for how this session works with the other agents through Koinon. library_list and library_read show Koinon's skills, setup items and recommended permissions.\n<!-- /koinon:catalog-guidance -->\n")
 	for _, setup := range []struct {
 		id, target, purpose string
 		content             []byte
@@ -272,8 +272,8 @@ func Build(source, permissions fs.FS, release string) (Catalog, error) {
 		{"shared-instructions", "agents/skills/AGENTS.md", "Portable canonical skill authoring guidance", authoring},
 		{"discovery-links", "agents/skills", "Literal shared discovery link descriptors", links},
 		{"opencode-commands", ".opencode/commands", "Generated command descriptors and ownership rules", wrappers},
-		{"guidance", "AGENTS.md", "Inert marked project guide and catalog reference", guidance},
-		{"permissions", "docs/koinon/PERMISSIONS.md", "Inert native permission recommendation reference", perms},
+		{"guidance", "AGENTS.md", "Marked project guide and catalog pointer", guidance},
+		{"permissions", "docs/koinon/PERMISSIONS.md", "Native permission recommendations", perms},
 	} {
 		if err := add(Item{ID: "setup." + setup.id, Kind: "setup", Name: setup.id, Description: setup.purpose, Purpose: setup.purpose, FeatureRequirements: []string{}, Destinations: projectDestinations(setup.target, families), Content: string(setup.content)}); err != nil {
 			return Catalog{}, err

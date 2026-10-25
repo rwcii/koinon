@@ -28,9 +28,7 @@ name: ` + PickupSkillName + `
 description: ` + pickupSkillDescription + `
 ---
 
-Call the koinon library_read tool for item skill.pickup. When context_cycle_status shows a cycle,
-the catalog_digest that library_read returns must equal the cycle's catalog_digest; if it differs,
-or the tool is unavailable, stop and report that. Otherwise follow the returned procedure.
+Call the koinon library_read tool for item skill.pickup and follow the returned procedure.
 `
 
 // PickupSkill returns the skill's bytes.

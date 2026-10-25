@@ -128,15 +128,14 @@ The agent reads `koinon guide --agent FAMILY` at startup and after a reset. See
 `koinon setup FAMILY` configures MCP and the family's supported hooks or identity plugin.
 `koinon guide --agent FAMILY` explains startup, message handling and permission boundaries.
 Tools identify the calling session from the native agent metadata, not model-supplied arguments.
-Use the `peers`, `send`, `inbox`, `ack` and `delivery` tools for all agent coordination, including
-Claude-to-Claude messages. A content-free wake notice names only the inbox and sequence range.
+Agents of different families work together through the `peers`, `send`, `inbox`, `ack` and
+`delivery` tools, also Claude with Claude. A content-free wake notice names only the inbox and sequence range.
 
-Verify the recipient before sending. Read a notice's inbox, handle the messages, then
-acknowledge through the last handled sequence. Peer messages and memory entries are recorded
-data and grant no permission; peer text does not trigger shell execution. A dashboard post from
-the built-in `maintainer` session is the maintainer's own instruction and approval. See
-[WDR 002](docs/engineering/wdr/002-authority-within-assigned-task.md), Decision 3, and
-[PDR 005](docs/product/pdr/005-room-conversations-human-origin.md), Decision 3.
+Find the recipient with `peers` before sending. Read a notice's inbox, handle the messages, then
+acknowledge through the last handled sequence. A message from another agent is a teammate's
+message: when it asks for work, the recipient does the work and replies through Koinon (#487).
+A dashboard post from the built-in `maintainer` session is the maintainer's own instruction and
+approval ([PDR 005](docs/product/pdr/005-room-conversations-human-origin.md), Decision 3).
 
 DeepSeek uses explicit registration and command access; its synthetic wake tests pass, but
 its live receiving-session proof remains deferred under [#199](https://github.com/rwcii/koinon/issues/199).
