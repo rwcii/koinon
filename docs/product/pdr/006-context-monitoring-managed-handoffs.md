@@ -224,8 +224,8 @@ Maintainer, 2026-10-25: "remove all limit text.  remove all of the caveats, cont
 agents have their own built in safeties, they do not need you adding more complications."
 ([#487 comment 6401405382](https://github.com/rwcii/koinon/issues/487#issuecomment-6401405382)).
 Reason: limit text with no source makes agents of different families refuse each other's work.
-Scope: agent-facing text, skills, setup blocks and the docs and records that restate them; code
-refusals are a separate decision. The decision now says what the daemon does: it reads the
+Scope: agent-facing text, skills, setup blocks and the docs and records that restate them. The #487 audit lists the code
+refusals for a separate decision (#493). The decision now says what the daemon does: it reads the
 origin from stored metadata, takes the ready reply from the requester and enters fixed
 commands. The checks that the daemon makes stay as facts: the ready deadline and the request
 text, the handoff directory, the subagent transcript times and the full read of their

@@ -96,7 +96,7 @@ Inventory rows: C013, C040, C041, C042, C043, C045, C046, C059, C060, C070.
 - Reason: limit text with no source makes agents of different families refuse each other's
   work.
 - Scope: Koinon's agent-facing text, the skills, the setup blocks, and the docs and records that
-  restate them. Code refusals are a separate decision.
+  restate them. The #487 audit lists the code refusals for a separate decision (#493).
 - This record: Decisions 1 to 4 state what agents do, without their limits. Decisions 5 and
   6 are deprecated: the `sprint` and `release` skills lost their maintainer gates in #487.
 

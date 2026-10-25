@@ -196,8 +196,8 @@ to remove them too. Maintainer, 2026-10-25: "remove all limit text.  remove all 
 controls, etc.  the agents have their own built in safeties, they do not need you adding more
 complications." ([#487 comment 6401405382](https://github.com/rwcii/koinon/issues/487#issuecomment-6401405382)).
 Reason: limit text with no source makes agents of different families refuse each other's work.
-Scope: agent-facing text, skills, setup blocks and the docs and records that restate them; code
-refusals are a separate decision. #487 removed the "within the task" qualifiers.
+Scope: agent-facing text, skills, setup blocks and the docs and records that restate them. The #487 audit lists the code
+refusals for a separate decision (#493). #487 removed the "within the task" qualifiers.
 
 ### Alternatives Considered
 

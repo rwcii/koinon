@@ -114,8 +114,8 @@ Maintainer, 2026-10-25: "remove all limit text.  remove all of the caveats, cont
 agents have their own built in safeties, they do not need you adding more complications."
 ([#487 comment 6401405382](https://github.com/rwcii/koinon/issues/487#issuecomment-6401405382)).
 Reason: limit text with no source makes agents of different families refuse each other's work.
-Scope: agent-facing text, skills, setup blocks and the docs and records that restate them; code
-refusals are a separate decision. #487 removed the instruction here and in Decisions 3 and 4.
+Scope: agent-facing text, skills, setup blocks and the docs and records that restate them. The #487 audit lists the code
+refusals for a separate decision (#493). #487 removed the instruction here and in Decisions 3 and 4.
 
 ### Alternatives Considered
 

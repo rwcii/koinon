@@ -218,8 +218,8 @@ controls, etc.  the agents have their own built in safeties, they do not need yo
 complications."
 ([#487 comment 6401405382](https://github.com/rwcii/koinon/issues/487#issuecomment-6401405382)).
 Reason: limit text with no source makes agents of different families refuse each other's work.
-Scope: agent-facing text, skills, setup blocks and the docs and records that restate them; code
-refusals are a separate decision. The installed guide and the MCP instructions give the
+Scope: agent-facing text, skills, setup blocks and the docs and records that restate them. The #487 audit lists the code
+refusals for a separate decision (#493). The installed guide and the MCP instructions give the
 adoption steps above. What the install does with a bare name and a symbolic link stays as a
 fact about the code.
 

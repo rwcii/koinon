@@ -132,8 +132,8 @@ to keep them or to remove them too. Maintainer, 2026-10-25: "remove all limit te
 of the caveats, controls, etc.  the agents have their own built in safeties, they do not need
 you adding more complications." ([#487 comment 6401405382](https://github.com/rwcii/koinon/issues/487#issuecomment-6401405382)).
 Reason: limit text with no source makes agents of different families refuse each other's work.
-Scope: agent-facing text, skills, setup blocks and the docs and records that restate them; code
-refusals are a separate decision. The DeepSeek `launch`/`subagent` refusal here, the
+Scope: agent-facing text, skills, setup blocks and the docs and records that restate them. The #487 audit lists the code
+refusals for a separate decision (#493). The DeepSeek `launch`/`subagent` refusal here, the
 `grok_leader_mode` refusal (User Impact) and the role syntax refusal (Decision 3) are code
 behavior that the code still returns. This record describes them as such until that separate
 decision.

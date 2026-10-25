@@ -91,7 +91,7 @@ Inventory rows: C055, C056.
 - Reason: limit text with no source makes agents of different families refuse each other's
   work.
 - Scope: Koinon's agent-facing text, the skills, the setup blocks, and the docs and records that
-  restate them. Code refusals are a separate decision.
+  restate them. The #487 audit lists the code refusals for a separate decision (#493).
 - This record: Decision 1 describes where the native tests run, without the account-wide ban,
   and Decision 2 points to Decision 3 for live evidence. Decision 3 keeps its text.
 

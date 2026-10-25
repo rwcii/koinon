@@ -88,7 +88,7 @@ WDR 002. Inventory rows: C030, C031, C032, C033, C034.
 - Reason: limit text with no source makes agents of different families refuse each other's
   work.
 - Scope: Koinon's agent-facing text, the skills, the setup blocks, and the docs and records that
-  restate them. Code refusals are a separate decision.
+  restate them. The #487 audit lists the code refusals for a separate decision (#493).
 - This record: Decisions 3, 4 and 5 state the review and worktree steps without their limits.
   Decisions 1 and 2 are unchanged.
 
