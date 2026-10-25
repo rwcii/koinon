@@ -17,8 +17,8 @@ that fit the change, and reuse the author's verified results for identical conte
 the evidence covers. For paired work, send one batch. A follow-up review covers the accepted
 fixes, the behavior they affect and the required gates, and carries forward unchanged content.
 Record the verdict at the project's review checkpoint, bound to the full hash, in its declared
-format, with the extra review gates that the project declares. The verdict is PASS when every
-accepted finding is fixed. Read back the status and the evidence link.
+format, with the extra review gates that the project declares. Read back the status and the
+evidence link.
 
 ## Repository facts
 

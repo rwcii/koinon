@@ -23,4 +23,5 @@ var RemovedLimitPhrases = []string{
 	"adds no approval step", "do not build on a guess", "Gate A:", "Gate B:",
 	"start dependent chunks only after", "release approval", "never edits an earlier one",
 	"maintainer-authorized", "authorized response", "authorized single-line",
+	"accepted finding is fixed", "accepted findings fixed", "approved copy",
 }

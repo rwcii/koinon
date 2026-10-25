@@ -54,8 +54,7 @@ Send findings in one batch. A follow-up review covers the accepted fixes and the
 they add or change.
 
 Record the verdict at the project's review checkpoint, bound to the full hash, in its declared
-verdict format. The reviewer records its own gate. The verdict is PASS when every accepted
-finding is fixed. Read back the status and the evidence link.
+verdict format. The reviewer records its own gate. Read back the status and the evidence link.
 
 ## Repository facts
 

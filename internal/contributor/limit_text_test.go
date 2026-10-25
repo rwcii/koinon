@@ -70,7 +70,7 @@ func TestSkillTextHasNoLimitPhrases(t *testing.T) {
 		"handoff":        {"`_handoff/` directory of the main checkout", "When the output is `not ready`, tell the maintainer which check failed", "Report the path of the new file."},
 		"koinon-guide":   {"report the command and its output to the maintainer."},
 		"pair":           {"The driver edits,\nstages and commits.", "takes a material disagreement to the maintainer once."},
-		"peer-review":    {"The verdict is PASS when every\naccepted finding is fixed."},
+		"peer-review":    {"Report each failure that a test or a command reproduces", "Read back the status and the\nevidence link."},
 		"peer-tmux":      {"An authorized cycle runs\nthrough all its steps", "ask the\nmaintainer which pane to use.", "ask the peer to save it again"},
 		"pickup":         {"Then start the next action.", "ask the maintainer what to resume."},
 		"recover-team":   {"earlier approval counts."},

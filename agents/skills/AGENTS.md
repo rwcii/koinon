@@ -1,7 +1,7 @@
 # Shared skill authoring
 
 The canonical project skill source is `agents/skills/`. Project discovery links point here;
-machine-wide adoption uses an approved copy of the same skill bytes. Edit the canonical source
+machine-wide adoption copies the same skill bytes. Edit the canonical source
 and regenerate its derived wrappers. Keep the project's chosen layout.
 
 Each skill has one `NAME/SKILL.md`, with single-line YAML `name` and `description` only.
