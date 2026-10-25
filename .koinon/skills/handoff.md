@@ -9,6 +9,7 @@ handoff
 - CONTRIBUTING.md
 
 ## Handoff path
-_handoff/<agent>/ in main checkout; immutable timestamped files, never committed.
+_handoff/<agent>/ in main checkout; immutable timestamped files and one progress.md note
+updated in place, never committed.
 ## Extra verification
 Record current assigned work, native identity and participant/claim state privately; no inbox bodies or credentials.

@@ -5,6 +5,10 @@ into a dated release section when promoted to `main`.
 
 ## Unreleased
 
+- The `handoff` and `pickup` skills use a short progress note, `progress.md`, in the agent's
+  handoff directory (#478, WDR 005 Decision 3). The agent updates it after each completed stage;
+  `handoff` starts from it and updates it; `pickup` reads it first and then the newest handoff,
+  or the one a managed cycle names. Pickup selects only timestamped files as handoffs.
 - The installed guide says that Koinon sends inbox notices through the session's supported wake
   channel, so a session with a working automatic wake channel normally needs no timed inbox
   check, and that work-change notices are coalesced. It no longer says that work-change
