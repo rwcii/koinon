@@ -424,9 +424,28 @@ func TestHomebrewFormula(t *testing.T) {
 	if strings.Contains(formula, "\n  version ") {
 		t.Error("an explicit version is redundant with the URL and fails brew audit --strict")
 	}
-	for _, want := range []string{`license "MIT"`, `=> "koinon"`, "#{opt_bin}/koinon install --agent", "links its binary to #{opt_bin}/koinon", "then brew upgrade koinon: the daemon restarts", "#{opt_bin}/koinon install once", `#{bin}/koinon version`} {
+	for _, want := range []string{`license "MIT"`, `=> "koinon"`, `#{bin}/koinon version`} {
 		if !strings.Contains(formula, want) {
 			t.Errorf("formula lacks %s", want)
+		}
+	}
+	// The caveats give each command on its own line, and the --system step only on macOS (#483).
+	caveats, _, _ := strings.Cut(formula[strings.Index(formula, "  def caveats\n"):], "\n  end\n")
+	general, mac, _ := strings.Cut(caveats, "    if OS.mac?\n")
+	for _, want := range []string{"\n        #{opt_bin}/koinon install --agent claude --agent codex\n",
+		"\n        brew update\n        brew upgrade koinon\n        koinon version\n",
+		"restarts\n      on the newly linked binary", "ends the dashboard login", "\n        koinon dashboard\n",
+		"v0.3.0 or earlier has a copy", "\n        #{opt_bin}/koinon install\n"} {
+		if !strings.Contains(general, want) {
+			t.Errorf("caveats lack %q", want)
+		}
+	}
+	if strings.Contains(general, "--system") || !strings.Contains(mac, "\n          #{opt_bin}/koinon install --system\n") {
+		t.Errorf("the --system step must be only in the OS.mac? branch:\n%s", caveats)
+	}
+	for _, line := range strings.Split(caveats, "\n") {
+		if text := strings.TrimSpace(line); strings.Contains(text, "#{opt_bin}") && !strings.HasPrefix(text, "#{opt_bin}/koinon ") {
+			t.Errorf("caveats line mixes prose and the opt_bin path: %q", line)
 		}
 	}
 	if strings.Contains(formula, "bottle do") {
