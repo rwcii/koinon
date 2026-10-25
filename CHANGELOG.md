@@ -5,6 +5,9 @@ into a dated release section when promoted to `main`.
 
 ## Unreleased
 
+- The Homebrew caveats give each command on its own line, list the upgrade steps with
+  `koinon version` and `koinon dashboard`, and show the `--system` step only on macOS (#483).
+
 ## 2026-10-25 — Progress notes for handoffs, wake guidance and failed-run accounting
 
 This release changes procedures and guidance only. The `handoff` and `pickup` skills keep a
