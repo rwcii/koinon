@@ -126,10 +126,14 @@ func TestDashboardLoginAndRequestProtection(t *testing.T) {
 	if r := dashboardDo(t, d, "GET", link, "", nil, nil); r.status != 401 || r.header.Get("Set-Cookie") != "" {
 		t.Fatalf("second use: %d", r.status)
 	}
-	for _, bad := range []string{"", "token=", "token=" + strings.Repeat("0", 64), "token=xyz"} {
+	for _, bad := range []string{"token=", "token=" + strings.Repeat("0", 64), "token=xyz"} {
 		if r := dashboardDo(t, d, "GET", "/dashboard/login?"+bad, "", nil, nil); r.status != 401 {
 			t.Fatalf("bad link %q: %d", bad, r.status)
 		}
+	}
+	// Without a token the page is the login page (PDR 009): it starts no login.
+	if r := dashboardDo(t, d, "GET", "/dashboard/login", "", nil, nil); r.status != 200 || r.header.Get("Set-Cookie") != "" {
+		t.Fatalf("login page: %d", r.status)
 	}
 	cookie := (&http.Response{Header: first.header}).Cookies()[0].Value
 	page := dashboardDo(t, d, "GET", "/dashboard/sessions", cookie, nil, nil)

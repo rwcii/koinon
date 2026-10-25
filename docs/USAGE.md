@@ -559,6 +559,30 @@ To reach another computer's dashboard, forward a local port to its daemon, for e
 link with your local port, `http://127.0.0.1:47670/...`. Use `127.0.0.1` or `[::1]`, not
 `localhost`. Each port keeps its own login, so a local daemon and a tunnel can both be open
 under `127.0.0.1`.
+
+### Log in with a maintainer secret
+
+With a maintainer secret, the dashboard login page asks for it, so a login needs no link from
+the daemon's host (PDR 009). Set one on that host:
+
+```sh
+koinon maintainer secret set        # asks twice, without echo; or reads the first line of standard input
+koinon maintainer secret generate   # prints a new 43-character secret once
+koinon maintainer secret clear      # removes it
+```
+
+The secret is never an argument. It is valid UTF-8 of at least 12 characters and at most 1024
+bytes; one LF or CRLF at the end of the line is removed, and nothing else is changed. A macOS
+terminal holds at most 1,024 bytes of a line, so give a longer secret through standard input. The
+daemon keeps only a salted PBKDF2 key of it. Setting, generating or clearing the secret ends
+every dashboard login. Open `http://127.0.0.1:PORT/dashboard/login`, also through a tunnel,
+and enter the secret. After five wrong secrets in a row the daemon waits before it checks the
+next one, from 1 second up to 60 seconds; a correct secret ends the wait. `koinon dashboard`
+still gives a one-time link, also during the wait and before a secret is set. A login still
+ends when the daemon restarts. Any process of your OS user can set a new secret, so the
+secret keeps agents that use Koinon's tools from acting as you; it is no protection against
+a same-user program that sets out to get around it.
+
 Administrative actions require CSRF protection and are
 audited. Health reports unknown observations explicitly; a failure is not permission to
 replace state, kill an unrelated process, or change agent settings.

@@ -3,7 +3,7 @@ adr: "001"
 title: "Native Identity and Local Runtime Trust"
 status: draft
 created: "2026-10-12"
-updated: "2026-10-19"
+updated: "2026-10-25"
 parent_adr: ""
 authors:
   - "Robert Capps"
@@ -217,7 +217,12 @@ maintainer decision found.
 ### Decision
 
 Koinon currently serves the dashboard on the same listener with its own login. `koinon
-dashboard` gets a one-time 256-bit link token that works once within 60 seconds. Its use sets an
+dashboard` gets a one-time 256-bit link token that works once within 60 seconds. When the
+maintainer has set a secret (PDR 009, Decision 1), the login form also accepts it: the daemon
+derives the PBKDF2-HMAC-SHA256 key of the posted secret with the stored salt and compares it
+in constant time, one check at a time, with a daemon-wide wait after repeated failures. The
+form is a `POST` and needs an `Origin`; no login exists yet to derive a CSRF token from. Its
+success, or the link's use, sets an
 `HttpOnly`, `SameSite=Strict` cookie scoped to `/dashboard/` and named after the port in
 `Host`, `koinon_dashboard_PORT` (#454); the daemon keeps only hashes in
 memory, so a restart ends every login. A login ends after 24 hours without a request or 7 days
@@ -245,7 +250,8 @@ Until #454 the cookie was named `koinon_dashboard` for every port. #454 records 
 maintainer's report of 2026-10-22: "I'm getting really tired of having to log in to the board
 every time I go back to access it.  the timeout is TOO SHORT". The intent: a login lasts until
 its limits also when the maintainer moves between boards. The cookie named after the port is
-the fix that #454 proposes; no maintainer decision on the name found.
+the fix that #454 proposes; no maintainer decision on the name found. The secret login is PDR 009, Decision 2, approved by the maintainer on 2026-10-25 (#470):
+"no on option C, PDR 009 approved".
 
 ### Alternatives Considered
 
@@ -326,3 +332,4 @@ agent.
 | 2026-10-12 | Added Grok Build's identity source (#254 chunk 02) |
 | 2026-10-19 | Decision 4: dashboard `Host` is a literal loopback IP with any port (#407) |
 | 2026-10-22 | Decision 4: the login cookie is named after the `Host` port (#454) |
+| 2026-10-25 | Decision 4: the login form accepts the maintainer secret (PDR 009, #470) |

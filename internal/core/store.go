@@ -161,7 +161,10 @@ type Store struct {
 	// processGroups reads each process's group and terminal; codexPane enables the Codex
 	// pane wake, on Linux and macOS (#275).
 	processGroups func() (map[int]platform.ProcessGroup, error)
-	codexPane     bool
+	// secretCost is the PBKDF2 iteration count of a new maintainer secret key; 0 uses
+	// secretIterations. Tests lower it.
+	secretCost int
+	codexPane  bool
 	// processStartTime reads when a process started on the wall clock: a Codex host's MCP
 	// servers (#275).
 	processStartTime func(int) (time.Time, error)
@@ -353,7 +356,7 @@ func checkFormat(db *sql.DB, path string) error {
 	return nil
 }
 
-const schemaVersion = 28
+const schemaVersion = 29
 
 // workItemsV16Columns are the work item columns before schema 17, which its rebuild copies.
 const workItemsV16Columns = `store,work_id,revision,lifecycle,title,criteria,non_goals,proposed_assignee,created_at,created_consumer,
@@ -846,6 +849,20 @@ func migrate(db *sql.DB, version, target int) error {
 		// Version 28: the absolute tmux that a session's own terminal runs, which koinon mcp
 		// reports with its pane (#418); '' runs tmux from the daemon's PATH.
 		if _, err := tx.Exec(`ALTER TABLE sessions ADD COLUMN tmux_path TEXT NOT NULL DEFAULT ''`); err != nil {
+			return err
+		}
+	}
+	if version < 29 && target >= 29 {
+		// Version 29: the maintainer secret (PDR 009, Decision 1): at most one PBKDF2-HMAC-SHA256
+		// key with its salt and iteration count, never the secret itself.
+		if _, err := tx.Exec(`CREATE TABLE maintainer_secret (
+			id INTEGER PRIMARY KEY CHECK (id = 1),
+			algorithm TEXT NOT NULL CHECK (algorithm = 'pbkdf2-sha256'),
+			salt BLOB NOT NULL CHECK (length(salt) = 16),
+			iterations INTEGER NOT NULL CHECK (iterations > 0),
+			derived_key BLOB NOT NULL CHECK (length(derived_key) = 32),
+			updated_at INTEGER NOT NULL
+		)`); err != nil {
 			return err
 		}
 	}

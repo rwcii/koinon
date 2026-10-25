@@ -25,3 +25,4 @@ mechanism, a PDR decides the behavior that mechanism serves. Cross-reference via
 | 006    | [Context Monitoring and Managed Handoffs](006-context-monitoring-managed-handoffs.md) | Draft |
 | 007    | [Human Decision Board](007-human-decision-board.md) | Draft |
 | 008    | [Portable Skills and Explicit Adoption](008-portable-skills-explicit-adoption.md) | Draft |
+| 009    | [Maintainer Secret and Maintainer MCP Mode](009-maintainer-secret-and-mcp-mode.md) | Accepted |
