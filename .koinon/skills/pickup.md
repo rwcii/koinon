@@ -11,4 +11,4 @@ pickup
 ## Handoff path
 _handoff/<agent>/ in main checkout.
 ## Extra resume checks
-Follow the installed runtime guide; reconcile current work claims and held participant before writing.
+Follow the installed runtime guide, and reconcile the current work claims and the held participant before the first write.

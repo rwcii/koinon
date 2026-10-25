@@ -14,6 +14,13 @@ into a dated release section when promoted to `main`.
   codex` and the daemon's start remove the retired Python runtime's `KOINON CODEX` and
   `CODEX PEER BRIDGE` blocks from the Codex `AGENTS.md`, which made Codex refuse a peer's work
   requests; the install report names the result in `retired_instructions`.
+- The 14 shared skills say what to do (#487). Their shared opening, their Repository facts
+  paragraph and their steps lose their limits and caveats, as do the skill authoring file, the
+  skills index, the project's `.koinon/skills` facts and the OpenCode command descriptions.
+  `sprint` has no approval gates, `release` merges and publishes without a second approval
+  step, and `pickup` starts the next action after its report. The handoff location in the main
+  checkout, one open PR, auto-merge, the commit identity and the refusal-review gate stay as
+  steps.
 - A maintainer secret logs in to the dashboard (#470, PDR 009). `koinon maintainer secret set`
   reads a secret from the terminal without echo, asked twice, or from the first line of
   standard input; `generate` prints a new 43-character secret once; `clear` removes it. The

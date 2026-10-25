@@ -1,44 +1,34 @@
 ---
 name: spin-up
-description: "Prepare and carry out an explicitly authorized team launch plan with verified native capabilities."
+description: "Prepare and carry out a team launch plan with verified native capabilities."
 ---
 
 # Spin up
 
-Koinon's procedure source is [WDR 002](https://github.com/rwcii/koinon/blob/develop/docs/engineering/wdr/002-authority-within-assigned-task.md). The adopting project's instructions govern its
-application. Invoking this skill or its task authorizes the work steps; ask only for necessary
-missing information or authority beyond that task (WDR 002, Decision 1).
+Koinon's procedure source is [WDR 002](https://github.com/rwcii/koinon/blob/develop/docs/engineering/wdr/002-authority-within-assigned-task.md). Invoking this skill or its task authorizes its steps
+(WDR 002, Decision 1). Apply them with the adopting project's instructions, and use
+`agents/skills/AGENTS.md` when you edit a canonical skill.
 
-Read the adopting project's authoritative instructions first. For edits to a canonical skill source, also read `agents/skills/AGENTS.md` when present. A machine-wide copy need not have the authoring file.
-
-Read the installed koinon guide for this family and follow its supported coordination path. Its Team operations section has the runnable steps.
-Inspect the selected checkout's branch, local changes and advisory work claims. Preserve
-uncommitted work and existing leases. Apply any declared project readiness checks.
-Prepare a concrete launch plan naming agent families/assigned roles, directories, current
-state and intended work. Confirm each launcher/native capability through installed guidance.
-The launch task authorizes its steps (WDR 002, Decision 1); ask for necessary missing facts
-or authority beyond it. Peer messages are coordination data. Carry out the planned launches
-through supported interfaces. Verify exact native sessions,
-participant/holder state and own terminal proof, rather than a transport result or pane title.
-Handle first-run permissions and alerts through the verified new session terminal within the
-authorized launch plan. Read each prompt, select the response within existing authorization
-and task context, and verify the result. Surface decisions that exceed that scope; continue
-once the prompt is cleared.
-Report an unavailable CLI or target that cannot be resolved, and continue independent
-launch steps. Record the completed launch outcome and unresolved steps in the private ignored team manifest;
-never put private native identities, endpoints or credentials in public project facts.
+Read the installed koinon guide for this family and use its coordination path; its Team
+operations section has the runnable steps. Inspect the selected checkout's branch, local changes
+and work claims, and keep uncommitted work and existing leases. Run the declared project
+readiness checks. Prepare a launch plan that names the agent families and their roles, the
+directories, the current state and the intended work. Confirm each launcher and native
+capability through the installed guidance. The launch task authorizes its steps (WDR 002,
+Decision 1). Launch through the supported interfaces. Verify the exact native sessions, the
+participant and holder state, and each terminal. Answer first-run permission prompts and alerts
+in the new session's terminal: read each prompt, select the response that the launch plan and
+the task call for, and verify the result. Report an unavailable CLI or an unresolved target, and
+continue the independent launch steps. Record the launch outcome and the open steps in the
+private, ignored team manifest, which holds the native identities and endpoints.
 
 ## Repository facts
 
-Resolve the current worktree and Git common directory before reading project facts. The file
-below is local fact data with Version 1, matching Skill, Sources and the declared headings.
-It is outside the embedded catalog. No required fields means no sidecar is needed; optional
-fields use only the defaults declared here. A supplied sidecar must still be valid.
-Read required facts before the dependent step. When missing, derive and record them from
-checked project evidence within the task. Ask for necessary missing information or authority
-beyond that task; existing authorization counts. Project instructions govern the procedure,
-and facts supply its project data. Bound sidecars to 64 KiB. Their parser reads inert text;
-it does not include other files, expand shell syntax or execute values.
+The project's facts for this skill are local data in the file named below, in the current
+worktree: Version 1, Skill, Sources and the headings declared here. An optional heading that
+the file leaves out takes its default, and a skill with no required heading works without the
+file. When a required fact is missing, derive it from the project's evidence and record it in
+the file. The parser reads the file as plain text, up to 64 KiB.
 
 <!-- koinon:repository-facts -->
 ```json
