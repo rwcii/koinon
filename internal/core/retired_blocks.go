@@ -64,15 +64,22 @@ func withoutRetiredBlocks(data []byte) []byte {
 	return out
 }
 
-// blockEnd returns what follows the line that is exactly end, and whether there is one.
+// blockEnd returns what follows the line that is exactly end, and whether there is one before
+// the next begin line.
 func blockEnd(data []byte, end string) ([]byte, bool) {
 	for len(data) > 0 {
 		line, rest := data, []byte(nil)
 		if i := bytes.IndexByte(data, '\n'); i >= 0 {
 			line, rest = data[:i+1], data[i+1:]
 		}
-		if string(bytes.TrimRight(line, "\r\n")) == end {
+		text := string(bytes.TrimRight(line, "\r\n"))
+		if text == end {
 			return rest, true
+		}
+		for _, m := range retiredCodexMarkers {
+			if text == m[0] {
+				return nil, false
+			}
 		}
 		data = rest
 	}

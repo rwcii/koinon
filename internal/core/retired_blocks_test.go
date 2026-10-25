@@ -24,6 +24,9 @@ func TestRemoveRetiredCodexBlocks(t *testing.T) {
 		{"end before begin", "<!-- END KOINON CODEX -->\na\n" + koinon, "<!-- END KOINON CODEX -->\na\n"},
 		{"marker inside a line", "see <!-- BEGIN KOINON CODEX --> here\n<!-- END KOINON CODEX -->\n", "see <!-- BEGIN KOINON CODEX --> here\n<!-- END KOINON CODEX -->\n"},
 		{"other pair's end", "a\n<!-- BEGIN KOINON CODEX -->\nb\n<!-- END CODEX PEER BRIDGE -->\nc\n", "a\n<!-- BEGIN KOINON CODEX -->\nb\n<!-- END CODEX PEER BRIDGE -->\nc\n"},
+		{"begin without end, then a block", "a\n<!-- BEGIN KOINON CODEX -->\nmine\n" + koinon + "b\n", "a\n<!-- BEGIN KOINON CODEX -->\nmine\nb\n"},
+		{"begin without end, then a block of the other pair", "a\n<!-- BEGIN CODEX PEER BRIDGE -->\nmine\n" + koinon + "b\n<!-- END CODEX PEER BRIDGE -->\n", "a\n<!-- BEGIN CODEX PEER BRIDGE -->\nmine\nb\n<!-- END CODEX PEER BRIDGE -->\n"},
+		{"bridge begin without end, then a bridge block", "a\n<!-- BEGIN CODEX PEER BRIDGE -->\nmine\n" + bridge + "b\n", "a\n<!-- BEGIN CODEX PEER BRIDGE -->\nmine\nb\n"},
 		{"no final newline", "a\n\n<!-- BEGIN KOINON CODEX -->\nb\n<!-- END KOINON CODEX -->", "a\n"},
 	} {
 		t.Run(c.name, func(t *testing.T) {
