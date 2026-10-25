@@ -15,6 +15,7 @@ import (
 
 	"github.com/rwcii/koinon/internal/core"
 	"github.com/rwcii/koinon/internal/platform"
+	"golang.org/x/sys/unix"
 )
 
 // koinon maintainer secret (PDR 009, Decision 1): standard input, the terminal, and the
@@ -166,5 +167,54 @@ func TestReadNewSecretSignal(t *testing.T) {
 				t.Fatalf("echo not restored after %v: %v %v", sig, echo, err)
 			}
 		})
+	}
+}
+
+// A terminal on standard input reads without echo also when the prompts go to a file.
+func TestReadNewSecretRedirectedPrompts(t *testing.T) {
+	master, slave := openPTY(t)
+	tell, err := os.Create(filepath.Join(t.TempDir(), "stderr"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer tell.Close()
+	done := make(chan string, 1)
+	go func() {
+		secret, _ := readNewSecret(slave, tell)
+		done <- secret
+	}()
+	waitNoEcho(t, slave)
+	master.Write([]byte("twelve chars ok\ntwelve chars ok\n"))
+	if got := <-done; got != "twelve chars ok" {
+		t.Fatalf("got %q", got)
+	}
+}
+
+// A refused line too long for a secret leaves nothing of itself for the next reader.
+func TestReadNewSecretRefusedLineConsumed(t *testing.T) {
+	master, slave := openPTY(t)
+	go func() {
+		buf := make([]byte, 256)
+		for {
+			if _, err := master.Read(buf); err != nil {
+				return
+			}
+		}
+	}()
+	done := make(chan error, 1)
+	go func() {
+		_, err := readNewSecret(slave, slave)
+		done <- err
+	}()
+	waitNoEcho(t, slave)
+	master.Write([]byte(strings.Repeat("a", 1100) + "synthetic-tail\n"))
+	if err := <-done; err == nil {
+		t.Fatal("an oversized secret was accepted")
+	}
+	fds := []unix.PollFd{{Fd: int32(slave.Fd()), Events: unix.POLLIN}}
+	if n, err := unix.Poll(fds, 100); err != nil {
+		t.Fatal(err)
+	} else if n > 0 {
+		t.Fatal("the rest of the refused line is still waiting on the terminal")
 	}
 }

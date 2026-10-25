@@ -72,11 +72,12 @@ func maintainerCommand(ctx context.Context, args []string, in io.Reader, out io.
 	return err
 }
 
-// readNewSecret reads a new secret: on a terminal twice with echo off, else the first line
-// of in. The terminal gets its settings back after an error, a mismatch, SIGINT or SIGTERM.
+// readNewSecret reads a new secret: from a terminal twice with echo off, with the prompts on
+// tell, also when tell is redirected; else the first line of in. The terminal gets its
+// settings back after an error, a mismatch, SIGINT or SIGTERM.
 func readNewSecret(in io.Reader, tell *os.File) (string, error) {
 	file, ok := in.(*os.File)
-	if !ok || !platform.IsTerminal(int(file.Fd())) || !platform.IsTerminal(int(tell.Fd())) {
+	if !ok || !platform.IsTerminal(int(file.Fd())) {
 		return core.ReadSecretLine(in)
 	}
 	restore, err := platform.NoEcho(int(file.Fd()))
@@ -107,6 +108,11 @@ func readNewSecret(in io.Reader, tell *os.File) (string, error) {
 		fmt.Fprint(tell, prompt)
 		entries[i], err = core.ReadSecretLine(file)
 		fmt.Fprintln(tell)
+		if errors.Is(err, core.ErrSecretLength) {
+			// The rest of a refused line stays in the terminal's input; read it away, so that
+			// the next program does not get it.
+			discardLine(file)
+		}
 		if err != nil {
 			return "", err
 		}
@@ -115,4 +121,14 @@ func readNewSecret(in io.Reader, tell *os.File) (string, error) {
 		return "", usageError{"invalid_request", "the two entries differ; nothing was changed"}
 	}
 	return entries[0], nil
+}
+
+// discardLine reads up to the end of the current line.
+func discardLine(r io.Reader) {
+	b := make([]byte, 1)
+	for {
+		if n, err := r.Read(b); err != nil || n == 1 && b[0] == '\n' {
+			return
+		}
+	}
 }

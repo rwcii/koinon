@@ -40,7 +40,8 @@ const (
 var (
 	ErrSecretUnset   = Refusal{"maintainer_secret_unset", "no maintainer secret is set; run koinon maintainer secret set or generate on the daemon's host"}
 	ErrSecretInvalid = Refusal{"maintainer_secret_invalid", "the maintainer secret is not correct"}
-	errSecretLength  = Refusal{"invalid_request", "a maintainer secret is valid UTF-8 with at least 12 characters and at most 1024 bytes"}
+	// ErrSecretLength refuses a secret outside the bounds of ValidMaintainerSecret.
+	ErrSecretLength = Refusal{"invalid_request", "a maintainer secret is valid UTF-8 with at least 12 characters and at most 1024 bytes"}
 )
 
 // SecretBackoff refuses a check during the wait after repeated failures; RetryAfter is
@@ -80,7 +81,7 @@ func (s *Store) iterations() int {
 // under the change's audit record.
 func (s *Store) setMaintainerSecret(ctx context.Context, secret, action string) error {
 	if !ValidMaintainerSecret(secret) {
-		return errSecretLength
+		return ErrSecretLength
 	}
 	salt := make([]byte, secretSaltBytes)
 	if _, err := rand.Read(salt); err != nil {
@@ -307,7 +308,7 @@ func ReadSecretLine(r io.Reader) (string, error) {
 			}
 			// One byte beyond the bound is room for the CR of a CRLF.
 			if len(line) > MaintainerSecretMaxBytes {
-				return "", errSecretLength
+				return "", ErrSecretLength
 			}
 			line = append(line, b[0])
 			continue
@@ -317,7 +318,7 @@ func ReadSecretLine(r io.Reader) (string, error) {
 				return "", ErrNoSecret
 			}
 			if len(line) > MaintainerSecretMaxBytes {
-				return "", errSecretLength
+				return "", ErrSecretLength
 			}
 			return string(line), nil
 		}
@@ -327,7 +328,7 @@ func ReadSecretLine(r io.Reader) (string, error) {
 	}
 	text := strings.TrimSuffix(string(line), "\r")
 	if len(text) > MaintainerSecretMaxBytes {
-		return "", errSecretLength
+		return "", ErrSecretLength
 	}
 	return text, nil
 }

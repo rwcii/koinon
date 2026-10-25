@@ -117,9 +117,11 @@ this should be used to unlock the dashboard, and allow a remote system interact 
 MCP/API. . the one time key thing has always been overkill". Then, raised by the maintainer
 ([comment](https://github.com/rwcii/koinon/issues/470#issuecomment-6375695408)): "we can hash
 the secret/password, so only the valid secret would validate". The salt, the iteration count,
-the length bounds and the wait come from the draft of this record, which the maintainer
-approved on 2026-10-25: "no on option C, PDR 009 approved"
-([comment](https://github.com/rwcii/koinon/issues/470#issuecomment-6400949081)).
+the 12-character minimum and the wait come from the draft of this record, which the
+maintainer approved on 2026-10-25: "no on option C, PDR 009 approved"
+([comment](https://github.com/rwcii/koinon/issues/470#issuecomment-6400949081)). The
+1024-byte maximum and the UTF-8 rule are implementation bounds from the pull request's
+criteria ([comment](https://github.com/rwcii/koinon/issues/470#issuecomment-6400993076)).
 
 ### Alternatives Considered
 
