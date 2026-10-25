@@ -23,6 +23,10 @@ also to another session of your own family.
 - send: send a message to a peer name or alias.
 - inbox: read session messages after after and held participant messages after participant_after.
   Each message names its inbox; track and page their independent sequences separately.
+  Koinon sends content-free inbox notices through this session's supported wake channel (see
+  the family section). Read the named inbox when a notice arrives. A session with a working
+  automatic wake channel normally needs no timed inbox check; sessions without one can read
+  waiting messages with inbox. Antigravity receives notice offers at its Stop boundary.
 - ack: acknowledge handled session messages through through and participant messages through
   participant_through. Never acknowledge one inbox using the other's sequence.
 - delivery: read the delivery and acknowledgement state of a message you sent.
@@ -136,8 +140,9 @@ the requester's work_start; checkout requests resolve the participant's current 
 Work can also propose a typed proposed_role {family, role}; empty role targets the default
 participant. work_list with assigned_to_me discovers proposals for the actual current holder.
 Page with after/next_after until more is false, then use current queries and memory catch-up
-for changes between pages. An advanced participant cursor needs no reset. Poll these queries;
-automatic work-change model notices are not implemented in this increment.
+for changes between pages. An advanced participant cursor needs no reset. Work-change notices
+are coalesced; use current work queries and memory catch-up after a notice, reconnect or
+missed wake.
 A new role claim uses a derived native-work consumer and binds this native session for its
 whole generation, even after the proposal changes. Another native session waits for release
 or expiry and starts a fresh generation. An active original native owner can release its own
