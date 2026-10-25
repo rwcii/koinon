@@ -73,6 +73,8 @@ func run(ctx context.Context, args []string, in io.Reader, out io.Writer) error 
 		}
 	case "dashboard":
 		return dashboardCommand(ctx, args[1:], out)
+	case "maintainer":
+		return maintainerCommand(ctx, args[1:], in, out)
 	case "version":
 		return versionCommand(out)
 	case "install", "uninstall", "import", "upgrade":
@@ -359,6 +361,7 @@ const usage = `Usage: koinon install [--prefix DIR] [--state-dir DIR] [--port N]
        koinon register --as deepseek:ID [--directory DIR] [--repository DIR] [--dsh-url URL] [--dsh-credentials FILE] [--state-dir DIR] [--address HOST:PORT]
        koinon status [--state-dir DIR] [--address 127.0.0.1:PORT]
        koinon dashboard [--state-dir DIR] [--address 127.0.0.1:PORT] [--no-open]
+       koinon maintainer secret set|generate|clear [--state-dir DIR] [--address 127.0.0.1:PORT]
        koinon mcp [--state-dir DIR] [--address 127.0.0.1:PORT]
        koinon setup <claude|codex|agy|opencode|grok|deepseek> [--cli ABS_PATH] [--binary ABS_PATH]
        koinon setup claude --remove-status-line [--claude-config DIR] [--state-dir DIR]

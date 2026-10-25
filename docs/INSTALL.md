@@ -637,9 +637,11 @@ install --port` writes. Directories are owned by the current UID and private; cr
 belong in Git or logs. The daemon binds loopback only. Custom state and address must match
 between the daemon, command clients and MCP server; a recorded port matches by itself for every
 client of that state directory.
-The dashboard uses one-time login links, a login cookie and CSRF-protected actions. A login
-ends after 24 hours without a request, 7 days after it was made, or when the daemon restarts;
-then run `koinon dashboard` for a new link.
+The dashboard uses one-time login links, or the maintainer secret (`koinon maintainer secret
+set`, docs/USAGE.md), a login cookie and CSRF-protected actions. A login ends after 24 hours
+without a request, 7 days after it was made, or when the daemon restarts; then log in again
+with the secret, or run `koinon dashboard` for a new link. Schema 29 adds the table that holds
+the secret's salted key; an upgrade starts with no secret set.
 
 The daemon applies supported Go schema migrations transactionally and refuses an unknown
 future schema. `koinon status` reports health, storage, delivery and retention counts. The

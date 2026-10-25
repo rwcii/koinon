@@ -14,7 +14,15 @@ into a dated release section when promoted to `main`.
   codex` and the daemon's start remove the retired Python runtime's `KOINON CODEX` and
   `CODEX PEER BRIDGE` blocks from the Codex `AGENTS.md`, which made Codex refuse a peer's work
   requests; the install report names the result in `retired_instructions`.
-
+- A maintainer secret logs in to the dashboard (#470, PDR 009). `koinon maintainer secret set`
+  reads a secret from the terminal without echo, asked twice, or from the first line of
+  standard input; `generate` prints a new 43-character secret once; `clear` removes it. The
+  secret is never an argument. The daemon keeps only a salted PBKDF2-HMAC-SHA256 key of it
+  (600,000 iterations). With a secret set, the dashboard login page asks for it, so a login no
+  longer needs a link from the daemon's host; `koinon dashboard` still gives a one-time link.
+  A change of the secret ends every dashboard login. After five wrong secrets in a row, the
+  daemon waits before the next check, from 1 second up to 60 seconds. The state schema is 29;
+  an upgrade starts with no secret set.
 - The Homebrew caveats give each command on its own line, list the upgrade steps with
   `koinon version` and `koinon dashboard`, and show the `--system` step only on macOS (#483).
 

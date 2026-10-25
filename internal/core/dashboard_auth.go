@@ -13,8 +13,8 @@ import (
 	"time"
 )
 
-// Dashboard login (sprint chunk 08). A one-time link from the bearer API starts a browser
-// session; the daemon keeps only hashes of links and session IDs, in memory, so a restart
+// Dashboard login (sprint chunk 08). A one-time link from the bearer API, or the maintainer
+// secret (PDR 009), starts a browser session; the daemon keeps only hashes of links and session IDs, in memory, so a restart
 // ends every login. The CSRF token is derived from the session ID with a per-start key,
 // so it needs no storage of its own.
 
@@ -40,6 +40,8 @@ type dashboardAuth struct {
 	csrfKey  []byte
 	links    map[[32]byte]time.Time
 	sessions map[[32]byte]*dashboardSession
+	// gate orders the maintainer secret's checks and changes (PDR 009).
+	gate secretGate
 }
 
 func newDashboardAuth(now func() time.Time) (*dashboardAuth, error) {
@@ -47,7 +49,8 @@ func newDashboardAuth(now func() time.Time) (*dashboardAuth, error) {
 	if _, err := rand.Read(key); err != nil {
 		return nil, err
 	}
-	return &dashboardAuth{now: now, csrfKey: key, links: map[[32]byte]time.Time{}, sessions: map[[32]byte]*dashboardSession{}}, nil
+	return &dashboardAuth{now: now, csrfKey: key, links: map[[32]byte]time.Time{}, sessions: map[[32]byte]*dashboardSession{},
+		gate: secretGate{mu: make(chanMutex, 1)}}, nil
 }
 
 func randomToken() (string, error) {
@@ -114,13 +117,21 @@ func (a *dashboardAuth) login(token string) (string, bool, error) {
 	if !found || !now.Before(expires) {
 		return "", false, nil
 	}
+	id, err := a.start()
+	return id, err == nil, err
+}
+
+// start begins a login session, after a link or the maintainer secret, and returns its ID.
+// At most maxDashboardLogin stay; a new one drops the oldest.
+func (a *dashboardAuth) start() (string, error) {
 	id, err := randomToken()
 	if err != nil {
-		return "", false, err
+		return "", err
 	}
 	sessionHash, _ := tokenHash(id)
 	a.mu.Lock()
 	defer a.mu.Unlock()
+	now := a.now()
 	a.prune(now)
 	for len(a.sessions) >= maxDashboardLogin {
 		var oldest [32]byte
@@ -133,7 +144,14 @@ func (a *dashboardAuth) login(token string) (string, bool, error) {
 		delete(a.sessions, oldest)
 	}
 	a.sessions[sessionHash] = &dashboardSession{created: now, used: now}
-	return id, true, nil
+	return id, nil
+}
+
+// endAll ends every login, when the maintainer secret changes.
+func (a *dashboardAuth) endAll() {
+	a.mu.Lock()
+	clear(a.sessions)
+	a.mu.Unlock()
 }
 
 func (a *dashboardAuth) prune(now time.Time) {

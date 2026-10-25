@@ -1,2 +1,6 @@
-{{define "list"}}<p class="notice">{{if eq .Data "logout"}}You are logged out.{{else if eq .Data "link"}}This login link was used already or has expired.{{else if eq .Data "csrf"}}The request was refused: its form token is missing or wrong. Reload the page and try again.{{else if eq .Data "request"}}The request was not valid.{{else}}You are not logged in, or your login has expired.{{end}}</p>
-<p>Run <code>koinon dashboard</code> to get a new login link.</p>{{end}}
+{{define "list"}}{{with .Data}}{{if .Reason}}<p class="notice">{{if eq .Reason "logout"}}You are logged out.{{else if eq .Reason "link"}}This login link was used already or has expired.{{else if eq .Reason "secret"}}The maintainer secret is not correct.{{else if eq .Reason "backoff"}}Too many wrong secrets. Wait a minute, then try again.{{else if eq .Reason "unset"}}No maintainer secret is set.{{else if eq .Reason "csrf"}}The request was refused: its form token is missing or wrong. Reload the page and try again.{{else if eq .Reason "request"}}The request was not valid.{{else}}You are not logged in, or your login has expired.{{end}}</p>{{end}}
+{{if .Form}}<form method="post" action="/dashboard/login" class="login">
+<label>Maintainer secret <input type="password" name="secret" autocomplete="current-password" required autofocus></label>
+<button type="submit">Log in</button>
+</form>
+<p>Or run <code>koinon dashboard</code> on the daemon's host for a one-time login link.</p>{{else}}<p>Run <code>koinon dashboard</code> on the daemon's host to get a one-time login link. To log in with a secret instead, set one there with <code>koinon maintainer secret set</code> or <code>koinon maintainer secret generate</code>.</p>{{end}}{{end}}{{end}}

@@ -86,7 +86,7 @@ func TestWorkRoleMigrationPreservesLegacyState(t *testing.T) {
 		t.Fatal("fixture state was lost")
 	}
 	before := rowsOf(t, s.db)
-	if _, err := s.db.Exec(undoSchemaTwentyEight + undoSchemaTwentySeven + undoSchemaTwentySix + undoSchemaTwentyFive + undoSchemaTwentyFour + undoSchemaTwentyThree + undoSchemaTwentyTwo + undoSchemaTwentyOne + undoSchemaTwenty + undoSchemaNineteen + undoSchemaEighteen + undoSchemaSeventeen + undoSchemaSixteen + `PRAGMA user_version=15`); err != nil {
+	if _, err := s.db.Exec(undoSchemaTwentyNine + undoSchemaTwentyEight + undoSchemaTwentySeven + undoSchemaTwentySix + undoSchemaTwentyFive + undoSchemaTwentyFour + undoSchemaTwentyThree + undoSchemaTwentyTwo + undoSchemaTwentyOne + undoSchemaTwenty + undoSchemaNineteen + undoSchemaEighteen + undoSchemaSeventeen + undoSchemaSixteen + `PRAGMA user_version=15`); err != nil {
 		t.Fatal(err)
 	}
 	if err := migrate(s.db, 15, 16); err != nil {

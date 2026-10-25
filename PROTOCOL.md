@@ -42,6 +42,7 @@ Never put a secret, runtime session identifier or response body in a repository.
 | `POST /v1/library/read` | Read one catalog item's canonical content and family-specific metadata. |
 | `POST /v1/sessions/observe` | Record allowlisted observations (model, context, activity, terminal) for an active session; see "Dashboard and session observations". |
 | `POST /v1/dashboard/links` | Issue a one-time dashboard login link (`path`, `expires_in`). |
+| `POST /v1/maintainer/secret` | Set, generate or clear the maintainer secret (`action`, `secret`); ends every dashboard login. |
 | `GET /v1/participants` | Each participant's `address`, `family`, `repository`, optional `role`, active `holder` peer name, `conflict` and `last_event`, at most 1,000 with `truncated` (`koinon participant list`, #398). |
 | `POST /v1/participants/holder` | The maintainer's holder choice from the command line (`koinon participant holder`, #398): `address`, `peer` and an optional `if_revision`, the session's current revision when absent. It makes what the dashboard's **Make holder** makes and is audited as `participant-holder` by `cli`. It returns `holder` and `former`; refusals are `invalid_request`, `peer_not_found`, `not_participant`, `session_not_active` and `revision_changed`. |
 | `POST /v1/storage/recover` | Prove the write-ahead log empty again, return free pages and clear a blocked state. |
@@ -546,6 +547,9 @@ The socket is an absolute clean path without control characters, at most 4,096 b
 pane matches `%` followed by 1–9 digits. The optional `executable` (#418) is the absolute tmux
 that the session's own terminal runs, with the same path rules as the socket. Invalid values
 return `invalid_request`.
+
+Schema 29 adds the table `maintainer_secret` (see Dashboard and session observations, PDR
+009); an upgrade starts with no secret set.
 
 Schema 28 adds `sessions.tmux_path`, which stores `executable` with the socket and pane and is
 cleared with them; existing sessions start with `''`. It is a tool path, not identity: an Enable
@@ -1662,6 +1666,28 @@ from elsewhere. Peer message bodies appear here, escaped, and nowhere else outsi
   `Max-Age=604800` (7 days), so it survives a browser restart. A session ends after 24 hours without a request,
   7 days after it started, at logout, when 16 newer sessions exist, or when the daemon restarts
   (#435). The daemon keeps only SHA-256 hashes of tokens and session IDs, in memory.
+- **Maintainer secret** (PDR 009). `koinon maintainer secret set|generate|clear` sends
+  `POST /v1/maintainer/secret` with `{"action": "set"|"generate"|"clear", "secret": TEXT}`;
+  `secret` is given only for `set` and is valid UTF-8 of at least 12 characters and at most 1024
+  bytes, else `invalid_request`. The reply is `{"ok": true, "action": ..., "logins_ended":
+  true}`, and for `generate` also `secret`, 32 random bytes as base64url without padding, which
+  nothing else returns. `clear` without a secret is `maintainer_secret_unset`. Schema 29's
+  table `maintainer_secret` holds at most one row: `pbkdf2-sha256`, a 16-byte random salt, the
+  iteration count (600,000) and the 32-byte PBKDF2-HMAC-SHA256 key. Each accepted change writes
+  the audit record `maintainer_secret` with `set by cli`, `generate by cli` or `clear by cli` in
+  its transaction, then ends every dashboard session. With a secret set, `GET
+  /dashboard/login` without `token` shows a form with one password field `secret`; without
+  one, it says how to get a link or set a secret. `POST /dashboard/login` takes that form, at
+  most 4,096 bytes, with the request protection below but no CSRF token, since no session
+  exists yet. The daemon checks one secret at a time and compares keys in constant time. A
+  match writes the audit record `maintainer_login dashboard accepted`, then starts the same
+  session and cookie as a link (303 to `/dashboard/sessions`); a session is started only after
+  its record is written. A wrong secret is 401 and writes `maintainer_login dashboard refused
+  secret_invalid`; no secret set is 401. The fifth wrong secret in a row starts a wait of 1
+  second, and each later wrong secret doubles it, up to 60 seconds; a check during the wait is
+  429 with `Retry-After`, computes no key and does not move the wait. A match resets the
+  count. The count is in daemon memory, for the whole daemon. The one-time link works during
+  the wait. No page, reply, record or log line repeats a presented secret.
 - **Request protection.** Every dashboard request must name a literal loopback IP with a port in
   `Host` (`127.0.0.1:PORT` or `[::1]:PORT`; `localhost` and other names are refused). PORT may
   differ from the listener's, as through an SSH tunnel from another local port (ADR 001,

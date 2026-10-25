@@ -97,6 +97,22 @@ func (s *Store) auditRefusal(ctx context.Context, p *pendingAudit, reason string
 	}
 }
 
+// auditAccepted records an accepted action that changes no stored data, such as a login
+// with the maintainer secret. The action proceeds only when the record is written.
+func (s *Store) auditAccepted(ctx context.Context, action, target string) error {
+	ctx = noAudit(ctx)
+	tx, err := s.begin(ctx, ordinary)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+	if _, err := tx.ExecContext(ctx, `INSERT INTO audit(at,action,target,result) VALUES (?,?,?,'accepted')`,
+		s.now().UnixMilli(), action, target); err != nil {
+		return tx.fail(err)
+	}
+	return tx.Commit()
+}
+
 // auditLaunch writes the record of a launch before the launcher runs, as `started`, and
 // returns its ID; finishLaunch sets the result after the launcher returns. Its fixed codes
 // are short, so the update fits the reserve.
