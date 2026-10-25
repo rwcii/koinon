@@ -721,12 +721,12 @@ func TestContextCycleRequestAsksToPauseAndStayIdle(t *testing.T) {
 		t.Fatalf("requests: %q", requests)
 	}
 	for _, want := range []string{"managed context cycle " + v.ID + " revision 1 requests your handoff",
-		"Pause your work at the next safe stopping point and start no new work",
+		"Pause your work at the next safe stopping point. Let running background subagents",
 		"Let running background subagents finish, or stop them", "call context_cycle_ready",
 		"Report ready by " + time.UnixMilli(v.StageDeadline).UTC().Format("2006-01-02 15:04:05 UTC") + ".",
 		"stop any that will not finish with enough time left to update the handoff and report ready by",
 		"into _handoff/" + f.k.Family + "/ of the main checkout, or into the directory that the Handoff path fact of .koinon/skills/handoff.md names",
-		"Then end your turn and stay idle", "overwatch clears your context only at your idle prompt", "asks again"} {
+		"Then end your turn and stay idle", "overwatch clears your context at your idle prompt", "asks again"} {
 		if !strings.Contains(requests[0], want) {
 			t.Fatalf("request lacks %q: %s", want, requests[0])
 		}
@@ -737,7 +737,7 @@ func TestContextCycleRequestAsksToPauseAndStayIdle(t *testing.T) {
 	if strings.Contains(requests[0], "Finish") {
 		t.Fatalf("request still offers to finish the step: %s", requests[0])
 	}
-	if !strings.Contains(cycleReadyNext, "end your turn now and start no other work") {
+	if !strings.Contains(cycleReadyNext, "end your turn now and stay idle") {
 		t.Fatalf("ready next: %s", cycleReadyNext)
 	}
 }
@@ -1052,7 +1052,7 @@ func TestCycleRequestWakeNamesTheCycle(t *testing.T) {
 		}
 	}
 	wake()
-	if want := " Managed context-cycle request " + v.ID + ": answer it before other work."; len(sent) != 1 || !strings.HasSuffix(sent[0], want) {
+	if want := " Managed context-cycle request " + v.ID + "."; len(sent) != 1 || !strings.HasSuffix(sent[0], want) {
 		t.Fatalf("notice during the cycle: %q", sent)
 	}
 	f.clock = time.UnixMilli(v.StageDeadline)

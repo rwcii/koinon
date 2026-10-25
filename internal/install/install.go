@@ -96,6 +96,9 @@ type Report struct {
 	PickupSkills []PickupSkill `json:"pickup_skills"`
 	// TeamSkills reports the koinon-NAME team skill entries for each family (#453).
 	TeamSkills []PickupSkill `json:"team_skills"`
+	// RetiredInstructions reports the Codex AGENTS.md without the retired Python runtime's
+	// blocks: removed, unchanged or absent (#487).
+	RetiredInstructions *RetiredInstructions `json:"retired_instructions,omitempty"`
 }
 
 // PickupSkill is one family's koinon-pickup skill file and what the install or uninstall did
@@ -503,6 +506,12 @@ func skillRoots(o Options) []core.SkillRoot {
 	return roots
 }
 
+// RetiredInstructions is the result for one instructions file.
+type RetiredInstructions struct {
+	Path   string `json:"path"`
+	Result string `json:"result"`
+}
+
 // pickupSkillPaths are the koinon-pickup skill files by family.
 func pickupSkillPaths(o Options) []PickupSkill {
 	var skills []PickupSkill
@@ -642,8 +651,23 @@ func Install(ctx context.Context, o Options) (Report, error) {
 	if err := installPickupSkills(o, &r); err != nil {
 		return r, err
 	}
+	if err := removeRetiredInstructions(o, &r); err != nil {
+		return r, err
+	}
 	r.OK = true
 	return r, nil
+}
+
+// removeRetiredInstructions takes the retired Python runtime's blocks out of the Codex
+// AGENTS.md and reports the file's result (#487).
+func removeRetiredInstructions(o Options, r *Report) error {
+	path := core.CodexInstructions(os.Getenv("CODEX_HOME"), o.Services.Home)
+	result, err := core.RemoveRetiredCodexBlocks(path)
+	if err != nil {
+		return fmt.Errorf("retired_instructions_failed: %s: %v", path, err)
+	}
+	r.RetiredInstructions = &RetiredInstructions{Path: path, Result: result}
+	return nil
 }
 
 // startAgent writes the user service and, unless NoStart, starts it and waits for the daemon.

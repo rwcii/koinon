@@ -425,12 +425,11 @@ func (s *Store) sessionProbe(ctx context.Context, k Key) CycleProbe {
 func cycleRequestBody(id string, revision int64, agent string, deadline int64) string {
 	by := time.UnixMilli(deadline).UTC().Format("2006-01-02 15:04:05 UTC")
 	return "overwatch: managed context cycle " + id + " revision " + strconv.FormatInt(revision, 10) +
-		" requests your handoff. Report ready by " + by + ". Pause your work at the next safe stopping point and start " +
-		"no new work. Let running background subagents finish, or stop them, so that the handoff holds their results; " +
+		" requests your handoff. Report ready by " + by + ". Pause your work at the next safe stopping point. Let running background subagents finish, or stop them, so that the handoff holds their results; " +
 		"stop any that will not finish with enough time left to update the handoff and report ready by " + by + ". Write your handoff " +
 		"with your canonical handoff procedure into _handoff/" + agent + "/ of the main checkout, or into the directory " +
 		"that the Handoff path fact of " + handoffFacts + " names, then call context_cycle_ready with this cycle ID, " +
-		"its revision and the handoff file name. Then end your turn and stay idle: overwatch clears your context only at your idle prompt, and asks again " +
+		"its revision and the handoff file name. Then end your turn and stay idle: overwatch clears your context at your idle prompt, and asks again " +
 		"if your pane does not become idle. See the Managed cycle reporting section of koinon guide."
 }
 
@@ -448,11 +447,11 @@ func (s *Store) cycleNoticeSuffix(ctx context.Context, b wakeBatch) (string, err
 	if err != nil {
 		return "", err
 	}
-	return " Managed context-cycle request " + id + ": answer it before other work.", nil
+	return " Managed context-cycle request " + id + ".", nil
 }
 
 // cycleReadyNext is the instruction of a successful ready report (#431).
-const cycleReadyNext = "Paused and ready: end your turn now and start no other work. Overwatch clears your context at " +
+const cycleReadyNext = "Paused and ready: end your turn now and stay idle. Overwatch clears your context at " +
 	"your idle prompt and then enters koinon-pickup."
 
 // cycleRepeatable reports whether a ready cycle whose stage deadline passed asks its

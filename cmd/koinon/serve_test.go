@@ -210,9 +210,25 @@ func TestServeWritesPickupSkills(t *testing.T) {
 	if err := os.WriteFile(codex, []byte("an older entry\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
+	// The retired Python block leaves the Codex AGENTS.md at the start, so a brew upgrade
+	// takes it out too (#487).
+	t.Setenv("CODEX_HOME", filepath.Join(dir, "codex-home"))
+	instructions := core.CodexInstructions(filepath.Join(dir, "codex-home"), home)
+	os.MkdirAll(filepath.Dir(instructions), 0o700)
+	os.WriteFile(instructions, []byte("mine\n\n<!-- BEGIN KOINON CODEX -->\nretired\n<!-- END KOINON CODEX -->\n"), 0o600)
 	// The report failure returns right after the start.
 	if err := run(context.Background(), serveArgs(filepath.Join(dir, "state")), nil, failingWriter{}); err == nil {
 		t.Fatal("the report failure was not returned")
+	}
+	if data, _ := os.ReadFile(instructions); string(data) != "mine\n" {
+		t.Fatalf("instructions after start: %q", data)
+	}
+	removed := false
+	for _, event := range log.events() {
+		removed = removed || event["event"] == "retired_instructions" && event["result"] == "removed"
+	}
+	if !removed {
+		t.Fatal("the removal was not logged")
 	}
 	for _, path := range []string{claude, codex} {
 		if data, err := os.ReadFile(path); err != nil || !bytes.Equal(data, core.PickupSkill()) {

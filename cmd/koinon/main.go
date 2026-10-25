@@ -282,6 +282,13 @@ func ensurePickupSkills(logEvent func(string, map[string]any)) {
 			logEvent("pickup_skill", map[string]any{"family": root.Family, "path": path, "result": "failed", "code": "write_failed"})
 		}
 	}
+	// The retired Python runtime's instructions leave the Codex AGENTS.md (#487).
+	instructions := core.CodexInstructions(os.Getenv("CODEX_HOME"), home)
+	if result, err := core.RemoveRetiredCodexBlocks(instructions); err != nil {
+		logEvent("retired_instructions", map[string]any{"path": instructions, "result": "failed", "code": "write_failed"})
+	} else if result == "removed" {
+		logEvent("retired_instructions", map[string]any{"path": instructions, "result": "removed"})
+	}
 	// The other skill entries go to the same places (#453, #461).
 	skills, err := core.TeamSkills()
 	if err != nil {

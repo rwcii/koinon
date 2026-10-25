@@ -8,23 +8,23 @@ import (
 	"github.com/rwcii/koinon/internal/core"
 )
 
-// Work tools: one per wire operation of docs/WORK-ITEMS-COMMANDS.md. Work records are
-// data that agents report; a proposal, claim or completion grants no permission.
+// Work tools: one per wire operation of docs/WORK-ITEMS-COMMANDS.md. Work records are what
+// agents report about their shared work.
 
 var workDescriptions = map[string]string{
 	"work-create":  "Create a work item in this repository's shared store, with title, criteria and non_goals. It starts open and unclaimed; key and deadline make a retry safe.",
 	"work-get":     "Read one work item with its current claim, lease and progress state, or a retained scope revision. Reading never claims or renews anything.",
 	"work-list":    "Page work item summaries in work-ID order with after, more and next_after; filter by lifecycle, owner, proposed_assignee, assigned_to_me, stale or blocked. assigned_to_me includes proposals to this native holder's family/role. Page to the end for a complete current inventory, then use memory catch-up for changes.",
 	"work-propose": "Set or clear (null) a proposed_assignee consumer or proposed_role {family, role}; empty role names the default participant. Supply one of the mutually exclusive fields. A proposal moves no claim.",
-	"work-edit":    "Revise the title, criteria or non_goals of a work item. While it is claimed, only its owner may edit, with claim_generation.",
-	"work-start":   "Claim a work item before writing: an exclusive writer lease plus optional [kind, key] resources (path or exact), all or nothing. A role proposal requires its current native holder and derives a native-work consumer bound to that session for the full claim generation. A successor waits for release or expiry. Existing participant claims continue unchanged.",
+	"work-edit":    "Revise the title, criteria or non_goals of a work item. While it is claimed, its owner edits it with claim_generation.",
+	"work-start":   "Claim a work item before writing: an exclusive writer lease plus optional [kind, key] resources (path or exact), all or nothing. A role proposal requires its current native holder and derives a native-work consumer bound to that session for the full claim generation. Another session can start it after its release or expiry. Existing participant claims continue unchanged.",
 	"work-update":  "Report progress on a work item you hold: progress, checkpoint, next_artifact and the next progress_deadline; lifecycle blocked needs a blocker.",
-	"work-release": "Release a work item you hold with a final checkpoint; it returns to open. Optional handoff_to (exact same-repository peer) and checkout_resource atomically notify that peer to explicitly pick up the released checkout role. A notification does not transfer ownership or permissions.",
-	"work-finish":  "Finish a work item you hold: outcome completed with evidence references, or withdrawn with a reason. Finishing is your assertion, not anyone's approval.",
-	"claim-renew":  "Extend the lease of a claim you hold. Renewal is not progress and moves no deadline.",
+	"work-release": "Release a work item you hold with a final checkpoint; it returns to open. Optional handoff_to (exact same-repository peer) and checkout_resource atomically notify that peer to explicitly pick up the released checkout role.",
+	"work-finish":  "Finish a work item you hold: outcome completed with evidence references, or withdrawn with a reason.",
+	"claim-renew":  "Extend the lease of a claim you hold. Renewal moves no progress deadline.",
 	"work-report":  "Report the result of a work item you hold, with a summary and evidence references. The claim is released and the item stays reported until another worker accepts or rejects it; the store reserves that verdict first, or refuses and keeps your claim.",
-	"work-accept":  "Accept the current report of a reported item, naming its report_seq and evidence references. The item finishes as completed. The reporting consumer and native session cannot record this verdict.",
-	"work-reject":  "Reject the current report of a reported item, naming its report_seq, evidence references and corrected criteria and non_goals (optional title). A new scope revision is written and the item returns open, unclaimed. The reporting consumer and native session cannot record this verdict.",
+	"work-accept":  "Accept the current report of a reported item, naming its report_seq and evidence references. The item finishes as completed. A worker other than the reporter records it.",
+	"work-reject":  "Reject the current report of a reported item, naming its report_seq, evidence references and corrected criteria and non_goals (optional title). A new scope revision is written and the item returns open, unclaimed. A worker other than the reporter records it.",
 }
 
 // workSchema describes each field's JSON type.

@@ -10,7 +10,7 @@ import (
 
 func init() {
 	toolList = append(toolList, map[string]any{"name": "work_checkout",
-		"description": "Read this checkout's advisory writer role: canonical resource, holder, work ID, generation token, expiry and checkpoint. Defaults to the MCP working directory. Pass the resource to work_start for explicit acceptance. Reading claims nothing; an expired role grants no takeover.",
+		"description": "Read this checkout's advisory writer role: canonical resource, holder, work ID, generation token, expiry and checkpoint. Defaults to the MCP working directory. Pass the resource to work_start for explicit acceptance. Reading claims nothing.",
 		"inputSchema": object(map[string]any{"directory": text})}, map[string]any{"name": "work_checkout_request",
 		"description": "Notify the currently observed checkout writer that this session requests the role, with an optional note. Uses its exact native peer; changes no ownership. The writer can work_release with handoff_to and checkout_resource to notify this requester to explicitly pick up the role.",
 		"inputSchema": object(map[string]any{"directory": text, "note": text})})

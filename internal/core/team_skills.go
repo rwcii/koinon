@@ -73,8 +73,7 @@ func TeamSkills() ([]TeamSkill, error) {
 func teamSkillContent(name, item, facts, description string) string {
 	return "---\nname: " + name + "\ndescription: " + strconv.Quote(description) + "\n---\n\n" +
 		"Call the koinon library_read tool for item skill." + item + " and follow the returned procedure. It reads\n" +
-		"this repository's facts from " + facts + " as its Repository facts section says. If the\n" +
-		"tool is unavailable, stop and report that.\n"
+		"this repository's facts from " + facts + " as its Repository facts section says.\n"
 }
 
 // SkillRoot is one family's user skill root, which holds skills/NAME/SKILL.md (#461).

@@ -18,7 +18,7 @@ func TestAdmittedFamiliesHavePermissionGuidance(t *testing.T) {
 			if err := setup.Guide(family, &out); err != nil {
 				t.Fatalf("admitted family has no guide: %v", err)
 			}
-			for _, required := range []string{"### Recommended permissions", "docs/PERMISSIONS.md", "authorized upgrade"} {
+			for _, required := range []string{"### Recommended permissions", "docs/PERMISSIONS.md", "This guide comes from the installed binary"} {
 				if !strings.Contains(out.String(), required) {
 					t.Errorf("admitted family %s guide omits %s", family, required)
 				}

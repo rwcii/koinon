@@ -7,6 +7,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -31,10 +32,16 @@ func TestCodexHookMergePreservesConfiguration(t *testing.T) {
   }
 }`
 	os.WriteFile(path, []byte(original), 0640)
+	// The retired Python block leaves the Codex AGENTS.md beside it (#487).
+	instructions := filepath.Join(root, "AGENTS.md")
+	os.WriteFile(instructions, []byte("keep\n\n<!-- BEGIN CODEX PEER BRIDGE -->\nold\n<!-- END CODEX PEER BRIDGE -->\nalso keep\n"), 0600)
 	o := Options{Family: "codex", CLI: cli, Binary: "/opt/koinon/koinon", CodexHome: root}
 	report, err := Run(context.Background(), o)
 	if err != nil || !strings.Contains(report.Note, "trust") {
 		t.Fatalf("setup: %+v %v", report, err)
+	}
+	if data, _ := os.ReadFile(instructions); string(data) != "keep\nalso keep\n" || !slices.Contains(report.Changed, "retired Koinon instructions removed from "+instructions) {
+		t.Fatalf("instructions: %q %v", data, report.Changed)
 	}
 	data, _ := os.ReadFile(path)
 	var config struct {
