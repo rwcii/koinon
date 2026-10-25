@@ -1,5 +1,7 @@
 # Sprint 2026-10-12 — Grok agent family — Decision
 
+> Historical sprint plan. Its non-goals and constraints limited this sprint only. Current decisions are in the [decision records](../../engineering/wdr/README.md); see WDR 001.
+
 The content of this decision is issue #254 and its source triage comment. This file restates
 them for the plan and adds the constraints from the root `AGENTS.md`; it decides nothing new.
 Claude drives the plan; Codex observes.

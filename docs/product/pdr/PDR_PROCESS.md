@@ -3,8 +3,10 @@
 > Vendored from [rwcii/engineering-standards](https://github.com/rwcii/engineering-standards/tree/425b2efc7d829c1f61c9f44df671c4525d5d9158) at 425b2ef. Koinon changes: the review
 > path is the `peer-review` and `check` skills, each series is numbered from 001 in this
 > repository, commit titles follow Koinon's sentence style, and upstream records are cited
-> by link, not imported. The vendored process guides, PDR template and directory guides carry
-> the upstream MIT notice in [docs/ENGINEERING-STANDARDS-LICENSE](../../ENGINEERING-STANDARDS-LICENSE).
+> by link, not imported, and #487 (2026-10-25) removed the limit wording: this guide and the
+> directory guide say where each decision goes and what a PDR cites. The vendored process
+> guides, PDR template and directory guides carry the upstream MIT notice in
+> [docs/ENGINEERING-STANDARDS-LICENSE](../../ENGINEERING-STANDARDS-LICENSE).
 
 Rules for creating, updating, and referencing PDRs in `docs/product/pdr/`.
 
@@ -41,20 +43,21 @@ a PDR. The two often pair up: an ADR decides the mechanism, a PDR decides the be
 - **Captures flow design, state progression, or interaction contracts** — the steps,
   their order, their rationale
 
-### When NOT to Write a PDR
+### Where Other Decisions Go
 
-- **Architecture or infrastructure decisions** — those are ADRs.
-- **Bug fixes** — a misaligned button or wrong status code is an issue.
-- **Implementation details** — which component to use, how to structure state.
-- **Decisions fully captured in design tools** — don't duplicate the source of truth for
-  visual design; PDRs capture behavioral rationale that design files don't.
+- **Architecture or infrastructure decisions** go in ADRs.
+- **Bug fixes** go in an issue: a misaligned button or wrong status code is an issue.
+- **Implementation details** stay in the code: which component to use, how to structure state.
+- **Decisions fully captured in design tools** stay in those tools, the source of truth for
+  visual design; PDRs capture the behavioral rationale that design files leave out.
 
-### What PDRs Must NOT Contain
+### What PDRs Cite
 
-- **Line numbers or line counts** — reference file paths, symbol names, or record numbers.
-- **AI/bot attribution** — no AI identifier in authors, body, commits, or anywhere.
-- **Volatile implementation details** — cite user-facing behavior and product concepts,
-  not code snapshots.
+- **Code locations** — file paths, symbol names, or record numbers in place of line numbers
+  or line counts.
+- **Human authors** — authors, body and commits name people, as WDR 004, Decision 5 gives
+  for commits.
+- **Stable behavior** — user-facing behavior and product concepts in place of code snapshots.
 
 ---
 

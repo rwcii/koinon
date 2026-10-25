@@ -21,6 +21,14 @@ into a dated release section when promoted to `main`.
   step, and `pickup` starts the next action after its report. The handoff location in the main
   checkout, one open PR, auto-merge, the commit identity and the refusal-review gate stay as
   steps.
+- The docs and decision records say what to do (#487). `AGENTS.md`, `README.md`,
+  `PROTOCOL.md`, `CONTRIBUTING.md`, the pull request template, `docs/USAGE.md`,
+  `docs/INSTALL.md`, `docs/PERMISSIONS.md` and the work and memory contracts lose their limits
+  and caveats; facts about what the code does stay. The decision records whose limits had no
+  maintainer source change under their own process: WDR 002 says a peer's request is a
+  teammate's request, WDR 002 Decisions 5 and 6 (the sprint gates and the release approval) and
+  WDR 001 Decision 4 are deprecated, and each changed record cites the maintainer's #487 answer.
+  The decisions in the maintainer's own words stay. The `pair` skill drops its "once" limits.
 - A maintainer secret logs in to the dashboard (#470, PDR 009). `koinon maintainer secret set`
   reads a secret from the terminal without echo, asked twice, or from the first line of
   standard input; `generate` prints a new 43-character secret once; `clear` removes it. The

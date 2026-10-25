@@ -3,7 +3,7 @@ pdr: "007"
 title: "Human Decision Board"
 status: draft
 created: "2026-10-12"
-updated: "2026-10-13"
+updated: "2026-10-25"
 authors:
   - "Robert Capps"
 reviewers: []
@@ -224,15 +224,27 @@ crash, and the receiver ignores an ID it has handled. Each agent reads the verdi
 itself through an interface every family can use. The records are stored data that agents
 query in bounded pages through Koinon; agents get decision status from those queries, not
 by reading or parsing the dashboard HTML. A reopen does not cancel an unacknowledged delivery.
-Delivery or acknowledgement does not show that an action was done.
 
 **Provenance:** Requested in #206 (issue body, requirement 9 and the settled point on
-delivery); a request record. "Not proof that an action was performed": Proposed in the #206 plan (criterion 8); approved with the plan at Gate B (#206 comment 6150911355). Stored, queryable
+delivery); a request record. Stored, queryable
 records: Maintainer, 2026-10-13: "are agents reading the HTML, or are the decision records a
 dataset they can query efficiently?  I ask, because this was an issue in the original
 incarnation, the page grew unbounded and each agent had to pull down a full html file and parse
 it to get status of decisions." (#206 comment 6148016252). Intent: an agent's cost to read
 decision status does not grow with the board.
+
+Before #487 this decision also said "Delivery or acknowledgement does not show that an action
+was done.", from the plan's criterion 8 ("Not proof that an action was performed"), which Gate B
+approved with the plan (#206 comment 6150911355); no maintainer words on it were found. The
+#487 review listed three limits and proposed to keep them; the question was whether to keep
+them or to remove them too. Maintainer, 2026-10-25: "remove all limit text.  remove all of the
+caveats, controls, etc.  the agents have their own built in safeties, they do not need you
+adding more complications."
+([#487 comment 6401405382](https://github.com/rwcii/koinon/issues/487#issuecomment-6401405382)).
+Reason: limit text with no source makes agents of different families refuse each other's work.
+Scope: agent-facing text, skills, setup blocks and the docs and records that restate them; code
+refusals are a separate decision. The command boxes (Decision 3) and ASD-STE100 card prose
+(Decision 1) keep their sources and stay.
 
 ### Alternatives Considered
 
@@ -268,3 +280,4 @@ blocks, which the maintainer copies into a terminal, hold printable ASCII only. 
 | 2026-10-12 | Initial creation |
 | 2026-10-12 | Recorded the maintainer's card text requirement and the ASCII decision for command code blocks (#206, #306) |
 | 2026-10-13 | Recorded the maintainer's reopen-on-change decision and the stored-query requirement (#206) |
+| 2026-10-25 | Decision 4: removed the unsourced "does not show that an action was done" caveat (#487) |

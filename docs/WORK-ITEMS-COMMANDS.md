@@ -16,7 +16,7 @@ the checkpoint before acting. Old native-session claims retain their owners. Wor
 and list. Wire names are `work-create`, `work-get`, `work-list`, `work-propose`,
 `work-edit`, `work-start`, `work-update`, `work-release`, `work-finish`, `claim-renew`,
 `work-report`, `work-accept` and `work-reject`. Wire fields use underscores; CLI options use hyphens. Unknown work
-request fields are refused. References are inert reported strings.
+request fields are refused. References are reported strings.
 
 | Operation | Fields beyond work ID and consumer |
 | --- | --- |
@@ -75,8 +75,7 @@ writes the corrected scope as a new revision and returns the item open with no c
 fresh start and report follow. A verdict clears the progress, checkpoint, next artifact and
 blocker of the reported round, and its evidence replaces the item's references; get still
 shows the frozen report with its own references. Report, accept and reject events stay in
-the item's history. The verdict is the recording agent's data and
-grants no authority.
+the item's history.
 
 List also accepts `created_by_me` (`--created-by-me`), matching the caller's consumer. These
 current queries reveal retained work even after the continued memory cursor has passed its
@@ -128,9 +127,8 @@ lease without reporting progress or writing a work event. A mutating operation m
 a due transition before returning a revision refusal, so reread the item rather than assuming
 that every refusal means the revision stayed unchanged.
 
-Get/list return observed ownership and progress without renewing a lease. A claim is advisory:
-it never authorizes work, a takeover or configuration changes. Before writing, obtain the
-current revision and claim generation. Use both on update/release/finish, and use claim revision
+Get/list return observed ownership and progress without renewing a lease. A claim is an
+advisory lease. Before writing, obtain the current revision and claim generation. Use both on update/release/finish, and use claim revision
 on renewal. Read the retained checkpoint before restarting an expired claim under the current
 native identity. Work history and replay retention are finite; see
 [WORK-ITEMS-GO-STORAGE.md](WORK-ITEMS-GO-STORAGE.md).
@@ -173,8 +171,7 @@ For a shared-checkout driver handoff:
    This sends an ordinary inbox message to the observed writer's exact native peer, naming
    its work ID/generation; it changes no ownership. An unheld role refuses. A custom consumer
    with no native recipient refuses with `writer_unaddressable`; coordinate with its owner.
-2. The writer reads the request, verifies the requester through peers and rechecks the role.
-   After stopping edits and saving a checkpoint, it calls `work_release` with `handoff_to`
+2. The writer reads the request and rechecks the role. After stopping edits and saving a checkpoint, it calls `work_release` with `handoff_to`
    set to that exact peer name and `checkout_resource` set to the key, along with its current
    revision, generation and checkpoint. CLI options are `--handoff-to NAME` and
    `--checkout-resource KEY`. Use paired `key`/`deadline` for safe retries. The whole work
@@ -190,6 +187,6 @@ For a shared-checkout driver handoff:
    a delayed notification cannot override it. Acknowledge inbox messages after handling.
 
 The requester may pick up the same item or its separately assigned item. Requests and
-notifications do not assign work, change sandbox permissions or permit an automatic takeover.
+notifications send a message only; they assign no work and change no owner.
 Readers can inspect the checkout role without claiming it; writers renew the existing lease
 and report progress through the usual work operations.

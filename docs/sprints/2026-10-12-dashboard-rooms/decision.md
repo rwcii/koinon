@@ -1,5 +1,7 @@
 # Dashboard rooms — decision
 
+> Historical sprint plan. Its non-goals and constraints limited this sprint only. Current decisions are in the [decision records](../../engineering/wdr/README.md); see WDR 001.
+
 Issue [#217](https://github.com/rwcii/koinon/issues/217) requests the problem and nine criteria.
 The maintainer selected a dashboard-configured allowance, default 32, and dashboard posts
 as the maintainer's instruction and approval (PDR 005, Decisions 2 and 3). The maintainer

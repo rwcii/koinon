@@ -3,7 +3,8 @@
 > Vendored from [rwcii/engineering-standards](https://github.com/rwcii/engineering-standards/tree/425b2efc7d829c1f61c9f44df671c4525d5d9158) at 425b2ef. Koinon changes: the review
 > path is the `peer-review` and `check` skills, each series is numbered from 001 in this
 > repository, commit titles follow Koinon's sentence style, and upstream records are cited
-> by link, not imported. The vendored process guides, PDR template and directory guides carry
+> by link, not imported. #487 removed the limit text: the guide says what an ADR holds and where
+> other decisions go. The vendored process guides, PDR template and directory guides carry
 > the upstream MIT notice in [docs/ENGINEERING-STANDARDS-LICENSE](../../ENGINEERING-STANDARDS-LICENSE).
 
 Rules for creating, updating, and referencing ADRs in `docs/architecture/adr/`.
@@ -17,7 +18,7 @@ alternatives considered, and consequences. ADRs help:
 
 - Understand why decisions were made
 - Onboard new team members and AI agents
-- Avoid revisiting settled decisions without new information
+- Start a later change from what each decision already weighed
 
 ### When to Write an ADR
 
@@ -35,27 +36,29 @@ Good ADR topics: database technology choice, authentication boundary design,
 multi-tenancy isolation model, background-job execution architecture, the
 data-access pattern, service decomposition.
 
-### When NOT to Write an ADR
+### Where Other Decisions Go
 
 - **Implementation-level choices** — which files to refactor, how to merge two
-  functions, where to put a flag. These are issues or inline design notes.
-- **Bug fixes or hardening tasks** — "add a regression test," "fix an UPSERT."
+  functions, where to put a flag. Put these in issues or inline design notes.
+- **Bug fixes or hardening tasks** — "add a regression test," "fix an UPSERT." Put
+  these in issues.
 - **Decisions already shipped** — write the ADR as `accepted` (documenting the
-  decision), or don't write one at all.
+  decision), or leave the decision in the code and its issue.
 - **Narrow, single-field questions** — "where should this one value be persisted?"
-  ADRs operate at the level of patterns and policies, not individual fields.
+  Put these in issues; ADRs work at the level of patterns and policies.
 - **Decisions about how the *work* is done** — the engineering workflow, the agent
   operating loop, the review/enforcement gates, or the record system itself. These
-  survive both a rewrite and a product pivot; they are **WDRs**
-  (`docs/engineering/wdr/`), not ADRs.
+  survive both a rewrite and a product pivot; write them as **WDRs**
+  (`docs/engineering/wdr/`).
 
-### What ADRs Must NOT Contain
+### How ADRs Stay Durable
 
-- **Line numbers or line counts** — they go stale within days. Reference file paths,
-  function/symbol names, or record numbers instead.
-- **AI/bot attribution** — no AI identifier in authors, body, commits, or anywhere.
-- **Volatile implementation details** — specific variable names, exact byte counts,
-  current test counts. ADRs must be durable; cite concepts and patterns, not snapshots.
+- **References** — cite file paths, function or symbol names, or record numbers. Line
+  numbers and line counts go stale within days.
+- **Authors** — list human authors. Records and commits carry the maintainer's identity
+  and no tool attribution (WDR 004).
+- **Concepts** — cite concepts and patterns, not snapshots such as specific variable
+  names, exact byte counts or current test counts.
 
 ---
 
@@ -96,7 +99,7 @@ draft → under_review → accepted → modified
 
 ## ADR Template
 
-The YAML frontmatter and required sections must always be present.
+Every ADR has the YAML frontmatter and the required sections.
 
 ```markdown
 ---
@@ -149,7 +152,7 @@ tags:
 
 ### Scope
 
-[What this ADR covers and does NOT cover. Cross-reference related ADRs.]
+[What this ADR covers, and what other records cover. Cross-reference related ADRs.]
 
 ---
 
@@ -246,7 +249,7 @@ Standard tags (custom lowercase-kebab tags allowed; prefer standard when applica
 Point versions (e.g., 001.1, 001.2) are sub-decisions under a parent ADR. They share
 the parent's problem context but have distinct mechanisms or implementation details.
 
-- Point versions MUST include `parent_adr` in frontmatter
+- Point versions include `parent_adr` in frontmatter
 - They are full ADRs with their own status lifecycle and can be accepted independently
 - The parent ADR's Executive Summary should reference all point versions
 

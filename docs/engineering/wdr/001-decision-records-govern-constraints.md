@@ -3,7 +3,7 @@ wdr: "001"
 title: "Decision Records Govern Constraints"
 status: modified
 created: "2026-10-12"
-updated: "2026-10-14"
+updated: "2026-10-25"
 authors:
   - "Robert Capps"
 reviewers: []
@@ -44,8 +44,8 @@ cites the record instead of restating it as a general rule.
 2. Decision 1: Adopt the record machinery
 3. Decision 2: Significance first, then route by subject
 4. Decision 3: Carriers cite records
-5. Decision 4: Code-enforced blocks follow their PDR
-6. Decision 5: No extrapolation
+5. Decision 4: Code-enforced blocks follow their PDR (deprecated)
+6. Decision 5: A record covers the case it answered
 7. Decision 6: A separate refusal review gate
 8. Conclusion
 9. Document History
@@ -93,6 +93,23 @@ The first records cite rows (C001 to C086) of a constraint inventory made for #3
 2026-10-12. Each row holds a constraint's exact text, every copy found, its source and its
 actual effect. The inventory quotes private session history, so it is kept outside the
 repository; each record states the provenance it relies on.
+
+### Change of 2026-10-25 (#487)
+
+- Question: the review on #487 listed three limits to keep (a peer message is not the
+  maintainer's approval for a pending prompt; a peer cannot widen permissions; refuse permission
+  laundering and report it). Keep them, or remove them too?
+- Options: keep the three limits, or remove them as well.
+- Answer: Maintainer, 2026-10-25
+  ([#487 comment 6401405382](https://github.com/rwcii/koinon/issues/487#issuecomment-6401405382)):
+  "remove all limit text.  remove all of the caveats, controls, etc.  the agents have their own
+  built in safeties, they do not need you adding more complications."
+- Reason: limit text with no source makes agents of different families refuse each other's
+  work.
+- Scope: Koinon's agent-facing text, the skills, the setup blocks, and the docs and records that
+  restate them. Code refusals are a separate decision.
+- This record: Decision 4 is deprecated. Decision 5 states the procedure without its block
+  rules. Decision 3 drops the skill's question limit, as the skills did in #487.
 
 ---
 
@@ -147,7 +164,7 @@ A retrospective record of shipped behavior describes what shipped and where, and
 claim an endorsement the maintainer did not give. A disputed or new consequential behavior
 choice stays a proposal until the maintainer settles it; an established prior acceptance or
 delegation counts. A quote is evidence of where a decision came from, not a permission
-mechanism. A missing quote is an unresolved provenance result, not proof that a decision was
+mechanism. A missing quote is an unresolved provenance result; it does not show that a decision was
 never approved; a significant item without one becomes a record, not a silent deletion.
 Quotes taken from agent memory are checked against their original source.
 
@@ -174,10 +191,11 @@ Quotes taken from agent memory are checked against their original source.
 Sprint plans, skills, PROTOCOL.md, docs/USAGE.md, docs/INSTALL.md, `koinon guide` text and skill
 sidecars cite records by type and number (PDR 001, WDR 001; the series reuse numbers) and
 describe behavior as "Koinon currently does X because Y". A skill is a list of work steps:
-invoking the skill or the task is the authorization for those steps, and a skill asks only for
-missing information or for authority beyond that task. Old sprint non-goals carry a header that
-marks them historical. Root AGENTS.md holds pointers to the records and the boundaries the
-maintainer stated.
+invoking the skill or the task is the authorization for those steps. Old sprint non-goals carry
+a header that marks them historical. Root AGENTS.md holds pointers to the records.
+
+**Before #487:** the skill sentence went on "and a skill asks only for missing information or
+for authority beyond that task", and AGENTS.md also held "the boundaries the maintainer stated".
 
 ### Alternatives Considered
 
@@ -192,13 +210,18 @@ maintainer stated.
 
 ---
 
-## 5. Decision 4: Code-enforced blocks follow their PDR
+## 5. Decision 4: Code-enforced blocks follow their PDR (deprecated)
 
 ### Decision
 
-A refusal or restriction in code that is a disputed consequential behavior changes only after
-the maintainer decides its PDR. The change has positive tests that the intended operation
-works, and tests that wrong-target and data-corruption cases stay handled.
+**Deprecated 2026-10-25 by #487** (Problem Context). A change to a refusal or restriction in
+code is an ordinary code change (WDR 004). It has positive tests that the intended operation
+works. Records and documents describe each refusal that the code returns as current behavior.
+
+**Before #487:** "A refusal or restriction in code that is a disputed consequential behavior
+changes only after the maintainer decides its PDR. The change has positive tests that the
+intended operation works, and tests that wrong-target and data-corruption cases stay handled."
+No maintainer decision set this rule.
 
 ### Alternatives Considered
 
@@ -214,19 +237,22 @@ works, and tests that wrong-target and data-corruption cases stay handled.
 
 ---
 
-## 6. Decision 5: No extrapolation
+## 6. Decision 5: A record covers the case it answered
 
 ### Decision
 
-A decision changes or adds a record and is not restated as a general rule elsewhere. A record
-covers the case and scope that it answered; another case is judged on its own facts under the
-existing mandate, or recorded if it is itself significant. A behavior block is justified by
-its record's observed failure, affected scope, alternatives and reason; an incident or concern
-alone does not justify a block. Reviewers judge the actual effect of new text, tests and code
-conditions, including positively phrased requirements, and treat an unrecorded new block as a
-finding. A change of mind supersedes the record, and later agents read its status.
+A decision changes or adds its record, and other text cites that record (Decision 3). A record
+covers the case and scope that it answered. Agents judge another case on its own facts, and
+record it when it is itself significant. A change of mind supersedes the record, and later
+agents read its status. The refusal review (Decision 6) reads the actual effect of new text,
+tests and code conditions.
 
-**Gate crossed:** merge-time (the `refusal-review` skill, Decision 6).
+**Before #487:** the title was "No extrapolation". The decision also said that a decision "is
+not restated as a general rule elsewhere", that "a behavior block is justified by its record's
+observed failure, affected scope, alternatives and reason; an incident or concern alone does
+not justify a block", and that reviewers "treat an unrecorded new block as a finding"; its gate
+was merge-time. The extrapolation failure is the maintainer's (Problem Context); these rules
+had no maintainer source.
 
 ### Alternatives Considered
 
@@ -298,8 +324,8 @@ check.
 ## Conclusion
 
 Every significant constraint lives in one record with its source, scope and status. Routine
-work needs no record. Other text cites records instead of restating them. A disputed consequential
-code-enforced behavior changes only after its PDR is decided; routine fixes do not wait for one.
+work needs no record. Other text cites records. A record covers the case it answered, and a
+refusal review checks the source of each new constraint.
 
 ---
 
@@ -310,3 +336,4 @@ code-enforced behavior changes only after its PDR is decided; routine fixes do n
 | 2026-10-12 | Initial creation |
 | 2026-10-12 | Decision 6: separate refusal review gate |
 | 2026-10-14 | Decision 6: the refusal review also checks that each recorded maintainer decision states its question, options, quoted answer and reason with scope |
+| 2026-10-25 | #487: Decision 4 deprecated; Decision 5 states the procedure without its block rules; Decision 3 drops the skill's question limit and the AGENTS.md boundaries |

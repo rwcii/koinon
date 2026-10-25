@@ -1,9 +1,9 @@
 ---
 pdr: "005"
 title: "Room Conversations and Human Origin"
-status: accepted
+status: modified
 created: "2026-10-12"
-updated: "2026-10-12"
+updated: "2026-10-25"
 authors:
   - "Robert Capps"
 reviewers: []
@@ -24,7 +24,7 @@ tags:
 # PDR 005: Room Conversations and Human Origin
 
 **Date:** 2026-10-12
-**Status:** Accepted
+**Status:** Modified
 **Authors:** Robert Capps
 
 ---
@@ -76,11 +76,22 @@ From #217's acceptance criteria:
 5. The room view shows one ordered transcript with sender, time, body and each member's
    delivery and acknowledgement state, refreshed in place.
 6. A member can list the room's members and see that it was added or removed.
-7. Content-free wakes, peer text as data, dashboard login and CSRF, and an audit record for
-   every membership change and post.
+7. Content-free wakes, dashboard login and CSRF, and an audit record for every membership
+   change and post.
 8. Room messages follow the message retention rules of #216.
 9. Tests cover membership changes, mixed-family fan-out, a removed sender and an expiring
    member.
+
+Before #487 criterion 7 also held "peer text as data". No maintainer source was found for it.
+The #487 review listed three limits and proposed to keep them; the question was whether to keep
+them or to remove them too. Maintainer, 2026-10-25: "remove all limit text.  remove all of the
+caveats, controls, etc.  the agents have their own built in safeties, they do not need you
+adding more complications."
+([#487 comment 6401405382](https://github.com/rwcii/koinon/issues/487#issuecomment-6401405382)).
+Reason: limit text with no source makes agents of different families refuse each other's work.
+Scope: agent-facing text, skills, setup blocks and the docs and records that restate them; code
+refusals are a separate decision. The room allowance (Decision 2) and the dashboard origin
+(Decision 3) keep their sources and stay.
 
 ### Scope
 
@@ -234,3 +245,4 @@ reach the local bridge, and approved participant membership and the room tools a
 | 2026-10-12 | Reconciled the room plan with configured refill and maintainer authority; updated the guide implementation fact after PR #311 |
 | 2026-10-12 | Membership follows a member participant's verified holder; removed the exact-session-only restriction (refusal-language audit) |
 | 2026-10-12 | Recorded the maintainer's Gate B approval of the #217 plan; status accepted |
+| 2026-10-25 | Requirements: removed the unsourced "peer text as data" from criterion 7; status modified (#487) |

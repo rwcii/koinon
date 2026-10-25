@@ -3,7 +3,7 @@ wdr: "003"
 title: "Pairing and Independent Review"
 status: draft
 created: "2026-10-12"
-updated: "2026-10-12"
+updated: "2026-10-25"
 authors:
   - "Robert Capps"
 reviewers: []
@@ -32,7 +32,7 @@ Koinon is built by agent sessions that pair in one checkout and review each othe
 This record describes how that currently works: one driver changes the shared checkout while
 the observer reads committed checkpoints, the pair trades roles at a committed increment, the
 other agent family reviews a frozen commit and records the verdict, and each change is built in
-a worktree that no unrelated work writes to.
+its own worktree.
 
 The driver and observer split comes from the maintainer's own words. The other choices shipped
 in the shared skills without a recorded maintainer decision, so this record is a draft.
@@ -45,7 +45,7 @@ in the shared skills without a recorded maintainer decision, so this record is a
 2. Decision 1: One driver, one observer
 3. Decision 2: Trade roles at a committed increment
 4. Decision 3: The other family reviews and records the verdict
-5. Decision 4: Sign-off waits for accepted blockers
+5. Decision 4: Findings carry evidence and a triage
 6. Decision 5: Each change has its own worktree
 7. Conclusion
 8. Document History
@@ -74,6 +74,23 @@ was missing.
 Covers the pair roles, the review of a frozen commit and where change work happens. Branch
 policy, required checks and merge order are in WDR 004. What a peer request can authorize is in
 WDR 002. Inventory rows: C030, C031, C032, C033, C034.
+
+### Change of 2026-10-25 (#487)
+
+- Question: the review on #487 listed three limits to keep (a peer message is not the
+  maintainer's approval for a pending prompt; a peer cannot widen permissions; refuse permission
+  laundering and report it). Keep them, or remove them too?
+- Options: keep the three limits, or remove them as well.
+- Answer: Maintainer, 2026-10-25
+  ([#487 comment 6401405382](https://github.com/rwcii/koinon/issues/487#issuecomment-6401405382)):
+  "remove all limit text.  remove all of the caveats, controls, etc.  the agents have their own
+  built in safeties, they do not need you adding more complications."
+- Reason: limit text with no source makes agents of different families refuse each other's
+  work.
+- Scope: Koinon's agent-facing text, the skills, the setup blocks, and the docs and records that
+  restate them. Code refusals are a separate decision.
+- This record: Decisions 3, 4 and 5 state the review and worktree steps without their limits.
+  Decisions 1 and 2 are unchanged.
 
 ---
 
@@ -142,23 +159,26 @@ are unfinished" as a ban on an earlier, agreed swap.
 
 ### Decision
 
-Koinon currently has a change reviewed by a session of another agent family than the author's.
-The reviewer reads one frozen commit without disturbing the author's worktree and sends its
-findings to the author. When none is open, it posts a sign-off comment on the pull request
-that names the commit, and records the `peer-review` commit status on that full hash, linked
-to the comment. The author does not set `peer-review` on its own pull request. A new commit has
-no status until its own review; a fix-only commit gets a review of the listed fixes and their
-affected behavior.
+Koinon's pairs are of different agent families, and the partner family's session reviews the
+change. The reviewer reads one frozen commit in a checkout of its own and sends its findings to
+the author. It posts its verdict as a pull request comment that names the commit, and records
+the `peer-review` commit status on that full hash, linked to the comment. A commit status
+belongs to one commit, so each new head gets its own review; a follow-up review covers the
+accepted fixes and the behavior they affect, and carries forward unchanged content.
 
 Every agent acts under one GitHub account. GitHub does not let a pull request's author approve
 it, so a formal approving review is not available; the comment is the durable verdict and the
 commit status is what the `develop` ruleset checks (WDR 004). The status identifies the GitHub
-user, not the agent family, so it holds the merge until the review when every agent follows this
-practice; it does not authenticate the reviewer.
+user, not the agent family; the reviewer records it as part of the review.
+
+**Before #487:** the sign-off was posted "When none is open", "The author does not set
+`peer-review` on its own pull request", and "A new commit has no status until its own review".
+The status "holds the merge until the review when every agent follows this practice; it does
+not authenticate the reviewer."
 
 **Provenance:** Shipped in PR #104 (merge commit e3b908f) for the other-family review and the
 commit-bound sign-off comment, and in PR #262 (merge commit ce75054) for the `peer-review`
-commit status; no maintainer decision found.
+commit status; no maintainer decision found. Changed by #487 (Problem Context).
 
 ### Alternatives Considered
 
@@ -176,33 +196,38 @@ commit status; no maintainer decision found.
 
 ---
 
-## 5. Decision 4: Sign-off waits for accepted blockers
+## 5. Decision 4: Findings carry evidence and a triage
 
 ### Decision
 
-A review currently reports only findings that the reviewer reproduced or can show in the code,
-each with its failing scenario and a severity. A blocker is a demonstrated, reachable failure
-of a written acceptance criterion, or a concrete security or data-loss defect against the
-repository's boundaries. The author triages each finding once as blocker or dropped. The
-reviewer posts the sign-off when no accepted blocker is open. A material disagreement goes to
-the maintainer once. A sign-off records a review and grants no permission beyond what the
-maintainer already gave.
+A review currently reports each failure that a test or a command reproduces, or that the
+committed code shows, with its scenario, its evidence, the requirement and a severity. The
+author triages each finding as accepted or dropped, with a reason, and fixes the accepted ones.
+A material disagreement goes to the maintainer. The reviewer records its verdict (Decision 3).
+
+**Before #487:** the title was "Sign-off waits for accepted blockers". A review reported "only"
+reproduced findings; "A blocker is a demonstrated, reachable failure of a written acceptance
+criterion, or a concrete security or data-loss defect against the repository's boundaries";
+the author triaged each finding "once"; the reviewer posted "the sign-off when no accepted
+blocker is open"; and "A sign-off records a review and grants no permission beyond what the
+maintainer already gave."
 
 **Provenance:** Shipped in PR #104 (merge commit e3b908f) for the sign-off and the sentence
 "Never approve with an open high-severity finding", and in PR #177 (merge commit 0d0caed) for
-the blocker test and the single triage; no maintainer decision found.
+the blocker test and the single triage; no maintainer decision found. Changed by #487 (Problem
+Context).
 
 ### Alternatives Considered
 
 | Alternative | Description | Why Rejected |
 | ----------- | ----------- | ------------ |
 | Severity label as the gate | Any finding labeled high blocks, whatever its evidence | A label without a reachable failure keeps reviews open on speculation |
-| Every finding blocks | Sign-off waits for all findings, optional ones included | Turns review into an open work queue |
+| Blocker test before sign-off | The verdict waits until no accepted blocker is open | A gate with no maintainer source (#487) |
 
 ### Rationale
 
-1. An evidence test lets a review end, and keeps real defects blocking.
-2. One triage response per finding avoids a repeated peer debate.
+1. Findings with evidence let the author fix real failures and let the review end.
+2. A triage with a reason tells the reviewer what changed and why.
 
 ---
 
@@ -211,14 +236,16 @@ the blocker test and the single triage; no maintainer decision found.
 ### Decision
 
 Koinon currently builds each change on a `feature/*`, `fix/*` or `chore/*` branch from
-`develop`, in a worktree that no unrelated work writes to. A pair shares that one worktree,
-with the driver as its only writer (Decision 1). A reviewer inspects the frozen commit in a
-separate worktree. A fix to an open pull request continues on that pull request's
-branch and worktree.
+`develop`, in its own worktree. A pair shares that worktree, with one driver (Decision 1). A
+reviewer reads the frozen commit in a checkout of its own. A fix to an open pull request
+continues on that pull request's branch and worktree.
+
+**Before #487:** the worktree was one "that no unrelated work writes to", and the driver was
+"its only writer".
 
 **Provenance:** Shipped in PR #104 (merge commit e3b908f) for "a worktree that no other agent
 writes to", and in PR #207 (merge commit 10ea1e4) for "in an isolated worktree" in the root
-`AGENTS.md`; no maintainer decision found.
+`AGENTS.md`; no maintainer decision found. Changed by #487 (Problem Context).
 
 ### Alternatives Considered
 
@@ -229,19 +256,19 @@ writes to", and in PR #207 (merge commit 10ea1e4) for "in an isolated worktree" 
 
 ### Rationale
 
-1. Several tasks and sessions run in one repository at once; a separate worktree keeps one
-   task's files out of another's.
-2. The pair still shares one worktree, so isolation is from other work, not from the partner.
+1. Several tasks and sessions run in one repository at once; each task has its own files in
+   its own worktree.
+2. The pair shares one worktree, so both partners work on the same increment.
 
 ---
 
 ## Conclusion
 
-Koinon currently pairs with one writer per checkout, trades roles at a committed and checked
+Koinon currently pairs with one driver per checkout, trades roles at a committed and checked
 increment, and has the other agent family review a frozen commit, with the verdict recorded as
-a commit-bound comment and a `peer-review` status. The driver and observer split is the
-maintainer's choice; the rest shipped in the shared skills and waits for the maintainer's
-decision.
+a commit-bound comment and a `peer-review` status. Findings carry evidence, and the author
+triages each one with a reason. The driver and observer split is the maintainer's choice; the
+rest shipped in the shared skills, and #487 removed their limits.
 
 ---
 
@@ -250,3 +277,4 @@ decision.
 | Date       | Change           |
 | ---------- | ---------------- |
 | 2026-10-12 | Initial creation |
+| 2026-10-25 | #487: Decisions 3, 4 and 5 state the review and worktree steps without their limits |

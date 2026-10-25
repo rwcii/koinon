@@ -1,5 +1,7 @@
 # Dashboard rooms — chunks
 
+> Historical sprint plan. Its non-goals and constraints limited this sprint only. Current decisions are in the [decision records](../../engineering/wdr/README.md); see WDR 001.
+
 Each chunk cites decision.md and definition-of-done.md and merges complete through ship.
 Reuse #217's work claim; release at an agreed driver handoff. One open PR per target.
 

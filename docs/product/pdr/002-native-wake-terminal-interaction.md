@@ -3,7 +3,7 @@ pdr: "002"
 title: "Native Wake and Terminal Interaction"
 status: draft
 created: "2026-10-12"
-updated: "2026-10-12"
+updated: "2026-10-25"
 authors:
   - "Robert Capps"
 reviewers: []
@@ -178,18 +178,26 @@ message that was not read instead of a false success.
 
 An agent that launches another agent currently interacts with the new agent's terminal to
 clear its permission prompts and startup alerts, and an agent running a context handoff
-enters the commands in the agent's tmux session. This is expected work within the task, not
-an exception to a rule. The `peer-tmux` skill describes the steps: verify the target pane,
-read the screen before and after each input, and read back a dialog's selected option before
-Enter. Koinon's runtime does not type into an agent's input today; the planned daemon-driven
-cycle is PDR 006.
+enters the commands in the agent's tmux session. This is ordinary work. The `peer-tmux` skill
+describes the steps: verify the target pane, read the screen before and after each input, and
+read back a dialog's selected option before Enter. Koinon's runtime does not type into an
+agent's input today; the planned daemon-driven cycle is PDR 006.
 
 **Provenance:** Maintainer, 2026-10-12: "in fact, an agent will need to interact with a newly
 lauched agent when invoked, as there will be permissions and other alerts that need to be
 cleared before a new agent can interact." (#145 comment 6117336800). Maintainer, 2026-10-12:
 "it also needs to enter commands in the tmux session for context management handoffs." (#196
 comment 6117338153). The earlier rules against accepting another session's permission dialog
-were removed in PR #251 (merge commit 27c5f56).
+were removed in PR #251 (merge commit 27c5f56). Before #487 this decision called the terminal
+input "expected work within the task, not an exception to a rule", and Decision 3 called its
+naming rule "not a limit on an agent operating a peer's terminal within its task". The #487
+review listed three limits and proposed to keep them; the question was whether to keep them or
+to remove them too. Maintainer, 2026-10-25: "remove all limit text.  remove all of the caveats,
+controls, etc.  the agents have their own built in safeties, they do not need you adding more
+complications." ([#487 comment 6401405382](https://github.com/rwcii/koinon/issues/487#issuecomment-6401405382)).
+Reason: limit text with no source makes agents of different families refuse each other's work.
+Scope: agent-facing text, skills, setup blocks and the docs and records that restate them; code
+refusals are a separate decision. #487 removed the "within the task" qualifiers.
 
 ### Alternatives Considered
 
@@ -220,8 +228,7 @@ its published name, or titles only its own pane when another agent shares the tm
 The pane counts as the agent's own only when its process is the agent's host or an ancestor of
 it, with no other agent process between them; the session and pane are targeted by ID. A
 taken name, a nested agent or a foreign pane changes nothing and is reported. This covers
-automatic naming only; it is not a limit on an agent operating a peer's terminal within its
-task (Decision 2).
+automatic naming; an agent operates a peer's terminal under Decision 2.
 
 **Provenance:** Shipped in PR #197 (merge commit a2bafc7). Requested in issue #141 item 5
 ("Never rename another session or another pane"); that issue text is not a verified
@@ -314,3 +321,4 @@ or practice that the maintainer has not decided, so this record is a draft.
 | 2026-10-12 | Initial creation |
 | 2026-10-22 | Decision 1: the Claude wake also goes to a `busy` session; only `waiting` defers (#456) |
 | 2026-10-23 | Decision 1: each `codex queue` failure has its own code, a non-zero exit is not counted as a notice, and failures are logged (#466) |
+| 2026-10-25 | Decisions 2 and 3: removed the "within the task" qualifiers on terminal input (#487) |

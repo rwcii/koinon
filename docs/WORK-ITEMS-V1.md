@@ -12,8 +12,7 @@ current-assignment queries. Existing explicit-consumer and default participant c
 their v1 continuation. See the current [command contract](WORK-ITEMS-COMMANDS.md) for the
 extension; the historical implementation descriptions below remain provenance.
 The [implementation design](WORK-ITEMS-IMPLEMENTATION-DESIGN.md) addresses the remaining
-design gates. Implementation, deployment, participant configuration, and existing work
-assignments require their own authorization; this contract grants none.
+design gates.
 
 ## Outcome and boundary
 
@@ -29,9 +28,8 @@ Worktrees share that key. A work item is identified by `(repository, work_id)`, 
 identifier in subsequent peer coordination. Titles are neither identities nor unique keys.
 Two differently worded broadcasts cannot be recognized as one task automatically.
 
-All records are same-user reported data. A proposal, claim, handoff, completion, or recorded
-directive grants no authority, approval, filesystem access, or permission to override direct
-instructions. The service does not fence writes by agents that ignore it.
+All records are same-user reported data. The service does not fence writes by agents that
+ignore it.
 
 ## Work record
 
@@ -45,8 +43,8 @@ Each record contains:
 - Blocker text when blocked; completion outcome and evidence references when finished.
 - Optional related DQ-01 usage-report references; the registry does not calculate usage or cost.
 
-References are inert strings: no attachment fetch, command execution, filesystem inspection,
-or interpretation as approval. Reports retain provenance and server receipt time. A claimed
+References are strings: the service fetches no attachment, runs no command and inspects no
+file for them. Reports retain provenance and server receipt time. A claimed
 author, consumer key, or evidence reference is not authenticated human identity.
 
 Creation leaves the item open and unclaimed. Creation may propose an assignee but does not
@@ -73,7 +71,7 @@ implementation review without changing semantics.
 | `work release` | Current owner supplies generation and revision; record a final checkpoint, release the item's claims, and return the item to open. |
 | `work finish` | Current owner supplies generation and revision; record outcome and evidence references, mark finished, and release all item claims atomically. |
 
-Finished is terminal in v1; follow-up work gets a new ID with an inert reference to the old
+Finished is terminal in v1; follow-up work gets a new ID with a reference to the old
 item. Its required outcome distinguishes `completed` from `withdrawn`, so obsolete work can
 leave the open list without being counted as delivered. Completion is an owner's assertion,
 not acceptance by another agent or user. Withdrawal requires a reason, not completion evidence.
@@ -125,19 +123,17 @@ conflicting work rather than silently treating all of one agent's work as interc
 In v1, change the resource bundle by explicit release and fresh start, without promising
 reservation during the gap. No read/shared lock modes or implicit reentrancy are needed.
 
-Expiry ends advisory ownership. It never assigns another agent, starts work, changes scope,
-or authorizes takeover. A newly authorized participant may explicitly attempt start on an
-expired item; it must read and reconcile the previous checkpoint first. The service enforces
-claim exclusivity, not the participant's external authorization. A late old owner cannot renew,
+Expiry ends advisory ownership. It assigns no other agent, starts no work and changes no
+scope. Another participant can explicitly start an expired item; it reads and reconciles the
+previous checkpoint first. The service enforces claim exclusivity. A late old owner cannot renew,
 release, update, or finish using its expired generation.
 
 Use durable server wall-clock deadlines and process monotonic time for bounded maintenance waits.
 A wall-clock step can shorten or lengthen advisory leases and progress deadlines; v1 does not
 promise reliable jump detection across restart. In particular, a forward step can make a lease
-eligible for a fresh acquisition early. Expiry still grants no takeover authority and a new
-writer must reconcile the prior checkpoint. This limitation reinforces the absence of filesystem
-fencing; it does not prove overlapping real-world writes impossible. Do not infer a dead model
-from a time jump, bridge restart, or missing heartbeat.
+eligible for a fresh acquisition early. A new writer reconciles the prior checkpoint. The
+service has no filesystem fencing, so overlapping real-world writes stay possible. A time jump,
+bridge restart or missing heartbeat does not show that a model stopped.
 
 ## Progress, queries, and notifications
 
@@ -197,19 +193,18 @@ schema/version negotiation, and change-event integration in the implementation d
 
 ## Participant opt-in and bootstrap on this repository
 
-Installing the product does not enable this workflow for every agent. Configuration must
-explicitly select participants and repository scope before managed participant guidance is
-changed. Preserve other guidance and direct user instructions. The opt-in rule asks an agent
-to look up or create the work item, explicitly claim before writing, propagate its work ID,
-and report the holder on conflict. It never instructs an agent to obtain missing permissions.
+Installing the product does not enable this workflow for every agent. Configuration selects
+participants and repository scope, then changes the managed participant guidance and keeps the
+other guidance. The opt-in rule asks an agent to look up or create the work item, explicitly
+claim before writing, propagate its work ID, and report the holder on conflict.
 
-Before the registry exists, use explicit bridge coordination: agree one writer, identify a
+Before the registry existed, the bridge coordination was manual: agree one writer, identify a
 single draft artifact and frozen revision/hash, record review findings, and retain a private
-checkpoint. This is a manual bootstrap, not evidence of implemented registry enforcement.
+checkpoint.
 
-After contract approval, implementation, validation, and separately authorized deployment:
+After implementation, validation and deployment:
 
-1. Enable repository-scoped opt-in for the explicitly selected participants.
+1. Enable repository-scoped opt-in for the selected participants.
 2. Create one work item for each agreed work block, with acceptance criteria and non-goals;
    send its ID with the assignment rather than asking two agents to independently create it.
 3. The writer reads the item and explicitly starts it with the required resource bundle;
@@ -218,13 +213,13 @@ After contract approval, implementation, validation, and separately authorized d
 4. At meaningful checkpoints, report the artifact, next deliverable, and next expected update.
    Update before a planned interruption; after an unexpected crash, query the record and
    reconcile the last checkpoint and any uncertain operation before acquiring anew.
-5. Finish with evidence references. User acceptance, merge, and deployment stay separate actions
-   under their own authorization; a finished registry entry cannot trigger them automatically.
+5. Finish with evidence references. A finished registry entry triggers no acceptance, merge or
+   deployment.
 
 Bootstrap success is two participants observing the same work ID and writer, a refused second
 writer, separate review progress, and recovery of an interrupted checkpoint without duplicate
-implementation. First demonstrate these cases with synthetic participants; an authorized live
-trial confirms adoption, not stronger enforcement guarantees.
+implementation. First demonstrate these cases with synthetic participants; a live trial then
+confirms adoption.
 
 ## Acceptance and exclusions
 
@@ -235,12 +230,12 @@ old-owner writes; restart and wall-clock steps; lost replies and idempotency con
 capped listings and explicit truncation; catch-up after lost wakes; idle due-event publication
 and deduplication; capacity refusal with successful release/finish; schema upgrade preserving
 existing data; and scoped opt-in
-preserving unrelated configuration. Verify completion never implies maintainer approval.
+preserving unrelated configuration.
 
 No scheduler, dependencies, dashboards, auto-assignment, forced takeover, automatic budget
 enforcement, semantic duplicate classification, filesystem fencing, semantic memory
 consolidation, or new provider usage acquisition. Scope discipline is visible through the
 acceptance criteria, non-goals, progress and usage references; it is not judged automatically.
 
-Remaining gates: resolve the explicitly named numeric, migration, and change-event
-integration details in the implementation design before coding.
+The [implementation design](WORK-ITEMS-IMPLEMENTATION-DESIGN.md) settles the named numeric,
+migration and change-event integration details.

@@ -1,5 +1,7 @@
 # Managed context handoff — decision
 
+> Historical sprint plan. Its non-goals and constraints limited this sprint only. Current decisions are in the [decision records](../../engineering/wdr/README.md); see WDR 001.
+
 ## Problem
 
 Koinon already observes context use for some agent families, but it cannot coordinate a

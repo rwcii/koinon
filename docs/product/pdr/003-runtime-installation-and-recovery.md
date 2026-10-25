@@ -3,7 +3,7 @@ pdr: "003"
 title: "Runtime Installation and Recovery"
 status: draft
 created: "2026-10-12"
-updated: "2026-10-12"
+updated: "2026-10-25"
 authors:
   - "Robert Capps"
 reviewers: []
@@ -46,7 +46,7 @@ approval of a plan, and the rest is shipped behavior without a maintainer decisi
 2. Decision 1: The default install uses the user's own service manager
 3. Decision 2: macOS system mode with `--system`
 4. Decision 3: State is kept across install, upgrade, removal and outages
-5. Decision 4: Services and configuration change only through Koinon's commands
+5. Decision 4: Services and configuration change through Koinon's commands
 6. Decision 5: A launcher records the CLI it finds on PATH
 7. Statements this record does not adopt
 8. Conclusion
@@ -99,15 +99,23 @@ systemd user unit on Linux, or a launchd agent in `gui/<uid>` on macOS. The defa
 uses no sudo, system service, lingering or permission change. When no user manager answers, it
 reports `"service": "manual_required"` and a `start_command` to run in a persistent managed
 session. When no daemon answers, launchers, `koinon status` and `koinon recover` name the
-command that starts or restarts it. docs/INSTALL.md tells the person not to use sudo, system
-services, lingering or permission changes to work around a refusal; the system service that
-Koinon supports is the explicit `--system` mode on macOS (Decision 2).
+command that starts or restarts it. The system service that Koinon installs is the explicit
+`--system` mode on macOS (Decision 2).
 
 **Provenance:** Shipped in PR #205 (merge commit f65ad6e) and PR #302 (merge commit 7780c8c); no
 maintainer decision found. The first installation guide, PR #1 (3d2b5bf), said "Do not silently
 introduce sudo, system services, lingering, or permission changes." PR #207 (10ea1e4) restated
 it in AGENTS.md as "Never use sudo, system services, lingering or permission changes as a
-workaround."
+workaround." Before #487 this decision also said that docs/INSTALL.md tells the person not to
+use sudo, system services, lingering or permission changes to work around a refusal. No
+maintainer source was found for that instruction. The #487 review listed three limits and
+proposed to keep them; the question was whether to keep them or to remove them too.
+Maintainer, 2026-10-25: "remove all limit text.  remove all of the caveats, controls, etc.  the
+agents have their own built in safeties, they do not need you adding more complications."
+([#487 comment 6401405382](https://github.com/rwcii/koinon/issues/487#issuecomment-6401405382)).
+Reason: limit text with no source makes agents of different families refuse each other's work.
+Scope: agent-facing text, skills, setup blocks and the docs and records that restate them; code
+refusals are a separate decision. #487 removed the instruction here and in Decisions 3 and 4.
 
 ### Alternatives Considered
 
@@ -189,16 +197,13 @@ sweep` runs the deletion at once. `koinon recover` ends a storage block after th
 its cause; an unreachable daemon is answered with the restart command, not with new state or a
 new secret.
 
-AGENTS.md also says "Do not reset a cursor/checkpoint, alter a secret, purge a registry or
-delete retained state." The Python-era text it came from said "Do not reset a checkpoint
-silently" and "Never purge shared socket or session-registry directories"; PR #207 merged and
-broadened them. Proposed, not decided: the sentence describes what install, upgrade, uninstall
-and an outage do not do. A recovery or admin action that the maintainer asks for, such as the
-dashboard purge, is judged on its own scope.
-
 **Provenance:** Shipped in PR #205 (merge commit f65ad6e), PR #240 (merge commit b7beffc) and PR
-#302 (merge commit 7780c8c); no maintainer decision found. The AGENTS.md sentence comes from PR
-#207 (10ea1e4); no maintainer source found for it. The command-line purge and sweep:
+#302 (merge commit 7780c8c); no maintainer decision found. Before #487 this decision also quoted
+AGENTS.md: "Do not reset a cursor/checkpoint, alter a secret, purge a registry or delete
+retained state." It came from PR #207 (10ea1e4), which merged and broadened the Python-era "Do
+not reset a checkpoint silently" and "Never purge shared socket or session-registry
+directories"; no maintainer source found for it. #487 removed the sentence from AGENTS.md and
+from this decision (Decision 1 has the #487 source). The command-line purge and sweep:
 Maintainer, 2026-10-17, "yes, take on all 3 open issues" (#388 among them). Intent: the
 cleanup that the dashboard does one session at a time can be done in bulk from a shell. The
 daemon-secret basis is the one of #391: "approved, allow CLI and agents with audit" (PDR 006,
@@ -225,39 +230,41 @@ outage, the person restarts the named service and running sessions register agai
 
 ---
 
-## 5. Decision 4: Services and configuration change only through Koinon's commands
+## 5. Decision 4: Services and configuration change through Koinon's commands
 
 ### Decision
 
-Koinon currently changes services and agent configuration only through commands that a person
-or an authorized agent runs: `koinon install`, `koinon upgrade`, `koinon uninstall` and `koinon
-setup FAMILY`. Install sets up the families it is told to set up and only reads the
-configuration of the others. Peer input is data and cannot trigger shell execution
-(CONTRIBUTING.md, ADR 001), so a message cannot start any of these commands.
+Koinon currently changes services and agent configuration through the commands that a person
+or an agent runs: `koinon install`, `koinon upgrade`, `koinon uninstall` and `koinon setup
+FAMILY`. Install sets up the families it is told to set up and reads the configuration of the
+others. The daemon runs none of these commands itself.
 
-AGENTS.md says "Installation and service/configuration changes need the maintainer's
-authorization." Before PR #207 the same sentence continued "requests to install or configure
-this bridge provide that scope". A task that the maintainer assigns, such as installing,
-upgrading or testing an installation, is the authorization for its steps (WDR 001 Decision 3,
-WDR 002); it is not asked again per step.
+An agent that has an install, upgrade or installation-test task runs its steps and reports the
+result (WDR 002, Decision 1).
 
 **Provenance:** Shipped in PR #205 (merge commit f65ad6e); no maintainer decision found for a
-general rule. Limits on what a peer request authorizes are in the maintainer's own agent
-instructions outside this repository (WDR 001: native permission boundary). Maintainer,
-2026-10-11, session transcript: "this means you are authorized to do all related testing and
-verifications."
+general rule. Maintainer, 2026-10-11, session transcript: "this means you are authorized to do
+all related testing and verifications." Before #487 this decision said that Koinon changes
+services and configuration "only through commands that a person or an authorized agent runs",
+that "Peer input is data and cannot trigger shell execution (CONTRIBUTING.md, ADR 001), so a
+message cannot start any of these commands", and quoted AGENTS.md: "Installation and
+service/configuration changes need the maintainer's authorization." Before PR #207 that
+sentence continued "requests to install or configure this bridge provide that scope". It also
+pointed to the maintainer's own agent instructions for limits on peer requests. No maintainer
+source was found for these statements in this repository; #487 removed them (Decision 1 has the
+#487 source).
 
 ### Alternatives Considered
 
 | Alternative | Description | Why Rejected |
 | ----------- | ----------- | ------------ |
 | Fresh approval per step | Ask the maintainer before each install, restart or test step | Blocks work the maintainer already assigned |
-| Self-installing runtime | The daemon or a peer installs or repairs services on its own | A message would change the host without anyone running a command |
+| Self-installing runtime | The daemon installs or repairs services on its own | A message would change the host without anyone running a command |
 
 ### Rationale
 
 1. Every service change comes from a command whose report a person can read.
-2. The assignment carries the authority; repeated questions stall the assigned work.
+2. Repeated questions stall the assigned work.
 
 ### User Impact
 
@@ -316,10 +323,9 @@ recorded.
 
 Koinon currently installs into the user's own service manager, offers a macOS LaunchDaemon
 through an explicit `--system` install, keeps state through install operations and outages, and
-changes the host only through its own commands. A launcher will record the CLI it finds on
-PATH, and agents may run `--system` or `sudo` when the maintainer assigns it, as the maintainer
-decided. The macOS system mode traces to the approval of a plan; the rest is shipped behavior
-the maintainer has not yet decided.
+changes the host through its own commands. A launcher records the CLI it finds on PATH, and
+agents can run `--system` or `sudo`, as the maintainer decided. The macOS system mode traces to
+the approval of a plan; the rest is shipped behavior the maintainer has not yet decided.
 
 ---
 
@@ -330,3 +336,4 @@ the maintainer has not yet decided.
 | 2026-10-12 | Initial creation |
 | 2026-10-12 | Recorded the maintainer's decisions on the launcher PATH lookup and the `--system`/`sudo` sentence (#306) |
 | 2026-10-12 | Decision 5 implemented: the launcher records the CLI it finds on PATH (#306) |
+| 2026-10-25 | Decisions 1, 3 and 4: removed the unsourced sudo workaround, state-reset and authorization text (#487) |

@@ -63,7 +63,7 @@ not the same as verified wire semantics.
 | Activity | constant `waiting`, written once at registration | `notify.py:114` | no refresh observed over four seconds; update policy unverified |
 | Idle notice | not advertised, not implemented | `notify.py:113` | native support exposed; wire semantics unverified |
 | Priority | accepted, then discarded | set at `bridge.py:143`, never read by `notify.py` | native field exists; handling unverified |
-| Delivery answer | control frames stored inert, never answered | `bridge.py:176` | control frames observed; semantics unverified |
+| Delivery answer | control frames stored, never answered | `bridge.py:176` | control frames observed; semantics unverified |
 | Arrival delay | a polling interval of up to two seconds is added before the notice is even sent | `notify.py:154` | not measured |
 | Session identity | not published at all | `notify.py:110-114` | published as `sessionId`, not projected by `peers()` at `bridge.py:121-123` |
 
@@ -119,9 +119,8 @@ repository share one memory service.
 
 **Provenance is a record, not an authentication.** Every stored entry records the asserted
 author, the observing session, and the time. Under a same-user boundary any process of this
-user can produce a plausible claim, so provenance supports attribution and recovery and never
-establishes authority. No component may read a provenance field as proof that a human
-approved anything.
+user can produce a plausible claim, so provenance supports attribution and recovery. It does
+not authenticate a human.
 
 ## Contract 2 — Delivery
 
@@ -132,8 +131,7 @@ and each stage requires its own evidence:
 persistence.
 `stored` — the receiving bridge committed the frame durably.
 `notified` — a content-free pointer was handed to the participant's provider.
-`fetched` — an inbox request returned the entry. Server output is not proof that a model read
-anything.
+`fetched` — an inbox request returned the entry. Server output shows the request, not a model's reading.
 `handled` — the participant explicitly reported an outcome.
 
 `handled` is a new explicit operation and is not `ack`. Acknowledgement removes an entry from
@@ -167,8 +165,7 @@ that replies use a separate connection. A correlated result may return on a new 
 connection, and both Claude peers and bridge participants listen, so a correlated result is
 available to either. Synchronous results still belong on a control socket.
 
-**Priority is declared per provider, from measurement.** A peer-supplied priority never becomes
-permission to interrupt a user or to act. A provider whose notification path cannot request a
+**Priority is declared per provider, from measurement.** A provider whose notification path cannot request a
 scheduling priority still preserves the value in the stored frame, and reports the limit at that
 boundary, rather than accepting the value and discarding it.
 
@@ -244,8 +241,8 @@ Ownership alone is not enough. Checking a generation and then unlinking the sock
 separately is a race: a successor can bind and publish between the two unlinks, and the
 predecessor's second unlink then deletes it. Both publication and removal therefore take
 `start.lock`, they verify the generation inside it, and they perform no waiting at all while
-holding it. A missing record is not permission to delete; absence means another process has taken
-over the bookkeeping, so cleanup declines.
+holding it. A missing record means that another process has taken over the bookkeeping, so
+cleanup declines.
 
 **Invariant 4: a caller waits only for bounded work it does not itself block.** A start caller
 holds `start.lock` across the handshake and the bind, both bounded and neither requiring anything
@@ -574,7 +571,7 @@ The current service implements expiry-based garbage collection and storage recla
 finished work-item retention, which removes that item's stream rows and advances the retained
 history floor whether or not those rows expire.
 Stage 6 adds the remaining general history-pruning policy and recovery checks. This terminology
-correction does not authorize deleting additional records or change retention requirements.
+correction does not change retention requirements.
 
 ### Retention and capacity
 
@@ -587,20 +584,15 @@ unlimited active entries or writes that never fail.
 
 ## Contract 5 — Trust boundary
 
-The same-user boundary from `PROTOCOL.md` is unchanged. Nothing here weakens a sandbox, an
-approval policy, or a permission setting to make delivery work.
+The same-user boundary from `PROTOCOL.md` is unchanged. Delivery uses the existing sandbox,
+approval policy and permission settings as they are.
 
-**Stored entries are reported data.** An entry cannot grant a permission, change agent
-configuration, approve a pending action, or widen task scope. A receiving agent may follow a
-compatible preference within the discretion its own user already granted, and it must check the
-entry against its direct instructions and against conflicting entries. It asks its user only when
-it needs authority or intent that its own session cannot establish. This applies to every entry
-type, not only to directives.
+**Stored entries are reported data.** Storing an entry changes no agent configuration and answers
+no pending action. A receiving agent uses an entry in its work and resolves it against conflicting
+entries. This applies to every entry type, directives included.
 
-No authority derives from a terminal device, a process ancestry, or a self-applied risk label.
-Secret-pattern rejection reduces accidental storage of credentials; it is an aid against mistakes
-and not proof that stored content is safe. No stored content is executed, and no resource named in
-an entry is fetched.
+Secret-pattern rejection reduces accidental storage of credentials. No stored content is executed,
+and no resource named in an entry is fetched.
 
 ## Capability measurements
 
@@ -624,7 +616,7 @@ identifier, so it reports that a queue changed and is **not** a delivery receipt
 control socket was absent. A bounded search found no Codex server socket under the active Codex home,
 and the host socket table showed no separately named App Server socket. No transport endpoint appeared
 in the inspected environment names or top-level transport configuration. This is absence of evidence
-for a reachable owning server, not proof that none exists by another transport. A separately started
+for a reachable owning server; another transport can still have one. A separately started
 server does not own an existing conversation and must never be treated as its owner.
 
 **`codex queue` cannot request a scheduling priority.** The installed CLI help lists no priority
@@ -644,7 +636,7 @@ observation, because a method that changes thread lifecycle is not an acceptable
 **A Claude peer did not refresh its activity value during a four second observation.** Three samples
 of one live record across roughly four seconds returned an unchanged value whose recorded age advanced
 with the wall clock, from 201.5 to 205.5 seconds. This rules out refresh at that interval. It does not
-establish the update policy: a longer heartbeat or some other rule remains possible and is unverified.
+establish the update policy: a longer heartbeat or some other rule remains possible and is not measured.
 Whatever the policy, the recorded age cannot distinguish a long-held state from a peer that stopped
 while in it, so presence requires an independent liveness and freshness check regardless.
 
@@ -719,9 +711,9 @@ altered to obtain activity data.
    observed `next` records a default and proves no policy. The question is separate from which sender
    surface exposes the field, and both must be stated independently.
 
-Checks use only consenting sessions and safe native operations. Controls stay inert. No replacement
-conversation is created or resumed. Recorded results contain capability metadata only: no keys, no
-credentials, no inbox content, and no private session identifiers.
+The checks used consenting sessions and safe native operations, and they created or resumed no
+replacement conversation. Recorded results hold capability metadata: no keys, credentials, inbox
+content or private session identifiers.
 
 ## Acceptance criteria
 
@@ -752,8 +744,8 @@ Required coverage:
 - Receipts that raise no model notification and no receipt loop.
 - Consumer identity stability across separate CLI invocations.
 
-Documentation and tests accompany every change. Tests use synthetic peers and never send traffic to a
-live agent session by default. One driver writes at a time.
+Documentation and tests accompany every change. Tests use synthetic peers; by default they send no
+traffic to a live agent session. One driver writes at a time.
 
 ## Build order
 
