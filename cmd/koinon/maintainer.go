@@ -108,12 +108,10 @@ func readNewSecret(in io.Reader, tell *os.File) (string, error) {
 		fmt.Fprint(tell, prompt)
 		entries[i], err = core.ReadSecretLine(file)
 		fmt.Fprintln(tell)
-		if errors.Is(err, core.ErrSecretLength) {
-			// The rest of a refused line stays in the terminal's input; read it away, so that
-			// the next program does not get it.
-			discardLine(file)
-		}
 		if err != nil {
+			// The rest of a refused line can stay in the terminal's input; discard it, so that
+			// the next program does not get it.
+			platform.FlushInput(int(file.Fd()))
 			return "", err
 		}
 	}
@@ -121,14 +119,4 @@ func readNewSecret(in io.Reader, tell *os.File) (string, error) {
 		return "", usageError{"invalid_request", "the two entries differ; nothing was changed"}
 	}
 	return entries[0], nil
-}
-
-// discardLine reads up to the end of the current line.
-func discardLine(r io.Reader) {
-	b := make([]byte, 1)
-	for {
-		if n, err := r.Read(b); err != nil || n == 1 && b[0] == '\n' {
-			return
-		}
-	}
 }

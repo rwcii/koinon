@@ -190,8 +190,19 @@ func TestReadNewSecretRedirectedPrompts(t *testing.T) {
 	}
 }
 
-// A refused line too long for a secret leaves nothing of itself for the next reader.
+// A refused line too long for a secret ends the read at once and leaves nothing of itself
+// for the next reader, also when the read already took its line end.
 func TestReadNewSecretRefusedLineConsumed(t *testing.T) {
+	for name, line := range map[string]string{
+		"long":                strings.Repeat("a", 1100) + "synthetic-tail\n",
+		"one byte over":       strings.Repeat("a", 1025) + "\n",
+		"one byte over, CRLF": strings.Repeat("a", 1025) + "\r\n",
+	} {
+		t.Run(name, func(t *testing.T) { refusedLineConsumed(t, line) })
+	}
+}
+
+func refusedLineConsumed(t *testing.T, line string) {
 	master, slave := openPTY(t)
 	go func() {
 		buf := make([]byte, 256)
@@ -207,9 +218,17 @@ func TestReadNewSecretRefusedLineConsumed(t *testing.T) {
 		done <- err
 	}()
 	waitNoEcho(t, slave)
-	master.Write([]byte(strings.Repeat("a", 1100) + "synthetic-tail\n"))
-	if err := <-done; err == nil {
-		t.Fatal("an oversized secret was accepted")
+	master.Write([]byte(line))
+	select {
+	case err := <-done:
+		if err == nil {
+			t.Fatal("an oversized secret was accepted")
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("the read waits for another line after a refused one")
+	}
+	if echo, err := platform.Echoes(int(slave.Fd())); err != nil || !echo {
+		t.Fatalf("echo not restored: %v %v", echo, err)
 	}
 	fds := []unix.PollFd{{Fd: int32(slave.Fd()), Events: unix.POLLIN}}
 	if n, err := unix.Poll(fds, 100); err != nil {
