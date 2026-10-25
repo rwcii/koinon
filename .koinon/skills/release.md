@@ -12,16 +12,16 @@ release
 - docs/INSTALL.md
 
 ## Promotion path
-Merge PR from develop to main after the maintainer's separately recorded release approval.
+Merge the PR from develop to main.
 ## Publish steps
-Use the approved version tag on the verified main merge. The tag triggers Release binaries:
+Use the version tag on the verified main merge. The tag triggers Release binaries:
 four CGO-free binaries and SHA256SUMS, GitHub release assets, then the Homebrew tap formula.
 Verify all publication jobs and the resulting binaries/formula; reconcile an uncertain run.
 ## Release checks
 Dated changelog, exact-head CI and independent review, supported fresh installation evidence,
-and upgrade from current main in a scratch prefix preserving state. Use disposable guarded
-CI for real service-manager checks; no service-manager tests in the maintainer's account.
-Verify the candidate and current released baseline before requesting the final release approval.
+and upgrade from current main in a scratch prefix that keeps its state. The real
+service-manager checks run on disposable CI runners. Verify the candidate and the current
+released baseline.
 Failed CI runs (WDR 004, Decision 6): the baseline is the previous release tag on main. List
 the runs of every workflow on all branches from the tag's commit time through the candidate's
 exact-head CI with the repository Actions runs API (`created>=` the commit time, every page;

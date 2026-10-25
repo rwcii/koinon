@@ -9,4 +9,4 @@ peer-tmux
 - CONTRIBUTING.md
 
 ## Extra repository checks
-Read the installed koinon guide for this family; preserve native session selection, unresolved socket paths and the selected project authorization.
+Read the installed koinon guide for this family, and use the native session selection and socket paths that it reports.
