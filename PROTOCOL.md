@@ -1127,8 +1127,9 @@ report/verdict transaction.
 `more` and nullable `next_after`, and keep their 100-item/48-KiB bounds. Matching proposals
 are discovered through the current consumer or the actual held family/role in this store;
 no unheld/conflicting role is assigned by guessing. Page to the end, then use current queries
-plus retained memory catch-up for changes between pages, without resetting a cursor. This
-chunk adds no production work-change model notices.
+plus retained memory catch-up for changes between pages, without resetting a cursor.
+Work-change notices are coalesced (Work notices, above); after a notice, reconnect or missed
+wake, current queries and memory catch-up recover the changes.
 
 Work IDs are 32 lowercase hexadecimal characters from a per-store counter that never
 decreases. Every observable mutation and due transition writes, in one transaction, the item,

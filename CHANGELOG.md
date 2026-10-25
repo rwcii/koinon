@@ -5,6 +5,10 @@ into a dated release section when promoted to `main`.
 
 ## Unreleased
 
+- The installed guide says that Koinon sends inbox notices through the session's supported wake
+  channel, so a session with a working automatic wake channel normally needs no timed inbox
+  check, and that work-change notices are coalesced. It no longer says that work-change
+  notices are not implemented.
 - The `release` skill accounts for failed CI runs in the release scope that the project's
   Release checks define (WDR 004, Decision 6). Koinon's promotion pull request lists each
   failed run and attempt since the previous release with its cause, fix or open issue.
