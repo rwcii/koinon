@@ -1,5 +1,7 @@
 # Coordinated work — chunks
 
+> Historical sprint plan. Its non-goals and constraints limited this sprint only. Current decisions are in the [decision records](../../engineering/wdr/README.md); see WDR 001.
+
 Reuse #140's one work item across the chunks. Close the issue only when all three criteria
 sets, integration evidence and reviews pass. Keep one open PR per target branch.
 

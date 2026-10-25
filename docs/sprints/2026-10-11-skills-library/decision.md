@@ -1,5 +1,7 @@
 # Skills library and adoption — decision
 
+> Historical sprint plan. Its non-goals and constraints limited this sprint only. Current decisions are in the [decision records](../../engineering/wdr/README.md); see WDR 001.
+
 Issue [#145](https://github.com/rwcii/koinon/issues/145) supplies the approved problem and
 seven outcomes. Its [team-operation candidates](https://github.com/rwcii/koinon/issues/145#issuecomment-6052782627)
 are included. This plan proposes the catalog contents and adoption mechanism for Gate B;

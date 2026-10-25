@@ -1,9 +1,9 @@
 ---
 pdr: "004"
 title: "Coordinated Work Results and Role Routing"
-status: accepted
+status: modified
 created: "2026-10-12"
-updated: "2026-10-12"
+updated: "2026-10-25"
 authors:
   - "Robert Capps"
 reviewers: []
@@ -24,7 +24,7 @@ tags:
 # PDR 004: Coordinated Work Results and Role Routing
 
 **Date:** 2026-10-12
-**Status:** Accepted
+**Status:** Modified
 **Authors:** Robert Capps
 
 ---
@@ -81,7 +81,9 @@ From the #140 acceptance criteria:
 5. An accepted item counts as finished for listings and retention.
 6. After lost wakeups or a reconnect, the assignee and creator can find every relevant
    transition through catch-up. Handling it twice has no additional effect.
-7. None of these records grants approval or permission.
+
+Before #487 the list also held #140's criterion 7: "None of these records grants approval or
+permission." #487 removed it (Decision 2).
 
 ### Scope
 
@@ -136,17 +138,26 @@ it and starts it when the old claim is gone.
 
 The worker reports a result with evidence references. A different consumer then records
 accepted or rejected. Reject returns the item to open with a corrected scope revision and
-keeps the report and both scopes. Accept finishes the item as completed. The verdict is
-same-user reported data and grants no authority. A `reported` lifecycle state lies between
-active and finished, with `work_report`, `work_accept` and `work_reject`.
-Reported items do not expire; the 30-day finished retention starts at acceptance. A report
-reserves storage for its later verdict, with at most 16 pending reservations per store and
-32 per daemon. Unreported v1 finish and withdrawal stay available.
+keeps the report and both scopes. Accept finishes the item as completed. A `reported`
+lifecycle state lies between active and finished, with `work_report`, `work_accept` and
+`work_reject`. Reported items do not expire; the 30-day finished retention starts at
+acceptance. A report reserves storage for its later verdict, with at most 16 pending
+reservations per store and 32 per daemon. Unreported v1 finish and withdrawal stay available.
 
 **Provenance:** Requested in #140 (issue body, gap 2 and acceptance criteria), which
 recommends the `reported` state and names an alternative; a request record, no maintainer
 quote found. State choice and funding: Proposed in the #140 plan (decision and chunk 02); approved at
 Gate B (#140 comment 6127384411).
+
+Before #487 this decision also said "The verdict is same-user reported data and grants no
+authority.", and the requirements held #140's criterion 7. No maintainer source was found for
+either. The #487 review listed three limits and proposed to keep them; the question was whether
+to keep them or to remove them too. Maintainer, 2026-10-25: "remove all limit text.  remove all
+of the caveats, controls, etc.  the agents have their own built in safeties, they do not need
+you adding more complications." ([#487 comment 6401405382](https://github.com/rwcii/koinon/issues/487#issuecomment-6401405382)).
+Reason: limit text with no source makes agents of different families refuse each other's work.
+Scope: agent-facing text, skills, setup blocks and the docs and records that restate them; code
+refusals are a separate decision. The verdict rule of Decision 3 keeps its source and stays.
 
 ### Alternatives Considered
 
@@ -259,3 +270,4 @@ maintainer decided the verdict rule (Decision 3) and approved the plan's mechani
 | 2026-10-12 | Recorded the maintainer's Gate B approval of the #140 plan; status accepted; role routing covers default participants |
 | 2026-10-12 | Role routing and the reported state with its verdict are built; discovery is not |
 | 2026-10-12 | Built production work discovery and coalesced notices under the approved chunk 03 plan |
+| 2026-10-25 | Decision 2 and the requirements: removed the unsourced "grants no authority" and "grants approval or permission" text; status modified (#487) |

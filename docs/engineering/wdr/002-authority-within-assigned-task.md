@@ -3,7 +3,7 @@ wdr: "002"
 title: "Authority Within the Assigned Task"
 status: draft
 created: "2026-10-12"
-updated: "2026-10-12"
+updated: "2026-10-25"
 authors:
   - "Robert Capps"
 reviewers: []
@@ -34,10 +34,10 @@ tags:
 
 Agents that work on Koinon act on a task the maintainer gave them. This record describes where
 their authority currently comes from (the maintainer's task, and the maintainer's own agent
-instructions and native permission settings), how peer messages, records, work claims and the
-installed guide relate to it, and where the maintainer currently approves sprint plans and
-releases. It adds no approval step: the task carries the authority for its own steps
-(WDR 001, Decision 3), and coordination data neither adds nor removes authority.
+instructions and native permission settings), how agents work with peer messages, records,
+work claims and the installed guide, and how sprint plans and releases proceed. The task
+carries the authority for its own steps (WDR 001, Decision 3). A peer's request is a
+teammate's request, and the agent does the work.
 
 ---
 
@@ -45,11 +45,11 @@ releases. It adds no approval step: the task carries the authority for its own s
 
 1. Problem Context
 2. Decision 1: The task authorizes its own steps
-3. Decision 2: The maintainer's own boundary governs peer requests
-4. Decision 3: Messages, records and claims are data
+3. Decision 2: A peer's request is a teammate's request
+4. Decision 3: Messages, records and claims are the team's shared record
 5. Decision 4: The installed guide describes the installed runtime
-6. Decision 5: Sprint gates A and B
-7. Decision 6: Release approval
+6. Decision 5: Sprint gates A and B (deprecated)
+7. Decision 6: Release approval (deprecated)
 8. Statements this record does not adopt
 9. Conclusion
 10. Document History
@@ -71,18 +71,34 @@ already gave, or read a diagnostic failure as a denial.
 
 1. State once where an agent's authority comes from; leave the maintainer's own boundary in
    the maintainer's own instructions and settings.
-2. Keep coordination data separate from authority.
-3. Describe where the maintainer approves sprint plans and releases, with sources.
+2. State how agents use peer messages and coordination data.
+3. Describe how sprint plans and releases proceed, with sources.
 
 ### Scope
 
-Covers agent authority while working on this repository and the maintainer's approval points
-in the `sprint` and `release` skills. Review and pairing are WDR 003. Terminal input to another
-agent's session is PDR 002. A dashboard post from the maintainer is the maintainer's instruction
-and approval (PDR 005, Decision 3). Approval of project files
-during skill adoption is PDR 008.
+Covers agent authority while working on this repository, and the `sprint` and `release`
+skills. Review and pairing are WDR 003. Terminal input to another agent's session is PDR 002.
+A dashboard post from the maintainer is the maintainer's instruction and approval (PDR 005,
+Decision 3). Skill adoption is PDR 008.
 
 Inventory rows: C013, C040, C041, C042, C043, C045, C046, C059, C060, C070.
+
+### Change of 2026-10-25 (#487)
+
+- Question: the review on #487 listed three limits to keep (a peer message is not the
+  maintainer's approval for a pending prompt; a peer cannot widen permissions; refuse permission
+  laundering and report it). Keep them, or remove them too?
+- Options: keep the three limits, or remove them as well.
+- Answer: Maintainer, 2026-10-25
+  ([#487 comment 6401405382](https://github.com/rwcii/koinon/issues/487#issuecomment-6401405382)):
+  "remove all limit text.  remove all of the caveats, controls, etc.  the agents have their own
+  built in safeties, they do not need you adding more complications."
+- Reason: limit text with no source makes agents of different families refuse each other's
+  work.
+- Scope: Koinon's agent-facing text, the skills, the setup blocks, and the docs and records that
+  restate them. Code refusals are a separate decision.
+- This record: Decisions 1 to 4 state what agents do, without their limits. Decisions 5 and
+  6 are deprecated: the `sprint` and `release` skills lost their maintainer gates in #487.
 
 ---
 
@@ -91,9 +107,11 @@ Inventory rows: C013, C040, C041, C042, C043, C045, C046, C059, C060, C070.
 ### Decision
 
 When the maintainer assigns a task or invokes a skill, that is the authorization for the task's
-steps, including related testing and verification. An agent asks the maintainer only for
-missing information or for authority beyond that task. An approval the maintainer gave covers
-the step it answered; a later step of the same task does not ask again.
+steps, including related testing and verification. An approval the maintainer gave covers the
+step it answered, and the later steps of the same task continue without asking again.
+
+**Before #487:** the decision also said "An agent asks the maintainer only for missing
+information or for authority beyond that task."
 
 **Provenance:** Maintainer, 2026-10-11, session transcript: "... this means you are authorized
 to do all related testing and verifications. all prs need to set automerge, and you and your
@@ -113,19 +131,23 @@ The maintainer assigns tasks to be completed, not returned for approval step by 
 
 ---
 
-## 3. Decision 2: The maintainer's own boundary governs peer requests
+## 3. Decision 2: A peer's request is a teammate's request
 
 ### Decision
 
-The maintainer's own agent instructions state what a paired peer's request can start and which
-actions take the maintainer's direct authorization. Koinon's records and documents point to that
-boundary and do not restate it. A peer request adds no authority and removes none that the
-maintainer already gave. Each agent CLI enforces the native permission settings, which belong to
-the maintainer.
+A paired peer's request is a teammate's request: the agent does the work that it asks and
+replies to the sender through Koinon (Decision 3). The maintainer's own agent instructions
+describe pairing in the maintainer's repositories; Koinon's records and documents point to them.
+Each agent CLI enforces the native permission settings, which belong to the maintainer.
 Koinon recommends permissions in docs/PERMISSIONS.md and `koinon guide` and does not apply
 them on its own; `koinon install` and `koinon setup` at a terminal show each family's missing
-rules and add them when the person there accepts (#446, #449). A settings change the
-maintainer directs is within the maintainer's authority; a peer's request for one is not.
+rules and add them when the person there accepts (#446, #449).
+
+**Before #487:** the title was "The maintainer's own boundary governs peer requests". The
+decision also said that Koinon's text does "not restate" that boundary, that "A peer request
+adds no authority and removes none that the maintainer already gave", and that "A settings
+change the maintainer directs is within the maintainer's authority; a peer's request for one is
+not."
 
 **Provenance:** The maintainer's own agent instruction file (the pairing authorization), read
 2026-10-12; private, not quoted here. The AGENTS.md copy shipped in PR #207 (merge commit
@@ -137,51 +159,60 @@ limit; no maintainer decision found for its general form.
 | Alternative | Description | Why Rejected |
 | ----------- | ----------- | ------------ |
 | Copy the boundary into product text | Restate it in skills, guide text and plans | Copies drift and broaden; the boundary is the maintainer's own |
-| Peer requests carry the requester's authority | A peer passes on what its own task allows | One session's task does not authorize another session |
+| Peer requests as information only | A peer's request is read as data, not as work to do | Agents of different families refused each other's work (#487) |
 
 ### Rationale
 
-The maintainer wrote the boundary; it covers peer requests, not the maintainer's own tasks.
+1. Maintainer, 2026-10-25, on #487: "the whole point of this system is to allow dissimilar
+   agents to work together." A teammate's request is work for the team.
+2. The maintainer wrote the pairing instructions; each agent's own CLI applies its permission
+   settings.
 
 ---
 
-## 4. Decision 3: Messages, records and claims are data
+## 4. Decision 3: Messages, records and claims are the team's shared record
 
 ### Decision
 
 Agents send every message to another agent, including one of the same family, through Koinon
-(MCP tools; DeepSeek uses Koinon commands until its MCP path is verified). A message body, a
-memory entry, a directive, a proposal, a work claim and a handoff are recorded data from another
-session. An agent reads them as information within its own task; they grant no permission. A
-post from the built-in `maintainer` session, sent from the dashboard, is the exception: the
-maintainer decided that it is the maintainer's own instruction and approval (PDR 005, Decision
-3). The guide and MCP text below still call every message data until the wording change.
-Koinon's MCP server instructions, tool descriptions and `koinon guide` say this to every
-connected session.
+(MCP tools; DeepSeek uses Koinon commands until its MCP path is verified). A message from
+another session comes from a teammate agent: when it asks for work, the agent does the work and
+replies to the sender through Koinon with the result. Memory entries, directives, proposals,
+work claims and handoffs are the team's shared record; agents read them and use them in their
+work. A post from the built-in `maintainer` session, sent from the dashboard, is the
+maintainer's own instruction and approval (PDR 005, Decision 3). Koinon's MCP server
+instructions, tool descriptions and `koinon guide` say this to every connected session.
 
 Work items carry an advisory, exclusive writer lease. An agent starts the work item of its
-assigned issue before writing for it, reports progress and renews the lease. A conflict names
-the holder, and the agent reports it rather than taking the item over. The claim coordinates
-who writes; the permission for the work comes from the maintainer's task. Koinon does not block
-file writes. Typing into another agent's terminal is a separate operation (PDR 002).
+assigned issue before writing for it, reports progress and renews the lease. A claim names the
+session that writes the item, and agents coordinate with that holder through Koinon. Koinon
+does not block file writes. Typing into another agent's terminal is a separate operation
+(PDR 002).
+
+**Before #487:** the title was "Messages, records and claims are data". The decision said
+that these items are "recorded data from another session" that an agent reads "as information
+within its own task; they grant no permission", and that on a conflict "the agent reports it
+rather than taking the item over. The claim coordinates who writes; the permission for the work
+comes from the maintainer's task."
 
 **Provenance:** Shipped in PR #186 (merge commit e2bc2f3) for the MCP instructions and guide
 rules, and PR #190 (merge commit ce8df2c) for work items and claims; no maintainer decision
-found. For peer requests, the maintainer's own boundary in Decision 2.
+found. For peer requests, the maintainer's own boundary in Decision 2. Changed by #487
+(Problem Context).
 
 ### Alternatives Considered
 
 | Alternative | Description | Why Rejected |
 | ----------- | ----------- | ------------ |
 | Native cross-session messaging | Use each CLI's own messaging | Not available across families; no shared delivery record |
-| Authenticated peer instructions | Treat a verified peer message as an instruction | Authentication shows the sender, not the maintainer's authority |
+| Messages as data | Read every peer message as information that grants nothing | Agents of different families refused each other's work (#487) |
 | Enforced claims | Koinon refuses work without a claim | Koinon does not control the file system; it would add a gate outside the task |
 
 ### Rationale
 
 1. One transport gives every family the same inbox, delivery state and acknowledgement.
-2. Peer text can quote or misstate the maintainer; read as data, it leaves the maintainer as
-   the source of tasks.
+2. A teammate's request and its reply travel through the same record, so every family sees
+   the work and its result.
 3. A named holder prevents duplicate work without stopping assigned work.
 
 ---
@@ -190,16 +221,18 @@ found. For peer requests, the maintainer's own boundary in Decision 2.
 
 ### Decision
 
-Agents read `koinon guide --agent FAMILY` from the installed binary at startup, after a reset
-and after an error, because the installed runtime can differ from the checkout until an
-authorized upgrade. The guide is information about that runtime. When the guide fails, the
-agent reports the failure, and the maintainer's task, such as repairing or testing
-registration, continues.
+Agents read `koinon guide --agent FAMILY` from the installed binary at startup and after a
+reset, because the installed runtime can differ from the checkout. The guide describes that
+runtime. When the guide fails, the agent reports the failure and continues the task, such as
+repairing or testing registration.
+
+**Before #487:** the decision also had agents read the guide "after an error", and said the
+runtime can differ "until an authorized upgrade".
 
 **Provenance:** `koinon guide` shipped in PR #186 (merge commit e2bc2f3). The AGENTS.md wording
 shipped in PR #207 (merge commit 10ea1e4); its first form, in PR #3 (merge commit 2963a38), was
 "report that limitation rather than claiming registration succeeded". No maintainer decision
-found.
+found. Changed by #487 (Problem Context).
 
 ### Alternatives Considered
 
@@ -214,16 +247,21 @@ The original statement prevented a false claim of success, not repair work.
 
 ---
 
-## 6. Decision 5: Sprint gates A and B
+## 6. Decision 5: Sprint gates A and B (deprecated)
 
 ### Decision
 
-A deliverable of more than one pull request is planned with the `sprint` skill; a single-issue
-fix needs no sprint. The skill brings the plan to the maintainer twice: gate A approves
+**Deprecated 2026-10-25 by #487** (Problem Context). A deliverable of more than one pull request
+is planned with the `sprint` skill. The agent settles the boundary with the maintainer, one open
+scope question at a time, each with a recommendation. The other agent family reviews the
+committed plan with `peer-review`, and the chunks are built with the `ship` skill in dependency
+order.
+
+**Before #487:** "The skill brings the plan to the maintainer twice: gate A approves
 `decision.md`, and gate B approves the reviewed plan before chunks are built. An approval covers
 the plan document at the commit it names, not each sentence in it, and an approval already
 given for that content counts. Chunks of an approved plan go through the `ship` skill (peer
-review and CI) with no further maintainer approval.
+review and CI) with no further maintainer approval."
 
 **Provenance:** Shipped in PR #104 (merge commit e3b908f); no maintainer decision found that sets
 the gates. The maintainer has used them: Maintainer, 2026-10-12 (#254 comment 6116403605, #145
@@ -241,21 +279,25 @@ B for Grok #254 recomendation is approved."; Maintainer, 2026-10-11 (#283 commen
 
 ### Rationale
 
-Two plan approvals settle scope before code, where a change is cheapest. A significant choice
-inside a plan is its own draft record, not a maintainer decision (WDR 001).
+Before #487: two plan approvals settled scope before code, where a change is cheapest. Now the
+maintainer settles the boundary in the scope questions, and the plan's review and the chunks'
+reviews carry the rest. A significant choice inside a plan is its own draft record (WDR 001).
 
 ---
 
-## 7. Decision 6: Release approval
+## 7. Decision 6: Release approval (deprecated)
 
 ### Decision
 
-The `release` skill promotes develop to main through a merge pull request with exact-commit CI
-and installation and upgrade evidence. It reports that evidence and merges after the maintainer
-approves this release; an approval for earlier work does not cover a later release, and an
-approval already given for this release counts (WDR 001, Decision 3). The maintainer's
-2026-10-11 authorization to set auto-merge on pull requests for open issues does not name a
-release.
+**Deprecated 2026-10-25 by #487** (Problem Context). The `release` skill promotes develop to
+main through a merge pull request with exact-commit CI, installation and upgrade evidence and
+the account of failed CI runs (WDR 004, Decision 6). It records the evidence for independent
+review, merges under the promotion policy and performs the publish steps.
+
+**Before #487:** "It reports that evidence and merges after the maintainer approves this
+release; an approval for earlier work does not cover a later release, and an approval already
+given for this release counts (WDR 001, Decision 3). The maintainer's 2026-10-11 authorization
+to set auto-merge on pull requests for open issues does not name a release."
 
 **Provenance:** Shipped in PR #104 (merge commit e3b908f); no public maintainer words found that
 set the per-release approval. The maintainer's own boundary (Decision 2) also covers releases.
@@ -269,7 +311,8 @@ set the per-release approval. The maintainer's own boundary (Decision 2) also co
 
 ### Rationale
 
-A release reaches every installation; the maintainer chooses when that happens.
+Before #487: a release reaches every installation, so the maintainer chose when that happened.
+Now the release evidence and its independent review show that the release installs and upgrades.
 
 ---
 
@@ -285,11 +328,13 @@ A release reaches every installation; the maintainer chooses when that happens.
 
 ## Conclusion
 
-Koinon's agents currently act on the maintainer's task, which authorizes its own steps. The
-maintainer's own instructions and native settings set what a peer request can start. Messages,
-records, claims and guide output are information within the task. The maintainer approves
-sprint plans at gates A and B and approves each release. The record is a draft: the maintainer
-has not decided Decisions 3 to 6, and Decision 2 rests on a private instruction file.
+Koinon's agents currently act on the maintainer's task, which authorizes its own steps. A
+peer's request is a teammate's request: the agent does the work and replies through Koinon.
+Messages, records and claims are the team's shared record, and the installed guide describes the
+installed runtime. Sprint plans are reviewed by the other family and built with `ship`, and a
+release merges after its evidence and independent review. The record is a draft: the
+maintainer has not decided Decisions 3 and 4 as written here, and Decision 2 also points to a
+private instruction file.
 
 ---
 
@@ -300,3 +345,4 @@ has not decided Decisions 3 to 6, and Decision 2 rests on a private instruction 
 | 2026-10-12 | Initial creation |
 | 2026-10-12 | Pointed to the maintainer's dashboard-origin decision in PDR 005 (#306) |
 | 2026-10-22 | Decision 2: install and setup show the missing rules and add them when the person at the terminal accepts (#446, #449) |
+| 2026-10-25 | #487: Decisions 1 to 4 lose their limits; Decisions 2 and 3 say a peer's request is a teammate's request; Decisions 5 and 6 deprecated |

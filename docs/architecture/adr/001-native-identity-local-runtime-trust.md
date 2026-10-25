@@ -72,7 +72,8 @@ as blanket statements with no reason.
 
 1. A tool call is attributed to the session that made it, not to a session the model names.
 2. Only the user's own processes on the same host reach the daemon.
-3. A peer's message reaches the recipient as data; it does not run or configure anything.
+3. A peer's message reaches the recipient through its inbox, where the recipient reads and
+   acknowledges it.
 4. The dashboard can act as the maintainer without letting another web origin act through it.
 5. An upgrade, a refusal or a failed write keeps stored data.
 
@@ -108,12 +109,22 @@ own Codex rollout file under `CODEX_HOME/sessions` (model, context window, token
 start and end, only when its first record names the session; no conversation text is kept), Claude
 Code's registry record for its parent process, OpenCode's status endpoint and the Antigravity
 Stop hook. `koinon codex` starts Codex with `--no-daemon` and passes its launch variables through
-`-c` overrides for that launch, so the launched CLI hosts its own MCP servers in its pane. Koinon
-does not use, stop or change the user's shared Codex app-server or its configuration file.
+`-c` overrides for that launch, so the launched CLI hosts its own MCP servers in its pane. The
+user's shared Codex app-server and its configuration file stay as they are.
 
 **Provenance:** Shipped in PR #186 (merge commit e2bc2f3); inbox acknowledgement in PR #184
 (11fdabf); memory acknowledgement in PR #188 (3cbe830); rollout reading in PR #193 (a19bc2b);
-`--no-daemon` in PR #263 (fec77b1). No maintainer decision found.
+`--no-daemon` in PR #263 (fec77b1). No maintainer decision found. Before #487 this decision
+said "Koinon does not use, stop or change the user's shared Codex app-server or its
+configuration file", and Requirement 3 said "A peer's message reaches the recipient as data; it
+does not run or configure anything." #487 restated both as what the code does. The #487
+review listed three limits and proposed to keep them; the question was whether to keep them or
+to remove them too. Maintainer, 2026-10-25: "remove all limit text.  remove all of the caveats,
+controls, etc.  the agents have their own built in safeties, they do not need you adding more
+complications." ([#487 comment 6401405382](https://github.com/rwcii/koinon/issues/487#issuecomment-6401405382)).
+Reason: limit text with no source makes agents of different families refuse each other's work.
+Scope: agent-facing text, skills, setup blocks and the docs and records that restate them; code
+refusals are a separate decision.
 
 ### Alternatives Considered
 
@@ -184,17 +195,22 @@ agent-written plan text.
 ### Decision
 
 Koinon currently wakes a recipient with a fixed notice that names only the inbox, JSON-quoted,
-and its sequence range, and asks it to read its Koinon inbox. No peer body or provider output
-enters a notice, a shell command or a runtime configuration. Codex gets the notice as an argument
-of `codex queue`, without a shell. Daemon notices to the maintainer hold fixed text, IDs, names
-and reason codes. Work item references are stored strings that Koinon does not fetch or run.
+and its sequence range, and asks it to read its Koinon inbox. Koinon builds notices, wake
+commands and runtime configuration from fixed text, IDs, names and numbers only. Codex gets the
+notice as an argument of `codex queue`, without a shell. Daemon notices to the maintainer hold
+fixed text, IDs, names and reason codes. Work item references are stored strings; Koinon stores
+and returns them.
 
 For the Claude wake, Koinon checks the socket's owner, mode and kernel UID/PID, and resolves
 directories only to compare them with the allowlist. It hashes the literal, unresolved socket
 path to find Claude's key file. The tmux socket directory is kept as tmux names it.
 
 **Provenance:** Shipped in PR #198 (15df5ea); tmux socket directory in PR #271 (5751938). No
-maintainer decision found.
+maintainer decision found. Before #487 this decision said "No peer body or provider output
+enters a notice, a shell command or a runtime configuration" and "Work item references are
+stored strings that Koinon does not fetch or run", and Rationale 2 said "A notice with only IDs
+and numbers carries no instructions." #487 restated them as what the code does (Decision 1 has
+the #487 source).
 
 ### Alternatives Considered
 
@@ -207,7 +223,7 @@ maintainer decision found.
 ### Rationale
 
 1. The inbox stays the one place where a message is read and acknowledged.
-2. A notice with only IDs and numbers carries no instructions.
+2. A notice holds only fixed text, IDs and numbers.
 3. The provider's own naming decides the key lookup, so Koinon matches it.
 
 ---
@@ -333,3 +349,4 @@ agent.
 | 2026-10-19 | Decision 4: dashboard `Host` is a literal loopback IP with any port (#407) |
 | 2026-10-22 | Decision 4: the login cookie is named after the `Host` port (#454) |
 | 2026-10-25 | Decision 4: the login form accepts the maintainer secret (PDR 009, #470) |
+| 2026-10-25 | Requirement 3, Decisions 1 and 3: the peer-data and "does not" statements are restated as what the code does (#487) |

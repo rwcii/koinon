@@ -1,5 +1,7 @@
 # Coordinated work — decision
 
+> Historical sprint plan. Its non-goals and constraints limited this sprint only. Current decisions are in the [decision records](../../engineering/wdr/README.md); see WDR 001.
+
 Issue [#140](https://github.com/rwcii/koinon/issues/140) requests the outcomes and non-goals.
 The maintainer selected the reporting-consumer verdict rule (PDR 004, Decision 3;
 [#306 comment 6119167156](https://github.com/rwcii/koinon/issues/306#issuecomment-6119167156)).

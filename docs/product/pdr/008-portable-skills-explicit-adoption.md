@@ -3,7 +3,7 @@ pdr: "008"
 title: "Portable Skills and Explicit Adoption"
 status: draft
 created: "2026-10-12"
-updated: "2026-10-23"
+updated: "2026-10-25"
 authors:
   - "Robert Capps"
 reviewers: []
@@ -32,14 +32,13 @@ tags:
 
 Koinon's skills live in `agents/skills/`, and an adopting project copies them by hand.
 Issue #145 asks for a skills library carried by the installed runtime, offered on every
-agent connection, with a state query and adoption only after the maintainer approves the
-exact change.
+agent connection, with a state query and an explicit adoption of each change.
 
 The maintainer approved Gate B for the #145 plan on 2026-10-12. A gate approval covers the
 plan document, not an independent decision for each sentence in it. Chunks 01 and 02 are
 merged (PRs #320 and #323); chunk 03 adds native-client state inspection, scoped decisions
-and the approved agent adoption procedure. This record describes those interfaces and
-their sources. Library adoption authority remains the maintainer's approval of the exact change.
+and the agent adoption procedure. This record describes those interfaces and their sources.
+Since #487 the agent applies an adoption with ordinary editing tools and records its outcome.
 
 ---
 
@@ -47,7 +46,7 @@ their sources. Library adoption authority remains the maintainer's approval of t
 
 1. Problem Context
 2. Decision 1: One canonical skill source with per-project facts
-3. Decision 2: Adoption is an explicit, scoped change approved by the maintainer
+3. Decision 2: Adoption is an explicit, scoped change
 4. Decision 3: Machine targets follow verified native discovery
 5. Decision 4: Catalog bounds and checks are engineering limits
 6. Conclusion
@@ -71,10 +70,13 @@ From #145:
 2. Agents list and read it through Koinon tools; reading writes nothing.
 3. MCP `initialize` and `koinon guide` mention the library on every connection.
 4. A state query reports each item as present, missing, outdated or edited locally.
-5. Adoption happens only with the maintainer's approval of the exact change; a declined item
-   stays declined.
-6. After an upgrade, changed items are reported and nothing is applied without approval.
-7. Library content is reference data; authorization text is not part of it.
+5. An agent adopts an item by applying its exact change; a declined item stays declined.
+6. After an upgrade, changed items are reported.
+7. Library content is the procedure that the agent follows.
+
+Before #487 requirements 5–7 read: "Adoption happens only with the maintainer's approval of the
+exact change", "nothing is applied without approval" and "Library content is reference data;
+authorization text is not part of it." #487 changed them (provenance under Decision 2).
 
 ### Scope
 
@@ -96,9 +98,9 @@ OpenCode wrappers, a guidance reference and permission recommendations. `spin-up
 first-run permission prompts and alerts in the new session's verified terminal. Skills read
 project facts (branches, checks, release steps) from `.koinon/skills/NAME.md`; each skill
 declares required and optional facts with defaults, and only `check`, `ship` and `release`
-have required facts. Missing required facts stop only the step that needs them; the agent
-drafts the file from repository evidence and writes it after approval. Fact files are not
-embedded and grant no permission.
+have required facts. When a required fact is missing, the agent derives it from the project's
+evidence and records it in the file. Fact files live in the project; the binary does not embed
+them.
 
 Koinon-owned entries are not catalog items: `koinon-pickup`, the managed context cycle's
 pickup entry (PDR 006, Decision 4), and the team skill entries (Decision 2). `koinon install` and the daemon at each start install it
@@ -126,7 +128,9 @@ single copy needs to be managed" (#406 comments
 cycle's own Koinon-named skill lives in the person's home, one copy per family, not in a
 repository. Its install by `koinon install` and its name are proposed in the #406 design comment
 ([6276914180](https://github.com/rwcii/koinon/issues/406#issuecomment-6276914180)); not a
-maintainer decision.
+maintainer decision. Before #487 this decision said that missing required facts "stop only the
+step that needs them", that the agent writes the fact file "after approval", and that fact files
+"grant no permission"; #487 (provenance under Decision 2) removed those limits.
 
 ### Alternatives Considered
 
@@ -147,30 +151,30 @@ An adopting project writes a short fact file for `check`, `ship` and `release`.
 
 ---
 
-## 3. Decision 2: Adoption is an explicit, scoped change approved by the maintainer
+## 3. Decision 2: Adoption is an explicit, scoped change
 
 ### Decision
 
-The library's state and decision interfaces write no adopted files. The agent shows the exact
-change, the maintainer approves it, and the agent applies that one item with ordinary
-editing tools. A decline is recorded and not offered again as new; local edits are kept. A
-peer message or a library entry does not authorize an adoption. The approved plan uses
-machine-wide copies as the default recommendation and project-local installation as an
-explicitly selected alternative, each approved on its own. Machine decisions go in a bounded
-daemon table and project decisions in the repository's memory store.
+The library's state and decision interfaces write no adopted files. To adopt an item, the agent
+reads it and its state, chooses the scope, compares any same-name copy, applies that one item
+with ordinary editing tools, checks its hashes and records the outcome. A decline is recorded
+and not offered again as new; local edits are kept. Machine-wide copies are the default;
+project-local installation is the alternative. Machine decisions go in a bounded daemon table
+and project decisions in the repository's memory store.
 
 The skill entries are Koinon's own entries, not adoptions: `koinon install` and the daemon at
 each start write an entry named `koinon-NAME` for each catalog skill, such as
 `koinon-spin-up`, `koinon-handoff` and `koinon-check`, for the person who runs the daemon, at
 the places of `koinon-pickup` (Decision 1), and never into a repository. A skill already named
 `koinon-NAME`, such as `koinon-guide`, keeps its name; because that is also the catalog item's
-own name, its entry replaces only an earlier Koinon entry and leaves an adopted copy. Grok and
+own name, the install replaces only an earlier Koinon entry there and keeps an adopted copy. Grok and
 DeepSeek get none until their user skill roots are verified. Each entry loads its catalog item
 through Koinon and holds no procedure, so the catalog keeps the one copy and the entry changes
 with the runtime; the item's procedure reads the repository's own facts from
-`.koinon/skills/NAME.md`. The runnable steps of these procedures are in the installed guide. A
-personal or project skill of the bare name is not touched, nor is an entry that is a symbolic
-link, and adopting the catalog item itself still follows this decision.
+`.koinon/skills/NAME.md`. The runnable steps of these procedures are in the installed guide. The
+install writes only the `koinon-NAME` entries, so a personal or project skill of the bare name
+stays as it is. An entry that is a symbolic link, or that is in a linked directory, is kept and
+reported as `kept`. Adopting the catalog item itself follows this decision.
 
 **Provenance:** Requested in #145 (issue body, requirements 5–7); a request record. Machine
 default plus approved project-local target: Maintainer, 2026-10-12, session transcript:
@@ -203,6 +207,22 @@ entries only when their configuration directory exists, the omission of Grok and
 the criteria of #461, which codex-koinon agreed to; keeping linked entries and adopted copies
 came from its review of the change. No maintainer decision on them found.
 
+Before #487 this decision said: "The agent shows the exact change, the maintainer approves it,
+and the agent applies that one item", "A peer message or a library entry does not authorize an
+adoption", and that the machine-wide and project-local targets are "each approved on its own".
+No maintainer source was found for the approval step: #145 is a request record, and the
+maintainer's "Machine-wide and approved project-local" answered the choice of target. The #487
+review listed three limits and proposed to keep them; the question was whether to keep them or
+to remove them too. Maintainer, 2026-10-25: "remove all limit text.  remove all of the caveats,
+controls, etc.  the agents have their own built in safeties, they do not need you adding more
+complications."
+([#487 comment 6401405382](https://github.com/rwcii/koinon/issues/487#issuecomment-6401405382)).
+Reason: limit text with no source makes agents of different families refuse each other's work.
+Scope: agent-facing text, skills, setup blocks and the docs and records that restate them; code
+refusals are a separate decision. The installed guide and the MCP instructions give the
+adoption steps above. What the install does with a bare name and a symbolic link stays as a
+fact about the code.
+
 ### Alternatives Considered
 
 | Alternative | Description | Why Rejected |
@@ -212,11 +232,11 @@ came from its review of the change. No maintainer decision on them found.
 
 ### Rationale
 
-1. The maintainer sees each change before it lands, and declines and local edits persist.
+1. Each adoption is one recorded change, and declines and local edits persist.
 
 ### User Impact
 
-An agent proposes a skill, shows the diff and installs it only after the maintainer agrees.
+An agent installs a recommended skill with ordinary editing tools and records the outcome.
 
 ---
 
@@ -227,10 +247,10 @@ An agent proposes a skill, shows the diff and installs it only after the maintai
 A machine-wide target is offered for adoption where that family's native user skill
 discovery is verified. Codex user discovery was shown on 0.162.0 through an isolated
 app-server `skills/list`. Claude's documented personal skill root, and the other families'
-roots, are marked unverified and read-only until discovery is demonstrated; for Claude, the
-state interface reports an inspection limitation. A directory's presence is not discovery
-evidence. Project targets stay available. This is a capability report, not an additional
-permission rule for a separately approved manual change.
+roots, are marked unverified in the catalog's destination metadata; for a machine scope there,
+`library_state` returns `native_root_unverified`, and for Claude it reports an inspection
+limitation. The catalog counts a demonstrated discovery as verified, not the presence of a
+directory. Project targets stay available. This is a capability report of the state interface.
 
 **Provenance:** Proposed in the #145 plan (9055630 on feature/skills-library-catalog) (chunk 01, definition of done) and
 built in the catalog's destination metadata, delivered by PR #320. Chunk 03's isolated
@@ -239,7 +259,11 @@ project roots (.agents/skills and .codex/skills), including an internal shared-d
 symlink and independent real directory. These are bounded collision descriptors, with
 CODEX_HOME/skills retained as the primary machine adoption target. The probes start no model
 turn; the [official app-server interface](https://learn.chatgpt.com/docs/app-server) describes
-the metadata query. No source supports turning an unverified root into an invented approval gate.
+the metadata query. Before #487 this decision also said that the unverified roots are
+"read-only until discovery is demonstrated" and that the report is "not an additional
+permission rule for a separately approved manual change"; #487 (provenance under Decision 2)
+removed that wording. The destination metadata and `native_root_unverified` stay as what the
+code reports.
 
 ### Alternatives Considered
 
@@ -270,13 +294,14 @@ as inert data. The plan bounds machine decisions to 256
 rows, 8,192 bytes per record and 2 MiB in all. The contributor test checks each fact file's
 schema, that each Sources path is a regular file, and that selected policy terms appear.
 The correction also compares actual Required checks fields with authoritative Go commands.
-These checks do not prove that every fact value agrees with its source, and a source path that exists
-is not evidence of a maintainer decision.
 
 **Provenance:** Built at feature/skills-library-catalog@5c6245f (`internal/library`,
 `internal/contributor/library_test.go`), delivered by PR #320. Machine decision bounds are
 engineering bounds in the approved #145 chunk 03 plan (Gate B comment 6116403867), implemented
-as ordinary compared-revision state. They grant no permission and reserve no work-control storage.
+as ordinary compared-revision state. They reserve no work-control storage. Before #487 this
+decision also said that the checks "do not prove that every fact value agrees with its source",
+that a source path "is not evidence of a maintainer decision", and that the bounds "grant no
+permission"; #487 (provenance under Decision 2) removed those caveats.
 
 ### Alternatives Considered
 
@@ -286,7 +311,7 @@ as ordinary compared-revision state. They grant no permission and reserve no wor
 
 ### Rationale
 
-1. These are size and format limits, not permission rules; their values can change.
+1. These are size and format limits; their values can change.
 
 ### User Impact
 
@@ -297,10 +322,10 @@ reported explicitly; adopted baselines and declines survive current-state update
 
 ## Conclusion
 
-The catalog uses one embedded skill source, offers machine and project targets, and adopts
-only maintainer-approved exact changes. The plan has Gate B; individual choices such as
-unverified discovery are capability evidence, not independently invented permission gates. Parser format defects and the
-Required checks drift defect are ordinary corrections; they add no product decision.
+The catalog uses one embedded skill source, offers machine and project targets, and an agent
+adopts an item as one exact, recorded change. The plan has Gate B; unverified discovery is
+capability evidence from the state interface. Parser format defects and the Required checks
+drift defect are ordinary corrections; they add no product decision.
 
 ---
 
@@ -314,3 +339,4 @@ Required checks drift defect are ordinary corrections; they add no product decis
 | 2026-10-19 | Decision 1: one Koinon-owned skill, the cycle's `koinon-pickup`, installed by `koinon install` for the person and not a catalog item (#406) |
 | 2026-10-22 | Decision 2: `koinon install` and the daemon write the team skill entries, which load their catalog items (#453) |
 | 2026-10-23 | Decisions 1 and 2: an entry for every catalog skill, also for OpenCode and agy when their configuration directory exists (#461) |
+| 2026-10-25 | Requirements and Decisions 1–4: removed the unsourced approval step, the fact-file and catalog caveats and the "grant no permission" text; the verified-root report and the install's bare-name and symbolic-link handling are stated as code facts (#487) |

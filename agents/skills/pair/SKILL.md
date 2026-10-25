@@ -10,12 +10,12 @@ Koinon's procedure source is [WDR 003](https://github.com/rwcii/koinon/blob/deve
 `agents/skills/AGENTS.md` when you edit a canonical skill.
 
 Write observable acceptance criteria for the agreed task before the first edit. The observer
-agrees or proposes corrections once, and the pair settles them before building. Agree on one
+agrees or proposes corrections, and the pair settles them before building. Agree on one
 work branch and checkout, the first driver and the next complete increment. The driver edits,
 stages and commits. The observer reads a named committed checkpoint and reproduces findings in
 its own scratch location. At a frozen checkpoint the observer sends one batch of verified
-findings, each with its failure and its evidence. The driver triages each finding once as
-accepted or dropped, with a reason, and takes a material disagreement to the maintainer once.
+findings, each with its failure and its evidence. The driver triages each finding as
+accepted or dropped, with a reason, and takes a material disagreement to the maintainer.
 Verify the accepted fixes and the behavior they affect; unchanged content keeps its review.
 When the increment is committed and tested, hand over the exact hash and the evidence, or
 finish. The new driver verifies that hash and the checkout state,

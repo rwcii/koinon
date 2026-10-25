@@ -14,7 +14,8 @@ client takes the daemon address from `--address`, else from `KOINON_DAEMON_ADDRE
 from `127.0.0.1` and the recorded port; a `port` file that holds no valid port is refused
 with `port_invalid` (docs/INSTALL.md).
 The secret and state files are user-owned regular files, mode 0600; the state root is private.
-Never put a secret, runtime session identifier or response body in a repository.
+Secrets, runtime session identifiers and response bodies stay in the state directory, outside
+repositories.
 
 | Route | Operation |
 | --- | --- |
@@ -54,7 +55,7 @@ The daemon logs `wake_fault` when these diagnostics change and `wake_recovered` 
 repeated identical failures update the health time without flooding logs. Diagnostics hold
 no raw error/provider text, message body, credential or native session ID. Normal shutdown
 cancellation creates no wake fault. Provider delivery outcomes remain in the existing counts
-and reason codes, separately from pass failures.
+and reason codes, apart from pass failures.
 
 POST requests use `Content-Type: application/json`, at most 16 KiB, with unknown fields refused.
 Registration fields are `family` (`claude`, `codex`, `deepseek`, `agy`, `opencode`, `grok`), `id` (1–256
@@ -479,8 +480,8 @@ dashboard action `context-cycle-answer` (`cycle_id`, `revision`, `digest` of the
 `option` 1 to 9) records `prompt_intent` with the action's audit record, enters the option only
 while the pane still shows the same dialog, and records the return to the cycle's stage. A
 changed dialog before any key returns the cycle to `waiting_prompt` (`cycle_dialog_changed`); an
-unproven answer is uncertain. Enable authorizes the managed cycle; native permission choices
-follow the existing task authorization and the native permission interface.
+unproven answer is uncertain. Enable starts the managed cycle; the native permission interface
+handles native permission choices.
 
 ### Codex cycle adapter
 
@@ -732,7 +733,7 @@ The response returns `ok` and `launch_id`. The credential stays only in private 
 session responses contain a `launch_id` reference and target metadata with no password field.
 Launch records survive a
 restart, and can bind successive native session identities from one CLI process, such as a
-Codex context reset. They are inert state until the agent registers and wake adapters
+Codex context reset. They are stored state until the agent registers and wake adapters
 use its target. All launch calls use the existing bearer authentication, request limits and
 origin checks; a launch ID is an association key, not a replacement authentication secret.
 
@@ -1183,7 +1184,7 @@ Inactive bundles are bounded and reclaimable; `unclaimed` does not prove an old 
 stopped editing. Writers explicitly include the resource in `work-start`.
 
 `POST /v1/work/checkout-request` takes the same fields plus optional string `note` (up to
-1,024 UTF-8 bytes). It sends an ordinary inert `checkout_writer_request` JSON message to
+1,024 UTF-8 bytes). It sends an ordinary `checkout_writer_request` JSON message to
 the current native writer, including resource, work ID and generation. A participant
 consumer resolves only to the active holder of that address in the same repository; an
 unheld participant has no peer. The holder is re-read inside the send transaction, and the
@@ -1236,8 +1237,7 @@ it does not inspect the current machine's roots. Repository-fact schemas are met
 with no repository-specific values. List/read change no project/native files, adoption
 decisions, memory cursors or acknowledgements. MCP registration/renewal still occurs under
 the existing session rules. Catalog calls count as tool activity for succession.
-The content is reference data; adoption uses an exact reviewed diff approved by the
-maintainer (PDR 008).
+The agent adopts an item with its normal editing tools (PDR 008).
 
 `library_state` runs bounded filesystem reads in the existing native MCP/command client,
 using the daemon's trusted catalog and current decisions. It accepts optional `item_ids`
@@ -1272,7 +1272,7 @@ verified with Codex 0.162.0 metadata. Unverified families still support catalog 
 project inspection. Recommendations select only verified missing/outdated skills required
 by available features, with no decline, collision or decision-inspection limitation.
 
-Machine `library_decision` accepts item ID, adopted/declined choice, inert evidence,
+Machine `library_decision` accepts item ID, adopted/declined choice, evidence text,
 catalog/item digests, typed pre-edit/result target digests and compared revision. The client
 fills native family/root metadata and calls `POST /v1/library/decision` internally;
 `POST /v1/library/decision/read` returns current state. `POST /v1/library/context` supplies
@@ -1283,12 +1283,12 @@ in all, with native writer digest/time retained privately. Existing ordinary pag
 preserves funded work controls. Capacity refuses without eviction. An identical current
 canonical outcome is a no-write success, including after a lost reply; a differing compared
 revision returns `decision_conflict` with current data. It promises no historical replay.
-Adoption updates the adopted baseline; decline keeps it. Records for removed items remain inert.
+Adoption updates the adopted baseline; decline keeps it. Records for removed items stay as they are.
 
 Project decisions use existing `memory_record`/`memory_recall`, with their body limit,
 fixed retry deadline, replacement/conflict and retention semantics. A repo-scope `decision`
 body is strict version-1 JSON marked `library: "koinon-library-decision"`: item/family/scope,
-scope/catalog/item digests, kind, choice, inert evidence, and typed pre-edit/result/adopted
+scope/catalog/item digests, kind, choice, evidence text, and typed pre-edit/result/adopted
 digests. `repository-facts` kind additionally names the schema digest and fixed target ID
 `facts`; it is always project-scoped. Native writer family and repository are checked
 independently of body/author fields. A decline superseding a receipt must preserve its adopted
@@ -1299,10 +1299,10 @@ and an incomplete flag. This metadata revives nothing and moves no cursor.
 The retained floor is library-specific: expiry raises `memory_stores.library_floor` only
 for a removed library-marked decision; unrelated memory/work retention does not suppress offers.
 This is a scalar in the existing memory store, with no new table or index. Unavailable
-history never silently resets a decline. Receipts are reported outcomes, not approval attestations.
+history never silently resets a decline. Receipts record reported outcomes.
 
-The approved #145 procedure has the agent present an exact scoped diff, apply the approved
-item with normal editing tools, verify hashes and then record its outcome. Sidecars and
+In the #145 procedure the agent applies the item with normal editing tools, verifies hashes
+and then records its outcome. Sidecars and
 discovery pointers are separate proposed changes. A failed receipt leaves the files applied
 and an explicitly unrecorded outcome. No state/decision interface writes adopted files.
 
@@ -1505,8 +1505,7 @@ acknowledgements do not change.
   queued deliveries of those verdicts `acknowledged` with the time; it returns
   `acknowledged`, the IDs it changed. A repeated or late acknowledgement changes nothing. It
   is an ordinary write: at the ordinary storage ceiling it is `capacity` and the deliveries
-  stay queued. Delivery and acknowledgement record only that; they do not show that an action
-  was done.
+  stay queued. Delivery and acknowledgement record only that.
 - `POST /v1/decisions/close` takes `caller`, `reference`, `if_revision`, optional `note`
   (Markdown, 4 KiB), `key` and `deadline`, and moves an `in_progress` item to `archived` with
   the caller's peer name, the time and the note; another state is `not_in_progress`. A retry
@@ -2105,7 +2104,7 @@ BODY
 The Go Claude wake adapter builds an envelope with `from-name="koinon"` around its
 content-free notice. `from` names the daemon's private reply listener; it accepts no
 commands. The outer frame carries `type: "user"`, `priority: "next"` and a fresh `msg_id`.
-Those are Claude protocol fields, not maintainer instructions. The notice identifies only
+Those are Claude protocol fields. The notice identifies only
 the native inbox and sequence range. No message body or memory content is transmitted.
 The receiving socket's UID/PID is verified against the selected native Claude session.
 The adapter wakes only the registry entry of the session's `claude_pid` with entrypoint `cli`.
