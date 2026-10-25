@@ -107,7 +107,7 @@ repository; each record states the provenance it relies on.
 - Reason: limit text with no source makes agents of different families refuse each other's
   work.
 - Scope: Koinon's agent-facing text, the skills, the setup blocks, and the docs and records that
-  restate them. Code refusals are a separate decision.
+  restate them. The #487 audit lists the code refusals for a separate decision (#493).
 - This record: Decision 4 is deprecated. Decision 5 states the procedure without its block
   rules. Decision 3 drops the skill's question limit, as the skills did in #487.
 

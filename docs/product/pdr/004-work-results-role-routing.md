@@ -156,8 +156,8 @@ to keep them or to remove them too. Maintainer, 2026-10-25: "remove all limit te
 of the caveats, controls, etc.  the agents have their own built in safeties, they do not need
 you adding more complications." ([#487 comment 6401405382](https://github.com/rwcii/koinon/issues/487#issuecomment-6401405382)).
 Reason: limit text with no source makes agents of different families refuse each other's work.
-Scope: agent-facing text, skills, setup blocks and the docs and records that restate them; code
-refusals are a separate decision. The verdict rule of Decision 3 keeps its source and stays.
+Scope: agent-facing text, skills, setup blocks and the docs and records that restate them. The #487 audit lists the code
+refusals for a separate decision (#493). The verdict rule of Decision 3 keeps its source and stays.
 
 ### Alternatives Considered
 

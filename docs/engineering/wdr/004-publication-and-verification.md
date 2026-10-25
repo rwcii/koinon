@@ -92,7 +92,7 @@ C085.
 - Reason: limit text with no source makes agents of different families refuse each other's
   work.
 - Scope: Koinon's agent-facing text, the skills, the setup blocks, and the docs and records that
-  restate them. Code refusals are a separate decision.
+  restate them. The #487 audit lists the code refusals for a separate decision (#493).
 - This record: Decision 2 states how a branch is brought current, without its limits, and
   Decision 3 states the local checks without the push gate. Decision 6 drops the release
   approval that WDR 002 deprecated. The one open pull request, auto-merge, the commit
