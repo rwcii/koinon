@@ -20,6 +20,9 @@ import (
 // Dashboard action tests (sprint chunk 09): a real daemon on ephemeral loopback ports,
 // temporary state, synthetic sessions and a patched launcher.
 
+// undoSchemaTwentyNine removes the maintainer secret (PDR 009).
+const undoSchemaTwentyNine = `DROP TABLE maintainer_secret; `
+
 // undoSchemaTwentyEight removes the recorded tmux executable (#418).
 const undoSchemaTwentyEight = `ALTER TABLE sessions DROP COLUMN tmux_path; `
 
@@ -565,7 +568,7 @@ func TestSchemaSixMigrationAndRollback(t *testing.T) {
 	}
 	// A schema 6 database that already holds the name maintainer cannot migrate: the
 	// whole step rolls back and the database stays at 6.
-	if _, err := fixtureExec(s, undoSchemaTwentyEight+undoSchemaTwentySeven+undoSchemaTwentySix+undoSchemaTwentyFive+undoSchemaTwentyFour+undoSchemaTwentyThree+undoSchemaTwentyTwo+undoSchemaTwentyOne+undoSchemaTwenty+undoSchemaNineteen+undoSchemaEighteen+undoSchemaSeventeen+undoSchemaSixteen+undoSchemaFifteen+undoSchemaFourteen+undoSchemaThirteen+undoSchemaTwelve+undoSchemaEleven+undoSchemaTen+undoSchemaNine+undoSchemaEight+undoSchemaSeven+`INSERT INTO names(name,kind,family,session_id) VALUES ('maintainer','peer','codex','x'); PRAGMA user_version=6`); err != nil {
+	if _, err := fixtureExec(s, undoSchemaTwentyNine+undoSchemaTwentyEight+undoSchemaTwentySeven+undoSchemaTwentySix+undoSchemaTwentyFive+undoSchemaTwentyFour+undoSchemaTwentyThree+undoSchemaTwentyTwo+undoSchemaTwentyOne+undoSchemaTwenty+undoSchemaNineteen+undoSchemaEighteen+undoSchemaSeventeen+undoSchemaSixteen+undoSchemaFifteen+undoSchemaFourteen+undoSchemaThirteen+undoSchemaTwelve+undoSchemaEleven+undoSchemaTen+undoSchemaNine+undoSchemaEight+undoSchemaSeven+`INSERT INTO names(name,kind,family,session_id) VALUES ('maintainer','peer','codex','x'); PRAGMA user_version=6`); err != nil {
 		t.Fatal(err)
 	}
 	s.db.Close()

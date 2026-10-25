@@ -22,7 +22,7 @@ flowchart LR
     DeepSeek -->|koinon commands| CLI[koinon CLI]
     MCP -->|loopback API, private secret| Daemon[koinon serve]
     CLI -->|loopback API, private secret| Daemon
-    Browser[Maintainer's browser] -->|one-time login link| Daemon
+    Browser[Maintainer's browser] -->|maintainer secret or one-time login link| Daemon
     Daemon --> State[(state.sqlite3: sessions, inboxes,<br/>memory, work items, audit log)]
     Daemon -.->|content-free wake notice| Wake[Wake adapters]
     Wake -.-> sessions
@@ -155,7 +155,8 @@ claims have leases, revision/generation checks and bounded retention. Claim conf
 reported; they do not authorize a takeover. See [work commands](docs/WORK-ITEMS-COMMANDS.md),
 [the contract](docs/WORK-ITEMS-V1.md) and [Go storage proofs](docs/WORK-ITEMS-GO-STORAGE.md).
 
-`koinon dashboard` opens a one-time login link for the loopback dashboard. The views show
+`koinon dashboard` opens a one-time login link for the loopback dashboard; with a maintainer
+secret (`koinon maintainer secret set`), the login page takes the secret instead. The views show
 sessions, messages, delivery, memory and work. Administrative actions require a login,
 matching Host/Origin and a CSRF token, and write an audit record. The maintainer inbox is
 available through that dashboard. See [usage](docs/USAGE.md) and [protocol](PROTOCOL.md).

@@ -2,4 +2,7 @@ package platform
 
 import "golang.org/x/sys/unix"
 
-const termiosRequest = unix.TCGETS
+const (
+	termiosRequest = unix.TCGETS
+	termiosSet     = unix.TCSETS
+)
