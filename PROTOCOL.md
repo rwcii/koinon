@@ -1915,8 +1915,11 @@ from elsewhere. Peer message bodies appear here, escaped, and nowhere else outsi
   `fragment=1` a view returns its list alone; the page script fetches it every 5 seconds while the
   page is visible, with the page's own query. The search and recipient filter forms sit outside
   the list, so a refresh never resets them. A refresh also waits while a disclosure in the list is
-  open or a form field in it has focus, and drops an answer that arrives once one is, so an
-  open confirmation or edit form stays as it is.
+  open, a form field in it has focus, or a field in it holds input that is not sent (a text
+  value, select or checkbox that differs from the loaded one, with or without focus, #510), and
+  drops an answer that arrives once one is, so an open confirmation, an edit form or a typed
+  verdict note stays as it is. While unsent input holds it, the list shows "Not refreshed: a
+  form on this page has input that is not sent."
   Views never write.
 - **Sorting and paging.** Each table header with a sortable value links to `sort=COLUMN&dir=asc`
   or `dir=desc`; the current column carries `aria-sort` and its link reverses the direction.
