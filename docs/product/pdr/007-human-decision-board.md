@@ -73,7 +73,8 @@ From #206's twelve requirements, in short:
 3. Human-only verdicts with a snapshot of what the human saw.
 4. Printable-ASCII command boxes.
 5. Delivery of each verdict to each named recipient once, an archive, and a waiting query.
-6. Loopback dashboard only; no credentials, keys, personal data, session IDs or peer bodies.
+6. Loopback dashboard only (#206); since PDR 009, also a maintainer client through `koinon mcp
+   --maintainer`. No credentials, keys, personal data, session IDs or peer bodies.
 
 ### Scope
 
@@ -171,12 +172,14 @@ maintainer saw, and the history stays on the record.
 
 ### Rationale
 
-1. A verdict written only from the dashboard, on the revision the human saw, means what the
-   human saw; a later change asks for a new verdict.
+1. A verdict written only by the maintainer, in the dashboard or a maintainer client (PDR 009),
+   on the revision the human saw, means what the human saw; a later change asks for a new
+   verdict.
 
 ### User Impact
 
-Approve and Decline exist only in the dashboard; agents read verdicts but cannot set them.
+Approve and Decline exist only for the maintainer, in the dashboard or a maintainer client
+(PDR 009); agents read verdicts but cannot set them.
 When the facts change, an agent edits the decided item; it returns to the board for a new
 verdict, and the earlier verdict stays in its history.
 
@@ -283,4 +286,4 @@ blocks, which the maintainer copies into a terminal, hold printable ASCII only. 
 | 2026-10-12 | Recorded the maintainer's card text requirement and the ASCII decision for command code blocks (#206, #306) |
 | 2026-10-13 | Recorded the maintainer's reopen-on-change decision and the stored-query requirement (#206) |
 | 2026-10-25 | Decision 4: removed the unsourced "does not show that an action was done" caveat (#487) |
-| 2026-10-26 | Decision 2: a maintainer client also records a verdict, with its `via`, as accepted PDR 009 Decisions 3 and 4 decide (#470) |
+| 2026-10-26 | Decision 2, requirement 6, Rationale and User Impact: a maintainer client also records a verdict, with its `via`, as accepted PDR 009 Decisions 3 and 4 decide (#470) |
