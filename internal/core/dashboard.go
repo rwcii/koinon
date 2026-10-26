@@ -35,6 +35,19 @@ type settingsData struct {
 }
 
 // loginData is the login page's reason, and whether it shows the secret form.
+// viewFault reports whether a view's read failed in the daemon (storage, Git or another
+// server error) rather than on the request's query: a refusal or an invalid query is the
+// request's (#507).
+func viewFault(err error) bool {
+	var work WorkRefusal
+	var refusal Refusal
+	if errors.As(err, &work) || errors.As(err, &refusal) {
+		return false
+	}
+	status, _ := plainError(err)
+	return status >= http.StatusInternalServerError
+}
+
 type loginData struct {
 	Reason string
 	Form   bool
@@ -264,6 +277,17 @@ func (d *Daemon) dashboardHandler() (http.Handler, error) {
 	for _, view := range dashboardViews {
 		mux.HandleFunc("GET /dashboard/"+view, authed(func(w http.ResponseWriter, r *http.Request, id string) {
 			data, err := d.dashboardData(r, view)
+			if err != nil && viewFault(err) {
+				// A daemon fault is not the request's: the page says so with 500, and the
+				// daemon log names the cause (#507). The page keeps the navigation and its
+				// refresh, so it shows the view again once the read works.
+				if d.logEvent != nil && r.Context().Err() == nil {
+					d.logEvent("dashboard_view_failed", map[string]any{"view": view, "error": err.Error()})
+				}
+				render(w, r, http.StatusInternalServerError, dashboardPage{View: "login", Title: "View unavailable", CSRF: d.auth.csrf(id),
+					Data: loginData{Reason: "unavailable"}})
+				return
+			}
 			if err != nil {
 				refuse(w, r, http.StatusBadRequest, "request")
 				return

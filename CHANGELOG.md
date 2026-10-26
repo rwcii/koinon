@@ -5,6 +5,11 @@ into a dated release section when promoted to `main`.
 
 ## Unreleased
 
+- A dashboard view whose read fails in the daemon answers 500 with "The daemon could not read
+  this view." and logs `dashboard_view_failed` (#507). It answered 400 on the login page,
+  "Not signed in" and "The request was not valid.", as for a wrong address. An invalid view
+  query still answers 400.
+
 - The Decisions board's **Find** searches (#505). An exact reference opens the item as before.
   Part of a reference, or a reference in another case, lists the references that contain it,
   from the items and the deep archive, 20 per page with their titles, kinds and states. Spaces

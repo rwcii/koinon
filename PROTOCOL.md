@@ -1917,7 +1917,11 @@ from elsewhere. Peer message bodies appear here, escaped, and nowhere else outsi
   the list, so a refresh never resets them. A refresh also waits while a disclosure in the list is
   open or a form field in it has focus, and drops an answer that arrives once one is, so an
   open confirmation or edit form stays as it is.
-  Views never write.
+  Views never write. A view query that the daemon refuses as invalid answers 400 with "The
+  request was not valid." A view read that fails in the daemon (storage, Git or another server
+  error) answers 500 with "The daemon could not read this view.", keeps the navigation and the
+  refresh, and logs `dashboard_view_failed` with the view and the error; the page shows no
+  internal detail (#507).
 - **Sorting and paging.** Each table header with a sortable value links to `sort=COLUMN&dir=asc`
   or `dir=desc`; the current column carries `aria-sort` and its link reverses the direction.
   Columns: sessions `state` (default, ascending: active, then expired, then retired, each with
