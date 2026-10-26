@@ -868,8 +868,12 @@ func migrate(db *sql.DB, version, target int) error {
 	}
 	if version < 30 && target >= 30 {
 		// Version 30: each refused ready report of a cycle, as diagnostic history beside its
-		// stage events (#485).
-		if _, err := tx.Exec(contextCycleRefusalsTable); err != nil {
+		// stage events, and each cycle's fixed-width slot for its newest refusal, which an
+		// unfinished cycle gets now and a new cycle at admission (#485).
+		if _, err := tx.Exec(contextCycleRefusalsTable + `ALTER TABLE context_cycles ADD COLUMN ready_refusal TEXT NOT NULL DEFAULT '';`); err != nil {
+			return err
+		}
+		if _, err := tx.Exec(`UPDATE context_cycles SET ready_refusal=? WHERE finished_at=0`, refusalSlot(0, "")); err != nil {
 			return err
 		}
 	}

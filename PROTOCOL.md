@@ -329,7 +329,9 @@ caller, epoch, host, pane, socket or another session.
   directory, facts file and file checks apply there, and Git checks nothing (#485). Each
   refused report at the current `waiting_ready` revision is kept in the cycle's
   `ready_refusals`, the newest 8, with its revision, time, code and text; it takes no revision
-  and no event. A successful report also
+  and no event. The newest refusal's code and revision are also kept in the cycle's own
+  fixed-width slot, which is written in place even when ordinary storage is full
+  (docs/CONTEXT-CYCLE-STORAGE.md). A successful report also
   returns `next`, the instruction to end the turn and stay idle, because the clear waits for the
   idle prompt.
 - `POST /v1/cycles/pickup` (`context_cycle_pickup`) takes `cycle_id`, `revision`, the same file

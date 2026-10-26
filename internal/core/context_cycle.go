@@ -6,6 +6,7 @@ import (
 	"database/sql"
 	"encoding/hex"
 	"errors"
+	"fmt"
 	"regexp"
 	"strconv"
 	"strings"
@@ -707,11 +708,12 @@ func (s *Store) admitContextCycle(ctx context.Context, k Key) (bool, error) {
 }
 
 func insertCycle(ctx context.Context, tx *writeTx, c cycleRow) error {
-	_, err := tx.ExecContext(ctx, `INSERT INTO context_cycles(`+cycleColumns+`) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+	_, err := tx.ExecContext(ctx, `INSERT INTO context_cycles(`+cycleColumns+`,ready_refusal) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
 		c.ID, c.Credit, c.Held, c.Revision, c.State, c.PromptFrom, c.Reason, c.Family, c.SessionID, c.Peer, c.Address, c.HostPID, c.HostStart,
 		c.Socket, c.Pane, c.EnableRevision, c.Epoch, c.Mode, c.Threshold, c.Used, c.Limit, c.SourceAt, c.ConfirmedAt, c.MessageSeq,
 		c.CreatedAt, c.UpdatedAt, c.StageDeadline, c.CycleDeadline, c.Artifact, c.ArtifactDev, c.ArtifactIno, c.ArtifactSize,
-		c.ArtifactMtime, c.Adapter, c.CatalogDigest, c.SuccessorID, c.SuccessorEpoch, c.Outcome, c.Report, c.Events, c.FinishedAt)
+		c.ArtifactMtime, c.Adapter, c.CatalogDigest, c.SuccessorID, c.SuccessorEpoch, c.Outcome, c.Report, c.Events, c.FinishedAt,
+		refusalSlot(0, ""))
 	return err
 }
 
@@ -1091,15 +1093,40 @@ func (s *Store) ContextCycleReady(ctx context.Context, caller Key, epoch, id str
 	return next.view(ctx, s.db, role)
 }
 
+// refusalSlotWidth is the fixed width of a cycle's ready_refusal slot: a 20-digit revision,
+// a space and the refusal code padded to 75 bytes. Admission writes the empty slot, so a
+// refusal overwrites it in place with a row of the same size, which allocates no page.
+const refusalSlotWidth = 96
+
+// refusalSlot is the slot text for a refusal code at a revision; revision 0 is empty.
+func refusalSlot(revision int64, code string) string {
+	return fmt.Sprintf("%020d %-75s", revision, code)
+}
+
+// parseRefusalSlot reads a slot; an empty or malformed one is revision 0.
+func parseRefusalSlot(slot string) (int64, string) {
+	fields := strings.Fields(slot)
+	if len(slot) != refusalSlotWidth || len(fields) != 2 {
+		return 0, ""
+	}
+	revision, err := strconv.ParseInt(fields[0], 10, 64)
+	if err != nil {
+		return 0, ""
+	}
+	return revision, fields[1]
+}
+
 // recordReadyRefusal records a refused ready report on c while c still waits for ready at
-// the same revision, keeping the newest maxCycleRefusals (#485). It is diagnostic history:
-// an ordinary write, so a full store records nothing and the refusal is returned all the
-// same.
+// the same revision (#485). The code goes in the cycle's slot, in a control write that
+// overwrites it in place, so the timeout can name it even when ordinary storage is full. The
+// text joins the history, the newest maxCycleRefusals, as an ordinary write: a full store
+// keeps no text and the refusal is returned all the same.
 func (s *Store) recordReadyRefusal(ctx context.Context, c cycleRow, err error) {
 	var refusal Refusal
 	if !errors.As(err, &refusal) {
 		return
 	}
+	s.writeRefusalSlot(ctx, c, refusal.Code)
 	// The text is kept as a client receives it: a refusal past the bound keeps its code only.
 	if len(refusal.Message) > MaxRefusalMessage || !utf8.ValidString(refusal.Message) {
 		refusal.Message = ""
@@ -1125,15 +1152,35 @@ func (s *Store) recordReadyRefusal(ctx context.Context, c cycleRow, err error) {
 	tx.Commit()
 }
 
-// readyRefusalCode is the code of the newest refused ready report at c's revision, or "".
-func readyRefusalCode(ctx context.Context, q querier, c cycleRow) (string, error) {
-	var code string
-	err := q.QueryRowContext(ctx, `SELECT code FROM context_cycle_refusals WHERE cycle_id=? AND revision=? ORDER BY ordinal DESC LIMIT 1`,
-		c.ID, c.Revision).Scan(&code)
-	if errors.Is(err, sql.ErrNoRows) {
-		return "", nil
+// writeRefusalSlot overwrites c's slot with code at c's revision, while c waits for ready at
+// that revision and has a slot of the fixed width.
+func (s *Store) writeRefusalSlot(ctx context.Context, c cycleRow, code string) {
+	if len(code) > 75 || strings.ContainsAny(code, " \t\r\n") {
+		return
 	}
-	return code, err
+	tx, err := s.begin(noAudit(ctx), control)
+	if err != nil {
+		return
+	}
+	defer tx.Rollback()
+	if _, err := tx.ExecContext(ctx, `UPDATE context_cycles SET ready_refusal=? WHERE cycle_id=? AND state=? AND revision=?
+		AND length(ready_refusal)=?`, refusalSlot(c.Revision, code), c.ID, cycleWaitingReady, c.Revision, refusalSlotWidth); err != nil {
+		return
+	}
+	tx.Commit()
+}
+
+// readyRefusalCode is the code of the newest refused ready report at c's revision, from the
+// cycle's slot, or "".
+func readyRefusalCode(ctx context.Context, q querier, c cycleRow) (string, error) {
+	var slot string
+	if err := q.QueryRowContext(ctx, `SELECT ready_refusal FROM context_cycles WHERE cycle_id=?`, c.ID).Scan(&slot); err != nil {
+		return "", err
+	}
+	if revision, code := parseRefusalSlot(slot); revision == c.Revision {
+		return code, nil
+	}
+	return "", nil
 }
 
 // pickupRevision reports whether revision is that of one of the cycle's waiting_pickup

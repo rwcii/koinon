@@ -240,3 +240,49 @@ func TestSchemaThirtyKeepsState(t *testing.T) {
 		t.Fatal("a schema 29 writer would accept the schema 30 store")
 	}
 }
+
+// With ordinary storage full, a refused ready report still names the timeout: its code is
+// kept in the cycle's slot, written in place without a new page, across a store reopen; a
+// report for another revision does not take the slot (#485).
+func TestContextCycleReadyRefusalAtOrdinaryCeiling(t *testing.T) {
+	f := newCycleFixture(t)
+	f.observe(t, f.k, 900, "synthetic-epoch-1")
+	v := f.status(t, f.k)
+	f.s.storage.maxPages = count(t, f.s, `PRAGMA page_count`) + reservePages + commitSlack + f.debt(t) - 1
+	if tx, err := f.s.begin(context.Background(), ordinary); err == nil {
+		tx.Rollback()
+		t.Fatal("ordinary capacity is not full")
+	} else if !errors.Is(err, ErrCapacity) {
+		t.Fatal(err)
+	}
+	pages, free := count(t, f.s, `PRAGMA page_count`), count(t, f.s, `PRAGMA freelist_count`)
+	for _, epoch := range []string{"synthetic-epoch-9", "synthetic-epoch-1"} {
+		_, err := f.s.ContextCycleReady(context.Background(), f.k, epoch, v.ID, v.Revision, "2026-10-26-060000.md")
+		if !errors.Is(err, ErrCycleEpoch) && !artifactRefused(err, "") {
+			t.Fatalf("ready: %v", err)
+		}
+	}
+	if _, err := f.s.ContextCycleReady(context.Background(), f.k, "synthetic-epoch-1", v.ID, v.Revision+3, "2026-10-26-060000.md"); !errors.Is(err, ErrCycleChanged) {
+		t.Fatalf("stale revision: %v", err)
+	}
+	if count(t, f.s, `PRAGMA page_count`) != pages || count(t, f.s, `PRAGMA freelist_count`) != free {
+		t.Fatal("the slot write allocated a page")
+	}
+	if got := f.status(t, f.k); len(got.Refusals) != 0 {
+		t.Fatalf("history written at the ordinary ceiling: %+v", got.Refusals)
+	}
+	maxPages := f.s.storage.maxPages
+	f.s.db.Close()
+	reopened, err := openStore(f.root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { reopened.db.Close() })
+	reopened.now, reopened.storage.maxPages = f.s.now, maxPages
+	f.s = reopened
+	f.clock = time.UnixMilli(v.StageDeadline)
+	f.step(t)
+	if got := f.status(t, f.k); got.State != cycleFailed || got.Reason != "waiting_ready_timeout.refused.cycle_artifact_invalid" {
+		t.Fatalf("timeout: %+v", got)
+	}
+}

@@ -24,7 +24,7 @@ import (
 const undoSchemaTwentyNine = `DROP TABLE maintainer_secret; `
 
 // undoSchemaThirty removes the refused ready reports of the cycles (#485).
-const undoSchemaThirty = `DROP TABLE context_cycle_refusals; `
+const undoSchemaThirty = `DROP TABLE context_cycle_refusals; ALTER TABLE context_cycles DROP COLUMN ready_refusal; `
 
 // undoSchemaTwentyEight removes the recorded tmux executable (#418).
 const undoSchemaTwentyEight = `ALTER TABLE sessions DROP COLUMN tmux_path; `
