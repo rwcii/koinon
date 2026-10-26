@@ -324,7 +324,14 @@ caller, epoch, host, pane, socket or another session.
   the file's metadata and, of the checkout's files, the handoff facts as one bounded read of an
   opened regular file of at most 64 KiB, through a root opened at the main checkout, and keeps its device, inode,
   size and modification time; a change to any of them is a changed file. The
-  registered directory must itself be a worktree that Git lists. A successful report also
+  registered directory must itself be a worktree that Git lists. A session registered without
+  a repository has its registered directory in place of the main checkout: the same handoff
+  directory, facts file and file checks apply there, and Git checks nothing (#485). Each
+  refused report at the current `waiting_ready` revision is kept in the cycle's
+  `ready_refusals`, the newest 8, with its revision, time, code and text; it takes no revision
+  and no event. The newest refusal's code and revision are also kept in the cycle's own
+  fixed-width slot, which is written in place even when ordinary storage is full
+  (docs/CONTEXT-CYCLE-STORAGE.md). A successful report also
   returns `next`, the instruction to end the turn and stay idle, because the clear waits for the
   idle prompt.
 - `POST /v1/cycles/pickup` (`context_cycle_pickup`) takes `cycle_id`, `revision`, the same file
@@ -396,8 +403,12 @@ holds the wake lock, so a wake already being submitted ends before `ready` commi
 is shown on the
 Sessions page, in `koinon context show` and in the audit record. A `waiting_ready` timeout
 says whether the session read or acknowledged its inbox through the newest request:
-`waiting_ready_timeout.read` or `waiting_ready_timeout.unread` (#445). A timeout of another
-stage keeps its plain `<stage>_timeout`.
+`waiting_ready_timeout.read` or `waiting_ready_timeout.unread` (#445). When the daemon refused a
+ready report at the stage's revision, the reason names the newest refusal's code instead, for
+example `waiting_ready_timeout.refused.cycle_artifact_invalid`, and a `cycle_timeout` in
+`waiting_ready` adds the same `.refused.CODE` (#485). The Sessions page lists the refused
+reports with their text; the audit record keeps the code. A timeout of another stage keeps its
+plain `<stage>_timeout`.
 
 A new native epoch of the requester before the managed clear (`waiting_ready`, `ready`, or a
 stored `bootstrap_intent` or `bootstrap_verified`) cancels the cycle (`epoch_changed`; uncertain

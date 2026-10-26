@@ -7,6 +7,15 @@ into a dated release section when promoted to `main`.
 
 - `koinon status` no longer counts an unread message to a retired session as a waiting wake
   (#486). The `wake` counts and reasons cover the sessions that the wake loop retries.
+- A managed context cycle finishes for a session outside a Git checkout, such as a session that
+  coordinates several repositories from their parent directory (#485). Its handoff directory is
+  `_handoff/<agent>/` (or the Handoff path fact) of the directory where the session started,
+  which Koinon registered; the file checks apply there and Git checks nothing. The `handoff` and
+  `pickup` skills, the cycle request and `koinon guide` name that directory. Each refused ready
+  report is kept on the cycle (`ready_refusals`, the newest 8, with code and text) and shown on
+  the Sessions page, and a ready timeout after one names its code, for example
+  `waiting_ready_timeout.refused.cycle_artifact_invalid`, in place of `.read`. The state
+  database moves to schema 30.
 - Koinon's text for agents says what to do, so that agents of different families work together
   (#487). The MCP server instructions, the tool descriptions, `koinon guide`, the daemon's
   messages, the skill entries it writes and the block it writes into a project's `AGENTS.md`

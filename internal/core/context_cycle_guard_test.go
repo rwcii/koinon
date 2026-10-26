@@ -725,7 +725,7 @@ func TestContextCycleRequestAsksToPauseAndStayIdle(t *testing.T) {
 		"Let running background subagents finish, or stop them", "call context_cycle_ready",
 		"Report ready by " + time.UnixMilli(v.StageDeadline).UTC().Format("2006-01-02 15:04:05 UTC") + ".",
 		"stop any that will not finish with enough time left to update the handoff and report ready by",
-		"into _handoff/" + f.k.Family + "/ of the main checkout, or into the directory that the Handoff path fact of .koinon/skills/handoff.md names",
+		"into _handoff/" + f.k.Family + "/ of the main checkout (outside a Git checkout, of the directory where this session started), or into the directory that the Handoff path fact of .koinon/skills/handoff.md names",
 		"Then end your turn and stay idle", "overwatch clears your context at your idle prompt", "asks again"} {
 		if !strings.Contains(requests[0], want) {
 			t.Fatalf("request lacks %q: %s", want, requests[0])
