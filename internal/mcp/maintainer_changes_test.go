@@ -166,7 +166,8 @@ func checkNotice(t *testing.T, line map[string]any, uri string) {
 
 // The last unsubscribe ends the poll before its reply: no poll starts and no notice is
 // written after it, also while every poll returns a change. A new subscription starts a new
-// poll.
+// poll. A poll sent before the reply can reach the daemon after it, so the count is taken
+// after the quiet second and must then stay.
 func TestMaintainerUnsubscribeEndsThePoll(t *testing.T) {
 	f := &fakeMaintainerDaemon{}
 	f.poll = func(w http.ResponseWriter, r *http.Request) {
@@ -200,10 +201,11 @@ func TestMaintainerUnsubscribeEndsThePoll(t *testing.T) {
 		for _, notice := range notices {
 			checkNotice(t, notice, inboxURI)
 		}
-		after := polls()
 		if line, ok := p.next(time.Second); ok {
 			t.Fatalf("output after the unsubscribe reply: %v", line)
 		}
+		after := polls()
+		time.Sleep(500 * time.Millisecond)
 		if polls() != after {
 			t.Fatalf("polls after the unsubscribe reply: %d then %d", after, polls())
 		}
@@ -220,6 +222,7 @@ func TestMaintainerUnsubscribeEndsThePoll(t *testing.T) {
 	case <-time.After(5 * time.Second):
 		t.Fatal("the server did not end with its input")
 	}
+	time.Sleep(500 * time.Millisecond)
 	after := polls()
 	time.Sleep(500 * time.Millisecond)
 	if polls() != after {

@@ -3,13 +3,20 @@ package core
 import (
 	"context"
 	"errors"
+	"sync/atomic"
 	"testing"
+	"time"
 )
 
 // A session's own threshold replaces its family's while it is set, keeps the Enable and its
 // revision, and 0 returns the session to its family threshold (#391).
 func TestContextSessionThreshold(t *testing.T) {
 	s, _ := testStore(t)
+	// Each clock reading is 1 ms after the one before, so the test holds when the clock moves
+	// between two readings (#502).
+	var tick atomic.Int64
+	start := time.Now()
+	s.now = func() time.Time { return start.Add(time.Duration(tick.Add(1)) * time.Millisecond) }
 	withCycleAvailable(t)
 	a := join(t, s, "claude", "synthetic-a", "")
 	k := Key{"claude", "synthetic-a"}
@@ -43,11 +50,13 @@ func TestContextSessionThreshold(t *testing.T) {
 	if e, err := s.SetContextThreshold(roomCtx("context-threshold"), a.Name, 60); err != nil || e.Revision != 2 || !e.Enabled || enableOf().Threshold != 60 {
 		t.Fatalf("change: %+v %v", e, err)
 	}
-	now := s.now().UnixMilli()
-	if err := s.Observe(context.Background(), Observation{Caller: k, Context: &ObservedValue{Source: "claude_statusline", At: now,
+	at := s.now().UnixMilli()
+	if err := s.Observe(context.Background(), Observation{Caller: k, Context: &ObservedValue{Source: "claude_statusline", At: at,
 		LimitTokens: int64p(1000), UsedTokens: int64p(500), Epoch: "synthetic-epoch"}}); err != nil {
 		t.Fatal(err)
 	}
+	// Observe confirms the value at its own clock reading, so the rows are read after it (#502).
+	now := s.now().UnixMilli()
 	session := scanTestSession(t, s, k)
 	if row := s.contextRowOf(session, enableOf(), now); row.Eligible || row.Reason != "below_threshold" || row.Threshold != 60 {
 		t.Fatalf("at 60%%: %+v", row)

@@ -1811,7 +1811,7 @@ from elsewhere. Peer message bodies appear here, escaped, and nowhere else outsi
   `{"jsonrpc": "2.0", "method": "notifications/resources/updated", "params": {"uri": URI}}`,
   with no title, body or count; a deleted room is a change, and reading it then gives
   `room_not_found`. Notices and replies share one serialized output. The last unsubscribe, the
-  end of standard input and a cancelled context end the poll and wait for it, so no poll runs
+  end of standard input and a cancelled context end the poll and wait for it, so no poll starts
   and no notice is written after the unsubscribe's reply. When the poll reads
   `maintainer_token_expired`, the server writes the reply of a request in progress, writes the
   code to standard error and exits with status 1, also while standard input is open and idle.
