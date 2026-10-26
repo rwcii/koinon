@@ -16,6 +16,8 @@ const (
 	// page; further pages follow by keyset links, so the board never fails at a number of items.
 	decisionBoardCards   = 25
 	decisionBoardArchive = 20
+	// decisionBoardMatches is the number of references that one page of a search lists.
+	decisionBoardMatches = 20
 	// decisionBoardAgents bounds the agent table; the Sessions view lists every session.
 	decisionBoardAgents = 200
 	// decisionAgentRefs is how many waiting references an agent row names before "+N more".
@@ -83,6 +85,11 @@ type decisionsData struct {
 	History   *DecisionHistoryPage
 	MovedAt   int64
 	LookupErr string
+	// Matches are the references that contain the looked-up text, ignoring ASCII case, when
+	// no item has it as its exact reference (#505); NextMatches is the last reference of the
+	// page when more follow.
+	Matches     []decisionMatch
+	NextMatches string
 	// LookupCard is set when the looked-up item is waiting, in progress or an open fyi: it
 	// shows as its card, and the grid skips it, so it appears once with one form (#414).
 	// GridSkipped is set when the grid page had that card.
@@ -112,6 +119,12 @@ func (d decisionsData) cardShown() bool {
 // The grid skips a looked-up card (#414), so the notice shows once.
 func (d decisionsData) NoticeOn(reference string) bool {
 	return d.CardNotice != "" && d.Card == reference
+}
+
+// decisionMatch is one reference that a search found, with its item's title, kind and state
+// label; a deep-archived reference has no title or kind.
+type decisionMatch struct {
+	Reference, Title, Kind, State string
 }
 
 // decisionCard is one card of the board: the page that shows it, its item, and whether it is
@@ -184,7 +197,8 @@ func (s *Store) dashboardDecisions(ctx context.Context, q url.Values) (decisions
 			return data, err
 		}
 	}
-	if reference := q.Get("ref"); reference != "" {
+	// A search ignores the spaces of a pasted reference (#505).
+	if reference := strings.TrimSpace(q.Get("ref")); reference != "" {
 		data.Lookup = reference
 		if checkReference(reference) != nil {
 			data.LookupErr = "not a valid reference"
@@ -193,7 +207,12 @@ func (s *Store) dashboardDecisions(ctx context.Context, q url.Values) (decisions
 		item, err := decisionItem(ctx, tx, reference)
 		switch code := errorCode(err); {
 		case code == "not_found":
-			data.LookupErr = "no decision item has this reference"
+			if err := decisionMatches(ctx, tx, reference, q.Get("found"), &data); err != nil {
+				return data, err
+			}
+			if len(data.Matches) == 0 {
+				data.LookupErr = "no decision item has this reference"
+			}
 			return data, nil
 		case code == "deep_archived":
 			if data.MovedAt, _, err = deepArchived(ctx, tx, reference); err != nil {
@@ -224,6 +243,45 @@ func (s *Store) dashboardDecisions(ctx context.Context, q url.Values) (decisions
 		data.History = &history
 	}
 	return data, nil
+}
+
+// decisionMatches reads one page of the references that contain text, ignoring ASCII case,
+// after the reference after, from the items and the deep archive, in reference order (#505).
+func decisionMatches(ctx context.Context, tx *sql.Tx, text, after string, data *decisionsData) error {
+	if checkReference(after) != nil {
+		after = ""
+	}
+	pattern := likePattern(text)
+	rows, err := tx.QueryContext(ctx, `SELECT reference,title,kind,state FROM (
+		SELECT reference,title,kind,state FROM decision_items WHERE reference LIKE ? ESCAPE '\'
+		UNION ALL SELECT reference,'','','deep_archived' FROM decision_deep_archive WHERE reference LIKE ? ESCAPE '\')
+		WHERE reference>? ORDER BY reference LIMIT `+strconv.Itoa(decisionBoardMatches+1), pattern, pattern, after)
+	if err != nil {
+		return err
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var m decisionMatch
+		if err := rows.Scan(&m.Reference, &m.Title, &m.Kind, &m.State); err != nil {
+			return err
+		}
+		switch {
+		case m.State == "active" && m.Kind == "fyi":
+			m.State = "open"
+		case m.State == "active":
+			m.State = "waiting"
+		case m.State == "in_progress":
+			m.State = "in progress"
+		case m.State == "deep_archived":
+			m.State = "deep archive"
+		}
+		data.Matches = append(data.Matches, m)
+	}
+	if len(data.Matches) > decisionBoardMatches {
+		data.Matches = data.Matches[:decisionBoardMatches]
+		data.NextMatches = data.Matches[len(data.Matches)-1].Reference
+	}
+	return rows.Err()
 }
 
 // decisionCards reads one page of the cards that match a status filter's fixed condition

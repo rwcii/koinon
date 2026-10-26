@@ -573,3 +573,118 @@ func TestDecisionLookupCard(t *testing.T) {
 		}
 	}
 }
+
+// matchRow is one reference of a search's match list.
+var matchRow = regexp.MustCompile(`<tr><td><a href="/dashboard/decisions\?ref=([A-Za-z0-9-]+)[^"]*">[^<]*</a></td><td>[^<]*</td><td>[^<]*</td><td>([^<]*)</td></tr>`)
+
+func boardMatches(section string) []string {
+	var rows []string
+	for _, m := range matchRow.FindAllStringSubmatch(section, -1) {
+		rows = append(rows, m[1]+"="+m[2])
+	}
+	return rows
+}
+
+// TestDecisionBoardSearch finds items by all or part of a reference, ignoring ASCII case and
+// the spaces around it (#505). Only an exact reference opens the item; other matches list
+// their references, deep-archived ones too, in pages. A Clear link ends the search and keeps
+// the status filter, and a refresh and a verdict keep the search.
+func TestDecisionBoardSearch(t *testing.T) {
+	d, root := startTestDaemon(t)
+	client := newActionClient(t, d, root)
+	peer := join(t, d.store, "claude", "synthetic-search", "")
+	key := Key{"claude", peer.ID}
+	create := func(reference, kind string) {
+		f := decisionFields("Item "+reference, kind)
+		f.Recipients = &[]string{peer.Name}
+		mustCreate(t, d.store, key, reference, f)
+	}
+	create("tools-4", "decision")
+	create("tools-5", "fyi")
+	create("Other-1", "decision")
+	for i := 1; i <= decisionBoardMatches+2; i++ {
+		create(fmt.Sprintf("page-%02d", i), "decision")
+	}
+	if _, err := fixtureExec(d.store, `INSERT INTO decision_deep_archive(reference,file,offset,length,moved_at) VALUES ('tools-old','synthetic.jsonl',0,1,1700000000000)`); err != nil {
+		t.Fatal(err)
+	}
+	get := func(path string) string {
+		t.Helper()
+		page := dashboardDo(t, d, "GET", path, client.cookie, nil, nil)
+		if page.status != 200 {
+			t.Fatalf("%s: %d %s", path, page.status, page.body)
+		}
+		return page.body
+	}
+
+	// An exact reference opens the item, also with spaces around it.
+	for _, ref := range []string{"tools-4", "%20tools-4%20"} {
+		body := get("/dashboard/decisions?ref=" + ref)
+		section := lookupSection(t, body)
+		if !strings.Contains(section, `id="lookup-tools-4"`) || boardMatches(section) != nil || !strings.Contains(body, `name="ref" maxlength="32" value="tools-4"`) {
+			t.Errorf("%s: exact lookup: %s", ref, section)
+		}
+	}
+	// Part of a reference, in any case, lists the matches with their states, the deep
+	// archive included; a case-different whole reference is a one-row list.
+	for ref, want := range map[string]string{
+		"tools":     "tools-4=waiting tools-5=open tools-old=deep archive",
+		"TOOLS-":    "tools-4=waiting tools-5=open tools-old=deep archive",
+		"%20ols%20": "tools-4=waiting tools-5=open tools-old=deep archive",
+		"other-1":   "Other-1=waiting",
+		"-5":        "tools-5=open",
+	} {
+		section := lookupSection(t, get("/dashboard/decisions?ref="+ref))
+		if got := strings.Join(boardMatches(section), " "); got != want || strings.Contains(section, "<article") || strings.Contains(section, `class="empty"`) {
+			t.Errorf("%s: matches %q, want %q: %s", ref, got, want, section)
+		}
+	}
+	// No match keeps the message.
+	if section := lookupSection(t, get("/dashboard/decisions?ref=zzz")); !strings.Contains(section, `<p class="empty">no decision item has this reference</p>`) || boardMatches(section) != nil {
+		t.Errorf("no match: %s", section)
+	}
+
+	// The matches come in pages of decisionBoardMatches, in reference order.
+	section := lookupSection(t, get("/dashboard/decisions?ref=page"))
+	rows := boardMatches(section)
+	more := regexp.MustCompile(`<a href="(/dashboard/decisions\?ref=page&amp;found=page-20)">More matches</a>`).FindStringSubmatch(section)
+	if len(rows) != decisionBoardMatches || rows[0] != "page-01=waiting" || more == nil {
+		t.Fatalf("first page: %q: %s", rows, section)
+	}
+	section = lookupSection(t, get(strings.ReplaceAll(more[1], "&amp;", "&")))
+	if got := strings.Join(boardMatches(section), " "); got != "page-21=waiting page-22=waiting" || strings.Contains(section, "More matches") {
+		t.Errorf("second page: %q: %s", got, section)
+	}
+
+	// The search keeps the status filter, and Clear returns to that filter without it. A
+	// refresh fragment keeps the search.
+	for _, path := range []string{"/dashboard/decisions?ref=tools&status=waiting", "/dashboard/decisions?fragment=1&ref=tools&status=waiting"} {
+		body := get(path)
+		for _, want := range []string{`<input type="hidden" name="status" value="waiting">`, `<a href="/dashboard/decisions?status=waiting">Clear</a>`,
+			`<a href="/dashboard/decisions?ref=tools-5&amp;status=waiting">tools-5</a>`, `aria-current="true">`} {
+			if !strings.Contains(body, want) {
+				t.Errorf("%s: no %q in %s", path, want, body)
+			}
+		}
+		if got := strings.Join(boardMatches(lookupSection(t, body)), " "); got != "tools-4=waiting tools-5=open tools-old=deep archive" {
+			t.Errorf("%s: matches %q", path, got)
+		}
+	}
+	if body := get("/dashboard/decisions?ref=tools"); !strings.Contains(body, `<a href="/dashboard/decisions">Clear</a>`) {
+		t.Errorf("Clear without a filter: %s", body)
+	}
+	if body := get("/dashboard/decisions"); strings.Contains(body, ">Clear</a>") || strings.Contains(body, "lookup-result") {
+		t.Errorf("Clear without a search: %s", body)
+	}
+
+	// A verdict from the grid returns to the search.
+	form := url.Values{"reference": {"tools-4"}, "revision": {"1"}, "back": {"ref=tools&status=waiting"}, "csrf": {client.csrf}}
+	r := dashboardDo(t, d, "POST", "/dashboard/actions/decision-approve", client.cookie, client.sameOrigin, form)
+	location, err := url.Parse(r.header.Get("Location"))
+	if r.status != 303 || err != nil || location.Query().Get("ref") != "tools" || location.Query().Get("status") != "waiting" {
+		t.Fatalf("approve: %d %q", r.status, r.header.Get("Location"))
+	}
+	if got := strings.Join(boardMatches(lookupSection(t, get(location.String()))), " "); got != "tools-4=in progress tools-5=open tools-old=deep archive" {
+		t.Errorf("after approve: matches %q", got)
+	}
+}
