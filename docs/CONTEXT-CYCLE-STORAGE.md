@@ -75,9 +75,16 @@ unchanged. The migration rebuilds `context_cycles` and returns the old table's p
 first write. Since #406 no cycle enters these stages; the schema keeps them for cycles that an
 earlier binary stored in them.
 
+## Refused ready reports
+
+A refused ready report is kept in `context_cycle_refusals` (#485): the newest 8 per cycle, each
+with a code and at most 1 KiB of text. It is an ordinary write outside the cycle's credit and
+takes no event slot. When the store has no room for an ordinary write, the report is not kept,
+and the refusal still reaches the session.
+
 ## Retention
 
-Finished cycles are deleted with their events after 30 days, or beyond the newest 1,024, in a
+Finished cycles are deleted with their events and refused ready reports after 30 days, or beyond the newest 1,024, in a
 control write once a minute. Unfinished cycles and their credits are never deleted. Deletion
 frees pages; it allocates none beyond the B-tree rebalancing that every deletion in the
 database already relies on.

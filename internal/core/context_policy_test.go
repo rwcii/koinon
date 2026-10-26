@@ -381,7 +381,7 @@ func TestContextSchemaTwentyTwoKeepsExistingState(t *testing.T) {
 	room := mustRoom(t, s, "synthetic kept room", 7)
 	mustHumanPost(t, s, room, "synthetic kept post")
 	before := rowsOf(t, s.db)
-	if _, err := fixtureExec(s, undoSchemaTwentyNine+undoSchemaTwentyEight+undoSchemaTwentySeven+undoSchemaTwentySix+undoSchemaTwentyFive+undoSchemaTwentyFour+undoSchemaTwentyThree+undoSchemaTwentyTwo+`PRAGMA user_version=21`); err != nil {
+	if _, err := fixtureExec(s, undoSchemaThirty+undoSchemaTwentyNine+undoSchemaTwentyEight+undoSchemaTwentySeven+undoSchemaTwentySix+undoSchemaTwentyFive+undoSchemaTwentyFour+undoSchemaTwentyThree+undoSchemaTwentyTwo+`PRAGMA user_version=21`); err != nil {
 		t.Fatal(err)
 	}
 	if err := checkCatalog(s.db, 21); err != nil {

@@ -69,6 +69,19 @@ fi
   whatever rule matches. `git ls-files` confirms that Git tracks nothing there; an ignore rule
   does not untrack a file that was committed earlier.
 
+A session that runs outside a Git checkout, such as a workspace directory that holds several
+repositories, keeps its handoffs in the directory where the session started: Koinon registered
+that directory for the session, and a managed cycle reads the handoff there. Git does not check
+that directory. Run these commands from that directory:
+
+```sh
+if ! git rev-parse --git-dir >/dev/null 2>&1; then
+  dir="$PWD/_handoff/<agent-id>"
+  [ -d "$dir" ] || (umask 077 && mkdir -p "$dir")
+  if [ -d "$dir" ]; then echo "ready: $dir"; else echo "not ready: $dir could not be created"; fi
+fi
+```
+
 When the output is `not ready`, tell the maintainer which check failed, with the output.
 
 ## 3. Take the timestamp from the shell

@@ -67,6 +67,7 @@ const (
 	maxArtifactName        = 128
 	maxArtifactBytes       = 1 << 20
 	maxPickupReport        = 1024
+	maxCycleRefusals       = 8
 )
 
 // overwatchKey is the reserved system sender of managed-cycle requests. It is not the
@@ -124,6 +125,14 @@ const contextCycleEventsTable = `CREATE TABLE context_cycle_events (
 	stage TEXT NOT NULL, result TEXT NOT NULL, reason TEXT NOT NULL,
 	PRIMARY KEY (cycle_id, ordinal)) WITHOUT ROWID;`
 
+// contextCycleRefusalsTable holds the refused ready reports of each cycle, the newest
+// maxCycleRefusals, with the revision each one answered (#485). They take no event ordinal
+// and no revision, so the stage history and its revisions stay as they are.
+const contextCycleRefusalsTable = `CREATE TABLE context_cycle_refusals (
+	cycle_id TEXT NOT NULL, ordinal INTEGER NOT NULL, revision INTEGER NOT NULL, at INTEGER NOT NULL,
+	code TEXT NOT NULL, message TEXT NOT NULL,
+	PRIMARY KEY (cycle_id, ordinal)) WITHOUT ROWID;`
+
 // cycleTerminal reports whether a state ends a cycle.
 func cycleTerminal(state string) bool {
 	return state == cycleComplete || state == cycleCancelled || state == cycleFailed || state == cycleUncertain
@@ -160,6 +169,15 @@ type CycleEvent struct {
 	Reason  string `json:"reason,omitempty"`
 }
 
+// CycleRefusal is a refused ready report: the revision it answered, its time, and the
+// refusal's code and text (#485).
+type CycleRefusal struct {
+	Revision int64  `json:"revision"`
+	At       int64  `json:"at"`
+	Code     string `json:"code"`
+	Message  string `json:"message"`
+}
+
 // CycleView is a cycle as its own session and the dashboard see it. It holds no native
 // ID, epoch, host, pane, socket or report text.
 type CycleView struct {
@@ -186,6 +204,8 @@ type CycleView struct {
 	FinishedAt    int64        `json:"finished_at,omitempty"`
 	Role          string       `json:"role"` // requester or successor, for the calling session
 	Events        []CycleEvent `json:"events"`
+	// Refusals are the refused ready reports, oldest first.
+	Refusals []CycleRefusal `json:"ready_refusals"`
 }
 
 // cycleRow is the full private record.
@@ -242,7 +262,8 @@ func (c cycleRow) view(ctx context.Context, q querier, role string) (CycleView, 
 		Address: c.Address, Mode: c.Mode, Threshold: c.Threshold, CreatedAt: c.CreatedAt, UpdatedAt: c.UpdatedAt,
 		StageDeadline: c.StageDeadline, CycleDeadline: c.CycleDeadline, Artifact: c.Artifact, ArtifactBytes: c.ArtifactSize,
 		CatalogDigest: c.CatalogDigest,
-		Outcome:       c.Outcome, ReportBytes: len(c.Report), FinishedAt: c.FinishedAt, Role: role, Events: []CycleEvent{}}
+		Outcome:       c.Outcome, ReportBytes: len(c.Report), FinishedAt: c.FinishedAt, Role: role, Events: []CycleEvent{},
+		Refusals: []CycleRefusal{}}
 	rows, err := q.QueryContext(ctx, `SELECT ordinal,at,stage,result,reason FROM context_cycle_events WHERE cycle_id=? ORDER BY ordinal`, c.ID)
 	if err != nil {
 		return v, err
@@ -254,6 +275,22 @@ func (c cycleRow) view(ctx context.Context, q querier, role string) (CycleView, 
 			return v, err
 		}
 		v.Events = append(v.Events, e)
+	}
+	if err := rows.Err(); err != nil {
+		return v, err
+	}
+	rows.Close()
+	rows, err = q.QueryContext(ctx, `SELECT revision,at,code,message FROM context_cycle_refusals WHERE cycle_id=? ORDER BY ordinal`, c.ID)
+	if err != nil {
+		return v, err
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var r CycleRefusal
+		if err := rows.Scan(&r.Revision, &r.At, &r.Code, &r.Message); err != nil {
+			return v, err
+		}
+		v.Refusals = append(v.Refusals, r)
 	}
 	return v, rows.Err()
 }
@@ -427,8 +464,8 @@ func cycleRequestBody(id string, revision int64, agent string, deadline int64) s
 	return "overwatch: managed context cycle " + id + " revision " + strconv.FormatInt(revision, 10) +
 		" requests your handoff. Report ready by " + by + ". Pause your work at the next safe stopping point. Let running background subagents finish, or stop them, so that the handoff holds their results; " +
 		"stop any that will not finish with enough time left to update the handoff and report ready by " + by + ". Write your handoff " +
-		"with your canonical handoff procedure into _handoff/" + agent + "/ of the main checkout, or into the directory " +
-		"that the Handoff path fact of " + handoffFacts + " names, then call context_cycle_ready with this cycle ID, " +
+		"with your canonical handoff procedure into _handoff/" + agent + "/ of the main checkout (outside a Git checkout, of the directory " +
+		"where this session started), or into the directory that the Handoff path fact of " + handoffFacts + " names, then call context_cycle_ready with this cycle ID, " +
 		"its revision and the handoff file name. Then end your turn and stay idle: overwatch clears your context at your idle prompt, and asks again " +
 		"if your pane does not become idle. See the Managed cycle reporting section of koinon guide."
 }
@@ -1034,10 +1071,12 @@ func (s *Store) ContextCycleReady(ctx context.Context, caller Key, epoch, id str
 		return v, ErrCycleChanged
 	}
 	if epoch != c.Epoch {
+		s.recordReadyRefusal(ctx, c, ErrCycleEpoch)
 		return CycleView{}, ErrCycleEpoch
 	}
 	file, err := s.verifyArtifact(ctx, c, artifact)
 	if err != nil {
+		s.recordReadyRefusal(ctx, c, err)
 		return CycleView{}, err
 	}
 	next, err := s.advanceCycle(ctx, id, revision, cycleWaitingReady, cycleReady, "", pinnedRequester(ctx), func(c *cycleRow) {
@@ -1050,6 +1089,51 @@ func (s *Store) ContextCycleReady(ctx context.Context, caller Key, epoch, id str
 	// A new ready stage starts without an earlier stage's pane observation (#431).
 	s.paneSeen.forget(id)
 	return next.view(ctx, s.db, role)
+}
+
+// recordReadyRefusal records a refused ready report on c while c still waits for ready at
+// the same revision, keeping the newest maxCycleRefusals (#485). It is diagnostic history:
+// an ordinary write, so a full store records nothing and the refusal is returned all the
+// same.
+func (s *Store) recordReadyRefusal(ctx context.Context, c cycleRow, err error) {
+	var refusal Refusal
+	if !errors.As(err, &refusal) {
+		return
+	}
+	// The text is kept as a client receives it: a refusal past the bound keeps its code only.
+	if len(refusal.Message) > MaxRefusalMessage || !utf8.ValidString(refusal.Message) {
+		refusal.Message = ""
+	}
+	ctx = noAudit(ctx)
+	tx, err := s.begin(ctx, ordinary)
+	if err != nil {
+		return
+	}
+	defer tx.Rollback()
+	var ordinal int64
+	if err := tx.QueryRowContext(ctx, `SELECT COALESCE((SELECT MAX(ordinal) FROM context_cycle_refusals WHERE cycle_id=?),0)+1
+		FROM context_cycles WHERE cycle_id=? AND state=? AND revision=?`, c.ID, c.ID, cycleWaitingReady, c.Revision).Scan(&ordinal); err != nil {
+		return
+	}
+	if _, err := tx.ExecContext(ctx, `INSERT INTO context_cycle_refusals(cycle_id,ordinal,revision,at,code,message) VALUES (?,?,?,?,?,?)`,
+		c.ID, ordinal, c.Revision, s.now().UnixMilli(), refusal.Code, refusal.Message); err != nil {
+		return
+	}
+	if _, err := tx.ExecContext(ctx, `DELETE FROM context_cycle_refusals WHERE cycle_id=? AND ordinal<=?`, c.ID, ordinal-maxCycleRefusals); err != nil {
+		return
+	}
+	tx.Commit()
+}
+
+// readyRefusalCode is the code of the newest refused ready report at c's revision, or "".
+func readyRefusalCode(ctx context.Context, q querier, c cycleRow) (string, error) {
+	var code string
+	err := q.QueryRowContext(ctx, `SELECT code FROM context_cycle_refusals WHERE cycle_id=? AND revision=? ORDER BY ordinal DESC LIMIT 1`,
+		c.ID, c.Revision).Scan(&code)
+	if errors.Is(err, sql.ErrNoRows) {
+		return "", nil
+	}
+	return code, err
 }
 
 // pickupRevision reports whether revision is that of one of the cycle's waiting_pickup

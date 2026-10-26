@@ -189,7 +189,8 @@ while fresh and for the current published name.
   your handoff with your canonical handoff procedure into _handoff/AGENT/ of the main checkout,
   where AGENT is your family, with -ROLE for a launch with a role (not the participant
   address); the Handoff path fact of .koinon/skills/handoff.md can name another directory that
-  holds AGENT. A refused ready report names the check that failed and the directory overwatch
+  holds AGENT. A session outside a Git checkout uses the directory where it started in place
+  of the main checkout. A refused ready report names the check that failed and the directory overwatch
   expects. Call context_cycle_ready with the cycle ID, the revision that context_cycle_status
   shows and the handoff file name by that deadline. Then end your turn and stay idle: the
   cycle clears your context at your idle prompt, and enters Koinon's own pickup skill, koinon-pickup, which the

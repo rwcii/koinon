@@ -27,8 +27,9 @@ type artifactFile struct{ dev, ino, size, mtime int64 }
 // repository: <main>/<handoff directory>/<name>, a regular file of 1 byte to 1 MiB, modified
 // after the current request (after a repeat, the repeated one, #431), ignored by Git, in a
 // directory where Git tracks nothing. The handoff directory is the repository's Handoff path
-// fact, else _handoff/<agent>/ (handoffDirectory, #468). Each refusal names the check that
-// failed.
+// fact, else _handoff/<agent>/ (handoffDirectory, #468). A session registered without a
+// repository has its registered directory in place of the main checkout, and Git checks
+// nothing there (#485). Each refusal names the check that failed.
 // It reads metadata through a root opened at the main checkout, and of the files there only
 // the bounded handoff facts, so no symlink or `..` leaves the checkout.
 func (s *Store) verifyArtifact(ctx context.Context, c cycleRow, name string) (artifactFile, error) {
@@ -40,13 +41,22 @@ func (s *Store) verifyArtifact(ctx context.Context, c cycleRow, name string) (ar
 		Scan(&repository, &directory, &role); err != nil {
 		return artifactFile{}, artifactRefusal("has no registered session for this cycle")
 	}
-	main, err := mainCheckout(ctx, directory, repository)
-	if err != nil {
-		return artifactFile{}, artifactRefusal("has no main checkout for this session's repository")
+	main, git, place := directory, repository != "", "main checkout"
+	switch {
+	case git:
+		checkout, err := mainCheckout(ctx, directory, repository)
+		if err != nil {
+			return artifactFile{}, artifactRefusal("has no main checkout for this session's repository")
+		}
+		main = checkout
+	case !filepath.IsAbs(directory) || filepath.Clean(directory) != directory:
+		return artifactFile{}, artifactRefusal("has no absolute registered directory for this session")
+	default:
+		place = "registered directory"
 	}
 	root, err := os.OpenRoot(main)
 	if err != nil {
-		return artifactFile{}, artifactRefusal("has no readable main checkout")
+		return artifactFile{}, artifactRefusal("has no readable %s", place)
 	}
 	defer root.Close()
 	catalog, err := s.libraryCatalog()
@@ -55,7 +65,7 @@ func (s *Store) verifyArtifact(ctx context.Context, c cycleRow, name string) (ar
 	}
 	facts, err := library.OpenReadRoot(main)
 	if err != nil {
-		return artifactFile{}, artifactRefusal("has no readable main checkout")
+		return artifactFile{}, artifactRefusal("has no readable %s", place)
 	}
 	dir, err := handoffDirectory(facts, catalog, cycleAgent(c.Family, role))
 	facts.Close()
@@ -65,7 +75,7 @@ func (s *Store) verifyArtifact(ctx context.Context, c cycleRow, name string) (ar
 	for _, d := range parentDirectories(dir) {
 		info, err := root.Lstat(d)
 		if err != nil || !info.IsDir() {
-			return artifactFile{}, artifactRefusal("must be in %s/ of the main checkout, and %s/ is not a directory there", dir, d)
+			return artifactFile{}, artifactRefusal("must be in %s/ of the %s, and %s/ is not a directory there", dir, place, d)
 		}
 	}
 	relative := filepath.Join(dir, name)
@@ -76,7 +86,7 @@ func (s *Store) verifyArtifact(ctx context.Context, c cycleRow, name string) (ar
 	info, err := root.Lstat(relative)
 	switch {
 	case err != nil || !info.Mode().IsRegular():
-		return artifactFile{}, artifactRefusal("%s is not a regular file in the main checkout", relative)
+		return artifactFile{}, artifactRefusal("%s is not a regular file in the %s", relative, place)
 	case info.Size() < 1 || info.Size() > maxArtifactBytes:
 		return artifactFile{}, artifactRefusal("%s must hold 1 byte to 1 MiB", relative)
 	case info.ModTime().UnixMilli() < requested:
@@ -91,6 +101,9 @@ func (s *Store) verifyArtifact(ctx context.Context, c cycleRow, name string) (ar
 	if c.Artifact == name && c.ArtifactIno != 0 && (file.dev != c.ArtifactDev || file.ino != c.ArtifactIno ||
 		file.size != c.ArtifactSize || file.mtime != c.ArtifactMtime) {
 		return artifactFile{}, artifactRefusal("%s changed after the ready report; report ready again", relative)
+	}
+	if !git {
+		return file, nil
 	}
 	if !gitIgnored(ctx, main, relative) {
 		return artifactFile{}, artifactRefusal("%s is not ignored by Git", relative)

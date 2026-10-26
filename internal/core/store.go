@@ -356,7 +356,7 @@ func checkFormat(db *sql.DB, path string) error {
 	return nil
 }
 
-const schemaVersion = 29
+const schemaVersion = 30
 
 // workItemsV16Columns are the work item columns before schema 17, which its rebuild copies.
 const workItemsV16Columns = `store,work_id,revision,lifecycle,title,criteria,non_goals,proposed_assignee,created_at,created_consumer,
@@ -863,6 +863,13 @@ func migrate(db *sql.DB, version, target int) error {
 			derived_key BLOB NOT NULL CHECK (length(derived_key) = 32),
 			updated_at INTEGER NOT NULL
 		)`); err != nil {
+			return err
+		}
+	}
+	if version < 30 && target >= 30 {
+		// Version 30: each refused ready report of a cycle, as diagnostic history beside its
+		// stage events (#485).
+		if _, err := tx.Exec(contextCycleRefusalsTable); err != nil {
 			return err
 		}
 	}
