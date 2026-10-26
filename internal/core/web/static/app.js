@@ -15,12 +15,30 @@
   // selected for a bulk action hold it too, so the selection stays (#429). A field that
   // holds input not yet sent holds it also without focus, so a note typed on a card stays
   // after a click elsewhere, such as on the card's Copy button (#510).
+  // loadedIndex is the option that a select shows as loaded: the last option with the
+  // selected attribute, or for a single select without one, the first option that is not
+  // disabled, as the HTML selectedness rules set it; -1 when none is.
+  function loadedIndex(f) {
+    var first = -1;
+    for (var i = f.options.length - 1; i >= 0; i--) {
+      if (f.options[i].defaultSelected) {
+        return i;
+      }
+      if (!f.options[i].disabled) {
+        first = i;
+      }
+    }
+    return f.multiple ? -1 : first;
+  }
   function unsent() {
     var fields = list.querySelectorAll("input, textarea, select");
     for (var i = 0; i < fields.length; i++) {
       var f = fields[i];
       if (f.tagName === "SELECT") {
-        for (var j = 0; j < f.options.length; j++) {
+        if (f.selectedIndex !== loadedIndex(f)) {
+          return true;
+        }
+        for (var j = 0; f.multiple && j < f.options.length; j++) {
           if (f.options[j].selected !== f.options[j].defaultSelected) {
             return true;
           }

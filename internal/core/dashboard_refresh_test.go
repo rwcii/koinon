@@ -22,7 +22,11 @@ function run(name, script) {
   // The list's form fields as loaded: a note, a hidden field, a select and a checkbox.
   const fields = () => [{ tagName: 'TEXTAREA', type: 'textarea', value: '', defaultValue: '' },
     { tagName: 'INPUT', type: 'hidden', value: 'csrf', defaultValue: 'csrf' },
-    { tagName: 'SELECT', options: [{ selected: true, defaultSelected: true }, { selected: false, defaultSelected: false }] },
+    { tagName: 'SELECT', multiple: false, selectedIndex: 0, options: [{ selected: true, defaultSelected: true }, { selected: false, defaultSelected: false }] },
+    // A select without a selected attribute shows its first enabled option, as the work view's
+    // outcome select does; HTML sets no defaultSelected on it.
+    { tagName: 'SELECT', multiple: false, selectedIndex: 1, options: [{ disabled: true, selected: false, defaultSelected: false },
+      { selected: true, defaultSelected: false }, { selected: false, defaultSelected: false }] },
     { tagName: 'INPUT', type: 'checkbox', checked: false, defaultChecked: false }];
   let html = 'unsaved edit form';
   const list = {
@@ -79,8 +83,10 @@ const settle = () => new Promise(resolve => setImmediate(resolve));
   // the list is marked as held; unchanged fields do not hold it (#510).
   await run('typed-unfocused', async (state, tick, list) => { list.fields[0].value = 'my note'; tick(); return state.requests + ' ' + list.innerHTML + ' held ' + list.held; });
   await run('typed-in-flight', async (state, tick, list) => { tick(); list.fields[0].value = 'my note'; answer(state); await settle(); return list.innerHTML + ' held ' + list.held; });
-  await run('select-changed', async (state, tick, list) => { list.fields[2].options[0].selected = false; list.fields[2].options[1].selected = true; tick(); return state.requests + ' ' + list.innerHTML; });
-  await run('checkbox-changed', async (state, tick, list) => { list.fields[3].checked = true; tick(); return state.requests + ' ' + list.innerHTML; });
+  await run('select-changed', async (state, tick, list) => { list.fields[2].selectedIndex = 1; list.fields[2].options[0].selected = false; list.fields[2].options[1].selected = true; tick(); return state.requests + ' ' + list.innerHTML; });
+  await run('implicit-select-changed', async (state, tick, list) => { list.fields[3].selectedIndex = 2; tick(); return state.requests + ' ' + list.innerHTML; });
+  await run('implicit-select-reset', async (state, tick, list) => { list.fields[3].selectedIndex = 2; tick(); list.fields[3].selectedIndex = 1; tick(); answer(state); await settle(); return list.innerHTML + ' held ' + list.held; });
+  await run('checkbox-changed', async (state, tick, list) => { list.fields[4].checked = true; tick(); return state.requests + ' ' + list.innerHTML; });
   await run('typed-then-cleared', async (state, tick, list) => { list.fields[0].value = 'x'; tick(); list.fields[0].value = ''; tick(); answer(state); await settle(); return list.innerHTML + ' held ' + list.held; });
 })();
 `
@@ -117,7 +123,8 @@ func TestRefreshKeepsFormsInUse(t *testing.T) {
 		"keyed-open replacement fragment reopened true\nunkeyed-open 0 unsaved edit form\n" +
 		"checked-before 0 unsaved edit form\nchecked-in-flight unsaved edit form\n" +
 		"typed-unfocused 0 unsaved edit form held true\ntyped-in-flight unsaved edit form held true\n" +
-		"select-changed 0 unsaved edit form\ncheckbox-changed 0 unsaved edit form\n" +
+		"select-changed 0 unsaved edit form\nimplicit-select-changed 0 unsaved edit form\n" +
+		"implicit-select-reset replacement fragment held false\ncheckbox-changed 0 unsaved edit form\n" +
 		"typed-then-cleared replacement fragment held false\n"
 	if string(out) != want {
 		t.Fatalf("refresh:\n%s\nwant:\n%s", out, strings.TrimSpace(want))
