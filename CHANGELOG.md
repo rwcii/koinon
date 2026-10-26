@@ -5,6 +5,16 @@ into a dated release section when promoted to `main`.
 
 ## Unreleased
 
+## 2026-10-26 — Maintainer MCP mode, a maintainer secret and change notices
+
+This release adds a way for a program to act as the maintainer. A maintainer secret logs in to
+the dashboard, and `koinon mcp --maintainer` uses it to give a client, such as a voice bridge on
+this machine or over SSH, the maintainer's tools and content-free change notices. Each
+maintainer action records its client. Agents post in rooms without an allowance, work claims
+last through a managed context cycle, and Koinon's text for agents, skills and docs says what to
+do. The state schema moves from 28 to 32; the daemon migrates a v0.4.3 state in place when it
+starts.
+
 - `koinon mcp --maintainer` sends change notices (#470, PDR 009, Decision 3). It offers the
   resources `koinon://maintainer/inbox`, `koinon://maintainer/decisions` and
   `koinon://maintainer/rooms/ROOM_ID` with subscriptions: `resources/read` returns the JSON of
@@ -90,6 +100,20 @@ into a dated release section when promoted to `main`.
   an upgrade starts with no secret set.
 - The Homebrew caveats give each command on its own line, list the upgrade steps with
   `koinon version` and `koinon dashboard`, and show the `--system` step only on macOS (#483).
+
+Upgrade from v0.4.3 with Homebrew: run `brew update` and `brew upgrade koinon`. The daemon
+restarts on the new binary and migrates the state to schema 32, which ends current dashboard
+logins: log in again with the maintainer secret after `koinon maintainer secret set` or
+`generate`, or run `koinon dashboard` for a one-time link. A running `koinon mcp` server runs
+the new release without a session restart. The `koinon-` skill entries load the new procedures
+from the installed binary, and `koinon guide` prints the new guide text.
+
+Upgrade notes:
+
+- A macOS system-mode daemon (`--system`) keeps a copy; upgrade it with
+  `$(brew --prefix)/bin/koinon install --system`.
+- Codex keeps the tools and descriptions it read at the start until its session starts again
+  (docs/INSTALL.md).
 
 ## 2026-10-25 — Progress notes for handoffs, wake guidance and failed-run accounting
 

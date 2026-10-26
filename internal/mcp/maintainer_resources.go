@@ -153,8 +153,7 @@ func (s *maintainerServer) subscribe(ctx context.Context, id json.RawMessage, ur
 }
 
 // unsubscribe ends a subscription. The last one ends the long poll and joins it before the
-// answer, so no poll runs, no notice is written and the token's idle limit does not move
-// after it.
+// answer, so no poll starts and no notice is written after it.
 func (s *maintainerServer) unsubscribe(id json.RawMessage, uri string) {
 	s.subMu.Lock()
 	delete(s.subs, uri)
