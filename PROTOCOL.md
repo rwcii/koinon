@@ -1803,8 +1803,9 @@ from elsewhere. Peer message bodies appear here, escaped, and nowhere else outsi
   with `filter` `waiting`, or `room_read`. An unknown URI is the JSON-RPC error -32002 with
   `data: {"code": "unknown_resource"}`; an unknown room is -32002 with `room_not_found`; another
   refusal is -32603 with its code, text and details in `data`. `resources/subscribe` (`uri`)
-  reads the current versions before it answers, so a change after the answer is noticed, and
-  refuses a room that does not exist with `room_not_found`; `resources/unsubscribe` (`uri`)
+  reads the current versions before it answers, so a change after the answer is noticed, then
+  writes one notice for the URI, so a change between the client's last read and the
+  subscription is read too; it refuses a room that does not exist with `room_not_found`; `resources/unsubscribe` (`uri`)
   ends one subscription. While at least one resource is subscribed, one goroutine runs
   `changes` with `wait_seconds` 25. A changed version of a subscribed URI writes
   `{"jsonrpc": "2.0", "method": "notifications/resources/updated", "params": {"uri": URI}}`,

@@ -201,7 +201,8 @@ tunnel, and logs in with the secret.
 - Change notices: the resources `koinon://maintainer/inbox`, `koinon://maintainer/decisions`
   and `koinon://maintainer/rooms/{id}`, with subscriptions. A change sends
   `notifications/resources/updated` with only the URI, and the client reads again
-  (ADR 001, Decision 3).
+  (ADR 001, Decision 3). A subscription also sends one notice right after its reply, so a
+  change between the client's last read and the subscription is read.
 - The agent MCP mode, agent identity and the loopback-only daemon do not change.
 - A running maintainer-mode process ends when its token ends: at a daemon restart, after 24
   hours without an authenticated request, 7 days after the token started, and when the

@@ -124,8 +124,9 @@ func (s *maintainerServer) readResource(ctx context.Context, id json.RawMessage,
 }
 
 // subscribe reads the current versions before it answers, so a change after the answer is
-// not lost, and starts the long poll if none runs. A room that does not exist is refused with
-// room_not_found.
+// not lost, and starts the long poll if none runs. After the answer it writes one notice for
+// the URI: a change between the client's last read and the subscription is in no baseline, so
+// the client reads again. A room that does not exist is refused with room_not_found.
 func (s *maintainerServer) subscribe(ctx context.Context, id json.RawMessage, uri string) bool {
 	versions, err := s.changes(ctx, nil)
 	if err == nil && strings.HasPrefix(uri, roomURI) && versions[uri] == "" {
@@ -143,6 +144,11 @@ func (s *maintainerServer) subscribe(ctx context.Context, id json.RawMessage, ur
 	}
 	s.subMu.Unlock()
 	s.reply(id, map[string]any{})
+	s.subMu.Lock()
+	if _, ok := s.subs[uri]; ok {
+		s.updated(uri)
+	}
+	s.subMu.Unlock()
 	return false
 }
 
@@ -234,7 +240,12 @@ func (s *maintainerServer) notify(ctx context.Context, versions map[string]strin
 		}
 		if version := versions[uri]; version != s.subs[uri] {
 			s.subs[uri] = version
-			s.send(map[string]any{"jsonrpc": "2.0", "method": "notifications/resources/updated", "params": map[string]any{"uri": uri}})
+			s.updated(uri)
 		}
 	}
+}
+
+// updated writes the notice of a URI, with only the URI. The caller holds subMu.
+func (s *maintainerServer) updated(uri string) {
+	s.send(map[string]any{"jsonrpc": "2.0", "method": "notifications/resources/updated", "params": map[string]any{"uri": uri}})
 }

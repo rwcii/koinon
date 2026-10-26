@@ -9,7 +9,9 @@ into a dated release section when promoted to `main`.
   resources `koinon://maintainer/inbox`, `koinon://maintainer/decisions` and
   `koinon://maintainer/rooms/ROOM_ID` with subscriptions: `resources/read` returns the JSON of
   the `inbox`, `board_list` (waiting) or `room_read` tool, and a change of a subscribed resource
-  sends `notifications/resources/updated` with only its URI. A deleted room is a change. While a
+  sends `notifications/resources/updated` with only its URI. Each subscription also sends one
+  notice right after its reply, so a change between the client's read and its subscription is
+  read. A deleted room is a change. While a
   resource is subscribed, the process runs the new long poll `POST /v1/maintainer/changes`,
   which returns the content-free versions of the inbox, the board and each room as soon as they
   change, after at most 30 seconds. Each poll moves the token's 24-hour idle limit, so a quiet

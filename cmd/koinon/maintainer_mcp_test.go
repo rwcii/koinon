@@ -531,6 +531,8 @@ func TestMaintainerMCPChangeNotices(t *testing.T) {
 			t.Fatalf("subscribe %s: %v", uri, reply)
 		}
 	}
+	// Each subscription sends one notice after its reply, so the client reads again.
+	p.await(&pending, inbox, decisions, roomA)
 	post := func(uri, key string) {
 		t.Helper()
 		reply, isError := p.noticedTool(&pending, "room_post", map[string]any{"room_id": strings.TrimPrefix(uri, "koinon://maintainer/rooms/"), "body": "a synthetic post",
@@ -593,6 +595,7 @@ func TestMaintainerMCPChangeNotices(t *testing.T) {
 	agentCall("/v1/messages/send", map[string]any{"to": "maintainer", "body": "another synthetic report"})
 	p.quiet(&pending)
 	p.call("resources/subscribe", map[string]any{"uri": roomA}, &pending)
+	p.await(&pending, roomA)
 	post(roomA, "p4")
 	p.await(&pending, roomA)
 	// A deleted room is a change; reading it then gives the room's refusal.
@@ -623,4 +626,36 @@ func sortedCopy(values []string) []string {
 	values = slices.Clone(values)
 	slices.Sort(values)
 	return values
+}
+
+// TestMaintainerMCPSubscribeAfterRead checks that a change between a client's read and its
+// subscription is noticed: the subscription's own notice asks the client to read again.
+func TestMaintainerMCPSubscribeAfterRead(t *testing.T) {
+	root := filepath.Join(t.TempDir(), "state")
+	d := maintainerMCPDaemon(t, root, "127.0.0.1:0", true)
+	address := d.Addresses()[0]
+	bearer, err := core.ReadSecret(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	ctx := context.Background()
+	agent := core.Key{Family: "deepseek", ID: "synthetic-read-agent"}
+	if _, err := core.Call(ctx, address, bearer, "/v1/sessions/register", core.Registration{Family: agent.Family, ID: agent.ID, Directory: t.TempDir()}); err != nil {
+		t.Fatal(err)
+	}
+	p := startMaintainerMCP(t, []string{"--maintainer", "--client", "synthetic-read", "--secret-stdin", "--state-dir", root, "--address", address}, mcpSecret+"\n")
+	var pending []string
+	p.call("initialize", map[string]any{"protocolVersion": "2025-06-18", "capabilities": map[string]any{}}, &pending)
+	uri := "koinon://maintainer/inbox"
+	if reply := p.call("resources/read", map[string]any{"uri": uri}, &pending); reply["result"] == nil {
+		t.Fatalf("read: %v", reply)
+	}
+	// A change commits after the client's read and before its subscription.
+	if _, err := core.Call(ctx, address, bearer, "/v1/messages/send", map[string]any{"caller": agent, "to": "maintainer", "body": "synthetic change between read and subscribe"}); err != nil {
+		t.Fatal(err)
+	}
+	if reply := p.call("resources/subscribe", map[string]any{"uri": uri}, &pending); reply["result"] == nil {
+		t.Fatalf("subscribe: %v", reply)
+	}
+	p.await(&pending, uri)
 }

@@ -246,6 +246,11 @@ func TestMaintainerPollExpiryAnswersThePendingCall(t *testing.T) {
 	}
 	p := serveMaintainerPipes(t, startFakeMaintainer(t, f))
 	p.reply(p.send("resources/subscribe", map[string]any{"uri": decisionsURI}))
+	line, ok := p.next(5 * time.Second)
+	if !ok {
+		t.Fatal("no notice after the subscribe reply")
+	}
+	checkNotice(t, line, decisionsURI)
 	reply, notices := p.reply(p.send("tools/call", map[string]any{"name": "peers", "arguments": map[string]any{}}))
 	result, _ := reply["result"].(map[string]any)
 	if len(notices) != 0 || result == nil || result["isError"] != false {

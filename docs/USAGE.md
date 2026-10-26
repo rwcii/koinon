@@ -613,7 +613,9 @@ with `retry_after_seconds`.
 A client learns of changes without reading on a timer. It subscribes with `resources/subscribe`
 to `koinon://maintainer/inbox`, `koinon://maintainer/decisions` (the waiting items and the
 board's counts) or `koinon://maintainer/rooms/ROOM_ID`; `resources/list` names them with the
-current rooms. On each change the process sends `notifications/resources/updated` with only the
+current rooms. Right after the subscribe reply the process sends one notice for the URI, so a
+change between the client's last read and its subscription is not lost. On each change the
+process sends `notifications/resources/updated` with only the
 URI, and the client reads it again with `resources/read`, which returns the same JSON as the
 `inbox`, `board_list` or `room_read` tool. A deleted room gets one last notice, and reading it
 then gives `room_not_found`. While a subscription stands, the process keeps a long poll open to
