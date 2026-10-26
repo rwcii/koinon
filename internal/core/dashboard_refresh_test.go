@@ -63,7 +63,7 @@ function run(name, script) {
     getElementById() { return list; }, visibilityState: 'visible', addEventListener() {},
     get activeElement() { return state.focused ? input : null; }
   };
-  const context = { document, URL, window: { location: { href: 'http://localhost/dashboard/memory' }, setInterval(f) { tick = f; } },
+  const context = { document, URL, window: { location: { href: 'http://localhost/dashboard/memory', reload() { state.reloaded = true; } }, setInterval(f) { tick = f; } },
     fetch() { state.requests++; return new Promise(resolve => { state.complete = resolve; }); } };
   vm.runInNewContext(fs.readFileSync(process.argv[2], 'utf8'), context);
   return script(state, () => tick(), list).then(result => console.log(name + ' ' + result));
@@ -88,6 +88,9 @@ const settle = () => new Promise(resolve => setImmediate(resolve));
   await run('implicit-select-reset', async (state, tick, list) => { list.fields[3].selectedIndex = 2; tick(); list.fields[3].selectedIndex = 1; tick(); answer(state); await settle(); return list.innerHTML + ' held ' + list.held; });
   await run('checkbox-changed', async (state, tick, list) => { list.fields[4].checked = true; tick(); return state.requests + ' ' + list.innerHTML; });
   await run('typed-then-cleared', async (state, tick, list) => { list.fields[0].value = 'x'; tick(); list.fields[0].value = ''; tick(); answer(state); await settle(); return list.innerHTML + ' held ' + list.held; });
+  // A fault page loads the whole view once its list reads again (#507).
+  await run('fault-recovers', async (state, tick, list) => { list.dataset.reload = 'true'; tick(); answer(state); await settle(); return list.innerHTML + ' reloaded ' + (state.reloaded === true); });
+  await run('fault-persists', async (state, tick, list) => { list.dataset.reload = 'true'; tick(); state.complete({ ok: false }); await settle(); return list.innerHTML + ' reloaded ' + (state.reloaded === true); });
 })();
 `
 
@@ -95,7 +98,8 @@ const settle = () => new Promise(resolve => setImmediate(resolve));
 // has focus, also when the person opens it while a refresh is in flight (#243 review). An
 // open read-only disclosure with a data-key does not hold it and is open again after (#373).
 // A session selected for a bulk action holds it, so the selection stays (#429). A field with
-// input not yet sent holds it also without focus, and the list is marked held (#510).
+// input not yet sent holds it also without focus, and the list is marked held (#510). A fault
+// page loads the whole view once the list reads again (#507).
 func TestRefreshKeepsFormsInUse(t *testing.T) {
 	node, err := exec.LookPath("node")
 	if err != nil {
@@ -125,7 +129,8 @@ func TestRefreshKeepsFormsInUse(t *testing.T) {
 		"typed-unfocused 0 unsaved edit form held true\ntyped-in-flight unsaved edit form held true\n" +
 		"select-changed 0 unsaved edit form\nimplicit-select-changed 0 unsaved edit form\n" +
 		"implicit-select-reset replacement fragment held false\ncheckbox-changed 0 unsaved edit form\n" +
-		"typed-then-cleared replacement fragment held false\n"
+		"typed-then-cleared replacement fragment held false\n" +
+		"fault-recovers unsaved edit form reloaded true\nfault-persists unsaved edit form reloaded false\n"
 	if string(out) != want {
 		t.Fatalf("refresh:\n%s\nwant:\n%s", out, strings.TrimSpace(want))
 	}

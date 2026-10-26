@@ -35,6 +35,27 @@ type settingsData struct {
 }
 
 // loginData is the login page's reason, and whether it shows the secret form.
+// viewFault reports whether a view's read failed in the daemon (storage, Git, a stored
+// record that cannot be read or another server error) rather than on the request's query: an
+// invalid query and every other refusal are the request's (#507).
+func viewFault(err error) bool {
+	var work WorkRefusal
+	var refusal Refusal
+	switch {
+	case errors.As(err, &work):
+		return daemonFaultCodes[work.Code]
+	case errors.As(err, &refusal):
+		return daemonFaultCodes[refusal.Code]
+	}
+	status, _ := plainError(err)
+	return status >= http.StatusInternalServerError
+}
+
+// daemonFaultCodes are the refusal codes of a failure in the daemon's own storage or stored
+// records, which no change to the request avoids.
+var daemonFaultCodes = map[string]bool{"storage_error": true, "storage_blocked": true, "incompatible_store": true,
+	"decision_unavailable": true, "identity_unavailable": true}
+
 type loginData struct {
 	Reason string
 	Form   bool
@@ -52,6 +73,9 @@ type dashboardPage struct {
 	Now    time.Time
 	Notice string
 	Back   string // the view's order and filters, which its action forms return to
+	// Reload makes the refresh load the whole page once its list reads again: the fault page
+	// has none of the view's actions or filters to keep (#507).
+	Reload bool
 }
 
 func dashboardTemplates() (map[string]*template.Template, error) {
@@ -114,7 +138,7 @@ func dashboardTemplates() (map[string]*template.Template, error) {
 		return nil, err
 	}
 	result := map[string]*template.Template{}
-	for _, view := range append([]string{"login"}, dashboardViews...) {
+	for _, view := range append([]string{"login", "fault"}, dashboardViews...) {
 		t, err := template.Must(layout.Clone()).ParseFS(webFiles, "web/"+view+".html")
 		if err != nil {
 			return nil, err
@@ -264,6 +288,17 @@ func (d *Daemon) dashboardHandler() (http.Handler, error) {
 	for _, view := range dashboardViews {
 		mux.HandleFunc("GET /dashboard/"+view, authed(func(w http.ResponseWriter, r *http.Request, id string) {
 			data, err := d.dashboardData(r, view)
+			if err != nil && viewFault(err) {
+				// A daemon fault is not the request's: the page says so with 500, and the
+				// daemon log names the cause (#507). The page keeps the navigation and its
+				// refresh, which loads the whole view again once the read works.
+				if d.logEvent != nil && r.Context().Err() == nil {
+					d.logEvent("dashboard_view_failed", map[string]any{"view": view, "error": err.Error()})
+				}
+				render(w, r, http.StatusInternalServerError, dashboardPage{View: "fault", Title: strings.ToUpper(view[:1]) + view[1:],
+					CSRF: d.auth.csrf(id), Reload: true})
+				return
+			}
 			if err != nil {
 				refuse(w, r, http.StatusBadRequest, "request")
 				return

@@ -89,6 +89,12 @@
           held(unsent());
           return;
         }
+        // The fault page holds none of the view's actions or filters: load the whole view
+        // once its list reads again (#507).
+        if (list.dataset.reload) {
+          window.location.reload();
+          return;
+        }
         var open = Array.prototype.map.call(list.querySelectorAll("details[open][data-key]"), function (d) {
           return d.dataset.key;
         });
