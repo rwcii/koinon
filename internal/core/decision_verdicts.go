@@ -559,6 +559,146 @@ func closeRepeat(ctx context.Context, q querier, caller Key, key, print string) 
 	return &original, nil
 }
 
+// decisionWithdrawReasonLimit bounds a withdrawal reason, in bytes.
+const decisionWithdrawReasonLimit = 512
+
+// DecisionWithdraw archives an active item that no longer needs the maintainer (#504): a
+// waiting decision item or an open fyi item, at the revision the caller read, with a
+// required one-line reason. The caller is the item's author, a session of the author's
+// participant or a named recipient. The withdrawal is no verdict and sends no delivery;
+// decision_restore with if_revision reopens the item. key and deadline make a retry return
+// the first result.
+func (s *Store) DecisionWithdraw(ctx context.Context, caller Key, reference string, ifRevision int64, reason, key string, deadline float64) (DecisionItem, error) {
+	if !validKey(caller.Family, caller.ID) {
+		return DecisionItem{}, ErrInvalid
+	}
+	if err := checkReference(reference); err != nil {
+		return DecisionItem{}, err
+	}
+	if err := checkLine(reason, "reason", decisionWithdrawReasonLimit, true); err != nil {
+		return DecisionItem{}, err
+	}
+	if strings.TrimSpace(reason) == "" {
+		return DecisionItem{}, decisionInvalid("reason", "must not be blank")
+	}
+	if err := checkCredentials(reason, "reason"); err != nil {
+		return DecisionItem{}, err
+	}
+	if err := checkLine(key, "key", decisionKeyLimit, true); err != nil {
+		return DecisionItem{}, err
+	}
+	clock := s.clock()
+	if math.IsNaN(deadline) || math.IsInf(deadline, 0) || deadline > clock+s.limits().idemTTL {
+		return DecisionItem{}, decisionInvalid("deadline", fmt.Sprintf("must be within %.0f s", s.limits().idemTTL))
+	}
+	if deadline <= clock {
+		return DecisionItem{}, workError("retry_deadline_expired", "the retry deadline has passed")
+	}
+	print := decisionFingerprint("withdraw\x00"+reference, DecisionFields{Order: &ifRevision, Context: &reason}, deadline)
+	key = "withdraw\x00" + key
+	read, err := s.db.BeginTx(ctx, &sql.TxOptions{ReadOnly: true})
+	if err != nil {
+		return DecisionItem{}, err
+	}
+	if err := active(ctx, read, s.now().UnixMilli(), caller); err != nil {
+		read.Rollback()
+		return DecisionItem{}, err
+	}
+	original, err := closeRepeat(ctx, read, caller, key, print)
+	read.Rollback()
+	if err != nil || original != nil {
+		return orItem(original), err
+	}
+	tx, err := s.begin(ctx, ordinary)
+	if err != nil {
+		return DecisionItem{}, err
+	}
+	defer tx.Rollback()
+	now := s.now().UnixMilli()
+	if err := active(ctx, tx.Tx, now, caller); err != nil {
+		return DecisionItem{}, err
+	}
+	if original, err := closeRepeat(ctx, tx.Tx, caller, key, print); err != nil || original != nil {
+		return orItem(original), err
+	}
+	id, item, err := decisionRow(ctx, tx.Tx, reference)
+	if err != nil {
+		return DecisionItem{}, err
+	}
+	if item.Revision != ifRevision {
+		return DecisionItem{}, WorkRefusal{Code: "stale_revision", Message: "the decision item changed; read it again",
+			Details: map[string]any{"current_revision": item.Revision}}
+	}
+	// A verdict moves the item out of active in its own write, so an item that is active in
+	// this write has no current verdict.
+	if item.State != "active" {
+		return DecisionItem{}, workError("not_active", "only a waiting decision item or an open fyi item can be withdrawn")
+	}
+	peer, err := itemParty(ctx, tx.Tx, now, caller, id, item)
+	if err != nil {
+		return DecisionItem{}, err
+	}
+	if _, err := tx.ExecContext(ctx, `UPDATE decision_items SET state='archived',archived_at=?,updated_at=? WHERE id=?`, now, now, id); err != nil {
+		return DecisionItem{}, tx.fail(err)
+	}
+	if _, err := tx.ExecContext(ctx, `INSERT INTO decision_withdrawals(item_id,revision,family,name,reason,at) VALUES (?,?,?,?,?,?)`,
+		id, item.Revision, caller.Family, peer, reason, now); err != nil {
+		return DecisionItem{}, tx.fail(err)
+	}
+	if err := bumpChange(ctx, tx, changeDecisions); err != nil {
+		return DecisionItem{}, tx.fail(err)
+	}
+	// The receipt is the withdrawn item itself, so a retry returns this result even after a
+	// later reopen or edit changed the item.
+	withdrawn, err := decisionItem(ctx, tx.Tx, reference)
+	if err != nil {
+		return DecisionItem{}, err
+	}
+	receipt, _ := json.Marshal(withdrawn)
+	if _, err := tx.ExecContext(ctx, `INSERT INTO decision_replays(family,caller_id,key,fingerprint,deadline,result) VALUES (?,?,?,?,?,?)`,
+		caller.Family, caller.ID, key, print, deadline, string(receipt)); err != nil {
+		return DecisionItem{}, tx.fail(err)
+	}
+	return withdrawn, tx.Commit()
+}
+
+// itemParty returns the caller's peer name when the caller may withdraw or reopen the item
+// (#504): its author, a session of the author's participant (the same family, repository
+// and role, so a successor after a context cycle qualifies) or a recipient that names the
+// caller's peer name or held address. Otherwise it refuses with not_item_party.
+func itemParty(ctx context.Context, tx *sql.Tx, now int64, caller Key, id int64, item DecisionItem) (string, error) {
+	peer, err := peerOf(ctx, tx, caller.Family, caller.ID)
+	if err != nil {
+		return "", err
+	}
+	names, err := callerNames(ctx, tx, now, caller)
+	if err != nil {
+		return "", err
+	}
+	if caller.Family == item.AuthorFamily && peer != "" && peer == item.AuthorName {
+		return peer, nil
+	}
+	var n int
+	if err := tx.QueryRowContext(ctx, `SELECT COUNT(*) FROM names a JOIN sessions sa ON sa.family=a.family AND sa.id=a.session_id
+		JOIN sessions sc ON sc.family=? AND sc.id=? WHERE a.kind='peer' AND a.name=? AND a.family=? AND sa.family=sc.family
+		AND sa.repository=sc.repository AND sa.repository!='' AND sa.role=sc.role AND sa.subagent=0 AND sc.subagent=0`,
+		caller.Family, caller.ID, item.AuthorName, item.AuthorFamily).Scan(&n); err != nil {
+		return "", err
+	}
+	for _, name := range names {
+		if n > 0 {
+			break
+		}
+		if err := tx.QueryRowContext(ctx, `SELECT COUNT(*) FROM decision_recipients WHERE item_id=? AND name=?`, id, name).Scan(&n); err != nil {
+			return "", err
+		}
+	}
+	if n == 0 {
+		return "", workError("not_item_party", "only the item's author, a session of its participant or a named recipient can do this")
+	}
+	return peer, nil
+}
+
 func orItem(item *DecisionItem) DecisionItem {
 	if item == nil {
 		return DecisionItem{}

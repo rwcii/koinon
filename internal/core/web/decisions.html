@@ -8,7 +8,7 @@
 {{with .Data.Item}}{{if $.Data.LookupCard}}{{template "card" (decisionCard $ . true)}}
 {{else}}<h2>{{.Reference}}: {{.Title}}</h2>
 {{if $.Data.NoticeOn .Reference}}{{template "card-notice" $.Data}}{{end}}
-<p><small>{{.Kind}}, {{.State}}, revision {{.Revision}}, order {{.Order}}, by {{.AuthorName}} ({{.AuthorFamily}}), updated {{ms .UpdatedAt}}{{with .ArchivedAt}}, archived {{ms .}}{{end}}, {{.Verdicts}} verdict(s) in history. Read only.</small></p>
+<p><small>{{.Kind}}, {{.State}}, revision {{.Revision}}, order {{.Order}}, by {{.AuthorName}} ({{.AuthorFamily}}), updated {{ms .UpdatedAt}}{{with .ArchivedAt}}, archived {{ms .}}{{end}}{{if .Withdrawn}}, withdrawn by an agent{{end}}, {{.Verdicts}} verdict(s) in history. Read only.</small></p>
 {{template "body" .}}
 {{with .ClosedBy}}<p><small>Closed by {{.}}{{with $.Data.Item.ClosedAt}} at {{ms .}}{{end}}</small></p>{{end}}{{with .OutcomeNote}}<h4>Outcome</h4><div class="md">{{markdown .}}</div>{{end}}{{end}}
 {{with $.Data.History}}<h3>Verdict history</h3>{{if not .Verdicts}}<p class="empty">No verdicts.</p>{{end}}
@@ -35,7 +35,7 @@
 {{if .Data.ShowArchive}}<h2>Archive</h2>
 {{if not .Data.Archive.Items}}<p class="empty">No archived items.</p>{{else}}<div class="scroll"><table>
 <thead><tr><th>Reference</th><th>Title</th><th>Kind</th><th>Verdict</th><th>Revision</th></tr></thead>
-<tbody>{{range .Data.Archive.Items}}<tr><td><a href="/dashboard/decisions?ref={{.Reference}}{{with $.Data.Status}}&amp;status={{.}}{{end}}">{{.Reference}}</a></td><td>{{.Title}}</td><td>{{.Kind}}</td><td>{{with .Verdict}}{{.}}{{else}}—{{end}}</td><td>{{.Revision}}</td></tr>{{end}}</tbody></table></div>{{end}}
+<tbody>{{range .Data.Archive.Items}}<tr><td><a href="/dashboard/decisions?ref={{.Reference}}{{with $.Data.Status}}&amp;status={{.}}{{end}}">{{.Reference}}</a></td><td>{{.Title}}</td><td>{{.Kind}}</td><td>{{with .Verdict}}{{.}}{{else}}{{if .Withdrawn}}withdrawn{{else}}—{{end}}{{end}}</td><td>{{.Revision}}</td></tr>{{end}}</tbody></table></div>{{end}}
 {{with .Data.Archive.NextAfter}}<p><a href="/dashboard/decisions?archived={{.}}{{with $.Data.Status}}&amp;status={{.}}{{end}}">More archived items</a></p>{{end}}{{end}}
 <p><small>Agents write these items. Agents read verdicts through Koinon, not from this page.</small></p>
 </div>{{end}}
@@ -59,4 +59,5 @@
 {{with .AgentText}}<h4>Agent text</h4><div class="md">{{markdown .}}</div>{{end}}
 {{if .Commands}}<h4>Commands</h4>{{range .Commands}}<div class="command"><pre><code>{{.}}</code></pre><button type="button" class="copy">Copy</button></div>{{end}}{{end}}
 {{with .HiddenCommands}}<p class="refused">{{.}} stored command(s) fail the printable-ASCII rule and are hidden. This item cannot be approved as shown.</p>{{end}}
+{{with .Withdrawals}}<h4>Withdrawals ({{$.WithdrawalCount}}, newest first)</h4><ul class="withdrawals">{{range .}}<li>Withdrawn by {{.By}} ({{.Family}}) on revision {{.Revision}}, {{ms .At}}: {{.Reason}}{{if .ReopenedAt}}. Reopened by {{.ReopenedBy}}, {{ms .ReopenedAt}}.{{end}}</li>{{end}}</ul>{{end}}
 <h4>Recipients</h4>{{if .Recipients}}<ul class="recipients">{{range .Recipients}}<li>{{.Name}}{{if .Resolved}} <small>{{.Kind}}</small>{{else}} <span class="refused">not resolved: {{.Reason}}</span>{{end}}</li>{{end}}</ul>{{else}}<p class="refused">No recipients named.</p>{{end}}{{end}}

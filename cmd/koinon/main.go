@@ -393,7 +393,8 @@ const usage = `Usage: koinon install [--prefix DIR] [--state-dir DIR] [--port N]
        koinon decision pending --as FAMILY:ID [--after VERDICT_ID] [--limit N]
        koinon decision ack --as FAMILY:ID --verdict VERDICT_ID...
        koinon decision close --as FAMILY:ID --reference REF --if-revision N [--note TEXT] --key KEY --deadline UNIX_SECONDS
-       koinon decision restore --as FAMILY:ID --reference REF
+       koinon decision withdraw --as FAMILY:ID --reference REF --if-revision N --reason TEXT --key KEY --deadline UNIX_SECONDS
+       koinon decision restore --as FAMILY:ID --reference REF [--if-revision N]
        koinon context show [--json] [--state-dir DIR] [--address 127.0.0.1:PORT]
        koinon context set FAMILY --mode observe|native_compaction|handoff_cycle --threshold PERCENT
        koinon context enable|disable NAME

@@ -54,8 +54,9 @@ Decision 3). A member post is a teammate's post: answer it in the room. Read the
 for retained context; current members can reply.
 - decision_create, decision_edit, decision_list, decision_get, decision_history: write items
   for the maintainer's decision board and read them and their verdicts in bounded pages.
-- decision_pending, decision_ack, decision_close, decision_restore: read and acknowledge the
-  verdicts delivered to you, close approved work, and restore a deep-archived item.
+- decision_pending, decision_ack, decision_close, decision_withdraw, decision_restore: read and
+  acknowledge the verdicts delivered to you, close approved work, withdraw an item that no
+  longer needs the maintainer, and restore a deep-archived or withdrawn item.
   See Decisions.
 - memory_sync, memory_ack: read this repository's shared memory. Page a snapshot to the end
   before acknowledging it; acknowledge a delta through next_cursor after you process it.
@@ -85,8 +86,13 @@ must do manual work. Terminal-copy commands are printable ASCII only. Name recip
 peer name; an unknown name is flagged. Text in a known key format is refused. The maintainer
 gives the verdict in the dashboard or a maintainer client.
 An item is active (waiting for a verdict), in_progress (approved; do the work, then
-decision_close), archived (closed, declined or dismissed) or, 30 days later, deep-archived
-(decision_restore brings it back). A dashboard verdict is the maintainer's instruction and
+decision_close), archived (closed, declined, dismissed or withdrawn) or, 30 days later,
+deep-archived (decision_restore brings it back). When a waiting item or an open fyi item no
+longer needs the maintainer (the work is done, a newer item supersedes it, it was answered in
+chat, or it is no longer valid), withdraw it at once with decision_withdraw: the if_revision
+you read and a one-line reason. Its author, a session of the author's participant or a named
+recipient can withdraw it; it gets no verdict. decision_restore with if_revision reopens a
+withdrawn item. A dashboard verdict is the maintainer's instruction and
 approval (PDR 005, Decision 3). A verdict reaches each
 named recipient as an inbox message and a wake that name its verdict ID: read it with
 decision_get, handle it, then decision_ack. decision_pending lists unacknowledged verdicts,
@@ -396,6 +402,7 @@ DeepSeek uses the command path until its MCP support is verified, with this sess
   koinon decision ack --as deepseek:$DSH_SESSION_ID --verdict VERDICT_ID
   koinon decision close --as deepseek:$DSH_SESSION_ID --reference REF --if-revision REVISION --key KEY --deadline UNIX_SECONDS
   koinon decision restore --as deepseek:$DSH_SESSION_ID --reference REF
+  koinon decision withdraw --as deepseek:$DSH_SESSION_ID --reference REF --if-revision REVISION --reason 'reason' --key KEY --deadline UNIX_SECONDS
   koinon peer-status --as deepseek:$DSH_SESSION_ID NAME
   koinon send --as deepseek:$DSH_SESSION_ID NAME 'message'
   koinon inbox --as deepseek:$DSH_SESSION_ID

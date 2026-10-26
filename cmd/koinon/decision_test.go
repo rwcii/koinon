@@ -51,14 +51,15 @@ func TestDecisionCommandsOfTheDeepSeekGuide(t *testing.T) {
 			lines[strings.Fields(line)[2]] = line
 		}
 	}
-	if len(lines) != 9 {
+	if len(lines) != 10 {
 		t.Fatalf("guide decision commands: %v", lines)
 	}
-	// The item is active, so close and restore reach the daemon and are refused there.
+	// The item is active, so close and restore reach the daemon and are refused there; the
+	// author then withdraws it (#504).
 	refused := map[string]string{"close": "not_in_progress", "restore": "not_found"}
-	for _, op := range []string{"create", "edit", "get", "list", "history", "pending", "ack", "close", "restore"} {
+	for _, op := range []string{"create", "edit", "get", "list", "history", "pending", "ack", "close", "restore", "withdraw"} {
 		line := strings.NewReplacer("$DSH_SESSION_ID", "synthetic-guide", "REF", "G-1", "KEY", "synthetic-key",
-			"UNIX_SECONDS", deadline, "REVISION", "2", "'title'", "Synthetic", "VERDICT_ID", "1").Replace(lines[op])
+			"UNIX_SECONDS", deadline, "REVISION", "2", "'title'", "Synthetic", "'reason'", "done", "VERDICT_ID", "1").Replace(lines[op])
 		if op == "edit" {
 			line = strings.Replace(line, "--if-revision 2", "--if-revision 1", 1)
 		}
@@ -74,7 +75,15 @@ func TestDecisionCommandsOfTheDeepSeekGuide(t *testing.T) {
 			t.Fatalf("%s: %v %v", line, reply, err)
 		}
 	}
-	reply, err := run([]string{"create", "--as", "deepseek:synthetic-guide", "--reference", "G-2", "--title", "Two commands", "--kind", "fyi",
+	// The withdrawn item reopens with restore at its revision.
+	reply, err := run([]string{"restore", "--as", "deepseek:synthetic-guide", "--reference", "G-1", "--if-revision", "2"})
+	if err != nil || reply["result"].(map[string]any)["state"] != "active" || reply["result"].(map[string]any)["revision"] != float64(3) {
+		t.Fatalf("reopen: %v %v", reply, err)
+	}
+	if _, err := run([]string{"withdraw", "--as", "deepseek:synthetic-guide", "--reference", "G-1", "--if-revision", "3", "--key", "k3", "--deadline", deadline}); err == nil {
+		t.Fatal("withdraw without --reason")
+	}
+	reply, err = run([]string{"create", "--as", "deepseek:synthetic-guide", "--reference", "G-2", "--title", "Two commands", "--kind", "fyi",
 		"--command", "make check", "--command", "go vet ./...", "--recipient", "synthetic-nobody", "--key", "k2", "--deadline", deadline})
 	if err != nil || len(reply["result"].(map[string]any)["recipients"].([]any)) != 1 {
 		t.Fatalf("repeated flags: %v %v", reply, err)

@@ -356,7 +356,7 @@ func checkFormat(db *sql.DB, path string) error {
 	return nil
 }
 
-const schemaVersion = 32
+const schemaVersion = 33
 
 // workItemsV16Columns are the work item columns before schema 17, which its rebuild copies.
 const workItemsV16Columns = `store,work_id,revision,lifecycle,title,criteria,non_goals,proposed_assignee,created_at,created_consumer,
@@ -889,6 +889,13 @@ func migrate(db *sql.DB, version, target int) error {
 		// row for the maintainer's inbox, one for the decision board and one for each room.
 		if _, err := tx.Exec(changeVersionsTable + `INSERT INTO change_versions(topic,version) VALUES ('inbox',` + firstVersion + `),
 			('decisions',` + firstVersion + `); INSERT INTO change_versions(topic,version) SELECT room_id,` + firstVersion + ` FROM rooms;`); err != nil {
+			return err
+		}
+	}
+	if version < 33 && target >= 33 {
+		// Version 33: each agent withdrawal of a decision item, with its reason, and its reopen
+		// (#504).
+		if _, err := tx.Exec(decisionWithdrawalsTable); err != nil {
 			return err
 		}
 	}

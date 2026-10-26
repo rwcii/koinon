@@ -461,7 +461,7 @@ func TestDecisionDeepArchiveAndRestore(t *testing.T) {
 	if _, err := s.DecisionCreate(ctx, f.peerKey, "D-1", decisionFields("t", "fyi"), "reuse", s.clock()+60); refusalCode(err) != "reference_in_use" {
 		t.Fatalf("reference reuse: %v", err)
 	}
-	restored, err := s.DecisionRestore(ctx, f.peerKey, "D-1")
+	restored, err := s.DecisionRestore(ctx, f.peerKey, "D-1", 0)
 	if err != nil || restored.State != "archived" || restored.Context != "Old facts." || restored.Verdict == nil || restored.Verdict.ID != v.ID ||
 		restored.ArchivedAt != s.now().UnixMilli() || len(restored.Recipients) != 2 {
 		t.Fatalf("restore: %+v %v", restored, err)
@@ -469,7 +469,7 @@ func TestDecisionDeepArchiveAndRestore(t *testing.T) {
 	if count(t, s, `SELECT COUNT(*) FROM decision_deep_archive`) != 0 || len(logLines(t, s)) != 1 {
 		t.Fatal("restore changed the log or kept the locator")
 	}
-	if _, err := s.DecisionRestore(ctx, f.peerKey, "D-1"); refusalCode(err) != "not_found" {
+	if _, err := s.DecisionRestore(ctx, f.peerKey, "D-1", 0); refusalCode(err) != "not_found" {
 		t.Fatalf("second restore: %v", err)
 	}
 	// The restored item starts a new 30-day period.
@@ -523,7 +523,7 @@ func TestDecisionDeepArchiveCrashAndEdit(t *testing.T) {
 		if count(t, f.s, `SELECT COUNT(*) FROM decision_items`) != 0 || len(logLines(t, f.s)) != 1 {
 			t.Fatalf("finish after append wrote %d lines", len(logLines(t, f.s)))
 		}
-		if _, err := f.s.DecisionRestore(context.Background(), f.peerKey, "D-1"); err != nil {
+		if _, err := f.s.DecisionRestore(context.Background(), f.peerKey, "D-1", 0); err != nil {
 			t.Fatal(err)
 		}
 	})
@@ -547,7 +547,7 @@ func TestDecisionDeepArchiveCrashAndEdit(t *testing.T) {
 		if count(t, f.s, `SELECT COUNT(*) FROM decision_items`) != 0 || len(lines) != 2 || !strings.HasPrefix(lines[0], `{"record":"koinon.decision.v1","id":`) {
 			t.Fatalf("partial line: %v", lines)
 		}
-		restored, err := f.s.DecisionRestore(context.Background(), f.peerKey, "D-1")
+		restored, err := f.s.DecisionRestore(context.Background(), f.peerKey, "D-1", 0)
 		if err != nil || restored.Title != "Archive me" {
 			t.Fatalf("restore after a partial line: %+v %v", restored, err)
 		}

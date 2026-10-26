@@ -44,8 +44,11 @@ var decisionTools = []map[string]any{
 	{"name": "decision_close", "description": "Close an approved decision item in progress when its work is done, at the revision you read, with an optional Markdown outcome note (at most 4 KiB). The item moves to the archive. key and deadline make a retry return the first result.",
 		"inputSchema": object(map[string]any{"reference": decisionReferenceSchema, "if_revision": integer, "note": text, "key": text, "deadline": number},
 			"reference", "if_revision", "key", "deadline")},
-	{"name": "decision_restore", "description": "Bring a deep-archived decision item back from the log file into the archive by reference.",
-		"inputSchema": object(map[string]any{"reference": decisionReferenceSchema}, "reference")},
+	{"name": "decision_withdraw", "description": "Withdraw a waiting decision item or an open fyi item that no longer needs the maintainer: the work is done, a newer item supersedes it (name its reference), it was answered in chat, or it is no longer valid. Give the revision you read and a one-line reason (at most 512 bytes). The author, a session of the author's participant or a named recipient can withdraw it. The item moves to the archive with your name and the reason; it gets no verdict. decision_restore with if_revision reopens it. key and deadline make a retry return the first result.",
+		"inputSchema": object(map[string]any{"reference": decisionReferenceSchema, "if_revision": integer, "reason": text, "key": text, "deadline": number},
+			"reference", "if_revision", "reason", "key", "deadline")},
+	{"name": "decision_restore", "description": "Bring a deep-archived decision item back from the log file into the archive by reference. For an item that an agent withdrew, give if_revision: the item is active again at the next revision, and its history keeps the withdrawal.",
+		"inputSchema": object(map[string]any{"reference": decisionReferenceSchema, "if_revision": integer}, "reference")},
 }
 
 var decisionReferenceSchema = map[string]any{"type": "string", "pattern": "^[A-Za-z0-9-]{1,32}$"}

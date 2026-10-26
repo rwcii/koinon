@@ -93,8 +93,12 @@ session, claim and context data; agents do not write them, and the rows have no 
 or order. Agents create and update decision items (ref, order, title, where, agent text,
 context, recommendation, kind, optional commands, `relayTo`). An item follows the lifecycle
 active (waiting for a verdict), in progress (approved; the agent does the work and closes
-it), archive (closed, declined or dismissed; readable by reference) and deep archive (after
-30 days, moved to a log file; nothing is deleted, and it can be restored). The board does
+it), archive (closed, declined, dismissed or withdrawn; readable by reference) and deep archive
+(after 30 days, moved to a log file; nothing is deleted, and it can be restored). An agent
+withdraws an active item that no longer needs the maintainer (the work is done, a newer item
+supersedes it, it was answered in chat, or it is no longer valid): the item's author, a session
+of the author's participant or a named recipient, at the revision it read, with a reason. The
+withdrawal is not a verdict; the item keeps it in its history, and a restore reopens the item. The board does
 not fail at a fixed number of items. An `fyi` item has only Dismiss, which archives it and
 is not an approval. A waiting query lists active decision items. The plan marks manual work as
 an `fyi` item whose title starts with `ACTION FOR YOU`, taken from the existing board design,
@@ -103,7 +107,11 @@ Markdown, code and commands appear in code blocks, and agents write card prose i
 Simplified Technical English.
 
 **Provenance:** Requested in #206 (issue body, requirements 1, 2, 5, 6, 8, 10, 11, 12 and
-the settled point on rows); a request record. Using the existing board's UI design:
+the settled point on rows); a request record. Agent withdrawal: requested in #504 (issue body,
+2026-10-26: stale cards "pile up", and "The maintainer had to sort them by hand"); Maintainer,
+2026-10-26: "resolve 504 and 505". Intent: the board shows only what still needs the
+maintainer, and an agent removes a card it no longer needs without moving that work back to
+the maintainer. Using the existing board's UI design:
 #206 comment 6065771626, 2026-10-08: "let's also apply the current decision board skill UI
 design to the dashboard." (posted from the maintainer's account without agent framing;
 authorship not otherwise verified). Card text: Maintainer, 2026-10-12: "card comments should be
@@ -287,3 +295,4 @@ blocks, which the maintainer copies into a terminal, hold printable ASCII only. 
 | 2026-10-13 | Recorded the maintainer's reopen-on-change decision and the stored-query requirement (#206) |
 | 2026-10-25 | Decision 4: removed the unsourced "does not show that an action was done" caveat (#487) |
 | 2026-10-26 | Decision 2, requirement 6, Rationale and User Impact: a maintainer client also records a verdict, with its `via`, as accepted PDR 009 Decisions 3 and 4 decide (#470) |
+| 2026-10-26 | Decision 1: agents withdraw active items with a reason, and a restore reopens them (#504) |

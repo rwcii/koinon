@@ -571,6 +571,10 @@ pane matches `%` followed by 1–9 digits. The optional `executable` (#418) is t
 that the session's own terminal runs, with the same path rules as the socket. Invalid values
 return `invalid_request`.
 
+Schema 33 adds the table `decision_withdrawals` (#504): each agent withdrawal of a decision
+item with the item, the revision it withdrew, the withdrawing peer's family and name, the
+reason, the time, and the time and peer of the reopen that undid it. An upgrade starts it empty.
+
 Schema 32 adds the table `change_versions` of the maintainer mode's change notices (PDR 009,
 Decision 3): one row each for `inbox` and `decisions` and one for each room by its ID, each with
 a 20-digit counter as text. The upgrade starts a row at `00000000000000000001` for the
@@ -578,8 +582,8 @@ maintainer's inbox, the decision board and each existing room; a room's creation
 row and its deletion deletes it. Each write that changes what the maintainer's read of a topic
 shows moves its counter in the same transaction: an inbox message to the maintainer, the daemon's
 notices, a work notice to the maintainer, an acknowledgement of the maintainer's inbox and the
-retention of its messages; a decision create, edit (also a reopen), verdict, close, restore and
-the move to the deep archive; a room's add, remove, post and post retention. A write that rolls
+retention of its messages; a decision create, edit (also a reopen), verdict, close, withdrawal,
+restore (also a reopen of a withdrawn item) and the move to the deep archive; a room's add, remove, post and post retention. A write that rolls
 back, a retry that writes nothing and a refused write move nothing. The counter has a fixed
 width, so an increment overwrites it in place and allocates no page, also in a control write.
 
@@ -1551,6 +1555,22 @@ acknowledgements do not change.
   with the same key returns the item as this close returned it, also after a later edit or
   verdict. Create and close keep separate key spaces; create keys are unchanged from schema
   25, so a create receipt from before the upgrade still answers its retry.
+- `POST /v1/decisions/withdraw` (#504) takes `caller`, `reference`, `if_revision`, `reason`
+  (one line, 1–512 bytes, not blank, no known key format), `key` and `deadline`. It moves an
+  `active` item (a waiting decision item or an open fyi item) to `archived` and records the
+  withdrawal with the caller's peer name and family, the revision, the reason and the time; it
+  writes no verdict, delivery or audit record, and the item keeps its revision. The caller is
+  the item's author, a session of the author's participant (the same family, repository and
+  role, so a successor after a context cycle qualifies) or a recipient that names the caller's
+  peer name or held address; another caller is `not_item_party`. A changed revision is
+  `stale_revision` and another state is `not_active`; a verdict and a withdrawal on the same
+  revision are serialized writes, so the second is refused. A retry with the same key returns
+  the item as this withdrawal returned it; withdraw keys are a key space of their own. An item
+  read (`decision_get`, the lookup) carries `withdrawals`, the newest 8 newest first (`revision`,
+  `by`, `family`, `reason`, `at`, `reopened_at`, `reopened_by`), `withdrawal_count` and
+  `withdrawn`, set while the latest withdrawal archives the item; a summary carries
+  `withdrawn`. An edit that reopens a withdrawn item records the reopen on the withdrawal, as
+  a restore does.
 
 **Deep archive.** Nothing deletes a decision record. 30 days after an item was archived,
 once every delivery is `acknowledged` or `skipped`, the maintenance sweep moves its whole
@@ -1572,6 +1592,12 @@ with `reference_in_use`.
   locator, checks its reference and length, and inserts the record again as `archived` with
   a new 30-day period, removing the locator, in one transaction; the line stays in the log.
   An unknown reference is `not_found`; a line that does not match is `decision_unavailable`.
+  The line holds the item's withdrawals too. For an `archived` item whose latest withdrawal is
+  not reopened, restore takes `if_revision` (#504) and reopens the item instead: it is
+  `active` at the next revision, and the withdrawal records the reopen's time and peer name.
+  The caller is a party of the item as for withdraw. Without `if_revision` it is
+  `invalid_request`, and a changed revision is `stale_revision`. Restore of any other item
+  that is not deep-archived is `not_found`.
 
 ### MCP server
 
@@ -1595,7 +1621,7 @@ decisions and bounded reads in that same native client.
 (`room_id`, `body`, `key`, `deadline`) and `room_read` (`room_id`, `after`, `limit`) call the
 room routes.
 `decision_create`, `decision_edit`, `decision_list`, `decision_get`, `decision_history`,
-`decision_pending`, `decision_ack`, `decision_close` and `decision_restore` take the fields of the
+`decision_pending`, `decision_ack`, `decision_close`, `decision_withdraw` and `decision_restore` take the fields of the
 decision routes, refuse any other argument by name and call those routes.
 They take no model-supplied consumer or caller identity. A tool
 error is a result with `isError` and a JSON text `{"ok": false, "code": ...}`: the daemon's code,
