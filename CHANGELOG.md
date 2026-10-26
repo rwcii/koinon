@@ -5,6 +5,19 @@ into a dated release section when promoted to `main`.
 
 ## Unreleased
 
+- `koinon mcp --maintainer` sends change notices (#470, PDR 009, Decision 3). It offers the
+  resources `koinon://maintainer/inbox`, `koinon://maintainer/decisions` and
+  `koinon://maintainer/rooms/ROOM_ID` with subscriptions: `resources/read` returns the JSON of
+  the `inbox`, `board_list` (waiting) or `room_read` tool, and a change of a subscribed resource
+  sends `notifications/resources/updated` with only its URI. Each subscription also sends one
+  notice right after its reply, so a change between the client's read and its subscription is
+  read. A deleted room is a change. While a
+  resource is subscribed, the process runs the new long poll `POST /v1/maintainer/changes`,
+  which returns the content-free versions of the inbox, the board and each room as soon as they
+  change, after at most 30 seconds. Each poll moves the token's 24-hour idle limit, so a quiet
+  subscribed client keeps its token; when the token ends, the process exits with
+  `maintainer_token_expired` also while no tool call comes. Schema 32 adds one version counter
+  per topic, which each write that the topic's read shows moves in its own transaction.
 - `koinon mcp --maintainer --client NAME` acts as the maintainer from a program, such as a voice
   bridge, locally or over SSH (#470, PDR 009). It reads the maintainer secret from the first line
   of standard input (`--secret-stdin`) or from a private file (`--secret-file PATH`), exchanges it

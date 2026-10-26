@@ -45,7 +45,7 @@ repositories.
 | `POST /v1/dashboard/links` | Issue a one-time dashboard login link (`path`, `expires_in`). |
 | `POST /v1/maintainer/secret` | Set, generate or clear the maintainer secret (`action`, `secret`); ends every dashboard login and maintainer token. |
 | `POST /v1/maintainer/session` | Exchange the maintainer secret for a maintainer token (`secret`, `client`); see Maintainer mode. |
-| `POST /v1/maintainer/ROUTE` | The maintainer's reads and actions with a maintainer token: `board-list`, `decision-get`, `decision-history`, `decision-verdict`, `inbox`, `ack`, `send`, `room-list`, `room-read`, `room-post`, `room-create`, `room-add`, `room-remove`, `peers` and `peer-status`; see Maintainer mode. |
+| `POST /v1/maintainer/ROUTE` | The maintainer's reads and actions with a maintainer token: `board-list`, `decision-get`, `decision-history`, `decision-verdict`, `inbox`, `ack`, `send`, `room-list`, `room-read`, `room-post`, `room-create`, `room-add`, `room-remove`, `peers`, `peer-status` and the long poll `changes`; see Maintainer mode. |
 | `GET /v1/participants` | Each participant's `address`, `family`, `repository`, optional `role`, active `holder` peer name, `conflict` and `last_event`, at most 1,000 with `truncated` (`koinon participant list`, #398). |
 | `POST /v1/participants/holder` | The maintainer's holder choice from the command line (`koinon participant holder`, #398): `address`, `peer` and an optional `if_revision`, the session's current revision when absent. It makes what the dashboard's **Make holder** makes and is audited as `participant-holder` by `cli`. It returns `holder` and `former`; refusals are `invalid_request`, `peer_not_found`, `not_participant`, `session_not_active` and `revision_changed`. |
 | `POST /v1/storage/recover` | Prove the write-ahead log empty again, return free pages and clear a blocked state. |
@@ -570,6 +570,18 @@ The socket is an absolute clean path without control characters, at most 4,096 b
 pane matches `%` followed by 1–9 digits. The optional `executable` (#418) is the absolute tmux
 that the session's own terminal runs, with the same path rules as the socket. Invalid values
 return `invalid_request`.
+
+Schema 32 adds the table `change_versions` of the maintainer mode's change notices (PDR 009,
+Decision 3): one row each for `inbox` and `decisions` and one for each room by its ID, each with
+a 20-digit counter as text. The upgrade starts a row at `00000000000000000001` for the
+maintainer's inbox, the decision board and each existing room; a room's creation inserts its
+row and its deletion deletes it. Each write that changes what the maintainer's read of a topic
+shows moves its counter in the same transaction: an inbox message to the maintainer, the daemon's
+notices, a work notice to the maintainer, an acknowledgement of the maintainer's inbox and the
+retention of its messages; a decision create, edit (also a reopen), verdict, close, restore and
+the move to the deep archive; a room's add, remove, post and post retention. A write that rolls
+back, a retry that writes nothing and a refused write move nothing. The counter has a fixed
+width, so an increment overwrites it in place and allocates no page, also in a control write.
 
 Schema 31 adds `decision_verdicts.via`, the maintainer client that gave each verdict
 (`dashboard` or `mcp:NAME`, PDR 009, Decision 4); a verdict from before it has `''`.
@@ -1750,6 +1762,20 @@ from elsewhere. Peer message bodies appear here, escaped, and nowhere else outsi
     `peer_not_found`, `room_member_not_found`, `idempotency_conflict` and the room limits).
   - `peers` lists the agent sessions without the maintainer; `peer-status` (`peer`) reads one
     as `peer_status` does (`peer_not_found`, `alias_unheld`).
+  - `changes` (`wait_seconds` 1–30, optional `cursor`) is the long poll of the change notices.
+    Its result is `{"cursor": {URI: VERSION}, "changed": [URI]}`: the version of
+    `koinon://maintainer/inbox`, `koinon://maintainer/decisions` and each
+    `koinon://maintainer/rooms/ROOM_ID`, read in one read transaction, with no content. A
+    deleted room has no entry. Without `cursor` it returns at once with `changed` empty. With
+    the `cursor` of an earlier result it reads the versions every 500 ms, without holding a
+    transaction or the write lock while it waits, and returns as soon as one differs from the
+    cursor, with each such URI in `changed`, or after `wait_seconds` with `changed` empty. The
+    cursor is compared for equality, entry by entry, never by order, so two changes at the same
+    time are both seen. A token that ends during the wait ends the poll with
+    `maintainer_token_expired`, and a daemon stop ends the wait. Each poll is an authenticated
+    request and moves the idle limit, so a client that polls keeps its token. The server's write
+    deadline is 10 seconds; this route's reply gets `wait_seconds` plus 5 seconds, and the
+    client waits as long. Ordinary requests keep 10 seconds.
 
   Each action writes its audit record as the dashboard's does, also when it is refused, with
   the dashboard's action name (`decision-approve`, `decision-decline`, `decision-dismiss`,
@@ -1768,6 +1794,28 @@ from elsewhere. Peer message bodies appear here, escaped, and nowhere else outsi
   When a call answers `maintainer_token_expired`, the server writes that result and exits with
   status 1, so the client starts a new process. A call while no daemon answers is
   `daemon_unavailable`, and the process stays.
+
+  The maintainer mode's `initialize` gives the capability `resources: {"subscribe": true}`
+  (the agent mode has no resources). `resources/list` lists `koinon://maintainer/inbox`,
+  `koinon://maintainer/decisions` and `koinon://maintainer/rooms/ROOM_ID` for each room, with
+  `mimeType` `application/json`. `resources/read` (`uri`) returns one text content with that
+  `mimeType` whose text is the JSON of the tool that reads the resource: `inbox`, `board_list`
+  with `filter` `waiting`, or `room_read`. An unknown URI is the JSON-RPC error -32002 with
+  `data: {"code": "unknown_resource"}`; an unknown room is -32002 with `room_not_found`; another
+  refusal is -32603 with its code, text and details in `data`. `resources/subscribe` (`uri`)
+  reads the current versions before it answers, so a change after the answer is noticed, then
+  writes one notice for the URI, so a change between the client's last read and the
+  subscription is read too; it refuses a room that does not exist with `room_not_found`; `resources/unsubscribe` (`uri`)
+  ends one subscription. While at least one resource is subscribed, one goroutine runs
+  `changes` with `wait_seconds` 25. A changed version of a subscribed URI writes
+  `{"jsonrpc": "2.0", "method": "notifications/resources/updated", "params": {"uri": URI}}`,
+  with no title, body or count; a deleted room is a change, and reading it then gives
+  `room_not_found`. Notices and replies share one serialized output. The last unsubscribe, the
+  end of standard input and a cancelled context end the poll and wait for it, so no poll runs
+  and no notice is written after the unsubscribe's reply. When the poll reads
+  `maintainer_token_expired`, the server writes the reply of a request in progress, writes the
+  code to standard error and exits with status 1, also while standard input is open and idle.
+  A poll that no daemon answers is tried again after 1 second, doubling to at most 30 seconds.
 - **Request protection.** Every dashboard request must name a literal loopback IP with a port in
   `Host` (`127.0.0.1:PORT` or `[::1]:PORT`; `localhost` and other names are refused). PORT may
   differ from the listener's, as through an SSH tunnel from another local port (ADR 001,

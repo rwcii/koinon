@@ -520,8 +520,15 @@ func (e RefusedError) Error() string {
 }
 
 // Call sends one authenticated request: GET without a body, POST with one. It never uses
-// environment proxies or follows a redirect with the secret.
+// environment proxies or follows a redirect with the secret. A request has 10 seconds, as the
+// daemon's server gives it.
 func Call(ctx context.Context, address, secret, path string, body any) (json.RawMessage, error) {
+	return CallTimeout(ctx, address, secret, path, body, 10*time.Second)
+}
+
+// CallTimeout is Call with its own time limit, for a request that the daemon answers later,
+// such as the long poll of the maintainer's change notices.
+func CallTimeout(ctx context.Context, address, secret, path string, body any, timeout time.Duration) (json.RawMessage, error) {
 	if !validAddress(address) {
 		return nil, ErrInvalid
 	}
@@ -535,7 +542,7 @@ func Call(ctx context.Context, address, secret, path string, body any) (json.Raw
 	}
 	transport := &http.Transport{Proxy: nil}
 	defer transport.CloseIdleConnections()
-	client := &http.Client{Transport: transport, Timeout: 10 * time.Second, CheckRedirect: func(_ *http.Request, _ []*http.Request) error { return http.ErrUseLastResponse }}
+	client := &http.Client{Transport: transport, Timeout: timeout, CheckRedirect: func(_ *http.Request, _ []*http.Request) error { return http.ErrUseLastResponse }}
 	r, err := http.NewRequestWithContext(ctx, method, "http://"+address+path, reader)
 	if err != nil {
 		return nil, err

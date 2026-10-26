@@ -357,7 +357,10 @@ func (s *Store) noticeMaintainer(ctx context.Context, tx *writeTx, now int64, bo
 	_, err := tx.ExecContext(ctx, `INSERT INTO messages(recipient_family,recipient_id,seq,sender_family,
 		sender_id,sender_name,body,created_at,delivery_updated_at) VALUES (?,?,?,'koinon','koinon','koinon',?,?,?)`,
 		maintainerKey.Family, maintainerKey.ID, seq, body, now, now)
-	return err
+	if err != nil {
+		return err
+	}
+	return bumpChange(ctx, tx, changeInbox)
 }
 
 // checkTurns records a failed turn that a Codex session reported after a message's last

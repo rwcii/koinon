@@ -520,7 +520,7 @@ func TestSchemaThirtyOneKeepsState(t *testing.T) {
 	a := join(t, s, "codex", "synthetic-a", "")
 	mustCreate(t, s, Key{"codex", a.ID}, "S-1", DecisionFields{Title: ptr("Synthetic"), Kind: ptr("decision")})
 	mustVerdict(t, s, "S-1", 1, "approved")
-	if _, err := fixtureExec(s, undoSchemaThirtyOne+`PRAGMA user_version=30`); err != nil {
+	if _, err := fixtureExec(s, undoSchemaThirtyTwo+undoSchemaThirtyOne+`PRAGMA user_version=30`); err != nil {
 		t.Fatal(err)
 	}
 	if err := checkCatalog(s.db, 30); err != nil {

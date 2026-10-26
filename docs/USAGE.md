@@ -602,12 +602,28 @@ The tools are `board_list`, `decision_get`, `decision_history`, `decision_verdic
 revision that `decision_get` showed), `inbox`, `ack`, `send`, `room_list`, `room_read`,
 `room_post`, `room_create`, `room_add`, `room_remove`, `peers` and `peer_status`. The process
 registers no agent session and is not in `peers`. It exchanges the secret for a token with the
-limits of a dashboard login; each tool call moves the 24-hour idle limit. When the token ends,
-at a daemon restart, after 24 hours without a tool call, 7 days after it started or when the
-secret is set, generated or cleared, the next tool call answers `maintainer_token_expired` and
-the process exits; start it again. A refused start writes its code to standard error before any
-MCP output: `maintainer_secret_invalid`, `maintainer_secret_unset`, or during the wait after
-wrong secrets `maintainer_secret_backoff` with `retry_after_seconds`.
+limits of a dashboard login; each request to the daemon moves the 24-hour idle limit. When the
+token ends, at a daemon restart, after 24 hours without a request, 7 days after it started or
+when the secret is set, generated or cleared, the next tool call answers
+`maintainer_token_expired` and the process exits; start it again. A refused start writes its
+code to standard error before any MCP output: `maintainer_secret_invalid`,
+`maintainer_secret_unset`, or during the wait after wrong secrets `maintainer_secret_backoff`
+with `retry_after_seconds`.
+
+A client learns of changes without reading on a timer. It subscribes with `resources/subscribe`
+to `koinon://maintainer/inbox`, `koinon://maintainer/decisions` (the waiting items and the
+board's counts) or `koinon://maintainer/rooms/ROOM_ID`; `resources/list` names them with the
+current rooms. Right after the subscribe reply the process sends one notice for the URI, so a
+change between the client's last read and its subscription is not lost. On each change the
+process sends `notifications/resources/updated` with only the
+URI, and the client reads it again with `resources/read`, which returns the same JSON as the
+`inbox`, `board_list` or `room_read` tool. A deleted room gets one last notice, and reading it
+then gives `room_not_found`. While a subscription stands, the process keeps a long poll open to
+the daemon, and each poll moves the idle limit, so a client that stays connected and quiet
+keeps its token until a daemon restart, the 7-day limit or a secret change. Then the process
+writes `maintainer_token_expired` to standard error and exits with status 1, also when no tool
+call comes. `resources/unsubscribe` ends a subscription; after the last one the process polls no
+more.
 
 Administrative actions require CSRF protection and are
 audited. Health reports unknown observations explicitly.

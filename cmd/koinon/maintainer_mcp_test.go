@@ -386,3 +386,276 @@ func TestMaintainerMCPSecretFile(t *testing.T) {
 		}
 	}
 }
+
+// call sends one request and returns its reply's result or error, keeping each notice that
+// arrives before it for await.
+func (p *mcpProcess) call(method string, params any, pending *[]string) map[string]any {
+	p.t.Helper()
+	p.id++
+	data, _ := json.Marshal(map[string]any{"jsonrpc": "2.0", "id": p.id, "method": method, "params": params})
+	if _, err := p.in.Write(append(data, '\n')); err != nil {
+		p.t.Fatal(err)
+	}
+	for {
+		line, ok := p.next()
+		var reply map[string]any
+		if !ok || json.Unmarshal([]byte(line), &reply) != nil {
+			p.t.Fatalf("%s: %q", method, line)
+		}
+		if reply["method"] == "notifications/resources/updated" {
+			*pending = append(*pending, noticeURI(p.t, reply))
+			continue
+		}
+		if reply["id"] != float64(p.id) {
+			p.t.Fatalf("%s: %q", method, line)
+		}
+		return reply
+	}
+}
+
+// noticeURI checks that a notice carries only its URI and returns it.
+func noticeURI(t *testing.T, notice map[string]any) string {
+	t.Helper()
+	params, _ := notice["params"].(map[string]any)
+	uri, _ := params["uri"].(string)
+	if len(notice) != 3 || notice["jsonrpc"] != "2.0" || len(params) != 1 || uri == "" {
+		t.Fatalf("notice: %v", notice)
+	}
+	return uri
+}
+
+// await reads notices until each of uris has one, and fails on a notice for another URI.
+func (p *mcpProcess) await(pending *[]string, uris ...string) {
+	p.t.Helper()
+	want := map[string]bool{}
+	for _, uri := range uris {
+		want[uri] = true
+	}
+	take := func(uri string) {
+		if !want[uri] {
+			p.t.Fatalf("a notice for %s, want %v", uri, uris)
+		}
+		delete(want, uri)
+	}
+	for _, uri := range *pending {
+		take(uri)
+	}
+	*pending = nil
+	for len(want) > 0 {
+		select {
+		case line, ok := <-p.lines:
+			var notice map[string]any
+			if !ok || json.Unmarshal([]byte(line), &notice) != nil || notice["method"] != "notifications/resources/updated" {
+				p.t.Fatalf("waiting for notices %v: %q", uris, line)
+			}
+			take(noticeURI(p.t, notice))
+		case <-time.After(10 * time.Second):
+			p.t.Fatalf("no notice for %v", want)
+		}
+	}
+}
+
+// quiet waits past a few polls and checks that no notice came.
+func (p *mcpProcess) quiet(pending *[]string) {
+	p.t.Helper()
+	time.Sleep(1500 * time.Millisecond)
+	if reply := p.call("ping", map[string]any{}, pending); reply["result"] == nil || len(*pending) != 0 {
+		p.t.Fatalf("notices %v", *pending)
+	}
+}
+
+// noticedTool calls one tool as tool does, keeping each notice that arrives before its reply.
+func (p *mcpProcess) noticedTool(pending *[]string, name string, arguments map[string]any) (map[string]any, bool) {
+	p.t.Helper()
+	result, _ := p.call("tools/call", map[string]any{"name": name, "arguments": arguments}, pending)["result"].(map[string]any)
+	content, _ := result["content"].([]any)
+	if len(content) != 1 {
+		p.t.Fatalf("%s: %v", name, result)
+	}
+	var value map[string]any
+	if err := json.Unmarshal([]byte(content[0].(map[string]any)["text"].(string)), &value); err != nil {
+		p.t.Fatalf("%s: %v", name, err)
+	}
+	return value, result["isError"] == true
+}
+
+// Change notices over real stdio (PDR 009, Decision 3): a notice with only the URI for each
+// change of a subscribed resource, none for an unsubscribed room or after an unsubscribe, a
+// clean new subscription, a deleted room, and the end of the token while the input is idle.
+func TestMaintainerMCPChangeNotices(t *testing.T) {
+	root := filepath.Join(t.TempDir(), "state")
+	d := maintainerMCPDaemon(t, root, "127.0.0.1:0", true)
+	address := d.Addresses()[0]
+	bearer, err := core.ReadSecret(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	ctx := context.Background()
+	agent := core.Key{Family: "deepseek", ID: "synthetic-notice-agent"}
+	if _, err := core.Call(ctx, address, bearer, "/v1/sessions/register", core.Registration{Family: agent.Family, ID: agent.ID, Directory: t.TempDir()}); err != nil {
+		t.Fatal(err)
+	}
+	agentCall := func(path string, body map[string]any) {
+		t.Helper()
+		body["caller"] = agent
+		if _, err := core.Call(ctx, address, bearer, path, body); err != nil {
+			t.Fatalf("%s: %v", path, err)
+		}
+	}
+	p := startMaintainerMCP(t, []string{"--maintainer", "--client", "koinon-voice", "--secret-stdin", "--state-dir", root, "--address", address}, mcpSecret+"\n")
+	var pending []string
+	initialized := p.call("initialize", map[string]any{"protocolVersion": "2025-06-18", "capabilities": map[string]any{}}, &pending)
+	if resources, _ := initialized["result"].(map[string]any)["capabilities"].(map[string]any)["resources"].(map[string]any); resources["subscribe"] != true {
+		t.Fatalf("initialize: %v", initialized)
+	}
+	room := func(name string) string {
+		created, isError := p.noticedTool(&pending, "room_create", map[string]any{"name": name, "key": name})
+		if isError {
+			t.Fatalf("room_create: %v", created)
+		}
+		return created["result"].(map[string]any)["room_id"].(string)
+	}
+	inbox, decisions := "koinon://maintainer/inbox", "koinon://maintainer/decisions"
+	roomA, roomB := "koinon://maintainer/rooms/"+room("synthetic-a"), "koinon://maintainer/rooms/"+room("synthetic-b")
+	listed := p.call("resources/list", map[string]any{}, &pending)["result"].(map[string]any)["resources"].([]any)
+	var uris []string
+	for _, r := range listed {
+		uris = append(uris, r.(map[string]any)["uri"].(string))
+	}
+	slices.Sort(uris)
+	if want := []string{decisions, inbox, roomA, roomB}; !slices.Equal(uris, sortedCopy(want)) {
+		t.Fatalf("resources: %v", uris)
+	}
+	for _, uri := range []string{inbox, decisions, roomA} {
+		if reply := p.call("resources/subscribe", map[string]any{"uri": uri}, &pending); reply["result"] == nil {
+			t.Fatalf("subscribe %s: %v", uri, reply)
+		}
+	}
+	// Each subscription sends one notice after its reply, so the client reads again.
+	p.await(&pending, inbox, decisions, roomA)
+	post := func(uri, key string) {
+		t.Helper()
+		reply, isError := p.noticedTool(&pending, "room_post", map[string]any{"room_id": strings.TrimPrefix(uri, "koinon://maintainer/rooms/"), "body": "a synthetic post",
+			"key": key, "deadline": float64(time.Now().Unix() + 600)})
+		if isError {
+			t.Fatalf("room_post: %v", reply)
+		}
+	}
+	// A new message, its acknowledgement, a new waiting item, its edit, a verdict and a close.
+	agentCall("/v1/messages/send", map[string]any{"to": "maintainer", "body": "a synthetic report"})
+	p.await(&pending, inbox)
+	read := func(uri string) string {
+		t.Helper()
+		reply := p.call("resources/read", map[string]any{"uri": uri}, &pending)
+		contents, _ := reply["result"].(map[string]any)["contents"].([]any)
+		if len(contents) != 1 || contents[0].(map[string]any)["mimeType"] != "application/json" || contents[0].(map[string]any)["uri"] != uri {
+			t.Fatalf("read %s: %v", uri, reply)
+		}
+		return contents[0].(map[string]any)["text"].(string)
+	}
+	toolText := func(name string, arguments map[string]any) string {
+		t.Helper()
+		result := p.call("tools/call", map[string]any{"name": name, "arguments": arguments}, &pending)["result"].(map[string]any)
+		return result["content"].([]any)[0].(map[string]any)["text"].(string)
+	}
+	if text := read(inbox); text != toolText("inbox", map[string]any{}) || !strings.Contains(text, "a synthetic report") {
+		t.Fatalf("inbox resource: %s", text)
+	}
+	if reply, isError := p.noticedTool(&pending, "ack", map[string]any{"through": 1}); isError {
+		t.Fatalf("ack: %v", reply)
+	}
+	p.await(&pending, inbox)
+	agentCall("/v1/decisions/create", map[string]any{"reference": "N-1", "key": "n1", "deadline": float64(time.Now().Unix() + 600),
+		"title": "Synthetic decision", "kind": "decision"})
+	p.await(&pending, decisions)
+	if text := read(decisions); text != toolText("board_list", map[string]any{"filter": "waiting"}) || !strings.Contains(text, `"reference":"N-1"`) {
+		t.Fatalf("decisions resource: %s", text)
+	}
+	agentCall("/v1/decisions/edit", map[string]any{"reference": "N-1", "if_revision": 1, "title": "Synthetic decision, edited"})
+	p.await(&pending, decisions)
+	if reply, isError := p.noticedTool(&pending, "decision_verdict", map[string]any{"reference": "N-1", "revision": 2, "verdict": "approved"}); isError {
+		t.Fatalf("verdict: %v", reply)
+	}
+	p.await(&pending, decisions)
+	agentCall("/v1/decisions/close", map[string]any{"reference": "N-1", "if_revision": 2, "key": "c1", "deadline": float64(time.Now().Unix() + 600)})
+	p.await(&pending, decisions)
+	// A post in the subscribed room; none for the other room.
+	post(roomA, "p1")
+	p.await(&pending, roomA)
+	if text := read(roomA); text != toolText("room_read", map[string]any{"room_id": strings.TrimPrefix(roomA, "koinon://maintainer/rooms/")}) {
+		t.Fatalf("room resource: %s", text)
+	}
+	post(roomB, "p2")
+	p.quiet(&pending)
+	// After the last unsubscribe nothing is noticed; a new subscription starts cleanly.
+	for _, uri := range []string{roomA, inbox, decisions} {
+		p.call("resources/unsubscribe", map[string]any{"uri": uri}, &pending)
+	}
+	post(roomA, "p3")
+	agentCall("/v1/messages/send", map[string]any{"to": "maintainer", "body": "another synthetic report"})
+	p.quiet(&pending)
+	p.call("resources/subscribe", map[string]any{"uri": roomA}, &pending)
+	p.await(&pending, roomA)
+	post(roomA, "p4")
+	p.await(&pending, roomA)
+	// A deleted room is a change; reading it then gives the room's refusal.
+	if _, err := core.Call(ctx, address, bearer, "/v1/rooms/delete", map[string]any{"room_id": strings.TrimPrefix(roomA, "koinon://maintainer/rooms/")}); err != nil {
+		t.Fatal(err)
+	}
+	p.await(&pending, roomA)
+	failure, _ := p.call("resources/read", map[string]any{"uri": roomA}, &pending)["error"].(map[string]any)
+	if data, _ := failure["data"].(map[string]any); data["code"] != "room_not_found" {
+		t.Fatalf("read a deleted room: %v", failure)
+	}
+	// A secret change ends the token during the poll: the process exits with the code while
+	// its input stays open and idle.
+	var out bytes.Buffer
+	if err := run(ctx, []string{"maintainer", "secret", "set", "--state-dir", root, "--address", address}, strings.NewReader("another synthetic secret\n"), &out); err != nil {
+		t.Fatal(err)
+	}
+	var refused core.RefusedError
+	if err := p.end(); !errors.As(err, &refused) || refused.Code != "maintainer_token_expired" {
+		t.Fatalf("exit: %v", err)
+	}
+	if line, ok := p.next(); ok {
+		t.Fatalf("output after the exit: %q", line)
+	}
+}
+
+func sortedCopy(values []string) []string {
+	values = slices.Clone(values)
+	slices.Sort(values)
+	return values
+}
+
+// TestMaintainerMCPSubscribeAfterRead checks that a change between a client's read and its
+// subscription is noticed: the subscription's own notice asks the client to read again.
+func TestMaintainerMCPSubscribeAfterRead(t *testing.T) {
+	root := filepath.Join(t.TempDir(), "state")
+	d := maintainerMCPDaemon(t, root, "127.0.0.1:0", true)
+	address := d.Addresses()[0]
+	bearer, err := core.ReadSecret(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	ctx := context.Background()
+	agent := core.Key{Family: "deepseek", ID: "synthetic-read-agent"}
+	if _, err := core.Call(ctx, address, bearer, "/v1/sessions/register", core.Registration{Family: agent.Family, ID: agent.ID, Directory: t.TempDir()}); err != nil {
+		t.Fatal(err)
+	}
+	p := startMaintainerMCP(t, []string{"--maintainer", "--client", "synthetic-read", "--secret-stdin", "--state-dir", root, "--address", address}, mcpSecret+"\n")
+	var pending []string
+	p.call("initialize", map[string]any{"protocolVersion": "2025-06-18", "capabilities": map[string]any{}}, &pending)
+	uri := "koinon://maintainer/inbox"
+	if reply := p.call("resources/read", map[string]any{"uri": uri}, &pending); reply["result"] == nil {
+		t.Fatalf("read: %v", reply)
+	}
+	// A change commits after the client's read and before its subscription.
+	if _, err := core.Call(ctx, address, bearer, "/v1/messages/send", map[string]any{"caller": agent, "to": "maintainer", "body": "synthetic change between read and subscribe"}); err != nil {
+		t.Fatal(err)
+	}
+	if reply := p.call("resources/subscribe", map[string]any{"uri": uri}, &pending); reply["result"] == nil {
+		t.Fatalf("subscribe: %v", reply)
+	}
+	p.await(&pending, uri)
+}

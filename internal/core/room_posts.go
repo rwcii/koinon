@@ -205,6 +205,9 @@ func (s *Store) roomPost(ctx context.Context, caller Key, maintainer bool, roomI
 	if _, err := tx.ExecContext(ctx, `UPDATE rooms SET post_head=? WHERE room_id=?`, seq, roomID); err != nil {
 		return RoomPostResult{}, tx.fail(err)
 	}
+	if err := bumpChange(ctx, tx, roomID); err != nil {
+		return RoomPostResult{}, tx.fail(err)
+	}
 	inserted, err := tx.ExecContext(ctx, `INSERT INTO room_posts(room_id,seq,sender_family,sender_id,sender_name,origin,body,created_at)
 		VALUES (?,?,?,?,?,?,?,?)`, roomID, seq, caller.Family, caller.ID, sender, origin, body, now)
 	if err != nil {
@@ -485,7 +488,7 @@ func (s *Store) cullRoomPosts(ctx context.Context, budget *int64) error {
 			return err
 		}
 		cutoff := s.now().Add(-messages).UnixMilli()
-		rows, err := tx.QueryContext(ctx, `SELECT p.post_id FROM room_posts p WHERE NOT EXISTS (SELECT 1 FROM room_deliveries d
+		rows, err := tx.QueryContext(ctx, `SELECT p.post_id,p.room_id FROM room_posts p WHERE NOT EXISTS (SELECT 1 FROM room_deliveries d
 			JOIN messages m ON m.id=d.message_id WHERE d.post_id=p.post_id) AND (p.created_at<? OR EXISTS (SELECT 1 FROM
 			room_deliveries d WHERE d.post_id=p.post_id AND d.message_id IS NOT NULL)) ORDER BY p.post_id LIMIT ?`, cutoff, batch)
 		if err != nil {
@@ -493,14 +496,16 @@ func (s *Store) cullRoomPosts(ctx context.Context, budget *int64) error {
 			return err
 		}
 		var ids []int64
+		rooms := map[string]bool{}
 		for rows.Next() {
 			var id int64
-			if err := rows.Scan(&id); err != nil {
+			var room string
+			if err := rows.Scan(&id, &room); err != nil {
 				rows.Close()
 				tx.Rollback()
 				return err
 			}
-			ids = append(ids, id)
+			ids, rooms[room] = append(ids, id), true
 		}
 		if err := rows.Close(); err != nil {
 			tx.Rollback()
@@ -512,6 +517,13 @@ func (s *Store) cullRoomPosts(ctx context.Context, budget *int64) error {
 				return err
 			}
 			if _, err := tx.ExecContext(ctx, `DELETE FROM room_posts WHERE post_id=?`, id); err != nil {
+				tx.Rollback()
+				return err
+			}
+		}
+		// A room read shows the retained posts and the floor.
+		for room := range rooms {
+			if err := bumpChange(ctx, tx, room); err != nil {
 				tx.Rollback()
 				return err
 			}

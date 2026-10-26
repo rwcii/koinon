@@ -41,7 +41,7 @@ maintainer through a stdio MCP server, `koinon mcp --maintainer`, locally or ove
 maintainer action records which client made it.
 
 Decisions 1 and 2 are built (#470, PR 1). Decision 3 without its change notices, and
-Decision 4, are built (#470, PR 2). The change notices follow in a later pull request.
+Decision 4, are built (#470, PR 2). The change notices of Decision 3 are built (#470, PR 3).
 
 ---
 
@@ -201,16 +201,21 @@ tunnel, and logs in with the secret.
 - Change notices: the resources `koinon://maintainer/inbox`, `koinon://maintainer/decisions`
   and `koinon://maintainer/rooms/{id}`, with subscriptions. A change sends
   `notifications/resources/updated` with only the URI, and the client reads again
-  (ADR 001, Decision 3).
+  (ADR 001, Decision 3). A subscription also sends one notice right after its reply, so a
+  change between the client's last read and the subscription is read.
 - The agent MCP mode, agent identity and the loopback-only daemon do not change.
 - A running maintainer-mode process ends when its token ends: at a daemon restart, after 24
-  hours without an authenticated tool request, 7 days after the token started, and when the
+  hours without an authenticated request, 7 days after the token started, and when the
   secret is set, generated or cleared. The next tool call answers `maintainer_token_expired`,
-  and then the process exits, so the client starts a new one.
+  and then the process exits, so the client starts a new one. While a resource is
+  subscribed, the long poll reads the code and the process exits at once, also when no tool
+  call comes.
 - A start during the wait after failed checks (Decision 1) exits with
   `maintainer_secret_backoff` and the time to wait.
-- Each authenticated tool request moves the idle limit. A connection with no requests does not;
-  the subscriptions of the change notices follow with them.
+- Each authenticated request moves the idle limit: a tool call, a resource read or
+  subscription, and each long poll of the change notices. A client that keeps a subscription
+  therefore keeps its token while it is quiet; only a daemon restart, the 7-day limit and a
+  secret change end it. A connection with no requests and no subscription does not move it.
 
 **Provenance:** the maintainer, 2026-10-23, after reading the #464 map: "koinon will need an
 API surfaced for this. maybe this needs to be an MCP." The shape is the approved draft
@@ -219,6 +224,18 @@ are requirements of the first client, rwcii/koinon-voice, in its #470 comments o
 (17:48Z and 21:09Z); they are not maintainer decisions. Built without the change notices
 (#470, PR 2): the daemon route `POST /v1/maintainer/session` exchanges the secret for the
 token, and one route under `/v1/maintainer/` serves each tool.
+
+The idle limit of a subscribed client is the design that settles the first client's question
+in its #470 [comment](https://github.com/rwcii/koinon/issues/470#issuecomment-6403314236) of
+2026-10-25 (21:09Z, point 2): which of tool calls, the process's long poll and a resource
+subscription keep the token alive, so that a voice bridge that is connected but quiet is not
+ended by the idle limit. It is a requirement of the first client, not a maintainer decision.
+Built (#470, PR 3): schema 32 keeps one version counter for the maintainer's inbox, one for
+the decision board and one for each room, and each write that changes what the matching read
+shows moves it in the same transaction. The daemon route `POST /v1/maintainer/changes` is a
+long poll of at most 30 seconds that returns those versions, without content, as soon as they
+differ from the client's cursor. While a resource is subscribed, the process polls it and
+writes `notifications/resources/updated` with only the URI.
 
 ### User Impact
 
@@ -267,3 +284,4 @@ use Koinon as intended from acting as the maintainer.
 | ---------- | ------ |
 | 2026-10-25 | Accepted (#470); Decisions 1 and 2 built |
 | 2026-10-26 | Decision 3 built without its change notices, and Decision 4 built (#470, PR 2). Decision 3 records the token's end, the start during the wait and the idle refresh, which the first client requested |
+| 2026-10-26 | Decision 3's change notices built (#470, PR 3). Decision 3 records that each long poll moves the idle limit, so a quiet subscribed client keeps its token, as the first client requested |
