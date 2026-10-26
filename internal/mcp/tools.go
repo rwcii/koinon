@@ -365,7 +365,7 @@ func (s *server) call(ctx context.Context, raw json.RawMessage) map[string]any {
 			err = errors.New("missing argument query")
 		}
 	case "decision_create", "decision_edit", "decision_list", "decision_get", "decision_history", "decision_pending", "decision_ack",
-		"decision_close", "decision_restore":
+		"decision_close", "decision_withdraw", "decision_restore":
 		path, _, err = decisionCall(p.Name, p.Arguments, body)
 	default:
 		var known bool

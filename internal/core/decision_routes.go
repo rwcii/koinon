@@ -3,8 +3,8 @@ package core
 import "net/http"
 
 // decisionRoutes serve decision_create, decision_edit, decision_list and decision_get
-// (#206, chunk 01) and decision_history, decision_pending, decision_ack, decision_close and
-// decision_restore (chunk 02). No agent route gives a verdict: only the maintainer does, on the dashboard or with a maintainer token (PDR 009). The caller comes from current native admission. A request with any
+// (#206, chunk 01), decision_history, decision_pending, decision_ack, decision_close and
+// decision_restore (chunk 02), and decision_withdraw (#504). No agent route gives a verdict: only the maintainer does, on the dashboard or with a maintainer token (PDR 009). The caller comes from current native admission. A request with any
 // other field, such as a verdict, dismissal, audit or agent-row field, is refused.
 func (d *Daemon) decisionRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("POST /v1/decisions/create", func(w http.ResponseWriter, r *http.Request) {
@@ -92,16 +92,17 @@ func (d *Daemon) decisionRoutes(mux *http.ServeMux) {
 	})
 	mux.HandleFunc("POST /v1/decisions/history", func(w http.ResponseWriter, r *http.Request) {
 		var request struct {
-			Caller    Key    `json:"caller"`
-			Reference string `json:"reference"`
-			After     int64  `json:"after"`
-			Limit     int    `json:"limit"`
+			Caller      Key    `json:"caller"`
+			Reference   string `json:"reference"`
+			After       int64  `json:"after"`
+			Limit       int    `json:"limit"`
+			Withdrawals bool   `json:"withdrawals"`
 		}
 		if err := decode(w, r, &request); err != nil {
 			failure(w, err)
 			return
 		}
-		page, err := d.store.DecisionHistory(r.Context(), request.Caller, request.Reference, request.After, request.Limit)
+		page, err := d.store.DecisionHistory(r.Context(), request.Caller, request.Reference, request.After, request.Limit, request.Withdrawals)
 		if err != nil {
 			failure(w, err)
 			return
@@ -169,16 +170,42 @@ func (d *Daemon) decisionRoutes(mux *http.ServeMux) {
 		d.store.ToolCall(request.Caller)
 		respond(w, 200, map[string]any{"ok": true, "result": item})
 	})
-	mux.HandleFunc("POST /v1/decisions/restore", func(w http.ResponseWriter, r *http.Request) {
+	mux.HandleFunc("POST /v1/decisions/withdraw", func(w http.ResponseWriter, r *http.Request) {
 		var request struct {
-			Caller    Key    `json:"caller"`
-			Reference string `json:"reference"`
+			Caller     Key      `json:"caller"`
+			Reference  string   `json:"reference"`
+			IfRevision *int64   `json:"if_revision"`
+			Reason     string   `json:"reason"`
+			Key        string   `json:"key"`
+			Deadline   *float64 `json:"deadline"`
 		}
 		if err := decode(w, r, &request); err != nil {
 			failure(w, err)
 			return
 		}
-		item, err := d.store.DecisionRestore(r.Context(), request.Caller, request.Reference)
+		if request.IfRevision == nil || request.Deadline == nil {
+			failure(w, decisionInvalid("if_revision, reason, key and deadline", "are required"))
+			return
+		}
+		item, err := d.store.DecisionWithdraw(r.Context(), request.Caller, request.Reference, *request.IfRevision, request.Reason, request.Key, *request.Deadline)
+		if err != nil {
+			failure(w, err)
+			return
+		}
+		d.store.ToolCall(request.Caller)
+		respond(w, 200, map[string]any{"ok": true, "result": item})
+	})
+	mux.HandleFunc("POST /v1/decisions/restore", func(w http.ResponseWriter, r *http.Request) {
+		var request struct {
+			Caller     Key    `json:"caller"`
+			Reference  string `json:"reference"`
+			IfRevision int64  `json:"if_revision"`
+		}
+		if err := decode(w, r, &request); err != nil {
+			failure(w, err)
+			return
+		}
+		item, err := d.store.DecisionRestore(r.Context(), request.Caller, request.Reference, request.IfRevision)
 		if err != nil {
 			failure(w, err)
 			return

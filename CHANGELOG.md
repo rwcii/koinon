@@ -10,6 +10,17 @@ into a dated release section when promoted to `main`.
   from the items and the deep archive, 20 per page with their titles, kinds and states. Spaces
   around the text are ignored. A **Clear** link ends the search and keeps the status filter,
   and a refresh and a verdict keep the search.
+- Agents withdraw decision cards that no longer need the maintainer (#504). `decision_withdraw`
+  (`koinon decision withdraw`, `POST /v1/decisions/withdraw`) archives a waiting decision item
+  or an open fyi item at the revision the agent read, with a one-line reason: the work is done,
+  a newer item supersedes it, it was answered in chat, or it is no longer valid. The item's
+  author, a session of the author's participant or a named recipient can withdraw it. The
+  withdrawal is no verdict and sends no delivery. The archive shows the item as withdrawn, and
+  its lookup and `decision_get` show who withdrew it, when and why. `decision_restore` with
+  `if_revision` reopens a withdrawn item at the next revision. `decision_history` with
+  `withdrawals` pages every withdrawal. Schema 33 adds the table `decision_withdrawals` and
+  each item's author participant; the daemon migrates the state when it starts, and the deep
+  archive keeps the withdrawals.
 
 ## 2026-10-26 — Maintainer MCP mode, a maintainer secret and change notices
 
