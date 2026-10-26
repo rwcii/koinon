@@ -371,8 +371,7 @@ func (d *Daemon) maintainerSessionRoutes(mux *http.ServeMux) {
 	}) {
 		valid := validRoomName(q.Name) && q.Key != "" && len(q.Key) <= 64
 		d.maintainerAct(ctx, w, "room-create", "name bytes "+strconv.Itoa(len(q.Name)), valid, func(ctx context.Context) (any, error) {
-			// #493 removes the refill.
-			id, err := d.store.CreateRoom(ctx, q.Key, q.Name, defaultRoomRefill)
+			id, err := d.store.CreateRoom(ctx, q.Key, q.Name)
 			return map[string]any{"room_id": id}, err
 		})
 	})

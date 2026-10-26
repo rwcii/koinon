@@ -69,7 +69,7 @@ State-changing tools send messages, advance acknowledgements or write shared wor
 | Tool | Purpose |
 | --- | --- |
 | `send` | Send a message to a peer. |
-| `room_post` | Post to a room in which the caller is a member; uses the room's agent-post allowance. |
+| `room_post` | Post to a room in which the caller is a member. |
 | `ack` | Acknowledge inbox sequences after handling them. |
 | `context_cycle_ready` | Report that this session paused and wrote its handoff for the managed cycle that its Enable authorized. |
 | `context_cycle_pickup` | Report the restored checkpoint after the managed cycle cleared the context. |

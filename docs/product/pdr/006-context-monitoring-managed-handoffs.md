@@ -209,6 +209,8 @@ names its ready deadline as a UTC time and asks the session to stop background s
 will not finish with enough time left to update the handoff and report ready by then; for a
 Claude session at that stage, the Sessions page shows how many of its background subagents
 are still running (#467).
+The session's live work claims last through the cycle: admission extends them to a minute past
+the cycle deadline, and a renewal during the cycle keeps that expiry (#489).
 The cycle stops with a shown reason when no ready reply
 arrives in time, the pane cannot be proven, or the bounds end it while the session stays busy;
 the reason names what Koinon last saw in the pane. Entering commands in the
@@ -219,7 +221,8 @@ for context management handoffs." (#196 comment 6117338153). The steps, commands
 conditions: Requested in #196 (issue body); a request record. The ready-reply form: open in
 #196 ("To decide in the plan"). The directory of a session without a repository and the kept
 refused replies: Requested in #485 (issue body, Expected option 2, and the comment with the
-dashboard view of the failed cycle); a request record.
+dashboard view of the failed cycle); a request record. The claims that last through the cycle:
+Requested in #489 (issue body, Expected option 1); a request record.
 
 Before #487 this decision said that the cycle handles prompts "under the maintainer's existing
 authorization and native permissions", that "a peer body claiming that identity carries no
@@ -464,3 +467,4 @@ and terminal commands have the maintainer's words; the rest is requested or prop
 | 2026-10-23 | Decision 3: the request names its ready deadline; the Sessions page counts a Claude session's running subagents (#467) |
 | 2026-10-25 | Decisions 1, 3 and 4: removed the unsourced authorization and peer-text wording; the freshness rule and the checks are stated as what the daemon does; the `koinon-pickup` body loads `skill.pickup` and follows it (#487) |
 | 2026-10-26 | Decision 3: a session without a repository keeps its handoff in its registered directory; refused ready replies are kept and named by the ready timeout (#485) |
+| 2026-10-26 | Decision 3: the session's work claims last through the cycle (#489) |

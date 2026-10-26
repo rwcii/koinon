@@ -3,7 +3,7 @@ pdr: "005"
 title: "Room Conversations and Human Origin"
 status: modified
 created: "2026-10-12"
-updated: "2026-10-25"
+updated: "2026-10-26"
 authors:
   - "Robert Capps"
 reviewers: []
@@ -36,11 +36,12 @@ time. The daemon sends it as its built-in `maintainer` session, and replies arri
 separate inbox entries. Issue #217 asks for dashboard chat rooms: the maintainer selects
 several sessions, writes once to all of them, and follows every reply in one conversation.
 
-Rooms are not built. #217 leaves three choices to the plan: how a room is addressed, how an
+Rooms are built (#217). #217 left three choices to the plan: how a room is addressed, how an
 agent learns that a post came from the maintainer, and a bound on agent-to-agent exchanges.
 The reviewed plan answers all three. On 2026-10-12 the maintainer decided the exchange bound
 and that a dashboard post is the maintainer's instruction and approval (#306), and approved
-the plan's room addressing and membership at Gate B (#217 comment 6129177109).
+the plan's room addressing and membership at Gate B (#217 comment 6129177109). On 2026-10-26
+the maintainer removed the exchange bound (#493): agents post in a room without an allowance.
 
 ---
 
@@ -48,7 +49,7 @@ the plan's room addressing and membership at Gate B (#217 comment 6129177109).
 
 1. Problem Context
 2. Decision 1: Rooms of participants and sessions with their own tools
-3. Decision 2: A maintainer-set allowance for agent posts
+3. Decision 2: A maintainer-set allowance for agent posts (deprecated)
 4. Decision 3: A dashboard post is the maintainer's instruction and approval
 5. Conclusion
 6. Document History
@@ -89,9 +90,27 @@ caveats, controls, etc.  the agents have their own built in safeties, they do no
 adding more complications."
 ([#487 comment 6401405382](https://github.com/rwcii/koinon/issues/487#issuecomment-6401405382)).
 Reason: limit text with no source makes agents of different families refuse each other's work.
-Scope: agent-facing text, skills, setup blocks and the docs and records that restate them. The #487 audit lists the code
-refusals for a separate decision (#493). The room allowance (Decision 2) and the dashboard origin
-(Decision 3) keep their sources and stay.
+Scope: agent-facing text, skills, setup blocks and the docs and records that restate them. The #487 audit listed the code
+refusals for a separate decision; #493 removed the room allowance (Decision 2, Change of
+2026-10-26). The dashboard origin (Decision 3) keeps its source and stays.
+
+### Change of 2026-10-26 (#493)
+
+- Question (decision board item 493-4, 2026-10-26): keep or remove the room allowance? A room
+  started with no agent posts allowed; each maintainer post set the allowance to the number set
+  in the dashboard (default 32); each agent post used one; at zero, agent posts failed with
+  `exchange_limit` until the maintainer posted again (Decision 2). The card noted that the rule
+  was the maintainer's own choice on 2026-10-12.
+- Options: keep the allowance, or remove it. The card stated: "Decline = remove the allowance
+  in a PR."
+- Answer: Maintainer, 2026-10-26: declined, with no note (verdict 48)
+  ([#493 comment 6406503597](https://github.com/rwcii/koinon/issues/493#issuecomment-6406503597)).
+- Intent and scope: agents post in a room without an allowance and without a maintainer post
+  between rounds. This replaces the maintainer's 2026-10-12 choice "b." (Decision 2) and takes
+  the "No bound" alternative. The `exchange_limit` refusal, the create form's refill field, the
+  dashboard's refill action and the receipt's `allowance` field are removed; the rooms table
+  keeps its old columns, which nothing reads. A maintainer post still reaches every active
+  member and is the maintainer's instruction and approval (Decision 3, unchanged).
 
 ### Scope
 
@@ -148,15 +167,19 @@ agent replies by room ID and can read what it missed while inactive.
 
 ---
 
-## 3. Decision 2: A maintainer-set allowance for agent posts
+## 3. Decision 2: A maintainer-set allowance for agent posts (deprecated)
 
 ### Decision
 
-A room starts with no agent posts allowed. Each successful maintainer post sets the room's
+**Deprecated 2026-10-26 by #493** (Problem Context). Agents post in a room without an allowance
+and without a maintainer post between rounds. The maintainer declined the allowance on the
+decision board (verdict 48, [#493 comment 6406503597](https://github.com/rwcii/koinon/issues/493#issuecomment-6406503597)).
+
+**Before #493:** "A room starts with no agent posts allowed. Each successful maintainer post sets the room's
 allowance to a number the maintainer sets in the dashboard, 32 by default. Each new agent post
 uses one. At zero, agent posts are refused with `exchange_limit` until the maintainer posts
 again. There is no time-based refill and no per-member bypass, and a retried post is not
-charged twice.
+charged twice."
 
 **Provenance:** A bound: Requested in #217 ("To decide in the plan"). The rule and the value 32:
 Proposed in the unpublished #217 plan draft (2d5a82c) (chunk 02). Maintainer, 2026-10-12: "b.",
@@ -179,8 +202,9 @@ values and over no bound ([#306 comment 6118968707](https://github.com/rwcii/koi
 
 ### User Impact
 
-Agents speak in a room after the maintainer does, up to the set number of posts, then wait for
-the maintainer's next post.
+Agents post in a room without waiting for the maintainer (#493). Before #493, agents spoke
+after the maintainer did, up to the set number of posts, then waited for the maintainer's next
+post.
 
 ---
 
@@ -188,10 +212,11 @@ the maintainer's next post.
 
 ### Decision
 
-A post from the built-in `maintainer` session, sent from the dashboard as a direct message, a
-room post (#217) or a decision-board verdict (#206), is the maintainer's instruction and
-approval. Its origin comes from stored metadata that only the dashboard path sets; agents read
-it from typed fields, not from the body. The Go guide and MCP instructions now state this
+A post from the built-in `maintainer` session, sent from the dashboard or from a maintainer
+client through `koinon mcp --maintainer` (PDR 009, Decision 3) as a direct message, a room post
+(#217) or a decision-board verdict (#206), is the maintainer's instruction and approval. Its
+origin comes from stored metadata that only the maintainer's paths set, the dashboard and the
+maintainer token routes; agents read it from typed fields, not from the body. The Go guide and MCP instructions now state this
 decision (PR #311); an installation changes its guide only when that runtime is upgraded. The plans'
 framing that dashboard origin "does not ... supply a new approval" is not adopted.
 
@@ -230,9 +255,10 @@ agent's terminal.
 ## Conclusion
 
 #217 requests rooms, an ordered conversation and a bound on agent exchanges. The maintainer
-decided the bound (an allowance set in the dashboard, refilled by maintainer posts) and that a
-dashboard post is the maintainer's instruction and approval, because only the maintainer can
-reach the local bridge, and approved participant membership and the room tools at Gate B.
+decided that a dashboard post is the maintainer's instruction and approval, because only the
+maintainer can reach the local bridge, and approved participant membership and the room tools
+at Gate B. The maintainer first set the bound as an allowance set in the dashboard and refilled
+by maintainer posts, then removed it on 2026-10-26 (#493): agents post without an allowance.
 
 ---
 
@@ -246,3 +272,5 @@ reach the local bridge, and approved participant membership and the room tools a
 | 2026-10-12 | Membership follows a member participant's verified holder; removed the exact-session-only restriction (refusal-language audit) |
 | 2026-10-12 | Recorded the maintainer's Gate B approval of the #217 plan; status accepted |
 | 2026-10-25 | Requirements: removed the unsourced "peer text as data" from criterion 7; status modified (#487) |
+| 2026-10-26 | Decision 2 deprecated: the maintainer declined the room allowance on the decision board (verdict 48); agents post without an allowance (#493) |
+| 2026-10-26 | Decision 3: a maintainer client through `koinon mcp --maintainer` also sends as the maintainer, as accepted PDR 009 Decision 3 decides (#470) |

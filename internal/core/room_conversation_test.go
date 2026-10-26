@@ -23,7 +23,7 @@ func TestDashboardRoomConversationView(t *testing.T) {
 	a := join(t, s, "codex", "synthetic-native-a", "")
 	b := join(t, s, "claude", "synthetic-native-b", "")
 	c := join(t, s, "agy", "synthetic-native-c", "")
-	room := mustRoom(t, s, "synthetic view", 32)
+	room := mustRoom(t, s, "synthetic view")
 	for _, m := range []Session{a, b, c} {
 		mustAdd(t, s, room, m.Name)
 	}
@@ -114,7 +114,7 @@ func deliveriesOf(t *testing.T, s *Store, room string, seq int64) []RoomDelivery
 }
 
 // A whole conversation with every family: a maintainer post reaches all six, each replies,
-// the allowance runs out and refills, another room stays separate, concurrent posts and
+// members post on without a maintainer post between, another room stays separate, concurrent posts and
 // roster changes keep one order, an expired member is skipped and catches up, a replacement
 // session is not a member while a participant successor is, a failed wake undoes nothing,
 // reads and acknowledgements stay separate, a culled copy is not retained, each accepted
@@ -149,8 +149,8 @@ func TestRoomConversationEndToEnd(t *testing.T) {
 		}
 		joinAs(t, s, "codex", "synthetic-successor", repo, "")
 	}
-	room := mustRoom(t, s, "synthetic conversation", 7)
-	other := mustRoom(t, s, "synthetic other room", 7)
+	room := mustRoom(t, s, "synthetic conversation")
+	other := mustRoom(t, s, "synthetic other room")
 	for _, f := range families {
 		mustAdd(t, s, room, names[f])
 	}
@@ -182,17 +182,10 @@ func TestRoomConversationEndToEnd(t *testing.T) {
 			t.Fatalf("%s copies: %d", f, got)
 		}
 	}
-	// The allowance of 7 runs out; a maintainer post refills it.
-	for allowanceOf(t, s, room) > 0 {
-		mustPost(t, s, keys["claude"], room, marker+" filler")
-	}
-	if _, err := s.RoomPost(ctx, keys["agy"], room, "over", key(), s.clock()+600); code(err) != "exchange_limit" {
-		t.Fatalf("exhausted allowance: %v", err)
-	}
-	mustHumanPost(t, s, room, marker+" refill")
-	if allowanceOf(t, s, room) != 7 {
-		t.Fatal("refill")
-	}
+	// Members post on without a maintainer post between (#493, item 4).
+	mustPost(t, s, keys["claude"], room, marker+" filler")
+	mustPost(t, s, keys["agy"], room, marker+" another")
+	mustHumanPost(t, s, room, marker+" maintainer again")
 	// The other room holds nothing of this one; a non-member cannot read it.
 	if count(t, s, `SELECT COUNT(*) FROM room_posts WHERE room_id=?`, other) != 0 {
 		t.Fatal("cross-room post")
@@ -318,10 +311,10 @@ func TestRoomConversationEndToEnd(t *testing.T) {
 	if n := count(t, s, `SELECT COUNT(*) FROM audit WHERE target LIKE ?`, "%"+marker+"%"); n != 0 {
 		t.Fatal("an audit record holds a body")
 	}
-	// A restart keeps the transcript, recipient rows and allowance, and wakes the copies that
+	// A restart keeps the transcript and recipient rows, and wakes the copies that
 	// were waiting from the committed inbox rows.
 	waiting := mustHumanPost(t, s, room, marker+" before restart")
-	allowance, rows := allowanceOf(t, s, room), len(deliveriesOf(t, s, room, waiting.Seq))
+	rows := len(deliveriesOf(t, s, room, waiting.Seq))
 	s.db.Close()
 	s2, err := openStore(root)
 	if err != nil {
@@ -329,7 +322,7 @@ func TestRoomConversationEndToEnd(t *testing.T) {
 	}
 	t.Cleanup(func() { s2.db.Close() })
 	s2.now = s.now
-	if allowanceOf(t, s2, room) != allowance || len(deliveriesOf(t, s2, room, waiting.Seq)) != rows {
+	if len(deliveriesOf(t, s2, room, waiting.Seq)) != rows {
 		t.Fatal("restart lost room state")
 	}
 	if tr, err := s2.RoomRead(ctx, keys["claude"], room, waiting.Seq-1, 0); err != nil || len(tr.Posts) != 1 {
@@ -351,7 +344,7 @@ func TestDashboardRoomNewestPageAtTheByteLimit(t *testing.T) {
 	s, _ := testStore(t)
 	d := &Daemon{store: s}
 	ctx := context.Background()
-	room := mustRoom(t, s, "synthetic newest page", 32)
+	room := mustRoom(t, s, "synthetic newest page")
 	for i := 0; i < 17; i++ {
 		mustHumanPost(t, s, room, strings.Repeat("x", maxBody))
 	}
@@ -393,7 +386,7 @@ func TestRoomWritesDoNotConsumeFundedWorkControls(t *testing.T) {
 	s, _ := testStore(t)
 	ctx := context.Background()
 	a, b := join(t, s, "codex", "synthetic-a", ""), join(t, s, "claude", "synthetic-b", "")
-	room := mustRoom(t, s, "synthetic saturation", 32)
+	room := mustRoom(t, s, "synthetic saturation")
 	mustAdd(t, s, room, a.Name)
 	mustHumanPost(t, s, room, "synthetic before the ceiling")
 	m := MemoryCaller{Family: "codex", Repository: "/synthetic/room-work/.git", Consumer: "synthetic-room-worker", Name: "synthetic-room-worker"}

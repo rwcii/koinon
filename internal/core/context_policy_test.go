@@ -378,7 +378,7 @@ func TestContextUnavailableStep(t *testing.T) {
 func TestContextSchemaTwentyTwoKeepsExistingState(t *testing.T) {
 	s, root := testStore(t)
 	join(t, s, "codex", "synthetic-a", "")
-	room := mustRoom(t, s, "synthetic kept room", 7)
+	room := mustRoom(t, s, "synthetic kept room")
 	mustHumanPost(t, s, room, "synthetic kept post")
 	before := rowsOf(t, s.db)
 	if _, err := fixtureExec(s, undoSchemaThirtyOne+undoSchemaThirty+undoSchemaTwentyNine+undoSchemaTwentyEight+undoSchemaTwentySeven+undoSchemaTwentySix+undoSchemaTwentyFive+undoSchemaTwentyFour+undoSchemaTwentyThree+undoSchemaTwentyTwo+`PRAGMA user_version=21`); err != nil {
