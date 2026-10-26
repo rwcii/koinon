@@ -946,10 +946,23 @@ func (s *Store) endCycle(ctx context.Context, id string, revision int64, outcome
 	if cycleTerminal(c.State) || revision != 0 && c.Revision != revision {
 		return c, ErrCycleChanged
 	}
+	keep := compactionKeepsEnable(c, reason)
 	if err := s.endCycleTx(ctx, tx, &c, outcome, reason, nil); err != nil {
 		return c, tx.fail(err)
 	}
-	return c, tx.Commit()
+	if err := tx.Commit(); err != nil {
+		return c, err
+	}
+	if keep {
+		s.rearm(Key{c.Family, c.SessionID})
+	}
+	return c, nil
+}
+
+// compactionKeepsEnable reports a compaction that ends keeping the session's Enable: one that
+// ends before its input, or under another epoch (#509).
+func compactionKeepsEnable(c cycleRow, reason string) bool {
+	return c.Mode == ContextNativeCompaction && (c.State == cycleCompactWaiting || reason == "epoch_changed")
 }
 
 // endCycleTx ends c inside tx and releases its credit. A cycle that ends after an input
@@ -961,7 +974,7 @@ func (s *Store) endCycleTx(ctx context.Context, tx *writeTx, c *cycleRow, outcom
 	if outcome != cycleComplete && cycleInputUnproven(c.State) {
 		outcome = cycleUncertain
 	}
-	keep := c.Mode == ContextNativeCompaction && (c.State == cycleCompactWaiting || reason == "epoch_changed")
+	keep := compactionKeepsEnable(*c, reason)
 	if err := cycleEvent(ctx, tx, c, now, outcome, outcome, reason); err != nil {
 		return err
 	}

@@ -167,5 +167,5 @@ tmux and process tools:
 | Screen | "Compacting context (… esc to interrupt)", then "Context compacted · 7s" and the empty composer |
 | Rollout | `task_started`, a `compacted` record, `token_count` with `last_token_usage.input_tokens` 0 and the same `model_context_window` (475000), `task_complete`, all in the same thread |
 
-The confirmation rule reads that `token_count`: a reading recorded after the intent, for the
+The confirmation rule reads that `token_count`: a fresh reading recorded after the receipt, for the
 same epoch, below the threshold. macOS is checked by the maintainer before release.

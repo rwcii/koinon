@@ -570,27 +570,34 @@ copying every row unchanged:
 
 - `compact_waiting`: admitted, holding no pane. Each controller step inspects the pane; while
   it is not ready (a dialog, a draft, a running turn) the compaction waits and records what the
-  pane showed. Right before the input it ends `cancelled` with `mode_changed`,
-  `threshold_changed` or `below_threshold` when the session's mode, its threshold or its newest
-  reading no longer admit it, and `failed` with the Probe's reason. A compaction whose pane is
-  not ready within 15 minutes of its admission ends `cancelled`
-  (`compact_waiting_timeout.SEEN`).
+  pane showed. Right before the input the session's newest reading must still select it under
+  the trigger's rules (fresh source and confirmation, same epoch, at the threshold); the
+  crossing's own latch does not count. Without a reading or a recent confirmation, such as after
+  a restart, it waits (`context_unknown`, `confirmation_stale`). It ends `cancelled` with
+  `mode_changed`, `threshold_changed`, `epoch_changed` or the trigger's reason (such as
+  `source_stale` or `below_threshold`) when the mode, the threshold or the reading no longer
+  admit it, and `failed` with the Probe's reason. A compaction whose pane is not ready within 15
+  minutes of its admission ends `cancelled` (`compact_waiting_timeout.SEEN`).
 - `compact_intent`: recorded before the first key. The adapter types `/compact` only while the
   composer is empty and the thread's rollout shows its last turn ended, reads it back and
   submits it with one Enter while the composer holds exactly it. Text that is not submitted is
   erased and the compaction returns to `compact_waiting` with the step's reason, to retry when
-  the pane is idle. An Enter that may have been sent without its receipt (the empty composer)
+  the pane is idle. The fence before each key also holds the family mode and the session's
+  threshold, so a mode or threshold change during the input stops it. An Enter that may have been sent without its receipt (the empty composer)
   ends the compaction `uncertain`, and a compaction found in `compact_intent`, also after a
   restart, ends `uncertain` (`compact_unreceipted`); neither is entered again.
-- `compact_sent`: holds the pane, so no wake notice interleaves. A context reading of the same
-  epoch that its source recorded after the intent, below the threshold that the compaction
-  recorded, completes it (`complete`, `compacted`). Codex 0.164.0 runs `/compact` as a turn
+- `compact_sent`: holds the pane, so no wake notice interleaves. Before the stage and cycle
+  deadlines, a fresh context reading (source and confirmation within the trigger's ages, neither
+  later than the daemon's clock) of the same epoch, that its source recorded after the
+  submission's receipt and below the threshold that the compaction recorded, completes it
+  (`complete`, `compacted`). Codex 0.164.0 runs `/compact` as a turn
   that writes a `compacted` record and then a `token_count` of 0 input tokens in the same
   thread. Without that reading within 10 minutes it ends `failed` (`compact_unconfirmed`).
 
 A reading of another epoch ends a compaction `cancelled` (`epoch_changed`). A compaction that
-ended in `compact_waiting` or with `epoch_changed` keeps the session's Enable, and its crossing
-is cleared, so the next fresh reading at the threshold admits another; every other end turns
+ended in `compact_waiting` (whatever the reason, a Probe failure included) or with
+`epoch_changed` keeps the session's Enable, and its crossing is cleared, so the next fresh
+reading at the threshold admits another; every other end turns
 the Enable off as for the handoff cycle. One cycle runs per session and host at a time, so a
 compaction and a handoff cycle never type into the same pane. The Sessions page shows the
 newest compaction with its stages, times and result.

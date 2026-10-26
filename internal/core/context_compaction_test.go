@@ -131,14 +131,14 @@ func TestCompactionFlow(t *testing.T) {
 	if held, err := f.s.paneHeldByCycle(context.Background(), f.k); err != nil || !held {
 		t.Fatalf("a sent compaction does not hold the pane: %v %v", held, err)
 	}
-	intent, err := compactIntentAt(context.Background(), f.s.db, cycleRow{ID: v.ID})
+	sent, err := compactSentAt(context.Background(), f.s.db, cycleRow{ID: v.ID})
 	if err != nil {
 		t.Fatal(err)
 	}
-	// High readings during the compaction admit nothing; one recorded before the intent, though
+	// High readings during the compaction admit nothing; one recorded before the receipt, though
 	// it arrives now, confirms nothing.
 	f.now(t, 900)
-	f.read(t, 0, f.k.ID, time.UnixMilli(intent-1))
+	f.read(t, 0, f.k.ID, time.UnixMilli(sent-1))
 	f.step(t)
 	if v = f.status(t, f.k); v.State != cycleCompactSent || f.cycles(t) != 1 {
 		t.Fatalf("stale reading: %+v", v)
