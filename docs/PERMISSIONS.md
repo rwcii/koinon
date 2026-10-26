@@ -82,7 +82,8 @@ State-changing tools send messages, advance acknowledgements or write shared wor
 | `decision_edit` | Change a decision-board item at the revision that was read; an edit of a decided item reopens it. |
 | `decision_ack` | Acknowledge handled verdict deliveries. |
 | `decision_close` | Close an approved item in progress when its work is done. |
-| `decision_restore` | Bring a deep-archived decision item back into the archive. |
+| `decision_withdraw` | Withdraw a waiting or open fyi item that no longer needs the maintainer, with a reason. |
+| `decision_restore` | Bring a deep-archived decision item back into the archive, or reopen a withdrawn item. |
 | `work_create` | Record a proposed work item's scope. |
 | `work_propose` | Record an assignee proposal without transferring a claim. |
 | `work_edit` | Revise a work item's recorded scope. |

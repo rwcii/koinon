@@ -94,10 +94,27 @@ func TestDecisionVerdictToolsEveryNativeFamily(t *testing.T) {
 			if r, failed := h.tool("decision_restore", with(map[string]any{"reference": reference}), c.meta); !failed || r["code"] != "not_found" {
 				t.Fatalf("restore: %v", r)
 			}
+			// The author withdraws the item and reopens it (#504).
+			if r, failed := h.tool("decision_withdraw", with(map[string]any{"reference": reference, "if_revision": 1, "key": "k", "deadline": deadline}), c.meta); !failed || r["code"] != "invalid_arguments" {
+				t.Fatalf("withdraw without a reason: %v", r)
+			}
+			if r, failed := h.tool("decision_withdraw", with(map[string]any{"reference": reference, "if_revision": 1, "reason": "done", "key": "k", "deadline": deadline}), c.meta); failed ||
+				r["result"].(map[string]any)["state"] != "archived" || r["result"].(map[string]any)["withdrawn"] != true {
+				t.Fatalf("withdraw: %v", r)
+			}
+			if r, failed := h.tool("decision_restore", with(map[string]any{"reference": reference, "if_revision": 1}), c.meta); failed ||
+				r["result"].(map[string]any)["state"] != "active" || r["result"].(map[string]any)["revision"] != float64(2) {
+				t.Fatalf("reopen: %v", r)
+			}
+			if r, failed := h.tool("decision_history", with(map[string]any{"reference": reference, "withdrawals": true}), c.meta); failed ||
+				len(r["result"].(map[string]any)["withdrawals"].([]any)) != 1 {
+				t.Fatalf("withdrawal history: %v", r)
+			}
 			for tool, args := range map[string]map[string]any{
-				"decision_ack":     {"verdict_ids": []int{1}, "verdict": "approved"},
-				"decision_close":   {"reference": reference, "if_revision": 1, "key": "k", "deadline": deadline, "verdict": "approved"},
-				"decision_pending": {"name": "other"},
+				"decision_withdraw": {"reference": reference, "if_revision": 2, "reason": "done", "key": "k2", "deadline": deadline, "verdict": "approved"},
+				"decision_ack":      {"verdict_ids": []int{1}, "verdict": "approved"},
+				"decision_close":    {"reference": reference, "if_revision": 1, "key": "k", "deadline": deadline, "verdict": "approved"},
+				"decision_pending":  {"name": "other"},
 			} {
 				if r, failed := h.tool(tool, with(args), c.meta); !failed || r["code"] != "invalid_arguments" {
 					t.Fatalf("%s accepted %v: %v", tool, args, r)

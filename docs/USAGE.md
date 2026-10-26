@@ -263,10 +263,22 @@ item with `decision_close` (`koinon decision close --reference REF --if-revision
 --deadline UNIX_SECONDS`), which archives it. An agent edit of a decided item reopens it for a
 new verdict; `decision_history` pages every verdict with its snapshot.
 
+When a waiting item or an open fyi item no longer needs you (the work is done, a newer item
+supersedes it, you answered it in chat, or it is no longer valid), an agent withdraws it with
+`decision_withdraw` (`koinon decision withdraw --reference REF --if-revision N --reason TEXT
+--key KEY --deadline UNIX_SECONDS`). The item's author, a session of the author's participant or
+a named recipient can withdraw it; the reason is one line. The item moves to the archive
+without a verdict: the archive shows it as **withdrawn**, and its lookup shows who withdrew it,
+when and why. `decision_restore` with `--if-revision N` reopens a withdrawn item on the board
+at the next revision, and the item keeps the withdrawal in its history. An item read shows the
+newest 8 withdrawals; `decision_history` with `withdrawals` (`koinon decision history
+--withdrawals`) and the lookup's **All withdrawals** link page all of them.
+
 Nothing is deleted. 30 days after an item is archived, and once every delivery is
 acknowledged, Koinon moves the whole record to `decisions/YYYY-MM.jsonl` in its state
 directory. `decision_get` then answers `deep_archived`, and `decision_restore` (`koinon
-decision restore --reference REF`) brings the item back into the archive.
+decision restore --reference REF`) brings the item back into the archive, with its
+withdrawals.
 
 ## Peer status
 

@@ -420,7 +420,7 @@ func TestMaintainerViaOrigins(t *testing.T) {
 		if err != nil || len(page.Verdicts) != 1 || page.Verdicts[0].Via != via {
 			t.Fatalf("%s history: %+v %v", ref, page, err)
 		}
-		agent, err := s.DecisionHistory(ctx, aKey, ref, 0, 0)
+		agent, err := s.DecisionHistory(ctx, aKey, ref, 0, 0, false)
 		if err != nil || len(agent.Verdicts) != 1 || agent.Verdicts[0].Via != "" {
 			t.Fatalf("%s agent history: %+v %v", ref, agent, err)
 		}
@@ -520,7 +520,7 @@ func TestSchemaThirtyOneKeepsState(t *testing.T) {
 	a := join(t, s, "codex", "synthetic-a", "")
 	mustCreate(t, s, Key{"codex", a.ID}, "S-1", DecisionFields{Title: ptr("Synthetic"), Kind: ptr("decision")})
 	mustVerdict(t, s, "S-1", 1, "approved")
-	if _, err := fixtureExec(s, undoSchemaThirtyTwo+undoSchemaThirtyOne+`PRAGMA user_version=30`); err != nil {
+	if _, err := fixtureExec(s, undoSchemaThirtyThree+undoSchemaThirtyTwo+undoSchemaThirtyOne+`PRAGMA user_version=30`); err != nil {
 		t.Fatal(err)
 	}
 	if err := checkCatalog(s.db, 30); err != nil {

@@ -78,13 +78,15 @@ type decisionsData struct {
 	Cards                  []DecisionItem
 	NextCards              string
 	// CardsAt is the cursor of the page shown, which a verdict form returns to.
-	CardsAt   string
-	Archive   DecisionPage
-	Lookup    string
-	Item      *DecisionItem
-	History   *DecisionHistoryPage
-	MovedAt   int64
-	LookupErr string
+	CardsAt string
+	Archive DecisionPage
+	Lookup  string
+	Item    *DecisionItem
+	History *DecisionHistoryPage
+	// WithdrawalPage is the looked-up item's page of all withdrawals, when asked for (#504).
+	WithdrawalPage *DecisionHistoryPage
+	MovedAt        int64
+	LookupErr      string
 	// Matches are the references that contain the looked-up text, ignoring ASCII case, when
 	// no item has it as its exact reference (#505); NextMatches is the last reference of the
 	// page when more follow.
@@ -241,6 +243,18 @@ func (s *Store) dashboardDecisions(ctx context.Context, q url.Values) (decisions
 			return data, err
 		}
 		data.History = &history
+		// withdrawals=ID pages every withdrawal after ID, oldest first (#504).
+		if q.Has("withdrawals") {
+			from, err := strconv.ParseInt(q.Get("withdrawals"), 10, 64)
+			if err != nil || from < 0 {
+				from = 0
+			}
+			page, err := withdrawalHistory(ctx, tx, reference, from, decisionHistoryItems)
+			if err != nil {
+				return data, err
+			}
+			data.WithdrawalPage = &page
+		}
 	}
 	return data, nil
 }
@@ -253,7 +267,9 @@ func decisionMatches(ctx context.Context, tx *sql.Tx, text, after string, data *
 	}
 	pattern := likePattern(text)
 	rows, err := tx.QueryContext(ctx, `SELECT reference,title,kind,state FROM (
-		SELECT reference,title,kind,state FROM decision_items WHERE reference LIKE ? ESCAPE '\'
+		SELECT reference,title,kind,CASE WHEN state='archived' AND COALESCE((SELECT w.reopened_at=0 FROM decision_withdrawals w
+			WHERE w.item_id=decision_items.id ORDER BY w.id DESC LIMIT 1),0) THEN 'withdrawn' ELSE state END AS state
+			FROM decision_items WHERE reference LIKE ? ESCAPE '\'
 		UNION ALL SELECT reference,'','','deep_archived' FROM decision_deep_archive WHERE reference LIKE ? ESCAPE '\')
 		WHERE reference>? ORDER BY reference LIMIT `+strconv.Itoa(decisionBoardMatches+1), pattern, pattern, after)
 	if err != nil {

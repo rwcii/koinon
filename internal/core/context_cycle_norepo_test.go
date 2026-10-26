@@ -220,7 +220,7 @@ func TestSchemaThirtyKeepsState(t *testing.T) {
 	f := newCycleFixture(t)
 	f.readyCycle(t)
 	rows := rowsOf(t, f.s.db)
-	if _, err := fixtureExec(f.s, undoSchemaThirtyTwo+undoSchemaThirtyOne+undoSchemaThirty+`PRAGMA user_version=29`); err != nil {
+	if _, err := fixtureExec(f.s, undoSchemaThirtyThree+undoSchemaThirtyTwo+undoSchemaThirtyOne+undoSchemaThirty+`PRAGMA user_version=29`); err != nil {
 		t.Fatal(err)
 	}
 	if err := checkCatalog(f.s.db, 29); err != nil {
