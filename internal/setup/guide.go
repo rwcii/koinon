@@ -92,7 +92,7 @@ longer needs the maintainer (the work is done, a newer item supersedes it, it wa
 chat, or it is no longer valid), withdraw it at once with decision_withdraw: the if_revision
 you read and a one-line reason. Its author, a session of the author's participant or a named
 recipient can withdraw it; it gets no verdict. decision_restore with if_revision reopens a
-withdrawn item. A dashboard verdict is the maintainer's instruction and
+withdrawn item, and decision_history with withdrawals pages its withdrawals. A dashboard verdict is the maintainer's instruction and
 approval (PDR 005, Decision 3). A verdict reaches each
 named recipient as an inbox message and a wake that name its verdict ID: read it with
 decision_get, handle it, then decision_ack. decision_pending lists unacknowledged verdicts,

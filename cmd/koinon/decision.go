@@ -36,7 +36,7 @@ func decisionCommand(ctx context.Context, args []string, out io.Writer) error {
 	var commands, recipients, verdicts repeated
 	var deadline *float64
 	var limit *int
-	noCommands, noRecipients := new(bool), new(bool)
+	noCommands, noRecipients, withdrawals := new(bool), new(bool), new(bool)
 	text := func(name, usage string) { strs[name] = flags.String(name, "", usage) }
 	switch op {
 	case "create", "edit":
@@ -66,7 +66,8 @@ func decisionCommand(ctx context.Context, args []string, out io.Writer) error {
 		ints["if-revision"] = flags.Int64("if-revision", 0, "the revision that was read, to reopen a withdrawn item")
 	case "history":
 		text("reference", "item reference")
-		ints["after"] = flags.Int64("after", 0, "verdict ID from the previous page's next_after")
+		withdrawals = flags.Bool("withdrawals", false, "page the item's agent withdrawals instead of its verdicts")
+		ints["after"] = flags.Int64("after", 0, "verdict or withdrawal ID from the previous page's next_after")
 		limit = flags.Int("limit", 0, "page size (default and maximum 16)")
 	case "pending":
 		ints["after"] = flags.Int64("after", 0, "verdict ID from the previous page's next_after")
@@ -130,6 +131,9 @@ func decisionCommand(ctx context.Context, args []string, out io.Writer) error {
 		}
 	case "list", "history", "pending":
 		body["limit"] = *limit
+		if *withdrawals {
+			body["withdrawals"] = true
+		}
 	case "ack":
 		ids := []int64{}
 		for _, v := range verdicts {

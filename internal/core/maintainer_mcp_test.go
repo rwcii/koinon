@@ -420,7 +420,7 @@ func TestMaintainerViaOrigins(t *testing.T) {
 		if err != nil || len(page.Verdicts) != 1 || page.Verdicts[0].Via != via {
 			t.Fatalf("%s history: %+v %v", ref, page, err)
 		}
-		agent, err := s.DecisionHistory(ctx, aKey, ref, 0, 0)
+		agent, err := s.DecisionHistory(ctx, aKey, ref, 0, 0, false)
 		if err != nil || len(agent.Verdicts) != 1 || agent.Verdicts[0].Via != "" {
 			t.Fatalf("%s agent history: %+v %v", ref, agent, err)
 		}

@@ -196,7 +196,7 @@ func TestDecisionReopenAndHistory(t *testing.T) {
 		t.Fatalf("verdict on the old text: %v", err)
 	}
 	second := mustVerdict(t, s, "H-1", 2, "declined")
-	page, err := s.DecisionHistory(ctx, f.peerKey, "H-1", 0, 0)
+	page, err := s.DecisionHistory(ctx, f.peerKey, "H-1", 0, 0, false)
 	if err != nil || len(page.Verdicts) != 2 || page.Verdicts[0].ID != first.ID || page.Verdicts[0].Snapshot.Title != "First text" ||
 		page.Verdicts[0].SupersededAt == 0 || page.Verdicts[1].ID != second.ID || page.Verdicts[1].Snapshot.Title != "Second text" {
 		t.Fatalf("history: %+v %v", page, err)
@@ -213,7 +213,7 @@ func TestDecisionReopenAndHistory(t *testing.T) {
 	}
 	var seen int
 	for after := int64(0); ; {
-		page, err := s.DecisionHistory(ctx, f.peerKey, "H-1", after, 0)
+		page, err := s.DecisionHistory(ctx, f.peerKey, "H-1", after, 0, false)
 		if err != nil || len(page.Verdicts) > decisionHistoryItems {
 			t.Fatalf("page: %d %v", len(page.Verdicts), err)
 		}
@@ -242,7 +242,7 @@ func TestDecisionHistoryLargestVerdictFitsAPage(t *testing.T) {
 	if _, err := s.DecisionVerdict(verdictCtx(), "B-1", 1, "approved", strings.Repeat("<", decisionNoteLimit)); err != nil {
 		t.Fatal(err)
 	}
-	page, err := s.DecisionHistory(ctx, f.peerKey, "B-1", 0, 0)
+	page, err := s.DecisionHistory(ctx, f.peerKey, "B-1", 0, 0, false)
 	if err != nil || len(page.Verdicts) != 1 {
 		t.Fatalf("largest verdict: %+v %v", page, err)
 	}

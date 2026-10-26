@@ -893,9 +893,13 @@ func migrate(db *sql.DB, version, target int) error {
 		}
 	}
 	if version < 33 && target >= 33 {
-		// Version 33: each agent withdrawal of a decision item, with its reason, and its reopen
-		// (#504).
-		if _, err := tx.Exec(decisionWithdrawalsTable); err != nil {
+		// Version 33: each agent withdrawal of a decision item, with its reason, and its reopen,
+		// and each item's author participant, filled from the author's session where it is
+		// still stored (#504).
+		if _, err := tx.Exec(decisionWithdrawalsTable + `ALTER TABLE decision_items ADD COLUMN author_participant TEXT NOT NULL DEFAULT '';
+			UPDATE decision_items SET author_participant=COALESCE((SELECT ` + participantIdentity + ` FROM names a JOIN sessions s
+				ON s.family=a.family AND s.id=a.session_id WHERE a.kind='peer' AND a.name=decision_items.author_name
+				AND a.family=decision_items.author_family AND ` + participantSession + `),'');`); err != nil {
 			return err
 		}
 	}

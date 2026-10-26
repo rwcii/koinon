@@ -106,6 +106,10 @@ func TestDecisionVerdictToolsEveryNativeFamily(t *testing.T) {
 				r["result"].(map[string]any)["state"] != "active" || r["result"].(map[string]any)["revision"] != float64(2) {
 				t.Fatalf("reopen: %v", r)
 			}
+			if r, failed := h.tool("decision_history", with(map[string]any{"reference": reference, "withdrawals": true}), c.meta); failed ||
+				len(r["result"].(map[string]any)["withdrawals"].([]any)) != 1 {
+				t.Fatalf("withdrawal history: %v", r)
+			}
 			for tool, args := range map[string]map[string]any{
 				"decision_withdraw": {"reference": reference, "if_revision": 2, "reason": "done", "key": "k2", "deadline": deadline, "verdict": "approved"},
 				"decision_ack":      {"verdict_ids": []int{1}, "verdict": "approved"},

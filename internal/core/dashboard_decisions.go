@@ -78,13 +78,15 @@ type decisionsData struct {
 	Cards                  []DecisionItem
 	NextCards              string
 	// CardsAt is the cursor of the page shown, which a verdict form returns to.
-	CardsAt   string
-	Archive   DecisionPage
-	Lookup    string
-	Item      *DecisionItem
-	History   *DecisionHistoryPage
-	MovedAt   int64
-	LookupErr string
+	CardsAt string
+	Archive DecisionPage
+	Lookup  string
+	Item    *DecisionItem
+	History *DecisionHistoryPage
+	// WithdrawalPage is the looked-up item's page of all withdrawals, when asked for (#504).
+	WithdrawalPage *DecisionHistoryPage
+	MovedAt        int64
+	LookupErr      string
 	// Matches are the references that contain the looked-up text, ignoring ASCII case, when
 	// no item has it as its exact reference (#505); NextMatches is the last reference of the
 	// page when more follow.
@@ -241,6 +243,18 @@ func (s *Store) dashboardDecisions(ctx context.Context, q url.Values) (decisions
 			return data, err
 		}
 		data.History = &history
+		// withdrawals=ID pages every withdrawal after ID, oldest first (#504).
+		if q.Has("withdrawals") {
+			from, err := strconv.ParseInt(q.Get("withdrawals"), 10, 64)
+			if err != nil || from < 0 {
+				from = 0
+			}
+			page, err := withdrawalHistory(ctx, tx, reference, from, decisionHistoryItems)
+			if err != nil {
+				return data, err
+			}
+			data.WithdrawalPage = &page
+		}
 	}
 	return data, nil
 }

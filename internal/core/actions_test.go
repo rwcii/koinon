@@ -21,7 +21,7 @@ import (
 // temporary state, synthetic sessions and a patched launcher.
 
 // undoSchemaThirtyThree removes the agent withdrawals of decision items (#504).
-const undoSchemaThirtyThree = `DROP TABLE decision_withdrawals; `
+const undoSchemaThirtyThree = `DROP TABLE decision_withdrawals; ALTER TABLE decision_items DROP COLUMN author_participant; `
 
 // undoSchemaThirtyTwo removes the change versions of the maintainer mode (PDR 009, Decision 3).
 const undoSchemaThirtyTwo = `DROP TABLE change_versions; `

@@ -22,7 +22,10 @@
 {{with .Context}}<h4>Context</h4><div class="md">{{markdown .}}</div>{{end}}
 {{with .Recommendation}}<h4>Recommendation</h4><div class="md">{{markdown .}}</div>{{end}}
 {{range .Commands}}<div class="command"><pre><code>{{.}}</code></pre></div>{{end}}{{end}}</details></article>{{end}}
-{{with .NextAfter}}<p><a href="/dashboard/decisions?ref={{$.Data.Lookup}}&amp;history={{.}}{{with $.Data.Status}}&amp;status={{.}}{{end}}">Older verdicts</a></p>{{end}}{{end}}{{end}}</section>{{end}}
+{{with .NextAfter}}<p><a href="/dashboard/decisions?ref={{$.Data.Lookup}}&amp;history={{.}}{{with $.Data.Status}}&amp;status={{.}}{{end}}">Older verdicts</a></p>{{end}}{{end}}
+{{if gt .WithdrawalCount (len .Withdrawals)}}{{if not $.Data.WithdrawalPage}}<p><a href="/dashboard/decisions?ref={{$.Data.Lookup}}&amp;withdrawals=0{{with $.Data.Status}}&amp;status={{.}}{{end}}">All {{.WithdrawalCount}} withdrawals</a></p>{{end}}{{end}}
+{{with $.Data.WithdrawalPage}}<h3>All withdrawals, oldest first</h3><ul class="withdrawals">{{range .Withdrawals}}{{template "withdrawal" .}}{{end}}</ul>
+{{with .NextAfter}}<p><a href="/dashboard/decisions?ref={{$.Data.Lookup}}&amp;withdrawals={{.}}{{with $.Data.Status}}&amp;status={{.}}{{end}}">More withdrawals</a></p>{{end}}{{end}}{{end}}</section>{{end}}
 <h2>Agents</h2>
 {{if not .Data.Agents}}<p class="empty">No active agent sessions.</p>{{else}}<div class="scroll"><table class="agents">
 <thead><tr><th>Agent</th><th>Activity</th><th>Claimed work</th><th>Context</th><th>Waiting for a verdict</th></tr></thead>
@@ -63,5 +66,6 @@
 {{with .AgentText}}<h4>Agent text</h4><div class="md">{{markdown .}}</div>{{end}}
 {{if .Commands}}<h4>Commands</h4>{{range .Commands}}<div class="command"><pre><code>{{.}}</code></pre><button type="button" class="copy">Copy</button></div>{{end}}{{end}}
 {{with .HiddenCommands}}<p class="refused">{{.}} stored command(s) fail the printable-ASCII rule and are hidden. This item cannot be approved as shown.</p>{{end}}
-{{with .Withdrawals}}<h4>Withdrawals ({{$.WithdrawalCount}}, newest first)</h4><ul class="withdrawals">{{range .}}<li>Withdrawn by {{.By}} ({{.Family}}) on revision {{.Revision}}, {{ms .At}}: {{.Reason}}{{if .ReopenedAt}}. Reopened by {{.ReopenedBy}}, {{ms .ReopenedAt}}.{{end}}</li>{{end}}</ul>{{end}}
+{{with .Withdrawals}}<h4>Withdrawals ({{$.WithdrawalCount}}, newest first)</h4><ul class="withdrawals">{{range .}}{{template "withdrawal" .}}{{end}}</ul>{{end}}
 <h4>Recipients</h4>{{if .Recipients}}<ul class="recipients">{{range .Recipients}}<li>{{.Name}}{{if .Resolved}} <small>{{.Kind}}</small>{{else}} <span class="refused">not resolved: {{.Reason}}</span>{{end}}</li>{{end}}</ul>{{else}}<p class="refused">No recipients named.</p>{{end}}{{end}}
+{{define "withdrawal"}}<li>Withdrawn by {{.By}} ({{.Family}}) on revision {{.Revision}}, {{ms .At}}: {{.Reason}}{{if .ReopenedAt}}. Reopened by {{.ReopenedBy}}, {{ms .ReopenedAt}}.{{end}}</li>{{end}}

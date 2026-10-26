@@ -389,7 +389,7 @@ const usage = `Usage: koinon install [--prefix DIR] [--state-dir DIR] [--port N]
        koinon decision edit --as FAMILY:ID --reference REF --if-revision N [field flags as for create]
        koinon decision list --as FAMILY:ID --filter waiting|active|in_progress|archived|mine [--after ID] [--limit N]
        koinon decision get --as FAMILY:ID --reference REF
-       koinon decision history --as FAMILY:ID --reference REF [--after VERDICT_ID] [--limit N]
+       koinon decision history --as FAMILY:ID --reference REF [--withdrawals] [--after ID] [--limit N]
        koinon decision pending --as FAMILY:ID [--after VERDICT_ID] [--limit N]
        koinon decision ack --as FAMILY:ID --verdict VERDICT_ID...
        koinon decision close --as FAMILY:ID --reference REF --if-revision N [--note TEXT] --key KEY --deadline UNIX_SECONDS

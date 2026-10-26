@@ -80,6 +80,10 @@ func TestDecisionCommandsOfTheDeepSeekGuide(t *testing.T) {
 	if err != nil || reply["result"].(map[string]any)["state"] != "active" || reply["result"].(map[string]any)["revision"] != float64(3) {
 		t.Fatalf("reopen: %v %v", reply, err)
 	}
+	reply, err = run([]string{"history", "--as", "deepseek:synthetic-guide", "--reference", "G-1", "--withdrawals"})
+	if err != nil || len(reply["result"].(map[string]any)["withdrawals"].([]any)) != 1 {
+		t.Fatalf("history --withdrawals: %v %v", reply, err)
+	}
 	if _, err := run([]string{"withdraw", "--as", "deepseek:synthetic-guide", "--reference", "G-1", "--if-revision", "3", "--key", "k3", "--deadline", deadline}); err == nil {
 		t.Fatal("withdraw without --reason")
 	}

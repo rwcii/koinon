@@ -93,8 +93,10 @@ type DecisionVerdict struct {
 type DecisionHistoryPage struct {
 	Reference string            `json:"reference"`
 	Verdicts  []DecisionVerdict `json:"verdicts"`
-	More      bool              `json:"more"`
-	NextAfter *int64            `json:"next_after"`
+	// Withdrawals is the page of agent withdrawals that a withdrawals read asks for (#504).
+	Withdrawals []DecisionWithdrawal `json:"withdrawals,omitempty"`
+	More        bool                 `json:"more"`
+	NextAfter   *int64               `json:"next_after"`
 }
 
 // DecisionPending is one queued delivery of the caller.
@@ -662,41 +664,63 @@ func (s *Store) DecisionWithdraw(ctx context.Context, caller Key, reference stri
 	return withdrawn, tx.Commit()
 }
 
+// participantIdentity and participantSession apply to sessions aliased as s: a participant
+// is the family, repository and role of a session that qualifies for one (a launched native
+// session or DeepSeek, not a sub-agent, with a repository). A plain peer has none (PDR 001).
+const (
+	participantIdentity = `s.family||char(31)||s.repository||char(31)||s.role`
+	participantSession  = `s.subagent=0 AND s.repository!='' AND ` + participantQualifier
+)
+
+// authorParticipantOf returns the caller's participant identity, or "" for a plain peer.
+func authorParticipantOf(ctx context.Context, tx *sql.Tx, caller Key) (string, error) {
+	var identity string
+	err := tx.QueryRowContext(ctx, `SELECT `+participantIdentity+` FROM sessions s WHERE s.family=? AND s.id=? AND `+participantSession,
+		caller.Family, caller.ID).Scan(&identity)
+	if errors.Is(err, sql.ErrNoRows) {
+		return "", nil
+	}
+	return identity, err
+}
+
 // itemParty returns the caller's peer name when the caller may withdraw or reopen the item
-// (#504): its author, a session of the author's participant (the same family, repository
-// and role, so a successor after a context cycle qualifies) or a recipient that names the
-// caller's peer name or held address. Otherwise it refuses with not_item_party.
+// (#504): its author, a session of the participant that the item stored for its author at
+// create (so a successor after a context cycle qualifies, also after its predecessor's
+// session was purged), or a recipient that names the caller's peer name or held address.
+// Otherwise it refuses with not_item_party.
 func itemParty(ctx context.Context, tx *sql.Tx, now int64, caller Key, id int64, item DecisionItem) (string, error) {
 	peer, err := peerOf(ctx, tx, caller.Family, caller.ID)
-	if err != nil {
-		return "", err
-	}
-	names, err := callerNames(ctx, tx, now, caller)
 	if err != nil {
 		return "", err
 	}
 	if caller.Family == item.AuthorFamily && peer != "" && peer == item.AuthorName {
 		return peer, nil
 	}
-	var n int
-	if err := tx.QueryRowContext(ctx, `SELECT COUNT(*) FROM names a JOIN sessions sa ON sa.family=a.family AND sa.id=a.session_id
-		JOIN sessions sc ON sc.family=? AND sc.id=? WHERE a.kind='peer' AND a.name=? AND a.family=? AND sa.family=sc.family
-		AND sa.repository=sc.repository AND sa.repository!='' AND sa.role=sc.role AND sa.subagent=0 AND sc.subagent=0`,
-		caller.Family, caller.ID, item.AuthorName, item.AuthorFamily).Scan(&n); err != nil {
+	participant, err := authorParticipantOf(ctx, tx, caller)
+	if err != nil {
+		return "", err
+	}
+	var author string
+	if err := tx.QueryRowContext(ctx, `SELECT author_participant FROM decision_items WHERE id=?`, id).Scan(&author); err != nil {
+		return "", err
+	}
+	if participant != "" && participant == author {
+		return peer, nil
+	}
+	names, err := callerNames(ctx, tx, now, caller)
+	if err != nil {
 		return "", err
 	}
 	for _, name := range names {
-		if n > 0 {
-			break
-		}
+		var n int
 		if err := tx.QueryRowContext(ctx, `SELECT COUNT(*) FROM decision_recipients WHERE item_id=? AND name=?`, id, name).Scan(&n); err != nil {
 			return "", err
 		}
+		if n > 0 {
+			return peer, nil
+		}
 	}
-	if n == 0 {
-		return "", workError("not_item_party", "only the item's author, a session of its participant or a named recipient can do this")
-	}
-	return peer, nil
+	return "", workError("not_item_party", "only the item's author, a session of its participant or a named recipient can do this")
 }
 
 func orItem(item *DecisionItem) DecisionItem {
@@ -710,7 +734,7 @@ func orItem(item *DecisionItem) DecisionItem {
 // stops before the verdict that would take the serialized reply past decisionHistoryBytes
 // and always holds at least one: the largest verdict, every field at its limit and every
 // character at the longest JSON escape, serializes below that limit.
-func (s *Store) DecisionHistory(ctx context.Context, caller Key, reference string, after int64, limit int) (DecisionHistoryPage, error) {
+func (s *Store) DecisionHistory(ctx context.Context, caller Key, reference string, after int64, limit int, withdrawals bool) (DecisionHistoryPage, error) {
 	if err := checkReference(reference); err != nil {
 		return DecisionHistoryPage{}, err
 	}
@@ -727,6 +751,10 @@ func (s *Store) DecisionHistory(ctx context.Context, caller Key, reference strin
 	defer tx.Rollback()
 	if err := active(ctx, tx, s.now().UnixMilli(), caller); err != nil {
 		return DecisionHistoryPage{}, err
+	}
+	// withdrawals pages the item's agent withdrawals instead of its verdicts (#504).
+	if withdrawals {
+		return withdrawalHistory(ctx, tx, reference, after, limit)
 	}
 	// Agents see the maintainer's verdicts without the client that gave them (PDR 009,
 	// Decision 4).

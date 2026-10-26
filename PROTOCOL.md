@@ -574,6 +574,9 @@ return `invalid_request`.
 Schema 33 adds the table `decision_withdrawals` (#504): each agent withdrawal of a decision
 item with the item, the revision it withdrew, the withdrawing peer's family and name, the
 reason, the time, and the time and peer of the reopen that undid it. An upgrade starts it empty.
+It also adds `decision_items.author_participant`, the author's participant (family, repository
+and role) at create, or `''` for an author without one. The upgrade fills it from the author's
+session where that session is still stored.
 
 Schema 32 adds the table `change_versions` of the maintainer mode's change notices (PDR 009,
 Decision 3): one row each for `inbox` and `decisions` and one for each room by its ID, each with
@@ -1560,17 +1563,21 @@ acknowledgements do not change.
   `active` item (a waiting decision item or an open fyi item) to `archived` and records the
   withdrawal with the caller's peer name and family, the revision, the reason and the time; it
   writes no verdict, delivery or audit record, and the item keeps its revision. The caller is
-  the item's author, a session of the author's participant (the same family, repository and
-  role, so a successor after a context cycle qualifies) or a recipient that names the caller's
-  peer name or held address; another caller is `not_item_party`. A changed revision is
+  the item's author, a session of the participant that the item stored for its author at create
+  (the same family, repository and role of a launched session or DeepSeek, not a sub-agent;
+  a successor after a context cycle qualifies, also after the author's session was deleted, and
+  a plain peer has no participant) or a recipient that names the caller's peer name or held
+  address; another caller is `not_item_party`. A changed revision is
   `stale_revision` and another state is `not_active`; a verdict and a withdrawal on the same
   revision are serialized writes, so the second is refused. A retry with the same key returns
   the item as this withdrawal returned it; withdraw keys are a key space of their own. An item
-  read (`decision_get`, the lookup) carries `withdrawals`, the newest 8 newest first (`revision`,
-  `by`, `family`, `reason`, `at`, `reopened_at`, `reopened_by`), `withdrawal_count` and
+  read (`decision_get`, the lookup) carries `withdrawals`, the newest 8 newest first (`id`,
+  `revision`, `by`, `family`, `reason`, `at`, `reopened_at`, `reopened_by`), `withdrawal_count` and
   `withdrawn`, set while the latest withdrawal archives the item; a summary carries
-  `withdrawn`. An edit that reopens a withdrawn item records the reopen on the withdrawal, as
-  a restore does.
+  `withdrawn`. `POST /v1/decisions/history` with `withdrawals: true` pages all of an item's
+  withdrawals in ID order (`after`, `limit` up to 16, `more`, `next_after`) instead of its
+  verdicts, and the board lookup links to them (`withdrawals=ID`). An edit that reopens a
+  withdrawn item records the reopen on the withdrawal, as a restore does.
 
 **Deep archive.** Nothing deletes a decision record. 30 days after an item was archived,
 once every delivery is `acknowledged` or `skipped`, the maintenance sweep moves its whole

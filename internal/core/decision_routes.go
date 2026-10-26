@@ -92,16 +92,17 @@ func (d *Daemon) decisionRoutes(mux *http.ServeMux) {
 	})
 	mux.HandleFunc("POST /v1/decisions/history", func(w http.ResponseWriter, r *http.Request) {
 		var request struct {
-			Caller    Key    `json:"caller"`
-			Reference string `json:"reference"`
-			After     int64  `json:"after"`
-			Limit     int    `json:"limit"`
+			Caller      Key    `json:"caller"`
+			Reference   string `json:"reference"`
+			After       int64  `json:"after"`
+			Limit       int    `json:"limit"`
+			Withdrawals bool   `json:"withdrawals"`
 		}
 		if err := decode(w, r, &request); err != nil {
 			failure(w, err)
 			return
 		}
-		page, err := d.store.DecisionHistory(r.Context(), request.Caller, request.Reference, request.After, request.Limit)
+		page, err := d.store.DecisionHistory(r.Context(), request.Caller, request.Reference, request.After, request.Limit, request.Withdrawals)
 		if err != nil {
 			failure(w, err)
 			return

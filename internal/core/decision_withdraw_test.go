@@ -2,6 +2,7 @@ package core
 
 import (
 	"context"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -114,6 +115,34 @@ func TestDecisionWithdrawParties(t *testing.T) {
 	}
 	if got, err := s.DecisionWithdraw(ctx, f.otherKey, "P-2", 1, "no longer valid", "p-successor", deadline); err != nil || got.Withdrawals[0].By != f.other.Name {
 		t.Fatalf("successor: %+v %v", got, err)
+	}
+}
+
+// TestDecisionWithdrawAuthorParticipant keeps the author's participant on the item, so a
+// later session of it withdraws the item after the author's session was deleted, and a plain
+// peer of the same family and repository, which has no participant, cannot.
+func TestDecisionWithdrawAuthorParticipant(t *testing.T) {
+	f := newVerdictFixture(t)
+	s, ctx := f.s, context.Background()
+	deadline := s.clock() + 600
+	mustCreate(t, s, f.holderKey, "A-1", decisionFields("By the holder", "fyi"))
+	var stored string
+	if err := s.db.QueryRow(`SELECT author_participant FROM decision_items WHERE reference='A-1'`).Scan(&stored); err != nil || stored == "" {
+		t.Fatalf("author participant: %q %v", stored, err)
+	}
+	// A plain peer: the same family and repository, registered without a launch.
+	plain, err := s.Register(ctx, Registration{Family: "codex", ID: "synthetic-plain", Repository: f.holder.Repository, Directory: f.holder.Repository, TTLSeconds: 60})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.DecisionWithdraw(ctx, Key{"codex", plain.ID}, "A-1", 1, "done", "a-plain", deadline); refusalCode(err) != "not_item_party" {
+		t.Fatalf("plain peer: %v", err)
+	}
+	if deleted, err := s.deleteSession(ctx, f.holderKey, "?1=1", 1); err != nil || !deleted {
+		t.Fatalf("delete the author's session: %v %v", deleted, err)
+	}
+	if got, err := s.DecisionWithdraw(ctx, f.otherKey, "A-1", 1, "no longer valid", "a-successor", deadline); err != nil || got.Withdrawals[0].By != f.other.Name {
+		t.Fatalf("successor after the delete: %+v %v", got, err)
 	}
 }
 
@@ -301,7 +330,7 @@ func TestSchemaThirtyThreeAddsWithdrawals(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	a := join(t, s, "codex", "synthetic-a", "")
+	a := join(t, s, "codex", "synthetic-a", namedRepo(t, "koinon"))
 	mustCreate(t, s, Key{"codex", a.ID}, "M-1", decisionFields("Kept", "fyi"))
 	if _, err := fixtureExec(s, undoSchemaThirtyThree+`PRAGMA user_version=32`); err != nil {
 		t.Fatal(err)
@@ -323,7 +352,75 @@ func TestSchemaThirtyThreeAddsWithdrawals(t *testing.T) {
 	if err := checkCatalog(upgraded.db, 32); err == nil {
 		t.Fatal("a schema 32 writer would accept the schema 33 store")
 	}
+	var participant string
+	if err := upgraded.db.QueryRow(`SELECT author_participant FROM decision_items WHERE reference='M-1'`).Scan(&participant); err != nil ||
+		participant != "codex\x1f"+a.Repository+"\x1f" {
+		t.Fatalf("backfilled author participant: %q %v", participant, err)
+	}
 	if got, err := upgraded.DecisionWithdraw(context.Background(), Key{"codex", a.ID}, "M-1", 1, "done", "m-1", upgraded.clock()+600); err != nil || !got.Withdrawn {
 		t.Fatalf("withdraw after the upgrade: %+v %v", got, err)
+	}
+}
+
+// TestDecisionWithdrawalHistory keeps every withdrawal readable: an item read shows the
+// newest 8 and the count, decision_history with withdrawals pages all of them in ID order,
+// and the board lookup links to all of them.
+func TestDecisionWithdrawalHistory(t *testing.T) {
+	d, root := startTestDaemon(t)
+	client := newActionClient(t, d, root)
+	peer := join(t, d.store, "claude", "synthetic-withdraw-history", "")
+	key := Key{"claude", peer.ID}
+	s, ctx := d.store, context.Background()
+	mustCreate(t, s, key, "H-1", decisionFields("Cycled", "fyi"))
+	cycles := decisionWithdrawalItems + 1
+	for i := 1; i <= cycles; i++ {
+		if _, err := s.DecisionWithdraw(ctx, key, "H-1", int64(i), "reason "+strconv.Itoa(i), "h-"+strconv.Itoa(i), s.clock()+600); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := s.DecisionRestore(ctx, key, "H-1", int64(i)); err != nil {
+			t.Fatal(err)
+		}
+	}
+	item, err := s.DecisionGet(ctx, key, "H-1")
+	if err != nil || item.WithdrawalCount != int64(cycles) || len(item.Withdrawals) != decisionWithdrawalItems || item.Withdrawals[0].Reason != "reason "+strconv.Itoa(cycles) {
+		t.Fatalf("item read: %+v %v", item, err)
+	}
+	var reasons []string
+	var after int64
+	for pages := 0; ; pages++ {
+		page, err := s.DecisionHistory(ctx, key, "H-1", after, 4, true)
+		if err != nil || len(page.Verdicts) != 0 || pages > 3 {
+			t.Fatalf("withdrawal page: %+v %v", page, err)
+		}
+		for _, w := range page.Withdrawals {
+			reasons = append(reasons, w.Reason)
+		}
+		if !page.More {
+			break
+		}
+		after = *page.NextAfter
+	}
+	if len(reasons) != cycles || reasons[0] != "reason 1" || reasons[cycles-1] != "reason "+strconv.Itoa(cycles) {
+		t.Fatalf("all withdrawals: %q", reasons)
+	}
+	if page, err := s.DecisionHistory(ctx, key, "H-1", 0, 0, false); err != nil || page.Withdrawals != nil {
+		t.Fatalf("verdict history: %+v %v", page, err)
+	}
+	get := func(path string) string {
+		t.Helper()
+		page := dashboardDo(t, d, "GET", path, client.cookie, nil, nil)
+		if page.status != 200 {
+			t.Fatalf("%s: %d %s", path, page.status, page.body)
+		}
+		return page.body
+	}
+	link := `<a href="/dashboard/decisions?ref=H-1&amp;withdrawals=0">All ` + strconv.Itoa(cycles) + ` withdrawals</a>`
+	if body := get("/dashboard/decisions?ref=H-1"); !strings.Contains(body, link) {
+		t.Errorf("no link to all withdrawals: %s", body)
+	}
+	body := get("/dashboard/decisions?ref=H-1&withdrawals=0")
+	all := body[strings.Index(body, "<h3>All withdrawals, oldest first</h3>"):]
+	if strings.Count(all, "<li>Withdrawn by") != cycles || !strings.Contains(all, ": reason 1. Reopened by") || strings.Contains(body, link) {
+		t.Errorf("all withdrawals page: %s", all)
 	}
 }

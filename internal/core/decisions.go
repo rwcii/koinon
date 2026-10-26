@@ -140,6 +140,7 @@ type DecisionItem struct {
 // DecisionWithdrawal is one agent withdrawal of an item: the revision it withdrew, the
 // withdrawing peer, the reason and time, and the reopen that undid it, if any.
 type DecisionWithdrawal struct {
+	ID         int64  `json:"id"`
 	Revision   int64  `json:"revision"`
 	By         string `json:"by"`
 	Family     string `json:"family"`
@@ -481,6 +482,11 @@ func (s *Store) DecisionCreate(ctx context.Context, caller Key, reference string
 	if err != nil {
 		return DecisionCreated{}, err
 	}
+	// The author's participant lets a later session of it withdraw the item (#504).
+	participant, err := authorParticipantOf(ctx, tx.Tx, caller)
+	if err != nil {
+		return DecisionCreated{}, err
+	}
 	names := []string{}
 	if f.Recipients != nil {
 		names = *f.Recipients
@@ -495,9 +501,9 @@ func (s *Store) DecisionCreate(ctx context.Context, caller Key, reference string
 	}
 	encoded, _ := json.Marshal(commands)
 	inserted, err := tx.ExecContext(ctx, `INSERT INTO decision_items(reference,item_order,title,location,agent_text,context,recommendation,
-		kind,state,commands,revision,author_family,author_name,created_at,updated_at) VALUES (?,?,?,?,?,?,?,?,'active',?,1,?,?,?,?)`,
+		kind,state,commands,revision,author_family,author_name,author_participant,created_at,updated_at) VALUES (?,?,?,?,?,?,?,?,'active',?,1,?,?,?,?,?)`,
 		reference, derefOrder(f.Order), *f.Title, deref(f.Where), deref(f.AgentText), deref(f.Context),
-		deref(f.Recommendation), *f.Kind, string(encoded), caller.Family, author, now, now)
+		deref(f.Recommendation), *f.Kind, string(encoded), caller.Family, author, participant, now, now)
 	if err != nil {
 		return DecisionCreated{}, tx.fail(err)
 	}
@@ -713,21 +719,46 @@ func decisionWithdrawals(ctx context.Context, q querier, id int64) ([]DecisionWi
 	if err := q.QueryRowContext(ctx, `SELECT COUNT(*) FROM decision_withdrawals WHERE item_id=?`, id).Scan(&total); err != nil || total == 0 {
 		return nil, 0, err
 	}
-	rows, err := q.QueryContext(ctx, `SELECT revision,name,family,reason,at,reopened_at,reopened_by FROM decision_withdrawals
-		WHERE item_id=? ORDER BY id DESC LIMIT `+strconv.Itoa(decisionWithdrawalItems), id)
+	out, err := scanWithdrawals(q.QueryContext(ctx, `SELECT id,revision,name,family,reason,at,reopened_at,reopened_by FROM decision_withdrawals
+		WHERE item_id=? ORDER BY id DESC LIMIT `+strconv.Itoa(decisionWithdrawalItems), id))
+	return out, total, err
+}
+
+func scanWithdrawals(rows *sql.Rows, err error) ([]DecisionWithdrawal, error) {
 	if err != nil {
-		return nil, 0, err
+		return nil, err
 	}
 	defer rows.Close()
-	var out []DecisionWithdrawal
+	out := []DecisionWithdrawal{}
 	for rows.Next() {
 		var w DecisionWithdrawal
-		if err := rows.Scan(&w.Revision, &w.By, &w.Family, &w.Reason, &w.At, &w.ReopenedAt, &w.ReopenedBy); err != nil {
-			return nil, 0, err
+		if err := rows.Scan(&w.ID, &w.Revision, &w.By, &w.Family, &w.Reason, &w.At, &w.ReopenedAt, &w.ReopenedBy); err != nil {
+			return nil, err
 		}
 		out = append(out, w)
 	}
-	return out, total, rows.Err()
+	return out, rows.Err()
+}
+
+// withdrawalHistory reads one page of an item's withdrawals in ID order after after, at most
+// limit; an item read shows only the newest (#504).
+func withdrawalHistory(ctx context.Context, q querier, reference string, after int64, limit int) (DecisionHistoryPage, error) {
+	id, _, err := decisionRow(ctx, q, reference)
+	if err != nil {
+		return DecisionHistoryPage{}, err
+	}
+	withdrawals, err := scanWithdrawals(q.QueryContext(ctx, `SELECT id,revision,name,family,reason,at,reopened_at,reopened_by FROM decision_withdrawals
+		WHERE item_id=? AND id>? ORDER BY id LIMIT ?`, id, after, limit+1))
+	if err != nil {
+		return DecisionHistoryPage{}, err
+	}
+	page := DecisionHistoryPage{Reference: reference, Verdicts: []DecisionVerdict{}, Withdrawals: withdrawals}
+	if len(withdrawals) > limit {
+		page.Withdrawals = withdrawals[:limit]
+		last := page.Withdrawals[limit-1].ID
+		page.More, page.NextAfter = true, &last
+	}
+	return page, nil
 }
 
 func (s *Store) decisionRead(ctx context.Context, reference string) (DecisionItem, error) {
