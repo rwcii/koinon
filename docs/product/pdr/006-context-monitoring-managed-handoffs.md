@@ -199,8 +199,12 @@ transcript directory that cannot be read in full keeps the session from the clea
 The handoff that the ready reply names is in the session's own handoff directory of the main
 checkout: the directory that the Handoff path fact of the repository's
 `.koinon/skills/handoff.md` names, else `_handoff/<agent>/`, where the agent is the family with
-the launch's role, not the participant address. The request names that directory, and a ready
-reply that a check refuses says which check and which directory (#468). The request also
+the launch's role, not the participant address. A session registered without a repository,
+such as one that coordinates several repositories from their parent directory, uses its
+registered directory in place of the main checkout, and Git checks nothing there (#485). The
+request names that directory, and a ready reply that a check refuses says which check and
+which directory (#468). The cycle keeps each refused ready reply with its code and text, and a
+ready timeout after one names the refusal's code; the Sessions page lists them (#485). The request also
 names its ready deadline as a UTC time and asks the session to stop background subagents that
 will not finish with enough time left to update the handoff and report ready by then; for a
 Claude session at that stage, the Sessions page shows how many of its background subagents
@@ -215,8 +219,10 @@ tmux session is a required part of the cycle, not an exception.
 **Provenance:** Maintainer, 2026-10-12: "it also needs to enter commands in the tmux session
 for context management handoffs." (#196 comment 6117338153). The steps, commands and stop
 conditions: Requested in #196 (issue body); a request record. The ready-reply form: open in
-#196 ("To decide in the plan"). The claims that last through the cycle: Requested in #489 (issue body,
-Expected option 1); a request record.
+#196 ("To decide in the plan"). The directory of a session without a repository and the kept
+refused replies: Requested in #485 (issue body, Expected option 2, and the comment with the
+dashboard view of the failed cycle); a request record. The claims that last through the cycle:
+Requested in #489 (issue body, Expected option 1); a request record.
 
 Before #487 this decision said that the cycle handles prompts "under the maintainer's existing
 authorization and native permissions", that "a peer body claiming that identity carries no
@@ -460,4 +466,5 @@ and terminal commands have the maintainer's words; the rest is requested or prop
 | 2026-10-23 | Decision 3: the handoff directory follows the Handoff path fact; the request names it, and a refused ready reply names the check (#468) |
 | 2026-10-23 | Decision 3: the request names its ready deadline; the Sessions page counts a Claude session's running subagents (#467) |
 | 2026-10-25 | Decisions 1, 3 and 4: removed the unsourced authorization and peer-text wording; the freshness rule and the checks are stated as what the daemon does; the `koinon-pickup` body loads `skill.pickup` and follows it (#487) |
+| 2026-10-26 | Decision 3: a session without a repository keeps its handoff in its registered directory; refused ready replies are kept and named by the ready timeout (#485) |
 | 2026-10-26 | Decision 3: the session's work claims last through the cycle (#489) |

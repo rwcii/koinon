@@ -156,7 +156,17 @@ func (s *Store) stepCycle(ctx context.Context, c cycleRow) error {
 	switch {
 	case now >= c.CycleDeadline:
 		// endCycleTx makes an unproven input uncertain.
-		_, err := s.endCycle(ctx, c.ID, c.Revision, cycleFailed, "cycle_timeout")
+		reason := "cycle_timeout"
+		if c.State == cycleWaitingReady {
+			code, err := readyRefusalCode(ctx, s.db, c)
+			if err != nil {
+				return err
+			}
+			if code != "" {
+				reason += ".refused." + code
+			}
+		}
+		_, err := s.endCycle(ctx, c.ID, c.Revision, cycleFailed, reason)
 		return err
 	case now >= c.StageDeadline && !cycleInputUnproven(c.State):
 		// A stage that waited for the pane names what the pane last showed. A requester that
@@ -183,15 +193,23 @@ func (s *Store) stepCycle(ctx context.Context, c cycleRow) error {
 			}
 		}
 		if c.State == cycleWaitingReady {
-			// The reason says whether the session read the request that went unanswered (#445).
-			read, err := s.cycleRequestRead(ctx, c)
-			if err != nil {
+			// The reason says whether the session read the request that went unanswered
+			// (#445), or names the refusal of its newest ready report at this revision (#485).
+			switch code, err := readyRefusalCode(ctx, s.db, c); {
+			case err != nil:
 				return err
-			}
-			if read {
-				reason += ".read"
-			} else {
-				reason += ".unread"
+			case code != "":
+				reason += ".refused." + code
+			default:
+				read, err := s.cycleRequestRead(ctx, c)
+				if err != nil {
+					return err
+				}
+				if read {
+					reason += ".read"
+				} else {
+					reason += ".unread"
+				}
 			}
 		}
 		_, err := s.endCycle(ctx, c.ID, c.Revision, cycleFailed, reason)
@@ -436,7 +454,7 @@ func (s *Store) paneHeldByCycle(ctx context.Context, target Key) (bool, error) {
 }
 
 // trimCycles removes finished cycles past the retention and beyond the newest
-// maxTerminalCycles, with their events. Unfinished cycles and their credits stay.
+// maxTerminalCycles, with their events and refused ready reports. Unfinished cycles and their credits stay.
 func (s *Store) trimCycles(ctx context.Context) error {
 	ctx = noAudit(ctx)
 	tx, err := s.begin(ctx, control)
@@ -448,6 +466,9 @@ func (s *Store) trimCycles(ctx context.Context) error {
 	selected := `SELECT cycle_id FROM context_cycles WHERE finished_at>0 AND (finished_at<? OR cycle_id IN
 		(SELECT cycle_id FROM context_cycles WHERE finished_at>0 ORDER BY finished_at DESC, cycle_id LIMIT -1 OFFSET ?))`
 	if _, err := tx.ExecContext(ctx, `DELETE FROM context_cycle_events WHERE cycle_id IN (`+selected+`)`, cutoff, maxTerminalCycles); err != nil {
+		return tx.fail(err)
+	}
+	if _, err := tx.ExecContext(ctx, `DELETE FROM context_cycle_refusals WHERE cycle_id IN (`+selected+`)`, cutoff, maxTerminalCycles); err != nil {
 		return tx.fail(err)
 	}
 	if _, err := tx.ExecContext(ctx, `DELETE FROM context_cycles WHERE cycle_id IN (`+selected+`)`, cutoff, maxTerminalCycles); err != nil {

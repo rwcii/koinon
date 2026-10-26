@@ -33,30 +33,40 @@ that default; apply an evidenced override consistently for writing and pickup.
 
 All handoffs belong in the `_handoff/` directory of the main checkout (the repository
 directory that holds `.git`), because a linked worktree and every file in it are removed when
-its work merges. A relative `_handoff/` path in a worktree names the worktree's directory. The
-commands below find the main checkout from any worktree. Run them every time; they create
-what is missing and change nothing that already exists:
+its work merges. A relative `_handoff/` path in a worktree names the worktree's directory. A
+session that runs outside a Git checkout, such as one in a workspace directory that holds
+several repositories, keeps its handoffs in the directory where it started: Koinon registered
+that directory for the session, a managed cycle reads the handoff there, and Git checks
+nothing there. The commands below find the right directory from any worktree, or from the
+directory where the session started. Run them every time; they create what is missing and
+change nothing that already exists:
 
 ```sh
-common=$(git rev-parse --path-format=absolute --git-common-dir)
-root=$(dirname "$common")
-dir="$root/_handoff/<agent-id>"
+if common=$(git rev-parse --path-format=absolute --git-common-dir 2>/dev/null); then
+  root=$(dirname "$common")
+  dir="$root/_handoff/<agent-id>"
 
-# 1. Make sure Git ignores _handoff/ before anything is written there.
-if ! git -C "$root" check-ignore -q "_handoff/<agent-id>/probe.md"; then
-  mkdir -p "$common/info"
-  printf '%s\n' '/_handoff/' >> "$common/info/exclude"
-fi
+  # 1. Make sure Git ignores _handoff/ before anything is written there.
+  if ! git -C "$root" check-ignore -q "_handoff/<agent-id>/probe.md"; then
+    mkdir -p "$common/info"
+    printf '%s\n' '/_handoff/' >> "$common/info/exclude"
+  fi
 
-# 2. Create the directory, private to this account, when it does not exist.
-[ -d "$dir" ] || (umask 077 && mkdir -p "$dir")
+  # 2. Create the directory, private to this account, when it does not exist.
+  [ -d "$dir" ] || (umask 077 && mkdir -p "$dir")
 
-# 3. Verify.
-if git -C "$root" check-ignore -q "_handoff/<agent-id>/probe.md" \
-   && [ -z "$(git -C "$root" ls-files -- _handoff)" ] && [ -d "$dir" ]; then
-  echo "ready: $dir"
+  # 3. Verify.
+  if git -C "$root" check-ignore -q "_handoff/<agent-id>/probe.md" \
+     && [ -z "$(git -C "$root" ls-files -- _handoff)" ] && [ -d "$dir" ]; then
+    echo "ready: $dir"
+  else
+    echo "not ready: _handoff/ is not ignored, Git tracks files in it, or it could not be created"
+  fi
 else
-  echo "not ready: _handoff/ is not ignored, Git tracks files in it, or it could not be created"
+  # Outside a Git checkout: the directory where the session started.
+  dir="$PWD/_handoff/<agent-id>"
+  [ -d "$dir" ] || (umask 077 && mkdir -p "$dir")
+  if [ -d "$dir" ]; then echo "ready: $dir"; else echo "not ready: $dir could not be created"; fi
 fi
 ```
 

@@ -26,10 +26,16 @@ writer. The examples below show the default convention.
 
 All handoffs are in the `_handoff/` directory of the main checkout, because a linked worktree
 is removed when its work merges. A relative `_handoff/` path in a worktree names the worktree's
-directory; these commands find the main checkout from any worktree:
+directory; these commands find the main checkout from any worktree. A session outside a Git
+checkout keeps its handoffs in the directory where it started (step 2 of the `handoff` skill),
+so run them from that directory:
 
 ```sh
-root=$(dirname "$(git rev-parse --path-format=absolute --git-common-dir)")
+if common=$(git rev-parse --path-format=absolute --git-common-dir 2>/dev/null); then
+  root=$(dirname "$common")
+else
+  root=$PWD
+fi
 dir="$root/_handoff/<agent-id>"
 note="$dir/progress.md"
 if [ -f "$note" ] && [ "$(wc -c < "$note")" -le 4096 ]; then
