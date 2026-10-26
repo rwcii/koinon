@@ -5,6 +5,8 @@ into a dated release section when promoted to `main`.
 
 ## Unreleased
 
+- `koinon status` no longer counts an unread message to a retired session as a waiting wake
+  (#486). The `wake` counts and reasons cover the sessions that the wake loop retries.
 - Koinon's text for agents says what to do, so that agents of different families work together
   (#487). The MCP server instructions, the tool descriptions, `koinon guide`, the daemon's
   messages, the skill entries it writes and the block it writes into a project's `AGENTS.md`
