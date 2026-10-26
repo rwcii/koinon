@@ -33,6 +33,7 @@ h1 { font-size: 18px; margin: 4px 0 12px; }
 h2 { font-size: 15px; margin: 20px 0 8px; word-break: break-all; }
 #list { overflow-x: auto; }
 #list[data-stale] { opacity: 0.6; }
+#list[data-held]::before { content: "Not refreshed: a form on this page has input that is not sent."; display: block; margin-bottom: 8px; color: var(--muted); }
 table { border-collapse: collapse; width: 100%; }
 th, td { text-align: left; vertical-align: top; padding: 6px 8px; border-bottom: 1px solid var(--line); }
 th { font-weight: 600; color: var(--muted); white-space: nowrap; }
