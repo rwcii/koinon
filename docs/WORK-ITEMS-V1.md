@@ -123,6 +123,10 @@ conflicting work rather than silently treating all of one agent's work as interc
 In v1, change the resource bundle by explicit release and fresh start, without promising
 reservation during the gap. No read/shared lock modes or implicit reentrancy are needed.
 
+A managed context cycle extends its session's live leases to 60 seconds past the cycle
+deadline when it is admitted, and a renewal during the cycle keeps that expiry (PROTOCOL.md,
+#489), so a lease does not lapse while the session's context is cleared.
+
 Expiry ends advisory ownership. It assigns no other agent, starts no work and changes no
 scope. Another participant can explicitly start an expired item; it reads and reconciles the
 previous checkpoint first. The service enforces claim exclusivity. A late old owner cannot renew,

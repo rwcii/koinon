@@ -5,6 +5,10 @@ into a dated release section when promoted to `main`.
 
 ## Unreleased
 
+- A session's work claims no longer expire during its managed context cycle (#489). Admission
+  extends its live claims to 60 seconds past the cycle deadline, in the same transaction, and a
+  `claim-renew` during the cycle, by the session or its managed successor, keeps that expiry.
+  The claim revision and generation do not change.
 - `koinon status` no longer counts an unread message to a retired session as a waiting wake
   (#486). The `wake` counts and reasons cover the sessions that the wake loop retries.
 - Koinon's text for agents says what to do, so that agents of different families work together

@@ -651,6 +651,9 @@ func (s *Store) admitContextCycle(ctx context.Context, k Key) (bool, error) {
 	if err := insertCycle(ctx, tx, c); err != nil {
 		return false, tx.fail(err)
 	}
+	if err := protectCycleClaims(ctx, tx, c, session.Repository, now); err != nil {
+		return false, tx.fail(err)
+	}
 	if err := cycleEvent(ctx, tx, &c, now, cycleRequested, "admitted", ""); err != nil {
 		return false, tx.fail(err)
 	}
