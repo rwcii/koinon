@@ -1965,7 +1965,13 @@ from elsewhere. Peer message bodies appear here, escaped, and nowhere else outsi
   drops an answer that arrives once one is, so an open confirmation, an edit form or a typed
   verdict note stays as it is. While unsent input holds it, the list shows "Not refreshed: a
   form on this page has input that is not sent."
-  Views never write.
+  Views never write. A view query that the daemon refuses as invalid answers 400 with "The
+  request was not valid." A view read that fails in the daemon (storage, Git, a stored record
+  that cannot be read, such as `decision_unavailable`, or another server error) answers 500
+  with "The daemon could not read this view." under the view's title, keeps the navigation and
+  the refresh, and logs `dashboard_view_failed` with the view and the error; the page shows no
+  internal detail (#507). Its list carries `data-reload`: once the list reads again, the
+  refresh loads the whole view, with its actions and filters.
 - **Sorting and paging.** Each table header with a sortable value links to `sort=COLUMN&dir=asc`
   or `dir=desc`; the current column carries `aria-sort` and its link reverses the direction.
   Columns: sessions `state` (default, ascending: active, then expired, then retired, each with

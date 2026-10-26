@@ -18,7 +18,7 @@
 {{if .Notice}}<p class="notice" role="status">{{.Notice}}</p>{{end}}
 {{if .CSRF}}{{block "actions" .}}{{end}}{{end}}
 {{block "filter" .}}{{end}}
-<div id="list"{{if .CSRF}} data-refresh="5000"{{end}}>{{template "list" .}}</div>
+<div id="list"{{if .CSRF}} data-refresh="5000"{{end}}{{if .Reload}} data-reload="true"{{end}}>{{template "list" .}}</div>
 </main>
 </body>
 </html>

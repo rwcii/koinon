@@ -12,6 +12,11 @@ into a dated release section when promoted to `main`.
   the Sessions page shows each compaction and its result. It needs no pickup skill or
   participant address, and Koinon changes no Codex setting. Schema 34 rebuilds the cycle table
   with the compaction states.
+- A dashboard view whose read fails in the daemon, also for a stored record that cannot be
+  read, answers 500 with "The daemon could not read this view." and logs
+  `dashboard_view_failed` (#507). It answered 400 on the login page, "Not signed in" and "The
+  request was not valid.", as for a wrong address. An invalid view query still answers 400.
+  The page refreshes, and loads the whole view again once the read works.
 - The dashboard refresh no longer erases typed input (#510). It waited only while a form field
   had focus, so a verdict note typed on a decision card was lost at the next refresh after a
   click elsewhere, such as on the card's **Copy** button. A field whose input is not sent now
