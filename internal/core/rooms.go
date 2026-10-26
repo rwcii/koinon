@@ -146,6 +146,10 @@ func (s *Store) CreateRoom(ctx context.Context, key, name string) (string, error
 		VALUES (?,?,1,0,0,0,?,?,0)`, id, name, s.now().UnixMilli(), key); err != nil {
 		return "", tx.fail(err)
 	}
+	// The room's change version (PDR 009, Decision 3) is part of the room's creation.
+	if _, err := tx.ExecContext(ctx, `INSERT INTO change_versions(topic,version) VALUES (?,`+firstVersion+`)`, id); err != nil {
+		return "", tx.fail(err)
+	}
 	setAuditTarget(ctx, "room "+id+" name bytes "+strconv.Itoa(len(name)))
 	return id, tx.Commit()
 }
@@ -217,6 +221,9 @@ func (s *Store) AddRoomMember(ctx context.Context, roomID, peerName string) (boo
 	if _, err := tx.ExecContext(ctx, `UPDATE rooms SET revision=? WHERE room_id=?`, revision, roomID); err != nil {
 		return false, tx.fail(err)
 	}
+	if err := bumpChange(ctx, tx, roomID); err != nil {
+		return false, tx.fail(err)
+	}
 	// An initial add or a re-add starts the membership at the room's current post head.
 	if exists {
 		_, err = tx.ExecContext(ctx, `UPDATE room_members SET active=1,revision=?,start_seq=?,label=?,changed_at=?
@@ -264,6 +271,9 @@ func (s *Store) RemoveRoomMember(ctx context.Context, roomID string, ordinal int
 	}
 	revision := room.Revision + 1
 	if _, err := tx.ExecContext(ctx, `UPDATE rooms SET revision=? WHERE room_id=?`, revision, roomID); err != nil {
+		return tx.fail(err)
+	}
+	if err := bumpChange(ctx, tx, roomID); err != nil {
 		return tx.fail(err)
 	}
 	if _, err := tx.ExecContext(ctx, `UPDATE room_members SET active=0,revision=?,changed_at=? WHERE room_id=? AND ordinal=?`,

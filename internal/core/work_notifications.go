@@ -423,6 +423,9 @@ func (s *Store) reconcileAudience(ctx context.Context, repo, store, key string, 
 		if err != nil {
 			return err
 		}
+		if err := bumpInbox(ctx, tx, recipient); err != nil {
+			return err
+		}
 		_, err = tx.ExecContext(ctx, `UPDATE work_audiences SET head=?,notice_head=?,message_id=?,reason='' WHERE store=? AND audience=?`, head, head, id, store, key)
 		return err
 	})

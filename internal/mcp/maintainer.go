@@ -10,6 +10,7 @@ import (
 	"slices"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/rwcii/koinon/internal/core"
 )
@@ -99,27 +100,70 @@ type maintainerServer struct {
 	outMu  sync.Mutex
 	mu     sync.Mutex
 	bearer string
+	// subMu guards the change notices: subs holds each subscribed URI with the version that
+	// the client last learned of, "" for a deleted room, and poll is the running long poll.
+	subMu sync.Mutex
+	subs  map[string]string
+	poll  *changePoll
+	// expired is closed when the long poll reads maintainer_token_expired.
+	expired    chan struct{}
+	expireOnce sync.Once
 }
 
+// changePoll is a running long poll and the means to end and join it.
+type changePoll struct {
+	cancel context.CancelFunc
+	done   chan struct{}
+}
+
+// pollSeconds is the wait of each long poll; the daemon accepts 1 to 30 seconds.
+const pollSeconds = 25
+
 // ServeMaintainer runs the maintainer-mode server until the input ends, ctx is cancelled or
-// the token ends. After it answers a call with maintainer_token_expired, it returns
-// ErrTokenExpired.
+// the token ends. After it answers a request with maintainer_token_expired, or the long poll
+// of its change notices reads that code, it returns ErrTokenExpired, also while the input is
+// open and idle. A request in progress gets its reply first. The long poll ends before
+// ServeMaintainer returns, so nothing is written after it.
 func ServeMaintainer(ctx context.Context, c MaintainerConfig, in io.Reader, out io.Writer) error {
-	s := &maintainerServer{c: c, out: json.NewEncoder(out)}
-	reader := bufio.NewReaderSize(in, 64*1024)
+	ctx, cancel := context.WithCancel(ctx)
+	defer cancel()
+	s := &maintainerServer{c: c, out: json.NewEncoder(out), subs: map[string]string{}, expired: make(chan struct{})}
+	defer s.stopPoll()
+	type input struct {
+		line []byte
+		err  error
+	}
+	lines := make(chan input)
+	go func() {
+		reader := bufio.NewReaderSize(in, 64*1024)
+		for {
+			line, err := readLine(reader)
+			select {
+			case lines <- input{line, err}:
+			case <-ctx.Done():
+				return
+			}
+			if err != nil {
+				return
+			}
+		}
+	}()
 	for {
-		if err := ctx.Err(); err != nil {
-			return err
-		}
-		line, err := readLine(reader)
-		if len(bytes.TrimSpace(line)) > 0 && s.handle(ctx, line) {
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-s.expired:
 			return ErrTokenExpired
-		}
-		if errors.Is(err, io.EOF) {
-			return nil
-		}
-		if err != nil {
-			return err
+		case read := <-lines:
+			if len(bytes.TrimSpace(read.line)) > 0 && s.handle(ctx, read.line) {
+				return ErrTokenExpired
+			}
+			if errors.Is(read.err, io.EOF) {
+				return nil
+			}
+			if read.err != nil {
+				return read.err
+			}
 		}
 	}
 }
@@ -166,6 +210,28 @@ func (s *maintainerServer) handle(ctx context.Context, line []byte) bool {
 		result, expired := s.call(ctx, r.Params)
 		s.reply(r.ID, result)
 		return expired
+	case "resources/list":
+		return s.listResources(ctx, r.ID)
+	case "resources/read", "resources/subscribe", "resources/unsubscribe":
+		var p struct {
+			URI string `json:"uri"`
+		}
+		if json.Unmarshal(r.Params, &p) != nil {
+			s.fail(r.ID, -32602, "invalid params")
+			return false
+		}
+		route, body, known := maintainerResource(p.URI)
+		if !known {
+			s.refuse(r.ID, core.RefusedError{Code: "unknown_resource", Message: "no maintainer resource has this URI"})
+			return false
+		}
+		switch r.Method {
+		case "resources/read":
+			return s.readResource(ctx, r.ID, p.URI, route, body)
+		case "resources/subscribe":
+			return s.subscribe(ctx, r.ID, p.URI)
+		}
+		s.unsubscribe(r.ID, p.URI)
 	default:
 		s.fail(r.ID, -32601, "method not found")
 	}
@@ -192,10 +258,10 @@ func (s *maintainerServer) initialize(r rpcRequest) {
 	}
 	s.reply(r.ID, map[string]any{
 		"protocolVersion": version,
-		"capabilities":    map[string]any{"tools": map[string]any{}},
+		"capabilities":    map[string]any{"tools": map[string]any{}, "resources": map[string]any{"subscribe": true}},
 		"serverInfo":      map[string]any{"name": "koinon", "version": release},
 		"instructions": "Koinon maintainer mode: every tool acts as the maintainer, with the weight of the dashboard (PDR 005, Decision 3), and each action records mcp:" + s.c.Client +
-			" as its via (PDR 009, Decision 4). Read an item with decision_get and give decision_verdict that revision. When the maintainer token ends, a tool answers maintainer_token_expired and this server exits; start koinon mcp --maintainer again.",
+			" as its via (PDR 009, Decision 4). Read an item with decision_get and give decision_verdict that revision. Subscribe to the resources koinon://maintainer/inbox, koinon://maintainer/decisions and koinon://maintainer/rooms/{room_id}: a change sends notifications/resources/updated with only the URI; read the resource again. When the maintainer token ends, a request answers maintainer_token_expired and this server exits; start koinon mcp --maintainer again.",
 	})
 }
 
@@ -234,7 +300,7 @@ func (s *maintainerServer) call(ctx context.Context, raw json.RawMessage) (map[s
 	}
 	// The token is this server's own; a call never supplies it.
 	body["token"] = s.c.Token
-	data, err := s.daemon(ctx, "/v1/maintainer/"+strings.ReplaceAll(p.Name, "_", "-"), body)
+	data, err := s.daemon(ctx, "/v1/maintainer/"+strings.ReplaceAll(p.Name, "_", "-"), body, 10*time.Second)
 	if err != nil {
 		return refusal(core.Key{Family: "maintainer"}, err), code(err) == ErrTokenExpired.Code
 	}
@@ -245,9 +311,9 @@ func invalidArguments(text string) map[string]any {
 	return result(map[string]any{"ok": false, "code": "invalid_arguments", "error": refusalText(text)}, true)
 }
 
-// daemon calls a maintainer route with the daemon's bearer secret, reading the secret again
-// after a failure so that a recreated state root is picked up.
-func (s *maintainerServer) daemon(ctx context.Context, path string, body any) (json.RawMessage, error) {
+// daemon calls a maintainer route with the daemon's bearer secret and a time limit, reading
+// the secret again after a failure so that a recreated state root is picked up.
+func (s *maintainerServer) daemon(ctx context.Context, path string, body any, timeout time.Duration) (json.RawMessage, error) {
 	s.mu.Lock()
 	bearer := s.bearer
 	s.mu.Unlock()
@@ -260,7 +326,7 @@ func (s *maintainerServer) daemon(ctx context.Context, path string, body any) (j
 		s.bearer = bearer
 		s.mu.Unlock()
 	}
-	data, err := core.Call(ctx, s.c.Address, bearer, path, body)
+	data, err := core.CallTimeout(ctx, s.c.Address, bearer, path, body, timeout)
 	var refused core.RefusedError
 	if errors.Is(err, core.ErrUnavailable) || errors.As(err, &refused) && refused.Code == "unauthorized" {
 		s.mu.Lock()

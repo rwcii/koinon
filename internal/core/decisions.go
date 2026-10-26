@@ -480,6 +480,9 @@ func (s *Store) DecisionCreate(ctx context.Context, caller Key, reference string
 	if err := storeRecipients(ctx, tx, id, recipients); err != nil {
 		return DecisionCreated{}, err
 	}
+	if err := bumpChange(ctx, tx, changeDecisions); err != nil {
+		return DecisionCreated{}, tx.fail(err)
+	}
 	created := DecisionCreated{Reference: reference, Revision: 1, State: "active", Recipients: recipients}
 	data, _ := json.Marshal(created)
 	if _, err := tx.ExecContext(ctx, `INSERT INTO decision_replays(family,caller_id,key,fingerprint,deadline,result) VALUES (?,?,?,?,?,?)`,
@@ -568,6 +571,9 @@ func (s *Store) DecisionEdit(ctx context.Context, caller Key, reference string, 
 	if _, err := tx.ExecContext(ctx, `UPDATE decision_items SET item_order=?,title=?,location=?,agent_text=?,context=?,recommendation=?,
 		kind=?,commands=?,revision=?,updated_at=? WHERE id=?`, item.Order, item.Title, item.Where, item.AgentText, item.Context,
 		item.Recommendation, item.Kind, string(encoded), item.Revision, now, id); err != nil {
+		return DecisionItem{}, tx.fail(err)
+	}
+	if err := bumpChange(ctx, tx, changeDecisions); err != nil {
 		return DecisionItem{}, tx.fail(err)
 	}
 	if f.Recipients != nil {

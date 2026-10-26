@@ -225,6 +225,9 @@ func (s *Store) DecisionVerdict(ctx context.Context, reference string, revision 
 		state, archived, now, id); err != nil {
 		return DecisionVerdict{}, tx.fail(err)
 	}
+	if err := bumpChange(ctx, tx, changeDecisions); err != nil {
+		return DecisionVerdict{}, tx.fail(err)
+	}
 	result := DecisionVerdict{ID: verdictID, Revision: revision, Verdict: verdict, Note: note, At: now,
 		Snapshot: DecisionSnapshot{Title: item.Title, Context: item.Context, Recommendation: item.Recommendation, Commands: item.Commands}}
 	if verdict != "dismissed" {
@@ -516,6 +519,9 @@ func (s *Store) DecisionClose(ctx context.Context, caller Key, reference string,
 	}
 	if _, err := tx.ExecContext(ctx, `UPDATE decision_items SET state='archived',archived_at=?,updated_at=?,closed_by=?,closed_at=?,outcome_note=? WHERE id=?`,
 		now, now, closer, now, note, id); err != nil {
+		return DecisionItem{}, tx.fail(err)
+	}
+	if err := bumpChange(ctx, tx, changeDecisions); err != nil {
 		return DecisionItem{}, tx.fail(err)
 	}
 	// The receipt is the closed item itself, so a retry returns this result even after a

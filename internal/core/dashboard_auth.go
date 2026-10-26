@@ -217,6 +217,20 @@ func (a *dashboardAuth) token(id string) (string, bool) {
 	return s.client, true
 }
 
+// live reports whether a maintainer token is still in force, without recording a use: a
+// waiting changes request checks it while it waits.
+func (a *dashboardAuth) live(id string) bool {
+	hash, ok := tokenHash(id)
+	if !ok {
+		return false
+	}
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	a.prune(a.now())
+	s, found := a.sessions[hash]
+	return found && strings.HasPrefix(s.client, "mcp:")
+}
+
 func (a *dashboardAuth) logout(id string) {
 	if hash, ok := tokenHash(id); ok {
 		a.mu.Lock()

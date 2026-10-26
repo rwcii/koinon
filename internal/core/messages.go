@@ -308,6 +308,9 @@ func (s *Store) sendTx(ctx context.Context, tx *writeTx, caller Key, to, body st
 	if err != nil {
 		return Outcome{}, tx.fail(err)
 	}
+	if err := bumpInbox(ctx, tx, Key{family, sessionID}); err != nil {
+		return Outcome{}, tx.fail(err)
+	}
 	id, err := result.LastInsertId()
 	if err != nil {
 		return Outcome{}, err
@@ -650,6 +653,9 @@ func (s *Store) ackIf(ctx context.Context, caller Key, through int64, dashboard 
 		}
 		if _, err := tx.ExecContext(ctx, `UPDATE messages SET maintainer_ack=max(maintainer_ack,?),ack_session=?,ack_via=?
 			WHERE recipient_family=? AND recipient_id=? AND seq>? AND seq<=?`, flag, name, via, caller.Family, caller.ID, acked, through); err != nil {
+			return 0, tx.fail(err)
+		}
+		if err := bumpInbox(ctx, tx, caller); err != nil {
 			return 0, tx.fail(err)
 		}
 		acked = through

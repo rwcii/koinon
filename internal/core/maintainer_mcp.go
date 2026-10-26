@@ -7,6 +7,7 @@ import (
 	"regexp"
 	"strconv"
 	"strings"
+	"time"
 	"unicode/utf8"
 )
 
@@ -399,6 +400,25 @@ func (d *Daemon) maintainerSessionRoutes(mux *http.ServeMux) {
 			q.Ordinal > 0 && validRoomID(q.RoomID), func(ctx context.Context) (any, error) {
 				return map[string]any{"removed": true}, d.store.RemoveRoomMember(ctx, q.RoomID, q.Ordinal)
 			})
+	})
+	// changes is the long poll of the change notices: content-free versions of the inbox, the
+	// board and each room, by resource URI. It is an authenticated request, so each poll moves
+	// the token's idle limit.
+	maintainerRoute(d, mux, "changes", 16384, func(ctx context.Context, w http.ResponseWriter, q struct {
+		maintainerToken
+		Cursor      map[string]string `json:"cursor"`
+		WaitSeconds int               `json:"wait_seconds"`
+	}) {
+		if q.WaitSeconds < 1 || q.WaitSeconds > maxChangeWait || !validCursor(q.Cursor) {
+			failure(w, ErrInvalid)
+			return
+		}
+		wait := time.Duration(q.WaitSeconds) * time.Second
+		// The server's write deadline is 10 seconds; a poll's reply gets the wait and 5 seconds
+		// more.
+		http.NewResponseController(w).SetWriteDeadline(time.Now().Add(wait + 5*time.Second))
+		versions, changed, err := d.waitChanges(ctx, q.Token, q.Cursor, wait)
+		maintainerRead(w, map[string]any{"cursor": versions, "changed": changed}, err)
 	})
 	maintainerRoute(d, mux, "peers", 16384, func(ctx context.Context, w http.ResponseWriter, q struct{ maintainerToken }) {
 		peers, truncated, err := d.store.maintainerPeers(ctx)
