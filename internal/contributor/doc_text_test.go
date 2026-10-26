@@ -99,7 +99,7 @@ func TestDecisionRecordsMatchTheirIndexes(t *testing.T) {
 			}
 		}
 	}
-	// The current text of each decision, before its "Before #487" note and its provenance,
+	// The current text of each decision, before its "Before #N" note and its provenance,
 	// carries no retired phrase. The decisions that #487 retired each say so.
 	retired := map[string][]string{
 		"docs/engineering/wdr/001-decision-records-govern-constraints.md": {"Decision 4"},
@@ -152,7 +152,7 @@ func TestDecisionRecordsMatchTheirIndexes(t *testing.T) {
 }
 
 // currentDecisions returns each "## N. Decision K: title" section's current decision text: the
-// "### Decision" body up to its "Before #487" note, its provenance or the next subsection.
+// "### Decision" body up to its "Before #N" note, its provenance or the next subsection.
 func currentDecisions(text string) map[string]string {
 	decisions := map[string]string{}
 	for _, section := range strings.Split(text, "\n## ")[1:] {
@@ -164,7 +164,7 @@ func currentDecisions(text string) map[string]string {
 		if !ok {
 			continue
 		}
-		for _, end := range []string{"\n**Before #487", "\n**Provenance", "\n### ", "\n---"} {
+		for _, end := range []string{"\n**Before #", "\n**Provenance", "\n### ", "\n---"} {
 			body, _, _ = strings.Cut(body, end)
 		}
 		decisions[heading] = strings.TrimSpace(body)

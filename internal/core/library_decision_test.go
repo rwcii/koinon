@@ -176,11 +176,11 @@ func TestMachineDecisionsDoNotConsumeFundedWorkControls(t *testing.T) {
 func TestLibrarySchemaTwentyOnePreservesPublishedSchemaTwentyState(t *testing.T) {
 	s, root := testStore(t)
 	ctx := context.Background()
-	room := mustRoom(t, s, "synthetic preserved room", 7)
+	room := mustRoom(t, s, "synthetic preserved room")
 	member := join(t, s, "codex", "synthetic-published-room-member", "")
 	mustAdd(t, s, room, member.Name)
 	mustHumanPost(t, s, room, "synthetic retained published-schema20 post")
-	if err := s.SetRoomRefill(roomCtx("room-refill"), room, 64); err != nil {
+	if _, err := fixtureExec(s, `UPDATE rooms SET refill=64,create_refill=7 WHERE room_id=?`, room); err != nil {
 		t.Fatal(err)
 	}
 	m := MemoryCaller{Family: "codex", Repository: "/synthetic/migration/.git", Consumer: "synthetic-migration", Name: "synthetic-migration"}

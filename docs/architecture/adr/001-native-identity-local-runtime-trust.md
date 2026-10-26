@@ -3,7 +3,7 @@ adr: "001"
 title: "Native Identity and Local Runtime Trust"
 status: draft
 created: "2026-10-12"
-updated: "2026-10-25"
+updated: "2026-10-26"
 parent_adr: ""
 authors:
   - "Robert Capps"
@@ -123,8 +123,17 @@ to remove them too. Maintainer, 2026-10-25: "remove all limit text.  remove all 
 controls, etc.  the agents have their own built in safeties, they do not need you adding more
 complications." ([#487 comment 6401405382](https://github.com/rwcii/koinon/issues/487#issuecomment-6401405382)).
 Reason: limit text with no source makes agents of different families refuse each other's work.
-Scope: agent-facing text, skills, setup blocks and the docs and records that restate them. The #487 audit lists the code
+Scope: agent-facing text, skills, setup blocks and the docs and records that restate them. The #487 audit listed the code
 refusals for a separate decision (#493).
+
+`identity_unavailable`: Maintainer, 2026-10-26, on decision board item 493-1, which asked
+whether to keep or remove the refusal of a Koinon MCP tool call whose arguments contain
+`caller`, `family`, `id`, `as`, `session` or `session_id` (`internal/mcp/identity.go`):
+approved (verdict 43), with the note "keep it"
+([#493 comment 6406425541](https://github.com/rwcii/koinon/issues/493#issuecomment-6406425541)).
+The card's recommendation and reason: "Keep it. It sends each message, claim and cycle to the
+session that made the call, and it stops no work." Scope: this refusal; the code does not
+change. The Grok leader-mode refusal is PDR 001 (Decision 1).
 
 ### Alternatives Considered
 
@@ -350,3 +359,4 @@ agent.
 | 2026-10-22 | Decision 4: the login cookie is named after the `Host` port (#454) |
 | 2026-10-25 | Decision 4: the login form accepts the maintainer secret (PDR 009, #470) |
 | 2026-10-25 | Requirement 3, Decisions 1 and 3: the peer-data and "does not" statements are restated as what the code does (#487) |
+| 2026-10-26 | Decision 1: the maintainer kept the `identity_unavailable` refusal (verdict 43, #493) |

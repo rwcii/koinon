@@ -3,7 +3,7 @@ wdr: "001"
 title: "Decision Records Govern Constraints"
 status: modified
 created: "2026-10-12"
-updated: "2026-10-25"
+updated: "2026-10-26"
 authors:
   - "Robert Capps"
 reviewers: []
@@ -107,9 +107,25 @@ repository; each record states the provenance it relies on.
 - Reason: limit text with no source makes agents of different families refuse each other's
   work.
 - Scope: Koinon's agent-facing text, the skills, the setup blocks, and the docs and records that
-  restate them. The #487 audit lists the code refusals for a separate decision (#493).
+  restate them. The #487 audit listed the code refusals for a separate decision; #493 decided
+  them (Change of 2026-10-26).
 - This record: Decision 4 is deprecated. Decision 5 states the procedure without its block
   rules. Decision 3 drops the skill's question limit, as the skills did in #487.
+
+### Change of 2026-10-26 (#493)
+
+- Question (decision board item 493-5, 2026-10-26): keep or remove the requirement that a pull
+  request to `develop` merges only when the reviewer's `peer-review` and `refusal-review` commit
+  statuses pass at the exact head?
+- Options: keep both statuses required, or remove them.
+- Answer: Maintainer, 2026-10-26: approved (verdict 49), with no note, on the card's
+  recommendation: "Keep both."
+  ([#493 comment 6406505885](https://github.com/rwcii/koinon/issues/493#issuecomment-6406505885)).
+- Intent and scope: both statuses stay required on `develop`, beside the four CI jobs. The
+  ruleset does not change. The reason for the `refusal-review` gate is its 2026-10-12
+  provenance (Decision 6).
+- This record: Decision 6 cites this verdict. WDR 004 (Decision 3) records it for
+  `peer-review`.
 
 ---
 
@@ -317,6 +333,9 @@ check.
 
 1. A separate verdict makes the check visible on every head, as the maintainer asked.
 
+**Provenance (2026-10-26, #493):** the maintainer kept the required `refusal-review` status on
+the decision board (verdict 49, [#493 comment 6406505885](https://github.com/rwcii/koinon/issues/493#issuecomment-6406505885); Problem Context).
+
 **Gate crossed:** merge-time. The `develop` ruleset requires the `refusal-review` status.
 
 ---
@@ -337,3 +356,4 @@ refusal review checks the source of each new constraint.
 | 2026-10-12 | Decision 6: separate refusal review gate |
 | 2026-10-14 | Decision 6: the refusal review also checks that each recorded maintainer decision states its question, options, quoted answer and reason with scope |
 | 2026-10-25 | #487: Decision 4 deprecated; Decision 5 states the procedure without its block rules; Decision 3 drops the skill's question limit and the AGENTS.md boundaries |
+| 2026-10-26 | #493: Decision 6 cites the maintainer's verdict that keeps the required `refusal-review` and `peer-review` statuses (verdict 49) |

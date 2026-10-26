@@ -100,26 +100,18 @@ func (d *Daemon) roomsView(ctx context.Context, q url.Values) (roomsData, error)
 	return data, nil
 }
 
-// roomActions adds the dashboard's room actions: create a room, change its refill setting,
-// and add or remove a member. Each answers 303 to the rooms view.
+// roomActions adds the dashboard's room actions: create a room, and add or remove a member. Each answers 303 to the rooms view.
 func (d *Daemon) roomActions(mux *http.ServeMux, authed func(int64, func(http.ResponseWriter, *http.Request, string)) http.HandlerFunc,
 	run func(w http.ResponseWriter, r *http.Request, action, target, view string, query url.Values, valid bool,
 		apply func(ctx context.Context) error, accepted string, refusal func(error) string)) {
 	mux.HandleFunc("POST /dashboard/actions/room-create", authed(actionFormLimit, func(w http.ResponseWriter, r *http.Request, _ string) {
 		name, key := r.PostForm.Get("name"), r.PostForm.Get("key")
-		refill, ok := formInt(r, "refill")
 		run(w, r, "room-create", "name bytes "+strconv.Itoa(len(name)), "rooms", nil,
-			ok && validRoomName(name) && key != "" && len(key) <= 64,
+			validRoomName(name) && key != "" && len(key) <= 64,
 			func(ctx context.Context) error {
-				_, err := d.store.CreateRoom(ctx, key, name, refill)
+				_, err := d.store.CreateRoom(ctx, key, name)
 				return err
 			}, "room_created", nil)
-	}))
-	mux.HandleFunc("POST /dashboard/actions/room-refill", authed(actionFormLimit, func(w http.ResponseWriter, r *http.Request, _ string) {
-		room := r.PostForm.Get("room_id")
-		refill, ok := formInt(r, "refill")
-		run(w, r, "room-refill", "room "+roomTarget(room), "rooms", nil, ok && validRoomID(room),
-			func(ctx context.Context) error { return d.store.SetRoomRefill(ctx, room, refill) }, "room_refill_saved", nil)
 	}))
 	mux.HandleFunc("POST /dashboard/actions/room-add", authed(actionFormLimit, func(w http.ResponseWriter, r *http.Request, _ string) {
 		room, peer := r.PostForm.Get("room_id"), r.PostForm.Get("peer")
