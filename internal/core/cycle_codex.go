@@ -202,6 +202,73 @@ func (codexCycle) Probe(ctx context.Context, t CycleTarget) CycleProbe {
 	return CycleProbe{Entry: PickupSkillName}
 }
 
+// codexCompactCommand is Codex's own compaction command (#509).
+const codexCompactCommand = "/compact"
+
+// CompactProbe decides whether the session's compaction can run: an evidenced platform, the
+// thread's own rollout and the pane proof of Probe. A compaction keeps the thread, so it needs
+// neither the pickup skill nor the participant address.
+func (codexCycle) CompactProbe(ctx context.Context, t CycleTarget) CycleProbe {
+	if !codexEvidencedPlatforms[runtime.GOOS] {
+		return CycleProbe{Reason: "platform_unverified"}
+	}
+	codex, _, err := codexHome(t)
+	if err != nil {
+		return CycleProbe{Reason: "native_registry_unavailable"}
+	}
+	path, err := codexRolloutPath(codex, t.SessionID)
+	if err != nil || path == "" {
+		return CycleProbe{Reason: "native_registry_unavailable"}
+	}
+	if _, err := readCodexMeta(path, t.SessionID); err != nil {
+		return CycleProbe{Reason: "native_registry_unavailable"}
+	}
+	if err := codexForeground(ctx, t.tools, t.HostPID, t.HostStart, t.Socket, t.Pane); err != nil {
+		return CycleProbe{Reason: tmuxReason(err, "pane_unproven")}
+	}
+	return CycleProbe{Entry: codexCompactCommand}
+}
+
+// Compact types /compact while a fresh read shows the thread idle, and submits it with one
+// Enter while the composer holds exactly it; the command popup runs its first entry, the typed
+// command. The receipt is the empty composer after the Enter. Codex 0.164.0 then runs the
+// compaction as a turn: it shows "Compacting context", and its rollout holds a compacted
+// record and a token_count of 0 input tokens.
+func (a codexCycle) Compact(ctx context.Context, t CycleTarget, fence CycleFence) (submitted, received bool, err error) {
+	const text = codexCompactCommand
+	if err := a.keyIf(ctx, t, fence, func(s codexScreen) bool { return codexReady(t, s) }, errCodexNotReady, "-l", text); err != nil {
+		return false, false, err
+	}
+	if !awaitCodex(ctx, t, func(s codexScreen) bool { return codexText(s) == text }) {
+		a.erase(ctx, t, fence, text)
+		return false, false, errCodexTyped
+	}
+	// Each check before the Enter key leaves the command unsubmitted; only the key itself may
+	// have been sent.
+	unsent := func(err error) (bool, bool, error) {
+		a.erase(ctx, t, fence, text)
+		return false, false, err
+	}
+	if err := codexForeground(ctx, t.tools, t.HostPID, t.HostStart, t.Socket, t.Pane); err != nil {
+		return unsent(proofError(err, errCodexUnproven))
+	}
+	if err := fence(ctx); err != nil {
+		return unsent(err)
+	}
+	if screen, err := readCodex(ctx, t); err != nil {
+		return unsent(err)
+	} else if codexText(screen) != text {
+		return unsent(errCodexTyped)
+	}
+	if _, err := t.tools.tmux(ctx, t.Socket, "send-keys", "-t", t.Pane, "Enter"); err != nil {
+		return true, false, err
+	}
+	if !awaitCodex(ctx, t, func(s codexScreen) bool { i := s.composer(); return i >= 0 && s.empty(i) }) {
+		return true, false, errCodexSubmit
+	}
+	return true, true, nil
+}
+
 // codexPickupCommand is the mention that runs the koinon-pickup skill.
 const codexPickupCommand = "$" + PickupSkillName
 

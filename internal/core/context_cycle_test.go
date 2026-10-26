@@ -1041,7 +1041,7 @@ func TestContextCycleSchemaTwentyThreeKeepsExistingState(t *testing.T) {
 	room := mustRoom(t, s, "synthetic kept room")
 	mustHumanPost(t, s, room, "synthetic kept post")
 	before := rowsOf(t, s.db)
-	if _, err := fixtureExec(s, undoSchemaThirtyThree+undoSchemaThirtyTwo+undoSchemaThirtyOne+undoSchemaThirty+undoSchemaTwentyNine+undoSchemaTwentyEight+undoSchemaTwentySeven+undoSchemaTwentySix+undoSchemaTwentyFive+undoSchemaTwentyFour+undoSchemaTwentyThree+`PRAGMA user_version=22`); err != nil {
+	if _, err := fixtureExec(s, undoSchemaThirtyFour+undoSchemaThirtyThree+undoSchemaThirtyTwo+undoSchemaThirtyOne+undoSchemaThirty+undoSchemaTwentyNine+undoSchemaTwentyEight+undoSchemaTwentySeven+undoSchemaTwentySix+undoSchemaTwentyFive+undoSchemaTwentyFour+undoSchemaTwentyThree+`PRAGMA user_version=22`); err != nil {
 		t.Fatal(err)
 	}
 	if err := checkCatalog(s.db, 22); err != nil {
@@ -1077,7 +1077,7 @@ func TestContextCycleSchemaTwentyFourKeepsCycles(t *testing.T) {
 		return text
 	}
 	before, rows := rowText(f.s.db), rowsOf(t, f.s.db)
-	if _, err := fixtureExec(f.s, undoSchemaThirtyThree+undoSchemaThirtyTwo+undoSchemaThirtyOne+undoSchemaThirty+undoSchemaTwentyNine+undoSchemaTwentyEight+undoSchemaTwentySeven+undoSchemaTwentySix+undoSchemaTwentyFive+undoSchemaTwentyFour+`PRAGMA user_version=23`); err != nil {
+	if _, err := fixtureExec(f.s, undoSchemaThirtyFour+undoSchemaThirtyThree+undoSchemaThirtyTwo+undoSchemaThirtyOne+undoSchemaThirty+undoSchemaTwentyNine+undoSchemaTwentyEight+undoSchemaTwentySeven+undoSchemaTwentySix+undoSchemaTwentyFive+undoSchemaTwentyFour+`PRAGMA user_version=23`); err != nil {
 		t.Fatal(err)
 	}
 	if err := checkCatalog(f.s.db, 23); err != nil {

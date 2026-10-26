@@ -152,3 +152,20 @@ retained MCP caller identity and the verified cycle result.
 - No native reset, receiving-model pickup, absent-skill bootstrap or prompt-response test
   was run by this planning increment. The DoD native matrix records the evidence required
   before the implementation can declare a family/version/platform available.
+
+## Native compaction check — 2026-10-26 (#509)
+
+Linux, codex-cli 0.164.0, an interactive Codex in a private tmux socket after one short turn.
+The adapter's own `CompactProbe`, `Inspect` and `Compact`, run against that pane with the real
+tmux and process tools:
+
+| Step | Result |
+| --- | --- |
+| `CompactProbe` | `Entry: /compact`, no reason: platform, the thread's rollout and the pane proof pass without a pickup skill or participant address |
+| `Inspect` | `Idle: true` |
+| `Compact` | `submitted=true received=true`: `/compact` typed, read back in the composer, one Enter, then the empty composer |
+| Screen | "Compacting context (… esc to interrupt)", then "Context compacted · 7s" and the empty composer |
+| Rollout | `task_started`, a `compacted` record, `token_count` with `last_token_usage.input_tokens` 0 and the same `model_context_window` (475000), `task_complete`, all in the same thread |
+
+The confirmation rule reads that `token_count`: a reading recorded after the intent, for the
+same epoch, below the threshold. macOS is checked by the maintainer before release.
