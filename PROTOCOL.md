@@ -410,6 +410,15 @@ example `waiting_ready_timeout.refused.cycle_artifact_invalid`, and a `cycle_tim
 reports with their text; the audit record keeps the code. A timeout of another stage keeps its
 plain `<stage>_timeout`.
 
+A cycle's admission extends the session's live work claims in its repository's store to 60
+seconds past the cycle deadline, in the admission's own transaction (#489): the claims whose
+consumer is the session's peer name, its `FAMILY:ID` or its role-bound native work actor, and
+those of its participant address when it held the address at admission. The claim's revision,
+generation, renewal time and progress do not change, and an expired claim stays expired. While
+the cycle is unfinished, `claim-renew` of such a claim, by the session or by its managed
+successor, keeps the longer of the new and the current expiry. A longer expiry stays after the
+cycle ends; the pickup procedure renews the claims as it reconciles them.
+
 A new native epoch of the requester before the managed clear (`waiting_ready`, `ready`, or a
 stored `bootstrap_intent` or `bootstrap_verified`) cancels the cycle (`epoch_changed`; uncertain
 in `bootstrap_intent`, whose input is unproven). Disable, a family mode without the cycle, retiring or purging the

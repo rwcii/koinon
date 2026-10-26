@@ -14,6 +14,10 @@ into a dated release section when promoted to `main`.
   `launch`/`subagent` refusal, the required `peer-review` and `refusal-review` statuses on
   `develop` and the `.githooks/pre-commit` block on `main` and `develop`. ADR 001, PDR 001,
   PDR 005, WDR 001 and WDR 004 record the maintainer's verdicts.
+- A session's work claims no longer expire during its managed context cycle (#489). Admission
+  extends its live claims to 60 seconds past the cycle deadline, in the same transaction, and a
+  `claim-renew` during the cycle, by the session or its managed successor, keeps that expiry.
+  The claim revision and generation do not change.
 - `koinon status` no longer counts an unread message to a retired session as a waiting wake
   (#486). The `wake` counts and reasons cover the sessions that the wake loop retries.
 - A managed context cycle finishes for a session outside a Git checkout, such as a session that
