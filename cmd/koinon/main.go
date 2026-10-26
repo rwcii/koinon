@@ -90,6 +90,7 @@ func run(ctx context.Context, args []string, in io.Reader, out io.Writer) error 
 	var listen, listen6, address, as *string
 	var after, limit, participant *int64
 	var lockWait *time.Duration
+	var maintainer maintainerFlags
 	positional := 0
 	switch args[0] {
 	case "mcp":
@@ -99,6 +100,7 @@ func run(ctx context.Context, args []string, in io.Reader, out io.Writer) error 
 			flags.Set("state-dir", v)
 		}
 		address = addressFlag(flags)
+		maintainer.add(flags)
 	case "serve":
 		// Without listen options, the daemon listens at the state directory's recorded port.
 		listen = flags.String("listen", "", "IPv4 loopback listener")
@@ -145,6 +147,9 @@ func run(ctx context.Context, args []string, in io.Reader, out io.Writer) error 
 	}
 	if err := resolveAddress(flags); err != nil {
 		return err
+	}
+	if args[0] == "mcp" && maintainer.used(flags) {
+		return maintainerMCP(ctx, *state, *address, maintainer, flags, in, out)
 	}
 	if args[0] == "mcp" {
 		directory, err := os.Getwd()
@@ -363,6 +368,7 @@ const usage = `Usage: koinon install [--prefix DIR] [--state-dir DIR] [--port N]
        koinon dashboard [--state-dir DIR] [--address 127.0.0.1:PORT] [--no-open]
        koinon maintainer secret set|generate|clear [--state-dir DIR] [--address 127.0.0.1:PORT]
        koinon mcp [--state-dir DIR] [--address 127.0.0.1:PORT]
+       koinon mcp --maintainer --client NAME --secret-stdin|--secret-file PATH [--state-dir DIR] [--address 127.0.0.1:PORT]
        koinon setup <claude|codex|agy|opencode|grok|deepseek> [--cli ABS_PATH] [--binary ABS_PATH]
        koinon setup claude --remove-status-line [--claude-config DIR] [--state-dir DIR]
        koinon guide --agent <claude|codex|agy|opencode|grok|deepseek>

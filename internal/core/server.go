@@ -11,6 +11,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -26,6 +27,9 @@ type Config struct {
 	Release  string
 	// LogEvent receives fixed, content-free daemon diagnostics.
 	LogEvent func(string, map[string]any)
+	// SecretCost is the PBKDF2 iteration count of a new maintainer secret key; 0 is the
+	// production count. Tests of other packages lower it.
+	SecretCost int
 }
 
 type Daemon struct {
@@ -112,6 +116,7 @@ func Start(c Config) (*Daemon, error) {
 	d.started = d.store.now()
 	d.store.library.catalog = catalog
 	d.store.logEvent = c.LogEvent
+	d.store.secretCost = c.SecretCost
 	// No tool call before this start is known, so the succession guard counts the start as one.
 	d.store.calls.since = d.started.UnixMilli()
 	d.store.observed.extras = d.store.openCodeActivity
@@ -217,6 +222,16 @@ func failure(w http.ResponseWriter, err error) {
 			body["details"] = work.Details
 		}
 		respond(w, status, body)
+		return
+	}
+	var backoff SecretBackoff
+	if errors.As(err, &backoff) {
+		// The wait after failed checks of the maintainer secret (PDR 009, Decision 1).
+		seconds := max(1, int64((backoff.Wait+time.Second-1)/time.Second))
+		w.Header().Set("Retry-After", strconv.FormatInt(seconds, 10))
+		respond(w, http.StatusTooManyRequests, map[string]any{"ok": false, "code": "maintainer_secret_backoff",
+			"error":   "the daemon waits after repeated failed checks of the maintainer secret; try again after retry_after_seconds",
+			"details": map[string]any{"retry_after_seconds": seconds, "retry_after": backoff.RetryAfter.UTC().Format(time.RFC3339)}})
 		return
 	}
 	var conflict SessionConflict
@@ -440,6 +455,7 @@ func (d *Daemon) handler() http.Handler {
 	d.roomRoutes(mux)
 	d.decisionRoutes(mux)
 	d.maintainerRoutes(mux)
+	d.maintainerSessionRoutes(mux)
 	mux.HandleFunc("POST /v1/dashboard/links", func(w http.ResponseWriter, r *http.Request) {
 		if err := decode(w, r, &struct{}{}); err != nil {
 			failure(w, err)

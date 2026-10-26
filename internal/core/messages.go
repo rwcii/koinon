@@ -164,6 +164,32 @@ func (s *Store) Peers(ctx context.Context, caller Key) ([]Peer, bool, error) {
 	if err != nil {
 		return nil, false, err
 	}
+	return s.peerRows(ctx, &caller, items, truncated)
+}
+
+// maintainerPeers lists every agent session for the maintainer, with no own row.
+func (s *Store) maintainerPeers(ctx context.Context) ([]Peer, bool, error) {
+	items, truncated, err := s.List(ctx)
+	if err != nil {
+		return nil, false, err
+	}
+	peers := make([]Peer, 0, len(items))
+	all, _, err := s.peerRows(ctx, nil, items, truncated)
+	for _, p := range all {
+		if p.Family != maintainerKey.Family {
+			peers = append(peers, p)
+		}
+	}
+	return peers, truncated, err
+}
+
+// peerRows are the listed sessions as peers; for an agent caller, its own row follows a list
+// that left it out, and the maintainer, whom agents can send to, follows last.
+func (s *Store) peerRows(ctx context.Context, self *Key, items []Session, truncated bool) ([]Peer, bool, error) {
+	caller := Key{}
+	if self != nil {
+		caller = *self
+	}
 	peer := func(item Session) Peer {
 		return Peer{Name: item.Name, Alias: item.Alias, Family: item.Family, State: item.State, Repository: item.Repository,
 			Subagent: item.Subagent, Role: item.Role, Address: item.Address, HoldsAddress: item.HoldsAddress, Succession: item.Succession,
@@ -175,6 +201,9 @@ func (s *Store) Peers(ctx context.Context, caller Key) ([]Peer, bool, error) {
 	for _, item := range items {
 		peers = append(peers, peer(item))
 		found = found || peers[len(peers)-1].Self
+	}
+	if self == nil {
+		return peers, truncated, nil
 	}
 	// A truncated list can leave the caller out; its own row follows the listed rows.
 	if !found {
@@ -592,8 +621,12 @@ func (s *Store) ackIf(ctx context.Context, caller Key, through int64, dashboard 
 			return 0, tx.fail(err)
 		}
 		// maintainer_ack 0 becomes 1 without a payload byte; the session and the operation
-		// that acknowledged each message are recorded with it (#250).
+		// that acknowledged each message are recorded with it (#250). A maintainer client
+		// records its own origin, such as mcp:NAME (PDR 009, Decision 4).
 		name, via, flag := "maintainer", "dashboard", 1
+		if origin := originOf(ctx); origin != "" {
+			via = origin
+		}
 		if !dashboard {
 			if name, err = ackedBy(ctx, tx.Tx, caller); err != nil {
 				return 0, err

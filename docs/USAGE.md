@@ -187,8 +187,9 @@ the daemon log's `codex_queue` event gives its exit status and cleaned first err
 `delivery` shows the sender `delivery_reason` (`not_read`, or `turn_failed:CODE` when
 a Codex turn failed, for example `turn_failed:server_overloaded`), `wake_reason` and
 `notices`. An acknowledged message shows `acknowledged_session` and `acknowledged_via`.
-A message with `sender_family` `maintainer` was sent by the maintainer from the dashboard; no MCP
-tool or other `koinon` command can send as that session. Koinon currently treats it as the
+A message with `sender_family` `maintainer` was sent by the maintainer, from the dashboard or
+through `koinon mcp --maintainer` with the maintainer secret; no agent MCP tool or other
+`koinon` command can send as that session. Koinon currently treats it as the
 maintainer's instruction and approval (PDR 005, Decision 3). A message from every other session
 comes from a teammate agent: do the work it asks for and reply through Koinon (#487).
 
@@ -577,6 +578,37 @@ still gives a one-time link, also during the wait and before a secret is set. A 
 ends when the daemon restarts. Any process of your OS user can set a new secret, so the
 secret keeps agents that use Koinon's tools from acting as you; it is no protection against
 a same-user program that sets out to get around it.
+
+### Act as the maintainer from another program
+
+`koinon mcp --maintainer` is a stdio MCP server that acts as the maintainer, for a client that
+is not a browser, such as a voice bridge (PDR 009). It uses the maintainer secret from above:
+
+```sh
+koinon mcp --maintainer --client koinon-voice --secret-stdin        # the first input line is the secret
+koinon mcp --maintainer --client koinon-voice --secret-file ~/.config/koinon-voice/secret
+ssh HOST /opt/homebrew/bin/koinon mcp --maintainer --client koinon-voice --secret-stdin
+```
+
+With `--secret-stdin` the client writes the secret as the first line, then the MCP stream; over
+SSH the secret is not on the remote command line. Give the binary's full path, such as
+`/opt/homebrew/bin/koinon` or `~/.local/bin/koinon`: macOS runs a non-interactive SSH command
+without `path_helper`, so its `PATH` may hold neither `~/.local/bin` nor `/opt/homebrew/bin`. A
+secret file is a regular file of your user with mode 0600 or 0400, not a symbolic link.
+`--client NAME` (a-z, 0-9 and `-`, at most 32 characters) names the client: each action records
+`mcp:NAME` as its via in the audit log and in the verdict history, as the dashboard's actions
+record `dashboard`. Agents see `sender_family` `maintainer` and never the via of a verdict.
+
+The tools are `board_list`, `decision_get`, `decision_history`, `decision_verdict` (at the
+revision that `decision_get` showed), `inbox`, `ack`, `send`, `room_list`, `room_read`,
+`room_post`, `room_create`, `room_add`, `room_remove`, `peers` and `peer_status`. The process
+registers no agent session and is not in `peers`. It exchanges the secret for a token with the
+limits of a dashboard login; each tool call moves the 24-hour idle limit. When the token ends,
+at a daemon restart, after 24 hours without a tool call, 7 days after it started or when the
+secret is set, generated or cleared, the next tool call answers `maintainer_token_expired` and
+the process exits; start it again. A refused start writes its code to standard error before any
+MCP output: `maintainer_secret_invalid`, `maintainer_secret_unset`, or during the wait after
+wrong secrets `maintainer_secret_backoff` with `retry_after_seconds`.
 
 Administrative actions require CSRF protection and are
 audited. Health reports unknown observations explicitly.

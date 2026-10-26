@@ -5,6 +5,19 @@ into a dated release section when promoted to `main`.
 
 ## Unreleased
 
+- `koinon mcp --maintainer --client NAME` acts as the maintainer from a program, such as a voice
+  bridge, locally or over SSH (#470, PDR 009). It reads the maintainer secret from the first line
+  of standard input (`--secret-stdin`) or from a private file (`--secret-file PATH`), exchanges it
+  once for a token that the daemon keeps in memory, and serves the tools `board_list`,
+  `decision_get`, `decision_history`, `decision_verdict`, `inbox`, `ack`, `send`, `room_list`,
+  `room_read`, `room_post`, `room_create`, `room_add`, `room_remove`, `peers` and `peer_status`
+  through the new `/v1/maintainer/` routes. It registers no session and is not in `peers`; the
+  agent tools do not change. The token has the limits of a dashboard login and ends at a daemon
+  restart and when the secret changes; the next tool call then answers
+  `maintainer_token_expired` and the process exits. Each maintainer action records its client:
+  the audit target ends with `by dashboard` or `by mcp:NAME`, and the dashboard's verdict
+  history shows the `via` of each verdict, which schema 31 stores; agents do not see it.
+
 - `koinon status` no longer counts an unread message to a retired session as a waiting wake
   (#486). The `wake` counts and reasons cover the sessions that the wake loop retries.
 - Koinon's text for agents says what to do, so that agents of different families work together

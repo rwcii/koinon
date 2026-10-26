@@ -463,7 +463,7 @@ func TestRoomsUpgradeKeepsExistingState(t *testing.T) {
 		t.Fatal("fixture was not migrated")
 	}
 	rows := rowsOf(t, s.db)
-	if _, err := fixtureExec(s, undoSchemaTwentyNine+undoSchemaTwentyEight+undoSchemaTwentySeven+undoSchemaTwentySix+undoSchemaTwentyFive+undoSchemaTwentyFour+undoSchemaTwentyThree+undoSchemaTwentyTwo+undoSchemaTwentyOne+undoSchemaTwenty+undoSchemaNineteen+`PRAGMA user_version=18`); err != nil {
+	if _, err := fixtureExec(s, undoSchemaThirtyOne+undoSchemaTwentyNine+undoSchemaTwentyEight+undoSchemaTwentySeven+undoSchemaTwentySix+undoSchemaTwentyFive+undoSchemaTwentyFour+undoSchemaTwentyThree+undoSchemaTwentyTwo+undoSchemaTwentyOne+undoSchemaTwenty+undoSchemaNineteen+`PRAGMA user_version=18`); err != nil {
 		t.Fatal(err)
 	}
 	if err := checkCatalog(s.db, 18); err != nil {

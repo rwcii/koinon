@@ -48,7 +48,7 @@ func TestDashboardParticipantChoice(t *testing.T) {
 	if got := c.do("participant-holder", form(b, b.Revision)); got != "participant_chosen" {
 		t.Fatalf("choice: %s", got)
 	}
-	if audit := expectAudit(t, d.store, n, "participant-holder", "accepted", ""); audit.Target != a.Address {
+	if audit := expectAudit(t, d.store, n, "participant-holder", "accepted", ""); audit.Target != a.Address+" by dashboard" {
 		t.Fatalf("choice audit target: %q", audit.Target)
 	}
 	n++

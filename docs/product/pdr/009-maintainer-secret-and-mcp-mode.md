@@ -3,7 +3,7 @@ pdr: "009"
 title: "Maintainer Secret and Maintainer MCP Mode"
 status: accepted
 created: "2026-10-25"
-updated: "2026-10-25"
+updated: "2026-10-26"
 authors:
   - "Robert Capps"
 reviewers: []
@@ -40,8 +40,8 @@ salted hash of it. The secret unlocks the dashboard, and it lets a client act as
 maintainer through a stdio MCP server, `koinon mcp --maintainer`, locally or over SSH. Each
 maintainer action records which client made it.
 
-Decisions 1 and 2 are built (#470, PR 1). Decision 3, with the record of Decision 4, and the
-change notices of Decision 3 follow in two later pull requests.
+Decisions 1 and 2 are built (#470, PR 1). Decision 3 without its change notices, and
+Decision 4, are built (#470, PR 2). The change notices follow in a later pull request.
 
 ---
 
@@ -203,10 +203,22 @@ tunnel, and logs in with the secret.
   `notifications/resources/updated` with only the URI, and the client reads again
   (ADR 001, Decision 3).
 - The agent MCP mode, agent identity and the loopback-only daemon do not change.
+- A running maintainer-mode process ends when its token ends: at a daemon restart, after 24
+  hours without an authenticated tool request, 7 days after the token started, and when the
+  secret is set, generated or cleared. The next tool call answers `maintainer_token_expired`,
+  and then the process exits, so the client starts a new one.
+- A start during the wait after failed checks (Decision 1) exits with
+  `maintainer_secret_backoff` and the time to wait.
+- Each authenticated tool request moves the idle limit. A connection with no requests does not;
+  the subscriptions of the change notices follow with them.
 
 **Provenance:** the maintainer, 2026-10-23, after reading the #464 map: "koinon will need an
 API surfaced for this. maybe this needs to be an MCP." The shape is the approved draft
-(2026-10-25, as Decision 1). Not built yet.
+(2026-10-25, as Decision 1). The token's end, the start during the wait and the idle refresh
+are requirements of the first client, rwcii/koinon-voice, in its #470 comments of 2026-10-25
+(17:48Z and 21:09Z); they are not maintainer decisions. Built without the change notices
+(#470, PR 2): the daemon route `POST /v1/maintainer/session` exchanges the secret for the
+token, and one route under `/v1/maintainer/` serves each tool.
 
 ### User Impact
 
@@ -227,7 +239,11 @@ audit log, the dashboard and `decision_history` show it. Agents see the same
 record its client: "yes, record the client on #470"
 ([comment](https://github.com/rwcii/koinon/issues/470#issuecomment-6400924866)). Until the
 maintainer MCP mode exists, a login with the secret records `maintainer_login` with the
-client `dashboard` in the audit log. Not built yet for actions.
+client `dashboard` in the audit log. Built (#470, PR 2): each audit record of a maintainer
+action, also a refused one, ends its target with `by dashboard` or `by mcp:NAME`; each verdict
+stores `via`, which the dashboard's verdict history and the maintainer's `decision_history`
+show and the agents' `decision_history` does not; an acknowledgement of the maintainer's inbox
+records `mcp:NAME` as the acknowledging operation, as the dashboard records `dashboard`.
 
 ### User Impact
 
@@ -250,3 +266,4 @@ use Koinon as intended from acting as the maintainer.
 | Date       | Change |
 | ---------- | ------ |
 | 2026-10-25 | Accepted (#470); Decisions 1 and 2 built |
+| 2026-10-26 | Decision 3 built without its change notices, and Decision 4 built (#470, PR 2). Decision 3 records the token's end, the start during the wait and the idle refresh, which the first client requested |

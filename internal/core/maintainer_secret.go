@@ -45,8 +45,11 @@ var (
 )
 
 // SecretBackoff refuses a check during the wait after repeated failures; RetryAfter is
-// when the next check is allowed.
-type SecretBackoff struct{ RetryAfter time.Time }
+// when the next check is allowed, and Wait how long that was from the refusal.
+type SecretBackoff struct {
+	RetryAfter time.Time
+	Wait       time.Duration
+}
 
 func (b SecretBackoff) Error() string { return "maintainer_secret_backoff" }
 
@@ -194,8 +197,9 @@ func secretWait(failures int) time.Duration {
 	return secretFirstWait << n
 }
 
-// passwordLogin checks secret and, when it matches, records the login and starts it. A
-// check during the wait computes no key and leaves the wait as it is.
+// passwordLogin checks secret and, when it matches, records the login and starts it for
+// client: "dashboard" for the login form, "mcp:NAME" for a maintainer token. A check during
+// the wait computes no key and leaves the wait as it is.
 func (d *Daemon) passwordLogin(ctx context.Context, secret, client string) (string, error) {
 	g := &d.auth.gate
 	if err := g.mu.lock(ctx); err != nil {
@@ -203,7 +207,7 @@ func (d *Daemon) passwordLogin(ctx context.Context, secret, client string) (stri
 	}
 	defer g.mu.unlock()
 	if now := d.auth.now(); now.Before(g.retry) {
-		return "", SecretBackoff{g.retry}
+		return "", SecretBackoff{g.retry, g.retry.Sub(now)}
 	}
 	ok, err := d.store.matchMaintainerSecret(ctx, secret)
 	if err != nil {
@@ -222,10 +226,11 @@ func (d *Daemon) passwordLogin(ctx context.Context, secret, client string) (stri
 	if err := d.store.auditAccepted(ctx, "maintainer_login", client); err != nil {
 		return "", err
 	}
-	return d.auth.start()
+	return d.auth.start(client)
 }
 
-// changeSecret sets, generates or clears the secret and then ends every dashboard login.
+// changeSecret sets, generates or clears the secret and then ends every dashboard login and
+// maintainer token.
 // It returns a generated secret.
 func (d *Daemon) changeSecret(ctx context.Context, action, secret string) (string, error) {
 	g := &d.auth.gate

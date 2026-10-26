@@ -4,7 +4,7 @@ import "net/http"
 
 // decisionRoutes serve decision_create, decision_edit, decision_list and decision_get
 // (#206, chunk 01) and decision_history, decision_pending, decision_ack, decision_close and
-// decision_restore (chunk 02). No route gives a verdict: only the dashboard does. The caller comes from current native admission. A request with any
+// decision_restore (chunk 02). No agent route gives a verdict: only the maintainer does, on the dashboard or with a maintainer token (PDR 009). The caller comes from current native admission. A request with any
 // other field, such as a verdict, dismissal, audit or agent-row field, is refused.
 func (d *Daemon) decisionRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("POST /v1/decisions/create", func(w http.ResponseWriter, r *http.Request) {
