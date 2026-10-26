@@ -520,10 +520,10 @@ func TestSchemaThirtyOneKeepsState(t *testing.T) {
 	a := join(t, s, "codex", "synthetic-a", "")
 	mustCreate(t, s, Key{"codex", a.ID}, "S-1", DecisionFields{Title: ptr("Synthetic"), Kind: ptr("decision")})
 	mustVerdict(t, s, "S-1", 1, "approved")
-	if _, err := fixtureExec(s, undoSchemaThirtyOne+`PRAGMA user_version=29`); err != nil {
+	if _, err := fixtureExec(s, undoSchemaThirtyOne+`PRAGMA user_version=30`); err != nil {
 		t.Fatal(err)
 	}
-	if err := checkCatalog(s.db, 29); err != nil {
+	if err := checkCatalog(s.db, 30); err != nil {
 		t.Fatal(err)
 	}
 	rows := rowsOf(t, s.db)
@@ -541,7 +541,7 @@ func TestSchemaThirtyOneKeepsState(t *testing.T) {
 	if err != nil || len(page.Verdicts) != 1 || page.Verdicts[0].Via != "" {
 		t.Fatalf("history of an earlier verdict: %+v %v", page, err)
 	}
-	if err := checkCatalog(upgraded.db, 29); err == nil {
-		t.Fatal("a schema 29 writer would accept the schema 31 store")
+	if err := checkCatalog(upgraded.db, 30); err == nil {
+		t.Fatal("a schema 30 writer would accept the schema 31 store")
 	}
 }

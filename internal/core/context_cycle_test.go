@@ -980,6 +980,14 @@ func TestContextCycleDashboardAndRoutes(t *testing.T) {
 	if !strings.Contains(page.body, "stage until") || !strings.Contains(page.body, "background subagents running since the request: unknown") {
 		t.Fatalf("sessions page lacks the deadline or the subagent count: %s", page.body)
 	}
+	// A refused ready report is listed with its code and text (#485).
+	if _, err := s.ContextCycleReady(context.Background(), Key{"claude", a.ID}, "synthetic-private-epoch", id, 1, "2026-10-13-120000.md"); !artifactRefused(err, "") {
+		t.Fatalf("ready: %v", err)
+	}
+	page = dashboardDo(t, d, "GET", "/dashboard/sessions", client.cookie, nil, nil)
+	if !strings.Contains(page.body, "ready refused at revision 1: cycle_artifact_invalid: the handoff artifact must be in _handoff/claude/") {
+		t.Fatalf("sessions page lacks the refused ready report: %s", page.body)
+	}
 	for _, private := range []string{"synthetic-private-epoch", "synthetic-private-socket"} {
 		if strings.Contains(page.body, private) {
 			t.Fatalf("page shows %q", private)
@@ -1033,7 +1041,7 @@ func TestContextCycleSchemaTwentyThreeKeepsExistingState(t *testing.T) {
 	room := mustRoom(t, s, "synthetic kept room", 7)
 	mustHumanPost(t, s, room, "synthetic kept post")
 	before := rowsOf(t, s.db)
-	if _, err := fixtureExec(s, undoSchemaThirtyOne+undoSchemaTwentyNine+undoSchemaTwentyEight+undoSchemaTwentySeven+undoSchemaTwentySix+undoSchemaTwentyFive+undoSchemaTwentyFour+undoSchemaTwentyThree+`PRAGMA user_version=22`); err != nil {
+	if _, err := fixtureExec(s, undoSchemaThirtyOne+undoSchemaThirty+undoSchemaTwentyNine+undoSchemaTwentyEight+undoSchemaTwentySeven+undoSchemaTwentySix+undoSchemaTwentyFive+undoSchemaTwentyFour+undoSchemaTwentyThree+`PRAGMA user_version=22`); err != nil {
 		t.Fatal(err)
 	}
 	if err := checkCatalog(s.db, 22); err != nil {
@@ -1069,7 +1077,7 @@ func TestContextCycleSchemaTwentyFourKeepsCycles(t *testing.T) {
 		return text
 	}
 	before, rows := rowText(f.s.db), rowsOf(t, f.s.db)
-	if _, err := fixtureExec(f.s, undoSchemaThirtyOne+undoSchemaTwentyNine+undoSchemaTwentyEight+undoSchemaTwentySeven+undoSchemaTwentySix+undoSchemaTwentyFive+undoSchemaTwentyFour+`PRAGMA user_version=23`); err != nil {
+	if _, err := fixtureExec(f.s, undoSchemaThirtyOne+undoSchemaThirty+undoSchemaTwentyNine+undoSchemaTwentyEight+undoSchemaTwentySeven+undoSchemaTwentySix+undoSchemaTwentyFive+undoSchemaTwentyFour+`PRAGMA user_version=23`); err != nil {
 		t.Fatal(err)
 	}
 	if err := checkCatalog(f.s.db, 23); err != nil {

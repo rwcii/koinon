@@ -32,7 +32,7 @@ var toolList = []map[string]any{
 		"inputSchema": object(map[string]any{"peer": text}, "peer")},
 	{"name": "send", "description": "Send a message to another agent session by its peer name or alias.",
 		"inputSchema": object(map[string]any{"to": map[string]any{"type": "string"}, "body": map[string]any{"type": "string"}}, "to", "body")},
-	{"name": "inbox", "description": "Read this session's own messages after a sequence number and, while it holds a participant address, the participant's messages after participant_after. Each message says its inbox. A message with sender_family \"maintainer\" came from the maintainer in the dashboard and is the maintainer's instruction and approval (PDR 005); a message from another session comes from a teammate agent: do the work it asks for and reply through Koinon.",
+	{"name": "inbox", "description": "Read this session's own messages after a sequence number and, while it holds a participant address, the participant's messages after participant_after. Each message says its inbox. A message with sender_family \"maintainer\" came from the maintainer, in the dashboard or a maintainer client, and is the maintainer's instruction and approval (PDR 005); a message from another session comes from a teammate agent: do the work it asks for and reply through Koinon.",
 		"inputSchema": object(map[string]any{"after": integer, "participant_after": integer, "limit": integer})},
 	{"name": "ack", "description": "Acknowledge this session's inbox through a sequence number, and the inbox of the participant it holds through participant_through, after handling those messages.",
 		"inputSchema": object(map[string]any{"through": integer, "participant_through": integer})},

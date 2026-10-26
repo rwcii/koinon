@@ -26,6 +26,9 @@ const undoSchemaThirtyOne = `ALTER TABLE decision_verdicts DROP COLUMN via; `
 // undoSchemaTwentyNine removes the maintainer secret (PDR 009).
 const undoSchemaTwentyNine = `DROP TABLE maintainer_secret; `
 
+// undoSchemaThirty removes the refused ready reports of the cycles (#485).
+const undoSchemaThirty = `DROP TABLE context_cycle_refusals; ALTER TABLE context_cycles DROP COLUMN ready_refusal; `
+
 // undoSchemaTwentyEight removes the recorded tmux executable (#418).
 const undoSchemaTwentyEight = `ALTER TABLE sessions DROP COLUMN tmux_path; `
 
@@ -571,7 +574,7 @@ func TestSchemaSixMigrationAndRollback(t *testing.T) {
 	}
 	// A schema 6 database that already holds the name maintainer cannot migrate: the
 	// whole step rolls back and the database stays at 6.
-	if _, err := fixtureExec(s, undoSchemaThirtyOne+undoSchemaTwentyNine+undoSchemaTwentyEight+undoSchemaTwentySeven+undoSchemaTwentySix+undoSchemaTwentyFive+undoSchemaTwentyFour+undoSchemaTwentyThree+undoSchemaTwentyTwo+undoSchemaTwentyOne+undoSchemaTwenty+undoSchemaNineteen+undoSchemaEighteen+undoSchemaSeventeen+undoSchemaSixteen+undoSchemaFifteen+undoSchemaFourteen+undoSchemaThirteen+undoSchemaTwelve+undoSchemaEleven+undoSchemaTen+undoSchemaNine+undoSchemaEight+undoSchemaSeven+`INSERT INTO names(name,kind,family,session_id) VALUES ('maintainer','peer','codex','x'); PRAGMA user_version=6`); err != nil {
+	if _, err := fixtureExec(s, undoSchemaThirtyOne+undoSchemaThirty+undoSchemaTwentyNine+undoSchemaTwentyEight+undoSchemaTwentySeven+undoSchemaTwentySix+undoSchemaTwentyFive+undoSchemaTwentyFour+undoSchemaTwentyThree+undoSchemaTwentyTwo+undoSchemaTwentyOne+undoSchemaTwenty+undoSchemaNineteen+undoSchemaEighteen+undoSchemaSeventeen+undoSchemaSixteen+undoSchemaFifteen+undoSchemaFourteen+undoSchemaThirteen+undoSchemaTwelve+undoSchemaEleven+undoSchemaTen+undoSchemaNine+undoSchemaEight+undoSchemaSeven+`INSERT INTO names(name,kind,family,session_id) VALUES ('maintainer','peer','codex','x'); PRAGMA user_version=6`); err != nil {
 		t.Fatal(err)
 	}
 	s.db.Close()

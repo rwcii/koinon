@@ -78,7 +78,7 @@ State-changing tools send messages, advance acknowledgements or write shared wor
 | `context_threshold` | Set or clear a session's own context threshold; the audit log names this session. |
 | `memory_ack` | Advance the memory cursor after processing all pages/deltas. |
 | `memory_record` | Write a memory entry. |
-| `decision_create` | Create a decision-board item for the maintainer, who gives the verdict in the dashboard. |
+| `decision_create` | Create a decision-board item for the maintainer, who gives the verdict in the dashboard or a maintainer client. |
 | `decision_edit` | Change a decision-board item at the revision that was read; an edit of a decided item reopens it. |
 | `decision_ack` | Acknowledge handled verdict deliveries. |
 | `decision_close` | Close an approved item in progress when its work is done. |

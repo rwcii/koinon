@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"errors"
 	"strconv"
+	"strings"
 	"unicode/utf8"
 )
 
@@ -39,8 +40,9 @@ type Message struct {
 	// AcknowledgedBy is recipient or maintainer for an acknowledged message (chunk 09).
 	AcknowledgedBy string `json:"acknowledged_by,omitempty"`
 	// AcknowledgedSession and AcknowledgedVia name the session (its peer name, or
-	// maintainer) and the operation (ack, participant_ack or dashboard) that acknowledged
-	// the message; acknowledgements from before schema 15 have none (#250).
+	// maintainer) and the operation that acknowledged the message: ack or participant_ack,
+	// and for the maintainer dashboard or mcp:NAME, which an agent reads as maintainer
+	// (agentAckVia). Acknowledgements from before schema 15 have none (#250).
 	AcknowledgedSession string `json:"acknowledged_session,omitempty"`
 	AcknowledgedVia     string `json:"acknowledged_via,omitempty"`
 	// Room is the typed room metadata of a membership notice or a room post copy (#217).
@@ -385,8 +387,21 @@ func (s *Store) ReadInboxes(ctx context.Context, caller Key, after int64, partic
 		result.Participant = p
 	}
 	tx.Rollback()
+	for i := range result.Messages {
+		result.Messages[i].AcknowledgedVia = agentAckVia(result.Messages[i].AcknowledgedVia)
+	}
 	s.markRead(ctx, caller, address, after, participantAfter, result.Messages)
 	return result, nil
+}
+
+// agentAckVia is an acknowledgement's operation as an agent sees it: a maintainer's
+// acknowledgement, from the dashboard or a maintainer client, reads as maintainer, because
+// agents do not see the maintainer's client (PDR 009, Decision 4).
+func agentAckVia(via string) string {
+	if via == "dashboard" || strings.HasPrefix(via, "mcp:") {
+		return "maintainer"
+	}
+	return via
 }
 
 // markRead records the highest sequence that a read returned from each inbox (#250): the
@@ -677,6 +692,7 @@ func (s *Store) MessageOutcome(ctx context.Context, caller Key, id int64) (Outco
 		return Outcome{}, ErrMessageNotFound
 	}
 	result.AcknowledgedBy = acknowledgedBy(result.Acknowledged, maintainer)
+	result.AcknowledgedVia = agentAckVia(result.AcknowledgedVia)
 	if !result.Acknowledged {
 		result.AcknowledgedSession, result.AcknowledgedVia = "", ""
 	}

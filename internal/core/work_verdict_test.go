@@ -643,7 +643,7 @@ func TestWorkUpgradeFromD95fac8(t *testing.T) {
 		t.Fatalf("fixture after migration: %v", before)
 	}
 	rows := rowsOf(t, s.db)
-	if _, err := s.db.Exec(undoSchemaThirtyOne + undoSchemaTwentyNine + undoSchemaTwentyEight + undoSchemaTwentySeven + undoSchemaTwentySix + undoSchemaTwentyFive + undoSchemaTwentyFour + undoSchemaTwentyThree + undoSchemaTwentyTwo + undoSchemaTwentyOne + undoSchemaTwenty + undoSchemaNineteen + undoSchemaEighteen + undoSchemaSeventeen + `PRAGMA user_version=16`); err != nil {
+	if _, err := s.db.Exec(undoSchemaThirtyOne + undoSchemaThirty + undoSchemaTwentyNine + undoSchemaTwentyEight + undoSchemaTwentySeven + undoSchemaTwentySix + undoSchemaTwentyFive + undoSchemaTwentyFour + undoSchemaTwentyThree + undoSchemaTwentyTwo + undoSchemaTwentyOne + undoSchemaTwenty + undoSchemaNineteen + undoSchemaEighteen + undoSchemaSeventeen + `PRAGMA user_version=16`); err != nil {
 		t.Fatal(err)
 	}
 	if err := checkCatalog(s.db, 16); err != nil {
