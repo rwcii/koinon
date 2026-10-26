@@ -3,7 +3,7 @@ pdr: "007"
 title: "Human Decision Board"
 status: draft
 created: "2026-10-12"
-updated: "2026-10-25"
+updated: "2026-10-26"
 authors:
   - "Robert Capps"
 reviewers: []
@@ -47,7 +47,7 @@ is agent-written and the requester's original words were not located.
 
 1. Problem Context
 2. Decision 1: A dashboard board of daemon-owned rows and agent-written items
-3. Decision 2: Only a dashboard action records a verdict; a later text change reopens the item
+3. Decision 2: Only a maintainer action records a verdict; a later text change reopens the item
 4. Decision 3: Command code blocks hold printable ASCII only
 5. Decision 4: Each recipient reads the verdict record once
 6. Conclusion
@@ -73,7 +73,8 @@ From #206's twelve requirements, in short:
 3. Human-only verdicts with a snapshot of what the human saw.
 4. Printable-ASCII command boxes.
 5. Delivery of each verdict to each named recipient once, an archive, and a waiting query.
-6. Loopback dashboard only; no credentials, keys, personal data, session IDs or peer bodies.
+6. Loopback dashboard only (#206); since PDR 009, also a maintainer client through `koinon mcp
+   --maintainer`. No credentials, keys, personal data, session IDs or peer bodies.
 
 ### Scope
 
@@ -132,7 +133,7 @@ The maintainer sees all agents and open decisions on one page in the dashboard.
 
 ---
 
-## 3. Decision 2: Only a dashboard action records a verdict; a later text change reopens the item
+## 3. Decision 2: Only a maintainer action records a verdict; a later text change reopens the item
 
 ### Decision
 
@@ -140,9 +141,11 @@ A verdict is `approved` or `declined` (an `fyi` item is `dismissed`), with its t
 (`at`; #206 calls it `verdictAt`), an optional note, an audit record, and a `snapshot`
 (#206's `verdictOn`): a copy of the title, context, recommendation and commands the human
 saw. Approve moves the item to in progress; Decline and Dismiss archive it.
-No agent interface (MCP, CLI or bearer API) writes a verdict field; only an authenticated
-dashboard action does, with no further check under the same-user trust model (PDR 005,
-Decision 3). Decided text
+No agent interface (MCP, CLI or bearer API) writes a verdict field. A maintainer action does:
+an authenticated dashboard action, or a `decision_verdict` call of a maintainer client through
+`koinon mcp --maintainer` with its maintainer token (PDR 009, Decisions 3 and 4), with no
+further check under the same-user trust model (PDR 005, Decision 3). Each verdict records its
+client as `via`: `dashboard` or `mcp:NAME`. Decided text
 stays unchanged in ordinary use. When the facts around a decision change, the text can change:
 the change reopens the item for a new verdict, and the record keeps every earlier verdict with
 the text it was given on. A concurrent edit cannot make a verdict apply to unseen text. This
@@ -169,12 +172,14 @@ maintainer saw, and the history stays on the record.
 
 ### Rationale
 
-1. A verdict written only from the dashboard, on the revision the human saw, means what the
-   human saw; a later change asks for a new verdict.
+1. A verdict written only by the maintainer, in the dashboard or a maintainer client (PDR 009),
+   on the revision the human saw, means what the human saw; a later change asks for a new
+   verdict.
 
 ### User Impact
 
-Approve and Decline exist only in the dashboard; agents read verdicts but cannot set them.
+Approve and Decline exist only for the maintainer, in the dashboard or a maintainer client
+(PDR 009); agents read verdicts but cannot set them.
 When the facts change, an agent edits the decided item; it returns to the board for a new
 verdict, and the earlier verdict stays in its history.
 
@@ -281,3 +286,4 @@ blocks, which the maintainer copies into a terminal, hold printable ASCII only. 
 | 2026-10-12 | Recorded the maintainer's card text requirement and the ASCII decision for command code blocks (#206, #306) |
 | 2026-10-13 | Recorded the maintainer's reopen-on-change decision and the stored-query requirement (#206) |
 | 2026-10-25 | Decision 4: removed the unsourced "does not show that an action was done" caveat (#487) |
+| 2026-10-26 | Decision 2, requirement 6, Rationale and User Impact: a maintainer client also records a verdict, with its `via`, as accepted PDR 009 Decisions 3 and 4 decide (#470) |

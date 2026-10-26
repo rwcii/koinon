@@ -308,11 +308,11 @@ func TestAcknowledgementRecordsSessionAndOperation(t *testing.T) {
 	if m := inbox.Messages[0]; m.AcknowledgedSession != receiver.Name || m.AcknowledgedVia != "ack" || m.AcknowledgedBy != "recipient" {
 		t.Fatalf("own acknowledgement: %+v", m)
 	}
-	if m := inbox.Messages[1]; m.AcknowledgedSession != "maintainer" || m.AcknowledgedVia != "dashboard" || m.AcknowledgedBy != "maintainer" {
+	if m := inbox.Messages[1]; m.AcknowledgedSession != "maintainer" || m.AcknowledgedVia != "maintainer" || m.AcknowledgedBy != "maintainer" {
 		t.Fatalf("dashboard acknowledgement: %+v", m)
 	}
 	outcome, err := s.MessageOutcome(ctx, Key{sender.Family, sender.ID}, second.ID)
-	if err != nil || outcome.AcknowledgedSession != "maintainer" || outcome.AcknowledgedVia != "dashboard" {
+	if err != nil || outcome.AcknowledgedSession != "maintainer" || outcome.AcknowledgedVia != "maintainer" {
 		t.Fatalf("outcome: %+v %v", outcome, err)
 	}
 }

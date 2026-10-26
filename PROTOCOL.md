@@ -43,7 +43,9 @@ repositories.
 | `POST /v1/library/read` | Read one catalog item's canonical content and family-specific metadata. |
 | `POST /v1/sessions/observe` | Record allowlisted observations (model, context, activity, terminal) for an active session; see "Dashboard and session observations". |
 | `POST /v1/dashboard/links` | Issue a one-time dashboard login link (`path`, `expires_in`). |
-| `POST /v1/maintainer/secret` | Set, generate or clear the maintainer secret (`action`, `secret`); ends every dashboard login. |
+| `POST /v1/maintainer/secret` | Set, generate or clear the maintainer secret (`action`, `secret`); ends every dashboard login and maintainer token. |
+| `POST /v1/maintainer/session` | Exchange the maintainer secret for a maintainer token (`secret`, `client`); see Maintainer mode. |
+| `POST /v1/maintainer/ROUTE` | The maintainer's reads and actions with a maintainer token: `board-list`, `decision-get`, `decision-history`, `decision-verdict`, `inbox`, `ack`, `send`, `room-list`, `room-read`, `room-post`, `room-create`, `room-add`, `room-remove`, `peers` and `peer-status`; see Maintainer mode. |
 | `GET /v1/participants` | Each participant's `address`, `family`, `repository`, optional `role`, active `holder` peer name, `conflict` and `last_event`, at most 1,000 with `truncated` (`koinon participant list`, #398). |
 | `POST /v1/participants/holder` | The maintainer's holder choice from the command line (`koinon participant holder`, #398): `address`, `peer` and an optional `if_revision`, the session's current revision when absent. It makes what the dashboard's **Make holder** makes and is audited as `participant-holder` by `cli`. It returns `holder` and `former`; refusals are `invalid_request`, `peer_not_found`, `not_participant`, `session_not_active` and `revision_changed`. |
 | `POST /v1/storage/recover` | Prove the write-ahead log empty again, return free pages and clear a blocked state. |
@@ -569,6 +571,9 @@ pane matches `%` followed by 1–9 digits. The optional `executable` (#418) is t
 that the session's own terminal runs, with the same path rules as the socket. Invalid values
 return `invalid_request`.
 
+Schema 31 adds `decision_verdicts.via`, the maintainer client that gave each verdict
+(`dashboard` or `mcp:NAME`, PDR 009, Decision 4); a verdict from before it has `''`.
+
 Schema 29 adds the table `maintainer_secret` (see Dashboard and session observations, PDR
 009); an upgrade starts with no secret set.
 
@@ -680,7 +685,9 @@ its native session sent; another sender's message reads as
   `created_at`, `delivery_state`, `delivery_reason`, `acknowledged` and, for an acknowledged
   message, `acknowledged_by`: `recipient` or `maintainer`. From schema 15 an acknowledged
   message also has `acknowledged_session` (the peer name of the session that acknowledged
-  it, or `maintainer`) and `acknowledged_via` (`ack`, `participant_ack` or `dashboard`).
+  it, or `maintainer`) and `acknowledged_via` (`ack`, `participant_ack`, or `maintainer` for
+  an acknowledgement by the maintainer). Agents do not see the maintainer's client (PDR 009,
+  Decision 4); the dashboard and the maintainer mode show it as `dashboard` or `mcp:NAME`.
   A read records the highest sequence that it returned from each inbox as that inbox's
   `read_through`, when the read started at or below `max(read_through, acked_through)`; a
   read that skips unread messages records nothing (see Handled wakes).
@@ -703,15 +710,17 @@ The daemon has one built-in session, family `maintainer` and peer name `maintain
 It has an inbox, never expires, has no repository, alias or wake target, and is never woken.
 `peers` lists it last, so agents can send to `maintainer`; the session list and the session
 counts leave it out. No `/v1/` caller can act as it, register it, renew it or retire it
-(`invalid_request`); only the dashboard sends, reads and acknowledges as the maintainer.
+(`invalid_request`); only the dashboard and a maintainer token (see Maintainer mode) send,
+read and acknowledge as the maintainer.
 The daemon itself puts notices in the maintainer's inbox with `sender_name` `koinon`: today
 only the notice that messages failed (see Handled wakes). Such a notice holds fixed text,
 message IDs, a recipient name and reason codes, never peer text.
 
-A message that the dashboard sends as this session reaches the recipient with `sender_family`
-`maintainer` and `sender_name` `maintainer`. Because `/v1/` refuses family `maintainer`, no MCP
-tool or other `koinon` command can send a message with that `sender_family`; only the dashboard,
-which needs a login link from `koinon dashboard`, can. The field is set from the sending
+A message that the dashboard or a maintainer client sends as this session reaches the
+recipient with `sender_family` `maintainer` and `sender_name` `maintainer`. Because `/v1/`
+refuses family `maintainer` as a caller, no agent MCP tool or other `koinon` command can send a
+message with that `sender_family`; only the dashboard, after a login, and `koinon mcp
+--maintainer`, with the maintainer secret, can. The field is set from the sending
 session, never from the body. Koinon currently treats such a message as the maintainer's
 instruction and approval, because the bridge runs only locally (PDR 005, Decision 3). A message
 from every other session comes from a teammate agent: the recipient does the work it asks for
@@ -1487,8 +1496,9 @@ Schema 26 adds verdicts, deliveries and the deep archive (#206, chunk 02): the t
 number of verdicts in the item's history, so `decision_get` reads it and the current verdict
 (the latest verdict, unless it is superseded) without a scan of the history.
 
-**Verdicts.** Only the dashboard gives a verdict (see Dashboard actions); no `/v1` route,
-MCP tool or command does. Approve and Decline apply to a `decision` item, Dismiss to an
+**Verdicts.** The maintainer gives a verdict on the dashboard (see Dashboard actions) or with a
+maintainer token (`decision-verdict`, see Maintainer mode); the agent routes, agent MCP tools
+and commands have no verdict. The verdict stores the client that gave it as `via`. Approve and Decline apply to a `decision` item, Dismiss to an
 `fyi` item; another combination is `invalid_verdict`, a revision other than the one the page
 showed is `stale_revision`, an item that is not `active` is `decided`, and an item with a
 hidden command cannot be approved (`hidden_command`); Decline and Dismiss still apply. An optional note is Markdown of at
@@ -1510,7 +1520,7 @@ acknowledgements do not change.
 - `POST /v1/decisions/history` takes `caller`, `reference`, optional `after` (a verdict ID)
   and `limit` (1–16, default 16) and returns `verdicts` (`verdict_id`, `revision`,
   `verdict`, `note`, `at`, `superseded_at`, `snapshot`) in verdict ID order with `more` and
-  `next_after`. A page stops before the verdict that would take the serialized reply past
+  `next_after`. It never returns `via` (PDR 009, Decision 4). A page stops before the verdict that would take the serialized reply past
   256 KiB and always holds one: the largest verdict, every snapshot and note field at its
   limit in characters with the longest JSON escape, serializes below that.
 - `POST /v1/decisions/pending` takes `caller`, optional `after` (a verdict ID) and `limit`
@@ -1704,6 +1714,60 @@ from elsewhere. Peer message bodies appear here, escaped, and nowhere else outsi
   429 with `Retry-After`, computes no key and does not move the wait. A match resets the
   count. The count is in daemon memory, for the whole daemon. The one-time link works during
   the wait. No page, reply, record or log line repeats a presented secret.
+- **Maintainer mode** (PDR 009, Decisions 3 and 4). `POST /v1/maintainer/session` takes
+  `{"secret": TEXT, "client": NAME}` with the bearer secret; `NAME` matches
+  `[a-z0-9][a-z0-9-]{0,31}`, else `invalid_request`. It checks the secret as the login form
+  does, with the same wait and the audit record `maintainer_login mcp:NAME`, and returns
+  `{"ok": true, "token": TOKEN, "client": "mcp:NAME", "idle_seconds": 86400,
+  "absolute_seconds": 604800}`. Refusals: `maintainer_secret_unset`, `maintainer_secret_invalid`,
+  and during the wait `maintainer_secret_backoff` (429, `Retry-After`, `details:
+  {retry_after_seconds, retry_after}`). The token is 64 hex characters; the daemon keeps only
+  its SHA-256 hash, in memory with the dashboard sessions and bound to `mcp:NAME`. It has the
+  limits of a dashboard session: 24 hours without an authenticated request, 7 days in all, at
+  most 16 sessions and tokens together, and it ends when the secret is set, generated or
+  cleared and when the daemon restarts. A token is no dashboard cookie, and a cookie is no
+  token. Each route `POST /v1/maintainer/ROUTE` takes `token` with its fields, refuses unknown
+  fields, and refuses an unknown or ended token with `maintainer_token_expired`; an accepted
+  request moves the token's idle limit. A reply is `{"ok": true, "result": ...}`.
+  - `board-list` (`filter` `waiting` (default), `active`, `in_progress` or `archived`;
+    `after`; `limit`): `counts` (`waiting`, `in_progress`, `open_fyi`, `archived`) and a page
+    of summaries as `decision_list` returns it.
+  - `decision-get` (`reference`) and `decision-history` (`reference`, `after`, `limit`): as
+    the agents' routes, without a caller; each history verdict adds `via`.
+  - `decision-verdict` (`reference`, `revision`, `verdict` `approved`, `declined` or
+    `dismissed`, optional `note`): the dashboard's verdict, with its refusals
+    (`stale_revision` with `current_revision`, `not_found`, `decided`, `invalid_verdict`,
+    `hidden_command`). The result is the verdict with `via`.
+  - `inbox` (`after`, `limit` 1–100) reads the maintainer's own inbox as an agent's inbox read
+    pages its own; `ack` (`through`) acknowledges it (`ack_beyond_last`).
+  - `send` (`to`, `body`): the dashboard's send (`peer_not_found`, `alias_unheld`,
+    `recipient_inactive`).
+  - `room-list` (each room's `room_id`, `name`, `revision`, `created_at` and `members`);
+    `room-read` (`room_id`, `after`, `limit`) of any room; `room-post` (`room_id`, `body`,
+    `key`, `deadline`), whose receipt has `room_id`, `seq`, `queued` and `skipped`;
+    `room-create` (`name`, `key`); `room-add` (`room_id`, `peer`); `room-remove` (`room_id`,
+    `ordinal`): the dashboard's room actions with their refusals (`room_not_found`,
+    `peer_not_found`, `room_member_not_found`, `idempotency_conflict` and the room limits).
+  - `peers` lists the agent sessions without the maintainer; `peer-status` (`peer`) reads one
+    as `peer_status` does (`peer_not_found`, `alias_unheld`).
+
+  Each action writes its audit record as the dashboard's does, also when it is refused, with
+  the dashboard's action name (`decision-approve`, `decision-decline`, `decision-dismiss`,
+  `acknowledge`, `send`, `room-post`, `room-create`, `room-add`, `room-remove`) and a target
+  that ends with ` by mcp:NAME`. A read writes no record. `koinon mcp --maintainer --client NAME
+  --secret-stdin|--secret-file PATH` reads the secret from the first line of standard input,
+  one byte at a time so that the MCP stream after it stays unread, or from a regular file that
+  is no symbolic link, belongs to the user and has mode 0600 or 0400; the line has the bounds
+  of `koinon maintainer secret set`. It exchanges the secret before any MCP output, and on a
+  refusal writes the code to standard error and exits with status 1. It registers no session,
+  renews and observes nothing, and is not in `peers`. Its tools are `board_list`,
+  `decision_get`, `decision_history`, `decision_verdict`, `inbox`, `ack`, `send`, `room_list`,
+  `room_read`, `room_post`, `room_create`, `room_add`, `room_remove`, `peers` and
+  `peer_status`, each calling the route of its name with `-` for `_`; each schema has
+  `additionalProperties: false`, and an unknown or missing argument is `invalid_arguments`.
+  When a call answers `maintainer_token_expired`, the server writes that result and exits with
+  status 1, so the client starts a new process. A call while no daemon answers is
+  `daemon_unavailable`, and the process stays.
 - **Request protection.** Every dashboard request must name a literal loopback IP with a port in
   `Host` (`127.0.0.1:PORT` or `[::1]:PORT`; `localhost` and other names are refused). PORT may
   differ from the listener's, as through an SSH tunnel from another local port (ADR 001,
@@ -1882,7 +1946,8 @@ from elsewhere. Peer message bodies appear here, escaped, and nowhere else outsi
     `--tmux-session` result adds `nested` and `nested_incomplete` when it found nested
     repositories; the sessions view shows the launch record's list with each session registered with it.
 - **Audit log.** A request that fails the session, host, origin or CSRF check writes no record.
-  After those checks, each action writes one record: time, action, target, result (`accepted`,
+  After those checks, each action writes one record: time, action, target (which ends with
+  ` by dashboard`, PDR 009, Decision 4), result (`accepted`,
   `refused`, `started` while a launch runs, or `unknown`) and a fixed reason code. A record never
   holds a message body, a credential or a secret; a send records the peer name of the session
   that received it, the body size, the message ID and, for a send to an alias, `via ALIAS`. An

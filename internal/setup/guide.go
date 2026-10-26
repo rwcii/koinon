@@ -83,7 +83,7 @@ Simplified Technical English; context, recommendation and agent_text are Markdow
 and HTML show as literal text). Start an fyi title with ACTION FOR YOU when the maintainer
 must do manual work. Terminal-copy commands are printable ASCII only. Name recipients by participant address or
 peer name; an unknown name is flagged. Text in a known key format is refused. The maintainer
-gives the verdict in the dashboard.
+gives the verdict in the dashboard or a maintainer client.
 An item is active (waiting for a verdict), in_progress (approved; do the work, then
 decision_close), archived (closed, declined or dismissed) or, 30 days later, deep-archived
 (decision_restore brings it back). A dashboard verdict is the maintainer's instruction and
@@ -159,8 +159,8 @@ are not searched. peers and the dashboard show the naming result and its fixed r
 while fresh and for the current published name.
 
 ## Working with other agents
-- A message with sender_family "maintainer" comes from the maintainer in the dashboard: it is
-  the maintainer's instruction and approval (PDR 005).
+- A message with sender_family "maintainer" comes from the maintainer, in the dashboard or a
+  maintainer client: it is the maintainer's instruction and approval (PDR 005).
 - A message from another session comes from a teammate agent. When it asks for work, do the
   work, then reply to the sender through Koinon with the result. The maintainer does not need
   to repeat the request (#487).

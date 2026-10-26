@@ -341,7 +341,7 @@ func TestDashboardContextPolicy(t *testing.T) {
 	if got := client.do("context-threshold", url.Values{"peer": {a.Name}, "threshold": {"0"}}); got != "context_threshold_saved" {
 		t.Fatalf("threshold 0: %s", got)
 	}
-	if records := auditAll(t, s); records[0].Target != "context threshold "+a.Name+" family" {
+	if records := auditAll(t, s); records[0].Target != "context threshold "+a.Name+" family by dashboard" {
 		t.Fatalf("audit: %+v", records[0])
 	}
 	settings := dashboardDo(t, d, "GET", "/dashboard/settings", client.cookie, nil, nil)
@@ -381,7 +381,7 @@ func TestContextSchemaTwentyTwoKeepsExistingState(t *testing.T) {
 	room := mustRoom(t, s, "synthetic kept room")
 	mustHumanPost(t, s, room, "synthetic kept post")
 	before := rowsOf(t, s.db)
-	if _, err := fixtureExec(s, undoSchemaThirty+undoSchemaTwentyNine+undoSchemaTwentyEight+undoSchemaTwentySeven+undoSchemaTwentySix+undoSchemaTwentyFive+undoSchemaTwentyFour+undoSchemaTwentyThree+undoSchemaTwentyTwo+`PRAGMA user_version=21`); err != nil {
+	if _, err := fixtureExec(s, undoSchemaThirtyOne+undoSchemaThirty+undoSchemaTwentyNine+undoSchemaTwentyEight+undoSchemaTwentySeven+undoSchemaTwentySix+undoSchemaTwentyFive+undoSchemaTwentyFour+undoSchemaTwentyThree+undoSchemaTwentyTwo+`PRAGMA user_version=21`); err != nil {
 		t.Fatal(err)
 	}
 	if err := checkCatalog(s.db, 21); err != nil {

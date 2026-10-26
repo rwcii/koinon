@@ -217,7 +217,7 @@ func (s *Store) dashboardDecisions(ctx context.Context, q url.Values) (decisions
 		if err != nil || after < 0 {
 			after = 0
 		}
-		history, err := decisionHistory(ctx, tx, reference, after, decisionHistoryItems)
+		history, err := decisionHistory(ctx, tx, reference, after, decisionHistoryItems, true)
 		if err != nil {
 			return data, err
 		}
@@ -352,8 +352,8 @@ func waitingReferences(ctx context.Context, tx querier, names []any) ([]string, 
 const decisionFormLimit = 3*decisionNoteLimit + 4096
 
 // decisionActions adds the maintainer's verdicts (#206, chunk 02): Approve and Decline on a
-// decision item and Dismiss on an fyi item, on the revision the page showed. They are
-// dashboard actions only, behind the login, Host, Origin and CSRF checks. The answer returns
+// decision item and Dismiss on an fyi item, on the revision the page showed, behind the
+// login, Host, Origin and CSRF checks; a maintainer token gives the same verdicts (PDR 009). The answer returns
 // to the board page that showed the card, with its status filter and lookup from the back
 // field, and with the notice on that card.
 func (d *Daemon) decisionActions(mux *http.ServeMux, authed func(int64, func(http.ResponseWriter, *http.Request, string)) http.HandlerFunc,

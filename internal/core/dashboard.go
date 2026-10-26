@@ -191,7 +191,8 @@ func (d *Daemon) dashboardHandler() (http.Handler, error) {
 					return
 				}
 			}
-			next(w, r, id)
+			// Each action's audit record names the dashboard as its origin (PDR 009, Decision 4).
+			next(w, r.WithContext(withOrigin(r.Context(), "dashboard")), id)
 		}
 	}
 	authed := func(next func(http.ResponseWriter, *http.Request, string)) http.HandlerFunc {

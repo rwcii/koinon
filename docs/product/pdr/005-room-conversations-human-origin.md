@@ -212,10 +212,11 @@ post.
 
 ### Decision
 
-A post from the built-in `maintainer` session, sent from the dashboard as a direct message, a
-room post (#217) or a decision-board verdict (#206), is the maintainer's instruction and
-approval. Its origin comes from stored metadata that only the dashboard path sets; agents read
-it from typed fields, not from the body. The Go guide and MCP instructions now state this
+A post from the built-in `maintainer` session, sent from the dashboard or from a maintainer
+client through `koinon mcp --maintainer` (PDR 009, Decision 3) as a direct message, a room post
+(#217) or a decision-board verdict (#206), is the maintainer's instruction and approval. Its
+origin comes from stored metadata that only the maintainer's paths set, the dashboard and the
+maintainer token routes; agents read it from typed fields, not from the body. The Go guide and MCP instructions now state this
 decision (PR #311); an installation changes its guide only when that runtime is upgraded. The plans'
 framing that dashboard origin "does not ... supply a new approval" is not adopted.
 
@@ -238,8 +239,9 @@ login.
 
 1. The maintainer's reasoning: the bridge only runs locally, so only the maintainer can access
    it.
-2. The daemon listens only on loopback and the dashboard needs a login link from
-   `koinon dashboard` (ADR 001), so a dashboard post comes from the maintainer's own account.
+2. The daemon listens only on loopback. The dashboard needs a login link from `koinon
+   dashboard` (ADR 001) or the maintainer secret, and a maintainer client needs the maintainer
+   secret (PDR 009), so a maintainer post comes from the maintainer's own account.
 3. A fact about the current design, not part of the maintainer's answer: any process of the
    same user, agents included, can run `koinon dashboard` and open a login, as it can already
    change the user's files (ADR 001, same-user trust).
@@ -272,3 +274,4 @@ by maintainer posts, then removed it on 2026-10-26 (#493): agents post without a
 | 2026-10-12 | Recorded the maintainer's Gate B approval of the #217 plan; status accepted |
 | 2026-10-25 | Requirements: removed the unsourced "peer text as data" from criterion 7; status modified (#487) |
 | 2026-10-26 | Decision 2 deprecated: the maintainer declined the room allowance on the decision board (verdict 48); agents post without an allowance (#493) |
+| 2026-10-26 | Decision 3 and its Rationale: a maintainer client through `koinon mcp --maintainer` also sends as the maintainer, as accepted PDR 009 Decision 3 decides (#470) |

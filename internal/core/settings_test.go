@@ -114,7 +114,7 @@ func TestDashboardSettings(t *testing.T) {
 	if got := c.do("settings", settingsForm(v)); got != "settings_saved" {
 		t.Fatalf("change: %s", got)
 	}
-	if audit := expectAudit(t, d.store, n+1, "settings", "accepted", ""); audit.Target != v.String() {
+	if audit := expectAudit(t, d.store, n+1, "settings", "accepted", ""); audit.Target != v.String()+" by dashboard" {
 		t.Fatalf("audit target %q", audit.Target)
 	}
 	if d.store.Settings() != v {

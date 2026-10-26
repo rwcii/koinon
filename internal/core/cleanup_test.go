@@ -335,7 +335,7 @@ func TestDashboardBulkAndRoomDelete(t *testing.T) {
 		if got := client.do("bulk", form); got != "no_selection" {
 			t.Fatalf("%v without a selection: %s", form, got)
 		}
-		if r := auditAll(t, s)[0]; r.Action != "bulk" || r.Target != "invalid" || r.Result != "refused" || r.Reason != "no_selection" {
+		if r := auditAll(t, s)[0]; r.Action != "bulk" || r.Target != "invalid by dashboard" || r.Result != "refused" || r.Reason != "no_selection" {
 			t.Fatalf("empty selection audit: %+v", r)
 		}
 	}

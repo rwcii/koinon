@@ -9,6 +9,7 @@ import (
 	"net"
 	"net/http"
 	"strconv"
+	"strings"
 	"sync"
 	"time"
 )
@@ -30,8 +31,12 @@ const (
 	maxDashboardLogin = 16
 )
 
+// dashboardSession is one login. client is "dashboard" for a browser login and "mcp:NAME"
+// for a maintainer token (PDR 009, Decision 3): a cookie opens only a browser login, a token
+// only its own client's, and each maintainer action takes its via from client.
 type dashboardSession struct {
 	created, used time.Time
+	client        string
 }
 
 type dashboardAuth struct {
@@ -117,13 +122,14 @@ func (a *dashboardAuth) login(token string) (string, bool, error) {
 	if !found || !now.Before(expires) {
 		return "", false, nil
 	}
-	id, err := a.start()
+	id, err := a.start("dashboard")
 	return id, err == nil, err
 }
 
-// start begins a login session, after a link or the maintainer secret, and returns its ID.
-// At most maxDashboardLogin stay; a new one drops the oldest.
-func (a *dashboardAuth) start() (string, error) {
+// start begins a login session for client, after a link or the maintainer secret, and
+// returns its ID. Browser logins and maintainer tokens share the limits: at most
+// maxDashboardLogin stay, and a new one drops the oldest.
+func (a *dashboardAuth) start(client string) (string, error) {
 	id, err := randomToken()
 	if err != nil {
 		return "", err
@@ -143,11 +149,11 @@ func (a *dashboardAuth) start() (string, error) {
 		}
 		delete(a.sessions, oldest)
 	}
-	a.sessions[sessionHash] = &dashboardSession{created: now, used: now}
+	a.sessions[sessionHash] = &dashboardSession{created: now, used: now, client: client}
 	return id, nil
 }
 
-// endAll ends every login, when the maintainer secret changes.
+// endAll ends every login and maintainer token, when the maintainer secret changes.
 func (a *dashboardAuth) endAll() {
 	a.mu.Lock()
 	clear(a.sessions)
@@ -185,11 +191,30 @@ func (a *dashboardAuth) session(r *http.Request) (string, bool) {
 	now := a.now()
 	a.prune(now)
 	s, found := a.sessions[hash]
-	if !found {
+	if !found || s.client != "dashboard" {
 		return "", false
 	}
 	s.used = now
 	return cookie.Value, true
+}
+
+// token checks a maintainer token and records its use. It returns the client that the token
+// was issued to, "mcp:NAME"; a browser login's ID is no token.
+func (a *dashboardAuth) token(id string) (string, bool) {
+	hash, ok := tokenHash(id)
+	if !ok {
+		return "", false
+	}
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	now := a.now()
+	a.prune(now)
+	s, found := a.sessions[hash]
+	if !found || !strings.HasPrefix(s.client, "mcp:") {
+		return "", false
+	}
+	s.used = now
+	return s.client, true
 }
 
 func (a *dashboardAuth) logout(id string) {

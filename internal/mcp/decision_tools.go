@@ -25,7 +25,7 @@ var decisionFieldSchema = map[string]any{
 }
 
 var decisionTools = []map[string]any{
-	{"name": "decision_create", "description": "Create a decision item on the maintainer's decision board: reference, title, kind (decision or fyi) and the other fields. Write card prose in ASD-STE100 Simplified Technical English. Text in a known key format is refused. key and deadline make a retry return the first result. The maintainer gives the verdict in the dashboard.",
+	{"name": "decision_create", "description": "Create a decision item on the maintainer's decision board: reference, title, kind (decision or fyi) and the other fields. Write card prose in ASD-STE100 Simplified Technical English. Text in a known key format is refused. key and deadline make a retry return the first result. The maintainer gives the verdict, in the dashboard or a maintainer client.",
 		"inputSchema": decisionSchema(map[string]any{"reference": decisionReferenceSchema, "key": text, "deadline": number}, "reference", "title", "kind", "key", "deadline")},
 	{"name": "decision_edit", "description": "Change fields of a decision item at the revision you read (if_revision). A changed item is stale_revision; read it again. A list field replaces the stored list.",
 		"inputSchema": decisionSchema(map[string]any{"reference": decisionReferenceSchema, "if_revision": integer}, "reference", "if_revision")},
@@ -37,7 +37,7 @@ var decisionTools = []map[string]any{
 	{"name": "decision_history", "description": "Page one decision item's verdicts in verdict ID order, each with the snapshot of the text the maintainer saw. Page with next_after. Reading moves no cursor.",
 		"inputSchema": object(map[string]any{"reference": decisionReferenceSchema, "after": integer,
 			"limit": map[string]any{"type": "integer", "minimum": 0, "maximum": 16}}, "reference")},
-	{"name": "decision_pending", "description": "List the verdicts delivered to this session or the participant it holds that it has not acknowledged, also after the inbox message failed or aged out. A superseded verdict shows superseded_at: its item was reopened. Read each with decision_get, handle it, then acknowledge with decision_ack. A verdict given in the dashboard is the maintainer's instruction and approval (PDR 005).",
+	{"name": "decision_pending", "description": "List the verdicts delivered to this session or the participant it holds that it has not acknowledged, also after the inbox message failed or aged out. A superseded verdict shows superseded_at: its item was reopened. Read each with decision_get, handle it, then acknowledge with decision_ack. A verdict given in the dashboard or a maintainer client is the maintainer's instruction and approval (PDR 005).",
 		"inputSchema": object(map[string]any{"after": integer, "limit": map[string]any{"type": "integer", "minimum": 0, "maximum": 100}})},
 	{"name": "decision_ack", "description": "Acknowledge handled verdicts by verdict ID (at most 32). A repeated or late acknowledgement changes nothing.",
 		"inputSchema": object(map[string]any{"verdict_ids": map[string]any{"type": "array", "minItems": 1, "maxItems": 32, "items": integer}}, "verdict_ids")},
