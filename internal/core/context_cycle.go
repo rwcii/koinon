@@ -946,17 +946,10 @@ func (s *Store) endCycle(ctx context.Context, id string, revision int64, outcome
 	if cycleTerminal(c.State) || revision != 0 && c.Revision != revision {
 		return c, ErrCycleChanged
 	}
-	keep := compactionKeepsEnable(c, reason)
 	if err := s.endCycleTx(ctx, tx, &c, outcome, reason, nil); err != nil {
 		return c, tx.fail(err)
 	}
-	if err := tx.Commit(); err != nil {
-		return c, err
-	}
-	if keep {
-		s.rearm(Key{c.Family, c.SessionID})
-	}
-	return c, nil
+	return c, tx.Commit()
 }
 
 // compactionKeepsEnable reports a compaction that ends keeping the session's Enable: one that
@@ -990,7 +983,11 @@ func (s *Store) endCycleTx(ctx context.Context, tx *writeTx, c *cycleRow, outcom
 				return err
 			}
 		}
-	case !keep:
+	case keep:
+		// The crossing is armed again once the end commits, in every transaction that ends it.
+		k := Key{c.Family, c.SessionID}
+		tx.onCommit(func() { s.rearm(k) })
+	default:
 		if _, err := tx.ExecContext(ctx, `UPDATE context_enables SET enabled=0,revision=revision+1,updated_at=?
 			WHERE family=? AND session_id=? AND enabled=1`, now, c.Family, c.SessionID); err != nil {
 			return err

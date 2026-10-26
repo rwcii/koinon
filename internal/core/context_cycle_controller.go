@@ -174,7 +174,7 @@ func compactSentAt(ctx context.Context, q querier, c cycleRow) (int64, error) {
 
 // rearm forgets the crossing that admitted a compaction that ended keeping its Enable (before
 // its input or under another epoch), so the session's next fresh reading at its threshold
-// admits another. endCycle calls it.
+// admits another. endCycleTx calls it once its transaction commits.
 func (s *Store) rearm(k Key) {
 	s.observed.mu.Lock()
 	defer s.observed.mu.Unlock()
