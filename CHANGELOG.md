@@ -5,6 +5,12 @@ into a dated release section when promoted to `main`.
 
 ## Unreleased
 
+- The Decisions board's **Find** searches (#505). An exact reference opens the item as before.
+  Part of a reference, or a reference in another case, lists the references that contain it,
+  from the items and the deep archive, 20 per page with their titles, kinds and states. Spaces
+  around the text are ignored. A **Clear** link ends the search and keeps the status filter,
+  and a refresh and a verdict keep the search.
+
 ## 2026-10-26 — Maintainer MCP mode, a maintainer secret and change notices
 
 This release adds a way for a program to act as the maintainer. A maintainer secret logs in to

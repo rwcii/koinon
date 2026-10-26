@@ -238,8 +238,10 @@ fyi, archived), then a table of the active agents: name, activity, claimed work,
 or "not reported", and the waiting items that name the agent. The cards follow:
 `ACTION FOR YOU` items first, then item order and reference. Each terminal-copy command is in
 its own box with a **Copy** button. The archive lists closed items, and **Find** opens any item
-by reference, as do the references in the agent table, with its verdict history and the text
-of each verdict. A waiting, in-progress or open fyi item opens as its card, at full width, with
+by its exact reference, as do the references in the agent table, with its verdict history and
+the text of each verdict. For part of a reference, or another case, **Find** lists the
+references that contain the text, also deep-archived ones, with a link to each; spaces around
+the text are ignored. **Clear** ends the search and keeps the status filter. A waiting, in-progress or open fyi item opens as its card, at full width, with
 the same buttons as on the board, and the cards below leave it out while it is open. A verdict
 there returns to it with the answer on the card; an archived item opens read only. Choose a count
 to show only the items of that status (`status=waiting`, `in_progress`, `fyi` or `archived` in
