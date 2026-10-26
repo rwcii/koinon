@@ -12,14 +12,49 @@
   // checks again when the answer arrives: a form opened while the request was in flight
   // keeps its content, and the answer is dropped. A read-only disclosure with a data-key
   // does not hold the refresh; the refresh opens it again in the new list. Sessions
-  // selected for a bulk action hold it too, so the selection stays (#429).
+  // selected for a bulk action hold it too, so the selection stays (#429). A field that
+  // holds input not yet sent holds it also without focus, so a note typed on a card stays
+  // after a click elsewhere, such as on the card's Copy button (#510).
+  function unsent() {
+    var fields = list.querySelectorAll("input, textarea, select");
+    for (var i = 0; i < fields.length; i++) {
+      var f = fields[i];
+      if (f.tagName === "SELECT") {
+        for (var j = 0; j < f.options.length; j++) {
+          if (f.options[j].selected !== f.options[j].defaultSelected) {
+            return true;
+          }
+        }
+      } else if (f.type === "checkbox" || f.type === "radio") {
+        if (f.checked !== f.defaultChecked) {
+          return true;
+        }
+      } else if (f.type !== "hidden" && f.value !== f.defaultValue) {
+        return true;
+      }
+    }
+    return false;
+  }
   function busy() {
     var active = document.activeElement;
     return list.querySelector("details[open]:not([data-key]), details[open] form, form[data-busy], input[form=bulk]:checked") !== null ||
-      (active !== null && list.contains(active) && /^(INPUT|TEXTAREA|SELECT)$/.test(active.tagName));
+      (active !== null && list.contains(active) && /^(INPUT|TEXTAREA|SELECT)$/.test(active.tagName)) || unsent();
+  }
+  // held marks a list that a refresh skipped for unsent input, so the page says it is not
+  // current; the mark goes when the input is sent or cleared.
+  function held(on) {
+    if (on) {
+      list.setAttribute("data-held", "true");
+    } else {
+      list.removeAttribute("data-held");
+    }
   }
   function refresh() {
-    if (document.visibilityState !== "visible" || busy()) {
+    if (document.visibilityState !== "visible") {
+      return;
+    }
+    held(unsent());
+    if (busy()) {
       return;
     }
     var url = new URL(window.location.href);
@@ -33,6 +68,7 @@
       })
       .then(function (html) {
         if (document.visibilityState !== "visible" || busy()) {
+          held(unsent());
           return;
         }
         var open = Array.prototype.map.call(list.querySelectorAll("details[open][data-key]"), function (d) {
