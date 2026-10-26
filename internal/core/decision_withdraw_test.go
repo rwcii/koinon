@@ -275,6 +275,9 @@ func TestDecisionWithdrawalOnTheBoard(t *testing.T) {
 	if body := get("/dashboard/decisions?status=archived"); !strings.Contains(body, `<td>Stale card</td><td>fyi</td><td>withdrawn</td>`) {
 		t.Errorf("archive row: %s", body)
 	}
+	if section := lookupSection(t, get("/dashboard/decisions?ref=b-")); !strings.Contains(section, `<td>Stale card</td><td>fyi</td><td>withdrawn</td>`) {
+		t.Errorf("search row: %s", section)
+	}
 	section := lookupSection(t, get("/dashboard/decisions?ref=B-1"))
 	for _, want := range []string{"withdrawn by an agent", "<h4>Withdrawals (1, newest first)</h4>", "Withdrawn by " + peer.Name + " (claude) on revision 1",
 		": answered in chat</li>", "Read only."} {

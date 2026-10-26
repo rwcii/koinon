@@ -1,9 +1,13 @@
 {{define "list"}}<div class="board">
-<form method="get" action="/dashboard/decisions" class="inline lookup"><label>Reference <input name="ref" maxlength="32" value="{{.Data.Lookup}}"></label>{{with .Data.Status}}<input type="hidden" name="status" value="{{.}}">{{end}} <button type="submit">Find</button></form>
+<form method="get" action="/dashboard/decisions" class="inline lookup" role="search"><label>Reference <input type="search" name="ref" maxlength="32" value="{{.Data.Lookup}}" placeholder="all or part of a reference"></label>{{with .Data.Status}}<input type="hidden" name="status" value="{{.}}">{{end}} <button type="submit">Find</button>{{if .Data.Lookup}} <a href="/dashboard/decisions{{with .Data.Status}}?status={{.}}{{end}}">Clear</a>{{end}}</form>
 {{$s := .Data.Status}}{{with .Data.Counts}}<ul class="tally" aria-label="Show the items of one status">
 <li><a href="/dashboard/decisions"{{if eq $s ""}} aria-current="true"{{end}}>all</a></li><li><a href="/dashboard/decisions?status=waiting"{{if eq $s "waiting"}} aria-current="true"{{end}}><b>{{.Waiting}}</b> waiting</a></li><li><a href="/dashboard/decisions?status=in_progress"{{if eq $s "in_progress"}} aria-current="true"{{end}}><b>{{.InProgress}}</b> in progress</a></li><li><a href="/dashboard/decisions?status=fyi"{{if eq $s "fyi"}} aria-current="true"{{end}}><b>{{.OpenFYI}}</b> open fyi</a></li><li><a href="/dashboard/decisions?status=archived"{{if eq $s "archived"}} aria-current="true"{{end}}><b>{{.Archived}}</b> archived</a></li>
 </ul>{{end}}
 {{if .Data.Lookup}}<section class="lookup-result">{{with .Data.LookupErr}}<p class="empty">{{.}}</p>{{end}}
+{{with .Data.Matches}}<h2>References that contain {{$.Data.Lookup}}</h2><div class="scroll"><table>
+<thead><tr><th>Reference</th><th>Title</th><th>Kind</th><th>State</th></tr></thead>
+<tbody>{{range .}}<tr><td><a href="/dashboard/decisions?ref={{.Reference}}{{with $.Data.Status}}&amp;status={{.}}{{end}}">{{.Reference}}</a></td><td>{{with .Title}}{{.}}{{else}}—{{end}}</td><td>{{with .Kind}}{{.}}{{else}}—{{end}}</td><td>{{.State}}</td></tr>{{end}}</tbody></table></div>
+{{with $.Data.NextMatches}}<p><a href="/dashboard/decisions?ref={{$.Data.Lookup}}&amp;found={{.}}{{with $.Data.Status}}&amp;status={{.}}{{end}}">More matches</a></p>{{end}}{{end}}
 {{with .Data.MovedAt}}<p>{{$.Data.Lookup}} moved to the deep archive at {{ms .}}. An agent restores it with <code>decision_restore</code> or <code>koinon decision restore</code>.</p>{{end}}
 {{with .Data.Item}}{{if $.Data.LookupCard}}{{template "card" (decisionCard $ . true)}}
 {{else}}<h2>{{.Reference}}: {{.Title}}</h2>

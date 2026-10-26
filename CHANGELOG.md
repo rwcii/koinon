@@ -5,6 +5,11 @@ into a dated release section when promoted to `main`.
 
 ## Unreleased
 
+- The Decisions board's **Find** searches (#505). An exact reference opens the item as before.
+  Part of a reference, or a reference in another case, lists the references that contain it,
+  from the items and the deep archive, 20 per page with their titles, kinds and states. Spaces
+  around the text are ignored. A **Clear** link ends the search and keeps the status filter,
+  and a refresh and a verdict keep the search.
 - Agents withdraw decision cards that no longer need the maintainer (#504). `decision_withdraw`
   (`koinon decision withdraw`, `POST /v1/decisions/withdraw`) archives a waiting decision item
   or an open fyi item at the revision the agent read, with a one-line reason: the work is done,

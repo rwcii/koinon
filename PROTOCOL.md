@@ -1879,8 +1879,12 @@ from elsewhere. Peer message bodies appear here, escaped, and nowhere else outsi
   `archived=ID` links; `ref=REFERENCE` shows one item at full width above the agent table,
   with its verdict history 16 verdicts at a time through `history=ID`: a waiting, in-progress
   or open fyi item as its card with the card's verdict form, which the cards below then skip,
-  and an archived item read only. A verdict's redirect keeps `ref`, so it returns to the
-  lookup with the notice on that item.
+  and an archived item read only. The daemon removes the spaces around `ref`. When no item has
+  `ref` as its exact reference, the view lists the references of the items and the deep
+  archive that contain it, ignoring ASCII case, 20 per page in reference order with
+  `found=REFERENCE` links, each with its title, kind and state (#505). A verdict's redirect
+  keeps `ref`, so it returns to the lookup or the search with the notice on that item. While
+  `ref` is set, a Clear link returns to the view without it.
   Each count links to `status=waiting`,
   `in_progress`, `fyi` or `archived`, which lists only the cards of that status, or only the
   archive for `archived`; an `all` link removes it. The counts stay totals under a filter, the
