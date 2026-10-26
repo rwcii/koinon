@@ -2,6 +2,7 @@ package core
 
 import (
 	"context"
+	"errors"
 	"testing"
 	"time"
 )
@@ -227,5 +228,60 @@ func TestContextCycleClaimsCommitWithAdmission(t *testing.T) {
 	f.s = reopened
 	if got := f.expires(t, f.participant); got != float64(v.CycleDeadline)/1000+cycleClaimGrace {
 		t.Fatalf("after reopen: %v", got)
+	}
+}
+
+// A real role-bound start records the native work actor; admission protects that claim and
+// a renew past the ordinary lease keeps the floor (#489; codex-koinon's review fixture).
+func TestContextCycleClaimsRealNativeRoleClaim(t *testing.T) {
+	f := newCycleFixture(t)
+	m := participantCaller(t, f.s, f.k)
+	id := createRoleWork(t, f.s, m, "claude", "")
+	gen := mustStart(t, f.s, m, id, map[string]any{"lease_seconds": 60})
+	var actor, consumer string
+	if err := f.s.db.QueryRow(`SELECT native_actor,consumer FROM claim_bundles WHERE work_id=?`, id).Scan(&actor, &consumer); err != nil {
+		t.Fatal(err)
+	}
+	if actor != nativeWorkActorForKey(f.k) || consumer != "native-work:"+actor {
+		t.Fatalf("native start binding: %q %q", actor, consumer)
+	}
+	f.observe(t, f.k, 900, "synthetic-epoch-1")
+	v := f.status(t, f.k)
+	floor := float64(v.CycleDeadline)/1000 + cycleClaimGrace
+	f.clock = f.clock.Add(90 * time.Second)
+	f.status(t, f.k)
+	out := mustWork(t, f.s, m, "claim-renew", map[string]any{"work_id": id, "claim_generation": gen,
+		"if_claim_revision": 1, "lease_seconds": 60, "key": key(), "deadline": now(f.s) + 600})
+	if got := out["claim"].(map[string]any)["expires_at"].(float64); got != floor {
+		t.Fatalf("real native renewal shortened floor: %v != %v", got, floor)
+	}
+}
+
+// An admission that cannot fund its credit stores no cycle and moves no claim; a funded
+// retry adds exactly the cycle credit to the debt (#489; codex-koinon's review fixture).
+func TestContextCycleClaimsAdmissionFunding(t *testing.T) {
+	f := newClaimFixture(t)
+	debt := f.debt(t)
+	before := f.expires(t, f.participant)
+	// Allow the ordinary transaction to begin, but not to fund its new cycle credit.
+	f.s.storage.maxPages = count(t, f.s, `PRAGMA page_count`) + reservePages + commitSlack + debt + appendAllowance
+	if tx, err := f.s.begin(context.Background(), ordinary); err != nil {
+		t.Fatal(err)
+	} else {
+		tx.Rollback()
+	}
+	f.clock = f.clock.Add(time.Millisecond)
+	err := f.s.Observe(context.Background(), Observation{Caller: f.k, Context: &ObservedValue{Source: "claude_statusline",
+		At: f.clock.UnixMilli(), LimitTokens: int64p(1000), UsedTokens: int64p(900), Epoch: "synthetic-epoch-1"}})
+	if err != nil && !errors.Is(err, ErrCapacity) {
+		t.Fatal(err)
+	}
+	if got := count(t, f.s, `SELECT COUNT(*) FROM context_cycles`); got != 0 || f.expires(t, f.participant) != before || f.debt(t) != debt {
+		t.Fatalf("unfunded admission changed cycle/claim/debt: %d %v %d", got, f.expires(t, f.participant), f.debt(t))
+	}
+	f.s.storage.maxPages = defaultMaxPages
+	f.observe(t, f.k, 950, "synthetic-epoch-1")
+	if f.status(t, f.k) == nil || f.debt(t) != debt+cycleCreditPages {
+		t.Fatalf("funded admission debt: %d != %d", f.debt(t), debt+cycleCreditPages)
 	}
 }
