@@ -205,6 +205,11 @@ func (s *Store) deleteMarked(ctx context.Context, k Key, cutoff, limit int64) (i
 	if err != nil {
 		return 0, false, err
 	}
+	if deleted > 0 {
+		if err := bumpInbox(ctx, tx, k); err != nil {
+			return 0, false, tx.fail(err)
+		}
+	}
 	done := deleted < limit
 	if done {
 		if _, err := tx.ExecContext(ctx, `UPDATE sessions SET ack_mark_at=0 WHERE family=? AND id=?`, k.Family, k.ID); err != nil {

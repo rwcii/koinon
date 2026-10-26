@@ -3,7 +3,7 @@ adr: "001"
 title: "Native Identity and Local Runtime Trust"
 status: draft
 created: "2026-10-12"
-updated: "2026-10-19"
+updated: "2026-10-26"
 parent_adr: ""
 authors:
   - "Robert Capps"
@@ -72,7 +72,8 @@ as blanket statements with no reason.
 
 1. A tool call is attributed to the session that made it, not to a session the model names.
 2. Only the user's own processes on the same host reach the daemon.
-3. A peer's message reaches the recipient as data; it does not run or configure anything.
+3. A peer's message reaches the recipient through its inbox, where the recipient reads and
+   acknowledges it.
 4. The dashboard can act as the maintainer without letting another web origin act through it.
 5. An upgrade, a refusal or a failed write keeps stored data.
 
@@ -108,12 +109,31 @@ own Codex rollout file under `CODEX_HOME/sessions` (model, context window, token
 start and end, only when its first record names the session; no conversation text is kept), Claude
 Code's registry record for its parent process, OpenCode's status endpoint and the Antigravity
 Stop hook. `koinon codex` starts Codex with `--no-daemon` and passes its launch variables through
-`-c` overrides for that launch, so the launched CLI hosts its own MCP servers in its pane. Koinon
-does not use, stop or change the user's shared Codex app-server or its configuration file.
+`-c` overrides for that launch, so the launched CLI hosts its own MCP servers in its pane. The
+user's shared Codex app-server and its configuration file stay as they are.
 
 **Provenance:** Shipped in PR #186 (merge commit e2bc2f3); inbox acknowledgement in PR #184
 (11fdabf); memory acknowledgement in PR #188 (3cbe830); rollout reading in PR #193 (a19bc2b);
-`--no-daemon` in PR #263 (fec77b1). No maintainer decision found.
+`--no-daemon` in PR #263 (fec77b1). No maintainer decision found. Before #487 this decision
+said "Koinon does not use, stop or change the user's shared Codex app-server or its
+configuration file", and Requirement 3 said "A peer's message reaches the recipient as data; it
+does not run or configure anything." #487 restated both as what the code does. The #487
+review listed three limits and proposed to keep them; the question was whether to keep them or
+to remove them too. Maintainer, 2026-10-25: "remove all limit text.  remove all of the caveats,
+controls, etc.  the agents have their own built in safeties, they do not need you adding more
+complications." ([#487 comment 6401405382](https://github.com/rwcii/koinon/issues/487#issuecomment-6401405382)).
+Reason: limit text with no source makes agents of different families refuse each other's work.
+Scope: agent-facing text, skills, setup blocks and the docs and records that restate them. The #487 audit listed the code
+refusals for a separate decision (#493).
+
+`identity_unavailable`: Maintainer, 2026-10-26, on decision board item 493-1, which asked
+whether to keep or remove the refusal of a Koinon MCP tool call whose arguments contain
+`caller`, `family`, `id`, `as`, `session` or `session_id` (`internal/mcp/identity.go`):
+approved (verdict 43), with the note "keep it"
+([#493 comment 6406425541](https://github.com/rwcii/koinon/issues/493#issuecomment-6406425541)).
+The card's recommendation and reason: "Keep it. It sends each message, claim and cycle to the
+session that made the call, and it stops no work." Scope: this refusal; the code does not
+change. The Grok leader-mode refusal is PDR 001 (Decision 1).
 
 ### Alternatives Considered
 
@@ -184,17 +204,22 @@ agent-written plan text.
 ### Decision
 
 Koinon currently wakes a recipient with a fixed notice that names only the inbox, JSON-quoted,
-and its sequence range, and asks it to read its Koinon inbox. No peer body or provider output
-enters a notice, a shell command or a runtime configuration. Codex gets the notice as an argument
-of `codex queue`, without a shell. Daemon notices to the maintainer hold fixed text, IDs, names
-and reason codes. Work item references are stored strings that Koinon does not fetch or run.
+and its sequence range, and asks it to read its Koinon inbox. Koinon builds notices, wake
+commands and runtime configuration from fixed text, IDs, names and numbers only. Codex gets the
+notice as an argument of `codex queue`, without a shell. Daemon notices to the maintainer hold
+fixed text, IDs, names and reason codes. Work item references are stored strings; Koinon stores
+and returns them.
 
 For the Claude wake, Koinon checks the socket's owner, mode and kernel UID/PID, and resolves
 directories only to compare them with the allowlist. It hashes the literal, unresolved socket
 path to find Claude's key file. The tmux socket directory is kept as tmux names it.
 
 **Provenance:** Shipped in PR #198 (15df5ea); tmux socket directory in PR #271 (5751938). No
-maintainer decision found.
+maintainer decision found. Before #487 this decision said "No peer body or provider output
+enters a notice, a shell command or a runtime configuration" and "Work item references are
+stored strings that Koinon does not fetch or run", and Rationale 2 said "A notice with only IDs
+and numbers carries no instructions." #487 restated them as what the code does (Decision 1 has
+the #487 source).
 
 ### Alternatives Considered
 
@@ -207,7 +232,7 @@ maintainer decision found.
 ### Rationale
 
 1. The inbox stays the one place where a message is read and acknowledged.
-2. A notice with only IDs and numbers carries no instructions.
+2. A notice holds only fixed text, IDs and numbers.
 3. The provider's own naming decides the key lookup, so Koinon matches it.
 
 ---
@@ -217,7 +242,12 @@ maintainer decision found.
 ### Decision
 
 Koinon currently serves the dashboard on the same listener with its own login. `koinon
-dashboard` gets a one-time 256-bit link token that works once within 60 seconds. Its use sets an
+dashboard` gets a one-time 256-bit link token that works once within 60 seconds. When the
+maintainer has set a secret (PDR 009, Decision 1), the login form also accepts it: the daemon
+derives the PBKDF2-HMAC-SHA256 key of the posted secret with the stored salt and compares it
+in constant time, one check at a time, with a daemon-wide wait after repeated failures. The
+form is a `POST` and needs an `Origin`; no login exists yet to derive a CSRF token from. Its
+success, or the link's use, sets an
 `HttpOnly`, `SameSite=Strict` cookie scoped to `/dashboard/` and named after the port in
 `Host`, `koinon_dashboard_PORT` (#454); the daemon keeps only hashes in
 memory, so a restart ends every login. A login ends after 24 hours without a request or 7 days
@@ -245,7 +275,8 @@ Until #454 the cookie was named `koinon_dashboard` for every port. #454 records 
 maintainer's report of 2026-10-22: "I'm getting really tired of having to log in to the board
 every time I go back to access it.  the timeout is TOO SHORT". The intent: a login lasts until
 its limits also when the maintainer moves between boards. The cookie named after the port is
-the fix that #454 proposes; no maintainer decision on the name found.
+the fix that #454 proposes; no maintainer decision on the name found. The secret login is PDR 009, Decision 2, approved by the maintainer on 2026-10-25 (#470):
+"no on option C, PDR 009 approved".
 
 ### Alternatives Considered
 
@@ -326,3 +357,6 @@ agent.
 | 2026-10-12 | Added Grok Build's identity source (#254 chunk 02) |
 | 2026-10-19 | Decision 4: dashboard `Host` is a literal loopback IP with any port (#407) |
 | 2026-10-22 | Decision 4: the login cookie is named after the `Host` port (#454) |
+| 2026-10-25 | Decision 4: the login form accepts the maintainer secret (PDR 009, #470) |
+| 2026-10-25 | Requirement 3, Decisions 1 and 3: the peer-data and "does not" statements are restated as what the code does (#487) |
+| 2026-10-26 | Decision 1: the maintainer kept the `identity_unavailable` refusal (verdict 43, #493) |

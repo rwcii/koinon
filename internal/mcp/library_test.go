@@ -81,7 +81,7 @@ func TestLibraryOfferEveryInitializeWithoutRegistration(t *testing.T) {
 	for i := 0; i < 3; i++ {
 		r := h.request("initialize", map[string]any{"clientInfo": map[string]any{"name": "synthetic-client"}})
 		instructions := r["result"].(map[string]any)["instructions"].(string)
-		for _, text := range []string{"library_list", "library_read", "Machine-wide", "project-local", "reference data", "reviewed diff"} {
+		for _, text := range []string{"library_list", "library_read", "machine-wide skills are the default", "library_state", "library_decision", "memory_record"} {
 			if !strings.Contains(instructions, text) {
 				t.Fatalf("missing offer %q", text)
 			}

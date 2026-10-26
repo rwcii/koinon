@@ -176,17 +176,17 @@ func TestMachineDecisionsDoNotConsumeFundedWorkControls(t *testing.T) {
 func TestLibrarySchemaTwentyOnePreservesPublishedSchemaTwentyState(t *testing.T) {
 	s, root := testStore(t)
 	ctx := context.Background()
-	room := mustRoom(t, s, "synthetic preserved room", 7)
+	room := mustRoom(t, s, "synthetic preserved room")
 	member := join(t, s, "codex", "synthetic-published-room-member", "")
 	mustAdd(t, s, room, member.Name)
 	mustHumanPost(t, s, room, "synthetic retained published-schema20 post")
-	if err := s.SetRoomRefill(roomCtx("room-refill"), room, 64); err != nil {
+	if _, err := fixtureExec(s, `UPDATE rooms SET refill=64,create_refill=7 WHERE room_id=?`, room); err != nil {
 		t.Fatal(err)
 	}
 	m := MemoryCaller{Family: "codex", Repository: "/synthetic/migration/.git", Consumer: "synthetic-migration", Name: "synthetic-migration"}
 	note(t, s, m, MemoryRecordRequest{Type: "finding", Body: "synthetic retained schema19 note"})
 	before := rowsOf(t, s.db)
-	if _, err := s.db.Exec(undoSchemaTwentyEight + undoSchemaTwentySeven + undoSchemaTwentySix + undoSchemaTwentyFive + undoSchemaTwentyFour + undoSchemaTwentyThree + undoSchemaTwentyTwo + undoSchemaTwentyOne + `PRAGMA user_version=20`); err != nil {
+	if _, err := s.db.Exec(undoSchemaThirtyTwo + undoSchemaThirtyOne + undoSchemaThirty + undoSchemaTwentyNine + undoSchemaTwentyEight + undoSchemaTwentySeven + undoSchemaTwentySix + undoSchemaTwentyFive + undoSchemaTwentyFour + undoSchemaTwentyThree + undoSchemaTwentyTwo + undoSchemaTwentyOne + `PRAGMA user_version=20`); err != nil {
 		t.Fatal(err)
 	}
 	if err := checkCatalog(s.db, 20); err != nil {

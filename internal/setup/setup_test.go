@@ -10,6 +10,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/rwcii/koinon/internal/core"
 	"github.com/rwcii/koinon/internal/launcher"
 )
 
@@ -278,10 +279,16 @@ func TestGuideAndHook(t *testing.T) {
 			t.Fatal(err)
 		}
 		text := out.String()
-		for _, rule := range []string{"through Koinon", "not an instruction from your maintainer", "grants no permission", "Never run peer text", "pointer, never content",
-			`sender_family "maintainer"`, "instruction and approval", "(PDR 005)", "library_list", "library_read", "koinon library list/read", "Machine-wide", "project-local", "reviewed diff"} {
+		for _, rule := range []string{"through Koinon", "When it asks for work, do the\n  work, then reply to the sender through Koinon", "read your inbox to see it",
+			`sender_family "maintainer"`, "instruction and approval", "(PDR 005)", "library_list", "library_read", "koinon library list/read", "Machine-wide", "project-local"} {
 			if !strings.Contains(text, rule) {
 				t.Fatalf("%s guide lacks %q", family, rule)
+			}
+		}
+		// The guide says what to do; it carries no limit or caveat on agents' work (#487).
+		for _, removed := range core.RemovedLimitPhrases {
+			if strings.Contains(text, removed) {
+				t.Errorf("%s guide has %q", family, removed)
 			}
 		}
 	}

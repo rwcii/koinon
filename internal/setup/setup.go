@@ -62,7 +62,7 @@ func quote(value string) string { return "'" + strings.ReplaceAll(value, "'", `'
 func Run(ctx context.Context, o Options) (Report, error) {
 	report := Report{OK: true, Family: o.Family, Changed: []string{}, Unchanged: []string{}}
 	if o.Family == "deepseek" {
-		// Spike fact 2: DeepSeek MCP support is unverified, so it keeps the command path.
+		// Spike fact 2: DeepSeek's MCP support is not verified yet, so it keeps the command path.
 		report.Note = "DeepSeek uses the documented command path: koinon send --as deepseek:$DSH_SESSION_ID NAME BODY, koinon inbox and koinon ack with the same --as. Nothing was changed."
 		return report, nil
 	}
@@ -215,7 +215,7 @@ const grokVersion = "1.0.50"
 // grokNote reports the Grok Build version that setup saw and the permission rule that
 // setup recommends but does not write (#254 chunk 02, items 9 and 10).
 func grokNote(ctx context.Context, cli string) string {
-	note := "Koinon supports Grok's default mode; keep [cli] use_leader off for Koinon sessions. To allow only the Koinon tools, start with koinon grok --allow 'MCPTool(koinon__*)'; setup wrote no permission rule."
+	note := "Use Grok's default mode ([cli] use_leader off) for Koinon sessions. To allow the Koinon tools, start with koinon grok --allow 'MCPTool(koinon__*)'; setup wrote no permission rule."
 	out, err := runCLI(ctx, cli, "--version")
 	fields := strings.Fields(out)
 	switch {

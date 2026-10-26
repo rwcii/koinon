@@ -260,7 +260,7 @@ func TestCleanupClaimsAndRooms(t *testing.T) {
 
 	x := join(t, s, "agy", "synthetic-x", "")
 	y := join(t, s, "opencode", "synthetic-y", "")
-	room, err := s.CreateRoom(roomCtx("room-create"), "synthetic-room", "synthetic room", 4)
+	room, err := s.CreateRoom(roomCtx("room-create"), "synthetic-room", "synthetic room")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -335,7 +335,7 @@ func TestDashboardBulkAndRoomDelete(t *testing.T) {
 		if got := client.do("bulk", form); got != "no_selection" {
 			t.Fatalf("%v without a selection: %s", form, got)
 		}
-		if r := auditAll(t, s)[0]; r.Action != "bulk" || r.Target != "invalid" || r.Result != "refused" || r.Reason != "no_selection" {
+		if r := auditAll(t, s)[0]; r.Action != "bulk" || r.Target != "invalid by dashboard" || r.Result != "refused" || r.Reason != "no_selection" {
 			t.Fatalf("empty selection audit: %+v", r)
 		}
 	}
@@ -373,7 +373,7 @@ func TestDashboardBulkAndRoomDelete(t *testing.T) {
 	if got := sessionState(t, s, Key{a.Family, a.ID}); got.PurgeAt != 0 {
 		t.Fatalf("stale a purged: %+v", got)
 	}
-	room, err := s.CreateRoom(roomCtx("room-create"), "synthetic-room", "synthetic room", 4)
+	room, err := s.CreateRoom(roomCtx("room-create"), "synthetic-room", "synthetic room")
 	if err != nil {
 		t.Fatal(err)
 	}

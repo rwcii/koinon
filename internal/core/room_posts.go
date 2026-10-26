@@ -15,8 +15,9 @@ import (
 
 // Room posts (#217, chunk 02). A post is one canonical row with its room sequence, sender
 // and typed origin; one ordinary transaction also stores an inbox copy for each active
-// member in the roster snapshot, a delivery row for every member (queued or skipped), the
-// allowance change and the poster's retry record. Wakes follow through the existing queue.
+// member in the roster snapshot, a delivery row for every member (queued or skipped) and
+// the poster's retry record. Wakes follow through the existing queue. Members post without
+// an allowance (#493, item 4).
 
 const (
 	maxRoomPosts     = 10000 // retained posts, daemon-wide
@@ -28,7 +29,6 @@ const (
 )
 
 var (
-	ErrExchangeLimit  = Refusal{"exchange_limit", "the room's agent-post allowance is used up until the maintainer posts again"}
 	ErrRoomPostLimit  = Refusal{"room_post_limit", fmt.Sprintf("the daemon already retains %d room posts", maxRoomPosts)}
 	ErrRoomRetryLimit = Refusal{"room_replay_limit", fmt.Sprintf("the daemon already retains %d room post retry records", maxRoomReplays)}
 	ErrRoomPostRepeat = Refusal{"idempotency_conflict", "this room post key is bound to a different request"}
@@ -42,7 +42,6 @@ type RoomPostResult struct {
 	Seq       int64  `json:"seq"`
 	Queued    int    `json:"queued"`
 	Skipped   int    `json:"skipped"`
-	Allowance int64  `json:"allowance"`
 	Duplicate bool   `json:"duplicate,omitempty"`
 }
 
@@ -123,14 +122,13 @@ func roomPostFingerprint(roomID, body string, deadline float64) string {
 	return hex.EncodeToString(sum[:])
 }
 
-// RoomPost posts body to a room as the caller, a current active member. Each new post uses
-// one unit of the room's allowance.
+// RoomPost posts body to a room as the caller, a current active member.
 func (s *Store) RoomPost(ctx context.Context, caller Key, roomID, body, key string, deadline float64) (RoomPostResult, error) {
 	return s.roomPost(ctx, caller, false, roomID, body, key, deadline)
 }
 
 // DashboardRoomPost posts body as the maintainer from the dashboard: it reaches every active
-// member and sets the allowance to the room's refill setting.
+// member.
 func (s *Store) DashboardRoomPost(ctx context.Context, roomID, body, key string, deadline float64) (RoomPostResult, error) {
 	return s.roomPost(ctx, maintainerKey, true, roomID, body, key, deadline)
 }
@@ -178,8 +176,8 @@ func (s *Store) roomPost(ctx context.Context, caller Key, maintainer bool, roomI
 		return orZero(original), err
 	}
 	var name string
-	var refill, allowance, head int64
-	err = tx.QueryRowContext(ctx, `SELECT name,refill,allowance,post_head FROM rooms WHERE room_id=?`, roomID).Scan(&name, &refill, &allowance, &head)
+	var head int64
+	err = tx.QueryRowContext(ctx, `SELECT name,post_head FROM rooms WHERE room_id=?`, roomID).Scan(&name, &head)
 	if errors.Is(err, sql.ErrNoRows) {
 		return RoomPostResult{}, ErrRoomNotFound
 	}
@@ -187,15 +185,7 @@ func (s *Store) roomPost(ctx context.Context, caller Key, maintainer bool, roomI
 		return RoomPostResult{}, err
 	}
 	origin, sender := roomOriginHuman, "maintainer"
-	if maintainer {
-		// PDR 005, Decision 2: a maintainer post sets the allowance to the refill setting
-		// in force now; it never adds to what is left.
-		allowance = refill
-	} else {
-		if allowance == 0 {
-			return RoomPostResult{}, ErrExchangeLimit
-		}
-		allowance--
+	if !maintainer {
 		origin = roomOriginMember
 		if sender, err = senderName(ctx, tx.Tx, now, caller); err != nil {
 			return RoomPostResult{}, err
@@ -212,7 +202,10 @@ func (s *Store) roomPost(ctx context.Context, caller Key, maintainer bool, roomI
 		return RoomPostResult{}, ErrRoomRetryLimit
 	}
 	seq := head + 1
-	if _, err := tx.ExecContext(ctx, `UPDATE rooms SET post_head=?,allowance=? WHERE room_id=?`, seq, allowance, roomID); err != nil {
+	if _, err := tx.ExecContext(ctx, `UPDATE rooms SET post_head=? WHERE room_id=?`, seq, roomID); err != nil {
+		return RoomPostResult{}, tx.fail(err)
+	}
+	if err := bumpChange(ctx, tx, roomID); err != nil {
 		return RoomPostResult{}, tx.fail(err)
 	}
 	inserted, err := tx.ExecContext(ctx, `INSERT INTO room_posts(room_id,seq,sender_family,sender_id,sender_name,origin,body,created_at)
@@ -224,7 +217,7 @@ func (s *Store) roomPost(ctx context.Context, caller Key, maintainer bool, roomI
 	if err != nil {
 		return RoomPostResult{}, err
 	}
-	receipt := RoomPostResult{RoomID: roomID, Seq: seq, Allowance: allowance}
+	receipt := RoomPostResult{RoomID: roomID, Seq: seq}
 	if err := s.fanOut(ctx, tx, roomID, postID, seq, caller, sender, origin, body, senders, &receipt); err != nil {
 		return RoomPostResult{}, err
 	}
@@ -495,7 +488,7 @@ func (s *Store) cullRoomPosts(ctx context.Context, budget *int64) error {
 			return err
 		}
 		cutoff := s.now().Add(-messages).UnixMilli()
-		rows, err := tx.QueryContext(ctx, `SELECT p.post_id FROM room_posts p WHERE NOT EXISTS (SELECT 1 FROM room_deliveries d
+		rows, err := tx.QueryContext(ctx, `SELECT p.post_id,p.room_id FROM room_posts p WHERE NOT EXISTS (SELECT 1 FROM room_deliveries d
 			JOIN messages m ON m.id=d.message_id WHERE d.post_id=p.post_id) AND (p.created_at<? OR EXISTS (SELECT 1 FROM
 			room_deliveries d WHERE d.post_id=p.post_id AND d.message_id IS NOT NULL)) ORDER BY p.post_id LIMIT ?`, cutoff, batch)
 		if err != nil {
@@ -503,14 +496,16 @@ func (s *Store) cullRoomPosts(ctx context.Context, budget *int64) error {
 			return err
 		}
 		var ids []int64
+		rooms := map[string]bool{}
 		for rows.Next() {
 			var id int64
-			if err := rows.Scan(&id); err != nil {
+			var room string
+			if err := rows.Scan(&id, &room); err != nil {
 				rows.Close()
 				tx.Rollback()
 				return err
 			}
-			ids = append(ids, id)
+			ids, rooms[room] = append(ids, id), true
 		}
 		if err := rows.Close(); err != nil {
 			tx.Rollback()
@@ -522,6 +517,13 @@ func (s *Store) cullRoomPosts(ctx context.Context, budget *int64) error {
 				return err
 			}
 			if _, err := tx.ExecContext(ctx, `DELETE FROM room_posts WHERE post_id=?`, id); err != nil {
+				tx.Rollback()
+				return err
+			}
+		}
+		// A room read shows the retained posts and the floor.
+		for room := range rooms {
+			if err := bumpChange(ctx, tx, room); err != nil {
 				tx.Rollback()
 				return err
 			}

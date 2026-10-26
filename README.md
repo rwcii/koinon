@@ -22,7 +22,7 @@ flowchart LR
     DeepSeek -->|koinon commands| CLI[koinon CLI]
     MCP -->|loopback API, private secret| Daemon[koinon serve]
     CLI -->|loopback API, private secret| Daemon
-    Browser[Maintainer's browser] -->|one-time login link| Daemon
+    Browser[Maintainer's browser] -->|maintainer secret or one-time login link| Daemon
     Daemon --> State[(state.sqlite3: sessions, inboxes,<br/>memory, work items, audit log)]
     Daemon -.->|content-free wake notice| Wake[Wake adapters]
     Wake -.-> sessions
@@ -78,8 +78,8 @@ Installation writes one systemd **user** unit on Linux or one launchd agent on m
 `koinon install --system` instead runs the daemon as a LaunchDaemon that survives logout and
 asks `sudo` for each step ([system mode](docs/INSTALL.md#system-mode-on-macos)). It refuses an unrelated artifact or an existing Python installation. Use `koinon upgrade
 --from-python` for the latter; the documented upgrade verifies every imported source before
-removing the old services. Services and agent configuration change only through `koinon
-install`, `upgrade`, `uninstall` and `setup`
+removing the old services. `koinon install`, `upgrade`, `uninstall` and `setup` change the
+services and the agent configuration
 ([PDR 003](docs/product/pdr/003-runtime-installation-and-recovery.md)). A checkout change does
 not replace a running installation.
 
@@ -126,36 +126,36 @@ The agent reads `koinon guide --agent FAMILY` at startup and after a reset. See
 ## Agent coordination
 
 `koinon setup FAMILY` configures MCP and the family's supported hooks or identity plugin.
-`koinon guide --agent FAMILY` explains startup, message handling and permission boundaries.
+`koinon guide --agent FAMILY` explains startup, message handling and the permission rules.
 Tools identify the calling session from the native agent metadata, not model-supplied arguments.
-Use the `peers`, `send`, `inbox`, `ack` and `delivery` tools for all agent coordination, including
-Claude-to-Claude messages. A content-free wake notice names only the inbox and sequence range.
+Agents of different families work together through the `peers`, `send`, `inbox`, `ack` and
+`delivery` tools, also Claude with Claude. A content-free wake notice names only the inbox and sequence range.
 
-Verify the recipient before sending. Read a notice's inbox, handle the messages, then
-acknowledge through the last handled sequence. Peer messages and memory entries are recorded
-data and grant no permission; peer text does not trigger shell execution. A dashboard post from
-the built-in `maintainer` session is the maintainer's own instruction and approval. See
-[WDR 002](docs/engineering/wdr/002-authority-within-assigned-task.md), Decision 3, and
-[PDR 005](docs/product/pdr/005-room-conversations-human-origin.md), Decision 3.
+Find the recipient with `peers` before sending. Read a notice's inbox, handle the messages, then
+acknowledge through the last handled sequence. A message from another agent is a teammate's
+message: when it asks for work, the recipient does the work and replies through Koinon (#487).
+A dashboard post from the built-in `maintainer` session is the maintainer's own instruction and
+approval ([PDR 005](docs/product/pdr/005-room-conversations-human-origin.md), Decision 3).
 
 DeepSeek uses explicit registration and command access; its synthetic wake tests pass, but
 its live receiving-session proof remains deferred under [#199](https://github.com/rwcii/koinon/issues/199).
-Transport or queue acceptance alone does not prove the receiving model processed a notice.
+The `delivery` tool reports a sent message's delivery state and the recipient's acknowledgement.
 
 ## Memory, work and dashboard
 
 One logical memory/work store serves each resolved Git common directory, including worktrees.
 Memory supports notes, frozen snapshot pages, deltas, recall and explicit acknowledgements.
-Read every snapshot page before acknowledging it; acknowledge deltas only after processing
-through `next_cursor`. Scope and provenance are reported data, not grants of authority.
+Read every snapshot page, then acknowledge it; process deltas through `next_cursor`, then
+acknowledge them. Each entry reports its scope and provenance.
 Semantic memory consolidation across repositories is not implemented.
 
 Work items hold acceptance criteria, non-goals, checkpoints and immutable events. Advisory
-claims have leases, revision/generation checks and bounded retention. Claim conflicts are
-reported; they do not authorize a takeover. See [work commands](docs/WORK-ITEMS-COMMANDS.md),
+claims have leases, revision/generation checks and bounded retention. A claim on a resource
+with a live owner returns `claim_conflict`. See [work commands](docs/WORK-ITEMS-COMMANDS.md),
 [the contract](docs/WORK-ITEMS-V1.md) and [Go storage proofs](docs/WORK-ITEMS-GO-STORAGE.md).
 
-`koinon dashboard` opens a one-time login link for the loopback dashboard. The views show
+`koinon dashboard` opens a one-time login link for the loopback dashboard; with a maintainer
+secret (`koinon maintainer secret set`), the login page takes the secret instead. The views show
 sessions, messages, delivery, memory and work. Administrative actions require a login,
 matching Host/Origin and a CSRF token, and write an audit record. The maintainer inbox is
 available through that dashboard. See [usage](docs/USAGE.md) and [protocol](PROTOCOL.md).

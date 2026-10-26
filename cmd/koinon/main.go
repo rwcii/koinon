@@ -73,6 +73,8 @@ func run(ctx context.Context, args []string, in io.Reader, out io.Writer) error 
 		}
 	case "dashboard":
 		return dashboardCommand(ctx, args[1:], out)
+	case "maintainer":
+		return maintainerCommand(ctx, args[1:], in, out)
 	case "version":
 		return versionCommand(out)
 	case "install", "uninstall", "import", "upgrade":
@@ -88,6 +90,7 @@ func run(ctx context.Context, args []string, in io.Reader, out io.Writer) error 
 	var listen, listen6, address, as *string
 	var after, limit, participant *int64
 	var lockWait *time.Duration
+	var maintainer maintainerFlags
 	positional := 0
 	switch args[0] {
 	case "mcp":
@@ -97,6 +100,7 @@ func run(ctx context.Context, args []string, in io.Reader, out io.Writer) error 
 			flags.Set("state-dir", v)
 		}
 		address = addressFlag(flags)
+		maintainer.add(flags)
 	case "serve":
 		// Without listen options, the daemon listens at the state directory's recorded port.
 		listen = flags.String("listen", "", "IPv4 loopback listener")
@@ -143,6 +147,9 @@ func run(ctx context.Context, args []string, in io.Reader, out io.Writer) error 
 	}
 	if err := resolveAddress(flags); err != nil {
 		return err
+	}
+	if args[0] == "mcp" && maintainer.used(flags) {
+		return maintainerMCP(ctx, *state, *address, maintainer, flags, in, out)
 	}
 	if args[0] == "mcp" {
 		directory, err := os.Getwd()
@@ -282,6 +289,13 @@ func ensurePickupSkills(logEvent func(string, map[string]any)) {
 			logEvent("pickup_skill", map[string]any{"family": root.Family, "path": path, "result": "failed", "code": "write_failed"})
 		}
 	}
+	// The retired Python runtime's instructions leave the Codex AGENTS.md (#487).
+	instructions := core.CodexInstructions(os.Getenv("CODEX_HOME"), home)
+	if result, err := core.RemoveRetiredCodexBlocks(instructions); err != nil {
+		logEvent("retired_instructions", map[string]any{"path": instructions, "result": "failed", "code": "write_failed"})
+	} else if result == "removed" {
+		logEvent("retired_instructions", map[string]any{"path": instructions, "result": "removed"})
+	}
 	// The other skill entries go to the same places (#453, #461).
 	skills, err := core.TeamSkills()
 	if err != nil {
@@ -352,7 +366,9 @@ const usage = `Usage: koinon install [--prefix DIR] [--state-dir DIR] [--port N]
        koinon register --as deepseek:ID [--directory DIR] [--repository DIR] [--dsh-url URL] [--dsh-credentials FILE] [--state-dir DIR] [--address HOST:PORT]
        koinon status [--state-dir DIR] [--address 127.0.0.1:PORT]
        koinon dashboard [--state-dir DIR] [--address 127.0.0.1:PORT] [--no-open]
+       koinon maintainer secret set|generate|clear [--state-dir DIR] [--address 127.0.0.1:PORT]
        koinon mcp [--state-dir DIR] [--address 127.0.0.1:PORT]
+       koinon mcp --maintainer --client NAME --secret-stdin|--secret-file PATH [--state-dir DIR] [--address 127.0.0.1:PORT]
        koinon setup <claude|codex|agy|opencode|grok|deepseek> [--cli ABS_PATH] [--binary ABS_PATH]
        koinon setup claude --remove-status-line [--claude-config DIR] [--state-dir DIR]
        koinon guide --agent <claude|codex|agy|opencode|grok|deepseek>

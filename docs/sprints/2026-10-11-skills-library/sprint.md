@@ -1,5 +1,7 @@
 # Skills library and adoption — chunks
 
+> Historical sprint plan. Its non-goals and constraints limited this sprint only. Current decisions are in the [decision records](../../engineering/wdr/README.md); see WDR 001.
+
 Each chunk merges complete through ship. Reuse #145's work item across chunks, releasing its
 claim at a driver handoff. Close #145 only after all three chunks and required evidence pass.
 

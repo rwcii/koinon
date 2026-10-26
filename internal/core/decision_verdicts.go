@@ -11,8 +11,9 @@ import (
 	"strings"
 )
 
-// Decision verdicts, delivery, close and history (#206, chunk 02). Only an authenticated
-// dashboard action gives a verdict; agents read the stored records.
+// Decision verdicts, delivery, close and history (#206, chunk 02). The maintainer gives a
+// verdict, from an authenticated dashboard action or a maintainer client (PDR 009,
+// Decision 3); agents read the stored records.
 
 const (
 	decisionNoteLimit     = 4 << 10
@@ -83,6 +84,9 @@ type DecisionVerdict struct {
 	SupersededAt int64              `json:"superseded_at,omitempty"`
 	Snapshot     DecisionSnapshot   `json:"snapshot"`
 	Deliveries   []DecisionDelivery `json:"deliveries,omitempty"`
+	// Via is the maintainer client that gave the verdict, dashboard or mcp:NAME (PDR 009,
+	// Decision 4). The maintainer's reads fill it; an agent's read leaves it empty.
+	Via string `json:"via,omitempty"`
 }
 
 // DecisionHistoryPage is one page of an item's verdicts in verdict ID order.
@@ -157,8 +161,9 @@ func verdictDeliveries(ctx context.Context, q querier, id int64) ([]DecisionDeli
 	return out, rows.Err()
 }
 
-// DecisionVerdict records the maintainer's verdict from the dashboard on the revision the
-// page showed. One ordinary write stores the verdict, its snapshot, the item's new state, one
+// DecisionVerdict records the maintainer's verdict, from the dashboard or a maintainer
+// client, on the revision that the maintainer saw. One ordinary write stores the verdict with
+// the client of the request's context as via, its snapshot, the item's new state, one
 // delivery and one typed inbox message per resolved recipient, and the audit record.
 func (s *Store) DecisionVerdict(ctx context.Context, reference string, revision int64, verdict, note string) (DecisionVerdict, error) {
 	if checkReference(reference) != nil || revision < 1 {
@@ -202,8 +207,8 @@ func (s *Store) DecisionVerdict(ctx context.Context, reference string, revision 
 		}
 	}
 	snapshot, _ := json.Marshal(DecisionSnapshot{Title: item.Title, Context: item.Context, Recommendation: item.Recommendation, Commands: item.Commands})
-	inserted, err := tx.ExecContext(ctx, `INSERT INTO decision_verdicts(item_id,revision,verdict,note,created_at,snapshot) VALUES (?,?,?,?,?,?)`,
-		id, revision, verdict, note, now, string(snapshot))
+	inserted, err := tx.ExecContext(ctx, `INSERT INTO decision_verdicts(item_id,revision,verdict,note,created_at,snapshot,via) VALUES (?,?,?,?,?,?,?)`,
+		id, revision, verdict, note, now, string(snapshot), originOf(ctx))
 	if err != nil {
 		return DecisionVerdict{}, tx.fail(err)
 	}
@@ -218,6 +223,9 @@ func (s *Store) DecisionVerdict(ctx context.Context, reference string, revision 
 	if _, err := tx.ExecContext(ctx, `UPDATE decision_items SET state=?,archived_at=?,updated_at=?,mark_revision=0,mark_file='',mark_offset=0,
 		verdict_count=verdict_count+1 WHERE id=?`,
 		state, archived, now, id); err != nil {
+		return DecisionVerdict{}, tx.fail(err)
+	}
+	if err := bumpChange(ctx, tx, changeDecisions); err != nil {
 		return DecisionVerdict{}, tx.fail(err)
 	}
 	result := DecisionVerdict{ID: verdictID, Revision: revision, Verdict: verdict, Note: note, At: now,
@@ -513,6 +521,9 @@ func (s *Store) DecisionClose(ctx context.Context, caller Key, reference string,
 		now, now, closer, now, note, id); err != nil {
 		return DecisionItem{}, tx.fail(err)
 	}
+	if err := bumpChange(ctx, tx, changeDecisions); err != nil {
+		return DecisionItem{}, tx.fail(err)
+	}
 	// The receipt is the closed item itself, so a retry returns this result even after a
 	// later edit or verdict changed the item.
 	closed, err := decisionItem(ctx, tx.Tx, reference)
@@ -577,17 +588,24 @@ func (s *Store) DecisionHistory(ctx context.Context, caller Key, reference strin
 	if err := active(ctx, tx, s.now().UnixMilli(), caller); err != nil {
 		return DecisionHistoryPage{}, err
 	}
-	return decisionHistory(ctx, tx, reference, after, limit)
+	// Agents see the maintainer's verdicts without the client that gave them (PDR 009,
+	// Decision 4).
+	return decisionHistory(ctx, tx, reference, after, limit, false)
 }
 
 // decisionHistory reads one page of an item's verdicts with their snapshots, bounded by
-// limit verdicts and by decisionHistoryBytes of serialized reply.
-func decisionHistory(ctx context.Context, tx querier, reference string, after int64, limit int) (DecisionHistoryPage, error) {
+// limit verdicts and by decisionHistoryBytes of serialized reply. withVia adds each
+// verdict's maintainer client, for the maintainer's own reads.
+func decisionHistory(ctx context.Context, tx querier, reference string, after int64, limit int, withVia bool) (DecisionHistoryPage, error) {
 	id, _, err := decisionRow(ctx, tx, reference)
 	if err != nil {
 		return DecisionHistoryPage{}, err
 	}
-	rows, err := tx.QueryContext(ctx, `SELECT id,revision,verdict,note,created_at,superseded_at,snapshot FROM decision_verdicts
+	via := `''`
+	if withVia {
+		via = `via`
+	}
+	rows, err := tx.QueryContext(ctx, `SELECT id,revision,verdict,note,created_at,superseded_at,snapshot,`+via+` FROM decision_verdicts
 		WHERE item_id=? AND id>? ORDER BY id LIMIT ?`, id, after, limit+1)
 	if err != nil {
 		return DecisionHistoryPage{}, err
@@ -596,7 +614,7 @@ func decisionHistory(ctx context.Context, tx querier, reference string, after in
 	for rows.Next() {
 		var v DecisionVerdict
 		var snapshot string
-		if err := rows.Scan(&v.ID, &v.Revision, &v.Verdict, &v.Note, &v.At, &v.SupersededAt, &snapshot); err != nil {
+		if err := rows.Scan(&v.ID, &v.Revision, &v.Verdict, &v.Note, &v.At, &v.SupersededAt, &snapshot, &v.Via); err != nil {
 			rows.Close()
 			return DecisionHistoryPage{}, err
 		}

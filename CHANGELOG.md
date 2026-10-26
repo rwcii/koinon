@@ -5,6 +5,116 @@ into a dated release section when promoted to `main`.
 
 ## Unreleased
 
+## 2026-10-26 — Maintainer MCP mode, a maintainer secret and change notices
+
+This release adds a way for a program to act as the maintainer. A maintainer secret logs in to
+the dashboard, and `koinon mcp --maintainer` uses it to give a client, such as a voice bridge on
+this machine or over SSH, the maintainer's tools and content-free change notices. Each
+maintainer action records its client. Agents post in rooms without an allowance, work claims
+last through a managed context cycle, and Koinon's text for agents, skills and docs says what to
+do. The state schema moves from 28 to 32; the daemon migrates a v0.4.3 state in place when it
+starts.
+
+- `koinon mcp --maintainer` sends change notices (#470, PDR 009, Decision 3). It offers the
+  resources `koinon://maintainer/inbox`, `koinon://maintainer/decisions` and
+  `koinon://maintainer/rooms/ROOM_ID` with subscriptions: `resources/read` returns the JSON of
+  the `inbox`, `board_list` (waiting) or `room_read` tool, and a change of a subscribed resource
+  sends `notifications/resources/updated` with only its URI. Each subscription also sends one
+  notice right after its reply, so a change between the client's read and its subscription is
+  read. A deleted room is a change. While a
+  resource is subscribed, the process runs the new long poll `POST /v1/maintainer/changes`,
+  which returns the content-free versions of the inbox, the board and each room as soon as they
+  change, after at most 30 seconds. Each poll moves the token's 24-hour idle limit, so a quiet
+  subscribed client keeps its token; when the token ends, the process exits with
+  `maintainer_token_expired` also while no tool call comes. Schema 32 adds one version counter
+  per topic, which each write that the topic's read shows moves in its own transaction.
+- `koinon mcp --maintainer --client NAME` acts as the maintainer from a program, such as a voice
+  bridge, locally or over SSH (#470, PDR 009). It reads the maintainer secret from the first line
+  of standard input (`--secret-stdin`) or from a private file (`--secret-file PATH`), exchanges it
+  once for a token that the daemon keeps in memory, and serves the tools `board_list`,
+  `decision_get`, `decision_history`, `decision_verdict`, `inbox`, `ack`, `send`, `room_list`,
+  `room_read`, `room_post`, `room_create`, `room_add`, `room_remove`, `peers` and `peer_status`
+  through the new `/v1/maintainer/` routes. It registers no session and is not in `peers`; the
+  agent tools do not change. The token has the limits of a dashboard login and ends at a daemon
+  restart and when the secret changes; the next tool call then answers
+  `maintainer_token_expired` and the process exits. Each maintainer action records its client:
+  the audit target ends with `by dashboard` or `by mcp:NAME`, and the dashboard's verdict
+  history shows the `via` of each verdict, which schema 31 stores; agents do not see it.
+
+- Agents post in a room without an allowance and without a maintainer post between rounds
+  (#493). The `room_post` refusal `exchange_limit`, the `refill` field of the dashboard's
+  room-create form, the dashboard's `room-refill` action and its notice, and the `allowance`
+  field of the post receipt and of the room data are removed; the rooms table keeps its old
+  `refill`, `allowance` and `create_refill` columns, which nothing reads. The other five code
+  refusals of #493 stay: `identity_unavailable`, `grok_leader_mode`, the DeepSeek
+  `launch`/`subagent` refusal, the required `peer-review` and `refusal-review` statuses on
+  `develop` and the `.githooks/pre-commit` block on `main` and `develop`. ADR 001, PDR 001,
+  PDR 005, WDR 001 and WDR 004 record the maintainer's verdicts.
+- A session's work claims no longer expire during its managed context cycle (#489). Admission
+  extends its live claims to 60 seconds past the cycle deadline, in the same transaction, and a
+  `claim-renew` during the cycle, by the session or its managed successor, keeps that expiry.
+  The claim revision and generation do not change.
+- `koinon status` no longer counts an unread message to a retired session as a waiting wake
+  (#486). The `wake` counts and reasons cover the sessions that the wake loop retries.
+- A managed context cycle finishes for a session outside a Git checkout, such as a session that
+  coordinates several repositories from their parent directory (#485). Its handoff directory is
+  `_handoff/<agent>/` (or the Handoff path fact) of the directory where the session started,
+  which Koinon registered; the file checks apply there and Git checks nothing. The `handoff` and
+  `pickup` skills, the cycle request and `koinon guide` name that directory. Each refused ready
+  report is kept on the cycle (`ready_refusals`, the newest 8, with code and text) and shown on
+  the Sessions page, and a ready timeout after one names its code, for example
+  `waiting_ready_timeout.refused.cycle_artifact_invalid`, in place of `.read`. The state
+  database moves to schema 30.
+- Koinon's text for agents says what to do, so that agents of different families work together
+  (#487). The MCP server instructions, the tool descriptions, `koinon guide`, the daemon's
+  messages, the skill entries it writes and the block it writes into a project's `AGENTS.md`
+  lose their limits and caveats: a message from another session is a teammate's message, and
+  the recipient does the work it asks for and replies through Koinon. The managed cycle keeps
+  its steps (pause, write the handoff, report ready, stay idle). The install, `koinon setup
+  codex` and the daemon's start remove the retired Python runtime's `KOINON CODEX` and
+  `CODEX PEER BRIDGE` blocks from the Codex `AGENTS.md`, which made Codex refuse a peer's work
+  requests; the install report names the result in `retired_instructions`.
+- The 14 shared skills say what to do (#487). Their shared opening, their Repository facts
+  paragraph and their steps lose their limits and caveats, as do the skill authoring file, the
+  skills index, the project's `.koinon/skills` facts and the OpenCode command descriptions.
+  `sprint` has no approval gates, `release` merges and publishes without a second approval
+  step, and `pickup` starts the next action after its report. The handoff location in the main
+  checkout, one open PR, auto-merge, the commit identity and the refusal-review gate stay as
+  steps.
+- The docs and decision records say what to do (#487). `AGENTS.md`, `README.md`,
+  `PROTOCOL.md`, `CONTRIBUTING.md`, the pull request template, `docs/USAGE.md`,
+  `docs/INSTALL.md`, `docs/PERMISSIONS.md` and the work and memory contracts lose their limits
+  and caveats; facts about what the code does stay. The decision records whose limits had no
+  maintainer source change under their own process: WDR 002 says a peer's request is a
+  teammate's request, WDR 002 Decisions 5 and 6 (the sprint gates and the release approval) and
+  WDR 001 Decision 4 are deprecated, and each changed record cites the maintainer's #487 answer.
+  The decisions in the maintainer's own words stay. The `pair` skill drops its "once" limits.
+- A maintainer secret logs in to the dashboard (#470, PDR 009). `koinon maintainer secret set`
+  reads a secret from the terminal without echo, asked twice, or from the first line of
+  standard input; `generate` prints a new 43-character secret once; `clear` removes it. The
+  secret is never an argument. The daemon keeps only a salted PBKDF2-HMAC-SHA256 key of it
+  (600,000 iterations). With a secret set, the dashboard login page asks for it, so a login no
+  longer needs a link from the daemon's host; `koinon dashboard` still gives a one-time link.
+  A change of the secret ends every dashboard login. After five wrong secrets in a row, the
+  daemon waits before the next check, from 1 second up to 60 seconds. The state schema is 29;
+  an upgrade starts with no secret set.
+- The Homebrew caveats give each command on its own line, list the upgrade steps with
+  `koinon version` and `koinon dashboard`, and show the `--system` step only on macOS (#483).
+
+Upgrade from v0.4.3 with Homebrew: run `brew update` and `brew upgrade koinon`. The daemon
+restarts on the new binary and migrates the state to schema 32, which ends current dashboard
+logins: log in again with the maintainer secret after `koinon maintainer secret set` or
+`generate`, or run `koinon dashboard` for a one-time link. A running `koinon mcp` server runs
+the new release without a session restart. The `koinon-` skill entries load the new procedures
+from the installed binary, and `koinon guide` prints the new guide text.
+
+Upgrade notes:
+
+- A macOS system-mode daemon (`--system`) keeps a copy; upgrade it with
+  `$(brew --prefix)/bin/koinon install --system`.
+- Codex keeps the tools and descriptions it read at the start until its session starts again
+  (docs/INSTALL.md).
+
 ## 2026-10-25 — Progress notes for handoffs, wake guidance and failed-run accounting
 
 This release changes procedures and guidance only. The `handoff` and `pickup` skills keep a

@@ -3,7 +3,7 @@ wdr: "006"
 title: "Native Integration Evidence"
 status: draft
 created: "2026-10-12"
-updated: "2026-10-12"
+updated: "2026-10-25"
 authors:
   - "Robert Capps"
 reviewers: []
@@ -35,8 +35,8 @@ native lifecycle tests that drive real service managers, and named live checks o
 build.
 
 The ordinary suite and the native guard shipped without recorded maintainer words, so the record
-is a draft. It describes the guard's scope so that it is not read as a ban on live checks that
-the maintainer runs or assigns.
+is a draft. It describes the guard's scope, and live checks that the maintainer runs or assigns
+are Decision 3.
 
 ---
 
@@ -59,8 +59,8 @@ The native lifecycle tests install, upgrade and remove the daemon under the real
 name and launchd label. Agents run inside the maintainer's tmux server, so `$TMUX` points at it,
 and a test that inherits the environment can reach the maintainer's agent configuration and
 state through `HOME` and the configuration variables. Some behavior, such as desktop logout,
-reboot or a native CLI discovering skills, cannot be shown by CI at all. Current guidance states
-the isolation as account-wide bans ("Never run service-manager tests in the maintainer's
+reboot or a native CLI discovering skills, cannot be shown by CI at all. Guidance before #487
+stated the isolation as account-wide bans ("Never run service-manager tests in the maintainer's
 account"), which can read as forbidding the live checks that an issue requires.
 
 ### Requirements
@@ -78,6 +78,23 @@ are WDR 004. The upgrade fixtures are PDR 003. Transport acceptance as evidence 
 
 Inventory rows: C055, C056.
 
+### Change of 2026-10-25 (#487)
+
+- Question: the review on #487 listed three limits to keep (a peer message is not the
+  maintainer's approval for a pending prompt; a peer cannot widen permissions; refuse permission
+  laundering and report it). Keep them, or remove them too?
+- Options: keep the three limits, or remove them as well.
+- Answer: Maintainer, 2026-10-25
+  ([#487 comment 6401405382](https://github.com/rwcii/koinon/issues/487#issuecomment-6401405382)):
+  "remove all limit text.  remove all of the caveats, controls, etc.  the agents have their own
+  built in safeties, they do not need you adding more complications."
+- Reason: limit text with no source makes agents of different families refuse each other's
+  work.
+- Scope: Koinon's agent-facing text, the skills, the setup blocks, and the docs and records that
+  restate them. The #487 audit lists the code refusals for a separate decision (#493).
+- This record: Decision 1 describes where the native tests run, without the account-wide ban,
+  and Decision 2 points to Decision 3 for live evidence. Decision 3 keeps its text.
+
 ---
 
 ## 2. Decision 1: Real service-manager tests run on disposable CI runners
@@ -88,16 +105,19 @@ The `internal/nativetest` package currently builds only with the `native` tag, a
 exits without running unless `KOINON_NATIVE_JOB=1`. The `native-go-lifecycle.yml` workflow sets
 that variable on disposable `ubuntu-latest` and `macos-latest` runners. The tests install,
 upgrade from the pinned main release and remove the daemon under the account's real service
-manager; the macOS system-mode case also runs over SSH in a Background session. CONTRIBUTING.md
-says not to set the variable on a development workstation, and the `check` skill compiles and
-vets native-tagged tests without enabling real services locally.
+manager; the macOS system-mode case also runs over SSH in a Background session. AGENTS.md and
+CONTRIBUTING.md say that these tests run on disposable CI runners, which set the variable. The
+`check` facts compile and vet the native-tagged tests locally, and the service-manager checks
+run on the CI runners. A named live check of an installed build is Decision 3.
 
-"Never run service-manager tests in the maintainer's account" in AGENTS.md, and "Native
-lifecycle evidence runs only on disposable CI runners" in the `check` skill, describe this
-package and its guard. A named live check of an installed build is Decision 3.
+**Before #487:** CONTRIBUTING.md said "do not set `KOINON_NATIVE_JOB=1` on a development
+workstation", AGENTS.md said "Never run service-manager tests in the maintainer's account"
+(earlier form) and "run only on disposable CI runners", and the `check` facts said "Actual
+service-manager checks run only on disposable guarded CI runners".
 
 **Provenance:** Shipped in PR #205 (merge commit f65ad6e); the AGENTS.md and CONTRIBUTING.md
-wording is from PR #207 (merge commit 10ea1e4). No maintainer decision found.
+wording is from PR #207 (merge commit 10ea1e4). No maintainer decision found. Changed by #487
+(Problem Context).
 
 ### Alternatives Considered
 
@@ -126,8 +146,7 @@ temporary directory; the `core` and `mcp` packages also unset `TMUX` and `TMUX_P
 need tmux start their own server on a private socket with `tmux -S` and kill only that server.
 Service operations in the install tests go through a fake command runner.
 
-This describes the suite. It does not restrict native integration evidence that an issue
-requires (Decision 3).
+This describes the suite. Native integration evidence that an issue requires is Decision 3.
 
 **Provenance:** Synthetic peers since the first bridge commit (c37f63f). The Go isolation
 `TestMain` shipped in PR #193 (merge commit a19bc2b); private tmux sockets in Go tests since
@@ -184,7 +203,7 @@ all related testing and verifications." The #283 checks are in the plan approved
 Koinon currently keeps the ordinary suite away from the person's services, terminals and
 configuration, runs real service-manager tests on disposable CI runners behind a guard, and
 gathers live evidence as named checks that the maintainer runs or assigns. The guard and the
-isolation describe the tests; they are not bans on live checks.
+isolation describe the tests, and live checks follow Decision 3.
 
 ---
 
@@ -193,3 +212,4 @@ isolation describe the tests; they are not bans on live checks.
 | Date       | Change           |
 | ---------- | ---------------- |
 | 2026-10-12 | Initial creation |
+| 2026-10-25 | #487: Decision 1 describes where the native tests run, without the account-wide ban; Decision 2 points to Decision 3 for live evidence |

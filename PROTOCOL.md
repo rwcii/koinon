@@ -14,7 +14,8 @@ client takes the daemon address from `--address`, else from `KOINON_DAEMON_ADDRE
 from `127.0.0.1` and the recorded port; a `port` file that holds no valid port is refused
 with `port_invalid` (docs/INSTALL.md).
 The secret and state files are user-owned regular files, mode 0600; the state root is private.
-Never put a secret, runtime session identifier or response body in a repository.
+Secrets, runtime session identifiers and response bodies stay in the state directory, outside
+repositories.
 
 | Route | Operation |
 | --- | --- |
@@ -42,6 +43,9 @@ Never put a secret, runtime session identifier or response body in a repository.
 | `POST /v1/library/read` | Read one catalog item's canonical content and family-specific metadata. |
 | `POST /v1/sessions/observe` | Record allowlisted observations (model, context, activity, terminal) for an active session; see "Dashboard and session observations". |
 | `POST /v1/dashboard/links` | Issue a one-time dashboard login link (`path`, `expires_in`). |
+| `POST /v1/maintainer/secret` | Set, generate or clear the maintainer secret (`action`, `secret`); ends every dashboard login and maintainer token. |
+| `POST /v1/maintainer/session` | Exchange the maintainer secret for a maintainer token (`secret`, `client`); see Maintainer mode. |
+| `POST /v1/maintainer/ROUTE` | The maintainer's reads and actions with a maintainer token: `board-list`, `decision-get`, `decision-history`, `decision-verdict`, `inbox`, `ack`, `send`, `room-list`, `room-read`, `room-post`, `room-create`, `room-add`, `room-remove`, `peers`, `peer-status` and the long poll `changes`; see Maintainer mode. |
 | `GET /v1/participants` | Each participant's `address`, `family`, `repository`, optional `role`, active `holder` peer name, `conflict` and `last_event`, at most 1,000 with `truncated` (`koinon participant list`, #398). |
 | `POST /v1/participants/holder` | The maintainer's holder choice from the command line (`koinon participant holder`, #398): `address`, `peer` and an optional `if_revision`, the session's current revision when absent. It makes what the dashboard's **Make holder** makes and is audited as `participant-holder` by `cli`. It returns `holder` and `former`; refusals are `invalid_request`, `peer_not_found`, `not_participant`, `session_not_active` and `revision_changed`. |
 | `POST /v1/storage/recover` | Prove the write-ahead log empty again, return free pages and clear a blocked state. |
@@ -53,7 +57,7 @@ The daemon logs `wake_fault` when these diagnostics change and `wake_recovered` 
 repeated identical failures update the health time without flooding logs. Diagnostics hold
 no raw error/provider text, message body, credential or native session ID. Normal shutdown
 cancellation creates no wake fault. Provider delivery outcomes remain in the existing counts
-and reason codes, separately from pass failures.
+and reason codes, apart from pass failures.
 
 POST requests use `Content-Type: application/json`, at most 16 KiB, with unknown fields refused.
 Registration fields are `family` (`claude`, `codex`, `deepseek`, `agy`, `opencode`, `grok`), `id` (1–256
@@ -274,12 +278,12 @@ the cycle row, its first event `requested admitted`, an audit record and the typ
 the session's own inbox. The request's sender is the reserved system identity `overwatch`
 (`sender_family` and `sender_id` `overwatch`, `sender_name` `overwatch`), with `system_kind`
 `context_cycle_request`, `cycle_id` and `cycle_enable_revision`; its fixed body names the
-cycle and its revision and asks the session to pause at the next safe stopping point and start
-no new work, write its handoff, report it with `context_cycle_ready`, then end its turn and
-stay idle (#431). A wake whose range holds the request of an unfinished cycle ends its notice
-with ` Managed context-cycle request ID: answer it before other work.`, after any decision
-verdict suffix; a finished cycle's request adds nothing (#445). No session, alias or participant can take the name
-`overwatch`, it has no inbox, and no tool or command can send as it. It is not the maintainer.
+cycle and its revision and asks the session to pause at the next safe stopping point, write its
+handoff, report it with `context_cycle_ready`, then end its turn and stay idle (#431). A wake
+whose range holds the request of an unfinished cycle ends its notice with ` Managed
+context-cycle request ID.`, after any decision verdict suffix; a finished cycle's request adds
+nothing (#445). No session, alias or participant can take the name `overwatch`, it has no
+inbox, and no tool or command can send as it.
 Inbox reads return `system_kind`, `cycle_id` and `cycle_enable_revision` with the message. A
 name record called `overwatch` retained from before schema 23 is kept unchanged; while one
 exists no cycle is admitted, and the session's trigger reason is `overwatch_name_conflict`.
@@ -322,9 +326,16 @@ caller, epoch, host, pane, socket or another session.
   the file's metadata and, of the checkout's files, the handoff facts as one bounded read of an
   opened regular file of at most 64 KiB, through a root opened at the main checkout, and keeps its device, inode,
   size and modification time; a change to any of them is a changed file. The
-  registered directory must itself be a worktree that Git lists. A successful report also
-  returns `next`, the instruction to end the turn and start no other work, because the clear
-  waits for the idle prompt.
+  registered directory must itself be a worktree that Git lists. A session registered without
+  a repository has its registered directory in place of the main checkout: the same handoff
+  directory, facts file and file checks apply there, and Git checks nothing (#485). Each
+  refused report at the current `waiting_ready` revision is kept in the cycle's
+  `ready_refusals`, the newest 8, with its revision, time, code and text; it takes no revision
+  and no event. The newest refusal's code and revision are also kept in the cycle's own
+  fixed-width slot, which is written in place even when ordinary storage is full
+  (docs/CONTEXT-CYCLE-STORAGE.md). A successful report also
+  returns `next`, the instruction to end the turn and stay idle, because the clear waits for the
+  idle prompt.
 - `POST /v1/cycles/pickup` (`context_cycle_pickup`) takes `cycle_id`, `revision`, the same file
   name, `outcome` `resumed` or `paused` and a `report` of 1 to 1,024 UTF-8 bytes. A
   `waiting_pickup` cycle completes when the caller runs under a new epoch (the epoch that the
@@ -394,8 +405,21 @@ holds the wake lock, so a wake already being submitted ends before `ready` commi
 is shown on the
 Sessions page, in `koinon context show` and in the audit record. A `waiting_ready` timeout
 says whether the session read or acknowledged its inbox through the newest request:
-`waiting_ready_timeout.read` or `waiting_ready_timeout.unread` (#445). A timeout of another
-stage keeps its plain `<stage>_timeout`.
+`waiting_ready_timeout.read` or `waiting_ready_timeout.unread` (#445). When the daemon refused a
+ready report at the stage's revision, the reason names the newest refusal's code instead, for
+example `waiting_ready_timeout.refused.cycle_artifact_invalid`, and a `cycle_timeout` in
+`waiting_ready` adds the same `.refused.CODE` (#485). The Sessions page lists the refused
+reports with their text; the audit record keeps the code. A timeout of another stage keeps its
+plain `<stage>_timeout`.
+
+A cycle's admission extends the session's live work claims in its repository's store to 60
+seconds past the cycle deadline, in the admission's own transaction (#489): the claims whose
+consumer is the session's peer name, its `FAMILY:ID` or its role-bound native work actor, and
+those of its participant address when it held the address at admission. The claim's revision,
+generation, renewal time and progress do not change, and an expired claim stays expired. While
+the cycle is unfinished, `claim-renew` of such a claim, by the session or by its managed
+successor, keeps the longer of the new and the current expiry. A longer expiry stays after the
+cycle ends; the pickup procedure renews the claims as it reconciles them.
 
 A new native epoch of the requester before the managed clear (`waiting_ready`, `ready`, or a
 stored `bootstrap_intent` or `bootstrap_verified`) cancels the cycle (`epoch_changed`; uncertain
@@ -478,8 +502,8 @@ dashboard action `context-cycle-answer` (`cycle_id`, `revision`, `digest` of the
 `option` 1 to 9) records `prompt_intent` with the action's audit record, enters the option only
 while the pane still shows the same dialog, and records the return to the cycle's stage. A
 changed dialog before any key returns the cycle to `waiting_prompt` (`cycle_dialog_changed`); an
-unproven answer is uncertain. Enable authorizes the managed cycle; native permission choices
-follow the existing task authorization and the native permission interface.
+unproven answer is uncertain. Enable starts the managed cycle; the native permission interface
+handles native permission choices.
 
 ### Codex cycle adapter
 
@@ -546,6 +570,24 @@ The socket is an absolute clean path without control characters, at most 4,096 b
 pane matches `%` followed by 1–9 digits. The optional `executable` (#418) is the absolute tmux
 that the session's own terminal runs, with the same path rules as the socket. Invalid values
 return `invalid_request`.
+
+Schema 32 adds the table `change_versions` of the maintainer mode's change notices (PDR 009,
+Decision 3): one row each for `inbox` and `decisions` and one for each room by its ID, each with
+a 20-digit counter as text. The upgrade starts a row at `00000000000000000001` for the
+maintainer's inbox, the decision board and each existing room; a room's creation inserts its
+row and its deletion deletes it. Each write that changes what the maintainer's read of a topic
+shows moves its counter in the same transaction: an inbox message to the maintainer, the daemon's
+notices, a work notice to the maintainer, an acknowledgement of the maintainer's inbox and the
+retention of its messages; a decision create, edit (also a reopen), verdict, close, restore and
+the move to the deep archive; a room's add, remove, post and post retention. A write that rolls
+back, a retry that writes nothing and a refused write move nothing. The counter has a fixed
+width, so an increment overwrites it in place and allocates no page, also in a control write.
+
+Schema 31 adds `decision_verdicts.via`, the maintainer client that gave each verdict
+(`dashboard` or `mcp:NAME`, PDR 009, Decision 4); a verdict from before it has `''`.
+
+Schema 29 adds the table `maintainer_secret` (see Dashboard and session observations, PDR
+009); an upgrade starts with no secret set.
 
 Schema 28 adds `sessions.tmux_path`, which stores `executable` with the socket and pane and is
 cleared with them; existing sessions start with `''`. It is a tool path, not identity: an Enable
@@ -655,7 +697,9 @@ its native session sent; another sender's message reads as
   `created_at`, `delivery_state`, `delivery_reason`, `acknowledged` and, for an acknowledged
   message, `acknowledged_by`: `recipient` or `maintainer`. From schema 15 an acknowledged
   message also has `acknowledged_session` (the peer name of the session that acknowledged
-  it, or `maintainer`) and `acknowledged_via` (`ack`, `participant_ack` or `dashboard`).
+  it, or `maintainer`) and `acknowledged_via` (`ack`, `participant_ack`, or `maintainer` for
+  an acknowledgement by the maintainer). Agents do not see the maintainer's client (PDR 009,
+  Decision 4); the dashboard and the maintainer mode show it as `dashboard` or `mcp:NAME`.
   A read records the highest sequence that it returned from each inbox as that inbox's
   `read_through`, when the read started at or below `max(read_through, acked_through)`; a
   read that skips unread messages records nothing (see Handled wakes).
@@ -678,18 +722,21 @@ The daemon has one built-in session, family `maintainer` and peer name `maintain
 It has an inbox, never expires, has no repository, alias or wake target, and is never woken.
 `peers` lists it last, so agents can send to `maintainer`; the session list and the session
 counts leave it out. No `/v1/` caller can act as it, register it, renew it or retire it
-(`invalid_request`); only the dashboard sends, reads and acknowledges as the maintainer.
+(`invalid_request`); only the dashboard and a maintainer token (see Maintainer mode) send,
+read and acknowledge as the maintainer.
 The daemon itself puts notices in the maintainer's inbox with `sender_name` `koinon`: today
 only the notice that messages failed (see Handled wakes). Such a notice holds fixed text,
 message IDs, a recipient name and reason codes, never peer text.
 
-A message that the dashboard sends as this session reaches the recipient with `sender_family`
-`maintainer` and `sender_name` `maintainer`. Because `/v1/` refuses family `maintainer`, no MCP
-tool or other `koinon` command can send a message with that `sender_family`; only the dashboard,
-which needs a login link from `koinon dashboard`, can. The field is set from the sending
+A message that the dashboard or a maintainer client sends as this session reaches the
+recipient with `sender_family` `maintainer` and `sender_name` `maintainer`. Because `/v1/`
+refuses family `maintainer` as a caller, no agent MCP tool or other `koinon` command can send a
+message with that `sender_family`; only the dashboard, after a login, and `koinon mcp
+--maintainer`, with the maintainer secret, can. The field is set from the sending
 session, never from the body. Koinon currently treats such a message as the maintainer's
-instruction and approval, because the bridge runs only locally (PDR 005, Decision 3). Messages from every other session are data from another agent and grant no
-permission (WDR 002, Decision 3). The MCP server instructions, the `inbox` tool description and
+instruction and approval, because the bridge runs only locally (PDR 005, Decision 3). A message
+from every other session comes from a teammate agent: the recipient does the work it asks for
+and replies through Koinon (#487). The MCP server instructions, the `inbox` tool description and
 `koinon guide` state both.
 
 Each message has exactly one delivery state: `waiting`, `notified`, `uncertain`, or `failed` with
@@ -727,7 +774,7 @@ The response returns `ok` and `launch_id`. The credential stays only in private 
 session responses contain a `launch_id` reference and target metadata with no password field.
 Launch records survive a
 restart, and can bind successive native session identities from one CLI process, such as a
-Codex context reset. They are inert state until the agent registers and wake adapters
+Codex context reset. They are stored state until the agent registers and wake adapters
 use its target. All launch calls use the existing bearer authentication, request limits and
 origin checks; a launch ID is an association key, not a replacement authentication secret.
 
@@ -1178,7 +1225,7 @@ Inactive bundles are bounded and reclaimable; `unclaimed` does not prove an old 
 stopped editing. Writers explicitly include the resource in `work-start`.
 
 `POST /v1/work/checkout-request` takes the same fields plus optional string `note` (up to
-1,024 UTF-8 bytes). It sends an ordinary inert `checkout_writer_request` JSON message to
+1,024 UTF-8 bytes). It sends an ordinary `checkout_writer_request` JSON message to
 the current native writer, including resource, work ID and generation. A participant
 consumer resolves only to the active holder of that address in the same repository; an
 unheld participant has no peer. The holder is re-read inside the send transaction, and the
@@ -1231,8 +1278,7 @@ it does not inspect the current machine's roots. Repository-fact schemas are met
 with no repository-specific values. List/read change no project/native files, adoption
 decisions, memory cursors or acknowledgements. MCP registration/renewal still occurs under
 the existing session rules. Catalog calls count as tool activity for succession.
-The content is reference data; adoption uses an exact reviewed diff approved by the
-maintainer (PDR 008).
+The agent adopts an item with its normal editing tools (PDR 008).
 
 `library_state` runs bounded filesystem reads in the existing native MCP/command client,
 using the daemon's trusted catalog and current decisions. It accepts optional `item_ids`
@@ -1267,7 +1313,7 @@ verified with Codex 0.162.0 metadata. Unverified families still support catalog 
 project inspection. Recommendations select only verified missing/outdated skills required
 by available features, with no decline, collision or decision-inspection limitation.
 
-Machine `library_decision` accepts item ID, adopted/declined choice, inert evidence,
+Machine `library_decision` accepts item ID, adopted/declined choice, evidence text,
 catalog/item digests, typed pre-edit/result target digests and compared revision. The client
 fills native family/root metadata and calls `POST /v1/library/decision` internally;
 `POST /v1/library/decision/read` returns current state. `POST /v1/library/context` supplies
@@ -1278,12 +1324,12 @@ in all, with native writer digest/time retained privately. Existing ordinary pag
 preserves funded work controls. Capacity refuses without eviction. An identical current
 canonical outcome is a no-write success, including after a lost reply; a differing compared
 revision returns `decision_conflict` with current data. It promises no historical replay.
-Adoption updates the adopted baseline; decline keeps it. Records for removed items remain inert.
+Adoption updates the adopted baseline; decline keeps it. Records for removed items stay as they are.
 
 Project decisions use existing `memory_record`/`memory_recall`, with their body limit,
 fixed retry deadline, replacement/conflict and retention semantics. A repo-scope `decision`
 body is strict version-1 JSON marked `library: "koinon-library-decision"`: item/family/scope,
-scope/catalog/item digests, kind, choice, inert evidence, and typed pre-edit/result/adopted
+scope/catalog/item digests, kind, choice, evidence text, and typed pre-edit/result/adopted
 digests. `repository-facts` kind additionally names the schema digest and fixed target ID
 `facts`; it is always project-scoped. Native writer family and repository are checked
 independently of body/author fields. A decline superseding a receipt must preserve its adopted
@@ -1294,10 +1340,10 @@ and an incomplete flag. This metadata revives nothing and moves no cursor.
 The retained floor is library-specific: expiry raises `memory_stores.library_floor` only
 for a removed library-marked decision; unrelated memory/work retention does not suppress offers.
 This is a scalar in the existing memory store, with no new table or index. Unavailable
-history never silently resets a decline. Receipts are reported outcomes, not approval attestations.
+history never silently resets a decline. Receipts record reported outcomes.
 
-The approved #145 procedure has the agent present an exact scoped diff, apply the approved
-item with normal editing tools, verify hashes and then record its outcome. Sidecars and
+In the #145 procedure the agent applies the item with normal editing tools, verifies hashes
+and then records its outcome. Sidecars and
 discovery pointers are separate proposed changes. A failed receipt leaves the files applied
 and an explicitly unrecorded outcome. No state/decision interface writes adopted files.
 
@@ -1305,10 +1351,10 @@ and an explicitly unrecorded outcome. No state/decision interface writes adopted
 
 Schema 19 adds dashboard rooms (#217, chunk 01). The maintainer creates a room and changes its
 roster in the dashboard. Schema 20 adds room posts (chunk 02, below). A room has an opaque 32-character
-`room_id`, a display `name` of 1–128 bytes of UTF-8 (names may repeat), a roster `revision`,
-the agent-post `refill` setting (a non-negative integer, default 32; PDR 005, Decision 2) and
-an `allowance` that starts at 0. A refill change applies at the next maintainer post and does
-not change the allowance. Room posts use the allowance (chunk 02).
+`room_id`, a display `name` of 1–128 bytes of UTF-8 (names may repeat) and a roster
+`revision`. Members post without an allowance (PDR 005, Decision 2, deprecated by #493). The
+`rooms` table keeps its `refill`, `allowance` and `create_refill` columns from schema 19;
+nothing reads them.
 
 A member is the participant address that the selected session holds, otherwise that exact
 native session. A participant membership follows the participant's verified holder (PDR 001,
@@ -1358,15 +1404,12 @@ else its peer name), a typed `origin` and its body (1–65,536 bytes of UTF-8). 
 snapshots the current members, and for each member except the poster's own memberships
 stores either an inbox copy with a delivery row (`queued`) or a delivery row `skipped` with
 the reason `inactive`, `unheld` or `conflicting`. A participant's copy goes to the
-participant's inbox. The write also sets the room's allowance, stores the poster's retry
-record and, for a dashboard post, the audit record. It commits completely or not at all;
+participant's inbox. The write also stores the poster's retry record and, for a dashboard post, the audit record. It commits completely or not at all;
 wakes follow through the existing queue and are content-free. A copy is an ordinary inbox
 message from the poster with the full body and `room: {room_id, event: "post", seq, origin}`.
 
-The allowance starts at 0. A dashboard post sets it to the room's refill setting at that
-moment (PDR 005, Decision 2); each new member post uses one, and at 0 a member post refuses
-with `exchange_limit` until the maintainer posts again. A refill change, a membership change,
-a restart or body text never refills. Koinon does not write replies.
+A member posts without an allowance and without a maintainer post between rounds (#493).
+Koinon does not write replies.
 
 `POST /v1/rooms/post` takes `caller`, `room_id`, `body`, `key` (1–256 bytes) and `deadline`
 (Unix seconds, after now and at most 24 hours ahead). The caller must be active and a current
@@ -1374,7 +1417,7 @@ member, checked before its retry record, so an accepted earlier post grants noth
 removal. The same key with the same room, body and deadline returns the first receipt with
 `duplicate: true` and writes nothing; other input is `idempotency_conflict` (409), an
 expired deadline `retry_deadline_expired`. It returns `{ok: true, result: {room_id, seq,
-queued, skipped, allowance, duplicate?}}`; the receipt names no recipient. The daemon
+queued, skipped, duplicate?}}`; the receipt names no recipient. The daemon
 retains at most 10,000 posts and 10,000 retry records (`room_post_limit`,
 `room_replay_limit`); a post has at most 32 delivery rows. The request may be up to
 6 × 65,536 + 4,096 bytes, as for `send`.
@@ -1465,8 +1508,9 @@ Schema 26 adds verdicts, deliveries and the deep archive (#206, chunk 02): the t
 number of verdicts in the item's history, so `decision_get` reads it and the current verdict
 (the latest verdict, unless it is superseded) without a scan of the history.
 
-**Verdicts.** Only the dashboard gives a verdict (see Dashboard actions); no `/v1` route,
-MCP tool or command does. Approve and Decline apply to a `decision` item, Dismiss to an
+**Verdicts.** The maintainer gives a verdict on the dashboard (see Dashboard actions) or with a
+maintainer token (`decision-verdict`, see Maintainer mode); the agent routes, agent MCP tools
+and commands have no verdict. The verdict stores the client that gave it as `via`. Approve and Decline apply to a `decision` item, Dismiss to an
 `fyi` item; another combination is `invalid_verdict`, a revision other than the one the page
 showed is `stale_revision`, an item that is not `active` is `decided`, and an item with a
 hidden command cannot be approved (`hidden_command`); Decline and Dismiss still apply. An optional note is Markdown of at
@@ -1488,7 +1532,7 @@ acknowledgements do not change.
 - `POST /v1/decisions/history` takes `caller`, `reference`, optional `after` (a verdict ID)
   and `limit` (1–16, default 16) and returns `verdicts` (`verdict_id`, `revision`,
   `verdict`, `note`, `at`, `superseded_at`, `snapshot`) in verdict ID order with `more` and
-  `next_after`. A page stops before the verdict that would take the serialized reply past
+  `next_after`. It never returns `via` (PDR 009, Decision 4). A page stops before the verdict that would take the serialized reply past
   256 KiB and always holds one: the largest verdict, every snapshot and note field at its
   limit in characters with the longest JSON escape, serializes below that.
 - `POST /v1/decisions/pending` takes `caller`, optional `after` (a verdict ID) and `limit`
@@ -1500,8 +1544,7 @@ acknowledgements do not change.
   queued deliveries of those verdicts `acknowledged` with the time; it returns
   `acknowledged`, the IDs it changed. A repeated or late acknowledgement changes nothing. It
   is an ordinary write: at the ordinary storage ceiling it is `capacity` and the deliveries
-  stay queued. Delivery and acknowledgement record only that; they do not show that an action
-  was done.
+  stay queued. Delivery and acknowledgement record only that.
 - `POST /v1/decisions/close` takes `caller`, `reference`, `if_revision`, optional `note`
   (Markdown, 4 KiB), `key` and `deadline`, and moves an `in_progress` item to `archived` with
   the caller's peer name, the time and the note; another state is `not_in_progress`. A retry
@@ -1661,6 +1704,118 @@ from elsewhere. Peer message bodies appear here, escaped, and nowhere else outsi
   `Max-Age=604800` (7 days), so it survives a browser restart. A session ends after 24 hours without a request,
   7 days after it started, at logout, when 16 newer sessions exist, or when the daemon restarts
   (#435). The daemon keeps only SHA-256 hashes of tokens and session IDs, in memory.
+- **Maintainer secret** (PDR 009). `koinon maintainer secret set|generate|clear` sends
+  `POST /v1/maintainer/secret` with `{"action": "set"|"generate"|"clear", "secret": TEXT}`;
+  `secret` is given only for `set` and is valid UTF-8 of at least 12 characters and at most 1024
+  bytes, else `invalid_request`. The reply is `{"ok": true, "action": ..., "logins_ended":
+  true}`, and for `generate` also `secret`, 32 random bytes as base64url without padding, which
+  nothing else returns. `clear` without a secret is `maintainer_secret_unset`. Schema 29's
+  table `maintainer_secret` holds at most one row: `pbkdf2-sha256`, a 16-byte random salt, the
+  iteration count (600,000) and the 32-byte PBKDF2-HMAC-SHA256 key. Each accepted change writes
+  the audit record `maintainer_secret` with `set by cli`, `generate by cli` or `clear by cli` in
+  its transaction, then ends every dashboard session. With a secret set, `GET
+  /dashboard/login` without `token` shows a form with one password field `secret`; without
+  one, it says how to get a link or set a secret. `POST /dashboard/login` takes that form, at
+  most 4,096 bytes, with the request protection below but no CSRF token, since no session
+  exists yet. The daemon checks one secret at a time and compares keys in constant time. A
+  match writes the audit record `maintainer_login dashboard accepted`, then starts the same
+  session and cookie as a link (303 to `/dashboard/sessions`); a session is started only after
+  its record is written. A wrong secret is 401 and writes `maintainer_login dashboard refused
+  secret_invalid`; no secret set is 401. The fifth wrong secret in a row starts a wait of 1
+  second, and each later wrong secret doubles it, up to 60 seconds; a check during the wait is
+  429 with `Retry-After`, computes no key and does not move the wait. A match resets the
+  count. The count is in daemon memory, for the whole daemon. The one-time link works during
+  the wait. No page, reply, record or log line repeats a presented secret.
+- **Maintainer mode** (PDR 009, Decisions 3 and 4). `POST /v1/maintainer/session` takes
+  `{"secret": TEXT, "client": NAME}` with the bearer secret; `NAME` matches
+  `[a-z0-9][a-z0-9-]{0,31}`, else `invalid_request`. It checks the secret as the login form
+  does, with the same wait and the audit record `maintainer_login mcp:NAME`, and returns
+  `{"ok": true, "token": TOKEN, "client": "mcp:NAME", "idle_seconds": 86400,
+  "absolute_seconds": 604800}`. Refusals: `maintainer_secret_unset`, `maintainer_secret_invalid`,
+  and during the wait `maintainer_secret_backoff` (429, `Retry-After`, `details:
+  {retry_after_seconds, retry_after}`). The token is 64 hex characters; the daemon keeps only
+  its SHA-256 hash, in memory with the dashboard sessions and bound to `mcp:NAME`. It has the
+  limits of a dashboard session: 24 hours without an authenticated request, 7 days in all, at
+  most 16 sessions and tokens together, and it ends when the secret is set, generated or
+  cleared and when the daemon restarts. A token is no dashboard cookie, and a cookie is no
+  token. Each route `POST /v1/maintainer/ROUTE` takes `token` with its fields, refuses unknown
+  fields, and refuses an unknown or ended token with `maintainer_token_expired`; an accepted
+  request moves the token's idle limit. A reply is `{"ok": true, "result": ...}`.
+  - `board-list` (`filter` `waiting` (default), `active`, `in_progress` or `archived`;
+    `after`; `limit`): `counts` (`waiting`, `in_progress`, `open_fyi`, `archived`) and a page
+    of summaries as `decision_list` returns it.
+  - `decision-get` (`reference`) and `decision-history` (`reference`, `after`, `limit`): as
+    the agents' routes, without a caller; each history verdict adds `via`.
+  - `decision-verdict` (`reference`, `revision`, `verdict` `approved`, `declined` or
+    `dismissed`, optional `note`): the dashboard's verdict, with its refusals
+    (`stale_revision` with `current_revision`, `not_found`, `decided`, `invalid_verdict`,
+    `hidden_command`). The result is the verdict with `via`.
+  - `inbox` (`after`, `limit` 1–100) reads the maintainer's own inbox as an agent's inbox read
+    pages its own; `ack` (`through`) acknowledges it (`ack_beyond_last`).
+  - `send` (`to`, `body`): the dashboard's send (`peer_not_found`, `alias_unheld`,
+    `recipient_inactive`).
+  - `room-list` (each room's `room_id`, `name`, `revision`, `created_at` and `members`);
+    `room-read` (`room_id`, `after`, `limit`) of any room; `room-post` (`room_id`, `body`,
+    `key`, `deadline`), whose receipt has `room_id`, `seq`, `queued` and `skipped`;
+    `room-create` (`name`, `key`); `room-add` (`room_id`, `peer`); `room-remove` (`room_id`,
+    `ordinal`): the dashboard's room actions with their refusals (`room_not_found`,
+    `peer_not_found`, `room_member_not_found`, `idempotency_conflict` and the room limits).
+  - `peers` lists the agent sessions without the maintainer; `peer-status` (`peer`) reads one
+    as `peer_status` does (`peer_not_found`, `alias_unheld`).
+  - `changes` (`wait_seconds` 1–30, optional `cursor`) is the long poll of the change notices.
+    Its result is `{"cursor": {URI: VERSION}, "changed": [URI]}`: the version of
+    `koinon://maintainer/inbox`, `koinon://maintainer/decisions` and each
+    `koinon://maintainer/rooms/ROOM_ID`, read in one read transaction, with no content. A
+    deleted room has no entry. Without `cursor` it returns at once with `changed` empty. With
+    the `cursor` of an earlier result it reads the versions every 500 ms, without holding a
+    transaction or the write lock while it waits, and returns as soon as one differs from the
+    cursor, with each such URI in `changed`, or after `wait_seconds` with `changed` empty. The
+    cursor is compared for equality, entry by entry, never by order, so two changes at the same
+    time are both seen. A token that ends during the wait ends the poll with
+    `maintainer_token_expired`, and a daemon stop ends the wait. Each poll is an authenticated
+    request and moves the idle limit, so a client that polls keeps its token. The server's write
+    deadline is 10 seconds; this route's reply gets `wait_seconds` plus 5 seconds, and the
+    client waits as long. Ordinary requests keep 10 seconds.
+
+  Each action writes its audit record as the dashboard's does, also when it is refused, with
+  the dashboard's action name (`decision-approve`, `decision-decline`, `decision-dismiss`,
+  `acknowledge`, `send`, `room-post`, `room-create`, `room-add`, `room-remove`) and a target
+  that ends with ` by mcp:NAME`. A read writes no record. `koinon mcp --maintainer --client NAME
+  --secret-stdin|--secret-file PATH` reads the secret from the first line of standard input,
+  one byte at a time so that the MCP stream after it stays unread, or from a regular file that
+  is no symbolic link, belongs to the user and has mode 0600 or 0400; the line has the bounds
+  of `koinon maintainer secret set`. It exchanges the secret before any MCP output, and on a
+  refusal writes the code to standard error and exits with status 1. It registers no session,
+  renews and observes nothing, and is not in `peers`. Its tools are `board_list`,
+  `decision_get`, `decision_history`, `decision_verdict`, `inbox`, `ack`, `send`, `room_list`,
+  `room_read`, `room_post`, `room_create`, `room_add`, `room_remove`, `peers` and
+  `peer_status`, each calling the route of its name with `-` for `_`; each schema has
+  `additionalProperties: false`, and an unknown or missing argument is `invalid_arguments`.
+  When a call answers `maintainer_token_expired`, the server writes that result and exits with
+  status 1, so the client starts a new process. A call while no daemon answers is
+  `daemon_unavailable`, and the process stays.
+
+  The maintainer mode's `initialize` gives the capability `resources: {"subscribe": true}`
+  (the agent mode has no resources). `resources/list` lists `koinon://maintainer/inbox`,
+  `koinon://maintainer/decisions` and `koinon://maintainer/rooms/ROOM_ID` for each room, with
+  `mimeType` `application/json`. `resources/read` (`uri`) returns one text content with that
+  `mimeType` whose text is the JSON of the tool that reads the resource: `inbox`, `board_list`
+  with `filter` `waiting`, or `room_read`. An unknown URI is the JSON-RPC error -32002 with
+  `data: {"code": "unknown_resource"}`; an unknown room is -32002 with `room_not_found`; another
+  refusal is -32603 with its code, text and details in `data`. `resources/subscribe` (`uri`)
+  reads the current versions before it answers, so a change after the answer is noticed, then
+  writes one notice for the URI, so a change between the client's last read and the
+  subscription is read too; it refuses a room that does not exist with `room_not_found`; `resources/unsubscribe` (`uri`)
+  ends one subscription. While at least one resource is subscribed, one goroutine runs
+  `changes` with `wait_seconds` 25. A changed version of a subscribed URI writes
+  `{"jsonrpc": "2.0", "method": "notifications/resources/updated", "params": {"uri": URI}}`,
+  with no title, body or count; a deleted room is a change, and reading it then gives
+  `room_not_found`. Notices and replies share one serialized output. The last unsubscribe, the
+  end of standard input and a cancelled context end the poll and wait for it, so no poll starts
+  and no notice is written after the unsubscribe's reply. When the poll reads
+  `maintainer_token_expired`, the server writes the reply of a request in progress, writes the
+  code to standard error and exits with status 1, also while standard input is open and idle.
+  A poll that no daemon answers is tried again after 1 second, doubling to at most 30 seconds.
 - **Request protection.** Every dashboard request must name a literal loopback IP with a port in
   `Host` (`127.0.0.1:PORT` or `[::1]:PORT`; `localhost` and other names are refused). PORT may
   differ from the listener's, as through an SSH tunnel from another local port (ADR 001,
@@ -1684,7 +1839,7 @@ from elsewhere. Peer message bodies appear here, escaped, and nowhere else outsi
   `to=NAME` for one recipient, a peer name or a held alias; delivery state and reason,
   acknowledgement; the send form suggests the names and held aliases of at most 1,000 active
   sessions with their family and state, and with `peers=all` of every session, active first,
-  never a session ID or directory), `rooms` (every room with its refill setting, allowance,
+  never a session ID or directory), `rooms` (every room with its
   revision and current and former members by address or peer name and state, with Remove
   buttons; the add form suggests the peer names of active sessions; `room=ROOM_ID` opens a
   room with its post form and 50 posts in order, the newest by default, with `after=SEQ`
@@ -1809,20 +1964,18 @@ from elsewhere. Peer message bodies appear here, escaped, and nowhere else outsi
     consumer, so it replays the first result whatever the item's state is now; a form key is at
     most 250 bytes. A store that does not exist is
     `store_not_found`. Each form of a rendered page carries its own idempotency key.
-  - `room-create` (`name`, `refill`, `key`), `room-refill` (`room_id`, `refill`), `room-add`
-    (`room_id`, `peer`), `room-remove` (`room_id`, `ordinal`) and `room-delete` (`room_id`,
-    `confirm=delete`): the room operations (see Rooms). `room-delete` deletes the room with its
+  - `room-create` (`name`, `key`), `room-add` (`room_id`, `peer`), `room-remove` (`room_id`,
+    `ordinal`) and `room-delete` (`room_id`, `confirm=delete`): the room operations (see Rooms). `room-delete` deletes the room with its
     members, posts and delivery records; copies of its posts already in inboxes stay until
-    their retention (#388). `refill` is a non-negative integer; other input is `invalid_request` and changes
-    nothing. The create form carries its own key: the same key with the name and refill that it
-    first sent returns the room it created, also after a refill change, and with other input
-    is `idempotency_conflict`. `room-add` resolves the
+    their retention (#388). The create form carries its own key: the same key with the name
+    that it first sent returns the room it created, and with another name is
+    `idempotency_conflict`. `room-add` resolves the
     peer name inside its write and needs an active session (`peer_not_found`,
     `recipient_inactive`); adding a current member changes nothing. The audit target names the
     room, the peer name and the address or `session`, never a native ID. The notices are
-    `room_created`, `room_refill_saved`, `room_member_added` and `room_member_removed`.
+    `room_created`, `room_member_added` and `room_member_removed`.
   - `room-post` (`room_id`, `body`, `key`, `deadline`): a post with origin `maintainer` (see
-    Room posts). It reaches every active member and sets the allowance. The form takes up to
+    Room posts). It reaches every active member. The form takes up to
     3 × 65,536 + 4,096 bytes, as the send form does, and each rendered form has its own key, so
     a resubmitted form repeats the first post. The notice is `room_posted`.
   - `decision-approve` and `decision-decline` on a `decision` item and `decision-dismiss` on an
@@ -1841,7 +1994,8 @@ from elsewhere. Peer message bodies appear here, escaped, and nowhere else outsi
     `--tmux-session` result adds `nested` and `nested_incomplete` when it found nested
     repositories; the sessions view shows the launch record's list with each session registered with it.
 - **Audit log.** A request that fails the session, host, origin or CSRF check writes no record.
-  After those checks, each action writes one record: time, action, target, result (`accepted`,
+  After those checks, each action writes one record: time, action, target (which ends with
+  ` by dashboard`, PDR 009, Decision 4), result (`accepted`,
   `refused`, `started` while a launch runs, or `unknown`) and a fixed reason code. A record never
   holds a message body, a credential or a secret; a send records the peer name of the session
   that received it, the body size, the message ID and, for a send to an alias, `via ALIAS`. An
@@ -2078,7 +2232,7 @@ BODY
 The Go Claude wake adapter builds an envelope with `from-name="koinon"` around its
 content-free notice. `from` names the daemon's private reply listener; it accepts no
 commands. The outer frame carries `type: "user"`, `priority: "next"` and a fresh `msg_id`.
-Those are Claude protocol fields, not maintainer instructions. The notice identifies only
+Those are Claude protocol fields. The notice identifies only
 the native inbox and sequence range. No message body or memory content is transmitted.
 The receiving socket's UID/PID is verified against the selected native Claude session.
 The adapter wakes only the registry entry of the session's `claude_pid` with entrypoint `cli`.

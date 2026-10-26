@@ -5,7 +5,7 @@
 // 11, workflow native-go-lifecycle.yml). It changes the account's services, so it runs
 // only on a disposable CI runner, with KOINON_NATIVE_JOB=1 and `go test -tags native`.
 // The upgrades start from the pinned Python main release and the current Go main release
-// (v0.4.2), taken by `git archive` from history (never from this checkout's Python code),
+// (v0.4.3), taken by `git archive` from history (never from this checkout's Python code),
 // and from the committed fixture trees.
 package nativetest
 
@@ -41,8 +41,8 @@ const baseline = "3d60c73c88f3110ca4bc91a9a0cc7e16f7daf827"
 // goRelease is the commit of the current main release, goReleaseVersion, that a Go upgrade
 // starts from, and goReleaseSchema its state schema.
 const (
-	goRelease        = "2dd7321efc6d06d1727c1f23b591b1de2ac4fa95"
-	goReleaseVersion = "v0.4.2"
+	goRelease        = "e5d3bf7ce6f536bdb8424601ab7ed532d7fb4eba"
+	goReleaseVersion = "v0.4.3"
 	goReleaseSchema  = 28
 )
 

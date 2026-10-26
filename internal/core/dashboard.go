@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"embed"
+	"errors"
 	"html/template"
 	"io/fs"
 	"net/http"
@@ -32,6 +33,15 @@ type settingsData struct {
 	Context []ContextFamilyPolicy
 	Modes   []string
 }
+
+// loginData is the login page's reason, and whether it shows the secret form.
+type loginData struct {
+	Reason string
+	Form   bool
+}
+
+// loginFormLimit bounds a login form: a secret of MaintainerSecretMaxBytes, form-encoded.
+const loginFormLimit = 4096
 
 type dashboardPage struct {
 	View   string
@@ -149,8 +159,11 @@ func (d *Daemon) dashboardHandler() (http.Handler, error) {
 		w.WriteHeader(status)
 		w.Write(out.Bytes())
 	}
+	// refuse shows the login page with its reason, and the secret form when a maintainer
+	// secret is set (PDR 009, Decision 2).
 	refuse := func(w http.ResponseWriter, r *http.Request, status int, reason string) {
-		render(w, r, status, dashboardPage{View: "login", Title: "Not signed in", Data: reason})
+		form, _ := d.store.maintainerSecretSet(r.Context())
+		render(w, r, status, dashboardPage{View: "login", Title: "Not signed in", Data: loginData{Reason: reason, Form: form}})
 	}
 	// authedLimit requires a live login session and, for a state-changing request, its
 	// CSRF token; it reads a form body of at most limit bytes.
@@ -178,7 +191,8 @@ func (d *Daemon) dashboardHandler() (http.Handler, error) {
 					return
 				}
 			}
-			next(w, r, id)
+			// Each action's audit record names the dashboard as its origin (PDR 009, Decision 4).
+			next(w, r.WithContext(withOrigin(r.Context(), "dashboard")), id)
 		}
 	}
 	authed := func(next func(http.ResponseWriter, *http.Request, string)) http.HandlerFunc {
@@ -186,10 +200,21 @@ func (d *Daemon) dashboardHandler() (http.Handler, error) {
 	}
 	mux := http.NewServeMux()
 	mux.Handle("GET /dashboard/static/", http.StripPrefix("/dashboard/static/", http.FileServerFS(static)))
+	// signedIn sets the login cookie and opens the board. The cookie lasts as long as the
+	// login can, so a browser restart keeps it (#435).
+	signedIn := func(w http.ResponseWriter, r *http.Request, id string) {
+		http.SetCookie(w, &http.Cookie{Name: cookieName(r), Value: id, Path: "/dashboard/", MaxAge: int(sessionAbsolute.Seconds()),
+			HttpOnly: true, SameSite: http.SameSiteStrictMode})
+		http.Redirect(w, r, "/dashboard/sessions", http.StatusSeeOther)
+	}
 	mux.HandleFunc("GET /dashboard/login", func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodGet {
 			// A HEAD request, such as a link preview, never uses the token.
 			w.WriteHeader(http.StatusMethodNotAllowed)
+			return
+		}
+		if !r.URL.Query().Has("token") {
+			refuse(w, r, http.StatusOK, "")
 			return
 		}
 		id, ok, err := d.auth.login(r.URL.Query().Get("token"))
@@ -201,10 +226,31 @@ func (d *Daemon) dashboardHandler() (http.Handler, error) {
 			refuse(w, r, http.StatusUnauthorized, "link")
 			return
 		}
-		// The cookie lasts as long as the login can, so a browser restart keeps it (#435).
-		http.SetCookie(w, &http.Cookie{Name: cookieName(r), Value: id, Path: "/dashboard/", MaxAge: int(sessionAbsolute.Seconds()),
-			HttpOnly: true, SameSite: http.SameSiteStrictMode})
-		http.Redirect(w, r, "/dashboard/sessions", http.StatusSeeOther)
+		signedIn(w, r, id)
+	})
+	// A login with the maintainer secret (PDR 009, Decision 2). The outer checks require a
+	// literal loopback Host and this origin; no login exists yet to derive a CSRF token from.
+	mux.HandleFunc("POST /dashboard/login", func(w http.ResponseWriter, r *http.Request) {
+		r.Body = http.MaxBytesReader(w, r.Body, loginFormLimit)
+		if r.ParseForm() != nil {
+			refuse(w, r, http.StatusBadRequest, "request")
+			return
+		}
+		id, err := d.passwordLogin(r.Context(), r.PostForm.Get("secret"), "dashboard")
+		var backoff SecretBackoff
+		switch {
+		case err == nil:
+			signedIn(w, r, id)
+		case errors.As(err, &backoff):
+			w.Header().Set("Retry-After", retryAfter(backoff, d.auth.now()))
+			refuse(w, r, http.StatusTooManyRequests, "backoff")
+		case errors.Is(err, ErrSecretInvalid):
+			refuse(w, r, http.StatusUnauthorized, "secret")
+		case errors.Is(err, ErrSecretUnset):
+			refuse(w, r, http.StatusUnauthorized, "unset")
+		default:
+			http.Error(w, "login failed", http.StatusInternalServerError)
+		}
 	})
 	mux.HandleFunc("POST /dashboard/logout", authed(func(w http.ResponseWriter, r *http.Request, id string) {
 		d.auth.logout(id)

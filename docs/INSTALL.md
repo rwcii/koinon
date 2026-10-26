@@ -143,6 +143,11 @@ does this:
    `handoff`, is left as it is. An entry directory or file that is a symbolic link, such as a
    link to a project's skill, is yours: the install, the daemon and the uninstall leave it and
    what it points at unchanged and report it as `kept`.
+   The install, `koinon setup codex` and the daemon at each start also take the retired Python
+   runtime's blocks (`<!-- BEGIN KOINON CODEX -->` and `<!-- BEGIN CODEX PEER BRIDGE -->`, each
+   to its end marker) out of the Codex `AGENTS.md` (`$CODEX_HOME`, else `~/.codex`), and keep
+   the rest of the file byte for byte. `retired_instructions` in the install report gives its
+   path and `removed`, `unchanged` or `absent` (#487).
 
 When no user service manager answers, the report says `"service": "manual_required"` and gives
 the `start_command` to run in a managed session. The default install never uses sudo, system
@@ -476,13 +481,12 @@ with the address and the other loopback family on its port.
 The default install uses no sudo, system service, lingering or permission change; with no user
 service manager it reports the manual start command above. The system service that Koinon
 supports is the explicit `--system` mode on macOS (PDR 003, Decisions 1 and 2). A host change
-such as enabling systemd lingering is a separate operation that the person runs or assigns
-under their own instructions and host policy (WDR 002, Decision 1; PDR 003, Decision 4).
+such as enabling systemd lingering is a separate operation, outside `koinon install`.
 
 ## Configuration and agent access
 
-Review [recommended native permissions](PERMISSIONS.md) for each family, including scoped
-examples, configuration locations, verified syntax checks and their limits. On a terminal,
+Add the [recommended native permissions](PERMISSIONS.md) for each family. The file gives
+scoped examples, configuration locations and verified syntax checks. On a terminal,
 `koinon install` lists the agent families on the computer, asks to set up each installed family
 that is not set up, and offers to add each family's recommended permission rules after it shows
 them. Without a terminal it asks nothing, sets up the `--agent` families and adds no rule.
@@ -504,9 +508,9 @@ terminal naming (PDR 001, Decision 1). DeepSeek keeps command registration witho
 
 `koinon setup grok` adds the user-scope `koinon` server with `grok mcp add --scope user`. It
 writes no permission rule; it reports the Grok Build version it saw and the recommended
-`koinon grok --allow 'MCPTool(koinon__*)'`. Koinon supports Grok's default mode only: keep
-`[cli] use_leader` off in Grok's configuration, because a session served by Grok's leader
-process is refused with `grok_leader_mode` (#254).
+`koinon grok --allow 'MCPTool(koinon__*)'`. Koinon supports Grok's default mode. A session
+served by Grok's leader process (`[cli] use_leader` on in Grok's configuration) is refused
+with `grok_leader_mode` (#254).
 
 `koinon setup codex` also adds a SessionStart hook, `'BINARY' hook codex-session-start`, to
 `$CODEX_HOME/hooks.json` (default `~/.codex/hooks.json`). It keeps every other hook. A group
@@ -561,12 +565,11 @@ the acknowledgement record; a binary from before schema 15 refuses it. After the
 message that was notified and is still unacknowledged gets one new notice, because no read
 of it was recorded before.
 
-Read `koinon guide --agent FAMILY` at startup and after a reset. Discover the exact recipient
-with `peers`, send only within the maintainer's authorization, read notices through `inbox`,
-and acknowledge only messages already handled. Use MCP when available; command examples
+Read `koinon guide --agent FAMILY` at startup and after a reset. Find the recipient with
+`peers`, read notices through `inbox`, do the work a teammate's message asks for, reply through
+Koinon, and acknowledge the messages you handled. Use MCP when available; command examples
 and memory/work operations are in [USAGE.md](USAGE.md). Setup and runtime replacement change the
-host; they run as part of a task the maintainer assigns, such as an install or upgrade, and that
-task authorizes their steps (PDR 003, Decision 4; WDR 002).
+host; run them as the install and upgrade steps above describe.
 
 ## Installed skills and setup catalog
 
@@ -583,8 +586,8 @@ Unknown/unverified native roots support catalog reading; reading is not evidence
 installed skill. List/read inspect no project or native-home files and record no adoption
 decision. Installation and upgrade apply no catalog items; the skills they write, the managed
 cycle's `koinon-pickup` and the other skill entries (Install, step 7), are Koinon's own entries,
-which load catalog items and are not copies of them (PDR 008, Decisions 1 and 2). An adoption uses an exact
-reviewed diff approved by the maintainer (PDR 008); locally edited files remain as they are.
+which load catalog items and are not copies of them (PDR 008, Decisions 1 and 2). Locally
+edited files remain as they are.
 `library_state` and `koinon library state` inspect declared targets in the calling native
 client's verified environment. Codex's effective `CODEX_HOME` selects its machine target;
 known same-name shared-user and project discovery copies are checked for collisions.
@@ -617,7 +620,7 @@ and reports it; when the CLI is not on `PATH`, it refuses with `no FAMILY CLI is
 in launchers.json` and names `koinon setup FAMILY` or `--cli ABS_PATH`; see
 [USAGE.md](USAGE.md#launcher-paths-in-launchersjson).
 
-To change a recorded path, rerun the authorized setup operation with
+To change a recorded path, rerun setup with
 `koinon setup codex --cli /absolute/path/to/codex` (or the other family). A launcher searches
 `PATH` only when the family has no entry; with an entry it uses the recorded absolute path.
 `koinon codex --cli /absolute/path/to/codex` overrides it for that
@@ -632,9 +635,11 @@ install --port` writes. Directories are owned by the current UID and private; cr
 belong in Git or logs. The daemon binds loopback only. Custom state and address must match
 between the daemon, command clients and MCP server; a recorded port matches by itself for every
 client of that state directory.
-The dashboard uses one-time login links, a login cookie and CSRF-protected actions. A login
-ends after 24 hours without a request, 7 days after it was made, or when the daemon restarts;
-then run `koinon dashboard` for a new link.
+The dashboard uses one-time login links, or the maintainer secret (`koinon maintainer secret
+set`, docs/USAGE.md), a login cookie and CSRF-protected actions. A login ends after 24 hours
+without a request, 7 days after it was made, or when the daemon restarts; then log in again
+with the secret, or run `koinon dashboard` for a new link. Schema 29 adds the table that holds
+the secret's salted key; an upgrade starts with no secret set.
 
 The daemon applies supported Go schema migrations transactionally and refuses an unknown
 future schema. `koinon status` reports health, storage, delivery and retention counts. The
@@ -646,7 +651,6 @@ whole inbox at the next sweep, which `koinon maintenance sweep` runs at once (do
 reported condition before using `koinon recover` for blocked storage. Capacity refusals
 preserve existing records; a failed or timed-out request alone does not prove a write failed.
 Use the same idempotency key and deadline to resolve uncertain writes within their horizon.
-An unavailable daemon is not permission to replace its state or change a secret.
 
 `koinon recover` asks a running daemon to end a storage block, after you corrected its cause.
 When no daemon answers, `koinon recover` and `koinon status` fail with `daemon_unavailable` and
@@ -681,7 +685,7 @@ every few seconds. A manual `koinon serve` without the flag still fails at once.
 
 Memory and work share the daemon database, with one logical store per resolved Git common
 directory, including worktrees. Snapshot pages and deltas still require explicit
-acknowledgement. Work claims are advisory leases, not permission to perform actions. See
+acknowledgement. Work claims are advisory leases. See
 [PROTOCOL.md](../PROTOCOL.md), [the work contract](WORK-ITEMS-V1.md) and
 [Go storage limits](WORK-ITEMS-GO-STORAGE.md). Python-era implementation evidence under
 historically marked documents is retained for migration provenance, not as an active recipe.

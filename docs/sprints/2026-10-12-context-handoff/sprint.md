@@ -1,5 +1,7 @@
 # Managed context handoff — proposed implementation plan
 
+> Historical sprint plan. Its non-goals and constraints limited this sprint only. Current decisions are in the [decision records](../../engineering/wdr/README.md); see WDR 001.
+
 Sources: [decision.md](decision.md), [definition-of-done.md](definition-of-done.md),
 [evidence.md](evidence.md), PDR 006 and the canonical `handoff`, `pickup` and `peer-tmux`
 skills. Gate A and Gate B are approved. The reviewed plan includes the maintainer's

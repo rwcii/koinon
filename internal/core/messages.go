@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"errors"
 	"strconv"
+	"strings"
 	"unicode/utf8"
 )
 
@@ -39,8 +40,9 @@ type Message struct {
 	// AcknowledgedBy is recipient or maintainer for an acknowledged message (chunk 09).
 	AcknowledgedBy string `json:"acknowledged_by,omitempty"`
 	// AcknowledgedSession and AcknowledgedVia name the session (its peer name, or
-	// maintainer) and the operation (ack, participant_ack or dashboard) that acknowledged
-	// the message; acknowledgements from before schema 15 have none (#250).
+	// maintainer) and the operation that acknowledged the message: ack or participant_ack,
+	// and for the maintainer dashboard or mcp:NAME, which an agent reads as maintainer
+	// (agentAckVia). Acknowledgements from before schema 15 have none (#250).
 	AcknowledgedSession string `json:"acknowledged_session,omitempty"`
 	AcknowledgedVia     string `json:"acknowledged_via,omitempty"`
 	// Room is the typed room metadata of a membership notice or a room post copy (#217).
@@ -164,6 +166,32 @@ func (s *Store) Peers(ctx context.Context, caller Key) ([]Peer, bool, error) {
 	if err != nil {
 		return nil, false, err
 	}
+	return s.peerRows(ctx, &caller, items, truncated)
+}
+
+// maintainerPeers lists every agent session for the maintainer, with no own row.
+func (s *Store) maintainerPeers(ctx context.Context) ([]Peer, bool, error) {
+	items, truncated, err := s.List(ctx)
+	if err != nil {
+		return nil, false, err
+	}
+	peers := make([]Peer, 0, len(items))
+	all, _, err := s.peerRows(ctx, nil, items, truncated)
+	for _, p := range all {
+		if p.Family != maintainerKey.Family {
+			peers = append(peers, p)
+		}
+	}
+	return peers, truncated, err
+}
+
+// peerRows are the listed sessions as peers; for an agent caller, its own row follows a list
+// that left it out, and the maintainer, whom agents can send to, follows last.
+func (s *Store) peerRows(ctx context.Context, self *Key, items []Session, truncated bool) ([]Peer, bool, error) {
+	caller := Key{}
+	if self != nil {
+		caller = *self
+	}
 	peer := func(item Session) Peer {
 		return Peer{Name: item.Name, Alias: item.Alias, Family: item.Family, State: item.State, Repository: item.Repository,
 			Subagent: item.Subagent, Role: item.Role, Address: item.Address, HoldsAddress: item.HoldsAddress, Succession: item.Succession,
@@ -175,6 +203,9 @@ func (s *Store) Peers(ctx context.Context, caller Key) ([]Peer, bool, error) {
 	for _, item := range items {
 		peers = append(peers, peer(item))
 		found = found || peers[len(peers)-1].Self
+	}
+	if self == nil {
+		return peers, truncated, nil
 	}
 	// A truncated list can leave the caller out; its own row follows the listed rows.
 	if !found {
@@ -277,6 +308,9 @@ func (s *Store) sendTx(ctx context.Context, tx *writeTx, caller Key, to, body st
 	if err != nil {
 		return Outcome{}, tx.fail(err)
 	}
+	if err := bumpInbox(ctx, tx, Key{family, sessionID}); err != nil {
+		return Outcome{}, tx.fail(err)
+	}
 	id, err := result.LastInsertId()
 	if err != nil {
 		return Outcome{}, err
@@ -356,8 +390,21 @@ func (s *Store) ReadInboxes(ctx context.Context, caller Key, after int64, partic
 		result.Participant = p
 	}
 	tx.Rollback()
+	for i := range result.Messages {
+		result.Messages[i].AcknowledgedVia = agentAckVia(result.Messages[i].AcknowledgedVia)
+	}
 	s.markRead(ctx, caller, address, after, participantAfter, result.Messages)
 	return result, nil
+}
+
+// agentAckVia is an acknowledgement's operation as an agent sees it: a maintainer's
+// acknowledgement, from the dashboard or a maintainer client, reads as maintainer, because
+// agents do not see the maintainer's client (PDR 009, Decision 4).
+func agentAckVia(via string) string {
+	if via == "dashboard" || strings.HasPrefix(via, "mcp:") {
+		return "maintainer"
+	}
+	return via
 }
 
 // markRead records the highest sequence that a read returned from each inbox (#250): the
@@ -592,8 +639,12 @@ func (s *Store) ackIf(ctx context.Context, caller Key, through int64, dashboard 
 			return 0, tx.fail(err)
 		}
 		// maintainer_ack 0 becomes 1 without a payload byte; the session and the operation
-		// that acknowledged each message are recorded with it (#250).
+		// that acknowledged each message are recorded with it (#250). A maintainer client
+		// records its own origin, such as mcp:NAME (PDR 009, Decision 4).
 		name, via, flag := "maintainer", "dashboard", 1
+		if origin := originOf(ctx); origin != "" {
+			via = origin
+		}
 		if !dashboard {
 			if name, err = ackedBy(ctx, tx.Tx, caller); err != nil {
 				return 0, err
@@ -602,6 +653,9 @@ func (s *Store) ackIf(ctx context.Context, caller Key, through int64, dashboard 
 		}
 		if _, err := tx.ExecContext(ctx, `UPDATE messages SET maintainer_ack=max(maintainer_ack,?),ack_session=?,ack_via=?
 			WHERE recipient_family=? AND recipient_id=? AND seq>? AND seq<=?`, flag, name, via, caller.Family, caller.ID, acked, through); err != nil {
+			return 0, tx.fail(err)
+		}
+		if err := bumpInbox(ctx, tx, caller); err != nil {
 			return 0, tx.fail(err)
 		}
 		acked = through
@@ -644,6 +698,7 @@ func (s *Store) MessageOutcome(ctx context.Context, caller Key, id int64) (Outco
 		return Outcome{}, ErrMessageNotFound
 	}
 	result.AcknowledgedBy = acknowledgedBy(result.Acknowledged, maintainer)
+	result.AcknowledgedVia = agentAckVia(result.AcknowledgedVia)
 	if !result.Acknowledged {
 		result.AcknowledgedSession, result.AcknowledgedVia = "", ""
 	}

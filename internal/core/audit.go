@@ -31,7 +31,8 @@ type auditContextKey struct{}
 // under its context writes it; written then stays true.
 type pendingAudit struct {
 	action, target string
-	// origin names who made a change outside the dashboard (#391): "cli" or "agent PEER".
+	// origin names who made the change: "dashboard", "mcp:NAME" for a maintainer client
+	// (PDR 009, Decision 4), "cli" or "agent PEER" (#391).
 	origin  string
 	written bool
 }
@@ -51,10 +52,26 @@ func setAuditTarget(ctx context.Context, target string) {
 	}
 }
 
-// withAudit returns a context under which the next committed write records the action.
+// withAudit returns a context under which the next committed write records the action,
+// with the origin of the request's context.
 func withAudit(ctx context.Context, action, target string) (context.Context, *pendingAudit) {
-	p := &pendingAudit{action: action, target: target}
+	p := &pendingAudit{action: action, target: target, origin: originOf(ctx)}
 	return context.WithValue(ctx, auditContextKey{}, p), p
+}
+
+type originContextKey struct{}
+
+// withOrigin marks a request's context with the maintainer client that made it: "dashboard"
+// for a dashboard request, "mcp:NAME" for a maintainer token's. The audit record, a verdict
+// and an acknowledgement record it as via.
+func withOrigin(ctx context.Context, origin string) context.Context {
+	return context.WithValue(ctx, originContextKey{}, origin)
+}
+
+// originOf is the origin that withOrigin set, or "".
+func originOf(ctx context.Context) string {
+	origin, _ := ctx.Value(originContextKey{}).(string)
+	return origin
 }
 
 // noAudit is ctx without a pending record, for the writes that record the log itself.
@@ -95,6 +112,22 @@ func (s *Store) auditRefusal(ctx context.Context, p *pendingAudit, reason string
 	if tx.Commit() == nil {
 		p.written = true
 	}
+}
+
+// auditAccepted records an accepted action that changes no stored data, such as a login
+// with the maintainer secret. The action proceeds only when the record is written.
+func (s *Store) auditAccepted(ctx context.Context, action, target string) error {
+	ctx = noAudit(ctx)
+	tx, err := s.begin(ctx, ordinary)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+	if _, err := tx.ExecContext(ctx, `INSERT INTO audit(at,action,target,result) VALUES (?,?,?,'accepted')`,
+		s.now().UnixMilli(), action, target); err != nil {
+		return tx.fail(err)
+	}
+	return tx.Commit()
 }
 
 // auditLaunch writes the record of a launch before the launcher runs, as `started`, and

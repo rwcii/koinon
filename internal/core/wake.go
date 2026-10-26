@@ -357,7 +357,10 @@ func (s *Store) noticeMaintainer(ctx context.Context, tx *writeTx, now int64, bo
 	_, err := tx.ExecContext(ctx, `INSERT INTO messages(recipient_family,recipient_id,seq,sender_family,
 		sender_id,sender_name,body,created_at,delivery_updated_at) VALUES (?,?,?,'koinon','koinon','koinon',?,?,?)`,
 		maintainerKey.Family, maintainerKey.ID, seq, body, now, now)
-	return err
+	if err != nil {
+		return err
+	}
+	return bumpChange(ctx, tx, changeInbox)
 }
 
 // checkTurns records a failed turn that a Codex session reported after a message's last
@@ -521,16 +524,17 @@ func (d *Daemon) maintainWake() {
 }
 
 // WakeHealth is a content-free projection. Reasons are adapter codes, never provider output.
+// It counts the messages to sessions that are not retired, which the wake loop retries (#486).
 func (s *Store) WakeHealth(ctx context.Context) (map[string]any, error) {
 	var waiting, uncertain, notified, failed int64
 	err := s.db.QueryRowContext(ctx, `SELECT COALESCE(SUM(m.delivery_state='waiting'),0),COALESCE(SUM(m.delivery_state='uncertain'),0),
  COALESCE(SUM(m.delivery_state='notified'),0),COALESCE(SUM(m.delivery_state='failed'),0)
  FROM messages m JOIN sessions s ON s.family=m.recipient_family AND s.id=m.recipient_id WHERE `+unhandled+`
- AND s.family!='maintainer'`).Scan(&waiting, &uncertain, &notified, &failed)
+ AND s.retired_at=0 AND s.family!='maintainer'`).Scan(&waiting, &uncertain, &notified, &failed)
 	if err != nil {
 		return nil, err
 	}
-	rows, err := s.db.QueryContext(ctx, `SELECT wake_reason,COUNT(*) FROM messages m JOIN sessions s ON s.family=m.recipient_family AND s.id=m.recipient_id WHERE `+unhandled+` AND wake_reason<>'' GROUP BY wake_reason ORDER BY wake_reason`)
+	rows, err := s.db.QueryContext(ctx, `SELECT wake_reason,COUNT(*) FROM messages m JOIN sessions s ON s.family=m.recipient_family AND s.id=m.recipient_id WHERE `+unhandled+` AND s.retired_at=0 AND wake_reason<>'' GROUP BY wake_reason ORDER BY wake_reason`)
 	if err != nil {
 		return nil, err
 	}

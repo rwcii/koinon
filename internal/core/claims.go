@@ -282,7 +282,9 @@ func (e leaseEngine) owner(workID, consumer string, generation int64, now float6
 	return b, err
 }
 
-// renew extends the current generation; it is not progress and moves no deadline.
+// renew extends the current generation; it is not progress and moves no deadline. While an
+// unfinished managed cycle of the holder's session protects the claim, a renew keeps the
+// longer of the new and the current expiry (#489).
 func (e leaseEngine) renew(workID, consumer string, generation, revision int64, now float64, duration int64) (lease, error) {
 	b, err := e.owner(workID, consumer, generation, now)
 	if err != nil {
@@ -296,6 +298,11 @@ func (e leaseEngine) renew(workID, consumer string, generation, revision int64, 
 		return lease{}, workError("capacity", "the claim revision is exhausted")
 	}
 	expires := now + float64(duration)
+	if protected, err := cycleProtects(e.ctx, e.tx, e.store, generation); err != nil {
+		return lease{}, err
+	} else if protected {
+		expires = max(expires, b.ExpiresAt)
+	}
 	if _, err := e.tx.ExecContext(e.ctx, `UPDATE claim_bundles SET revision=?,renewed_at=?,expires_at=? WHERE store=? AND generation=?`,
 		revision+1, now, expires, e.store, generation); err != nil {
 		return lease{}, err

@@ -35,6 +35,16 @@ type PeerStatus struct {
 // PeerStatus resolves a published name or held alias for an active caller. Expired or
 // retired peer names remain readable, with unknown observations. An unheld alias refuses.
 func (s *Store) PeerStatus(ctx context.Context, caller Key, name string) (PeerStatus, error) {
+	return s.peerStatus(ctx, &caller, name)
+}
+
+// maintainerPeerStatus is PeerStatus for the maintainer, who is no agent session.
+func (s *Store) maintainerPeerStatus(ctx context.Context, name string) (PeerStatus, error) {
+	return s.peerStatus(ctx, nil, name)
+}
+
+// peerStatus checks an agent caller; a nil caller is the maintainer.
+func (s *Store) peerStatus(ctx context.Context, caller *Key, name string) (PeerStatus, error) {
 	if name == "" || len(name) > 256 {
 		return PeerStatus{}, ErrInvalid
 	}
@@ -44,8 +54,10 @@ func (s *Store) PeerStatus(ctx context.Context, caller Key, name string) (PeerSt
 	}
 	defer tx.Rollback()
 	now := s.now().UnixMilli()
-	if err := active(ctx, tx, now, caller); err != nil {
-		return PeerStatus{}, err
+	if caller != nil {
+		if err := active(ctx, tx, now, *caller); err != nil {
+			return PeerStatus{}, err
+		}
 	}
 	var kind, family, id, repository, holder, role string
 	err = tx.QueryRowContext(ctx, `SELECT kind,family,session_id,repository,holder_id,role FROM names WHERE name=?`, name).

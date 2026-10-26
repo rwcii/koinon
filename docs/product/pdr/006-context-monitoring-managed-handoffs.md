@@ -3,7 +3,7 @@ pdr: "006"
 title: "Context Monitoring and Managed Handoffs"
 status: draft
 created: "2026-10-12"
-updated: "2026-10-23"
+updated: "2026-10-26"
 authors:
   - "Robert Capps"
 reviewers: []
@@ -38,7 +38,7 @@ nears its limit. Issue #196 asks for a managed cycle: the daemon watches context
 threshold, asks the session over Koinon to write its handoff, and after the ready reply enters
 the family's reset and pickup commands in the agent's own tmux pane.
 
-The cycle is not built; Gate A and Gate B for #196 are approved. The maintainer's recorded words cover
+The cycle is built (#196), from a plan that the maintainer approved at Gate A and Gate B. The maintainer's recorded words cover
 Enable carry-over across a verified reset and terminal commands as a required part of the
 cycle. The rest is requested in #196 or proposed in its plan.
 
@@ -90,8 +90,10 @@ own threshold, which replaces its family's threshold while it is set. The family
 session's Enable and its own threshold change in the dashboard (login and CSRF token), with
 `koinon context` on the command line, or by an agent session through MCP. Every change is
 audited with its origin: the dashboard, `cli`, or `agent` and the calling session's peer name.
-The plan proposes that Codex default to its native compaction, and that only fresh,
-verified observations from the session start a cycle; unknown or stale context shows a reason.
+Claude defaults to the handoff cycle and Codex to its native compaction. The daemon starts a
+cycle from a fresh, verified observation of the session: a context source at most two minutes
+old that the daemon confirmed in the last 90 seconds. For unknown or stale context it shows the
+reason, such as `context_unknown`, `source_stale` or `confirmation_stale`.
 
 **Provenance:** Monitoring, the threshold and per-session enabling: Requested in #196 (issue
 body, "The cycle the user decided" and "Bounds"); a request record, no maintainer quote in
@@ -106,8 +108,11 @@ for handoff, and to change the threshold." Then "approved, allow CLI and agents 
 (#391 Decision 1), and "ok" to keep the family threshold with an optional per-session
 threshold (#391 Decision 2). The
 Codex default and freshness rule:
-Proposed in the unpublished #196 plan draft (9206a1d); not decided. Current observations: Shipped in PR
-#193 (merge commit a19bc2b); no maintainer decision found.
+Proposed in the unpublished #196 plan draft (9206a1d); not decided. The daemon's trigger has
+both; its code cites the #196 definition of done, approved at Gate B. Before #487 this record
+gave the freshness rule as "only fresh, verified observations from the session start a cycle"
+from the plan; #487 states it as what the trigger checks (#487 provenance under Decision 3).
+Current observations: Shipped in PR #193 (merge commit a19bc2b); no maintainer decision found.
 
 ### Alternatives Considered
 
@@ -166,19 +171,20 @@ fails or the session moves.
 At the threshold, Koinon asks the session to start its handoff through `overwatch`, a
 reserved system identity like `maintainer`, with its own sender and never maintainer origin.
 No native session registers, aliases or holds that name. The request identifies its cycle
-and the maintainer's Enable; a peer body claiming that identity carries no system origin.
+and the maintainer's Enable; its system origin comes from stored metadata that only the daemon
+sets.
 The agent
 pauses its work at an appropriate stopping point, writes its handoff, replies that it is
-paused and ready, and stays idle; a peer cannot reply ready for another session. After the reply, Koinon enters the family's commands in the
+paused and ready, and stays idle; Koinon takes the ready reply from the session that it asked. After the reply, Koinon enters the family's commands in the
 agent's own pane, proven as in the #156 rename (the pane process is an ancestor of the
 agent's host with no other agent between them): `/clear` then `/koinon-pickup`, or `/clear`
 then `$koinon-pickup` for Codex (Decision 4), with no appended task text (PDR 002, Decision 4);
 for Codex the clear step
 also enters the local `/status`, whose card names the new thread for the reset proof (#196
 chunk 04). It reads the pane
-after each step and handles prompts or alerts shown during the cycle under the maintainer's
-existing authorization and native permissions (PDR 002, Decision 2). It reports an outcome
-it cannot reconcile rather than counting it as a completed step. Peer text is not entered.
+after each step and handles prompts or alerts shown during the cycle (PDR 002, Decision 2). It
+reports an outcome it cannot reconcile rather than counting it as a completed step. Koinon
+enters only the family's fixed commands.
 The ready reply is the signal that the session is ready for its handoff (#417): from the
 reply until the cycle ends, Koinon's own wakes to the session wait, and the commands go in
 once the session is at its prompt with an empty input line. A background task that the
@@ -193,12 +199,18 @@ transcript directory that cannot be read in full keeps the session from the clea
 The handoff that the ready reply names is in the session's own handoff directory of the main
 checkout: the directory that the Handoff path fact of the repository's
 `.koinon/skills/handoff.md` names, else `_handoff/<agent>/`, where the agent is the family with
-the launch's role, not the participant address. The request names that directory, and a ready
-reply that a check refuses says which check and which directory (#468). The request also
+the launch's role, not the participant address. A session registered without a repository,
+such as one that coordinates several repositories from their parent directory, uses its
+registered directory in place of the main checkout, and Git checks nothing there (#485). The
+request names that directory, and a ready reply that a check refuses says which check and
+which directory (#468). The cycle keeps each refused ready reply with its code and text, and a
+ready timeout after one names the refusal's code; the Sessions page lists them (#485). The request also
 names its ready deadline as a UTC time and asks the session to stop background subagents that
 will not finish with enough time left to update the handoff and report ready by then; for a
 Claude session at that stage, the Sessions page shows how many of its background subagents
 are still running (#467).
+The session's live work claims last through the cycle: admission extends them to a minute past
+the cycle deadline, and a renewal during the cycle keeps that expiry (#489).
 The cycle stops with a shown reason when no ready reply
 arrives in time, the pane cannot be proven, or the bounds end it while the session stays busy;
 the reason names what Koinon last saw in the pane. Entering commands in the
@@ -207,7 +219,27 @@ tmux session is a required part of the cycle, not an exception.
 **Provenance:** Maintainer, 2026-10-12: "it also needs to enter commands in the tmux session
 for context management handoffs." (#196 comment 6117338153). The steps, commands and stop
 conditions: Requested in #196 (issue body); a request record. The ready-reply form: open in
-#196 ("To decide in the plan").
+#196 ("To decide in the plan"). The directory of a session without a repository and the kept
+refused replies: Requested in #485 (issue body, Expected option 2, and the comment with the
+dashboard view of the failed cycle); a request record. The claims that last through the cycle:
+Requested in #489 (issue body, Expected option 1); a request record.
+
+Before #487 this decision said that the cycle handles prompts "under the maintainer's existing
+authorization and native permissions", that "a peer body claiming that identity carries no
+system origin", that "a peer cannot reply ready for another session" and that "Peer text is not
+entered". No maintainer source was found for that wording. The #487 review listed three limits
+and proposed to keep them; the question was whether to keep them or to remove them too.
+Maintainer, 2026-10-25: "remove all limit text.  remove all of the caveats, controls, etc.  the
+agents have their own built in safeties, they do not need you adding more complications."
+([#487 comment 6401405382](https://github.com/rwcii/koinon/issues/487#issuecomment-6401405382)).
+Reason: limit text with no source makes agents of different families refuse each other's work.
+Scope: agent-facing text, skills, setup blocks and the docs and records that restate them. The #487 audit lists the code
+refusals for a separate decision (#493). The decision now says what the daemon does: it reads the
+origin from stored metadata, takes the ready reply from the requester and enters fixed
+commands. The checks that the daemon makes stay as facts: the ready deadline and the request
+text, the handoff directory, the subagent transcript times and the full read of their
+directory, and the pane proof. The per-session Enable, the overwatch sender and the pause and
+ready steps keep their sources and stay.
 
 Ready reply as the signal: Maintainer, 2026-10-20, after two cycles on an active machine
 failed with `ready_timeout`: "sessions won't ever idle on an active machine due to peer
@@ -295,9 +327,9 @@ project repository. A project's own `pickup` skill stays unchanged and no longer
 cycle. One user-level copy per agent family replaces per-project copies and the per-session
 loader directory that Claude Code launches added (`--add-dir`).
 
-As proposed in #406: the skill is named `koinon-pickup`, and its body only reads the catalog
-item `skill.pickup` through Koinon and requires its catalog digest to equal the cycle's, so
-the procedure itself has one copy, in the binary's catalog. `koinon install`, and the install
+As proposed in #406: the skill is named `koinon-pickup`, and its body calls `library_read` for
+the catalog item `skill.pickup` and follows the returned procedure, so the procedure itself has
+one copy, in the binary's catalog. `koinon install`, and the install
 that an upgrade runs, writes it as `skills/koinon-pickup/SKILL.md` under the Claude Code
 configuration root and `~/.agents/skills/koinon-pickup/SKILL.md` for Codex. The daemon also
 writes both files at each start when one is missing or differs, so `brew upgrade`, which
@@ -335,14 +367,17 @@ maintainer's words on #397 (2026-10-17), recorded in that issue's body: "'brew u
 is a full command. running '$(brew --prefix)/bin/koinon install' after is an undocumented
 requirement". Intent recorded there: `brew upgrade koinon` alone is the complete upgrade, and a
 second step is a defect. Writing at the daemon's start is how this change meets it; the
-mechanism is proposed, not a maintainer decision.
+mechanism is proposed, not a maintainer decision. Before #487 the skill's body also required
+its catalog digest to equal the cycle's and said to stop and report otherwise; #487
+(provenance under Decision 3) removed that from the skill text. The cycle's byte check of the
+skill file, its menu check and its stop before reset stay as what the daemon checks.
 
 ### Alternatives Considered
 
 | Alternative | Description | Why Rejected |
 | ----------- | ----------- | ------------ |
 | Trust the command send | Count the cycle done once commands are entered | Cannot tell a failed clear from a good one |
-| Install missing skills first | Adopt the catalog's skills before the first cycle | Adoption is a separate, approved step (PDR 008); `koinon-pickup` is Koinon's own entry, not a catalog item |
+| Install missing skills first | Adopt the catalog's skills before the first cycle | Adoption is a separate step (PDR 008); `koinon-pickup` is Koinon's own entry, not a catalog item |
 | The bare `pickup` entry | Enter `/pickup` or `$pickup`, which a personal or project skill, or Koinon's loader, answers | A project's own skill blocked the cycle, and a personal copy shadows every project's own (#406) |
 | A per-session loader | Add a loader directory to each Claude Code session (`--add-dir`, or `/add-dir` before the clear) | Replaced by one user-level copy per family, "only a single copy" to manage (#406) |
 
@@ -430,3 +465,6 @@ and terminal commands have the maintainer's words; the rest is requested or prop
 | 2026-10-22 | Decision 3: a Claude subagent that worked after the ready reply makes the cycle ask again (#456) |
 | 2026-10-23 | Decision 3: the handoff directory follows the Handoff path fact; the request names it, and a refused ready reply names the check (#468) |
 | 2026-10-23 | Decision 3: the request names its ready deadline; the Sessions page counts a Claude session's running subagents (#467) |
+| 2026-10-25 | Decisions 1, 3 and 4: removed the unsourced authorization and peer-text wording; the freshness rule and the checks are stated as what the daemon does; the `koinon-pickup` body loads `skill.pickup` and follows it (#487) |
+| 2026-10-26 | Decision 3: a session without a repository keeps its handoff in its registered directory; refused ready replies are kept and named by the ready timeout (#485) |
+| 2026-10-26 | Decision 3: the session's work claims last through the cycle (#489) |

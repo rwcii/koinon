@@ -33,9 +33,9 @@ writes a snapshot of one agent's work, and the `pickup` skill resumes from it. T
 describes where handoffs live, why they stay out of Git, whose handoff a pickup reads, and the
 short progress note that each agent keeps beside its snapshots.
 
-The location decision quotes the maintainer. The rule that pickup reads only the caller's own
-handoff shipped without recorded maintainer words, so the record is a draft. The progress note
-was requested by the maintainer.
+The location decision quotes the maintainer. Pickup's default of the caller's own handoff
+shipped without recorded maintainer words, so the record is a draft. The progress note was
+requested by the maintainer.
 
 ---
 
@@ -74,6 +74,24 @@ handoff during context monitoring is PDR 006. Who may direct a reset or a pickup
 Koinon's memory does not import these files and does not replace native agent memory.
 
 Inventory rows: C048, C049.
+
+### Change of 2026-10-25 (#487)
+
+- Question: the review on #487 listed three limits to keep (a peer message is not the
+  maintainer's approval for a pending prompt; a peer cannot widen permissions; refuse permission
+  laundering and report it). Keep them, or remove them too?
+- Options: keep the three limits, or remove them as well.
+- Answer: Maintainer, 2026-10-25
+  ([#487 comment 6401405382](https://github.com/rwcii/koinon/issues/487#issuecomment-6401405382)):
+  "remove all limit text.  remove all of the caveats, controls, etc.  the agents have their own
+  built in safeties, they do not need you adding more complications."
+- Reason: limit text with no source makes agents of different families refuse each other's
+  work.
+- Scope: Koinon's agent-facing text, the skills, the setup blocks, and the docs and records that
+  restate them. The #487 audit lists the code refusals for a separate decision (#493).
+- This record: Decision 2 states pickup's steps without the fallback ban, and Decision 3
+  states the fallback for an unusable note as the `pickup` skill does. Decision 1 keeps its
+  text.
 
 ---
 
@@ -114,17 +132,19 @@ nver in the worktree since they get purged." Shipped in PR #130 (merge commit 2f
 
 ### Decision
 
-Each agent currently writes only its own directory, `_handoff/<agent>/`, so handoffs of
-different agents do not compete. `pickup` reads the newest file in the caller's own directory. It
-reads another agent's handoff, or a named file, when the maintainer names it. With no handoff of
-its own, pickup says so, lists the newest file name in each other agent's directory for
-information, and asks the maintainer what to resume; it does not fall back to another agent's
-file. In a reset cycle run through the `peer-tmux` skill, the peer writes and picks up its own
-handoff.
+Each agent currently writes its own directory, `_handoff/<agent>/`, so handoffs of different
+agents stay apart. `pickup` reads the newest file in the caller's own directory. It reads
+another agent's handoff, or a named file, when the maintainer names it. With no handoff of its
+own, pickup says so, lists the newest file name in each other agent's directory for
+information, and asks the maintainer what to resume. In a reset cycle run through the
+`peer-tmux` skill, the peer writes and picks up its own handoff.
+
+**Before #487:** each agent wrote "only" its own directory, and with no handoff of its own
+pickup "does not fall back to another agent's file".
 
 **Provenance:** Shipped in PR #103 (merge commit 4ac5aa7); no maintainer decision found. The
 location changed in PR #130 (merge commit 2fe8c28) and the wording to "the maintainer" in PR #201
-(merge commit 5121d87).
+(merge commit 5121d87). Changed by #487 (Problem Context).
 
 ### Alternatives Considered
 
@@ -152,10 +172,13 @@ beside its timestamped snapshots, in the resolved Handoff path. The note has fix
 most 4 KiB, and is the only file there that is updated in place: the agent updates it after a
 completed stage, and `handoff` starts a snapshot from it and updates it in the same step.
 `pickup` reads the note first, verifies its volatile claims once, and takes from the newest
-snapshot what the note does not cover, such as identity and claims. A note that is absent,
-unreadable or too large is not used, and pickup says so. The note is not a handoff: only
-timestamped files are snapshots, and a managed cycle restores the snapshot that it names
-and reconciles a newer or different note against the live state.
+snapshot what the note does not cover, such as identity and claims. When the note is absent,
+unreadable or larger than 4 KiB, pickup reads the whole handoff and says so. The timestamped
+files are the snapshots, and a managed cycle restores the snapshot that it names and reconciles
+a newer or different note against the live state.
+
+**Before #487:** "A note that is absent, unreadable or too large is not used, and pickup says
+so. The note is not a handoff: only timestamped files are snapshots".
 
 **Provenance:** Requested in #478 (issue body), a request record with observations from about 12
 handoff cycles on 2026-10-24 and 2026-10-25: handoffs were written only when context filled,
@@ -188,8 +211,9 @@ not an approval of its details.
 
 Koinon's development agents currently keep handoffs in the main checkout's Git-ignored
 `_handoff/<agent>/`, which survives worktree removal and keeps private values out of Git, as the
-maintainer asked on 2026-09-24. Pickup reads the caller's own handoff unless the maintainer names
-another; that scope shipped with the first shared skills and has no recorded maintainer decision.
+maintainer asked on 2026-09-24. Pickup reads the caller's own handoff, or another that the
+maintainer names; that default shipped with the first shared skills and has no recorded
+maintainer decision.
 Each agent also keeps a short progress note beside its snapshots, which pickup reads first.
 
 ---
@@ -200,3 +224,4 @@ Each agent also keeps a short progress note beside its snapshots, which pickup r
 | ---------- | ---------------- |
 | 2026-10-12 | Initial creation |
 | 2026-10-25 | Decision 3: a progress note beside the snapshots (#478) |
+| 2026-10-25 | #487: Decision 2 drops the fallback ban; Decision 3 states the unusable-note fallback as the `pickup` skill does |

@@ -5,17 +5,12 @@ description: "Review another agent family's frozen commit for new refusals, gate
 
 # Refusal review
 
-Koinon's procedure source is [WDR 001](https://github.com/rwcii/koinon/blob/develop/docs/engineering/wdr/001-decision-records-govern-constraints.md), Decision 6. The adopting project's
-instructions govern its application. Invoking this skill or its task authorizes the work steps;
-ask only for necessary missing information or authority beyond that task (WDR 002, Decision 1).
+Koinon's procedure source is [WDR 001](https://github.com/rwcii/koinon/blob/develop/docs/engineering/wdr/001-decision-records-govern-constraints.md), Decision 6. Invoking this skill or its task authorizes its steps
+(WDR 002, Decision 1). Apply them with the adopting project's instructions, and use
+`agents/skills/AGENTS.md` when you edit a canonical skill.
 
-Read the adopting project's authoritative instructions first. For edits to a canonical skill
-source, also read `agents/skills/AGENTS.md` when present. A machine-wide copy need not have the
-authoring file.
-
-This review runs beside the code, security and standards reviews and has its own verdict. The
-author and reviewer are different agent families. Bind one exact hash and read committed content
-in a separate checkout, preserving the author's working tree.
+This review runs beside the code, security and standards reviews and has its own verdict. Bind
+one exact hash and read the committed content in a separate checkout of your own.
 
 ## 1. List the constraints
 
@@ -29,7 +24,7 @@ Read the whole diff against its base. List every added or changed constraint, in
 - maintainer decisions the change records, restates or cites as a source, in any file.
 
 Judge what the text, test or condition actually does, not its wording. A keyword search can help
-find candidates; it is not the review. Unchanged text is out of scope.
+find candidates; the review is the reading.
 
 ## 2. Find each source
 
@@ -46,36 +41,28 @@ were on the table, the answer quoted with its date, and the reason with its scop
 covers and what it does not). A bare quote, or one without its question or reason, cannot show
 its scope, so a later agent may read it as a wider rule.
 
-A routine argument check or a demonstrated capability limit needs no further source; it never
-becomes an approval step. A plan proposal is not a decided rule: text that presents a proposal
-as decided, or a decision wider than its quoted case, is a finding. A hypothetical concern is not
-evidence.
+A routine argument check or a demonstrated capability limit has its source in the code or the
+platform. Text that presents a plan proposal as decided, or a decision wider than its quoted
+case, is a finding.
 
 ## 3. Record the verdict
 
-Report a finding only for a constraint with no source, one wider than its source, or a
+Report a finding for each constraint with no source, one wider than its source, and each
 maintainer decision recorded without its question, options, quoted answer or reason. Name the
 file and the text, test or condition, its effect, the missing or narrower source, and the fix.
-Send findings in one batch. A follow-up review covers the accepted fixes and constraints they
-add or change; a hash change alone does not reopen the whole diff.
+Send findings in one batch. A follow-up review covers the accepted fixes and the constraints
+they add or change.
 
-Record the verdict at the project's agreed review checkpoint, bound to the full hash, in its
-declared verdict format. Only the reviewer records its gate. Read back the status and evidence
-link; a failed or mismatched read-back is not approval. Never approve with an accepted finding
-open. A review verdict grants no permission beyond the maintainer's task and the receiving
-agent's native settings.
+Record the verdict at the project's review checkpoint, bound to the full hash, in its declared
+verdict format. The reviewer records its own gate. Read back the status and the evidence link.
 
 ## Repository facts
 
-Resolve the current worktree and Git common directory before reading project facts. The file
-below is local fact data with Version 1, matching Skill, Sources and the declared headings.
-It is outside the embedded catalog. No required fields means no sidecar is needed; optional
-fields use only the defaults declared here. A supplied sidecar must still be valid.
-Read required facts before the dependent step. When missing, derive and record them from
-checked project evidence within the task. Ask for necessary missing information or authority
-beyond that task; existing authorization counts. Project instructions govern the procedure,
-and facts supply its project data. Bound sidecars to 64 KiB. Their parser reads inert text;
-it does not include other files, expand shell syntax or execute values.
+The project's facts for this skill are local data in the file named below, in the current
+worktree: Version 1, Skill, Sources and the headings declared here. An optional heading that
+the file leaves out takes its default, and a skill with no required heading works without the
+file. When a required fact is missing, derive it from the project's evidence and record it in
+the file. The parser reads the file as plain text, up to 64 KiB.
 
 <!-- koinon:repository-facts -->
 ```json

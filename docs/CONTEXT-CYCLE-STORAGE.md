@@ -33,7 +33,7 @@ the rest at its terminal commit.
 
 | Changed object | Pages |
 | --- | ---: |
-| `context_cycles` row rewrite (at most about 7.3 KB: a 4,096-byte socket path, a 1,024-byte report, three 256-byte keys and names) | 69 + 2 |
+| `context_cycles` row rewrite (at most about 7.4 KB: a 4,096-byte socket path, a 1,024-byte report, three 256-byte keys and names, the 96-byte refusal slot) | 69 + 2 |
 | `context_cycle_events` row (a `WITHOUT ROWID` table: its key is its row, under 300 bytes) | 69 |
 | `audit` row (fixed codes and the cycle ID and peer name) | 69 |
 | its `audit_at` index entry | 69 |
@@ -75,9 +75,24 @@ unchanged. The migration rebuilds `context_cycles` and returns the old table's p
 first write. Since #406 no cycle enters these stages; the schema keeps them for cycles that an
 earlier binary stored in them.
 
+## Refused ready reports
+
+Each cycle row has a `ready_refusal` slot of 96 bytes (#485): a 20-digit revision, a space and
+the refusal code padded to 75 bytes. Admission writes it empty, in the row that the admission
+already inserts; schema 30 writes it into each unfinished cycle. A refused ready report at the
+current `waiting_ready` revision overwrites the slot with a value of the same width, in a
+control write. A cell rewritten at the same size is overwritten in place, so the write
+allocates no page and needs no credit; the test checks the page and freelist counts. The
+`waiting_ready` timeout names the slot's code when the slot holds the current revision.
+
+The text of each refused report is kept in `context_cycle_refusals`, the newest 8 per cycle,
+each with a code and at most 1 KiB of text. That history is an ordinary write outside the
+cycle's credit and takes no event slot: when the store has no room for an ordinary write, the
+history keeps no text, and the slot still names the code.
+
 ## Retention
 
-Finished cycles are deleted with their events after 30 days, or beyond the newest 1,024, in a
+Finished cycles are deleted with their events and refused ready reports after 30 days, or beyond the newest 1,024, in a
 control write once a minute. Unfinished cycles and their credits are never deleted. Deletion
 frees pages; it allocates none beyond the B-tree rebalancing that every deletion in the
 database already relies on.

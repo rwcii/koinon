@@ -15,16 +15,17 @@ and the decision-record system itself. WDRs are the process counterpart to ADRs
 - Before adding or relaxing a gate that governs other changes
 - When the `peer-review` skill checks a change against accepted WDRs
 
-## Key Constraints
+## Key Points
 
-- **WDRs capture process, not the system or the product.** Use the three-question
-  test (see `WDR_PROCESS.md`): a decision that survives **both** a rewrite and a
-  product pivot is a WDR; one that changes in a rewrite is an ADR; one that changes
-  in a pivot is a PDR.
+- **WDRs capture process.** Use the three-question test (see `WDR_PROCESS.md`): a
+  decision that survives **both** a rewrite and a product pivot is a WDR; one that
+  changes in a rewrite is an ADR; one that changes in a pivot is a PDR.
 - **A WDR is a meaty decision with genuine alternatives** you anchor on and
-  validate compliance against — not a tip. Tips and conventions go in an
-  `AGENTS.md`; tool mechanics go in a project's enforcement.
-- **No line numbers, no AI attribution, no volatile implementation details.**
+  validate compliance against. Tips and conventions go in an `AGENTS.md`; tool
+  mechanics go in a project's enforcement.
+- **Cite file paths, symbols and record numbers; list human authors; cite concepts,
+  not snapshots.** Records and commits carry the maintainer's identity and no tool
+  attribution (WDR 004, Decision 5).
 
 ## Numbering
 
@@ -40,10 +41,10 @@ allocation under parallel agent work.
 | `README.md`      | Index of all WDRs                                        |
 | `NNN-*.md`       | Individual WDR files (`NNN.N-*.md` for point versions)   |
 
-## Checklist Before Modifying
+## Steps for a Change
 
 - [ ] Read `WDR_PROCESS.md` for the classification test and template reuse
-- [ ] Confirm the decision is a WDR (survives both a rewrite and a pivot), not an ADR/PDR
-- [ ] Confirm it is a decision with genuine alternatives, not a tip or how-to
-- [ ] Keep it principle-level; push tooling to enforcement
+- [ ] Place the decision in a WDR, an ADR or a PDR with the three-question test
+- [ ] Write the decision with its genuine alternatives; tips and how-tos go in an `AGENTS.md`
+- [ ] Write it at principle level, with tooling in the Enforcement section
 - [ ] Update `README.md` index when adding or changing status

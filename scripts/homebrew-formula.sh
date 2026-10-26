@@ -87,16 +87,31 @@ ${bottle}  on_macos do
     bin.install Dir["koinon-*"].first => "koinon"
   end
 
+  # Each command has its own line: the expanded opt_bin path would break a wrapped sentence.
   def caveats
-    <<~EOS
+    text = <<~EOS
       Install the daemon and set up your agents with this formula's binary:
         #{opt_bin}/koinon install --agent claude --agent codex
-      The install links its binary to #{opt_bin}/koinon. To upgrade, run brew update,
-      then brew upgrade koinon: the daemon restarts on the new version. An installation
-      made by v0.3.0 or earlier has a copy instead; after this upgrade, run
-      #{opt_bin}/koinon install once. A macOS --system install keeps a copy; upgrade
-      it with #{opt_bin}/koinon install --system.
+
+      To upgrade:
+        brew update
+        brew upgrade koinon
+        koinon version
+      The install links its binary to the formula's opt path, so the daemon restarts
+      on the newly linked binary. The restart ends the dashboard login; for a new link:
+        koinon dashboard
+
+      An installation made by v0.3.0 or earlier has a copy. After this upgrade, run once:
+        #{opt_bin}/koinon install
     EOS
+    if OS.mac?
+      text += <<~EOS
+
+        A --system install keeps a copy. Upgrade it after each brew upgrade with:
+          #{opt_bin}/koinon install --system
+      EOS
+    end
+    text
   end
 
   test do

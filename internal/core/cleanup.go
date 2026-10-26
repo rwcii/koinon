@@ -486,6 +486,8 @@ func (s *Store) DeleteRoom(ctx context.Context, roomID string) error {
 		`DELETE FROM room_posts WHERE room_id=?`,
 		`DELETE FROM room_members WHERE room_id=?`,
 		`DELETE FROM rooms WHERE room_id=?`,
+		// A deleted room has no change version (PDR 009, Decision 3).
+		`DELETE FROM change_versions WHERE topic=?`,
 	} {
 		if _, err := tx.ExecContext(ctx, statement, roomID); err != nil {
 			return tx.fail(err)

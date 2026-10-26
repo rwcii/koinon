@@ -21,9 +21,9 @@ func roomCtx(action string) context.Context {
 	return ctx
 }
 
-func mustRoom(t *testing.T, s *Store, name string, refill int64) string {
+func mustRoom(t *testing.T, s *Store, name string) string {
 	t.Helper()
-	id, err := s.CreateRoom(roomCtx("room-create"), "key-"+name, name, refill)
+	id, err := s.CreateRoom(roomCtx("room-create"), "key-"+name, name)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -86,11 +86,11 @@ func TestRoomMembershipNoticesAndQueries(t *testing.T) {
 	plain := join(t, s, "claude", "synthetic-plain", "")
 	holder := joinAs(t, s, "codex", "synthetic-holder", repo, "")
 	outsider := join(t, s, "agy", "synthetic-outsider", "")
-	room := mustRoom(t, s, "synthetic room <b>", 7)
-	if again, err := s.CreateRoom(roomCtx("room-create"), "key-synthetic room <b>", "synthetic room <b>", 7); err != nil || again != room {
+	room := mustRoom(t, s, "synthetic room <b>")
+	if again, err := s.CreateRoom(roomCtx("room-create"), "key-synthetic room <b>", "synthetic room <b>"); err != nil || again != room {
 		t.Fatalf("repeated create: %s %v", again, err)
 	}
-	if _, err := s.CreateRoom(roomCtx("room-create"), "key-synthetic room <b>", "changed", 7); code(err) != "idempotency_conflict" {
+	if _, err := s.CreateRoom(roomCtx("room-create"), "key-synthetic room <b>", "changed"); code(err) != "idempotency_conflict" {
 		t.Fatalf("changed repeat: %v", err)
 	}
 	if !mustAdd(t, s, room, plain.Name) || !mustAdd(t, s, room, holder.Name) {
@@ -189,7 +189,7 @@ func TestRoomMembershipFollowsTheParticipantHolder(t *testing.T) {
 	a := joinAs(t, s, "codex", "synthetic-a", repo, "")
 	b := joinAs(t, s, "codex", "synthetic-b", repo, "")
 	plain := join(t, s, "deepseek", "synthetic-plain", "")
-	room := mustRoom(t, s, "synthetic succession", 32)
+	room := mustRoom(t, s, "synthetic succession")
 	mustAdd(t, s, room, a.Name)
 	mustAdd(t, s, room, plain.Name)
 	if _, _, err := s.RoomMembers(ctx, Key{"codex", "synthetic-b"}, room, 0, 0); code(err) != "not_room_member" {
@@ -251,7 +251,7 @@ func TestRoomMembershipFollowsTheParticipantHolder(t *testing.T) {
 func TestRoomMembersOfEveryFamily(t *testing.T) {
 	s, _ := testStore(t)
 	ctx := context.Background()
-	room := mustRoom(t, s, "synthetic families", 0)
+	room := mustRoom(t, s, "synthetic families")
 	for _, family := range SupportedFamilies() {
 		session := join(t, s, family, "synthetic-"+family, "")
 		mustAdd(t, s, room, session.Name)
@@ -271,7 +271,7 @@ func TestRoomRefusalsLeaveNothing(t *testing.T) {
 	s, _ := testStore(t)
 	clock := time.Unix(1000, 0)
 	s.now = func() time.Time { return clock }
-	room := mustRoom(t, s, "synthetic refusals", 32)
+	room := mustRoom(t, s, "synthetic refusals")
 	gone := join(t, s, "claude", "synthetic-gone", "")
 	before := rowsOf(t, s.db)
 	refused := map[string]error{}
@@ -280,11 +280,9 @@ func TestRoomRefusalsLeaveNothing(t *testing.T) {
 	_, refused["room_not_found"] = s.AddRoomMember(roomCtx("room-add"), strings.Repeat("a", 32), gone.Name)
 	_, refused["invalid_request"] = s.AddRoomMember(roomCtx("room-add"), "short", gone.Name)
 	refused["room_member_not_found"] = s.RemoveRoomMember(roomCtx("room-remove"), room, 1)
-	refused["invalid_request "] = s.SetRoomRefill(roomCtx("room-refill"), room, -1)
-	refused["room_not_found "] = s.SetRoomRefill(roomCtx("room-refill"), strings.Repeat("b", 32), 1)
-	_, refused["invalid_request  "] = s.CreateRoom(roomCtx("room-create"), "k", strings.Repeat("x", 129), 1)
-	_, refused["invalid_request   "] = s.CreateRoom(roomCtx("room-create"), "k", "", 1)
-	_, refused["invalid_request    "] = s.CreateRoom(roomCtx("room-create"), "k", "\xff", 1)
+	_, refused["invalid_request  "] = s.CreateRoom(roomCtx("room-create"), "k", strings.Repeat("x", 129))
+	_, refused["invalid_request   "] = s.CreateRoom(roomCtx("room-create"), "k", "")
+	_, refused["invalid_request    "] = s.CreateRoom(roomCtx("room-create"), "k", "\xff")
 	clock = clock.Add(2 * time.Minute)
 	_, refused["recipient_inactive"] = s.AddRoomMember(roomCtx("room-add"), room, gone.Name)
 	for want, err := range refused {
@@ -297,53 +295,31 @@ func TestRoomRefusalsLeaveNothing(t *testing.T) {
 	}
 }
 
-// A repeated create compares with the request that the key first sent, not with the room's
-// current refill: after a refill change the original request still returns the room and
-// changes nothing, and the new value under the same key is refused.
-func TestRoomCreateRepeatAfterARefillChange(t *testing.T) {
+// A repeated create returns the room and changes nothing; another name under the same key
+// is refused. A new room stores no allowance (#493, item 4).
+func TestRoomCreateRepeat(t *testing.T) {
 	s, _ := testStore(t)
-	room := mustRoom(t, s, "synthetic repeat", 32)
-	if err := s.SetRoomRefill(roomCtx("room-refill"), room, 64); err != nil {
-		t.Fatal(err)
-	}
-	if again, err := s.CreateRoom(roomCtx("room-create"), "key-synthetic repeat", "synthetic repeat", 32); err != nil || again != room {
+	room := mustRoom(t, s, "synthetic repeat")
+	if again, err := s.CreateRoom(roomCtx("room-create"), "key-synthetic repeat", "synthetic repeat"); err != nil || again != room {
 		t.Fatalf("original request again: %s %v", again, err)
 	}
-	if _, err := s.CreateRoom(roomCtx("room-create"), "key-synthetic repeat", "synthetic repeat", 64); code(err) != "idempotency_conflict" {
+	if _, err := s.CreateRoom(roomCtx("room-create"), "key-synthetic repeat", "synthetic other"); code(err) != "idempotency_conflict" {
 		t.Fatalf("changed request under the same key: %v", err)
 	}
 	var refill, allowance, revision int64
 	if err := s.db.QueryRow(`SELECT refill,allowance,revision FROM rooms WHERE room_id=?`, room).Scan(&refill, &allowance, &revision); err != nil ||
-		refill != 64 || allowance != 0 || revision != 1 || count(t, s, `SELECT COUNT(*) FROM rooms`) != 1 {
+		refill != 0 || allowance != 0 || revision != 1 || count(t, s, `SELECT COUNT(*) FROM rooms`) != 1 {
 		t.Fatalf("after the repeats: %d %d %d %v", refill, allowance, revision, err)
-	}
-}
-
-// The refill setting is stored and changed without refilling; the allowance stays zero.
-func TestRoomRefillSetting(t *testing.T) {
-	s, _ := testStore(t)
-	for _, refill := range []int64{0, 7, 32, 64} {
-		room := mustRoom(t, s, fmt.Sprint("synthetic refill ", refill), refill)
-		var stored, allowance int64
-		if err := s.db.QueryRow(`SELECT refill,allowance FROM rooms WHERE room_id=?`, room).Scan(&stored, &allowance); err != nil || stored != refill || allowance != 0 {
-			t.Fatalf("refill %d: %d %d %v", refill, stored, allowance, err)
-		}
-		if err := s.SetRoomRefill(roomCtx("room-refill"), room, refill+1); err != nil {
-			t.Fatal(err)
-		}
-		if err := s.db.QueryRow(`SELECT refill,allowance FROM rooms WHERE room_id=?`, room).Scan(&stored, &allowance); err != nil || stored != refill+1 || allowance != 0 {
-			t.Fatalf("changed refill %d: %d %d %v", refill, stored, allowance, err)
-		}
 	}
 }
 
 func TestRoomLimits(t *testing.T) {
 	s, _ := testStore(t)
-	room := mustRoom(t, s, "synthetic limits", 32)
+	room := mustRoom(t, s, "synthetic limits")
 	for i := 1; i < maxRooms; i++ {
-		mustRoom(t, s, fmt.Sprint("synthetic ", i), 32)
+		mustRoom(t, s, fmt.Sprint("synthetic ", i))
 	}
-	if _, err := s.CreateRoom(roomCtx("room-create"), "key-over", "over", 32); code(err) != "room_limit" {
+	if _, err := s.CreateRoom(roomCtx("room-create"), "key-over", "over"); code(err) != "room_limit" {
 		t.Fatalf("65th room: %v", err)
 	}
 	var sessions []Session
@@ -395,7 +371,7 @@ func TestRoomLimits(t *testing.T) {
 func TestRoomAddAtTheStorageCeiling(t *testing.T) {
 	s, _ := testStore(t)
 	ctx := context.Background()
-	room := mustRoom(t, s, "synthetic ceiling", 32)
+	room := mustRoom(t, s, "synthetic ceiling")
 	member := join(t, s, "codex", "synthetic-member", "")
 	before := rowsOf(t, s.db)
 	pages, _ := s.pages(ctx, s.db)
@@ -414,7 +390,7 @@ func TestRoomAddAtTheStorageCeiling(t *testing.T) {
 // Concurrent adds and removes serialize: each change has its own revision.
 func TestRoomConcurrentChanges(t *testing.T) {
 	s, _ := testStore(t)
-	room := mustRoom(t, s, "synthetic race", 32)
+	room := mustRoom(t, s, "synthetic race")
 	var members []Session
 	for i := 0; i < 8; i++ {
 		members = append(members, join(t, s, "opencode", fmt.Sprint("synthetic-race-", i), ""))
@@ -463,7 +439,7 @@ func TestRoomsUpgradeKeepsExistingState(t *testing.T) {
 		t.Fatal("fixture was not migrated")
 	}
 	rows := rowsOf(t, s.db)
-	if _, err := fixtureExec(s, undoSchemaTwentyEight+undoSchemaTwentySeven+undoSchemaTwentySix+undoSchemaTwentyFive+undoSchemaTwentyFour+undoSchemaTwentyThree+undoSchemaTwentyTwo+undoSchemaTwentyOne+undoSchemaTwenty+undoSchemaNineteen+`PRAGMA user_version=18`); err != nil {
+	if _, err := fixtureExec(s, undoSchemaThirtyTwo+undoSchemaThirtyOne+undoSchemaThirty+undoSchemaTwentyNine+undoSchemaTwentyEight+undoSchemaTwentySeven+undoSchemaTwentySix+undoSchemaTwentyFive+undoSchemaTwentyFour+undoSchemaTwentyThree+undoSchemaTwentyTwo+undoSchemaTwentyOne+undoSchemaTwenty+undoSchemaNineteen+`PRAGMA user_version=18`); err != nil {
 		t.Fatal(err)
 	}
 	if err := checkCatalog(s.db, 18); err != nil {
@@ -487,7 +463,7 @@ func TestDashboardRoomActions(t *testing.T) {
 	s := d.store
 	member := join(t, s, "codex", "synthetic-member", "")
 	client := newActionClient(t, d, root)
-	create := url.Values{"name": {"<script>synthetic</script>"}, "refill": {"7"}, "key": {"dashboard-synthetic"}}
+	create := url.Values{"name": {"<script>synthetic</script>"}, "key": {"dashboard-synthetic"}}
 	for name, c := range map[string]struct {
 		cookie string
 		change func(*http.Request)
@@ -506,9 +482,9 @@ func TestDashboardRoomActions(t *testing.T) {
 		t.Fatal("a refused request changed state")
 	}
 	n := 0
-	for _, bad := range []string{"-1", "x", "", "1.5", "99999999999999999999"} {
-		if got := client.do("room-create", url.Values{"name": {"synthetic"}, "refill": {bad}, "key": {"dashboard-bad"}}); got != "invalid_request" {
-			t.Fatalf("refill %q: %s", bad, got)
+	for _, bad := range []string{"", strings.Repeat("x", 129), "\xff"} {
+		if got := client.do("room-create", url.Values{"name": {bad}, "key": {"dashboard-bad"}}); got != "invalid_request" {
+			t.Fatalf("name %q: %s", bad, got)
 		}
 		expectAudit(t, s, n, "room-create", "refused", "invalid_request")
 		n++
@@ -534,14 +510,9 @@ func TestDashboardRoomActions(t *testing.T) {
 	}
 	expectAudit(t, s, n, "room-add", "refused", "peer_not_found")
 	n++
-	if got := client.do("room-refill", url.Values{"room_id": {room}, "refill": {"64"}}); got != "room_refill_saved" {
-		t.Fatalf("refill: %s", got)
-	}
-	expectAudit(t, s, n, "room-refill", "accepted", "")
-	n++
 	page := dashboardDo(t, d, "GET", "/dashboard/rooms", client.cookie, nil, nil)
 	if page.status != 200 || strings.Contains(page.body, "<script>synthetic") || !strings.Contains(page.body, "&lt;script&gt;synthetic") ||
-		!strings.Contains(page.body, member.Name) || !strings.Contains(page.body, "refill 64 at each maintainer post, 0 left") {
+		!strings.Contains(page.body, member.Name) || strings.Contains(page.body, "refill") || strings.Contains(page.body, "allowance") {
 		t.Fatalf("rooms page: %d %s", page.status, page.body)
 	}
 	if got := client.do("room-remove", url.Values{"room_id": {room}, "ordinal": {"1"}}); got != "room_member_removed" {
@@ -569,7 +540,7 @@ func TestRoomRoutes(t *testing.T) {
 	}
 	caller := Key{"deepseek", "synthetic-dsh"}
 	other := join(t, d.store, "codex", "synthetic-other", "")
-	room := mustRoom(t, d.store, "synthetic routes", 32)
+	room := mustRoom(t, d.store, "synthetic routes")
 	var name string
 	if err := d.store.db.QueryRow(`SELECT name FROM names WHERE kind='peer' AND session_id='synthetic-dsh'`).Scan(&name); err != nil {
 		t.Fatal(err)

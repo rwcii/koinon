@@ -12,7 +12,7 @@
 {{template "body" .}}
 {{with .ClosedBy}}<p><small>Closed by {{.}}{{with $.Data.Item.ClosedAt}} at {{ms .}}{{end}}</small></p>{{end}}{{with .OutcomeNote}}<h4>Outcome</h4><div class="md">{{markdown .}}</div>{{end}}{{end}}
 {{with $.Data.History}}<h3>Verdict history</h3>{{if not .Verdicts}}<p class="empty">No verdicts.</p>{{end}}
-{{range .Verdicts}}<article class="verdict-record"><p><strong>{{.Verdict}}</strong> on revision {{.Revision}}, {{ms .At}}, verdict {{.ID}}{{with .SupersededAt}}; superseded {{ms .}}{{end}}</p>
+{{range .Verdicts}}<article class="verdict-record"><p><strong>{{.Verdict}}</strong> on revision {{.Revision}}, {{ms .At}}, verdict {{.ID}}{{with .Via}}, via {{.}}{{end}}{{with .SupersededAt}}; superseded {{ms .}}{{end}}</p>
 {{with .Note}}<h4>Note</h4><div class="md">{{markdown .}}</div>{{end}}
 <details data-key="verdict {{.ID}}"><summary>Text of revision {{.Revision}} as shown</summary>{{with .Snapshot}}<p><b>{{.Title}}</b></p>
 {{with .Context}}<h4>Context</h4><div class="md">{{markdown .}}</div>{{end}}

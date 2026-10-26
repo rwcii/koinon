@@ -15,7 +15,7 @@ import (
 // maintainer creates a room and changes its roster in the dashboard; members read their
 // rooms and the roster through room_list and room_members. A member is the participant
 // address that the selected session holds, otherwise that exact native session. Posts are
-// chunk 02; the refill setting, allowance and membership start are stored for it.
+// chunk 02; the membership start is stored for it.
 
 const (
 	maxRooms           = 64
@@ -23,7 +23,6 @@ const (
 	maxRoomMemberRows  = 128 // current and former membership rows of one room
 	maxRoomNameBytes   = 128
 	maxRoomPage        = 100
-	defaultRoomRefill  = 32 // PDR 005, Decision 2
 	roomEventAdded     = "added"
 	roomEventRemoved   = "removed"
 	roomMemberSession  = "session"
@@ -39,7 +38,7 @@ var (
 	ErrRoomLimit        = Refusal{"room_limit", fmt.Sprintf("the daemon already has %d rooms", maxRooms)}
 	ErrRoomMemberLimit  = Refusal{"room_member_limit", fmt.Sprintf("the room already has %d active members", maxRoomMembers)}
 	ErrRoomHistoryLimit = Refusal{"room_history_limit", fmt.Sprintf("the room already has %d current and former memberships", maxRoomMemberRows)}
-	ErrRoomKeyConflict  = Refusal{"idempotency_conflict", "that form key created a room with another name or refill value"}
+	ErrRoomKeyConflict  = Refusal{"idempotency_conflict", "that form key created a room with another name"}
 	ErrRoomMemberAbsent = Refusal{"room_member_not_found", "the room has no such current member"}
 	// ErrNotRoomMember answers a roster query from a caller that is not a current member,
 	// also for an unknown room, so a query reveals no other room.
@@ -64,8 +63,6 @@ type Room struct {
 	ID        string       `json:"room_id"`
 	Name      string       `json:"name"`
 	Revision  int64        `json:"revision"`
-	Refill    int64        `json:"refill"`
-	Allowance int64        `json:"allowance"`
 	CreatedAt int64        `json:"created_at"`
 	Members   []RoomMember `json:"members"`
 }
@@ -108,11 +105,11 @@ func validRoomID(id string) bool {
 	return err == nil
 }
 
-// CreateRoom creates an empty room with its agent-post refill setting and no allowance.
-// key is the form's idempotency key: a repeat with the name and refill that it first sent
-// returns the room it created, also after a refill change, and other input is refused.
-func (s *Store) CreateRoom(ctx context.Context, key, name string, refill int64) (string, error) {
-	if !validRoomName(name) || refill < 0 || key == "" || len(key) > 64 {
+// CreateRoom creates an empty room. key is the form's idempotency key: a repeat with the
+// name that it first sent returns the room it created, and another name is refused. The
+// rooms table keeps its refill and allowance columns, which nothing reads since #493.
+func (s *Store) CreateRoom(ctx context.Context, key, name string) (string, error) {
+	if !validRoomName(name) || key == "" || len(key) > 64 {
 		return "", ErrInvalid
 	}
 	var b [16]byte
@@ -127,10 +124,9 @@ func (s *Store) CreateRoom(ctx context.Context, key, name string, refill int64) 
 	defer tx.Rollback()
 	tx.audited = true
 	var existing, existingName string
-	var existingRefill int64
-	err = tx.QueryRowContext(ctx, `SELECT room_id,name,create_refill FROM rooms WHERE create_key=?`, key).Scan(&existing, &existingName, &existingRefill)
+	err = tx.QueryRowContext(ctx, `SELECT room_id,name FROM rooms WHERE create_key=?`, key).Scan(&existing, &existingName)
 	if err == nil {
-		if existingName != name || existingRefill != refill {
+		if existingName != name {
 			return "", ErrRoomKeyConflict
 		}
 		setAuditTarget(ctx, "room "+existing+" create repeated")
@@ -147,36 +143,15 @@ func (s *Store) CreateRoom(ctx context.Context, key, name string, refill int64) 
 		return "", ErrRoomLimit
 	}
 	if _, err := tx.ExecContext(ctx, `INSERT INTO rooms(room_id,name,revision,refill,allowance,post_head,created_at,create_key,create_refill)
-		VALUES (?,?,1,?,0,0,?,?,?)`, id, name, refill, s.now().UnixMilli(), key, refill); err != nil {
+		VALUES (?,?,1,0,0,0,?,?,0)`, id, name, s.now().UnixMilli(), key); err != nil {
 		return "", tx.fail(err)
 	}
-	setAuditTarget(ctx, "room "+id+" name bytes "+strconv.Itoa(len(name))+" refill "+strconv.FormatInt(refill, 10))
+	// The room's change version (PDR 009, Decision 3) is part of the room's creation.
+	if _, err := tx.ExecContext(ctx, `INSERT INTO change_versions(topic,version) VALUES (?,`+firstVersion+`)`, id); err != nil {
+		return "", tx.fail(err)
+	}
+	setAuditTarget(ctx, "room "+id+" name bytes "+strconv.Itoa(len(name)))
 	return id, tx.Commit()
-}
-
-// SetRoomRefill changes the value that the next successful maintainer post sets the
-// allowance to. It leaves the current allowance as it is.
-func (s *Store) SetRoomRefill(ctx context.Context, roomID string, refill int64) error {
-	if !validRoomID(roomID) || refill < 0 {
-		return ErrInvalid
-	}
-	tx, err := s.begin(ctx, ordinary)
-	if err != nil {
-		return err
-	}
-	defer tx.Rollback()
-	tx.audited = true
-	result, err := tx.ExecContext(ctx, `UPDATE rooms SET refill=? WHERE room_id=?`, refill, roomID)
-	if err != nil {
-		return tx.fail(err)
-	}
-	if n, err := result.RowsAffected(); err != nil {
-		return err
-	} else if n == 0 {
-		return ErrRoomNotFound
-	}
-	setAuditTarget(ctx, "room "+roomID+" refill "+strconv.FormatInt(refill, 10))
-	return tx.Commit()
 }
 
 // AddRoomMember adds the active session with peer name to a room: as the participant whose
@@ -246,6 +221,9 @@ func (s *Store) AddRoomMember(ctx context.Context, roomID, peerName string) (boo
 	if _, err := tx.ExecContext(ctx, `UPDATE rooms SET revision=? WHERE room_id=?`, revision, roomID); err != nil {
 		return false, tx.fail(err)
 	}
+	if err := bumpChange(ctx, tx, roomID); err != nil {
+		return false, tx.fail(err)
+	}
 	// An initial add or a re-add starts the membership at the room's current post head.
 	if exists {
 		_, err = tx.ExecContext(ctx, `UPDATE room_members SET active=1,revision=?,start_seq=?,label=?,changed_at=?
@@ -293,6 +271,9 @@ func (s *Store) RemoveRoomMember(ctx context.Context, roomID string, ordinal int
 	}
 	revision := room.Revision + 1
 	if _, err := tx.ExecContext(ctx, `UPDATE rooms SET revision=? WHERE room_id=?`, revision, roomID); err != nil {
+		return tx.fail(err)
+	}
+	if err := bumpChange(ctx, tx, roomID); err != nil {
 		return tx.fail(err)
 	}
 	if _, err := tx.ExecContext(ctx, `UPDATE room_members SET active=0,revision=?,changed_at=? WHERE room_id=? AND ordinal=?`,
@@ -536,8 +517,8 @@ func (s *Store) RoomMembers(ctx context.Context, caller Key, roomID string, afte
 		return Room{}, false, ErrNotRoomMember
 	}
 	room := Room{ID: roomID, Members: []RoomMember{}}
-	if err := tx.QueryRowContext(ctx, `SELECT name,revision,refill,allowance,created_at FROM rooms WHERE room_id=?`, roomID).
-		Scan(&room.Name, &room.Revision, &room.Refill, &room.Allowance, &room.CreatedAt); err != nil {
+	if err := tx.QueryRowContext(ctx, `SELECT name,revision,created_at FROM rooms WHERE room_id=?`, roomID).
+		Scan(&room.Name, &room.Revision, &room.CreatedAt); err != nil {
 		return Room{}, false, err
 	}
 	members, more, err := roomMemberRows(ctx, tx, now, roomID, `AND active=1 AND ordinal>?`, after, limit)
@@ -595,14 +576,14 @@ func (s *Store) dashboardRooms(ctx context.Context) ([]Room, error) {
 	}
 	defer tx.Rollback()
 	now := s.now().UnixMilli()
-	rows, err := tx.QueryContext(ctx, `SELECT room_id,name,revision,refill,allowance,created_at FROM rooms ORDER BY created_at,room_id`)
+	rows, err := tx.QueryContext(ctx, `SELECT room_id,name,revision,created_at FROM rooms ORDER BY created_at,room_id`)
 	if err != nil {
 		return nil, err
 	}
 	var rooms []Room
 	for rows.Next() {
 		var r Room
-		if err := rows.Scan(&r.ID, &r.Name, &r.Revision, &r.Refill, &r.Allowance, &r.CreatedAt); err != nil {
+		if err := rows.Scan(&r.ID, &r.Name, &r.Revision, &r.CreatedAt); err != nil {
 			rows.Close()
 			return nil, err
 		}

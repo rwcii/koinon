@@ -517,7 +517,7 @@ func TestDecisionSchemaUpgradeKeepsRetainedState(t *testing.T) {
 	m := MemoryCaller{Family: "codex", Repository: "/synthetic/schema25/.git", Consumer: "synthetic-schema25", Name: "synthetic-schema25"}
 	note(t, s, m, MemoryRecordRequest{Type: "finding", Body: "synthetic retained schema24 note"})
 	before := rowsOf(t, s.db)
-	if _, err := fixtureExec(s, undoSchemaTwentyEight+undoSchemaTwentySeven+undoSchemaTwentySix+undoSchemaTwentyFive+`PRAGMA user_version=24`); err != nil {
+	if _, err := fixtureExec(s, undoSchemaThirtyTwo+undoSchemaThirtyOne+undoSchemaThirty+undoSchemaTwentyNine+undoSchemaTwentyEight+undoSchemaTwentySeven+undoSchemaTwentySix+undoSchemaTwentyFive+`PRAGMA user_version=24`); err != nil {
 		t.Fatal(err)
 	}
 	if err := checkCatalog(s.db, 24); err != nil {

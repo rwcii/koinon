@@ -9,12 +9,13 @@ import (
 	"net"
 	"net/http"
 	"strconv"
+	"strings"
 	"sync"
 	"time"
 )
 
-// Dashboard login (sprint chunk 08). A one-time link from the bearer API starts a browser
-// session; the daemon keeps only hashes of links and session IDs, in memory, so a restart
+// Dashboard login (sprint chunk 08). A one-time link from the bearer API, or the maintainer
+// secret (PDR 009), starts a browser session; the daemon keeps only hashes of links and session IDs, in memory, so a restart
 // ends every login. The CSRF token is derived from the session ID with a per-start key,
 // so it needs no storage of its own.
 
@@ -30,8 +31,12 @@ const (
 	maxDashboardLogin = 16
 )
 
+// dashboardSession is one login. client is "dashboard" for a browser login and "mcp:NAME"
+// for a maintainer token (PDR 009, Decision 3): a cookie opens only a browser login, a token
+// only its own client's, and each maintainer action takes its via from client.
 type dashboardSession struct {
 	created, used time.Time
+	client        string
 }
 
 type dashboardAuth struct {
@@ -40,6 +45,8 @@ type dashboardAuth struct {
 	csrfKey  []byte
 	links    map[[32]byte]time.Time
 	sessions map[[32]byte]*dashboardSession
+	// gate orders the maintainer secret's checks and changes (PDR 009).
+	gate secretGate
 }
 
 func newDashboardAuth(now func() time.Time) (*dashboardAuth, error) {
@@ -47,7 +54,8 @@ func newDashboardAuth(now func() time.Time) (*dashboardAuth, error) {
 	if _, err := rand.Read(key); err != nil {
 		return nil, err
 	}
-	return &dashboardAuth{now: now, csrfKey: key, links: map[[32]byte]time.Time{}, sessions: map[[32]byte]*dashboardSession{}}, nil
+	return &dashboardAuth{now: now, csrfKey: key, links: map[[32]byte]time.Time{}, sessions: map[[32]byte]*dashboardSession{},
+		gate: secretGate{mu: make(chanMutex, 1)}}, nil
 }
 
 func randomToken() (string, error) {
@@ -114,13 +122,22 @@ func (a *dashboardAuth) login(token string) (string, bool, error) {
 	if !found || !now.Before(expires) {
 		return "", false, nil
 	}
+	id, err := a.start("dashboard")
+	return id, err == nil, err
+}
+
+// start begins a login session for client, after a link or the maintainer secret, and
+// returns its ID. Browser logins and maintainer tokens share the limits: at most
+// maxDashboardLogin stay, and a new one drops the oldest.
+func (a *dashboardAuth) start(client string) (string, error) {
 	id, err := randomToken()
 	if err != nil {
-		return "", false, err
+		return "", err
 	}
 	sessionHash, _ := tokenHash(id)
 	a.mu.Lock()
 	defer a.mu.Unlock()
+	now := a.now()
 	a.prune(now)
 	for len(a.sessions) >= maxDashboardLogin {
 		var oldest [32]byte
@@ -132,8 +149,15 @@ func (a *dashboardAuth) login(token string) (string, bool, error) {
 		}
 		delete(a.sessions, oldest)
 	}
-	a.sessions[sessionHash] = &dashboardSession{created: now, used: now}
-	return id, true, nil
+	a.sessions[sessionHash] = &dashboardSession{created: now, used: now, client: client}
+	return id, nil
+}
+
+// endAll ends every login and maintainer token, when the maintainer secret changes.
+func (a *dashboardAuth) endAll() {
+	a.mu.Lock()
+	clear(a.sessions)
+	a.mu.Unlock()
 }
 
 func (a *dashboardAuth) prune(now time.Time) {
@@ -167,11 +191,44 @@ func (a *dashboardAuth) session(r *http.Request) (string, bool) {
 	now := a.now()
 	a.prune(now)
 	s, found := a.sessions[hash]
-	if !found {
+	if !found || s.client != "dashboard" {
 		return "", false
 	}
 	s.used = now
 	return cookie.Value, true
+}
+
+// token checks a maintainer token and records its use. It returns the client that the token
+// was issued to, "mcp:NAME"; a browser login's ID is no token.
+func (a *dashboardAuth) token(id string) (string, bool) {
+	hash, ok := tokenHash(id)
+	if !ok {
+		return "", false
+	}
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	now := a.now()
+	a.prune(now)
+	s, found := a.sessions[hash]
+	if !found || !strings.HasPrefix(s.client, "mcp:") {
+		return "", false
+	}
+	s.used = now
+	return s.client, true
+}
+
+// live reports whether a maintainer token is still in force, without recording a use: a
+// waiting changes request checks it while it waits.
+func (a *dashboardAuth) live(id string) bool {
+	hash, ok := tokenHash(id)
+	if !ok {
+		return false
+	}
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	a.prune(a.now())
+	s, found := a.sessions[hash]
+	return found && strings.HasPrefix(s.client, "mcp:")
 }
 
 func (a *dashboardAuth) logout(id string) {

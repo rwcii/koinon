@@ -13,15 +13,15 @@ contracts**. PDRs are the product counterpart to Architecture Decision Records (
 - Before altering generated or templated user-facing content
 - When the `peer-review` skill checks a change against accepted PDRs
 
-## Key Constraints
+## Key Conventions
 
 - **PDRs capture product decisions, not architecture.** If the decision survives a
   complete rewrite (new language, new framework) it belongs here. If it survives a
   complete product pivot (new features, new flows) it belongs in `docs/architecture/adr/`.
   If it survives **both** — because it governs how the work is done — it belongs in a
   Workflow Decision Record (`docs/engineering/wdr/`).
-- **No line numbers, no AI attribution, no volatile implementation details.** See
-  `PDR_PROCESS.md` § "What PDRs Must NOT Contain."
+- **Cite paths, symbols and record numbers, name human authors, and describe behavior.** See
+  `PDR_PROCESS.md` § "What PDRs Cite."
 - **PDRs and ADRs often come in pairs.** Cross-reference via `related_adrs` /
   `related_pdrs`. The ADR captures the mechanism; the PDR captures the behavior.
 
@@ -43,9 +43,9 @@ contracts**. PDRs are the product counterpart to Architecture Decision Records (
 - Status lifecycle: `draft → under_review → accepted → modified → deprecated/superseded`
 - Commit titles name the record, for example `Add PDR 001: [title]`
 
-## Checklist Before Modifying
+## Steps When Changing a PDR
 
 - [ ] Read `PDR_PROCESS.md` for the full template and scoping rules
 - [ ] Check `README.md` index for the current highest number
-- [ ] Verify the decision belongs in a PDR, not an ADR or an issue
+- [ ] Choose the series: a PDR, an ADR or an issue
 - [ ] Update `README.md` index when adding or changing status

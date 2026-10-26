@@ -6,6 +6,7 @@ import (
 	"database/sql"
 	"encoding/hex"
 	"errors"
+	"fmt"
 	"regexp"
 	"strconv"
 	"strings"
@@ -67,6 +68,7 @@ const (
 	maxArtifactName        = 128
 	maxArtifactBytes       = 1 << 20
 	maxPickupReport        = 1024
+	maxCycleRefusals       = 8
 )
 
 // overwatchKey is the reserved system sender of managed-cycle requests. It is not the
@@ -124,6 +126,14 @@ const contextCycleEventsTable = `CREATE TABLE context_cycle_events (
 	stage TEXT NOT NULL, result TEXT NOT NULL, reason TEXT NOT NULL,
 	PRIMARY KEY (cycle_id, ordinal)) WITHOUT ROWID;`
 
+// contextCycleRefusalsTable holds the refused ready reports of each cycle, the newest
+// maxCycleRefusals, with the revision each one answered (#485). They take no event ordinal
+// and no revision, so the stage history and its revisions stay as they are.
+const contextCycleRefusalsTable = `CREATE TABLE context_cycle_refusals (
+	cycle_id TEXT NOT NULL, ordinal INTEGER NOT NULL, revision INTEGER NOT NULL, at INTEGER NOT NULL,
+	code TEXT NOT NULL, message TEXT NOT NULL,
+	PRIMARY KEY (cycle_id, ordinal)) WITHOUT ROWID;`
+
 // cycleTerminal reports whether a state ends a cycle.
 func cycleTerminal(state string) bool {
 	return state == cycleComplete || state == cycleCancelled || state == cycleFailed || state == cycleUncertain
@@ -160,6 +170,15 @@ type CycleEvent struct {
 	Reason  string `json:"reason,omitempty"`
 }
 
+// CycleRefusal is a refused ready report: the revision it answered, its time, and the
+// refusal's code and text (#485).
+type CycleRefusal struct {
+	Revision int64  `json:"revision"`
+	At       int64  `json:"at"`
+	Code     string `json:"code"`
+	Message  string `json:"message"`
+}
+
 // CycleView is a cycle as its own session and the dashboard see it. It holds no native
 // ID, epoch, host, pane, socket or report text.
 type CycleView struct {
@@ -186,6 +205,8 @@ type CycleView struct {
 	FinishedAt    int64        `json:"finished_at,omitempty"`
 	Role          string       `json:"role"` // requester or successor, for the calling session
 	Events        []CycleEvent `json:"events"`
+	// Refusals are the refused ready reports, oldest first.
+	Refusals []CycleRefusal `json:"ready_refusals"`
 }
 
 // cycleRow is the full private record.
@@ -242,7 +263,8 @@ func (c cycleRow) view(ctx context.Context, q querier, role string) (CycleView, 
 		Address: c.Address, Mode: c.Mode, Threshold: c.Threshold, CreatedAt: c.CreatedAt, UpdatedAt: c.UpdatedAt,
 		StageDeadline: c.StageDeadline, CycleDeadline: c.CycleDeadline, Artifact: c.Artifact, ArtifactBytes: c.ArtifactSize,
 		CatalogDigest: c.CatalogDigest,
-		Outcome:       c.Outcome, ReportBytes: len(c.Report), FinishedAt: c.FinishedAt, Role: role, Events: []CycleEvent{}}
+		Outcome:       c.Outcome, ReportBytes: len(c.Report), FinishedAt: c.FinishedAt, Role: role, Events: []CycleEvent{},
+		Refusals: []CycleRefusal{}}
 	rows, err := q.QueryContext(ctx, `SELECT ordinal,at,stage,result,reason FROM context_cycle_events WHERE cycle_id=? ORDER BY ordinal`, c.ID)
 	if err != nil {
 		return v, err
@@ -254,6 +276,22 @@ func (c cycleRow) view(ctx context.Context, q querier, role string) (CycleView, 
 			return v, err
 		}
 		v.Events = append(v.Events, e)
+	}
+	if err := rows.Err(); err != nil {
+		return v, err
+	}
+	rows.Close()
+	rows, err = q.QueryContext(ctx, `SELECT revision,at,code,message FROM context_cycle_refusals WHERE cycle_id=? ORDER BY ordinal`, c.ID)
+	if err != nil {
+		return v, err
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var r CycleRefusal
+		if err := rows.Scan(&r.Revision, &r.At, &r.Code, &r.Message); err != nil {
+			return v, err
+		}
+		v.Refusals = append(v.Refusals, r)
 	}
 	return v, rows.Err()
 }
@@ -425,12 +463,11 @@ func (s *Store) sessionProbe(ctx context.Context, k Key) CycleProbe {
 func cycleRequestBody(id string, revision int64, agent string, deadline int64) string {
 	by := time.UnixMilli(deadline).UTC().Format("2006-01-02 15:04:05 UTC")
 	return "overwatch: managed context cycle " + id + " revision " + strconv.FormatInt(revision, 10) +
-		" requests your handoff. Report ready by " + by + ". Pause your work at the next safe stopping point and start " +
-		"no new work. Let running background subagents finish, or stop them, so that the handoff holds their results; " +
+		" requests your handoff. Report ready by " + by + ". Pause your work at the next safe stopping point. Let running background subagents finish, or stop them, so that the handoff holds their results; " +
 		"stop any that will not finish with enough time left to update the handoff and report ready by " + by + ". Write your handoff " +
-		"with your canonical handoff procedure into _handoff/" + agent + "/ of the main checkout, or into the directory " +
-		"that the Handoff path fact of " + handoffFacts + " names, then call context_cycle_ready with this cycle ID, " +
-		"its revision and the handoff file name. Then end your turn and stay idle: overwatch clears your context only at your idle prompt, and asks again " +
+		"with your canonical handoff procedure into _handoff/" + agent + "/ of the main checkout (outside a Git checkout, of the directory " +
+		"where this session started), or into the directory that the Handoff path fact of " + handoffFacts + " names, then call context_cycle_ready with this cycle ID, " +
+		"its revision and the handoff file name. Then end your turn and stay idle: overwatch clears your context at your idle prompt, and asks again " +
 		"if your pane does not become idle. See the Managed cycle reporting section of koinon guide."
 }
 
@@ -448,11 +485,11 @@ func (s *Store) cycleNoticeSuffix(ctx context.Context, b wakeBatch) (string, err
 	if err != nil {
 		return "", err
 	}
-	return " Managed context-cycle request " + id + ": answer it before other work.", nil
+	return " Managed context-cycle request " + id + ".", nil
 }
 
 // cycleReadyNext is the instruction of a successful ready report (#431).
-const cycleReadyNext = "Paused and ready: end your turn now and start no other work. Overwatch clears your context at " +
+const cycleReadyNext = "Paused and ready: end your turn now and stay idle. Overwatch clears your context at " +
 	"your idle prompt and then enters koinon-pickup."
 
 // cycleRepeatable reports whether a ready cycle whose stage deadline passed asks its
@@ -652,6 +689,9 @@ func (s *Store) admitContextCycle(ctx context.Context, k Key) (bool, error) {
 	if err := insertCycle(ctx, tx, c); err != nil {
 		return false, tx.fail(err)
 	}
+	if err := protectCycleClaims(ctx, tx, c, session.Repository, now); err != nil {
+		return false, tx.fail(err)
+	}
 	if err := cycleEvent(ctx, tx, &c, now, cycleRequested, "admitted", ""); err != nil {
 		return false, tx.fail(err)
 	}
@@ -671,11 +711,12 @@ func (s *Store) admitContextCycle(ctx context.Context, k Key) (bool, error) {
 }
 
 func insertCycle(ctx context.Context, tx *writeTx, c cycleRow) error {
-	_, err := tx.ExecContext(ctx, `INSERT INTO context_cycles(`+cycleColumns+`) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+	_, err := tx.ExecContext(ctx, `INSERT INTO context_cycles(`+cycleColumns+`,ready_refusal) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
 		c.ID, c.Credit, c.Held, c.Revision, c.State, c.PromptFrom, c.Reason, c.Family, c.SessionID, c.Peer, c.Address, c.HostPID, c.HostStart,
 		c.Socket, c.Pane, c.EnableRevision, c.Epoch, c.Mode, c.Threshold, c.Used, c.Limit, c.SourceAt, c.ConfirmedAt, c.MessageSeq,
 		c.CreatedAt, c.UpdatedAt, c.StageDeadline, c.CycleDeadline, c.Artifact, c.ArtifactDev, c.ArtifactIno, c.ArtifactSize,
-		c.ArtifactMtime, c.Adapter, c.CatalogDigest, c.SuccessorID, c.SuccessorEpoch, c.Outcome, c.Report, c.Events, c.FinishedAt)
+		c.ArtifactMtime, c.Adapter, c.CatalogDigest, c.SuccessorID, c.SuccessorEpoch, c.Outcome, c.Report, c.Events, c.FinishedAt,
+		refusalSlot(0, ""))
 	return err
 }
 
@@ -1035,10 +1076,12 @@ func (s *Store) ContextCycleReady(ctx context.Context, caller Key, epoch, id str
 		return v, ErrCycleChanged
 	}
 	if epoch != c.Epoch {
+		s.recordReadyRefusal(ctx, c, ErrCycleEpoch)
 		return CycleView{}, ErrCycleEpoch
 	}
 	file, err := s.verifyArtifact(ctx, c, artifact)
 	if err != nil {
+		s.recordReadyRefusal(ctx, c, err)
 		return CycleView{}, err
 	}
 	next, err := s.advanceCycle(ctx, id, revision, cycleWaitingReady, cycleReady, "", pinnedRequester(ctx), func(c *cycleRow) {
@@ -1051,6 +1094,96 @@ func (s *Store) ContextCycleReady(ctx context.Context, caller Key, epoch, id str
 	// A new ready stage starts without an earlier stage's pane observation (#431).
 	s.paneSeen.forget(id)
 	return next.view(ctx, s.db, role)
+}
+
+// refusalSlotWidth is the fixed width of a cycle's ready_refusal slot: a 20-digit revision,
+// a space and the refusal code padded to 75 bytes. Admission writes the empty slot, so a
+// refusal overwrites it in place with a row of the same size, which allocates no page.
+const refusalSlotWidth = 96
+
+// refusalSlot is the slot text for a refusal code at a revision; revision 0 is empty.
+func refusalSlot(revision int64, code string) string {
+	return fmt.Sprintf("%020d %-75s", revision, code)
+}
+
+// parseRefusalSlot reads a slot; an empty or malformed one is revision 0.
+func parseRefusalSlot(slot string) (int64, string) {
+	fields := strings.Fields(slot)
+	if len(slot) != refusalSlotWidth || len(fields) != 2 {
+		return 0, ""
+	}
+	revision, err := strconv.ParseInt(fields[0], 10, 64)
+	if err != nil {
+		return 0, ""
+	}
+	return revision, fields[1]
+}
+
+// recordReadyRefusal records a refused ready report on c while c still waits for ready at
+// the same revision (#485). The code goes in the cycle's slot, in a control write that
+// overwrites it in place, so the timeout can name it even when ordinary storage is full. The
+// text joins the history, the newest maxCycleRefusals, as an ordinary write: a full store
+// keeps no text and the refusal is returned all the same.
+func (s *Store) recordReadyRefusal(ctx context.Context, c cycleRow, err error) {
+	var refusal Refusal
+	if !errors.As(err, &refusal) {
+		return
+	}
+	s.writeRefusalSlot(ctx, c, refusal.Code)
+	// The text is kept as a client receives it: a refusal past the bound keeps its code only.
+	if len(refusal.Message) > MaxRefusalMessage || !utf8.ValidString(refusal.Message) {
+		refusal.Message = ""
+	}
+	ctx = noAudit(ctx)
+	tx, err := s.begin(ctx, ordinary)
+	if err != nil {
+		return
+	}
+	defer tx.Rollback()
+	var ordinal int64
+	if err := tx.QueryRowContext(ctx, `SELECT COALESCE((SELECT MAX(ordinal) FROM context_cycle_refusals WHERE cycle_id=?),0)+1
+		FROM context_cycles WHERE cycle_id=? AND state=? AND revision=?`, c.ID, c.ID, cycleWaitingReady, c.Revision).Scan(&ordinal); err != nil {
+		return
+	}
+	if _, err := tx.ExecContext(ctx, `INSERT INTO context_cycle_refusals(cycle_id,ordinal,revision,at,code,message) VALUES (?,?,?,?,?,?)`,
+		c.ID, ordinal, c.Revision, s.now().UnixMilli(), refusal.Code, refusal.Message); err != nil {
+		return
+	}
+	if _, err := tx.ExecContext(ctx, `DELETE FROM context_cycle_refusals WHERE cycle_id=? AND ordinal<=?`, c.ID, ordinal-maxCycleRefusals); err != nil {
+		return
+	}
+	tx.Commit()
+}
+
+// writeRefusalSlot overwrites c's slot with code at c's revision, while c waits for ready at
+// that revision and has a slot of the fixed width.
+func (s *Store) writeRefusalSlot(ctx context.Context, c cycleRow, code string) {
+	if len(code) > 75 || strings.ContainsAny(code, " \t\r\n") {
+		return
+	}
+	tx, err := s.begin(noAudit(ctx), control)
+	if err != nil {
+		return
+	}
+	defer tx.Rollback()
+	if _, err := tx.ExecContext(ctx, `UPDATE context_cycles SET ready_refusal=? WHERE cycle_id=? AND state=? AND revision=?
+		AND length(ready_refusal)=?`, refusalSlot(c.Revision, code), c.ID, cycleWaitingReady, c.Revision, refusalSlotWidth); err != nil {
+		return
+	}
+	tx.Commit()
+}
+
+// readyRefusalCode is the code of the newest refused ready report at c's revision, from the
+// cycle's slot, or "".
+func readyRefusalCode(ctx context.Context, q querier, c cycleRow) (string, error) {
+	var slot string
+	if err := q.QueryRowContext(ctx, `SELECT ready_refusal FROM context_cycles WHERE cycle_id=?`, c.ID).Scan(&slot); err != nil {
+		return "", err
+	}
+	if revision, code := parseRefusalSlot(slot); revision == c.Revision {
+		return code, nil
+	}
+	return "", nil
 }
 
 // pickupRevision reports whether revision is that of one of the cycle's waiting_pickup

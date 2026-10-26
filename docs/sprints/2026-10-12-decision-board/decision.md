@@ -1,5 +1,7 @@
 # Decision board — decision
 
+> Historical sprint plan. Its non-goals and constraints limited this sprint only. Current decisions are in the [decision records](../../engineering/wdr/README.md); see WDR 001.
+
 ## Problem
 
 The maintainer's current decision board is available to only one agent family. Other

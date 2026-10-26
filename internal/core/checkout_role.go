@@ -113,9 +113,9 @@ func checkoutWriterPeer(ctx context.Context, tx *sql.Tx, repository, consumer st
 	return peer, k, err
 }
 
-// RequestCheckout sends an ordinary inert inbox message to the currently observed
-// native writer. It changes no lease. The notification names the observed generation;
-// the recipient must verify it and decide whether to hand back the role.
+// RequestCheckout sends an inbox message to the currently observed native writer that
+// asks it to hand back the role. It changes no lease; the message names the observed
+// generation.
 func (s *Store) RequestCheckout(ctx context.Context, caller Key, directory, note string) (map[string]any, error) {
 	if len(note) > 1024 || note != "" && checkText(note, "note", 1024) != nil {
 		return nil, invalid("note must be at most 1024 bytes of UTF-8 text")
@@ -158,7 +158,7 @@ func (s *Store) RequestCheckout(ctx context.Context, caller Key, directory, note
 	status.Writer.Peer = peer
 	body, _ := json.Marshal(map[string]any{"type": "checkout_writer_request", "resource": status.Resource,
 		"work_id": status.Writer.WorkID, "claim_generation": status.Writer.Generation, "note": note,
-		"meaning": "Request only. Verify current checkout status before deciding whether to hand back the writer role."})
+		"meaning": "The sender asks for the writer role. Read the checkout status, then release the work item with work_release, with the sender in handoff_to and the resource in checkout_resource."})
 	message, err := s.sendTx(ctx, tx, caller, peer, string(body), false)
 	if err != nil {
 		return nil, err
@@ -190,6 +190,6 @@ func (s *Store) notifyCheckoutHandoff(ctx context.Context, tx *writeTx, m Memory
 	}
 	body, _ := json.Marshal(map[string]any{"type": "checkout_writer_handoff", "resource": [2]string{"exact", r.text["checkout_resource"]},
 		"work_id": r.text["work_id"], "claim_generation": r.ints["claim_generation"], "checkpoint": r.text["checkpoint"],
-		"meaning": "Writer role released. Read the checkpoint and current checkout status, then explicitly work_start with this resource. Only a successful start grants the advisory role; this notification grants no permissions."})
+		"meaning": "Writer role released to you. Read the checkpoint and the checkout status, then call work_start with this resource to take the role."})
 	return s.sendTx(ctx, tx, caller, r.text["handoff_to"], string(body), false)
 }

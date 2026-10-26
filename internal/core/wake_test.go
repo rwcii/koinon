@@ -81,7 +81,7 @@ func TestWakeCrashAfterAcceptanceRetries(t *testing.T) {
 }
 func TestWakeSchemaFiveMigrationAndFutureRefusal(t *testing.T) {
 	s, root, sender, receiver, message, _ := wakeFixture(t, "agy")
-	if _, err := s.db.Exec(undoSchemaTwentyEight + undoSchemaTwentySeven + undoSchemaTwentySix + undoSchemaTwentyFive + undoSchemaTwentyFour + undoSchemaTwentyThree + undoSchemaTwentyTwo + undoSchemaTwentyOne + undoSchemaTwenty + undoSchemaNineteen + undoSchemaEighteen + undoSchemaSeventeen + undoSchemaSixteen + undoSchemaFifteen + undoSchemaFourteen + undoSchemaThirteen + undoSchemaTwelve + undoSchemaEleven + undoSchemaTen + undoSchemaNine + undoSchemaEight + undoSchemaSeven + `DROP INDEX messages_wake; ALTER TABLE messages DROP COLUMN wake_attempts; ALTER TABLE messages DROP COLUMN wake_next_at; ALTER TABLE messages DROP COLUMN wake_reason; PRAGMA user_version=5`); err != nil {
+	if _, err := s.db.Exec(undoSchemaThirtyTwo + undoSchemaThirtyOne + undoSchemaThirty + undoSchemaTwentyNine + undoSchemaTwentyEight + undoSchemaTwentySeven + undoSchemaTwentySix + undoSchemaTwentyFive + undoSchemaTwentyFour + undoSchemaTwentyThree + undoSchemaTwentyTwo + undoSchemaTwentyOne + undoSchemaTwenty + undoSchemaNineteen + undoSchemaEighteen + undoSchemaSeventeen + undoSchemaSixteen + undoSchemaFifteen + undoSchemaFourteen + undoSchemaThirteen + undoSchemaTwelve + undoSchemaEleven + undoSchemaTen + undoSchemaNine + undoSchemaEight + undoSchemaSeven + `DROP INDEX messages_wake; ALTER TABLE messages DROP COLUMN wake_attempts; ALTER TABLE messages DROP COLUMN wake_next_at; ALTER TABLE messages DROP COLUMN wake_reason; PRAGMA user_version=5`); err != nil {
 		t.Fatal(err)
 	}
 	s.db.Close()
@@ -342,6 +342,36 @@ func TestWakeHealthContainsNoBodies(t *testing.T) {
 	data, _ := json.Marshal(health)
 	if strings.Contains(string(data), "PRIVATE") || !strings.Contains(string(data), "receiver_busy") {
 		t.Fatalf("health %s", data)
+	}
+}
+
+func TestWakeHealthLeavesOutRetiredRecipients(t *testing.T) {
+	ctx := context.Background()
+	s, _, sender, active, _, _ := wakeFixture(t, "codex")
+	repo := testRepo(t)
+	retired := join(t, s, "claude", "synthetic-retired", repo)
+	expired := join(t, s, "opencode", "synthetic-expired", repo)
+	for _, r := range []Session{retired, expired} {
+		if _, err := s.Send(ctx, Key{sender.Family, sender.ID}, r.Name, "PRIVATE PEER BODY"); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if _, err := s.db.Exec(`UPDATE messages SET wake_reason='cli_unavailable' WHERE recipient_id IN (?,?,?)`, active.ID, retired.ID, expired.ID); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.db.Exec(`UPDATE sessions SET retired_at=1 WHERE family=? AND id=?`, retired.Family, retired.ID); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.db.Exec(`UPDATE sessions SET expires_at=1 WHERE family=? AND id=?`, expired.Family, expired.ID); err != nil {
+		t.Fatal(err)
+	}
+	health, err := s.WakeHealth(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// The active and the expired, unretired recipient are counted; the retired one is not.
+	if health["waiting"] != int64(2) || health["reasons"].(map[string]int64)["cli_unavailable"] != 2 {
+		t.Fatalf("health %v", health)
 	}
 }
 

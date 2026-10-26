@@ -3,7 +3,7 @@ pdr: "001"
 title: "Session Registration and Participant Continuity"
 status: draft
 created: "2026-10-12"
-updated: "2026-10-17"
+updated: "2026-10-26"
 authors:
   - "Robert Capps"
 reviewers: []
@@ -127,6 +127,36 @@ no-launcher policy. Plain-peer direct start: Maintainer, 2026-10-12: "b, next it
 "let a direct start register as a plain peer" over keeping the full refusal ([#306 comment
 6118852008](https://github.com/rwcii/koinon/issues/306#issuecomment-6118852008)).
 
+#487: the #487 review listed three limits and proposed to keep them; the question was whether
+to keep them or to remove them too. Maintainer, 2026-10-25: "remove all limit text.  remove all
+of the caveats, controls, etc.  the agents have their own built in safeties, they do not need
+you adding more complications." ([#487 comment 6401405382](https://github.com/rwcii/koinon/issues/487#issuecomment-6401405382)).
+Reason: limit text with no source makes agents of different families refuse each other's work.
+Scope: agent-facing text, skills, setup blocks and the docs and records that restate them. The #487 audit listed the code
+refusals for a separate decision (#493). The role syntax refusal (Decision 3) is code behavior
+that the code returns; #493 did not list it.
+
+#493, 2026-10-26: the maintainer decided the two refusals of this decision on the decision
+board.
+
+- DeepSeek `launch`/`subagent`: item 493-3 asked whether to keep or remove the refusal of a
+  DeepSeek registration that names a launch ID or sets `subagent: true`. Maintainer,
+  2026-10-26: approved (verdict 47), with no note, on the card's recommendation: "Keep it until
+  DeepSeek has a verified launch path (#199)."
+  ([#493 comment 6406497536](https://github.com/rwcii/koinon/issues/493#issuecomment-6406497536)).
+  Intent and scope: Koinon has no launch or subagent evidence for DeepSeek, so a DeepSeek
+  registration does not claim either until #199 gives a verified launch path; DeepSeek
+  registers without a launch ID. The code does not change.
+- `grok_leader_mode`: item 493-2 asked whether to keep or remove the refusal of a Koinon tool
+  call from a Grok session that runs through Grok's leader process (`internal/mcp/identity.go`,
+  `errGrokLeader`). Maintainer, 2026-10-26: approved (verdict 46), with no note, on the card's
+  recommendation: "Keep it until leader mode has its own identity source. Without one, the
+  session gets the wrong repository and pane."
+  ([#493 comment 6406494167](https://github.com/rwcii/koinon/issues/493#issuecomment-6406494167)).
+  Intent and scope: a Grok session in leader mode is refused until Koinon has an identity
+  source for it; a Grok session in the default mode works as before (User Impact). The code
+  does not change.
+
 ### Alternatives Considered
 
 | Alternative | Description | Why Rejected |
@@ -152,9 +182,10 @@ terminal naming.
 
 A Grok session registers only in Grok's default mode. A session served through Grok's leader
 process is refused with `grok_leader_mode`, launched or not: its server has the first
-terminal's directory and pane, so its repository and host would be wrong. Gate B approved the
-default mode only (#254 comment 6118290944); leader mode is a follow-up. A Grok launch chooses
-the first session's ID and admits only that ID until a session has registered through it.
+terminal's directory and pane, so its repository and host would be wrong. The code returns this
+refusal; Gate B of #254 approved the default mode (#254 comment 6118290944), the maintainer kept
+the refusal on 2026-10-26 (verdict 46, #493; Provenance above), and leader mode is a follow-up. A Grok launch chooses the first session's ID and admits only that ID until a
+session has registered through it.
 
 Direct Codex and OpenCode starts have no automatic wake in this implementation: the launch
 provides Codex's CLI target and OpenCode's wake endpoint. Grok has no wake provider yet. Their waiting messages are stored
@@ -214,13 +245,15 @@ Koinon currently takes a session's role only from its launch record, set with
 `<family>-<label>-<role>`. A role has 1 to 24 lower-case letters, digits or hyphens and starts
 with a letter (`ValidRole`). A role made only of hexadecimal digits and hyphens, such as
 `cafe` or `add`, is refused, so an address cannot look like a peer name's hexadecimal suffix.
-The code does not check who runs the launcher; PROTOCOL.md, docs/USAGE.md and the guide
-describe roles as maintainer-assigned.
+The person or agent that runs the launcher sets the role; the code does not check who runs it.
 
 **Provenance:** Shipped in PR #266 (merge commit 1eaa7e0); no maintainer decision found. The
 plan lists "additional participants of one family get maintainer-assigned role suffixes" as a
 2026-10-08 maintainer decision in agent-written text; #228, criterion 2, named it as one
-option beside participant slots. No source found for the syntax values.
+option beside participant slots. No source found for the syntax values. Before #487 this
+decision said "PROTOCOL.md, docs/USAGE.md and the guide describe roles as maintainer-assigned";
+#487 replaced that with who sets the role (Decision 1 has the #487 source). The syntax refusal
+is code behavior that the code returns; the #493 decision did not list it.
 
 ### Alternatives Considered
 
@@ -381,3 +414,5 @@ roles and succession evidence remain shipped behavior without a maintainer decis
 | 2026-10-12 | Applied Decisions 1 and 2 to Grok Build: direct start, default-mode scope and parent-scoped sub-agents (#254 chunk 02) |
 | 2026-10-14 | Recorded the managed cycle's reset link `cycle_reset` in Decision 4 (#196 chunk 04) |
 | 2026-10-17 | Decision 5: the command-line holder choice also lifts a fence (#398) |
+| 2026-10-25 | Decisions 1 and 3: the DeepSeek, `grok_leader_mode` and role syntax refusals are described as code behavior; the "maintainer-assigned" role text is replaced (#487) |
+| 2026-10-26 | Decision 1: the maintainer kept the DeepSeek `launch`/`subagent` refusal (verdict 47) and the `grok_leader_mode` refusal (verdict 46) (#493) |

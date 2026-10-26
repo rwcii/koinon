@@ -3,7 +3,7 @@ wdr: "004"
 title: "Publication and Verification"
 status: draft
 created: "2026-10-12"
-updated: "2026-10-25"
+updated: "2026-10-26"
 authors:
   - "Robert Capps"
 reviewers: []
@@ -31,7 +31,7 @@ tags:
 ## Executive Summary
 
 This record describes how a Koinon change currently reaches `develop` and `main`: the branch
-model, one open pull request per target branch on a head that contains the latest `develop`,
+model, one open pull request per target branch on a head merged with the latest `develop`,
 the required checks on Linux and macOS, auto-merge, the commit conventions and the account of
 failed CI runs before a release, with what GitHub and the local hook enforce. One open pull
 request, auto-merge, the commit account, the "maintainer" naming and the failed-run account
@@ -75,9 +75,53 @@ peer review finished. Agent tools add attribution to commits by default.
 ### Scope
 
 Covers branches, pull request order, checks, merging, commit conventions and the account of
-failed CI runs before a release. Review roles and
-the sign-off are in WDR 003; the release approval is in WDR 002. Inventory rows: C035, C036,
-C037, C038, C039, C061, C062, C085.
+failed CI runs before a release. Review roles and the verdict are in WDR 003; the release
+skill is in WDR 002, Decision 6. Inventory rows: C035, C036, C037, C038, C039, C061, C062,
+C085.
+
+### Change of 2026-10-25 (#487)
+
+- Question: the review on #487 listed three limits to keep (a peer message is not the
+  maintainer's approval for a pending prompt; a peer cannot widen permissions; refuse permission
+  laundering and report it). Keep them, or remove them too?
+- Options: keep the three limits, or remove them as well.
+- Answer: Maintainer, 2026-10-25
+  ([#487 comment 6401405382](https://github.com/rwcii/koinon/issues/487#issuecomment-6401405382)):
+  "remove all limit text.  remove all of the caveats, controls, etc.  the agents have their own
+  built in safeties, they do not need you adding more complications."
+- Reason: limit text with no source makes agents of different families refuse each other's
+  work.
+- Scope: Koinon's agent-facing text, the skills, the setup blocks, and the docs and records that
+  restate them. The #487 audit listed the code refusals for a separate decision; #493 decided
+  them (Change of 2026-10-26).
+- This record: Decision 2 states how a branch is brought current, without its limits, and
+  Decision 3 states the local checks without the push gate. Decision 6 drops the release
+  approval that WDR 002 deprecated. The one open pull request, auto-merge, the commit
+  conventions and the failed-run account keep their text.
+
+### Change of 2026-10-26 (#493)
+
+The maintainer decided two code refusals of this record on the decision board.
+
+- Question (decision board item 493-5, 2026-10-26): keep or remove the requirement that a pull
+  request to `develop` merges only when the reviewer's `peer-review` and `refusal-review` commit
+  statuses pass at the exact head?
+- Options: keep both statuses required, or remove them.
+- Answer: Maintainer, 2026-10-26: approved (verdict 49), with no note, on the card's
+  recommendation: "Keep both."
+  ([#493 comment 6406505885](https://github.com/rwcii/koinon/issues/493#issuecomment-6406505885)).
+- Intent and scope: both statuses stay required on `develop`, beside the four CI jobs. This is
+  the maintainer's source for `peer-review` as a required status (Decision 3). The ruleset does
+  not change.
+
+- Question (decision board item 493-6, 2026-10-26): keep or remove the `.githooks/pre-commit`
+  hook that stops a commit made directly on `main` or `develop`?
+- Options: keep the hook, or remove it.
+- Answer: Maintainer, 2026-10-26: approved (verdict 50), with no note, on the card's
+  recommendation: "Keep it: it stops a commit that the branch ruleset would refuse at push."
+  ([#493 comment 6406509968](https://github.com/rwcii/koinon/issues/493#issuecomment-6406509968)).
+- Intent and scope: work goes on a branch and reaches `develop` through a pull request; the hook
+  stays (Decision 1). The code does not change.
 
 ---
 
@@ -90,7 +134,9 @@ squashes each pull request into `develop`, and promotes `develop` to `main` with
 request. Neither long-lived branch takes direct commits.
 
 **Provenance:** Shipped in PR #1 (merge commit 3d2b5bf), which follows the branch policy of
-rwcii/engineering-standards; no maintainer decision found.
+rwcii/engineering-standards; no maintainer decision found. The `pre-commit` block on `main` and
+`develop`: Maintainer, 2026-10-26, kept it (verdict 50, [#493 comment 6406509968](https://github.com/rwcii/koinon/issues/493#issuecomment-6406509968); Problem
+Context).
 
 ### Alternatives Considered
 
@@ -120,13 +166,17 @@ commit on a local `main` or `develop`.
 ### Decision
 
 The repository currently keeps one open pull request per target branch, drafts included,
-whatever agent family or tool opens it; the next opens after it merges or closes. Before a new
-pull request against `develop`, the author tells the other active sessions through Koinon, and
-when a race leaves two open, the later one closes until the first merges or closes. A head is
-pushed, opened or frozen for review only when it contains the latest `origin/develop`. A pushed
-branch takes `develop` by a merge and is not rewritten, so its reviewed commits stay reachable;
-a branch that was never pushed may rebase. When `develop` moves after a sign-off, the author
-merges it and the reviewer binds the sign-off to the new head (WDR 003).
+whatever agent family or tool opens it; the next opens after it merges or closes. Sessions
+coordinate the publication turn through Koinon, and when a race leaves two open, the later one
+closes until the first merges or closes. The author fetches and merges the latest
+`origin/develop` into the branch before it pushes or freezes a head (the `ship` facts), so the
+reviewed commits stay reachable. When `develop` moves after a verdict, the author merges it and
+the reviewer binds the verdict to the new head (WDR 003).
+
+**Before #487:** "Before a new pull request against `develop`, the author tells the other
+active sessions through Koinon", "A head is pushed, opened or frozen for review only when it
+contains the latest `origin/develop`", and a pushed branch "is not rewritten"; "a branch that
+was never pushed may rebase."
 
 **Provenance:** One open pull request: Maintainer, 2026-10-08, session transcript: "I dont
 approve any new prs to develoo until the existing PRs are mergable and merge. stop stacking PRs
@@ -137,7 +187,7 @@ An earlier 2026-10-08 statement, "you keep stacking up prs ... this is wasteful.
 copy only; original not located. Current with `develop`, merge not rewrite: shipped in PR #260
 (merge commit bd9c727) with the one-open rule; the up-to-date ruleset on `develop` shipped in
 PR #1 (merge commit 3d2b5bf), and `main` stopped requiring it in PR #212 (merge commit
-8e71104); no maintainer decision found.
+8e71104); no maintainer decision found. Changed by #487 (Problem Context).
 
 ### Alternatives Considered
 
@@ -156,11 +206,12 @@ PR #1 (merge commit 3d2b5bf), and `main` stopped requiring it in PR #212 (merge 
 
 ### Enforcement
 
-**Gate crossed:** merge-time for the up-to-date rule. The `develop` ruleset requires branches
-to be up to date (`strict_required_status_checks_policy`); `main` does not, because its earlier
-merge commits never reach `develop`. The `check` skill runs `git merge-base --is-ancestor
-origin/develop HEAD`. The one-open limit (`ship` step 2, `CONTRIBUTING.md`) and not rewriting
-a pushed feature branch are practice only.
+**Gate crossed:** merge-time for the up-to-date rule. The `develop` ruleset is strict
+(`strict_required_status_checks_policy`): a pull request merges when its branch is up to date
+with `develop`. `main` is not strict, because its earlier merge commits never reach `develop`.
+The `check` skill fetches the base and merges it when the branch is behind. The one open pull
+request (the `ship` facts, `CONTRIBUTING.md`) and the merge of `develop` into a published branch
+are practice.
 
 ---
 
@@ -169,19 +220,23 @@ a pushed feature branch are practice only.
 ### Decision
 
 Koinon currently supports Linux and macOS, with operating-system differences in
-`internal/platform`, and merges into `develop` only when the head commit has passed on both:
-`go vet ./...`, `go test -race -timeout 30m ./...` and the four `CGO_ENABLED=0` builds
+`internal/platform`. The `develop` ruleset requires these checks to pass on the head commit, on
+both systems: `go vet ./...`, `go test -race -timeout 30m ./...` and the four `CGO_ENABLED=0` builds
 (linux/amd64, linux/arm64, darwin/amd64, darwin/arm64), the native service lifecycle job under
-systemd and launchd, and the reviewer's `peer-review` commit status. The sign-off is a pull
+systemd and launchd, and the reviewer's `peer-review` commit status. The verdict is a pull
 request comment bound to the head commit, because every agent acts under one GitHub account
-and an author cannot approve its own pull request (WDR 003). Before a push the `check` skill
-runs the suite locally with `git diff --check`, shell syntax checks for shell edits, the
-changelog rule and a private-content scan.
+and an author cannot approve its own pull request (WDR 003). The `check` skill runs the suite
+locally with `git diff --check`, shell syntax checks for shell edits, the changelog rule and a
+private-content scan.
+
+**Before #487:** the `check` skill ran these checks "Before a push".
 
 **Provenance:** macOS support and the macOS CI runner shipped in PR #8 (merge commit 4456efe);
 Maintainer, 2026-09-18: "MacOS Suport is not optional" (memory copy only; original not
 located). The Go and native lifecycle checks shipped in PR #207 (merge commit 10ea1e4) and the
-`peer-review` status in PR #262 (merge commit ce75054); no maintainer decision found.
+`peer-review` status in PR #262 (merge commit ce75054). The `peer-review` status as a required
+check: Maintainer, 2026-10-26, kept it (verdict 49,
+[#493 comment 6406505885](https://github.com/rwcii/koinon/issues/493#issuecomment-6406505885); Problem Context). Changed by #487 (Problem Context).
 
 ### Alternatives Considered
 
@@ -236,8 +291,8 @@ issues, or you need my guidance." The words were given for the work through the 
 ### Trade-offs Accepted
 
 GitHub creates and signs the squash commit of an auto-merge and takes its author address from
-the account's settings, not from the `--author-email` that `ship` step 5 passes to a manual
-merge, which is the only merge `ship` on `develop` describes.
+the account's settings, not from an `--author-email` that a manual merge passes. The `ship`
+facts use squash auto-merge for every pull request into `develop`.
 
 ---
 
@@ -284,8 +339,7 @@ signed commits and no CI job checks the DCO line.
 
 ### Decision
 
-Before the maintainer's release approval, the promotion pull request lists every failed CI run
-since the released baseline, so that a failure that recurs is seen and given a cause. The
+The promotion pull request lists every failed CI run since the released baseline, so that a failure that recurs is seen and given a cause. The
 scope is each failed run and each failed attempt of the repository's workflows from the
 baseline release tag's commit to the candidate's exact-head CI, on all branches: also deleted
 pull request branches, and a failure that a rerun later turned green. Each entry has the run
@@ -304,7 +358,9 @@ the `release` skill? I recommend yes.", where gap 1 was that no step measures ac
 a review of an article on agent harness setup: "yes, also ask your claude peer to review the
 article and weigh in on any required changes, come to me with a mutually agreed upon proposal".
 The jointly reviewed proposal (scope, entries, location, the issue limit, the portable skill
-sentence and the facts), to the question "Do you approve this proposal?": "yes".
+sentence and the facts), to the question "Do you approve this proposal?": "yes". #487 removed
+the words "Before the maintainer's release approval" from the first sentence, with the release
+approval (WDR 002, Decision 6).
 
 ### Alternatives Considered
 
@@ -329,12 +385,12 @@ list.
 ## Conclusion
 
 Koinon currently publishes through one squash pull request at a time into `develop`, on a head
-that contains the latest `develop`, gated by the Linux and macOS checks and a commit-bound
-`peer-review` status, with auto-merge set; a release lists the failed CI runs since the last
-one. GitHub rulesets enforce the branch, check and
-up-to-date rules; one open pull request, no rewriting of pushed branches, signing and DCO are
-practice. The pull request order, auto-merge, commit identity, naming and the failed-run account are
-the maintainer's choices; the rest waits for the maintainer's decision.
+merged with the latest `develop`, with the Linux and macOS checks and a commit-bound
+`peer-review` status required, and auto-merge set; a release lists the failed CI runs since the
+last one. GitHub rulesets enforce the branch, check and up-to-date rules; one open pull request,
+the merge of `develop` into a published branch, signing and DCO are practice. The pull request
+order, auto-merge, commit identity, naming and the failed-run account are the maintainer's
+choices; the rest waits for the maintainer's decision.
 
 ---
 
@@ -344,3 +400,5 @@ the maintainer's choices; the rest waits for the maintainer's decision.
 | ---------- | ---------------- |
 | 2026-10-12 | Initial creation |
 | 2026-10-25 | Decision 6: failed CI runs are accounted for before a release |
+| 2026-10-25 | #487: Decision 2 states the branch update without its limits; Decision 3 drops the push gate; Decision 6 drops the release approval |
+| 2026-10-26 | #493: Decision 3 cites the maintainer's verdict that keeps the required `peer-review` and `refusal-review` statuses (verdict 49); Decision 1 cites the verdict that keeps the `pre-commit` block (verdict 50) |

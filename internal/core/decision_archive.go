@@ -352,6 +352,10 @@ func (s *Store) deleteMoved(ctx context.Context, id int64, reference string, rev
 		reference, name, offset, length, at); err != nil {
 		return tx.fail(err)
 	}
+	// The board no longer counts the moved item.
+	if err := bumpChange(ctx, tx, changeDecisions); err != nil {
+		return tx.fail(err)
+	}
 	if err := tx.Commit(); err != nil && !errors.Is(err, ErrCapacity) {
 		return err
 	}
@@ -479,6 +483,9 @@ func (s *Store) DecisionRestore(ctx context.Context, caller Key, reference strin
 				return DecisionItem{}, err
 			}
 		}
+	}
+	if err := bumpChange(ctx, tx, changeDecisions); err != nil {
+		return DecisionItem{}, tx.fail(err)
 	}
 	if err := tx.Commit(); err != nil {
 		return DecisionItem{}, err

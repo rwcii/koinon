@@ -1,6 +1,6 @@
 ## What and why
 
-<!-- Describe the problem and resulting behavior. Link the agreed issue when applicable. -->
+<!-- Describe the problem and resulting behavior. Link the issue. -->
 
 ## Validation
 
@@ -8,8 +8,8 @@
 
 ## Checklist
 
-- [ ] Scope agreed with the maintainer; no unrelated changes.
+- [ ] The change does what its issue describes.
 - [ ] Feature PR targets `develop` for squash merge, or promotion is `develop` → `main` for merge commit.
-- [ ] Tests pass and the diff has been reviewed for correctness and security boundaries.
-- [ ] Documentation reflects behavior changes; no runtime data or credentials included.
+- [ ] Tests pass, and the diff is reviewed for correctness and security.
+- [ ] Documentation matches the behavior; runtime data and credentials stay in their private files.
 - [ ] Commits are signed and DCO signed-off (`git commit -S -s`).

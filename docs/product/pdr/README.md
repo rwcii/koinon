@@ -20,8 +20,9 @@ mechanism, a PDR decides the behavior that mechanism serves. Cross-reference via
 | 001    | [Session Registration and Participant Continuity](001-session-registration-participant-continuity.md) | Draft |
 | 002    | [Native Wake and Terminal Interaction](002-native-wake-terminal-interaction.md) | Draft |
 | 003    | [Runtime Installation and Recovery](003-runtime-installation-and-recovery.md) | Draft |
-| 004    | [Coordinated Work Results and Role Routing](004-work-results-role-routing.md) | Accepted |
-| 005    | [Room Conversations and Human Origin](005-room-conversations-human-origin.md) | Accepted |
+| 004    | [Coordinated Work Results and Role Routing](004-work-results-role-routing.md) | Modified |
+| 005    | [Room Conversations and Human Origin](005-room-conversations-human-origin.md) | Modified |
 | 006    | [Context Monitoring and Managed Handoffs](006-context-monitoring-managed-handoffs.md) | Draft |
 | 007    | [Human Decision Board](007-human-decision-board.md) | Draft |
 | 008    | [Portable Skills and Explicit Adoption](008-portable-skills-explicit-adoption.md) | Draft |
+| 009    | [Maintainer Secret and Maintainer MCP Mode](009-maintainer-secret-and-mcp-mode.md) | Accepted |
