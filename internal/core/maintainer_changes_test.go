@@ -604,3 +604,21 @@ func TestMaintainerChangesRefreshIdle(t *testing.T) {
 		t.Fatal("a check moved the idle limit")
 	}
 }
+
+// A work notice to an agent moves no version; a work notice to the maintainer, for a report on
+// an item that the maintainer created, moves only the inbox's, with the clock frozen.
+func TestChangeVersionsMoveWithWorkNotices(t *testing.T) {
+	s, _, creator, owner, _, _ := noticePair(t)
+	maintainer := maintainerWork(creator.Repository, maintainerConsumer)
+	id := createRoleWork(t, s, maintainer, "codex", "worker")
+	stays(t, s, "a work notice to an agent", func() { mustReconcileNotices(t, s) })
+	if count(t, s, `SELECT COUNT(*) FROM messages WHERE sender_family='daemon' AND recipient_family='codex'`) != 1 ||
+		count(t, s, `SELECT COUNT(*) FROM messages WHERE recipient_family='maintainer'`) != 0 {
+		t.Fatal("the assignment notice did not reach only the worker")
+	}
+	mustReport(t, s, owner, id, mustStart(t, s, owner, id, nil))
+	moves(t, s, MaintainerURI+"inbox", func() { mustReconcileNotices(t, s) })
+	if count(t, s, `SELECT COUNT(*) FROM messages WHERE sender_family='daemon' AND recipient_family='maintainer'`) != 1 {
+		t.Fatal("the report notice did not reach the maintainer")
+	}
+}
