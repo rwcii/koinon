@@ -9,7 +9,6 @@ into a dated release section when promoted to `main`.
   had focus, so a verdict note typed on a decision card was lost at the next refresh after a
   click elsewhere, such as on the card's **Copy** button. A field whose input is not sent now
   holds the refresh with or without focus, and the page says that it is not refreshed.
-
 - The Decisions board's **Find** searches (#505). An exact reference opens the item as before.
   Part of a reference, or a reference in another case, lists the references that contain it,
   from the items and the deep archive, 20 per page with their titles, kinds and states. Spaces
