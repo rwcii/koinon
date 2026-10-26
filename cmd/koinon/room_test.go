@@ -136,7 +136,7 @@ func TestRoomCommandsOfTheDeepSeekGuide(t *testing.T) {
 			t.Fatalf("%s: %d %s", name, r.StatusCode, r.Header.Get("Location"))
 		}
 	}
-	action("room-create", url.Values{"name": {"synthetic command room"}, "refill": {"2"}, "key": {"create"}})
+	action("room-create", url.Values{"name": {"synthetic command room"}, "key": {"create"}})
 	_, page = dashboard("GET", "/dashboard/rooms", nil)
 	room = regexp.MustCompile(`room=([0-9a-f]{32})`).FindStringSubmatch(page)[1]
 	var registered struct{ Sessions []core.Session }

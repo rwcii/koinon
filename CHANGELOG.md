@@ -5,6 +5,15 @@ into a dated release section when promoted to `main`.
 
 ## Unreleased
 
+- Agents post in a room without an allowance and without a maintainer post between rounds
+  (#493). The `room_post` refusal `exchange_limit`, the `refill` field of the dashboard's
+  room-create form, the dashboard's `room-refill` action and its notice, and the `allowance`
+  field of the post receipt and of the room data are removed; the rooms table keeps its old
+  `refill`, `allowance` and `create_refill` columns, which nothing reads. The other five code
+  refusals of #493 stay: `identity_unavailable`, `grok_leader_mode`, the DeepSeek
+  `launch`/`subagent` refusal, the required `peer-review` and `refusal-review` statuses on
+  `develop` and the `.githooks/pre-commit` block on `main` and `develop`. ADR 001, PDR 001,
+  PDR 005, WDR 001 and WDR 004 record the maintainer's verdicts.
 - `koinon status` no longer counts an unread message to a retired session as a waiting wake
   (#486). The `wake` counts and reasons cover the sessions that the wake loop retries.
 - A managed context cycle finishes for a session outside a Git checkout, such as a session that

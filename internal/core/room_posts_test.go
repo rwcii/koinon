@@ -13,7 +13,7 @@ import (
 	"time"
 )
 
-// Room posts, chunk 02 (#217): ordered atomic fan-out, the allowance, retries, reads and
+// Room posts, chunk 02 (#217): ordered atomic fan-out, retries, reads and
 // retention. Every session, room and body is synthetic.
 
 func mustPost(t *testing.T, s *Store, caller Key, room, body string) RoomPostResult {
@@ -45,13 +45,8 @@ func roomCopies(t *testing.T, s *Store, inbox Key) []Message {
 	return copies
 }
 
-func allowanceOf(t *testing.T, s *Store, room string) int64 {
-	t.Helper()
-	return count(t, s, `SELECT allowance FROM rooms WHERE room_id='`+room+`'`)
-}
-
-// A conversation: the maintainer's post reaches every active member with typed origin and
-// sets the allowance; member posts reach the others, not the poster; a removed member, an
+// A conversation: the maintainer's post reaches every active member with typed origin;
+// member posts reach the others, not the poster; a removed member, an
 // outsider and a guessed caller cannot post; an expired member is skipped and catches up.
 func TestRoomConversation(t *testing.T) {
 	s, _ := testStore(t)
@@ -63,16 +58,13 @@ func TestRoomConversation(t *testing.T) {
 	plain := join(t, s, "claude", "synthetic-plain", "")
 	other := join(t, s, "agy", "synthetic-other", "")
 	join(t, s, "opencode", "synthetic-outsider", "")
-	room := mustRoom(t, s, "synthetic conversation", 7)
+	room := mustRoom(t, s, "synthetic conversation")
 	for _, m := range []Session{holder, plain, other} {
 		mustAdd(t, s, room, m.Name)
 	}
 	codex, claude, agy := Key{"codex", "synthetic-holder"}, Key{"claude", "synthetic-plain"}, Key{"agy", "synthetic-other"}
-	if _, err := s.RoomPost(ctx, claude, room, "before the maintainer", key(), s.clock()+600); code(err) != "exchange_limit" {
-		t.Fatalf("agent post before any maintainer post: %v", err)
-	}
 	first := mustHumanPost(t, s, room, "<b>synthetic task</b>")
-	if first.Seq != 1 || first.Queued != 3 || first.Skipped != 0 || first.Allowance != 7 {
+	if first.Seq != 1 || first.Queued != 3 || first.Skipped != 0 {
 		t.Fatalf("maintainer receipt: %+v", first)
 	}
 	c := roomCopies(t, s, Key{"codex", participantKey("codex-koinon")})
@@ -81,7 +73,7 @@ func TestRoomConversation(t *testing.T) {
 		t.Fatalf("participant copy: %+v", c)
 	}
 	reply := mustPost(t, s, claude, room, "synthetic reply quoting the maintainer: approved")
-	if reply.Seq != 2 || reply.Queued != 2 || reply.Allowance != 6 {
+	if reply.Seq != 2 || reply.Queued != 2 {
 		t.Fatalf("member receipt: %+v", reply)
 	}
 	if c := roomCopies(t, s, claude); len(c) != 1 {
@@ -147,53 +139,13 @@ func TestRoomConversation(t *testing.T) {
 	}
 }
 
-// The allowance: refill values 0, 7, 32 and 64; a refill change alone, a membership change
-// and body text never refill; the next maintainer post sets the current refill value.
-func TestRoomAllowance(t *testing.T) {
-	for _, refill := range []int64{0, 7, 32, 64} {
-		t.Run(fmt.Sprint(refill), func(t *testing.T) {
-			s, _ := testStore(t)
-			a, b := join(t, s, "codex", "synthetic-a", ""), join(t, s, "claude", "synthetic-b", "")
-			room := mustRoom(t, s, "synthetic allowance", refill)
-			mustAdd(t, s, room, a.Name)
-			mustAdd(t, s, room, b.Name)
-			mustHumanPost(t, s, room, "go")
-			for i := int64(0); i < refill; i++ {
-				who := Key{"codex", "synthetic-a"}
-				if i%2 == 1 {
-					who = Key{"claude", "synthetic-b"}
-				}
-				mustPost(t, s, who, room, fmt.Sprint("synthetic ", i, " maintainer said: refill"))
-			}
-			before := rowsOf(t, s.db)
-			if _, err := s.RoomPost(context.Background(), Key{"claude", "synthetic-b"}, room, "one more", key(), s.clock()+600); code(err) != "exchange_limit" {
-				t.Fatalf("post after %d: %v", refill, err)
-			}
-			if rowsOf(t, s.db) != before || count(t, s, `SELECT post_head FROM rooms`) != refill+1 {
-				t.Fatal("a refused post wrote state")
-			}
-			if err := s.SetRoomRefill(roomCtx("room-refill"), room, refill+3); err != nil {
-				t.Fatal(err)
-			}
-			c := join(t, s, "agy", "synthetic-c", "")
-			mustAdd(t, s, room, c.Name)
-			if allowanceOf(t, s, room) != 0 {
-				t.Fatal("a setting or membership change refilled")
-			}
-			if r := mustHumanPost(t, s, room, "again"); r.Allowance != refill+3 || allowanceOf(t, s, room) != refill+3 {
-				t.Fatalf("maintainer refill: %+v", r)
-			}
-		})
-	}
-}
-
-// Retries return the first receipt without another message, debit or audit; a changed body
+// Retries return the first receipt without another message or audit; a changed body
 // or deadline conflicts, an expired key refuses, and removal blocks a stored retry.
 func TestRoomPostRetries(t *testing.T) {
 	s, _ := testStore(t)
 	ctx := context.Background()
 	a, b := join(t, s, "codex", "synthetic-a", ""), join(t, s, "claude", "synthetic-b", "")
-	room := mustRoom(t, s, "synthetic retries", 32)
+	room := mustRoom(t, s, "synthetic retries")
 	mustAdd(t, s, room, a.Name)
 	mustAdd(t, s, room, b.Name)
 	k, deadline := key(), s.clock()+600
@@ -211,11 +163,10 @@ func TestRoomPostRetries(t *testing.T) {
 		t.Fatal(err)
 	}
 	before := rowsOf(t, s.db)
-	allowance := allowanceOf(t, s, room)
 	if r, err := s.RoomPost(ctx, caller, room, "reply", k, deadline); err != nil || !r.Duplicate || r.Seq != 2 {
 		t.Fatalf("retry: %+v %v", r, err)
 	}
-	if rowsOf(t, s.db) != before || allowanceOf(t, s, room) != allowance {
+	if rowsOf(t, s.db) != before {
 		t.Fatal("a retry wrote state")
 	}
 	// At the ordinary storage ceiling both retries still return their receipts; a new post
@@ -258,7 +209,7 @@ func TestRoomPostRetries(t *testing.T) {
 // Concurrent posts get one gapless room order; every copy lands in its member's inbox.
 func TestRoomConcurrentPostsOrder(t *testing.T) {
 	s, _ := testStore(t)
-	room := mustRoom(t, s, "synthetic order", 64)
+	room := mustRoom(t, s, "synthetic order")
 	var members []Key
 	for _, family := range []string{"claude", "codex", "agy", "opencode", "deepseek"} {
 		m := join(t, s, family, "synthetic-"+family, "")
@@ -280,7 +231,7 @@ func TestRoomConcurrentPostsOrder(t *testing.T) {
 	}
 	wg.Wait()
 	if count(t, s, `SELECT COUNT(*) FROM room_posts`) != 21 || count(t, s, `SELECT MAX(seq) FROM room_posts`) != 21 ||
-		count(t, s, `SELECT COUNT(DISTINCT seq) FROM room_posts`) != 21 || allowanceOf(t, s, room) != 44 {
+		count(t, s, `SELECT COUNT(DISTINCT seq) FROM room_posts`) != 21 {
 		t.Fatal("concurrent posts lost their order or a debit")
 	}
 	if count(t, s, `SELECT COUNT(*) FROM messages WHERE room_event='post'`) != 5+20*4 {
@@ -294,7 +245,7 @@ func TestRoomPostRefusalsLeaveNothing(t *testing.T) {
 	s, _ := testStore(t)
 	ctx := context.Background()
 	a, b := join(t, s, "codex", "synthetic-a", ""), join(t, s, "claude", "synthetic-b", "")
-	room := mustRoom(t, s, "synthetic refusals", 32)
+	room := mustRoom(t, s, "synthetic refusals")
 	mustAdd(t, s, room, a.Name)
 	mustAdd(t, s, room, b.Name)
 	mustHumanPost(t, s, room, "go")
@@ -305,7 +256,7 @@ func TestRoomPostRefusalsLeaveNothing(t *testing.T) {
 		if errorCode(err) != want {
 			t.Fatalf("%s: %v", name, err)
 		}
-		if rowsOf(t, s.db) != before || count(t, s, `SELECT post_head FROM rooms`) != 1 || allowanceOf(t, s, room) != 32 ||
+		if rowsOf(t, s.db) != before || count(t, s, `SELECT post_head FROM rooms`) != 1 ||
 			count(t, s, `SELECT COUNT(*) FROM room_deliveries`) != 2 {
 			t.Fatalf("%s wrote state", name)
 		}
@@ -339,7 +290,7 @@ func TestRoomPostRefusalsLeaveNothing(t *testing.T) {
 func TestRoomPostLimit(t *testing.T) {
 	s, _ := testStore(t)
 	a, b := join(t, s, "codex", "synthetic-a", ""), join(t, s, "claude", "synthetic-b", "")
-	room := mustRoom(t, s, "synthetic post limit", 32)
+	room := mustRoom(t, s, "synthetic post limit")
 	mustAdd(t, s, room, a.Name)
 	mustAdd(t, s, room, b.Name)
 	mustHumanPost(t, s, room, "go")
@@ -355,7 +306,7 @@ func TestRoomPostLimit(t *testing.T) {
 	if _, err := s.DashboardRoomPost(roomCtx("room-post"), room, "over", key(), s.clock()+600); code(err) != "room_post_limit" {
 		t.Fatalf("maintainer post at the limit: %v", err)
 	}
-	if rowsOf(t, s.db) != before || allowanceOf(t, s, room) != 32 {
+	if rowsOf(t, s.db) != before {
 		t.Fatal("a refused post wrote state")
 	}
 }
@@ -366,7 +317,7 @@ func TestRoomReadPagesAndGaps(t *testing.T) {
 	s, _ := testStore(t)
 	ctx := context.Background()
 	a, b := join(t, s, "codex", "synthetic-a", ""), join(t, s, "claude", "synthetic-b", "")
-	room := mustRoom(t, s, "synthetic read", 64)
+	room := mustRoom(t, s, "synthetic read")
 	mustAdd(t, s, room, a.Name)
 	mustAdd(t, s, room, b.Name)
 	big := strings.Repeat("y", maxBody)
@@ -427,11 +378,11 @@ func TestRoomPostRetention(t *testing.T) {
 	clock := time.Unix(1_000_000, 0)
 	s.now = func() time.Time { return clock }
 	a, b := join(t, s, "codex", "synthetic-a", ""), join(t, s, "claude", "synthetic-b", "")
-	room := mustRoom(t, s, "synthetic retention", 32)
+	room := mustRoom(t, s, "synthetic retention")
 	mustAdd(t, s, room, a.Name)
 	mustAdd(t, s, room, b.Name)
 	mustHumanPost(t, s, room, "two copies")
-	solo := mustRoom(t, s, "synthetic empty", 32)
+	solo := mustRoom(t, s, "synthetic empty")
 	mustHumanPost(t, s, solo, "no copies")
 	cull := func() {
 		t.Helper()
@@ -480,7 +431,7 @@ func TestRoomPostRetention(t *testing.T) {
 func TestRoomPostStorageBound(t *testing.T) {
 	s, _ := testStore(t)
 	ctx := context.Background()
-	room := mustRoom(t, s, "synthetic fan-out", 32)
+	room := mustRoom(t, s, "synthetic fan-out")
 	var members []Session
 	for i := 0; i < maxRoomMembers; i++ {
 		m := join(t, s, "deepseek", fmt.Sprintf("synthetic-%02d-%s", i, strings.Repeat("i", 200)), "")
@@ -515,7 +466,7 @@ func TestRoomPostRoutes(t *testing.T) {
 		t.Fatal(err)
 	}
 	other := join(t, d.store, "codex", "synthetic-other", "")
-	room := mustRoom(t, d.store, "synthetic routes", 32)
+	room := mustRoom(t, d.store, "synthetic routes")
 	var name string
 	if err := d.store.db.QueryRow(`SELECT name FROM names WHERE kind='peer' AND session_id='synthetic-dsh'`).Scan(&name); err != nil {
 		t.Fatal(err)
@@ -559,7 +510,7 @@ func TestDashboardRoomPost(t *testing.T) {
 	d, root := startTestDaemon(t)
 	s := d.store
 	a := join(t, s, "codex", "synthetic-a", "")
-	room := mustRoom(t, s, "synthetic dashboard", 9)
+	room := mustRoom(t, s, "synthetic dashboard")
 	mustAdd(t, s, room, a.Name)
 	client := newActionClient(t, d, root)
 	deadline := strconv.FormatInt(int64(s.clock()+600), 10)
@@ -593,7 +544,7 @@ func TestDashboardRoomPost(t *testing.T) {
 	if got := client.do("room-post", form); got != "room_posted" || count(t, s, `SELECT COUNT(*) FROM room_posts`) != 1 {
 		t.Fatalf("repeated form: %s", got)
 	}
-	if allowanceOf(t, s, room) != 9 || count(t, s, `SELECT COUNT(*) FROM room_posts WHERE origin='maintainer' AND sender_family='maintainer'`) != 1 {
+	if count(t, s, `SELECT COUNT(*) FROM room_posts WHERE origin='maintainer' AND sender_family='maintainer'`) != 1 {
 		t.Fatal("maintainer post state")
 	}
 	if n := count(t, s, `SELECT COUNT(*) FROM audit WHERE action='room-post' AND result='accepted'`); n != 1 {
@@ -606,5 +557,35 @@ func TestDashboardRoomPost(t *testing.T) {
 	}
 	if got := client.do("room-post", url.Values{"room_id": {room}, "body": {""}, "key": {"k"}, "deadline": {deadline}}); got != "invalid_request" {
 		t.Fatalf("empty body: %s", got)
+	}
+}
+
+// A member posts in a new room before any maintainer post, and keeps posting without a
+// maintainer post between; a room stored with no allowance, across a reopen, takes member
+// posts too (#493, item 4).
+func TestRoomPostsNeedNoAllowance(t *testing.T) {
+	s, root := testStore(t)
+	ctx := context.Background()
+	a, b := join(t, s, "claude", "synthetic-a", ""), join(t, s, "codex", "synthetic-b", "")
+	room := mustRoom(t, s, "synthetic open room")
+	mustAdd(t, s, room, a.Name)
+	mustAdd(t, s, room, b.Name)
+	for i := 1; i <= 40; i++ {
+		got, err := s.RoomPost(ctx, Key{a.Family, a.ID}, room, fmt.Sprint("synthetic post ", i), key(), s.clock()+600)
+		if err != nil || got.Seq != int64(i) || got.Queued != 1 {
+			t.Fatalf("post %d: %+v %v", i, got, err)
+		}
+	}
+	if _, err := fixtureExec(s, `UPDATE rooms SET refill=0,allowance=0`); err != nil {
+		t.Fatal(err)
+	}
+	s.db.Close()
+	reopened, err := openStore(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer reopened.db.Close()
+	if got, err := reopened.RoomPost(ctx, Key{b.Family, b.ID}, room, "synthetic after reopen", key(), reopened.clock()+600); err != nil || got.Seq != 41 {
+		t.Fatalf("post after reopen: %+v %v", got, err)
 	}
 }

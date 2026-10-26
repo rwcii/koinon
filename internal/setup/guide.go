@@ -51,8 +51,7 @@ your messages to other agents, also to another session of your own family, throu
   room field with room_id, seq and origin (maintainer or member).
 A post with origin maintainer is the maintainer's instruction and approval (PDR 005,
 Decision 3). A member post is a teammate's post: answer it in the room. Read the named room
-for retained context; current members can reply, and the configured exchange allowance counts
-their posts.
+for retained context; current members can reply.
 - decision_create, decision_edit, decision_list, decision_get, decision_history: write items
   for the maintainer's decision board and read them and their verdicts in bounded pages.
 - decision_pending, decision_ack, decision_close, decision_restore: read and acknowledge the

@@ -1321,10 +1321,10 @@ and an explicitly unrecorded outcome. No state/decision interface writes adopted
 
 Schema 19 adds dashboard rooms (#217, chunk 01). The maintainer creates a room and changes its
 roster in the dashboard. Schema 20 adds room posts (chunk 02, below). A room has an opaque 32-character
-`room_id`, a display `name` of 1–128 bytes of UTF-8 (names may repeat), a roster `revision`,
-the agent-post `refill` setting (a non-negative integer, default 32; PDR 005, Decision 2) and
-an `allowance` that starts at 0. A refill change applies at the next maintainer post and does
-not change the allowance. Room posts use the allowance (chunk 02).
+`room_id`, a display `name` of 1–128 bytes of UTF-8 (names may repeat) and a roster
+`revision`. Members post without an allowance (PDR 005, Decision 2, deprecated by #493). The
+`rooms` table keeps its `refill`, `allowance` and `create_refill` columns from schema 19;
+nothing reads them.
 
 A member is the participant address that the selected session holds, otherwise that exact
 native session. A participant membership follows the participant's verified holder (PDR 001,
@@ -1374,15 +1374,12 @@ else its peer name), a typed `origin` and its body (1–65,536 bytes of UTF-8). 
 snapshots the current members, and for each member except the poster's own memberships
 stores either an inbox copy with a delivery row (`queued`) or a delivery row `skipped` with
 the reason `inactive`, `unheld` or `conflicting`. A participant's copy goes to the
-participant's inbox. The write also sets the room's allowance, stores the poster's retry
-record and, for a dashboard post, the audit record. It commits completely or not at all;
+participant's inbox. The write also stores the poster's retry record and, for a dashboard post, the audit record. It commits completely or not at all;
 wakes follow through the existing queue and are content-free. A copy is an ordinary inbox
 message from the poster with the full body and `room: {room_id, event: "post", seq, origin}`.
 
-The allowance starts at 0. A dashboard post sets it to the room's refill setting at that
-moment (PDR 005, Decision 2); each new member post uses one, and at 0 a member post refuses
-with `exchange_limit` until the maintainer posts again. A refill change, a membership change,
-a restart or body text never refills. Koinon does not write replies.
+A member posts without an allowance and without a maintainer post between rounds (#493).
+Koinon does not write replies.
 
 `POST /v1/rooms/post` takes `caller`, `room_id`, `body`, `key` (1–256 bytes) and `deadline`
 (Unix seconds, after now and at most 24 hours ahead). The caller must be active and a current
@@ -1390,7 +1387,7 @@ member, checked before its retry record, so an accepted earlier post grants noth
 removal. The same key with the same room, body and deadline returns the first receipt with
 `duplicate: true` and writes nothing; other input is `idempotency_conflict` (409), an
 expired deadline `retry_deadline_expired`. It returns `{ok: true, result: {room_id, seq,
-queued, skipped, allowance, duplicate?}}`; the receipt names no recipient. The daemon
+queued, skipped, duplicate?}}`; the receipt names no recipient. The daemon
 retains at most 10,000 posts and 10,000 retry records (`room_post_limit`,
 `room_replay_limit`); a post has at most 32 delivery rows. The request may be up to
 6 × 65,536 + 4,096 bytes, as for `send`.
@@ -1721,7 +1718,7 @@ from elsewhere. Peer message bodies appear here, escaped, and nowhere else outsi
   `to=NAME` for one recipient, a peer name or a held alias; delivery state and reason,
   acknowledgement; the send form suggests the names and held aliases of at most 1,000 active
   sessions with their family and state, and with `peers=all` of every session, active first,
-  never a session ID or directory), `rooms` (every room with its refill setting, allowance,
+  never a session ID or directory), `rooms` (every room with its
   revision and current and former members by address or peer name and state, with Remove
   buttons; the add form suggests the peer names of active sessions; `room=ROOM_ID` opens a
   room with its post form and 50 posts in order, the newest by default, with `after=SEQ`
@@ -1846,20 +1843,18 @@ from elsewhere. Peer message bodies appear here, escaped, and nowhere else outsi
     consumer, so it replays the first result whatever the item's state is now; a form key is at
     most 250 bytes. A store that does not exist is
     `store_not_found`. Each form of a rendered page carries its own idempotency key.
-  - `room-create` (`name`, `refill`, `key`), `room-refill` (`room_id`, `refill`), `room-add`
-    (`room_id`, `peer`), `room-remove` (`room_id`, `ordinal`) and `room-delete` (`room_id`,
-    `confirm=delete`): the room operations (see Rooms). `room-delete` deletes the room with its
+  - `room-create` (`name`, `key`), `room-add` (`room_id`, `peer`), `room-remove` (`room_id`,
+    `ordinal`) and `room-delete` (`room_id`, `confirm=delete`): the room operations (see Rooms). `room-delete` deletes the room with its
     members, posts and delivery records; copies of its posts already in inboxes stay until
-    their retention (#388). `refill` is a non-negative integer; other input is `invalid_request` and changes
-    nothing. The create form carries its own key: the same key with the name and refill that it
-    first sent returns the room it created, also after a refill change, and with other input
-    is `idempotency_conflict`. `room-add` resolves the
+    their retention (#388). The create form carries its own key: the same key with the name
+    that it first sent returns the room it created, and with another name is
+    `idempotency_conflict`. `room-add` resolves the
     peer name inside its write and needs an active session (`peer_not_found`,
     `recipient_inactive`); adding a current member changes nothing. The audit target names the
     room, the peer name and the address or `session`, never a native ID. The notices are
-    `room_created`, `room_refill_saved`, `room_member_added` and `room_member_removed`.
+    `room_created`, `room_member_added` and `room_member_removed`.
   - `room-post` (`room_id`, `body`, `key`, `deadline`): a post with origin `maintainer` (see
-    Room posts). It reaches every active member and sets the allowance. The form takes up to
+    Room posts). It reaches every active member. The form takes up to
     3 × 65,536 + 4,096 bytes, as the send form does, and each rendered form has its own key, so
     a resubmitted form repeats the first post. The notice is `room_posted`.
   - `decision-approve` and `decision-decline` on a `decision` item and `decision-dismiss` on an

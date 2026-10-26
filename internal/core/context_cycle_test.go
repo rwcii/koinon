@@ -1038,7 +1038,7 @@ func TestContextCycleDashboardAndRoutes(t *testing.T) {
 func TestContextCycleSchemaTwentyThreeKeepsExistingState(t *testing.T) {
 	s, root := testStore(t)
 	join(t, s, "codex", "synthetic-a", "")
-	room := mustRoom(t, s, "synthetic kept room", 7)
+	room := mustRoom(t, s, "synthetic kept room")
 	mustHumanPost(t, s, room, "synthetic kept post")
 	before := rowsOf(t, s.db)
 	if _, err := fixtureExec(s, undoSchemaThirty+undoSchemaTwentyNine+undoSchemaTwentyEight+undoSchemaTwentySeven+undoSchemaTwentySix+undoSchemaTwentyFive+undoSchemaTwentyFour+undoSchemaTwentyThree+`PRAGMA user_version=22`); err != nil {

@@ -124,7 +124,7 @@ func TestRoomConversationThroughNativeInterfaces(t *testing.T) {
 				t.Fatalf("members: %q %s %v", name, data, err)
 			}
 			dash := newRoomDashboard(t, h)
-			if got := dash.action("room-create", url.Values{"name": {"synthetic native room"}, "refill": {"4"}, "key": {"create-" + c.family}}); got != "room_created" {
+			if got := dash.action("room-create", url.Values{"name": {"synthetic native room"}, "key": {"create-" + c.family}}); got != "room_created" {
 				t.Fatalf("room-create: %s", got)
 			}
 			_, page := dash.do("GET", "/dashboard/rooms", nil)

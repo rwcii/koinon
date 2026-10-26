@@ -3,7 +3,7 @@ wdr: "004"
 title: "Publication and Verification"
 status: draft
 created: "2026-10-12"
-updated: "2026-10-25"
+updated: "2026-10-26"
 authors:
   - "Robert Capps"
 reviewers: []
@@ -92,11 +92,36 @@ C085.
 - Reason: limit text with no source makes agents of different families refuse each other's
   work.
 - Scope: Koinon's agent-facing text, the skills, the setup blocks, and the docs and records that
-  restate them. The #487 audit lists the code refusals for a separate decision (#493).
+  restate them. The #487 audit listed the code refusals for a separate decision; #493 decided
+  them (Change of 2026-10-26).
 - This record: Decision 2 states how a branch is brought current, without its limits, and
   Decision 3 states the local checks without the push gate. Decision 6 drops the release
   approval that WDR 002 deprecated. The one open pull request, auto-merge, the commit
   conventions and the failed-run account keep their text.
+
+### Change of 2026-10-26 (#493)
+
+The maintainer decided two code refusals of this record on the decision board.
+
+- Question (decision board item 493-5, 2026-10-26): keep or remove the requirement that a pull
+  request to `develop` merges only when the reviewer's `peer-review` and `refusal-review` commit
+  statuses pass at the exact head?
+- Options: keep both statuses required, or remove them.
+- Answer: Maintainer, 2026-10-26: approved (verdict 49), with no note, on the card's
+  recommendation: "Keep both."
+  ([#493 comment 6406505885](https://github.com/rwcii/koinon/issues/493#issuecomment-6406505885)).
+- Intent and scope: both statuses stay required on `develop`, beside the four CI jobs. This is
+  the maintainer's source for `peer-review` as a required status (Decision 3). The ruleset does
+  not change.
+
+- Question (decision board item 493-6, 2026-10-26): keep or remove the `.githooks/pre-commit`
+  hook that stops a commit made directly on `main` or `develop`?
+- Options: keep the hook, or remove it.
+- Answer: Maintainer, 2026-10-26: approved (verdict 50), with no note, on the card's
+  recommendation: "Keep it: it stops a commit that the branch ruleset would refuse at push."
+  ([#493 comment 6406509968](https://github.com/rwcii/koinon/issues/493#issuecomment-6406509968)).
+- Intent and scope: work goes on a branch and reaches `develop` through a pull request; the hook
+  stays (Decision 1). The code does not change.
 
 ---
 
@@ -109,7 +134,9 @@ squashes each pull request into `develop`, and promotes `develop` to `main` with
 request. Neither long-lived branch takes direct commits.
 
 **Provenance:** Shipped in PR #1 (merge commit 3d2b5bf), which follows the branch policy of
-rwcii/engineering-standards; no maintainer decision found.
+rwcii/engineering-standards; no maintainer decision found. The `pre-commit` block on `main` and
+`develop`: Maintainer, 2026-10-26, kept it (verdict 50, [#493 comment 6406509968](https://github.com/rwcii/koinon/issues/493#issuecomment-6406509968); Problem
+Context).
 
 ### Alternatives Considered
 
@@ -207,8 +234,9 @@ private-content scan.
 **Provenance:** macOS support and the macOS CI runner shipped in PR #8 (merge commit 4456efe);
 Maintainer, 2026-09-18: "MacOS Suport is not optional" (memory copy only; original not
 located). The Go and native lifecycle checks shipped in PR #207 (merge commit 10ea1e4) and the
-`peer-review` status in PR #262 (merge commit ce75054); no maintainer decision found. Changed
-by #487 (Problem Context).
+`peer-review` status in PR #262 (merge commit ce75054). The `peer-review` status as a required
+check: Maintainer, 2026-10-26, kept it (verdict 49,
+[#493 comment 6406505885](https://github.com/rwcii/koinon/issues/493#issuecomment-6406505885); Problem Context). Changed by #487 (Problem Context).
 
 ### Alternatives Considered
 
@@ -373,3 +401,4 @@ choices; the rest waits for the maintainer's decision.
 | 2026-10-12 | Initial creation |
 | 2026-10-25 | Decision 6: failed CI runs are accounted for before a release |
 | 2026-10-25 | #487: Decision 2 states the branch update without its limits; Decision 3 drops the push gate; Decision 6 drops the release approval |
+| 2026-10-26 | #493: Decision 3 cites the maintainer's verdict that keeps the required `peer-review` and `refusal-review` statuses (verdict 49); Decision 1 cites the verdict that keeps the `pre-commit` block (verdict 50) |
