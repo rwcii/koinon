@@ -2520,7 +2520,8 @@ fields and wrapping its previous command. The previous entry is saved once, befo
 change, in `claude-statusline.json` in the Go state root. `koinon setup claude --remove-status-line`
 restores it while the entry is still Koinon's, and keeps an entry the user changed. Setup leaves
 a wrapper that the user edited alone (`statusline_changed`), also when it runs an earlier Koinon
-binary. Only the `statusLine` member changes; member order and the file mode are kept; a symbolic link, a file
+binary and after a removal that kept it; only a wrapper that runs the hook alone or around one
+`--command` is set up again then, around that command. Only the `statusLine` member changes; member order and the file mode are kept; a symbolic link, a file
 not owned by the user, a file over 1 MiB or invalid JSON is refused, and a file that changes
 while Koinon edits it is a `settings_conflict` that keeps the other change.
 
@@ -2573,7 +2574,7 @@ exact wrapper, and remove the table only when setup added it and no other key is
 saved spelling is used only when it is a TOML spelling of the saved value; otherwise the value
 is written as a basic string. A
 wrapper that the user edited is left alone (`statusline_changed`), also when it runs an earlier
-Koinon binary. Setup
+Koinon binary and after a removal that kept it, with the Claude Code rule. Setup
 for another `config.toml` while one is set up reports `changed` (`statusline_other_file`). A
 missing Grok home is skipped (`grok_config_missing`).
 

@@ -162,6 +162,14 @@ func TestStatusLineWithoutAnEntryAndAfterUserChanges(t *testing.T) {
 	if entry, _ := settingsEntry(t, l); !equal(entry, json.RawMessage(edited)) {
 		t.Fatal("edited wrapper changed")
 	}
+	// Setup after that removal still leaves the edited wrapper alone (#532).
+	result, err = l.setUp()
+	if err != nil || result.Outcome != "changed" || result.Reason != "statusline_changed" {
+		t.Fatalf("setup after removal of an edited wrapper: %+v %v", result, err)
+	}
+	if entry, _ := settingsEntry(t, l); !equal(entry, json.RawMessage(edited)) {
+		t.Fatalf("edited wrapper replaced after removal: %s", entry)
+	}
 	// A wrapper without a record is unwrapped, never wrapped again.
 	os.Remove(filepath.Join(l.state, statusLineRecord))
 	wrapper := l.wrapperEntry(json.RawMessage(mine))

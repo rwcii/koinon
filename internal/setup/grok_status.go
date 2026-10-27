@@ -560,6 +560,10 @@ func (g grokStatusFile) setUp() (StatusLineResult, error) {
 		}
 		original, raw = now, rawValues(c)
 	case g.isWrapper(now):
+		if !plainWrapper(now) {
+			result.Outcome, result.Reason = "changed", "statusline_changed"
+			return result, nil
+		}
 		original = g.unwrap(now)
 	default:
 		original, raw = now, rawValues(c)

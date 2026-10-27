@@ -316,6 +316,16 @@ func TestGrokStatusLineChanges(t *testing.T) {
 	if data, _ := os.ReadFile(g.settings); string(data) != edited {
 		t.Fatalf("edited wrapper changed: %s", data)
 	}
+	// After that removal, setup leaves a wrapper that it cannot unwrap alone (#532).
+	unreadable := strings.Replace(edited, "--command 'mine'", "--command 'mine' --extra", 1)
+	os.WriteFile(g.settings, []byte(unreadable), 0600)
+	result, err = g.setUp()
+	if err != nil || result.Outcome != "changed" || result.Reason != "statusline_changed" {
+		t.Fatalf("setup after removal of an edited wrapper: %+v %v", result, err)
+	}
+	if data, _ := os.ReadFile(g.settings); string(data) != unreadable {
+		t.Fatalf("edited wrapper replaced after removal: %s", data)
+	}
 	// An unedited wrapper follows the binary, and removal still restores the original.
 	g, _ = grokFixture(t)
 	os.WriteFile(g.settings, []byte("[ui.status_line]\ntype = \"command\"\ncommand = \"old\"\n"), 0600)

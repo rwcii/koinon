@@ -283,6 +283,13 @@ func (l statusLine) wrapperEntry(original json.RawMessage) json.RawMessage {
 	return encodeFields(fields)
 }
 
+// plainWrapper reports whether a wrapper runs the hook alone or around one command, the two
+// forms that unwrap reads; any other wrapper is the user's edit (#532).
+func plainWrapper(entry json.RawMessage) bool {
+	words, err := splitWords(entryCommand(entry))
+	return err == nil && (len(words) == 3 || len(words) == 5 && words[3] == "--command")
+}
+
 // unwrap rebuilds the entry that a wrapper entry runs, or nil when it runs none.
 func (l statusLine) unwrap(entry json.RawMessage) json.RawMessage {
 	words, err := splitWords(entryCommand(entry))
@@ -481,6 +488,10 @@ func (l statusLine) setUp() (StatusLineResult, error) {
 		}
 		original = now
 	case l.isWrapper(now):
+		if !plainWrapper(now) {
+			result.Outcome, result.Reason = "changed", "statusline_changed"
+			return result, nil
+		}
 		original = l.unwrap(now)
 	default:
 		original = now
