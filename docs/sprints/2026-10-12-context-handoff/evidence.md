@@ -434,7 +434,37 @@ here; the agents' text is not.
 - Settings. The harness's `cordis.patch.yml` files kept their 2026-10-13 times through both
   runs: the adapter changed no harness setting. The daemon, the harness and the container were
   stopped.
+- Reconstructed persisted-intent recovery (review F5 on #526). This run verifies reconstructed
+  boundary states, not a real crash or lost response. Binary: the branch at e01a86c,
+  `CGO_ENABLED=0` linux/amd64, sha256 `f731d567…38af84`. Each case stopped the daemon at a
+  recorded stage (SIGSTOP, then SIGKILL, within 20 ms of the stage), copied the store out,
+  wrote the cycle row and its events, audit records, revision and credit as `advanceCycle`
+  writes them, and copied the store back without its WAL. Then `dsh web` and the daemon were
+  restarted. The counts are the harness's session count and, for each session, its user
+  prompts in the inbox, in `agent/inbox/spliced` and in `user/message`. The successor and
+  request IDs were derived from the cycle and the intent time, and the derivation gave the
+  successor ID of the earlier completed cycle.
+  - Create absent: `ready` was rewritten to `clear_intent` (7 sessions, no successor). After
+    the restarts: `clear_received` with the derived ID as epoch, 8 sessions, and the created
+    session empty (0/0/0).
+  - Create present: the same cycle was rolled back to `clear_intent` with the created session
+    kept. After the restarts: `clear_received` again, 8 sessions, and the created session
+    unchanged (same sequence, 0/0/0): no second create.
+  - Pickup absent: `clear_received` was rewritten through `select_sent` and `reset_verified`
+    to `pickup_intent`, with no send. After the restarts the cycle ended `uncertain`
+    (`pickup_unreceipted`) 0.9 s later, and the created session still had no prompt.
+  - Pickup present: a new cycle sent its real pickup. The daemon and `dsh web` were stopped
+    18 ms after `waiting_pickup`, and the row was rolled back to `pickup_intent` with its
+    intent time kept. After the harness restart the created session had one admission
+    (1 spliced, 1 `user/message`, empty inbox, not running). After the daemon restart the
+    cycle recorded `waiting_pickup` 0.9 s later, with the same counts and no other prompt. The
+    harness did not resume the killed turn, so no report came, and the cycle ended `failed`
+    (`waiting_pickup_timeout`) at its deadline with the same counts.
+  - No replay: a `complete` cycle, the `uncertain` cycle above, a cycle disabled in
+    `clear_intent` while the harness was stopped (`uncertain`, `disabled`) and a cycle
+    disabled in `ready` (`cancelled`, `disabled`) were each restarted with the harness and the
+    daemon. The session counts and every session's prompt counts stayed the same, and no
+    session was created for the disabled or cancelled cycles.
+  - The family mode was set back to `observe`, and the container was stopped.
 
-Not yet verified: macOS; a daemon restart inside `clear_intent` or `pickup_intent` with the
-real harness (the synthetic tests cover them); a pickup within the 2-minute deadline when the
-model is slower.
+Not yet verified: macOS; a pickup within the 2-minute deadline when the model is slower.
