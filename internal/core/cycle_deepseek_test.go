@@ -1086,3 +1086,73 @@ func TestDeepSeekCycleNoHarnessOnTick(t *testing.T) {
 		t.Fatalf("creates: %d", g.fake.count("session/create"))
 	}
 }
+
+// The quiet point that a step applies was read by an earlier worker: the create and the pickup
+// read it again before they send (#526 review).
+func TestDeepSeekCycleEffectReadsQuiet(t *testing.T) {
+	busy := func(g *dshFixture) {
+		g.fake.set(func(f *dshFake) {
+			f.sessions[dshRequester].running = true
+			f.add(dshRequester, `"type":"turn/start","data":{}`)
+		})
+	}
+	toClearIntent := func(t *testing.T, g *dshFixture, id string) {
+		g.step(t) // the worker reads the quiet point
+		waitIdle(t, g.s, id)
+		busy(g)
+		g.step(t) // the step applies the earlier quiet result
+		if c := g.cycle(t, id); c.State != cycleClearIntent {
+			t.Fatalf("setup: %s", c.State)
+		}
+		g.step(t) // the create worker
+		waitIdle(t, g.s, id)
+		g.step(t)
+	}
+	t.Run("requester busy, then quiet", func(t *testing.T) {
+		g := newDSHFixture(t)
+		v := g.ready(t)
+		toClearIntent(t, g, v.ID)
+		if c := g.cycle(t, v.ID); c.State != cycleClearIntent || g.fake.count("session/create") != 0 {
+			t.Fatalf("busy requester: %s, %d creates", c.State, g.fake.count("session/create"))
+		}
+		g.fake.set(func(f *dshFake) {
+			f.sessions[dshRequester].running = false
+			f.add(dshRequester, `"type":"turn/end","data":{}`)
+		})
+		c := g.stepTo(t, v.ID, cycleClearReceived)
+		if c.State != cycleClearReceived || g.fake.count("session/create") != 1 {
+			t.Fatalf("quiet again: %s, %d creates", c.State, g.fake.count("session/create"))
+		}
+	})
+	t.Run("requester busy to the deadline", func(t *testing.T) {
+		g := newDSHFixture(t)
+		v := g.ready(t)
+		toClearIntent(t, g, v.ID)
+		g.clock = time.UnixMilli(g.cycle(t, v.ID).StageDeadline)
+		g.step(t)
+		waitIdle(t, g.s, v.ID)
+		g.step(t)
+		if c := g.cycle(t, v.ID); c.State != cycleUncertain || c.Reason != "status_busy" || g.fake.count("session/create") != 0 {
+			t.Fatalf("deadline: %s %s, %d creates", c.State, c.Reason, g.fake.count("session/create"))
+		}
+	})
+	t.Run("successor input after the read", func(t *testing.T) {
+		g := newDSHFixture(t)
+		v := g.ready(t)
+		c := g.stepTo(t, v.ID, cycleResetVerified)
+		if c.State != cycleResetVerified {
+			t.Fatalf("setup: %s", c.State)
+		}
+		g.step(t) // the worker reads the empty successor
+		waitIdle(t, g.s, v.ID)
+		g.fake.set(func(f *dshFake) {
+			f.sessions[c.SuccessorEpoch].nextTurn = []string{`{"content":[{"type":"text","text":"OTHER"}],"source":{"kind":"user","rpcId":"other"}}`}
+		})
+		g.step(t) // the step applies the earlier result and starts the pickup worker
+		waitIdle(t, g.s, v.ID)
+		g.step(t)
+		if c := g.cycle(t, v.ID); c.State != cycleUncertain || c.Reason != "pickup_unreceipted" || g.fake.count("session/prompt") != 0 {
+			t.Fatalf("queued input: %s %s, %d prompts", c.State, c.Reason, g.fake.count("session/prompt"))
+		}
+	})
+}

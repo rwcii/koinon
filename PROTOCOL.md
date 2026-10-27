@@ -778,14 +778,18 @@ The created ID is recorded with the receipt in the write that enters `clear_rece
 or failed response leaves the cycle in `clear_intent`: the next step reads the chosen ID first.
 Only a verified successful null from `session/projections` proves that it does not exist, and
 then the same create is sent again; a session with that ID in the pinned `cwd` without a turn or
-user message is the created one, and any other is `session_conflict`, never adopted. An
+user message is the created one, and any other is `session_conflict`, never adopted. Before the
+fence the create's worker reads the requester's quiet point again, because the ready step
+applied an earlier read: a requester that is no longer quiet gets no create, and the cycle waits
+in `clear_intent` and ends `uncertain` with that code at the stage deadline. An
 unreadable harness waits until the stage deadline, then ends `uncertain` (`reset_unproven`). The
 `select_sent` event is recorded and nothing is sent: the harness has no server record of the
 session that a browser shows. The reset is proven when the created session exists in the
 pinned `cwd`.
 
 The pickup runs from a worker, as OpenCode's does, under the recorded `pickup_intent`: after the
-pin, the fence, a read that shows no receipt yet, and the created session's own selection
+pin, the fence, a read that shows no receipt yet, a new read of the created session that is
+still quiet and without a user prompt, and the created session's own selection
 (`modelSelection.next`, else `lastUsed`, else the default that the pin already matched) equal to
 the pinned model, `session/prompt` `{requestId, sessionId,
 mode: queue, content: [{type: text, text: "/koinon-pickup"}], clientTimeZone: UTC}`, whose
@@ -795,8 +799,10 @@ never answered by a resend, only by reading the receipt back. The receipt is the
 created session's only user prompt, with `source.kind` `user`, that `source.rpcId` and exactly
 that text. Each admission is in the inbox while queued and then in one `agent/inbox/spliced`
 entry, before its turn's `user/message`: the inbox and spliced entries with the request ID must
-be exactly one, the `user/message` entries at most one, and any other user prompt fails it. The worker bounds and the step that applies the result are
-OpenCode's; a restart reads the receipt back and sends nothing.
+be exactly one, the `user/message` entries at most one, and any other user prompt fails it. A
+created session that is no longer quiet, or has a user prompt, gets no pickup, and the receipt
+read ends the cycle `uncertain` (`pickup_unreceipted`). The worker bounds and the step that
+applies the result are OpenCode's; a restart reads the receipt back and sends nothing.
 
 The created session runs `koinon-pickup`, DeepSeek's entry, which reads `skill.pickup` with
 `koinon library read`, registers with `koinon register` (see Verified succession) and reports

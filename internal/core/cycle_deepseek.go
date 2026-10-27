@@ -51,6 +51,12 @@ var (
 	errDeepSeekConflict = errors.New("session_conflict")
 )
 
+// deepSeekNotQuiet is a session that an effect's own read found not quiet, by its code: the
+// effect sent nothing.
+type deepSeekNotQuiet string
+
+func (e deepSeekNotQuiet) Error() string { return string(e) }
+
 type deepSeekCycle struct{}
 
 func init() { cycleAdapters["deepseek"] = deepSeekCycle{} }
@@ -494,6 +500,14 @@ func (a deepSeekCycle) Create(ctx context.Context, t CycleTarget, fence CycleFen
 		}
 		return "", err
 	}
+	// The quiet point that the ready step applied was read earlier: the requester must still be
+	// quiet when the create is sent.
+	if seen, _, err := deepSeekQuiet(ctx, c, t.SessionID); err != nil || seen != "" {
+		if err != nil {
+			return "", errDeepSeekHarness
+		}
+		return "", deepSeekNotQuiet(seen)
+	}
 	if err := fence(ctx); err != nil {
 		return "", err
 	}
@@ -597,6 +611,18 @@ func (a deepSeekCycle) SendPickup(ctx context.Context, t CycleTarget, fence Cycl
 		if model != nil && *model != pin.Model {
 			return errDeepSeekHarness
 		}
+	}
+	// The empty successor that reset_verified applied was read earlier: it must still be quiet
+	// and without a user prompt when the pickup is sent. Without the send the receipt read
+	// ends the cycle.
+	if seen, users, err := deepSeekQuiet(ctx, c, t.SuccessorEpoch); err != nil || seen != "" || users > 0 {
+		if err != nil {
+			return errDeepSeekHarness
+		}
+		if seen == "" {
+			seen = "successor_not_empty"
+		}
+		return deepSeekNotQuiet(seen)
 	}
 	if err := fence(ctx); err != nil {
 		return err

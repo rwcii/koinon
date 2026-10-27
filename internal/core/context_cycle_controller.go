@@ -678,11 +678,24 @@ func (s *Store) stepHostless(ctx context.Context, c cycleRow, t CycleTarget, ada
 	switch c.State {
 	case cycleClearIntent:
 		// The create reads the chosen ID first and sends the same create only after a verified
-		// null; an unreadable harness waits within the stage deadline.
+		// null and a quiet requester; an unreadable harness or a busy requester waits within the
+		// stage deadline. An intent's end is uncertain (endCycle); a busy requester's names its code.
+		var busy deepSeekNotQuiet
 		switch {
 		case errors.Is(r.err, errDeepSeekConflict):
 			_, err := s.endCycle(ctx, c.ID, c.Revision, cycleFailed, "session_conflict")
 			return err
+		case errors.As(r.err, &busy):
+			if now >= c.StageDeadline {
+				reason := string(busy)
+				if !cycleCode.MatchString(reason) {
+					reason = "pane_not_ready"
+				}
+				_, err := s.endCycle(ctx, c.ID, c.Revision, cycleUncertain, reason)
+				return err
+			}
+			s.paneSeen.set(c.ID, string(busy))
+			return nil
 		case r.err != nil || r.epoch == "":
 			if now >= c.StageDeadline {
 				_, err := s.endCycle(ctx, c.ID, c.Revision, cycleUncertain, "reset_unproven")
@@ -693,6 +706,7 @@ func (s *Store) stepHostless(ctx context.Context, c cycleRow, t CycleTarget, ada
 			_, err := s.endCycle(ctx, c.ID, c.Revision, cycleUncertain, "reset_unproven")
 			return err
 		}
+		s.paneSeen.set(c.ID, "")
 		_, err := s.advanceCycle(ctx, c.ID, c.Revision, cycleClearIntent, cycleClearReceived, "", nil, func(n *cycleRow) { n.SuccessorEpoch = r.epoch })
 		return err
 	case cycleClearReceived:
