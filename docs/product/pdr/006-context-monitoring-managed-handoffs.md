@@ -238,7 +238,7 @@ are still running (#467).
 The session's live work claims last through the cycle: admission extends them to a minute past
 the cycle deadline, and a renewal during the cycle keeps that expiry (#489).
 The new session has five minutes from the pickup input to report its pickup (`waiting_pickup`);
-the other stages after the ready reply keep two minutes, and the cycle keeps its 30 minutes:
+all other stage deadlines and the cycle's 30 minutes are unchanged:
 Maintainer, 2026-10-27, decision board item PICKUP-WAIT-525 (revision 1), verdict 64,
 "approved". The question: "Make the pickup deadline longer than 2 minutes? (#525)". The card
 gave the #514 DeepSeek pickups, 81 s, 106 s and 115 s, and one over 120 s that failed with
