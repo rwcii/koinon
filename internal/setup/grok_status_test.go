@@ -299,12 +299,38 @@ func TestGrokStatusLineChanges(t *testing.T) {
 	if err != nil || result.Outcome != "changed" || result.Reason != "statusline_changed" {
 		t.Fatalf("edited wrapper: %+v %v", result, err)
 	}
+	// After the binary moves, the edited wrapper of the old binary is still Koinon's and is left
+	// alone, never wrapped again.
+	g.binary = "/new/koinon"
+	result, err = g.setUp()
+	if err != nil || result.Outcome != "changed" {
+		t.Fatalf("edited wrapper of an old binary: %+v %v", result, err)
+	}
+	if data, _ := os.ReadFile(g.settings); string(data) != edited {
+		t.Fatalf("edited wrapper of an old binary changed: %s", data)
+	}
 	result, err = g.remove()
 	if err != nil || result.Outcome != "changed" {
 		t.Fatalf("remove after edit: %+v %v", result, err)
 	}
 	if data, _ := os.ReadFile(g.settings); string(data) != edited {
 		t.Fatalf("edited wrapper changed: %s", data)
+	}
+	// An unedited wrapper follows the binary, and removal still restores the original.
+	g, _ = grokFixture(t)
+	os.WriteFile(g.settings, []byte("[ui.status_line]\ntype = \"command\"\ncommand = \"old\"\n"), 0600)
+	result, err = g.setUp()
+	mustOutcome(t, result, err, "set_up")
+	g.binary = "/new/koinon"
+	result, err = g.setUp()
+	mustOutcome(t, result, err, "set_up")
+	if table := grokStatusOf(t, g.settings); table["command"] != "'/new/koinon' hook grok-status --command 'old'" {
+		t.Fatalf("moved binary: %+v", table)
+	}
+	result, err = g.remove()
+	mustOutcome(t, result, err, "restored")
+	if data, _ := os.ReadFile(g.settings); string(data) != "[ui.status_line]\ntype = \"command\"\ncommand = \"old\"\n" {
+		t.Fatalf("restored after the move: %q", data)
 	}
 	// Another config.toml while one is set up: reported, and removal acts on the recorded file.
 	g, home = grokFixture(t)
@@ -332,6 +358,64 @@ func TestGrokStatusLineChanges(t *testing.T) {
 	result, err = missing.setUp()
 	if err != nil || result.Outcome != "skipped" || result.Reason != "grok_config_missing" {
 		t.Fatalf("missing: %+v %v", result, err)
+	}
+}
+
+// An owned line keeps its key spelling, spacing and comment; removal gives back its value as it
+// was spelled (#515).
+func TestGrokStatusLineKeepsLineSpelling(t *testing.T) {
+	g, _ := grokFixture(t)
+	original := "[ui.status_line]\n\"type\" = 'command' # why type\ncommand\t=  'old' # why \"command\" = x\nrefresh_interval = 3\n"
+	os.WriteFile(g.settings, []byte(original), 0600)
+	result, err := g.setUp()
+	mustOutcome(t, result, err, "set_up")
+	data, _ := os.ReadFile(g.settings)
+	want := strings.Replace(original, "'old'", `"`+grokWrapper+` --command 'old'"`, 1)
+	if string(data) != want {
+		t.Fatalf("set up: %q", data)
+	}
+	result, err = g.remove()
+	mustOutcome(t, result, err, "restored")
+	if data, _ := os.ReadFile(g.settings); string(data) != original {
+		t.Fatalf("restored: %q", data)
+	}
+	// A record from before raw values restores the same meaning, with the comments.
+	result, err = g.setUp()
+	mustOutcome(t, result, err, "set_up")
+	path := filepath.Join(g.state, g.record)
+	var record map[string]any
+	saved, _ := os.ReadFile(path)
+	if json.Unmarshal(saved, &record) != nil || record["raw_values"] == nil {
+		t.Fatalf("record: %s", saved)
+	}
+	delete(record, "raw_values")
+	saved, _ = json.Marshal(record)
+	os.WriteFile(path, saved, 0600)
+	result, err = g.remove()
+	mustOutcome(t, result, err, "restored")
+	if data, _ := os.ReadFile(g.settings); string(data) != strings.Replace(original, "'old'", `"old"`, 1) {
+		t.Fatalf("restored without raw values: %q", data)
+	}
+}
+
+func TestValueSpan(t *testing.T) {
+	for line, want := range map[string]string{
+		"k = \"a\\\"b\" # c\n": `"a\"b"`,
+		"k='a\"b'":             `'a"b'`,
+		"k = \"a\" # \"x\"\n":  `"a"`,
+		"k = \"\"\"a\"\"\"\n":  "",
+		"k = '''a'''\n":        "",
+		"k = \"open\n":         "",
+		"k = 'open\n":          "",
+		"k = 1\n":              "",
+		"k\n":                  "",
+	} {
+		from, to, ok := valueSpan(line)
+		if ok && line[from:to] != want {
+			t.Errorf("%q: %q, want %q", line, line[from:to], want)
+		} else if !ok && want != "" {
+			t.Errorf("%q: no value, want %q", line, want)
+		}
 	}
 }
 
@@ -372,7 +456,7 @@ func TestGrokStatusLineRefusals(t *testing.T) {
 	}
 	os.WriteFile(g.settings, []byte("a = 2\n"), 0600)
 	var refusal SettingsError
-	if err := g.write(c, g.wrapperEntry(nil), false); !errors.As(err, &refusal) || refusal.Code != "settings_conflict" {
+	if err := g.write(c, g.wrapperEntry(nil), nil, false); !errors.As(err, &refusal) || refusal.Code != "settings_conflict" {
 		t.Fatalf("conflict: %v", err)
 	}
 	if data, _ := os.ReadFile(g.settings); string(data) != "a = 2\n" {

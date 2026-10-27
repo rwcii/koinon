@@ -52,6 +52,14 @@ func GrokStatusLine(binary, state, config string, remove bool) (StatusLineResult
 
 type grokStatusFile struct{ statusLine }
 
+// isWrapper reports whether an entry runs a Koinon grok-status hook, of this binary or of an
+// earlier one: after an upgrade that moves the binary, an edited wrapper is still Koinon's and
+// is left alone, never wrapped again.
+func (g grokStatusFile) isWrapper(entry json.RawMessage) bool {
+	words, err := splitWords(entryCommand(entry))
+	return err == nil && len(words) >= 3 && words[1] == "hook" && words[2] == g.hookName()
+}
+
 func (g grokStatusFile) unusual() error {
 	return SettingsError{"settings_unusual", "the Grok configuration does not keep ui.status_line as a plain [ui.status_line] table that Koinon can edit; not changed", g.settings}
 }
@@ -234,10 +242,113 @@ func tomlString(s string) string {
 	return b.String()
 }
 
-// edit sets the owned keys of [ui.status_line] to entry's members, removing those it lacks;
-// with drop, it also removes the table header when no other line is left in the table. It
-// returns the new text, or nil when the editor cannot place the change.
-func (g grokStatusFile) edit(c grokConfig, entry json.RawMessage, drop bool) []byte {
+// statusLines splits text into lines and finds the plain [ui.status_line] table: the index of
+// its header (-1 when absent) and of the first line after it. ok is false for a second header.
+func statusLines(text string) (lines []string, kinds []tomlLine, start, end int, ok bool) {
+	lines = strings.SplitAfter(text, "\n")
+	kinds = tomlLines(text)
+	start, end = -1, len(lines)
+	for i, k := range kinds {
+		if k.header == "" {
+			continue
+		}
+		if start >= 0 && end == len(lines) {
+			end = i
+		}
+		if k.header == "ui.status_line" {
+			if start >= 0 {
+				return nil, nil, 0, 0, false
+			}
+			start = i
+		}
+	}
+	return lines, kinds, start, end, true
+}
+
+// valueSpan finds the value of a key/value line whose value is a single-line basic or literal
+// string: line[from:to] is the string token, and what follows it (spacing, a comment) stays.
+func valueSpan(line string) (from, to int, ok bool) {
+	eq := strings.IndexByte(line, '=')
+	if eq < 0 {
+		return 0, 0, false
+	}
+	from = eq + 1
+	for from < len(line) && (line[from] == ' ' || line[from] == '\t') {
+		from++
+	}
+	rest := line[from:]
+	if strings.HasPrefix(rest, `"""`) || strings.HasPrefix(rest, `'''`) {
+		return 0, 0, false
+	}
+	switch {
+	case strings.HasPrefix(rest, `"`):
+		for i := 1; i < len(rest); i++ {
+			switch rest[i] {
+			case '\\':
+				i++
+			case '"':
+				return from, from + i + 1, true
+			case '\n':
+				return 0, 0, false
+			}
+		}
+	case strings.HasPrefix(rest, "'"):
+		if i := strings.IndexAny(rest[1:], "'\n"); i >= 0 && rest[1+i] == '\'' {
+			return from, from + i + 2, true
+		}
+	}
+	return 0, 0, false
+}
+
+// rawValues are the value tokens of the owned keys in the plain [ui.status_line] table of c.
+func rawValues(c grokConfig) map[string]string {
+	lines, kinds, start, end, ok := statusLines(string(c.raw))
+	if !ok || start < 0 {
+		return nil
+	}
+	raw := map[string]string{}
+	for i := start + 1; i < end; i++ {
+		if key := kinds[i].key; key == "type" || key == "command" {
+			if from, to, ok := valueSpan(lines[i]); ok {
+				raw[key] = lines[i][from:to]
+			}
+		}
+	}
+	if len(raw) == 0 {
+		return nil
+	}
+	return raw
+}
+
+// token is raw, the saved spelling of v, or else v as a TOML basic string.
+func token(v, raw string) string {
+	if raw != "" {
+		return raw
+	}
+	return tomlString(v)
+}
+
+// setValue sets the value of an owned key line to v, keeping the key spelling, the spacing
+// and any comment. raw is the saved spelling of v; without it, a line that holds v already
+// stays as it is.
+func setValue(line, v, raw string) (string, bool) {
+	from, to, ok := valueSpan(line)
+	if !ok {
+		return "", false
+	}
+	if raw == "" {
+		if now, err := decodeTOML([]byte("v = " + line[from:to])); err == nil && now["v"] == v {
+			return line, true
+		}
+	}
+	return line[:from] + token(v, raw) + line[to:], true
+}
+
+// edit sets the owned keys of [ui.status_line] to entry's members, spelled as in raw when it
+// has them, and removes those that entry lacks; with drop, it also removes the table header
+// when no other line is left in the table. It returns the new text, or nil when the editor
+// cannot place the change. The write checks the meaning, so a wrong raw token is refused.
+func (g grokStatusFile) edit(c grokConfig, entry json.RawMessage, raw map[string]string, drop bool) []byte {
 	want := map[string]string{}
 	if entry != nil {
 		fields, err := objectFields(entry)
@@ -253,22 +364,9 @@ func (g grokStatusFile) edit(c grokConfig, entry json.RawMessage, drop bool) []b
 		}
 	}
 	text := string(c.raw)
-	lines := strings.SplitAfter(text, "\n")
-	kinds := tomlLines(text)
-	start, end := -1, len(lines)
-	for i, k := range kinds {
-		if k.header == "" {
-			continue
-		}
-		if start >= 0 && end == len(lines) {
-			end = i
-		}
-		if k.header == "ui.status_line" {
-			if start >= 0 {
-				return nil
-			}
-			start = i
-		}
+	lines, kinds, start, end, ok := statusLines(text)
+	if !ok {
+		return nil
 	}
 	if start < 0 {
 		if c.table || len(want) == 0 {
@@ -284,7 +382,7 @@ func (g grokStatusFile) edit(c grokConfig, entry json.RawMessage, drop bool) []b
 		add.WriteString("[ui.status_line]\n")
 		for _, key := range grokOwned {
 			if v, ok := want[key]; ok {
-				add.WriteString(key + " = " + tomlString(v) + "\n")
+				add.WriteString(key + " = " + token(v, raw[key]) + "\n")
 			}
 		}
 		return []byte(text + add.String())
@@ -297,7 +395,11 @@ func (g grokStatusFile) edit(c grokConfig, entry json.RawMessage, drop bool) []b
 	for i := start + 1; i < end; i++ {
 		k := kinds[i]
 		if v, owned := want[k.key]; owned && !placed[k.key] {
-			out = append(out, k.key+" = "+tomlString(v)+"\n")
+			line, ok := setValue(lines[i], v, raw[k.key])
+			if !ok {
+				return nil
+			}
+			out = append(out, line)
 			placed[k.key], at = true, len(out)
 			continue
 		}
@@ -315,7 +417,7 @@ func (g grokStatusFile) edit(c grokConfig, entry json.RawMessage, drop bool) []b
 	var keys []string
 	for _, key := range grokOwned {
 		if v, ok := want[key]; ok && !placed[key] {
-			keys = append(keys, key+" = "+tomlString(v)+"\n")
+			keys = append(keys, key+" = "+token(v, raw[key])+"\n")
 		}
 	}
 	if len(keys) > 0 {
@@ -380,8 +482,8 @@ func expected(c grokConfig, entry json.RawMessage, drop bool) (map[string]any, e
 
 // write makes the edit, checks that its meaning differs only in the owned keys, and replaces
 // the file as the other status lines do.
-func (g grokStatusFile) write(c grokConfig, entry json.RawMessage, drop bool) error {
-	data := g.edit(c, entry, drop)
+func (g grokStatusFile) write(c grokConfig, entry json.RawMessage, raw map[string]string, drop bool) error {
+	data := g.edit(c, entry, raw, drop)
 	if data == nil {
 		return g.unusual()
 	}
@@ -426,37 +528,38 @@ func (g grokStatusFile) setUp() (StatusLineResult, error) {
 	}
 	now := c.entry
 	var original json.RawMessage
+	var raw map[string]string // the spelling of original's values; none for an unwrapped one
 	added := !c.table
 	switch {
 	case active(record) && equal(now, record.Wrapper):
-		original, added = record.Original, record.TableAdded
+		original, raw, added = record.Original, record.RawValues, record.TableAdded
 	case record.State == "pending" && equal(now, record.Original):
-		original, added = record.Original, record.TableAdded
+		original, raw, added = record.Original, record.RawValues, record.TableAdded
 	case active(record):
 		if g.isWrapper(now) {
 			result.Outcome, result.Reason = "changed", "statusline_changed"
 			return result, nil
 		}
-		original = now
+		original, raw = now, rawValues(c)
 	case g.isWrapper(now):
 		original = g.unwrap(now)
 	default:
-		original = now
+		original, raw = now, rawValues(c)
 	}
 	entry := g.wrapperEntry(original)
 	if equal(entry, now) {
 		result.Outcome = "unchanged"
-		return result, g.save(statusRecord{State: "enabled", Original: original, Wrapper: now, TableAdded: added})
+		return result, g.save(statusRecord{State: "enabled", Original: original, Wrapper: now, TableAdded: added, RawValues: raw})
 	}
 	// Save the original before the file changes, so a crash can never lose it.
-	if err := g.save(statusRecord{State: "pending", Original: original, Wrapper: entry, TableAdded: added}); err != nil {
+	if err := g.save(statusRecord{State: "pending", Original: original, Wrapper: entry, TableAdded: added, RawValues: raw}); err != nil {
 		return result, err
 	}
-	if err := g.write(c, entry, false); err != nil {
+	if err := g.write(c, entry, nil, false); err != nil {
 		return result, err
 	}
 	result.Outcome = "set_up"
-	return result, g.save(statusRecord{State: "enabled", Original: original, Wrapper: entry, TableAdded: added})
+	return result, g.save(statusRecord{State: "enabled", Original: original, Wrapper: entry, TableAdded: added, RawValues: raw})
 }
 
 // remove restores the saved keys in the recorded file while it still holds the exact wrapper,
@@ -486,7 +589,7 @@ func (g grokStatusFile) remove() (StatusLineResult, error) {
 	case !equal(c.entry, record.Wrapper):
 		result.Outcome, result.Reason = "changed", "statusline_changed"
 	default:
-		if err := g.write(c, record.Original, record.TableAdded); err != nil {
+		if err := g.write(c, record.Original, record.RawValues, record.TableAdded); err != nil {
 			return result, err
 		}
 		result.Outcome = "restored"

@@ -2512,7 +2512,8 @@ name the session, at most 4 MiB are read per check, records longer than 1 MiB ar
 pieces across checks, and no conversation text is kept or sent.
 
 `koinon hook claude-status [--command COMMAND]` is the Claude Code `statusLine` command. It runs
-`COMMAND` through `/bin/sh -c` with the same input and returns its output and exit status, or
+`COMMAND` through `/bin/sh -c` with the whole input, of which the hook itself reads at most
+1 MiB, and returns its output and exit status, or
 prints the model's display name without one, and reports the model and context of the input's
 `session_id`. `koinon setup claude` makes it the `statusLine` entry, keeping the entry's other
 fields and wrapping its previous command. The previous entry is saved once, before the settings
@@ -2559,13 +2560,17 @@ grok` makes `'BINARY' hook grok-status` the `command` of a `[ui.status_line]` ta
 `type = "command"` in Grok's `config.toml` (`--grok-home`, else `$GROK_HOME`, else `~/.grok`).
 Setup owns only the table's `type` and `command`: it edits those lines as text, parses the file
 before and after, and refuses an edit whose meaning differs anywhere else; other keys, tables,
-comments and the table's other options, such as `refresh_interval`, stay as they were. The text
+comments and the table's other options, such as `refresh_interval`, stay as they were. An owned
+line keeps its key spelling, its spacing and its comment; only its value changes. The text
 editor supports a plain `[ui.status_line]` table only: invalid TOML is `settings_invalid`, and an
-inline table, a dotted key or another shape it cannot prove is `settings_unusual`; the file is
-not changed. The previous `type` and `command`, and whether setup added the table, are saved
+inline table, a dotted key, an owned value that is a multiline string or another shape it
+cannot prove is `settings_unusual`; the file is not changed. The previous `type` and `command`,
+their values as spelled, and whether setup added the table, are saved
 once in `grok-statusline.json` in the Go state root, with the file's path. `koinon setup grok
 --remove-status-line` and the Grok removal restore them in that file while it still holds the
-exact wrapper, and remove the table only when setup added it and no other key is in it. Setup
+exact wrapper, and remove the table only when setup added it and no other key is in it. A
+wrapper that the user edited is left alone (`statusline_changed`), also when it runs an earlier
+Koinon binary. Setup
 for another `config.toml` while one is set up reports `changed` (`statusline_other_file`). A
 missing Grok home is skipped (`grok_config_missing`).
 

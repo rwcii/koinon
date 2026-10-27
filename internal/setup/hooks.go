@@ -229,7 +229,7 @@ func agyStatus(data []byte, now int64) (core.Observation, string, bool) {
 // unchanged, and meanwhile reports the session's model and context use. Without a command
 // it prints the model's display name.
 func ClaudeStatus(args []string, in io.Reader, out, errOut io.Writer, env HookEnv) int {
-	return statusCommand("claude-status", claudeStatus, args, in, out, errOut, env)
+	return statusCommand("claude-status", hookInputMax, claudeStatus, args, in, out, errOut, env)
 }
 
 // AgyStatus is the agy status-line command, as ClaudeStatus is for Claude Code. Without a
@@ -237,7 +237,7 @@ func ClaudeStatus(args []string, in io.Reader, out, errOut io.Writer, env HookEn
 // the daemon each conversation with this hook process as its reporter, which ties a new
 // conversation after a managed /clear to the cycle's pinned host (#512).
 func AgyStatus(args []string, in io.Reader, out, errOut io.Writer, env HookEnv) int {
-	return statusCommand("agy-status", func(data []byte, now int64) (core.Observation, string, bool) {
+	return statusCommand("agy-status", hookInputMax, func(data []byte, now int64) (core.Observation, string, bool) {
 		o, display, ok := agyStatus(data, now)
 		if ok {
 			env.witness(o.Caller.ID)
@@ -300,7 +300,7 @@ func grokStatus(env string) func([]byte, int64) (core.Observation, string, bool)
 // GrokStatus is the Grok status-line command, as ClaudeStatus is for Claude Code. Without a
 // command it prints nothing.
 func GrokStatus(args []string, in io.Reader, out, errOut io.Writer, env HookEnv) int {
-	return statusCommand("grok-status", grokStatus(env.Getenv("GROK_SESSION_ID")), args, in, out, errOut, env)
+	return statusCommand("grok-status", grokStatusMax, grokStatus(env.Getenv("GROK_SESSION_ID")), args, in, out, errOut, env)
 }
 
 // witness gives the daemon one agy conversation with this process as its reporter. Without a
@@ -314,7 +314,10 @@ func (e HookEnv) witness(conversation string) {
 	e.call("/v1/cycles/agy-witness", core.AgyWitness{Conversation: conversation, Reporter: core.ObservationReporter{PID: pid, Start: start}})
 }
 
-func statusCommand(hook string, parse func([]byte, int64) (core.Observation, string, bool),
+// statusCommand runs one status-line hook. It reads at most limit+1 bytes of the input for
+// parse, which gives no report for a longer input; a wrapped command gets those bytes and then
+// the rest of the input, unread, so its stdin is never cut short.
+func statusCommand(hook string, limit int64, parse func([]byte, int64) (core.Observation, string, bool),
 	args []string, in io.Reader, out, errOut io.Writer, env HookEnv) int {
 	command, hasCommand := "", false
 	switch {
@@ -325,7 +328,7 @@ func statusCommand(hook string, parse func([]byte, int64) (core.Observation, str
 		io.WriteString(errOut, "usage: koinon hook "+hook+" [--command COMMAND]\n")
 		return 2
 	}
-	data, err := io.ReadAll(io.LimitReader(in, 16<<20))
+	data, err := io.ReadAll(io.LimitReader(in, limit+1))
 	if err != nil {
 		return 1
 	}
@@ -352,7 +355,7 @@ func statusCommand(hook string, parse func([]byte, int64) (core.Observation, str
 				}
 			}()
 			go func() {
-				stdin.Write(data)
+				io.Copy(stdin, io.MultiReader(bytes.NewReader(data), in))
 				stdin.Close()
 			}()
 		}

@@ -10,6 +10,9 @@ into a dated release section when promoted to `main`.
   grok-status` the command of the `[ui.status_line]` table in `~/.grok/config.toml`: it changes
   only that table's `type` and `command`, and wraps an existing command. `koinon setup grok
   --remove-status-line` and `koinon uninstall` restore the previous values.
+- A command that the Claude Code or agy status line wraps now gets the whole status-line input.
+  Before, `koinon hook claude-status` and `koinon hook agy-status` passed on at most 16 MiB and
+  cut a longer input.
 - A managed cycle's new session now has five minutes, not two, to report its pickup (#525). A
   DeepSeek pickup took up to 115 s in the #514 checks, and one took longer than two minutes:
   that cycle failed with `waiting_pickup_timeout` while the new session finished its pickup.
