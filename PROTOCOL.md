@@ -277,7 +277,7 @@ Chunk 02 adds the durable cycle. A context observation that makes an enabled ses
 eligible admits a cycle when the family has a registered cycle adapter, the session still has
 the host and tmux pane that its Enable pinned, it has no unfinished cycle (nor has its host),
 and fewer than 16 cycles are unfinished. Chunk 03 registers the Claude Code adapter, chunk
-04 the Codex adapter and #512 the agy adapter; the other families have none, so their Enable is refused. Admission is one ordinary transaction:
+04 the Codex adapter, #512 the agy adapter and #513 the OpenCode adapter; the other families have none, so their Enable is refused. Admission is one ordinary transaction:
 the cycle row, its first event `requested admitted`, an audit record and the typed request in
 the session's own inbox. The request's sender is the reserved system identity `overwatch`
 (`sender_family` and `sender_id` `overwatch`, `sender_name` `overwatch`), with `system_kind`
@@ -310,7 +310,8 @@ binary left in `bootstrap_intent` ends `uncertain` (`bootstrap_unreceipted`), an
 
 The session reports through three own-cycle calls. The native client names the caller and
 attaches its current native epoch: Claude's transcript session from the registry record of
-its pinned host process, Codex's thread, a DeepSeek session's own ID. No argument names a
+its pinned host process, Codex's thread, agy's conversation, an OpenCode session's own ID, which
+the identity plugin names (#513), a DeepSeek session's own ID. No argument names a
 caller, epoch, host, pane, socket or another session.
 
 - `POST /v1/cycles/status` (`context_cycle_status`, `koinon cycle-status --as deepseek:ID`)
@@ -624,6 +625,105 @@ never answered by the adapter. The evidenced command approval (`Requesting permi
 selection and is read back, then one Enter while the same request still shows it selected with
 the same option text (the list may scroll), and the end of the request is read back. Any other dialog, such as an MCP tool approval (not observed) or
 the folder-trust question, stays in the pane for the native session or the maintainer.
+
+### OpenCode cycle adapter
+
+#513 adds the adapter for OpenCode (version `opencode-server-1`), on the facts of opencode 1.18.35
+on Linux ([evidence](docs/sprints/2026-10-12-context-handoff/evidence.md#opencode-cycle-adapter-513)).
+It acts through the session's own loopback server, the one that `koinon opencode` started, with
+the launch password, and reads the pinned tmux pane without input. Each request has a two-second
+timeout, an exact 200, no redirect and at most 8 MiB; the pickup's own request is the exception
+below. OpenCode's TUI has no `/clear` that the cycle can use and lists no skill as a slash
+command (a typed `/koinon-pickup` shows `No matching items`), so the reset creates a new session
+and the pickup runs the skill command by API.
+
+Probe needs Linux (`platform_unverified` elsewhere); the session's launched server
+(`native_registry_unavailable`); the pane (`pane_unproven`, or `tmux_unavailable`); the
+session's participant address held (`participant_unheld`: the created session is a new session,
+which takes the address over at its first tool call); the model that the pickup asks for
+(`model_unavailable`): the `providerID` and `modelID` of the requester's newest finished reply,
+with no `/` in the provider, so that the command's `provider/model` string gives them back
+unchanged; and the effective pickup entry. `GET /command` must list exactly one
+`koinon-pickup` (two give `pickup_entry_unverified`, none `pickup_entry_missing`), with source
+`skill` and the template that OpenCode makes from the skill: the binary's skill body, then
+`Base directory for this skill: DIR` and OpenCode's line on relative paths
+(`pickup_entry_differs` otherwise). `DIR` must be `koinon-pickup` in a skill root that OpenCode
+reads for the session (its configuration root's `skills`, `~/.claude/skills`, `~/.agents/skills`,
+or `.opencode/skills`, `.claude/skills` or `.agents/skills` in the session's directory;
+`pickup_entry_unverified` otherwise), and its `SKILL.md` must be the binary's skill byte for
+byte (`pickup_entry_missing`, `pickup_entry_differs`, `pickup_entry_unreadable`, each with the
+install step). An equal copy in another root is allowed.
+
+The adapter is ready for input when the subject session (the requester, and after the proven
+reset the created session) has no pending permission or question (`GET /permission` and `GET
+/question`, filtered by its exact ID), the pane shows a session view whose composer holds no
+text, and `GET /session/status` shows the subject idle; after the reset the created session must
+also have no messages and an empty view. A draft is reported as `input_not_empty` and left as it
+is. The session view is read from the current screen (`capture-pane -p -e -J`, no history): the
+composer is the last block of `┃` rows at the left margin above its `╹▀` rule; the rule's width
+is the message column's, left of the sidebar. The home screen's centered composer is no session
+view (`input_line_not_found`).
+
+The clear stage creates the successor (`POST /session` with the title `koinon-cycle-CYCLE`,
+after a fresh read and the fence). The created ID is recorded with the receipt, in the write that
+enters `clear_received`; a create whose response is lost has no recorded ID and ends `uncertain`,
+and nothing is created again. In `clear_received` the select's intent is recorded first, as the
+same-state event `clear_received` `select_sent`, then `POST /tui/select-session` with the created
+ID is sent once; a refusal ends `uncertain` (`select_unreceived`), and a restart never selects
+again. OpenCode accepts the select with `true` but gives no read-back of the session that the
+TUI shows. The reset is proven by the server and the pane: the recorded session exists with the
+cycle's title and no messages, and the pane shows an empty session view with an empty composer.
+That proves the creation, not the display: another empty session looks the same. The pre-pickup
+recheck reads the same proof.
+
+The pickup is sent from a worker, never under the wake lock, because OpenCode answers `POST
+/session/{id}/command` only after the whole turn. Under the freshly recorded `pickup_intent`, one
+worker per cycle (at most 4 at once; without a free one the cycle waits in `reset_verified`,
+recording nothing) checks the entry, the model and a fresh read again, passes the fence and
+sends `{command: koinon-pickup, arguments: "", messageID, model: "PROVIDER/MODEL"}` once, with a
+5-second timeout; the turn goes on without it. The daemon's stop cancels the workers and waits
+for them. The message ID sorts as OpenCode's own: `msg_`, 12 hex digits of the intent's time in
+milliseconds times 4096, then 14 base-62 digits from the cycle and the created session, so a
+restarted daemon derives it again. The worker then reads the receipt back by API, every 250 ms,
+until it is there or a read made after the request ended shows that it is not; a failed read is
+tried again for at most 30 seconds. The receipt is the created session's only user message with
+that ID, the requester's `providerID` and `modelID`, and one text part that is the entry's
+template as OpenCode enters it (trimmed); the text is compared and never kept. The worker
+publishes the result, and the next controller step applies it under the cycle's revision,
+making no request itself, so a slow server delays no other cycle. With the receipt the cycle
+moves to `waiting_pickup`; without it, the cycle ends `uncertain` (`pickup_unreceipted`), and the
+pickup is never sent again. After a restart, which has no worker and no result, a worker reads
+the receipt back, sending nothing.
+
+The pickup report needs the pane's own proof that it shows the created session. The identity
+plugin adds `koinon_session=ID` as the last argument of each Koinon tool call, and the TUI
+renders the call as a row at a five-space indent: the `⚙` glyph alone in one color, a space in
+another, then `koinon_TOOL [ARGUMENTS]` in the glyph's color; long arguments wrap onto rows at a
+seven-space indent in the same color. A user or tool-output row (`┃`) and reply text in the
+text's own color are no such row. While the cycle waits for the report, each controller step
+reads the current view without input, and the first view with a row of the created session and
+none of another session is recorded once, as the same-state event `waiting_pickup`
+`pickup_displayed`. The report itself needs a current view that shows the created session and
+no other: the daemon reads the pane again for at most 2 seconds, so that the report call's own
+row can render, and never past the stage's or the cycle's deadline; a view read after that does
+not count. A recorded earlier view
+proves nothing about the current one, because another empty session looks the same. Without it
+the report is refused with `cycle_display_unproven` (HTTP 409), the cycle stays in its stage and
+the report may be sent again. The report also needs the created session's replies from the model
+that its pickup asked for: the receipted message's `model` pair, and at least one assistant
+message, each with the same `providerID` and `modelID` (OpenCode runs a command whose model it
+cannot resolve on another one). A known other model ends the cycle `uncertain`
+(`model_changed`) and the report is refused with `cycle_model_changed`; a read that fails can be
+retried. The report's write checks the deadlines at the time after these reads. Until the
+display proof has been recorded once, a deadline, a Disable or another end of a waiting pickup is
+`uncertain`, not `failed` or `cancelled`. An identical retry of a completed report stays valid
+when the pane changed later.
+
+A dialog is never answered by the adapter. A pending permission of the subject session shows in
+`waiting_prompt` as `OpenCode asks permission: PERMISSION`, its patterns and the options `1`
+(once), `2` (always) and `3` (reject); a dashboard option is sent as `POST
+/permission/{id}/reply` while the same request is pending, and its end is read back. A pending
+question shows with no option and is answered in the pane.
 
 ### Native compaction
 
@@ -2229,8 +2329,8 @@ message that cannot be read gives none either, never an older one, and a failed 
 nothing. A changed reading is recorded at once, an unchanged one once a minute. Only these
 counts and IDs are decoded; the message parts that the server sends with them are not kept. The
 session's own `tokens` are a sum over its turns, so they are not used. A direct `opencode` start
-has no launch password, so it has no reading. OpenCode has no cycle adapter yet: a reading at
-the threshold admits no cycle (#513).
+has no launch password, so it has no reading, and no cycle: the cycle adapter acts through the
+same server (see "OpenCode cycle adapter").
 
 `dsh_projections` is read by the daemon, every 15 seconds, from each active DeepSeek session
 registered with its harness origin and credential file, through the wake's pinned loopback

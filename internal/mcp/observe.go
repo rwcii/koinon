@@ -540,11 +540,12 @@ func (r *rollout) event(line []byte) {
 // cycleEpoch is the calling session's current native epoch for the own-cycle calls (#196):
 // for Claude, the transcript session that the registry record of this server's host
 // process names, with the host pinned at initialization; for Codex, the call's own
-// thread; for agy, the call's own conversation, which /clear replaces (#512). Other
-// families have none, and their calls are refused.
+// thread; for agy, the call's own conversation, which /clear replaces (#512); for OpenCode,
+// the call's own session, which the identity plugin names and the cycle replaces with a new
+// one (#513). Other families have none, and their calls are refused.
 func (s *server) cycleEpoch(caller core.Key) string {
 	switch caller.Family {
-	case "codex", "agy":
+	case "codex", "agy", "opencode":
 		return caller.ID
 	case "claude":
 		return s.claudeTranscript()
