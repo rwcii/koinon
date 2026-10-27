@@ -379,7 +379,15 @@ type CycleTarget struct {
 	// the cycle is ready, else 0. Work after it, such as a background subagent's, is not in
 	// the handoff. A resolved dialog returns the cycle to ready without changing it.
 	ReadyAt int64
-	tools   hostTools
+	// State is the cycle's state; Directory is the session's registered directory.
+	State     string
+	Directory string
+	// agy (#512): the host's status-line conversations since the clear intent, the session's
+	// latest observed context epoch, and the daemon's state root.
+	witnesses     agyWitnesses
+	observedEpoch string
+	stateRoot     string
+	tools         hostTools
 }
 
 // PickupEntry is the bytes and the menu description of one pickup entry.
@@ -390,7 +398,7 @@ type PickupEntry struct {
 
 func (c cycleRow) target() CycleTarget {
 	return CycleTarget{CycleID: c.ID, Family: c.Family, SessionID: c.SessionID, HostPID: c.HostPID, HostStart: c.HostStart,
-		Socket: c.Socket, Pane: c.Pane, Epoch: c.Epoch, SuccessorEpoch: c.SuccessorEpoch}
+		Socket: c.Socket, Pane: c.Pane, Epoch: c.Epoch, SuccessorEpoch: c.SuccessorEpoch, State: c.State}
 }
 
 // PaneState is a cycle adapter's fresh inspection of the pinned pane.
@@ -469,10 +477,11 @@ func cycleAdapterOf(family string) CycleAdapter { return cycleAdapters[family] }
 var cycleCode = regexp.MustCompile(`^[a-z0-9][a-z0-9._-]{0,63}$`)
 
 func init() {
-	// The Claude Code adapter (chunk 03) and the Codex adapter (chunk 04); Probe limits each
-	// to evidenced platforms and versions.
+	// The Claude Code adapter (chunk 03), the Codex adapter (chunk 04) and the agy adapter
+	// (#512); Probe limits each to evidenced platforms and versions.
 	cycleAdapters["claude"] = claudeCycle{}
 	cycleAdapters["codex"] = codexCycle{}
+	cycleAdapters["agy"] = agyCycle{}
 }
 
 // contextCycleEnabledFor is the admission's cheap pre-check: an enabled session only; Probe
@@ -836,8 +845,19 @@ func (s *Store) advanceCycle(ctx context.Context, id string, revision int64, fro
 	c.Revision++
 	c.Credit -= cycleStagePages
 	c.State, c.Reason, c.UpdatedAt = to, reason, now
-	switch to {
-	case cycleWaitingReady:
+	switch {
+	case c.PromptFrom == cycleWaitingPickup && (to == cycleWaitingPrompt || to == cyclePromptIntent):
+		// One prompt wait holds every dialog of the successor's pickup: an answer's intent, its
+		// return and a retry keep the deadline of the wait's first dialog (#520).
+		wait, err := pickupPromptDeadline(ctx, tx, c)
+		if err != nil {
+			return c, tx.fail(err)
+		}
+		c.StageDeadline = wait
+		if to == cyclePromptIntent {
+			c.StageDeadline = min(now+cycleReceiptWait.Milliseconds(), wait)
+		}
+	case to == cycleWaitingReady:
 		// A return to readiness keeps the current request's readiness deadline: the first
 		// request's, or that of the newest repeated request (#431).
 		requested, err := cycleRequestedAt(ctx, tx, c)
@@ -845,12 +865,12 @@ func (s *Store) advanceCycle(ctx context.Context, id string, revision int64, fro
 			return c, tx.fail(err)
 		}
 		c.StageDeadline = requested + cycleReadyWait.Milliseconds()
-	case cycleWaitingPrompt:
+	case to == cycleWaitingPrompt:
 		c.StageDeadline = now + cyclePromptWait.Milliseconds()
-	case cycleCompactWaiting:
+	case to == cycleCompactWaiting:
 		// A return to waiting keeps the admission's wait for an idle pane.
 		c.StageDeadline = c.CreatedAt + cycleReadyWait.Milliseconds()
-	case cycleCompactSent:
+	case to == cycleCompactSent:
 		c.StageDeadline = now + cycleCompactConfirm.Milliseconds()
 	default:
 		c.StageDeadline = now + cycleReceiptWait.Milliseconds()
@@ -866,6 +886,21 @@ func (s *Store) advanceCycle(ctx context.Context, id string, revision int64, fro
 		return c, tx.fail(err)
 	}
 	return c, tx.Commit()
+}
+
+// pickupPromptDeadline is the deadline of c's prompt wait that began in waiting_pickup: the
+// prompt wait from the wait's first dialog, the first waiting_prompt after the pickup.
+func pickupPromptDeadline(ctx context.Context, q querier, c cycleRow) (int64, error) {
+	var at sql.NullInt64
+	err := q.QueryRowContext(ctx, `SELECT MIN(at) FROM context_cycle_events WHERE cycle_id=? AND stage=? AND ordinal>
+		(SELECT MIN(ordinal) FROM context_cycle_events WHERE cycle_id=? AND stage=?)`, c.ID, cycleWaitingPrompt, c.ID, cycleWaitingPickup).Scan(&at)
+	if err == nil && !at.Valid {
+		err = errors.New("pickup prompt wait without its first dialog")
+	}
+	if err != nil {
+		return 0, err
+	}
+	return at.Int64 + cyclePromptWait.Milliseconds(), nil
 }
 
 // cycleEnabled reports whether the requester's Enable is still the one that admitted c.
@@ -1263,11 +1298,15 @@ func readyRefusalCode(ctx context.Context, q querier, c cycleRow) (string, error
 	return "", nil
 }
 
-// pickupRevision reports whether revision is that of one of the cycle's waiting_pickup
-// stages: each stage adds one revision and one event, so it is that event's ordinal.
+// pickupRevision reports whether revision is one that the successor can read while the cycle
+// awaits its report: that of its waiting_pickup stage or of a later stage of the prompt wait
+// that began there (#520). Each stage adds one revision and one event, so it is that event's
+// ordinal.
 func pickupRevision(ctx context.Context, q querier, id string, revision int64) (bool, error) {
 	var found int
-	err := q.QueryRowContext(ctx, `SELECT 1 FROM context_cycle_events WHERE cycle_id=? AND stage=? AND ordinal=?`, id, cycleWaitingPickup, revision).Scan(&found)
+	err := q.QueryRowContext(ctx, `SELECT 1 FROM context_cycle_events WHERE cycle_id=? AND ordinal=? AND stage IN (?,?,?) AND ordinal>=
+		(SELECT MIN(ordinal) FROM context_cycle_events WHERE cycle_id=? AND stage=?)`,
+		id, revision, cycleWaitingPickup, cycleWaitingPrompt, cyclePromptIntent, id, cycleWaitingPickup).Scan(&found)
 	if errors.Is(err, sql.ErrNoRows) {
 		return false, nil
 	}
@@ -1301,8 +1340,8 @@ func (s *Store) ContextCyclePickup(ctx context.Context, caller Key, epoch, id st
 	if err != nil {
 		return CycleView{}, err
 	}
-	// The report names the revision of a waiting_pickup stage that the successor read: a
-	// dialog wait from it, such as the approval of this report, and its return change the
+	// The report names a revision that the successor read while the cycle awaited it: a
+	// dialog in the pickup, such as the approval of this report, and its answer change the
 	// cycle's revision, and the approved call can arrive after either.
 	read, err := pickupRevision(ctx, s.db, id, revision)
 	if err != nil {

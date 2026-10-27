@@ -337,6 +337,9 @@ turn boundary. Run koinon setup agy once to add the server, the stop hook and th
 that reports this conversation's model and context use.
 Start through koinon agy for participant features. A direct agy start registers as a plain
 peer using its native conversation identity.
+On Linux, a managed context cycle (Managed cycle reporting) for a session started with koinon
+agy in tmux enters /clear and /koinon-pickup in this pane; the new conversation then takes the
+address at its first tool call and reports the pickup.
 ### Recommended permissions
 Merge into ~/.gemini/antigravity-cli/settings.json (not the Stop-hook customization root):
   {"permissions":{"allow":["mcp(koinon/*)","command(koinon guide --agent agy)"]}}

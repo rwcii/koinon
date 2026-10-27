@@ -51,7 +51,8 @@ func TestCycleToolsAttachNativeEpoch(t *testing.T) {
 	if got := o.s.cycleEpoch(codexKey("synthetic-thread")); got != "synthetic-thread" {
 		t.Fatalf("codex epoch: %q", got)
 	}
-	if got := o.s.cycleEpoch(agyKey("synthetic")); got != "" {
+	// agy's epoch is the call's own conversation, which /clear replaces (#512).
+	if got := o.s.cycleEpoch(agyKey("synthetic")); got != "synthetic" {
 		t.Fatalf("agy epoch: %q", got)
 	}
 }

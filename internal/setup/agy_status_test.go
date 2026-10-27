@@ -4,10 +4,15 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"fmt"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
+	"time"
 
 	"github.com/rwcii/koinon/internal/core"
 )
@@ -16,6 +21,19 @@ import (
 // user's command through; it never invents a reading (#512).
 func TestAgyStatusHook(t *testing.T) {
 	env, reports := reportingDaemon(t)
+	var mu sync.Mutex
+	var witnesses []core.AgyWitness
+	witnessed := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var report core.AgyWitness
+		if r.URL.Path == "/v1/cycles/agy-witness" && json.NewDecoder(r.Body).Decode(&report) == nil {
+			mu.Lock()
+			witnesses = append(witnesses, report)
+			mu.Unlock()
+		}
+		w.Header().Set("Content-Type", "application/json")
+		fmt.Fprint(w, `{"ok":true}`)
+	}))
+	t.Cleanup(witnessed.Close)
 	input := `{"version":"1.4.6","conversation_id":"synthetic-agy","session_id":"synthetic-agy","model":{"id":"gemini-synthetic"},
 		"agent_state":"idle","cwd":"/private","transcript_path":"/private/t","email":"private@example.invalid",
 		"context_window":{"total_input_tokens":13744,"total_output_tokens":89,"context_window_size":1048576,"current_usage":{"input_tokens":9990}}}`
@@ -29,11 +47,33 @@ func TestAgyStatusHook(t *testing.T) {
 	got := reports()
 	if len(got) != 1 || got[0].Caller != (core.Key{Family: "agy", ID: "synthetic-agy"}) || got[0].Model.ID != "gemini-synthetic" ||
 		got[0].Model.Source != "agy_statusline" || got[0].Context.Source != "agy_statusline" || got[0].Context.Epoch != "synthetic-agy" ||
-		*got[0].Context.LimitTokens != 1048576 || *got[0].Context.UsedTokens != 13744 || !*got[0].Context.UsageAvailable || got[0].Activity != nil {
+		*got[0].Context.LimitTokens != 1048576 || *got[0].Context.UsedTokens != 13744 || !*got[0].Context.UsageAvailable ||
+		got[0].Activity == nil || got[0].Activity.State != "idle" || got[0].Activity.Source != "agy_statusline" {
 		t.Fatalf("report: %+v", got)
 	}
 	if data, _ := json.Marshal(got); strings.Contains(string(data), "private") {
 		t.Fatal("status input content reported")
+	}
+	// The hook also gives the conversation with itself as the reporter (#512).
+	address := strings.TrimPrefix(witnessed.URL, "http://")
+	state := env.Getenv("KOINON_STATE_DIR")
+	witnessEnv := HookEnv{Getenv: func(k string) string {
+		return map[string]string{"KOINON_STATE_DIR": state, "KOINON_DAEMON_ADDRESS": address}[k]
+	}, Now: time.Now}
+	if status := AgyStatus(nil, strings.NewReader(input), &out, &errOut, witnessEnv); status != 0 {
+		t.Fatalf("witness run: %d", status)
+	}
+	mu.Lock()
+	if len(witnesses) != 1 || witnesses[0].Conversation != "synthetic-agy" || witnesses[0].Reporter.PID != os.Getpid() || witnesses[0].Reporter.Start <= 0 {
+		t.Fatalf("witness: %+v", witnesses)
+	}
+	mu.Unlock()
+	// agent_state: idle, or busy while a turn or a tool runs; any other state is unknown.
+	for state, want := range map[string]string{"idle": "idle", "working": "busy", "tool_use": "busy", "authenticating": "", "": "", "other": ""} {
+		o, _, _ := agyStatus([]byte(`{"conversation_id":"c","agent_state":"`+state+`"}`), 1)
+		if want == "" && o.Activity != nil || want != "" && (o.Activity == nil || o.Activity.State != want) {
+			t.Fatalf("agent_state %q: %+v", state, o.Activity)
+		}
 	}
 	// Without a command it prints nothing: agy's stacked default line stands alone.
 	out.Reset()

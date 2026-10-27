@@ -5,12 +5,28 @@ into a dated release section when promoted to `main`.
 
 ## Unreleased
 
+- A managed cycle no longer fails when the successor's pickup needs several approvals (#520).
+  Each dialog during the pickup used two of the cycle's 16 events, so a pickup with more than
+  about four dialogs, such as agy's, which asks before most commands, failed with
+  `event_limit`. All dialogs of the pickup are now handled in one prompt wait: a dialog that the
+  session answers itself records no event, a dashboard answer records two, and the wait keeps
+  the deadline of its first dialog. A pickup report may name the revision of any stage of that
+  wait, and between two dialogs the Sessions page shows nothing to answer.
+- agy sessions can run the managed context handoff cycle on Linux (#512). An agy session had no
+  cycle: its Enable was refused. A session started with `koinon agy` in tmux, with the family mode
+  `handoff_cycle`, Koinon's status line from `koinon setup agy` and its participant address, now
+  gets the cycle: overwatch's request, `/clear` in its pane, and `/koinon-pickup` in the new
+  conversation, which takes the address over. The status-line hook proves the new conversation:
+  it reports each conversation with its own process to `POST /v1/cycles/agy-witness`, and the
+  daemon ties it to the cycle's pinned host. A workspace `.agent/skills` or `.agents/skills`
+  `koinon-pickup` that would replace agy's entry is named as `pickup_entry_shadowed`. The hook
+  also reports agy's activity. The native checks ran with Antigravity CLI 1.4.7. The family
+  default stays `observe`; macOS waits for native evidence.
 - agy sessions now report their model and context use (#512). `peer_status` and the dashboard
   showed no context for agy. `koinon setup agy` now makes `koinon hook agy-status` the
   `statusLine` entry of `~/.gemini/antigravity-cli/settings.json`: it wraps an existing entry's
   command, or without one keeps agy's own status line with `stack_with_default`. `koinon setup
-  agy --remove-status-line` and `koinon uninstall` restore the previous entry. agy has no
-  handoff cycle yet; its context mode stays `observe`.
+  agy --remove-status-line` and `koinon uninstall` restore the previous entry.
 - Codex's `native_compaction` mode now compacts (#509). It did nothing at the threshold: the
   Settings page showed a Codex threshold that had no effect. An enabled Codex session in that
   mode now gets Codex's own `/compact` in its tmux pane when its context reaches the threshold,

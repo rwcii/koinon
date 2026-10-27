@@ -523,8 +523,9 @@ an upgrade that changes this hook.
 
 `koinon setup agy` also makes `'BINARY' hook agy-status` the `statusLine` entry of
 `~/.gemini/antigravity-cli/settings.json`, so the agy session's model and context use show in
-`peer_status` and the dashboard. It wraps an existing entry's command and keeps its other
-fields; without one, it sets `"stack_with_default": true` and agy's own status line stays as it
+`peer_status` and the dashboard, and the managed context cycle proves agy's new conversation
+after `/clear` from it ([PROTOCOL.md](../PROTOCOL.md#agy-cycle-adapter)). It wraps an existing
+entry's command and keeps its other fields; without one, it sets `"stack_with_default": true` and agy's own status line stays as it
 was. The previous entry is saved in the Go state directory, and `koinon setup agy
 --remove-status-line` or `koinon uninstall` restores it while the entry is still Koinon's. It is
 separate from the Claude status line. Setup skips it when the `antigravity-cli` directory does

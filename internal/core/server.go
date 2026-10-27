@@ -448,6 +448,7 @@ func (d *Daemon) handler() http.Handler {
 	d.workRoutes(mux)
 	d.observationRoutes(mux)
 	d.cycleRoutes(mux)
+	d.agyWitnessRoutes(mux)
 	d.contextRoutes(mux)
 	d.participantRoutes(mux)
 	d.cleanupRoutes(mux)

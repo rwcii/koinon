@@ -392,7 +392,8 @@ func (s *Store) contextRowOf(session Session, enable ContextEnable, now int64) c
 				}
 			}
 			if v.State == cycleWaitingPrompt {
-				if dialog, err := s.CycleDialogOf(context.Background(), v.ID); err == nil {
+				// A pickup's prompt wait can show no dialog between two (#520).
+				if dialog, err := s.CycleDialogOf(context.Background(), v.ID); err == nil && dialog.Digest != "" {
 					row.Dialog = &dialog
 				}
 			}

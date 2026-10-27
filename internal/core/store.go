@@ -145,6 +145,8 @@ type Store struct {
 	observed observations
 	openCode openCodeCache
 	wake     wakeState
+	// agyWitness holds the agy cycles' host-linked conversation reports, memory-only (#512).
+	agyWitness agyWitnessState
 	// retention holds the last retention sweep's results (#216).
 	retention retentionState
 	// calls holds each session's last tool call; processStart reads a host process's start

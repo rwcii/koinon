@@ -32,6 +32,8 @@ type fakeAdapter struct {
 	dialog      CycleDialog
 	// afterChoose runs once the option is entered: the call that the dialog approved.
 	afterChoose func()
+	// beforeChoose runs as Choose starts, before its digest check: the pane's next dialog.
+	beforeChoose func()
 }
 
 func (f *fakeAdapter) Version() string { return "synthetic-1" }
@@ -90,6 +92,9 @@ func (f *fakeAdapter) Dialog(context.Context, CycleTarget) (CycleDialog, error) 
 	return f.dialog, nil
 }
 func (f *fakeAdapter) Choose(ctx context.Context, _ CycleTarget, digest, option string, fence CycleFence) (bool, error) {
+	if f.beforeChoose != nil {
+		f.beforeChoose()
+	}
 	if digest != f.dialog.Digest {
 		return false, ErrCycleDialogChanged
 	}

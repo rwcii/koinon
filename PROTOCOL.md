@@ -42,6 +42,7 @@ repositories.
 | `POST /v1/library/list` | Page embedded skill/setup catalog metadata for the active caller's family. |
 | `POST /v1/library/read` | Read one catalog item's canonical content and family-specific metadata. |
 | `POST /v1/sessions/observe` | Record allowlisted observations (model, context, activity, terminal) for an active session; see "Dashboard and session observations". |
+| `POST /v1/cycles/agy-witness` | Give one agy status-line conversation with its reporting hook process (`conversation`, `reporter` with `pid` and `start`), kept only for the agy cycle whose pinned host is the reporter's nearest native host; see "agy cycle adapter". |
 | `POST /v1/dashboard/links` | Issue a one-time dashboard login link (`path`, `expires_in`). |
 | `POST /v1/maintainer/secret` | Set, generate or clear the maintainer secret (`action`, `secret`); ends every dashboard login and maintainer token. |
 | `POST /v1/maintainer/session` | Exchange the maintainer secret for a maintainer token (`secret`, `client`); see Maintainer mode. |
@@ -275,8 +276,8 @@ are unknown, so no session is eligible until fresh native reports arrive.
 Chunk 02 adds the durable cycle. A context observation that makes an enabled session
 eligible admits a cycle when the family has a registered cycle adapter, the session still has
 the host and tmux pane that its Enable pinned, it has no unfinished cycle (nor has its host),
-and fewer than 16 cycles are unfinished. Chunk 03 registers the Claude Code adapter and chunk
-04 the Codex adapter; the other families have none, so their Enable is refused. Admission is one ordinary transaction:
+and fewer than 16 cycles are unfinished. Chunk 03 registers the Claude Code adapter, chunk
+04 the Codex adapter and #512 the agy adapter; the other families have none, so their Enable is refused. Admission is one ordinary transaction:
 the cycle row, its first event `requested admitted`, an audit record and the typed request in
 the session's own inbox. The request's sender is the reserved system identity `overwatch`
 (`sender_family` and `sender_id` `overwatch`, `sender_name` `overwatch`), with `system_kind`
@@ -344,11 +345,12 @@ caller, epoch, host, pane, socket or another session.
   `waiting_pickup` cycle completes when the caller runs under a new epoch (the epoch that the
   adapter proved) and is the requester itself or a managed successor: an active session of the
   same family in the same host and pane that holds the cycle's participant address. The
-  `revision` is that of one of the cycle's `waiting_pickup` stages. The report is also accepted
-  in a prompt wait that began in `waiting_pickup` (`waiting_prompt` or `prompt_intent` with
+  `revision` is one that the caller read while the cycle awaited the report: that of its
+  `waiting_pickup` stage or of a later stage of the prompt wait that began there (#520). The
+  report is also accepted in that prompt wait (`waiting_prompt` or `prompt_intent` with
   `prompt_from` `waiting_pickup`), because the call that the prompt approves can be the report
-  itself; the wait and its return change the revision, and the approved call can arrive after
-  either, so the report keeps the `waiting_pickup` revision that it read. A
+  itself; an answer changes the revision, and the approved call can arrive after it, so the
+  report keeps the revision that it read. A
   successor's completion moves the Enable to it. The report is private runtime data; status,
   audit and the dashboard show its size only.
 
@@ -378,6 +380,11 @@ again; another one, or none, fails the cycle with `epoch_changed`, so a second c
 the pending pickup. A recognized prompt records `waiting_prompt` and its preceding stage, in
 `waiting_pickup` too (a native approval of the successor's first calls); the response is
 entered after its recorded `prompt_intent`, and one that is read back returns to that stage. A
+prompt wait that began in `waiting_pickup` does not return: every dialog of the successor's
+pickup is handled in it, until the report or the wait's deadline (#520). A dialog that the
+native session answers there records no event, and a dashboard answer records its
+`prompt_intent` and the return to `waiting_prompt`; neither changes the deadline of the wait's
+first dialog. Between two dialogs the dashboard shows nothing to answer. A
 dashboard answer whose approved call completed the cycle first counts as received. Just before the clear or the pickup input, the daemon checks the reported file
 again: a changed or missing file returns a `ready` cycle to `waiting_ready`
 (`artifact_changed`) under the current request's readiness deadline (that of the newest
@@ -557,6 +564,64 @@ one `koinon-pickup` row, so no other entry of that name can run; then Escape, a 
 the read-back and one Enter. A dialog (an MCP tool approval or a command approval) is never answered by the
 adapter: the cycle shows it in `waiting_prompt`, and a dashboard option is one digit, entered
 only while the same dialog shows.
+
+### agy cycle adapter
+
+#512 adds the adapter for agy (version `agy-tmux-1`), on the facts of Antigravity CLI 1.4.7 on
+Linux ([evidence](docs/sprints/2026-10-12-context-handoff/evidence.md#agy-cycle-adapter-512)). It
+acts only in the session's own tmux pane. Before every key it proves the pane and that the pane's
+terminal gives input to the host: the host leads the terminal's foreground process group, and
+every other member of that group is an ancestor of the host or a descendant that is no agent CLI
+(agy keeps its `koinon mcp` server and its status-line command in its own group). It passes the
+cycle's fence. Typed text that is not submitted is cleared with `C-u`, only while a fresh read
+shows exactly that text.
+
+Probe needs Linux (`platform_unverified` elsewhere: macOS has no native evidence yet); the
+host's `HOME` (`native_registry_unavailable`); the pane (`pane_unproven`, or `tmux_unavailable`);
+the session's participant address held (`participant_unheld`: the conversation after `/clear` is
+a new session, which takes the address over at its first tool call); before the clear, the
+session's own conversation as its latest context epoch (`epoch_unverified`); Koinon's status
+line: the `statusLine` entry of the host's `~/.gemini/antigravity-cli/settings.json` must equal the
+enabled entry that `agy-statusline.json` records and run `hook agy-status`
+(`statusline_unverified`, with the setup step); and the effective pickup entry. agy lists
+`~/.gemini/config/skills/koinon-pickup/SKILL.md` as `/koinon-pickup` unless the session's
+directory has `.agent/skills/koinon-pickup/SKILL.md` or `.agents/skills/koinon-pickup/SKILL.md`,
+which replaces it (in that order; a workspace `.gemini/skills` does not). The personal file must
+be the binary's skill byte for byte (`pickup_entry_missing`, `pickup_entry_differs`,
+`pickup_entry_unreadable`, each with the install step), and a workspace file must be too
+(`pickup_entry_shadowed`, naming the file); an unknown directory is `pickup_entry_unverified`.
+The pickup checks the entry again, after the clear reloaded the skills.
+
+The adapter is ready for input when the composer between the last two rules holds no text, no
+menu is open, the footer shows `? for shortcuts` (a running turn shows `esc to cancel`) and no
+dialog shows; after the clear the screen must still be the cleared one. A draft is reported as
+`input_not_empty` and left as it is. The clear types `/clear` and submits it with one Enter only
+while the composer holds exactly it and the menu selects its one `/clear` row; the receipt is an
+idle composer below the latest banner, with nothing of a turn between them.
+
+The reset is proven by a witness. The agy status-line hook sends each conversation it reports to
+`POST /v1/cycles/agy-witness` with its own PID and start; agy runs it as `sh -c` under the host.
+The daemon keeps a report, in memory, only for an agy cycle from `clear_intent` to the pickup. It
+reads the reporter's start, the process ancestry itself and the reporter's start again; the
+reporter's nearest ancestor that hosts a live session or such a cycle must be that cycle's pinned
+agy host with its pinned start (`witness_host_unverified` otherwise). A witness registers no
+session and moves no holder, claim or cursor. agy starts the new conversation at `/clear`, and its
+status line reported it about 0.5 s after the Enter, before any turn or tool call; the report can
+come before the receipt is recorded, so reports are kept from the intent. In `clear_intent` no
+report proves the reset, so an unreceipted clear ends `uncertain` and is never entered again. In
+`clear_received` exactly one conversation other than the cycle's epoch proves it; two or more, or
+more than 8 in all, prove nothing. Before the pickup the newest one must still be the proven
+successor. A restarted daemon has no witnesses and proves no reset.
+
+The pickup types `/koinon-pickup` and submits it with one Enter only while the menu selects its
+one row and that row shows the skill's description, as far as the pane shows it before its `...`
+cut; the receipt is the command as a new submitted prompt above an empty composer. A dialog is
+never answered by the adapter. The evidenced command approval (`Requesting permission for:`,
+`Run this command?`, numbered options and the `↑/↓ Navigate · tab Amend` hint) is shown in
+`waiting_prompt` with its visible options; a dashboard option is its digit, which moves the
+selection and is read back, then one Enter while the same request still shows it selected, and the
+end of the request is read back. Any other dialog, such as an MCP tool approval (not observed) or
+the folder-trust question, stays in the pane for the native session or the maintainer.
 
 ### Native compaction
 
@@ -2145,7 +2210,7 @@ activity. Message delivery and acknowledgement do not establish activity or inbo
 | --- | --- |
 | Model | `claude_statusline`; `codex_rollout` (the session's own rollout under `CODEX_HOME`) and `codex_mcp_meta` (`x-codex-turn-metadata.model` of a tool call); `agy_hook` (`modelName` of the Stop hook) and `agy_statusline` (`model.id` of the status-line input) |
 | Context | `claude_statusline` (`context_window_size`, `total_input_tokens`; epoch: the transcript `session_id`); `codex_rollout` (`model_context_window`, `last_token_usage.input_tokens`; epoch: the rollout's thread); `agy_statusline` (`context_window.context_window_size`, `context_window.total_input_tokens`; epoch: the `conversation_id`) |
-| Activity | `claude_registry` (the parent Claude process's registry record for this session, `entrypoint: cli`; `shell`, the prompt with a background shell task running, is idle); `codex_rollout` (task started and completed); `agy_hook` (idle at Stop) and `mcp_call` (an agy tool call); `opencode_status` (`GET /session/status` on a launched OpenCode server, with its password, cached 5 seconds) |
+| Activity | `claude_registry` (the parent Claude process's registry record for this session, `entrypoint: cli`; `shell`, the prompt with a background shell task running, is idle); `codex_rollout` (task started and completed); `agy_hook` (idle at Stop), `agy_statusline` (`agent_state`: `idle`; `working` and `tool_use` are busy) and `mcp_call` (an agy tool call); `opencode_status` (`GET /session/status` on a launched OpenCode server, with its password, cached 5 seconds) |
 | Terminal | `tmux_env`: the MCP server's `TMUX` and `TMUX_PANE`, and the pane's session name |
 | Naming | `koinon_mcp`: the last terminal naming result and the published name it was computed for; no socket or pane required |
 
@@ -2222,7 +2287,9 @@ default `~/.gemini/antigravity-cli/settings.json`) with the same rules, saving t
 in `agy-statusline.json` in the Go state root. Without a previous entry it writes
 `"stack_with_default": true`, so agy keeps its own status line. `koinon setup agy
 --remove-status-line` and the agy removal restore it; the Claude and agy status lines are set up
-and removed independently. agy sessions observe context only: the family has no handoff cycle.
+and removed independently. The hook also reports `agent_state` as activity (`idle`; `working` and
+`tool_use` as busy; any other state, such as `authenticating`, is unknown) and gives each
+conversation to the agy cycle witness (see "agy cycle adapter").
 
 `koinon setup FAMILY` also reports, in `permissions`, the family's recommended permission
 rules of docs/PERMISSIONS.md: `family`, `settings_file`, `outcome` and, by outcome, `missing`,

@@ -49,9 +49,9 @@ func TestContextCycleEpochRecheckBeforePickup(t *testing.T) {
 	}
 }
 
-// A dialog in waiting_pickup moves the cycle to waiting_prompt from waiting_pickup; it returns
-// when the dialog is gone or the maintainer chose an option, and the report completes the
-// cycle also during the wait.
+// A dialog in waiting_pickup moves the cycle to waiting_prompt from waiting_pickup. The wait
+// goes on when the dialog is gone or the maintainer chose an option, for the pickup's next
+// dialog or its report (#520), and the report completes the cycle during the wait.
 func TestContextCyclePromptInPickupWait(t *testing.T) {
 	ctx := context.Background()
 	waiting := func(t *testing.T) (*cycleFixture, CycleView, string) {
@@ -73,35 +73,40 @@ func TestContextCyclePromptInPickupWait(t *testing.T) {
 		}
 		return f, v, name
 	}
-	f, _, _ := waiting(t)
-	f.adapter.pane = PaneState{Idle: true}
-	f.step(t)
-	if v := f.status(t, f.k); v.State != cycleWaitingPickup || v.Reason != "prompt_resolved" || f.adapter.count("pickup") != 1 {
-		t.Fatalf("resolved in the pane: %+v", v)
-	}
 	f, v, _ := waiting(t)
+	f.adapter.pane = PaneState{Idle: true}
+	f.adapter.dialog = CycleDialog{}
+	inspected := f.adapter.count("inspect")
+	f.step(t)
+	if now := f.status(t, f.k); now.State != cycleWaitingPrompt || now.Revision != v.Revision || now.Reason != "native_dialog" ||
+		f.adapter.count("pickup") != 1 || f.adapter.count("inspect") != inspected {
+		t.Fatalf("resolved in the pane: %+v %v", now, f.adapter.calls)
+	}
+	f, v, _ = waiting(t)
 	if err := f.s.AnswerCycleDialog(ctx, v.ID, v.Revision, "synthetic-digest", "1"); err != nil {
 		t.Fatal(err)
 	}
-	if v := f.status(t, f.k); v.State != cycleWaitingPickup || v.Reason != "prompt_answered" || f.adapter.count("choose 1") != 1 {
-		t.Fatalf("answered on the dashboard: %+v", v)
+	if now := f.status(t, f.k); now.State != cycleWaitingPrompt || now.PromptFrom != cycleWaitingPickup || now.Reason != "prompt_answered" ||
+		now.StageDeadline != v.StageDeadline || f.adapter.count("choose 1") != 1 {
+		t.Fatalf("answered on the dashboard: %+v", now)
 	}
-	// The report names the waiting_pickup revision that the successor read before the dialog;
-	// the dialog's own revision is refused. After the completion, the same report is a retry.
-	f, v, name := waiting(t)
-	if _, err := f.s.ContextCyclePickup(ctx, f.k, "synthetic-epoch-2", v.ID, v.Revision, name, "resumed", "synthetic restored work"); !errors.Is(err, ErrCycleChanged) {
-		t.Fatalf("report with the dialog's revision: %v", err)
-	}
-	done, err := f.s.ContextCyclePickup(ctx, f.k, "synthetic-epoch-2", v.ID, v.Revision-1, name, "resumed", "synthetic restored work")
-	if err != nil || done.State != cycleComplete {
-		t.Fatalf("report during the dialog wait: %v %+v", err, done)
-	}
-	if again, err := f.s.ContextCyclePickup(ctx, f.k, "synthetic-epoch-2", v.ID, v.Revision-1, name, "resumed", "synthetic restored work"); err != nil || again.State != cycleComplete {
-		t.Fatalf("retry: %v %+v", err, again)
+	// The report names a revision that the successor read while the cycle awaited it: the
+	// waiting_pickup before the dialog, or the dialog's own. After the completion, the same
+	// report is a retry.
+	for _, read := range []int64{0, 1} {
+		f, v, name := waiting(t)
+		read = v.Revision - read
+		done, err := f.s.ContextCyclePickup(ctx, f.k, "synthetic-epoch-2", v.ID, read, name, "resumed", "synthetic restored work")
+		if err != nil || done.State != cycleComplete {
+			t.Fatalf("report at revision %d during the dialog wait: %v %+v", read, err, done)
+		}
+		if again, err := f.s.ContextCyclePickup(ctx, f.k, "synthetic-epoch-2", v.ID, read, name, "resumed", "synthetic restored work"); err != nil || again.State != cycleComplete {
+			t.Fatalf("retry: %v %+v", err, again)
+		}
 	}
 	// The approved call is the report: it completes the cycle before the answer records the
-	// return to waiting_pickup, and the dashboard answer still succeeds.
-	f, v, name = waiting(t)
+	// return to the wait, and the dashboard answer still succeeds.
+	f, v, name := waiting(t)
 	var report error
 	f.adapter.afterChoose = func() {
 		_, report = f.s.ContextCyclePickup(ctx, f.k, "synthetic-epoch-2", v.ID, v.Revision-1, name, "resumed", "synthetic")
@@ -113,7 +118,7 @@ func TestContextCyclePromptInPickupWait(t *testing.T) {
 		t.Fatalf("after the approved report: %+v", got)
 	}
 	// #389: the approved report read the cycle at prompt_intent, and the answer recorded the
-	// return to waiting_pickup before the report's write. The report completes the cycle, and
+	// return to the wait before the report's write. The report completes the cycle, and
 	// the dashboard answer still succeeds.
 	f, v, name = waiting(t)
 	f.adapter.afterChoose = func() {
@@ -123,8 +128,7 @@ func TestContextCyclePromptInPickupWait(t *testing.T) {
 			if now.State != cyclePromptIntent {
 				t.Fatalf("report read: %+v", now)
 			}
-			if _, err := f.s.advanceCycle(ctx, now.ID, now.Revision, cyclePromptIntent, cycleWaitingPickup, "prompt_answered", nil,
-				func(n *cycleRow) { n.PromptFrom = "" }); err != nil {
+			if _, err := f.s.advanceCycle(ctx, now.ID, now.Revision, cyclePromptIntent, cycleWaitingPrompt, "prompt_answered", nil, nil); err != nil {
 				t.Fatal(err)
 			}
 		}
@@ -150,9 +154,9 @@ func TestContextCyclePromptInPickupWait(t *testing.T) {
 	if got := f.status(t, f.k); got.State != cycleCancelled {
 		t.Fatalf("ended cycle: %+v", got)
 	}
-	// The approved report can also arrive after the cycle returned to waiting_pickup, after a
-	// dashboard answer or the native session's own: the revision it read still names it. A
-	// revision of another stage does not.
+	// The approved report can also arrive after the wait went on, after a dashboard answer or
+	// the native session's own: the revision it read still names it. A revision of a stage
+	// before the pickup does not.
 	for _, answer := range []string{"dashboard", "pane"} {
 		f, v, name = waiting(t)
 		read := v.Revision - 1 // the waiting_pickup that the successor read
@@ -165,7 +169,7 @@ func TestContextCyclePromptInPickupWait(t *testing.T) {
 			f.adapter.dialog = CycleDialog{}
 			f.step(t)
 		}
-		if now := f.status(t, f.k); now.State != cycleWaitingPickup || now.Revision == read {
+		if now := f.status(t, f.k); now.State != cycleWaitingPrompt || now.PromptFrom != cycleWaitingPickup || now.Revision == read {
 			t.Fatalf("%s: returned %+v", answer, now)
 		}
 		if _, err := f.s.ContextCyclePickup(ctx, f.k, "synthetic-epoch-2", v.ID, read-2, name, "resumed", "synthetic"); !errors.Is(err, ErrCycleChanged) {
