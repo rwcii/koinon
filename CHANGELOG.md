@@ -5,6 +5,10 @@ into a dated release section when promoted to `main`.
 
 ## Unreleased
 
+- A store that holds 128 work items no longer refuses `work_create` while old finished items
+  wait out their 30 days (#529). The create first removes the oldest finished item; open,
+  active, blocked and reported items are never removed. A finished item now stays for up to
+  30 days, or until a new item needs its place.
 - A managed cycle's new session now has five minutes, not two, to report its pickup (#525). A
   DeepSeek pickup took up to 115 s in the #514 checks, and one took longer than two minutes:
   that cycle failed with `waiting_pickup_timeout` while the new session finished its pickup.

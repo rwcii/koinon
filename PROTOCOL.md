@@ -1530,6 +1530,12 @@ inactive claim bundle and one finished item past its 30-day retention. Memory st
 `expired_items`, `inactive_bundles`, `fault`, `fault_at`, `skipped_submissions`) and
 `work_debt` (`overdue_credits`, `end_credits`, `verdict_credits`).
 
+A create in a store that holds its 128 items first removes the oldest finished item (earliest
+expiry, then work ID), with its inactive claim bundle, also before its 30 days (#529). Open,
+active, blocked and reported items are never removed; a store without a finished item refuses
+the create with `capacity`. A replayed create removes nothing. A finished item thus stays for up
+to 30 days, and `work_not_found` answers for it after its removal.
+
 The limits are those of the implementation design per store (128 items, 16 claim bundles, 64
 scope revisions per item and 1,024 in all, 2,048 events, 12 MiB of work usage inside the shared
 32 MiB, work entries counted in the 5,000 entries) and at most 32 retained claim bundles across
