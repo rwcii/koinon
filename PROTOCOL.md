@@ -634,28 +634,30 @@ Linux ([evidence](docs/sprints/2026-10-12-context-handoff/evidence.md#grok-cycle
 acts only in the session's own tmux pane, with the agy adapter's proof before every key: the pane,
 the host leading the terminal's foreground process group, every other member of that group an
 ancestor of the host or a descendant that is no agent CLI (Grok keeps its `koinon mcp` servers
-and its status-line command in their own groups), and the cycle's fence. Typed text that is not
-submitted is cleared with `C-u`, which clears the whole input box, only while a fresh read shows
-exactly that text.
+and its status-line command in their own groups), and the cycle's fence. The host's command is
+also read at each proof, because an exec keeps the PID and start: it must be a Grok terminal
+session, `grok-native` or the `grok` link, and not Grok's leader (`grok-native agent leader`).
+Typed text that is not submitted is cleared with `C-u`, which clears the whole input box, only
+while a fresh read shows exactly that text.
 
-Probe needs Linux (`platform_unverified` elsewhere); the host's `HOME` (`native_registry_unavailable`);
-the pane (`pane_unproven`, or `tmux_unavailable`); the participant address held
+Probe needs Linux (`platform_unverified` elsewhere); the host's `HOME`, and its environment read
+for `GROK_HOME` (`native_registry_unavailable`: a failed read is not an unset variable); the pane (`pane_unproven`, or `tmux_unavailable`); the participant address held
 (`participant_unheld`: the session after `/new` is a new Koinon session, which takes the address
 over at its first tool call); before the reset, the session itself as its latest context epoch
 (`epoch_unverified`); Koinon's status line: the `[ui.status_line]` `type` and `command` of the
 host's Grok `config.toml` (in the host's `$GROK_HOME`, else `~/.grok`) must equal the enabled
 wrapper that `grok-statusline.json` records and run `hook grok-status` (`statusline_unverified`,
 with the setup step); and the effective pickup entry. Grok lists skills from several roots and
-keeps one per name: a copy in the session's directory, or in a directory above it up to the
-repository root, wins over every user copy, and among the user skills `~/.grok/skills` (the Grok
-home's) wins over `~/.agents/skills`, which wins over `~/.claude/skills`. The first user skill in
-that order must be the binary's skill byte for byte (`pickup_entry_missing`, `pickup_entry_differs`,
-`pickup_entry_unreadable` for the Grok home's own file, each with the install step;
-`pickup_entry_shadowed` for another root). Every other copy whose order is not verified (project
-skills and `commands/koinon-pickup.md` files in `.grok`, `.agents`, `.claude` and `.cursor`, the
-user `.cursor` skill and commands files, and `koinon-pickup` under a `[skills] paths` entry) must be
-the skill too (`pickup_entry_shadowed`, naming the file); a lower user skill is replaced and is not
-checked. A copy that `[skills] ignore` names is no candidate. `[skills] disabled` with
+keeps one per name: the session directory's `.agents/skills` copy wins over every user copy, and
+among the user skills `~/.grok/skills` (the Grok home's) wins over `~/.agents/skills`, which wins
+over `~/.claude/skills`. The effective entry is the first of these that exists. It must be the binary's skill byte for byte (`pickup_entry_missing`,
+`pickup_entry_differs`, `pickup_entry_unreadable` for the Grok home's own file, each with the
+install step; `pickup_entry_shadowed` for another root); a later user skill is replaced and is not
+checked. A copy whose order is not verified (other project skills and `commands/koinon-pickup.md`
+files in `.grok`, `.agents`, `.claude` and `.cursor` up to the repository root, the user `.cursor`
+skill and commands files, and `koinon-pickup` under a `[skills] paths` entry) may be the effective
+entry, so it must be the skill too (`pickup_entry_shadowed`, naming the file); without a verified
+copy, such a copy is the entry. A copy that `[skills] ignore` names is no candidate. `[skills] disabled` with
 `koinon-pickup` removes the entry from the menu (`pickup_entry_disabled`). A config that is not
 valid TOML, or an unknown directory, is `pickup_entry_unverified`. The pickup checks the entry again.
 

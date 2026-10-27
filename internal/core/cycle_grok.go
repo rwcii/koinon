@@ -17,7 +17,7 @@ import (
 )
 
 // The Grok cycle adapter (#515). It acts only through the session's own tmux pane, after
-// proving that the pane's terminal gives input to the pinned host (agyForeground). Grok starts
+// proving that the pane's terminal gives input to the pinned Grok host (grokForeground). Grok starts
 // a new session at /new in the same host process, with a new session ID and MCP server, and
 // keeps the earlier session live; the host's status-line hook reports the new session
 // (agy_witness.go), and that report, received after the clear intent, is the new epoch. The
@@ -258,8 +258,33 @@ func grokHome(t CycleTarget) (home, grok string, err error) {
 	if err != nil || home == "" {
 		return "", "", errors.New("host home unknown")
 	}
-	grok, _ = t.tools.processEnvironment(int(t.HostPID), "GROK_HOME")
+	// A failed read is not an unset variable: only a read that finds none falls back to ~/.grok.
+	grok, err = t.tools.processEnvironment(int(t.HostPID), "GROK_HOME")
+	if err != nil {
+		return "", "", err
+	}
 	return home, GrokHome(grok, home), nil
+}
+
+// grokForeground proves the pane's foreground (agyForeground) and that the pinned host is still
+// a Grok terminal session: grok-native, or the grok link, and not Grok's leader process
+// (`grok-native agent leader`). An exec keeps the PID and start, so the command is read at each
+// proof.
+func grokForeground(ctx context.Context, t CycleTarget) error {
+	if err := agyForeground(ctx, t.tools, t.HostPID, t.HostStart, t.Socket, t.Pane); err != nil {
+		return err
+	}
+	executable, args, err := t.tools.processCommand(int(t.HostPID))
+	if err != nil {
+		return errPaneUnproven
+	}
+	if name := filepath.Base(executable); name != "grok-native" && name != "grok" {
+		return errPaneUnproven
+	}
+	if len(args) >= 3 && args[1] == "agent" && args[2] == "leader" {
+		return errPaneUnproven
+	}
+	return nil
 }
 
 // grokSkillSettings is the [skills] table of Grok's config.toml.
@@ -271,13 +296,14 @@ type grokSkillSettings struct {
 	} `toml:"skills"`
 }
 
-// grokPickupEntry checks the effective koinon-pickup entry in the host's Grok (N1). A project
-// copy (the working directory up to the repository root) wins over every user copy, and among
-// the user skills ~/.grok wins over ~/.agents, which wins over ~/.claude. Every copy whose
-// order is not verified (project copies, .cursor, commands files, [skills] paths) must be the
-// installed skill byte for byte, and so must the first user skill in the verified order;
-// a later user skill is replaced and is not checked. An entry that [skills] disabled names is
-// not listed at all. An ignored copy is not a candidate.
+// grokPickupEntry checks the effective koinon-pickup entry in the host's Grok (N1). The
+// working directory's .agents copy wins over every user copy, and among the user skills ~/.grok
+// wins over ~/.agents, which wins over ~/.claude; the first of these that exists is the
+// effective entry and must be the installed skill byte for byte. A later user skill is replaced
+// and is not checked. A copy whose order is not verified (other project copies up to the
+// repository root, .cursor, commands files, [skills] paths) may be the effective one, so it
+// must be the skill too; without a verified copy, such a copy is the entry. An entry that
+// [skills] disabled names is not listed at all. An ignored copy is not a candidate.
 func grokPickupEntry(t CycleTarget) CycleProbe {
 	home, grokDir, err := grokHome(t)
 	if err != nil || !filepath.IsAbs(t.Directory) {
@@ -324,6 +350,7 @@ func grokPickupEntry(t CycleTarget) CycleProbe {
 		}
 		dir = filepath.Dir(dir)
 	}
+	winner := filepath.Join(filepath.Clean(t.Directory), ".agents", "skills", PickupSkillName, "SKILL.md")
 	strict = append(strict, entry(filepath.Join(home, ".cursor"))...)
 	for _, root := range []string{grokDir, filepath.Join(home, ".agents"), filepath.Join(home, ".claude")} {
 		strict = append(strict, filepath.Join(root, "commands", PickupSkillName+".md"))
@@ -335,6 +362,7 @@ func grokPickupEntry(t CycleTarget) CycleProbe {
 			strict = append(strict, p)
 		}
 	}
+	present := map[string]bool{}
 	for _, path := range strict {
 		if ignored(path) {
 			continue
@@ -345,6 +373,10 @@ func grokPickupEntry(t CycleTarget) CycleProbe {
 		if pickupSkillReason(path, t.Pickup.Content) != "" {
 			return CycleProbe{Reason: "pickup_entry_shadowed", Step: "remove or rename the skill " + path}
 		}
+		present[path] = true
+	}
+	if present[winner] {
+		return CycleProbe{}
 	}
 	installed := filepath.Join(grokDir, "skills", PickupSkillName, "SKILL.md")
 	for _, root := range []string{grokDir, filepath.Join(home, ".agents"), filepath.Join(home, ".claude")} {
@@ -361,6 +393,9 @@ func grokPickupEntry(t CycleTarget) CycleProbe {
 			}
 			return CycleProbe{Reason: "pickup_entry_shadowed", Step: "remove or rename the skill " + path}
 		}
+		return CycleProbe{}
+	}
+	if len(present) > 0 {
 		return CycleProbe{}
 	}
 	return CycleProbe{Reason: "pickup_entry_missing", Step: pickupSkillStep(installed)}
@@ -415,7 +450,7 @@ func (grokCycle) Probe(ctx context.Context, t CycleTarget) CycleProbe {
 	if err != nil {
 		return CycleProbe{Reason: "native_registry_unavailable"}
 	}
-	if err := agyForeground(ctx, t.tools, t.HostPID, t.HostStart, t.Socket, t.Pane); err != nil {
+	if err := grokForeground(ctx, t); err != nil {
 		return CycleProbe{Reason: tmuxReason(err, "pane_unproven")}
 	}
 	if !t.Holds {
@@ -436,7 +471,7 @@ func (grokCycle) Probe(ctx context.Context, t CycleTarget) CycleProbe {
 
 // Inspect reports whether the pane is ready for input. A draft is reported and kept.
 func (grokCycle) Inspect(ctx context.Context, t CycleTarget, fence CycleFence) (PaneState, error) {
-	if err := agyForeground(ctx, t.tools, t.HostPID, t.HostStart, t.Socket, t.Pane); err != nil {
+	if err := grokForeground(ctx, t); err != nil {
 		return PaneState{}, proofError(err, errAgyUnproven)
 	}
 	screen, err := readAgy(ctx, t)
@@ -467,14 +502,19 @@ func awaitGrok(ctx context.Context, t CycleTarget, ok func(codexScreen) bool) bo
 	}
 }
 
+// keyIf is agy's keyIf with the Grok host proof (grokForeground) before every key.
+func (grokCycle) keyIf(ctx context.Context, t CycleTarget, fence CycleFence, check func(codexScreen) bool, refused error, args ...string) error {
+	return provenKeyIf(ctx, t, fence, func() error { return grokForeground(ctx, t) }, check, refused, args...)
+}
+
 // erase removes text that the adapter typed: C-u clears the whole composer (N3), so it is sent
 // only while a fresh read shows exactly that text; then an empty composer is read back.
-func (grokCycle) erase(ctx context.Context, t CycleTarget, fence CycleFence, text string) error {
+func (g grokCycle) erase(ctx context.Context, t CycleTarget, fence CycleFence, text string) error {
 	typed := func(s codexScreen) bool {
 		composer, _, found := grokComposer(grokText(s))
 		return found && composer == text
 	}
-	if err := (agyCycle{}).keyIf(ctx, t, fence, typed, errAgyErase, "C-u"); err != nil {
+	if err := g.keyIf(ctx, t, fence, typed, errAgyErase, "C-u"); err != nil {
 		return err
 	}
 	if !awaitGrok(ctx, t, grokEmpty) {
@@ -491,7 +531,7 @@ func (grokCycle) erase(ctx context.Context, t CycleTarget, fence CycleFence, tex
 func (g grokCycle) command(ctx context.Context, t CycleTarget, fence CycleFence, text string, match func(grokRow) bool,
 	done func(before, after codexScreen) bool) (bool, error) {
 	ready := func(s codexScreen) bool { return grokNotReady(t, s) == "" }
-	if err := (agyCycle{}).keyIf(ctx, t, fence, ready, errAgyNotReady, "-l", text); err != nil {
+	if err := g.keyIf(ctx, t, fence, ready, errAgyNotReady, "-l", text); err != nil {
 		return false, err
 	}
 	typed := func(s codexScreen) bool { return grokMenuReady(s, text, match) }
@@ -507,7 +547,7 @@ func (g grokCycle) command(ctx context.Context, t CycleTarget, fence CycleFence,
 		before = s
 		return typed(s)
 	}
-	if err := (agyCycle{}).keyIf(ctx, t, fence, check, errAgyTyped, "Enter"); err != nil {
+	if err := g.keyIf(ctx, t, fence, check, errAgyTyped, "Enter"); err != nil {
 		g.erase(ctx, t, fence, text)
 		return false, err
 	}
@@ -567,7 +607,7 @@ func (grokCycle) Answer(context.Context, CycleTarget, string, CycleFence) (bool,
 
 // Dialog reads the approval dialog the pane shows. It sends nothing.
 func (grokCycle) Dialog(ctx context.Context, t CycleTarget) (CycleDialog, error) {
-	if err := agyForeground(ctx, t.tools, t.HostPID, t.HostStart, t.Socket, t.Pane); err != nil {
+	if err := grokForeground(ctx, t); err != nil {
 		return CycleDialog{}, proofError(err, errAgyUnproven)
 	}
 	screen, err := readAgy(ctx, t)
@@ -584,12 +624,12 @@ func (grokCycle) Dialog(ctx context.Context, t CycleTarget) (CycleDialog, error)
 // Choose enters one visible option while a fresh read shows the same dialog. In Grok the digit
 // answers the dialog at once (N8): no Enter follows, and nothing is selected first. The receipt
 // is that dialog gone.
-func (grokCycle) Choose(ctx context.Context, t CycleTarget, digest, option string, fence CycleFence) (bool, error) {
+func (g grokCycle) Choose(ctx context.Context, t CycleTarget, digest, option string, fence CycleFence) (bool, error) {
 	same := func(s codexScreen) bool {
 		approval := grokDialog(s)
 		return approval.dialog.Digest == digest && approval.option(option)
 	}
-	if err := (agyCycle{}).keyIf(ctx, t, fence, same, ErrCycleDialogChanged, "-l", option); err != nil {
+	if err := g.keyIf(ctx, t, fence, same, ErrCycleDialogChanged, "-l", option); err != nil {
 		return false, err
 	}
 	if !awaitGrok(ctx, t, func(s codexScreen) bool { return grokDialog(s).dialog.Digest != digest }) {

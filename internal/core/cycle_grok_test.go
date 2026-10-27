@@ -112,6 +112,7 @@ type grokTerminal struct {
 	groups    map[int]platform.ProcessGroup
 	parents   map[int]int
 	commands  map[int]string
+	args      map[int][]string
 }
 
 const grokWrapperCommand = "'/opt/koinon' hook grok-status"
@@ -243,7 +244,7 @@ func (g *grokTerminal) target() CycleTarget {
 			processParents: func() (map[int]int, error) { return g.parents, nil },
 			processCommand: func(pid int) (string, []string, error) {
 				if c, ok := g.commands[pid]; ok {
-					return c, nil, nil
+					return c, g.args[pid], nil
 				}
 				return "", nil, errors.New("no process")
 			},
@@ -286,11 +287,45 @@ func TestGrokProbe(t *testing.T) {
 			groups := map[int]platform.ProcessGroup{6161: {Group: 6161, Terminal: 7, Foreground: 6160}}
 			t.tools.processGroups = func() (map[int]platform.ProcessGroup, error) { return groups, nil }
 		},
+		"native_registry_unavailable": func(t *CycleTarget) {
+			// A failed read of the host's GROK_HOME is not an unset variable.
+			env := t.tools.processEnvironment
+			t.tools.processEnvironment = func(pid int, name string) (string, error) {
+				if name == "GROK_HOME" {
+					return "", errors.New("environment unreadable")
+				}
+				return env(pid, name)
+			}
+		},
 	} {
 		target := g.target()
 		change(&target)
 		if probe := (grokCycle{}).Probe(ctx, target); probe.Reason != name {
 			t.Fatalf("%s: %+v", name, probe)
+		}
+	}
+	// The pinned host must be a Grok terminal session: grok-native or the grok link, never a
+	// shell that the same PID and start now run, Grok's leader, or an unreadable command.
+	for _, host := range []struct {
+		executable string
+		args       []string
+		ok         bool
+	}{
+		{"/usr/local/bin/grok", []string{"grok", "--session-id", "grok-a"}, true},
+		{"/home/agent/.grok/bin/grok-native", []string{"grok-native"}, true},
+		{"/bin/bash", []string{"bash"}, false},
+		{"/home/agent/.grok/bin/grok-native", []string{"grok-native", "agent", "leader"}, false},
+		{"", nil, false},
+	} {
+		h := newGrokTerminal(t)
+		if host.executable == "" {
+			delete(h.commands, 6161)
+		} else {
+			h.commands[6161], h.args = host.executable, map[int][]string{6161: host.args}
+		}
+		want := map[bool]string{true: "", false: "pane_unproven"}[host.ok]
+		if probe := (grokCycle{}).Probe(ctx, h.target()); probe.Reason != want {
+			t.Fatalf("host %q %q: %+v", host.executable, host.args, probe)
 		}
 	}
 	// After the reset the requester's old epoch is no longer checked.
@@ -325,9 +360,9 @@ func TestGrokProbe(t *testing.T) {
 	grokEvidencedPlatforms = previous
 }
 
-// The effective koinon-pickup entry (N1): ~/.grok wins over ~/.agents and ~/.claude, a project
-// copy over every user copy, and copies whose order is not verified must all be the installed
-// skill. [skills] disabled hides it; an ignored copy is no candidate.
+// The effective koinon-pickup entry (N1): ~/.grok wins over ~/.agents and ~/.claude, the
+// working directory's .agents copy over every user copy, and copies whose order is not verified
+// must be the installed skill. [skills] disabled hides it; an ignored copy is no candidate.
 func TestGrokPickupEntry(t *testing.T) {
 	g := newGrokTerminal(t)
 	entry := func() string { return grokPickupEntry(g.target()).Reason }
@@ -382,6 +417,37 @@ func TestGrokPickupEntry(t *testing.T) {
 		}
 		os.Remove(path)
 	}
+	// The working directory's .agents copy wins over every user copy: it needs no user copy, and
+	// a differing user copy loses to it. A differing .agents copy is the effective entry.
+	winner := filepath.Join(work, ".agents", "skills", PickupSkillName, "SKILL.md")
+	os.MkdirAll(filepath.Dir(winner), 0o700)
+	os.WriteFile(winner, pickupSkillEntry().Content, 0o600)
+	os.Remove(installed)
+	if got := grokPickupEntry(target).Reason; got != "" {
+		t.Fatalf("project copy only: %q", got)
+	}
+	g.skill(t, filepath.Join(g.home, ".grok"), other)
+	if got := grokPickupEntry(target).Reason; got != "" {
+		t.Fatalf("project copy over a differing user copy: %q", got)
+	}
+	os.WriteFile(winner, other, 0o600)
+	if probe := grokPickupEntry(target); probe.Reason != "pickup_entry_shadowed" || !strings.Contains(probe.Step, winner) {
+		t.Fatalf("differing project copy: %+v", probe)
+	}
+	os.Remove(winner)
+	// A copy whose order is not verified is the entry without a user copy, but does not
+	// outrank a differing user copy.
+	unordered := filepath.Join(repo, ".claude", "skills", PickupSkillName, "SKILL.md")
+	os.WriteFile(unordered, pickupSkillEntry().Content, 0o600)
+	if probe := grokPickupEntry(target); probe.Reason != "pickup_entry_differs" {
+		t.Fatalf("unordered copy over a differing user copy: %+v", probe)
+	}
+	os.Remove(installed)
+	if got := grokPickupEntry(target).Reason; got != "" {
+		t.Fatalf("unordered copy only: %q", got)
+	}
+	os.Remove(unordered)
+	g.skill(t, filepath.Join(g.home, ".grok"), pickupSkillEntry().Content)
 	// A copy above the repository root is not Grok's.
 	above := filepath.Join(g.dir, ".agents", "skills", PickupSkillName, "SKILL.md")
 	os.MkdirAll(filepath.Dir(above), 0o700)
@@ -467,6 +533,20 @@ func TestGrokClear(t *testing.T) {
 	target.Epoch = "01a17e66-0000-7000-8000-000000000001"
 	if received, err := (grokCycle{}).Clear(ctx, target, g.fence); received || !errors.Is(err, errAgySubmit) {
 		t.Fatalf("epoch notice: %v %v", received, err)
+	}
+	// A host that execs another program after the typed command gets no Enter.
+	g = newGrokTerminal(t)
+	exec := func(context.Context) error {
+		g.mu.Lock()
+		defer g.mu.Unlock()
+		g.fences++
+		if g.fences == 1 {
+			g.commands[6161] = "/bin/bash"
+		}
+		return nil
+	}
+	if received, err := (grokCycle{}).Clear(ctx, g.target(), exec); received || !errors.Is(err, errAgyUnproven) || !slices.Equal(g.sent(), []string{"-l /new"}) {
+		t.Fatalf("host changed: %v %v %q", received, err, g.sent())
 	}
 	// A fence that fails before the Enter erases the typed command.
 	g = newGrokTerminal(t)
