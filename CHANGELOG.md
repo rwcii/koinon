@@ -10,6 +10,11 @@ into a dated release section when promoted to `main`.
   grok-status` the command of the `[ui.status_line]` table in `~/.grok/config.toml`: it changes
   only that table's `type` and `command`, and wraps an existing command. `koinon setup grok
   --remove-status-line` and `koinon uninstall` restore the previous values.
+- A managed cycle's new session now has five minutes, not two, to report its pickup (#525). A
+  DeepSeek pickup took up to 115 s in the #514 checks, and one took longer than two minutes:
+  that cycle failed with `waiting_pickup_timeout` while the new session finished its pickup.
+  The limit applies to all families; all other stage deadlines and the cycle's 30 minutes are
+  unchanged.
 - DeepSeek sessions can run the managed context handoff cycle on Linux (#514). A DeepSeek
   session had no cycle: its Enable was refused. A session registered with its harness URL and
   credential file, with the family mode `handoff_cycle`, its participant address and the

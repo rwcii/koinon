@@ -90,11 +90,11 @@ func TestContextCycleDeadlinesHold(t *testing.T) {
 	if err != nil || ready.StageDeadline != g.clock.UnixMilli()+cycleReceiptWait.Milliseconds() {
 		t.Fatalf("ready before the deadline: %v %+v", err, ready)
 	}
-	// Pickup has the two-minute receipt wait, and no stage outlasts the cycle.
+	// Pickup has the five-minute pickup wait (#525), and no stage outlasts the cycle.
 	g.step(t)
 	g.step(t)
 	g.step(t)
-	if v = g.status(t, g.k); v.State != cycleWaitingPickup || v.StageDeadline != min(v.UpdatedAt+cycleReceiptWait.Milliseconds(), v.CycleDeadline) {
+	if v = g.status(t, g.k); v.State != cycleWaitingPickup || v.StageDeadline != min(v.UpdatedAt+cyclePickupWait.Milliseconds(), v.CycleDeadline) {
 		t.Fatalf("waiting_pickup deadline: %+v", v)
 	}
 	// A prompt late in the cycle (after earlier prompt rounds) waits only until its end.

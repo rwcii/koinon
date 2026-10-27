@@ -373,7 +373,14 @@ func TestSessionCycleDisplayRefusals(t *testing.T) {
 // it, the deadline ends it failed as for any adapter.
 func TestSessionCyclePendingDisplayOutcome(t *testing.T) {
 	g, v, _ := reachWaitingPickup(t)
+	// A pickup that takes longer than the other stages' two minutes still has time (#525).
 	g.clock = g.clock.Add(cycleReceiptWait + time.Second)
+	g.step(t)
+	if c := g.cycle(t, v.ID); c.State != cycleWaitingPickup {
+		t.Fatalf("after two minutes: %+v", c)
+	}
+	g.clock = g.clock.Add(cyclePickupWait - cycleReceiptWait)
+	g.step(t)
 	g.step(t)
 	if c := g.cycle(t, v.ID); c.State != cycleUncertain || c.Reason != "waiting_pickup_timeout" {
 		t.Fatalf("deadline without display: %+v", c)
@@ -393,7 +400,7 @@ func TestSessionCyclePendingDisplayOutcome(t *testing.T) {
 	if c := k.cycle(t, x.ID); c.StageDeadline != deadline || c.Reason != pickupDisplayedReason {
 		t.Fatalf("deadline moved: %d to %d (%s)", deadline, c.StageDeadline, c.Reason)
 	}
-	k.clock = k.clock.Add(cycleReceiptWait + time.Second)
+	k.clock = k.clock.Add(cyclePickupWait + time.Second)
 	k.step(t)
 	if c := k.cycle(t, x.ID); c.State != cycleFailed {
 		t.Fatalf("deadline with display: %+v", c)

@@ -237,6 +237,15 @@ Claude session at that stage, the Sessions page shows how many of its background
 are still running (#467).
 The session's live work claims last through the cycle: admission extends them to a minute past
 the cycle deadline, and a renewal during the cycle keeps that expiry (#489).
+The new session has five minutes from the pickup input to report its pickup (`waiting_pickup`);
+all other stage deadlines and the cycle's 30 minutes are unchanged:
+Maintainer, 2026-10-27, decision board item PICKUP-WAIT-525 (revision 1), verdict 64,
+"approved". The question: "Make the pickup deadline longer than 2 minutes? (#525)". The card
+gave the #514 DeepSeek pickups, 81 s, 106 s and 115 s, and one over 120 s that failed with
+`waiting_pickup_timeout` while the new session finished its pickup after the cycle ended, and
+recommended: "Make the `waiting_pickup` limit 5 minutes for all families. The full cycle limit
+(30 minutes) does not change. A slow pickup then completes. A pickup that stops still ends the
+cycle." The verdict changes this one #196 limit of Gate B.
 The cycle stops with a shown reason when no ready reply
 arrives in time, the pane cannot be proven, or the bounds end it while the session stays busy;
 the reason names what Koinon last saw in the pane. Entering commands in the
@@ -504,4 +513,5 @@ and terminal commands have the maintainer's words; the rest is requested or prop
 | 2026-10-27 | Decision 5: the OpenCode adapter is listed, from its Linux checks with opencode 1.18.35 (#513) |
 | 2026-10-27 | Executive summary: DeepSeek context is read from the session's harness (#514) |
 | 2026-10-27 | Decision 5: the DeepSeek adapter is listed, from its Linux checks with DeepSeek Harness 0.2.0-rc.2 (#514) |
+| 2026-10-27 | Decision 3: five minutes for the pickup report, approved on the decision board (PICKUP-WAIT-525) |
 | 2026-10-27 | Executive summary: Grok context is read from its status line (#515) |

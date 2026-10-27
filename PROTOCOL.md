@@ -392,7 +392,7 @@ again: a changed or missing file returns a `ready` cycle to `waiting_ready`
 repeat, #431), and fails a `reset_verified` one. An input that fails or is not received is `uncertain`. An intent found without its
 receipt, as after a restart, is never sent again: a clear is reconciled only by a proven new
 epoch, otherwise it is `uncertain`. Deadlines: 15 minutes from the request for
-`waiting_ready`, two minutes for each other stage (`waiting_pickup` included, for the report),
+`waiting_ready`, five minutes for `waiting_pickup` (the report, #525), two minutes for each other stage,
 ten for a prompt, and 30 minutes for the whole cycle; no stage deadline passes the cycle's. A
 report at or after a deadline is `cycle_changed`. While a cycle is in `ready` through
 `waiting_pickup`, ordinary wakes to its pane wait, still due and not delivered, so peer

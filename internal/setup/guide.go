@@ -204,7 +204,7 @@ while fresh and for the current published name.
 - After a clear, call context_cycle_status. For a cycle in waiting_pickup, finish your
   canonical pickup of the returned handoff file, then call context_cycle_pickup with the cycle
   ID, revision, file name, outcome resumed or paused, and a short report of the restored work,
-  within two minutes of the pickup input. Its catalog_digest is the catalog whose pickup
+  within five minutes of the pickup input. Its catalog_digest is the catalog whose pickup
   procedure the cycle pinned; library_read returns the same digest.
 - context_cycle_ready and context_cycle_pickup move the cycle on; a stale or conflicting
   report returns the current state.
