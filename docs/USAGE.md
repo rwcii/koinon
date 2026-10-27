@@ -454,6 +454,10 @@ keeps the family default, and the Settings page names the error.
 
 agy sessions report their context and activity through the status line that `koinon setup agy`
 installs, so the Sessions page shows their readings. The agy family default stays `observe`.
+OpenCode sessions started with `koinon opencode` show their model and context too: the daemon
+reads them every 15 seconds from the session's own OpenCode server, from the newest finished
+reply and its model's context limit. A direct `opencode` start shows none. OpenCode has no
+handoff cycle yet, so its readings only inform; its family default stays `observe`.
 
 Claude Code sessions launched with `koinon claude` on Linux and macOS can run the cycle, and
 Codex sessions launched with `koinon codex` in tmux on Linux and macOS can run it too (family

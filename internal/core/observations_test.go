@@ -80,9 +80,10 @@ func TestObservationValidationAndAttribution(t *testing.T) {
 	if views["terminal"].Value == nil || views["terminal"].Value.Pane != "%3" || views["model"].Reason != "not_observed" {
 		t.Fatalf("claude views: %+v", views)
 	}
-	// Families without a source say so.
+	// Families without a source say so. A launched OpenCode session has one (#513); a direct
+	// start has none (TestLaunchedTerminalsAndOpenCodeStatus).
 	opencode := join(t, s, "opencode", "synthetic-open", "")
-	if views := s.sessionObservations(ctx, opencode); views["model"].Reason != "no_source" || views["context"].Reason != "no_source" ||
+	if views := s.sessionObservations(ctx, opencode); views["model"].Reason != "not_observed" || views["context"].Reason != "not_observed" ||
 		views["activity"].Reason != "not_observed" || views["terminal"].Reason != "not_observed" {
 		t.Fatalf("opencode views: %+v", views)
 	}
@@ -210,7 +211,10 @@ func TestLaunchedTerminalsAndOpenCodeStatus(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unlaunched OpenCode session: %v", err)
 	}
-	s.sessionObservations(ctx, plain)
+	views := s.sessionObservations(ctx, plain)
+	if views["context"].Reason != "no_source" || views["model"].Reason != "no_source" {
+		t.Fatalf("plain peer context: %+v", views)
+	}
 	if calls != before {
 		t.Fatal("plain peer queried a provider endpoint")
 	}

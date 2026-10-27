@@ -18,8 +18,8 @@ import (
 // Observation sources. A source names where the reporter read the value; the daemon accepts
 // each group only from its own sources.
 var observationSources = map[string][]string{
-	"model":    {"claude_statusline", "codex_rollout", "codex_mcp_meta", "agy_hook", "agy_statusline"},
-	"context":  {"claude_statusline", "codex_rollout", "agy_statusline"},
+	"model":    {"claude_statusline", "codex_rollout", "codex_mcp_meta", "agy_hook", "agy_statusline", "opencode_server"},
+	"context":  {"claude_statusline", "codex_rollout", "agy_statusline", "opencode_server"},
 	"activity": {"claude_registry", "codex_rollout", "agy_hook", "agy_statusline", "mcp_call"},
 	"terminal": {"tmux_env"},
 	"naming":   {"koinon_mcp"},
@@ -181,7 +181,7 @@ func (v *ObservedValue) valid(group string, now int64) bool {
 	if !allowed(group, v.Source) || v.At <= 0 || v.At > now+60_000 {
 		return false
 	}
-	if v.Epoch != "" && (group != "context" || v.Source != "claude_statusline" && v.Source != "codex_rollout" && v.Source != "agy_statusline" || !nativeEpoch.MatchString(v.Epoch)) {
+	if v.Epoch != "" && (group != "context" || v.Source != "claude_statusline" && v.Source != "codex_rollout" && v.Source != "agy_statusline" && v.Source != "opencode_server" || !nativeEpoch.MatchString(v.Epoch)) {
 		return false
 	}
 	if v.TurnError != "" && (group != "activity" || v.Source != "codex_rollout" || v.State != "idle" || !turnErrors[v.TurnError]) {
@@ -391,7 +391,7 @@ func (s *Store) sessionObservations(ctx context.Context, session Session) map[st
 			value := v.ObservedValue
 			result[group] = SessionView{Value: &value, ConfirmedAt: v.seen}
 		default:
-			result[group] = SessionView{Reason: unobserved(group, session.Family)}
+			result[group] = SessionView{Reason: unobserved(group, session)}
 		}
 	}
 	return result
@@ -422,17 +422,19 @@ func (s *Store) namingOf(session Session) *PeerNaming {
 	return &PeerNaming{Result: v.Naming, Reason: NamingReason(v.Naming), Target: v.Target, At: v.At}
 }
 
-// unobserved names why a group has no value: no source exists for the family, or none has
-// reported yet.
-func unobserved(group, family string) string {
+// unobserved names why a group has no value: no source exists for the session's family, or
+// none has reported yet. OpenCode's model and context come only from a launched session's own
+// server (#513).
+func unobserved(group string, session Session) string {
+	family := session.Family
 	sources := map[string]map[string]bool{
-		"model":    {"claude": true, "codex": true, "agy": true},
-		"context":  {"claude": true, "codex": true, "agy": true},
+		"model":    {"claude": true, "codex": true, "agy": true, "opencode": true},
+		"context":  {"claude": true, "codex": true, "agy": true, "opencode": true},
 		"activity": {"claude": true, "codex": true, "agy": true, "opencode": true},
 		"terminal": {"claude": true, "codex": true, "agy": true, "opencode": true, "grok": true},
 		"naming":   {"claude": true, "codex": true, "agy": true, "opencode": true, "grok": true},
 	}
-	if !sources[group][family] {
+	if !sources[group][family] || family == "opencode" && (group == "model" || group == "context") && !terminalVerified(session) {
 		return "no_source"
 	}
 	return "not_observed"

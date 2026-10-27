@@ -356,6 +356,9 @@ installs; without it the tools refuse the call. Start OpenCode through koinon op
 participant features and its wake endpoint. A direct opencode start registers as a plain
 peer using the plugin's native identity. It has no automatic wake because it has no launcher
 wake endpoint; read waiting messages with inbox.
+A session started through koinon opencode shows its model and context use in peer_status and
+on the dashboard: the daemon reads them from this session's own OpenCode server, never its
+message text. OpenCode has no managed handoff cycle yet.
 ### Recommended permissions
 Merge into the existing $XDG_CONFIG_HOME/opencode/opencode.json (or .jsonc); default
 ~/.config/opencode/opencode.json:

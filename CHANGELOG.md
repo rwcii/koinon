@@ -5,6 +5,12 @@ into a dated release section when promoted to `main`.
 
 ## Unreleased
 
+- OpenCode sessions now report their model and context use (#513). `peer_status` and the
+  dashboard showed no context for OpenCode (`no_source`). For each session started with
+  `koinon opencode`, the daemon now reads the newest finished reply's token counts and its
+  model's context limit from the session's own OpenCode server every 15 seconds, with the launch
+  password; it keeps only those numbers and IDs, never the message text. A direct `opencode`
+  start shows none. OpenCode has no handoff cycle yet; its family default stays `observe`.
 - A managed cycle no longer fails when the successor's pickup needs several approvals (#520).
   Each dialog during the pickup used two of the cycle's 16 events, so a pickup with more than
   about four dialogs, such as agy's, which asks before most commands, failed with
