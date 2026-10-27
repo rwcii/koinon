@@ -5,6 +5,12 @@ into a dated release section when promoted to `main`.
 
 ## Unreleased
 
+- The MCP tools that take `key` and `deadline` now say what `deadline` is (#534): a Unix time
+  in seconds, at most 86400 s ahead, sent unchanged on each retry. Before, the schemas gave
+  only `number`, and a value in milliseconds was refused with "must be within 86400 s", which
+  named no unit. The refusals of `decision_create`, `decision_close`, `decision_withdraw`,
+  `room_post`, `memory_record` and the work tools now say "a Unix time in seconds at most
+  86400 s ahead".
 - Grok sessions now report their model and context use (#515, part A). `peer_status` and the
   dashboard showed no context for Grok (`no_source`). `koinon setup grok` now makes `koinon hook
   grok-status` the command of the `[ui.status_line]` table in `~/.grok/config.toml`: it changes

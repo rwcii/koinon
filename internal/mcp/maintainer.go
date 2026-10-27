@@ -81,7 +81,7 @@ var maintainerTools = []map[string]any{
 	{"name": "room_read", "description": "Read a room's retained posts after a sequence, in order, with sender, typed origin and time. Page with next_after; gaps name sequences that retention no longer holds.",
 		"inputSchema": object(map[string]any{"room_id": text, "after": integer, "limit": pageLimit}, "room_id")},
 	{"name": "room_post", "description": "Post to a room as the maintainer. It reaches every active member. key and deadline (Unix seconds) make a retry safe.",
-		"inputSchema": object(map[string]any{"room_id": text, "body": text, "key": text, "deadline": number}, "room_id", "body", "key", "deadline")},
+		"inputSchema": object(map[string]any{"room_id": text, "body": text, "key": text, "deadline": retryDeadline}, "room_id", "body", "key", "deadline")},
 	{"name": "room_create", "description": "Create an empty room with a name. key makes a retry return the same room.",
 		"inputSchema": object(map[string]any{"name": text, "key": text}, "name", "key")},
 	{"name": "room_add", "description": "Add an active session to a room by its peer name: as the participant whose address it holds, otherwise as that session.",

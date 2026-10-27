@@ -1960,7 +1960,9 @@ error is a result with `isError` and a JSON text `{"ok": false, "code": ...}`: t
 `details` of a work refusal. When the daemon or the MCP server states the rule that refused the
 call, such as `renew_for is 60 to 3600 seconds` or `missing argument work_id`, the result also
 carries it as `error` (at most 1 KiB). The tool schemas state the lease bounds (60 to 3,600
-seconds), work/message list limits (1 to 100) and catalog list limit (maximum 32). Every
+seconds), work/message list limits (1 to 100), catalog list limit (maximum 32) and, for each
+`deadline` that goes with a `key`, its form: a Unix time in seconds, at most the 86,400 s
+idempotency horizon ahead, sent unchanged on each retry (#534). Every
 initialize response offers the catalog and its query paths; this informational offer
 performs no query, inspection, registration or adoption. The server
 writes only protocol messages to stdout and never logs a secret, session ID or message body.
