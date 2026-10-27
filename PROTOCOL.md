@@ -2569,6 +2569,8 @@ their values as spelled, and whether setup added the table, are saved
 once in `grok-statusline.json` in the Go state root, with the file's path. `koinon setup grok
 --remove-status-line` and the Grok removal restore them in that file while it still holds the
 exact wrapper, and remove the table only when setup added it and no other key is in it. A
+saved spelling is used only when it is a TOML spelling of the saved value; otherwise the value
+is written as a basic string. A
 wrapper that the user edited is left alone (`statusline_changed`), also when it runs an earlier
 Koinon binary. Setup
 for another `config.toml` while one is set up reports `changed` (`statusline_other_file`). A

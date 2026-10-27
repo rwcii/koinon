@@ -396,6 +396,35 @@ func TestGrokStatusLineKeepsLineSpelling(t *testing.T) {
 	if data, _ := os.ReadFile(g.settings); string(data) != strings.Replace(original, "'old'", `"old"`, 1) {
 		t.Fatalf("restored without raw values: %q", data)
 	}
+	// A saved token that does not spell the saved value is not used.
+	result, err = g.setUp()
+	mustOutcome(t, result, err, "set_up")
+	saved, _ = os.ReadFile(path)
+	json.Unmarshal(saved, &record)
+	record["raw_values"] = map[string]string{"command": "'x'", "type": "'command'"}
+	saved, _ = json.Marshal(record)
+	os.WriteFile(path, saved, 0600)
+	result, err = g.remove()
+	mustOutcome(t, result, err, "restored")
+	if data, _ := os.ReadFile(g.settings); string(data) != strings.Replace(original, "'old'", `"old"`, 1) {
+		t.Fatalf("restored with a wrong token: %q", data)
+	}
+	// A quoted key that the lexer reads as an owned key gives no token, also after a refusal
+	// saved the original as pending.
+	unusual := original + "\"command='x'\" = \"unowned\"\n"
+	os.WriteFile(g.settings, []byte(unusual), 0600)
+	var refusal SettingsError
+	if _, err := g.setUp(); !errors.As(err, &refusal) || refusal.Code != "settings_unusual" {
+		t.Fatalf("quoted key: %v", err)
+	}
+	os.WriteFile(g.settings, []byte(original), 0600)
+	result, err = g.setUp()
+	mustOutcome(t, result, err, "set_up")
+	result, err = g.remove()
+	mustOutcome(t, result, err, "restored")
+	if data, _ := os.ReadFile(g.settings); string(data) != original {
+		t.Fatalf("restored after the refusal: %q", data)
+	}
 }
 
 func TestValueSpan(t *testing.T) {

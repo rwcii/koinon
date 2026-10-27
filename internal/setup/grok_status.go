@@ -300,7 +300,8 @@ func valueSpan(line string) (from, to int, ok bool) {
 	return 0, 0, false
 }
 
-// rawValues are the value tokens of the owned keys in the plain [ui.status_line] table of c.
+// rawValues are the value tokens of the owned keys in the plain [ui.status_line] table of c,
+// as spelled checks them.
 func rawValues(c grokConfig) map[string]string {
 	lines, kinds, start, end, ok := statusLines(string(c.raw))
 	if !ok || start < 0 {
@@ -314,10 +315,34 @@ func rawValues(c grokConfig) map[string]string {
 			}
 		}
 	}
-	if len(raw) == 0 {
+	return spelled(raw, c.entry)
+}
+
+// spelled keeps the tokens of raw that are TOML spellings of entry's values, so a saved token
+// can change how a restored value is spelled, never what it is.
+func spelled(raw map[string]string, entry json.RawMessage) map[string]string {
+	if len(raw) == 0 || entry == nil {
 		return nil
 	}
-	return raw
+	fields, err := objectFields(entry)
+	if err != nil {
+		return nil
+	}
+	kept := map[string]string{}
+	for _, f := range fields {
+		var want string
+		token, ok := raw[f.key]
+		if !ok || json.Unmarshal(f.value, &want) != nil {
+			continue
+		}
+		if value, err := decodeTOML([]byte("v = " + token)); err == nil && len(value) == 1 && value["v"] == want {
+			kept[f.key] = token
+		}
+	}
+	if len(kept) == 0 {
+		return nil
+	}
+	return kept
 }
 
 // token is raw, the saved spelling of v, or else v as a TOML basic string.
@@ -532,9 +557,10 @@ func (g grokStatusFile) setUp() (StatusLineResult, error) {
 	added := !c.table
 	switch {
 	case active(record) && equal(now, record.Wrapper):
-		original, raw, added = record.Original, record.RawValues, record.TableAdded
+		original, raw, added = record.Original, spelled(record.RawValues, record.Original), record.TableAdded
 	case record.State == "pending" && equal(now, record.Original):
-		original, raw, added = record.Original, record.RawValues, record.TableAdded
+		// The file still holds the original, so its own spelling counts.
+		original, raw, added = record.Original, rawValues(c), record.TableAdded
 	case active(record):
 		if g.isWrapper(now) {
 			result.Outcome, result.Reason = "changed", "statusline_changed"
@@ -589,7 +615,7 @@ func (g grokStatusFile) remove() (StatusLineResult, error) {
 	case !equal(c.entry, record.Wrapper):
 		result.Outcome, result.Reason = "changed", "statusline_changed"
 	default:
-		if err := g.write(c, record.Original, record.RawValues, record.TableAdded); err != nil {
+		if err := g.write(c, record.Original, spelled(record.RawValues, record.Original), record.TableAdded); err != nil {
 			return result, err
 		}
 		result.Outcome = "restored"
