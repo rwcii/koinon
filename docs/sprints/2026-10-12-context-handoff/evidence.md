@@ -510,3 +510,62 @@ saw. Only field names, types, counts and comparisons of IDs are named here.
   was mostly Grok's own instructions), and the reading followed.
 
 Not yet verified: macOS; a session with `refresh_interval` set.
+
+## Grok cycle adapter (#515)
+
+Grok Build 1.0.50 on Linux, 2026-10-27, in the `grok-dev` development container, with the
+session in a private tmux socket started from an interactive `bash -i`, as in a person's pane.
+The redacted captures are `internal/core/testdata/grok-screens`. The container's Grok
+configuration was restored from its backup after each run (`cmp` equal), and the test skills and
+handoffs were removed.
+
+- Skill roots. Three `koinon-pickup` skills with different descriptions: among the user roots
+  `~/.grok/skills` wins over `~/.agents/skills`, which wins over `~/.claude/skills`; a
+  `.agents/skills` in the working directory wins over every user root. `[skills] disabled =
+  ["koinon-pickup"]` removes the entry from the slash menu; `[skills] ignore` on the `~/.grok`
+  copy makes the menu show the `~/.agents` copy. The order of `.cursor` roots and `[skills]
+  paths` was not checked.
+- Process. From `bash -i` the Grok host leads the pane's foreground group, and its `koinon mcp`
+  servers and status-line commands are in their own groups. From a non-interactive `bash -c`,
+  `bash` leads the group instead.
+- Screen. Idle: an empty `❯` input box and the footer `Shift+Tab:mode │ Ctrl+x:shortcuts`. A draft
+  adds `Enter:send │ Alt+Enter:newline`; a running turn shows `Waiting for response…` or
+  `Thinking…` above the box and `Ctrl+c:cancel` in the footer. `C-u` erases the whole box. A
+  typed `/` opens a menu above the box whose upper rule carries a match count (`──1─`); with a
+  long transcript Grok draws a scrollbar thumb ` █` in the last column. The alternate screen
+  keeps 45 lines of history.
+- `/new`. Typed in full, the menu selects `❯ /new  Start a new session`; one Enter runs it.
+  Within 0.4 s the screen shows `Session <id>, use /dashboard to switch between sessions` above
+  an empty input box; the ID is a version-7 UUID. Grok starts a second `koinon mcp` with the new
+  `GROK_SESSION_ID` under the same host, and the earlier session's server keeps running.
+- New session proof. Status-line inputs run as `sh -c` → `koinon hook grok-status` → the wrapped
+  command, children of the host in their own group. After `/new` they name the new session,
+  from the same host PID.
+- Pickup entry. Typed in full, `/koinon-pickup` opens a menu with one row and the skill's
+  description; one Enter submits it as a transcript line `❯ /koinon-pickup` above an empty input
+  box, with a running turn.
+- Dialogs. A shell approval and an MCP approval have one shape: a `┃` box, a title (for example
+  `Allow (Koinon) Peers?`), 4 or 5 rows `N (●) text` or `N (○) text` and the footer
+  `1/N:select │ …`. The preselected row varies; option 1 is always-approve mode. A digit answers
+  at once, with no Enter, and the dialog is gone at the next read; Ctrl+C cancels it.
+- Launch admission. When the first session made no Koinon call before `/new`, the successor's
+  calls were refused with `identity_unavailable`: the launch still admitted only its first ID.
+  In the cycle runs below the predecessor was registered first, and the successor's calls worked.
+
+- Managed cycle runs, with the branch binary as the daemon (a private socket and state
+  directory), as Grok's MCP server and as its status-line command, family mode `handoff_cycle`
+  at 1%, in a scratch Git repository. The requester's handoff turn raised five shell and edit
+  dialogs, each answered in the pane with its plain `Yes` option.
+  - Run 1: `requested`, `ready`, `clear_intent`, then uncertain `pickup_entry_unverified`: the
+    typed `/new` menu did not read back, because the scrollbar thumb ended the menu's upper rule
+    (`──5─ █`). Fixed: the screen reader drops a trailing ` █`; fixture
+    `cycle-new-menu-scrolled.ansi`.
+  - Run 2, with the fix: `requested`, `ready`, `clear_intent`, `clear_received`,
+    `reset_verified`, `pickup_intent`, `waiting_pickup`, one `waiting_prompt` for the
+    successor's dialogs (`native_dialog`, answered in the pane), then `complete` with the
+    successor's report (`paused`: the scratch repository had no assigned work): 9 events, 148 s
+    from creation to finish. The successor took the participant address and its predecessor was
+    retired. The Enable moved to the successor, which was admitted to a new cycle at once at 1%;
+    Disable cancelled it.
+
+Not yet verified: macOS; an MCP approval dialog inside a cycle.

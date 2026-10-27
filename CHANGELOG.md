@@ -5,6 +5,17 @@ into a dated release section when promoted to `main`.
 
 ## Unreleased
 
+- Grok sessions can run the managed context handoff cycle on Linux (#515, part B). A Grok
+  session had no cycle: its Enable was refused. A session started with `koinon grok` in tmux,
+  with the family mode `handoff_cycle`, Koinon's status line from `koinon setup grok` and its
+  participant address, now gets the cycle: overwatch's request, `/new` in its pane, and
+  `/koinon-pickup` in the new session, which takes the address over. The status-line hook proves
+  the new session: it reports each session with its own process to `POST
+  /v1/cycles/grok-witness`, and the daemon ties it to the cycle's pinned host. `koinon install`
+  and the daemon write the skill entries to an existing Grok home (`$GROK_HOME`, else
+  `~/.grok`); a project or user `koinon-pickup` that would replace that entry is named as
+  `pickup_entry_shadowed`. The native checks ran with Grok Build 1.0.50. The family default
+  stays `observe`; macOS waits for native evidence.
 - Grok sessions now report their model and context use (#515, part A). `peer_status` and the
   dashboard showed no context for Grok (`no_source`). `koinon setup grok` now makes `koinon hook
   grok-status` the command of the `[ui.status_line]` table in `~/.grok/config.toml`: it changes
