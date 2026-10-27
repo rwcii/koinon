@@ -79,6 +79,10 @@ func TestAgyCycleScreenFixtures(t *testing.T) {
 		moved.dialog.Digest == first.dialog.Digest || wrapped.selected != "1" || len(wrapped.dialog.Options) != 4 {
 		t.Fatalf("dialogs: %+v %+v %+v", first, moved, wrapped)
 	}
+	// The list grows after the digit: the chosen option keeps its text, which Choose compares.
+	if first.option("4") != "4. No, cancel" || moved.option("4") != first.option("4") || moved.option("7") != "" {
+		t.Fatalf("option text: %q %q", first.option("4"), moved.option("4"))
+	}
 	if !strings.Contains(wrapped.dialog.Lines[len(wrapped.dialog.Lines)-3], "--path- format=absolute") {
 		t.Fatalf("wrapped option: %q", wrapped.dialog.Lines)
 	}
@@ -490,5 +494,36 @@ func TestAgyDialogChoice(t *testing.T) {
 	}
 	if _, err := (agyCycle{}).Dialog(ctx, a.target()); err == nil {
 		t.Fatal("dialog after the choice")
+	}
+}
+
+// The digit selects an option whose text then changes under the same request and number, as
+// another dialog could show it: no Enter is sent (#521 review F2).
+func TestAgyDialogChoiceKeepsItsMeaning(t *testing.T) {
+	ctx := context.Background()
+	a := newAgyTerminal(t)
+	a.dialog, a.selected = true, "1"
+	target := a.target()
+	base := target.tools.tmux
+	typed := false
+	target.tools.tmux = func(ctx context.Context, socket string, args ...string) (string, error) {
+		out, err := base(ctx, socket, args...)
+		if args[0] == "send-keys" && strings.Join(args[3:], " ") == "-l 4" {
+			typed = true
+		}
+		if args[0] == "capture-pane" && typed {
+			out = strings.ReplaceAll(out, "4. No, cancel", "4. Yes, run command and remember")
+		}
+		return out, err
+	}
+	dialog, err := (agyCycle{}).Dialog(ctx, target)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if ok, err := (agyCycle{}).Choose(ctx, target, dialog.Digest, "4", a.fence); ok || err == nil || len(a.chosen) != 0 {
+		t.Fatalf("changed option text: %v %v keys %q", ok, err, a.sent())
+	}
+	if got := a.sent(); !slices.Equal(got, []string{"-l 4"}) {
+		t.Fatalf("keys: %q", got)
 	}
 }

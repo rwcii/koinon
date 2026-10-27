@@ -11,7 +11,6 @@ import (
 	"reflect"
 	"regexp"
 	"runtime"
-	"slices"
 	"strings"
 	"time"
 	"unicode/utf8"
@@ -314,6 +313,17 @@ func agyDialog(c codexScreen) agyApproval {
 	top := sha256.Sum256([]byte(strings.Join(head, "\n")))
 	return agyApproval{dialog: CycleDialog{Lines: lines, Options: options, Digest: hex.EncodeToString(sum[:])},
 		selected: selected, head: hex.EncodeToString(top[:])}
+}
+
+// option is the displayed text of one visible option, wrapped rows included, or "".
+func (a agyApproval) option(n string) string {
+	lines := a.dialog.Lines
+	for _, line := range lines[len(lines)-len(a.dialog.Options):] {
+		if strings.HasPrefix(line, n+". ") {
+			return line
+		}
+	}
+	return ""
 }
 
 // agyForeground proves the pane (provenPane) and that its terminal gives input to the host:
@@ -698,20 +708,21 @@ func (agyCycle) Dialog(ctx context.Context, t CycleTarget) (CycleDialog, error) 
 
 // Choose selects one visible option while the pane shows the same dialog: the digit moves the
 // selection, which is read back, and one Enter confirms it while the same request still shows
-// that option selected. Then it reads back that the request is gone (N5).
+// that option, with the same text, selected; the option list may scroll meanwhile. Then it
+// reads back that the request is gone (N5).
 func (a agyCycle) Choose(ctx context.Context, t CycleTarget, digest, option string, fence CycleFence) (bool, error) {
-	var head string
+	var head, meaning string
 	same := func(s codexScreen) bool {
 		approval := agyDialog(s)
-		head = approval.head
-		return approval.dialog.Digest == digest && slices.Contains(approval.dialog.Options, option)
+		head, meaning = approval.head, approval.option(option)
+		return approval.dialog.Digest == digest && meaning != ""
 	}
 	if err := a.keyIf(ctx, t, fence, same, ErrCycleDialogChanged, "-l", option); err != nil {
 		return false, err
 	}
 	chosen := func(s codexScreen) bool {
 		approval := agyDialog(s)
-		return approval.head == head && approval.selected == option
+		return approval.head == head && approval.selected == option && approval.option(option) == meaning
 	}
 	if !awaitAgy(ctx, t, chosen) {
 		return false, errAgySelect

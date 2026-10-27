@@ -27,6 +27,12 @@ func agyWitnessFixture(t *testing.T, state string) (*cycleFixture, string, map[i
 		return 0, errors.New("no process")
 	}
 	f.s.processParents = func() (map[int]int, error) { return map[int]int{9001: 9000, 9000: 4242, 4242: 1}, nil }
+	f.s.processCommand = func(pid int) (string, []string, error) {
+		if pid == 4242 {
+			return "/synthetic/agy", nil, nil
+		}
+		return "/bin/sh", []string{"sh", "-c", "koinon hook agy-status"}, nil
+	}
 	return f, v.ID, starts
 }
 
@@ -146,5 +152,68 @@ func TestAgyWitnessBeforeReceipt(t *testing.T) {
 	f.s.agyWitness = agyWitnessState{}
 	if got := epoch(f.s); got != "" {
 		t.Fatalf("after a restart: %q", got)
+	}
+}
+
+// A report under an unregistered nested agent CLI is not the outer host's, and a conversation
+// already known as another host's session is never a witness; the host's own conversations,
+// registered there, still are (#521 review F1).
+func TestAgyWitnessOwnership(t *testing.T) {
+	ctx := context.Background()
+	report := func(f *cycleFixture, conversation string) error {
+		return f.s.WitnessAgy(ctx, AgyWitness{Conversation: conversation, Reporter: ObservationReporter{PID: 9001, Start: 501}})
+	}
+	epoch := func(f *cycleFixture, id string) string {
+		got, _ := (agyCycle{}).NewEpoch(ctx, f.s.cycleTarget(ctx, f.cycle(t, id)))
+		return got
+	}
+	// reporter -> shell -> unregistered agy -> pinned host
+	f, id, starts := agyWitnessFixture(t, cycleClearReceived)
+	starts[8000] = 400
+	f.s.processParents = func() (map[int]int, error) { return map[int]int{9001: 9000, 9000: 8000, 8000: 4242, 4242: 1}, nil }
+	f.s.processCommand = func(pid int) (string, []string, error) {
+		if pid == 8000 || pid == 4242 {
+			return "/synthetic/agy", nil, nil
+		}
+		return "/bin/sh", nil, nil
+	}
+	if err := report(f, "nested-conversation"); err == nil || len(witnessIDs(f.s, id)) != 0 || epoch(f, id) != "" {
+		t.Fatalf("nested agy: %v %v", err, witnessIDs(f.s, id))
+	}
+	// An ancestor whose command cannot be read is no proof either.
+	f, id, _ = agyWitnessFixture(t, cycleClearReceived)
+	f.s.processCommand = func(pid int) (string, []string, error) {
+		if pid == 4242 {
+			return "/synthetic/agy", nil, nil
+		}
+		return "", nil, errors.New("synthetic: no command")
+	}
+	if err := report(f, "conv-b"); err == nil || len(witnessIDs(f.s, id)) != 0 {
+		t.Fatalf("unreadable ancestor: %v %v", err, witnessIDs(f.s, id))
+	}
+	// A conversation registered under another host, live or retired.
+	for _, retired := range []bool{false, true} {
+		f, id, _ = agyWitnessFixture(t, cycleClearReceived)
+		other := join(t, f.s, "agy", "conversation-of-another-host", f.repo)
+		if _, err := fixtureExec(f.s, `UPDATE sessions SET host_pid=7000,host_start=300 WHERE family='agy' AND id=?`, other.ID); err != nil {
+			t.Fatal(err)
+		}
+		if retired {
+			if _, err := fixtureExec(f.s, `UPDATE sessions SET retired_at=1 WHERE family='agy' AND id=?`, other.ID); err != nil {
+				t.Fatal(err)
+			}
+		}
+		if err := report(f, other.ID); err == nil || len(witnessIDs(f.s, id)) != 0 || epoch(f, id) != "" {
+			t.Fatalf("another host's conversation (retired %v): %v %v", retired, err, witnessIDs(f.s, id))
+		}
+	}
+	// The pinned host's own conversation, registered there after the clear, is kept.
+	f, id, _ = agyWitnessFixture(t, cycleClearReceived)
+	own := join(t, f.s, "agy", "conversation-of-the-host", f.repo)
+	if _, err := fixtureExec(f.s, `UPDATE sessions SET host_pid=4242,host_start=77 WHERE family='agy' AND id=?`, own.ID); err != nil {
+		t.Fatal(err)
+	}
+	if err := report(f, own.ID); err != nil || epoch(f, id) != own.ID {
+		t.Fatalf("the host's own conversation: %v %v", err, witnessIDs(f.s, id))
 	}
 }

@@ -603,8 +603,10 @@ The reset is proven by a witness. The agy status-line hook sends each conversati
 `POST /v1/cycles/agy-witness` with its own PID and start; agy runs it as `sh -c` under the host.
 The daemon keeps a report, in memory, only for an agy cycle from `clear_intent` to the pickup. It
 reads the reporter's start, the process ancestry itself and the reporter's start again; the
-reporter's nearest ancestor that hosts a live session or such a cycle must be that cycle's pinned
-agy host with its pinned start (`witness_host_unverified` otherwise). A witness registers no
+reporter's nearest ancestor that hosts a live session or such a cycle, or runs an agent CLI, must
+be that cycle's pinned agy host with its pinned start; an ancestor whose command cannot be read
+proves nothing. A conversation that is already an agy session, live or retired, must have been
+registered in that host. Otherwise the report is refused with `witness_host_unverified`. A witness registers no
 session and moves no holder, claim or cursor. agy starts the new conversation at `/clear`, and its
 status line reported it about 0.5 s after the Enter, before any turn or tool call; the report can
 come before the receipt is recorded, so reports are kept from the intent. In `clear_intent` no
@@ -619,8 +621,8 @@ cut; the receipt is the command as a new submitted prompt above an empty compose
 never answered by the adapter. The evidenced command approval (`Requesting permission for:`,
 `Run this command?`, numbered options and the `↑/↓ Navigate · tab Amend` hint) is shown in
 `waiting_prompt` with its visible options; a dashboard option is its digit, which moves the
-selection and is read back, then one Enter while the same request still shows it selected, and the
-end of the request is read back. Any other dialog, such as an MCP tool approval (not observed) or
+selection and is read back, then one Enter while the same request still shows it selected with
+the same option text (the list may scroll), and the end of the request is read back. Any other dialog, such as an MCP tool approval (not observed) or
 the folder-trust question, stays in the pane for the native session or the maintainer.
 
 ### Native compaction

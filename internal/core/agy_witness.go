@@ -2,10 +2,14 @@ package core
 
 import (
 	"context"
+	"database/sql"
+	"errors"
 	"net/http"
 	"slices"
 	"strings"
 	"sync"
+
+	"github.com/rwcii/koinon/internal/platform"
 )
 
 // Host-linked conversation witnesses for the agy cycle (#512). agy starts a new conversation
@@ -102,8 +106,9 @@ type agyPinned struct {
 
 // WitnessAgy keeps a status-line report for the agy cycle whose pinned host is the reporter's
 // nearest native host. The reporter's start is read before and after the daemon reads the
-// ancestry itself. The nearest ancestor that hosts a live session or a cycle must be that
-// cycle's agy host, with its pinned start. Without such a cycle the report changes nothing.
+// ancestry itself. The nearest ancestor that hosts a live session or a cycle, or runs an agent
+// CLI, must be that cycle's agy host, with its pinned start. A conversation that is already a
+// session must be that host's own. Without such a cycle the report changes nothing.
 func (s *Store) WitnessAgy(ctx context.Context, w AgyWitness) error {
 	if !nativeEpoch.MatchString(w.Conversation) || w.Reporter.PID <= 1 || w.Reporter.Start <= 0 {
 		return ErrInvalid
@@ -112,7 +117,7 @@ func (s *Store) WitnessAgy(ctx context.Context, w AgyWitness) error {
 	if err != nil || len(cycles) == 0 {
 		return err
 	}
-	if s.processStart == nil || s.processParents == nil {
+	if s.processStart == nil || s.processParents == nil || s.processCommand == nil {
 		return agyWitnessRefusal()
 	}
 	if start, err := s.processStart(w.Reporter.PID); err != nil || start != w.Reporter.Start {
@@ -149,9 +154,26 @@ func (s *Store) WitnessAgy(ctx context.Context, w AgyWitness) error {
 		case sessions > 0:
 			// The nearest native host is another session's: never pass it for a farther one.
 			return agyWitnessRefusal()
+		default:
+			// An unregistered nested agent CLI is islanded, not a reporter for a farther host.
+			executable, args, err := s.processCommand(pid)
+			if err != nil || platform.AgentCommand(executable, args) {
+				return agyWitnessRefusal()
+			}
 		}
 	}
 	if host == nil {
+		return agyWitnessRefusal()
+	}
+	// A known conversation, registered or retired, belongs to its own host: a report never
+	// passes another host's conversation as this host's new one.
+	var hostPID, hostStart int64
+	switch err := s.db.QueryRowContext(ctx, `SELECT host_pid,host_start FROM sessions WHERE family='agy' AND id=?`, w.Conversation).
+		Scan(&hostPID, &hostStart); {
+	case errors.Is(err, sql.ErrNoRows):
+	case err != nil:
+		return err
+	case hostPID != host.pid || hostStart != host.start:
 		return agyWitnessRefusal()
 	}
 	if start, err := s.processStart(int(host.pid)); err != nil || start != host.start {
