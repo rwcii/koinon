@@ -736,6 +736,15 @@ func TestDeepSeekCycleFlow(t *testing.T) {
 	if _, err := g.s.ContextCyclePickup(context.Background(), successor, created, v.ID, c.Revision, g.name, "resumed", "synthetic"); !errors.Is(err, ErrCycleReceiptPending) {
 		t.Fatalf("early report: %v", err)
 	}
+	// It reads its cycle before it holds the participant; another session reads none.
+	if status, err := g.s.ContextCycleStatus(context.Background(), successor); err != nil || status == nil || status.ID != v.ID || status.Role != "successor" {
+		t.Fatalf("early status: %+v %v", status, err)
+	}
+	other := Key{"deepseek", "session-synthetic-other"}
+	g.register(t, other.ID)
+	if status, err := g.s.ContextCycleStatus(context.Background(), other); err != nil || status != nil {
+		t.Fatalf("another session's status: %+v %v", status, err)
+	}
 	waitIdle(t, g.s, v.ID)
 	g.fake.set(func(f *dshFake) { f.lose = map[string]bool{} })
 	g.step(t)

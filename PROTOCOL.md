@@ -793,7 +793,8 @@ The created session runs `koinon-pickup`, DeepSeek's entry, which reads `skill.p
 `koinon library read`, registers with `koinon register` (see Verified succession) and reports
 with `koinon cycle-pickup`. A report from it before it holds the address is refused with
 `cycle_receipt_pending` (HTTP 409), and the cycle stays in its stage: it registers again and
-reports again. The report reads the harness again within the deadlines: the target is still the
+reports again. From the create on, its `koinon cycle-status` returns the cycle as its successor,
+also before it holds the address. The report reads the harness again within the deadlines: the target is still the
 pinned one, and the created session's `request/header` configs and the `message.source` of each
 `assistant/message` name the pinned provider and model (and reasoning effort for the headers),
 with at least one reply. A known other model ends the cycle `uncertain` (`model_changed`) and the

@@ -1258,6 +1258,16 @@ func (s *Store) ContextCycleStatus(ctx context.Context, caller Key) (*CycleView,
 		}
 	}
 	if len(cycles) == 0 {
+		// A host-less cycle's created session reads its cycle before it holds the participant,
+		// so that it can register again and report (#514).
+		if _, hostless := cycleAdapterOf(caller.Family).(HostlessAdapter); hostless {
+			if cycles, err = cyclesWhere(ctx, tx, activeCycle+` AND family=? AND successor_epoch=? AND host_start=0 ORDER BY created_at DESC LIMIT 1`,
+				caller.Family, caller.ID); err != nil {
+				return nil, err
+			}
+		}
+	}
+	if len(cycles) == 0 {
 		if cycles, err = cyclesWhere(ctx, tx, own+` ORDER BY created_at DESC LIMIT 1`, caller.Family, caller.ID, caller.ID); err != nil {
 			return nil, err
 		}
