@@ -539,8 +539,9 @@ func (a deepSeekCycle) NewEpoch(ctx context.Context, t CycleTarget) (string, err
 	return t.SuccessorEpoch, nil
 }
 
-// SendPickup sends the /koinon-pickup prompt to the created session once: its request ID
-// derives from the cycle and the intent, and the harness admits one prompt per request ID.
+// SendPickup sends the /koinon-pickup prompt to the created session, unless a read shows its
+// receipt: its request ID derives from the cycle and the intent. The harness admits a repeated
+// request ID again, so the controller sends it once and a restart only reads the receipt.
 func (a deepSeekCycle) SendPickup(ctx context.Context, t CycleTarget, fence CycleFence) error {
 	c, err := a.client(ctx, t)
 	if err != nil {

@@ -382,3 +382,59 @@ times and token and model fields only.
 
 Not yet verified: macOS; a reading that changes during a live turn; a session after the
 harness's own compaction.
+
+## DeepSeek cycle adapter (#514)
+
+Run 2026-10-27 with DeepSeek Harness `@deepseek-ai/dsh` 0.2.0-rc.2 (`dsh web`) in the
+development container that #199 used, on Linux; the harness does not run on the host. The
+branch binary ran as a container-local daemon with a new state directory, and the agents'
+model requests went to `openrouter`/`deepseek/deepseek-v4-flash`, the harness default, through
+the container's OpenRouter key. Only commands, IDs, event types and stage records are named
+here; the agents' text is not.
+
+- API facts. Each method's arguments are named by its descriptor, and any other field is
+  refused with `gateway/arguments-invalid`: `session/list` takes `_request`,
+  `session/modelCatalog` takes none (it returns `default` `{provider, model}`), and
+  `session/projections`, `session/page`, `skills/list`, `session/create` and `session/prompt`
+  take `request`. `session/list` rows carry `sessionId`, `updatedAt`, `running`, `blank` and
+  `cwd`. `skills/list` listed `koinon-pickup` at `$DSH_HOME/skills/koinon-pickup/SKILL.md`,
+  ahead of Codex's entry of the same name in `~/.agents/skills`. A queued prompt appears as
+  `agent/inbox/spliced` `inserted[]` and then, after `turn/start`, as `user/message`, each with
+  `source {kind: user, rpcId}`; `request/header` carries `header.config {provider, model}` and
+  `assistant/message` `message.source {kind: model, provider, model}`.
+- Create. `session/projections` for an unused chosen ID answered `null`. `session/create` with
+  `{sessionId, cwd}` created it, the same request again returned the same session, also after
+  `dsh web` was restarted, and the same ID with another `cwd` answered `session/conflict`.
+- Prompt. `session/prompt` sent twice with one `requestId` was admitted twice (two turns), so
+  the harness does not deduplicate request IDs; the adapter sends the pickup once, and a
+  restart only reads its receipt.
+- Cycle 1. The requester session registered with `--repository`; the family mode was
+  `handoff_cycle` at 1 percent, because the session's context was about 1.5 percent of the
+  1024000-token window. Enable passed the probe. After one turn the reading admitted the cycle;
+  the requester's agent read its inbox, wrote its handoff and ran `koinon cycle-ready`. A queued
+  wake turn ran after the ready report, and the quiet point waited for its end (`clear_intent`
+  24 s after `ready`). The daemon created the session with the cycle's ID in the same `cwd`,
+  recorded `select_sent` without input, proved the reset, sent `/koinon-pickup` and recorded the
+  receipt 0.8 s after `pickup_intent`. The created session registered and took the address
+  with `cycle_session`, and its `koinon cycle-pickup` completed the cycle `resumed` 106 s after
+  the pickup. The Enable moved to it.
+- Cycles 2 and 3. The moved Enable met the 1-percent threshold at once, so the successor ran
+  the next cycle: cycle 2 completed `resumed` 115 s after its pickup; cycle 3's pickup took
+  longer than the 2-minute `waiting_pickup` deadline and the cycle ended `failed`
+  (`waiting_pickup_timeout`), with nothing sent again. The family mode was then set back to
+  `observe`.
+- Cycle 4, with a claim and a restart. With a new state directory, the requester started a
+  work item through the command path (claim generation 1, consumer `participant:deepseek-repo`)
+  and the family threshold was set back to 75 percent right after admission. The daemon was
+  stopped and started again 1 s after `waiting_pickup`. The created session read the
+  cycle's handoff file, registered with `--repository` (`cycle_session`) and reported; the
+  cycle completed `resumed` 81 s after the pickup. The claim stayed active with generation 1,
+  its expiry extended to the cycle deadline plus 60 s, and the created session held
+  `deepseek-repo`.
+- Settings. The harness's `cordis.patch.yml` files kept their 2026-10-13 times through both
+  runs: the adapter changed no harness setting. The daemon, the harness and the container were
+  stopped.
+
+Not yet verified: macOS; a daemon restart inside `clear_intent` or `pickup_intent` with the
+real harness (the synthetic tests cover them); a pickup within the 2-minute deadline when the
+model is slower.

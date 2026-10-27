@@ -21,7 +21,8 @@ import (
 
 // The DeepSeek cycle adapter (#514) against a synthetic DeepSeek Harness with several sessions,
 // which also creates sessions and admits prompts as the harness does: a chosen session ID with
-// the same cwd is created once, and a request ID admits one prompt.
+// the same cwd is created once. A prompt sent again with the same request ID is admitted again,
+// as the harness does: the adapter never sends one twice.
 
 const dshRequester = "session-synthetic-requester"
 
@@ -230,7 +231,7 @@ func (f *dshFake) serve(w http.ResponseWriter, r *http.Request) {
 			w.WriteHeader(http.StatusBadRequest)
 			return
 		}
-		if !f.prompts[request.RequestID] {
+		{
 			// The admitted prompt is spliced from the inbox, then entered at its turn's start.
 			f.prompts[request.RequestID] = true
 			message := fmt.Sprintf(`{"content":[{"type":"text","text":%q}],"source":{"kind":"user","rpcId":%q,"clientTimeZone":"UTC"},"role":"user"}`,
@@ -464,7 +465,7 @@ func TestDeepSeekCycleCreate(t *testing.T) {
 	}
 }
 
-// The pickup is one prompt with the cycle's request ID; a resend admits nothing twice, and the
+// The pickup is one prompt with the cycle's request ID, never sent again once received, and the
 // receipt is the created session's only user prompt, with that ID and the exact text.
 func TestDeepSeekCyclePickup(t *testing.T) {
 	a := deepSeekCycle{}
@@ -490,7 +491,8 @@ func TestDeepSeekCyclePickup(t *testing.T) {
 	if received, err := a.PickupReceipt(context.Background(), ct); err != nil || !received {
 		t.Fatalf("receipt: %v %v", received, err)
 	}
-	// A send after the receipt sends nothing; a prompt lost in transit is admitted once.
+	// A send after the receipt sends nothing. A prompt whose response was lost is admitted, and its
+	// receipt is read back.
 	if err := a.SendPickup(context.Background(), ct, dshFence); err != nil || f.count("session/prompt") != 1 {
 		t.Fatalf("again: %v %d", err, f.count("session/prompt"))
 	}

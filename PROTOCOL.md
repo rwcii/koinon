@@ -781,8 +781,9 @@ pinned `cwd`.
 The pickup runs from a worker, as OpenCode's does, under the recorded `pickup_intent`: after the
 pin, the fence and a read that shows no receipt yet, `session/prompt` `{requestId, sessionId,
 mode: queue, content: [{type: text, text: "/koinon-pickup"}], clientTimeZone: UTC}`, whose
-request ID is a UUID derived from the cycle and the intent's time. The harness admits one prompt
-per request ID, so a resend after a lost response admits nothing twice. The receipt is the
+request ID is a UUID derived from the cycle and the intent's time. The prompt is sent at most
+once: the harness admits a repeated request ID again as another prompt, so a lost response is
+never answered by a resend, only by reading the receipt back. The receipt is the
 created session's only user prompt, queued in its inbox, spliced from it
 (`agent/inbox/spliced`) or entered (`user/message`), with `source.kind` `user`, that
 `source.rpcId` and exactly that text. The worker bounds and the step that applies the result are
