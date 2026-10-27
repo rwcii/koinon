@@ -193,8 +193,9 @@ func cycleIntent(state string) bool {
 func cycleInputUnproven(state string) bool { return cycleIntent(state) || state == cycleClearReceived }
 
 // cycleUnproven is cycleInputUnproven for a whole cycle. A DisplayAdapter's pickup that the
-// pane has not been proven to show (no pickup_displayed event) is unproven too, while it
-// awaits its report (#513).
+// pane has never been seen to show (no pickup_displayed event) is unproven too, while it
+// awaits its report (#513). The event decides only this outcome; the report needs its own
+// current view.
 func cycleUnproven(ctx context.Context, q querier, c cycleRow) bool {
 	if cycleInputUnproven(c.State) {
 		return true
@@ -385,6 +386,7 @@ var (
 	ErrCycleDialogChanged = Refusal{"cycle_dialog_changed", "the pane no longer shows that dialog or option; read the current one"}
 	ErrCycleArtifact      = Refusal{"cycle_artifact_invalid", "the handoff artifact is not a new, bounded, ignored and untracked file in this session's own handoff directory"}
 	ErrCycleDisplay       = Refusal{"cycle_display_unproven", "the pinned pane does not show the successor session; retry the report"}
+	ErrCycleModel         = Refusal{"cycle_model_changed", "the successor's replies came from another model than its pickup asked for; the cycle ended uncertain"}
 )
 
 // CycleTarget is what a cycle adapter acts on: the pinned native host and pane, and the
@@ -526,6 +528,9 @@ type DisplayAdapter interface {
 	// PickupDisplay reads the pinned pane's current view without input: shown when it shows
 	// t.SuccessorEpoch, foreign when it shows another session. An error proves nothing.
 	PickupDisplay(ctx context.Context, t CycleTarget) (shown, foreign bool, err error)
+	// PickupModel reads the successor's replies: matched when there is one and each one came
+	// from the model that its receipted pickup asked for. An error proves nothing.
+	PickupModel(ctx context.Context, t CycleTarget) (matched bool, err error)
 }
 
 // CycleDialog is a native dialog as the pane shows it.
@@ -1435,7 +1440,8 @@ func (s *Store) ContextCyclePickup(ctx context.Context, caller Key, epoch, id st
 	if epoch == c.Epoch || c.SuccessorEpoch != "" && epoch != c.SuccessorEpoch {
 		return CycleView{}, ErrCycleEpoch
 	}
-	// A pickup whose reset its host's API proved needs the pane's proof too (#513).
+	// A pickup whose reset its host's API proved needs the pane's proof too (#513). Its reads
+	// take time, so the write below checks the deadlines at the time after them.
 	if display, ok := cycleAdapterOf(c.Family).(DisplayAdapter); ok {
 		if err := s.displayProof(ctx, c, display); err != nil {
 			return CycleView{}, err
@@ -1447,6 +1453,7 @@ func (s *Store) ContextCyclePickup(ctx context.Context, caller Key, epoch, id st
 	if s.pickupWrite != nil {
 		s.pickupWrite()
 	}
+	now = s.now().UnixMilli()
 	tx, err := s.begin(noAudit(ctx), control)
 	if err != nil {
 		return CycleView{}, err

@@ -337,5 +337,11 @@ on the person's configured model `openrouter/qwen/qwen3.6-35b-a3b`. The redacted
     the chained cycle of its successor both completed `resumed`: 10 events each, the report 37 s
     and 23 s after `pickup_displayed`. A Disable cancelled the third chained cycle in
     `waiting_ready`.
+  - Run 5, after the review fixes (a report needs a current view with the successor's row, the
+    replies' model is checked, and the worker reads the receipt), unattended: both chained
+    cycles completed `resumed`, each report accepted on its first call (23 s and 22 s after
+    `pickup_displayed`). In the second, the requester kept working after its ready report twice,
+    so overwatch asked again (`not_idle.turn_running`) before its clear. A Disable cancelled the
+    third.
 
 Not yet verified: macOS; a permission dialog during the pickup; a pane narrower than 80 columns.

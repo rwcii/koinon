@@ -34,6 +34,8 @@ type fakeSessionAdapter struct {
 	shown        bool
 	foreign      bool
 	displayErr   error
+	otherModel   bool
+	modelErr     error
 	targets      []CycleTarget
 }
 
@@ -107,6 +109,13 @@ func (f *fakeSessionAdapter) PickupDisplay(context.Context, CycleTarget) (bool, 
 	return f.shown, f.foreign, f.displayErr
 }
 
+func (f *fakeSessionAdapter) PickupModel(context.Context, CycleTarget) (bool, error) {
+	f.record("model")
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return !f.otherModel, f.modelErr
+}
+
 func (f *fakeSessionAdapter) set(change func(*fakeSessionAdapter)) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
@@ -125,6 +134,10 @@ func newSessionFixture(t *testing.T) *sessionFixture {
 	f := newCycleFixture(t)
 	a := &fakeSessionAdapter{fakeAdapter: f.adapter, created: "synthetic-created-1", selected: true, proven: true, receipt: true}
 	cycleAdapters["claude"] = a
+	// The workers stop before the timing values are restored (cleanups run last first).
+	poll, bound, wait := cycleReceiptPoll, cycleReceiptBound, displayWait
+	cycleReceiptPoll, cycleReceiptBound, displayWait = 5*time.Millisecond, 2*time.Second, 50*time.Millisecond
+	t.Cleanup(func() { cycleReceiptPoll, cycleReceiptBound, displayWait = poll, bound, wait })
 	t.Cleanup(func() { f.s.cycleWork.stop() })
 	g := &sessionFixture{cycleFixture: f, session: a}
 	return g
@@ -228,6 +241,7 @@ func TestSessionCycleFlow(t *testing.T) {
 	}
 	// The successor's early report, before its receipt, changes nothing.
 	successor := g.successor(t)
+	g.session.receipt = false
 	g.step(t) // pickup intent; the worker sends
 	waitSent(t, g.session)
 	if c = g.cycle(t, v.ID); c.State != cyclePickupIntent {
@@ -252,22 +266,13 @@ func TestSessionCycleFlow(t *testing.T) {
 	if c = g.cycle(t, v.ID); c.State != cyclePickupIntent || g.session.count("send") != 1 {
 		t.Fatalf("pending: %+v %v", c, g.session.calls)
 	}
-	// A receipt read that waits for the server holds no wake lock either.
-	g.session.set(func(a *fakeSessionAdapter) { a.receipt, a.receiptBlock = true, make(chan struct{}) })
-	reading := make(chan struct{})
-	go func() { g.s.cycleStep(context.Background()); close(reading) }()
-	for g.session.count("receipt") < 2 {
+	// The worker reads the receipt while the request still runs; the step applies it.
+	g.session.set(func(a *fakeSessionAdapter) { a.receipt = true })
+	for _, published := g.s.cycleWork.result(v.ID); !published; _, published = g.s.cycleWork.result(v.ID) {
 		time.Sleep(5 * time.Millisecond)
 	}
-	if !g.s.wake.mu.TryLock() {
-		t.Fatal("the wake lock is held while the receipt is read")
-	}
-	g.s.wake.mu.Unlock()
-	close(g.session.receiptBlock)
-	<-reading
-	g.session.set(func(a *fakeSessionAdapter) { a.receiptBlock = nil })
-	// The receipt advanced the cycle while the request still runs.
-	if c = g.cycle(t, v.ID); c.State != cycleWaitingPickup {
+	g.step(t)
+	if c = g.cycle(t, v.ID); c.State != cycleWaitingPickup || !g.s.cycleWork.running(v.ID) {
 		t.Fatalf("after receipt: %+v", c)
 	}
 	close(g.session.send)
@@ -288,9 +293,14 @@ func TestSessionCycleFlow(t *testing.T) {
 		count(t, g.s, `SELECT COUNT(*) FROM context_cycle_events WHERE reason=?`, pickupDisplayedReason) != 1 {
 		t.Fatalf("display events: %v", events)
 	}
-	// The view has scrolled past the tool rows: the recorded proof holds while no other
-	// session shows. The report names a revision it read before the proof's event.
+	// A current view without the successor's rows proves nothing, also after the recorded
+	// proof: another empty session looks the same.
 	g.session.set(func(a *fakeSessionAdapter) { a.shown = false })
+	if _, err := g.s.ContextCyclePickup(context.Background(), successor, "synthetic-created-1", v.ID, revision, g.name, "resumed", "synthetic"); !errors.Is(err, ErrCycleDisplay) {
+		t.Fatalf("report on the recorded proof alone: %v", err)
+	}
+	// The report names a revision it read before the proof's event.
+	g.session.set(func(a *fakeSessionAdapter) { a.shown = true })
 	done2, err := g.s.ContextCyclePickup(context.Background(), successor, "synthetic-created-1", v.ID, revision, g.name, "resumed", "synthetic restored work")
 	if err != nil || done2.State != cycleComplete {
 		t.Fatalf("report: %v %+v", err, done2)
@@ -466,6 +476,8 @@ func TestSessionCycleRestartBoundaries(t *testing.T) {
 		}
 		g.reopen(t)
 		g.session.receipt = received
+		g.step(t) // a worker reads the receipt back
+		waitIdle(t, g.s, v.ID)
 		g.step(t)
 		want := map[bool]string{true: cycleWaitingPickup, false: cycleUncertain}[received]
 		if c = g.cycle(t, v.ID); c.State != want || g.session.count("send") != 0 {
@@ -475,20 +487,22 @@ func TestSessionCycleRestartBoundaries(t *testing.T) {
 			t.Fatalf("reason: %+v", c)
 		}
 	}
-	// A worker that ended without a receipt: uncertain. A failed read is tried again until the
-	// stage deadline.
+	// A worker that ended without a receipt: uncertain. A failed read is tried again.
 	g = newSessionFixture(t)
 	g.session.receipt, g.session.receiptErr = false, errOpenCodeServer
 	v = g.ready(t)
 	for range 4 {
 		g.step(t)
 	}
-	waitIdle(t, g.s, v.ID)
+	for g.session.count("receipt") < 3 {
+		time.Sleep(5 * time.Millisecond)
+	}
 	g.step(t)
-	if c := g.cycle(t, v.ID); c.State != cyclePickupIntent {
+	if c := g.cycle(t, v.ID); c.State != cyclePickupIntent || !g.s.cycleWork.running(v.ID) {
 		t.Fatalf("failed read: %+v", c)
 	}
 	g.session.set(func(a *fakeSessionAdapter) { a.receiptErr = nil })
+	waitIdle(t, g.s, v.ID)
 	g.step(t)
 	if c := g.cycle(t, v.ID); c.State != cycleUncertain || c.Reason != "pickup_unreceipted" || g.session.count("send") != 1 {
 		t.Fatalf("no receipt: %+v %v", c, g.session.calls)
@@ -536,7 +550,7 @@ func TestSessionCycleWorkerStop(t *testing.T) {
 	g.session.mu.Lock()
 	err := g.session.sendCtxErr
 	g.session.mu.Unlock()
-	if !errors.Is(err, context.Canceled) || g.s.cycleWork.running(v.ID) || g.s.cycleWork.start("another", func(context.Context) {}) {
+	if !errors.Is(err, context.Canceled) || g.s.cycleWork.running(v.ID) || g.s.cycleWork.start("another", func(context.Context, func(bool)) {}) {
 		t.Fatalf("after stop: %v", err)
 	}
 	if _, err := os.Stat(g.root); err != nil {
@@ -554,7 +568,7 @@ func TestSessionCycleWorkerBound(t *testing.T) {
 	g.step(t)
 	release := make(chan struct{})
 	for i := range maxCycleWorkers {
-		if !g.s.cycleWork.start("busy-"+string(rune('a'+i)), func(context.Context) { <-release }) {
+		if !g.s.cycleWork.start("busy-"+string(rune('a'+i)), func(context.Context, func(bool)) { <-release }) {
 			t.Fatal("a free worker did not start")
 		}
 	}
@@ -569,5 +583,100 @@ func TestSessionCycleWorkerBound(t *testing.T) {
 	g.step(t)
 	if c := g.cycle(t, v.ID); c.State != cyclePickupIntent {
 		t.Fatalf("after release: %+v", c)
+	}
+}
+
+// A receipt read that waits for the server delays no other cycle: the controller's step makes
+// no request for it (a two-cycle schedule).
+func TestSessionCycleReceiptDelaysNoOtherCycle(t *testing.T) {
+	g := newSessionFixture(t)
+	g.session.receiptBlock = make(chan struct{})
+	t.Cleanup(func() {
+		select {
+		case <-g.session.receiptBlock:
+		default:
+			close(g.session.receiptBlock)
+		}
+	})
+	v := g.ready(t)
+	for range 4 {
+		g.step(t)
+	}
+	for g.session.count("receipt") == 0 {
+		time.Sleep(time.Millisecond)
+	}
+	other := join(t, g.s, "claude", "synthetic-other", g.repo)
+	if _, err := fixtureExec(g.s, `UPDATE sessions SET host_pid=4243,host_start=78,tmux_socket='/tmp/synthetic-other',tmux_pane='%4' WHERE family='claude' AND id=?`, other.ID); err != nil {
+		t.Fatal(err)
+	}
+	k := Key{"claude", other.ID}
+	other = g.reload(t, k)
+	if _, err := g.s.SetContextEnable(roomCtx("context-enable"), other.Name, other.Revision, 0, true); err != nil {
+		t.Fatal(err)
+	}
+	g.observe(t, k, 900, "synthetic-other-epoch")
+	second := g.status(t, k)
+	if second == nil {
+		t.Fatal("second cycle not admitted")
+	}
+	if _, err := fixtureExec(g.s, `UPDATE context_cycles SET stage_deadline=? WHERE cycle_id=?`, g.clock.UnixMilli()-1, second.ID); err != nil {
+		t.Fatal(err)
+	}
+	done := make(chan error, 1)
+	go func() { done <- g.s.cycleStep(context.Background()) }()
+	select {
+	case err := <-done:
+		if err != nil {
+			t.Fatal(err)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("a cycle step waited for the receipt read")
+	}
+	if c := g.cycle(t, second.ID); c.State != cycleFailed {
+		t.Fatalf("the other cycle did not progress: %+v", c)
+	}
+	if c := g.cycle(t, v.ID); c.State != cyclePickupIntent {
+		t.Fatalf("the pickup changed without its receipt: %+v", c)
+	}
+}
+
+// The report needs the successor's replies from the model that its pickup asked for: a known
+// other model ends the cycle uncertain; a failed read can be retried.
+func TestSessionCycleReplyModel(t *testing.T) {
+	g, v, successor := reachWaitingPickup(t)
+	g.session.set(func(a *fakeSessionAdapter) { a.shown, a.modelErr = true, errOpenCodeUnproven })
+	report := func() error {
+		_, err := g.s.ContextCyclePickup(context.Background(), successor, "synthetic-created-1", v.ID, g.cycle(t, v.ID).Revision, g.name, "resumed", "synthetic")
+		return err
+	}
+	if err := report(); err == nil || g.cycle(t, v.ID).State != cycleWaitingPickup {
+		t.Fatalf("failed model read: %v %+v", err, g.cycle(t, v.ID))
+	}
+	g.session.set(func(a *fakeSessionAdapter) { a.modelErr, a.otherModel = nil, true })
+	if err := report(); !errors.Is(err, ErrCycleModel) {
+		t.Fatalf("other model: %v", err)
+	}
+	if c := g.cycle(t, v.ID); c.State != cycleUncertain || c.Reason != "model_changed" {
+		t.Fatalf("after another model: %+v", c)
+	}
+}
+
+// The report's reads end at the stage's deadline, and its write checks the deadline at the time
+// after them.
+func TestSessionCycleReportDeadline(t *testing.T) {
+	g, v, successor := reachWaitingPickup(t)
+	displayWait = 5 * time.Second
+	c := g.cycle(t, v.ID)
+	g.clock = time.UnixMilli(c.StageDeadline - 50)
+	g.status(t, successor) // keeps the successor registered at the moved clock
+	start := time.Now()
+	if _, err := g.s.ContextCyclePickup(context.Background(), successor, "synthetic-created-1", v.ID, c.Revision, g.name, "resumed", "synthetic"); !errors.Is(err, ErrCycleDisplay) ||
+		time.Since(start) > 2*time.Second {
+		t.Fatalf("read past the deadline: %v after %v", err, time.Since(start))
+	}
+	g.session.set(func(a *fakeSessionAdapter) { a.shown = true })
+	g.s.pickupWrite = func() { g.clock = time.UnixMilli(c.StageDeadline) }
+	if _, err := g.s.ContextCyclePickup(context.Background(), successor, "synthetic-created-1", v.ID, c.Revision, g.name, "resumed", "synthetic"); !errors.Is(err, ErrCycleChanged) {
+		t.Fatalf("a write after the deadline: %v", err)
 	}
 }

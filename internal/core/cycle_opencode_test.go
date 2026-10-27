@@ -333,6 +333,12 @@ func TestOpenCodeProbe(t *testing.T) {
 		{"two entries", "pickup_entry_unverified", func(f *fakeOpenCode, _ *CycleTarget) { f.commands = append(f.commands, f.commands[1]) }},
 		{"another template", "pickup_entry_differs", func(f *fakeOpenCode, _ *CycleTarget) { f.commands[1].Template = "do something else" }},
 		{"a command, not a skill", "pickup_entry_differs", func(f *fakeOpenCode, _ *CycleTarget) { f.commands[1].Source = "command" }},
+		{"no body", "pickup_entry_differs", func(f *fakeOpenCode, _ *CycleTarget) {
+			f.commands[1].Template = filepath.Join(f.home, ".config", "opencode", "skills", PickupSkillName) + openCodeTemplateTail
+		}},
+		{"no tail", "pickup_entry_differs", func(f *fakeOpenCode, _ *CycleTarget) {
+			f.commands[1].Template = strings.TrimSuffix(f.commands[1].Template, openCodeTemplateTail)
+		}},
 		{"unknown root", "pickup_entry_unverified", func(f *fakeOpenCode, _ *CycleTarget) {
 			f.commands[1].Template = strings.Replace(f.commands[1].Template, f.home, "/elsewhere", 1)
 		}},
@@ -609,5 +615,41 @@ func TestOpenCodePickupTimeout(t *testing.T) {
 	}
 	if ok, err := (openCodeCycle{}).PickupReceipt(context.Background(), f.target(cyclePickupIntent)); !ok || err != nil {
 		t.Fatalf("receipt after the timeout: %v %v", ok, err)
+	}
+}
+
+// The replies' model: each assistant reply of the created session must name the pair that its
+// receipted pickup asked for, and there must be one.
+func TestOpenCodePickupModel(t *testing.T) {
+	a := openCodeCycle{}
+	ctx := context.Background()
+	f := newFakeOpenCode(t)
+	f.titles[ocSuccessor], f.shown = openCodeTitle("synthetic-cycle"), ocSuccessor
+	target := f.target(cyclePickupIntent)
+	if err := a.SendPickup(ctx, target, f.fence); err != nil {
+		t.Fatal(err)
+	}
+	reply := func(provider, model string) {
+		f.set(func(f *fakeOpenCode) {
+			f.messages[ocSuccessor] = append(f.messages[ocSuccessor], map[string]any{"info": map[string]any{
+				"role": "assistant", "providerID": provider, "modelID": model}})
+		})
+	}
+	if _, err := a.PickupModel(ctx, target); err == nil {
+		t.Fatal("no reply proved the model")
+	}
+	reply("openrouter", "qwen/qwen3.6-35b-a3b")
+	if ok, err := a.PickupModel(ctx, target); !ok || err != nil {
+		t.Fatalf("same model: %v %v", ok, err)
+	}
+	reply("other-provider", "config-default")
+	if ok, err := a.PickupModel(ctx, target); ok || err != nil {
+		t.Fatalf("another model: %v %v", ok, err)
+	}
+	// Without the receipted pickup no pair is known.
+	other := target
+	other.pickupAt++
+	if _, err := a.PickupModel(ctx, other); err == nil {
+		t.Fatal("a pickup with another ID proved the model")
 	}
 }

@@ -192,6 +192,7 @@ func (s *Store) cycleStep(ctx context.Context) error {
 		return err
 	}
 	s.paneSeen.keep(cycles)
+	s.cycleWork.keep(cycles)
 	for _, c := range cycles {
 		if err := ctx.Err(); err != nil {
 			return err
@@ -656,8 +657,9 @@ func (s *Store) selectSuccessor(ctx context.Context, c cycleRow, t CycleTarget, 
 	return false, nil
 }
 
-// startPickup records the pickup intent and sends the pickup from a worker (#513). Without a
-// free worker the cycle waits in its stage, with nothing recorded.
+// startPickup records the pickup intent and sends the pickup from a worker, which then reads
+// its receipt back (#513). Without a free worker the cycle waits in its stage, with nothing
+// recorded.
 func (s *Store) startPickup(ctx context.Context, c cycleRow, t CycleTarget, async AsyncPickupAdapter) error {
 	if !s.cycleWork.free() {
 		return nil
@@ -668,27 +670,72 @@ func (s *Store) startPickup(ctx context.Context, c cycleRow, t CycleTarget, asyn
 	}
 	t.State, t.pickupAt = c.State, c.UpdatedAt
 	fence := s.cycleFence(c)
-	// A worker that cannot start sends nothing: the next step finds no receipt.
-	s.cycleWork.start(c.ID, func(ctx context.Context) { async.SendPickup(ctx, t, fence) })
+	// A worker that cannot start sends nothing: a later step reads that no receipt exists.
+	s.cycleWork.start(c.ID, func(ctx context.Context, publish func(bool)) {
+		sent := make(chan struct{})
+		go func() {
+			defer close(sent)
+			async.SendPickup(ctx, t, fence)
+		}()
+		publish(awaitReceipt(ctx, async, t, sent))
+		<-sent
+	})
 	return nil
 }
 
-// pickupReceipt reads an asynchronous pickup's receipt back. With it the cycle waits for the
-// report; once the worker ended without it, or after a restart that has no worker, the pickup
-// is uncertain and is never sent again. A read that fails is tried again until the stage's
-// deadline.
+var (
+	// cycleReceiptPoll is the pause between a worker's receipt reads; cycleReceiptBound bounds
+	// the reads after the request started (#513).
+	cycleReceiptPoll  = 250 * time.Millisecond
+	cycleReceiptBound = 30 * time.Second
+)
+
+// awaitReceipt reads an asynchronous pickup's receipt until it is there, or until a read made
+// after the request ended (sent closed; nil after a restart, which sent nothing) shows that it
+// is not. A failed read is tried again within cycleReceiptBound.
+func awaitReceipt(ctx context.Context, async AsyncPickupAdapter, t CycleTarget, sent <-chan struct{}) bool {
+	deadline := time.Now().Add(cycleReceiptBound)
+	for {
+		ended := sent == nil
+		if !ended {
+			select {
+			case <-sent:
+				ended = true
+			default:
+			}
+		}
+		received, err := async.PickupReceipt(ctx, t)
+		if err == nil && (received || ended) {
+			return received
+		}
+		if time.Now().After(deadline) {
+			return false
+		}
+		select {
+		case <-ctx.Done():
+			return false
+		case <-time.After(cycleReceiptPoll):
+		}
+	}
+}
+
+// pickupReceipt applies an asynchronous pickup's receipt, which its worker read: with it the
+// cycle waits for the report; without it the pickup is uncertain and is never sent again. A
+// restarted daemon has no worker and no result: a worker reads the receipt back, sending
+// nothing. The step itself makes no request, so a slow server delays no other cycle.
 func (s *Store) pickupReceipt(ctx context.Context, c cycleRow, t CycleTarget, async AsyncPickupAdapter) error {
-	running := s.cycleWork.running(c.ID)
-	received, err := async.PickupReceipt(ctx, t)
+	received, published := s.cycleWork.result(c.ID)
 	switch {
-	case err == nil && received:
+	case published && received:
 		_, err := s.advanceCycle(ctx, c.ID, c.Revision, cyclePickupIntent, cycleWaitingPickup, "", nil, nil)
 		return err
-	case running || err != nil && s.now().UnixMilli() < c.StageDeadline:
-		return nil
+	case published:
+		_, err := s.endCycle(ctx, c.ID, c.Revision, cycleUncertain, "pickup_unreceipted")
+		return err
+	case !s.cycleWork.running(c.ID):
+		s.cycleWork.start(c.ID, func(ctx context.Context, publish func(bool)) { publish(awaitReceipt(ctx, async, t, nil)) })
 	}
-	_, err = s.endCycle(ctx, c.ID, c.Revision, cycleUncertain, "pickup_unreceipted")
-	return err
+	return nil
 }
 
 // recordDisplay records, once, a current view of the pane that shows the successor and no
@@ -704,19 +751,47 @@ func (s *Store) recordDisplay(ctx context.Context, c cycleRow, t CycleTarget, di
 	return err == nil, err
 }
 
-// displayProof is the pane's proof for a DisplayAdapter's pickup report (#513): a current view
-// that shows the successor and no other session, or the recorded proof and a current view that
-// shows no other session.
+// displayWait bounds the pickup report's reads of the pane: the report call's own tool-call
+// row renders while the call runs (#513).
+var displayWait = 2 * time.Second
+
+// displayProof is the pane's and the server's proof for a DisplayAdapter's pickup report
+// (#513): a current view that shows the successor and no other session, read again for at
+// most displayWait, and the successor's replies from the model that the pickup asked for. A
+// recorded earlier view proves nothing about the current one. A known other model ends the
+// cycle uncertain.
 func (s *Store) displayProof(ctx context.Context, c cycleRow, display DisplayAdapter) error {
-	shown, foreign, err := display.PickupDisplay(ctx, s.cycleTarget(ctx, c))
-	if err != nil || foreign {
-		return ErrCycleDisplay
+	t := s.cycleTarget(ctx, c)
+	// The reads end at the stage's and the cycle's deadlines too, which they never extend.
+	limit := min(c.StageDeadline, c.CycleDeadline)
+	read, cancel := context.WithTimeout(ctx, time.Duration(limit-s.now().UnixMilli())*time.Millisecond)
+	defer cancel()
+	for wait := time.Now().Add(displayWait); ; {
+		shown, foreign, err := display.PickupDisplay(read, t)
+		if err == nil && foreign {
+			return ErrCycleDisplay
+		}
+		if err == nil && shown {
+			break
+		}
+		if time.Now().After(wait) || s.now().UnixMilli() >= limit {
+			return ErrCycleDisplay
+		}
+		select {
+		case <-read.Done():
+			return ErrCycleDisplay
+		case <-time.After(100 * time.Millisecond):
+		}
 	}
-	if shown {
-		return nil
+	matched, err := display.PickupModel(read, t)
+	if err != nil {
+		return err
 	}
-	if recorded, err := pickupDisplayed(ctx, s.db, c.ID); err != nil || !recorded {
-		return ErrCycleDisplay
+	if !matched {
+		if _, err := s.endCycle(ctx, c.ID, c.Revision, cycleUncertain, "model_changed"); err != nil {
+			return err
+		}
+		return ErrCycleModel
 	}
 	return nil
 }
@@ -726,13 +801,14 @@ const maxCycleWorkers = 4
 
 // cycleWorkers runs the asynchronous pickups (#513): one per cycle and at most
 // maxCycleWorkers at a time, each under a context that the daemon's Close cancels before it
-// waits for them.
+// waits for them. A worker publishes its receipt result, which stays until its cycle ends.
 type cycleWorkers struct {
 	mu      sync.Mutex
 	wg      sync.WaitGroup
 	ctx     context.Context
 	cancel  context.CancelFunc
 	active  map[string]bool
+	results map[string]bool
 	stopped bool
 }
 
@@ -750,8 +826,32 @@ func (w *cycleWorkers) running(id string) bool {
 	return w.active[id]
 }
 
+// result returns the receipt result that the cycle's worker published.
+func (w *cycleWorkers) result(id string) (received, published bool) {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	received, published = w.results[id]
+	return received, published
+}
+
+// keep forgets the results of every cycle that is not in active.
+func (w *cycleWorkers) keep(active []cycleRow) {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	ids := map[string]bool{}
+	for _, c := range active {
+		ids[c.ID] = true
+	}
+	for id := range w.results {
+		if !ids[id] && !w.active[id] {
+			delete(w.results, id)
+		}
+	}
+}
+
 // start runs one worker for the cycle, unless one runs or none is free or the workers stopped.
-func (w *cycleWorkers) start(id string, run func(context.Context)) bool {
+// The worker publishes its result once; a later publish changes nothing.
+func (w *cycleWorkers) start(id string, run func(context.Context, func(bool))) bool {
 	w.mu.Lock()
 	defer w.mu.Unlock()
 	if w.stopped || w.active[id] || len(w.active) >= maxCycleWorkers {
@@ -759,10 +859,17 @@ func (w *cycleWorkers) start(id string, run func(context.Context)) bool {
 	}
 	if w.ctx == nil {
 		w.ctx, w.cancel = context.WithCancel(context.Background())
-		w.active = map[string]bool{}
+		w.active, w.results = map[string]bool{}, map[string]bool{}
 	}
 	w.active[id] = true
 	w.wg.Add(1)
+	publish := func(received bool) {
+		w.mu.Lock()
+		defer w.mu.Unlock()
+		if _, done := w.results[id]; !done {
+			w.results[id] = received
+		}
+	}
 	go func() {
 		defer w.wg.Done()
 		defer func() {
@@ -770,7 +877,7 @@ func (w *cycleWorkers) start(id string, run func(context.Context)) bool {
 			delete(w.active, id)
 			w.mu.Unlock()
 		}()
-		run(w.ctx)
+		run(w.ctx, publish)
 	}()
 	return true
 }

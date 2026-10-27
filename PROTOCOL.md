@@ -684,13 +684,16 @@ sends `{command: koinon-pickup, arguments: "", messageID, model: "PROVIDER/MODEL
 5-second timeout; the turn goes on without it. The daemon's stop cancels the workers and waits
 for them. The message ID sorts as OpenCode's own: `msg_`, 12 hex digits of the intent's time in
 milliseconds times 4096, then 14 base-62 digits from the cycle and the created session, so a
-restarted daemon derives it again. Each later controller step reads the receipt back by API,
-without the wake lock: the created session's only user message has that ID, the requester's
-`providerID` and `modelID`, and one text part that is the entry's template as OpenCode enters
-it (trimmed). The text is compared and never kept. The receipt moves the cycle to
-`waiting_pickup`; once the worker ended without it, or after a restart, which has no worker, the
-cycle ends `uncertain` (`pickup_unreceipted`), and the pickup is never sent again. A failed read
-is tried again until the stage deadline.
+restarted daemon derives it again. The worker then reads the receipt back by API, every 250 ms,
+until it is there or a read made after the request ended shows that it is not; a failed read is
+tried again for at most 30 seconds. The receipt is the created session's only user message with
+that ID, the requester's `providerID` and `modelID`, and one text part that is the entry's
+template as OpenCode enters it (trimmed); the text is compared and never kept. The worker
+publishes the result, and the next controller step applies it under the cycle's revision,
+making no request itself, so a slow server delays no other cycle. With the receipt the cycle
+moves to `waiting_pickup`; without it, the cycle ends `uncertain` (`pickup_unreceipted`), and the
+pickup is never sent again. After a restart, which has no worker and no result, a worker reads
+the receipt back, sending nothing.
 
 The pickup report needs the pane's own proof that it shows the created session. The identity
 plugin adds `koinon_session=ID` as the last argument of each Koinon tool call, and the TUI
@@ -700,12 +703,20 @@ seven-space indent in the same color. A user or tool-output row (`┃`) and repl
 text's own color are no such row. While the cycle waits for the report, each controller step
 reads the current view without input, and the first view with a row of the created session and
 none of another session is recorded once, as the same-state event `waiting_pickup`
-`pickup_displayed`. The report is accepted when a fresh view shows the created session and no
-other, or when the proof was recorded and a fresh view shows no other session (the successor's
-rows may have scrolled away); otherwise it is refused with `cycle_display_unproven` (HTTP 409),
-the cycle stays in its stage and the report may be retried. Until the proof is recorded, a
-deadline, a Disable or another end of a waiting pickup is `uncertain`, not `failed` or
-`cancelled`. An identical retry of a completed report stays valid when the pane changed later.
+`pickup_displayed`. The report itself needs a current view that shows the created session and
+no other: the daemon reads the pane again for at most 2 seconds, so that the report call's own
+row can render, and never past the stage's or the cycle's deadline. A recorded earlier view
+proves nothing about the current one, because another empty session looks the same. Without it
+the report is refused with `cycle_display_unproven` (HTTP 409), the cycle stays in its stage and
+the report may be sent again. The report also needs the created session's replies from the model
+that its pickup asked for: the receipted message's `model` pair, and at least one assistant
+message, each with the same `providerID` and `modelID` (OpenCode runs a command whose model it
+cannot resolve on another one). A known other model ends the cycle `uncertain`
+(`model_changed`) and the report is refused with `cycle_model_changed`; a read that fails can be
+retried. The report's write checks the deadlines at the time after these reads. Until the
+display proof has been recorded once, a deadline, a Disable or another end of a waiting pickup is
+`uncertain`, not `failed` or `cancelled`. An identical retry of a completed report stays valid
+when the pane changed later.
 
 A dialog is never answered by the adapter. A pending permission of the subject session shows in
 `waiting_prompt` as `OpenCode asks permission: PERMISSION`, its patterns and the options `1`

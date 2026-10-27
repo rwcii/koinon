@@ -226,8 +226,9 @@ func openCodePickupEntry(ctx context.Context, t CycleTarget) (string, CycleProbe
 		path := filepath.Join(roots[0], PickupSkillName, "SKILL.md")
 		return "", CycleProbe{Reason: "pickup_entry_missing", Step: pickupSkillStep(path)}
 	}
-	dir, ok := strings.CutPrefix(entry.Template, body+openCodeTemplateHead)
-	if dir, ok = strings.CutSuffix(dir, openCodeTemplateTail); entry.Source != "skill" || !ok {
+	dir, headed := strings.CutPrefix(entry.Template, body+openCodeTemplateHead)
+	dir, tailed := strings.CutSuffix(dir, openCodeTemplateTail)
+	if entry.Source != "skill" || !headed || !tailed {
 		return "", CycleProbe{Reason: "pickup_entry_differs", Step: pickupSkillStep(filepath.Join(roots[0], PickupSkillName, "SKILL.md"))}
 	}
 	for _, root := range roots {
@@ -666,6 +667,9 @@ type openCodeUserMessage struct {
 			ProviderID string `json:"providerID"`
 			ModelID    string `json:"modelID"`
 		} `json:"model"`
+		// An assistant reply names its model here.
+		ProviderID string `json:"providerID"`
+		ModelID    string `json:"modelID"`
 	} `json:"info"`
 	Parts []struct {
 		Type string `json:"type"`
@@ -731,6 +735,38 @@ func (openCodeCycle) PickupDisplay(ctx context.Context, t CycleTarget) (bool, bo
 		foreign = foreign || id != t.SuccessorEpoch
 	}
 	return shown, foreign, nil
+}
+
+// PickupModel reads the created session: its receipted pickup names the model pair, and each
+// assistant reply, of which there is at least one, must name the same pair. OpenCode runs a
+// command whose model it cannot resolve on another one, so the request's echo alone proves
+// nothing about the replies.
+func (openCodeCycle) PickupModel(ctx context.Context, t CycleTarget) (bool, error) {
+	var messages []openCodeUserMessage
+	if err := openCodeRead(ctx, t, sessionPath(t.SuccessorEpoch)+"/message", &messages); err != nil {
+		return false, err
+	}
+	var asked *openCodePair
+	replies := 0
+	for _, m := range messages {
+		switch m.Info.Role {
+		case "user":
+			if m.Info.ID == openCodeMessageID(t) && m.Info.Model != nil {
+				asked = &openCodePair{m.Info.Model.ProviderID, m.Info.Model.ModelID}
+			}
+		case "assistant":
+			replies++
+		}
+	}
+	if asked == nil || replies == 0 {
+		return false, errOpenCodeUnproven
+	}
+	for _, m := range messages {
+		if m.Info.Role == "assistant" && (m.Info.ProviderID != asked.provider || m.Info.ModelID != asked.model) {
+			return false, nil
+		}
+	}
+	return true, nil
 }
 
 // openCodePending is the allowlisted part of one pending permission or question.
