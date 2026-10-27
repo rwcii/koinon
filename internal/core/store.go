@@ -149,6 +149,8 @@ type Store struct {
 	agyWitness agyWitnessState
 	// openCodeContext holds the last OpenCode context reading recorded per session (#513).
 	openCodeContext openCodeContextState
+	// cycleWork runs the asynchronous cycle pickups (#513).
+	cycleWork cycleWorkers
 	// retention holds the last retention sweep's results (#216).
 	retention retentionState
 	// calls holds each session's last tool call; processStart reads a host process's start

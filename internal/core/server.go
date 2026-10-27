@@ -194,6 +194,7 @@ func (d *Daemon) Close() error {
 		}
 		d.wg.Wait()
 		if d.store != nil {
+			d.store.cycleWork.stop()
 			d.store.closeWake()
 			d.closeErr = errors.Join(d.closeErr, d.store.db.Close())
 		}
