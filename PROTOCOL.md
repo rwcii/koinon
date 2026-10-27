@@ -2542,15 +2542,19 @@ conversation to the agy cycle witness (see "agy cycle adapter").
 `koinon hook grok-status [--command COMMAND]` is the Grok status-line command (#515), with the
 same command handling: the wrapped command runs once with the whole input, and its output, exit
 status and signal are returned unchanged; without a command it prints nothing and exits 0.
-Koinon's own failures never change that result. The caller is `grok:$GROK_SESSION_ID`, the Grok
-MCP identity, which must be a valid ID; nothing falls back to the input. An input whose
-`session_id` names another session, or is null, empty or not a string, gives no report; an
-input without `session_id` reports for the environment's session. Only an input of at most
-64 KiB is decoded. The model is `model.id`. The context needs both
+Koinon's own failures never change that result. The caller is `grok:` and the input's
+`session_id`, which is the session's Grok MCP identity: Grok Build 1.0.50 gives `GROK_SESSION_ID`
+to its MCP server but not to the status-line command. A `session_id` that is absent, null,
+empty, not a string or not a session ID gives no report, and so does one that differs from a
+`GROK_SESSION_ID` in the hook's environment. A report for a session that is not registered is
+refused, as for the other status lines. Only an input of at most 64 KiB is decoded. The model is `model.id`. The context needs both
 `context_window.context_tokens` (used) and `context_window.context_window_size` (the limit), as
 integers from 0 to 2^53-1 with a positive limit; otherwise there is no context report, and the
 last reading stands until it is stale. `used_percentage` and the cumulative `session_*` counts
-are not used. The input has no time of its own, so the source time is the hook's. `koinon setup
+are not used. The input has no time of its own, so the source time is the hook's. Grok sends
+the input when its state changes (at start, during and at the end of a turn, after `/new` and
+`/compact`), not while it is idle, unless the table's `refresh_interval` is set, so an idle
+session's reading becomes stale after 30 minutes. `koinon setup
 grok` makes `'BINARY' hook grok-status` the `command` of a `[ui.status_line]` table with
 `type = "command"` in Grok's `config.toml` (`--grok-home`, else `$GROK_HOME`, else `~/.grok`).
 Setup owns only the table's `type` and `command`: it edits those lines as text, parses the file
