@@ -510,7 +510,7 @@ and Koinon changes no Codex setting. A busy pane only delays the compaction; if 
 idle within 15 minutes, the compaction ends and the next reading at the threshold starts
 another. A compaction that is not confirmed within 10 minutes, or whose submission cannot be
 proven, ends the session's Enable, so `/compact` is never typed twice for one crossing. The
-Sessions page shows the newest compaction with its steps and result. A session must report its pickup within two minutes of the pickup input. When
+Sessions page shows the newest compaction with its steps and result. A session must report its pickup within five minutes of the pickup input. When
 the session shows a dialog that the cycle does not answer itself, the Sessions page shows it
 with one button per option; your choice applies only to that dialog.
 
