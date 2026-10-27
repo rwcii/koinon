@@ -284,8 +284,9 @@ func (l statusLine) wrapperEntry(original json.RawMessage) json.RawMessage {
 }
 
 // plainWrapper reports whether a wrapper is spelled exactly as wrapperEntry writes it: the hook
-// alone or around one command, every word quoted as quote quotes it. Any other spelling, such
-// as a shell operator after the quoted command, is the user's edit (#532).
+// alone or around one non-empty command, every word quoted as quote quotes it. Any other
+// spelling, such as a shell operator after the quoted command or an empty command, is the
+// user's edit (#532).
 func plainWrapper(entry json.RawMessage) bool {
 	command := entryCommand(entry)
 	words, err := splitWords(command)
@@ -296,7 +297,7 @@ func plainWrapper(entry json.RawMessage) bool {
 	switch {
 	case len(words) == 3:
 		return command == plain
-	case len(words) == 5 && words[3] == "--command":
+	case len(words) == 5 && words[3] == "--command" && words[4] != "":
 		return command == plain+" --command "+quote(words[4])
 	}
 	return false

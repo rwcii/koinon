@@ -180,6 +180,16 @@ func TestStatusLineWithoutAnEntryAndAfterUserChanges(t *testing.T) {
 	if entry, _ := settingsEntry(t, l); !equal(entry, json.RawMessage(chained)) {
 		t.Fatalf("chained wrapper replaced after removal: %s", entry)
 	}
+	// So is an empty command, which setup never writes: the hook then prints nothing of its own.
+	empty := `{"type":"command","command":"'/opt/koinon' hook claude-status --command ''"}`
+	os.WriteFile(l.settings, []byte(`{"statusLine":`+empty+`}`), 0600)
+	result, err = l.setUp()
+	if err != nil || result.Outcome != "changed" || result.Reason != "statusline_changed" {
+		t.Fatalf("setup after removal of an empty-command wrapper: %+v %v", result, err)
+	}
+	if entry, _ := settingsEntry(t, l); !equal(entry, json.RawMessage(empty)) {
+		t.Fatalf("empty-command wrapper replaced after removal: %s", entry)
+	}
 	os.WriteFile(l.settings, []byte(`{"statusLine":`+edited+`}`), 0600)
 	// A wrapper without a record is unwrapped, never wrapped again.
 	os.Remove(filepath.Join(l.state, statusLineRecord))

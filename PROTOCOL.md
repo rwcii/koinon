@@ -2521,8 +2521,9 @@ change, in `claude-statusline.json` in the Go state root. `koinon setup claude -
 restores it while the entry is still Koinon's, and keeps an entry the user changed. Setup leaves
 a wrapper that the user edited alone (`statusline_changed`), also when it runs an earlier Koinon
 binary and after a removal that kept it; only a wrapper spelled as setup writes it, the hook
-alone or around one quoted `--command`, is set up again then, around that command. Only the `statusLine` member changes; member order and the file mode are kept; a symbolic link, a file
-not owned by the user, a file over 1 MiB or invalid JSON is refused, and a file that changes
+alone or around one quoted, non-empty `--command`, is set up again then, around that command.
+Only the `statusLine` member changes; member order and the file mode are kept; a symbolic link, a
+file not owned by the user, a file over 1 MiB or invalid JSON is refused, and a file that changes
 while Koinon edits it is a `settings_conflict` that keeps the other change.
 
 `koinon hook agy-status [--command COMMAND]` is the agy `statusLine` command, with the same

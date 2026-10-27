@@ -336,6 +336,16 @@ func TestGrokStatusLineChanges(t *testing.T) {
 	if data, _ := os.ReadFile(g.settings); string(data) != chained {
 		t.Fatalf("chained wrapper replaced after removal: %s", data)
 	}
+	// So is an empty command, which setup never writes.
+	empty := strings.Replace(edited, "--command 'mine'", "--command ''", 1)
+	os.WriteFile(g.settings, []byte(empty), 0600)
+	result, err = g.setUp()
+	if err != nil || result.Outcome != "changed" || result.Reason != "statusline_changed" {
+		t.Fatalf("setup after removal of an empty-command wrapper: %+v %v", result, err)
+	}
+	if data, _ := os.ReadFile(g.settings); string(data) != empty {
+		t.Fatalf("empty-command wrapper replaced after removal: %s", data)
+	}
 	// An unedited wrapper follows the binary, and removal still restores the original.
 	g, _ = grokFixture(t)
 	os.WriteFile(g.settings, []byte("[ui.status_line]\ntype = \"command\"\ncommand = \"old\"\n"), 0600)
