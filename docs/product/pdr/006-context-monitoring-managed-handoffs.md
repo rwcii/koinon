@@ -3,7 +3,7 @@ pdr: "006"
 title: "Context Monitoring and Managed Handoffs"
 status: draft
 created: "2026-10-12"
-updated: "2026-10-26"
+updated: "2026-10-27"
 authors:
   - "Robert Capps"
 reviewers: []
@@ -98,7 +98,12 @@ reason, such as `context_unknown`, `source_stale` or `confirmation_stale`.
 In Codex's `native_compaction` mode the same trigger makes the daemon enter Codex's own
 `/compact` in the enabled session's pane while Codex is idle, once per crossing. A fresh reading
 below the threshold after the submission confirms it; the Sessions page shows each compaction
-and its result. Koinon edits no Codex configuration.
+and its result. Koinon edits no Codex configuration. A compaction that ends before the daemon
+types anything, or because the context epoch changed, keeps the session's Enable, and the next
+reading at the threshold can start another. A compaction that the daemon sent but cannot
+confirm within 10 minutes, or whose submission it cannot prove, turns the Enable off, so the
+daemon never types `/compact` twice for one crossing; the session then gets no compaction
+until it is enabled again.
 
 **Provenance:** Monitoring, the threshold and per-session enabling: Requested in #196 (issue
 body, "The cycle the user decided" and "Bounds"); a request record, no maintainer quote in
@@ -123,9 +128,16 @@ Koinon-triggered native compaction: Maintainer, 2026-10-26, session transcript. 
 answer was no: the mode did nothing at the threshold. Then: "I want an issue that FIXES the
 gap." The intent, as recorded in #509: when a Codex session in `native_compaction` reaches its
 threshold, Koinon makes Codex compact its context, so the mode does what its name and the
-Settings page say. The confirmation rule, the end of a compaction under another epoch
-(`epoch_changed`) and the Enable that a compaction keeps when it ended before its input are
-implementation details of #509, agreed with the Codex peer; no maintainer decision.
+Settings page say. When a compaction turns the Enable off: Maintainer, 2026-10-27, decision
+board item COMPACT-ENABLE-509 (revision 1), verdict 61, "approved". The question: "Native
+compaction: when does a compaction turn the Enable off? (#509)". The card listed the four rules
+above, in that order, as rules 1 to 4 of PR #517, and recommended: "Approve the rules as they
+are in PR #517. Rules 3 and 4 stop a second `/compact` for one crossing, also after a restart.
+Rules 1 and 2 let a busy or changed session try again without your action." The verdict decides
+these rules only. The confirmation rule (a fresh reading recorded after the submission's
+receipt, before the deadline) and that a reading of another epoch ends a compaction
+(`epoch_changed`) are implementation details of #509, agreed with the Codex peer; no
+maintainer decision.
 
 ### Alternatives Considered
 
@@ -482,3 +494,4 @@ and terminal commands have the maintainer's words; the rest is requested or prop
 | 2026-10-26 | Decision 3: a session without a repository keeps its handoff in its registered directory; refused ready replies are kept and named by the ready timeout (#485) |
 | 2026-10-26 | Decision 3: the session's work claims last through the cycle (#489) |
 | 2026-10-26 | Decision 1: `native_compaction` enters Codex's own `/compact` at the threshold (#509) |
+| 2026-10-27 | Decision 1: when a compaction keeps or turns off the session's Enable, approved on the decision board (COMPACT-ENABLE-509) |
