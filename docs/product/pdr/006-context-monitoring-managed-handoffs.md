@@ -133,8 +133,9 @@ board item COMPACT-ENABLE-509 (revision 1), verdict 61, "approved". The question
 compaction: when does a compaction turn the Enable off? (#509)". The card listed the four rules
 above, in that order, as rules 1 to 4 of PR #517, and recommended: "Approve the rules as they
 are in PR #517. Rules 3 and 4 stop a second `/compact` for one crossing, also after a restart.
-Rules 1 and 2 let a busy or changed session try again without your action." The verdict decides
-these rules only. The confirmation rule (a fresh reading recorded after the submission's
+Rules 1 and 2 let a busy or changed session try again without your action." The choices were
+to approve the four rules unchanged, or to decline and name the wanted rule for a new PR after
+#517. The verdict decides these rules only. The confirmation rule (a fresh reading recorded after the submission's
 receipt, before the deadline) and that a reading of another epoch ends a compaction
 (`epoch_changed`) are implementation details of #509, agreed with the Codex peer; no
 maintainer decision.
