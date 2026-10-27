@@ -95,6 +95,11 @@ cycle from a fresh, verified observation of the session: a context source at mos
 old that the daemon confirmed in the last 90 seconds. For unknown or stale context it shows the
 reason, such as `context_unknown`, `source_stale` or `confirmation_stale`.
 
+In Codex's `native_compaction` mode the same trigger makes the daemon enter Codex's own
+`/compact` in the enabled session's pane while Codex is idle, once per crossing. A fresh reading
+below the threshold after the submission confirms it; the Sessions page shows each compaction
+and its result. Koinon edits no Codex configuration.
+
 **Provenance:** Monitoring, the threshold and per-session enabling: Requested in #196 (issue
 body, "The cycle the user decided" and "Bounds"); a request record, no maintainer quote in
 it. Family defaults with per-session enabling: Maintainer, 2026-10-12, session transcript:
@@ -113,6 +118,14 @@ both; its code cites the #196 definition of done, approved at Gate B. Before #48
 gave the freshness rule as "only fresh, verified observations from the session start a cycle"
 from the plan; #487 states it as what the trigger checks (#487 provenance under Decision 3).
 Current observations: Shipped in PR #193 (merge commit a19bc2b); no maintainer decision found.
+Koinon-triggered native compaction: Maintainer, 2026-10-26, session transcript. The question:
+"does the native compaction mode for context handoff actually perform the compaction?" The
+answer was no: the mode did nothing at the threshold. Then: "I want an issue that FIXES the
+gap." The intent, as recorded in #509: when a Codex session in `native_compaction` reaches its
+threshold, Koinon makes Codex compact its context, so the mode does what its name and the
+Settings page say. The confirmation rule, the end of a compaction under another epoch
+(`epoch_changed`) and the Enable that a compaction keeps when it ended before its input are
+implementation details of #509, agreed with the Codex peer; no maintainer decision.
 
 ### Alternatives Considered
 
@@ -468,3 +481,4 @@ and terminal commands have the maintainer's words; the rest is requested or prop
 | 2026-10-25 | Decisions 1, 3 and 4: removed the unsourced authorization and peer-text wording; the freshness rule and the checks are stated as what the daemon does; the `koinon-pickup` body loads `skill.pickup` and follows it (#487) |
 | 2026-10-26 | Decision 3: a session without a repository keeps its handoff in its registered directory; refused ready replies are kept and named by the ready timeout (#485) |
 | 2026-10-26 | Decision 3: the session's work claims last through the cycle (#489) |
+| 2026-10-26 | Decision 1: `native_compaction` enters Codex's own `/compact` at the threshold (#509) |

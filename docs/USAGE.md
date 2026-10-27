@@ -442,9 +442,9 @@ most half the lifetime) and the succession guard (default 30 seconds, at least 3
 applies at once, without a restart, and the audit log records it.
 
 The Settings page also sets each family's context handoff mode and threshold: Claude
-`handoff_cycle`, Codex `native_compaction` (its own compaction) and the others `observe`, at
-75 percent by default. These are defaults only: a session runs no handoff cycle until it is
-enabled on the Sessions page, and changing a family enables nothing. The Sessions page shows
+`handoff_cycle`, Codex `native_compaction` and the others `observe`, at 75 percent by default.
+These are defaults only: a session runs no handoff cycle or compaction until it is enabled on
+the Sessions page, and changing a family enables nothing. The Sessions page shows
 each session's mode, threshold, Enable, whether its family has a verified cycle, and why it is
 or is not at its threshold, with the age of its context reading. Enabling is refused
 (`context_cycle_unavailable`) and its button is inactive while the cycle cannot run for that
@@ -470,9 +470,19 @@ become idle within two minutes of its ready report, `overwatch` sends the reques
 new revision, and the session pauses, writes its handoff and reports ready again; the cycle's
 30-minute lifetime and its event limit bound the repeats. The Sessions page shows
 each session's current or newest cycle: its stage, the stage deadline and each recorded step.
-Disabling, retiring or purging the session, a family mode without the cycle, or a holder
+Disabling, retiring or purging the session, a family mode change, or a holder
 choice for its address ends the cycle; a cycle that fails or cannot be proven ends the
-session's Enable. A session must report its pickup within two minutes of the pickup input. When
+session's Enable.
+
+In `native_compaction`, an enabled Codex session launched with `koinon codex` in tmux gets
+Codex's own `/compact` when its context reaches the threshold: the daemon types it in the
+session's pane once Codex is idle at an empty prompt, once per crossing, and waits for a fresh
+reading below the threshold to confirm it. It needs no pickup skill and no participant address,
+and Koinon changes no Codex setting. A busy pane only delays the compaction; if Codex is not
+idle within 15 minutes, the compaction ends and the next reading at the threshold starts
+another. A compaction that is not confirmed within 10 minutes, or whose submission cannot be
+proven, ends the session's Enable, so `/compact` is never typed twice for one crossing. The
+Sessions page shows the newest compaction with its steps and result. A session must report its pickup within two minutes of the pickup input. When
 the session shows a dialog that the cycle does not answer itself, the Sessions page shows it
 with one button per option; your choice applies only to that dialog.
 

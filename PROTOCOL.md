@@ -207,7 +207,8 @@ runs yet. The `settings` table holds `context_mode_FAMILY` (0 `observe`, 1
 `native_compaction`, 2 `handoff_cycle`) and `context_threshold_FAMILY` (1–100 percent of the
 context limit) for each supported family. Defaults: Claude `handoff_cycle`, Codex
 `native_compaction`, every other family `observe`; threshold 75. `native_compaction` is
-Codex's only; it leaves compaction to the client, and no mode edits a native setting. A
+Codex's only: at the threshold the daemon enters Codex's own `/compact` in the session's pane
+([Native compaction](#native-compaction)). No mode edits a native setting. A
 stored pair that is not valid keeps the family's default, and the Settings page names the
 error. The action `context-family-settings` (`family`, `mode`, `threshold`) stores one family
 in one transaction with its audit record and applies after the commit; it enables no present
@@ -218,7 +219,8 @@ revision and the session revision, participant address, host and tmux pane it wa
 none of these leave the store. The action `context-enable` (`peer`, `revision` of the session
 as shown, `if_revision` of the Enable, `enabled` `on` or `off`) changes one session with its
 audit record. Enabling needs an active session whose family adapter's Probe passes for its
-pinned host and pane (the cycle adapters below); otherwise it refuses with
+pinned host and pane (the cycle adapters below; in `native_compaction`, the compaction's own
+checks); otherwise it refuses with
 `context_cycle_unavailable` and writes nothing. Disabling is always
 accepted. A changed session refuses `revision_changed`, a changed Enable
 `context_enable_changed`. Deleting a session deletes its Enable.
@@ -259,11 +261,12 @@ percentage of a positive limit (equality and use above the limit included), the 
 source is at most 120 seconds old and its last confirmation at most 90 seconds old, and the
 observation's native epoch has not been selected already. A source or confirmation time later
 than the daemon's clock is `observation_future`. Otherwise it names one reason:
-`session_inactive`, `mode_observe`, `mode_native_compaction`, `not_enabled`,
+`session_inactive`, `mode_observe`, `not_enabled`,
 `context_cycle_unavailable`, `context_unknown`, `context_counts_unavailable`,
 `context_counts_invalid`, `epoch_unverified`, `observation_future`, `source_stale`,
 `confirmation_stale`, `below_threshold` or `already_selected_for_epoch`. A new epoch or a
-fall below the threshold clears the selected epoch. Selection writes nothing; the Sessions
+fall below the threshold clears the selected epoch. `overwatch_name_conflict` applies to the
+handoff cycle only. Selection writes nothing; the Sessions
 page shows its result and the source and confirmation ages. After a restart the observations
 are unknown, so no session is eligible until fresh native reports arrive.
 
@@ -423,7 +426,8 @@ cycle ends; the pickup procedure renews the claims as it reconciles them.
 
 A new native epoch of the requester before the managed clear (`waiting_ready`, `ready`, or a
 stored `bootstrap_intent` or `bootstrap_verified`) cancels the cycle (`epoch_changed`; uncertain
-in `bootstrap_intent`, whose input is unproven). Disable, a family mode without the cycle, retiring or purging the
+in `bootstrap_intent`, whose input is unproven). Disable, a family mode change (it ends the
+family's cycles of the other modes), retiring or purging the
 requester or successor, deleting it and the maintainer's holder choice for its address end
 the cycle in their own transaction. A cycle that ends after an input whose effect is not
 proven (an intent, or `clear_received` without a proven reset) is `uncertain`, with the
@@ -554,6 +558,50 @@ the read-back and one Enter. A dialog (an MCP tool approval or a command approva
 adapter: the cycle shows it in `waiting_prompt`, and a dashboard option is one digit, entered
 only while the same dialog shows.
 
+### Native compaction
+
+In `native_compaction` (#509) a Codex session's crossing admits a compaction, a cycle row with
+mode `native_compaction` under the same trigger, Enable, host and pane pins, limits and audit
+as the handoff cycle. It sends no request, protects no claim and needs no pickup skill or
+participant address: the compaction's Probe checks the platform, the thread's rollout and the
+pane only (the Sessions page shows `compaction through /compact`), and there is no Codex
+version gate (PDR 006, Decision 5). Schema 34 rebuilds `context_cycles` with its three states,
+copying every row unchanged:
+
+- `compact_waiting`: admitted, holding no pane. Each controller step inspects the pane; while
+  it is not ready (a dialog, a draft, a running turn) the compaction waits and records what the
+  pane showed. Right before the input the session's newest reading must still select it under
+  the trigger's rules (fresh source and confirmation, same epoch, at the threshold); the
+  crossing's own latch does not count. Without a reading or a recent confirmation, such as after
+  a restart, it waits (`context_unknown`, `confirmation_stale`). It ends `cancelled` with
+  `mode_changed`, `threshold_changed`, `epoch_changed` or the trigger's reason (such as
+  `source_stale` or `below_threshold`) when the mode, the threshold or the reading no longer
+  admit it, and `failed` with the Probe's reason. A compaction whose pane is not ready within 15
+  minutes of its admission ends `cancelled` (`compact_waiting_timeout.SEEN`).
+- `compact_intent`: recorded before the first key. The adapter types `/compact` only while the
+  composer is empty and the thread's rollout shows its last turn ended, reads it back and
+  submits it with one Enter while the composer holds exactly it. Text that is not submitted is
+  erased and the compaction returns to `compact_waiting` with the step's reason, to retry when
+  the pane is idle. The fence before each key also holds the family mode and the session's
+  threshold, so a mode or threshold change during the input stops it. An Enter that may have been sent without its receipt (the empty composer)
+  ends the compaction `uncertain`, and a compaction found in `compact_intent`, also after a
+  restart, ends `uncertain` (`compact_unreceipted`); neither is entered again.
+- `compact_sent`: holds the pane, so no wake notice interleaves. Before the stage and cycle
+  deadlines, a fresh context reading (source and confirmation within the trigger's ages, neither
+  later than the daemon's clock) of the same epoch, that its source recorded after the
+  submission's receipt and below the threshold that the compaction recorded, completes it
+  (`complete`, `compacted`). Codex 0.164.0 runs `/compact` as a turn
+  that writes a `compacted` record and then a `token_count` of 0 input tokens in the same
+  thread. Without that reading within 10 minutes it ends `failed` (`compact_unconfirmed`).
+
+A reading of another epoch ends a compaction `cancelled` (`epoch_changed`). A compaction that
+ended in `compact_waiting` (whatever the reason, a Probe failure included) or with
+`epoch_changed` keeps the session's Enable, and its crossing is cleared, so the next fresh
+reading at the threshold admits another; every other end turns
+the Enable off as for the handoff cycle. One cycle runs per session and host at a time, so a
+compaction and a handoff cycle never type into the same pane. The Sessions page shows the
+newest compaction with its stages, times and result.
+
 ### Verified succession
 
 Schema 13 adds a private host record to each session: host PID, process start value,
@@ -570,6 +618,10 @@ The socket is an absolute clean path without control characters, at most 4,096 b
 pane matches `%` followed by 1–9 digits. The optional `executable` (#418) is the absolute tmux
 that the session's own terminal runs, with the same path rules as the socket. Invalid values
 return `invalid_request`.
+
+Schema 34 rebuilds `context_cycles` with the native compaction states `compact_waiting`,
+`compact_intent` and `compact_sent` (#509, [Native compaction](#native-compaction)), copying
+every row unchanged.
 
 Schema 33 adds the table `decision_withdrawals` (#504): each agent withdrawal of a decision
 item with the item, the revision it withdrew, the withdrawing peer's family and name, the

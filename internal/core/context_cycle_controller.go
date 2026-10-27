@@ -126,8 +126,59 @@ func (s *Store) contextObserved(ctx context.Context, k Key) {
 			c.State == cycleBootstrapIntent || c.State == cycleBootstrapVerified) {
 			s.endCycle(ctx, c.ID, c.Revision, cycleCancelled, "epoch_changed")
 		}
+		if c.Mode == ContextNativeCompaction {
+			s.compactionObserved(ctx, c, evidence)
+		}
 	}
 	s.admitContextCycle(ctx, k)
+}
+
+// compactionObserved applies a context reading to a compaction (#509). Another epoch ends it
+// as epoch_changed, and the new epoch can cross again. Before its deadlines, a fresh reading
+// (the trigger's source and confirmation ages, neither in the future) of the same epoch that
+// its source recorded after the submission's receipt, below the threshold that the compaction
+// recorded, confirms it.
+func (s *Store) compactionObserved(ctx context.Context, c cycleRow, e ContextEvidence) {
+	if e.Epoch != "" && e.Epoch != c.Epoch {
+		s.endCycle(ctx, c.ID, c.Revision, cycleCancelled, "epoch_changed")
+		return
+	}
+	now := s.now().UnixMilli()
+	if c.State != cycleCompactSent || now >= c.StageDeadline || now >= c.CycleDeadline || !freshEvidence(e, now) {
+		return
+	}
+	sent, err := compactSentAt(ctx, s.db, c)
+	if err != nil || e.SourceAt <= sent || *e.UsedTokens*100 >= c.Threshold**e.LimitTokens {
+		return
+	}
+	s.endCycle(ctx, c.ID, c.Revision, cycleComplete, "compacted")
+}
+
+// freshEvidence reports a context reading with an epoch and valid counts whose source and
+// confirmation are within the trigger's ages and not later than now.
+func freshEvidence(e ContextEvidence, now int64) bool {
+	return e.Found && e.Epoch != "" && e.UsedTokens != nil && e.LimitTokens != nil && *e.LimitTokens > 0 && *e.UsedTokens >= 0 &&
+		e.SourceAt <= now && e.ConfirmedAt <= now && now-e.SourceAt <= contextSourceMaxAge.Milliseconds() &&
+		now-e.ConfirmedAt <= contextConfirmationMaxAge.Milliseconds()
+}
+
+// compactSentAt is when c recorded its submission's receipt, after the Enter.
+func compactSentAt(ctx context.Context, q querier, c cycleRow) (int64, error) {
+	var at sql.NullInt64
+	err := q.QueryRowContext(ctx, `SELECT MAX(at) FROM context_cycle_events WHERE cycle_id=? AND stage=?`, c.ID, cycleCompactSent).Scan(&at)
+	if err == nil && !at.Valid {
+		err = sql.ErrNoRows
+	}
+	return at.Int64, err
+}
+
+// rearm forgets the crossing that admitted a compaction that ended keeping its Enable (before
+// its input or under another epoch), so the session's next fresh reading at its threshold
+// admits another. endCycleTx calls it once its transaction commits.
+func (s *Store) rearm(k Key) {
+	s.observed.mu.Lock()
+	defer s.observed.mu.Unlock()
+	delete(s.latches.epochs, k)
 }
 
 // cycleStep advances every unfinished cycle by at most one external effect: deadlines end
@@ -167,6 +218,18 @@ func (s *Store) stepCycle(ctx context.Context, c cycleRow) error {
 			}
 		}
 		_, err := s.endCycle(ctx, c.ID, c.Revision, cycleFailed, reason)
+		return err
+	case now >= c.StageDeadline && c.State == cycleCompactWaiting:
+		// A compaction whose pane was never ready got no input: it ends with what the pane
+		// showed, and the next fresh reading at the threshold admits another (#509).
+		reason := cycleCompactWaiting + "_timeout"
+		if seen, ok := s.paneSeen.get(c.ID); ok && seen != "" {
+			reason += "." + seen
+		}
+		_, err := s.endCycle(ctx, c.ID, c.Revision, cycleCancelled, reason)
+		return err
+	case now >= c.StageDeadline && c.State == cycleCompactSent:
+		_, err := s.endCycle(ctx, c.ID, c.Revision, cycleFailed, "compact_unconfirmed")
 		return err
 	case now >= c.StageDeadline && !cycleInputUnproven(c.State):
 		// A stage that waited for the pane names what the pane last showed. A requester that
@@ -230,6 +293,14 @@ func (s *Store) stepCycle(ctx context.Context, c cycleRow) error {
 	s.wake.mu.Lock()
 	defer s.wake.mu.Unlock()
 	switch c.State {
+	case cycleCompactWaiting:
+		return s.stepCompaction(ctx, c, t, adapter)
+	case cycleCompactIntent:
+		// An intent without its receipt is never entered again (#509).
+		_, err := s.endCycle(ctx, c.ID, c.Revision, cycleUncertain, "compact_unreceipted")
+		return err
+	case cycleCompactSent:
+		return nil // a context reading confirms it (compactionObserved), or its deadline ends it
 	case cycleReady, cycleBootstrapVerified, cycleResetVerified:
 		pane, err := adapter.Inspect(ctx, t, s.cycleFence(c))
 		if err != nil {
@@ -352,6 +423,102 @@ func (s *Store) stepCycle(ctx context.Context, c cycleRow) error {
 	return nil
 }
 
+// stepCompaction enters the native compaction of a waiting compaction once its pane is idle,
+// its compaction checks pass and its context is still at the threshold that admitted it. A
+// pane that is not ready leaves it waiting. The input intent is recorded first: a submission
+// that may have happened is never entered again, and one that surely did not happen, such as
+// typed text that was erased, returns the compaction to waiting.
+func (s *Store) stepCompaction(ctx context.Context, c cycleRow, t CycleTarget, adapter CycleAdapter) error {
+	compact, ok := adapter.(CompactAdapter)
+	if !ok {
+		_, err := s.endCycle(ctx, c.ID, c.Revision, cycleCancelled, "adapter_unavailable")
+		return err
+	}
+	pane, err := adapter.Inspect(ctx, t, s.cycleFence(c))
+	switch {
+	case err != nil:
+		s.paneSeen.set(c.ID, inspectSeen(err))
+		return nil
+	case pane.Prompt != "":
+		s.paneSeen.set(c.ID, "native_dialog")
+		return nil
+	case !pane.Idle:
+		if pane.Seen == "" || !cycleCode.MatchString(pane.Seen) {
+			pane.Seen = "pane_not_ready"
+		}
+		s.paneSeen.set(c.ID, pane.Seen)
+		return nil
+	}
+	s.paneSeen.set(c.ID, "")
+	k := Key{c.Family, c.SessionID}
+	enables, err := s.contextEnables(ctx)
+	if err != nil {
+		return err
+	}
+	// The input needs a fresh reading at the threshold that admitted the compaction: without a
+	// reading or a recent confirmation, such as after a restart, it waits; a changed mode or
+	// threshold, or a reading that no longer selects it, ends it before any input. The fence
+	// holds the mode and threshold through the input, so the confirmation compares with the
+	// threshold in force at the send.
+	policy, e := s.sessionContextPolicy(c.Family, enables[k]), s.contextEvidence(k)
+	switch reason := compactionStale(c, policy, e, s.now().UnixMilli()); reason {
+	case "":
+	case "context_unknown", "confirmation_stale":
+		s.paneSeen.set(c.ID, reason)
+		return nil
+	default:
+		_, err := s.endCycle(ctx, c.ID, c.Revision, cycleCancelled, reason)
+		return err
+	}
+	if probe := compact.CompactProbe(ctx, t); probe.Reason != "" {
+		_, err := s.endCycle(ctx, c.ID, c.Revision, cycleFailed, probe.Reason)
+		return err
+	}
+	c, err = s.advanceCycle(ctx, c.ID, c.Revision, cycleCompactWaiting, cycleCompactIntent, "", pinnedRequester(ctx), nil)
+	if err != nil {
+		return err
+	}
+	submitted, received, err := compact.Compact(ctx, t, s.cycleFence(c))
+	switch {
+	case !submitted:
+		_, err = s.advanceCycle(ctx, c.ID, c.Revision, cycleCompactIntent, cycleCompactWaiting, inputReason(cycleCompactIntent, err), nil, nil)
+	case !received:
+		_, err = s.endCycle(ctx, c.ID, c.Revision, cycleUncertain, inputReason(cycleCompactIntent, err))
+	default:
+		_, err = s.advanceCycle(ctx, c.ID, c.Revision, cycleCompactIntent, cycleCompactSent, "", nil, nil)
+	}
+	return err
+}
+
+// compactionStale is the fixed reason that a waiting compaction may not enter its input now:
+// the session's mode or threshold changed, its reading is of another epoch, or the trigger
+// does not select its newest reading (context_unknown, source_stale, below_threshold and the
+// others; the crossing's own latch does not count). "" when the input may go.
+func compactionStale(c cycleRow, policy ContextFamilyPolicy, e ContextEvidence, now int64) string {
+	switch {
+	case policy.Mode != ContextNativeCompaction:
+		return "mode_changed"
+	case policy.Threshold != c.Threshold:
+		return "threshold_changed"
+	case e.Found && e.Epoch != "" && e.Epoch != c.Epoch:
+		return "epoch_changed"
+	}
+	_, reason := SelectContextTrigger(ContextTriggerInput{Active: true, Enabled: true, Policy: policy, CycleAvailable: true, Evidence: e, Now: now})
+	return reason
+}
+
+// compactionPolicyHolds reports whether c's session is still in native_compaction at the
+// threshold that c recorded: the family mode, and the session's own threshold read in q.
+func (s *Store) compactionPolicyHolds(ctx context.Context, q querier, c cycleRow) (bool, error) {
+	var threshold int64
+	err := q.QueryRowContext(ctx, `SELECT threshold FROM context_enables WHERE family=? AND session_id=?`, c.Family, c.SessionID).Scan(&threshold)
+	if err != nil && !errors.Is(err, sql.ErrNoRows) {
+		return false, err
+	}
+	policy := s.sessionContextPolicy(c.Family, ContextEnable{Threshold: threshold})
+	return policy.Mode == ContextNativeCompaction && policy.Threshold == c.Threshold, nil
+}
+
 // cycleWaitsForPane reports a stage that waits for the pane to take input.
 // cycleRequestRead reports whether the requester read or acknowledged its inbox through the
 // cycle's newest request.
@@ -411,6 +578,15 @@ func (s *Store) cycleFence(c cycleRow) CycleFence {
 			}
 			return err
 		}
+		// A compaction's input also stops when the session's mode or threshold changed (#509).
+		if current.Mode == ContextNativeCompaction {
+			if ok, err := s.compactionPolicyHolds(ctx, tx, current); err != nil || !ok {
+				if err == nil {
+					err = ErrCycleChanged
+				}
+				return err
+			}
+		}
 		return nil
 	}
 }
@@ -447,7 +623,7 @@ func (s *Store) paneHeldByCycle(ctx context.Context, target Key) (bool, error) {
 	var held int
 	err := s.db.QueryRowContext(ctx, `SELECT COUNT(*) FROM context_cycles c JOIN sessions s ON s.family=? AND s.id=?
 		WHERE c.state IN ('ready','bootstrap_intent','bootstrap_verified','clear_intent','clear_received','reset_verified','pickup_intent',
-			'waiting_pickup','waiting_prompt','prompt_intent')
+			'waiting_pickup','waiting_prompt','prompt_intent','compact_intent','compact_sent')
 		AND c.host_pid=s.host_pid AND c.host_start=s.host_start AND c.tmux_socket=s.tmux_socket AND c.tmux_pane=s.tmux_pane`,
 		target.Family, target.ID).Scan(&held)
 	return held > 0, err

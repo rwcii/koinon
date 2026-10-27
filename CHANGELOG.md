@@ -5,6 +5,13 @@ into a dated release section when promoted to `main`.
 
 ## Unreleased
 
+- Codex's `native_compaction` mode now compacts (#509). It did nothing at the threshold: the
+  Settings page showed a Codex threshold that had no effect. An enabled Codex session in that
+  mode now gets Codex's own `/compact` in its tmux pane when its context reaches the threshold,
+  once Codex is idle, once per crossing; a fresh reading below the threshold confirms it, and
+  the Sessions page shows each compaction and its result. It needs no pickup skill or
+  participant address, and Koinon changes no Codex setting. Schema 34 rebuilds the cycle table
+  with the compaction states.
 - A dashboard view whose read fails in the daemon, also for a stored record that cannot be
   read, answers 500 with "The daemon could not read this view." and logs
   `dashboard_view_failed` (#507). It answered 400 on the login page, "Not signed in" and "The

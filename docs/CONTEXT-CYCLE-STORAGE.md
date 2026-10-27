@@ -75,6 +75,13 @@ unchanged. The migration rebuilds `context_cycles` and returns the old table's p
 first write. Since #406 no cycle enters these stages; the schema keeps them for cycles that an
 earlier binary stored in them.
 
+Schema 34 (#509) adds the native compaction stages `compact_waiting`, `compact_intent` and
+`compact_sent`, by the same rebuild. A compaction is a cycle row with the same credit: its
+admission writes no request message and protects no claim, so it writes less than a handoff
+cycle's, and each of its stages and its terminal outcome is funded as above. A return from
+`compact_intent` to `compact_waiting` is a stage like any other, so the 16-event bound also
+bounds the retries of one compaction.
+
 ## Refused ready reports
 
 Each cycle row has a `ready_refusal` slot of 96 bytes (#485): a 20-digit revision, a space and

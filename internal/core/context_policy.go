@@ -14,8 +14,8 @@ import (
 // session's fresh context observation reaches its threshold. Nothing here enters terminal
 // input; the managed cycle is chunks 02 and 03.
 
-// Context modes. Codex's native_compaction leaves its own compaction to the client; the
-// mode never edits a native setting.
+// Context modes. At the threshold, handoff_cycle runs the managed handoff cycle and Codex's
+// native_compaction enters Codex's own /compact (#509). No mode edits a native setting.
 const (
 	ContextObserve          = "observe"
 	ContextNativeCompaction = "native_compaction"
@@ -157,13 +157,9 @@ func (s *Store) SetContextPolicy(ctx context.Context, family, mode string, thres
 	}
 	s.settings.write.Lock()
 	defer s.settings.write.Unlock()
-	// A mode without the cycle cancels pending cycles: it is a control and may use the
-	// reserve, for its two bounded settings rows as well.
-	class := ordinary
-	if mode != ContextHandoffCycle {
-		class = control
-	}
-	tx, err := s.begin(ctx, class)
+	// A mode change cancels the pending cycles of the other modes: it is a control and may
+	// use the reserve, for its two bounded settings rows as well.
+	tx, err := s.begin(ctx, control)
 	if err != nil {
 		return err
 	}
@@ -179,12 +175,10 @@ func (s *Store) SetContextPolicy(ctx context.Context, family, mode string, thres
 			return tx.fail(err)
 		}
 	}
-	if mode != ContextHandoffCycle {
-		// A mode without the cycle cancels the family's pending cycles; a threshold change
-		// applies to the next request only.
-		if err := s.fenceCyclesTx(ctx, tx, "mode_changed", `family=?`, family); err != nil {
-			return tx.fail(err)
-		}
+	// The family's pending cycles of another mode end; a threshold change applies to the next
+	// crossing only.
+	if err := s.fenceCyclesTx(ctx, tx, "mode_changed", `family=? AND mode!=?`, family, mode); err != nil {
+		return tx.fail(err)
 	}
 	setAuditTarget(ctx, "context "+family+" mode "+mode+" threshold "+strconv.FormatInt(threshold, 10))
 	if err := tx.Commit(); err != nil {
@@ -216,7 +210,7 @@ func (s *Store) sessionContextPolicy(family string, enable ContextEnable) Contex
 
 // ErrContextCycleUnavailable refuses an Enable while no verified cycle adapter exists for
 // the session's family and platform (#196: chunk 03 supplies the first one).
-var ErrContextCycleUnavailable = Refusal{"context_cycle_unavailable", "no verified handoff cycle is available for this session yet"}
+var ErrContextCycleUnavailable = Refusal{"context_cycle_unavailable", "no verified handoff cycle or compaction is available for this session yet"}
 
 // errSessionRevisionChanged refuses an Enable change for a session that changed since the
 // dashboard showed it.
@@ -460,7 +454,8 @@ type ContextTriggerInput struct {
 	Policy         ContextFamilyPolicy
 	CycleAvailable bool
 	// OverwatchConflict reports a retained name record named overwatch, the reserved
-	// sender of the cycle request (#196): no cycle is admitted until it is resolved.
+	// sender of the cycle request (#196): no handoff cycle is admitted until it is resolved. A
+	// compaction sends no request.
 	OverwatchConflict bool
 	Evidence          ContextEvidence
 	Now               int64  // ms
@@ -474,13 +469,13 @@ func SelectContextTrigger(in ContextTriggerInput) (bool, string) {
 	switch {
 	case !in.Active:
 		return false, "session_inactive"
-	case in.Policy.Mode != ContextHandoffCycle:
+	case in.Policy.Mode != ContextHandoffCycle && in.Policy.Mode != ContextNativeCompaction:
 		return false, "mode_" + in.Policy.Mode
 	case !in.Enabled:
 		return false, "not_enabled"
 	case !in.CycleAvailable:
 		return false, "context_cycle_unavailable"
-	case in.OverwatchConflict:
+	case in.OverwatchConflict && in.Policy.Mode == ContextHandoffCycle:
 		return false, "overwatch_name_conflict"
 	case !e.Found:
 		return false, "context_unknown"

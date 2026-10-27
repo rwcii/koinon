@@ -356,7 +356,7 @@ func checkFormat(db *sql.DB, path string) error {
 	return nil
 }
 
-const schemaVersion = 33
+const schemaVersion = 34
 
 // workItemsV16Columns are the work item columns before schema 17, which its rebuild copies.
 const workItemsV16Columns = `store,work_id,revision,lifecycle,title,criteria,non_goals,proposed_assignee,created_at,created_consumer,
@@ -821,7 +821,7 @@ func migrate(db *sql.DB, version, target int) error {
 		// widen a CHECK in place, so the cycle table is rebuilt under its own name; every row
 		// is copied unchanged.
 		if _, err := tx.Exec(`ALTER TABLE context_cycles RENAME TO context_cycles_v23;
-			` + contextCyclesTable + `
+			` + contextCyclesTableV24 + `
 			INSERT INTO context_cycles(` + cycleColumns + `) SELECT ` + cycleColumns + ` FROM context_cycles_v23;
 			DROP TABLE context_cycles_v23;`); err != nil {
 			return err
@@ -900,6 +900,16 @@ func migrate(db *sql.DB, version, target int) error {
 			UPDATE decision_items SET author_participant=COALESCE((SELECT ` + participantIdentity + ` FROM names a JOIN sessions s
 				ON s.family=a.family AND s.id=a.session_id WHERE a.kind='peer' AND a.name=decision_items.author_name
 				AND a.family=decision_items.author_family AND ` + participantSession + `),'');`); err != nil {
+			return err
+		}
+	}
+	if version < 34 && target >= 34 {
+		// Version 34: the native compaction states (#509). The cycle table is rebuilt under its
+		// own name, as in version 24; every row is copied unchanged.
+		if _, err := tx.Exec(`ALTER TABLE context_cycles RENAME TO context_cycles_v33;
+			` + contextCyclesTable + `
+			INSERT INTO context_cycles(` + cycleColumns + `,ready_refusal) SELECT ` + cycleColumns + `,ready_refusal FROM context_cycles_v33;
+			DROP TABLE context_cycles_v33;`); err != nil {
 			return err
 		}
 	}
