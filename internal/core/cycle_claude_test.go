@@ -731,6 +731,25 @@ func TestClaudeInspectBackgroundSubagent(t *testing.T) {
 	}
 	os.Remove(filepath.Join(dir, "agent-finished.meta.json"))
 	os.Remove(filepath.Join(dir, "agent-finished.jsonl"))
+	// A subagent whose transcript ended before the report but whose meta file says finished
+	// after it also gave its result to this conversation (#533 review); one that finished
+	// before the report did not.
+	agent("agent-late", `{"agentType":"general-purpose","finished":true}`, ready.Add(-10*time.Second))
+	meta := filepath.Join(dir, "agent-late.meta.json")
+	if err := os.Chtimes(meta, ready.Add(-5*time.Second), ready.Add(-5*time.Second)); err != nil {
+		t.Fatal(err)
+	}
+	if state, err := (claudeCycle{}).Inspect(ctx, tg, term.fence); err != nil || !state.Idle {
+		t.Fatalf("finished before the report: %+v %v", state, err)
+	}
+	if err := os.Chtimes(meta, ready.Add(5*time.Second), ready.Add(5*time.Second)); err != nil {
+		t.Fatal(err)
+	}
+	if state, err := (claudeCycle{}).Inspect(ctx, tg, term.fence); err != nil || state.Seen != subagentAfterReady {
+		t.Fatalf("meta finished after the report: %+v %v", state, err)
+	}
+	os.Remove(meta)
+	os.Remove(filepath.Join(dir, "agent-late.jsonl"))
 	// An unreadable meta file proves nothing.
 	if err := os.WriteFile(filepath.Join(dir, "agent-running.meta.json"), []byte(`{"finished":`), 0o600); err != nil {
 		t.Fatal(err)

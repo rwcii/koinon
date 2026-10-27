@@ -335,12 +335,13 @@ var maxSubagentEntries = 16384
 
 var errSubagentScan = errors.New("subagent transcripts not fully read")
 
-// claudeSubagentsSince reports whether a subagent transcript of the session changed after
-// at (Unix milliseconds) for a subagent that is not running. Claude Code keeps them at
+// claudeSubagentsSince reports whether a subagent of the session that is not running changed
+// its transcript or meta file after at (Unix milliseconds). Claude Code keeps them at
 // projects/PROJECT/SESSION/subagents/ in its configuration root, which is read as a literal
 // path. Only file times and the meta file's finished key are read, never transcript content.
 // A subagent whose meta file has no "finished": true still runs, and its result goes to the
-// conversation after the clear (#533); one without a meta file counts, as before meta files.
+// conversation after the clear (#533); one that finished after at counts even when its
+// transcript is older (#533 review); one without a meta file counts by its transcript time.
 // An absent directory proves no subagent work; an unreadable one, or one with more than
 // maxSubagentEntries entries, is an error, never a clean result.
 func claudeSubagentsSince(root, session string, at int64) (bool, error) {
@@ -370,10 +371,22 @@ func claudeSubagentsSince(root, session string, at int64) (bool, error) {
 			} else if err != nil {
 				return false, err
 			}
-			if info.ModTime().UnixMilli() <= at {
+			metaPath := filepath.Join(dir, strings.TrimSuffix(e.Name(), ".jsonl")+".meta.json")
+			changed := info.ModTime().UnixMilli()
+			metaInfo, err := os.Lstat(metaPath)
+			if errors.Is(err, fs.ErrNotExist) {
+				if changed > at {
+					return true, nil
+				}
+				continue
+			} else if err != nil {
+				return false, err
+			}
+			changed = max(changed, metaInfo.ModTime().UnixMilli())
+			if changed <= at {
 				continue
 			}
-			data, err := readBounded(filepath.Join(dir, strings.TrimSuffix(e.Name(), ".jsonl")+".meta.json"), claudeRegistryMax)
+			data, err := readBounded(metaPath, claudeRegistryMax)
 			if errors.Is(err, fs.ErrNotExist) {
 				return true, nil
 			} else if err != nil {
