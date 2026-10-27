@@ -87,8 +87,9 @@ func TestGrokStatusHook(t *testing.T) {
 	}
 }
 
-// The caller is the Grok session in the hook's environment; a payload that names another session
-// gives no report, and nothing falls back to the payload (#515).
+// The caller is the input's session_id, the session's MCP identity: Grok Build 1.0.50 gives the
+// status-line command no GROK_SESSION_ID. A GROK_SESSION_ID in the environment must name the same
+// session (#515).
 func TestGrokStatusIdentity(t *testing.T) {
 	full := func(id string) string {
 		return `{` + id + `"model":{"id":"m"},"context_window":{"context_window_size":10,"context_tokens":1}}`
@@ -97,17 +98,18 @@ func TestGrokStatusIdentity(t *testing.T) {
 		name, env, input string
 		report           bool
 	}{
-		{"same", grokSynthetic, full(`"session_id":"` + grokSynthetic + `",`), true},
-		{"absent", grokSynthetic, full(""), true},
-		{"other", grokSynthetic, full(`"session_id":"other-session",`), false},
-		{"null", grokSynthetic, full(`"session_id":null,`), false},
-		{"empty", grokSynthetic, full(`"session_id":"",`), false},
-		{"number", grokSynthetic, full(`"session_id":7,`), false},
-		{"no env", "", full(`"session_id":"` + grokSynthetic + `",`), false},
-		{"invalid env", "bad id", full(`"session_id":"bad id",`), false},
+		{"no env", "", full(`"session_id":"` + grokSynthetic + `",`), true},
+		{"same env", grokSynthetic, full(`"session_id":"` + grokSynthetic + `",`), true},
+		{"other env", "other-session", full(`"session_id":"` + grokSynthetic + `",`), false},
+		{"absent", "", full(""), false},
+		{"absent with env", grokSynthetic, full(""), false},
+		{"null", "", full(`"session_id":null,`), false},
+		{"empty", "", full(`"session_id":"",`), false},
+		{"number", "", full(`"session_id":7,`), false},
+		{"not an ID", "", full(`"session_id":"bad id",`), false},
 	} {
 		o, _, ok := grokStatus(c.env)([]byte(c.input), 1)
-		if ok != c.report || ok && o.Caller != (core.Key{Family: "grok", ID: c.env}) {
+		if ok != c.report || ok && (o.Caller != (core.Key{Family: "grok", ID: grokSynthetic}) || o.Context.Epoch != grokSynthetic) {
 			t.Fatalf("%s: %v %+v", c.name, ok, o)
 		}
 	}
@@ -117,7 +119,7 @@ func TestGrokStatusIdentity(t *testing.T) {
 // context, and the model is read on its own (#515).
 func TestGrokStatusCounts(t *testing.T) {
 	read := func(window string) core.Observation {
-		o, _, _ := grokStatus(grokSynthetic)([]byte(`{"model":{"id":"m"},"context_window":`+window+`}`), 1)
+		o, _, _ := grokStatus("")([]byte(`{"session_id":"`+grokSynthetic+`","model":{"id":"m"},"context_window":`+window+`}`), 1)
 		return o
 	}
 	for window, want := range map[string]bool{
@@ -144,7 +146,7 @@ func TestGrokStatusCounts(t *testing.T) {
 	if o := read(`{"context_window_size":200,"context_tokens":13}`); *o.Context.LimitTokens != 200 || *o.Context.UsedTokens != 13 {
 		t.Fatalf("values: %+v", o.Context)
 	}
-	if o, _, ok := grokStatus(grokSynthetic)([]byte(`{"context_window":{"context_window_size":10}}`), 1); ok || o.Model != nil {
+	if o, _, ok := grokStatus("")([]byte(`{"session_id":"`+grokSynthetic+`","context_window":{"context_window_size":10}}`), 1); ok || o.Model != nil {
 		t.Fatalf("no reading: %v %+v", ok, o)
 	}
 }

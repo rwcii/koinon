@@ -255,12 +255,14 @@ const grokStatusMax = 64 << 10
 var grokSessionID = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$`)
 
 // grokStatus reads the model and context use of one Grok status-line input (#515). The caller
-// is the Grok session in the hook's environment, the MCP identity; a payload that names another
-// session, or a session_id that is null, empty or not a string, gives no report. Model and
-// context are read independently; the context needs both counts.
-func grokStatus(session string) func([]byte, int64) (core.Observation, string, bool) {
+// is the input's session_id, which is the session's MCP identity: Grok Build 1.0.50 gives
+// GROK_SESSION_ID to its MCP server, not to the status-line command. A session_id that is
+// absent, null, empty, not a string or not a session ID gives no report, and so does one that
+// differs from a GROK_SESSION_ID in the hook's environment (env, when set). Model and context are
+// read independently; the context needs both counts.
+func grokStatus(env string) func([]byte, int64) (core.Observation, string, bool) {
 	return func(data []byte, now int64) (core.Observation, string, bool) {
-		if !grokSessionID.MatchString(session) || len(data) > grokStatusMax {
+		if len(data) > grokStatusMax {
 			return core.Observation{}, "", false
 		}
 		var input struct {
@@ -268,14 +270,10 @@ func grokStatus(session string) func([]byte, int64) (core.Observation, string, b
 			Model     json.RawMessage `json:"model"`
 			Window    json.RawMessage `json:"context_window"`
 		}
-		if json.Unmarshal(data, &input) != nil {
+		var session string
+		if json.Unmarshal(data, &input) != nil || json.Unmarshal(input.SessionID, &session) != nil ||
+			!grokSessionID.MatchString(session) || env != "" && env != session {
 			return core.Observation{}, "", false
-		}
-		if input.SessionID != nil {
-			var id string
-			if json.Unmarshal(input.SessionID, &id) != nil || id != session {
-				return core.Observation{}, "", false
-			}
 		}
 		o := core.Observation{Caller: core.Key{Family: "grok", ID: session}}
 		var model struct {
