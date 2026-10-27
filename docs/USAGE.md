@@ -452,19 +452,23 @@ session; the page names the reason (for example a session that is not in its lau
 or a missing `koinon-pickup` skill, with the `koinon install` step that installs it). Disabling always works. A stored mode or threshold that is not valid
 keeps the family default, and the Settings page names the error.
 
-agy sessions report their context through the status line that `koinon setup agy` installs, so
-the Sessions page shows their readings; agy has no handoff cycle yet, so its mode stays
-`observe`.
+agy sessions report their context and activity through the status line that `koinon setup agy`
+installs, so the Sessions page shows their readings. The agy family default stays `observe`.
 
 Claude Code sessions launched with `koinon claude` on Linux and macOS can run the cycle, and
 Codex sessions launched with `koinon codex` in tmux on Linux and macOS can run it too (family
-mode `handoff_cycle`) while they hold their participant address. After the clear the cycle
-enters `/koinon-pickup` (Claude Code) or `$koinon-pickup` (Codex): Koinon's own pickup skill,
+mode `handoff_cycle`) while they hold their participant address. agy sessions launched with
+`koinon agy` in tmux on Linux can run it the same way, with Koinon's agy status line set up by
+`koinon setup agy`; macOS waits for native evidence. After the clear the cycle enters
+`/koinon-pickup` (Claude Code, agy) or `$koinon-pickup` (Codex): Koinon's own pickup skill,
 which the daemon at each start and `koinon install` write for you under `~/.claude/skills`
-(or `$CLAUDE_CONFIG_DIR/skills`) and `~/.agents/skills`, never into a repository. It loads the catalog's canonical pickup
+(or `$CLAUDE_CONFIG_DIR/skills`), `~/.agents/skills` and `~/.gemini/config/skills`, never into a
+repository. A workspace `.agent/skills/koinon-pickup` or `.agents/skills/koinon-pickup` would
+replace agy's entry, so the Sessions page names it as `pickup_entry_shadowed` unless it is the
+same file. It loads the catalog's canonical pickup
 procedure, so a project's own `pickup` skill neither blocks the cycle nor is changed by it
-([INSTALL.md](INSTALL.md#install), step 7). For Codex, the new thread after the clear takes the
-address and reports the pickup. An enabled session
+([INSTALL.md](INSTALL.md#install), step 7). For Codex and agy, the new thread or conversation after the
+clear takes the address and reports the pickup. An enabled session
 whose context reaches its threshold gets a request from `overwatch`, Koinon's reserved system
 requester, in its inbox. The request asks the session to pause at a safe stopping point, write
 its handoff and report it with `context_cycle_ready`, then end its turn and stay idle. The

@@ -396,9 +396,14 @@ func (s *Store) stepCycle(ctx context.Context, c cycleRow) error {
 		_, err := s.endCycle(ctx, c.ID, c.Revision, cycleUncertain, "prompt_unreceipted")
 		return err
 	case cycleWaitingPrompt:
-		if !adapter.Answerable(c.Reason) {
+		if !adapter.Answerable(cyclePrompt(c)) {
 			// The native session's own settings, or the maintainer, answer this dialog; the
 			// cycle returns to its stage once the dialog is gone, or the prompt wait ends it.
+			// A wait that began in waiting_pickup stays: the report is accepted in it, and
+			// each later dialog of the pickup is one more in the same wait (#520).
+			if c.PromptFrom == cycleWaitingPickup {
+				return nil
+			}
 			pane, err := adapter.Inspect(ctx, t, s.cycleFence(c))
 			if err != nil || pane.Prompt != "" {
 				return nil
@@ -408,19 +413,41 @@ func (s *Store) stepCycle(ctx context.Context, c cycleRow) error {
 		}
 		// The response is an input like any other: its intent is recorded first, and it is
 		// never entered again without proof.
-		c, err := s.advanceCycle(ctx, c.ID, c.Revision, cycleWaitingPrompt, cyclePromptIntent, c.Reason, nil, nil)
+		prompt := cyclePrompt(c)
+		c, err := s.advanceCycle(ctx, c.ID, c.Revision, cycleWaitingPrompt, cyclePromptIntent, prompt, nil, nil)
 		if err != nil {
 			return err
 		}
-		answered, err := adapter.Answer(ctx, t, c.Reason, s.cycleFence(c))
+		answered, err := adapter.Answer(ctx, t, prompt, s.cycleFence(c))
 		if err != nil || !answered {
 			_, err := s.endCycle(ctx, c.ID, c.Revision, cycleUncertain, "prompt_unanswered")
 			return err
 		}
-		_, err = s.advanceCycle(ctx, c.ID, c.Revision, cyclePromptIntent, c.PromptFrom, "prompt_answered", nil, func(n *cycleRow) { n.PromptFrom = "" })
+		to, change := promptReturn(c)
+		_, err = s.advanceCycle(ctx, c.ID, c.Revision, cyclePromptIntent, to, "prompt_answered", nil, change)
 		return err
 	}
 	return nil
+}
+
+// cyclePrompt is the code of the dialog that a prompt wait waits on. A wait that began in
+// waiting_pickup waits on the native dialogs of the pickup; its reason can name its last
+// answer instead (#520).
+func cyclePrompt(c cycleRow) string {
+	if c.PromptFrom == cycleWaitingPickup {
+		return "native_dialog"
+	}
+	return c.Reason
+}
+
+// promptReturn is the stage that an answered dialog returns its cycle to, with the change
+// that ends the wait. A wait that began in waiting_pickup goes on, for the pickup's next
+// dialog or its report (#520).
+func promptReturn(c cycleRow) (string, func(*cycleRow)) {
+	if c.PromptFrom == cycleWaitingPickup {
+		return cycleWaitingPrompt, nil
+	}
+	return c.PromptFrom, func(n *cycleRow) { n.PromptFrom = "" }
 }
 
 // stepCompaction enters the native compaction of a waiting compaction once its pane is idle,
@@ -598,8 +625,13 @@ func (s *Store) cycleTarget(ctx context.Context, c cycleRow) CycleTarget {
 	t := c.target()
 	var executable string
 	// A session row that cannot be read leaves "": tmux from PATH.
-	_ = s.db.QueryRowContext(ctx, `SELECT tmux_path FROM sessions WHERE family=? AND id=?`, c.Family, c.SessionID).Scan(&executable)
+	_ = s.db.QueryRowContext(ctx, `SELECT tmux_path,directory FROM sessions WHERE family=? AND id=?`, c.Family, c.SessionID).Scan(&executable, &t.Directory)
 	t.tools = s.hostTools(executable)
+	if c.Family == "agy" {
+		t.witnesses = s.agyWitness.of(c.ID)
+		t.observedEpoch = s.contextEvidence(Key{c.Family, c.SessionID}).Epoch
+		t.stateRoot = s.root
+	}
 	t.Pickup = pickupSkillEntry()
 	var held int
 	t.Holds = s.db.QueryRowContext(ctx, `SELECT 1 FROM names WHERE kind='alias' AND family=? AND holder_id=? LIMIT 1`, c.Family, c.SessionID).Scan(&held) == nil
@@ -692,7 +724,7 @@ func (s *Store) CycleDialogOf(ctx context.Context, id string) (CycleDialog, erro
 		return CycleDialog{}, ErrCycleChanged
 	}
 	adapter := cycleAdapterOf(c.Family)
-	if adapter == nil || adapter.Answerable(c.Reason) {
+	if adapter == nil || adapter.Answerable(cyclePrompt(c)) {
 		return CycleDialog{}, ErrCycleChanged
 	}
 	return adapter.Dialog(ctx, s.cycleTarget(ctx, c))
@@ -711,7 +743,7 @@ func (s *Store) AnswerCycleDialog(ctx context.Context, id string, revision int64
 		return err
 	}
 	adapter := cycleAdapterOf(c.Family)
-	if c.State != cycleWaitingPrompt || c.Revision != revision || adapter == nil || adapter.Answerable(c.Reason) {
+	if c.State != cycleWaitingPrompt || c.Revision != revision || adapter == nil || adapter.Answerable(cyclePrompt(c)) {
 		return ErrCycleChanged
 	}
 	t := s.cycleTarget(ctx, c)
@@ -740,7 +772,8 @@ func (s *Store) AnswerCycleDialog(ctx context.Context, id string, revision int64
 		}
 		return err
 	}
-	_, err = s.advanceCycle(ctx, id, c.Revision, cyclePromptIntent, c.PromptFrom, "prompt_answered", nil, func(n *cycleRow) { n.PromptFrom = "" })
+	to, change := promptReturn(c)
+	_, err = s.advanceCycle(ctx, id, c.Revision, cyclePromptIntent, to, "prompt_answered", nil, change)
 	if errors.Is(err, ErrCycleChanged) {
 		// The approved call can be the pickup report itself, which completes the cycle
 		// before the return to its stage is recorded: the answer was received.

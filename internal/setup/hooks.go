@@ -182,12 +182,17 @@ func count(raw json.RawMessage) *int64 {
 	return &n
 }
 
-// agyStatus reads the model and context use of one agy status-line input (#512). The caller
-// is the conversation, which /clear replaces; an input without one gives no report. Counts
-// that are absent, null or invalid, or a limit that is not positive, are unknown.
+// agyActivity maps the status line's agent_state to an activity: idle, or busy while a turn
+// or a tool runs. Any other state, such as authenticating, is unknown, never idle.
+var agyActivity = map[string]string{"idle": "idle", "working": "busy", "tool_use": "busy"}
+
+// agyStatus reads the model, context use and activity of one agy status-line input (#512). The
+// caller is the conversation, which /clear replaces; an input without one gives no report.
+// Counts that are absent, null or invalid, or a limit that is not positive, are unknown.
 func agyStatus(data []byte, now int64) (core.Observation, string, bool) {
 	var input struct {
 		ConversationID string          `json:"conversation_id"`
+		AgentState     string          `json:"agent_state"`
 		Model          json.RawMessage `json:"model"`
 		Window         *struct {
 			Size         json.RawMessage `json:"context_window_size"`
@@ -205,6 +210,9 @@ func agyStatus(data []byte, now int64) (core.Observation, string, bool) {
 	if json.Unmarshal(input.Model, &model) == nil && model.ID != "" {
 		o.Model = &core.ObservedValue{Source: "agy_statusline", At: now, ID: model.ID}
 	}
+	if state := agyActivity[input.AgentState]; state != "" {
+		o.Activity = &core.ObservedValue{Source: "agy_statusline", At: now, State: state}
+	}
 	if w := input.Window; w != nil {
 		available := len(w.CurrentUsage) > 0 && string(w.CurrentUsage) != "null"
 		o.Context = &core.ObservedValue{Source: "agy_statusline", At: now, UsageAvailable: &available, Epoch: input.ConversationID}
@@ -212,7 +220,7 @@ func agyStatus(data []byte, now int64) (core.Observation, string, bool) {
 			o.Context.LimitTokens, o.Context.UsedTokens = size, used
 		}
 	}
-	return o, "", o.Model != nil || o.Context != nil
+	return o, "", o.Model != nil || o.Context != nil || o.Activity != nil
 }
 
 // ClaudeStatus is the Claude Code status-line command. It runs the user's own command, if
@@ -224,9 +232,28 @@ func ClaudeStatus(args []string, in io.Reader, out, errOut io.Writer, env HookEn
 }
 
 // AgyStatus is the agy status-line command, as ClaudeStatus is for Claude Code. Without a
-// command it prints nothing, so agy's stacked default status line stands alone.
+// command it prints nothing, so agy's stacked default status line stands alone. It also gives
+// the daemon each conversation with this hook process as its reporter, which ties a new
+// conversation after a managed /clear to the cycle's pinned host (#512).
 func AgyStatus(args []string, in io.Reader, out, errOut io.Writer, env HookEnv) int {
-	return statusCommand("agy-status", agyStatus, args, in, out, errOut, env)
+	return statusCommand("agy-status", func(data []byte, now int64) (core.Observation, string, bool) {
+		o, display, ok := agyStatus(data, now)
+		if ok {
+			env.witness(o.Caller.ID)
+		}
+		return o, display, ok
+	}, args, in, out, errOut, env)
+}
+
+// witness gives the daemon one agy conversation with this process as its reporter. Without a
+// cycle that waits for one, the daemon keeps nothing.
+func (e HookEnv) witness(conversation string) {
+	pid := os.Getpid()
+	start, err := platform.ProcessStart(pid)
+	if err != nil || start <= 0 {
+		return
+	}
+	e.call("/v1/cycles/agy-witness", core.AgyWitness{Conversation: conversation, Reporter: core.ObservationReporter{PID: pid, Start: start}})
 }
 
 func statusCommand(hook string, parse func([]byte, int64) (core.Observation, string, bool),

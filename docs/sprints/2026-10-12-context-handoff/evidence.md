@@ -169,3 +169,70 @@ tmux and process tools:
 
 The confirmation rule reads that `token_count`: a fresh reading recorded after the receipt, for the
 same epoch, below the threshold. macOS is checked by the maintainer before release.
+
+## agy cycle adapter (#512)
+
+Antigravity CLI 1.4.7 on Linux, 2026-10-27, in a private tmux server with a scratch Git
+workspace; the redacted captures are `internal/core/testdata/agy-screens`. The maintainer's agy
+settings were restored to their original bytes after each run.
+
+- Screen. The composer is the `>` line between the last two full-width rules; submitted
+  prompts in the transcript are framed by a rule too. Idle: an empty composer and the footer
+  `? for shortcuts`. A draft shows `> TEXT` and no footer hint; a running turn shows a spinner
+  line (`Generating...`, `Running command...`) above the rules and the footer `esc to cancel`.
+  A typed `/` opens a fuzzy menu below the rules, its selected row marked `> `, with the hint
+  `↑/↓ Navigate · enter Select · tab Complete` and `↓ N more` when it scrolls. `C-u` clears
+  the composer. A key sent right after Escape is lost (read as Alt+key). A turn cancelled with
+  Escape ends with `⎿ Interrupted · What should Antigravity CLI do instead?`.
+- `/clear`. With the full command typed, the menu has the one selected row
+  `/clear  Clear conversation and start a new one`; Enter runs it. The screen then shows the
+  banner (`Antigravity CLI 1.4.7`) and an idle composer with no transcript line. The host
+  process, its PID and start time stay; a new conversation starts at once, before any turn
+  (the host's log says `Streaming conversation <new>`, and the host holds an exclusive flock on
+  `~/.gemini/antigravity-cli/presence/<new>.lock`).
+- New conversation proof. agy runs the `statusLine` command as `sh -c` under the host
+  (`hook <- sh <- agy <- tmux server`), on change only. After the `/clear` Enter at t0 it
+  reported the old conversation once more at t0+148 ms, then the new one at t0+461 ms (0 tokens,
+  `idle`), with no turn and no tool call between. Its input carries `agent_state` (`authenticating`,
+  `idle`, `working`, `tool_use`). The flock is Linux-only evidence and is not used.
+- Pickup entry. `~/.gemini/config/skills/koinon-pickup/SKILL.md` is listed as `/koinon-pickup`
+  with its description, cut with `...` at the pane width. A workspace
+  `.agent/skills/koinon-pickup/SKILL.md` or `.agents/skills/koinon-pickup/SKILL.md` replaces it
+  (`.agent` first) and the menu still shows one row, with the workspace description; a workspace
+  `.gemini/skills` does not. Skills reload at each conversation switch.
+- Pickup run, against a disposable daemon (`KOINON_STATE_DIR` and `KOINON_DAEMON_ADDRESS` in
+  agy's environment, checked in its `koinon mcp` child). Enter on the `/koinon-pickup` row
+  submits it: `> /koinon-pickup` becomes the newest prompt above an empty composer, and the
+  skill calls `koinon/library_read`. Started with `koinon agy`, the first conversation registered
+  at that call with the participant address; after `/clear`, the new conversation's first call
+  registered it in the same host, retired the old one and moved the address to it.
+- Dialogs. A command that the permission rules do not allow shows `Requesting permission for:`,
+  the command, `Run this command?`, numbered options (`> ` marks the selected one; long options
+  wrap onto unindented rows; the list scrolls) and the hint
+  `↑/↓ Navigate · tab Amend · ctrl+g edit/expand command`. A digit moves the selection and Enter
+  confirms it; a declined request ends with `⎿ User declined the tool call`. The status line
+  shows `tool_use` meanwhile. The folder-trust question at the first start in a folder is not
+  numbered. With `mcp(koinon/*)` allowed, no MCP tool approval appeared.
+- Process. The launcher execs agy in the pane (`~/.local/bin/agy`, no arguments); agy leads the
+  terminal's foreground group, and its `koinon mcp` child is in that group. A short-lived `agy`
+  child appeared once at start. Terminal naming renamed the tmux session; the pane ID stayed.
+
+- Managed cycle runs, with the branch binary as the daemon (a scratch state directory and
+  `HOME`), as agy's MCP server and as its status-line command, family mode `handoff_cycle` at
+  1%. Each run: `koinon agy` in the private tmux server, one `koinon/peers` call, Enable, a
+  status-line change admits the cycle, and a short turn's Stop hook delivers the request.
+  - Run 1: Enable, admission, the request and the handoff worked; `context_cycle_ready` was
+    refused with `cycle_epoch_unverified`, because `koinon mcp` gave agy no epoch (fixed).
+  - Run 2: ready, `/clear`, the new conversation's witness, `reset_verified`, `/koinon-pickup` and
+    the successor's pickup worked. The successor's pickup raised command dialogs, and each one
+    cost two events (`waiting_prompt`, then `waiting_pickup` `prompt_resolved`); at the fifth
+    the cycle failed with `event_limit` (#520), and the successor's report was refused.
+  - Run 3, with #520: `requested`, `ready`, `clear_intent`, `clear_received` (339 ms later),
+    `reset_verified` (552 ms), `pickup_intent`, `waiting_pickup`, one `waiting_prompt` for the
+    successor's four command dialogs, then `complete` `resumed` with the successor's report:
+    9 events, 101 s from the pickup input to the report. The Enable moved to the successor,
+    which was admitted to a new cycle at once at 1%; Disable cancelled it.
+  - Each dialog was answered in the pane, after reading its whole command (`ctrl+g` shows a
+    long one). After Escape from that view the next key was received.
+
+Not yet verified: macOS; an MCP tool approval dialog.

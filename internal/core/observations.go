@@ -20,7 +20,7 @@ import (
 var observationSources = map[string][]string{
 	"model":    {"claude_statusline", "codex_rollout", "codex_mcp_meta", "agy_hook", "agy_statusline"},
 	"context":  {"claude_statusline", "codex_rollout", "agy_statusline"},
-	"activity": {"claude_registry", "codex_rollout", "agy_hook", "mcp_call"},
+	"activity": {"claude_registry", "codex_rollout", "agy_hook", "agy_statusline", "mcp_call"},
 	"terminal": {"tmux_env"},
 	"naming":   {"koinon_mcp"},
 }
