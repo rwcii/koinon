@@ -705,7 +705,8 @@ reads the current view without input, and the first view with a row of the creat
 none of another session is recorded once, as the same-state event `waiting_pickup`
 `pickup_displayed`. The report itself needs a current view that shows the created session and
 no other: the daemon reads the pane again for at most 2 seconds, so that the report call's own
-row can render, and never past the stage's or the cycle's deadline. A recorded earlier view
+row can render, and never past the stage's or the cycle's deadline; a view read after that does
+not count. A recorded earlier view
 proves nothing about the current one, because another empty session looks the same. Without it
 the report is refused with `cycle_display_unproven` (HTTP 409), the cycle stays in its stage and
 the report may be sent again. The report also needs the created session's replies from the model

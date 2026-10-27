@@ -766,19 +766,19 @@ func (s *Store) displayProof(ctx context.Context, c cycleRow, display DisplayAda
 	limit := min(c.StageDeadline, c.CycleDeadline)
 	read, cancel := context.WithTimeout(ctx, time.Duration(limit-s.now().UnixMilli())*time.Millisecond)
 	defer cancel()
-	for wait := time.Now().Add(displayWait); ; {
-		shown, foreign, err := display.PickupDisplay(read, t)
-		if err == nil && foreign {
+	// The pane's reads also end at displayWait, and a view read after it is too late to count.
+	view, stop := context.WithTimeout(read, displayWait)
+	defer stop()
+	for {
+		shown, foreign, err := display.PickupDisplay(view, t)
+		if view.Err() != nil || s.now().UnixMilli() >= limit || err == nil && foreign {
 			return ErrCycleDisplay
 		}
 		if err == nil && shown {
 			break
 		}
-		if time.Now().After(wait) || s.now().UnixMilli() >= limit {
-			return ErrCycleDisplay
-		}
 		select {
-		case <-read.Done():
+		case <-view.Done():
 			return ErrCycleDisplay
 		case <-time.After(100 * time.Millisecond):
 		}

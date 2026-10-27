@@ -34,6 +34,7 @@ type fakeSessionAdapter struct {
 	shown        bool
 	foreign      bool
 	displayErr   error
+	displayDelay time.Duration // PickupDisplay answers after it, or ends with its context
 	otherModel   bool
 	modelErr     error
 	targets      []CycleTarget
@@ -102,8 +103,18 @@ func (f *fakeSessionAdapter) PickupReceipt(context.Context, CycleTarget) (bool, 
 	return f.receipt, f.receiptErr
 }
 
-func (f *fakeSessionAdapter) PickupDisplay(context.Context, CycleTarget) (bool, bool, error) {
+func (f *fakeSessionAdapter) PickupDisplay(ctx context.Context, _ CycleTarget) (bool, bool, error) {
 	f.record("display")
+	f.mu.Lock()
+	delay := f.displayDelay
+	f.mu.Unlock()
+	if delay > 0 {
+		select {
+		case <-ctx.Done():
+			return false, false, ctx.Err()
+		case <-time.After(delay):
+		}
+	}
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	return f.shown, f.foreign, f.displayErr
@@ -658,6 +669,34 @@ func TestSessionCycleReplyModel(t *testing.T) {
 	}
 	if c := g.cycle(t, v.ID); c.State != cycleUncertain || c.Reason != "model_changed" {
 		t.Fatalf("after another model: %+v", c)
+	}
+}
+
+// The pane's reads end at displayWait: a slow read is cut there, and a view that shows the
+// successor only after it is refused.
+func TestSessionCycleDisplayWait(t *testing.T) {
+	g, v, successor := reachWaitingPickup(t)
+	displayWait = 20 * time.Millisecond
+	c := g.cycle(t, v.ID)
+	report := func() (time.Duration, error) {
+		start := time.Now()
+		_, err := g.s.ContextCyclePickup(context.Background(), successor, "synthetic-created-1", v.ID, c.Revision, g.name, "resumed", "synthetic")
+		return time.Since(start), err
+	}
+	g.session.set(func(a *fakeSessionAdapter) { a.shown, a.displayDelay = true, time.Hour })
+	if took, err := report(); !errors.Is(err, ErrCycleDisplay) || took > time.Second {
+		t.Fatalf("slow read: %v after %v", err, took)
+	}
+	g.session.set(func(a *fakeSessionAdapter) { a.displayDelay = 150 * time.Millisecond })
+	if took, err := report(); !errors.Is(err, ErrCycleDisplay) || took > time.Second {
+		t.Fatalf("late view: %v after %v", err, took)
+	}
+	if got := g.cycle(t, v.ID); got.State != cycleWaitingPickup {
+		t.Fatalf("after refused reports: %+v", got)
+	}
+	g.session.set(func(a *fakeSessionAdapter) { a.displayDelay = 0 })
+	if _, err := report(); err != nil {
+		t.Fatalf("a current view in time: %v", err)
 	}
 }
 
