@@ -358,7 +358,13 @@ peer using the plugin's native identity. It has no automatic wake because it has
 wake endpoint; read waiting messages with inbox.
 A session started through koinon opencode shows its model and context use in peer_status and
 on the dashboard: the daemon reads them from this session's own OpenCode server, never its
-message text. OpenCode has no managed handoff cycle yet.
+message text.
+On Linux, a managed context cycle (Managed cycle reporting) for a session started with koinon
+opencode in tmux creates a new session through this session's own OpenCode server, shows it in
+this pane and runs the koinon-pickup skill there with this session's model; the new session then
+takes the address at its first tool call and reports the pickup. The report needs the pane to
+show the new session's Koinon tool calls; a refused report (cycle_display_unproven) can be sent
+again.
 ### Recommended permissions
 Merge into the existing $XDG_CONFIG_HOME/opencode/opencode.json (or .jsonc); default
 ~/.config/opencode/opencode.json:

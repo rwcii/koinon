@@ -456,14 +456,18 @@ agy sessions report their context and activity through the status line that `koi
 installs, so the Sessions page shows their readings. The agy family default stays `observe`.
 OpenCode sessions started with `koinon opencode` show their model and context too: the daemon
 reads them every 15 seconds from the session's own OpenCode server, from the newest finished
-reply and its model's context limit. A direct `opencode` start shows none. OpenCode has no
-handoff cycle yet, so its readings only inform; its family default stays `observe`.
+reply and its model's context limit. A direct `opencode` start shows none. The OpenCode family
+default stays `observe`.
 
 Claude Code sessions launched with `koinon claude` on Linux and macOS can run the cycle, and
 Codex sessions launched with `koinon codex` in tmux on Linux and macOS can run it too (family
 mode `handoff_cycle`) while they hold their participant address. agy sessions launched with
 `koinon agy` in tmux on Linux can run it the same way, with Koinon's agy status line set up by
-`koinon setup agy`; macOS waits for native evidence. After the clear the cycle enters
+`koinon setup agy`; macOS waits for native evidence. OpenCode sessions launched with
+`koinon opencode` in tmux on Linux can run it too: instead of a clear, the daemon creates a new
+session through the session's own OpenCode server, shows it in the pane and runs the
+`koinon-pickup` skill command there with the requester's model; the report is accepted once the
+pane shows the new session's Koinon tool calls. macOS waits for native evidence. After the clear the cycle enters
 `/koinon-pickup` (Claude Code, agy) or `$koinon-pickup` (Codex): Koinon's own pickup skill,
 which the daemon at each start and `koinon install` write for you under `~/.claude/skills`
 (or `$CLAUDE_CONFIG_DIR/skills`), `~/.agents/skills` and `~/.gemini/config/skills`, never into a
@@ -471,8 +475,8 @@ repository. A workspace `.agent/skills/koinon-pickup` or `.agents/skills/koinon-
 replace agy's entry, so the Sessions page names it as `pickup_entry_shadowed` unless it is the
 same file. It loads the catalog's canonical pickup
 procedure, so a project's own `pickup` skill neither blocks the cycle nor is changed by it
-([INSTALL.md](INSTALL.md#install), step 7). For Codex and agy, the new thread or conversation after the
-clear takes the address and reports the pickup. An enabled session
+([INSTALL.md](INSTALL.md#install), step 7). For Codex, agy and OpenCode, the new thread, conversation or session after the
+reset takes the address and reports the pickup. An enabled session
 whose context reaches its threshold gets a request from `overwatch`, Koinon's reserved system
 requester, in its inbox. The request asks the session to pause at a safe stopping point, write
 its handoff and report it with `context_cycle_ready`, then end its turn and stay idle. The

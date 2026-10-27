@@ -270,3 +270,78 @@ provider list are `internal/core/testdata/opencode`.
   After one more turn both showed 17139. The test session was deleted afterwards.
 
 Not yet verified: macOS; a session after OpenCode's own compaction.
+
+## OpenCode cycle adapter (#513)
+
+opencode 1.18.35 on Linux, 2026-10-27, launched with `koinon opencode` in a private tmux server
+with a scratch Git workspace, against a disposable daemon (a scratch state directory and `HOME`),
+on the person's configured model `openrouter/qwen/qwen3.6-35b-a3b`. The redacted captures are
+`internal/core/testdata/opencode-screens`; the probe sessions were deleted afterwards.
+
+- N1. `POST /session` creates a session and returns its `id` and `title`. `POST
+  /tui/select-session {sessionID}` returns `true` and only publishes a `tui.session.select`
+  event; nothing reads back the session that the TUI shows. A draft in the composer stays
+  through a switch.
+- N2. `GET /command` lists `koinon-pickup` with source `skill`. Its template is the skill body
+  after the front matter, then `Base directory for this skill: DIR` and `Relative paths in this
+  skill (e.g., scripts/, references/) are relative to this base directory.`, with `DIR`
+  `~/.config/opencode/skills/koinon-pickup`. OpenCode also lists skills from `~/.claude/skills`;
+  one `koinon-pickup` is listed when both exist.
+- S1. `POST /session/{id}/command` answers only after the whole turn (27 s, busy throughout).
+  The successor registered through the identity plugin with that session's ID, in the same
+  launch and host.
+- S3, S4. A typed `/new` goes to the home screen (`Ask anything…`, centered); no session exists
+  until the first prompt. The TUI slash menu lists no skill: `/koinon-pickup` shows `No matching
+  items`.
+- S5. A session created by API uses the configured default model, not the TUI's.
+- S6. The sidebar, with the session title, shows only at about 160 columns or wider.
+- S7. The command body is `{command, arguments, messageID, model}`. The given `messageID`
+  (pattern `^msg`) is kept exactly and is the only user message; with empty `arguments` the text
+  is the template, trimmed. OpenCode's own message IDs are `msg_`, 12 hex digits of the creation
+  time in milliseconds times 4096, then 14 base-62 characters.
+- S8. When the client gives up after 5 s, the turn goes on (busy for more than 45 s).
+- S9. `model` `openrouter/qwen/qwen3.6-35b-a3b` gave the user message `providerID` `openrouter`
+  and `modelID` `qwen/qwen3.6-35b-a3b`, and the replies came from that model; the string is
+  split at its first `/`.
+- S10. The TUI renders each Koinon tool call as `⚙ koinon_TOOL [ARGUMENTS]` at a five-space
+  indent, with the identity plugin's `koinon_session=ID` last; the glyph and the call are in the
+  muted color (`38;2;128;128;128`, red `224;108;117` for a failed call), the space between them
+  in another, and reply text in the text color (`38;2;238;238;238`). Long arguments wrap at
+  80 columns onto rows at a seven-space indent in the muted color. User messages and tool output
+  are framed by `┃`. A long final reply scrolls the tool rows out of the current view.
+- Permissions. `GET /permission` lists pending requests with `id`, `sessionID`, `permission` and
+  `patterns`; `POST /permission/{id}/reply {reply: once|always|reject}` returns `true`. A pending
+  permission replaces the composer in the pane.
+
+- Managed cycle runs, with the branch binary as the daemon and as OpenCode's MCP server (a
+  scratch `OPENCODE_CONFIG` that names it), family mode `handoff_cycle`, session threshold 5%.
+  - Run 1: Enable, admission, the request and the handoff worked; `context_cycle_ready` was
+    refused with `cycle_epoch_unverified`, because `koinon mcp` gave OpenCode no epoch (fixed:
+    an OpenCode call's epoch is its own session).
+  - Run 2: `requested`, `ready`, `clear_intent`, `clear_received` (54 ms later),
+    `clear_received` `select_sent`, `reset_verified` (1.0 s after the select),
+    `pickup_intent`, `waiting_pickup` (0.9 s), `waiting_pickup` `pickup_displayed` (1.0 s),
+    then `complete` `resumed` with the successor's report 17 s later: 10 events. The created
+    session had the cycle's title, its first message had the derived ID and the requester's model
+    pair, its first call was `koinon_library_read`, and its last `koinon_context_cycle_pickup`.
+    The participant address and the Enable, with its 5% threshold, moved to it.
+  - In runs 1 and 2 the requester model needed the steps typed in its pane before it wrote
+    its handoff; the cycle does not depend on that model.
+  - Run 3: the successor of run 2, at 5%, was admitted to a new cycle at once and wrote its
+    handoff and ready report itself. Create, select, reset, pickup, receipt and display proof
+    passed (`pickup_displayed` 1.0 s after `waiting_pickup`), but the new successor made no
+    report within the 2-minute stage deadline, and the cycle ended `failed`
+    `waiting_pickup_timeout`. Its session was deleted before its transcript was read, so why it
+    did not report is not known.
+  - Run 4, unattended after Enable: the requester answered the request itself, and its cycle and
+    the chained cycle of its successor both completed `resumed`: 10 events each, the report 37 s
+    and 23 s after `pickup_displayed`. A Disable cancelled the third chained cycle in
+    `waiting_ready`.
+  - Run 5, after the review fixes (a report needs a current view with the successor's row, the
+    replies' model is checked, and the worker reads the receipt), unattended: both chained
+    cycles completed `resumed`, each report accepted on its first call (23 s and 22 s after
+    `pickup_displayed`). In the second, the requester kept working after its ready report twice,
+    so overwatch asked again (`not_idle.turn_running`) before its clear. A Disable cancelled the
+    third.
+
+Not yet verified: macOS; a permission dialog during the pickup; a pane narrower than 80 columns.

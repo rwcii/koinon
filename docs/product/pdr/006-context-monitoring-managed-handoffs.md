@@ -426,8 +426,9 @@ it is; `koinon install` keeps the one Koinon skill per family that the cycle nee
 
 A family's cycle adapter is available on a platform once its native checks pass there. The
 checks record the CLI version they ran with; the adapter runs with any version of that CLI,
-and a newer version is not refused. This holds for the Claude Code, the Codex and the agy
-adapters; the agy checks ran with Antigravity CLI 1.4.7 on Linux (#512).
+and a newer version is not refused. This holds for the Claude Code, the Codex, the agy and the
+OpenCode adapters; the agy checks ran with Antigravity CLI 1.4.7 on Linux (#512), the OpenCode
+checks with opencode 1.18.35 on Linux (#513).
 Koinon shows no certified or not-certified status for a session's version; the release notes
 and the native evidence record name the versions that the checks ran with. The adapter's
 per-step proofs (pane, fence, read-back) still stop a cycle whose screen does not match.
@@ -499,3 +500,4 @@ and terminal commands have the maintainer's words; the rest is requested or prop
 | 2026-10-27 | Decision 1: when a compaction keeps or turns off the session's Enable, approved on the decision board (COMPACT-ENABLE-509) |
 | 2026-10-27 | Decision 5: the agy adapter is listed, from its Linux checks with Antigravity CLI 1.4.7 (#512) |
 | 2026-10-27 | Executive summary: OpenCode context is read from a launched session's own server (#513) |
+| 2026-10-27 | Decision 5: the OpenCode adapter is listed, from its Linux checks with opencode 1.18.35 (#513) |

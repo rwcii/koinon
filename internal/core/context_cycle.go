@@ -192,6 +192,36 @@ func cycleIntent(state string) bool {
 // one of them is uncertain, never failed or cancelled.
 func cycleInputUnproven(state string) bool { return cycleIntent(state) || state == cycleClearReceived }
 
+// cycleUnproven is cycleInputUnproven for a whole cycle. A DisplayAdapter's pickup that the
+// pane has never been seen to show (no pickup_displayed event) is unproven too, while it
+// awaits its report (#513). The event decides only this outcome; the report needs its own
+// current view.
+func cycleUnproven(ctx context.Context, q querier, c cycleRow) bool {
+	if cycleInputUnproven(c.State) {
+		return true
+	}
+	if _, display := cycleAdapterOf(c.Family).(DisplayAdapter); !display || !awaitingPickup(c) {
+		return false
+	}
+	shown, err := pickupDisplayed(ctx, q, c.ID)
+	return err != nil || !shown
+}
+
+// pickupDisplayedReason is the reason of the same-state waiting_pickup event that records the
+// pane's proof that it shows the successor (#513).
+const pickupDisplayedReason = "pickup_displayed"
+
+// pickupDisplayed reports whether the cycle recorded that proof.
+func pickupDisplayed(ctx context.Context, q querier, id string) (bool, error) {
+	var found int
+	err := q.QueryRowContext(ctx, `SELECT 1 FROM context_cycle_events WHERE cycle_id=? AND stage=? AND reason=? LIMIT 1`,
+		id, cycleWaitingPickup, pickupDisplayedReason).Scan(&found)
+	if errors.Is(err, sql.ErrNoRows) {
+		return false, nil
+	}
+	return err == nil, err
+}
+
 // CycleEvent is one durable stage change, with fixed codes and no captured text.
 type CycleEvent struct {
 	Ordinal int64  `json:"ordinal"`
@@ -355,6 +385,8 @@ var (
 	ErrCycleEpoch         = Refusal{"cycle_epoch_unverified", "the native client did not supply this session's verified current epoch"}
 	ErrCycleDialogChanged = Refusal{"cycle_dialog_changed", "the pane no longer shows that dialog or option; read the current one"}
 	ErrCycleArtifact      = Refusal{"cycle_artifact_invalid", "the handoff artifact is not a new, bounded, ignored and untracked file in this session's own handoff directory"}
+	ErrCycleDisplay       = Refusal{"cycle_display_unproven", "the pinned pane does not show the successor session; retry the report"}
+	ErrCycleModel         = Refusal{"cycle_model_changed", "the successor's replies came from another model than its pickup asked for; the cycle ended uncertain"}
 )
 
 // CycleTarget is what a cycle adapter acts on: the pinned native host and pane, and the
@@ -369,6 +401,7 @@ type CycleTarget struct {
 	Pane      string
 	Epoch     string // the pre-reset native epoch
 	// SuccessorEpoch is the native epoch that the reset proved, from reset_verified on, or "".
+	// A SessionAdapter's created session is recorded from clear_received on.
 	SuccessorEpoch string
 	// Holds reports that the session holds a participant address, which a new native session
 	// after the reset must take over to report the pickup (Codex).
@@ -388,6 +421,10 @@ type CycleTarget struct {
 	observedEpoch string
 	stateRoot     string
 	tools         hostTools
+	// OpenCode (#513): the launched server of the session, and when the pickup's intent was
+	// recorded, in Unix milliseconds, from pickup_intent on.
+	openCode *LaunchTarget
+	pickupAt int64
 }
 
 // PickupEntry is the bytes and the menu description of one pickup entry.
@@ -460,6 +497,42 @@ type CompactAdapter interface {
 	Compact(ctx context.Context, t CycleTarget, fence CycleFence) (submitted, received bool, err error)
 }
 
+// SessionAdapter is a cycle adapter whose reset creates a new native session by its host's API
+// and shows it in the pinned pane, instead of clearing the pane (OpenCode, #513). Its Clear is
+// not used.
+type SessionAdapter interface {
+	// Create creates the successor session and returns its ID. An error after the request may
+	// have been sent leaves the cycle uncertain; nothing is created again.
+	Create(ctx context.Context, t CycleTarget, fence CycleFence) (string, error)
+	// Select shows t.SuccessorEpoch, the created session, in the pinned pane, and reports
+	// whether the host accepted it. It is sent once; NewEpoch proves the result.
+	Select(ctx context.Context, t CycleTarget, fence CycleFence) (bool, error)
+}
+
+// AsyncPickupAdapter is a cycle adapter whose pickup input blocks for the successor's whole
+// turn (OpenCode, #513). The controller sends it from a bounded worker and reads its receipt
+// back on later steps, without holding the wake lock. Its Pickup is not used.
+type AsyncPickupAdapter interface {
+	// SendPickup sends the pickup once, after the fence, and returns when the request
+	// returns or its own timeout ends it; the turn may go on.
+	SendPickup(ctx context.Context, t CycleTarget, fence CycleFence) error
+	// PickupReceipt reads the pickup back without input: true when the successor session
+	// holds exactly the sent pickup.
+	PickupReceipt(ctx context.Context, t CycleTarget) (bool, error)
+}
+
+// DisplayAdapter is a cycle adapter whose reset is proven by its host's API, not by the pane:
+// the pane is proven to show the successor separately, before the pickup report completes
+// the cycle (OpenCode, #513).
+type DisplayAdapter interface {
+	// PickupDisplay reads the pinned pane's current view without input: shown when it shows
+	// t.SuccessorEpoch, foreign when it shows another session. An error proves nothing.
+	PickupDisplay(ctx context.Context, t CycleTarget) (shown, foreign bool, err error)
+	// PickupModel reads the successor's replies: matched when there is one and each one came
+	// from the model that its receipted pickup asked for. An error proves nothing.
+	PickupModel(ctx context.Context, t CycleTarget) (matched bool, err error)
+}
+
 // CycleDialog is a native dialog as the pane shows it.
 type CycleDialog struct {
 	Lines   []string `json:"lines"`
@@ -477,11 +550,12 @@ func cycleAdapterOf(family string) CycleAdapter { return cycleAdapters[family] }
 var cycleCode = regexp.MustCompile(`^[a-z0-9][a-z0-9._-]{0,63}$`)
 
 func init() {
-	// The Claude Code adapter (chunk 03), the Codex adapter (chunk 04) and the agy adapter
-	// (#512); Probe limits each to evidenced platforms and versions.
+	// The Claude Code adapter (chunk 03), the Codex adapter (chunk 04), the agy adapter (#512)
+	// and the OpenCode adapter (#513); Probe limits each to evidenced platforms and versions.
 	cycleAdapters["claude"] = claudeCycle{}
 	cycleAdapters["codex"] = codexCycle{}
 	cycleAdapters["agy"] = agyCycle{}
+	cycleAdapters["opencode"] = openCodeCycle{}
 }
 
 // contextCycleEnabledFor is the admission's cheap pre-check: an enabled session only; Probe
@@ -846,6 +920,9 @@ func (s *Store) advanceCycle(ctx context.Context, id string, revision int64, fro
 	c.Credit -= cycleStagePages
 	c.State, c.Reason, c.UpdatedAt = to, reason, now
 	switch {
+	case from == to:
+		// A same-state event, such as an OpenCode select's intent or display proof (#513),
+		// keeps its stage's deadline.
 	case c.PromptFrom == cycleWaitingPickup && (to == cycleWaitingPrompt || to == cyclePromptIntent):
 		// One prompt wait holds every dialog of the successor's pickup: an answer's intent, its
 		// return and a retry keep the deadline of the wait's first dialog (#520).
@@ -999,7 +1076,7 @@ func compactionKeepsEnable(c cycleRow, reason string) bool {
 // ended before its input or under another epoch (#509).
 func (s *Store) endCycleTx(ctx context.Context, tx *writeTx, c *cycleRow, outcome, reason string, carry func() error) error {
 	now := s.now().UnixMilli()
-	if outcome != cycleComplete && cycleInputUnproven(c.State) {
+	if outcome != cycleComplete && cycleUnproven(ctx, tx, *c) {
 		outcome = cycleUncertain
 	}
 	keep := compactionKeepsEnable(*c, reason)
@@ -1363,12 +1440,20 @@ func (s *Store) ContextCyclePickup(ctx context.Context, caller Key, epoch, id st
 	if epoch == c.Epoch || c.SuccessorEpoch != "" && epoch != c.SuccessorEpoch {
 		return CycleView{}, ErrCycleEpoch
 	}
+	// A pickup whose reset its host's API proved needs the pane's proof too (#513). Its reads
+	// take time, so the write below checks the deadlines at the time after them.
+	if display, ok := cycleAdapterOf(c.Family).(DisplayAdapter); ok {
+		if err := s.displayProof(ctx, c, display); err != nil {
+			return CycleView{}, err
+		}
+	}
 	if _, err := s.verifyArtifact(ctx, c, artifact); err != nil {
 		return CycleView{}, err
 	}
 	if s.pickupWrite != nil {
 		s.pickupWrite()
 	}
+	now = s.now().UnixMilli()
 	tx, err := s.begin(noAudit(ctx), control)
 	if err != nil {
 		return CycleView{}, err

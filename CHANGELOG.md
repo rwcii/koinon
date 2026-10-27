@@ -5,12 +5,23 @@ into a dated release section when promoted to `main`.
 
 ## Unreleased
 
+- OpenCode sessions can run the managed context handoff cycle on Linux (#513). An OpenCode
+  session had no cycle: its Enable was refused. A session started with `koinon opencode` in
+  tmux, with the family mode `handoff_cycle` and its participant address, now gets the cycle
+  through its own OpenCode server: overwatch's request, a new session created and shown in the
+  TUI, and the `koinon-pickup` skill command in that session with the requester's model, which
+  takes the address over. The server proves the new session and the pickup's message; the
+  report is accepted only while the pane's Koinon tool-call rows show the new session
+  (`cycle_display_unproven` until then) and its replies come from the requested model
+  (`cycle_model_changed` ends the cycle otherwise). The pickup's request and its read-back run
+  apart from the controller, so a long pickup turn delays no other cycle or wake. The native checks ran with
+  opencode 1.18.35. The family default stays `observe`; macOS waits for native evidence.
 - OpenCode sessions now report their model and context use (#513). `peer_status` and the
   dashboard showed no context for OpenCode (`no_source`). For each session started with
   `koinon opencode`, the daemon now reads the newest finished reply's token counts and its
   model's context limit from the session's own OpenCode server every 15 seconds, with the launch
   password; it keeps only those numbers and IDs, never the message text. A direct `opencode`
-  start shows none. OpenCode has no handoff cycle yet; its family default stays `observe`.
+  start shows none.
 - A managed cycle no longer fails when the successor's pickup needs several approvals (#520).
   Each dialog during the pickup used two of the cycle's 16 events, so a pickup with more than
   about four dialogs, such as agy's, which asks before most commands, failed with

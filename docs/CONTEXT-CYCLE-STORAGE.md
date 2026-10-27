@@ -17,7 +17,8 @@ funded, as the plan's shared contract requires:
 
 - Each non-terminal stage (`ready`, the intents and receipts, `reset_verified`,
   `waiting_pickup`, `waiting_prompt`, and the return to `waiting_ready`, to a prompt's preceding
-  stage or, in the prompt wait of a pickup, to `waiting_prompt` (#520)) is a control write that debits **280 pages** from the cycle's credit in its own
+  stage or, in the prompt wait of a pickup, to `waiting_prompt` (#520), and an OpenCode cycle's
+  same-state events `clear_received` `select_sent` and `waiting_pickup` `pickup_displayed` (#513)) is a control write that debits **280 pages** from the cycle's credit in its own
   transaction.
 - The terminal outcome is a control write that sets the credit to 0. Every control that ends a
   cycle (Disable, a family mode without the cycle, retirement, purge, deletion, the
