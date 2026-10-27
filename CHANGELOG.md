@@ -9,6 +9,14 @@ into a dated release section when promoted to `main`.
   wait out their 30 days (#529). The create first removes the oldest finished item; open,
   active, blocked and reported items are never removed. A finished item now stays for up to
   30 days, or until a new item needs its place.
+- Grok sessions now report their model and context use (#515, part A). `peer_status` and the
+  dashboard showed no context for Grok (`no_source`). `koinon setup grok` now makes `koinon hook
+  grok-status` the command of the `[ui.status_line]` table in `~/.grok/config.toml`: it changes
+  only that table's `type` and `command`, and wraps an existing command. `koinon setup grok
+  --remove-status-line` and `koinon uninstall` restore the previous values.
+- A command that the Claude Code or agy status line wraps now gets the whole status-line input.
+  Before, `koinon hook claude-status` and `koinon hook agy-status` passed on at most 16 MiB and
+  cut a longer input.
 - A managed cycle's new session now has five minutes, not two, to report its pickup (#525). A
   DeepSeek pickup took up to 115 s in the #514 checks, and one took longer than two minutes:
   that cycle failed with `waiting_pickup_timeout` while the new session finished its pickup.

@@ -103,6 +103,15 @@ func Remove(ctx context.Context, o Options) (Report, error) {
 		result, err := AgyStatusLine(o.Binary, o.StateDir, agySettingsFile(o), true)
 		report.StatusLine = &result
 		return report, err
+	case "grok":
+		if o.StateDir == "" {
+			if o.StateDir, err = platform.DefaultStateDir(); err != nil {
+				return report, err
+			}
+		}
+		result, err := GrokStatusLine(o.Binary, o.StateDir, grokConfigFile(o), true)
+		report.StatusLine = &result
+		return report, err
 	}
 	return report, nil
 }

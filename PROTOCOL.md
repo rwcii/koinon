@@ -2421,8 +2421,8 @@ activity. Message delivery and acknowledgement do not establish activity or inbo
 
 | Group | Sources |
 | --- | --- |
-| Model | `claude_statusline`; `codex_rollout` (the session's own rollout under `CODEX_HOME`) and `codex_mcp_meta` (`x-codex-turn-metadata.model` of a tool call); `agy_hook` (`modelName` of the Stop hook) and `agy_statusline` (`model.id` of the status-line input); `opencode_server` (`providerID/modelID` of the newest finished assistant message, see below); `dsh_projections` (`modelSelection.lastUsed` `provider/model` of a DeepSeek session's harness, see below) |
-| Context | `claude_statusline` (`context_window_size`, `total_input_tokens`; epoch: the transcript `session_id`); `codex_rollout` (`model_context_window`, `last_token_usage.input_tokens`; epoch: the rollout's thread); `agy_statusline` (`context_window.context_window_size`, `context_window.total_input_tokens`; epoch: the `conversation_id`); `opencode_server` (a launched OpenCode session's newest finished assistant message and its model's `limit.context`; epoch: the OpenCode session ID; see below); `dsh_projections` (a DeepSeek session's `contextPressure` and the usage event that it came from; epoch: the harness session ID; see below) |
+| Model | `claude_statusline`; `codex_rollout` (the session's own rollout under `CODEX_HOME`) and `codex_mcp_meta` (`x-codex-turn-metadata.model` of a tool call); `agy_hook` (`modelName` of the Stop hook) and `agy_statusline` (`model.id` of the status-line input); `opencode_server` (`providerID/modelID` of the newest finished assistant message, see below); `dsh_projections` (`modelSelection.lastUsed` `provider/model` of a DeepSeek session's harness, see below); `grok_statusline` (`model.id` of the Grok status-line input) |
+| Context | `claude_statusline` (`context_window_size`, `total_input_tokens`; epoch: the transcript `session_id`); `codex_rollout` (`model_context_window`, `last_token_usage.input_tokens`; epoch: the rollout's thread); `agy_statusline` (`context_window.context_window_size`, `context_window.total_input_tokens`; epoch: the `conversation_id`); `opencode_server` (a launched OpenCode session's newest finished assistant message and its model's `limit.context`; epoch: the OpenCode session ID; see below); `dsh_projections` (a DeepSeek session's `contextPressure` and the usage event that it came from; epoch: the harness session ID; see below); `grok_statusline` (`context_window.context_window_size`, `context_window.context_tokens`; epoch: the Grok session ID) |
 | Activity | `claude_registry` (the parent Claude process's registry record for this session, `entrypoint: cli`; `shell`, the prompt with a background shell task running, is idle); `codex_rollout` (task started and completed); `agy_hook` (idle at Stop), `agy_statusline` (`agent_state`: `idle`; `working` and `tool_use` are busy) and `mcp_call` (an agy tool call); `opencode_status` (`GET /session/status` on a launched OpenCode server, with its password, cached 5 seconds) |
 | Terminal | `tmux_env`: the MCP server's `TMUX` and `TMUX_PANE`, and the pane's session name |
 | Naming | `koinon_mcp`: the last terminal naming result and the published name it was computed for; no socket or pane required |
@@ -2518,7 +2518,8 @@ name the session, at most 4 MiB are read per check, records longer than 1 MiB ar
 pieces across checks, and no conversation text is kept or sent.
 
 `koinon hook claude-status [--command COMMAND]` is the Claude Code `statusLine` command. It runs
-`COMMAND` through `/bin/sh -c` with the same input and returns its output and exit status, or
+`COMMAND` through `/bin/sh -c` with the whole input, of which the hook itself reads at most
+1 MiB, and returns its output and exit status, or
 prints the model's display name without one, and reports the model and context of the input's
 `session_id`. `koinon setup claude` makes it the `statusLine` entry, keeping the entry's other
 fields and wrapping its previous command. The previous entry is saved once, before the settings
@@ -2544,6 +2545,42 @@ in `agy-statusline.json` in the Go state root. Without a previous entry it write
 and removed independently. The hook also reports `agent_state` as activity (`idle`; `working` and
 `tool_use` as busy; any other state, such as `authenticating`, is unknown) and gives each
 conversation to the agy cycle witness (see "agy cycle adapter").
+
+`koinon hook grok-status [--command COMMAND]` is the Grok status-line command (#515), with the
+same command handling: the wrapped command runs once with the whole input, and its output, exit
+status and signal are returned unchanged; without a command it prints nothing and exits 0.
+Koinon's own failures never change that result. The caller is `grok:` and the input's
+`session_id`, which is the session's Grok MCP identity: Grok Build 1.0.50 gives `GROK_SESSION_ID`
+to its MCP server but not to the status-line command. A `session_id` that is absent, null,
+empty, not a string or not a session ID gives no report, and so does one that differs from a
+`GROK_SESSION_ID` in the hook's environment. A report for a session that is not registered is
+refused, as for the other status lines. Only an input of at most 64 KiB is decoded. The model is `model.id`. The context needs both
+`context_window.context_tokens` (used) and `context_window.context_window_size` (the limit), as
+integers from 0 to 2^53-1 with a positive limit; otherwise there is no context report, and the
+last reading stands until it is stale. `used_percentage` and the cumulative `session_*` counts
+are not used. The input has no time of its own, so the source time is the hook's. Grok sends
+the input when its state changes (at start, during and at the end of a turn, after `/new` and
+`/compact`), not while it is idle, unless the table's `refresh_interval` is set, so an idle
+session's reading becomes stale after 30 minutes. `koinon setup
+grok` makes `'BINARY' hook grok-status` the `command` of a `[ui.status_line]` table with
+`type = "command"` in Grok's `config.toml` (`--grok-home`, else `$GROK_HOME`, else `~/.grok`).
+Setup owns only the table's `type` and `command`: it edits those lines as text, parses the file
+before and after, and refuses an edit whose meaning differs anywhere else; other keys, tables,
+comments and the table's other options, such as `refresh_interval`, stay as they were. An owned
+line keeps its key spelling, its spacing and its comment; only its value changes. The text
+editor supports a plain `[ui.status_line]` table only: invalid TOML is `settings_invalid`, and an
+inline table, a dotted key, an owned value that is a multiline string or another shape it
+cannot prove is `settings_unusual`; the file is not changed. The previous `type` and `command`,
+their values as spelled, and whether setup added the table, are saved
+once in `grok-statusline.json` in the Go state root, with the file's path. `koinon setup grok
+--remove-status-line` and the Grok removal restore them in that file while it still holds the
+exact wrapper, and remove the table only when setup added it and no other key is in it. A
+saved spelling is used only when it is a TOML spelling of the saved value; otherwise the value
+is written as a basic string. A
+wrapper that the user edited is left alone (`statusline_changed`), also when it runs an earlier
+Koinon binary. Setup
+for another `config.toml` while one is set up reports `changed` (`statusline_other_file`). A
+missing Grok home is skipped (`grok_config_missing`).
 
 `koinon setup FAMILY` also reports, in `permissions`, the family's recommended permission
 rules of docs/PERMISSIONS.md: `family`, `settings_file`, `outcome` and, by outcome, `missing`,
