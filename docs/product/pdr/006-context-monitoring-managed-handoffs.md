@@ -33,7 +33,7 @@ tags:
 ## Executive Summary
 
 Koinon currently observes context use for some families (the Claude status line, Codex
-rollouts, the agy status line, #512, a launched OpenCode session's own server, #513, and a DeepSeek session's harness, #514) and shows it in `peer_status` and the dashboard. It does nothing when a session
+rollouts, the agy status line, #512, a launched OpenCode session's own server, #513, a DeepSeek session's harness, #514, and the Grok status line, #515) and shows it in `peer_status` and the dashboard. It does nothing when a session
 nears its limit. Issue #196 asks for a managed cycle: the daemon watches context against a
 threshold, asks the session over Koinon to write its handoff, and after the ready reply enters
 the family's reset and pickup commands in the agent's own tmux pane.
@@ -504,3 +504,4 @@ and terminal commands have the maintainer's words; the rest is requested or prop
 | 2026-10-27 | Decision 5: the OpenCode adapter is listed, from its Linux checks with opencode 1.18.35 (#513) |
 | 2026-10-27 | Executive summary: DeepSeek context is read from the session's harness (#514) |
 | 2026-10-27 | Decision 5: the DeepSeek adapter is listed, from its Linux checks with DeepSeek Harness 0.2.0-rc.2 (#514) |
+| 2026-10-27 | Executive summary: Grok context is read from its status line (#515) |

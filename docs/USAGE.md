@@ -462,6 +462,10 @@ DeepSeek sessions registered with `koinon register` show their model and context
 daemon reads them every 15 seconds from the session's own harness, with the wake's credential,
 from the token meter's newest usage and the model's context window. Its family default stays
 `observe`.
+Grok Build sessions report their model and context through the status line that `koinon setup
+grok` installs in `~/.grok/config.toml` (start Grok again after setup): the context window's
+current tokens and its size. An input without both counts leaves the last reading as it was.
+Grok has no managed cycle yet, so its family default stays `observe`.
 
 Claude Code sessions launched with `koinon claude` on Linux and macOS can run the cycle, and
 Codex sessions launched with `koinon codex` in tmux on Linux and macOS can run it too (family

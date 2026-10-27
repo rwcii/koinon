@@ -5,6 +5,11 @@ into a dated release section when promoted to `main`.
 
 ## Unreleased
 
+- Grok sessions now report their model and context use (#515, part A). `peer_status` and the
+  dashboard showed no context for Grok (`no_source`). `koinon setup grok` now makes `koinon hook
+  grok-status` the command of the `[ui.status_line]` table in `~/.grok/config.toml`: it changes
+  only that table's `type` and `command`, and wraps an existing command. `koinon setup grok
+  --remove-status-line` and `koinon uninstall` restore the previous values.
 - DeepSeek sessions can run the managed context handoff cycle on Linux (#514). A DeepSeek
   session had no cycle: its Enable was refused. A session registered with its harness URL and
   credential file, with the family mode `handoff_cycle`, its participant address and the

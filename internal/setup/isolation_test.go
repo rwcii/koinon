@@ -21,7 +21,7 @@ func TestMain(m *testing.M) {
 	if home, err := os.UserHomeDir(); err == nil && os.Getenv("GOPATH") == "" {
 		os.Setenv("GOPATH", filepath.Join(home, "go"))
 	}
-	for _, name := range []string{"HOME", "XDG_STATE_HOME", "XDG_CONFIG_HOME", "CLAUDE_CONFIG_DIR", "CODEX_HOME"} {
+	for _, name := range []string{"HOME", "XDG_STATE_HOME", "XDG_CONFIG_HOME", "CLAUDE_CONFIG_DIR", "CODEX_HOME", "GROK_HOME"} {
 		os.Setenv(name, dir)
 	}
 	// A test run inside a launched agent session must not reach that session's daemon.

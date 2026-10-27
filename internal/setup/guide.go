@@ -387,6 +387,9 @@ A Grok sub-agent's Koinon calls arrive with its parent's session ID and act as t
 A session started with koinon grok is woken by Koinon typing its notice into this session's
 own tmux pane, only while the input box is empty and no turn runs; a direct start gets no
 pane wake. Read waiting messages with inbox.
+Koinon setup grok also sets the [ui.status_line] command in ~/.grok/config.toml to Koinon's
+grok-status hook, so peer_status shows this session's model and context use. Grok reads the
+file at startup. Grok has no managed context cycle yet.
 ### Recommended permissions
 Allow the Koinon tools for a launch with Grok's own rule flag:
   koinon grok --allow 'MCPTool(koinon__*)'

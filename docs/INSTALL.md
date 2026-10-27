@@ -533,6 +533,16 @@ was. The previous entry is saved in the Go state directory, and `koinon setup ag
 separate from the Claude status line. Setup skips it when the `antigravity-cli` directory does
 not exist.
 
+`koinon setup grok` also makes `'BINARY' hook grok-status` the `command` of the
+`[ui.status_line]` table in `~/.grok/config.toml` (or `$GROK_HOME/config.toml`), so the Grok
+session's model and context use show in `peer_status` and the dashboard
+([PROTOCOL.md](../PROTOCOL.md)). It changes only the table's `type` and `command`, wraps an
+existing command, and keeps every other line of the file. The previous values are saved in the
+Go state directory, and `koinon setup grok --remove-status-line` or `koinon uninstall` restores
+them while the entry is still Koinon's. Setup refuses, unchanged, a file that keeps
+`ui.status_line` as an inline table or dotted keys. Grok reads the file at startup: start Grok
+again after setup. Setup skips the status line when the Grok home does not exist.
+
 `koinon codex` uses `--no-daemon` and forwards the launch environment to its configured MCP
 server. `koinon claude --bg [args]` passes a job-specific private settings file and binds
 registration to the returned job ID; see [USAGE.md](USAGE.md) for background launch usage.

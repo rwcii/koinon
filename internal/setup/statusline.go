@@ -43,6 +43,8 @@ type statusRecord struct {
 	SettingsFile string          `json:"settings_file"`
 	Original     json.RawMessage `json:"original"`
 	Wrapper      json.RawMessage `json:"wrapper"`
+	// TableAdded records that setup added Grok's [ui.status_line] table (#515).
+	TableAdded bool `json:"table_added,omitempty"`
 }
 
 // StatusLineResult reports one set-up or removal.

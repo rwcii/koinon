@@ -10,6 +10,7 @@ import (
 	"os/exec"
 	"os/signal"
 	"path/filepath"
+	"regexp"
 	"syscall"
 	"time"
 
@@ -243,6 +244,65 @@ func AgyStatus(args []string, in io.Reader, out, errOut io.Writer, env HookEnv) 
 		}
 		return o, display, ok
 	}, args, in, out, errOut, env)
+}
+
+// grokStatusMax bounds the Grok status-line payload that the hook decodes (#515): a larger
+// input gives no observation, and the wrapped command still gets all of it.
+const grokStatusMax = 64 << 10
+
+// grokSessionID is the form of a Grok session ID that the hook reports: the context epoch's
+// form (nativeEpoch in internal/core).
+var grokSessionID = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$`)
+
+// grokStatus reads the model and context use of one Grok status-line input (#515). The caller
+// is the Grok session in the hook's environment, the MCP identity; a payload that names another
+// session, or a session_id that is null, empty or not a string, gives no report. Model and
+// context are read independently; the context needs both counts.
+func grokStatus(session string) func([]byte, int64) (core.Observation, string, bool) {
+	return func(data []byte, now int64) (core.Observation, string, bool) {
+		if !grokSessionID.MatchString(session) || len(data) > grokStatusMax {
+			return core.Observation{}, "", false
+		}
+		var input struct {
+			SessionID json.RawMessage `json:"session_id"`
+			Model     json.RawMessage `json:"model"`
+			Window    json.RawMessage `json:"context_window"`
+		}
+		if json.Unmarshal(data, &input) != nil {
+			return core.Observation{}, "", false
+		}
+		if input.SessionID != nil {
+			var id string
+			if json.Unmarshal(input.SessionID, &id) != nil || id != session {
+				return core.Observation{}, "", false
+			}
+		}
+		o := core.Observation{Caller: core.Key{Family: "grok", ID: session}}
+		var model struct {
+			ID string `json:"id"`
+		}
+		if json.Unmarshal(input.Model, &model) == nil && model.ID != "" {
+			o.Model = &core.ObservedValue{Source: "grok_statusline", At: now, ID: model.ID}
+		}
+		var window struct {
+			Size json.RawMessage `json:"context_window_size"`
+			Used json.RawMessage `json:"context_tokens"`
+		}
+		if json.Unmarshal(input.Window, &window) == nil {
+			if size, used := count(window.Size), count(window.Used); size != nil && *size > 0 && used != nil {
+				available := true
+				o.Context = &core.ObservedValue{Source: "grok_statusline", At: now, UsageAvailable: &available,
+					Epoch: session, LimitTokens: size, UsedTokens: used}
+			}
+		}
+		return o, "", o.Model != nil || o.Context != nil
+	}
+}
+
+// GrokStatus is the Grok status-line command, as ClaudeStatus is for Claude Code. Without a
+// command it prints nothing.
+func GrokStatus(args []string, in io.Reader, out, errOut io.Writer, env HookEnv) int {
+	return statusCommand("grok-status", grokStatus(env.Getenv("GROK_SESSION_ID")), args, in, out, errOut, env)
 }
 
 // witness gives the daemon one agy conversation with this process as its reporter. Without a
