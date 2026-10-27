@@ -177,6 +177,7 @@ func openCodeContext(ctx context.Context, target LaunchTarget, id string) (model
 // openCodeSent is the last reading that the poller recorded for one session.
 type openCodeSent struct {
 	model, usage ObservedValue
+	mark         int64 // the source's own position of the reading, such as a usage event's seq, or 0
 	at           time.Time
 }
 
@@ -240,17 +241,18 @@ func (s *Store) readOpenCodeContext(ctx context.Context, k Key, launch string) {
 	if err != nil || usage == nil {
 		return
 	}
-	s.recordReading(ctx, &s.openCodeContext, k, model, usage, openCodeContextConfirm)
+	s.recordReading(ctx, &s.openCodeContext, k, model, usage, 0, openCodeContextConfirm)
 }
 
 // recordReading records a polled reading when it changed, and an unchanged one again once
-// confirm passed (#513, #514). An unchanged reading keeps its source time.
-func (s *Store) recordReading(ctx context.Context, state *openCodeContextState, k Key, model, usage *ObservedValue, confirm time.Duration) {
+// confirm passed (#513, #514). An unchanged reading keeps its source time. mark is the
+// reading's position in its source: a new mark is a new reading even with the same values.
+func (s *Store) recordReading(ctx context.Context, state *openCodeContextState, k Key, model, usage *ObservedValue, mark int64, confirm time.Duration) {
 	now := s.now()
 	state.mu.Lock()
 	last, found := state.sent[k]
 	state.mu.Unlock()
-	if found && *model == last.model && sameReading(*usage, last.usage) && now.Sub(last.at) < confirm && !now.Before(last.at) {
+	if found && *model == last.model && sameReading(*usage, last.usage) && mark == last.mark && now.Sub(last.at) < confirm && !now.Before(last.at) {
 		return
 	}
 	if s.Observe(ctx, Observation{Caller: k, Model: model, Context: usage}) != nil {
@@ -260,7 +262,7 @@ func (s *Store) recordReading(ctx context.Context, state *openCodeContextState, 
 	if state.sent == nil {
 		state.sent = map[Key]openCodeSent{}
 	}
-	state.sent[k] = openCodeSent{*model, *usage, now}
+	state.sent[k] = openCodeSent{*model, *usage, mark, now}
 	state.mu.Unlock()
 }
 

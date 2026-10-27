@@ -208,47 +208,47 @@ func (c *deepSeekClient) call(ctx context.Context, method string, request, value
 	return nil
 }
 
-// deepSeekContext reads the model and context of one DeepSeek session. Before its first
-// usage it returns nothing; an incoherent or unreadable reading is an error, never a
-// fallback to an older one.
-func deepSeekContext(ctx context.Context, target wakeTarget, id string) (model, usage *ObservedValue, err error) {
+// deepSeekContext reads the model and context of one DeepSeek session, and the seq of the
+// usage event that the reading came from. Before its first usage it returns nothing; an
+// incoherent or unreadable reading is an error, never a fallback to an older one.
+func deepSeekContext(ctx context.Context, target wakeTarget, id string) (model, usage *ObservedValue, seq int64, err error) {
 	ctx, cancel := context.WithTimeout(ctx, deepSeekContextScan)
 	defer cancel()
 	client, err := newDeepSeekClient(ctx, target)
 	if err != nil {
-		return nil, nil, errDeepSeekContext
+		return nil, nil, 0, errDeepSeekContext
 	}
 	defer client.close()
 	var projections deepSeekProjections
 	if err := client.call(ctx, deepSeekProjectionsCall, map[string]any{"sessionId": id}, &projections); err != nil {
-		return nil, nil, err
+		return nil, nil, 0, err
 	}
 	pressure := projections.Values.ContextPressure
 	if pressure == nil || !pressure.PressureTokens.present {
-		return nil, nil, nil
+		return nil, nil, 0, nil
 	}
 	selection := projections.Values.ModelSelection
 	if !projections.AsOfSeq.ok || !pressure.PressureTokens.ok || !pressure.ContextWindow.ok ||
 		pressure.ContextWindow.value <= 0 || selection == nil || selection.LastUsed == nil {
-		return nil, nil, errDeepSeekContext
+		return nil, nil, 0, errDeepSeekContext
 	}
 	name := selection.LastUsed.Provider + "/" + selection.LastUsed.Model
 	if selection.LastUsed.Provider == "" || selection.LastUsed.Model == "" || !modelID.MatchString(name) {
-		return nil, nil, errDeepSeekContext
+		return nil, nil, 0, errDeepSeekContext
 	}
-	at, err := deepSeekUsageTime(ctx, client, id, projections.AsOfSeq.value, pressure.PressureTokens.value)
+	at, seq, err := deepSeekUsageTime(ctx, client, id, projections.AsOfSeq.value, pressure.PressureTokens.value)
 	if err != nil {
-		return nil, nil, err
+		return nil, nil, 0, err
 	}
 	used, limit := pressure.PressureTokens.value, pressure.ContextWindow.value
 	return &ObservedValue{Source: deepSeekContextSource, At: at, ID: name},
-		&ObservedValue{Source: deepSeekContextSource, At: at, LimitTokens: &limit, UsedTokens: &used, Epoch: id}, nil
+		&ObservedValue{Source: deepSeekContextSource, At: at, LimitTokens: &limit, UsedTokens: &used, Epoch: id}, seq, nil
 }
 
 // deepSeekUsageTime scans the session's log back from asOfSeq to the newest event with a
-// usage sample and returns its time. The sample's prompt side must be pressure, and no model
-// or context change may follow it; a bounded scan that finds no sample is an error.
-func deepSeekUsageTime(ctx context.Context, client *deepSeekClient, id string, asOfSeq, pressure int64) (int64, error) {
+// usage sample and returns its time and seq. The sample's prompt side must be pressure, and no
+// model or context change may follow it; a bounded scan that finds no sample is an error.
+func deepSeekUsageTime(ctx context.Context, client *deepSeekClient, id string, asOfSeq, pressure int64) (at, seq int64, err error) {
 	next := asOfSeq + 1 // the exclusive end of the next page
 	for range deepSeekPages {
 		request := map[string]any{"address": map[string]any{"kind": "session", "sessionId": id}, "throughSeq": asOfSeq, "maxMessages": deepSeekPageMessages}
@@ -257,42 +257,46 @@ func deepSeekUsageTime(ctx context.Context, client *deepSeekClient, id string, a
 		}
 		var page deepSeekPage
 		if err := client.call(ctx, deepSeekPageCall, request, &page); err != nil {
-			return 0, err
+			return 0, 0, err
 		}
-		// A page is a contiguous run of seqs that ends just before next.
+		// The whole page must be a contiguous run of events that ends just before next, before
+		// any of its events counts.
 		if len(page.Records) == 0 || page.HasMore == nil {
-			return 0, errDeepSeekContext
+			return 0, 0, errDeepSeekContext
+		}
+		first := next - int64(len(page.Records))
+		for i, record := range page.Records {
+			event := record.Event
+			if record.Type != "event" || !event.Seq.ok || event.Seq.value != first+int64(i) || !event.Time.ok || event.Time.value <= 0 {
+				return 0, 0, errDeepSeekContext
+			}
 		}
 		for i := len(page.Records) - 1; i >= 0; i-- {
-			record := page.Records[i]
-			event := record.Event
-			if record.Type != "event" || !event.Seq.ok || event.Seq.value != next-1 || !event.Time.ok || event.Time.value <= 0 {
-				return 0, errDeepSeekContext
-			}
+			event := page.Records[i].Event
 			next--
 			if event.Type == deepSeekRequestContext || event.Type == deepSeekModelSelection {
-				return 0, errDeepSeekContext
+				return 0, 0, errDeepSeekContext
 			}
 			if event.Type != deepSeekAssistantEvent && event.Type != deepSeekAttemptEvent {
 				continue
 			}
 			sample, found, err := event.usage()
 			if err != nil {
-				return 0, err
+				return 0, 0, err
 			}
 			if !found {
 				continue
 			}
 			if got, ok := sample.pressure(); !ok || got != pressure {
-				return 0, errDeepSeekContext
+				return 0, 0, errDeepSeekContext
 			}
-			return event.Time.value, nil
+			return event.Time.value, event.Seq.value, nil
 		}
 		if !*page.HasMore || next <= 0 {
-			return 0, errDeepSeekContext
+			return 0, 0, errDeepSeekContext
 		}
 	}
-	return 0, errDeepSeekContext
+	return 0, 0, errDeepSeekContext
 }
 
 // deepSeekContextRound reads every active DeepSeek session with a harness target once, at
@@ -333,9 +337,9 @@ func (s *Store) deepSeekContextRound(ctx context.Context) {
 		wg.Add(1)
 		go func() {
 			defer func() { <-slots; wg.Done() }()
-			model, usage, err := deepSeekContext(ctx, session.target, session.id)
+			model, usage, seq, err := deepSeekContext(ctx, session.target, session.id)
 			if err == nil && usage != nil {
-				s.recordReading(ctx, &s.deepSeekContext, Key{"deepseek", session.id}, model, usage, deepSeekContextConfirm)
+				s.recordReading(ctx, &s.deepSeekContext, Key{"deepseek", session.id}, model, usage, seq, deepSeekContextConfirm)
 			}
 		}()
 	}

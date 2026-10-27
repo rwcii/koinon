@@ -50,7 +50,7 @@ func newDeepSeekFake(t *testing.T) (*deepSeekFake, wakeTarget) {
 	return f, wakeTarget{DSHURL: server.URL, DSHCredentials: credential}
 }
 
-// sample is the recorded session's shape (DeepSeek Harness 0.2.0-rc.2, session 9ae79ae6):
+// sample is the recorded dev-container session's shape (DeepSeek Harness 0.2.0-rc.2):
 // its model and window at seq 11, the newest usage at seq 58 (728 input and 8960 cache read,
 // so 9688) and the turn's end at 60. Message text is a sentinel.
 func (f *deepSeekFake) sample() {
@@ -201,7 +201,8 @@ func (f *deepSeekFake) serve(w http.ResponseWriter, r *http.Request) {
 
 func readDeepSeek(t *testing.T, target wakeTarget) (model, usage *ObservedValue, err error) {
 	t.Helper()
-	return deepSeekContext(context.Background(), target, "session-synthetic")
+	model, usage, _, err = deepSeekContext(context.Background(), target, "session-synthetic")
+	return model, usage, err
 }
 
 // The recorded sample gives the model, the prompt-side tokens of the newest usage, the
@@ -331,6 +332,19 @@ func TestDeepSeekContextMalformed(t *testing.T) {
 			}
 		},
 		"empty page": func(f *deepSeekFake) { f.page = func([]string) []string { return nil } },
+		// The usage at seq 58 is in the first page (57-60); each defect is in its earlier part.
+		"event past asOfSeq before the page": func(f *deepSeekFake) {
+			f.page = func(r []string) []string {
+				return append([]string{`{"type":"event","event":{"type":"step/end","seq":61,"time":1791916501000}}`}, r...)
+			}
+		},
+		"conflicting seq before the usage": func(f *deepSeekFake) {
+			f.page = func(r []string) []string {
+				r[0] = `{"type":"event","event":{"type":"request/context","seq":58,"time":1791916497000,"data":{"provider":"p","model":"m","contextWindow":5}}}`
+				return r
+			}
+		},
+		"not an event before the usage": func(f *deepSeekFake) { f.page = func(r []string) []string { r[0] = `{"type":"other"}`; return r } },
 		"not an event": func(f *deepSeekFake) {
 			f.page = func(r []string) []string { r[len(r)-1] = `{"type":"other"}`; return r }
 		},
@@ -361,12 +375,12 @@ func TestDeepSeekContextTransport(t *testing.T) {
 	f, target := newDeepSeekFake(t)
 	other := target
 	other.DSHURL = "http://example.invalid"
-	if _, _, err := deepSeekContext(context.Background(), other, "session-synthetic"); err == nil {
+	if _, _, _, err := deepSeekContext(context.Background(), other, "session-synthetic"); err == nil {
 		t.Fatal("a non-loopback origin")
 	}
 	other = target
 	other.DSHCredentials = filepath.Join(t.TempDir(), "missing.yaml")
-	if _, _, err := deepSeekContext(context.Background(), other, "session-synthetic"); err == nil || f.count(deepSeekProjectionsCall) != 0 {
+	if _, _, _, err := deepSeekContext(context.Background(), other, "session-synthetic"); err == nil || f.count(deepSeekProjectionsCall) != 0 {
 		t.Fatal("a missing credential file")
 	}
 	f.set(func(f *deepSeekFake) { f.delay = make(chan struct{}) })
@@ -442,20 +456,33 @@ func TestDeepSeekContextRound(t *testing.T) {
 	if confirmed.seen != clock.UnixMilli() || confirmed.At != 1791916498000 {
 		t.Fatalf("confirmation: %+v", confirmed)
 	}
+	// A new usage event with the same counts, model and millisecond is a new reading, recorded
+	// at once.
+	f.set(func(f *deepSeekFake) {
+		f.add(`"type":"assistant/message","data":{"usage":{"inputTokens":9688}}`)
+		f.events[len(f.events)-1] = strings.Replace(f.events[len(f.events)-1], `"time":1791916502000`, `"time":1791916498000`, 1)
+		f.projections = deepSeekValue(62, `"pressureTokens":9688,"contextWindow":1024000`, `{"provider":"openrouter","model":"deepseek/deepseek-v4-flash"}`)
+	})
+	*clock = clock.Add(time.Second)
+	s.deepSeekContextRound(ctx)
+	if v, _ := s.storedContext(k); v.seen != clock.UnixMilli() || v.At != 1791916498000 {
+		t.Fatalf("a new usage with the same values: %+v", v)
+	}
+	confirmed, _ = s.storedContext(k)
 	f.set(func(f *deepSeekFake) { f.status = http.StatusInternalServerError })
 	*clock = clock.Add(2 * time.Minute)
 	s.deepSeekContextRound(ctx)
 	if v, _ := s.storedContext(k); v.seen != confirmed.seen {
 		t.Fatalf("failed read confirmed: %+v", v)
 	}
-	// It recovers, and a new usage replaces the reading at once.
+	// It recovers, and a new usage with new counts replaces the reading at once.
 	f.set(func(f *deepSeekFake) {
 		f.status = 0
 		f.add(`"type":"assistant/message","data":{"usage":{"inputTokens":20000,"cacheReadTokens":10000}}`)
-		f.projections = deepSeekValue(62, `"pressureTokens":30000,"contextWindow":1024000`, `{"provider":"openrouter","model":"deepseek/deepseek-v4-flash"}`)
+		f.projections = deepSeekValue(63, `"pressureTokens":30000,"contextWindow":1024000`, `{"provider":"openrouter","model":"deepseek/deepseek-v4-flash"}`)
 	})
 	s.deepSeekContextRound(ctx)
-	if v, _ := s.storedContext(k); *v.UsedTokens != 30000 || v.At != 1791916502000 || v.seen != clock.UnixMilli() {
+	if v, _ := s.storedContext(k); *v.UsedTokens != 30000 || v.At != 1791916503000 || v.seen != clock.UnixMilli() {
 		t.Fatalf("new reading: %+v", v)
 	}
 	if f.count("session/prompt") != 0 {

@@ -2339,9 +2339,10 @@ start no agent. Each request has a one-second timeout, an exact 200 with an `ok`
 echoes its `rpcId`, no redirect and at most 8 MiB; one reading reads at most 16 MiB and four
 pages in five seconds. The projections give `asOfSeq`, `contextPressure.pressureTokens` (the
 newest usage's `inputTokens` plus `cacheReadTokens` and `cacheWriteTokens`), `contextWindow` and
-`modelSelection.lastUsed`. The pages, read back from `asOfSeq`, must be contiguous, and are
-scanned to the newest `assistant/message` or `assistant/attempt` with a usage sample (the
-message's `usage`, or else its stream's last `usage` chunk). That sample's prompt-side count
+`modelSelection.lastUsed`. The pages, read back from `asOfSeq`, must be contiguous; each page is
+checked whole, before any of its events counts, and is then scanned to the newest
+`assistant/message` or `assistant/attempt` with a usage sample (the message's `usage`, or else
+its stream's last `usage` chunk). That sample's prompt-side count
 must equal `pressureTokens`, and no `request/context` or `model/selection` event may follow it,
 because the harness keeps the pressure and the window as independent values. Then
 `used_tokens` is `pressureTokens`, `limit_tokens` is `contextWindow`, and the source time is the
@@ -2349,8 +2350,9 @@ usage event's `time`, which an unrelated event, such as a title or a prompt, doe
 `inputTokens` is required; an absent cache count is 0, and every count is a JSON integer from 0
 to 2^53-1. Before the first usage there is no reading; any other mismatch or invalid field gives
 none either, never an older one, and a failed read confirms nothing. A changed reading is
-recorded at once, an unchanged one once a minute. Only event types, seqs, times, usage counts
-and the model and context fields are decoded; message text and other projections are not kept.
+recorded at once, an unchanged one once a minute; a new usage event is a new reading even with
+the same counts and time. Only event types, seqs, times, usage counts and the model and context
+fields are decoded; message text and other projections are not kept.
 `projectedTokens` is the harness's estimate for its next request, so it is not used. A DeepSeek
 session registered without a harness target has `no_source`. DeepSeek has no cycle adapter yet
 (#514). The native source was read with DeepSeek Harness 0.2.0-rc.2.
