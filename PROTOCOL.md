@@ -277,7 +277,7 @@ Chunk 02 adds the durable cycle. A context observation that makes an enabled ses
 eligible admits a cycle when the family has a registered cycle adapter, the session still has
 the host and tmux pane that its Enable pinned, it has no unfinished cycle (nor has its host),
 and fewer than 16 cycles are unfinished. Chunk 03 registers the Claude Code adapter, chunk
-04 the Codex adapter, #512 the agy adapter and #513 the OpenCode adapter; the other families have none, so their Enable is refused. Admission is one ordinary transaction:
+04 the Codex adapter, #512 the agy adapter, #513 the OpenCode adapter and #514 the DeepSeek adapter; the other families have none, so their Enable is refused. Admission is one ordinary transaction:
 the cycle row, its first event `requested admitted`, an audit record and the typed request in
 the session's own inbox. The request's sender is the reserved system identity `overwatch`
 (`sender_family` and `sender_id` `overwatch`, `sender_name` `overwatch`), with `system_kind`
@@ -725,6 +725,81 @@ A dialog is never answered by the adapter. A pending permission of the subject s
 /permission/{id}/reply` while the same request is pending, and its end is read back. A pending
 question shows with no option and is answered in the pane.
 
+### DeepSeek cycle adapter
+
+#514 adds the adapter for DeepSeek (version `dsh-session-1`), on the facts of DeepSeek Harness
+0.2.0-rc.2 on Linux ([evidence](docs/sprints/2026-10-12-context-handoff/evidence.md#deepseek-cycle-adapter-514)).
+A DeepSeek session has no host process and no pane: the adapter acts only through the session's
+harness API, with the wake's pinned loopback origin and signed cookie and the transport of the
+`dsh_projections` source (each request names its arguments as the method's descriptor does:
+`session/list` takes `_request`, `session/modelCatalog` none, the others `request`). Its Enable
+and cycle pin no host or pane, and one unfinished cycle is allowed per session. The cycle's
+request asks the session to run `koinon cycle-ready`, and the ready reply says that overwatch
+starts a new harness session once this one is idle.
+
+Probe needs Linux (`platform_unverified`), the session's harness target
+(`harness_target_missing`, `harness_unreachable`), its participant address held
+(`participant_unheld`), its `session/list` row with an absolute `cwd`
+(`harness_session_unknown`), and its model, `modelSelection.next` or else `lastUsed` from
+`session/projections`, equal in provider, model and reasoning effort to the harness default of
+`session/modelCatalog` (`model_unknown`, `model_not_default`). A new harness session takes that
+default, and `session/selectModel` would also save a new default, so the adapter never calls it
+and changes no harness setting; the step of `model_not_default` names the harness setting that
+the person can change. `skills/list` for the session must list one `koinon-pickup`
+(`pickup_entry_missing`, `pickup_entry_unverified`) whose `SKILL.md` is DeepSeek's entry byte for
+byte (`pickup_entry_differs`), in whichever root the harness lists it. Admission stores the pin,
+schema 35's `adapter_pin` of at most 640 bytes: SHA-256 fingerprints of the harness target and
+the `cwd`, and the model. Every later Probe, before each input, compares it:
+another target or `cwd` fails the cycle with `target_changed`, another model with
+`model_changed`.
+
+The quiet point, before the reset (the requester) and before the pickup (the created session),
+is one stable read: `running` false in the session's `session/list` row, empty `next-turn` and
+`next-step` inbox lists and no active user question at one `asOfSeq`, and the history pinned at
+that `asOfSeq` (`session/page` `throughSeq`) back to the newest `turn/start`, which must have a
+later `turn/end`, with no `compaction/start` without its `compaction/end` after it; then the
+projections and the row are read again unchanged (`harness_changed` otherwise). A budget of 4
+pages of 200 messages that ends before the newest `turn/start` proves nothing. An
+`approval/asked` without its `approval/decided` inside a closed turn is a crash orphan and does
+not block. A created session is ready for its pickup only while it has no turn and no user
+message (`successor_not_empty`). The harness has no client read of a running `/compact` other
+than these events.
+
+The reset creates the successor: under the recorded `clear_intent` and after the pin, the
+fence and a read that shows no session with the chosen ID, `session/create` with
+`{sessionId, cwd}`: `session-` and a UUID derived from the cycle ID, and the requester's `cwd`.
+The created ID is recorded with the receipt in the write that enters `clear_received`. A lost
+or failed response leaves the cycle in `clear_intent`: the next step reads the chosen ID first.
+Only a verified successful null from `session/projections` proves that it does not exist, and
+then the same create is sent again; a session with that ID in the pinned `cwd` without a turn or
+user message is the created one, and any other is `session_conflict`, never adopted. An
+unreadable harness waits until the stage deadline, then ends `uncertain` (`reset_unproven`). The
+`select_sent` event is recorded and nothing is sent: the harness has no server record of the
+session that a browser shows. The reset is proven when the created session exists in the
+pinned `cwd`.
+
+The pickup runs from a worker, as OpenCode's does, under the recorded `pickup_intent`: after the
+pin, the fence and a read that shows no receipt yet, `session/prompt` `{requestId, sessionId,
+mode: queue, content: [{type: text, text: "/koinon-pickup"}], clientTimeZone: UTC}`, whose
+request ID is a UUID derived from the cycle and the intent's time. The harness admits one prompt
+per request ID, so a resend after a lost response admits nothing twice. The receipt is the
+created session's only user prompt, queued in its inbox, spliced from it
+(`agent/inbox/spliced`) or entered (`user/message`), with `source.kind` `user`, that
+`source.rpcId` and exactly that text. The worker bounds and the step that applies the result are
+OpenCode's; a restart reads the receipt back and sends nothing.
+
+The created session runs `koinon-pickup`, DeepSeek's entry, which reads `skill.pickup` with
+`koinon library read`, registers with `koinon register` (see Verified succession) and reports
+with `koinon cycle-pickup`. A report from it before it holds the address is refused with
+`cycle_receipt_pending` (HTTP 409), and the cycle stays in its stage: it registers again and
+reports again. The report reads the harness again within the deadlines: the target is still the
+pinned one, and the created session's `request/header` configs and the `message.source` of each
+`assistant/message` name the pinned provider and model (and reasoning effort for the headers),
+with at least one reply. A known other model ends the cycle `uncertain` (`model_changed`) and the
+report is refused with `cycle_model_changed`; a harness that cannot be read refuses it with
+`cycle_harness_unreadable` (HTTP 409), which can be retried. The Sessions page names the created
+session's ID and the harness's loopback web origin, where the person can open it.
+
 ### Native compaction
 
 In `native_compaction` (#509) a Codex session's crossing admits a compaction, a cycle row with
@@ -868,10 +943,22 @@ below), so it runs as the new thread's first turn.
 The session and `peers` expose `succession: {result, reason, address, holder, at,
 retry_after_ms}` when present; `at` is daemon Unix milliseconds and `holder` is the former or
 retained holder's peer name. Success reports `result: succeeded` with `same_host`,
-`host_cleared`, `cycle_reset` or `same_pane`. Refusal reports `result: refused` with `no_host`, `host_running`, `other_pane`,
-`subagent`, `holder_active`, `fenced` or `other_participant`. `no_host` covers missing host
+`host_cleared`, `cycle_reset`, `cycle_session` or `same_pane`. Refusal reports `result: refused` with `no_host`, `host_running`, `other_pane`,
+`subagent`, `holder_active`, `cycle_receipt_pending`, `fenced` or `other_participant`. `no_host` covers missing host
 records; `host_running` includes a former host that cannot be proven ended; `other_pane`
 includes missing pane evidence. A refused succession still registers the native peer.
+
+A DeepSeek session has no host record, so `no_host` would refuse every DeepSeek candidate. A
+DeepSeek cycle's created session succeeds with `cycle_session` (#514), checked first, before
+`no_host`, only when, in the registration's transaction: the holder's unfinished cycle of this
+address has the DeepSeek adapter (`dsh-session-1`), no host or pane, and the candidate's ID as
+the session that its reset created; the cycle is in `waiting_pickup` or a prompt wait that began
+there, under the Enable revision that admitted it and before both deadlines; the candidate's
+registered harness target is the one that the cycle pinned; and it is not fenced, not a
+sub-agent and holds no other alias. In `pickup_intent`, before the pickup's receipt is recorded,
+the same candidate is refused with `cycle_receipt_pending` and `retry_after_ms` 1000: it registers
+again after that. A DeepSeek `koinon register` is the session's own call (`tool_call`), so it can
+succeed; its renewals are registrations too.
 
 For `holder_active`, the daemon returns a remaining `retry_after_ms`. MCP waits that duration
 from receipt, rather than comparing client and daemon wall clocks, then registers at the
@@ -2354,8 +2441,8 @@ recorded at once, an unchanged one once a minute; a new usage event is a new rea
 the same counts and time. Only event types, seqs, times, usage counts and the model and context
 fields are decoded; message text and other projections are not kept.
 `projectedTokens` is the harness's estimate for its next request, so it is not used. A DeepSeek
-session registered without a harness target has `no_source`. DeepSeek has no cycle adapter yet
-(#514). The native source was read with DeepSeek Harness 0.2.0-rc.2.
+session registered without a harness target has `no_source`. The cycle is under "DeepSeek cycle
+adapter". The native source was read with DeepSeek Harness 0.2.0-rc.2.
 
 One MCP server can serve several sessions, so its environment proves nothing about a session.
 The daemon accepts a terminal only for a session registered with a verified launch ID or a

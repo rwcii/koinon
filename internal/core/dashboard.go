@@ -354,6 +354,10 @@ type contextRow struct {
 	// subagents running since the request, "unknown" when they cannot all be read, else ""
 	// (#467).
 	Subagents string
+	// CreatedSession is, for a host-less cycle (DeepSeek, #514), the session that its reset
+	// created, and HarnessOrigin the harness's loopback web origin, where the person can open
+	// it: the harness has no record of the session that a browser shows.
+	CreatedSession, HarnessOrigin string
 }
 
 // contextRowOf selects a session's trigger state from the stored policy and evidence. It
@@ -388,6 +392,15 @@ func (s *Store) contextRowOf(session Session, enable ContextEnable, now int64) c
 				if requested, err := cycleRequestedAt(context.Background(), s.db, cycles[0]); err == nil {
 					if n, err := claudeRunningSubagents(s.cycleTarget(context.Background(), cycles[0]), requested); err == nil {
 						row.Subagents = strconv.Itoa(n)
+					}
+				}
+			}
+			if _, hostless := cycleAdapterOf(cycles[0].Family).(HostlessAdapter); hostless && cycles[0].SuccessorEpoch != "" {
+				row.CreatedSession = cycles[0].SuccessorEpoch
+				// Only a valid loopback origin is shown, as the wake would use it.
+				if t := s.cycleTarget(context.Background(), cycles[0]); t.deepSeek != nil {
+					if u, _, err := deepSeekDestination(context.Background(), t.deepSeek.DSHURL); err == nil {
+						row.HarnessOrigin = u.Scheme + "://" + u.Host
 					}
 				}
 			}

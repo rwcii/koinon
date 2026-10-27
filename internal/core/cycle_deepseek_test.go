@@ -628,6 +628,16 @@ func (g *dshFixture) register(t *testing.T, id string) Session {
 	return session
 }
 
+// reloadSession reads a session as the views do.
+func (s *Store) reloadSession(t *testing.T, k Key) Session {
+	t.Helper()
+	session, err := scanSession(s.db.QueryRow(sessionQuery+` WHERE s.family=? AND s.id=?`, k.Family, k.ID), s.now().UnixMilli())
+	if err != nil {
+		t.Fatal(err)
+	}
+	return session
+}
+
 func (g *dshFixture) step(t *testing.T) {
 	t.Helper()
 	if err := g.s.cycleStep(context.Background()); err != nil {
@@ -700,6 +710,12 @@ func TestDeepSeekCycleFlow(t *testing.T) {
 		t.Fatalf("after create: %+v", c)
 	}
 	successor := Key{"deepseek", created}
+	// The Sessions page names the created session and the harness's web origin.
+	requester := g.s.reloadSession(t, g.k)
+	enables, _ := g.s.contextEnables(context.Background())
+	if row := g.s.contextRowOf(requester, enables[g.k], g.clock.UnixMilli()); row.CreatedSession != created || row.HarnessOrigin != g.target.DSHURL {
+		t.Fatalf("row: %q %q", row.CreatedSession, row.HarnessOrigin)
+	}
 	g.step(t) // the select is recorded; DeepSeek shows nothing
 	g.step(t) // proof
 	if c = g.cycle(t, v.ID); c.State != cycleResetVerified {

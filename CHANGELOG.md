@@ -5,12 +5,23 @@ into a dated release section when promoted to `main`.
 
 ## Unreleased
 
+- DeepSeek sessions can run the managed context handoff cycle on Linux (#514). A DeepSeek
+  session had no cycle: its Enable was refused. A session registered with its harness URL and
+  credential file, with the family mode `handoff_cycle`, its participant address and the
+  harness's default model, now gets the cycle through its harness: overwatch's request, a new
+  harness session created in the same directory once the session is idle, and `/koinon-pickup`
+  there, which the new session's own `koinon register` and `koinon cycle-pickup` complete; it
+  takes the address once the pickup's receipt is recorded (`cycle_receipt_pending` until then).
+  The daemon never calls the harness's model selection, which would also save a new default,
+  so a session on another model is refused with `model_not_default`. `koinon install` and the
+  daemon write DeepSeek's `koinon-pickup` entry to an existing `$DSH_HOME/skills`. The native
+  checks ran with DeepSeek Harness 0.2.0-rc.2. The family default stays `observe`; macOS waits
+  for native evidence.
 - DeepSeek sessions now report their model and context use (#514). `peer_status` and the
   dashboard showed no context for DeepSeek (`no_source`). For each session registered with its
   harness URL and credential file, the daemon now reads the harness's token meter and model
   selection every 15 seconds, and the time of the reply that the usage came from; it keeps only
-  those numbers and IDs, never the message text. DeepSeek has no handoff cycle yet; its family
-  default stays `observe`.
+  those numbers and IDs, never the message text. Its family default stays `observe`.
 - OpenCode sessions can run the managed context handoff cycle on Linux (#513). An OpenCode
   session had no cycle: its Enable was refused. A session started with `koinon opencode` in
   tmux, with the family mode `handoff_cycle` and its participant address, now gets the cycle
