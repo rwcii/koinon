@@ -171,6 +171,10 @@ func destinations(name string, families []string) []Destination {
 			machine.Root = "claude-default-home"
 			machine.Path = "skills/" + name + "/SKILL.md"
 			machine.Evidence = "documented personal .claude/skills; native discovery and nondefault config root unverified; read-only"
+		case "deepseek":
+			machine.Root = "dsh-home"
+			machine.Path = "skills/" + name + "/SKILL.md"
+			machine.Evidence = "DeepSeek Harness 0.2.0-rc.2 lists DSH_HOME/skills, default ~/.dsh/skills; koinon install writes only koinon-pickup there; read-only"
 		}
 		result = append(result, machine)
 	}

@@ -71,6 +71,8 @@ func inspectSeen(err error) string {
 		return "pane_unproven"
 	case errors.Is(err, errPaneInMode):
 		return "pane_in_mode"
+	case errors.Is(err, errDeepSeekHarness):
+		return "harness_unreadable"
 	}
 	return "pane_unreadable"
 }
@@ -93,6 +95,9 @@ func (s *Store) timeoutSeen(ctx context.Context, c cycleRow) string {
 	adapter := cycleAdapterOf(c.Family)
 	if adapter == nil {
 		return ""
+	}
+	if _, hostless := adapter.(HostlessAdapter); hostless {
+		return "" // its workers record what they read; the tick reads no harness (#514)
 	}
 	t := s.cycleTarget(ctx, c)
 	s.wake.mu.Lock()
@@ -296,6 +301,14 @@ func (s *Store) stepCycle(ctx context.Context, c cycleRow) error {
 	// pending request delays no other cycle or wake (#513).
 	if async, ok := adapter.(AsyncPickupAdapter); ok && c.State == cyclePickupIntent {
 		return s.pickupReceipt(ctx, c, t, async)
+	}
+	// A host-less cycle's harness reads and effects run in workers, without the wake lock: the
+	// session has no pane, and its requester's wakes are held from ready on (#514).
+	if _, hostless := adapter.(HostlessAdapter); hostless {
+		switch c.State {
+		case cycleReady, cycleResetVerified, cycleClearIntent, cycleClearReceived, cycleWaitingPickup:
+			return s.stepHostless(ctx, c, t, adapter)
+		}
 	}
 	s.wake.mu.Lock()
 	defer s.wake.mu.Unlock()
@@ -625,6 +638,149 @@ func (s *Store) createSuccessor(ctx context.Context, c cycleRow, t CycleTarget, 
 	return err
 }
 
+// hostlessResult is one worker's harness read or effect for a host-less cycle (#514), for the
+// revision and stage that started it.
+type hostlessResult struct {
+	revision int64
+	state    string
+	pane     PaneState
+	probe    CycleProbe
+	epoch    string // NewEpoch's proof, or the created ID in clear_intent
+	err      error
+}
+
+// stepHostless advances a host-less cycle without a request on the controller's tick: a
+// worker reads the harness, or makes the stage's one effect, and publishes its result; a
+// later step applies a result of the cycle's current revision and stage through the same
+// revision-checked writes. Without a free worker the cycle waits in its stage.
+func (s *Store) stepHostless(ctx context.Context, c cycleRow, t CycleTarget, adapter CycleAdapter) error {
+	create := adapter.(SessionAdapter)
+	if c.State == cycleWaitingPickup {
+		return nil // no pane and no dialog: the report completes the cycle
+	}
+	if c.State == cycleClearReceived {
+		// The select records its intent and sends nothing (Select is a no-op for the harness).
+		if sent, err := s.selectSuccessor(ctx, c, t, create); !sent || err != nil {
+			return err
+		}
+	}
+	value, done := s.cycleWork.take(c.ID)
+	r, ok := value.(hostlessResult)
+	if !done || !ok || r.revision != c.Revision || r.state != c.State {
+		if !s.cycleWork.running(c.ID) {
+			s.cycleWork.start(c.ID, func(ctx context.Context, publish func(any)) {
+				publish(hostlessWork(ctx, c, t, adapter, s.cycleFence(c)))
+			})
+		}
+		return nil
+	}
+	now := s.now().UnixMilli()
+	switch c.State {
+	case cycleClearIntent:
+		// The create reads the chosen ID first and sends the same create only after a verified
+		// null and a quiet requester; an unreadable harness or a busy requester waits within the
+		// stage deadline. An intent's end is uncertain (endCycle); a busy requester's names its code.
+		var busy deepSeekNotQuiet
+		switch {
+		case errors.Is(r.err, errDeepSeekConflict):
+			_, err := s.endCycle(ctx, c.ID, c.Revision, cycleFailed, "session_conflict")
+			return err
+		case errors.As(r.err, &busy):
+			if now >= c.StageDeadline {
+				reason := string(busy)
+				if !cycleCode.MatchString(reason) {
+					reason = "pane_not_ready"
+				}
+				_, err := s.endCycle(ctx, c.ID, c.Revision, cycleUncertain, reason)
+				return err
+			}
+			s.paneSeen.set(c.ID, string(busy))
+			return nil
+		case r.err != nil || r.epoch == "":
+			if now >= c.StageDeadline {
+				_, err := s.endCycle(ctx, c.ID, c.Revision, cycleUncertain, "reset_unproven")
+				return err
+			}
+			return nil
+		case r.epoch == c.Epoch || !nativeEpoch.MatchString(r.epoch):
+			_, err := s.endCycle(ctx, c.ID, c.Revision, cycleUncertain, "reset_unproven")
+			return err
+		}
+		s.paneSeen.set(c.ID, "")
+		_, err := s.advanceCycle(ctx, c.ID, c.Revision, cycleClearIntent, cycleClearReceived, "", nil, func(n *cycleRow) { n.SuccessorEpoch = r.epoch })
+		return err
+	case cycleClearReceived:
+		if r.err == nil && r.epoch != "" && r.epoch == c.SuccessorEpoch && nativeEpoch.MatchString(r.epoch) {
+			_, err := s.advanceCycle(ctx, c.ID, c.Revision, c.State, cycleResetVerified, "", nil, nil)
+			return err
+		}
+		if now >= c.StageDeadline {
+			_, err := s.endCycle(ctx, c.ID, c.Revision, cycleUncertain, "reset_unproven")
+			return err
+		}
+		return nil
+	}
+	// ready or reset_verified: the quiet point, the probe and, after the reset, the epoch.
+	if r.err != nil {
+		s.paneSeen.set(c.ID, inspectSeen(r.err))
+		return nil
+	}
+	if !r.pane.Idle {
+		if r.pane.Seen == "" || !cycleCode.MatchString(r.pane.Seen) {
+			r.pane.Seen = "pane_not_ready"
+		}
+		s.paneSeen.set(c.ID, r.pane.Seen)
+		return nil
+	}
+	s.paneSeen.set(c.ID, "")
+	if _, err := s.verifyArtifact(ctx, c, c.Artifact); err != nil {
+		if c.State == cycleReady {
+			_, err = s.advanceCycle(ctx, c.ID, c.Revision, c.State, cycleWaitingReady, "artifact_changed", nil, func(n *cycleRow) {
+				n.Artifact, n.ArtifactDev, n.ArtifactIno, n.ArtifactSize, n.ArtifactMtime = "", 0, 0, 0, 0
+			})
+		} else {
+			_, err = s.endCycle(ctx, c.ID, c.Revision, cycleFailed, "artifact_changed")
+		}
+		return err
+	}
+	if r.probe.Reason != "" {
+		_, err := s.endCycle(ctx, c.ID, c.Revision, cycleFailed, r.probe.Reason)
+		return err
+	}
+	if c.State == cycleReady {
+		// The intent is recorded here; the next step's worker makes the create.
+		_, err := s.advanceCycle(ctx, c.ID, c.Revision, c.State, cycleClearIntent, "", pinnedRequester(ctx), nil)
+		return err
+	}
+	if r.epoch != c.SuccessorEpoch {
+		_, err := s.endCycle(ctx, c.ID, c.Revision, cycleFailed, "epoch_changed")
+		return err
+	}
+	return s.startPickup(ctx, c, t, adapter.(AsyncPickupAdapter))
+}
+
+// hostlessWork is a host-less cycle's worker for its stage: the quiet point and the probe in
+// ready and reset_verified (with the epoch there), the create in clear_intent, the epoch in
+// clear_received.
+func hostlessWork(ctx context.Context, c cycleRow, t CycleTarget, adapter CycleAdapter, fence CycleFence) hostlessResult {
+	r := hostlessResult{revision: c.Revision, state: c.State}
+	switch c.State {
+	case cycleClearIntent:
+		r.epoch, r.err = adapter.(SessionAdapter).Create(ctx, t, fence)
+	case cycleClearReceived:
+		r.epoch, r.err = adapter.NewEpoch(ctx, t)
+	default:
+		if r.pane, r.err = adapter.Inspect(ctx, t, fence); r.err != nil || !r.pane.Idle {
+			return r
+		}
+		r.probe = adapter.Probe(ctx, t)
+		if r.probe.Reason == "" && c.State == cycleResetVerified {
+			r.epoch, r.err = adapter.NewEpoch(ctx, t)
+		}
+	}
+	return r
+}
+
 // selectReason is the reason of the same-state clear_received event that records the
 // select's intent (#513).
 const selectReason = "select_sent"
@@ -671,7 +827,7 @@ func (s *Store) startPickup(ctx context.Context, c cycleRow, t CycleTarget, asyn
 	t.State, t.pickupAt = c.State, c.UpdatedAt
 	fence := s.cycleFence(c)
 	// A worker that cannot start sends nothing: a later step reads that no receipt exists.
-	s.cycleWork.start(c.ID, func(ctx context.Context, publish func(bool)) {
+	s.cycleWork.start(c.ID, func(ctx context.Context, publish func(any)) {
 		sent := make(chan struct{})
 		go func() {
 			defer close(sent)
@@ -733,7 +889,7 @@ func (s *Store) pickupReceipt(ctx context.Context, c cycleRow, t CycleTarget, as
 		_, err := s.endCycle(ctx, c.ID, c.Revision, cycleUncertain, "pickup_unreceipted")
 		return err
 	case !s.cycleWork.running(c.ID):
-		s.cycleWork.start(c.ID, func(ctx context.Context, publish func(bool)) { publish(awaitReceipt(ctx, async, t, nil)) })
+		s.cycleWork.start(c.ID, func(ctx context.Context, publish func(any)) { publish(awaitReceipt(ctx, async, t, nil)) })
 	}
 	return nil
 }
@@ -808,7 +964,7 @@ type cycleWorkers struct {
 	ctx     context.Context
 	cancel  context.CancelFunc
 	active  map[string]bool
-	results map[string]bool
+	results map[string]any
 	stopped bool
 }
 
@@ -830,8 +986,21 @@ func (w *cycleWorkers) running(id string) bool {
 func (w *cycleWorkers) result(id string) (received, published bool) {
 	w.mu.Lock()
 	defer w.mu.Unlock()
-	received, published = w.results[id]
-	return received, published
+	value, published := w.results[id]
+	received, receipt := value.(bool)
+	return received, published && receipt
+}
+
+// take returns and forgets the result that the cycle's worker published, once it returned.
+func (w *cycleWorkers) take(id string) (any, bool) {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	value, published := w.results[id]
+	if !published || w.active[id] {
+		return nil, false
+	}
+	delete(w.results, id)
+	return value, true
 }
 
 // keep forgets the results of every cycle that is not in active.
@@ -851,7 +1020,7 @@ func (w *cycleWorkers) keep(active []cycleRow) {
 
 // start runs one worker for the cycle, unless one runs or none is free or the workers stopped.
 // The worker publishes its result once; a later publish changes nothing.
-func (w *cycleWorkers) start(id string, run func(context.Context, func(bool))) bool {
+func (w *cycleWorkers) start(id string, run func(context.Context, func(any))) bool {
 	w.mu.Lock()
 	defer w.mu.Unlock()
 	if w.stopped || w.active[id] || len(w.active) >= maxCycleWorkers {
@@ -859,15 +1028,15 @@ func (w *cycleWorkers) start(id string, run func(context.Context, func(bool))) b
 	}
 	if w.ctx == nil {
 		w.ctx, w.cancel = context.WithCancel(context.Background())
-		w.active, w.results = map[string]bool{}, map[string]bool{}
+		w.active, w.results = map[string]bool{}, map[string]any{}
 	}
 	w.active[id] = true
 	w.wg.Add(1)
-	publish := func(received bool) {
+	publish := func(value any) {
 		w.mu.Lock()
 		defer w.mu.Unlock()
 		if _, done := w.results[id]; !done {
-			w.results[id] = received
+			w.results[id] = value
 		}
 	}
 	go func() {
@@ -916,6 +1085,22 @@ func (s *Store) cycleFence(c cycleRow) CycleFence {
 			}
 			return err
 		}
+		// A host-less cycle's input also stops when its requester no longer holds the address or
+		// registered another harness target (#514).
+		if _, hostless := cycleAdapterOf(current.Family).(HostlessAdapter); hostless {
+			var holder string
+			if err := tx.QueryRowContext(ctx, `SELECT holder_id FROM names WHERE kind='alias' AND name=? AND family=?`,
+				current.Address, current.Family).Scan(&holder); err != nil && !errors.Is(err, sql.ErrNoRows) {
+				return err
+			}
+			ok, err := hostlessTargets(ctx, tx, current.ID, Key{current.Family, current.SessionID})
+			if err != nil {
+				return err
+			}
+			if !ok || holder != current.SessionID {
+				return ErrCycleChanged
+			}
+		}
 		// A compaction's input also stops when the session's mode or threshold changed (#509).
 		if current.Mode == ContextNativeCompaction {
 			if ok, err := s.compactionPolicyHolds(ctx, tx, current); err != nil || !ok {
@@ -943,6 +1128,25 @@ func (s *Store) cycleTarget(ctx context.Context, c cycleRow) CycleTarget {
 		t.observedEpoch = s.contextEvidence(Key{c.Family, c.SessionID}).Epoch
 		t.stateRoot = s.root
 	}
+	if c.Family == "deepseek" {
+		// The requester's harness, which also hosts the created successor, and the pin (#514).
+		var raw []byte
+		var target wakeTarget
+		if s.db.QueryRowContext(ctx, `SELECT wake_target FROM sessions WHERE family=? AND id=?`, c.Family, c.SessionID).Scan(&raw) == nil &&
+			json.Unmarshal(raw, &target) == nil && target.DSHURL != "" && target.DSHCredentials != "" {
+			t.deepSeek = &target
+		}
+		if c.ID != "" {
+			_ = s.db.QueryRowContext(ctx, `SELECT adapter_pin FROM context_cycles WHERE cycle_id=?`, c.ID).Scan(&t.pin)
+		}
+	}
+	if c.Family == "opencode" || c.Family == "deepseek" {
+		// The pickup's intent time, from which the message or request ID derives (#513, #514).
+		var at sql.NullInt64
+		if s.db.QueryRowContext(ctx, `SELECT MAX(at) FROM context_cycle_events WHERE cycle_id=? AND stage=?`, c.ID, cyclePickupIntent).Scan(&at) == nil && at.Valid {
+			t.pickupAt = at.Int64
+		}
+	}
 	if c.Family == "opencode" {
 		// The requester's launched server, which also hosts the created successor (#513).
 		var raw []byte
@@ -955,12 +1159,11 @@ func (s *Store) cycleTarget(ctx context.Context, c cycleRow) CycleTarget {
 				t.openCode = &target
 			}
 		}
-		var at sql.NullInt64
-		if s.db.QueryRowContext(ctx, `SELECT MAX(at) FROM context_cycle_events WHERE cycle_id=? AND stage=?`, c.ID, cyclePickupIntent).Scan(&at) == nil && at.Valid {
-			t.pickupAt = at.Int64
-		}
 	}
 	t.Pickup = pickupSkillEntry()
+	if c.Family == "deepseek" {
+		t.Pickup = deepSeekPickupEntry()
+	}
 	var held int
 	t.Holds = s.db.QueryRowContext(ctx, `SELECT 1 FROM names WHERE kind='alias' AND family=? AND holder_id=? LIMIT 1`, c.Family, c.SessionID).Scan(&held) == nil
 	if c.State == cycleReady {
@@ -978,13 +1181,15 @@ func (s *Store) cycleTarget(ctx context.Context, c cycleRow) CycleTarget {
 }
 
 // paneHeldByCycle reports whether an unfinished cycle owns the target session's pane, so
-// its ordinary wake waits without being marked delivered.
+// its ordinary wake waits without being marked delivered. A host-less cycle (#514) holds only
+// its own requester's wake: a prompt queued in it would end its quiet point.
 func (s *Store) paneHeldByCycle(ctx context.Context, target Key) (bool, error) {
 	var held int
 	err := s.db.QueryRowContext(ctx, `SELECT COUNT(*) FROM context_cycles c JOIN sessions s ON s.family=? AND s.id=?
 		WHERE c.state IN ('ready','bootstrap_intent','bootstrap_verified','clear_intent','clear_received','reset_verified','pickup_intent',
 			'waiting_pickup','waiting_prompt','prompt_intent','compact_intent','compact_sent')
-		AND c.host_pid=s.host_pid AND c.host_start=s.host_start AND c.tmux_socket=s.tmux_socket AND c.tmux_pane=s.tmux_pane`,
+		AND (c.host_start>0 AND c.host_pid=s.host_pid AND c.host_start=s.host_start AND c.tmux_socket=s.tmux_socket AND c.tmux_pane=s.tmux_pane
+			OR c.host_start=0 AND c.family=s.family AND c.session_id=s.id)`,
 		target.Family, target.ID).Scan(&held)
 	return held > 0, err
 }

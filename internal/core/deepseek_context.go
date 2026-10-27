@@ -143,7 +143,7 @@ type deepSeekClient struct {
 	secret      []byte
 	http        *http.Client
 	close       func()
-	read        int // response bytes read, for the scan's bound
+	bytes       int // response bytes read, for the scan's bound
 }
 
 func newDeepSeekClient(ctx context.Context, target wakeTarget) (*deepSeekClient, error) {
@@ -163,31 +163,55 @@ func newDeepSeekClient(ctx context.Context, target wakeTarget) (*deepSeekClient,
 // call sends one request and decodes the value of its exact-200, ok result. A null value is
 // errDeepSeekContext.
 func (c *deepSeekClient) call(ctx context.Context, method string, request, value any) error {
+	found, err := c.read(ctx, method, request, value)
+	if err == nil && !found {
+		return errDeepSeekContext
+	}
+	return err
+}
+
+// deepSeekArgs are a method's arguments as its descriptor names them: the harness refuses a
+// missing or an unexpected field (gateway/arguments-invalid). session/list names its request
+// _request, and session/modelCatalog takes none (#514).
+func deepSeekArgs(method string, request any) map[string]any {
+	switch method {
+	case "session/list":
+		return map[string]any{"_request": request}
+	case "session/modelCatalog":
+		return map[string]any{}
+	}
+	return map[string]any{"request": request}
+}
+
+// read sends one request and decodes the value of its exact-200, ok result. found is false for
+// a null value, which only a verified successful response proves; any other failure is an
+// error (#514).
+func (c *deepSeekClient) read(ctx context.Context, method string, request, value any) (found bool, err error) {
 	ctx, cancel := context.WithTimeout(ctx, deepSeekContextTimeout)
 	defer cancel()
 	rpcID, err := wakeID()
 	if err != nil {
-		return errDeepSeekContext
+		return false, errDeepSeekContext
 	}
-	body, _ := json.Marshal(map[string]any{"type": "client-request", "rpcId": rpcID, "method": method, "payload": map[string]any{"args": map[string]any{"request": request}}})
+	body, _ := json.Marshal(map[string]any{"type": "client-request", "rpcId": rpcID, "method": method, "payload": map[string]any{"args": deepSeekArgs(method, request)}})
 	r, err := http.NewRequestWithContext(ctx, http.MethodPost, c.destination+"/api/"+method, bytes.NewReader(body))
 	if err != nil {
-		return errDeepSeekContext
+		return false, errDeepSeekContext
 	}
 	r.Header.Set("Content-Type", "application/json")
 	r.AddCookie(deepSeekCookie(c.secret, c.authority, time.Now()))
 	response, err := c.http.Do(r)
 	if err != nil {
-		return errDeepSeekContext
+		return false, errDeepSeekContext
 	}
 	defer response.Body.Close()
 	if response.StatusCode != http.StatusOK {
-		return errDeepSeekContext
+		return false, errDeepSeekContext
 	}
 	data, err := io.ReadAll(io.LimitReader(response.Body, deepSeekResponseBytes+1))
-	c.read += len(data)
-	if err != nil || len(data) > deepSeekResponseBytes || c.read > deepSeekScanBytes {
-		return errDeepSeekContext
+	c.bytes += len(data)
+	if err != nil || len(data) > deepSeekResponseBytes || c.bytes > deepSeekScanBytes {
+		return false, errDeepSeekContext
 	}
 	var document struct {
 		Type   string `json:"type"`
@@ -198,14 +222,16 @@ func (c *deepSeekClient) call(ctx context.Context, method string, request, value
 		} `json:"result"`
 	}
 	if json.Unmarshal(data, &document) != nil || document.Type != "server-response" || document.RPCID != rpcID ||
-		document.Result == nil || document.Result.OK == nil || !*document.Result.OK ||
-		len(document.Result.Value) == 0 || bytes.Equal(document.Result.Value, []byte("null")) {
-		return errDeepSeekContext
+		document.Result == nil || document.Result.OK == nil || !*document.Result.OK || len(document.Result.Value) == 0 {
+		return false, errDeepSeekContext
+	}
+	if bytes.Equal(document.Result.Value, []byte("null")) {
+		return false, nil
 	}
 	if json.Unmarshal(document.Result.Value, value) != nil {
-		return errDeepSeekContext
+		return false, errDeepSeekContext
 	}
-	return nil
+	return true, nil
 }
 
 // deepSeekContext reads the model and context of one DeepSeek session, and the seq of the

@@ -426,9 +426,10 @@ it is; `koinon install` keeps the one Koinon skill per family that the cycle nee
 
 A family's cycle adapter is available on a platform once its native checks pass there. The
 checks record the CLI version they ran with; the adapter runs with any version of that CLI,
-and a newer version is not refused. This holds for the Claude Code, the Codex, the agy and the
-OpenCode adapters; the agy checks ran with Antigravity CLI 1.4.7 on Linux (#512), the OpenCode
-checks with opencode 1.18.35 on Linux (#513).
+and a newer version is not refused. This holds for the Claude Code, the Codex, the agy, the
+OpenCode and the DeepSeek adapters; the agy checks ran with Antigravity CLI 1.4.7 on Linux (#512),
+the OpenCode checks with opencode 1.18.35 on Linux (#513), the DeepSeek checks with DeepSeek
+Harness 0.2.0-rc.2 on Linux (#514).
 Koinon shows no certified or not-certified status for a session's version; the release notes
 and the native evidence record name the versions that the checks ran with. The adapter's
 per-step proofs (pane, fence, read-back) still stop a cycle whose screen does not match.
@@ -502,3 +503,4 @@ and terminal commands have the maintainer's words; the rest is requested or prop
 | 2026-10-27 | Executive summary: OpenCode context is read from a launched session's own server (#513) |
 | 2026-10-27 | Decision 5: the OpenCode adapter is listed, from its Linux checks with opencode 1.18.35 (#513) |
 | 2026-10-27 | Executive summary: DeepSeek context is read from the session's harness (#514) |
+| 2026-10-27 | Decision 5: the DeepSeek adapter is listed, from its Linux checks with DeepSeek Harness 0.2.0-rc.2 (#514) |

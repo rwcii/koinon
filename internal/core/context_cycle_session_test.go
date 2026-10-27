@@ -561,7 +561,7 @@ func TestSessionCycleWorkerStop(t *testing.T) {
 	g.session.mu.Lock()
 	err := g.session.sendCtxErr
 	g.session.mu.Unlock()
-	if !errors.Is(err, context.Canceled) || g.s.cycleWork.running(v.ID) || g.s.cycleWork.start("another", func(context.Context, func(bool)) {}) {
+	if !errors.Is(err, context.Canceled) || g.s.cycleWork.running(v.ID) || g.s.cycleWork.start("another", func(context.Context, func(any)) {}) {
 		t.Fatalf("after stop: %v", err)
 	}
 	if _, err := os.Stat(g.root); err != nil {
@@ -579,7 +579,7 @@ func TestSessionCycleWorkerBound(t *testing.T) {
 	g.step(t)
 	release := make(chan struct{})
 	for i := range maxCycleWorkers {
-		if !g.s.cycleWork.start("busy-"+string(rune('a'+i)), func(context.Context, func(bool)) { <-release }) {
+		if !g.s.cycleWork.start("busy-"+string(rune('a'+i)), func(context.Context, func(any)) { <-release }) {
 			t.Fatal("a free worker did not start")
 		}
 	}

@@ -460,8 +460,8 @@ reply and its model's context limit. A direct `opencode` start shows none. The O
 default stays `observe`.
 DeepSeek sessions registered with `koinon register` show their model and context too: the
 daemon reads them every 15 seconds from the session's own harness, with the wake's credential,
-from the token meter's newest usage and the model's context window. DeepSeek has no handoff
-cycle yet, so its readings only inform; its family default stays `observe`.
+from the token meter's newest usage and the model's context window. Its family default stays
+`observe`.
 
 Claude Code sessions launched with `koinon claude` on Linux and macOS can run the cycle, and
 Codex sessions launched with `koinon codex` in tmux on Linux and macOS can run it too (family
@@ -471,11 +471,19 @@ mode `handoff_cycle`) while they hold their participant address. agy sessions la
 `koinon opencode` in tmux on Linux can run it too: instead of a clear, the daemon creates a new
 session through the session's own OpenCode server, shows it in the pane and runs the
 `koinon-pickup` skill command there with the requester's model; the report is accepted once the
-pane shows the new session's Koinon tool calls. macOS waits for native evidence. After the clear the cycle enters
+pane shows the new session's Koinon tool calls. macOS waits for native evidence. DeepSeek
+sessions registered with their harness URL and credential file on Linux can run it too, while
+their model is the harness's default model: once the session is idle after `koinon cycle-ready`,
+the daemon creates a new harness session in the same directory and enters `/koinon-pickup`
+there; the new session registers with the same `--repository`, takes the address once the
+pickup's receipt is recorded and reports with `koinon cycle-pickup`. The daemon never changes a
+harness setting, so a session on another model shows `model_not_default`. macOS waits for
+native evidence. After the clear the cycle enters
 `/koinon-pickup` (Claude Code, agy) or `$koinon-pickup` (Codex): Koinon's own pickup skill,
 which the daemon at each start and `koinon install` write for you under `~/.claude/skills`
-(or `$CLAUDE_CONFIG_DIR/skills`), `~/.agents/skills` and `~/.gemini/config/skills`, never into a
-repository. A workspace `.agent/skills/koinon-pickup` or `.agents/skills/koinon-pickup` would
+(or `$CLAUDE_CONFIG_DIR/skills`), `~/.agents/skills` and `~/.gemini/config/skills`, and
+DeepSeek's command-path entry under an existing `$DSH_HOME/skills` (default `~/.dsh/skills`),
+never into a repository. A workspace `.agent/skills/koinon-pickup` or `.agents/skills/koinon-pickup` would
 replace agy's entry, so the Sessions page names it as `pickup_entry_shadowed` unless it is the
 same file. It loads the catalog's canonical pickup
 procedure, so a project's own `pickup` skill neither blocks the cycle nor is changed by it

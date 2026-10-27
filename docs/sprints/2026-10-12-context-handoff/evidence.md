@@ -382,3 +382,94 @@ times and token and model fields only.
 
 Not yet verified: macOS; a reading that changes during a live turn; a session after the
 harness's own compaction.
+
+## DeepSeek cycle adapter (#514)
+
+Run 2026-10-27 with DeepSeek Harness `@deepseek-ai/dsh` 0.2.0-rc.2 (`dsh web`) in the
+development container that #199 used, on Linux; the harness does not run on the host. The
+branch binary ran as a container-local daemon with a new state directory, and the agents'
+model requests went to `openrouter`/`deepseek/deepseek-v4-flash`, the harness default, through
+the container's OpenRouter key. Only commands, IDs, event types and stage records are named
+here; the agents' text is not.
+
+- API facts. Each method's arguments are named by its descriptor, and any other field is
+  refused with `gateway/arguments-invalid`: `session/list` takes `_request`,
+  `session/modelCatalog` takes none (it returns `default` `{provider, model}`), and
+  `session/projections`, `session/page`, `skills/list`, `session/create` and `session/prompt`
+  take `request`. `session/list` rows carry `sessionId`, `updatedAt`, `running`, `blank` and
+  `cwd`. `skills/list` listed `koinon-pickup` at `$DSH_HOME/skills/koinon-pickup/SKILL.md`,
+  ahead of Codex's entry of the same name in `~/.agents/skills`. A queued prompt appears as
+  `agent/inbox/spliced` `inserted[]` and then, after `turn/start`, as `user/message`, each with
+  `source {kind: user, rpcId}`; `request/header` carries `header.config {provider, model}` and
+  `assistant/message` `message.source {kind: model, provider, model}`.
+- Create. `session/projections` for an unused chosen ID answered `null`. `session/create` with
+  `{sessionId, cwd}` created it, the same request again returned the same session, also after
+  `dsh web` was restarted, and the same ID with another `cwd` answered `session/conflict`.
+- Prompt. `session/prompt` sent twice with one `requestId` was admitted twice (two turns), so
+  the harness does not deduplicate request IDs; the adapter sends the pickup once, and a
+  restart only reads its receipt.
+- Cycle 1. The requester session registered with `--repository`; the family mode was
+  `handoff_cycle` at 1 percent, because the session's context was about 1.5 percent of the
+  1024000-token window. Enable passed the probe. After one turn the reading admitted the cycle;
+  the requester's agent read its inbox, wrote its handoff and ran `koinon cycle-ready`. A queued
+  wake turn ran after the ready report, and the quiet point waited for its end (`clear_intent`
+  24 s after `ready`). The daemon created the session with the cycle's ID in the same `cwd`,
+  recorded `select_sent` without input, proved the reset, sent `/koinon-pickup` and recorded the
+  receipt 0.8 s after `pickup_intent`. The created session registered and took the address
+  with `cycle_session`, and its `koinon cycle-pickup` completed the cycle `resumed` 106 s after
+  the pickup. The Enable moved to it.
+- Cycles 2 and 3. The moved Enable met the 1-percent threshold at once, so the successor ran
+  the next cycle: cycle 2 completed `resumed` 115 s after its pickup; cycle 3's pickup took
+  longer than the 2-minute `waiting_pickup` deadline and the cycle ended `failed`
+  (`waiting_pickup_timeout`), with nothing sent again. The family mode was then set back to
+  `observe`.
+- Cycle 4, with a claim and a restart. With a new state directory, the requester started a
+  work item through the command path (claim generation 1, consumer `participant:deepseek-repo`)
+  and the family threshold was set back to 75 percent right after admission. The daemon was
+  stopped and started again 1 s after `waiting_pickup`. The created session read the
+  cycle's handoff file, registered with `--repository` (`cycle_session`) and reported; the
+  cycle completed `resumed` 81 s after the pickup. The claim stayed active with generation 1,
+  its expiry extended to the cycle deadline plus 60 s, and the created session held
+  `deepseek-repo`.
+- Settings. The harness's `cordis.patch.yml` files kept their 2026-10-13 times through both
+  runs: the adapter changed no harness setting. The daemon, the harness and the container were
+  stopped.
+- Reconstructed persisted-intent recovery (review F5 on #526). This run verifies reconstructed
+  boundary states, not a real crash or lost response. Binary: the branch at e01a86c,
+  `CGO_ENABLED=0` linux/amd64, sha256 `f731d567…38af84`. Each case stopped the daemon at a
+  recorded stage (SIGSTOP, then SIGKILL, within 20 ms of the stage), copied the store out,
+  wrote the cycle row and its events, audit records, revision and credit as `advanceCycle`
+  writes them, and copied the store back without its WAL. Then `dsh web` and the daemon were
+  restarted. The counts are the harness's session count and, for each session, its user
+  prompts in the inbox, in `agent/inbox/spliced` and in `user/message`. The successor and
+  request IDs were derived from the cycle and the intent time, and the derivation gave the
+  successor ID of the earlier completed cycle.
+  - Create absent: `ready` was rewritten to `clear_intent` (7 sessions, no successor). After
+    the restarts: `clear_received` with the derived ID as epoch, 8 sessions, and the created
+    session empty (0/0/0).
+  - Create present: the same cycle was rolled back to `clear_intent` with the created session
+    kept. After the restarts: `clear_received` again, 8 sessions, and the created session
+    unchanged (same sequence, 0/0/0): no second create.
+  - Pickup absent: `clear_received` was rewritten through `select_sent` and `reset_verified`
+    to `pickup_intent`, with no send. After the restarts the cycle ended `uncertain`
+    (`pickup_unreceipted`) 0.9 s later, and the created session still had no prompt.
+  - Pickup present: a new cycle sent its real pickup. The daemon and `dsh web` were stopped
+    18 ms after `waiting_pickup`, and the row was rolled back to `pickup_intent` with its
+    intent time kept. After the harness restart the created session had one admission
+    (1 spliced, 1 `user/message`, empty inbox, not running). After the daemon restart the
+    cycle recorded `waiting_pickup` 0.9 s later, with the same counts and no other prompt. The
+    harness did not resume the killed turn, so no report came, and the cycle ended `failed`
+    (`waiting_pickup_timeout`) at its deadline with the same counts.
+  - No replay: a `complete` cycle, the `uncertain` cycle above, a cycle disabled in
+    `clear_intent` while the harness was stopped (`uncertain`, `disabled`) and a cycle
+    disabled in `ready` (`cancelled`, `disabled`) were each restarted with the harness and the
+    daemon. The session counts and every session's prompt counts stayed the same, and no
+    session was created for the disabled or cancelled cycles.
+  - The family mode was set back to `observe`, and the container was stopped.
+- Effect-time quiet reads (#526 re-review). With the branch at 9491dd6, where the create and
+  the pickup read the quiet point again before they send, one unattended cycle completed
+  `resumed` with `cycle_session`. Its stages were the same as in cycle 1, and the created
+  session had one user prompt, the pickup, admitted once. The report came 81 s after the
+  pickup.
+
+Not yet verified: macOS; a pickup within the 2-minute deadline when the model is slower.
