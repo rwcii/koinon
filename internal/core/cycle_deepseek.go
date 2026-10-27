@@ -3,6 +3,7 @@ package core
 import (
 	"bytes"
 	"context"
+	"database/sql"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
@@ -82,6 +83,30 @@ func deepSeekTargetPrint(t wakeTarget) string {
 func deepSeekPinTarget(pin string, t wakeTarget) bool {
 	var p deepSeekPin
 	return json.Unmarshal([]byte(pin), &p) == nil && p.Target != "" && p.Target == deepSeekTargetPrint(t)
+}
+
+// hostlessTargets reports whether each session's registered harness target is still the one
+// that the cycle pinned (#514): each effect, the transfer and the report compare the current
+// registrations, never an earlier snapshot.
+func hostlessTargets(ctx context.Context, q querier, cycleID string, sessions ...Key) (bool, error) {
+	var pin string
+	if err := q.QueryRowContext(ctx, `SELECT adapter_pin FROM context_cycles WHERE cycle_id=?`, cycleID).Scan(&pin); err != nil {
+		return false, err
+	}
+	for _, k := range sessions {
+		var raw []byte
+		if err := q.QueryRowContext(ctx, `SELECT wake_target FROM sessions WHERE family=? AND id=?`, k.Family, k.ID).Scan(&raw); err != nil {
+			if errors.Is(err, sql.ErrNoRows) {
+				return false, nil
+			}
+			return false, err
+		}
+		var target wakeTarget
+		if json.Unmarshal(raw, &target) != nil || !deepSeekPinTarget(pin, target) {
+			return false, nil
+		}
+	}
+	return true, nil
 }
 
 // deepSeekCycleID derives a UUID-shaped harness ID from the cycle, so that a request sent again
@@ -554,6 +579,25 @@ func (a deepSeekCycle) SendPickup(ctx context.Context, t CycleTarget, fence Cycl
 	if _, pin, reason := a.facts(ctx, c, t); reason != "" || func() bool { data, _ := json.Marshal(pin); return string(data) != t.pin }() {
 		return errDeepSeekHarness
 	}
+	// The created session runs its pickup on its own selection, else the default, which facts
+	// compared: a selection made in it since must be the pinned model too.
+	view, found, err := deepSeekView(ctx, c, t.SuccessorEpoch)
+	if err != nil || !found {
+		return errDeepSeekHarness
+	}
+	var pin deepSeekPin
+	if json.Unmarshal([]byte(t.pin), &pin) != nil {
+		return errDeepSeekHarness
+	}
+	if selection := view.Values.ModelSelection; selection != nil {
+		model := selection.Next
+		if model == nil {
+			model = selection.LastUsed
+		}
+		if model != nil && *model != pin.Model {
+			return errDeepSeekHarness
+		}
+	}
 	if err := fence(ctx); err != nil {
 		return err
 	}
@@ -587,31 +631,32 @@ func (deepSeekCycle) receipt(ctx context.Context, c *deepSeekClient, t CycleTarg
 	if err != nil || !found || view.Values.Inbox == nil {
 		return false, errDeepSeekHarness
 	}
-	// A prompt is counted once by its request ID, queued or admitted.
+	// Each admitted prompt is in the inbox while queued, then in one agent/inbox/spliced entry,
+	// then in its turn's user/message: the admissions are the inbox and spliced entries. The
+	// harness admits a repeated request ID again, so the pickup's ID must name one admission.
 	want := deepSeekRequestID(t)
-	matched, others := false, 0
-	prompts := map[string]bool{}
-	count := func(m deepSeekUserMessage) {
-		if m.Source.Kind != "user" || m.Source.RPCID != "" && prompts[m.Source.RPCID] {
-			return
+	admitted, entered, others := 0, 0, 0
+	pickup := func(m deepSeekUserMessage) bool {
+		if m.Source.Kind != "user" {
+			return false
 		}
-		prompts[m.Source.RPCID] = m.Source.RPCID != ""
 		if m.Source.RPCID == want && len(m.Content) == 1 && m.Content[0].Type == "text" && m.Content[0].Text == deepSeekPickupText {
-			matched = true
-		} else {
-			others++
+			return true
 		}
+		others++
+		return false
 	}
 	for _, m := range append(view.Values.Inbox.NextTurn, view.Values.Inbox.NextStep...) {
-		count(m)
+		if pickup(m) {
+			admitted++
+		}
 	}
-	// An admitted prompt leaves the inbox in agent/inbox/spliced, before its turn's user/message.
 	_, err = deepSeekHistory(ctx, c, t.SuccessorEpoch, view.AsOfSeq.value, false, func(e deepSeekCycleEvent) bool {
 		switch e.Type {
 		case "user/message":
 			var m deepSeekUserMessage
-			if json.Unmarshal(e.Data, &m) == nil {
-				count(m)
+			if json.Unmarshal(e.Data, &m) == nil && pickup(m) {
+				entered++
 			}
 		case "agent/inbox/spliced":
 			var spliced struct {
@@ -619,7 +664,9 @@ func (deepSeekCycle) receipt(ctx context.Context, c *deepSeekClient, t CycleTarg
 			}
 			if json.Unmarshal(e.Data, &spliced) == nil {
 				for _, m := range spliced.Inserted {
-					count(m)
+					if pickup(m) {
+						admitted++
+					}
 				}
 			}
 		}
@@ -628,12 +675,12 @@ func (deepSeekCycle) receipt(ctx context.Context, c *deepSeekClient, t CycleTarg
 	if err != nil {
 		return false, err
 	}
-	return matched && others == 0, nil
+	return admitted == 1 && entered <= 1 && others == 0, nil
 }
 
 // ReportCheck reads the harness again for the successor's report: the requester's target is
-// still the pinned one, and the created session's requests and replies came from the pinned
-// model, with at least one reply.
+// still the pinned one, and the created session's request headers and replies name the pinned
+// model, with at least one of each.
 func (a deepSeekCycle) ReportCheck(ctx context.Context, t CycleTarget) (string, error) {
 	var pin deepSeekPin
 	if t.deepSeek == nil || json.Unmarshal([]byte(t.pin), &pin) != nil {
@@ -651,7 +698,7 @@ func (a deepSeekCycle) ReportCheck(ctx context.Context, t CycleTarget) (string, 
 	if err != nil || !found {
 		return "", errDeepSeekHarness
 	}
-	replies, other := 0, false
+	headers, replies, other := 0, 0, false
 	stopped, err := deepSeekHistory(ctx, c, t.SuccessorEpoch, view.AsOfSeq.value, false, func(e deepSeekCycleEvent) bool {
 		switch e.Type {
 		case "request/header":
@@ -664,8 +711,11 @@ func (a deepSeekCycle) ReportCheck(ctx context.Context, t CycleTarget) (string, 
 					} `json:"config"`
 				} `json:"header"`
 			}
+			headers++
 			effort := ""
-			if json.Unmarshal(e.Data, &h) == nil && h.Header.Config.Effort != nil {
+			if json.Unmarshal(e.Data, &h) != nil {
+				other = true
+			} else if h.Header.Config.Effort != nil {
 				effort = *h.Header.Config.Effort
 			}
 			other = other || h.Header.Config.Provider != pin.Model.Provider || h.Header.Config.Model != pin.Model.Model || effort != pin.Model.Effort
@@ -689,8 +739,8 @@ func (a deepSeekCycle) ReportCheck(ctx context.Context, t CycleTarget) (string, 
 	if other {
 		return "model_changed", nil
 	}
-	if replies == 0 {
-		return "", errDeepSeekHarness
+	if headers == 0 || replies == 0 {
+		return "", errDeepSeekHarness // no proof yet: the report can be sent again
 	}
 	return "", nil
 }

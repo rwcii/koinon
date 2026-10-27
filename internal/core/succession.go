@@ -311,12 +311,12 @@ func holdsElsewhere(ctx context.Context, tx *sql.Tx, now int64, k Key, h host, a
 // DeepSeek adapter, and is under the Enable that admitted it, before its deadlines; k
 // registered the harness target that the cycle pinned and holds no other participant.
 func hostlessCycleLink(ctx context.Context, tx *sql.Tx, now int64, k Key, address, holder string) (string, error) {
-	var state, from, pin string
-	err := tx.QueryRowContext(ctx, `SELECT c.state,c.prompt_from,c.adapter_pin FROM context_cycles c JOIN context_enables e ON e.family=c.family AND e.session_id=c.session_id
+	var id, state, from, pin string
+	err := tx.QueryRowContext(ctx, `SELECT c.cycle_id,c.state,c.prompt_from,c.adapter_pin FROM context_cycles c JOIN context_enables e ON e.family=c.family AND e.session_id=c.session_id
 		WHERE c.finished_at=0 AND c.family=? AND c.address=? AND c.session_id=? AND c.successor_epoch=? AND c.adapter=?
 		AND c.host_pid=0 AND c.host_start=0 AND c.tmux_socket='' AND c.tmux_pane=''
 		AND e.enabled=1 AND e.revision=c.enable_revision AND c.stage_deadline>? AND c.cycle_deadline>? LIMIT 1`,
-		k.Family, address, holder, k.ID, deepSeekCycleVersion, now, now).Scan(&state, &from, &pin)
+		k.Family, address, holder, k.ID, deepSeekCycleVersion, now, now).Scan(&id, &state, &from, &pin)
 	if errors.Is(err, sql.ErrNoRows) {
 		return "", nil
 	}
@@ -330,6 +330,10 @@ func hostlessCycleLink(ctx context.Context, tx *sql.Tx, now int64, k Key, addres
 	var target wakeTarget
 	if json.Unmarshal(raw, &target) != nil || !deepSeekPinTarget(pin, target) {
 		return "", nil
+	}
+	// The holder must still be registered with the pinned target too.
+	if ok, err := hostlessTargets(ctx, tx, id, Key{k.Family, holder}); err != nil || !ok {
+		return "", err
 	}
 	var other int
 	err = tx.QueryRowContext(ctx, `SELECT 1 FROM names WHERE kind='alias' AND family=? AND holder_id=? AND name!=? LIMIT 1`, k.Family, k.ID, address).Scan(&other)

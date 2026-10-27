@@ -1214,9 +1214,15 @@ func (s *Store) successorOf(ctx context.Context, q querier, c cycleRow, caller K
 		Scan(&hostPID, &hostStart, &socket, &pane); err != nil {
 		return false, err
 	}
-	// A host-less cycle's successor is the session that its reset created, by its ID (#514).
-	if _, hostless := cycleAdapterOf(c.Family).(HostlessAdapter); hostless && (c.HostStart != 0 || caller.ID != c.SuccessorEpoch) {
-		return false, nil
+	// A host-less cycle's successor is the session that its reset created, by its ID, while it
+	// and the requester are registered with the pinned harness target (#514).
+	if _, hostless := cycleAdapterOf(c.Family).(HostlessAdapter); hostless {
+		if c.HostStart != 0 || caller.ID != c.SuccessorEpoch {
+			return false, nil
+		}
+		if ok, err := hostlessTargets(ctx, q, c.ID, caller, Key{c.Family, c.SessionID}); err != nil || !ok {
+			return false, err
+		}
 	}
 	return session.State == "active" && hostPID == c.HostPID && hostStart == c.HostStart && socket == c.Socket && pane == c.Pane &&
 		c.Address != "" && session.Address == c.Address && session.HoldsAddress, nil
@@ -1594,6 +1600,16 @@ func hostlessPending(ctx context.Context, q querier, caller Key, id string, notF
 	}
 	if len(cycles) == 0 {
 		return notFound
+	}
+	// A created session that already holds the address is not waiting for the transfer.
+	var held int
+	err = q.QueryRowContext(ctx, `SELECT 1 FROM names WHERE kind='alias' AND name=? AND family=? AND holder_id=?`,
+		cycles[0].Address, caller.Family, caller.ID).Scan(&held)
+	if err == nil {
+		return notFound
+	}
+	if !errors.Is(err, sql.ErrNoRows) {
+		return err
 	}
 	return ErrCycleReceiptPending
 }

@@ -51,6 +51,8 @@ type dshFake struct {
 	// afterList runs after each session/list answer: a change between the quiet point's reads.
 	afterList func(*dshFake)
 	home      string
+	// block holds every response until it is closed or the request ends.
+	block chan struct{}
 }
 
 func newDSHFake(t *testing.T) (*dshFake, wakeTarget) {
@@ -112,6 +114,16 @@ func (f *dshFake) count(method string) int {
 }
 
 func (f *dshFake) serve(w http.ResponseWriter, r *http.Request) {
+	f.mu.Lock()
+	block := f.block
+	f.mu.Unlock()
+	if block != nil {
+		select {
+		case <-block:
+		case <-r.Context().Done():
+			return
+		}
+	}
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	method := strings.TrimPrefix(r.URL.Path, "/api/")
@@ -508,6 +520,19 @@ func TestDeepSeekCyclePickup(t *testing.T) {
 	if received, err := a.PickupReceipt(context.Background(), ct); err != nil || !received || len(f.sessions[ct.SuccessorEpoch].events) != 4 {
 		t.Fatalf("lost response: %v %v", received, err)
 	}
+	// A model selected in the created session that is not the pinned one stops the prompt.
+	f, target = newDSHFake(t)
+	ct = pinned(t, a, f.target(target, cycleClearIntent))
+	a.Create(context.Background(), ct, dshFence)
+	ct = pinned(t, a, f.target(target, cyclePickupIntent))
+	f.set(func(f *dshFake) { f.sessions[ct.SuccessorEpoch].lastUsed = &deepSeekModel{Provider: "openrouter", Model: "deepseek/deepseek-v4-pro"} })
+	if err := a.SendPickup(context.Background(), ct, dshFence); err == nil || f.count("session/prompt") != 0 {
+		t.Fatalf("other created model: %v %d", err, f.count("session/prompt"))
+	}
+	f.set(func(f *dshFake) { f.sessions[ct.SuccessorEpoch].lastUsed = &deepSeekModel{Provider: dshModel.Provider, Model: dshModel.Model} })
+	if err := a.SendPickup(context.Background(), ct, dshFence); err != nil || f.count("session/prompt") != 1 {
+		t.Fatalf("pinned created model: %v %d", err, f.count("session/prompt"))
+	}
 	// The spliced prompt is the receipt before its turn starts.
 	var events []string
 	f.set(func(f *dshFake) {
@@ -516,6 +541,20 @@ func TestDeepSeekCyclePickup(t *testing.T) {
 	})
 	if received, err := a.PickupReceipt(context.Background(), ct); err != nil || !received {
 		t.Fatalf("spliced: %v %v", received, err)
+	}
+	f.set(func(f *dshFake) { f.sessions[ct.SuccessorEpoch].events = events })
+	// The same request ID admitted twice is two prompts, not a receipt (0.2.0-rc.2 admits a
+	// repeated request ID again).
+	f.set(func(f *dshFake) {
+		events = f.sessions[ct.SuccessorEpoch].events
+		f.sessions[ct.SuccessorEpoch].events = append(append([]string{}, events...), events...)
+		for i := range f.sessions[ct.SuccessorEpoch].events {
+			e := f.sessions[ct.SuccessorEpoch].events[i]
+			f.sessions[ct.SuccessorEpoch].events[i] = e[:strings.LastIndex(e, `"seq":`)] + fmt.Sprintf(`"seq":%d,"time":%d}`, i, 1793077135000+int64(i))
+		}
+	})
+	if received, err := a.PickupReceipt(context.Background(), ct); err != nil || received {
+		t.Fatalf("two admissions: %v %v", received, err)
 	}
 	f.set(func(f *dshFake) { f.sessions[ct.SuccessorEpoch].events = events })
 	// Another prompt in the session, or another request ID, is no receipt.
@@ -566,6 +605,14 @@ func TestDeepSeekCycleReportCheck(t *testing.T) {
 	})
 	if reason, err := a.ReportCheck(context.Background(), ct); reason != "model_changed" || err != nil {
 		t.Fatalf("other effort: %q %v", reason, err)
+	}
+	// A reply without a request header proves nothing yet.
+	f, ct = setup(t)
+	f.set(func(f *dshFake) {
+		f.add(ct.SuccessorEpoch, fmt.Sprintf(`"type":"assistant/message","data":{"message":{"source":{"kind":"model","provider":%q,"model":%q}}}`, dshModel.Provider, dshModel.Model))
+	})
+	if _, err := a.ReportCheck(context.Background(), ct); err == nil {
+		t.Fatal("a reply without a request header")
 	}
 	f, ct = setup(t)
 	f.set(func(f *dshFake) { f.turn(ct.SuccessorEpoch, dshModel) })
@@ -683,15 +730,25 @@ func (g *dshFixture) ready(t *testing.T) *CycleView {
 	return v
 }
 
+// stepTo steps the cycle, waiting for each step's worker, until it reaches state or ends.
+func (g *dshFixture) stepTo(t *testing.T, id, state string) cycleRow {
+	t.Helper()
+	c := g.cycle(t, id)
+	for range 20 {
+		if c.State == state || c.FinishedAt != 0 {
+			break
+		}
+		g.step(t)
+		waitIdle(t, g.s, id)
+		c = g.cycle(t, id)
+	}
+	return c
+}
+
 // toWaitingPickup steps a ready cycle through the reset and the pickup's receipt.
 func (g *dshFixture) toWaitingPickup(t *testing.T, id string) cycleRow {
 	t.Helper()
-	for range 4 {
-		g.step(t)
-	}
-	waitIdle(t, g.s, id)
-	g.step(t)
-	c := g.cycle(t, id)
+	c := g.stepTo(t, id, cycleWaitingPickup)
 	if c.State != cycleWaitingPickup {
 		t.Fatalf("waiting: %+v %v", c, cycleReasons(t, g.s, id))
 	}
@@ -705,8 +762,7 @@ func (g *dshFixture) toWaitingPickup(t *testing.T, id string) cycleRow {
 func TestDeepSeekCycleFlow(t *testing.T) {
 	g := newDSHFixture(t)
 	v := g.ready(t)
-	g.step(t) // clear intent, create, clear_received with the created ID
-	c := g.cycle(t, v.ID)
+	c := g.stepTo(t, v.ID, cycleClearReceived) // the quiet point, the intent, the create
 	created := c.SuccessorEpoch
 	if c.State != cycleClearReceived || created == "" || g.fake.count("session/create") != 1 || g.fake.sessions[created] == nil {
 		t.Fatalf("after create: %+v", c)
@@ -718,13 +774,14 @@ func TestDeepSeekCycleFlow(t *testing.T) {
 	if row := g.s.contextRowOf(requester, enables[g.k], g.clock.UnixMilli()); row.CreatedSession != created || row.HarnessOrigin != g.target.DSHURL {
 		t.Fatalf("row: %q %q", row.CreatedSession, row.HarnessOrigin)
 	}
-	g.step(t) // the select is recorded; DeepSeek shows nothing
-	g.step(t) // proof
-	if c = g.cycle(t, v.ID); c.State != cycleResetVerified {
+	// The select is recorded and sends nothing; the proof follows.
+	if c = g.stepTo(t, v.ID, cycleResetVerified); c.State != cycleResetVerified {
 		t.Fatalf("after proof: %+v %v", c, cycleReasons(t, g.s, v.ID))
 	}
 	// The created session can register before its pickup: it holds nothing yet.
 	g.fake.set(func(f *dshFake) { f.lose["session/prompt"] = true })
+	g.step(t) // the created session's quiet point, read by a worker
+	waitIdle(t, g.s, v.ID)
 	g.step(t) // pickup intent; the worker sends
 	if c = g.cycle(t, v.ID); c.State != cyclePickupIntent {
 		t.Fatalf("after dispatch: %+v", c)
@@ -868,14 +925,160 @@ func TestDeepSeekCycleCreateRecovery(t *testing.T) {
 			// An unreadable harness waits within the stage deadline.
 			g.fake.set(func(f *dshFake) { f.status[deepSeekProjectionsCall] = 500 })
 			g.step(t)
+			waitIdle(t, g.s, v.ID)
+			g.step(t)
 			if row = g.cycle(t, v.ID); row.State != cycleClearIntent || g.fake.count("session/create") != 0 {
 				t.Fatalf("unreadable: %+v", row)
 			}
 			g.fake.set(func(f *dshFake) { f.status = map[string]int{} })
 			g.step(t)
+			waitIdle(t, g.s, v.ID)
+			g.step(t)
 			if row = g.cycle(t, v.ID); row.State != c.state || g.fake.count("session/create") != c.creates {
 				t.Fatalf("%s: %+v %d", c.name, row, g.fake.count("session/create"))
 			}
 		})
+	}
+}
+
+// registerAt registers a DeepSeek session again with another harness origin.
+func (g *dshFixture) registerAt(t *testing.T, id, origin string) Session {
+	t.Helper()
+	moved := g.target
+	moved.DSHURL = origin
+	wake, _ := json.Marshal(moved)
+	session, err := g.s.Register(context.Background(), Registration{Family: "deepseek", ID: id, Repository: g.repo, Directory: g.repo,
+		WakeTarget: wake, TTLSeconds: 3600, ToolCall: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	return session
+}
+
+// The current registrations, not an earlier snapshot, decide each effect, the transfer and the
+// report: a requester or successor registered with another harness target stops them.
+func TestDeepSeekCycleTargetDrift(t *testing.T) {
+	ctx := context.Background()
+	// Each effect's fence reads the requester's current registration.
+	g := newDSHFixture(t)
+	v := g.ready(t)
+	g.step(t)
+	c := g.cycle(t, v.ID)
+	if err := g.s.cycleFence(c)(ctx); err != nil {
+		t.Fatalf("fence: %v", err)
+	}
+	g.registerAt(t, dshRequester, "http://127.0.0.1:1")
+	if err := g.s.cycleFence(c)(ctx); !errors.Is(err, ErrCycleChanged) {
+		t.Fatalf("fence after the requester moved: %v", err)
+	}
+	// The transfer reads the holder's current registration.
+	g = newDSHFixture(t)
+	v = g.ready(t)
+	c = g.toWaitingPickup(t, v.ID)
+	g.registerAt(t, dshRequester, "http://127.0.0.1:1")
+	if session := g.register(t, c.SuccessorEpoch); session.HoldsAddress || session.Succession == nil || session.Succession.Reason != "no_host" {
+		t.Fatalf("transfer after the requester moved: %+v %+v", session, session.Succession)
+	}
+	// The report reads the successor's and the requester's current registrations.
+	g = newDSHFixture(t)
+	v = g.ready(t)
+	c = g.toWaitingPickup(t, v.ID)
+	successor := Key{"deepseek", c.SuccessorEpoch}
+	if session := g.register(t, successor.ID); !session.HoldsAddress {
+		t.Fatalf("transfer: %+v", session.Succession)
+	}
+	g.fake.set(func(f *dshFake) { f.turn(successor.ID, dshModel) })
+	g.registerAt(t, successor.ID, "http://127.0.0.1:1")
+	if _, err := g.s.ContextCyclePickup(ctx, successor, successor.ID, v.ID, c.Revision, g.name, "resumed", "synthetic"); !errors.Is(err, ErrCycleNotFound) {
+		t.Fatalf("report after the successor moved: %v", err)
+	}
+	if c = g.cycle(t, v.ID); c.State != cycleWaitingPickup {
+		t.Fatalf("cycle: %+v", c)
+	}
+	g.register(t, successor.ID)
+	if done, err := g.s.ContextCyclePickup(ctx, successor, successor.ID, v.ID, c.Revision, g.name, "resumed", "synthetic"); err != nil || done.State != cycleComplete {
+		t.Fatalf("report after the successor returned: %v %+v", err, done)
+	}
+}
+
+// A blocked harness delays no step: the quiet point, the probe and the create of two cycles
+// run in workers, the tick returns at once and the wake lock stays free.
+func TestDeepSeekCycleNoHarnessOnTick(t *testing.T) {
+	ctx := context.Background()
+	g := newDSHFixture(t)
+	first := g.ready(t)
+	// A second requester in its own repository, on the same harness.
+	const second = "session-synthetic-requester-2"
+	g.fake.set(func(f *dshFake) {
+		model := dshModel
+		f.sessions[second] = &dshSession{cwd: t.TempDir(), lastUsed: &model}
+		f.turn(second, dshModel)
+	})
+	repo := namedRepo(t, "dsh-repo-2")
+	if err := os.WriteFile(filepath.Join(repo, ".gitignore"), []byte("_handoff/\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	wake, _ := json.Marshal(g.target)
+	k := Key{"deepseek", second}
+	session, err := g.s.Register(ctx, Registration{Family: "deepseek", ID: second, Repository: repo, Directory: repo, WakeTarget: wake, TTLSeconds: 3600, ToolCall: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := g.s.SetContextEnable(roomCtx("context-enable"), session.Name, session.Revision, 0, true); err != nil {
+		t.Fatal(err)
+	}
+	g.clock = g.clock.Add(time.Millisecond)
+	if err := g.s.Observe(ctx, Observation{Caller: k, Context: &ObservedValue{Source: deepSeekContextSource,
+		At: g.clock.UnixMilli(), LimitTokens: int64p(1000), UsedTokens: int64p(900), Epoch: second}}); err != nil {
+		t.Fatal(err)
+	}
+	other, err := g.s.ContextCycleStatus(ctx, k)
+	if err != nil || other == nil {
+		t.Fatalf("second admission: %+v %v", other, err)
+	}
+	dir := filepath.Join(repo, "_handoff", "deepseek")
+	os.MkdirAll(dir, 0o700)
+	os.WriteFile(filepath.Join(dir, g.name), []byte("synthetic"), 0o600)
+	os.Chtimes(filepath.Join(dir, g.name), g.clock, g.clock)
+	if _, err := g.s.ContextCycleReady(ctx, k, second, other.ID, other.Revision, g.name); err != nil {
+		t.Fatal(err)
+	}
+	bounded := func(what string) {
+		t.Helper()
+		g.fake.set(func(f *dshFake) { f.block = make(chan struct{}) })
+		for range 2 {
+			started := time.Now()
+			g.step(t)
+			if elapsed := time.Since(started); elapsed > 300*time.Millisecond {
+				t.Fatalf("%s: a step took %v on a blocked harness", what, elapsed)
+			}
+			if !g.s.wake.mu.TryLock() {
+				t.Fatalf("%s: the wake lock is held", what)
+			}
+			g.s.wake.mu.Unlock()
+		}
+		if !g.s.cycleWork.running(first.ID) || !g.s.cycleWork.running(other.ID) {
+			t.Fatalf("%s: no worker reads the harness", what)
+		}
+		g.fake.set(func(f *dshFake) { close(f.block); f.block = nil })
+		waitIdle(t, g.s, first.ID)
+		waitIdle(t, g.s, other.ID)
+	}
+	bounded("quiet point")
+	g.step(t) // both apply their reads and record the clear intent
+	for _, id := range []string{first.ID, other.ID} {
+		if c := g.cycle(t, id); c.State != cycleClearIntent {
+			t.Fatalf("intent: %+v", c)
+		}
+	}
+	bounded("create")
+	g.step(t)
+	for _, id := range []string{first.ID, other.ID} {
+		if c := g.cycle(t, id); c.State != cycleClearReceived || c.SuccessorEpoch == "" {
+			t.Fatalf("created: %+v", c)
+		}
+	}
+	if g.fake.count("session/create") != 2 {
+		t.Fatalf("creates: %d", g.fake.count("session/create"))
 	}
 }

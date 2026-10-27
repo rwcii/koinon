@@ -733,7 +733,13 @@ A DeepSeek session has no host process and no pane: the adapter acts only throug
 harness API, with the wake's pinned loopback origin and signed cookie and the transport of the
 `dsh_projections` source (each request names its arguments as the method's descriptor does:
 `session/list` takes `_request`, `session/modelCatalog` none, the others `request`). Its Enable
-and cycle pin no host or pane, and one unfinished cycle is allowed per session. The cycle's
+and cycle pin no host or pane, and one unfinished cycle is allowed per session. No harness
+request runs on the controller's tick or under the wake lock: the quiet point and the probe
+(`ready`, `reset_verified`), the create (`clear_intent`) and the reset's proof
+(`clear_received`) each run in one of the bounded cycle workers, as the pickup does, and a later
+step applies the result only while the cycle is still at the revision and stage that started
+it; at a stage timeout the tick reads no harness. Each effect's fence also checks that the
+requester still holds the address and is still registered with the pinned harness target. The cycle's
 request asks the session to run `koinon cycle-ready`, and the ready reply says that overwatch
 starts a new harness session once this one is idle.
 
@@ -779,14 +785,17 @@ session that a browser shows. The reset is proven when the created session exist
 pinned `cwd`.
 
 The pickup runs from a worker, as OpenCode's does, under the recorded `pickup_intent`: after the
-pin, the fence and a read that shows no receipt yet, `session/prompt` `{requestId, sessionId,
+pin, the fence, a read that shows no receipt yet, and the created session's own selection
+(`modelSelection.next`, else `lastUsed`, else the default that the pin already matched) equal to
+the pinned model, `session/prompt` `{requestId, sessionId,
 mode: queue, content: [{type: text, text: "/koinon-pickup"}], clientTimeZone: UTC}`, whose
 request ID is a UUID derived from the cycle and the intent's time. The prompt is sent at most
 once: the harness admits a repeated request ID again as another prompt, so a lost response is
 never answered by a resend, only by reading the receipt back. The receipt is the
-created session's only user prompt, queued in its inbox, spliced from it
-(`agent/inbox/spliced`) or entered (`user/message`), with `source.kind` `user`, that
-`source.rpcId` and exactly that text. The worker bounds and the step that applies the result are
+created session's only user prompt, with `source.kind` `user`, that `source.rpcId` and exactly
+that text. Each admission is in the inbox while queued and then in one `agent/inbox/spliced`
+entry, before its turn's `user/message`: the inbox and spliced entries with the request ID must
+be exactly one, the `user/message` entries at most one, and any other user prompt fails it. The worker bounds and the step that applies the result are
 OpenCode's; a restart reads the receipt back and sends nothing.
 
 The created session runs `koinon-pickup`, DeepSeek's entry, which reads `skill.pickup` with
@@ -794,10 +803,11 @@ The created session runs `koinon-pickup`, DeepSeek's entry, which reads `skill.p
 with `koinon cycle-pickup`. A report from it before it holds the address is refused with
 `cycle_receipt_pending` (HTTP 409), and the cycle stays in its stage: it registers again and
 reports again. From the create on, its `koinon cycle-status` returns the cycle as its successor,
-also before it holds the address. The report reads the harness again within the deadlines: the target is still the
-pinned one, and the created session's `request/header` configs and the `message.source` of each
-`assistant/message` name the pinned provider and model (and reasoning effort for the headers),
-with at least one reply. A known other model ends the cycle `uncertain` (`model_changed`) and the
+also before it holds the address. The report needs the created session and the requester still
+registered with the pinned target, and reads the harness again within the deadlines: the
+created session's `request/header` configs and the `message.source` of each `assistant/message`
+name the pinned provider and model (and reasoning effort for the headers), with at least one of
+each; without them the report proves nothing yet and can be retried. A known other model ends the cycle `uncertain` (`model_changed`) and the
 report is refused with `cycle_model_changed`; a harness that cannot be read refuses it with
 `cycle_harness_unreadable` (HTTP 409), which can be retried. The Sessions page names the created
 session's ID and the harness's loopback web origin, where the person can open it.
@@ -957,7 +967,7 @@ address has the DeepSeek adapter (`dsh-session-1`), no host or pane, and the can
 the session that its reset created; the cycle is in `waiting_pickup` or a prompt wait that began
 there, under the Enable revision that admitted it and before both deadlines; the candidate's
 registered harness target is the one that the cycle pinned; and it is not fenced, not a
-sub-agent and holds no other alias. In `pickup_intent`, before the pickup's receipt is recorded,
+sub-agent and holds no other alias, and the holder is still registered with that target too. In `pickup_intent`, before the pickup's receipt is recorded,
 the same candidate is refused with `cycle_receipt_pending` and `retry_after_ms` 1000: it registers
 again after that. A DeepSeek `koinon register` is the session's own call (`tool_call`), so it can
 succeed; its renewals are registrations too.
