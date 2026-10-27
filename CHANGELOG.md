@@ -5,6 +5,10 @@ into a dated release section when promoted to `main`.
 
 ## Unreleased
 
+- A managed cycle's ready or pickup report with a handoff file name that is not of the form
+  `YYYY-MM-DD-HHMMSS[-LABEL].md` is now refused with `cycle_artifact_invalid` and that form
+  (#535). Before, it got a bare `invalid_request`, and a Claude session whose file was
+  `2026-10-27T211500Z-handoff.md` retried until its ready deadline came near.
 - Grok sessions now report their model and context use (#515, part A). `peer_status` and the
   dashboard showed no context for Grok (`no_source`). `koinon setup grok` now makes `koinon hook
   grok-status` the command of the `[ui.status_line]` table in `~/.grok/config.toml`: it changes

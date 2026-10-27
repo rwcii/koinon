@@ -1299,8 +1299,11 @@ func (s *Store) ContextCycleStatus(ctx context.Context, caller Key) (*CycleView,
 // An identical retry of an accepted report returns the current state without a write while
 // the artifact is unchanged.
 func (s *Store) ContextCycleReady(ctx context.Context, caller Key, epoch, id string, revision int64, artifact string) (CycleView, error) {
-	if id == "" || revision < 1 || !validArtifactName(artifact) {
+	if id == "" || revision < 1 {
 		return CycleView{}, ErrInvalid
+	}
+	if err := artifactNameRefusal(artifact); err != nil {
+		return CycleView{}, err
 	}
 	if epoch == "" || !nativeEpoch.MatchString(epoch) {
 		return CycleView{}, ErrCycleEpoch
@@ -1469,9 +1472,12 @@ func awaitingPickup(c cycleRow) bool {
 // the successor. report is private runtime data, never audit text. Only a retry with the
 // same successor, epoch, artifact, outcome and report returns the completed cycle.
 func (s *Store) ContextCyclePickup(ctx context.Context, caller Key, epoch, id string, revision int64, artifact, outcome, report string) (CycleView, error) {
-	if id == "" || revision < 1 || !validArtifactName(artifact) || outcome != "resumed" && outcome != "paused" ||
+	if id == "" || revision < 1 || outcome != "resumed" && outcome != "paused" ||
 		report == "" || len(report) > maxPickupReport || !utf8.ValidString(report) {
 		return CycleView{}, ErrInvalid
+	}
+	if err := artifactNameRefusal(artifact); err != nil {
+		return CycleView{}, err
 	}
 	if epoch == "" || !nativeEpoch.MatchString(epoch) {
 		return CycleView{}, ErrCycleEpoch

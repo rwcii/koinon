@@ -33,8 +33,8 @@ type artifactFile struct{ dev, ino, size, mtime int64 }
 // It reads metadata through a root opened at the main checkout, and of the files there only
 // the bounded handoff facts, so no symlink or `..` leaves the checkout.
 func (s *Store) verifyArtifact(ctx context.Context, c cycleRow, name string) (artifactFile, error) {
-	if !validArtifactName(name) {
-		return artifactFile{}, artifactRefusal("name %q is not a handoff file name, YYYY-MM-DD-HHMMSS[-LABEL].md", name)
+	if err := artifactNameRefusal(name); err != nil {
+		return artifactFile{}, err
 	}
 	var repository, directory, role string
 	if err := s.db.QueryRowContext(ctx, `SELECT repository,directory,role FROM sessions WHERE family=? AND id=?`, c.Family, c.SessionID).
@@ -112,6 +112,15 @@ func (s *Store) verifyArtifact(ctx context.Context, c cycleRow, name string) (ar
 		return artifactFile{}, artifactRefusal("directory %s/ holds files that Git tracks", dir)
 	}
 	return file, nil
+}
+
+// artifactNameRefusal refuses a name that is not a canonical handoff file name, and says the
+// form, so that a ready or pickup report with a bad name learns why (#535).
+func artifactNameRefusal(name string) error {
+	if validArtifactName(name) {
+		return nil
+	}
+	return artifactRefusal("name %q is not a handoff file name, YYYY-MM-DD-HHMMSS[-LABEL].md", name)
 }
 
 // artifactRefusal is ErrCycleArtifact with the check that failed (#468). Each argument is cut
