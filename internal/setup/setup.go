@@ -39,6 +39,9 @@ type Options struct {
 	// status line; default antigravity-cli/settings.json beside AgyRoot, else
 	// ~/.gemini/antigravity-cli/settings.json.
 	AgySettings string
+	// GrokHome holds Grok's config.toml and its status line (#515); default $GROK_HOME, else
+	// ~/.grok.
+	GrokHome string
 }
 
 func agySettingsFile(o Options) string {
@@ -61,7 +64,7 @@ type Report struct {
 	Changed   []string `json:"changed"`
 	Unchanged []string `json:"unchanged"`
 	Note      string   `json:"note,omitempty"`
-	// StatusLine reports the Claude or agy status-line set-up or removal.
+	// StatusLine reports the Claude, agy or Grok status-line set-up or removal.
 	StatusLine *StatusLineResult `json:"status_line,omitempty"`
 	// Permissions reports the family's recommended permission rules; setup changes none.
 	Permissions *PermissionsResult `json:"permissions,omitempty"`
@@ -108,8 +111,10 @@ func Run(ctx context.Context, o Options) (Report, error) {
 			result, err = ClaudeStatusLine(o.Binary, o.StateDir, o.ClaudeConfig, true)
 		case "agy":
 			result, err = AgyStatusLine(o.Binary, o.StateDir, agySettingsFile(o), true)
+		case "grok":
+			result, err = GrokStatusLine(o.Binary, o.StateDir, grokConfigFile(o), true)
 		default:
-			return report, errors.New("--remove-status-line applies to claude and agy only")
+			return report, errors.New("--remove-status-line applies to claude, agy and grok only")
 		}
 		report.StatusLine = &result
 		return report, err
@@ -185,6 +190,12 @@ func Run(ctx context.Context, o Options) (Report, error) {
 		err = openCodePlugin(o, &report)
 	case "grok":
 		report.Note = grokNote(ctx, cli)
+		var result StatusLineResult
+		result, err = GrokStatusLine(o.Binary, o.StateDir, grokConfigFile(o), false)
+		report.StatusLine = &result
+		if err == nil && result.Outcome == "changed" {
+			report.Note += " The Grok [ui.status_line] command runs an edited Koinon hook, or Koinon's status line is set up in another config.toml; it was left unchanged."
+		}
 	}
 	if err == nil {
 		// Reported only: the person adds the rules at install's or setup's question.

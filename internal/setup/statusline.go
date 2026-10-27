@@ -43,6 +43,11 @@ type statusRecord struct {
 	SettingsFile string          `json:"settings_file"`
 	Original     json.RawMessage `json:"original"`
 	Wrapper      json.RawMessage `json:"wrapper"`
+	// TableAdded records that setup added Grok's [ui.status_line] table (#515).
+	TableAdded bool `json:"table_added,omitempty"`
+	// RawValues keeps the original TOML value tokens of Grok's owned keys, so removal
+	// restores their spelling (#515).
+	RawValues map[string]string `json:"raw_values,omitempty"`
 }
 
 // StatusLineResult reports one set-up or removal.

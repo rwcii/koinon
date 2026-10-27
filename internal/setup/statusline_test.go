@@ -10,6 +10,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"sync"
 	"testing"
@@ -315,6 +316,13 @@ func TestClaudeStatusHook(t *testing.T) {
 	none := HookEnv{Getenv: func(k string) string { return map[string]string{"KOINON_STATE_DIR": t.TempDir()}[k] }, Now: time.Now}
 	if status := ClaudeStatus([]string{"--command", "printf ok"}, strings.NewReader(input), &out, &errOut, none); status != 0 || out.String() != "ok" {
 		t.Fatalf("without daemon: %d %q", status, out.String())
+	}
+	// The user's command gets the whole input, also beyond what the hook reads (once 16 MiB).
+	out.Reset()
+	long := strings.Repeat("x", 16<<20+1024)
+	if status := ClaudeStatus([]string{"--command", "wc -c"}, strings.NewReader(long), &out, &errOut, none); status != 0 ||
+		strings.TrimSpace(out.String()) != strconv.Itoa(len(long)) {
+		t.Fatalf("long input: %d %q", status, out.String())
 	}
 }
 

@@ -114,6 +114,31 @@ func TestObservationValidationAndAttribution(t *testing.T) {
 	if e := s.contextEvidence(Key{"agy", "synthetic-agy"}); e.Epoch != "synthetic-agy" {
 		t.Fatalf("agy epoch after a refused reading: %+v", e)
 	}
+	// Grok's status line reports model and context, with the session as its epoch; a later
+	// sample without context leaves the reading as it was (#515).
+	grok := join(t, s, "grok", "synthetic-grok", "")
+	if views := s.sessionObservations(ctx, grok); views["context"].Reason != "not_observed" || views["activity"].Reason != "no_source" {
+		t.Fatalf("grok views: %+v", views)
+	}
+	if err := s.Observe(ctx, Observation{Caller: Key{"grok", "synthetic-grok"},
+		Model:   &ObservedValue{Source: "grok_statusline", At: now, ID: "grok-synthetic"},
+		Context: &ObservedValue{Source: "grok_statusline", At: now, LimitTokens: int64p(2000000), UsedTokens: int64p(13), UsageAvailable: boolp(true), Epoch: "synthetic-grok"},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.Observe(ctx, Observation{Caller: Key{"grok", "synthetic-grok"}, Model: &ObservedValue{Source: "grok_statusline", At: now + 1, ID: "grok-synthetic"}}); err != nil {
+		t.Fatal(err)
+	}
+	if views := s.sessionObservations(ctx, grok); views["context"].Value == nil || views["context"].Value.Source != "grok_statusline" ||
+		*views["context"].Value.UsedTokens != 13 || views["context"].Value.At != now || views["model"].Value.ID != "grok-synthetic" {
+		t.Fatalf("grok status line views: %+v", views)
+	}
+	if e := s.contextEvidence(Key{"grok", "synthetic-grok"}); e.Epoch != "synthetic-grok" {
+		t.Fatalf("grok epoch: %+v", e)
+	}
+	if err := s.Observe(ctx, Observation{Caller: Key{"grok", "synthetic-grok"}, Activity: &ObservedValue{Source: "grok_statusline", At: now, State: "idle"}}); err == nil {
+		t.Fatal("grok_statusline activity accepted")
+	}
 	// An inactive session shows nothing and takes no report; forgetting drops its values.
 	retired, err := s.Mutate(ctx, Mutation{Family: "codex", ID: "synthetic-codex", IfRevision: codex.Revision}, true)
 	if err != nil {

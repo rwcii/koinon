@@ -18,8 +18,8 @@ import (
 // Observation sources. A source names where the reporter read the value; the daemon accepts
 // each group only from its own sources.
 var observationSources = map[string][]string{
-	"model":    {"claude_statusline", "codex_rollout", "codex_mcp_meta", "agy_hook", "agy_statusline", "opencode_server", "dsh_projections"},
-	"context":  {"claude_statusline", "codex_rollout", "agy_statusline", "opencode_server", "dsh_projections"},
+	"model":    {"claude_statusline", "codex_rollout", "codex_mcp_meta", "agy_hook", "agy_statusline", "opencode_server", "dsh_projections", "grok_statusline"},
+	"context":  {"claude_statusline", "codex_rollout", "agy_statusline", "opencode_server", "dsh_projections", "grok_statusline"},
 	"activity": {"claude_registry", "codex_rollout", "agy_hook", "agy_statusline", "mcp_call"},
 	"terminal": {"tmux_env"},
 	"naming":   {"koinon_mcp"},
@@ -181,7 +181,7 @@ func (v *ObservedValue) valid(group string, now int64) bool {
 	if !allowed(group, v.Source) || v.At <= 0 || v.At > now+60_000 {
 		return false
 	}
-	if v.Epoch != "" && (group != "context" || v.Source != "claude_statusline" && v.Source != "codex_rollout" && v.Source != "agy_statusline" && v.Source != "opencode_server" && v.Source != "dsh_projections" || !nativeEpoch.MatchString(v.Epoch)) {
+	if v.Epoch != "" && (group != "context" || v.Source != "claude_statusline" && v.Source != "codex_rollout" && v.Source != "agy_statusline" && v.Source != "opencode_server" && v.Source != "dsh_projections" && v.Source != "grok_statusline" || !nativeEpoch.MatchString(v.Epoch)) {
 		return false
 	}
 	if v.TurnError != "" && (group != "activity" || v.Source != "codex_rollout" || v.State != "idle" || !turnErrors[v.TurnError]) {
@@ -428,8 +428,8 @@ func (s *Store) namingOf(session Session) *PeerNaming {
 func unobserved(group string, session Session) string {
 	family := session.Family
 	sources := map[string]map[string]bool{
-		"model":    {"claude": true, "codex": true, "agy": true, "opencode": true, "deepseek": true},
-		"context":  {"claude": true, "codex": true, "agy": true, "opencode": true, "deepseek": true},
+		"model":    {"claude": true, "codex": true, "agy": true, "opencode": true, "deepseek": true, "grok": true},
+		"context":  {"claude": true, "codex": true, "agy": true, "opencode": true, "deepseek": true, "grok": true},
 		"activity": {"claude": true, "codex": true, "agy": true, "opencode": true},
 		"terminal": {"claude": true, "codex": true, "agy": true, "opencode": true, "grok": true},
 		"naming":   {"claude": true, "codex": true, "agy": true, "opencode": true, "grok": true},

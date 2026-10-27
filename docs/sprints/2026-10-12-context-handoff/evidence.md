@@ -473,3 +473,40 @@ here; the agents' text is not.
   pickup.
 
 Not yet verified: macOS; a pickup within the 2-minute deadline when the model is slower.
+
+## Grok context source (#515)
+
+Run 2026-10-27 with Grok Build 1.0.50 in the `grok-dev` development container on Linux. The
+branch binary ran as a container-local daemon with a new state directory, and `koinon grok`
+started the session in a private tmux socket. A capture command, set as the person's own
+`[ui.status_line]` command before setup, saved each input and the `GROK_SESSION_ID` that it
+saw. Only field names, types, counts and comparisons of IDs are named here.
+
+- Setup. `koinon setup grok` wrapped the capture command in the existing `[ui.status_line]`
+  table of `~/.grok/config.toml` and changed only its `command` line. Grok rendered the wrapped
+  command's output under its input box. Setup again with a new binary moved the wrapper to it
+  (`set_up`). `koinon setup grok --remove-status-line` restored the table byte for byte; the
+  only other line that differed from the file before setup was the MCP server entry, which
+  `grok mcp add` had rewritten. The container's configuration was then restored from its
+  backup.
+- Input. Fields: `schema_version`, `cwd`, `session_id`, `model {id, display_name}`,
+  `workspace {current_dir, repo_root}`, `version`, `cost {total_duration_ms,
+  total_api_duration_ms}`, `context_window {context_window_size, context_tokens,
+  session_input_tokens, session_output_tokens, used_percentage, remaining_percentage,
+  auto_compact_threshold_percent}` (integers), `effort {level}` and `trigger` (`state` in every
+  input). Grok sent inputs in bursts when its state changed (start, the turn, `/new`,
+  `/compact`) and none while it was idle; the table had no `refresh_interval`. One turn moved
+  `context_tokens` from 1785 to 19142 with a limit of 256000, as the TUI's "19K / 256K".
+- Identity. The command's environment had no `GROK_SESSION_ID` in any input, and the Grok
+  process has none either; Grok sets it for its MCP server. The input's `session_id` was the
+  MCP server's `GROK_SESSION_ID` and the launch's `--session-id`. The first branch head took the
+  caller from the environment, as the agreed criteria said, and `peer_status` showed the
+  context `not_observed`. The hook now takes the caller from the input's `session_id`; then
+  `peer_status` showed model and context from `grok_statusline` (19249 of 256000 tokens).
+- `/new` started a second MCP server with a new `GROK_SESSION_ID`; the inputs then named that
+  session, with `context_tokens` starting again at 1785, and its own peer showed its reading
+  (19409) while the earlier session kept its last one.
+- `/compact` kept the same `session_id`; `context_tokens` fell from 19409 to 19137 (the context
+  was mostly Grok's own instructions), and the reading followed.
+
+Not yet verified: macOS; a session with `refresh_interval` set.
