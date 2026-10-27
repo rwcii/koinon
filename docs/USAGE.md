@@ -458,6 +458,10 @@ OpenCode sessions started with `koinon opencode` show their model and context to
 reads them every 15 seconds from the session's own OpenCode server, from the newest finished
 reply and its model's context limit. A direct `opencode` start shows none. OpenCode has no
 handoff cycle yet, so its readings only inform; its family default stays `observe`.
+DeepSeek sessions registered with `koinon register` show their model and context too: the
+daemon reads them every 15 seconds from the session's own harness, with the wake's credential,
+from the token meter's newest usage and the model's context window. DeepSeek has no handoff
+cycle yet, so its readings only inform; its family default stays `observe`.
 
 Claude Code sessions launched with `koinon claude` on Linux and macOS can run the cycle, and
 Codex sessions launched with `koinon codex` in tmux on Linux and macOS can run it too (family

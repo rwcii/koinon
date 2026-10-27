@@ -33,7 +33,7 @@ tags:
 ## Executive Summary
 
 Koinon currently observes context use for some families (the Claude status line, Codex
-rollouts, the agy status line, #512, and a launched OpenCode session's own server, #513) and shows it in `peer_status` and the dashboard. It does nothing when a session
+rollouts, the agy status line, #512, a launched OpenCode session's own server, #513, and a DeepSeek session's harness, #514) and shows it in `peer_status` and the dashboard. It does nothing when a session
 nears its limit. Issue #196 asks for a managed cycle: the daemon watches context against a
 threshold, asks the session over Koinon to write its handoff, and after the ready reply enters
 the family's reset and pickup commands in the agent's own tmux pane.
@@ -499,3 +499,4 @@ and terminal commands have the maintainer's words; the rest is requested or prop
 | 2026-10-27 | Decision 1: when a compaction keeps or turns off the session's Enable, approved on the decision board (COMPACT-ENABLE-509) |
 | 2026-10-27 | Decision 5: the agy adapter is listed, from its Linux checks with Antigravity CLI 1.4.7 (#512) |
 | 2026-10-27 | Executive summary: OpenCode context is read from a launched session's own server (#513) |
+| 2026-10-27 | Executive summary: DeepSeek context is read from the session's harness (#514) |

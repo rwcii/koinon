@@ -155,6 +155,8 @@ func Start(c Config) (*Daemon, error) {
 	go d.maintainWorkNotices()
 	d.wg.Add(1)
 	go d.maintainOpenCodeContext()
+	d.wg.Add(1)
+	go d.maintainDeepSeekContext()
 	for _, listener := range d.listeners {
 		server := &http.Server{Handler: d.handler(), ReadHeaderTimeout: 5 * time.Second, ReadTimeout: 10 * time.Second, WriteTimeout: 10 * time.Second, IdleTimeout: 30 * time.Second, MaxHeaderBytes: 8192}
 		d.servers = append(d.servers, server)

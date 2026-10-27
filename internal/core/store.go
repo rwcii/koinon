@@ -149,6 +149,8 @@ type Store struct {
 	agyWitness agyWitnessState
 	// openCodeContext holds the last OpenCode context reading recorded per session (#513).
 	openCodeContext openCodeContextState
+	// deepSeekContext holds the last DeepSeek context reading recorded per session (#514).
+	deepSeekContext openCodeContextState
 	// retention holds the last retention sweep's results (#216).
 	retention retentionState
 	// calls holds each session's last tool call; processStart reads a host process's start
