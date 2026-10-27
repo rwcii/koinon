@@ -2518,8 +2518,9 @@ prints the model's display name without one, and reports the model and context o
 `session_id`. `koinon setup claude` makes it the `statusLine` entry, keeping the entry's other
 fields and wrapping its previous command. The previous entry is saved once, before the settings
 change, in `claude-statusline.json` in the Go state root. `koinon setup claude --remove-status-line`
-restores it while the entry is still Koinon's, and keeps an entry the user changed. Only the
-`statusLine` member changes; member order and the file mode are kept; a symbolic link, a file
+restores it while the entry is still Koinon's, and keeps an entry the user changed. Setup leaves
+a wrapper that the user edited alone (`statusline_changed`), also when it runs an earlier Koinon
+binary. Only the `statusLine` member changes; member order and the file mode are kept; a symbolic link, a file
 not owned by the user, a file over 1 MiB or invalid JSON is refused, and a file that changes
 while Koinon edits it is a `settings_conflict` that keeps the other change.
 

@@ -5,6 +5,10 @@ into a dated release section when promoted to `main`.
 
 ## Unreleased
 
+- `koinon setup claude` and `koinon setup agy` no longer wrap an edited status-line wrapper again
+  after the Koinon binary moves (#530). Setup took a wrapper that runs an earlier binary as the
+  user's own command and wrapped it in a second `hook claude-status` or `hook agy-status`. It now
+  reports it as `changed` (`statusline_changed`) and leaves it alone, as Grok's setup does.
 - Grok sessions now report their model and context use (#515, part A). `peer_status` and the
   dashboard showed no context for Grok (`no_source`). `koinon setup grok` now makes `koinon hook
   grok-status` the command of the `[ui.status_line]` table in `~/.grok/config.toml`: it changes

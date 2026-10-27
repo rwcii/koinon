@@ -146,6 +146,17 @@ func TestStatusLineWithoutAnEntryAndAfterUserChanges(t *testing.T) {
 	os.WriteFile(l.settings, []byte(`{"statusLine":`+edited+`}`), 0600)
 	result, err = l.setUp()
 	mustOutcome(t, result, err, "changed")
+	// After the binary moves, the edited wrapper of the old binary is still Koinon's and is left
+	// alone, never wrapped again (#530).
+	moved := l
+	moved.binary = "/new/koinon"
+	result, err = moved.setUp()
+	if err != nil || result.Outcome != "changed" || result.Reason != "statusline_changed" {
+		t.Fatalf("edited wrapper of an old binary: %+v %v", result, err)
+	}
+	if entry, _ := settingsEntry(t, l); !equal(entry, json.RawMessage(edited)) {
+		t.Fatalf("edited wrapper of an old binary changed: %s", entry)
+	}
 	result, err = l.remove()
 	mustOutcome(t, result, err, "changed")
 	if entry, _ := settingsEntry(t, l); !equal(entry, json.RawMessage(edited)) {
@@ -165,6 +176,20 @@ func TestStatusLineWithoutAnEntryAndAfterUserChanges(t *testing.T) {
 	}
 	if entry, _ := settingsEntry(t, l); !equal(entry, json.RawMessage(mine)) {
 		t.Fatalf("recovered original: %s", entry)
+	}
+	// An old binary's wrapper without a record is unwrapped and follows the binary.
+	os.Remove(filepath.Join(l.state, statusLineRecord))
+	os.WriteFile(l.settings, []byte(`{"statusLine":`+string(wrapper)+`}`), 0600)
+	result, err = moved.setUp()
+	mustOutcome(t, result, err, "set_up")
+	if entry, _ := settingsEntry(t, l); entryCommand(entry) != "'/new/koinon' hook claude-status --command 'my-line'" {
+		t.Fatalf("old binary's wrapper: %s", entry)
+	}
+	if _, err := moved.remove(); err != nil {
+		t.Fatal(err)
+	}
+	if entry, _ := settingsEntry(t, l); !equal(entry, json.RawMessage(mine)) {
+		t.Fatalf("recovered original after the move: %s", entry)
 	}
 	// An interrupted set-up (record pending, settings unchanged) finishes on the next run.
 	l.save(statusRecord{State: "pending", Original: json.RawMessage(mine), Wrapper: wrapper})
