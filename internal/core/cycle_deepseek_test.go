@@ -779,7 +779,9 @@ func TestDeepSeekCycleReportModel(t *testing.T) {
 	c := g.toWaitingPickup(t, v.ID)
 	successor := Key{"deepseek", c.SuccessorEpoch}
 	g.register(t, successor.ID)
-	g.fake.set(func(f *dshFake) { f.turn(successor.ID, deepSeekModel{Provider: "openrouter", Model: "deepseek/deepseek-v4-pro"}) })
+	g.fake.set(func(f *dshFake) {
+		f.turn(successor.ID, deepSeekModel{Provider: "openrouter", Model: "deepseek/deepseek-v4-pro"})
+	})
 	if _, err := g.s.ContextCyclePickup(context.Background(), successor, successor.ID, v.ID, c.Revision, g.name, "resumed", "synthetic"); !errors.Is(err, ErrCycleModel) {
 		t.Fatalf("report: %v", err)
 	}
