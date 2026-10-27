@@ -567,5 +567,16 @@ handoffs were removed.
     from creation to finish. The successor took the participant address and its predecessor was
     retired. The Enable moved to the successor, which was admitted to a new cycle at once at 1%;
     Disable cancelled it.
+  - Run 3, with the review fixes (the host's executable was `grok-native`, its first argument
+    `/usr/local/bin/grok`), with work assigned in the scratch repository: write 1 to 3 to
+    `count.txt`, one number per turn. The first turn wrote 1 and the cycle was admitted. Cycle 1:
+    the same nine stages as run 2, then `complete` `resumed` (174 s); the successor's report named
+    the handoff, the progress note and the next step, and the successor wrote 2. The Enable moved
+    to it and a second cycle was admitted at once at 1%: it also ended `complete` `resumed`
+    (147 s), and its successor wrote 3; Disable then stopped further cycles. The participant list
+    before the run had the holder `grok-w2-2a`; afterwards `grok-w2-f8`, with the last event
+    `cycle_reset` from `grok-w2-f9` in the same host and pane, and `peers` showed `grok-w2-2a` and
+    `grok-w2-f9` retired. The peer and participant outputs, the cycle records, the handoffs and
+    `count.txt` are kept with the run's evidence outside Git.
 
 Not yet verified: macOS; an MCP approval dialog inside a cycle.
