@@ -426,7 +426,15 @@ DeepSeek uses the command path until its MCP support is verified, with this sess
 Register uses DSH_WEB_URL and DSH_HOME for the wake target; repeat it while using the session
 to renew its 15-minute lease, and add --repository PATH when selecting a repository.
 The daemon reads this session's model and context from the harness with the same credential, so
-peer-status and the dashboard show them; DeepSeek has no handoff cycle yet.
+peer-status and the dashboard show them.
+The handoff cycle (Linux) creates no clear: once this session is idle after koinon cycle-ready,
+overwatch creates a new harness session in the same directory and enters /koinon-pickup there;
+DeepSeek's koinon-pickup entry, which koinon install writes to $DSH_HOME/skills, runs koinon
+library read skill.pickup. The new session registers with the same --repository as the one it
+continues; it takes the participant once the cycle recorded the pickup's receipt, and a
+cycle_receipt_pending result or refusal means register again after retry_after_ms, then report.
+The cycle runs only while this session's model is the harness's default model, because a new
+session takes the default (model_not_default); overwatch never changes a harness setting.
 ### Recommended permissions
 Approve the commands above and koinon guide --agent deepseek in this session's command
 approval flow. The live wake was proven with DeepSeek Harness 0.2.0-rc.2 (#199).

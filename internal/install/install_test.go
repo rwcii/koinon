@@ -75,7 +75,7 @@ func newEnv(t *testing.T, backend string) *env {
 	e := &env{r: &recorder{}}
 	e.o = Options{Prefix: filepath.Join(dir, "prefix"), StateDir: state, PythonPrefix: filepath.Join(dir, "python"), Source: source,
 		Path: filepath.Join(dir, "empty-path"), ClaudeConfig: filepath.Join(dir, "claude-config"),
-		Opencode: filepath.Join(dir, "opencode-config"), AgyRoot: filepath.Join(dir, "agy-config"),
+		Opencode: filepath.Join(dir, "opencode-config"), AgyRoot: filepath.Join(dir, "agy-config"), DSHHome: filepath.Join(dir, "dsh-home"),
 		Services: platform.Services{Backend: backend, Home: filepath.Join(dir, "home"), UID: 501, Run: e.r.run,
 			User: "alice", Group: "staff", SystemDir: filepath.Join(dir, "LaunchDaemons")},
 		Setup: func(_ context.Context, o setup.Options) (setup.Report, error) {
@@ -244,6 +244,43 @@ func TestInstallTeamSkills(t *testing.T) {
 	}
 	if data, _ := os.ReadFile(personal); string(data) != "a personal handoff\n" {
 		t.Fatalf("personal handoff changed: %q", data)
+	}
+}
+
+// DeepSeek gets only its own koinon-pickup entry, in an existing harness home: no directory is
+// made for a harness that is not on the computer, and the uninstall removes it (#514).
+func TestInstallDeepSeekPickupEntry(t *testing.T) {
+	e := newEnv(t, "systemd")
+	r, err := Install(context.Background(), e.o)
+	if err != nil || !r.OK || pickupResults(r.PickupSkills)["deepseek"] != "" {
+		t.Fatalf("install without a harness home %+v %v", r.PickupSkills, err)
+	}
+	if _, err := os.Lstat(e.o.DSHHome); !os.IsNotExist(err) {
+		t.Fatalf("made the harness home: %v", err)
+	}
+	if err := os.MkdirAll(e.o.DSHHome, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	r, err = Install(context.Background(), e.o)
+	if err != nil || !r.OK || pickupResults(r.PickupSkills)["deepseek"] != "created" {
+		t.Fatalf("install %+v %v", r.PickupSkills, err)
+	}
+	path := core.DeepSeekPickupSkillPath(e.o.DSHHome)
+	if data, err := os.ReadFile(path); err != nil || !bytes.Equal(data, core.DeepSeekPickupSkill()) ||
+		!strings.Contains(string(data), "koinon library read skill.pickup --as deepseek:$DSH_SESSION_ID") {
+		t.Fatalf("entry %q %v", data, err)
+	}
+	for _, entry := range r.TeamSkills {
+		if entry.Family == "deepseek" {
+			t.Fatalf("a team skill entry for DeepSeek: %+v", entry)
+		}
+	}
+	u, err := Uninstall(context.Background(), e.o)
+	if err != nil || pickupResults(u.PickupSkills)["deepseek"] != "removed" {
+		t.Fatalf("uninstall %+v %v", u.PickupSkills, err)
+	}
+	if _, err := os.Lstat(path); !os.IsNotExist(err) {
+		t.Fatalf("entry left: %v", err)
 	}
 }
 

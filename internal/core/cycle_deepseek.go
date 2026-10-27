@@ -10,6 +10,7 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"strconv"
 	"strings"
 	"time"
 )
@@ -43,7 +44,11 @@ const (
 
 var deepSeekCyclePlatforms = map[string]bool{"linux": true}
 
-var errDeepSeekHarness = errors.New("harness_unreadable")
+var (
+	errDeepSeekHarness = errors.New("harness_unreadable")
+	// errDeepSeekConflict is a session with the cycle's chosen ID that is not its created one.
+	errDeepSeekConflict = errors.New("session_conflict")
+)
 
 type deepSeekCycle struct{}
 
@@ -69,7 +74,9 @@ func deepSeekPrint(parts ...string) string {
 	return hex.EncodeToString(sum[:])
 }
 
-func deepSeekTargetPrint(t wakeTarget) string { return deepSeekPrint("dsh", t.DSHURL, t.DSHCredentials) }
+func deepSeekTargetPrint(t wakeTarget) string {
+	return deepSeekPrint("dsh", t.DSHURL, t.DSHCredentials)
+}
 
 // deepSeekPinTarget reports whether a registered target is the one that pin names.
 func deepSeekPinTarget(pin string, t wakeTarget) bool {
@@ -88,7 +95,9 @@ func deepSeekCycleID(parts ...string) string {
 	return s[:8] + "-" + s[8:12] + "-" + s[12:16] + "-" + s[16:20] + "-" + s[20:]
 }
 
-func deepSeekSuccessorID(t CycleTarget) string { return "session-" + deepSeekCycleID("successor", t.CycleID) }
+func deepSeekSuccessorID(t CycleTarget) string {
+	return "session-" + deepSeekCycleID("successor", t.CycleID)
+}
 
 func deepSeekRequestID(t CycleTarget) string {
 	return deepSeekCycleID("pickup", t.CycleID, time.UnixMilli(t.pickupAt).UTC().Format(time.RFC3339Nano))
@@ -102,9 +111,21 @@ type deepSeekRow struct {
 	Cwd       string        `json:"cwd"`
 }
 
+// deepSeekCursor is a log position: a seq, or -1 before the first event.
+type deepSeekCursor struct {
+	ok    bool
+	value int64
+}
+
+func (c *deepSeekCursor) UnmarshalJSON(data []byte) error {
+	value, err := strconv.ParseInt(string(bytes.TrimSpace(data)), 10, 64)
+	c.value, c.ok = value, err == nil && value >= -1 && value <= maxSafeInt
+	return nil
+}
+
 // deepSeekCycleView is the allowlisted part of session/projections for the cycle.
 type deepSeekCycleView struct {
-	AsOfSeq openCodeCount `json:"asOfSeq"`
+	AsOfSeq deepSeekCursor `json:"asOfSeq"`
 	Values  struct {
 		Inbox *struct {
 			NextTurn []deepSeekUserMessage `json:"next-turn"`
@@ -197,6 +218,9 @@ func deepSeekView(ctx context.Context, c *deepSeekClient, id string) (v deepSeek
 // visit for each until it returns false; the pages must be contiguous. It reports whether visit
 // stopped the scan (false when the log's start was reached).
 func deepSeekHistory(ctx context.Context, c *deepSeekClient, id string, asOfSeq int64, turnWindow bool, visit func(deepSeekCycleEvent) bool) (stopped bool, err error) {
+	if asOfSeq < 0 {
+		return false, nil // an empty log
+	}
 	next := asOfSeq + 1
 	for range deepSeekCyclePages {
 		request := map[string]any{"address": map[string]any{"kind": "session", "sessionId": id}, "throughSeq": asOfSeq, "maxMessages": deepSeekTurnMessages}
@@ -233,9 +257,10 @@ func deepSeekHistory(ctx context.Context, c *deepSeekClient, id string, asOfSeq 
 }
 
 // quiet is the quiet point of session id: seen is "" when it is idle, with no queued input, no
-// open question, its newest turn closed and no compaction running, in one stable read. users
-// counts its user messages in that turn, or in its whole log when it had no turn.
-func deepSeekQuiet(ctx context.Context, c *deepSeekClient, id string) (seen string, users int, err error) {
+// open question, its newest turn closed and no compaction running, in one stable read. used
+// counts the user messages in that turn and the turn itself, or the user messages in the whole
+// log when it had no turn: a created session is empty only at 0.
+func deepSeekQuiet(ctx context.Context, c *deepSeekClient, id string) (seen string, used int, err error) {
 	before, found, err := deepSeekListRow(ctx, c, id)
 	if err != nil || !found {
 		return "", 0, errDeepSeekHarness
@@ -268,6 +293,7 @@ func deepSeekQuiet(ctx context.Context, c *deepSeekClient, id string) (seen stri
 		case "turn/end":
 			closed = true
 		case "turn/start":
+			used++
 			if !closed {
 				open = "turn_open"
 			}
@@ -275,7 +301,7 @@ func deepSeekQuiet(ctx context.Context, c *deepSeekClient, id string) (seen stri
 		case "user/message":
 			var m deepSeekUserMessage
 			if json.Unmarshal(e.Data, &m) == nil && m.Source.Kind == "user" {
-				users++
+				used++
 			}
 		}
 		return true
@@ -284,7 +310,7 @@ func deepSeekQuiet(ctx context.Context, c *deepSeekClient, id string) (seen stri
 		return "", 0, err
 	}
 	if open != "" {
-		return open, users, nil
+		return open, used, nil
 	}
 	again, _, err := deepSeekView(ctx, c, id)
 	if err != nil {
@@ -295,9 +321,9 @@ func deepSeekQuiet(ctx context.Context, c *deepSeekClient, id string) (seen stri
 		return "", 0, errDeepSeekHarness
 	}
 	if again.AsOfSeq.value != view.AsOfSeq.value || *after.Running || after.UpdatedAt.value != before.UpdatedAt.value {
-		return "harness_changed", users, nil
+		return "harness_changed", used, nil
 	}
-	return "", users, nil
+	return "", used, nil
 }
 
 // requester reads the facts that the cycle pins: the requester's cwd and model, and the
@@ -467,10 +493,19 @@ func (deepSeekCycle) created(ctx context.Context, c *deepSeekClient, id, cwd str
 		return false, err
 	}
 	row, listed, err := deepSeekListRow(ctx, c, id)
-	if err != nil || !listed || deepSeekPrint("cwd", row.Cwd) != cwd {
+	if err != nil || !listed {
 		return false, errDeepSeekHarness
 	}
-	if _, users, err := deepSeekQuiet(ctx, c, id); err != nil || users > 0 {
+	if deepSeekPrint("cwd", row.Cwd) != cwd {
+		return false, errDeepSeekConflict
+	}
+	seen, users, err := deepSeekQuiet(ctx, c, id)
+	switch {
+	case err != nil:
+		return false, errDeepSeekHarness
+	case users > 0 || seen != "" && seen != "harness_changed":
+		return false, errDeepSeekConflict
+	case seen != "":
 		return false, errDeepSeekHarness
 	}
 	return true, nil
@@ -551,14 +586,17 @@ func (deepSeekCycle) receipt(ctx context.Context, c *deepSeekClient, t CycleTarg
 	if err != nil || !found || view.Values.Inbox == nil {
 		return false, errDeepSeekHarness
 	}
+	// A prompt is counted once by its request ID, queued or admitted.
 	want := deepSeekRequestID(t)
-	matched, others := 0, 0
+	matched, others := false, 0
+	prompts := map[string]bool{}
 	count := func(m deepSeekUserMessage) {
-		if m.Source.Kind != "user" {
+		if m.Source.Kind != "user" || m.Source.RPCID != "" && prompts[m.Source.RPCID] {
 			return
 		}
-		if m.Source.RPCID == want && len(m.Content) == 1 && m.Content[0].Type == "text" && strings.TrimSpace(m.Content[0].Text) == deepSeekPickupText {
-			matched++
+		prompts[m.Source.RPCID] = m.Source.RPCID != ""
+		if m.Source.RPCID == want && len(m.Content) == 1 && m.Content[0].Type == "text" && m.Content[0].Text == deepSeekPickupText {
+			matched = true
 		} else {
 			others++
 		}
@@ -578,7 +616,7 @@ func (deepSeekCycle) receipt(ctx context.Context, c *deepSeekClient, t CycleTarg
 	if err != nil {
 		return false, err
 	}
-	return matched == 1 && others == 0, nil
+	return matched && others == 0, nil
 }
 
 // ReportCheck reads the harness again for the successor's report: the requester's target is

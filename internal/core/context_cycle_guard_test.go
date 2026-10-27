@@ -717,7 +717,7 @@ func TestContextCycleRequestAsksToPauseAndStayIdle(t *testing.T) {
 	f.observe(t, f.k, 900, "synthetic-epoch-1")
 	v := f.status(t, f.k)
 	requests := f.overwatchRequests(t)
-	if len(requests) != 1 || requests[0] != cycleRequestBody(v.ID, v.Revision, f.k.Family, v.StageDeadline) {
+	if len(requests) != 1 || requests[0] != cycleRequestBody(v.ID, v.Revision, f.k.Family, f.k.Family, v.StageDeadline) {
 		t.Fatalf("requests: %q", requests)
 	}
 	for _, want := range []string{"managed context cycle " + v.ID + " revision 1 requests your handoff",
@@ -772,7 +772,7 @@ func TestContextCycleAsksAgainAfterSubagentWork(t *testing.T) {
 		again.Artifact != "" || f.adapter.count("clear") != 0 {
 		t.Fatalf("asked again: %+v clears %d", again, f.adapter.count("clear"))
 	}
-	if requests := f.overwatchRequests(t); len(requests) != 2 || requests[1] != cycleRequestBody(again.ID, again.Revision, f.k.Family, again.StageDeadline) {
+	if requests := f.overwatchRequests(t); len(requests) != 2 || requests[1] != cycleRequestBody(again.ID, again.Revision, f.k.Family, f.k.Family, again.StageDeadline) {
 		t.Fatalf("requests: %q", requests)
 	}
 	// A waiting_ready cycle reports no ready time, so the same observation repeats nothing.
@@ -847,7 +847,7 @@ func TestContextCycleAsksAgainWhenThePaneStaysBusy(t *testing.T) {
 		t.Fatalf("asked again: %+v", again)
 	}
 	requests := f.overwatchRequests(t)
-	if len(requests) != 2 || requests[1] != cycleRequestBody(again.ID, again.Revision, f.k.Family, again.StageDeadline) {
+	if len(requests) != 2 || requests[1] != cycleRequestBody(again.ID, again.Revision, f.k.Family, f.k.Family, again.StageDeadline) {
 		t.Fatalf("requests: %q", requests)
 	}
 	// The cycle no longer owns the pane, so the new request's wake goes out.

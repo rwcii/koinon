@@ -71,6 +71,8 @@ func inspectSeen(err error) string {
 		return "pane_unproven"
 	case errors.Is(err, errPaneInMode):
 		return "pane_in_mode"
+	case errors.Is(err, errDeepSeekHarness):
+		return "harness_unreadable"
 	}
 	return "pane_unreadable"
 }
@@ -395,6 +397,11 @@ func (s *Store) stepCycle(ctx context.Context, c cycleRow) error {
 		_, err := s.advanceCycle(ctx, c.ID, c.Revision, c.State, cycleWaitingPrompt, "native_dialog", nil, func(n *cycleRow) { n.PromptFrom = c.State })
 		return err
 	case cycleClearIntent, cycleClearReceived:
+		// A host-less create whose receipt was lost is read first, and sent again only when a
+		// verified read shows that its session does not exist (#514).
+		if _, hostless := adapter.(HostlessAdapter); hostless && c.State == cycleClearIntent {
+			return s.recreateSuccessor(ctx, c, t, adapter.(SessionAdapter))
+		}
 		// A created session is shown in the pane once before its proof (#513).
 		if create, ok := adapter.(SessionAdapter); ok && c.State == cycleClearReceived {
 			if sent, err := s.selectSuccessor(ctx, c, t, create); !sent || err != nil {
@@ -617,11 +624,38 @@ func (s *Store) createSuccessor(ctx context.Context, c cycleRow, t CycleTarget, 
 		return err
 	}
 	id, err := create.Create(ctx, t, s.cycleFence(c))
+	if _, hostless := create.(HostlessAdapter); hostless && err != nil && !errors.Is(err, errDeepSeekConflict) {
+		return nil // a later step reads the chosen ID first (recreateSuccessor)
+	}
 	if err != nil || id == "" || id == c.Epoch || !nativeEpoch.MatchString(id) {
 		_, err := s.endCycle(ctx, c.ID, c.Revision, cycleUncertain, inputReason(cycleClearIntent, err))
 		return err
 	}
 	_, err = s.advanceCycle(ctx, c.ID, c.Revision, cycleClearIntent, cycleClearReceived, "", nil, func(n *cycleRow) { n.SuccessorEpoch = id })
+	return err
+}
+
+// recreateSuccessor recovers a host-less clear_intent without its receipt (#514): the
+// adapter's Create reads the cycle's chosen session ID first and sends the same create only
+// after a verified read shows no such session. An unreadable harness waits for a later step,
+// within the stage deadline; a session that is not the cycle's ends it.
+func (s *Store) recreateSuccessor(ctx context.Context, c cycleRow, t CycleTarget, create SessionAdapter) error {
+	id, err := create.Create(ctx, t, s.cycleFence(c))
+	switch {
+	case errors.Is(err, errDeepSeekConflict):
+		_, err := s.endCycle(ctx, c.ID, c.Revision, cycleFailed, "session_conflict")
+		return err
+	case err != nil || id == "":
+		if s.now().UnixMilli() >= c.StageDeadline {
+			_, err := s.endCycle(ctx, c.ID, c.Revision, cycleUncertain, "reset_unproven")
+			return err
+		}
+		return nil
+	case id == c.Epoch || !nativeEpoch.MatchString(id):
+		_, err := s.endCycle(ctx, c.ID, c.Revision, cycleUncertain, "reset_unproven")
+		return err
+	}
+	_, err = s.advanceCycle(ctx, c.ID, c.Revision, cycleClearIntent, cycleClearReceived, "recovered", nil, func(n *cycleRow) { n.SuccessorEpoch = id })
 	return err
 }
 

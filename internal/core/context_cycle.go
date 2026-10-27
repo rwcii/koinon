@@ -387,6 +387,9 @@ var (
 	ErrCycleArtifact      = Refusal{"cycle_artifact_invalid", "the handoff artifact is not a new, bounded, ignored and untracked file in this session's own handoff directory"}
 	ErrCycleDisplay       = Refusal{"cycle_display_unproven", "the pinned pane does not show the successor session; retry the report"}
 	ErrCycleModel         = Refusal{"cycle_model_changed", "the successor's replies came from another model than its pickup asked for; the cycle ended uncertain"}
+	// The host-less refusals (#514) can be retried: the cycle stays in its stage.
+	ErrCycleReceiptPending = Refusal{"cycle_receipt_pending", "the cycle has not recorded the pickup's receipt for this session, or this session has not taken the participant since; register again, then retry the report"}
+	ErrCycleHarness        = Refusal{"cycle_harness_unreadable", "the harness could not be read to check the report; retry the report"}
 )
 
 // CycleTarget is what a cycle adapter acts on: the pinned native host and pane, and the
@@ -611,15 +614,20 @@ func (s *Store) sessionProbe(ctx context.Context, k Key) CycleProbe {
 // cycleRequestBody is the fixed text of the typed request. It names the cycle and asks the
 // session to pause at a safe stopping point, write its own handoff, report ready and then
 // stay idle, because the clear waits for its idle prompt (#431).
-func cycleRequestBody(id string, revision int64, agent string, deadline int64) string {
+func cycleRequestBody(id string, revision int64, family, agent string, deadline int64) string {
 	by := time.UnixMilli(deadline).UTC().Format("2006-01-02 15:04:05 UTC")
+	ready, reset, idle := "call context_cycle_ready", "clears your context at your idle prompt", "pane"
+	if family == "deepseek" {
+		// DeepSeek has the command path, and its reset is a new harness session (#514).
+		ready, reset, idle = "run koinon cycle-ready --as deepseek:$DSH_SESSION_ID", "starts a new harness session for the pickup once this session is idle", "session"
+	}
 	return "overwatch: managed context cycle " + id + " revision " + strconv.FormatInt(revision, 10) +
 		" requests your handoff. Report ready by " + by + ". Pause your work at the next safe stopping point. Let running background subagents finish, or stop them, so that the handoff holds their results; " +
 		"stop any that will not finish with enough time left to update the handoff and report ready by " + by + ". Write your handoff " +
 		"with your canonical handoff procedure into _handoff/" + agent + "/ of the main checkout (outside a Git checkout, of the directory " +
-		"where this session started), or into the directory that the Handoff path fact of " + handoffFacts + " names, then call context_cycle_ready with this cycle ID, " +
-		"its revision and the handoff file name. Then end your turn and stay idle: overwatch clears your context at your idle prompt, and asks again " +
-		"if your pane does not become idle. See the Managed cycle reporting section of koinon guide."
+		"where this session started), or into the directory that the Handoff path fact of " + handoffFacts + " names, then " + ready + " with this cycle ID, " +
+		"its revision and the handoff file name. Then end your turn and stay idle: overwatch " + reset + ", and asks again " +
+		"if your " + idle + " does not become idle. See the Managed cycle reporting section of koinon guide."
 }
 
 // cycleNoticeSuffix names the unfinished managed cycle whose request is in a wake's range, so
@@ -643,6 +651,10 @@ func (s *Store) cycleNoticeSuffix(ctx context.Context, b wakeBatch) (string, err
 const cycleReadyNext = "Paused and ready: end your turn now and stay idle. Overwatch clears your context at " +
 	"your idle prompt and then enters koinon-pickup."
 
+// deepSeekReadyNext is cycleReadyNext for DeepSeek, whose reset is a new session (#514).
+const deepSeekReadyNext = "Paused and ready: end your turn now and stay idle. Overwatch starts a new harness " +
+	"session once this session is idle and enters /koinon-pickup there."
+
 // cycleRepeatable reports whether a ready cycle whose stage deadline passed asks its
 // requester again (#431): the pane was read and was not at its idle prompt, such as a turn in
 // progress, a draft, an unknown registry status or no input line found (pane_not_ready when
@@ -650,7 +662,8 @@ const cycleReadyNext = "Paused and ready: end your turn now and stay idle. Overw
 // rollout that could not be read, and an idle pane keep the timeout.
 func cycleRepeatable(seen string) bool {
 	switch seen {
-	case "", errTmuxUnavailable.Error(), "pane_unproven", "pane_in_mode", "pane_unreadable", "home_unknown", "rollout_unreadable":
+	case "", errTmuxUnavailable.Error(), "pane_unproven", "pane_in_mode", "pane_unreadable", "home_unknown", "rollout_unreadable",
+		"harness_unreadable", "harness_changed":
 		return false
 	}
 	return true
@@ -720,7 +733,7 @@ func (s *Store) repeatCycleRequest(ctx context.Context, id string, revision int6
 	}
 	if _, err := tx.ExecContext(ctx, `INSERT INTO messages(recipient_family,recipient_id,seq,sender_family,sender_id,sender_name,body,
 		created_at,delivery_updated_at,system_kind,cycle_id,cycle_enable_revision) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)`,
-		c.Family, c.SessionID, seq, overwatchKey.Family, overwatchKey.ID, overwatchName, cycleRequestBody(c.ID, c.Revision, cycleAgent(c.Family, role), c.StageDeadline), now, now,
+		c.Family, c.SessionID, seq, overwatchKey.Family, overwatchKey.ID, overwatchName, cycleRequestBody(c.ID, c.Revision, c.Family, cycleAgent(c.Family, role), c.StageDeadline), now, now,
 		cycleRequestKind, c.ID, c.EnableRevision); err != nil {
 		return tx.fail(err)
 	}
@@ -850,7 +863,7 @@ func (s *Store) admitContextCycle(ctx context.Context, k Key) (bool, error) {
 		c.MessageSeq = seq
 		if _, err := tx.ExecContext(ctx, `INSERT INTO messages(recipient_family,recipient_id,seq,sender_family,sender_id,sender_name,body,
 			created_at,delivery_updated_at,system_kind,cycle_id,cycle_enable_revision) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)`,
-			k.Family, k.ID, seq, overwatchKey.Family, overwatchKey.ID, overwatchName, cycleRequestBody(c.ID, c.Revision, cycleAgent(k.Family, session.Role), c.StageDeadline), now, now,
+			k.Family, k.ID, seq, overwatchKey.Family, overwatchKey.ID, overwatchName, cycleRequestBody(c.ID, c.Revision, k.Family, cycleAgent(k.Family, session.Role), c.StageDeadline), now, now,
 			cycleRequestKind, c.ID, c.EnableRevision); err != nil {
 			return false, tx.fail(err)
 		}
@@ -1447,6 +1460,9 @@ func (s *Store) ContextCyclePickup(ctx context.Context, caller Key, epoch, id st
 		return CycleView{}, err
 	}
 	c, role, err := s.cycleOfCaller(ctx, s.db, caller, id, now)
+	if errors.Is(err, ErrCycleNotFound) {
+		err = hostlessPending(ctx, s.db, caller, id, err)
+	}
 	if err != nil {
 		return CycleView{}, err
 	}
@@ -1477,6 +1493,12 @@ func (s *Store) ContextCyclePickup(ctx context.Context, caller Key, epoch, id st
 	// take time, so the write below checks the deadlines at the time after them.
 	if display, ok := cycleAdapterOf(c.Family).(DisplayAdapter); ok {
 		if err := s.displayProof(ctx, c, display); err != nil {
+			return CycleView{}, err
+		}
+	}
+	// A host-less pickup is checked through its harness again (#514).
+	if hostless, ok := cycleAdapterOf(c.Family).(HostlessAdapter); ok {
+		if err := s.reportCheck(ctx, c, hostless); err != nil {
 			return CycleView{}, err
 		}
 	}
@@ -1547,6 +1569,46 @@ func (s *Store) ContextCyclePickup(ctx context.Context, caller Key, epoch, id st
 		return CycleView{}, err
 	}
 	return current.view(ctx, s.db, "successor")
+}
+
+// hostlessPending refines a pickup report's cycle_not_found (notFound) for a host-less cycle
+// (#514): the report of the session that the cycle created, which does not hold the participant
+// yet, is cycle_receipt_pending, which can be retried.
+func hostlessPending(ctx context.Context, q querier, caller Key, id string, notFound error) error {
+	if _, hostless := cycleAdapterOf(caller.Family).(HostlessAdapter); !hostless {
+		return notFound
+	}
+	cycles, err := cyclesWhere(ctx, q, activeCycle+` AND cycle_id=? AND family=? AND successor_epoch=? AND host_start=0`, id, caller.Family, caller.ID)
+	if err != nil {
+		return err
+	}
+	if len(cycles) == 0 {
+		return notFound
+	}
+	return ErrCycleReceiptPending
+}
+
+// reportCheck is a host-less pickup report's check through the harness (#514), within the
+// stage's and the cycle's deadlines: an unreadable harness proves nothing and the report can
+// be retried; a reason ends the cycle uncertain.
+func (s *Store) reportCheck(ctx context.Context, c cycleRow, hostless HostlessAdapter) error {
+	limit := min(c.StageDeadline, c.CycleDeadline)
+	read, cancel := context.WithTimeout(ctx, time.Duration(limit-s.now().UnixMilli())*time.Millisecond)
+	defer cancel()
+	reason, err := hostless.ReportCheck(read, s.cycleTarget(ctx, c))
+	if err != nil {
+		return ErrCycleHarness
+	}
+	if reason == "" {
+		return nil
+	}
+	if _, err := s.endCycle(ctx, c.ID, c.Revision, cycleUncertain, reason); err != nil {
+		return err
+	}
+	if reason == "model_changed" {
+		return ErrCycleModel
+	}
+	return ErrCycleChanged
 }
 
 func (s *Store) activeCaller(ctx context.Context, caller Key, now int64) error {

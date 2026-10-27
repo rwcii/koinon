@@ -436,7 +436,9 @@ const usage = `Usage: koinon install [--prefix DIR] [--state-dir DIR] [--port N]
 A BODY of - reads the message body from standard input; a REPORT of - reads the pickup report.`
 
 // DeepSeek's MCP support remains unverified. The harness's command path registers
-// its exact native session and wake metadata explicitly, without creating a session.
+// its exact native session and wake metadata explicitly, without creating a session. The
+// session runs the command itself, so the registration is its own call, which can take its
+// participant as a managed cycle's created session (#514).
 func registerDeepSeek(ctx context.Context, args []string, out io.Writer) error {
 	root, err := platform.DefaultStateDir()
 	if err != nil {
@@ -474,7 +476,8 @@ func registerDeepSeek(ctx context.Context, args []string, out io.Writer) error {
 	if err != nil {
 		return err
 	}
-	data, err := core.Call(ctx, *address, secret, "/v1/sessions/register", core.Registration{Family: family, ID: id, Directory: *dir, Repository: *repo, WakeTarget: wake})
+	data, err := core.Call(ctx, *address, secret, "/v1/sessions/register", core.Registration{Family: family, ID: id, Directory: *dir, Repository: *repo, WakeTarget: wake,
+		ToolCall: true})
 	if err != nil {
 		return err
 	}
