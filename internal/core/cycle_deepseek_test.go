@@ -525,11 +525,15 @@ func TestDeepSeekCyclePickup(t *testing.T) {
 	ct = pinned(t, a, f.target(target, cycleClearIntent))
 	a.Create(context.Background(), ct, dshFence)
 	ct = pinned(t, a, f.target(target, cyclePickupIntent))
-	f.set(func(f *dshFake) { f.sessions[ct.SuccessorEpoch].lastUsed = &deepSeekModel{Provider: "openrouter", Model: "deepseek/deepseek-v4-pro"} })
+	f.set(func(f *dshFake) {
+		f.sessions[ct.SuccessorEpoch].lastUsed = &deepSeekModel{Provider: "openrouter", Model: "deepseek/deepseek-v4-pro"}
+	})
 	if err := a.SendPickup(context.Background(), ct, dshFence); err == nil || f.count("session/prompt") != 0 {
 		t.Fatalf("other created model: %v %d", err, f.count("session/prompt"))
 	}
-	f.set(func(f *dshFake) { f.sessions[ct.SuccessorEpoch].lastUsed = &deepSeekModel{Provider: dshModel.Provider, Model: dshModel.Model} })
+	f.set(func(f *dshFake) {
+		f.sessions[ct.SuccessorEpoch].lastUsed = &deepSeekModel{Provider: dshModel.Provider, Model: dshModel.Model}
+	})
 	if err := a.SendPickup(context.Background(), ct, dshFence); err != nil || f.count("session/prompt") != 1 {
 		t.Fatalf("pinned created model: %v %d", err, f.count("session/prompt"))
 	}

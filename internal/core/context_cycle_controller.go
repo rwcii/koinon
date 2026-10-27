@@ -668,7 +668,9 @@ func (s *Store) stepHostless(ctx context.Context, c cycleRow, t CycleTarget, ada
 	r, ok := value.(hostlessResult)
 	if !done || !ok || r.revision != c.Revision || r.state != c.State {
 		if !s.cycleWork.running(c.ID) {
-			s.cycleWork.start(c.ID, func(ctx context.Context, publish func(any)) { publish(hostlessWork(ctx, c, t, adapter, s.cycleFence(c))) })
+			s.cycleWork.start(c.ID, func(ctx context.Context, publish func(any)) {
+				publish(hostlessWork(ctx, c, t, adapter, s.cycleFence(c)))
+			})
 		}
 		return nil
 	}
