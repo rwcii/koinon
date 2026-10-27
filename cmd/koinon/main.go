@@ -289,6 +289,13 @@ func ensurePickupSkills(logEvent func(string, map[string]any)) {
 			logEvent("pickup_skill", map[string]any{"family": root.Family, "path": path, "result": "failed", "code": "write_failed"})
 		}
 	}
+	// DeepSeek's entry, in an existing harness home only (#514).
+	if dsh := core.DeepSeekHome(os.Getenv("DSH_HOME"), home); dirExists(dsh) {
+		path := core.DeepSeekPickupSkillPath(dsh)
+		if _, err := core.InstallSkillFile(path, core.DeepSeekPickupSkill()); err != nil {
+			logEvent("pickup_skill", map[string]any{"family": "deepseek", "path": path, "result": "failed", "code": "write_failed"})
+		}
+	}
 	// The retired Python runtime's instructions leave the Codex AGENTS.md (#487).
 	instructions := core.CodexInstructions(os.Getenv("CODEX_HOME"), home)
 	if result, err := core.RemoveRetiredCodexBlocks(instructions); err != nil {
@@ -792,4 +799,10 @@ func main() {
 		json.NewEncoder(os.Stderr).Encode(report)
 		os.Exit(1)
 	}
+}
+
+// dirExists reports whether path is an existing directory.
+func dirExists(path string) bool {
+	info, err := os.Stat(path)
+	return err == nil && info.IsDir()
 }

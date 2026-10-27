@@ -189,11 +189,25 @@ func (s *Store) succeed(ctx context.Context, tx *sql.Tx, now int64, k Key, repos
 			return nil, err
 		}
 	}
+	// A DeepSeek session has no host: the holder's cycle names the session that it created
+	// (#514).
+	session := ""
+	if k.Family == "deepseek" && fenced != 1 && !subagent && sh.start == 0 && hh.start == 0 {
+		if session, err = hostlessCycleLink(ctx, tx, now, k, address, holder); err != nil {
+			return nil, err
+		}
+	}
 	switch {
 	case fenced == 1:
 		result.Reason = "fenced"
 	case subagent:
 		result.Reason = "subagent"
+	case session == "linked":
+		evidence = "cycle_session"
+	case session == "pending":
+		// The created session registered before the pickup's receipt was recorded: it takes
+		// the address at a registration after the receipt.
+		result.Reason, result.RetryAfterMS = "cycle_receipt_pending", cycleReceiptRetry.Milliseconds()
 	case sh.start == 0 || hh.start == 0:
 		result.Reason = "no_host"
 	case other:
@@ -289,6 +303,49 @@ func holdsElsewhere(ctx context.Context, tx *sql.Tx, now int64, k Key, h host, a
 		return false, nil
 	}
 	return err == nil, err
+}
+
+// hostlessCycleLink decides whether k is the session that the holder's unfinished DeepSeek
+// cycle created (#514): "linked" once the cycle recorded the pickup's receipt, "pending" in
+// pickup_intent, else "". The cycle is the holder's for this address, created k by the
+// DeepSeek adapter, and is under the Enable that admitted it, before its deadlines; k
+// registered the harness target that the cycle pinned and holds no other participant.
+func hostlessCycleLink(ctx context.Context, tx *sql.Tx, now int64, k Key, address, holder string) (string, error) {
+	var state, from, pin string
+	err := tx.QueryRowContext(ctx, `SELECT c.state,c.prompt_from,c.adapter_pin FROM context_cycles c JOIN context_enables e ON e.family=c.family AND e.session_id=c.session_id
+		WHERE c.finished_at=0 AND c.family=? AND c.address=? AND c.session_id=? AND c.successor_epoch=? AND c.adapter=?
+		AND c.host_pid=0 AND c.host_start=0 AND c.tmux_socket='' AND c.tmux_pane=''
+		AND e.enabled=1 AND e.revision=c.enable_revision AND c.stage_deadline>? AND c.cycle_deadline>? LIMIT 1`,
+		k.Family, address, holder, k.ID, deepSeekCycleVersion, now, now).Scan(&state, &from, &pin)
+	if errors.Is(err, sql.ErrNoRows) {
+		return "", nil
+	}
+	if err != nil {
+		return "", err
+	}
+	var raw []byte
+	if err := tx.QueryRowContext(ctx, `SELECT wake_target FROM sessions WHERE family=? AND id=?`, k.Family, k.ID).Scan(&raw); err != nil {
+		return "", err
+	}
+	var target wakeTarget
+	if json.Unmarshal(raw, &target) != nil || !deepSeekPinTarget(pin, target) {
+		return "", nil
+	}
+	var other int
+	err = tx.QueryRowContext(ctx, `SELECT 1 FROM names WHERE kind='alias' AND family=? AND holder_id=? AND name!=? LIMIT 1`, k.Family, k.ID, address).Scan(&other)
+	if err == nil {
+		return "", nil
+	}
+	if !errors.Is(err, sql.ErrNoRows) {
+		return "", err
+	}
+	switch {
+	case state == cyclePickupIntent:
+		return "pending", nil
+	case state == cycleWaitingPickup, (state == cycleWaitingPrompt || state == cyclePromptIntent) && from == cycleWaitingPickup:
+		return "linked", nil
+	}
+	return "", nil
 }
 
 // cycleResetLink reports whether k is the native successor that the holder's unfinished

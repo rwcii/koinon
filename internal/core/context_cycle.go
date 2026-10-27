@@ -425,6 +425,10 @@ type CycleTarget struct {
 	// recorded, in Unix milliseconds, from pickup_intent on.
 	openCode *LaunchTarget
 	pickupAt int64
+	// DeepSeek (#514): the requester's harness target, which also hosts the created successor,
+	// and the cycle's adapter pin, "" before admission.
+	deepSeek *wakeTarget
+	pin      string
 }
 
 // PickupEntry is the bytes and the menu description of one pickup entry.
@@ -455,7 +459,13 @@ type CycleProbe struct {
 	// Step names the action that removes Reason, such as the command that installs the pickup
 	// skill, or "".
 	Step string
+	// Pin is a HostlessAdapter's pinned facts of the session, at most cyclePinMax bytes, which
+	// admission stores with the cycle and each later Probe compares (#514); "" for the others.
+	Pin string
 }
+
+// cyclePinMax bounds a cycle's adapter pin (docs/CONTEXT-CYCLE-STORAGE.md).
+const cyclePinMax = 640
 
 // CycleFence rechecks, before each key an adapter sends, that the cycle is still at its
 // revision and stage under the Enable that admitted it; an error stops the input.
@@ -521,6 +531,16 @@ type AsyncPickupAdapter interface {
 	PickupReceipt(ctx context.Context, t CycleTarget) (bool, error)
 }
 
+// HostlessAdapter is a cycle adapter for a session with no host process and no pane, which
+// acts only through its harness's API (DeepSeek, #514). Its session needs no pinned host or
+// pane; its Probe returns the Pin that admission stores, and its successor is the created
+// session itself. It is also a SessionAdapter and an AsyncPickupAdapter.
+type HostlessAdapter interface {
+	// ReportCheck reads the harness again for the successor's pickup report: an error proves
+	// nothing and the report may be sent again; a non-empty reason ends the cycle uncertain.
+	ReportCheck(ctx context.Context, t CycleTarget) (reason string, err error)
+}
+
 // DisplayAdapter is a cycle adapter whose reset is proven by its host's API, not by the pane:
 // the pane is proven to show the successor separately, before the pickup report completes
 // the cycle (OpenCode, #513).
@@ -579,7 +599,7 @@ func (s *Store) sessionProbe(ctx context.Context, k Key) CycleProbe {
 		Scan(&row.HostPID, &row.HostStart, &row.Socket, &row.Pane); err != nil {
 		return CycleProbe{Reason: "session_unknown"}
 	}
-	if row.HostPID <= 0 || row.Pane == "" {
+	if _, hostless := adapter.(HostlessAdapter); !hostless && (row.HostPID <= 0 || row.Pane == "") {
 		return CycleProbe{Reason: "host_unpinned"}
 	}
 	if native {
@@ -744,7 +764,9 @@ func (s *Store) admitContextCycle(ctx context.Context, k Key) (bool, error) {
 		return false, nil
 	}
 	// The adapter's checks of the host, pane and pickup entry run before the write.
-	if contextCycleProbe(s, ctx, k).Reason != "" {
+	probe := contextCycleProbe(s, ctx, k)
+	_, hostless := adapter.(HostlessAdapter)
+	if probe.Reason != "" || hostless && (probe.Pin == "" || len(probe.Pin) > cyclePinMax) {
 		return false, nil
 	}
 	tx, err := s.begin(noAudit(ctx), ordinary)
@@ -785,11 +807,18 @@ func (s *Store) admitContextCycle(ctx context.Context, k Key) (bool, error) {
 		Scan(&hostPID, &hostStart, &socket, &pane); err != nil {
 		return false, err
 	}
-	// The Enable pinned a verified launched host and pane; the session must still have it.
-	if hostPID <= 0 || hostStart <= 0 || pane == "" || hostPID != pin.hostPID || hostStart != pin.hostStart || socket != pin.socket || pane != pin.pane {
+	// The Enable pinned a verified launched host and pane; the session must still have it. A
+	// host-less session has neither, and its Enable pinned neither (#514).
+	pinned := hostPID == pin.hostPID && hostStart == pin.hostStart && socket == pin.socket && pane == pin.pane
+	if !pinned || !hostless && (hostPID <= 0 || hostStart <= 0 || pane == "") {
 		return false, nil
 	}
-	current, err := cyclesWhere(ctx, tx, activeCycle+` AND ((family=? AND session_id=?) OR (host_pid=? AND host_start=?))`, k.Family, k.ID, hostPID, hostStart)
+	// One unfinished cycle per session, and per host; host-less sessions share no host.
+	where, args := activeCycle+` AND family=? AND session_id=?`, []any{k.Family, k.ID}
+	if hostStart > 0 {
+		where, args = activeCycle+` AND ((family=? AND session_id=?) OR (host_pid=? AND host_start=?))`, append(args, hostPID, hostStart)
+	}
+	current, err := cyclesWhere(ctx, tx, where, args...)
 	if err != nil || len(current) > 0 {
 		return false, err
 	}
@@ -835,7 +864,7 @@ func (s *Store) admitContextCycle(ctx context.Context, k Key) (bool, error) {
 	if err := cycleEvent(ctx, tx, &c, now, cycleRequested, "admitted", ""); err != nil {
 		return false, tx.fail(err)
 	}
-	if _, err := tx.ExecContext(ctx, `UPDATE context_cycles SET events=? WHERE cycle_id=?`, c.Events, c.ID); err != nil {
+	if _, err := tx.ExecContext(ctx, `UPDATE context_cycles SET events=?,adapter_pin=? WHERE cycle_id=?`, c.Events, probe.Pin, c.ID); err != nil {
 		return false, tx.fail(err)
 	}
 	if err := cycleAudit(ctx, tx, now, c, "requested", ""); err != nil {
@@ -1171,6 +1200,10 @@ func (s *Store) successorOf(ctx context.Context, q querier, c cycleRow, caller K
 	if err := q.QueryRowContext(ctx, `SELECT host_pid,host_start,tmux_socket,tmux_pane FROM sessions WHERE family=? AND id=?`, caller.Family, caller.ID).
 		Scan(&hostPID, &hostStart, &socket, &pane); err != nil {
 		return false, err
+	}
+	// A host-less cycle's successor is the session that its reset created, by its ID (#514).
+	if _, hostless := cycleAdapterOf(c.Family).(HostlessAdapter); hostless && (c.HostStart != 0 || caller.ID != c.SuccessorEpoch) {
+		return false, nil
 	}
 	return session.State == "active" && hostPID == c.HostPID && hostStart == c.HostStart && socket == c.Socket && pane == c.Pane &&
 		c.Address != "" && session.Address == c.Address && session.HoldsAddress, nil

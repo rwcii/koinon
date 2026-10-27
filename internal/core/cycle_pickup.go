@@ -34,6 +34,38 @@ Call the koinon library_read tool for item skill.pickup and follow the returned 
 // PickupSkill returns the skill's bytes.
 func PickupSkill() []byte { return []byte(pickupSkillContent) }
 
+// deepSeekPickupContent is DeepSeek's koinon-pickup entry (#514). DeepSeek has the command
+// path, not the MCP tools, so its entry reads the same catalog item with koinon library read;
+// the procedure stays the one item.
+const deepSeekPickupContent = `---
+name: ` + PickupSkillName + `
+description: ` + pickupSkillDescription + `
+---
+
+Run koinon library read skill.pickup --as deepseek:$DSH_SESSION_ID and follow the returned procedure.
+`
+
+// DeepSeekPickupSkill returns DeepSeek's entry bytes.
+func DeepSeekPickupSkill() []byte { return []byte(deepSeekPickupContent) }
+
+func deepSeekPickupEntry() PickupEntry {
+	return PickupEntry{Content: DeepSeekPickupSkill(), Description: pickupSkillDescription}
+}
+
+// DeepSeekHome is the DeepSeek Harness home: dshHome ($DSH_HOME) when it is set, else ~/.dsh.
+func DeepSeekHome(dshHome, home string) string {
+	if dshHome != "" {
+		return dshHome
+	}
+	return filepath.Join(home, ".dsh")
+}
+
+// DeepSeekPickupSkillPath is the entry in the harness home's user skills, which the harness
+// lists before ~/.agents/skills, where Codex's entry is (#514).
+func DeepSeekPickupSkillPath(dshHome string) string {
+	return filepath.Join(dshHome, "skills", PickupSkillName, "SKILL.md")
+}
+
 // pickupSkillEntry is the skill's bytes and its menu description.
 func pickupSkillEntry() PickupEntry {
 	return PickupEntry{Content: PickupSkill(), Description: pickupSkillDescription}

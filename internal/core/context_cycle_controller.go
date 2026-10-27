@@ -943,6 +943,25 @@ func (s *Store) cycleTarget(ctx context.Context, c cycleRow) CycleTarget {
 		t.observedEpoch = s.contextEvidence(Key{c.Family, c.SessionID}).Epoch
 		t.stateRoot = s.root
 	}
+	if c.Family == "deepseek" {
+		// The requester's harness, which also hosts the created successor, and the pin (#514).
+		var raw []byte
+		var target wakeTarget
+		if s.db.QueryRowContext(ctx, `SELECT wake_target FROM sessions WHERE family=? AND id=?`, c.Family, c.SessionID).Scan(&raw) == nil &&
+			json.Unmarshal(raw, &target) == nil && target.DSHURL != "" && target.DSHCredentials != "" {
+			t.deepSeek = &target
+		}
+		if c.ID != "" {
+			_ = s.db.QueryRowContext(ctx, `SELECT adapter_pin FROM context_cycles WHERE cycle_id=?`, c.ID).Scan(&t.pin)
+		}
+	}
+	if c.Family == "opencode" || c.Family == "deepseek" {
+		// The pickup's intent time, from which the message or request ID derives (#513, #514).
+		var at sql.NullInt64
+		if s.db.QueryRowContext(ctx, `SELECT MAX(at) FROM context_cycle_events WHERE cycle_id=? AND stage=?`, c.ID, cyclePickupIntent).Scan(&at) == nil && at.Valid {
+			t.pickupAt = at.Int64
+		}
+	}
 	if c.Family == "opencode" {
 		// The requester's launched server, which also hosts the created successor (#513).
 		var raw []byte
@@ -955,12 +974,11 @@ func (s *Store) cycleTarget(ctx context.Context, c cycleRow) CycleTarget {
 				t.openCode = &target
 			}
 		}
-		var at sql.NullInt64
-		if s.db.QueryRowContext(ctx, `SELECT MAX(at) FROM context_cycle_events WHERE cycle_id=? AND stage=?`, c.ID, cyclePickupIntent).Scan(&at) == nil && at.Valid {
-			t.pickupAt = at.Int64
-		}
 	}
 	t.Pickup = pickupSkillEntry()
+	if c.Family == "deepseek" {
+		t.Pickup = deepSeekPickupEntry()
+	}
 	var held int
 	t.Holds = s.db.QueryRowContext(ctx, `SELECT 1 FROM names WHERE kind='alias' AND family=? AND holder_id=? LIMIT 1`, c.Family, c.SessionID).Scan(&held) == nil
 	if c.State == cycleReady {
@@ -978,13 +996,15 @@ func (s *Store) cycleTarget(ctx context.Context, c cycleRow) CycleTarget {
 }
 
 // paneHeldByCycle reports whether an unfinished cycle owns the target session's pane, so
-// its ordinary wake waits without being marked delivered.
+// its ordinary wake waits without being marked delivered. A host-less cycle (#514) holds only
+// its own requester's wake: a prompt queued in it would end its quiet point.
 func (s *Store) paneHeldByCycle(ctx context.Context, target Key) (bool, error) {
 	var held int
 	err := s.db.QueryRowContext(ctx, `SELECT COUNT(*) FROM context_cycles c JOIN sessions s ON s.family=? AND s.id=?
 		WHERE c.state IN ('ready','bootstrap_intent','bootstrap_verified','clear_intent','clear_received','reset_verified','pickup_intent',
 			'waiting_pickup','waiting_prompt','prompt_intent','compact_intent','compact_sent')
-		AND c.host_pid=s.host_pid AND c.host_start=s.host_start AND c.tmux_socket=s.tmux_socket AND c.tmux_pane=s.tmux_pane`,
+		AND (c.host_start>0 AND c.host_pid=s.host_pid AND c.host_start=s.host_start AND c.tmux_socket=s.tmux_socket AND c.tmux_pane=s.tmux_pane
+			OR c.host_start=0 AND c.family=s.family AND c.session_id=s.id)`,
 		target.Family, target.ID).Scan(&held)
 	return held > 0, err
 }

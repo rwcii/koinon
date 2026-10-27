@@ -50,6 +50,9 @@ type Options struct {
 	// ~/.config/opencode, and ~/.gemini/config.
 	Opencode string
 	AgyRoot  string
+	// DSHHome is the DeepSeek Harness home, which receives DeepSeek's koinon-pickup entry when it
+	// exists (#514); default $DSH_HOME, else ~/.dsh.
+	DSHHome  string
 	Path     string // the search path that the report resolves koinon on; default $PATH
 	Address  string // the daemon address to wait for; default 127.0.0.1 at the port
 	Services platform.Services
@@ -160,6 +163,9 @@ func (o *Options) defaults() error {
 	}
 	if o.AgyRoot == "" {
 		o.AgyRoot = core.AgyConfigRoot(o.Services.Home)
+	}
+	if o.DSHHome == "" {
+		o.DSHHome = core.DeepSeekHome(os.Getenv("DSH_HOME"), o.Services.Home)
 	}
 	if o.Path == "" {
 		o.Path = os.Getenv("PATH")
@@ -512,13 +518,25 @@ type RetiredInstructions struct {
 	Result string `json:"result"`
 }
 
-// pickupSkillPaths are the koinon-pickup skill files by family.
+// pickupSkillPaths are the koinon-pickup skill files by family. DeepSeek's entry goes into an
+// existing harness home only, and no other skill entry goes there (#514).
 func pickupSkillPaths(o Options) []PickupSkill {
 	var skills []PickupSkill
 	for _, root := range skillRoots(o) {
 		skills = append(skills, PickupSkill{Family: root.Family, Path: root.Path(core.PickupSkillName)})
 	}
+	if info, err := os.Stat(o.DSHHome); err == nil && info.IsDir() {
+		skills = append(skills, PickupSkill{Family: "deepseek", Path: core.DeepSeekPickupSkillPath(o.DSHHome)})
+	}
 	return skills
+}
+
+// pickupContent is the koinon-pickup entry of a family.
+func pickupContent(family string) []byte {
+	if family == "deepseek" {
+		return core.DeepSeekPickupSkill()
+	}
+	return core.PickupSkill()
 }
 
 // installPickupSkills writes the managed cycle's koinon-pickup skill for each family, for the
@@ -526,7 +544,7 @@ func pickupSkillPaths(o Options) []PickupSkill {
 // at the same places (#453, #461).
 func installPickupSkills(o Options, r *Report) error {
 	for _, skill := range pickupSkillPaths(o) {
-		result, err := core.InstallPickupSkill(skill.Path)
+		result, err := core.InstallSkillFile(skill.Path, pickupContent(skill.Family))
 		if err != nil {
 			return fmt.Errorf("pickup_skill_failed: %s: %v", skill.Path, err)
 		}
@@ -808,7 +826,7 @@ func Uninstall(ctx context.Context, o Options) (Report, error) {
 	}
 	r.Service = map[bool]string{true: "removed", false: "absent"}[removed]
 	for _, skill := range pickupSkillPaths(o) {
-		result, err := core.RemovePickupSkill(skill.Path)
+		result, err := core.RemoveSkillFile(skill.Path, pickupContent(skill.Family))
 		if err != nil {
 			return r, fmt.Errorf("pickup_skill_failed: %s: %v", skill.Path, err)
 		}

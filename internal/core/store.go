@@ -364,7 +364,7 @@ func checkFormat(db *sql.DB, path string) error {
 	return nil
 }
 
-const schemaVersion = 34
+const schemaVersion = 35
 
 // workItemsV16Columns are the work item columns before schema 17, which its rebuild copies.
 const workItemsV16Columns = `store,work_id,revision,lifecycle,title,criteria,non_goals,proposed_assignee,created_at,created_consumer,
@@ -918,6 +918,12 @@ func migrate(db *sql.DB, version, target int) error {
 			` + contextCyclesTable + `
 			INSERT INTO context_cycles(` + cycleColumns + `,ready_refusal) SELECT ` + cycleColumns + `,ready_refusal FROM context_cycles_v33;
 			DROP TABLE context_cycles_v33;`); err != nil {
+			return err
+		}
+	}
+	if version < 35 && target >= 35 {
+		// Version 35: a host-less cycle's adapter pin (#514), at most cyclePinMax bytes.
+		if _, err := tx.Exec(`ALTER TABLE context_cycles ADD COLUMN adapter_pin TEXT NOT NULL DEFAULT '';`); err != nil {
 			return err
 		}
 	}
