@@ -170,6 +170,17 @@ func TestStatusLineWithoutAnEntryAndAfterUserChanges(t *testing.T) {
 	if entry, _ := settingsEntry(t, l); !equal(entry, json.RawMessage(edited)) {
 		t.Fatalf("edited wrapper replaced after removal: %s", entry)
 	}
+	// A shell operator after the quoted command is an edit too, never moved into the command.
+	chained := `{"type":"command","command":"'/opt/koinon' hook claude-status --command 'exit 7';true"}`
+	os.WriteFile(l.settings, []byte(`{"statusLine":`+chained+`}`), 0600)
+	result, err = l.setUp()
+	if err != nil || result.Outcome != "changed" || result.Reason != "statusline_changed" {
+		t.Fatalf("setup after removal of a chained wrapper: %+v %v", result, err)
+	}
+	if entry, _ := settingsEntry(t, l); !equal(entry, json.RawMessage(chained)) {
+		t.Fatalf("chained wrapper replaced after removal: %s", entry)
+	}
+	os.WriteFile(l.settings, []byte(`{"statusLine":`+edited+`}`), 0600)
 	// A wrapper without a record is unwrapped, never wrapped again.
 	os.Remove(filepath.Join(l.state, statusLineRecord))
 	wrapper := l.wrapperEntry(json.RawMessage(mine))

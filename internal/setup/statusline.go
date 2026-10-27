@@ -283,11 +283,23 @@ func (l statusLine) wrapperEntry(original json.RawMessage) json.RawMessage {
 	return encodeFields(fields)
 }
 
-// plainWrapper reports whether a wrapper runs the hook alone or around one command, the two
-// forms that unwrap reads; any other wrapper is the user's edit (#532).
+// plainWrapper reports whether a wrapper is spelled exactly as wrapperEntry writes it: the hook
+// alone or around one command, every word quoted as quote quotes it. Any other spelling, such
+// as a shell operator after the quoted command, is the user's edit (#532).
 func plainWrapper(entry json.RawMessage) bool {
-	words, err := splitWords(entryCommand(entry))
-	return err == nil && (len(words) == 3 || len(words) == 5 && words[3] == "--command")
+	command := entryCommand(entry)
+	words, err := splitWords(command)
+	if err != nil || len(words) < 3 {
+		return false
+	}
+	plain := quote(words[0]) + " hook " + words[2]
+	switch {
+	case len(words) == 3:
+		return command == plain
+	case len(words) == 5 && words[3] == "--command":
+		return command == plain+" --command "+quote(words[4])
+	}
+	return false
 }
 
 // unwrap rebuilds the entry that a wrapper entry runs, or nil when it runs none.
