@@ -48,14 +48,17 @@ func TestArtifactNameRefusalReachesClient(t *testing.T) {
 	f := newCycleFixture(t)
 	f.observe(t, f.k, 900, "synthetic-epoch-1")
 	v := f.status(t, f.k)
-	_, nameErr := f.s.ContextCycleReady(context.Background(), f.k, "synthetic-epoch-1", v.ID, v.Revision, "2026-10-27T211500Z-handoff.md")
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		failure(w, nameErr)
-	}))
-	defer server.Close()
-	_, err := Call(context.Background(), strings.TrimPrefix(server.URL, "http://"), "synthetic", "/v1/cycles/ready", map[string]any{})
-	var refused RefusedError
-	if !errors.As(err, &refused) || refused.Code != ErrCycleArtifact.Code || !strings.Contains(refused.Message, "YYYY-MM-DD-HHMMSS[-LABEL].md") {
-		t.Fatalf("name check was lost at the native client: code=%q message=%q, error=%v", refused.Code, refused.Message, err)
+	// A name whose quoted form is four times longer stays within the client's bound (#535 review).
+	for _, name := range []string{"2026-10-27T211500Z-handoff.md", strings.Repeat("\x7f", 240), strings.Repeat("\xff", 4096)} {
+		_, nameErr := f.s.ContextCycleReady(context.Background(), f.k, "synthetic-epoch-1", v.ID, v.Revision, name)
+		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			failure(w, nameErr)
+		}))
+		_, err := Call(context.Background(), strings.TrimPrefix(server.URL, "http://"), "synthetic", "/v1/cycles/ready", map[string]any{})
+		server.Close()
+		var refused RefusedError
+		if !errors.As(err, &refused) || refused.Code != ErrCycleArtifact.Code || !strings.Contains(refused.Message, "YYYY-MM-DD-HHMMSS[-LABEL].md") {
+			t.Fatalf("name check was lost at the native client: code=%q message=%q, error=%v", refused.Code, refused.Message, err)
+		}
 	}
 }

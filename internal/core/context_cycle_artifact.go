@@ -10,6 +10,7 @@ import (
 	"path"
 	"path/filepath"
 	"regexp"
+	"strconv"
 	"strings"
 	"syscall"
 	"time"
@@ -115,12 +116,13 @@ func (s *Store) verifyArtifact(ctx context.Context, c cycleRow, name string) (ar
 }
 
 // artifactNameRefusal refuses a name that is not a canonical handoff file name, and says the
-// form, so that a ready or pickup report with a bad name learns why (#535).
+// form, so that a ready or pickup report with a bad name learns why (#535). The name is quoted
+// before it is cut, so that its escapes keep the text within MaxRefusalMessage.
 func artifactNameRefusal(name string) error {
 	if validArtifactName(name) {
 		return nil
 	}
-	return artifactRefusal("name %q is not a handoff file name, YYYY-MM-DD-HHMMSS[-LABEL].md", name)
+	return artifactRefusal("name %s is not a handoff file name, YYYY-MM-DD-HHMMSS[-LABEL].md", strconv.Quote(name))
 }
 
 // artifactRefusal is ErrCycleArtifact with the check that failed (#468). Each argument is cut
