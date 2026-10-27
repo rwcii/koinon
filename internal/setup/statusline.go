@@ -20,7 +20,9 @@ import (
 // is saved once in the Go state directory before the settings change, a removal restores it
 // only while the entry is still the one Koinon set up, and a settings file that changes while
 // Koinon edits it is a conflict that keeps the other change. Claude Code takes no lock on the
-// file, so a change between the last comparison and the replacement cannot be detected.
+// file, so a change between the last comparison and the replacement cannot be detected. The
+// agy status line (#512) follows the same rules in the Antigravity CLI settings file, with its
+// own hook and record.
 
 const (
 	statusLineRecord = "claude-statusline.json"
@@ -54,6 +56,11 @@ type StatusLineResult struct {
 type statusLine struct {
 	binary, state, settings string
 	label                   string // the file's name in refusals; default "Claude settings"
+	// hook is the status-line hook, record its file in the state root and missing the skip
+	// reason when the settings directory is absent; the defaults are Claude's. defaults are
+	// the members that a wrapper adds when no earlier entry exists.
+	hook, record, missing string
+	defaults              []field
 }
 
 func (l statusLine) name() string {
@@ -61,6 +68,20 @@ func (l statusLine) name() string {
 		return "Claude settings"
 	}
 	return l.label
+}
+
+func (l statusLine) hookName() string {
+	if l.hook == "" {
+		return "claude-status"
+	}
+	return l.hook
+}
+
+func (l statusLine) recordName() string {
+	if l.record == "" {
+		return statusLineRecord
+	}
+	return l.record
 }
 
 func claudeConfigDir(getenv func(string) string) string {
@@ -226,13 +247,13 @@ func splitWords(s string) ([]string, error) {
 // isWrapper reports whether an entry runs this binary's status-line hook.
 func (l statusLine) isWrapper(entry json.RawMessage) bool {
 	words, err := splitWords(entryCommand(entry))
-	return err == nil && len(words) >= 3 && words[0] == l.binary && words[1] == "hook" && words[2] == "claude-status"
+	return err == nil && len(words) >= 3 && words[0] == l.binary && words[1] == "hook" && words[2] == l.hookName()
 }
 
 // wrapperEntry is the entry that runs the hook around the original command, keeping the
 // original's other fields.
 func (l statusLine) wrapperEntry(original json.RawMessage) json.RawMessage {
-	command := quote(l.binary) + " hook claude-status"
+	command := quote(l.binary) + " hook " + l.hookName()
 	if user := entryCommand(original); user != "" {
 		command += " --command " + quote(user)
 	}
@@ -248,7 +269,11 @@ func (l statusLine) wrapperEntry(original json.RawMessage) json.RawMessage {
 	}
 	typ, _ := json.Marshal("command")
 	cmd, _ := json.Marshal(command)
-	return encodeFields(append(fields, field{"type", typ}, field{"command", cmd}))
+	fields = append(fields, field{"type", typ}, field{"command", cmd})
+	if original == nil {
+		fields = append(fields, l.defaults...)
+	}
+	return encodeFields(fields)
 }
 
 // unwrap rebuilds the entry that a wrapper entry runs, or nil when it runs none.
@@ -368,7 +393,7 @@ func (l statusLine) writeRaw(expected, data []byte) error {
 
 func (l statusLine) load() (statusRecord, error) {
 	var r statusRecord
-	f, err := platform.OpenPrivate(filepath.Join(l.state, statusLineRecord), os.O_RDONLY)
+	f, err := platform.OpenPrivate(filepath.Join(l.state, l.recordName()), os.O_RDONLY)
 	if errors.Is(err, os.ErrNotExist) {
 		return r, nil
 	}
@@ -395,7 +420,7 @@ func (l statusLine) save(r statusRecord) error {
 	if err != nil {
 		return err
 	}
-	f, err := os.CreateTemp(l.state, ".claude-statusline-")
+	f, err := os.CreateTemp(l.state, "."+strings.TrimSuffix(l.recordName(), ".json")+"-")
 	if err != nil {
 		return err
 	}
@@ -407,7 +432,7 @@ func (l statusLine) save(r statusRecord) error {
 	if err = errors.Join(err, f.Close()); err != nil {
 		return err
 	}
-	if err := os.Rename(f.Name(), filepath.Join(l.state, statusLineRecord)); err != nil {
+	if err := os.Rename(f.Name(), filepath.Join(l.state, l.recordName())); err != nil {
 		return err
 	}
 	return platform.SyncDir(l.state)
@@ -421,7 +446,10 @@ func active(r statusRecord) bool { return r.State == "enabled" || r.State == "pe
 func (l statusLine) setUp() (StatusLineResult, error) {
 	result := StatusLineResult{Action: "set_up", SettingsFile: l.settings}
 	if info, err := os.Stat(filepath.Dir(l.settings)); err != nil || !info.IsDir() {
-		result.Outcome, result.Reason = "skipped", "claude_config_missing"
+		result.Outcome, result.Reason = "skipped", l.missing
+		if l.missing == "" {
+			result.Reason = "claude_config_missing"
+		}
 		return result, nil
 	}
 	record, err := l.load()
@@ -504,11 +532,24 @@ func (l statusLine) remove() (StatusLineResult, error) {
 
 // ClaudeStatusLine sets up the status-line hook, or removes it when remove is set.
 func ClaudeStatusLine(binary, state, configDir string, remove bool) (StatusLineResult, error) {
+	return statusLine{binary: binary, settings: filepath.Join(configDir, "settings.json")}.run(state, remove)
+}
+
+// AgyStatusLine sets up or removes the agy status-line hook in the Antigravity CLI settings
+// file. Without an earlier entry, the hook stacks with agy's default status line and prints
+// nothing of its own.
+func AgyStatusLine(binary, state, settings string, remove bool) (StatusLineResult, error) {
+	stack, _ := json.Marshal(true)
+	return statusLine{binary: binary, settings: settings, label: "Antigravity settings", hook: "agy-status",
+		record: "agy-statusline.json", missing: "agy_config_missing", defaults: []field{{"stack_with_default", stack}}}.run(state, remove)
+}
+
+func (l statusLine) run(state string, remove bool) (StatusLineResult, error) {
 	root, err := platform.PrivateDir(state)
 	if err != nil {
 		return StatusLineResult{}, fmt.Errorf("state directory: %w", err)
 	}
-	l := statusLine{binary: binary, state: root, settings: filepath.Join(configDir, "settings.json")}
+	l.state = root
 	if remove {
 		return l.remove()
 	}

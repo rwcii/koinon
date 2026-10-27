@@ -371,10 +371,12 @@ const usage = `Usage: koinon install [--prefix DIR] [--state-dir DIR] [--port N]
        koinon mcp --maintainer --client NAME --secret-stdin|--secret-file PATH [--state-dir DIR] [--address 127.0.0.1:PORT]
        koinon setup <claude|codex|agy|opencode|grok|deepseek> [--cli ABS_PATH] [--binary ABS_PATH]
        koinon setup claude --remove-status-line [--claude-config DIR] [--state-dir DIR]
+       koinon setup agy --remove-status-line [--agy-config DIR] [--state-dir DIR]
        koinon guide --agent <claude|codex|agy|opencode|grok|deepseek>
        koinon hook agy-stop
        koinon hook codex-session-start
        koinon hook claude-status [--command COMMAND]
+       koinon hook agy-status [--command COMMAND]
        koinon memory <status|sync|ack|record|recall> --as FAMILY:ID [--consumer KEY] [options]
        koinon library list --as FAMILY:ID [--after ITEM_ID] [--limit N]
        koinon library read ITEM_ID --as FAMILY:ID
@@ -708,7 +710,7 @@ func agentCommand(ctx context.Context, args []string, in io.Reader, out io.Write
 			return nil
 		}
 		if len(args) != 2 || args[1] != "agy-stop" {
-			return errors.New("unknown hook; use koinon hook agy-stop, codex-session-start or claude-status")
+			return errors.New("unknown hook; use koinon hook agy-stop, agy-status, codex-session-start or claude-status")
 		}
 		return setup.AgyStop(in, out, setup.HookEnv{Getenv: os.Getenv, Now: time.Now})
 	case "guide":
@@ -728,7 +730,7 @@ func agentCommand(ctx context.Context, args []string, in io.Reader, out io.Write
 	flags.StringVar(&o.Opencode, "opencode-config", "", "OpenCode global configuration directory")
 	flags.StringVar(&o.ClaudeConfig, "claude-config", "", "Claude configuration directory")
 	flags.StringVar(&o.StateDir, "state-dir", "", "private Go state directory")
-	flags.BoolVar(&o.RemoveStatusLine, "remove-status-line", false, "restore the Claude status line that setup replaced")
+	flags.BoolVar(&o.RemoveStatusLine, "remove-status-line", false, "restore the Claude or agy status line that setup replaced")
 	if err := flags.Parse(args[2:]); err != nil || flags.NArg() != 0 {
 		return errors.New("invalid setup options; use koinon --help")
 	}
@@ -755,6 +757,9 @@ func main() {
 	// unchanged, never a Koinon error report.
 	if len(os.Args) >= 3 && os.Args[1] == "hook" && os.Args[2] == "claude-status" {
 		os.Exit(setup.ClaudeStatus(os.Args[3:], os.Stdin, os.Stdout, os.Stderr, setup.HookEnv{Getenv: os.Getenv, Now: time.Now}))
+	}
+	if len(os.Args) >= 3 && os.Args[1] == "hook" && os.Args[2] == "agy-status" {
+		os.Exit(setup.AgyStatus(os.Args[3:], os.Stdin, os.Stdout, os.Stderr, setup.HookEnv{Getenv: os.Getenv, Now: time.Now}))
 	}
 	ctx, cancel := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer cancel()

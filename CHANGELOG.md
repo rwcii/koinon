@@ -5,6 +5,12 @@ into a dated release section when promoted to `main`.
 
 ## Unreleased
 
+- agy sessions now report their model and context use (#512). `peer_status` and the dashboard
+  showed no context for agy. `koinon setup agy` now makes `koinon hook agy-status` the
+  `statusLine` entry of `~/.gemini/antigravity-cli/settings.json`: it wraps an existing entry's
+  command, or without one keeps agy's own status line with `stack_with_default`. `koinon setup
+  agy --remove-status-line` and `koinon uninstall` restore the previous entry. agy has no
+  handoff cycle yet; its context mode stays `observe`.
 - Codex's `native_compaction` mode now compacts (#509). It did nothing at the threshold: the
   Settings page showed a Codex threshold that had no effect. An enabled Codex session in that
   mode now gets Codex's own `/compact` in its tmux pane when its context reaches the threshold,

@@ -87,8 +87,31 @@ func TestObservationValidationAndAttribution(t *testing.T) {
 		t.Fatalf("opencode views: %+v", views)
 	}
 	agy := join(t, s, "agy", "synthetic-agy", "")
-	if views := s.sessionObservations(ctx, agy); views["context"].Reason != "no_source" || views["model"].Reason != "not_observed" {
+	if views := s.sessionObservations(ctx, agy); views["context"].Reason != "not_observed" || views["model"].Reason != "not_observed" {
 		t.Fatalf("agy views: %+v", views)
+	}
+	// agy's status line reports model and context, with the conversation as its epoch (#512).
+	if err := s.Observe(ctx, Observation{Caller: Key{"agy", "synthetic-agy"},
+		Model:   &ObservedValue{Source: "agy_statusline", At: now, ID: "gemini-synthetic"},
+		Context: &ObservedValue{Source: "agy_statusline", At: now, LimitTokens: int64p(1048576), UsedTokens: int64p(0), UsageAvailable: boolp(true), Epoch: "synthetic-agy"},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if views := s.sessionObservations(ctx, agy); views["context"].Value == nil || views["context"].Value.Source != "agy_statusline" ||
+		*views["context"].Value.LimitTokens != 1048576 || *views["context"].Value.UsedTokens != 0 || views["model"].Value.ID != "gemini-synthetic" {
+		t.Fatalf("agy status line views: %+v", views)
+	}
+	if e := s.contextEvidence(Key{"agy", "synthetic-agy"}); e.Epoch != "synthetic-agy" {
+		t.Fatalf("agy epoch: %+v", e)
+	}
+	// The new conversation after /clear is not registered before its first tool call: its
+	// reading is refused, not given to the old conversation.
+	if err := s.Observe(ctx, Observation{Caller: Key{"agy", "synthetic-agy-cleared"}, Context: &ObservedValue{Source: "agy_statusline", At: now,
+		LimitTokens: int64p(1048576), UsedTokens: int64p(0), Epoch: "synthetic-agy-cleared"}}); err == nil {
+		t.Fatal("unregistered conversation's reading accepted")
+	}
+	if e := s.contextEvidence(Key{"agy", "synthetic-agy"}); e.Epoch != "synthetic-agy" {
+		t.Fatalf("agy epoch after a refused reading: %+v", e)
 	}
 	// An inactive session shows nothing and takes no report; forgetting drops its values.
 	retired, err := s.Mutate(ctx, Mutation{Family: "codex", ID: "synthetic-codex", IfRevision: codex.Revision}, true)

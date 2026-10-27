@@ -2143,8 +2143,8 @@ activity. Message delivery and acknowledgement do not establish activity or inbo
 
 | Group | Sources |
 | --- | --- |
-| Model | `claude_statusline`; `codex_rollout` (the session's own rollout under `CODEX_HOME`) and `codex_mcp_meta` (`x-codex-turn-metadata.model` of a tool call); `agy_hook` (`modelName` of the Stop hook) |
-| Context | `claude_statusline` (`context_window_size`, `total_input_tokens`; epoch: the transcript `session_id`); `codex_rollout` (`model_context_window`, `last_token_usage.input_tokens`; epoch: the rollout's thread) |
+| Model | `claude_statusline`; `codex_rollout` (the session's own rollout under `CODEX_HOME`) and `codex_mcp_meta` (`x-codex-turn-metadata.model` of a tool call); `agy_hook` (`modelName` of the Stop hook) and `agy_statusline` (`model.id` of the status-line input) |
+| Context | `claude_statusline` (`context_window_size`, `total_input_tokens`; epoch: the transcript `session_id`); `codex_rollout` (`model_context_window`, `last_token_usage.input_tokens`; epoch: the rollout's thread); `agy_statusline` (`context_window.context_window_size`, `context_window.total_input_tokens`; epoch: the `conversation_id`) |
 | Activity | `claude_registry` (the parent Claude process's registry record for this session, `entrypoint: cli`; `shell`, the prompt with a background shell task running, is idle); `codex_rollout` (task started and completed); `agy_hook` (idle at Stop) and `mcp_call` (an agy tool call); `opencode_status` (`GET /session/status` on a launched OpenCode server, with its password, cached 5 seconds) |
 | Terminal | `tmux_env`: the MCP server's `TMUX` and `TMUX_PANE`, and the pane's session name |
 | Naming | `koinon_mcp`: the last terminal naming result and the published name it was computed for; no socket or pane required |
@@ -2208,6 +2208,21 @@ restores it while the entry is still Koinon's, and keeps an entry the user chang
 `statusLine` member changes; member order and the file mode are kept; a symbolic link, a file
 not owned by the user, a file over 1 MiB or invalid JSON is refused, and a file that changes
 while Koinon edits it is a `settings_conflict` that keeps the other change.
+
+`koinon hook agy-status [--command COMMAND]` is the agy `statusLine` command, with the same
+command handling; without a command it prints nothing. It reports for the input's
+`conversation_id`, never its `session_id`, and an input with an empty `conversation_id`, as
+before agy's first turn, gives no report. A report for a conversation that is not registered,
+such as the new one after `/clear` before its first Koinon tool call, is refused. Counts that are
+absent, null, not integers from 0 to 2^53-1, or a `context_window_size` that is not positive, are
+unknown; Koinon makes no reading of its own, so after `/compact` the context is the last reading
+until agy's next status-line input. `koinon setup agy` makes it the `statusLine` entry of the
+Antigravity CLI settings file (`antigravity-cli/settings.json` beside the `--agy-config` root,
+default `~/.gemini/antigravity-cli/settings.json`) with the same rules, saving the previous entry
+in `agy-statusline.json` in the Go state root. Without a previous entry it writes
+`"stack_with_default": true`, so agy keeps its own status line. `koinon setup agy
+--remove-status-line` and the agy removal restore it; the Claude and agy status lines are set up
+and removed independently. agy sessions observe context only: the family has no handoff cycle.
 
 `koinon setup FAMILY` also reports, in `permissions`, the family's recommended permission
 rules of docs/PERMISSIONS.md: `family`, `settings_file`, `outcome` and, by outcome, `missing`,
