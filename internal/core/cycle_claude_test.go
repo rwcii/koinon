@@ -36,9 +36,21 @@ func TestClaudeScreenFixtures(t *testing.T) {
 			t.Fatalf("%s: found %v input %q dialog %q agents %v turn %v", name, s.found, s.input, s.dialog, s.agents, s.turn)
 		}
 	}
+	// The spinner line: a glyph, a word with an ellipsis and its elapsed time. The wait for
+	// background agents, a finished turn's line and a transcript line with an ellipsis are not.
+	for line, want := range map[string]bool{"✢ Working… (26s · ↓ 427 tokens · thinking)": true, "· Working… (11s · ↓ 67 tokens)": true,
+		"✽ Contemplating… (7s · ↓ 2.4k tokens)": true, "✻ Waiting for 1 background agent to finish": false,
+		"✻ Cooked for 6m 33s · done 9:11 PM": false, "● Calling koinon…": false} {
+		if claudeSpinner.MatchString(line) != want {
+			t.Errorf("spinner %q: want %v", line, want)
+		}
+	}
 	// Claude Code 2.1.311 and 2.1.312 with a background subagent running (#533): the turn ended
 	// and its wait for the subagent shows, the screen after /clear there, and a turn in progress.
-	for name, turn := range map[string]bool{"background-wait": false, "background-after-clear": false, "background-turn": true} {
+	// background-turn-nohint is a turn in progress whose footer has no "esc to interrupt": its
+	// spinner line shows it (2.1.312).
+	for name, turn := range map[string]bool{"background-wait": false, "background-after-clear": false, "background-turn": true,
+		"background-turn-nohint": true} {
 		if s := read(name); !s.found || s.input != "" || s.dialog != "" || !s.agents || s.turn != turn {
 			t.Fatalf("%s: found %v input %q dialog %q agents %v turn %v", name, s.found, s.input, s.dialog, s.agents, s.turn)
 		}

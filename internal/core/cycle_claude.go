@@ -172,8 +172,11 @@ type claudeScreen struct {
 	// dialog is the code of a recognized dialog, "native_dialog" for another one, or "".
 	dialog string
 	// agents reports a running background subagent's row (◯) in the agent panel below the input
-	// line, and turn the "esc to interrupt" hint there, which only a turn in progress shows
-	// (Claude Code 2.1.311 and 2.1.312, #533).
+	// line. turn reports a turn in progress: the spinner line above the input box, a glyph, a
+	// word with an ellipsis and its elapsed time ("✢ Working… (26s · ↓ 427 tokens)"), or the
+	// "esc to interrupt" hint below it, which a turn does not always show (Claude Code 2.1.311
+	// and 2.1.312, #533). The line of a turn that waits only for background agents ("✻ Waiting
+	// for 1 background agent to finish") has no elapsed time.
 	agents, turn bool
 }
 
@@ -199,6 +202,16 @@ func parseClaudeScreen(out string) claudeScreen {
 			for _, below := range screen.lines[i+1:] {
 				screen.agents = screen.agents || strings.HasPrefix(strings.TrimSpace(below), "◯ ")
 				screen.turn = screen.turn || strings.Contains(below, "esc to interrupt")
+			}
+			// The spinner is among the last text lines above the box's upper rule; a tip line
+			// ("⎿  Tip: …") can follow it.
+			for j, seen := i-1, 0; j >= 0 && seen < 3; j-- {
+				above := strings.TrimSpace(screen.lines[j])
+				if above == "" || strings.Trim(above, "─") == "" {
+					continue
+				}
+				seen++
+				screen.turn = screen.turn || claudeSpinner.MatchString(above)
 			}
 			break
 		}
@@ -309,6 +322,10 @@ const subagentAfterReady = "subagent_after_ready"
 // subagentsUnread is the Seen code of a session whose subagent transcripts could not all be
 // read: the handoff may lack their work, so the pane is not ready for the clear.
 const subagentsUnread = "subagents_unread"
+
+// claudeSpinner is the line of a turn in progress: a glyph, a word with an ellipsis and its
+// elapsed time in parentheses.
+var claudeSpinner = regexp.MustCompile(`^\S \S+… \(\d+(\.\d+)?[smh]`)
 
 // claudeTranscriptID is the form of a Claude Code session ID, a UUID.
 var claudeTranscriptID = regexp.MustCompile(`^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$`)
