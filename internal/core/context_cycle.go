@@ -68,13 +68,16 @@ const (
 	terminalCycleRetention = 30 * 24 * time.Hour
 	cycleReadyWait         = 15 * time.Minute
 	cycleReceiptWait       = 2 * time.Minute
-	cyclePromptWait        = 10 * time.Minute
-	cycleCompactConfirm    = 10 * time.Minute
-	cycleLifetime          = 30 * time.Minute
-	maxArtifactName        = 128
-	maxArtifactBytes       = 1 << 20
-	maxPickupReport        = 1024
-	maxCycleRefusals       = 8
+	// cyclePickupWait is the successor's time for its pickup report in waiting_pickup: the
+	// maintainer's decision board item PICKUP-WAIT-525 (#525).
+	cyclePickupWait     = 5 * time.Minute
+	cyclePromptWait     = 10 * time.Minute
+	cycleCompactConfirm = 10 * time.Minute
+	cycleLifetime       = 30 * time.Minute
+	maxArtifactName     = 128
+	maxArtifactBytes    = 1 << 20
+	maxPickupReport     = 1024
+	maxCycleRefusals    = 8
 )
 
 // overwatchKey is the reserved system sender of managed-cycle requests. It is not the
@@ -991,6 +994,8 @@ func (s *Store) advanceCycle(ctx context.Context, id string, revision int64, fro
 		c.StageDeadline = c.CreatedAt + cycleReadyWait.Milliseconds()
 	case to == cycleCompactSent:
 		c.StageDeadline = now + cycleCompactConfirm.Milliseconds()
+	case to == cycleWaitingPickup:
+		c.StageDeadline = now + cyclePickupWait.Milliseconds()
 	default:
 		c.StageDeadline = now + cycleReceiptWait.Milliseconds()
 	}
