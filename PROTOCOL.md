@@ -2210,11 +2210,27 @@ activity. Message delivery and acknowledgement do not establish activity or inbo
 
 | Group | Sources |
 | --- | --- |
-| Model | `claude_statusline`; `codex_rollout` (the session's own rollout under `CODEX_HOME`) and `codex_mcp_meta` (`x-codex-turn-metadata.model` of a tool call); `agy_hook` (`modelName` of the Stop hook) and `agy_statusline` (`model.id` of the status-line input) |
-| Context | `claude_statusline` (`context_window_size`, `total_input_tokens`; epoch: the transcript `session_id`); `codex_rollout` (`model_context_window`, `last_token_usage.input_tokens`; epoch: the rollout's thread); `agy_statusline` (`context_window.context_window_size`, `context_window.total_input_tokens`; epoch: the `conversation_id`) |
+| Model | `claude_statusline`; `codex_rollout` (the session's own rollout under `CODEX_HOME`) and `codex_mcp_meta` (`x-codex-turn-metadata.model` of a tool call); `agy_hook` (`modelName` of the Stop hook) and `agy_statusline` (`model.id` of the status-line input); `opencode_server` (`providerID/modelID` of the newest finished assistant message, see below) |
+| Context | `claude_statusline` (`context_window_size`, `total_input_tokens`; epoch: the transcript `session_id`); `codex_rollout` (`model_context_window`, `last_token_usage.input_tokens`; epoch: the rollout's thread); `agy_statusline` (`context_window.context_window_size`, `context_window.total_input_tokens`; epoch: the `conversation_id`); `opencode_server` (a launched OpenCode session's newest finished assistant message and its model's `limit.context`; epoch: the OpenCode session ID; see below) |
 | Activity | `claude_registry` (the parent Claude process's registry record for this session, `entrypoint: cli`; `shell`, the prompt with a background shell task running, is idle); `codex_rollout` (task started and completed); `agy_hook` (idle at Stop), `agy_statusline` (`agent_state`: `idle`; `working` and `tool_use` are busy) and `mcp_call` (an agy tool call); `opencode_status` (`GET /session/status` on a launched OpenCode server, with its password, cached 5 seconds) |
 | Terminal | `tmux_env`: the MCP server's `TMUX` and `TMUX_PANE`, and the pane's session name |
 | Naming | `koinon_mcp`: the last terminal naming result and the published name it was computed for; no socket or pane required |
+
+`opencode_server` is read by the daemon, every 15 seconds, from each active OpenCode session
+that `koinon opencode` launched, on its own loopback server with the launch password: `GET
+/session/{id}/message?limit=4` and `GET /config/providers`, each with a one-second timeout, an
+exact 200, no redirect and at most 8 MiB. The reading is the assistant message with the newest
+`time.completed` and a non-empty `finish`: `used_tokens` is the sum of its `tokens.input`,
+`output`, `reasoning`, `cache.read` and `cache.write`, each a JSON integer from 0 to
+2^53-1, and `tokens.total`, when present, must equal that sum. `limit_tokens` is the context
+limit of the message's `providerID` and `modelID` in the provider list, and the source time is
+`time.completed`. Without a finished assistant message there is no reading. A newest finished
+message that cannot be read gives none either, never an older one, and a failed read confirms
+nothing. A changed reading is recorded at once, an unchanged one once a minute. Only these
+counts and IDs are decoded; the message parts that the server sends with them are not kept. The
+session's own `tokens` are a sum over its turns, so they are not used. A direct `opencode` start
+has no launch password, so it has no reading. OpenCode has no cycle adapter yet: a reading at
+the threshold admits no cycle (#513).
 
 One MCP server can serve several sessions, so its environment proves nothing about a session.
 The daemon accepts a terminal only for a session registered with a verified launch ID or a

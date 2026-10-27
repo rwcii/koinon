@@ -236,3 +236,37 @@ settings were restored to their original bytes after each run.
     long one). After Escape from that view the next key was received.
 
 Not yet verified: macOS; an MCP tool approval dialog.
+
+## OpenCode context source (#513)
+
+OpenCode 1.18.35 on Linux, 2026-10-27: a scratch `opencode serve --hostname 127.0.0.1 --port P
+--mdns=false` with `OPENCODE_SERVER_USERNAME=opencode` and `OPENCODE_SERVER_PASSWORD`, as
+`koinon opencode` starts it, in a scratch Git workspace, with two one-line prompts on
+`opencode/big-pickle`. The probe sessions were deleted afterwards. The redacted page and
+provider list are `internal/core/testdata/opencode`.
+
+- Messages. `GET /session/{id}/message?limit=N` returns the newest N messages, each `info` with
+  its `parts`; no parameter leaves the parts out. An assistant `info` has `role`, `providerID`,
+  `modelID`, `time.created`, `time.completed`, `finish` (`stop`) and `tokens` `{total, input,
+  output, reasoning, cache{read, write}}`. In the first reply, total 22314 = input 20520 +
+  output 2 + reasoning 0 + cache.read 1792 + cache.write 0. A `step-finish` part carries its own
+  token counts.
+- A turn that did not finish (the configured default model stalled, then the turn was
+  aborted) left an assistant message with `time.completed`, `finish` null, no `total` and all
+  counts 0.
+- Session counts. `GET /session/{id}` has `tokens` without `total`, summed over the turns: after
+  two turns, input 82 = 35 + 47 and cache.read 44544 = 2 × 22272. They are not the context.
+- Limits. `GET /config/providers` lists `providers[]` with `id` and `models`, a map from model ID
+  to a model with `id` and `limit` (`big-pickle`: context 200000, input 160000, output 32000). A
+  provider entry also has `key`, `options` and `env`.
+- The v2 `GET /api/session/{id}/message` and `/api/session/{id}/context` returned no data for
+  these sessions.
+
+- Reading, with the branch binary as the daemon (a scratch state directory and `HOME`) and
+  `koinon opencode --model opencode/big-pickle` running the TUI in a private tmux server. One
+  `koinon_peers` call registered the session. After the next round, `peer-status` showed
+  model `opencode/big-pickle` and context 17100 of 200000 (`opencode_server`, source time
+  the reply's completion), the same count as OpenCode's sidebar (`17,100 tokens`, `9% used`).
+  After one more turn both showed 17139. The test session was deleted afterwards.
+
+Not yet verified: macOS; a session after OpenCode's own compaction.

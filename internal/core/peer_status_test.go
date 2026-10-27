@@ -99,7 +99,7 @@ func TestPeerStatusUnknownInactiveAndRestart(t *testing.T) {
 		if err != nil || status.Activity.Known || status.Context.Known {
 			t.Fatalf("%s: %+v %v", family, status, err)
 		}
-		if status.Activity.Reason != unobserved("activity", family) || status.Context.Reason != unobserved("context", family) {
+		if status.Activity.Reason != unobserved("activity", target) || status.Context.Reason != unobserved("context", target) {
 			t.Fatalf("%s reasons: %+v", family, status)
 		}
 	}

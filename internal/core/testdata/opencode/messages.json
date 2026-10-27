@@ -1,0 +1,147 @@
+[
+ {
+  "info": {
+   "id": "msg_synthetic01",
+   "sessionID": "ses_synthetic",
+   "role": "user",
+   "time": {
+    "created": 1793073204875
+   },
+   "agent": "build",
+   "model": {
+    "providerID": "opencode",
+    "modelID": "big-pickle"
+   }
+  },
+  "parts": [
+   {
+    "id": "prt_synthetic01",
+    "type": "text",
+    "text": "SYNTHETIC-PART-SENTINEL user prompt"
+   }
+  ]
+ },
+ {
+  "info": {
+   "id": "msg_synthetic02",
+   "sessionID": "ses_synthetic",
+   "role": "assistant",
+   "time": {
+    "created": 1793073204905,
+    "completed": 1793073206710
+   },
+   "parentID": "msg_synthetic01",
+   "modelID": "big-pickle",
+   "providerID": "opencode",
+   "mode": "build",
+   "agent": "build",
+   "path": {
+    "cwd": "/synthetic/work",
+    "root": "/synthetic/work"
+   },
+   "cost": 0,
+   "tokens": {
+    "total": 22314,
+    "input": 20520,
+    "output": 2,
+    "reasoning": 0,
+    "cache": {
+     "write": 0,
+     "read": 1792
+    }
+   },
+   "finish": "stop"
+  },
+  "parts": [
+   {
+    "id": "prt_synthetic02",
+    "messageID": "msg_synthetic02",
+    "sessionID": "ses_synthetic",
+    "snapshot": "0000000000000000000000000000000000000000",
+    "type": "step-start"
+   },
+   {
+    "id": "prt_synthetic03",
+    "messageID": "msg_synthetic02",
+    "sessionID": "ses_synthetic",
+    "text": "SYNTHETIC-PART-SENTINEL OK",
+    "time": {
+     "start": 1793073206700,
+     "end": 1793073206700
+    },
+    "type": "text"
+   },
+   {
+    "cost": 0,
+    "id": "prt_synthetic04",
+    "messageID": "msg_synthetic02",
+    "reason": "stop",
+    "sessionID": "ses_synthetic",
+    "snapshot": "0000000000000000000000000000000000000000",
+    "tokens": {
+     "total": 777777,
+     "input": 777000,
+     "output": 777,
+     "reasoning": 0,
+     "cache": {
+      "write": 0,
+      "read": 0
+     }
+    },
+    "type": "step-finish"
+   }
+  ]
+ },
+ {
+  "info": {
+   "id": "msg_synthetic03",
+   "sessionID": "ses_synthetic",
+   "role": "user",
+   "time": {
+    "created": 1793073210000
+   },
+   "agent": "build",
+   "model": {
+    "providerID": "opencode",
+    "modelID": "big-pickle"
+   }
+  },
+  "parts": [
+   {
+    "id": "prt_synthetic05",
+    "type": "text",
+    "text": "SYNTHETIC-PART-SENTINEL next prompt"
+   }
+  ]
+ },
+ {
+  "info": {
+   "id": "msg_synthetic04",
+   "sessionID": "ses_synthetic",
+   "role": "assistant",
+   "time": {
+    "created": 1793073210050
+   },
+   "parentID": "msg_synthetic03",
+   "modelID": "big-pickle",
+   "providerID": "opencode",
+   "mode": "build",
+   "agent": "build",
+   "path": {
+    "cwd": "/synthetic/work",
+    "root": "/synthetic/work"
+   },
+   "cost": 0,
+   "tokens": {
+    "input": 0,
+    "output": 0,
+    "reasoning": 0,
+    "cache": {
+     "read": 0,
+     "write": 0
+    }
+   }
+  },
+  "parts": []
+ }
+]

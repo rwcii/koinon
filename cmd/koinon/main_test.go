@@ -157,7 +157,7 @@ func TestMessageCommands(t *testing.T) {
 		t.Fatal(err)
 	}
 	peer := peerStatus["peer"].(map[string]any)
-	if peer["name"] != recipient || peer["state"] != "active" || peer["context"].(map[string]any)["reason"] != "no_source" || peer["activity"].(map[string]any)["known"] != false {
+	if peer["name"] != recipient || peer["state"] != "active" || peer["context"].(map[string]any)["reason"] != "not_observed" || peer["activity"].(map[string]any)["known"] != false {
 		t.Fatalf("peer-status: %v", peerStatus)
 	}
 	if _, err := command("", "send", "--as", "codex:synthetic-a", recipient, "first synthetic"); err != nil {
