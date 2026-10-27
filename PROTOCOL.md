@@ -2310,8 +2310,8 @@ activity. Message delivery and acknowledgement do not establish activity or inbo
 
 | Group | Sources |
 | --- | --- |
-| Model | `claude_statusline`; `codex_rollout` (the session's own rollout under `CODEX_HOME`) and `codex_mcp_meta` (`x-codex-turn-metadata.model` of a tool call); `agy_hook` (`modelName` of the Stop hook) and `agy_statusline` (`model.id` of the status-line input); `opencode_server` (`providerID/modelID` of the newest finished assistant message, see below) |
-| Context | `claude_statusline` (`context_window_size`, `total_input_tokens`; epoch: the transcript `session_id`); `codex_rollout` (`model_context_window`, `last_token_usage.input_tokens`; epoch: the rollout's thread); `agy_statusline` (`context_window.context_window_size`, `context_window.total_input_tokens`; epoch: the `conversation_id`); `opencode_server` (a launched OpenCode session's newest finished assistant message and its model's `limit.context`; epoch: the OpenCode session ID; see below) |
+| Model | `claude_statusline`; `codex_rollout` (the session's own rollout under `CODEX_HOME`) and `codex_mcp_meta` (`x-codex-turn-metadata.model` of a tool call); `agy_hook` (`modelName` of the Stop hook) and `agy_statusline` (`model.id` of the status-line input); `opencode_server` (`providerID/modelID` of the newest finished assistant message, see below); `dsh_projections` (`modelSelection.lastUsed` `provider/model` of a DeepSeek session's harness, see below) |
+| Context | `claude_statusline` (`context_window_size`, `total_input_tokens`; epoch: the transcript `session_id`); `codex_rollout` (`model_context_window`, `last_token_usage.input_tokens`; epoch: the rollout's thread); `agy_statusline` (`context_window.context_window_size`, `context_window.total_input_tokens`; epoch: the `conversation_id`); `opencode_server` (a launched OpenCode session's newest finished assistant message and its model's `limit.context`; epoch: the OpenCode session ID; see below); `dsh_projections` (a DeepSeek session's `contextPressure` and the usage event that it came from; epoch: the harness session ID; see below) |
 | Activity | `claude_registry` (the parent Claude process's registry record for this session, `entrypoint: cli`; `shell`, the prompt with a background shell task running, is idle); `codex_rollout` (task started and completed); `agy_hook` (idle at Stop), `agy_statusline` (`agent_state`: `idle`; `working` and `tool_use` are busy) and `mcp_call` (an agy tool call); `opencode_status` (`GET /session/status` on a launched OpenCode server, with its password, cached 5 seconds) |
 | Terminal | `tmux_env`: the MCP server's `TMUX` and `TMUX_PANE`, and the pane's session name |
 | Naming | `koinon_mcp`: the last terminal naming result and the published name it was computed for; no socket or pane required |
@@ -2331,6 +2331,31 @@ counts and IDs are decoded; the message parts that the server sends with them ar
 session's own `tokens` are a sum over its turns, so they are not used. A direct `opencode` start
 has no launch password, so it has no reading, and no cycle: the cycle adapter acts through the
 same server (see "OpenCode cycle adapter").
+
+`dsh_projections` is read by the daemon, every 15 seconds, from each active DeepSeek session
+registered with its harness origin and credential file, through the wake's pinned loopback
+origin and signed cookie: `POST /api/session/projections` and `POST /api/session/page`, which
+start no agent. Each request has a one-second timeout, an exact 200 with an `ok` result that
+echoes its `rpcId`, no redirect and at most 8 MiB; one reading reads at most 16 MiB and four
+pages in five seconds. The projections give `asOfSeq`, `contextPressure.pressureTokens` (the
+newest usage's `inputTokens` plus `cacheReadTokens` and `cacheWriteTokens`), `contextWindow` and
+`modelSelection.lastUsed`. The pages, read back from `asOfSeq`, must be contiguous; each page is
+checked whole, before any of its events counts, and is then scanned to the newest
+`assistant/message` or `assistant/attempt` with a usage sample (the message's `usage`, or else
+its stream's last `usage` chunk). That sample's prompt-side count
+must equal `pressureTokens`, and no `request/context` or `model/selection` event may follow it,
+because the harness keeps the pressure and the window as independent values. Then
+`used_tokens` is `pressureTokens`, `limit_tokens` is `contextWindow`, and the source time is the
+usage event's `time`, which an unrelated event, such as a title or a prompt, does not change.
+`inputTokens` is required; an absent cache count is 0, and every count is a JSON integer from 0
+to 2^53-1. Before the first usage there is no reading; any other mismatch or invalid field gives
+none either, never an older one, and a failed read confirms nothing. A changed reading is
+recorded at once, an unchanged one once a minute; a new usage event is a new reading even with
+the same counts and time. Only event types, seqs, times, usage counts and the model and context
+fields are decoded; message text and other projections are not kept.
+`projectedTokens` is the harness's estimate for its next request, so it is not used. A DeepSeek
+session registered without a harness target has `no_source`. DeepSeek has no cycle adapter yet
+(#514). The native source was read with DeepSeek Harness 0.2.0-rc.2.
 
 One MCP server can serve several sessions, so its environment proves nothing about a session.
 The daemon accepts a terminal only for a session registered with a verified launch ID or a

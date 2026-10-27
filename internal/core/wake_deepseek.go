@@ -70,6 +70,25 @@ func deepSeekCookie(secret []byte, authority string, now time.Time) *http.Cookie
 	audience := sha256.Sum256([]byte(authority))
 	return &http.Cookie{Name: "dsh-auth-" + base64.RawURLEncoding.EncodeToString(audience[:]), Value: "v1." + body + "." + base64.RawURLEncoding.EncodeToString(signature.Sum(nil))}
 }
+
+// deepSeekHTTP is a client for the pinned addresses that deepSeekDestination resolved. Resolve
+// only in preflight: the client can connect exclusively to those loopback addresses, and
+// neither proxies nor redirects can carry the cookie away.
+func deepSeekHTTP(pinned []string) (*http.Client, func()) {
+	transport := &http.Transport{Proxy: nil, DialContext: func(ctx context.Context, network, address string) (net.Conn, error) {
+		var last error
+		for _, address := range pinned {
+			conn, e := (&net.Dialer{}).DialContext(ctx, "tcp", address)
+			if e == nil {
+				return conn, nil
+			}
+			last = e
+		}
+		return nil, last
+	}}
+	return &http.Client{Transport: transport, CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}, transport.CloseIdleConnections
+}
+
 func (s *Store) wakeDeepSeek(ctx context.Context, session Session, target wakeTarget, notice string) wakeResult {
 	destination, pinned, err := deepSeekDestination(ctx, target.DSHURL)
 	if err != nil {
@@ -94,21 +113,8 @@ func (s *Store) wakeDeepSeek(ctx context.Context, session Session, target wakeTa
 	}
 	request.Header.Set("Content-Type", "application/json")
 	request.AddCookie(deepSeekCookie(secret, destination.Host, time.Now()))
-	// Resolve only in preflight. The HTTP client can connect exclusively to those
-	// loopback addresses; neither proxies nor redirects can carry the cookie away.
-	transport := &http.Transport{Proxy: nil, DialContext: func(ctx context.Context, network, address string) (net.Conn, error) {
-		var last error
-		for _, address := range pinned {
-			conn, e := (&net.Dialer{}).DialContext(ctx, "tcp", address)
-			if e == nil {
-				return conn, nil
-			}
-			last = e
-		}
-		return nil, last
-	}}
-	defer transport.CloseIdleConnections()
-	client := &http.Client{Transport: transport, CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}
+	client, close := deepSeekHTTP(pinned)
+	defer close()
 	response, err := client.Do(request)
 	if err != nil {
 		return submissionError(err, "harness_submission_unconfirmed")

@@ -5,6 +5,12 @@ into a dated release section when promoted to `main`.
 
 ## Unreleased
 
+- DeepSeek sessions now report their model and context use (#514). `peer_status` and the
+  dashboard showed no context for DeepSeek (`no_source`). For each session registered with its
+  harness URL and credential file, the daemon now reads the harness's token meter and model
+  selection every 15 seconds, and the time of the reply that the usage came from; it keeps only
+  those numbers and IDs, never the message text. DeepSeek has no handoff cycle yet; its family
+  default stays `observe`.
 - OpenCode sessions can run the managed context handoff cycle on Linux (#513). An OpenCode
   session had no cycle: its Enable was refused. A session started with `koinon opencode` in
   tmux, with the family mode `handoff_cycle` and its participant address, now gets the cycle

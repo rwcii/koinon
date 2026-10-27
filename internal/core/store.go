@@ -151,6 +151,8 @@ type Store struct {
 	openCodeContext openCodeContextState
 	// cycleWork runs the asynchronous cycle pickups (#513).
 	cycleWork cycleWorkers
+	// deepSeekContext holds the last DeepSeek context reading recorded per session (#514).
+	deepSeekContext openCodeContextState
 	// retention holds the last retention sweep's results (#216).
 	retention retentionState
 	// calls holds each session's last tool call; processStart reads a host process's start

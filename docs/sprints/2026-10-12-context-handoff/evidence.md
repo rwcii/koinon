@@ -345,3 +345,40 @@ on the person's configured model `openrouter/qwen/qwen3.6-35b-a3b`. The redacted
     third.
 
 Not yet verified: macOS; a permission dialog during the pickup; a pane narrower than 80 columns.
+
+## DeepSeek context source (#514)
+
+Read 2026-10-27 from DeepSeek Harness `@deepseek-ai/dsh` 0.2.0-rc.2, in the development
+container that #199 used (the harness does not run on the host). The package files were read
+in the image; the recorded session's log and projection cache were read for event types, seqs,
+times and token and model fields only.
+
+- Reads. `session/projections` reads all projections of a session without starting an agent
+  (`dsh-api-session-controller`). `session/page` returns a contiguous, ascending run of events
+  that ends before `min(throughSeq + 1, beforeSeq)`, each `{type, seq, time, data}`.
+  `session/list` rows have `updatedAt` = max(`createdAt`, the newest user prompt's time), so it
+  is not the time of a reply.
+- Pressure. The token meter (`dsh-token-meter`, in the base composition) keeps
+  `contextPressure`: `pressureTokens` = the newest usage's `inputTokens + cacheReadTokens +
+  cacheWriteTokens`, and `contextWindow` from the newest `request/context`. Its source says
+  the two are independent last-wins values, not one request's observation. `projectedTokens`
+  adds the change in its own surface estimate since that usage.
+- Model. `modelSelection.lastUsed` is the `{provider, model}` that the latest request used.
+  `request/context` is written only when the model or window changes (once in the recorded
+  session, at seq 11).
+- Recorded session (only its model, context and newest usage events are named here):
+  `request/context` seq 11 `openrouter`, `deepseek/deepseek-v4-flash`, `contextWindow`
+  1024000 (the OpenRouter catalog's value; the harness default is 1e6); the newest usage at
+  `assistant/message` seq 58, time 1791916491862, `inputTokens` 728 and `cacheReadTokens` 8960;
+  `turn/end` at seq 60. The projection at `asOfSeq` 60: `pressureTokens` 9688,
+  `projectedTokens` 9808, `contextWindow` 1024000.
+- Reading, with the branch binary (`24a96be`, linux/amd64) as a container-local daemon with a
+  new state directory, and `dsh web` restarted on the existing home volume. The recorded
+  session was registered with `koinon register` and its harness origin and credential file; no
+  model request was made. The harness's own `session/projections` answered the values above.
+  After the next round, `peer-status` showed model `openrouter/deepseek/deepseek-v4-flash` and
+  context 9688 of 1024000 (`dsh_projections`), with source time 1791916491862, the usage
+  event's time. The daemon and the harness were stopped and the container was stopped.
+
+Not yet verified: macOS; a reading that changes during a live turn; a session after the
+harness's own compaction.

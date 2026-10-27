@@ -425,6 +425,8 @@ DeepSeek uses the command path until its MCP support is verified, with this sess
   koinon cycle-pickup --as deepseek:$DSH_SESSION_ID CYCLE_ID REVISION HANDOFF_FILE resumed|paused 'report'
 Register uses DSH_WEB_URL and DSH_HOME for the wake target; repeat it while using the session
 to renew its 15-minute lease, and add --repository PATH when selecting a repository.
+The daemon reads this session's model and context from the harness with the same credential, so
+peer-status and the dashboard show them; DeepSeek has no handoff cycle yet.
 ### Recommended permissions
 Approve the commands above and koinon guide --agent deepseek in this session's command
 approval flow. The live wake was proven with DeepSeek Harness 0.2.0-rc.2 (#199).

@@ -18,8 +18,8 @@ import (
 // Observation sources. A source names where the reporter read the value; the daemon accepts
 // each group only from its own sources.
 var observationSources = map[string][]string{
-	"model":    {"claude_statusline", "codex_rollout", "codex_mcp_meta", "agy_hook", "agy_statusline", "opencode_server"},
-	"context":  {"claude_statusline", "codex_rollout", "agy_statusline", "opencode_server"},
+	"model":    {"claude_statusline", "codex_rollout", "codex_mcp_meta", "agy_hook", "agy_statusline", "opencode_server", "dsh_projections"},
+	"context":  {"claude_statusline", "codex_rollout", "agy_statusline", "opencode_server", "dsh_projections"},
 	"activity": {"claude_registry", "codex_rollout", "agy_hook", "agy_statusline", "mcp_call"},
 	"terminal": {"tmux_env"},
 	"naming":   {"koinon_mcp"},
@@ -181,7 +181,7 @@ func (v *ObservedValue) valid(group string, now int64) bool {
 	if !allowed(group, v.Source) || v.At <= 0 || v.At > now+60_000 {
 		return false
 	}
-	if v.Epoch != "" && (group != "context" || v.Source != "claude_statusline" && v.Source != "codex_rollout" && v.Source != "agy_statusline" && v.Source != "opencode_server" || !nativeEpoch.MatchString(v.Epoch)) {
+	if v.Epoch != "" && (group != "context" || v.Source != "claude_statusline" && v.Source != "codex_rollout" && v.Source != "agy_statusline" && v.Source != "opencode_server" && v.Source != "dsh_projections" || !nativeEpoch.MatchString(v.Epoch)) {
 		return false
 	}
 	if v.TurnError != "" && (group != "activity" || v.Source != "codex_rollout" || v.State != "idle" || !turnErrors[v.TurnError]) {
@@ -424,20 +424,29 @@ func (s *Store) namingOf(session Session) *PeerNaming {
 
 // unobserved names why a group has no value: no source exists for the session's family, or
 // none has reported yet. OpenCode's model and context come only from a launched session's own
-// server (#513).
+// server (#513), and DeepSeek's only from a registered session's harness (#514).
 func unobserved(group string, session Session) string {
 	family := session.Family
 	sources := map[string]map[string]bool{
-		"model":    {"claude": true, "codex": true, "agy": true, "opencode": true},
-		"context":  {"claude": true, "codex": true, "agy": true, "opencode": true},
+		"model":    {"claude": true, "codex": true, "agy": true, "opencode": true, "deepseek": true},
+		"context":  {"claude": true, "codex": true, "agy": true, "opencode": true, "deepseek": true},
 		"activity": {"claude": true, "codex": true, "agy": true, "opencode": true},
 		"terminal": {"claude": true, "codex": true, "agy": true, "opencode": true, "grok": true},
 		"naming":   {"claude": true, "codex": true, "agy": true, "opencode": true, "grok": true},
 	}
-	if !sources[group][family] || family == "opencode" && (group == "model" || group == "context") && !terminalVerified(session) {
+	reading := group == "model" || group == "context"
+	if !sources[group][family] || family == "opencode" && reading && !terminalVerified(session) ||
+		family == "deepseek" && reading && !harnessTarget(session) {
 		return "no_source"
 	}
 	return "not_observed"
+}
+
+// harnessTarget reports whether a DeepSeek session registered its harness origin and
+// credential file, which its context reads use.
+func harnessTarget(s Session) bool {
+	var target wakeTarget
+	return json.Unmarshal(s.WakeTarget, &target) == nil && target.DSHURL != "" && target.DSHCredentials != ""
 }
 
 func (d *Daemon) observationRoutes(mux *http.ServeMux) {

@@ -177,6 +177,7 @@ func openCodeContext(ctx context.Context, target LaunchTarget, id string) (model
 // openCodeSent is the last reading that the poller recorded for one session.
 type openCodeSent struct {
 	model, usage ObservedValue
+	mark         int64 // the source's own position of the reading, such as a usage event's seq, or 0
 	at           time.Time
 }
 
@@ -217,13 +218,7 @@ func (s *Store) openCodeContextRound(ctx context.Context) {
 	for _, session := range sessions {
 		live[Key{"opencode", session.id}] = true
 	}
-	s.openCodeContext.mu.Lock()
-	for k := range s.openCodeContext.sent {
-		if !live[k] {
-			delete(s.openCodeContext.sent, k)
-		}
-	}
-	s.openCodeContext.mu.Unlock()
+	s.openCodeContext.forget(live)
 	slots := make(chan struct{}, openCodeContextWorkers)
 	var wg sync.WaitGroup
 	for _, session := range sessions {
@@ -246,22 +241,40 @@ func (s *Store) readOpenCodeContext(ctx context.Context, k Key, launch string) {
 	if err != nil || usage == nil {
 		return
 	}
+	s.recordReading(ctx, &s.openCodeContext, k, model, usage, 0, openCodeContextConfirm)
+}
+
+// recordReading records a polled reading when it changed, and an unchanged one again once
+// confirm passed (#513, #514). An unchanged reading keeps its source time. mark is the
+// reading's position in its source: a new mark is a new reading even with the same values.
+func (s *Store) recordReading(ctx context.Context, state *openCodeContextState, k Key, model, usage *ObservedValue, mark int64, confirm time.Duration) {
 	now := s.now()
-	s.openCodeContext.mu.Lock()
-	last, found := s.openCodeContext.sent[k]
-	s.openCodeContext.mu.Unlock()
-	if found && *model == last.model && sameReading(*usage, last.usage) && now.Sub(last.at) < openCodeContextConfirm && !now.Before(last.at) {
+	state.mu.Lock()
+	last, found := state.sent[k]
+	state.mu.Unlock()
+	if found && *model == last.model && sameReading(*usage, last.usage) && mark == last.mark && now.Sub(last.at) < confirm && !now.Before(last.at) {
 		return
 	}
 	if s.Observe(ctx, Observation{Caller: k, Model: model, Context: usage}) != nil {
 		return
 	}
-	s.openCodeContext.mu.Lock()
-	if s.openCodeContext.sent == nil {
-		s.openCodeContext.sent = map[Key]openCodeSent{}
+	state.mu.Lock()
+	if state.sent == nil {
+		state.sent = map[Key]openCodeSent{}
 	}
-	s.openCodeContext.sent[k] = openCodeSent{*model, *usage, now}
-	s.openCodeContext.mu.Unlock()
+	state.sent[k] = openCodeSent{*model, *usage, mark, now}
+	state.mu.Unlock()
+}
+
+// forget drops the readings of sessions that are not live.
+func (state *openCodeContextState) forget(live map[Key]bool) {
+	state.mu.Lock()
+	defer state.mu.Unlock()
+	for k := range state.sent {
+		if !live[k] {
+			delete(state.sent, k)
+		}
+	}
 }
 
 // sameReading compares two context readings, their source times and epochs included.
