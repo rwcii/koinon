@@ -466,5 +466,10 @@ here; the agents' text is not.
     daemon. The session counts and every session's prompt counts stayed the same, and no
     session was created for the disabled or cancelled cycles.
   - The family mode was set back to `observe`, and the container was stopped.
+- Effect-time quiet reads (#526 re-review). With the branch at 9491dd6, where the create and
+  the pickup read the quiet point again before they send, one unattended cycle completed
+  `resumed` with `cycle_session`. Its stages were the same as in cycle 1, and the created
+  session had one user prompt, the pickup, admitted once. The report came 81 s after the
+  pickup.
 
 Not yet verified: macOS; a pickup within the 2-minute deadline when the model is slower.
