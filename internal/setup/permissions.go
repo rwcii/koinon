@@ -71,12 +71,7 @@ func Permissions(o Options, add bool) (PermissionsResult, error) {
 			return []string{"Bash(koinon *)", "Bash(koinon:*)"}
 		}, add)
 	case "agy":
-		path := o.AgySettings
-		if path == "" {
-			home, _ := os.UserHomeDir()
-			path = filepath.Join(home, ".gemini", "antigravity-cli", "settings.json")
-		}
-		err = allowList(&result, statusLine{settings: path, label: "Antigravity settings"}, AgyPermissions, func(rule string) []string {
+		err = allowList(&result, statusLine{settings: agySettingsFile(o), label: "Antigravity settings"}, AgyPermissions, func(rule string) []string {
 			if strings.HasPrefix(rule, "command(") {
 				return []string{"command(koinon)"}
 			}

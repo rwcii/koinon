@@ -333,7 +333,8 @@ paths/connections and optional terminal operations.
 	"agy": `
 ## Antigravity
 Koinon knows this conversation by its conversation ID. Waiting messages are offered at your
-turn boundary. Run koinon setup agy once to add the server and the stop hook.
+turn boundary. Run koinon setup agy once to add the server, the stop hook and the status line
+that reports this conversation's model and context use.
 Start through koinon agy for participant features. A direct agy start registers as a plain
 peer using its native conversation identity.
 ### Recommended permissions

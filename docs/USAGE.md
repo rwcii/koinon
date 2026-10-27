@@ -452,6 +452,10 @@ session; the page names the reason (for example a session that is not in its lau
 or a missing `koinon-pickup` skill, with the `koinon install` step that installs it). Disabling always works. A stored mode or threshold that is not valid
 keeps the family default, and the Settings page names the error.
 
+agy sessions report their context through the status line that `koinon setup agy` installs, so
+the Sessions page shows their readings; agy has no handoff cycle yet, so its mode stays
+`observe`.
+
 Claude Code sessions launched with `koinon claude` on Linux and macOS can run the cycle, and
 Codex sessions launched with `koinon codex` in tmux on Linux and macOS can run it too (family
 mode `handoff_cycle`) while they hold their participant address. After the clear the cycle

@@ -1,6 +1,7 @@
 package setup
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -172,18 +173,71 @@ func claudeStatus(data []byte, now int64) (core.Observation, string, bool) {
 	return o, display, o.Model != nil || o.Context != nil
 }
 
+// count reads one token count: a JSON integer from 0 to 2^53-1, else unknown.
+func count(raw json.RawMessage) *int64 {
+	var n int64
+	if string(bytes.TrimSpace(raw)) == "null" || json.Unmarshal(raw, &n) != nil || n < 0 || n > 1<<53-1 {
+		return nil
+	}
+	return &n
+}
+
+// agyStatus reads the model and context use of one agy status-line input (#512). The caller
+// is the conversation, which /clear replaces; an input without one gives no report. Counts
+// that are absent, null or invalid, or a limit that is not positive, are unknown.
+func agyStatus(data []byte, now int64) (core.Observation, string, bool) {
+	var input struct {
+		ConversationID string          `json:"conversation_id"`
+		Model          json.RawMessage `json:"model"`
+		Window         *struct {
+			Size         json.RawMessage `json:"context_window_size"`
+			Input        json.RawMessage `json:"total_input_tokens"`
+			CurrentUsage json.RawMessage `json:"current_usage"`
+		} `json:"context_window"`
+	}
+	if len(data) > hookInputMax || json.Unmarshal(data, &input) != nil || input.ConversationID == "" {
+		return core.Observation{}, "", false
+	}
+	o := core.Observation{Caller: core.Key{Family: "agy", ID: input.ConversationID}}
+	var model struct {
+		ID string `json:"id"`
+	}
+	if json.Unmarshal(input.Model, &model) == nil && model.ID != "" {
+		o.Model = &core.ObservedValue{Source: "agy_statusline", At: now, ID: model.ID}
+	}
+	if w := input.Window; w != nil {
+		available := len(w.CurrentUsage) > 0 && string(w.CurrentUsage) != "null"
+		o.Context = &core.ObservedValue{Source: "agy_statusline", At: now, UsageAvailable: &available, Epoch: input.ConversationID}
+		if size, used := count(w.Size), count(w.Input); size != nil && *size > 0 && used != nil {
+			o.Context.LimitTokens, o.Context.UsedTokens = size, used
+		}
+	}
+	return o, "", o.Model != nil || o.Context != nil
+}
+
 // ClaudeStatus is the Claude Code status-line command. It runs the user's own command, if
 // any, through /bin/sh with the same input and returns its output and exit status
 // unchanged, and meanwhile reports the session's model and context use. Without a command
 // it prints the model's display name.
 func ClaudeStatus(args []string, in io.Reader, out, errOut io.Writer, env HookEnv) int {
+	return statusCommand("claude-status", claudeStatus, args, in, out, errOut, env)
+}
+
+// AgyStatus is the agy status-line command, as ClaudeStatus is for Claude Code. Without a
+// command it prints nothing, so agy's stacked default status line stands alone.
+func AgyStatus(args []string, in io.Reader, out, errOut io.Writer, env HookEnv) int {
+	return statusCommand("agy-status", agyStatus, args, in, out, errOut, env)
+}
+
+func statusCommand(hook string, parse func([]byte, int64) (core.Observation, string, bool),
+	args []string, in io.Reader, out, errOut io.Writer, env HookEnv) int {
 	command, hasCommand := "", false
 	switch {
 	case len(args) == 0:
 	case len(args) == 2 && args[0] == "--command":
 		command, hasCommand = args[1], true
 	default:
-		io.WriteString(errOut, "usage: koinon hook claude-status [--command COMMAND]\n")
+		io.WriteString(errOut, "usage: koinon hook "+hook+" [--command COMMAND]\n")
 		return 2
 	}
 	data, err := io.ReadAll(io.LimitReader(in, 16<<20))
@@ -194,7 +248,8 @@ func ClaudeStatus(args []string, in io.Reader, out, errOut io.Writer, env HookEn
 	var signals chan os.Signal
 	if hasCommand {
 		// Claude Code runs a status-line command as `/bin/sh -c <command>`; do the same, so
-		// expansions, pipes and quoting keep their meaning.
+		// expansions, pipes and quoting keep their meaning. agy's entry has the same type and
+		// command members.
 		child = exec.Command("/bin/sh", "-c", command)
 		child.Stdout, child.Stderr = out, errOut
 		stdin, err := child.StdinPipe()
@@ -217,7 +272,7 @@ func ClaudeStatus(args []string, in io.Reader, out, errOut io.Writer, env HookEn
 			}()
 		}
 	}
-	o, display, ok := claudeStatus(data, env.Now().UnixMilli())
+	o, display, ok := parse(data, env.Now().UnixMilli())
 	if ok {
 		env.report(o)
 	}

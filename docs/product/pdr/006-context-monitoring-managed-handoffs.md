@@ -32,8 +32,8 @@ tags:
 
 ## Executive Summary
 
-Koinon currently observes context use for some families (the Claude status line and Codex
-rollouts) and shows it in `peer_status` and the dashboard. It does nothing when a session
+Koinon currently observes context use for some families (the Claude status line, Codex
+rollouts and the agy status line, #512) and shows it in `peer_status` and the dashboard. It does nothing when a session
 nears its limit. Issue #196 asks for a managed cycle: the daemon watches context against a
 threshold, asks the session over Koinon to write its handoff, and after the ready reply enters
 the family's reset and pickup commands in the agent's own tmux pane.
