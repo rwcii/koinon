@@ -32,8 +32,15 @@ func TestClaudeScreenFixtures(t *testing.T) {
 	}
 	for name, want := range map[string]string{"start-placeholder": "", "draft": "Reply with the single word ok.", "after-turn2": "",
 		"clear-menu": "/clear", "clear-typed": "/clear", "after-erase": "", "after-add-dir": "", "pickup-menu-loader": "/pickup"} {
-		if s := read(name); !s.found || s.input != want || s.dialog != "" {
-			t.Fatalf("%s: found %v input %q dialog %q", name, s.found, s.input, s.dialog)
+		if s := read(name); !s.found || s.input != want || s.dialog != "" || s.agents || s.turn {
+			t.Fatalf("%s: found %v input %q dialog %q agents %v turn %v", name, s.found, s.input, s.dialog, s.agents, s.turn)
+		}
+	}
+	// Claude Code 2.1.311 and 2.1.312 with a background subagent running (#533): the turn ended
+	// and its wait for the subagent shows, the screen after /clear there, and a turn in progress.
+	for name, turn := range map[string]bool{"background-wait": false, "background-after-clear": false, "background-turn": true} {
+		if s := read(name); !s.found || s.input != "" || s.dialog != "" || !s.agents || s.turn != turn {
+			t.Fatalf("%s: found %v input %q dialog %q agents %v turn %v", name, s.found, s.input, s.dialog, s.agents, s.turn)
 		}
 	}
 	// The add-directory dialog is a native dialog like any other: the adapter answers none.
@@ -89,6 +96,7 @@ type claudeTerminal struct {
 	pid     int64
 	start   int64
 	args    []string
+	footer  []string // lines below the input box, such as the agent panel
 }
 
 func newClaudeTerminal(t *testing.T) *claudeTerminal {
@@ -165,6 +173,9 @@ func (c *claudeTerminal) screen() string {
 		b.WriteString(c.input)
 	}
 	b.WriteString("\n────────\n")
+	for _, line := range c.footer {
+		b.WriteString(line + "\n")
+	}
 	return b.String()
 }
 
@@ -531,6 +542,11 @@ func TestClaudePaneStateAcceptsBackgroundShell(t *testing.T) {
 		{"idle", empty, PaneState{Idle: true}},
 		{"shell", empty, PaneState{Idle: true}},
 		{"busy", empty, PaneState{Seen: "status_busy"}},
+		// A background subagent's row with no turn in progress: at the prompt (#533).
+		{"busy", claudeScreen{found: true, agents: true}, PaneState{Idle: true}},
+		{"busy", claudeScreen{found: true, agents: true, turn: true}, PaneState{Seen: "status_busy"}},
+		{"busy", claudeScreen{found: true, agents: true, input: "draft"}, PaneState{Seen: "input_not_empty"}},
+		{"waiting", claudeScreen{found: true, agents: true}, PaneState{Seen: "status_waiting"}},
 		{"waiting", empty, PaneState{Seen: "status_waiting"}},
 		{"synthetic", empty, PaneState{Seen: "status_unknown"}},
 		{"shell", claudeScreen{}, PaneState{Seen: "input_line_not_found"}},
@@ -651,6 +667,64 @@ func TestClaudeInspectSubagentAfterReady(t *testing.T) {
 	}
 	if since, err := claudeSubagentsSince(filepath.Join(term.home, ".claude"), "*", ready.UnixMilli()); since || err != nil {
 		t.Fatal("a pattern session ID matched", err)
+	}
+}
+
+// A busy host at its prompt with a background subagent running is ready for the clear when
+// the subagent's records show it running, and for the pickup after the clear; a subagent that
+// still runs after the ready report gives its result to the new conversation, while one that
+// finished after it asks again (#533, #456).
+func TestClaudeInspectBackgroundSubagent(t *testing.T) {
+	ctx := context.Background()
+	term := newClaudeTerminal(t)
+	term.epoch = "316b9458-6b5a-47c3-b863-af1745fb54a4"
+	term.status = "busy"
+	term.footer = []string{"  ⏵⏵ auto mode on · ← 2 agents · ↓ to manage", "  ● main", "  ◯ general-purpose  Capturing timestamp 21 of 40"}
+	term.write()
+	tg := term.target(t)
+	ready := time.Now().Add(-time.Minute)
+	tg.ReadyAt = ready.UnixMilli()
+	dir := filepath.Join(term.home, ".claude", "projects", "-synthetic-repo", term.epoch, "subagents")
+	agent := func(name, meta string, at time.Time) {
+		t.Helper()
+		subagentTranscript(t, filepath.Join(term.home, ".claude"), term.epoch, name+".jsonl", at)
+		if err := os.WriteFile(filepath.Join(dir, name+".meta.json"), []byte(meta), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	// No subagent in the records: the row alone does not make a busy host idle.
+	if state, err := (claudeCycle{}).Inspect(ctx, tg, term.fence); err != nil || state.Seen != "status_busy" {
+		t.Fatalf("no running subagent: %+v %v", state, err)
+	}
+	agent("agent-running", `{"agentType":"general-purpose","requestShape":"background"}`, ready.Add(time.Second))
+	if state, err := (claudeCycle{}).Inspect(ctx, tg, term.fence); err != nil || !state.Idle {
+		t.Fatalf("running subagent after the report: %+v %v", state, err)
+	}
+	// After the clear: no ready report to compare with, and the subagent still runs.
+	tg.ReadyAt = 0
+	if state, err := (claudeCycle{}).Inspect(ctx, tg, term.fence); err != nil || !state.Idle {
+		t.Fatalf("after the clear: %+v %v", state, err)
+	}
+	tg.ReadyAt = ready.UnixMilli()
+	// A turn in progress stays busy.
+	term.footer[0] = "  ⏵⏵ auto mode on · esc to interrupt · ← 2 agents · ↓ to manage"
+	if state, err := (claudeCycle{}).Inspect(ctx, tg, term.fence); err != nil || state.Seen != "status_busy" {
+		t.Fatalf("turn in progress: %+v %v", state, err)
+	}
+	term.footer[0] = "  ⏵⏵ auto mode on · ← 2 agents · ↓ to manage"
+	// A subagent that finished after the report gave its result to this conversation.
+	agent("agent-finished", `{"agentType":"general-purpose","finished":true}`, ready.Add(2*time.Second))
+	if state, err := (claudeCycle{}).Inspect(ctx, tg, term.fence); err != nil || state.Seen != subagentAfterReady {
+		t.Fatalf("finished after the report: %+v %v", state, err)
+	}
+	os.Remove(filepath.Join(dir, "agent-finished.meta.json"))
+	os.Remove(filepath.Join(dir, "agent-finished.jsonl"))
+	// An unreadable meta file proves nothing.
+	if err := os.WriteFile(filepath.Join(dir, "agent-running.meta.json"), []byte(`{"finished":`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if state, err := (claudeCycle{}).Inspect(ctx, tg, term.fence); err != nil || state.Seen != subagentsUnread {
+		t.Fatalf("unreadable meta: %+v %v", state, err)
 	}
 }
 

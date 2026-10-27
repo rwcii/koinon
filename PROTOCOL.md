@@ -496,7 +496,13 @@ The adapter is ready for input when the registry `status` is `idle` or `shell` a
 line (`❯` followed by a no-break space) is empty. `shell` is the prompt with a background shell
 task running, such as a monitor of the session's inbox; Claude Code 2.1.303 takes `/clear`
 there without a dialog, and the task, with its `shell` status, stays through the clear (#417).
-`busy` (a turn in progress) and `waiting` (a native wait) are not ready; text drawn dim there is a placeholder or a suggestion,
+`busy` is also the prompt while a background subagent runs after the turn ended: the panel
+below the input line then shows the subagent's row (`◯`) and no `esc to interrupt`, and the
+subagent's records show it running (its meta file has no `"finished": true`). That is ready
+too: Claude Code 2.1.311 takes `/clear` there at once, and the subagent runs on and gives its
+result to the new conversation as a message (#533). Before the clear, a subagent that finished
+after the ready report asks again (#456); one that still runs does not. Another `busy` (a turn
+in progress) and `waiting` (a native wait) are not ready; text drawn dim there is a placeholder or a suggestion,
 any other text a draft, and the cycle waits. A pane in copy mode is returned to its prompt
 first. The clear and the pickup type the command, read it back (for `/koinon-pickup`, the
 menu's first entry must have the skill's description, with or without a scope such as
