@@ -170,6 +170,19 @@ func (c *deepSeekClient) call(ctx context.Context, method string, request, value
 	return err
 }
 
+// deepSeekArgs are a method's arguments as its descriptor names them: the harness refuses a
+// missing or an unexpected field (gateway/arguments-invalid). session/list names its request
+// _request, and session/modelCatalog takes none (#514).
+func deepSeekArgs(method string, request any) map[string]any {
+	switch method {
+	case "session/list":
+		return map[string]any{"_request": request}
+	case "session/modelCatalog":
+		return map[string]any{}
+	}
+	return map[string]any{"request": request}
+}
+
 // read sends one request and decodes the value of its exact-200, ok result. found is false for
 // a null value, which only a verified successful response proves; any other failure is an
 // error (#514).
@@ -180,7 +193,7 @@ func (c *deepSeekClient) read(ctx context.Context, method string, request, value
 	if err != nil {
 		return false, errDeepSeekContext
 	}
-	body, _ := json.Marshal(map[string]any{"type": "client-request", "rpcId": rpcID, "method": method, "payload": map[string]any{"args": map[string]any{"request": request}}})
+	body, _ := json.Marshal(map[string]any{"type": "client-request", "rpcId": rpcID, "method": method, "payload": map[string]any{"args": deepSeekArgs(method, request)}})
 	r, err := http.NewRequestWithContext(ctx, http.MethodPost, c.destination+"/api/"+method, bytes.NewReader(body))
 	if err != nil {
 		return false, errDeepSeekContext

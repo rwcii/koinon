@@ -136,13 +136,23 @@ func (f *dshFake) serve(w http.ResponseWriter, r *http.Request) {
 	var document struct {
 		RPCID   string `json:"rpcId"`
 		Payload struct {
-			Args struct {
-				Request json.RawMessage `json:"request"`
-			} `json:"args"`
+			Args map[string]json.RawMessage `json:"args"`
 		} `json:"payload"`
 	}
 	if json.NewDecoder(r.Body).Decode(&document) != nil {
 		w.WriteHeader(http.StatusBadRequest)
+		return
+	}
+	// Each method's descriptor names its arguments; another field is refused (0.2.0-rc.2).
+	want := "request"
+	switch method {
+	case "session/list":
+		want = "_request"
+	case "session/modelCatalog":
+		want = ""
+	}
+	if _, found := document.Payload.Args[want]; want != "" && !found || len(document.Payload.Args) != map[bool]int{true: 0, false: 1}[want == ""] {
+		fmt.Fprintf(w, `{"type":"server-response","rpcId":%q,"result":{"ok":false,"error":{"code":"gateway/arguments-invalid"}}}`, document.RPCID)
 		return
 	}
 	if status := f.status[method]; status != 0 {
@@ -164,7 +174,7 @@ func (f *dshFake) serve(w http.ResponseWriter, r *http.Request) {
 		ThroughSeq *int `json:"throughSeq"`
 		BeforeSeq  *int `json:"beforeSeq"`
 	}
-	json.Unmarshal(document.Payload.Args.Request, &request)
+	json.Unmarshal(document.Payload.Args["request"], &request)
 	var value string
 	switch method {
 	case "session/list":
@@ -221,9 +231,14 @@ func (f *dshFake) serve(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		if !f.prompts[request.RequestID] {
+			// The admitted prompt is spliced from the inbox, then entered at its turn's start.
 			f.prompts[request.RequestID] = true
-			f.add(request.SessionID, fmt.Sprintf(`"type":"user/message","data":{"content":[{"type":"text","text":%q}],"source":{"kind":"user","rpcId":%q}}`,
-				request.Content[0].Text, request.RequestID))
+			message := fmt.Sprintf(`{"content":[{"type":"text","text":%q}],"source":{"kind":"user","rpcId":%q,"clientTimeZone":"UTC"},"role":"user"}`,
+				request.Content[0].Text, request.RequestID)
+			f.add(request.SessionID, `"type":"agent/inbox/spliced","data":{"target":"next-turn","inserted":[`+message+`]}`)
+			f.add(request.SessionID, `"type":"turn/start","data":{"turn":1}`)
+			f.add(request.SessionID, `"type":"user/message","data":`+message)
+			f.add(request.SessionID, `"type":"turn/end","data":{"turn":1,"reason":{"kind":"completed"}}`)
 		}
 		value = `{"accepted":true}`
 	default:
@@ -488,9 +503,19 @@ func TestDeepSeekCyclePickup(t *testing.T) {
 		t.Fatal("a lost response was accepted")
 	}
 	f.set(func(f *dshFake) { f.lose = map[string]bool{} })
-	if received, err := a.PickupReceipt(context.Background(), ct); err != nil || !received || len(f.sessions[ct.SuccessorEpoch].events) != 1 {
+	if received, err := a.PickupReceipt(context.Background(), ct); err != nil || !received || len(f.sessions[ct.SuccessorEpoch].events) != 4 {
 		t.Fatalf("lost response: %v %v", received, err)
 	}
+	// The spliced prompt is the receipt before its turn starts.
+	var events []string
+	f.set(func(f *dshFake) {
+		events = f.sessions[ct.SuccessorEpoch].events
+		f.sessions[ct.SuccessorEpoch].events = events[:1]
+	})
+	if received, err := a.PickupReceipt(context.Background(), ct); err != nil || !received {
+		t.Fatalf("spliced: %v %v", received, err)
+	}
+	f.set(func(f *dshFake) { f.sessions[ct.SuccessorEpoch].events = events })
 	// Another prompt in the session, or another request ID, is no receipt.
 	f.set(func(f *dshFake) {
 		f.add(ct.SuccessorEpoch, `"type":"user/message","data":{"content":[{"type":"text","text":"SENTINEL"}],"source":{"kind":"user","rpcId":"other"}}`)
@@ -499,7 +524,7 @@ func TestDeepSeekCyclePickup(t *testing.T) {
 		t.Fatalf("other prompt: %v %v", received, err)
 	}
 	ct.pickupAt++
-	f.set(func(f *dshFake) { f.sessions[ct.SuccessorEpoch].events = f.sessions[ct.SuccessorEpoch].events[:1] })
+	f.set(func(f *dshFake) { f.sessions[ct.SuccessorEpoch].events = f.sessions[ct.SuccessorEpoch].events[:4] })
 	if received, err := a.PickupReceipt(context.Background(), ct); err != nil || received {
 		t.Fatalf("other request ID: %v %v", received, err)
 	}

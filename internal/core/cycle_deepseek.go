@@ -604,11 +604,22 @@ func (deepSeekCycle) receipt(ctx context.Context, c *deepSeekClient, t CycleTarg
 	for _, m := range append(view.Values.Inbox.NextTurn, view.Values.Inbox.NextStep...) {
 		count(m)
 	}
+	// An admitted prompt leaves the inbox in agent/inbox/spliced, before its turn's user/message.
 	_, err = deepSeekHistory(ctx, c, t.SuccessorEpoch, view.AsOfSeq.value, false, func(e deepSeekCycleEvent) bool {
-		if e.Type == "user/message" {
+		switch e.Type {
+		case "user/message":
 			var m deepSeekUserMessage
 			if json.Unmarshal(e.Data, &m) == nil {
 				count(m)
+			}
+		case "agent/inbox/spliced":
+			var spliced struct {
+				Inserted []deepSeekUserMessage `json:"inserted"`
+			}
+			if json.Unmarshal(e.Data, &spliced) == nil {
+				for _, m := range spliced.Inserted {
+					count(m)
+				}
 			}
 		}
 		return true
