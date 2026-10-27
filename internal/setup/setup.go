@@ -46,7 +46,8 @@ func agySettingsFile(o Options) string {
 		return o.AgySettings
 	}
 	if o.AgyRoot != "" {
-		return filepath.Join(filepath.Dir(o.AgyRoot), "antigravity-cli", "settings.json")
+		// Clean first: Dir of "config/" or "config/." is config itself.
+		return filepath.Join(filepath.Dir(filepath.Clean(o.AgyRoot)), "antigravity-cli", "settings.json")
 	}
 	home, _ := os.UserHomeDir()
 	return filepath.Join(home, ".gemini", "antigravity-cli", "settings.json")

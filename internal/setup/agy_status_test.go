@@ -201,3 +201,37 @@ func TestAgyStatusLineWrapsTheUserEntry(t *testing.T) {
 		t.Fatalf("missing: %+v %v", report.StatusLine, err)
 	}
 }
+
+// The settings file is beside the agy root also when the root ends in a slash or a dot, for
+// setup and for the permission rules; AgySettings comes first.
+func TestAgySettingsFileBesideTheRoot(t *testing.T) {
+	dir := t.TempDir()
+	root := filepath.Join(dir, "gemini", "config")
+	settings := filepath.Join(dir, "gemini", "antigravity-cli", "settings.json")
+	for _, d := range []string{root, filepath.Dir(settings)} {
+		if err := os.MkdirAll(d, 0700); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := os.WriteFile(settings, []byte(`{"permissions":{"allow":["mcp(koinon/*)"]}}`), 0600); err != nil {
+		t.Fatal(err)
+	}
+	cli, _, _ := syntheticCLI(t, "agy")
+	for i, spelling := range []string{root, root + "/", root + "/.", root + "//"} {
+		o := Options{Family: "agy", AgyRoot: spelling}
+		if got := agySettingsFile(o); got != settings {
+			t.Fatalf("%q: %s", spelling, got)
+		}
+		if result, err := Permissions(o, false); err != nil || result.SettingsFile != settings {
+			t.Fatalf("permissions %q: %+v %v", spelling, result, err)
+		}
+		o.CLI, o.Binary, o.StateDir = cli, "/opt/koinon", filepath.Join(dir, "state")
+		want := map[bool]string{true: "set_up", false: "unchanged"}[i == 0]
+		if report, err := Run(context.Background(), o); err != nil || report.StatusLine.Outcome != want || report.StatusLine.SettingsFile != settings {
+			t.Fatalf("setup %q: %+v %v", spelling, report.StatusLine, err)
+		}
+	}
+	if got := agySettingsFile(Options{AgyRoot: root + "/", AgySettings: "/elsewhere/settings.json"}); got != "/elsewhere/settings.json" {
+		t.Fatalf("AgySettings precedence: %s", got)
+	}
+}
