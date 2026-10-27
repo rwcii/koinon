@@ -322,7 +322,9 @@ at once in the background-agent wait, the subagent finishes after it and its res
 the new conversation) and recommended: the clear when the pane shows only that wait, the input
 line is empty and the subagent records show running subagents; a new request only for a
 subagent that finished after the ready report (#456); and request and guide text that says not
-to stop or wait for the subagents and to list each running one in the handoff.
+to stop or wait for the subagents and to list each running one in the handoff. The other option
+on the card: "If you decline: the session must stop its subagents or wait for them before the
+clear, as today."
 
 Handoff directory and refusal detail: found on 2026-10-23, when a session's three ready replies
 were refused while its handoff was in a directory named after its participant address; the

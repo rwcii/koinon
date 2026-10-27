@@ -3,7 +3,7 @@ wdr: "005"
 title: "Private Handoffs and Continuity"
 status: draft
 created: "2026-10-12"
-updated: "2026-10-25"
+updated: "2026-10-27"
 authors:
   - "Robert Capps"
 reviewers: []
@@ -31,11 +31,12 @@ tags:
 Agents that develop Koinon end sessions, reset context and resume later. The `handoff` skill
 writes a snapshot of one agent's work, and the `pickup` skill resumes from it. This record
 describes where handoffs live, why they stay out of Git, whose handoff a pickup reads, and the
-short progress note that each agent keeps beside its snapshots.
+short progress note that each agent keeps beside its snapshots, and the subagents that a handoff
+lists.
 
 The location decision quotes the maintainer. Pickup's default of the caller's own handoff
 shipped without recorded maintainer words, so the record is a draft. The progress note was
-requested by the maintainer.
+requested by the maintainer, and the maintainer stated the subagent rule.
 
 ---
 
@@ -45,8 +46,9 @@ requested by the maintainer.
 2. Decision 1: Handoffs live in the main checkout's ignored `_handoff/`
 3. Decision 2: Pickup reads the caller's own handoff
 4. Decision 3: A progress note beside the snapshots
-5. Conclusion
-6. Document History
+5. Decision 4: A handoff lists the subagents that still run
+6. Conclusion
+7. Document History
 
 ---
 
@@ -207,6 +209,34 @@ not an approval of its details.
 
 ---
 
+## 5. Decision 4: A handoff lists the subagents that still run
+
+### Decision
+
+A handoff lists each subagent or background job of the session that still runs when it is
+written: its task, its ID, its state and where its result goes. A context clear does not stop
+a Claude Code background subagent; its result arrives in the new conversation as a message, and
+the new session knows the task only from the handoff (PDR 006, Decision 3). `pickup` reports
+each listed subagent with its result, or says that the result has not arrived.
+
+**Provenance:** Maintainer, 2026-10-27, session transcript, while the #533 fix was in review:
+"the sub agents continue on clear, but an agent handoff should capture the state of the
+subagents." The intent: the subagents run on, and the handoff carries their state so that the
+next session can use their results.
+
+### Alternatives Considered
+
+| Alternative | Description | Why Rejected |
+| ----------- | ----------- | ------------ |
+| Stop subagents before the handoff | The earlier managed-cycle request text | The maintainer: "context handover won't interrupt the review agents" (#533) |
+| No mention in the handoff | The new session sees results arrive without their task | The maintainer's statement above |
+
+### Rationale
+
+1. Finished subagent work is kept, and the new session can tell which task each result answers.
+
+---
+
 ## Conclusion
 
 Koinon's development agents currently keep handoffs in the main checkout's Git-ignored
@@ -215,6 +245,7 @@ maintainer asked on 2026-09-24. Pickup reads the caller's own handoff, or anothe
 maintainer names; that default shipped with the first shared skills and has no recorded
 maintainer decision.
 Each agent also keeps a short progress note beside its snapshots, which pickup reads first.
+A handoff lists the subagents that still run, as the maintainer stated on 2026-10-27.
 
 ---
 
@@ -225,3 +256,4 @@ Each agent also keeps a short progress note beside its snapshots, which pickup r
 | 2026-10-12 | Initial creation |
 | 2026-10-25 | Decision 3: a progress note beside the snapshots (#478) |
 | 2026-10-25 | #487: Decision 2 drops the fallback ban; Decision 3 states the unusable-note fallback as the `pickup` skill does |
+| 2026-10-27 | Decision 4: a handoff lists the subagents that still run (#533) |

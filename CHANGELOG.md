@@ -13,7 +13,9 @@ into a dated release section when promoted to `main`.
   running. Claude Code 2.1.311 takes `/clear` there at once; the subagent runs on and gives its
   result to the new conversation. A subagent that finished after the ready report still makes
   the cycle ask again (#456); one that still runs does not. The request asks a Claude session
-  not to stop or wait for its subagents, and to list the running ones in its handoff.
+  not to stop or wait for its subagents, and to list the running ones in its handoff. The
+  `handoff` skill now lists each subagent that still runs, with its task, ID, state and where
+  its result goes, and the `pickup` skill reports each one's result.
 - Grok sessions now report their model and context use (#515, part A). `peer_status` and the
   dashboard showed no context for Grok (`no_source`). `koinon setup grok` now makes `koinon hook
   grok-status` the command of the `[ui.status_line]` table in `~/.grok/config.toml`: it changes

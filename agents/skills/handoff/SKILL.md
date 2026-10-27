@@ -119,6 +119,7 @@ state, pull request and issue states, CI state. Write:
 - Next action: <the single first step>
 - Blockers and open decisions: <with the context to act>
 - Anything mid-operation: <uncommitted edits, running jobs>
+- Running subagents: <each one's task, ID, state and where its result goes>
 
 ## Bridge identity
 - Agent family, peer name, participant address, role and holder flag, and the installed guide command
@@ -151,6 +152,10 @@ Record the native session ID from the family's trusted environment or the MCP ca
 when available: CODEX_THREAD_ID, CLAUDE_CODE_SESSION_ID, DSH_SESSION_ID, or the native
 Antigravity/OpenCode identity. Record TMUX and TMUX_PANE when present. These private values go
 in the ignored file.
+
+List each subagent or background job that still runs: a context clear does not stop a Claude
+Code background subagent, and its result arrives in the next conversation, which knows its task
+only from this list (WDR 005, Decision 4).
 
 Use commit hashes, branch names, issue and pull request numbers, and repository-relative
 paths. Leave out a section that has no content. The file stays on this machine: name a key or
