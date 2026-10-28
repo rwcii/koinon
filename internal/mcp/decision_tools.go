@@ -26,7 +26,7 @@ var decisionFieldSchema = map[string]any{
 
 var decisionTools = []map[string]any{
 	{"name": "decision_create", "description": "Create a decision item on the maintainer's decision board: reference, title, kind (decision or fyi) and the other fields. Write card prose in ASD-STE100 Simplified Technical English. Text in a known key format is refused. key and deadline make a retry return the first result. The maintainer gives the verdict, in the dashboard or a maintainer client.",
-		"inputSchema": decisionSchema(map[string]any{"reference": decisionReferenceSchema, "key": text, "deadline": number}, "reference", "title", "kind", "key", "deadline")},
+		"inputSchema": decisionSchema(map[string]any{"reference": decisionReferenceSchema, "key": text, "deadline": retryDeadline}, "reference", "title", "kind", "key", "deadline")},
 	{"name": "decision_edit", "description": "Change fields of a decision item at the revision you read (if_revision). A changed item is stale_revision; read it again. A list field replaces the stored list.",
 		"inputSchema": decisionSchema(map[string]any{"reference": decisionReferenceSchema, "if_revision": integer}, "reference", "if_revision")},
 	{"name": "decision_list", "description": "List decision items in bounded pages of summaries (reference, title, kind, state, revision, order), in item ID order: waiting (active decision items), active, in_progress, archived, or mine (items that name this session or the participant it holds). Page with next_after. Reading moves no inbox or memory cursor.",
@@ -42,10 +42,10 @@ var decisionTools = []map[string]any{
 	{"name": "decision_ack", "description": "Acknowledge handled verdicts by verdict ID (at most 32). A repeated or late acknowledgement changes nothing.",
 		"inputSchema": object(map[string]any{"verdict_ids": map[string]any{"type": "array", "minItems": 1, "maxItems": 32, "items": integer}}, "verdict_ids")},
 	{"name": "decision_close", "description": "Close an approved decision item in progress when its work is done, at the revision you read, with an optional Markdown outcome note (at most 4 KiB). The item moves to the archive. key and deadline make a retry return the first result.",
-		"inputSchema": object(map[string]any{"reference": decisionReferenceSchema, "if_revision": integer, "note": text, "key": text, "deadline": number},
+		"inputSchema": object(map[string]any{"reference": decisionReferenceSchema, "if_revision": integer, "note": text, "key": text, "deadline": retryDeadline},
 			"reference", "if_revision", "key", "deadline")},
 	{"name": "decision_withdraw", "description": "Withdraw a waiting decision item or an open fyi item that no longer needs the maintainer: the work is done, a newer item supersedes it (name its reference), it was answered in chat, or it is no longer valid. Give the revision you read and a one-line reason (at most 512 bytes). The author, a session of the author's participant or a named recipient can withdraw it. The item moves to the archive with your name and the reason; it gets no verdict. decision_restore with if_revision reopens it. key and deadline make a retry return the first result.",
-		"inputSchema": object(map[string]any{"reference": decisionReferenceSchema, "if_revision": integer, "reason": text, "key": text, "deadline": number},
+		"inputSchema": object(map[string]any{"reference": decisionReferenceSchema, "if_revision": integer, "reason": text, "key": text, "deadline": retryDeadline},
 			"reference", "if_revision", "reason", "key", "deadline")},
 	{"name": "decision_restore", "description": "Bring a deep-archived decision item back from the log file into the archive by reference. For an item that an agent withdrew, give if_revision: the item is active again at the next revision, and its history keeps the withdrawal.",
 		"inputSchema": object(map[string]any{"reference": decisionReferenceSchema, "if_revision": integer}, "reference")},

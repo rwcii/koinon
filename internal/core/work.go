@@ -1085,7 +1085,7 @@ func (s *Store) replay(ctx context.Context, m MemoryCaller, r *workRequest, now 
 		return "", nil, workError("retry_deadline_expired", "the retry deadline has passed; query the item to reconcile")
 	}
 	if deadline > now+l.idemTTL {
-		return "", nil, invalid(fmt.Sprintf("the retry deadline is beyond the %.0f s horizon", l.idemTTL))
+		return "", nil, invalid(fmt.Sprintf("the retry deadline must be a Unix time in seconds at most %.0f s ahead", l.idemTTL))
 	}
 	print := r.fingerprint(m.Consumer)
 	store, err := storeOf(ctx, tx, m.Repository)

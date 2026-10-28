@@ -68,7 +68,7 @@ var toolList = []map[string]any{
 	{"name": "room_members", "description": "Read the current roster of a room by room_id: participant addresses and peer names, family and state (active, inactive, unheld or conflicting). Only a current member can read it. Page with next_after.",
 		"inputSchema": object(map[string]any{"room_id": text, "after": integer, "limit": map[string]any{"type": "integer", "minimum": 0, "maximum": 100}}, "room_id")},
 	{"name": "room_post", "description": "Post a message to a room in which this session, or the participant it holds, is a current member. It reaches the room's other active members. key and deadline make a retry safe.",
-		"inputSchema": object(map[string]any{"room_id": text, "body": text, "key": text, "deadline": map[string]any{"type": "number"}}, "room_id", "body", "key", "deadline")},
+		"inputSchema": object(map[string]any{"room_id": text, "body": text, "key": text, "deadline": retryDeadline}, "room_id", "body", "key", "deadline")},
 	{"name": "room_read", "description": "Read a room's retained posts after your membership start, in order, with sender, typed origin (maintainer or member) and time. Page with next_after; gaps name sequences that retention no longer holds, and floor is the highest sequence below the oldest retained post. Reading moves no inbox marker.",
 		"inputSchema": object(map[string]any{"room_id": text, "after": integer, "limit": map[string]any{"type": "integer", "minimum": 0, "maximum": 100}}, "room_id")},
 	{"name": "memory_status", "description": "Report this repository's shared memory store: head, floor, usage, limits and consumers.",
@@ -79,15 +79,18 @@ var toolList = []map[string]any{
 		"inputSchema": object(map[string]any{"snapshot_id": text, "through": integer, "consumer": consumerField})},
 	{"name": "memory_record", "description": "Record an entry in this repository's shared memory: type decision, finding, gotcha, handoff, status or directive. Use supersedes or revokes to replace an entry, and key with deadline to make a retry safe.",
 		"inputSchema": object(map[string]any{"type": text, "body": text, "scope": text, "scope_target": text, "path": text,
-			"author": text, "supersedes": integer, "revokes": integer, "expires": number, "key": text, "deadline": number,
+			"author": text, "supersedes": integer, "revokes": integer, "expires": number, "key": text, "deadline": retryDeadline,
 			"consumer": consumerField}, "type", "body")},
 	{"name": "memory_recall", "description": "Find live entries in this repository's shared memory whose body contains the query, newest first.",
 		"inputSchema": object(map[string]any{"query": text, "before": integer}, "query")},
 }
 
 var (
-	text          = map[string]any{"type": "string"}
-	number        = map[string]any{"type": "number"}
+	text   = map[string]any{"type": "string"}
+	number = map[string]any{"type": "number"}
+	// retryDeadline is the deadline that goes with key: fixed before the first call and sent
+	// again unchanged on each retry (#534).
+	retryDeadline = map[string]any{"type": "number", "description": "Unix time in seconds, not milliseconds: set it once before the first call, at most 86400 s (the daemon's idempotency horizon) ahead, and send it unchanged on each retry."}
 	consumerField = map[string]any{"type": "string", "description": "A stable cursor name that outlives this session; defaults to participant:<address> for its current holder, otherwise its peer name. Participant keys require the current holder."}
 )
 

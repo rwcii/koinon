@@ -365,8 +365,9 @@ An identical retry of an accepted report returns the current cycle without a wri
 retry while the reported file is unchanged, a pickup retry with the same successor, epoch,
 file, outcome and report. A stale or conflicting one is refused with `cycle_changed` (HTTP 409) and the current cycle in
 `details`. Another session's call is `cycle_not_found`, an epoch that does not fit
-`cycle_epoch_unverified`, a file that fails a check `cycle_artifact_invalid`, whose `error`
-names the check that failed and, for the directory, the directory it expects, with each path
+`cycle_epoch_unverified`, a file or file name that fails a check `cycle_artifact_invalid`, in
+the ready and the pickup report alike, whose `error` names the check that failed, for a name the
+form `YYYY-MM-DD-HHMMSS[-LABEL].md` (#535), and, for the directory, the directory it expects, with each path
 cut to 240 bytes so the text stays within the 1024 bytes a client passes on (#468). The
 request message names the session's directory and its ready deadline as a UTC time, the stage
 deadline: 15 minutes after the request, or the end of the cycle's lifetime when that comes first
@@ -2068,7 +2069,9 @@ error is a result with `isError` and a JSON text `{"ok": false, "code": ...}`: t
 `details` of a work refusal. When the daemon or the MCP server states the rule that refused the
 call, such as `renew_for is 60 to 3600 seconds` or `missing argument work_id`, the result also
 carries it as `error` (at most 1 KiB). The tool schemas state the lease bounds (60 to 3,600
-seconds), work/message list limits (1 to 100) and catalog list limit (maximum 32). Every
+seconds), work/message list limits (1 to 100), catalog list limit (maximum 32) and, for each
+`deadline` that goes with a `key`, its form: a Unix time in seconds, at most the 86,400 s
+idempotency horizon ahead, sent unchanged on each retry (#534). Every
 initialize response offers the catalog and its query paths; this informational offer
 performs no query, inspection, registration or adoption. The server
 writes only protocol messages to stdout and never logs a secret, session ID or message body.

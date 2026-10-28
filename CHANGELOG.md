@@ -20,6 +20,16 @@ into a dated release section when promoted to `main`.
   Koinon's records cited are in `DECISIONS.md` as public rewrites of their cards, and the
   citations point there.
 
+- A managed cycle's ready or pickup report with a handoff file name that is not of the form
+  `YYYY-MM-DD-HHMMSS[-LABEL].md` is now refused with `cycle_artifact_invalid` and that form
+  (#535). Before, it got a bare `invalid_request`, and a Claude session whose file was
+  `2026-10-27T211500Z-handoff.md` retried until its ready deadline came near.
+- The MCP tools that take `key` and `deadline` now say what `deadline` is (#534): a Unix time
+  in seconds, at most 86400 s ahead, sent unchanged on each retry. Before, the schemas gave
+  only `number`, and a value in milliseconds was refused with "must be within 86400 s", which
+  named no unit. The refusals of `decision_create`, `decision_close`, `decision_withdraw`,
+  `room_post`, `memory_record` and the work tools now say "a Unix time in seconds at most
+  86400 s ahead".
 - A managed cycle now clears a Claude session whose background subagents still run (#533).
   Claude Code keeps its registry status `busy` while a background subagent runs after the turn
   ended, so the cycle saw no idle prompt and asked for the handoff again: one cycle asked six
