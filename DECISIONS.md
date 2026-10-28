@@ -376,3 +376,38 @@ Recommendation:
 > Order: build it after #536.
 >
 > If you decline: say what to change.
+
+<a id="cli-rules-550"></a>
+
+## CLI-RULES-550
+
+<!-- koinon-decision CLI-RULES-550 revision 2 approved 1793208842866 -->
+
+**Approved**, revision 2, 2026-10-28 17:34:02 UTC.
+
+- Title: Recommended Claude permission rules cover the agent-facing Koinon CLI
+- Where: rwcii/koinon #550: internal/setup/permissions.go (ClaudePermissions), docs/PERMISSIONS.md, guide
+
+Context:
+
+> Issue #550 (filed from the Mac install): each `koinon` CLI call by a Claude agent needs a manual permission prompt. You had to tell the agent to add rules by hand.
+>
+> Now `koinon install` and `koinon setup claude` on a terminal offer only four rules: `mcp__koinon__*`, `Bash(koinon guide --agent claude)`, `Bash(koinon context show)`, `Bash(koinon status)`. The person answers yes or no; without a terminal nothing changes. The rules use only the PATH name `koinon`, but the installed Claude config calls the absolute binary path, so agents also use that path.
+>
+> Agents run the CLI when the MCP tools do not work (as in #549) and when a skill says so (for example `koinon decision record`).
+
+Recommendation:
+
+> Approve. The offered rules become, for the PATH name `koinon` and for the installed binary's absolute path:
+>
+> - `mcp__koinon__*`
+> - `koinon guide`, `status`, `context show`, `peers`, `peer-status`, `inbox`, `ack`, `send`, `cycle-status`, `cycle-ready`, `cycle-pickup`
+> - `koinon decision` (create, edit, list, get, history, pending, ack, close, withdraw, restore, record)
+> - `koinon work` and `koinon claim renew`
+> - `koinon memory`
+> - `koinon room` (list, members, post, read)
+> - `koinon library`
+>
+> Each with and without its arguments. Left out: `install`, `uninstall`, `upgrade`, `serve`, `setup`, `maintainer`, `dashboard` (it gives a login), `context set/enable/disable/threshold`, `sessions` and `participant holder`.
+>
+> The offer stays the same: a yes on the terminal adds them; nothing is added without it. `koinon uninstall` leaves rules in place, as now.

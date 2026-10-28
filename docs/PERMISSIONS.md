@@ -107,24 +107,71 @@ In `~/.claude/settings.json` (`$CLAUDE_CONFIG_DIR/settings.json` when overridden
   "permissions": {
     "allow": [
       "mcp__koinon__*",
-      "Bash(koinon guide --agent claude)",
+      "Bash(koinon guide)",
+      "Bash(koinon guide *)",
+      "Bash(koinon status)",
+      "Bash(koinon status *)",
       "Bash(koinon context show)",
-      "Bash(koinon status)"
+      "Bash(koinon context show *)",
+      "Bash(koinon peers)",
+      "Bash(koinon peers *)",
+      "Bash(koinon peer-status)",
+      "Bash(koinon peer-status *)",
+      "Bash(koinon inbox)",
+      "Bash(koinon inbox *)",
+      "Bash(koinon ack)",
+      "Bash(koinon ack *)",
+      "Bash(koinon send)",
+      "Bash(koinon send *)",
+      "Bash(koinon cycle-status)",
+      "Bash(koinon cycle-status *)",
+      "Bash(koinon cycle-ready)",
+      "Bash(koinon cycle-ready *)",
+      "Bash(koinon cycle-pickup)",
+      "Bash(koinon cycle-pickup *)",
+      "Bash(koinon decision)",
+      "Bash(koinon decision *)",
+      "Bash(koinon work)",
+      "Bash(koinon work *)",
+      "Bash(koinon claim renew)",
+      "Bash(koinon claim renew *)",
+      "Bash(koinon memory)",
+      "Bash(koinon memory *)",
+      "Bash(koinon room list)",
+      "Bash(koinon room list *)",
+      "Bash(koinon room members)",
+      "Bash(koinon room members *)",
+      "Bash(koinon room post)",
+      "Bash(koinon room post *)",
+      "Bash(koinon room read)",
+      "Bash(koinon room read *)",
+      "Bash(koinon library)",
+      "Bash(koinon library *)"
     ]
   }
 }
 ```
 
 The first rule covers the configured `koinon` server; an individual rule is, for example,
-`mcp__koinon__inbox`. The Bash entries permit the exact startup guidance command and the two
-read-only commands that agents run: `koinon context show` and `koinon status`. Inspect the
-effective rules in `/permissions`. Repository-local permissions can instead live in
-`.claude/settings.local.json`.
+`mcp__koinon__inbox`. The Bash entries permit, with and without their arguments, the commands
+that agents run ([DECISIONS.md#CLI-RULES-550](../DECISIONS.md#cli-rules-550)): `guide`,
+`status`, `context show`, `peers`, `peer-status`, `inbox`, `ack`, `send`, `cycle-status`,
+`cycle-ready`, `cycle-pickup`, `decision`, `work`, `claim renew`, `memory`, `room list`,
+`room members`, `room post`, `room read` and `library`. They leave out `install`, `uninstall`,
+`upgrade`, `serve`, `setup`, `maintainer`, `dashboard` (it gives a login), `context set`,
+`enable`, `disable` and `threshold`, `sessions` and `participant holder`. Install and setup also
+offer each Bash rule for the absolute path of the installed binary, which the Claude
+configuration runs and agents also call, for example `Bash(/home/me/.local/share/koinon/go/bin/koinon status *)`;
+a path that the shell must quote is quoted, as in `Bash('/Users/Me Two/bin/koinon' status *)`.
+Claude Code 2.1.312 accepted these rules in `claude doctor`. Inspect the effective rules in
+`/permissions`. Repository-local permissions can instead live in `.claude/settings.local.json`.
 
 Install and setup check the user settings file. A rule counts as present when
-`permissions.allow` holds it, `mcp__koinon` for the server rule, or `Bash(koinon *)` for a Bash
-rule; other rules that cover it, and rules in project settings files, are not read. A yes
-appends the missing rules to `permissions.allow`.
+`permissions.allow` holds it, `mcp__koinon` for the server rule, or, for a Bash rule,
+`Bash(PROGRAM *)` or `Bash(PROGRAM:*)` of its own program: `koinon` covers the PATH-name rules
+and the absolute path covers its own rules, never the other's. Other rules that cover it, and
+rules in project settings files, are not read. A yes appends the missing rules to
+`permissions.allow`.
 
 Without these rules, each Koinon call in auto mode goes to Claude Code's auto-mode classifier,
 which judges it against the whole session. After an unrelated refusal in the same session,
