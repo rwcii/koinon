@@ -460,9 +460,10 @@ it is; `koinon install` keeps the one Koinon skill per family that the cycle nee
 A family's cycle adapter is available on a platform once its native checks pass there. The
 checks record the CLI version they ran with; the adapter runs with any version of that CLI,
 and a newer version is not refused. This holds for the Claude Code, the Codex, the agy, the
-OpenCode and the DeepSeek adapters; the agy checks ran with Antigravity CLI 1.4.7 on Linux (#512),
-the OpenCode checks with opencode 1.18.35 on Linux (#513), the DeepSeek checks with DeepSeek
-Harness 0.2.0-rc.2 on Linux (#514).
+OpenCode, the DeepSeek and the Grok adapters; the agy checks ran with Antigravity CLI 1.4.7 on
+Linux (#512), the OpenCode checks with opencode 1.18.35 on Linux (#513), the DeepSeek checks with
+DeepSeek Harness 0.2.0-rc.2 on Linux (#514), the Grok checks with Grok Build 1.0.50 on Linux
+(#515).
 Koinon shows no certified or not-certified status for a session's version; the release notes
 and the native evidence record name the versions that the checks ran with. The adapter's
 per-step proofs (pane, fence, read-back) still stop a cycle whose screen does not match.
@@ -540,3 +541,4 @@ and terminal commands have the maintainer's words; the rest is requested or prop
 | 2026-10-27 | Decision 3: five minutes for the pickup report, approved on the decision board (PICKUP-WAIT-525) |
 | 2026-10-27 | Executive summary: Grok context is read from its status line (#515) |
 | 2026-10-27 | Decision 3: a Claude session's running background subagents do not hold the cycle back, and the request asks to list them in the handoff (#533), approved on the decision board (SUBAGENT-CLEAR-533) |
+| 2026-10-27 | Decision 5: the Grok adapter is listed, from its Linux checks with Grok Build 1.0.50 (#515) |

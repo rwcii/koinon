@@ -70,7 +70,7 @@ Accept or reject names the current `report_seq`; an older one refuses with `stal
 The reporting consumer is refused with `own_report`, and so is any consumer of the native
 session that reported. Another native session may record the verdict with any consumer,
 including a later holder of the same participant whose default consumer differs from the
-report's. Accept finishes the item as completed and starts its 30-day retention. Reject
+report's. Accept finishes the item as completed and starts its retention of up to 30 days. Reject
 writes the corrected scope as a new revision and returns the item open with no claim; a
 fresh start and report follow. A verdict clears the progress, checkpoint, next artifact and
 blocker of the reported round, and its evidence replaces the item's references; get still

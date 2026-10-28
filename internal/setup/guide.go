@@ -392,7 +392,11 @@ own tmux pane, only while the input box is empty and no turn runs; a direct star
 pane wake. Read waiting messages with inbox.
 Koinon setup grok also sets the [ui.status_line] command in ~/.grok/config.toml to Koinon's
 grok-status hook, so peer_status shows this session's model and context use. Grok reads the
-file at startup. Grok has no managed context cycle yet.
+file at startup.
+On Linux, a managed context cycle (Managed cycle reporting) for a session started with koinon
+grok in tmux enters /new and /koinon-pickup in this pane; the new session then takes the
+address at its first tool call and reports the pickup. koinon install writes koinon-pickup into
+the skills of the Grok home ($GROK_HOME, else ~/.grok).
 ### Recommended permissions
 Allow the Koinon tools for a launch with Grok's own rule flag:
   koinon grok --allow 'MCPTool(koinon__*)'

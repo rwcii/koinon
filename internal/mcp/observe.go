@@ -542,10 +542,11 @@ func (r *rollout) event(line []byte) {
 // process names, with the host pinned at initialization; for Codex, the call's own
 // thread; for agy, the call's own conversation, which /clear replaces (#512); for OpenCode,
 // the call's own session, which the identity plugin names and the cycle replaces with a new
-// one (#513). Other families have none, and their calls are refused.
+// one (#513); for Grok, the call's own session, which /new replaces (#515). Other families have
+// none, and their calls are refused.
 func (s *server) cycleEpoch(caller core.Key) string {
 	switch caller.Family {
-	case "codex", "agy", "opencode":
+	case "codex", "agy", "opencode", "grok":
 		return caller.ID
 	case "claude":
 		return s.claudeTranscript()
