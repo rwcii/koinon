@@ -99,7 +99,8 @@ func TestInstallPlanCommand(t *testing.T) {
 		t.Fatal(err)
 	}
 	exe, _ := os.Executable()
-	if want := setup.ShellWord(exe) + " install\n"; out.String() != want {
+	// The given --prefix and --state-dir are repeated, so the step acts on that installation.
+	if want := setup.ShellWord(exe) + " install --prefix " + filepath.Join(dir, "prefix") + " --state-dir " + state + "\n"; out.String() != want {
 		t.Fatalf("plan %q, want %q", out.String(), want)
 	}
 	if _, err := os.Stat(state); !errors.Is(err, fs.ErrNotExist) {

@@ -77,6 +77,9 @@ type Options struct {
 	// for the daemon's answer, zero is 20 seconds (#551).
 	PlanWait   time.Duration
 	StatusWait time.Duration
+	// PlanPrefix and PlanState are set when --prefix or --state-dir was given to the plan,
+	// which then repeats it in each command.
+	PlanPrefix, PlanState bool
 }
 
 // Report is the JSON result of an install or an uninstall.

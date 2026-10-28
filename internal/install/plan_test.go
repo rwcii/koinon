@@ -24,7 +24,7 @@ func planEnv(t *testing.T, backend string) *env {
 		return json.RawMessage(`{"ok":true,"maintainer_secret_set":true}`), nil
 	}
 	e.o.Inspect = func(_ context.Context, o setup.Options) setup.Inspection { return setup.Inspection{Family: o.Family} }
-	e.o.StatusWait = 300 * time.Millisecond
+	e.o.StatusWait = time.Second
 	if _, err := place(e.o.Source, Binary(e.o.Prefix)); err != nil {
 		t.Fatal(err)
 	}
@@ -68,7 +68,9 @@ func TestPlanSteps(t *testing.T) {
 			}
 			return in
 		}
-		if steps, want := plan(t, e), []string{b + " maintainer secret set", b + " setup codex"}; !reflect.DeepEqual(steps, want) {
+		// Setup names the installed binary, which the plan checks; without --binary it would
+		// configure the running one.
+		if steps, want := plan(t, e), []string{b + " maintainer secret set", b + " setup codex --binary " + Binary(e.o.Prefix)}; !reflect.DeepEqual(steps, want) {
 			t.Fatalf("%s: plan %q, want %q", backend, steps, want)
 		}
 		// An installed binary that differs from this one: the install comes alone.
@@ -223,5 +225,67 @@ func TestPlanChangesNothing(t *testing.T) {
 	}
 	if after := snapshot(root); !reflect.DeepEqual(before, after) {
 		t.Fatalf("the plan changed files:\nbefore %v\nafter  %v", before, after)
+	}
+}
+
+// A plan for a given --prefix or --state-dir repeats them, so each command acts on the
+// installation that the plan read.
+func TestPlanScope(t *testing.T) {
+	e := planEnv(t, "systemd")
+	e.o.Prefix = filepath.Join(filepath.Dir(e.o.Prefix), "my prefix")
+	e.o.PlanPrefix, e.o.PlanState = true, true
+	b, p, s := e.o.Source, "'"+e.o.Prefix+"'", e.o.StateDir
+	if steps, want := plan(t, e), []string{b + " install --prefix " + p + " --state-dir " + s}; !reflect.DeepEqual(steps, want) {
+		t.Fatalf("install: %q, want %q", steps, want)
+	}
+	place(e.o.Source, Binary(e.o.Prefix))
+	e.o.Status = func(context.Context, string, string) (json.RawMessage, error) {
+		return json.RawMessage(`{"maintainer_secret_set":false}`), nil
+	}
+	e.o.Inspect = func(_ context.Context, o setup.Options) setup.Inspection {
+		return setup.Inspection{Family: o.Family, CLI: "/usr/bin/" + o.Family, Configured: o.Family != "grok"}
+	}
+	want := []string{b + " maintainer secret set --state-dir " + s, b + " setup grok --binary '" + Binary(e.o.Prefix) + "' --state-dir " + s}
+	if steps := plan(t, e); !reflect.DeepEqual(steps, want) {
+		t.Fatalf("steps: %q, want %q", steps, want)
+	}
+}
+
+// A binary that cannot be read is an error; only a missing binary or other content is the
+// install step.
+func TestPlanUnreadableBinary(t *testing.T) {
+	if os.Geteuid() == 0 {
+		t.Skip("root reads a mode 000 file")
+	}
+	e := planEnv(t, "systemd")
+	os.Chmod(Binary(e.o.Prefix), 0)
+	defer os.Chmod(Binary(e.o.Prefix), 0755)
+	if steps, err := Plan(context.Background(), e.o); err == nil || !strings.HasPrefix(err.Error(), "binary_unreadable:") || steps != nil {
+		t.Fatalf("unreadable installed binary: %q %v", steps, err)
+	}
+	os.Chmod(Binary(e.o.Prefix), 0755)
+	os.Chmod(e.o.Source, 0)
+	defer os.Chmod(e.o.Source, 0700)
+	if steps, err := Plan(context.Background(), e.o); err == nil || !strings.HasPrefix(err.Error(), "binary_unreadable:") || steps != nil {
+		t.Fatalf("unreadable source: %q %v", steps, err)
+	}
+	os.Chmod(e.o.Source, 0700)
+	os.Remove(Binary(e.o.Prefix))
+	if steps := plan(t, e); !reflect.DeepEqual(steps, []string{e.o.Source + " install"}) {
+		t.Fatalf("missing binary: %q", steps)
+	}
+}
+
+// An answer that comes after the status wait does not count.
+func TestPlanLateStatus(t *testing.T) {
+	e := planEnv(t, "systemd")
+	e.o.StatusWait = 50 * time.Millisecond
+	e.o.Status = func(ctx context.Context, _, _ string) (json.RawMessage, error) {
+		time.Sleep(150 * time.Millisecond)
+		return json.RawMessage(`{"maintainer_secret_set":true}`), nil
+	}
+	start := time.Now()
+	if steps, err := Plan(context.Background(), e.o); err == nil || !strings.HasPrefix(err.Error(), "daemon_unavailable:") || steps != nil {
+		t.Fatalf("late answer: %q %v after %s", steps, err, time.Since(start))
 	}
 }

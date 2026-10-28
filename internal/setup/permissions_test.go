@@ -11,6 +11,7 @@ import (
 	"slices"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/BurntSushi/toml"
 )
@@ -489,5 +490,32 @@ func TestInspectReadsOnly(t *testing.T) {
 	t.Setenv("PATH", dir)
 	if in := Inspect(context.Background(), Options{Family: "codex", Binary: o.Binary}); in.CLI != "" || in.Permissions != nil {
 		t.Fatalf("no CLI on PATH: %+v", in)
+	}
+}
+
+// A CLI child that holds the output open does not hold an inspection past its context. Output
+// that has not ended after a clean exit, where a child may still write the entry, is an error
+// too, not an answer (#551).
+func TestInspectBoundsAHeldPipe(t *testing.T) {
+	dir := t.TempDir()
+	cli := filepath.Join(dir, "codex")
+	inspect := func(ctx context.Context) (Inspection, time.Duration) {
+		start := time.Now()
+		in := Inspect(ctx, Options{Family: "codex", CLI: cli, Binary: "/opt/koinon/bin/koinon", StateDir: filepath.Join(dir, "state")})
+		return in, time.Since(start)
+	}
+	os.WriteFile(cli, []byte("#!/bin/sh\nsleep 3 &\nwait\n"), 0700)
+	ctx, cancel := context.WithTimeout(context.Background(), 100*time.Millisecond)
+	defer cancel()
+	if in, elapsed := inspect(ctx); elapsed > time.Second || in.Error == "" || in.Configured {
+		t.Fatalf("stopped CLI: %+v after %s", in, elapsed)
+	}
+	os.WriteFile(cli, []byte("#!/bin/sh\n(sleep 1; echo '{\"name\":\"koinon\"}') &\necho starting\n"), 0700)
+	if in, elapsed := inspect(context.Background()); elapsed > 900*time.Millisecond || in.Error == "" || in.Configured {
+		t.Fatalf("clean exit with a writing child: %+v after %s", in, elapsed)
+	}
+	// Setup's own runs keep waiting for the whole output.
+	if out, err := runCLI(context.Background(), cli); err != nil || !strings.Contains(out, "koinon") {
+		t.Fatalf("setup run: %q %v", out, err)
 	}
 }

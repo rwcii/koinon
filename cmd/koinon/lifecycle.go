@@ -147,7 +147,12 @@ func lifecycleCommand(ctx context.Context, args []string, in io.Reader, out io.W
 			if other {
 				return usageError{"invalid_request", "--plan takes only --prefix and --state-dir"}
 			}
-			return planCommand(ctx, install.Options{Prefix: *prefix, StateDir: *state}, out)
+			o := install.Options{Prefix: *prefix, StateDir: *state}
+			flags.Visit(func(f *flag.Flag) {
+				o.PlanPrefix = o.PlanPrefix || f.Name == "prefix"
+				o.PlanState = o.PlanState || f.Name == "state-dir"
+			})
+			return planCommand(ctx, o, out)
 		}
 		if given && !core.ValidPort(*port) {
 			return usageError{"invalid_request", "--port takes a port from 1 to 65535"}

@@ -13,6 +13,7 @@ import (
 	"reflect"
 	"slices"
 	"strings"
+	"time"
 
 	"github.com/BurntSushi/toml"
 )
@@ -411,7 +412,7 @@ func Inspect(ctx context.Context, o Options) Inspection {
 		return in
 	}
 	in.CLI = cli
-	switch out, err := runCLI(ctx, cli, getCommand(o.Family)...); {
+	switch out, err := runCLIWait(ctx, 250*time.Millisecond, cli, getCommand(o.Family)...); {
 	case err == nil:
 		in.Configured = configured(o.Family, out, o.Binary)
 	case !absent(o.Family, out):

@@ -101,10 +101,7 @@ ${bottle}  on_macos do
       nil
     end
     text = if plan
-      "The steps that this installation needs:\n#{plan.lines.map { |line| "  #{line}" }.join}" + <<~EOS
-        Check again after these steps:
-          #{opt_bin}/koinon install --plan
-      EOS
+      "The steps that this installation needs:\n#{plan.lines.map { |line| "  #{line}" }.join}"
     else
       fixed = <<~EOS
         Install the daemon; at a terminal it offers to set up each agent it finds:
@@ -112,11 +109,11 @@ ${bottle}  on_macos do
         Set the maintainer secret for the dashboard login:
           #{opt_bin}/koinon maintainer secret set
         Set up an agent family later with its command:
-          #{opt_bin}/koinon setup claude
-          #{opt_bin}/koinon setup codex
-          #{opt_bin}/koinon setup agy
-          #{opt_bin}/koinon setup opencode
-          #{opt_bin}/koinon setup grok
+          #{opt_bin}/koinon install --agent claude
+          #{opt_bin}/koinon install --agent codex
+          #{opt_bin}/koinon install --agent agy
+          #{opt_bin}/koinon install --agent opencode
+          #{opt_bin}/koinon install --agent grok
       EOS
       if OS.mac?
         fixed += <<~EOS
@@ -127,6 +124,8 @@ ${bottle}  on_macos do
       fixed
     end
     text + <<~EOS
+      Check again after these steps:
+        #{opt_bin}/koinon install --plan
 
       To upgrade:
         brew update

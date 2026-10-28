@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io/fs"
 	"os"
 	"strings"
 	"time"
@@ -33,15 +34,23 @@ func Plan(ctx context.Context, o Options) ([]string, error) {
 	ctx, cancel := context.WithTimeout(ctx, o.PlanWait)
 	defer cancel()
 	b := planBinary(o.Source)
+	binary := Binary(o.Prefix)
+	// Each command acts on the installation that the plan read.
+	var prefix, state string
+	if o.PlanPrefix {
+		prefix = " --prefix " + setup.ShellWord(o.Prefix)
+	}
+	if o.PlanState {
+		state = " --state-dir " + setup.ShellWord(o.StateDir)
+	}
 	// An installation step comes alone: the install offers each agent family at a terminal,
 	// and a daemon that is not current cannot answer for the secret. The recheck after it
 	// finds the rest.
 	if i, err := legacy.ReadInstall(o.PythonPrefix); err != nil {
 		return nil, err
 	} else if i != nil {
-		return []string{b + " upgrade --from-python"}, nil
+		return []string{b + " upgrade --from-python" + prefix + state}, nil
 	}
-	binary := Binary(o.Prefix)
 	var system platform.SystemPlist
 	if o.Services.Backend == "launchd" {
 		var err error
@@ -53,19 +62,28 @@ func Plan(ctx context.Context, o Options) ([]string, error) {
 	if err != nil {
 		return nil, err
 	}
+	install := b + " install" + prefix + state
 	switch {
 	case !agent && !system.Present:
-		return []string{b + " install"}, nil
+		return []string{install}, nil
 	case system.Present:
-		if !sameContent(o.Source, binary) {
-			return []string{b + " install --system"}, nil
+		if differ, err := differs(o.Source, binary); err != nil {
+			return nil, err
+		} else if differ {
+			return []string{b + " install --system" + prefix + state}, nil
 		}
 	case homebrewOpt(o.Source) != "":
-		if target, err := os.Readlink(binary); err != nil || target != homebrewOpt(o.Source) {
-			return []string{b + " install"}, nil
+		if differ, err := notLinked(binary, homebrewOpt(o.Source)); err != nil {
+			return nil, err
+		} else if differ {
+			return []string{install}, nil
 		}
-	case !sameContent(o.Source, binary):
-		return []string{b + " install"}, nil
+	default:
+		if differ, err := differs(o.Source, binary); err != nil {
+			return nil, err
+		} else if differ {
+			return []string{install}, nil
+		}
 	}
 	var steps []string
 	set, err := secretSet(ctx, o)
@@ -73,7 +91,7 @@ func Plan(ctx context.Context, o Options) ([]string, error) {
 		return nil, err
 	}
 	if !set {
-		steps = append(steps, b+" maintainer secret set")
+		steps = append(steps, b+" maintainer secret set"+state)
 	}
 	for _, family := range setupFamilies {
 		in := o.Inspect(ctx, setup.Options{Family: family, Binary: binary, StateDir: o.StateDir, ClaudeConfig: o.ClaudeConfig})
@@ -84,7 +102,8 @@ func Plan(ctx context.Context, o Options) ([]string, error) {
 		case in.Error != "":
 			return nil, fmt.Errorf("agent_unreadable: %s", in.Error)
 		case in.CLI != "" && !in.Configured:
-			steps = append(steps, b+" setup "+family)
+			// Setup configures the running binary unless --binary names the installed one.
+			steps = append(steps, b+" setup "+family+" --binary "+setup.ShellWord(binary)+state)
 		}
 	}
 	return steps, nil
@@ -99,18 +118,45 @@ func planBinary(source string) string {
 	return setup.ShellWord(source)
 }
 
-func sameContent(a, b string) bool {
-	x, err := digest(a)
+// differs reports whether binary is missing or has other content than source. A file that
+// cannot be read is an error, not a difference.
+func differs(source, binary string) (bool, error) {
+	want, err := digest(source)
 	if err != nil {
-		return false
+		return false, fmt.Errorf("binary_unreadable: %v", err)
 	}
-	y, err := digest(b)
-	return err == nil && bytes.Equal(x, y)
+	have, err := digest(binary)
+	if errors.Is(err, fs.ErrNotExist) {
+		return true, nil
+	}
+	if err != nil {
+		return false, fmt.Errorf("binary_unreadable: %v", err)
+	}
+	return !bytes.Equal(want, have), nil
+}
+
+// notLinked reports whether binary is missing or is not the link to opt.
+func notLinked(binary, opt string) (bool, error) {
+	info, err := os.Lstat(binary)
+	switch {
+	case errors.Is(err, fs.ErrNotExist):
+		return true, nil
+	case err != nil:
+		return false, fmt.Errorf("binary_unreadable: %v", err)
+	case info.Mode()&fs.ModeSymlink == 0:
+		return true, nil
+	}
+	target, err := os.Readlink(binary)
+	if err != nil {
+		return false, fmt.Errorf("binary_unreadable: %v", err)
+	}
+	return target != opt, nil
 }
 
 // secretSet asks the daemon whether a maintainer secret is set. The daemon holds its store
 // alone, so the plan does not read it. After brew upgrade the daemon exits and its manager
-// starts the new binary, so the plan asks again until the wait ends.
+// starts the new binary, so the plan asks again until the wait ends; an answer after the
+// wait does not count.
 func secretSet(ctx context.Context, o Options) (bool, error) {
 	port, err := core.RecordedPort(o.StateDir)
 	if err != nil {
@@ -120,13 +166,14 @@ func secretSet(ctx context.Context, o Options) (bool, error) {
 	if address == "" {
 		address = core.Listeners(port)[0]
 	}
-	deadline := time.Now().Add(o.StatusWait)
+	ctx, cancel := context.WithTimeout(ctx, o.StatusWait)
+	defer cancel()
 	last := errors.New("no answer")
 	for {
 		secret, err := core.ReadSecret(o.StateDir)
 		if err == nil {
 			var data json.RawMessage
-			if data, err = o.Status(ctx, address, secret); err == nil {
+			if data, err = o.Status(ctx, address, secret); err == nil && ctx.Err() == nil {
 				var status struct {
 					Set *bool `json:"maintainer_secret_set"`
 				}
@@ -136,19 +183,18 @@ func secretSet(ctx context.Context, o Options) (bool, error) {
 					}
 					err = errors.New("daemon_outdated: the daemon does not report maintainer_secret_set")
 				}
+			} else if err == nil {
+				err = ctx.Err()
 			}
 		}
 		last = err
-		if !time.Now().Before(deadline) || ctx.Err() != nil {
-			break
-		}
 		select {
 		case <-ctx.Done():
+			if strings.HasPrefix(last.Error(), "daemon_outdated:") {
+				return false, fmt.Errorf("%v at %s", last, address)
+			}
+			return false, fmt.Errorf("daemon_unavailable: the daemon did not answer at %s: %v", address, last)
 		case <-time.After(200 * time.Millisecond):
 		}
 	}
-	if strings.HasPrefix(last.Error(), "daemon_outdated:") {
-		return false, fmt.Errorf("%v at %s", last, address)
-	}
-	return false, fmt.Errorf("daemon_unavailable: the daemon did not answer at %s: %v", address, last)
 }

@@ -437,15 +437,17 @@ func TestHomebrewFormula(t *testing.T) {
 	general, mac, _ := strings.Cut(caveats, "      if OS.mac?\n")
 	for _, want := range []string{`ENV.fetch("HOMEBREW_PATH", ENV.fetch("PATH", ""))`, `"#{opt_bin}/koinon", "install", "--plan")`,
 		"out if status.success? && !out.strip.empty?", "rescue StandardError",
-		"\n        Check again after these steps:\n          #{opt_bin}/koinon install --plan\n",
 		"\n          #{opt_bin}/koinon install\n", "\n          #{opt_bin}/koinon maintainer secret set\n",
-		"\n          #{opt_bin}/koinon setup claude\n          #{opt_bin}/koinon setup codex\n          #{opt_bin}/koinon setup agy\n" +
-			"          #{opt_bin}/koinon setup opencode\n          #{opt_bin}/koinon setup grok\n"} {
+		"\n          #{opt_bin}/koinon install --agent claude\n          #{opt_bin}/koinon install --agent codex\n" +
+			"          #{opt_bin}/koinon install --agent agy\n          #{opt_bin}/koinon install --agent opencode\n" +
+			"          #{opt_bin}/koinon install --agent grok\n"} {
 		if !strings.Contains(general, want) {
 			t.Errorf("caveats lack %q", want)
 		}
 	}
-	for _, want := range []string{"\n        brew update\n        brew upgrade koinon\n        koinon version\n",
+	// The recheck follows the plan and the fixed steps alike.
+	for _, want := range []string{"\n    text + <<~EOS\n      Check again after these steps:\n        #{opt_bin}/koinon install --plan\n",
+		"\n        brew update\n        brew upgrade koinon\n        koinon version\n",
 		"restarts\n      on the newly linked binary", "ends the dashboard login", "\n        koinon dashboard\n"} {
 		if !strings.Contains(mac, want) {
 			t.Errorf("caveats lack %q after the fixed steps", want)

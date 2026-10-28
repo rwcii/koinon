@@ -172,7 +172,8 @@ refused with `python_install_present`. Use the upgrade instead.
 `koinon install --plan [--prefix DIR] [--state-dir DIR]` reads this machine's installation and
 prints, one per line, only the commands that it still needs, or `The Koinon installation is
 current.` It changes nothing: it writes no file and no service, and asks nothing. Each command
-names the running binary, or the formula's opt path for a Homebrew binary. In order:
+names the running binary, or the formula's opt path for a Homebrew binary, and repeats a given
+`--prefix` and `--state-dir`. In order:
 
 1. A Python-era installation: `koinon upgrade --from-python`, and nothing more.
 2. No daemon installed: `koinon install`, and nothing more; the install offers to set up each
@@ -185,11 +186,13 @@ names the running binary, or the formula's opt path for a Homebrew binary. In or
    `GET /v1/status`; the plan waits up to 20 seconds for it, since the daemon restarts after
    `brew upgrade`.
 6. Each agent family whose CLI is on `PATH` without the koinon server for the installed binary:
-   `koinon setup FAMILY`.
+   `koinon setup FAMILY --binary <prefix>/bin/koinon`, which configures the installed binary as
+   the install does.
 
 The port is not in the plan; a change is optional (Port, below). When a check cannot finish,
 for example when the daemon does not answer, a daemon of an earlier release does not report the
-secret, an agent's CLI fails, or 30 seconds pass, the plan prints no step, exits with 1 and
+secret, a binary cannot be read, an agent's CLI fails or its output does not end, or 30 seconds
+pass, the plan prints no step, exits with 1 and
 writes the error's code to standard error.
 
 ### Port

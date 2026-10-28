@@ -274,12 +274,20 @@ func grokNote(ctx context.Context, cli string) string {
 
 // runCLI runs the agent CLI without input and returns its combined output.
 func runCLI(ctx context.Context, cli string, args ...string) (string, error) {
+	return runCLIWait(ctx, 0, cli, args...)
+}
+
+// runCLIWait is runCLI that waits at most wait for the output after the CLI exits or is
+// stopped, when wait is not zero. A child of the CLI can hold the output open; output that
+// did not end is an error (#551).
+func runCLIWait(ctx context.Context, wait time.Duration, cli string, args ...string) (string, error) {
 	ctx, cancel := context.WithTimeout(ctx, 60*time.Second)
 	defer cancel()
 	var out bytes.Buffer
 	cmd := exec.CommandContext(ctx, cli, args...)
 	cmd.Stdout, cmd.Stderr = &out, &out
 	cmd.Stdin = nil
+	cmd.WaitDelay = wait
 	err := cmd.Run()
 	return out.String(), err
 }
