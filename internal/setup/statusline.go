@@ -249,10 +249,12 @@ func splitWords(s string) ([]string, error) {
 	return words, nil
 }
 
-// isWrapper reports whether an entry runs this binary's status-line hook.
+// isWrapper reports whether an entry runs a Koinon status-line hook, of this binary or of an
+// earlier one: after an upgrade that moves the binary, an edited wrapper is still Koinon's and
+// is left alone, never wrapped again (#530).
 func (l statusLine) isWrapper(entry json.RawMessage) bool {
 	words, err := splitWords(entryCommand(entry))
-	return err == nil && len(words) >= 3 && words[0] == l.binary && words[1] == "hook" && words[2] == l.hookName()
+	return err == nil && len(words) >= 3 && words[1] == "hook" && words[2] == l.hookName()
 }
 
 // wrapperEntry is the entry that runs the hook around the original command, keeping the
