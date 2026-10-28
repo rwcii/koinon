@@ -5,6 +5,8 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"os"
+	"os/exec"
 	"path/filepath"
 	"strconv"
 	"strings"
@@ -27,7 +29,17 @@ func TestDecisionCommandsOfTheDeepSeekGuide(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := core.Call(context.Background(), d.Addresses()[0], secret, "/v1/sessions/register", core.Registration{Family: "deepseek", ID: "synthetic-guide", Directory: t.TempDir()}); err != nil {
+	// The session works in a checkout, so its items record there (#536).
+	checkout := t.TempDir()
+	if out, err := exec.Command("git", "init", "-q", checkout).CombinedOutput(); err != nil {
+		t.Fatalf("git init: %v %s", err, out)
+	}
+	resource, err := core.CheckoutResource(context.Background(), checkout)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := core.Call(context.Background(), d.Addresses()[0], secret, "/v1/sessions/register", core.Registration{Family: "deepseek", ID: "synthetic-guide",
+		Repository: resource.Repository, Directory: resource.Directory}); err != nil {
 		t.Fatal(err)
 	}
 	var guide bytes.Buffer
@@ -51,19 +63,24 @@ func TestDecisionCommandsOfTheDeepSeekGuide(t *testing.T) {
 			lines[strings.Fields(line)[2]] = line
 		}
 	}
-	if len(lines) != 10 {
+	if len(lines) != 11 {
 		t.Fatalf("guide decision commands: %v", lines)
 	}
 	// The item is active, so close and restore reach the daemon and are refused there; the
 	// author then withdraws it (#504).
 	refused := map[string]string{"close": "not_in_progress", "restore": "not_found"}
-	for _, op := range []string{"create", "edit", "get", "list", "history", "pending", "ack", "close", "restore", "withdraw"} {
+	for _, op := range []string{"create", "edit", "get", "list", "history", "pending", "ack", "close", "restore", "record", "withdraw"} {
 		line := strings.NewReplacer("$DSH_SESSION_ID", "synthetic-guide", "REF", "G-1", "KEY", "synthetic-key",
 			"UNIX_SECONDS", deadline, "REVISION", "2", "'title'", "Synthetic", "'reason'", "done", "VERDICT_ID", "1").Replace(lines[op])
 		if op == "edit" {
 			line = strings.Replace(line, "--if-revision 2", "--if-revision 1", 1)
 		}
-		reply, err := run(strings.Fields(line)[2:])
+		args := strings.Fields(line)[2:]
+		if op == "record" {
+			// The item has no verdict yet: the record appends nothing and creates no file.
+			args = append(args, "--directory", checkout)
+		}
+		reply, err := run(args)
 		var refusal core.RefusedError
 		if want := refused[op]; want != "" {
 			if !errors.As(err, &refusal) || refusal.Code != want {
@@ -74,6 +91,9 @@ func TestDecisionCommandsOfTheDeepSeekGuide(t *testing.T) {
 		if err != nil || reply["ok"] != true {
 			t.Fatalf("%s: %v %v", line, reply, err)
 		}
+	}
+	if _, err := os.Lstat(filepath.Join(checkout, core.DecisionRecordFile)); !os.IsNotExist(err) {
+		t.Fatalf("a record without a verdict created the file: %v", err)
 	}
 	// The withdrawn item reopens with restore at its revision.
 	reply, err := run([]string{"restore", "--as", "deepseek:synthetic-guide", "--reference", "G-1", "--if-revision", "2"})
@@ -117,5 +137,13 @@ func TestDecisionCommandsOfTheDeepSeekGuide(t *testing.T) {
 	}
 	if _, err := run([]string{"edit", "--as", "deepseek:synthetic-guide", "--reference", "G-2", "--title", "t"}); err == nil {
 		t.Fatal("edit without --if-revision")
+	}
+}
+
+// koinon decision record refuses a directory outside a Git checkout and needs --reference.
+func TestDecisionRecordCommandRefusals(t *testing.T) {
+	if err := decisionCommand(context.Background(), []string{"record", "--as", "deepseek:synthetic", "--reference", "R-1", "--directory", t.TempDir(),
+		"--state-dir", t.TempDir(), "--address", "127.0.0.1:1"}, &bytes.Buffer{}); err == nil {
+		t.Fatal("record outside a checkout or daemon succeeded")
 	}
 }

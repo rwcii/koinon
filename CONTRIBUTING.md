@@ -34,7 +34,9 @@ In short:
 - Merged working branches are deleted automatically; long-lived branches are protected.
 - Your clone prunes on fetch, so `git branch -r` reports the branches the remote still holds.
 
-Run `scripts/setup-repo.sh` to apply the local guard and GitHub settings. Server-side
+Run `scripts/setup-repo.sh` to apply the local guards and GitHub settings. The `commit-msg`
+hook refuses a commit message that cites a decision board verdict by its ID; cite
+`DECISIONS.md#REFERENCE` instead (WDR 001, Decision 7). Server-side
 rulesets depend on the account's support for private-repository protection; the script
 reports any unavailable enforcement explicitly. This follows the branch policy in
 [rwcii/engineering-standards](https://github.com/rwcii/engineering-standards) and the
@@ -78,8 +80,8 @@ Run `go vet ./...`, `gofmt -l .` (it must print nothing), `go test -race -timeou
 and `git diff --check`. Runtime and
 installation changes also need the four `CGO_ENABLED=0` builds for linux/amd64, linux/arm64, darwin/amd64
 and darwin/arm64. Go tests live beside packages; operating-system differences belong in
-`internal/platform`. For changed shell tooling, run `bash -n scripts/setup-repo.sh` and
-`sh -n .githooks/pre-commit`.
+`internal/platform`. For changed shell tooling, run `bash -n scripts/setup-repo.sh`,
+`sh -n .githooks/pre-commit .githooks/commit-msg` and `sh -n scripts/decision-citations.sh`.
 
 Tests use synthetic peers and temporary state/configuration, ephemeral loopback ports and
 private tmux servers, so they do not reach the person's services, terminals or agent
@@ -129,7 +131,8 @@ agent-process prefixes other than the embedded `agents/skills/` source. `interna
 cases, and verifies those paths stay outside installation. All runtime and ordinary documentation changes run native CI.
 
 `scripts/setup-repo.sh` configures PR merge policy and required Go/native lifecycle checks
-through `gh`. It has no Python dependency. Changing the script does not update remote
+through `gh`, and on `develop` the `decision-citations` check of the pull request's title, body
+and commit messages. It has no Python dependency. Changing the script does not update remote
 rulesets; they change only when the script runs with the repository's admin rights. Existing
 rulesets requiring retired Python matrix names need that update before merge.
 

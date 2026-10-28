@@ -1930,6 +1930,33 @@ with `reference_in_use`.
   `invalid_request`, and a changed revision is `stale_revision`. Restore of any other item
   that is not deep-archived is `not_found`.
 
+**Repository record (#536).** A decided item read (`decision_get`, the lookup) with a current
+verdict that is not a dismissal carries `record`: `path` (`DECISIONS.md`), `instruction` and
+`entry`, the current verdict's entry as `decision_record` writes it. A pending page with a
+delivery that is not a dismissal carries `record` with `path` and `instruction`. The verdict
+notice reads "Decision REF has a verdict (ID). Read it with decision_get, record it with
+decision_record and commit DECISIONS.md with the work." An item read carries
+`author_repository`, the repository of the participant that the item stored for its author at
+create; a plain peer's item has none. A snapshot stores the item's `where` since #536; an
+older snapshot has none.
+
+`decision_record` (`reference`, optional `directory`) and `koinon decision record --reference
+REF [--directory DIR]` read the item and its history through these routes and append to
+`DECISIONS.md` at the root of the checkout of the MCP working directory or of `directory`,
+which must share its Git common directory (else `repo_unresolved`). The item's
+`author_repository` must be that Git common directory: another is
+`decision_other_repository`, none is `decision_repository_unknown`. The file starts with the
+Koinon header when it is created; a file that does not start with it is
+`decision_record_foreign`, and a symbolic link, a non-regular file or a file over 64 MiB is
+`decision_record_invalid`. Nothing is written on a refusal. Under an exclusive lock on the
+file, each verdict that is not a dismissal and whose marker line is absent is appended, in
+verdict order: the reference's anchor (`<a id="REF"></a>`) before its first entry, then a
+`## REF` heading, the marker `<!-- koinon-decision REF revision N VERDICT MS -->`, the verdict,
+revision and UTC time, the title and where, and the context, recommendation and note as block
+quotes, with the commands as an indented code block. The result gives `path`, `reference` and
+the verdict IDs `appended`, `present` and `skipped`, and an `instruction` when it appended. An
+item with no recordable verdict creates no file.
+
 ### MCP server
 
 `koinon mcp` is a stdio MCP server: newline-delimited JSON-RPC 2.0 with `initialize` (protocol
@@ -1953,7 +1980,8 @@ decisions and bounded reads in that same native client.
 room routes.
 `decision_create`, `decision_edit`, `decision_list`, `decision_get`, `decision_history`,
 `decision_pending`, `decision_ack`, `decision_close`, `decision_withdraw` and `decision_restore` take the fields of the
-decision routes, refuse any other argument by name and call those routes.
+decision routes, refuse any other argument by name and call those routes. `decision_record`
+writes the repository record as described above.
 They take no model-supplied consumer or caller identity. A tool
 error is a result with `isError` and a JSON text `{"ok": false, "code": ...}`: the daemon's code,
 `daemon_unavailable`, `identity_unavailable`, `grok_leader_mode`, `invalid_arguments` or `unknown_tool`, with the

@@ -58,7 +58,10 @@ const decisionVerdictTables = `
 
 // DecisionSnapshot is the text that the maintainer saw when giving a verdict.
 type DecisionSnapshot struct {
-	Title          string   `json:"title"`
+	Title string `json:"title"`
+	// Where is the item's where text, kept since #536 for the repository record; an older
+	// snapshot has none.
+	Where          string   `json:"where,omitempty"`
 	Context        string   `json:"context"`
 	Recommendation string   `json:"recommendation"`
 	Commands       []string `json:"commands"`
@@ -112,12 +115,14 @@ type DecisionPending struct {
 // DecisionPendingPage is one page of the caller's queued deliveries.
 type DecisionPendingPage struct {
 	Deliveries []DecisionPending `json:"deliveries"`
-	More       bool              `json:"more"`
-	NextAfter  *int64            `json:"next_after"`
+	// Record asks the reader to record each verdict in the repository (#536).
+	Record    *DecisionRecord `json:"record,omitempty"`
+	More      bool            `json:"more"`
+	NextAfter *int64          `json:"next_after"`
 }
 
 func verdictNoticeBody(reference string, id int64) string {
-	return fmt.Sprintf("Decision %s has a verdict (%d). Read it with decision_get.", reference, id)
+	return fmt.Sprintf("Decision %s has a verdict (%d). Read it with decision_get, record it with decision_record and commit DECISIONS.md with the work.", reference, id)
 }
 
 // currentVerdict is the item's current verdict, or nil. A reopen supersedes the current
@@ -208,7 +213,7 @@ func (s *Store) DecisionVerdict(ctx context.Context, reference string, revision 
 			return DecisionVerdict{}, workError("hidden_command", "a stored command is hidden; the item cannot be approved as displayed")
 		}
 	}
-	snapshot, _ := json.Marshal(DecisionSnapshot{Title: item.Title, Context: item.Context, Recommendation: item.Recommendation, Commands: item.Commands})
+	snapshot, _ := json.Marshal(DecisionSnapshot{Title: item.Title, Where: item.Where, Context: item.Context, Recommendation: item.Recommendation, Commands: item.Commands})
 	inserted, err := tx.ExecContext(ctx, `INSERT INTO decision_verdicts(item_id,revision,verdict,note,created_at,snapshot,via) VALUES (?,?,?,?,?,?,?)`,
 		id, revision, verdict, note, now, string(snapshot), originOf(ctx))
 	if err != nil {
@@ -231,7 +236,7 @@ func (s *Store) DecisionVerdict(ctx context.Context, reference string, revision 
 		return DecisionVerdict{}, tx.fail(err)
 	}
 	result := DecisionVerdict{ID: verdictID, Revision: revision, Verdict: verdict, Note: note, At: now,
-		Snapshot: DecisionSnapshot{Title: item.Title, Context: item.Context, Recommendation: item.Recommendation, Commands: item.Commands}}
+		Snapshot: DecisionSnapshot{Title: item.Title, Where: item.Where, Context: item.Context, Recommendation: item.Recommendation, Commands: item.Commands}}
 	if verdict != "dismissed" {
 		names, err := recipientNames(ctx, tx.Tx, id)
 		if err != nil {
@@ -388,7 +393,8 @@ func (s *Store) DecisionPending(ctx context.Context, caller Key, after int64, li
 	sort.Slice(ids, func(i, j int) bool { return ids[i] < ids[j] })
 	page := DecisionPendingPage{Deliveries: []DecisionPending{}}
 	largest := int64(math.MaxInt64)
-	envelope, _ := json.Marshal(map[string]any{"ok": true, "result": DecisionPendingPage{Deliveries: []DecisionPending{}, More: true, NextAfter: &largest}})
+	envelope, _ := json.Marshal(map[string]any{"ok": true, "result": DecisionPendingPage{Deliveries: []DecisionPending{}, More: true, NextAfter: &largest,
+		Record: &DecisionRecord{Path: DecisionRecordFile, Instruction: decisionRecordInstruction}}})
 	used := len(envelope) + 1
 	for i, id := range ids {
 		var p DecisionPending
@@ -405,6 +411,9 @@ func (s *Store) DecisionPending(ctx context.Context, caller Key, after int64, li
 		}
 		used += size
 		page.Deliveries = append(page.Deliveries, p)
+		if p.Verdict != "dismissed" {
+			page.Record = &DecisionRecord{Path: DecisionRecordFile, Instruction: decisionRecordInstruction}
+		}
 	}
 	return page, nil
 }

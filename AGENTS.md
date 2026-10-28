@@ -12,7 +12,9 @@ keep migration and storage provenance; they do not describe current commands.
 ## Decision records
 
 Each significant decision has one record with its source, scope and status. Other text cites
-the record, for example "see WDR 004" (WDR 001).
+the record, for example "see WDR 004" (WDR 001). A verdict on the decision board is recorded in
+`DECISIONS.md` and cited as `DECISIONS.md#REFERENCE`, never by its verdict ID (WDR 001,
+Decision 7).
 
 - [ADRs](docs/architecture/adr/README.md): how Koinon is built: native caller identity, the
   loopback daemon and its private store, content-free wakes, dashboard checks, the Python-era
@@ -42,6 +44,7 @@ go test -race -timeout 30m ./...
 git diff --check
 bash -n scripts/setup-repo.sh     # when shell files change
 sh -n .githooks/pre-commit        # when shell files change
+sh -n .githooks/commit-msg scripts/decision-citations.sh  # when shell files change
 ```
 
 Runtime and installation changes also need the four `CGO_ENABLED=0` builds: linux/amd64,

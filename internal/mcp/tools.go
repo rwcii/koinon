@@ -157,6 +157,9 @@ func (s *server) call(ctx context.Context, raw json.RawMessage) map[string]any {
 	if p.Name == "library_state" || p.Name == "library_decision" {
 		return s.libraryStateCall(ctx, caller, p.Name, p.Arguments, p.Meta)
 	}
+	if p.Name == "decision_record" {
+		return s.decisionRecordCall(ctx, caller, p.Arguments, p.Meta)
+	}
 	var path string
 	body := map[string]any{"caller": caller}
 	switch p.Name {

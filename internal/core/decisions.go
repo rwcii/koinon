@@ -12,6 +12,7 @@ import (
 	"regexp"
 	"sort"
 	"strconv"
+	"strings"
 	"unicode"
 	"unicode/utf8"
 )
@@ -118,9 +119,12 @@ type DecisionItem struct {
 	Recipients     []DecisionRecipient `json:"recipients"`
 	AuthorFamily   string              `json:"author_family"`
 	AuthorName     string              `json:"author_name"`
-	CreatedAt      int64               `json:"created_at"`
-	UpdatedAt      int64               `json:"updated_at"`
-	ArchivedAt     int64               `json:"archived_at,omitempty"`
+	// AuthorRepository is the repository of the author\'s participant, where the item is
+	// recorded (#536); a plain peer\'s item has none.
+	AuthorRepository string `json:"author_repository,omitempty"`
+	CreatedAt        int64  `json:"created_at"`
+	UpdatedAt        int64  `json:"updated_at"`
+	ArchivedAt       int64  `json:"archived_at,omitempty"`
 	// ClosedBy, ClosedAt and OutcomeNote record the last close of the work (chunk 02).
 	ClosedBy    string `json:"closed_by,omitempty"`
 	ClosedAt    int64  `json:"closed_at,omitempty"`
@@ -134,7 +138,9 @@ type DecisionItem struct {
 	// reopened.
 	Withdrawals     []DecisionWithdrawal `json:"withdrawals,omitempty"`
 	WithdrawalCount int64                `json:"withdrawal_count,omitempty"`
-	Withdrawn       bool                 `json:"withdrawn,omitempty"`
+	// Record asks the reader to record the item's verdicts in the repository (#536).
+	Record    *DecisionRecord `json:"record,omitempty"`
+	Withdrawn bool            `json:"withdrawn,omitempty"`
 }
 
 // DecisionWithdrawal is one agent withdrawal of an item: the revision it withdrew, the
@@ -681,6 +687,14 @@ func decisionItem(ctx context.Context, q querier, reference string) (DecisionIte
 		}
 	}
 	item.Commands = shown
+	// The author's participant holds the repository that the item was created in (#536).
+	var participant string
+	if err := q.QueryRowContext(ctx, `SELECT author_participant FROM decision_items WHERE id=?`, id).Scan(&participant); err != nil {
+		return item, err
+	}
+	if parts := strings.Split(participant, "\x1f"); len(parts) == 3 {
+		item.AuthorRepository = parts[1]
+	}
 	rows, err := q.QueryContext(ctx, `SELECT name FROM decision_recipients WHERE item_id=? ORDER BY ordinal`, id)
 	if err != nil {
 		return item, err
@@ -704,6 +718,10 @@ func decisionItem(ctx context.Context, q querier, reference string) (DecisionIte
 	// The verdict count is stored on the item, so a read does not count the history.
 	if item.Verdict, err = currentVerdict(ctx, q, id, true); err != nil {
 		return item, err
+	}
+	if item.Verdict != nil && item.Verdict.Verdict != "dismissed" {
+		item.Record = &DecisionRecord{Path: DecisionRecordFile, Instruction: decisionRecordInstruction,
+			Entry: DecisionRecordEntry(item.Reference, item.Where, *item.Verdict)}
 	}
 	item.Withdrawals, item.WithdrawalCount, err = decisionWithdrawals(ctx, q, id)
 	item.Withdrawn = item.State == "archived" && len(item.Withdrawals) > 0 && item.Withdrawals[0].ReopenedAt == 0
