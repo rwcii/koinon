@@ -315,7 +315,7 @@ after that cycle asked again six times while two subagents ran and the maintaine
 cycle by hand: "I consider that a failed handoff"
 ([#533](https://github.com/rwcii/koinon/issues/533)). The intent: a Claude session's running
 subagents are neither stopped nor waited for, and the cycle completes without the maintainer.
-Maintainer, 2026-10-27, decision board item SUBAGENT-CLEAR-533 (revision 1), verdict 74,
+Maintainer, 2026-10-27, decision board item SUBAGENT-CLEAR-533 (revision 1),
 "approved". The question: "Let the managed cycle clear a Claude session while its background
 subagents run? (#533)". The card gave the native check with Claude Code 2.1.311 (`/clear` runs
 at once in the background-agent wait, the subagent finishes after it and its result arrives in
