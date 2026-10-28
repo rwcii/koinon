@@ -5,6 +5,12 @@ into a dated release section when promoted to `main`.
 
 ## Unreleased
 
+- The MCP tools that take `key` and `deadline` now say what `deadline` is (#534): a Unix time
+  in seconds, at most 86400 s ahead, sent unchanged on each retry. Before, the schemas gave
+  only `number`, and a value in milliseconds was refused with "must be within 86400 s", which
+  named no unit. The refusals of `decision_create`, `decision_close`, `decision_withdraw`,
+  `room_post`, `memory_record` and the work tools now say "a Unix time in seconds at most
+  86400 s ahead".
 - A managed cycle now clears a Claude session whose background subagents still run (#533).
   Claude Code keeps its registry status `busy` while a background subagent runs after the turn
   ended, so the cycle saw no idle prompt and asked for the handoff again: one cycle asked six

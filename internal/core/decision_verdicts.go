@@ -472,7 +472,7 @@ func (s *Store) DecisionClose(ctx context.Context, caller Key, reference string,
 	}
 	clock := s.clock()
 	if math.IsNaN(deadline) || math.IsInf(deadline, 0) || deadline > clock+s.limits().idemTTL {
-		return DecisionItem{}, decisionInvalid("deadline", fmt.Sprintf("must be within %.0f s", s.limits().idemTTL))
+		return DecisionItem{}, decisionInvalid("deadline", fmt.Sprintf("must be a Unix time in seconds at most %.0f s ahead", s.limits().idemTTL))
 	}
 	if deadline <= clock {
 		return DecisionItem{}, workError("retry_deadline_expired", "the retry deadline has passed")
@@ -591,7 +591,7 @@ func (s *Store) DecisionWithdraw(ctx context.Context, caller Key, reference stri
 	}
 	clock := s.clock()
 	if math.IsNaN(deadline) || math.IsInf(deadline, 0) || deadline > clock+s.limits().idemTTL {
-		return DecisionItem{}, decisionInvalid("deadline", fmt.Sprintf("must be within %.0f s", s.limits().idemTTL))
+		return DecisionItem{}, decisionInvalid("deadline", fmt.Sprintf("must be a Unix time in seconds at most %.0f s ahead", s.limits().idemTTL))
 	}
 	if deadline <= clock {
 		return DecisionItem{}, workError("retry_deadline_expired", "the retry deadline has passed")
